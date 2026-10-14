@@ -100,6 +100,19 @@ class AdminAuthEndpointsTest extends TestCase
         $this->getJson('/api/v1/admin/me')->assertUnauthorized();
     }
 
+    public function test_logout_revokes_only_the_current_staff_token(): void
+    {
+        $staff = User::factory()->create();
+        $currentToken = $staff->createToken('current-device')->plainTextToken;
+        $otherToken = $staff->createToken('other-device')->plainTextToken;
+
+        Auth::forgetGuards();
+        $this->withToken($currentToken)->postJson('/api/v1/admin/auth/logout')->assertNoContent();
+
+        $this->getAsToken($currentToken, '/api/v1/admin/me')->assertUnauthorized();
+        $this->getAsToken($otherToken, '/api/v1/admin/me')->assertOk();
+    }
+
     private function getAsToken(string $token, string $uri): TestResponse
     {
         Auth::forgetGuards();

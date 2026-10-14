@@ -45,7 +45,7 @@ class RolePermissionEndpointsTest extends TestCase
     {
         Permission::create(['name' => 'users.view', 'guard_name' => 'staff']);
         Permission::create(['name' => 'users.create', 'guard_name' => 'staff']);
-        $admin = $this->staffWithPermission('roles.manage');
+        $admin = $this->staffWithPermissions(['roles.manage', 'users.view', 'users.create']);
         $token = $admin->createToken('test')->plainTextToken;
 
         $created = $this->requestWithToken($token, 'POST', '/api/v1/admin/roles', [
@@ -87,6 +87,30 @@ class RolePermissionEndpointsTest extends TestCase
             ->assertJsonValidationErrors(['permissions.0']);
     }
 
+    public function test_staff_cannot_grant_permissions_they_do_not_own_or_create_super_admin_roles(): void
+    {
+        Permission::findOrCreate('users.manage', 'staff');
+        $admin = $this->staffWithPermissions(['roles.create', 'roles.update']);
+        $token = $admin->createToken('test')->plainTextToken;
+
+        $this->requestWithToken($token, 'POST', '/api/v1/admin/roles', [
+            'name' => 'Overprivileged Role',
+            'permissions' => ['users.manage'],
+        ])->assertForbidden();
+
+        $role = Role::create(['name' => 'Restricted Role', 'guard_name' => 'staff']);
+        $this->requestWithToken($token, 'PATCH', "/api/v1/admin/roles/{$role->id}", [
+            'permissions' => ['users.manage'],
+        ])->assertForbidden();
+
+        $this->requestWithToken($token, 'POST', '/api/v1/admin/roles', [
+            'name' => StaffRole::SuperAdmin->value,
+        ])->assertForbidden();
+
+        $this->assertDatabaseMissing('roles', ['name' => 'Overprivileged Role', 'guard_name' => 'staff']);
+        $this->assertDatabaseMissing('roles', ['name' => StaffRole::SuperAdmin->value, 'guard_name' => 'staff']);
+    }
+
     public function test_super_admin_role_cannot_be_deleted(): void
     {
         $admin = $this->staffWithPermission('roles.manage');
@@ -120,15 +144,24 @@ class RolePermissionEndpointsTest extends TestCase
 
     private function staffWithPermission(string $permissionName): User
     {
-        $permission = Permission::findOrCreate($permissionName, 'staff');
+        return $this->staffWithPermissions([$permissionName]);
+    }
+
+    /**
+     * @param  list<string>  $permissionNames
+     */
+    private function staffWithPermissions(array $permissionNames): User
+    {
         $staff = User::factory()->create();
-        $staff->givePermissionTo($permission);
+        foreach ($permissionNames as $permissionName) {
+            $staff->givePermissionTo(Permission::findOrCreate($permissionName, 'staff'));
+        }
 
         return $staff;
     }
 
     /**
-     * @param array<string, mixed> $payload
+     * @param  array<string, mixed>  $payload
      */
     private function requestWithToken(string $token, string $method, string $uri, array $payload = []): TestResponse
     {

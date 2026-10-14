@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Database\Seeders;
 
 use App\Models\User;
@@ -20,11 +22,16 @@ class DatabaseSeeder extends Seeder
         $this->call(LocationSeeder::class);
         $this->call(RolePermissionSeeder::class);
 
-        // User::factory(10)->create();
+        if (app()->environment(['local', 'testing'])) {
+            $testUser = User::factory()->make([
+                'name' => 'Test User',
+                'email' => 'test@example.com',
+            ]);
 
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
-        ]);
+            User::query()->firstOrCreate(
+                ['email' => 'test@example.com'],
+                $testUser->getAttributes(),
+            );
+        }
     }
 }

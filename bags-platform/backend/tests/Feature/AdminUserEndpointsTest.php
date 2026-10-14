@@ -149,7 +149,87 @@ class AdminUserEndpointsTest extends TestCase
             'roles' => [],
         ])->assertForbidden();
 
+        $this->requestWithToken($adminToken, 'PATCH', "/api/v1/admin/users/{$superAdmin->id}", [
+            'email' => 'new-root@example.test',
+            'password' => 'replacement-password',
+        ])->assertForbidden();
+
+        $superAdminActor = User::factory()->create();
+        $superAdminActor->assignRole($superAdminRole);
+        $superAdminToken = $superAdminActor->createToken('super-admin')->plainTextToken;
+
+        $this->requestWithToken($superAdminToken, 'PATCH', "/api/v1/admin/users/{$superAdmin->id}", [
+            'is_active' => false,
+        ])->assertForbidden();
+        $this->requestWithToken($superAdminToken, 'PATCH', "/api/v1/admin/users/{$superAdmin->id}", [
+            'roles' => [],
+        ])->assertForbidden();
+
         $this->assertTrue($superAdmin->refresh()->is_active);
+        $this->assertNotSame('new-root@example.test', $superAdmin->email);
+        $this->assertTrue(Hash::check('password', $superAdmin->password));
+    }
+
+    public function test_only_super_admin_can_assign_super_admin_and_users_cannot_change_their_own_role_or_status(): void
+    {
+        Role::create(['name' => StaffRole::SuperAdmin->value, 'guard_name' => 'staff']);
+        $manager = $this->staffWithPermission('users.manage');
+        $managerToken = $manager->createToken('manager')->plainTextToken;
+        $target = User::factory()->create();
+
+        $this->requestWithToken($managerToken, 'POST', '/api/v1/admin/users', [
+            'name' => 'Unauthorized Root',
+            'email' => 'unauthorized-root@example.test',
+            'password' => 'long-password',
+            'roles' => [StaffRole::SuperAdmin->value],
+        ])->assertForbidden();
+
+        $this->requestWithToken($managerToken, 'PATCH', "/api/v1/admin/users/{$target->id}", [
+            'roles' => [StaffRole::SuperAdmin->value],
+        ])->assertForbidden();
+
+        $this->requestWithToken($managerToken, 'PATCH', "/api/v1/admin/users/{$manager->id}", [
+            'roles' => [],
+        ])->assertForbidden();
+
+        $this->requestWithToken($managerToken, 'PATCH', "/api/v1/admin/users/{$manager->id}", [
+            'is_active' => false,
+        ])->assertForbidden();
+
+        $this->assertDatabaseMissing('users', ['email' => 'unauthorized-root@example.test']);
+        $this->assertFalse($target->refresh()->hasRole(StaffRole::SuperAdmin->value, 'staff'));
+        $this->assertTrue($manager->refresh()->is_active);
+    }
+
+    public function test_password_change_and_deactivation_revoke_all_target_tokens(): void
+    {
+        $manager = $this->staffWithPermission('users.manage');
+        $managerToken = $manager->createToken('manager')->plainTextToken;
+
+        $passwordTarget = User::factory()->create();
+        $passwordToken = $passwordTarget->createToken('stolen-password-session')->plainTextToken;
+        $this->requestWithToken($managerToken, 'PATCH', "/api/v1/admin/users/{$passwordTarget->id}", [
+            'password' => 'new-password-for-user',
+        ])->assertOk();
+
+        $this->assertDatabaseMissing('personal_access_tokens', [
+            'tokenable_type' => User::class,
+            'tokenable_id' => $passwordTarget->id,
+        ]);
+        $this->requestWithToken($passwordToken, 'GET', '/api/v1/admin/me')->assertUnauthorized();
+
+        $inactiveTarget = User::factory()->create();
+        $inactiveToken = $inactiveTarget->createToken('stolen-inactive-session')->plainTextToken;
+        $this->requestWithToken($managerToken, 'PATCH', "/api/v1/admin/users/{$inactiveTarget->id}", [
+            'is_active' => false,
+        ])->assertOk();
+
+        $this->assertFalse($inactiveTarget->refresh()->is_active);
+        $this->assertDatabaseMissing('personal_access_tokens', [
+            'tokenable_type' => User::class,
+            'tokenable_id' => $inactiveTarget->id,
+        ]);
+        $this->requestWithToken($inactiveToken, 'GET', '/api/v1/admin/me')->assertUnauthorized();
     }
 
     private function staffWithPermission(string $permissionName): User

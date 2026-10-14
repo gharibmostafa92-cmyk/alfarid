@@ -9,10 +9,11 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Admin\StoreRoleRequest;
 use App\Http\Requests\Api\V1\Admin\UpdateRoleRequest;
 use App\Http\Resources\Api\V1\Admin\RoleResource;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Response;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Models\Role;
 
@@ -37,13 +38,27 @@ class RoleController extends Controller
     public function store(StoreRoleRequest $request): JsonResponse
     {
         $validated = $request->validated();
+        $permissions = $validated['permissions'] ?? [];
+        $currentUser = $request->user('staff');
 
-        $role = DB::transaction(function () use ($validated): Role {
+        if ($validated['name'] === StaffRole::SuperAdmin->value) {
+            return response()->json([
+                'message' => 'لا يمكن إنشاء دور Super Admin من هذه الواجهة.',
+            ], 403);
+        }
+
+        if (! $this->mayGrantPermissions($currentUser, $permissions)) {
+            return response()->json([
+                'message' => 'لا يمكنك إسناد صلاحيات لا تملكها.',
+            ], 403);
+        }
+
+        $role = DB::transaction(function () use ($validated, $permissions): Role {
             $role = Role::create([
                 'name' => $validated['name'],
                 'guard_name' => 'staff',
             ]);
-            $role->syncPermissions($validated['permissions'] ?? []);
+            $role->syncPermissions($permissions);
 
             return $role->load('permissions');
         });
@@ -58,28 +73,51 @@ class RoleController extends Controller
         return RoleResource::make($role->load('permissions'));
     }
 
-    public function update(UpdateRoleRequest $request, Role $role): RoleResource
+    public function update(UpdateRoleRequest $request, Role $role): RoleResource|JsonResponse
     {
-        $this->ensureStaffRole($role);
-        abort_if(
-            $role->name === StaffRole::SuperAdmin->value,
-            403,
-            'لا يمكن تعديل دور Super Admin الأساسي.',
-        );
         $validated = $request->validated();
+        $permissions = $validated['permissions'] ?? null;
+        $currentUser = $request->user('staff');
 
-        DB::transaction(function () use ($role, $validated): void {
+        if (array_key_exists('name', $validated) && $validated['name'] === StaffRole::SuperAdmin->value) {
+            return response()->json([
+                'message' => 'لا يمكن تسمية دور آخر باسم Super Admin.',
+            ], 403);
+        }
+
+        if (is_array($permissions) && ! $this->mayGrantPermissions($currentUser, $permissions)) {
+            return response()->json([
+                'message' => 'لا يمكنك إسناد صلاحيات لا تملكها.',
+            ], 403);
+        }
+
+        $failure = DB::transaction(function () use ($role, $validated, $permissions): ?string {
+            $lockedRole = Role::query()->whereKey($role->getKey())->lockForUpdate()->firstOrFail();
+            $this->ensureStaffRole($lockedRole);
+
+            if ($lockedRole->name === StaffRole::SuperAdmin->value) {
+                return 'protected';
+            }
+
             if (array_key_exists('name', $validated)) {
-                $role->name = $validated['name'];
-                $role->save();
+                $lockedRole->name = $validated['name'];
+                $lockedRole->save();
             }
 
-            if (array_key_exists('permissions', $validated)) {
-                $role->syncPermissions($validated['permissions']);
+            if ($permissions !== null) {
+                $lockedRole->syncPermissions($permissions);
             }
+
+            return null;
         });
 
-        return RoleResource::make($role->load('permissions'));
+        if ($failure !== null) {
+            return response()->json([
+                'message' => 'لا يمكن تعديل دور Super Admin الأساسي.',
+            ], 403);
+        }
+
+        return RoleResource::make($role->refresh()->load('permissions'));
     }
 
     public function destroy(Role $role): JsonResponse|Response
@@ -95,6 +133,16 @@ class RoleController extends Controller
         $role->delete();
 
         return response()->noContent();
+    }
+
+    private function mayGrantPermissions(mixed $user, array $permissions): bool
+    {
+        if (! $user instanceof User) {
+            return false;
+        }
+
+        return $user->hasRole(StaffRole::SuperAdmin->value, 'staff')
+            || $user->hasAllPermissions($permissions);
     }
 
     private function ensureStaffRole(Role $role): void

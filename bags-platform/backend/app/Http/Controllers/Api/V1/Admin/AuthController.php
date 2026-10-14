@@ -10,8 +10,9 @@ use App\Http\Resources\Api\V1\Admin\UserResource;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Hash;
 
 class AuthController extends Controller
 {
@@ -41,5 +42,12 @@ class AuthController extends Controller
         $user->load(['branch', 'roles.permissions', 'permissions']);
 
         return UserResource::make($user);
+    }
+
+    public function logout(Request $request): Response
+    {
+        $request->user('staff')?->currentAccessToken()?->delete();
+
+        return response()->noContent();
     }
 }

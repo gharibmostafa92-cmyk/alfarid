@@ -9,6 +9,7 @@ use App\Http\Requests\Api\V1\Admin\StoreBranchRequest;
 use App\Http\Requests\Api\V1\Admin\UpdateBranchRequest;
 use App\Http\Resources\Api\V1\Admin\BranchResource;
 use App\Models\Branch;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -55,25 +56,31 @@ class BranchController extends Controller
 
     public function destroy(Branch $branch): JsonResponse|Response
     {
-        $deleted = DB::transaction(function () use ($branch): bool {
-            $lockedBranch = Branch::query()
-                ->whereKey($branch->getKey())
-                ->lockForUpdate()
-                ->firstOrFail();
+        try {
+            $deleted = DB::transaction(function () use ($branch): bool {
+                $lockedBranch = Branch::query()
+                    ->whereKey($branch->getKey())
+                    ->lockForUpdate()
+                    ->firstOrFail();
 
-            if ($lockedBranch->users()->exists() || $this->hasInventoryMovements($lockedBranch)) {
-                return false;
+                if ($lockedBranch->users()->exists() || $this->hasInventoryMovements($lockedBranch)) {
+                    return false;
+                }
+
+                $lockedBranch->delete();
+
+                return true;
+            });
+        } catch (QueryException $exception) {
+            if (! $this->isIntegrityConstraintViolation($exception)) {
+                throw $exception;
             }
 
-            $lockedBranch->delete();
-
-            return true;
-        });
+            return $this->conflictResponse();
+        }
 
         if (! $deleted) {
-            return response()->json([
-                'message' => 'لا يمكن حذف الفرع لارتباطه بموظفين أو حركات مخزنية.',
-            ], 409);
+            return $this->conflictResponse();
         }
 
         return response()->noContent();
@@ -100,5 +107,19 @@ class BranchController extends Controller
         }
 
         return false;
+    }
+
+    private function isIntegrityConstraintViolation(QueryException $exception): bool
+    {
+        $sqlState = (string) ($exception->errorInfo[0] ?? $exception->getCode());
+
+        return in_array($sqlState, ['23000', '23503'], true);
+    }
+
+    private function conflictResponse(): JsonResponse
+    {
+        return response()->json([
+            'message' => 'لا يمكن حذف الفرع لارتباطه بموظفين أو حركات مخزنية.',
+        ], 409);
     }
 }

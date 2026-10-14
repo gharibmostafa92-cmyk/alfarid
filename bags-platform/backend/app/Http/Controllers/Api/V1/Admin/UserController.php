@@ -59,6 +59,17 @@ class UserController extends Controller
     {
         $validated = $request->validated();
         $roles = $validated['roles'] ?? [];
+        $currentUser = $request->user('staff');
+
+        if (
+            in_array(StaffRole::SuperAdmin->value, $roles, true)
+            && (! $currentUser instanceof User || ! $currentUser->hasRole(StaffRole::SuperAdmin->value, 'staff'))
+        ) {
+            return response()->json([
+                'message' => 'يجب أن تكون Super Admin لإسناد هذا الدور.',
+            ], 403);
+        }
+
         $userAttributes = Arr::except($validated, ['roles']);
         $userAttributes['is_active'] ??= true;
 
@@ -80,17 +91,12 @@ class UserController extends Controller
     public function update(UpdateUserRequest $request, User $user): UserResource|JsonResponse
     {
         $validated = $request->validated();
+        $currentUser = $request->user('staff');
+        $isCurrentUser = $currentUser instanceof User && $currentUser->is($user);
 
-        if (
-            $user->hasRole(StaffRole::SuperAdmin->value, 'staff')
-            && (
-                (array_key_exists('is_active', $validated) && ! $request->boolean('is_active'))
-                || (array_key_exists('roles', $validated)
-                    && ! in_array(StaffRole::SuperAdmin->value, $validated['roles'], true))
-            )
-        ) {
+        if ($isCurrentUser && (array_key_exists('roles', $validated) || array_key_exists('is_active', $validated))) {
             return response()->json([
-                'message' => 'لا يمكن تعطيل حساب Super Admin الأساسي أو إزالة دوره.',
+                'message' => 'لا يمكنك تغيير أدوارك أو حالة تنشيط حسابك الحالي.',
             ], 403);
         }
 
@@ -101,15 +107,60 @@ class UserController extends Controller
             unset($userAttributes['password']);
         }
 
-        DB::transaction(function () use ($user, $userAttributes, $roles): void {
-            $user->update($userAttributes);
+        $isSuperAdminRequester = $currentUser instanceof User
+            && $currentUser->hasRole(StaffRole::SuperAdmin->value, 'staff');
+        $assigningSuperAdmin = is_array($roles)
+            && in_array(StaffRole::SuperAdmin->value, $roles, true);
+
+        $failure = DB::transaction(function () use (
+            $user,
+            $userAttributes,
+            $roles,
+            $isSuperAdminRequester,
+            $assigningSuperAdmin,
+        ): ?string {
+            $lockedUser = User::query()->whereKey($user->getKey())->lockForUpdate()->firstOrFail();
+            $targetIsSuperAdmin = $lockedUser->hasRole(StaffRole::SuperAdmin->value, 'staff');
+
+            if ($targetIsSuperAdmin && (
+                (array_key_exists('is_active', $userAttributes) && ! (bool) $userAttributes['is_active'])
+                || ($roles !== null && ! in_array(StaffRole::SuperAdmin->value, $roles, true))
+            )) {
+                return 'protected_super_admin';
+            }
+
+            if (! $isSuperAdminRequester && (
+                $targetIsSuperAdmin || $assigningSuperAdmin
+            )) {
+                return 'protected';
+            }
+
+            $lockedUser->update($userAttributes);
 
             if ($roles !== null) {
-                $user->syncRoles($roles);
+                $lockedUser->syncRoles($roles);
             }
+
+            $passwordChanged = array_key_exists('password', $userAttributes);
+            $deactivated = array_key_exists('is_active', $userAttributes)
+                && ! (bool) $userAttributes['is_active'];
+
+            if ($passwordChanged || $deactivated) {
+                $lockedUser->tokens()->delete();
+            }
+
+            return null;
         });
 
-        return UserResource::make($user->load(['branch', 'roles.permissions', 'permissions']));
+        if ($failure !== null) {
+            return response()->json([
+                'message' => $failure === 'protected_super_admin'
+                    ? 'لا يمكن تعطيل حساب Super Admin الأساسي أو إزالة دوره.'
+                    : 'لا يمكن للمستخدم الحالي تعديل حساب Super Admin أو إسناد دوره.',
+            ], 403);
+        }
+
+        return UserResource::make($user->refresh()->load(['branch', 'roles.permissions', 'permissions']));
     }
 
     public function destroy(Request $request, User $user): JsonResponse

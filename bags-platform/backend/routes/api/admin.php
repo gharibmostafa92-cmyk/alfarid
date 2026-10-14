@@ -21,6 +21,7 @@ Route::middleware(['auth:sanctum', 'auth.staff'])
     ->name('admin.')
     ->group(function (): void {
         Route::get('me', [AuthController::class, 'me'])->name('auth.me');
+        Route::post('auth/logout', [AuthController::class, 'logout'])->name('auth.logout');
 
         Route::apiResource('branches', BranchController::class)
             ->only(['index', 'show'])

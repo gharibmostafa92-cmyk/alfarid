@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Models\Branch;
-use App\Models\Location;
 use App\Models\User;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
@@ -83,6 +85,33 @@ class LocationEndpointsTest extends TestCase
             ->assertCreated();
     }
 
+    public function test_location_cannot_be_deleted_while_stock_movements_reference_it(): void
+    {
+        Schema::create('stock_movements', function (Blueprint $table): void {
+            $table->id();
+            $table->foreignId('location_id')->constrained()->cascadeOnDelete();
+        });
+
+        $branch = Branch::factory()->create();
+        $location = $branch->locations()->create([
+            'name' => 'Receiving Area',
+            'code' => 'R-02',
+            'type' => 'receiving',
+        ]);
+        DB::table('stock_movements')->insert(['location_id' => $location->id]);
+        $admin = $this->staffWithPermission('locations.manage');
+        $token = $admin->createToken('test')->plainTextToken;
+
+        $this->requestWithToken(
+            $token,
+            'DELETE',
+            "/api/v1/admin/branches/{$branch->id}/locations/{$location->id}",
+        )->assertStatus(409);
+
+        $this->assertDatabaseHas('locations', ['id' => $location->id]);
+        $this->assertDatabaseHas('stock_movements', ['location_id' => $location->id]);
+    }
+
     public function test_location_endpoints_forbid_staff_without_location_permissions(): void
     {
         $branch = Branch::factory()->create();
@@ -110,7 +139,7 @@ class LocationEndpointsTest extends TestCase
     }
 
     /**
-     * @param array<string, mixed> $payload
+     * @param  array<string, mixed>  $payload
      */
     private function requestWithToken(string $token, string $method, string $uri, array $payload = []): TestResponse
     {
