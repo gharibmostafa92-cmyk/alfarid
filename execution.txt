@@ -1,0 +1,215 @@
+الجزء الأول من المرحلة 1: نظام المصادقة المتعدد والصلاحيات (Multi-Table Auth & RBAC):
+
+في هذا الجزء، سيقوم الذكاء الاصطناعي ببناء الجداول الثلاثة للمصادقة، وربطها مع Sanctum، وبناء الـ Middlewares الأربعة التي تفصل بين كل نوع مستخدم.
+
+المهمة 1.1: إنشاء الـ Enums والجداول الثلاثة (Migrations & Models): اطلب منه إنشاء ملفات الـ Enums لتحديد قيم أنواع العملاء وحالاتهم بدقة، ثم إنشاء وتعديل ملفات الـ Migrations للـ 3 جداول:
+
+جدول users (للموظفين والأدمن والكاشير): يحتوي على (id, name, email, phone, password, branch_id nullable, is_active boolean, timestamps).
+جدول customers (للعملاء): يحتوي على (id, name, email, phone, password, type enum: ['retail', 'wholesale', 'distributor'], status enum: ['pending', 'approved', 'rejected', 'blocked'], tax_number nullable, commercial_register nullable, timestamps).
+جدول supplier_users (لموظفي المورد): يحتوي على (id, supplier_id nullable, name, email, phone, password, is_active boolean, timestamps).
+ملاحظة هامة للـ AI المنفذ: يجب إضافة HasApiTokens (الخاص بـ Sanctum) في الموديلات الثلاثة (User, Customer, SupplierUser)، وإضافة HasRoles (الخاص بـ Spatie) في موديل User مع تحديد protected string $guard_name = 'staff';.
+
+المهمة 1.2: ضبط إعدادات config/auth.php و config/permission.php: اطلب منه تعديل ملف config/auth.php لإضافة الـ Guards والـ Providers للأنواع الثلاثة حتى يتعرف عليها النظام وSpatie Permission بشكل سليم.
+
+Copy// داخل config/auth.php
+'guards' => [
+    'web' => ['driver' => 'session', 'provider' => 'users'],
+    'staff' => ['driver' => 'sanctum', 'provider' => 'users'],
+    'customer' => ['driver' => 'sanctum', 'provider' => 'customers'],
+    'supplier' => ['driver' => 'sanctum', 'provider' => 'supplier_users'],
+],
+
+'providers' => [
+    'users' => ['driver' => 'eloquent', 'model' => App\Models\User::class],
+    'customers' => ['driver' => 'eloquent', 'model' => App\Models\Customer::class],
+    'supplier_users' => ['driver' => 'eloquent', 'model' => App\Models\SupplierUser::class],
+],
+المهمة 1.3: برمجة الـ Middlewares الأربعة لفحص نوع الـ Token والحالة: بما أن Sanctum يستخدم جدول personal_access_tokens بعلاقة Polymorphic (tokenable_type)، يجب أن يتأكد كل Middleware أن المستخدم مسجل دخول وأن الـ Model الخاص به يطابق الجدول المطلوب. اشرح للـ AI أن يكتب الكود التالي:
+Copy// 1. app/Http/Middleware/EnsureStaffAuthenticated.php
+namespace App\Http\Middleware;
+
+use App\Models\User;
+use Closure;
+use Illuminate\Http\Request;
+
+class EnsureStaffAuthenticated
+{
+    public function handle(Request $request, Closure $next)
+    {
+        $user = $request->user();
+        if (! $user || ! ($user instanceof User) || ! $user->is_active) {
+            return response()->json(['message' => 'غير مصرح لك بالدخول كموظف أو الحساب غير نشط.'], 403);
+        }
+        return $next($request);
+    }
+}
+Copy// 2. app/Http/Middleware/EnsureCustomerAuthenticated.php
+namespace App\Http\Middleware;
+
+use App\Models\Customer;
+use Closure;
+use Illuminate\Http\Request;
+
+class EnsureCustomerAuthenticated
+{
+    public function handle(Request $request, Closure $next)
+    {
+        $user = $request->user();
+        if (! $user || ! ($user instanceof Customer) || $user->status === 'blocked') {
+            return response()->json(['message' => 'غير مصرح لك بالدخول كعميل.'], 403);
+        }
+        return $next($request);
+    }
+}
+Copy// 3. app/Http/Middleware/EnsureWholesaleApproved.php
+namespace App\Http\Middleware;
+
+use App\Models\Customer;
+use Closure;
+use Illuminate\Http\Request;
+
+class EnsureWholesaleApproved
+{
+    public function handle(Request $request, Closure $next)
+    {
+        $user = $request->user();
+        if (
+            ! $user ||
+            ! ($user instanceof Customer) ||
+            ! in_array($user->type, ['wholesale', 'distributor']) ||
+            $user->status !== 'approved'
+        ) {
+            return response()->json(['message' => 'هذا القسم مخصص لتجار الجملة المعتمدين فقط.'], 403);
+        }
+        return $next($request);
+    }
+}
+(وبنفس الطريقة يقوم بإنشاء EnsureSupplierAuthenticated لفحص SupplierUser).
+
+الجزء الثاني من المرحلة 1: مصادقة الإدارة، الموظفين، الأدوار والصلاحيات:
+
+في هذا الجزء يقوم الذكاء الاصطناعي بتنفيذ الـ Endpoints الخاصة بتسجيل دخول الإدارة وإدارة الموظفين والأدوار والصلاحيات.
+
+المهمة 2.1: تسجيل الدخول وجلب بيانات الموظف الحالي (AuthController):
+
+الروابط المطلوبة:
+POST /api/v1/admin/auth/login
+GET /api/v1/admin/me
+التفاصيل التنفيذية للـ AI:
+إنشاء AdminLoginRequest للتحقق من email و password.
+إنشاء app/Http/Controllers/Api/V1/Admin/AuthController.php.
+دالة login: تبحث في جدول users فقط، وتتحقق من كلمة المرور ومن أن is_active == true، ثم تنشئ Token عبر $user->createToken('staff-token')->plainTextToken، وترجع بيانات الموظف مع أدواره وصلاحياته والـ Token.
+دالة me: ترجع بيانات الموظف المسجل حالياً مع علاقة الفرع branch والأدوار roles والصلاحيات permissions باستخدام UserResource.
+المهمة 2.2: إدارة الأدوار والصلاحيات (RoleController & PermissionController):
+
+الروابط المطلوبة:
+GET /api/v1/admin/permissions
+CRUD /api/v1/admin/roles
+التفاصيل التنفيذية للـ AI:
+إنشاء RolePermissionSeeder يحتوي على كافة صلاحيات النظام مقسمة بشكل منطقي (مثل: branches.view, branches.create, branches.update, branches.delete, users.manage, settings.manage... إلخ)، وإنشاء دور Super Admin يمتلك كل الصلاحيات.
+إنشاء PermissionController يحتوي على دالة index فقط ترجع قائمة الصلاحيات مجمعة (Grouped by prefix) لتسهيل عرضها في الواجهة الأمامية.
+إنشاء RoleController للقيام بعمليات CRUD كاملة على جدول roles (مع تحديد guard_name = 'staff')، وعند الإنشاء أو التعديل يتم استلام مصفوفة permissions واستخدام $role->syncPermissions($request->permissions).
+المهمة 2.3: إدارة الموظفين (UserController):
+
+الروابط المطلوبة:
+CRUD /api/v1/admin/users
+التفاصيل التنفيذية للـ AI:
+إنشاء StoreUserRequest و UpdateUserRequest (التحقق من الاسم، الإيميل الفريد، الهاتف، كلمة المرور، branch_id، حالة التفعيل is_active، ومصفوفة الأدوار roles).
+إنشاء UserController داخل مجلد Admin:
+index: عرض الموظفين مع الفلترة حسب الفرع أو الدور مع Pagination.
+store: إنشاء موظف جديد، تشفير كلمة المرور، وإسناد الأدوار له عبر $user->syncRoles($request->roles).
+show: عرض تفاصيل موظف واحد مع الفرع والأدوار.
+update: تحديث بيانات الموظف وتحديث أدواره.
+destroy: حذف الموظف (أو تعطيل حسابه، مع منع حذف حساب الـ Super Admin الأساسي أو حذف الموظف لنفسه).
+الجزء الثالث من المرحلة 1: الفروع ومواقع التخزين (Branches & Locations):
+
+في هذا الجزء يقوم الذكاء الاصطناعي ببناء البنية التحتية للمخازن والفروع التي ستعتمد عليها لاحقاً خدمات الجرد (InventoryService) ونقاط البيع (POS).
+
+المهمة 3.1: إنشاء الجداول والموديلات (Branch & Location):
+
+جدول الفروع branches:
+الحقول: id, name, code (فريد، مثل BR-001), type (enum: ['branch', 'warehouse']), phone, email, address, city, is_active (boolean), timestamps.
+جدول مواقع التخزين locations: (يمثل الأرفف أو المناطق أو المخازن الفرعية داخل الفرع الواحد)
+الحقول: id, branch_id (Foreign Key تابع لـ branches مع cascadeOnDelete), name, code (مثل A-01-02), type (enum: ['shelf', 'zone', 'bin', 'damaged', 'receiving']), is_active (boolean), timestamps.
+إضافة قيد فريد مركب (Unique Constraint) على ['branch_id', 'code'] لضمان عدم تكرار كود الموقع داخل نفس الفرع.
+المهمة 3.2: برمجة المتحكمات والروابط (BranchController & LocationController):
+
+الروابط المطلوبة:
+CRUD /api/v1/admin/branches
+CRUD /api/v1/admin/branches/{branch}/locations
+التفاصيل التنفيذية للـ AI:
+في BranchController: بناء دوال (index, store, show, update, destroy). عند حذف فرع، يجب التأكد أولاً من عدم وجود موظفين أو حركات مخزنية مرتبطة به.
+في LocationController: استخدام Route Model Binding المتداخل (Scoped Binding) بحيث تكون جميع العمليات مرتبطة بـ {branch} الممرر في الرابط:
+index(Branch $branch): ترجع $branch->locations()->paginate().
+store(StoreLocationRequest $request, Branch $branch): تنشئ الموقع مباشرة عبر $branch->locations()->create($request->validated()).
+show(Branch $branch, Location $location) و update و destroy: تتأكد أن الـ $location يتبع فعلياً للـ $branch باستخدام scopeBindings() في ملف الروابط.
+الجزء الرابع من المرحلة 1: الإعدادات، بيانات الشركة، الضرائب، والترقيم التلقائي (Settings):
+
+هذا الجزء أساسي جداً لأنه يتحكم في سلوك النظام بالكامل (بيانات الفواتير، نسبة الضريبة، وبادئات الترقيم للطلبات والفواتير).
+
+المهمة 4.1: تصميم جدول الإعدادات وخدمة الإعدادات (Setting & SettingService):
+
+جدول settings:
+بدلاً من عمل أعمدة ثابتة يصعب التعديل عليها مستقبلاً، اطلب من الذكاء الاصطناعي إنشاء جدول بنظام Key-Value مرن يحتوي على: id, group (index: مثل 'company', 'tax', 'numbering'), key (unique), value (text/json nullable), type (string: 'string', 'boolean', 'integer', 'float', 'json'), timestamps.
+إنشاء SettingSeeder بالبيانات الأساسية المطلوبة في المرحلة 1:
+مجموعة الشركة (company): company_name, company_email, company_phone, company_address, company_logo, commercial_register.
+مجموعة الضرائب (tax): tax_enabled (boolean), tax_number (الرقم الضريبي), default_tax_rate (float، مثلاً 14 أو 15), prices_include_tax (boolean).
+مجموعة الترقيم (numbering):
+invoice_prefix (مثلاً INV-), invoice_next_number (1000), invoice_padding (6).
+order_prefix (مثلاً ORD-), order_next_number (1000), order_padding (6).
+purchase_order_prefix (مثلاً PO-), purchase_order_next_number (1000).
+quotation_prefix (مثلاً QT-), quotation_next_number (1000).
+إنشاء app/Services/SettingService.php:
+يحتوي على دالة getAllGrouped() التي تجلب كل الإعدادات وتضعها في الكاش (Cache::rememberForever('app_settings', ...)).
+دالة get($key, $default = null) لقراءة أي إعداد مع تحويل نوعه (type casting).
+دالة updateBatch(array $settings) لتحديث مجموعة إعدادات دفعة واحدة ومسح الكاش (Cache::forget('app_settings')).
+دالة مساعدة إضافية generateNextNumber(string $type) (تستخدم DB::transaction و lockForUpdate لتوليد الرقم التسلسلي التالي مثل ORD-001001 وزيادة العداد بمقدار 1 بأمان دون تضارب).
+المهمة 4.2: برمجة متحكم الإعدادات (SettingController):
+
+الروابط المطلوبة:
+GET /api/v1/admin/settings
+PUT /api/v1/admin/settings
+التفاصيل التنفيذية للـ AI:
+إنشاء UpdateSettingsRequest يتحقق من القيم المرسلة (مثلاً التأكد أن default_tax_rate رقم بين 0 و 100، وأن أرقام البداية في الترقيم أعداد صحيحة موجبة).
+في SettingController:
+دالة index(): تستدعي SettingService::getAllGrouped() وترجع الإعدادات مقسمة حسب الـ group (company, tax, numbering).
+دالة update(UpdateSettingsRequest $request): تمرر البيانات إلى SettingService::updateBatch($request->validated()) وترجع الإعدادات بعد التحديث.
+الجزء الخامس من المرحلة 1: تجميع ملف routes/api/admin.php والاختبار:
+
+في نهاية المرحلة الأولى، اطلب من الذكاء الاصطناعي تجميع كافة الروابط التي برمجها في المهام السابقة داخل ملف routes/api/admin.php بهذا الشكل المنظم:
+
+Copy<?php
+
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Api\V1\Admin\AuthController;
+use App\Http\Controllers\Api\V1\Admin\BranchController;
+use App\Http\Controllers\Api\V1\Admin\LocationController;
+use App\Http\Controllers\Api\V1\Admin\UserController;
+use App\Http\Controllers\Api\V1\Admin\RoleController;
+use App\Http\Controllers\Api\V1\Admin\PermissionController;
+use App\Http\Controllers\Api\V1\Admin\SettingController;
+
+// مسارات عامة (بدون تسجيل دخول)
+Route::post('/auth/login', [AuthController::class, 'login'])->name('auth.login');
+
+// مسارات محمية للموظفين فقط (تتطلب Sanctum Token + التأكد أنه من جدول users)
+Route::middleware(['auth:sanctum', 'auth.staff'])->group(function () {
+
+    // بيانات الموظف الحالي
+    Route::get('/me', [AuthController::class, 'me'])->name('auth.me');
+
+    // الفروع ومواقع التخزين (مع تفعيل Scoped Bindings لضمان تبعية الموقع للفرع)
+    Route::apiResource('branches', BranchController::class);
+    Route::scopeBindings()->group(function () {
+        Route::apiResource('branches.locations', LocationController::class);
+    });
+
+    // الموظفين والأدوار والصلاحيات
+    Route::apiResource('users', UserController::class);
+    Route::apiResource('roles', RoleController::class);
+    Route::get('permissions', [PermissionController::class, 'index'])->name('permissions.index');
+
+    // الإعدادات العامة، الضرائب، والترقيم
+    Route::get('settings', [SettingController::class, 'index'])->name('settings.index');
+    Route::put('settings', [SettingController::class, 'update'])->name('settings.update');
+});
