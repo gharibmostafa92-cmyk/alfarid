@@ -93,11 +93,11 @@ class AdminAuthEndpointsTest extends TestCase
             ->assertJsonValidationErrors(['email', 'password']);
     }
 
-    public function test_me_returns_403_without_a_staff_token(): void
+    public function test_me_returns_401_without_a_staff_token(): void
     {
         Auth::forgetGuards();
 
-        $this->getJson('/api/v1/admin/me')->assertForbidden();
+        $this->getJson('/api/v1/admin/me')->assertUnauthorized();
     }
 
     private function getAsToken(string $token, string $uri): TestResponse

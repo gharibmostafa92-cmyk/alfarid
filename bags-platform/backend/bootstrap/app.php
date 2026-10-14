@@ -20,12 +20,7 @@ return Application::configure(basePath: dirname(__DIR__))
         then: function (): void {
             Route::middleware('api')
                 ->prefix('api/v1/admin')
-                ->group(function (): void {
-                    require base_path('app/Modules/Auth/Routes/api.php');
-                    require base_path('app/Modules/Users/Routes/api.php');
-                    require base_path('app/Modules/Branches/Routes/api.php');
-                    require base_path('app/Modules/Settings/Routes/api.php');
-                });
+                ->group(base_path('routes/api/admin.php'));
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {

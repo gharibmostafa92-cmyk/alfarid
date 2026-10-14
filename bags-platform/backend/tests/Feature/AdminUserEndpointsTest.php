@@ -123,7 +123,7 @@ class AdminUserEndpointsTest extends TestCase
             'tokenable_id' => $target->id,
         ]);
 
-        $this->requestWithToken($targetToken, 'GET', '/api/v1/admin/me')->assertForbidden();
+        $this->requestWithToken($targetToken, 'GET', '/api/v1/admin/me')->assertUnauthorized();
     }
 
     public function test_destroy_forbids_self_and_super_admin_accounts(): void
@@ -162,7 +162,7 @@ class AdminUserEndpointsTest extends TestCase
     }
 
     /**
-     * @param array<string, mixed> $payload
+     * @param  array<string, mixed>  $payload
      */
     private function requestWithToken(string $token, string $method, string $uri, array $payload = []): TestResponse
     {
