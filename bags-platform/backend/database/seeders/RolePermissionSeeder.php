@@ -36,7 +36,7 @@ class RolePermissionSeeder extends Seeder
         'reports' => ['view', 'export'],
         'notifications' => ['view', 'create', 'update', 'delete', 'manage'],
         'pricing' => ['view', 'create', 'update', 'delete', 'manage'],
-        'settings' => ['manage'],
+        'settings' => ['view', 'update', 'manage'],
         'pos' => ['access', 'sales.view', 'sales.create', 'sales.refund'],
     ];
 

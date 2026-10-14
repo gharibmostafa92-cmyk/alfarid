@@ -24,6 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
                     require base_path('app/Modules/Auth/Routes/api.php');
                     require base_path('app/Modules/Users/Routes/api.php');
                     require base_path('app/Modules/Branches/Routes/api.php');
+                    require base_path('app/Modules/Settings/Routes/api.php');
                 });
         },
     )

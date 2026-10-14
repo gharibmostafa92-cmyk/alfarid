@@ -1,0 +1,99 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Feature;
+
+use App\Models\User;
+use App\Services\SettingService;
+use Database\Seeders\SettingSeeder;
+use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Facades\Auth;
+use Spatie\Permission\Models\Permission;
+use Tests\TestCase;
+
+class AdminSettingsEndpointsTest extends TestCase
+{
+    use LazilyRefreshDatabase;
+
+    public function test_admin_can_read_grouped_settings_with_typed_values(): void
+    {
+        $this->seedSettings();
+        $token = $this->staffWithSettingsPermission()->createToken('settings-test')->plainTextToken;
+
+        $this->requestWithToken($token, 'GET', '/api/v1/admin/settings')
+            ->assertOk()
+            ->assertJsonPath('data.tax.tax_enabled', false)
+            ->assertJsonPath('data.tax.default_tax_rate', 14)
+            ->assertJsonPath('data.numbering.invoice_next_number', 1000)
+            ->assertJsonPath('data.company.company_name', 'Alfarid');
+    }
+
+    public function test_admin_can_update_settings_and_cache_is_invalidated(): void
+    {
+        $this->seedSettings();
+        $service = app(SettingService::class);
+        $this->assertSame(14.0, $service->get('default_tax_rate'));
+        $token = $this->staffWithSettingsPermission()->createToken('settings-test')->plainTextToken;
+
+        $this->requestWithToken($token, 'PUT', '/api/v1/admin/settings', [
+            'company_name' => 'Alfarid Trading',
+            'tax_enabled' => true,
+            'default_tax_rate' => 15,
+            'order_next_number' => 2000,
+        ])->assertOk()
+            ->assertJsonPath('data.company.company_name', 'Alfarid Trading')
+            ->assertJsonPath('data.tax.tax_enabled', true)
+            ->assertJsonPath('data.tax.default_tax_rate', 15)
+            ->assertJsonPath('data.numbering.order_next_number', 2000);
+
+        $this->assertSame('Alfarid Trading', $service->get('company_name'));
+        $this->assertDatabaseHas('settings', ['key' => 'tax_enabled', 'value' => '1']);
+    }
+
+    public function test_update_validates_tax_rates_counters_and_unknown_keys(): void
+    {
+        $this->seedSettings();
+        $token = $this->staffWithSettingsPermission()->createToken('settings-test')->plainTextToken;
+
+        $this->requestWithToken($token, 'PUT', '/api/v1/admin/settings', [
+            'default_tax_rate' => 101,
+            'invoice_next_number' => 0,
+            'unknown_option' => 'value',
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors(['default_tax_rate', 'invoice_next_number', 'unknown_option']);
+    }
+
+    public function test_number_generation_increments_the_counter_and_applies_padding(): void
+    {
+        $this->seedSettings();
+        $service = app(SettingService::class);
+
+        $this->assertSame('ORD-001000', $service->generateNextNumber('order'));
+        $this->assertSame('ORD-001001', $service->generateNextNumber('order'));
+        $this->assertSame(1002, $service->get('order_next_number'));
+        $this->assertSame('PO-1000', $service->generateNextNumber('purchase_order'));
+    }
+
+    private function seedSettings(): void
+    {
+        $this->seed(SettingSeeder::class);
+    }
+
+    private function staffWithSettingsPermission(): User
+    {
+        $permission = Permission::findOrCreate('settings.manage', 'staff');
+        $staff = User::factory()->create();
+        $staff->givePermissionTo($permission);
+
+        return $staff;
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function requestWithToken(string $token, string $method, string $uri, array $payload = [])
+    {
+        Auth::forgetGuards();
+
+        return $this->withToken($token)->json($method, $uri, $payload);
+    }
+}
