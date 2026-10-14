@@ -16,6 +16,7 @@ class RolePermissionSeeder extends Seeder
      */
     private const PERMISSIONS_BY_MODULE = [
         'branches' => ['view', 'create', 'update', 'delete', 'manage'],
+        'locations' => ['view', 'create', 'update', 'delete', 'manage'],
         'users' => ['view', 'create', 'update', 'delete', 'manage'],
         'roles' => ['view', 'create', 'update', 'delete', 'manage'],
         'permissions' => ['view'],
