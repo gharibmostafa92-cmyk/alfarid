@@ -1,0 +1,148 @@
+# ==========================================
+# Comprehensive .gitignore for Bags Platform Workspace
+# Laravel API (Backend) + Next.js (Frontend)
+# ==========================================
+
+# ------------------------------------------
+# Environment Variables & Sensitive Credentials
+# ------------------------------------------
+.env
+.env.*
+!.env.example
+!.env.ci
+*.pem
+*.key
+auth.json
+
+# ------------------------------------------
+# Dependencies & Package Managers
+# ------------------------------------------
+node_modules/
+vendor/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# ------------------------------------------
+# Next.js & Frontend Builds
+# ------------------------------------------
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+.vercel/
+
+# ------------------------------------------
+# Laravel Storage & Generated Files
+# ------------------------------------------
+**/public/build/
+**/public/hot/
+**/public/storage/
+storage/*.key
+storage/pail/
+**/storage/framework/cache/*
+!**/storage/framework/cache/.gitkeep
+**/storage/framework/sessions/*
+!**/storage/framework/sessions/.gitkeep
+**/storage/framework/views/*
+!**/storage/framework/views/.gitkeep
+**/storage/framework/testing/*
+!**/storage/framework/testing/.gitkeep
+**/storage/logs/*
+!**/storage/logs/.gitkeep
+**/storage/app/imports/*
+!**/storage/app/imports/.gitkeep
+**/storage/app/exports/*
+!**/storage/app/exports/.gitkeep
+**/storage/app/invoices/*
+!**/storage/app/invoices/.gitkeep
+**/storage/app/reports/*
+!**/storage/app/reports/.gitkeep
+
+# ------------------------------------------
+# SQLite Databases
+# ------------------------------------------
+*.sqlite
+*.sqlite-journal
+*.sqlite3
+
+# ------------------------------------------
+# Tests & Coverage
+# ------------------------------------------
+coverage/
+.nyc_output/
+*.lcov
+.phpunit.cache/
+.phpunit.result.cache
+
+# ------------------------------------------
+# IDEs & Code Editors
+# ------------------------------------------
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+*.swo
+*~
+.cursor/
+.codex/
+.nova/
+.zed/
+.phpactor.json
+_ide_helper.php
+_ide_helper_models.php
+.phpstorm.meta.php
+Homestead.json
+Homestead.yaml
+
+# ------------------------------------------
+# Operating System Junk
+# ------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# ------------------------------------------
+# Logs & Debugging
+# ------------------------------------------
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+lerna-debug.log*
+
+# ------------------------------------------
+# Temp & Cache
+# ------------------------------------------
+temp/
+tmp/
+*.tmp
+*.temp
+.turbo/
+.cache/
+
+# ------------------------------------------
+# Local Infrastructure Overrides
+# ------------------------------------------
+docker-compose.override.yml
