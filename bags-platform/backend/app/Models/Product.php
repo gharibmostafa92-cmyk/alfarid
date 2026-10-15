@@ -50,7 +50,8 @@ class Product extends Model implements HasMedia
 
     public function variants(): HasMany
     {
-        return $this->hasMany(ProductVariant::class)->orderBy('sort_order');
+        // chaperone: كل variant متحمل من العلاقة دي بيبقى عارف منتجه من غير lazy load (N+1)
+        return $this->hasMany(ProductVariant::class)->orderBy('sort_order')->chaperone();
     }
 
     public function registerMediaCollections(): void

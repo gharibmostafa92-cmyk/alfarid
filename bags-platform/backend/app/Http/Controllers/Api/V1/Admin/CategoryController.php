@@ -11,6 +11,8 @@ use App\Http\Requests\Admin\Category\UpdateCategoryRequest;
 use App\Http\Resources\Admin\CategoryResource;
 use App\Models\Category;
 use App\Services\Catalog\CategoryService;
+use App\Services\SearchTerm;
+use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -37,26 +39,35 @@ class CategoryController extends Controller implements HasMiddleware
             return CategoryResource::collection($this->service->tree());
         }
 
-        $perPage = max(1, min((int) $request->input('per_page', 15), 100));
+        $filters = $request->validate([
+            'search' => ['nullable', 'string', 'max:100'],
+            'parent_id' => ['nullable', function (string $attribute, mixed $value, Closure $fail): void {
+                if ($value !== 'root' && ! ctype_digit((string) $value)) {
+                    $fail('قيمة القسم الأب غير صحيحة');
+                }
+            }],
+            'is_active' => ['nullable', 'boolean'],
+            'per_page' => ['nullable', 'integer', 'min:1'],
+        ]);
+
+        $perPage = min((int) ($filters['per_page'] ?? 15), 100);
 
         $categories = Category::query()
-            ->with('parent', 'media')
+            ->with(['parent.media', 'media'])
             ->withCount('products')
-            ->when($request->filled('search'), function ($query) use ($request): void {
-                $search = $request->input('search');
-                $query->where(function ($q) use ($search): void {
-                    $q->where('name_ar', 'like', "%{$search}%")
-                        ->orWhere('name_en', 'like', "%{$search}%");
-                });
+            ->when(! empty($filters['search']), function ($query) use ($filters): void {
+                $pattern = SearchTerm::pattern($filters['search']);
+                $query->where(fn ($q) => $q->whereLike('name_ar', $pattern, caseSensitive: false)
+                    ->orWhereLike('name_en', $pattern, caseSensitive: false));
             })
-            ->when($request->has('parent_id'), function ($query) use ($request): void {
-                if ($request->input('parent_id') === 'root') {
+            ->when(isset($filters['parent_id']), function ($query) use ($filters): void {
+                if ($filters['parent_id'] === 'root') {
                     $query->whereNull('parent_id');
                 } else {
-                    $query->where('parent_id', $request->input('parent_id'));
+                    $query->where('parent_id', (int) $filters['parent_id']);
                 }
             })
-            ->when($request->has('is_active'), fn ($query) => $query->where('is_active', $request->boolean('is_active')))
+            ->when(isset($filters['is_active']), fn ($query) => $query->where('is_active', filter_var($filters['is_active'], FILTER_VALIDATE_BOOLEAN)))
             ->orderBy('sort_order')
             ->orderBy('id')
             ->paginate($perPage)
@@ -67,7 +78,7 @@ class CategoryController extends Controller implements HasMiddleware
 
     public function show(Category $category): CategoryResource
     {
-        $category->load('parent', 'children', 'media')->loadCount('products');
+        $category->load('parent.media', 'children.media', 'media')->loadCount('products');
 
         return CategoryResource::make($category);
     }

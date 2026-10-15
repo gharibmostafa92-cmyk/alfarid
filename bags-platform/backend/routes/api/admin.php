@@ -16,6 +16,13 @@ use App\Http\Controllers\Api\V1\Admin\SettingController;
 use App\Http\Controllers\Api\V1\Admin\UserController;
 use Illuminate\Support\Facades\Route;
 
+// معرّفات الكتالوج رقمية بس: أي قيمة غير رقمية تبقى 404 بدل ما Postgres يرمي خطأ نوع ويرجع 500
+Route::pattern('category', '[0-9]+');
+Route::pattern('brand', '[0-9]+');
+Route::pattern('product', '[0-9]+');
+Route::pattern('variant', '[0-9]+');
+Route::pattern('media', '[0-9]+');
+
 // Public admin authentication endpoint.
 Route::post('auth/login', [AuthController::class, 'login'])
     ->middleware('throttle:admin-login')

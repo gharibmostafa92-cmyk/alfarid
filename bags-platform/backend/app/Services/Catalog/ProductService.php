@@ -6,6 +6,8 @@ namespace App\Services\Catalog;
 
 use App\Enums\ProductStatus;
 use App\Exceptions\BusinessException;
+use App\Models\Brand;
+use App\Models\Category;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\SlugService;
@@ -27,6 +29,12 @@ class ProductService
             $wantsPublish = ($data['status'] ?? 'draft') === ProductStatus::Published->value;
             $data['status'] = ProductStatus::Draft->value; // دايمًا يتعمل draft الأول
 
+            // قفل صفوف القسم والبراند بيمنع حذفهم في نفس لحظة إنشاء المنتج عليهم
+            Category::whereKey($data['category_id'])->lockForUpdate()->first();
+            if (! empty($data['brand_id'])) {
+                Brand::whereKey($data['brand_id'])->lockForUpdate()->first();
+            }
+
             $product = Product::create($data);
             $product->update(['code' => 'P'.str_pad((string) $product->id, 5, '0', STR_PAD_LEFT)]);
 
@@ -38,7 +46,7 @@ class ProductService
                 $this->changeStatus($product, ProductStatus::Published, $user);
             }
 
-            return $product->fresh(['category', 'brand', 'variants', 'media']);
+            return $product->fresh(['category', 'brand', 'variants.media', 'media']);
         });
     }
 
@@ -64,12 +72,19 @@ class ProductService
                 $this->assertPublishable($product);
             }
 
-            return $product->fresh(['category', 'brand', 'variants', 'media']);
+            return $product->fresh(['category', 'brand', 'variants.media', 'media']);
         });
     }
 
     public function changeStatus(Product $product, ProductStatus $status, User $user): void
     {
+        // قفل صف المنتج وقسمه قبل الفحص والنشر، عشان مفيش تعديل متزامن يعدي بين الفحص والحفظ
+        Product::whereKey($product->id)->lockForUpdate()->first();
+        if ($product->category_id) {
+            Category::whereKey($product->category_id)->lockForUpdate()->first();
+        }
+        $product->refresh();
+
         if ($status === ProductStatus::Published) {
             if (! $user->can('products.publish')) {
                 throw new BusinessException('ليس لديك صلاحية نشر المنتجات', [], 403);

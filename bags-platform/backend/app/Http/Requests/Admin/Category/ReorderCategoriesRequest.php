@@ -20,7 +20,7 @@ class ReorderCategoriesRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'items' => ['required', 'array', 'min:1'],
+            'items' => ['required', 'array', 'min:1', 'max:500'],
             'items.*.id' => ['required', 'integer', 'exists:categories,id'],
             'items.*.parent_id' => ['nullable', 'integer', 'exists:categories,id'],
             'items.*.sort_order' => ['required', 'integer', 'min:0', 'max:2147483647'],

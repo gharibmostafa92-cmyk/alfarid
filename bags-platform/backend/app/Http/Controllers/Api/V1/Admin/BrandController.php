@@ -10,6 +10,7 @@ use App\Http\Requests\Admin\Brand\UpdateBrandRequest;
 use App\Http\Resources\Admin\BrandResource;
 use App\Models\Brand;
 use App\Services\Catalog\BrandService;
+use App\Services\SearchTerm;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -32,19 +33,23 @@ class BrandController extends Controller implements HasMiddleware
 
     public function index(Request $request): AnonymousResourceCollection
     {
-        $perPage = max(1, min((int) $request->input('per_page', 15), 100));
+        $filters = $request->validate([
+            'search' => ['nullable', 'string', 'max:100'],
+            'is_active' => ['nullable', 'boolean'],
+            'per_page' => ['nullable', 'integer', 'min:1'],
+        ]);
+
+        $perPage = min((int) ($filters['per_page'] ?? 15), 100);
 
         $brands = Brand::query()
             ->with('media')
             ->withCount('products')
-            ->when($request->filled('search'), function ($query) use ($request): void {
-                $search = $request->input('search');
-                $query->where(function ($q) use ($search): void {
-                    $q->where('name_ar', 'like', "%{$search}%")
-                        ->orWhere('name_en', 'like', "%{$search}%");
-                });
+            ->when(! empty($filters['search']), function ($query) use ($filters): void {
+                $pattern = SearchTerm::pattern($filters['search']);
+                $query->where(fn ($q) => $q->whereLike('name_ar', $pattern, caseSensitive: false)
+                    ->orWhereLike('name_en', $pattern, caseSensitive: false));
             })
-            ->when($request->has('is_active'), fn ($query) => $query->where('is_active', $request->boolean('is_active')))
+            ->when(isset($filters['is_active']), fn ($query) => $query->where('is_active', filter_var($filters['is_active'], FILTER_VALIDATE_BOOLEAN)))
             ->orderBy('sort_order')
             ->orderBy('id')
             ->paginate($perPage)

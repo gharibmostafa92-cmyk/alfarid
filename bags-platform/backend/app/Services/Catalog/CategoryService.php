@@ -20,7 +20,7 @@ class CategoryService
 
     public function create(array $data, ?UploadedFile $image): Category
     {
-        return DB::transaction(function () use ($data, $image) {
+        $category = DB::transaction(function () use ($data) {
             $this->lockTree();
 
             unset($data['image']);
@@ -37,23 +37,26 @@ class CategoryService
                 }
             }
 
-            $category = Category::create($data);
-
-            if ($image) {
-                $category->addMedia($image)->toMediaCollection('image');
-            }
-
-            return $category;
+            return Category::create($data);
         });
+
+        // عمليات الملفات بره الـ transaction: ملف اتمسح مبيترجعش مع الـ rollback
+        if ($image) {
+            $category->addMedia($image)->toMediaCollection('image');
+        }
+
+        return $category;
     }
 
     public function update(Category $category, array $data, ?UploadedFile $image): Category
     {
-        return DB::transaction(function () use ($category, $data, $image) {
-            $this->lockTree();
+        $removeImage = (bool) ($data['remove_image'] ?? false);
+        unset($data['image'], $data['remove_image']);
 
-            $removeImage = (bool) ($data['remove_image'] ?? false);
-            unset($data['image'], $data['remove_image']);
+        DB::transaction(function () use ($category, $data): void {
+            $this->lockTree();
+            // قفل صف القسم نفسه بيسلسل التعطيل مع نشر منتجاته (changeStatus بيقفل صف القسم كمان)
+            Category::whereKey($category->id)->lockForUpdate()->first();
 
             if (array_key_exists('parent_id', $data)) {
                 $newParentId = $data['parent_id'] === null ? null : (int) $data['parent_id'];
@@ -78,33 +81,35 @@ class CategoryService
             }
 
             $category->update($data);
-
-            if ($removeImage) {
-                $category->clearMediaCollection('image');
-            }
-
-            if ($image) {
-                $category->addMedia($image)->toMediaCollection('image');
-            }
-
-            return $category;
         });
+
+        // استبدال/مسح الصورة بعد نجاح حفظ البيانات، عشان فشل لاحق ميسيبش رابط مكسور
+        if ($removeImage) {
+            $category->clearMediaCollection('image');
+        }
+
+        if ($image) {
+            $category->addMedia($image)->toMediaCollection('image');
+        }
+
+        return $category;
     }
 
     public function delete(Category $category): void
     {
         DB::transaction(function () use ($category): void {
             $this->lockTree();
+            $locked = Category::whereKey($category->id)->lockForUpdate()->first() ?? $category;
 
-            if ($category->children()->exists()) {
+            if ($locked->children()->exists()) {
                 throw new BusinessException('لا يمكن حذف قسم يحتوي على أقسام فرعية');
             }
 
-            if ($category->products()->exists()) {
+            if ($locked->products()->exists()) {
                 throw new BusinessException('لا يمكن حذف قسم مرتبط بمنتجات');
             }
 
-            $category->delete();
+            $locked->delete();
         });
     }
 

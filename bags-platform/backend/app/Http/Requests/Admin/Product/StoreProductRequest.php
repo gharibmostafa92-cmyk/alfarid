@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Product;
 
-use App\Enums\ProductStatus;
 use App\Enums\SalesChannel;
 use App\Http\Requests\Admin\Variant\VariantRules;
 use Illuminate\Contracts\Validation\ValidationRule;
@@ -26,7 +25,7 @@ class StoreProductRequest extends FormRequest
         $rules = [
             'category_id' => ['required', 'integer', Rule::exists('categories', 'id')->whereNull('deleted_at')],
             'brand_id' => ['nullable', 'integer', Rule::exists('brands', 'id')->whereNull('deleted_at')],
-            'supplier_id' => ['nullable', 'integer'],
+            'supplier_id' => ['nullable', 'integer', 'min:1'],
             'name_ar' => ['required', 'string', 'max:255'],
             'name_en' => ['required', 'string', 'max:255'],
             'slug' => ['nullable', 'alpha_dash', 'max:255', Rule::unique('products', 'slug')],
@@ -41,11 +40,11 @@ class StoreProductRequest extends FormRequest
             'warranty_months' => ['nullable', 'integer', 'min:0', 'max:120'],
             'warranty_details' => ['nullable', 'string', 'max:255'],
             'country_of_origin' => ['nullable', 'string', 'max:100'],
-            'status' => ['nullable', Rule::enum(ProductStatus::class)],
+            'status' => ['nullable', Rule::in(['draft', 'published'])],
             'sales_channel' => ['required', Rule::enum(SalesChannel::class)],
             'is_featured' => ['nullable', 'boolean'],
             // اختياري: متغيرات مع الإنشاء
-            'variants' => ['nullable', 'array'],
+            'variants' => ['nullable', 'array', 'max:100'],
             'variants.*' => ['array'],
         ];
 

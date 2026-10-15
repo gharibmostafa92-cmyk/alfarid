@@ -32,7 +32,8 @@ class VariantRules
                 },
             ],
             'color_name_ar' => ['nullable', 'string', 'max:50'],
-            'color_name_en' => ['nullable', 'string', 'max:50'],
+            // اسم اللون الإنجليزي هو مفتاح منع التكرار، فبيبقى مطلوب لو أي بيانات لون تانية موجودة
+            'color_name_en' => ['nullable', 'string', 'max:50', 'required_with:color_name_ar,color_hex'],
             'color_hex' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
             'size' => ['nullable', 'string', 'max:50'],
             'capacity' => ['nullable', 'string', 'max:50'],

@@ -30,6 +30,13 @@
   `errors.status` listing every problem; missing publish permission returns 403.
 - `cost_price` is only visible to users with the `products.view_cost` permission.
 - `DELETE /products/{id}` — soft-deletes the product and its variants.
+- `supplier_id` is accepted as a positive integer but is **not** checked against any table yet —
+  the suppliers foreign key arrives in a later phase, and existing values must be audited/cleaned
+  before that FK migration can run.
+- List filters are validated: a malformed or unknown filter value (e.g. `category_id=abc` or a
+  non-existent category) returns 422, and non-numeric ids in paths return 404. Search is
+  case-insensitive and treats `%`/`_` literally.
+- Media files are served under UUID paths (`/storage/{uuid}/...`), not sequential media ids.
 
 ## Product Variants (`/api/v1/admin/products/{product}/variants`)
 

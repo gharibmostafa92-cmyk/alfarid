@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
+use App\Enums\ProductStatus;
+use App\Enums\SalesChannel;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Product\StoreProductRequest;
 use App\Http\Requests\Admin\Product\UpdateProductRequest;
@@ -11,11 +13,13 @@ use App\Http\Resources\Admin\ProductResource;
 use App\Models\Category;
 use App\Models\Product;
 use App\Services\Catalog\ProductService;
+use App\Services\SearchTerm;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Validation\Rule;
 
 class ProductController extends Controller implements HasMiddleware
 {
@@ -33,33 +37,50 @@ class ProductController extends Controller implements HasMiddleware
 
     public function index(Request $request): AnonymousResourceCollection
     {
-        $perPage = max(1, min((int) $request->input('per_page', 15), 100));
+        // فلاتر القائمة بتتفحص الأول: أي قيمة غلط تبقى 422 بدل 500 من Postgres
+        $filters = $request->validate([
+            'search' => ['nullable', 'string', 'max:100'],
+            'category_id' => ['nullable', 'integer', Rule::exists('categories', 'id')->whereNull('deleted_at')],
+            'brand_id' => ['nullable', 'integer', Rule::exists('brands', 'id')->whereNull('deleted_at')],
+            'status' => ['nullable', Rule::enum(ProductStatus::class)],
+            'sales_channel' => ['nullable', Rule::enum(SalesChannel::class)],
+            'is_featured' => ['nullable', 'boolean'],
+            'include_children' => ['nullable', 'boolean'],
+            'sort' => ['nullable', Rule::in(['latest', 'oldest', 'name'])],
+            'per_page' => ['nullable', 'integer', 'min:1'],
+        ]);
+
+        $perPage = min((int) ($filters['per_page'] ?? 15), 100);
 
         $q = Product::query()
-            ->with(['category:id,name_ar,name_en', 'brand:id,name_ar,name_en', 'media'])
+            ->with(['category.media', 'brand.media', 'media'])
             ->withCount('variants')
-            ->withMin('variants as min_retail_price', 'retail_price')
-            ->withMax('variants as max_retail_price', 'retail_price');
+            ->withMin(['variants as min_retail_price' => fn ($v) => $v->where('is_active', true)], 'retail_price')
+            ->withMax(['variants as max_retail_price' => fn ($v) => $v->where('is_active', true)], 'retail_price');
 
-        if ($s = $request->search) {
-            $q->where(fn ($w) => $w->where('name_ar', 'like', "%$s%")->orWhere('name_en', 'like', "%$s%")
+        if (! empty($filters['search'])) {
+            $s = $filters['search'];
+            $pattern = SearchTerm::pattern($s);
+            $q->where(fn ($w) => $w->whereLike('name_ar', $pattern, caseSensitive: false)
+                ->orWhereLike('name_en', $pattern, caseSensitive: false)
                 ->orWhere('code', $s)
                 ->orWhereHas('variants', fn ($v) => $v->where('sku', $s)->orWhere('barcode', $s)));
         }
-        if ($request->filled('category_id')) {
-            $cat = Category::findOrFail($request->category_id);
-            $ids = $request->boolean('include_children') ? [$cat->id, ...$cat->descendantIds()] : [$cat->id];
+        if (! empty($filters['category_id'])) {
+            $cat = Category::findOrFail($filters['category_id']);
+            $ids = ! empty($filters['include_children']) ? [$cat->id, ...$cat->descendantIds()] : [$cat->id];
             $q->whereIn('category_id', $ids);
         }
-        $q->when($request->brand_id, fn ($x, $v) => $x->where('brand_id', $v))
-            ->when($request->status, fn ($x, $v) => $x->where('status', $v))
-            ->when($request->sales_channel, fn ($x, $v) => $x->where('sales_channel', $v))
-            ->when($request->has('is_featured'), fn ($x) => $x->where('is_featured', $request->boolean('is_featured')));
+        $q->when($filters['brand_id'] ?? null, fn ($x, $v) => $x->where('brand_id', $v))
+            ->when($filters['status'] ?? null, fn ($x, $v) => $x->where('status', $v))
+            ->when($filters['sales_channel'] ?? null, fn ($x, $v) => $x->where('sales_channel', $v))
+            ->when(isset($filters['is_featured']), fn ($x) => $x->where('is_featured', filter_var($filters['is_featured'], FILTER_VALIDATE_BOOLEAN)));
 
-        match ($request->input('sort', 'latest')) {
-            'oldest' => $q->oldest(),
-            'name' => $q->orderBy('name_en'),
-            default => $q->latest(),
+        // ترتيب ثابت: id مفتاح كاسر للتعادل عشان الصفحات متتكررش ولا تختفي منها عناصر
+        match ($filters['sort'] ?? 'latest') {
+            'oldest' => $q->oldest()->orderBy('id'),
+            'name' => $q->orderBy('name_en')->orderBy('id'),
+            default => $q->latest()->orderByDesc('id'),
         };
 
         return ProductResource::collection($q->paginate($perPage)->withQueryString());
@@ -74,13 +95,7 @@ class ProductController extends Controller implements HasMiddleware
 
     public function store(StoreProductRequest $request): JsonResponse
     {
-        $data = $request->validated();
-        if (! $request->user()->can('products.view_cost')) {
-            foreach ($data['variants'] ?? [] as $index => $variant) {
-                unset($data['variants'][$index]['cost_price']);
-            }
-        }
-        $product = $this->service->create($data, $request->user());
+        $product = $this->service->create($request->validated(), $request->user());
 
         return ProductResource::make($product)->response()->setStatusCode(201);
     }

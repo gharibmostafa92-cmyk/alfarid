@@ -13,14 +13,25 @@ class SlugService
         $base = Str::slug($source) ?: Str::random(8);
         // قص القاعدة لـ 240 حرف عشان اللاحقة الرقمية متعديش عمود varchar(255) وترجع 500
         $base = rtrim(Str::substr($base, 0, 240), '-');
-        $slug = $base;
-        $i = 2;
-        while ($modelClass::withTrashed()->where('slug', $slug)
-            ->when($ignoreId, fn ($q) => $q->where('id', '!=', $ignoreId))->exists()) {
-            $slug = "{$base}-{$i}";
-            $i++;
+
+        // استعلام واحد بيجيب الـ slug نفسه وأي لاحقات موجودة، وينبني منه أول لاحقة متاحة فوق أعلى لاحقة
+        $like = strtr($base, ['\\' => '\\\\', '%' => '\\%', '_' => '\\_']).'-%';
+        $existing = $modelClass::withTrashed()
+            ->where(fn ($q) => $q->where('slug', $base)->orWhere('slug', 'like', $like))
+            ->when($ignoreId, fn ($q) => $q->where('id', '!=', $ignoreId))
+            ->pluck('slug');
+
+        if (! $existing->contains($base)) {
+            return $base;
         }
 
-        return $slug;
+        $max = 1;
+        foreach ($existing as $slug) {
+            if (preg_match('/^'.preg_quote($base, '/').'-(\d+)$/', (string) $slug, $m)) {
+                $max = max($max, (int) $m[1]);
+            }
+        }
+
+        return $base.'-'.($max + 1);
     }
 }

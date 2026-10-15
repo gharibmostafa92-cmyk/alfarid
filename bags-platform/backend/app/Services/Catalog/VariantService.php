@@ -89,11 +89,16 @@ class VariantService
 
     private function assertUniqueCombination(Product $product, array $d, ?int $ignoreId = null): void
     {
+        // المقارنة من غير حساسية لحالة الحروف: Black وblack نفس اللون
+        $matchField = fn ($q, string $column, ?string $value) => $value === null
+            ? $q->whereNull($column)
+            : $q->whereRaw("lower({$column}) = ?", [mb_strtolower($value)]);
+
         $exists = $product->variants()
             ->when($ignoreId, fn ($q) => $q->where('id', '!=', $ignoreId))
-            ->where(fn ($q) => isset($d['color_name_en']) ? $q->where('color_name_en', $d['color_name_en']) : $q->whereNull('color_name_en'))
-            ->where(fn ($q) => isset($d['size']) ? $q->where('size', $d['size']) : $q->whereNull('size'))
-            ->where(fn ($q) => isset($d['capacity']) ? $q->where('capacity', $d['capacity']) : $q->whereNull('capacity'))
+            ->where(fn ($q) => $matchField($q, 'color_name_en', $d['color_name_en'] ?? null))
+            ->where(fn ($q) => $matchField($q, 'size', $d['size'] ?? null))
+            ->where(fn ($q) => $matchField($q, 'capacity', $d['capacity'] ?? null))
             ->exists();
         if ($exists) {
             throw new BusinessException('يوجد متغير بنفس اللون والمقاس والسعة لهذا المنتج');
