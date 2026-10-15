@@ -13,6 +13,15 @@ use Illuminate\Validation\Rule;
 
 class UpdateLocationRequest extends FormRequest
 {
+    protected function prepareForValidation(): void
+    {
+        $code = $this->input('code');
+
+        if (is_string($code)) {
+            $this->merge(['code' => mb_strtoupper(trim($code))]);
+        }
+    }
+
     public function authorize(): bool
     {
         return $this->user() !== null;

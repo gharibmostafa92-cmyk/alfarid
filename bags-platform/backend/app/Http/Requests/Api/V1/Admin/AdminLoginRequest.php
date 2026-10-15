@@ -8,6 +8,15 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class AdminLoginRequest extends FormRequest
 {
+    protected function prepareForValidation(): void
+    {
+        $email = $this->input('email');
+
+        if (is_string($email)) {
+            $this->merge(['email' => mb_strtolower(trim($email))]);
+        }
+    }
+
     public function authorize(): bool
     {
         return true;

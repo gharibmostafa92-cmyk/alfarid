@@ -4,7 +4,11 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Models\Branch;
+use App\Models\Setting;
 use Database\Seeders\DatabaseSeeder;
+use Database\Seeders\LocationSeeder;
+use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Tests\TestCase;
 
@@ -31,5 +35,40 @@ class DatabaseSeederTest extends TestCase
         $this->seed(DatabaseSeeder::class);
 
         $this->assertDatabaseMissing('users', ['email' => 'test@example.com']);
+    }
+
+    public function test_setting_seeder_fills_missing_settings_without_overwriting_custom_values(): void
+    {
+        $this->seed(SettingSeeder::class);
+        Setting::query()->where('key', 'company_name')->update(['value' => 'Custom Company']);
+        Setting::query()->where('key', 'tax_enabled')->delete();
+
+        $this->seed(SettingSeeder::class);
+
+        $this->assertDatabaseHas('settings', ['key' => 'company_name', 'value' => 'Custom Company']);
+        $this->assertDatabaseHas('settings', ['key' => 'tax_enabled', 'value' => '0']);
+    }
+
+    public function test_location_seeder_fills_missing_shelves_for_every_branch_without_overwriting_existing_locations(): void
+    {
+        $firstBranch = Branch::factory()->create();
+        $secondBranch = Branch::factory()->create();
+        $customLocation = $firstBranch->locations()->create([
+            'name' => 'Custom shelf name',
+            'code' => 'A-01-01',
+            'type' => 'shelf',
+        ]);
+
+        $this->seed(LocationSeeder::class);
+
+        $this->assertDatabaseCount('locations', 6);
+        $this->assertDatabaseHas('locations', [
+            'id' => $customLocation->id,
+            'name' => 'Custom shelf name',
+        ]);
+
+        foreach ([$firstBranch, $secondBranch] as $branch) {
+            $this->assertSame(3, $branch->locations()->count());
+        }
     }
 }

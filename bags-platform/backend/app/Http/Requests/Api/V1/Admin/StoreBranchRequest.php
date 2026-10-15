@@ -11,6 +11,23 @@ use Illuminate\Validation\Rule;
 
 class StoreBranchRequest extends FormRequest
 {
+    protected function prepareForValidation(): void
+    {
+        $normalized = [];
+        $code = $this->input('code');
+        $email = $this->input('email');
+
+        if (is_string($code)) {
+            $normalized['code'] = mb_strtoupper(trim($code));
+        }
+
+        if (is_string($email)) {
+            $normalized['email'] = mb_strtolower(trim($email));
+        }
+
+        $this->merge($normalized);
+    }
+
     public function authorize(): bool
     {
         return $this->user() !== null;

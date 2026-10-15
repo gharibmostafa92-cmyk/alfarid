@@ -28,7 +28,7 @@ class LocationEndpointsTest extends TestCase
 
         $created = $this->requestWithToken($token, 'POST', "/api/v1/admin/branches/{$branch->id}/locations", [
             'name' => 'Aisle 1 Bin 2',
-            'code' => 'A-01-02',
+            'code' => ' a-01-02 ',
             'type' => 'bin',
             'is_active' => true,
             'branch_id' => $otherBranch->id,
@@ -36,6 +36,7 @@ class LocationEndpointsTest extends TestCase
 
         $created->assertCreated()
             ->assertJsonPath('data.name', 'Aisle 1 Bin 2')
+            ->assertJsonPath('data.code', 'A-01-02')
             ->assertJsonPath('data.branch_id', $branch->id)
             ->assertJsonPath('data.type', 'bin');
 
@@ -54,7 +55,7 @@ class LocationEndpointsTest extends TestCase
 
         $this->requestWithToken($token, 'PATCH', "/api/v1/admin/branches/{$branch->id}/locations/{$locationId}", [
             'name' => 'Updated Bin',
-            'code' => 'A-01-02',
+            'code' => ' a-01-02 ',
         ])->assertOk()->assertJsonPath('data.name', 'Updated Bin');
 
         $this->requestWithToken($token, 'DELETE', "/api/v1/admin/branches/{$branch->id}/locations/{$locationId}")
@@ -71,7 +72,7 @@ class LocationEndpointsTest extends TestCase
         $token = $admin->createToken('test')->plainTextToken;
         $payload = [
             'name' => 'Rack A',
-            'code' => 'A-01-01',
+            'code' => ' a-01-01 ',
             'type' => 'shelf',
         ];
 
@@ -88,29 +89,47 @@ class LocationEndpointsTest extends TestCase
 
     public function test_location_cannot_be_deleted_while_stock_movements_reference_it(): void
     {
-        Schema::create('stock_movements', function (Blueprint $table): void {
-            $table->id();
-            $table->foreignId('location_id')->constrained()->cascadeOnDelete();
-        });
+        $createdTemporaryTable = ! Schema::hasTable('stock_movements');
 
-        $branch = Branch::factory()->create();
-        $location = $branch->locations()->create([
-            'name' => 'Receiving Area',
-            'code' => 'R-02',
-            'type' => 'receiving',
-        ]);
-        DB::table('stock_movements')->insert(['location_id' => $location->id]);
-        $admin = $this->staffWithPermission('locations.manage');
-        $token = $admin->createToken('test')->plainTextToken;
+        if ($createdTemporaryTable && in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+            $this->markTestSkipped('A MySQL test fixture needs a real stock_movements migration to avoid implicit DDL commits.');
+        }
 
-        $this->requestWithToken(
-            $token,
-            'DELETE',
-            "/api/v1/admin/branches/{$branch->id}/locations/{$location->id}",
-        )->assertStatus(409);
+        if ($createdTemporaryTable) {
+            Schema::create('stock_movements', function (Blueprint $table): void {
+                $table->id();
+                $table->foreignId('location_id')->constrained()->restrictOnDelete();
+            });
+        }
 
-        $this->assertDatabaseHas('locations', ['id' => $location->id]);
-        $this->assertDatabaseHas('stock_movements', ['location_id' => $location->id]);
+        try {
+            $branch = Branch::factory()->create();
+            $location = $branch->locations()->create([
+                'name' => 'Receiving Area',
+                'code' => 'R-02',
+                'type' => 'receiving',
+            ]);
+            DB::table('stock_movements')->insert(['location_id' => $location->id]);
+            $admin = $this->staffWithPermission('locations.manage');
+            $token = $admin->createToken('test')->plainTextToken;
+
+            $this->requestWithToken(
+                $token,
+                'DELETE',
+                "/api/v1/admin/branches/{$branch->id}/locations/{$location->id}",
+            )->assertStatus(409);
+
+            $this->assertDatabaseHas('locations', ['id' => $location->id]);
+            $this->assertDatabaseHas('stock_movements', ['location_id' => $location->id]);
+        } finally {
+            if ($createdTemporaryTable) {
+                Schema::dropIfExists('stock_movements');
+            }
+        }
+
+        if ($createdTemporaryTable) {
+            $this->assertFalse(Schema::hasTable('stock_movements'));
+        }
     }
 
     public function test_location_endpoints_forbid_staff_without_location_permissions(): void

@@ -39,11 +39,16 @@ class SettingSeeder extends Seeder
 
     public function run(): void
     {
-        foreach (self::SETTINGS as $setting) {
-            Setting::query()->firstOrCreate(
-                ['key' => $setting['key']],
-                $setting,
-            );
-        }
+        $now = now();
+        $rows = array_map(
+            static fn (array $setting): array => [
+                ...$setting,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+            self::SETTINGS,
+        );
+
+        Setting::query()->insertOrIgnore($rows);
     }
 }

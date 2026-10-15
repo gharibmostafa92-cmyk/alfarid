@@ -5,13 +5,17 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Enums\StaffRole;
+use App\Http\Controllers\Api\V1\Admin\PermissionController;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
+use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
 
 class RolePermissionEndpointsTest extends TestCase
@@ -39,6 +43,29 @@ class RolePermissionEndpointsTest extends TestCase
             ->assertJsonPath('data.inventory.0.name', 'inventory.view')
             ->assertJsonPath('data.users.0.name', 'users.view')
             ->assertJsonMissing(['name' => 'web.only']);
+    }
+
+    public function test_permission_list_uses_spatie_cache_for_repeated_reads(): void
+    {
+        Permission::create(['name' => 'permissions.view', 'guard_name' => 'staff']);
+        $permissionRegistrar = app(PermissionRegistrar::class);
+        $permissionRegistrar->forgetCachedPermissions();
+
+        $permissionQueries = [];
+        DB::listen(function (QueryExecuted $query) use (&$permissionQueries): void {
+            if (preg_match('/\\bfrom\\s+["`]?permissions["`]?\\b/i', $query->sql) === 1) {
+                $permissionQueries[] = $query->sql;
+            }
+        });
+
+        $controller = app(PermissionController::class);
+        $controller->index($permissionRegistrar);
+        $queriesAfterFirstRequest = count($permissionQueries);
+        $this->assertGreaterThan(0, $queriesAfterFirstRequest);
+
+        $controller->index($permissionRegistrar);
+
+        $this->assertSame($queriesAfterFirstRequest, count($permissionQueries));
     }
 
     public function test_role_crud_creates_updates_and_deletes_staff_roles(): void

@@ -13,19 +13,29 @@ class LocationSeeder extends Seeder
 {
     public function run(): void
     {
-        if (! app()->environment(['local', 'testing']) || Location::query()->exists()) {
+        if (! app()->environment(['local', 'testing'])) {
             return;
         }
 
-        Branch::query()->orderBy('id')->each(function (Branch $branch): void {
+        $now = now();
+        $rows = [];
+
+        Branch::query()->orderBy('id')->get(['id'])->each(function (Branch $branch) use (&$rows, $now): void {
             foreach ([1, 2, 3] as $number) {
-                $branch->locations()->create([
+                $rows[] = [
+                    'branch_id' => $branch->id,
                     'name' => "Shelf {$number}",
                     'code' => sprintf('A-01-%02d', $number),
-                    'type' => LocationType::Shelf,
+                    'type' => LocationType::Shelf->value,
                     'is_active' => true,
-                ]);
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
             }
         });
+
+        if ($rows !== []) {
+            Location::query()->insertOrIgnore($rows);
+        }
     }
 }

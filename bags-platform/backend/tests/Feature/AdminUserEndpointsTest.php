@@ -36,7 +36,7 @@ class AdminUserEndpointsTest extends TestCase
 
         $created = $this->requestWithToken($token, 'POST', '/api/v1/admin/users', [
             'name' => 'New Cashier',
-            'email' => 'cashier@example.test',
+            'email' => '  CASHIER@Example.Test  ',
             'phone' => '+201001234567',
             'password' => 'long-password',
             'branch_id' => $branch->id,
@@ -44,6 +44,7 @@ class AdminUserEndpointsTest extends TestCase
         ]);
         $created->assertCreated()
             ->assertJsonPath('data.name', 'New Cashier')
+            ->assertJsonPath('data.email', 'cashier@example.test')
             ->assertJsonPath('data.branch.id', $branch->id)
             ->assertJsonPath('data.roles.0.name', 'Cashier');
 
@@ -54,7 +55,7 @@ class AdminUserEndpointsTest extends TestCase
 
         $this->requestWithToken($token, 'PATCH', "/api/v1/admin/users/{$userId}", [
             'name' => 'Updated Cashier',
-            'email' => 'cashier@example.test',
+            'email' => ' Cashier@Example.Test ',
             'branch_id' => null,
             'roles' => [],
         ])->assertOk()
@@ -99,7 +100,7 @@ class AdminUserEndpointsTest extends TestCase
 
         $this->requestWithToken($token, 'POST', '/api/v1/admin/users', [
             'name' => 'Invalid User',
-            'email' => 'existing@example.test',
+            'email' => ' EXISTING@Example.Test ',
             'password' => 'long-password',
             'branch_id' => 999,
             'roles' => ['missing-role'],

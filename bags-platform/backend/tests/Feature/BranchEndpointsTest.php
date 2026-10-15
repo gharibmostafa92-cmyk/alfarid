@@ -27,10 +27,10 @@ class BranchEndpointsTest extends TestCase
 
         $created = $this->requestWithToken($token, 'POST', '/api/v1/admin/branches', [
             'name' => 'Main Store',
-            'code' => 'BR-001',
+            'code' => '  br-001  ',
             'type' => 'branch',
             'phone' => '+201001234567',
-            'email' => 'main@example.test',
+            'email' => 'Main@Example.Test',
             'address' => '1 Market Street',
             'city' => 'Cairo',
             'is_active' => true,
@@ -39,6 +39,7 @@ class BranchEndpointsTest extends TestCase
         $created->assertCreated()
             ->assertJsonPath('data.name', 'Main Store')
             ->assertJsonPath('data.code', 'BR-001')
+            ->assertJsonPath('data.email', 'main@example.test')
             ->assertJsonPath('data.type', 'branch')
             ->assertJsonPath('data.is_active', true);
 
@@ -46,7 +47,7 @@ class BranchEndpointsTest extends TestCase
 
         $this->requestWithToken($token, 'PATCH', "/api/v1/admin/branches/{$branchId}", [
             'name' => 'Central Warehouse',
-            'code' => 'BR-001',
+            'code' => ' br-001 ',
             'type' => 'warehouse',
         ])->assertOk()
             ->assertJsonPath('data.name', 'Central Warehouse')
@@ -70,7 +71,7 @@ class BranchEndpointsTest extends TestCase
 
         $this->requestWithToken($token, 'POST', '/api/v1/admin/branches', [
             'name' => 'Invalid Branch',
-            'code' => 'BR-050',
+            'code' => ' br-050 ',
             'type' => 'shop',
         ])->assertUnprocessable()
             ->assertJsonValidationErrors(['code', 'type']);
@@ -91,21 +92,39 @@ class BranchEndpointsTest extends TestCase
 
     public function test_branch_cannot_be_deleted_while_stock_movements_reference_it(): void
     {
-        Schema::create('stock_movements', function (Blueprint $table): void {
-            $table->id();
-            $table->foreignId('branch_id')->constrained()->cascadeOnDelete();
-        });
+        $createdTemporaryTable = ! Schema::hasTable('stock_movements');
 
-        $branch = Branch::factory()->create();
-        DB::table('stock_movements')->insert(['branch_id' => $branch->id]);
-        $admin = $this->staffWithPermission('branches.manage');
-        $token = $admin->createToken('test')->plainTextToken;
+        if ($createdTemporaryTable && in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+            $this->markTestSkipped('A MySQL test fixture needs a real stock_movements migration to avoid implicit DDL commits.');
+        }
 
-        $this->requestWithToken($token, 'DELETE', "/api/v1/admin/branches/{$branch->id}")
-            ->assertStatus(409);
+        if ($createdTemporaryTable) {
+            Schema::create('stock_movements', function (Blueprint $table): void {
+                $table->id();
+                $table->foreignId('branch_id')->constrained()->restrictOnDelete();
+            });
+        }
 
-        $this->assertDatabaseHas('branches', ['id' => $branch->id]);
-        $this->assertDatabaseHas('stock_movements', ['branch_id' => $branch->id]);
+        try {
+            $branch = Branch::factory()->create();
+            DB::table('stock_movements')->insert(['branch_id' => $branch->id]);
+            $admin = $this->staffWithPermission('branches.manage');
+            $token = $admin->createToken('test')->plainTextToken;
+
+            $this->requestWithToken($token, 'DELETE', "/api/v1/admin/branches/{$branch->id}")
+                ->assertStatus(409);
+
+            $this->assertDatabaseHas('branches', ['id' => $branch->id]);
+            $this->assertDatabaseHas('stock_movements', ['branch_id' => $branch->id]);
+        } finally {
+            if ($createdTemporaryTable) {
+                Schema::dropIfExists('stock_movements');
+            }
+        }
+
+        if ($createdTemporaryTable) {
+            $this->assertFalse(Schema::hasTable('stock_movements'));
+        }
     }
 
     public function test_deleting_an_unreferenced_branch_cascades_to_its_locations(): void

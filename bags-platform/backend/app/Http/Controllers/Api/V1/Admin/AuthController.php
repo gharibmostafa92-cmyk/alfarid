@@ -23,7 +23,9 @@ class AuthController extends Controller
     public function login(AdminLoginRequest $request): JsonResource|JsonResponse
     {
         $credentials = $request->validated();
-        $user = User::query()->where('email', $credentials['email'])->first();
+        $user = User::query()
+            ->whereRaw('LOWER(email) = ?', [$credentials['email']])
+            ->first();
         $storedHash = $user instanceof User ? $user->password : self::DUMMY_PASSWORD_HASH;
         $passwordMatches = Hash::check($credentials['password'], $storedHash);
 

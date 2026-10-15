@@ -36,7 +36,7 @@ class AdminAuthEndpointsTest extends TestCase
         $staff->assignRole($role);
 
         $response = $this->postJson('/api/v1/admin/auth/login', [
-            'email' => 'admin@example.test',
+            'email' => '  ADMIN@Example.Test  ',
             'password' => 'secret-password',
         ]);
 
@@ -84,6 +84,18 @@ class AdminAuthEndpointsTest extends TestCase
             'email' => 'inactive@example.test',
             'password' => 'wrong-password',
         ])->assertUnauthorized();
+
+        User::factory()->create([
+            'email' => 'LEGACY@EXAMPLE.TEST',
+            'password' => 'secret-password',
+            'is_active' => true,
+        ]);
+
+        $this->postJson('/api/v1/admin/auth/login', [
+            'email' => 'legacy@example.test',
+            'password' => 'secret-password',
+        ])->assertOk()
+            ->assertJsonPath('data.email', 'LEGACY@EXAMPLE.TEST');
     }
 
     public function test_login_validates_required_email_and_password(): void

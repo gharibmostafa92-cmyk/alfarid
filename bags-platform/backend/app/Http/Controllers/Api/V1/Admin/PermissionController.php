@@ -8,15 +8,15 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Str;
 use Spatie\Permission\Models\Permission;
+use Spatie\Permission\PermissionRegistrar;
 
 class PermissionController extends Controller
 {
-    public function index(): JsonResponse
+    public function index(PermissionRegistrar $permissionRegistrar): JsonResponse
     {
-        $permissions = Permission::query()
-            ->where('guard_name', 'staff')
-            ->orderBy('name')
-            ->get(['id', 'name', 'guard_name']);
+        $permissions = $permissionRegistrar
+            ->getPermissions(['guard_name' => 'staff'])
+            ->sortBy('name');
 
         $groups = $permissions
             ->groupBy(fn (Permission $permission): string => Str::before($permission->name, '.'))
