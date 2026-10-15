@@ -31,10 +31,10 @@ class TransferItemsQtyRequest extends FormRequest
         return [
             'items' => ['nullable', 'array', 'max:100'],
             'items.*.id' => [
-                'required_with:items', 'integer', 'min:1',
+                'required', 'bail', 'integer', 'min:1', 'distinct',
                 Rule::exists('stock_transfer_items', 'id')->where('stock_transfer_id', $transferId),
             ],
-            "items.*.{$this->qtyField}" => ['required_with:items', 'numeric', 'min:0', 'max:99999999.9999'],
+            "items.*.{$this->qtyField}" => ['required', 'numeric', 'decimal:0,4', 'min:0', 'max:99999999.9999'],
         ];
     }
 

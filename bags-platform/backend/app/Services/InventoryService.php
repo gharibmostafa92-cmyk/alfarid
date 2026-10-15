@@ -7,8 +7,10 @@ namespace App\Services;
 use App\Enums\StockBucket;
 use App\Enums\StockMovementType;
 use App\Exceptions\BusinessException;
+use App\Models\Location;
 use App\Models\StockLevel;
 use App\Models\StockMovement;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -30,33 +32,41 @@ class InventoryService
     public function recordMovement(array $data): StockMovement
     {
         return DB::transaction(function () use ($data): StockMovement {
-            $qty = (float) $data['quantity'];
+            $rawQty = $data['quantity'];
+            if (! is_numeric($rawQty) || ! is_finite((float) $rawQty) || abs((float) $rawQty) > 99999999.9999) {
+                throw new BusinessException('كمية الحركة غير صالحة.');
+            }
+            // Work in ten-thousandths to avoid floating point residues at zero.
+            $units = (int) round((float) $rawQty * 10000);
+            $qty = $units / 10000;
 
-            if ($qty === 0.0) {
+            if ($units === 0) {
                 throw new BusinessException('كمية الحركة يجب ألا تساوي صفرًا.');
             }
 
             $type = $data['type'] instanceof StockMovementType ? $data['type'] : StockMovementType::from($data['type']);
             $bucket = $data['affected_bucket'] instanceof StockBucket ? $data['affected_bucket'] : StockBucket::from($data['affected_bucket']);
+            $this->assertValidMovementSemantics($type, $bucket, $units);
             $locationId = $data['location_id'] ?? null;
+            if ($locationId !== null && ! Location::query()->whereKey($locationId)->where('branch_id', $data['branch_id'])->exists()) {
+                throw new BusinessException('الموقع لا يتبع الفرع المحدد.');
+            }
 
-            // 1. جلب سجل الرصيد أو إنشاؤه (createOrFirst آمن ضد سباق الإنشاء)، ثم قفل الصف
-            StockLevel::query()->firstOrCreate([
+            $levels = $this->lockLevels([[
                 'product_variant_id' => $data['product_variant_id'],
                 'branch_id' => $data['branch_id'],
                 'location_id' => $locationId,
-            ]);
+            ]]);
 
-            $stock = StockLevel::query()
-                ->where('product_variant_id', $data['product_variant_id'])
-                ->where('branch_id', $data['branch_id'])
-                ->where('location_id', $locationId)
-                ->lockForUpdate()
-                ->firstOrFail();
+            $stock = $levels->first();
 
             $bucketKey = $bucket->value;
             $before = (float) $stock->{$bucketKey};
-            $after = $before + $qty;
+            $afterUnits = (int) round($before * 10000) + $units;
+            $after = $afterUnits / 10000;
+            if ($afterUnits > 999999999999) {
+                throw new BusinessException('الرصيد يتجاوز الحد المسموح.');
+            }
 
             // 2. التحقق: الرصيد المستهدف لا ينزل تحت الصفر
             if ($after < 0) {
@@ -68,7 +78,7 @@ class InventoryService
             $onHand = $bucket === StockBucket::OnHand ? $after : (float) $stock->on_hand;
             $reserved = $bucket === StockBucket::Reserved ? $after : (float) $stock->reserved;
             $damaged = $bucket === StockBucket::Damaged ? $after : (float) $stock->damaged;
-            $availableAfter = $onHand - $reserved - $damaged;
+            $availableAfter = (int) round($onHand * 10000) - (int) round($reserved * 10000) - (int) round($damaged * 10000);
 
             if ($availableAfter < 0) {
                 $availableNow = (float) $stock->on_hand - (float) $stock->reserved - (float) $stock->damaged;
@@ -111,9 +121,29 @@ class InventoryService
     public function applyAdjustments(array $payload, int $userId): array
     {
         return DB::transaction(function () use ($payload, $userId): array {
+            app(BranchAccess::class)->assertBranch($userId, (int) $payload['branch_id']);
+            $this->lockLevels(array_map(fn ($item) => [
+                'product_variant_id' => $item['product_variant_id'],
+                'branch_id' => $payload['branch_id'],
+                'location_id' => $payload['location_id'] ?? null,
+            ], $payload['items']));
             $movements = [];
 
             foreach ($payload['items'] as $item) {
+                if (in_array($item['adjustment_type'], ['write_off_damaged', 'restore_damaged'], true)) {
+                    $base = [
+                        'product_variant_id' => $item['product_variant_id'],
+                        'branch_id' => $payload['branch_id'], 'location_id' => $payload['location_id'] ?? null,
+                        'created_by' => $userId, 'notes' => $item['reason'] ?? null,
+                        'quantity' => -abs((float) $item['quantity']),
+                    ];
+                    $movements[] = $this->recordMovement([...$base, 'type' => StockMovementType::DamageRelease, 'affected_bucket' => StockBucket::Damaged]);
+                    if ($item['adjustment_type'] === 'write_off_damaged') {
+                        $movements[] = $this->recordMovement([...$base, 'type' => StockMovementType::DamageWriteOff, 'affected_bucket' => StockBucket::OnHand]);
+                    }
+
+                    continue;
+                }
                 [$type, $bucket, $sign] = match ($item['adjustment_type']) {
                     'increase' => [StockMovementType::AdjustmentIn, StockBucket::OnHand, 1],
                     'decrease' => [StockMovementType::AdjustmentOut, StockBucket::OnHand, -1],
@@ -145,5 +175,60 @@ class InventoryService
             ->where('branch_id', $branchId)
             ->where('location_id', $locationId)
             ->first();
+    }
+
+    /** Acquire every stock key before a multi-item operation, in one global order. */
+    public function lockLevels(array $keys): Collection
+    {
+        if (DB::transactionLevel() === 0) {
+            throw new \LogicException('Stock locks require an active transaction.');
+        }
+        $keys = collect($keys)->unique(fn ($key) => $this->levelKey($key))
+            ->sortBy(fn ($key) => [(int) $key['branch_id'], (int) ($key['location_id'] ?? 0), (int) $key['product_variant_id']]);
+        if ($keys->isEmpty()) {
+            return collect();
+        }
+        $now = now();
+        DB::table('stock_levels')->insertOrIgnore($keys->map(fn ($key) => [
+            'product_variant_id' => $key['product_variant_id'], 'branch_id' => $key['branch_id'],
+            'location_id' => $key['location_id'] ?? null, 'created_at' => $now, 'updated_at' => $now,
+        ])->values()->all());
+
+        $levels = StockLevel::query()->where(function ($query) use ($keys): void {
+            foreach ($keys->groupBy(fn ($key) => $key['branch_id'].':'.($key['location_id'] ?? 0)) as $group) {
+                $identity = $group->first();
+                $query->orWhere(fn ($scope) => $scope->where('branch_id', $identity['branch_id'])
+                    ->where('location_id', $identity['location_id'] ?? null)
+                    ->whereIn('product_variant_id', $group->pluck('product_variant_id')->all()));
+            }
+        })->orderBy('branch_id')->orderByRaw('location_id ASC NULLS FIRST')->orderBy('product_variant_id')
+            ->lockForUpdate()->get()->keyBy(fn ($stock) => $this->levelKey($stock->getAttributes()));
+
+        return $levels;
+    }
+
+    public function levelKey(array $key): string
+    {
+        return $key['branch_id'].':'.($key['location_id'] ?? 0).':'.$key['product_variant_id'];
+    }
+
+    private function assertValidMovementSemantics(StockMovementType $type, StockBucket $bucket, int $units): void
+    {
+        [$allowed, $positive] = match ($type) {
+            StockMovementType::PurchaseReceipt, StockMovementType::SaleReturn,
+            StockMovementType::AdjustmentIn, StockMovementType::StocktakeGain, StockMovementType::TransferIn => [[StockBucket::OnHand], true],
+            StockMovementType::Sale, StockMovementType::AdjustmentOut,
+            StockMovementType::StocktakeLoss, StockMovementType::TransferOut,
+            StockMovementType::DamageWriteOff => [[StockBucket::OnHand], false],
+            StockMovementType::Damage => [[StockBucket::Damaged], true],
+            StockMovementType::DamageRelease => [[StockBucket::Damaged], false],
+            StockMovementType::Reserve => [[StockBucket::Reserved], true],
+            StockMovementType::ReleaseReserve => [[StockBucket::Reserved], false],
+            StockMovementType::TransferInTransit => [[StockBucket::InTransit], true],
+            StockMovementType::TransferTransitRelease, StockMovementType::TransferShortage => [[StockBucket::InTransit], false],
+        };
+        if (! in_array($bucket, $allowed, true) || ($units > 0) !== $positive) {
+            throw new BusinessException('نوع الحركة لا يطابق وعاء المخزون أو اتجاه الكمية.');
+        }
     }
 }

@@ -18,4 +18,9 @@ enum StockMovementType: string
     case StocktakeLoss = 'stocktake_loss';
     case Reserve = 'reserve';
     case ReleaseReserve = 'release_reserve';
+    case DamageRelease = 'damage_release';
+    case DamageWriteOff = 'damage_write_off';
+    case TransferInTransit = 'transfer_in_transit';
+    case TransferTransitRelease = 'transfer_transit_release';
+    case TransferShortage = 'transfer_shortage';
 }

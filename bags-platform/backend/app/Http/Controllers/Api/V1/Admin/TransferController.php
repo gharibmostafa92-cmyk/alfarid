@@ -13,6 +13,7 @@ use App\Http\Requests\Admin\Transfer\StoreTransferRequest;
 use App\Http\Requests\Admin\Transfer\UpdateTransferRequest;
 use App\Http\Resources\Admin\StockTransferResource;
 use App\Models\StockTransfer;
+use App\Services\BranchAccess;
 use App\Services\TransferService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -48,6 +49,8 @@ class TransferController extends Controller implements HasMiddleware
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
+        $filters['staff_branch_id'] = app(BranchAccess::class)->restrictedBranch($request->user());
+
         return StockTransferResource::collection($this->transfers->paginate($filters));
     }
 
@@ -61,19 +64,21 @@ class TransferController extends Controller implements HasMiddleware
             ->setStatusCode(201);
     }
 
-    public function show(StockTransfer $transfer): StockTransferResource
+    public function show(Request $request, StockTransfer $transfer): StockTransferResource
     {
+        app(BranchAccess::class)->assertBranch($request->user()->id, $transfer->from_branch_id, $transfer->to_branch_id);
+
         return new StockTransferResource($this->transfers->find($transfer->id));
     }
 
     public function update(UpdateTransferRequest $request, StockTransfer $transfer): StockTransferResource
     {
-        return new StockTransferResource($this->transfers->update($transfer, $request->validated()));
+        return new StockTransferResource($this->transfers->update($transfer, $request->validated(), $request->user()->id));
     }
 
-    public function destroy(StockTransfer $transfer): JsonResponse
+    public function destroy(Request $request, StockTransfer $transfer): JsonResponse
     {
-        $this->transfers->delete($transfer);
+        $this->transfers->delete($transfer, $request->user()->id);
 
         return response()->json(['message' => 'تم حذف التحويل بنجاح']);
     }

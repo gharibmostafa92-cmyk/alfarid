@@ -11,7 +11,9 @@ use App\Http\Resources\Admin\StockLevelResource;
 use App\Http\Resources\Admin\StockMovementResource;
 use App\Models\StockLevel;
 use App\Models\StockMovement;
+use App\Services\BranchAccess;
 use App\Services\InventoryService;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -44,6 +46,7 @@ class InventoryController extends Controller implements HasMiddleware
         ]);
 
         $levels = StockLevel::query()
+            ->when(app(BranchAccess::class)->restrictedBranch($request->user()), fn ($q, $branch) => $q->where('branch_id', $branch))
             ->with(['variant.product', 'branch', 'location'])
             ->when($filters['branch_id'] ?? null, fn ($q, $v) => $q->where('branch_id', $v))
             ->when($filters['location_id'] ?? null, fn ($q, $v) => $q->where('location_id', $v))
@@ -73,14 +76,15 @@ class InventoryController extends Controller implements HasMiddleware
         ]);
 
         $movements = StockMovement::query()
+            ->when(app(BranchAccess::class)->restrictedBranch($request->user()), fn ($q, $branch) => $q->where('branch_id', $branch))
             ->with(['variant', 'branch', 'location', 'creator'])
             ->when($filters['branch_id'] ?? null, fn ($q, $v) => $q->where('branch_id', $v))
             ->when($filters['location_id'] ?? null, fn ($q, $v) => $q->where('location_id', $v))
             ->when($filters['product_variant_id'] ?? null, fn ($q, $v) => $q->where('product_variant_id', $v))
             ->when($filters['product_id'] ?? null, fn ($q, $v) => $q->whereHas('variant', fn ($vq) => $vq->where('product_id', $v)))
             ->when($filters['type'] ?? null, fn ($q, $v) => $q->where('type', $v))
-            ->when($filters['from_date'] ?? null, fn ($q, $v) => $q->whereDate('created_at', '>=', $v))
-            ->when($filters['to_date'] ?? null, fn ($q, $v) => $q->whereDate('created_at', '<=', $v))
+            ->when($filters['from_date'] ?? null, fn ($q, $v) => $q->where('created_at', '>=', Carbon::parse($v)->startOfDay()))
+            ->when($filters['to_date'] ?? null, fn ($q, $v) => $q->where('created_at', '<', Carbon::parse($v)->addDay()->startOfDay()))
             ->orderByDesc('id')
             ->paginate($filters['per_page'] ?? 15);
 

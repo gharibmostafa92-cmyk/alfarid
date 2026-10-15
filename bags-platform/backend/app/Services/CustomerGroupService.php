@@ -14,9 +14,9 @@ class CustomerGroupService
     {
         return CustomerGroup::query()
             ->withCount('customers')
-            ->when($filters['search'] ?? null, fn ($q, $v) => $q
+            ->when($filters['search'] ?? null, fn ($q, $v) => $q->where(fn ($search) => $search
                 ->whereLike('name', '%'.SearchTerm::escape($v).'%', caseSensitive: false)
-                ->orWhereLike('code', '%'.SearchTerm::escape($v).'%', caseSensitive: false))
+                ->orWhereLike('code', '%'.SearchTerm::escape($v).'%', caseSensitive: false)))
             ->when(array_key_exists('is_active', $filters) && $filters['is_active'] !== null, fn ($q) => $q->where('is_active', $filters['is_active']))
             ->orderBy('name')
             ->orderBy('id')
@@ -25,6 +25,8 @@ class CustomerGroupService
 
     public function create(array $data): CustomerGroup
     {
+        $data = array_filter($data, fn ($value, $key) => $value !== null || ! in_array($key, ['discount_percentage', 'is_active'], true), ARRAY_FILTER_USE_BOTH);
+
         return CustomerGroup::query()->create($data);
     }
 

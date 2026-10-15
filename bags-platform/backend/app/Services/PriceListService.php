@@ -9,9 +9,12 @@ use App\Exceptions\BusinessException;
 use App\Models\PriceList;
 use App\Models\PriceListItem;
 use App\Models\ProductVariant;
+use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * إدارة قوائم الأسعار وعناصرها واستيراد/تصدير CSV.
@@ -45,25 +48,41 @@ class PriceListService
 
     public function create(array $data): PriceList
     {
+        $data = array_filter($data, fn ($value, $key) => $value !== null || ! in_array($key, ['currency', 'priority', 'is_active'], true), ARRAY_FILTER_USE_BOTH);
+        $this->validateDates($data);
+        $data = $this->withValidOwner($data);
+
         return PriceList::query()->create($data)->load(['customer', 'customerGroup', 'branch']);
     }
 
     public function update(PriceList $priceList, array $data): PriceList
     {
+        return DB::transaction(function () use ($priceList, $data): PriceList {
+            $priceList = PriceList::query()->lockForUpdate()->findOrFail($priceList->id);
+            $this->validateDates($data, $priceList);
+            $data = $this->withValidOwner($data, $priceList);
+            $priceList->update($data);
+
+            return $priceList->load(['customer', 'customerGroup', 'branch']);
+        });
+    }
+
+    private function withValidOwner(array $data, ?PriceList $priceList = null): array
+    {
         // فرض ربط النوع بالمالك على الحالة النهائية: النوع الخاص بعميل لازم له عميل،
         // والخاص بمجموعة لازم له مجموعة، وأي نوع تاني بيصفّي الحقلين تلقائيًا
-        $type = $data['type'] ?? $priceList->type;
+        $type = $data['type'] ?? $priceList?->type;
         $typeValue = $type instanceof PriceListType ? $type->value : $type;
 
         if ($typeValue === PriceListType::CustomerSpecific->value) {
-            $customerId = $data['customer_id'] ?? $priceList->customer_id;
+            $customerId = array_key_exists('customer_id', $data) ? $data['customer_id'] : $priceList?->customer_id;
             if ($customerId === null) {
                 throw new BusinessException('قائمة الأسعار الخاصة بعميل تتطلب تحديد العميل.');
             }
             $data['customer_id'] = $customerId;
             $data['customer_group_id'] = null;
         } elseif ($typeValue === PriceListType::CustomerGroup->value) {
-            $groupId = $data['customer_group_id'] ?? $priceList->customer_group_id;
+            $groupId = array_key_exists('customer_group_id', $data) ? $data['customer_group_id'] : $priceList?->customer_group_id;
             if ($groupId === null) {
                 throw new BusinessException('قائمة أسعار المجموعة تتطلب تحديد مجموعة العملاء.');
             }
@@ -74,9 +93,7 @@ class PriceListService
             $data['customer_group_id'] = null;
         }
 
-        $priceList->update($data);
-
-        return $priceList->load(['customer', 'customerGroup', 'branch']);
+        return $data;
     }
 
     public function delete(PriceList $priceList): void
@@ -99,25 +116,35 @@ class PriceListService
 
     public function createItem(PriceList $priceList, array $data): PriceListItem
     {
-        $this->assertNoDuplicateTier($priceList, (int) $data['product_variant_id'], (float) $data['min_qty']);
+        return DB::transaction(function () use ($priceList, $data): PriceListItem {
+            $priceList = PriceList::query()->lockForUpdate()->findOrFail($priceList->id);
+            $data['min_qty'] = $data['min_qty'] ?? 1;
+            $this->validateDates($data);
+            $this->assertNoDuplicateTier($priceList, (int) $data['product_variant_id'], (float) $data['min_qty']);
 
-        return $priceList->items()->create($data)->load('variant.product');
+            return $priceList->items()->create($data)->load('variant.product');
+        });
     }
 
     public function updateItem(PriceListItem $item, array $data): PriceListItem
     {
-        if (isset($data['product_variant_id']) || isset($data['min_qty'])) {
-            $this->assertNoDuplicateTier(
-                $item->priceList,
-                (int) ($data['product_variant_id'] ?? $item->product_variant_id),
-                (float) ($data['min_qty'] ?? $item->min_qty),
-                $item->id,
-            );
-        }
+        return DB::transaction(function () use ($item, $data): PriceListItem {
+            PriceList::query()->lockForUpdate()->findOrFail($item->price_list_id);
+            $item = PriceListItem::query()->lockForUpdate()->findOrFail($item->id);
+            $this->validateDates($data, $item);
+            if (isset($data['product_variant_id']) || isset($data['min_qty'])) {
+                $this->assertNoDuplicateTier(
+                    $item->priceList,
+                    (int) ($data['product_variant_id'] ?? $item->product_variant_id),
+                    (float) ($data['min_qty'] ?? $item->min_qty),
+                    $item->id,
+                );
+            }
 
-        $item->update($data);
+            $item->update($data);
 
-        return $item->load('variant.product');
+            return $item->load('variant.product');
+        });
     }
 
     public function deleteItem(PriceListItem $item): void
@@ -141,34 +168,38 @@ class PriceListService
     // ---------- CSV ----------
 
     /** تصدير عناصر القائمة كـ CSV بنفس أعمدة الاستيراد عشان إعادة الاستيراد تشتغل. */
-    public function exportCsv(PriceList $priceList): string
+    public function exportCsv(PriceList $priceList): StreamedResponse
     {
-        $handle = fopen('php://temp', 'r+');
-        fputcsv($handle, ['sku', 'variant_id', 'product_name', 'min_qty', 'price', 'starts_at', 'ends_at']);
+        return response()->streamDownload(function () use ($priceList): void {
+            $handle = fopen('php://output', 'w');
+            try {
+                fputcsv($handle, ['sku', 'variant_id', 'product_name', 'min_qty', 'price', 'starts_at', 'ends_at']);
 
-        $priceList->items()
-            ->with(['variant.product'])
-            ->orderBy('product_variant_id')
-            ->orderBy('min_qty')
-            ->chunk(500, function ($items) use ($handle): void {
-                foreach ($items as $item) {
-                    fputcsv($handle, [
-                        $item->variant?->sku,
-                        $item->product_variant_id,
-                        $item->variant?->product?->name_ar,
-                        $item->min_qty,
-                        $item->price,
-                        $item->starts_at?->format('Y-m-d H:i:s'),
-                        $item->ends_at?->format('Y-m-d H:i:s'),
-                    ]);
-                }
-            });
+                $priceList->items()
+                    ->with(['variant.product' => fn ($query) => $query->withTrashed()])
+                    ->chunkById(500, function ($items) use ($handle): void {
+                        foreach ($items as $item) {
+                            fputcsv($handle, [
+                                $this->csvText($item->variant?->sku ?? ''),
+                                $item->product_variant_id,
+                                $this->csvText($item->variant?->product?->name_ar ?? ''),
+                                $item->min_qty,
+                                $item->price,
+                                $item->starts_at?->format('Y-m-d H:i:s'),
+                                $item->ends_at?->format('Y-m-d H:i:s'),
+                            ]);
+                        }
+                    });
 
-        rewind($handle);
-        $csv = stream_get_contents($handle);
-        fclose($handle);
+            } finally {
+                fclose($handle);
+            }
+        }, 'price-list-'.$priceList->id.'.csv', ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
 
-        return $csv;
+    private function csvText(string $value): string
+    {
+        return preg_match('/^[\s]*[=+@\-\t\r\n]/u', $value) ? "'".$value : $value;
     }
 
     /**
@@ -180,101 +211,96 @@ class PriceListService
     public function importCsv(PriceList $priceList, UploadedFile $file): array
     {
         $handle = fopen($file->getRealPath(), 'r');
-
         if ($handle === false) {
             throw new BusinessException('تعذرت قراءة ملف الاستيراد.');
         }
-
-        $header = fgetcsv($handle);
-
-        if ($header === false) {
-            fclose($handle);
-            throw new BusinessException('ملف الاستيراد فارغ.');
-        }
-
-        $columns = array_map(fn ($h) => strtolower(trim((string) $h)), $header);
-        $index = array_flip($columns);
-
-        foreach (['price'] as $required) {
-            if (! isset($index[$required])) {
-                fclose($handle);
-                throw new BusinessException("عمود {$required} مطلوب في ملف الاستيراد.");
+        try {
+            $header = fgetcsv($handle);
+            if ($header === false) {
+                throw new BusinessException('ملف الاستيراد فارغ.');
             }
-        }
-
-        if (! isset($index['variant_id']) && ! isset($index['sku'])) {
-            fclose($handle);
-            throw new BusinessException('الملف لازم يحتوي عمود variant_id أو sku على الأقل.');
-        }
-
-        $report = ['created' => 0, 'updated' => 0, 'skipped' => 0, 'errors' => []];
-        $line = 1;
-
-        DB::transaction(function () use ($handle, $index, $priceList, &$report, &$line): void {
+            $header[0] = preg_replace('/^\xEF\xBB\xBF/', '', (string) $header[0]);
+            $columns = array_map(fn ($h) => strtolower(trim((string) $h)), $header);
+            $index = array_flip($columns);
+            if (count($index) !== count($columns) || ! isset($index['price']) || (! isset($index['variant_id']) && ! isset($index['sku']))) {
+                throw new BusinessException('يجب أن يحتوي الملف على price وsku أو variant_id، دون أعمدة مكررة.');
+            }
+            $rows = [];
+            $line = 1;
             while (($row = fgetcsv($handle)) !== false) {
                 $line++;
-
+                if ($line > 10000) {
+                    throw new BusinessException('عدد أسطر الملف يتجاوز الحد المسموح.');
+                }
                 if ($row === [null] || trim(implode('', array_map('strval', $row))) === '') {
-                    continue; // سطر فارغ
+                    continue;
                 }
-
-                $get = fn (string $column) => isset($index[$column]) ? trim((string) ($row[$index[$column]] ?? '')) : '';
-
-                try {
-                    $variant = $this->resolveVariant($get('variant_id'), $get('sku'));
-
-                    if ($variant === null) {
-                        throw new BusinessException('متغير غير موجود (sku/variant_id لا يطابق أي متغير).');
-                    }
-
-                    $priceRaw = $get('price');
-                    if (! is_numeric($priceRaw) || (float) $priceRaw < 0) {
-                        throw new BusinessException('سعر غير صالح.');
-                    }
-
-                    $minQtyRaw = $get('min_qty');
-                    $minQty = $minQtyRaw === '' ? 1.0 : (float) $minQtyRaw;
-                    if (! is_numeric($minQtyRaw === '' ? '1' : $minQtyRaw) || $minQty <= 0) {
-                        throw new BusinessException('حد كمية غير صالح.');
-                    }
-
-                    $item = PriceListItem::query()->updateOrCreate(
-                        [
-                            'price_list_id' => $priceList->id,
-                            'product_variant_id' => $variant->id,
-                            'min_qty' => $minQty,
-                        ],
-                        [
-                            'price' => (float) $priceRaw,
-                            'starts_at' => $this->parseDate($get('starts_at')),
-                            'ends_at' => $this->parseDate($get('ends_at')),
-                        ],
-                    );
-
-                    $item->wasRecentlyCreated ? $report['created']++ : $report['updated']++;
-                } catch (BusinessException $e) {
-                    $report['skipped']++;
-                    $report['errors'][] = ['line' => $line, 'message' => $e->getMessage()];
+                if (count($rows) >= 2000) {
+                    throw new BusinessException('الحد الأقصى للاستيراد المتزامن 2000 صف؛ قسّم الملف إلى أجزاء أصغر.');
                 }
+                $get = fn (string $key) => isset($index[$key]) ? trim((string) ($row[$index[$key]] ?? '')) : '';
+                $rows[] = ['line' => $line, 'variant_id' => $get('variant_id'), 'sku' => $get('sku'),
+                    'price' => $get('price'), 'min_qty' => $get('min_qty') === '' ? '1' : $get('min_qty'),
+                    'starts_at' => $get('starts_at') === '' ? null : $get('starts_at'),
+                    'ends_at' => $get('ends_at') === '' ? null : $get('ends_at')];
+            }
+        } finally {
+            fclose($handle);
+        }
+
+        $ids = array_values(array_filter(array_map(fn ($row) => filter_var($row['variant_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]), $rows)));
+        $skus = [];
+        foreach ($rows as $row) {
+            $skus[] = $row['sku'];
+            $skus[] = $this->unescapeCsvText($row['sku']);
+        }
+        $variants = ProductVariant::query()->where('is_active', true)
+            ->where(fn ($q) => $q->whereIn('id', $ids)->orWhereIn('sku', array_unique($skus)))->get();
+        $byId = $variants->keyBy('id');
+        $bySku = $variants->keyBy('sku');
+        $report = ['created' => 0, 'updated' => 0, 'skipped' => 0, 'errors' => []];
+        $valid = [];
+        foreach ($rows as $row) {
+            try {
+                $variant = $row['variant_id'] !== ''
+                    ? $byId->get(filter_var($row['variant_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?: 0)
+                    : ($bySku->get($row['sku']) ?? $bySku->get($this->unescapeCsvText($row['sku'])));
+                if ($variant === null || ($row['sku'] !== '' && $row['sku'] !== $variant->sku && $row['sku'] !== $this->csvText($variant->sku))) {
+                    throw new BusinessException('الصنف غير موجود أو يوجد تعارض بين sku وvariant_id.');
+                }
+                $validator = Validator::make($row, [
+                    'price' => ['required', 'numeric', 'decimal:0,4', 'min:0', 'max:99999999.9999'],
+                    'min_qty' => ['required', 'numeric', 'decimal:0,4', 'gt:0', 'max:99999999.9999'],
+                    'starts_at' => ['nullable', 'date'], 'ends_at' => ['nullable', 'date'],
+                ]);
+                if ($validator->fails()) {
+                    throw new BusinessException($validator->errors()->first());
+                }
+                $row['starts_at'] = $this->parseDate($row['starts_at'] ?? '');
+                $row['ends_at'] = $this->parseDate($row['ends_at'] ?? '');
+                $this->validateDates($row);
+                $valid[] = [...$row, 'product_variant_id' => $variant->id];
+            } catch (BusinessException $exception) {
+                $report['skipped']++;
+                $report['errors'][] = ['line' => $row['line'], 'message' => $exception->getMessage()];
+            }
+        }
+        DB::transaction(function () use ($valid, $priceList, &$report): void {
+            PriceList::query()->lockForUpdate()->findOrFail($priceList->id);
+            foreach ($valid as $row) {
+                $item = PriceListItem::query()->updateOrCreate([
+                    'price_list_id' => $priceList->id, 'product_variant_id' => $row['product_variant_id'], 'min_qty' => $row['min_qty'],
+                ], ['price' => $row['price'], 'starts_at' => $row['starts_at'], 'ends_at' => $row['ends_at']]);
+                $item->wasRecentlyCreated ? $report['created']++ : $report['updated']++;
             }
         });
-
-        fclose($handle);
 
         return $report;
     }
 
-    private function resolveVariant(string $variantId, string $sku): ?ProductVariant
+    private function unescapeCsvText(string $value): string
     {
-        if ($variantId !== '' && ctype_digit($variantId)) {
-            return ProductVariant::query()->find((int) $variantId);
-        }
-
-        if ($sku !== '') {
-            return ProductVariant::query()->where('sku', $sku)->first();
-        }
-
-        return null;
+        return str_starts_with($value, "'") && $this->csvText(substr($value, 1)) === $value ? substr($value, 1) : $value;
     }
 
     private function parseDate(string $value): ?string
@@ -290,5 +316,14 @@ class PriceListService
         }
 
         return date('Y-m-d H:i:s', $timestamp);
+    }
+
+    private function validateDates(array $data, PriceList|PriceListItem|null $model = null): void
+    {
+        $start = array_key_exists('starts_at', $data) ? $data['starts_at'] : $model?->starts_at;
+        $end = array_key_exists('ends_at', $data) ? $data['ends_at'] : $model?->ends_at;
+        if ($start !== null && $end !== null && Carbon::parse($end)->lt(Carbon::parse($start))) {
+            throw new BusinessException('نهاية صلاحية السعر يجب ألا تسبق بدايتها.');
+        }
     }
 }

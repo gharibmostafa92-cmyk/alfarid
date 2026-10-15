@@ -6,7 +6,10 @@ namespace Tests\Feature;
 
 use App\Models\Branch;
 use App\Models\Location;
+use App\Models\ProductVariant;
 use App\Models\User;
+use App\Services\InventoryService;
+use Database\Seeders\SettingSeeder;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
@@ -107,8 +110,18 @@ class BranchEndpointsTest extends TestCase
 
         try {
             $branch = Branch::factory()->create();
-            DB::table('stock_movements')->insert(['branch_id' => $branch->id]);
             $admin = $this->staffWithPermission('branches.manage');
+            if ($createdTemporaryTable) {
+                DB::table('stock_movements')->insert(['branch_id' => $branch->id]);
+            } else {
+                $this->seed(SettingSeeder::class);
+                app(InventoryService::class)->recordMovement([
+                    'branch_id' => $branch->id,
+                    'product_variant_id' => ProductVariant::factory()->create()->id,
+                    'type' => 'adjustment_in', 'affected_bucket' => 'on_hand',
+                    'quantity' => 1, 'created_by' => $admin->id,
+                ]);
+            }
             $token = $admin->createToken('test')->plainTextToken;
 
             $this->requestWithToken($token, 'DELETE', "/api/v1/admin/branches/{$branch->id}")

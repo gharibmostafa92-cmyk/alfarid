@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Models\Branch;
+use App\Models\ProductVariant;
 use App\Models\User;
+use App\Services\InventoryService;
+use Database\Seeders\SettingSeeder;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
@@ -109,8 +112,18 @@ class LocationEndpointsTest extends TestCase
                 'code' => 'R-02',
                 'type' => 'receiving',
             ]);
-            DB::table('stock_movements')->insert(['location_id' => $location->id]);
             $admin = $this->staffWithPermission('locations.manage');
+            if ($createdTemporaryTable) {
+                DB::table('stock_movements')->insert(['location_id' => $location->id]);
+            } else {
+                $this->seed(SettingSeeder::class);
+                app(InventoryService::class)->recordMovement([
+                    'branch_id' => $branch->id, 'location_id' => $location->id,
+                    'product_variant_id' => ProductVariant::factory()->create()->id,
+                    'type' => 'adjustment_in', 'affected_bucket' => 'on_hand',
+                    'quantity' => 1, 'created_by' => $admin->id,
+                ]);
+            }
             $token = $admin->createToken('test')->plainTextToken;
 
             $this->requestWithToken(

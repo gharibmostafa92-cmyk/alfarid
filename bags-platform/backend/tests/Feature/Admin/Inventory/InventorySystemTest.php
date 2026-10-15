@@ -248,7 +248,7 @@ class InventorySystemTest extends TestCase
         $this->assertStringContainsString('عجز', (string) $response->json('data.notes'));
 
         $shortage = StockMovement::query()
-            ->where('type', StockMovementType::AdjustmentOut)
+            ->where('type', StockMovementType::TransferShortage)
             ->where('affected_bucket', StockBucket::InTransit)
             ->first();
         $this->assertNotNull($shortage);

@@ -60,6 +60,10 @@ class SettingService
             ])
             ->all();
 
+        if (isset($counters['movement_next_number'])) {
+            $counters['movement_next_number'] = $this->nextMovementNumber();
+        }
+
         if ($counters !== []) {
             $grouped['numbering'] = array_merge($grouped['numbering'] ?? [], $counters);
             ksort($grouped['numbering']);
@@ -108,6 +112,12 @@ class SettingService
 
                 if (in_array($key, self::NUMBERING_COUNTER_KEYS, true)) {
                     $value = max($this->counterValue($setting->value), $this->counterValue($value));
+                    if ($key === 'movement_next_number') {
+                        // Configuration changes are rare; lock the sequence only here, never per movement.
+                        DB::statement('ALTER SEQUENCE stock_movement_number_seq INCREMENT BY 1');
+                        $value = max($value, $this->nextMovementNumber());
+                        DB::statement('ALTER SEQUENCE stock_movement_number_seq RESTART WITH '.$value);
+                    }
                 }
 
                 $setting->value = $value === null && str_ends_with($key, '_prefix')
@@ -127,12 +137,20 @@ class SettingService
      */
     public function generateNextNumber(string $type): string
     {
+        if ($type === 'movement') {
+            $settings = Setting::query()->whereIn('key', ['movement_prefix', 'movement_padding'])->pluck('value', 'key');
+            if (! $settings->has('movement_prefix') || ! $settings->has('movement_padding')) {
+                throw new InvalidArgumentException('Movement numbering settings are not initialized.');
+            }
+            $number = DB::selectOne("SELECT nextval('stock_movement_number_seq') AS number")->number;
+
+            return $settings['movement_prefix'].str_pad((string) $number, max(0, (int) $settings['movement_padding']), '0', STR_PAD_LEFT);
+        }
         $definitions = [
             'invoice' => ['prefix' => 'invoice_prefix', 'next' => 'invoice_next_number', 'padding' => 'invoice_padding'],
             'order' => ['prefix' => 'order_prefix', 'next' => 'order_next_number', 'padding' => 'order_padding'],
             'purchase_order' => ['prefix' => 'purchase_order_prefix', 'next' => 'purchase_order_next_number', 'padding' => 'purchase_order_padding'],
             'quotation' => ['prefix' => 'quotation_prefix', 'next' => 'quotation_next_number', 'padding' => 'quotation_padding'],
-            'movement' => ['prefix' => 'movement_prefix', 'next' => 'movement_next_number', 'padding' => 'movement_padding'],
             'transfer' => ['prefix' => 'transfer_prefix', 'next' => 'transfer_next_number', 'padding' => 'transfer_padding'],
             'stocktake' => ['prefix' => 'stocktake_prefix', 'next' => 'stocktake_next_number', 'padding' => 'stocktake_padding'],
         ];
@@ -178,6 +196,13 @@ class SettingService
     public function clearCache(): void
     {
         Cache::forget(self::CACHE_KEY);
+    }
+
+    private function nextMovementNumber(): int
+    {
+        $sequence = DB::selectOne('SELECT last_value, is_called FROM stock_movement_number_seq');
+
+        return (int) $sequence->last_value + ($sequence->is_called ? 1 : 0);
     }
 
     private function counterValue(mixed $value): int

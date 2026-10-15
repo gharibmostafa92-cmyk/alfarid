@@ -26,18 +26,18 @@ class StorePriceListRequest extends FormRequest
             'customer_id' => [
                 'required_if:type,'.PriceListType::CustomerSpecific->value,
                 'prohibited_unless:type,'.PriceListType::CustomerSpecific->value,
-                'nullable', 'integer', 'min:1', Rule::exists('customers', 'id'),
+                'nullable', 'bail', 'integer', 'min:1', Rule::exists('customers', 'id'),
             ],
             'customer_group_id' => [
                 'required_if:type,'.PriceListType::CustomerGroup->value,
                 'prohibited_unless:type,'.PriceListType::CustomerGroup->value,
-                'nullable', 'integer', 'min:1', Rule::exists('customer_groups', 'id'),
+                'nullable', 'bail', 'integer', 'min:1', Rule::exists('customer_groups', 'id'),
             ],
-            'branch_id' => ['nullable', 'integer', 'min:1', Rule::exists('branches', 'id')],
+            'branch_id' => ['nullable', 'bail', 'integer', 'min:1', Rule::exists('branches', 'id')->where('is_active', true)],
             'currency' => ['nullable', 'string', 'size:3'],
             'starts_at' => ['nullable', 'date'],
-            'ends_at' => ['nullable', 'date', 'after_or_equal:starts_at'],
-            'priority' => ['nullable', 'integer', 'min:-10000', 'max:10000'],
+            'ends_at' => ['nullable', 'date'],
+            'priority' => ['nullable', 'bail', 'integer', 'min:-10000', 'max:10000'],
             'is_active' => ['nullable', 'boolean'],
         ];
     }

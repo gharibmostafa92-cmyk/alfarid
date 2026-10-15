@@ -30,12 +30,12 @@ class StockLevel extends Model
     /** المتاح للبيع = الفعلي − المحجوز − التالف (نفس معادلة العمود المولّد في القاعدة). */
     public function getAvailableAttribute(): float
     {
-        return (float) $this->on_hand - (float) $this->reserved - (float) $this->damaged;
+        return round((float) $this->on_hand - (float) $this->reserved - (float) $this->damaged, 4);
     }
 
     public function variant(): BelongsTo
     {
-        return $this->belongsTo(ProductVariant::class, 'product_variant_id');
+        return $this->belongsTo(ProductVariant::class, 'product_variant_id')->withTrashed();
     }
 
     public function branch(): BelongsTo

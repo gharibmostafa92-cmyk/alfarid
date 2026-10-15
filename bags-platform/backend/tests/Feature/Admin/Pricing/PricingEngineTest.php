@@ -34,7 +34,7 @@ class PricingEngineTest extends TestCase
 
     // ---------- PricingService: شجرة الأولويات ----------
 
-    public function test_fallback_to_channel_base_price(): void
+    public function test_fallback_to_variant_base_price_for_every_channel(): void
     {
         $variant = $this->variant(100, 80);
         $service = app(PricingService::class);
@@ -46,8 +46,8 @@ class PricingEngineTest extends TestCase
 
         $wholesale = $this->customer(CustomerType::Wholesale, CustomerStatus::Approved);
         $resolved = $service->resolve($variant, $wholesale);
-        $this->assertSame(80.0, $resolved['unit_price']);
-        $this->assertSame(80.0, $resolved['base_price']);
+        $this->assertSame(100.0, $resolved['unit_price']);
+        $this->assertSame(100.0, $resolved['base_price']);
     }
 
     public function test_retail_list_and_quantity_tiers(): void
@@ -235,8 +235,9 @@ class PricingEngineTest extends TestCase
         Auth::forgetGuards();
         $export = $this->withToken($token)->get("/api/v1/admin/price-lists/{$list->id}/export");
         $export->assertOk();
-        $this->assertStringContainsString('sku,variant_id,product_name,min_qty,price,starts_at,ends_at', $export->getContent());
-        $this->assertStringContainsString($variant->sku, $export->getContent());
+        $exportedCsv = $export->streamedContent();
+        $this->assertStringContainsString('sku,variant_id,product_name,min_qty,price,starts_at,ends_at', $exportedCsv);
+        $this->assertStringContainsString($variant->sku, $exportedCsv);
 
         // استيراد: تحديث سعر موجود + إنشاء شريحة جديدة + صف فاسد
         $csv = "sku,variant_id,product_name,min_qty,price,starts_at,ends_at\n"

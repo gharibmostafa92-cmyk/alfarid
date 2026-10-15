@@ -20,15 +20,15 @@ class StoreAdjustmentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'branch_id' => ['required', 'integer', 'min:1', Rule::exists('branches', 'id')],
+            'branch_id' => ['required', 'bail', 'integer', 'min:1', Rule::exists('branches', 'id')->where('is_active', true)],
             'location_id' => [
-                'nullable', 'integer', 'min:1',
-                Rule::exists('locations', 'id')->where('branch_id', $this->input('branch_id')),
+                'nullable', 'bail', 'integer', 'min:1',
+                Rule::exists('locations', 'id')->where('is_active', true)->where('branch_id', filter_var($this->input('branch_id'), FILTER_VALIDATE_INT) ?: 0),
             ],
             'items' => ['required', 'array', 'min:1', 'max:100'],
-            'items.*.product_variant_id' => ['required', 'integer', 'min:1', Rule::exists('product_variants', 'id')],
-            'items.*.adjustment_type' => ['required', Rule::in(['increase', 'decrease', 'mark_damaged'])],
-            'items.*.quantity' => ['required', 'numeric', 'gt:0', 'max:99999999.9999'],
+            'items.*.product_variant_id' => ['required', 'bail', 'integer', 'min:1', Rule::exists('product_variants', 'id')->whereNull('deleted_at')->where('is_active', true)],
+            'items.*.adjustment_type' => ['required', Rule::in(['increase', 'decrease', 'mark_damaged', 'write_off_damaged', 'restore_damaged'])],
+            'items.*.quantity' => ['required', 'numeric', 'decimal:0,4', 'gt:0', 'max:99999999.9999'],
             'items.*.reason' => ['nullable', 'string', 'max:1000'],
         ];
     }

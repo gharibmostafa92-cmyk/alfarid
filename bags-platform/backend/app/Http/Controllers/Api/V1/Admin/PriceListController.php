@@ -18,7 +18,7 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Validation\Rule;
-use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class PriceListController extends Controller implements HasMiddleware
 {
@@ -90,13 +90,8 @@ class PriceListController extends Controller implements HasMiddleware
     }
 
     /** تصدير عناصر القائمة كملف CSV قابل لإعادة الاستيراد. */
-    public function export(PriceList $priceList): Response
+    public function export(PriceList $priceList): StreamedResponse
     {
-        $csv = $this->priceLists->exportCsv($priceList);
-
-        return response($csv, 200, [
-            'Content-Type' => 'text/csv; charset=UTF-8',
-            'Content-Disposition' => 'attachment; filename="price-list-'.$priceList->id.'.csv"',
-        ]);
+        return $this->priceLists->exportCsv($priceList);
     }
 }

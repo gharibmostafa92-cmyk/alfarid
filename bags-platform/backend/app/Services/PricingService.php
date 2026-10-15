@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Enums\CustomerStatus;
 use App\Enums\CustomerType;
 use App\Enums\PriceListType;
+use App\Exceptions\BusinessException;
 use App\Models\Customer;
 use App\Models\PriceListItem;
 use App\Models\ProductVariant;
@@ -20,8 +21,7 @@ use Illuminate\Database\Eloquent\Builder;
  * 1. سعر خاص بالعميل (customer_specific)
  * 2. سعر مجموعة العميل (customer_group)
  * 3. قائمة النوع (wholesale/distributor للمعتمدين فقط، وإلا retail)
- * 4. السعر الأساسي للمتغير حسب القناة (retail_price / wholesale_price —
- *    لا يوجد عمود base_price في المخطط؛ هذان هما سعرا الأساس من المرحلة 2)
+ * 4. السعر الأساسي للمتغير (base_price، المتوافق مع retail_price من المرحلة 2).
  *
  * داخل كل مستوى: القائمة المخصصة للفرع أولًا، ثم أعلى شريحة كمية محققة،
  * ثم أولوية القائمة، ثم السعر الأقل.
@@ -37,13 +37,17 @@ class PricingService
         float $qty = 1,
         ?int $branchId = null,
     ): array {
+        if (! is_finite($qty) || $qty <= 0) {
+            throw new BusinessException('كمية التسعير يجب أن تكون موجبة.');
+        }
         $now = Carbon::now();
 
         $baseQuery = $this->eligibleItems($variant, $qty, $branchId, $now);
         $channel = $this->channelFor($customer);
+        $eligibleCustomer = $customer !== null && $customer->status === CustomerStatus::Approved;
 
         // الأولوية 1: سعر خاص بالعميل
-        if ($customer !== null) {
+        if ($eligibleCustomer) {
             $item = $this->ordered((clone $baseQuery)
                 ->where('price_lists.type', PriceListType::CustomerSpecific)
                 ->where('price_lists.customer_id', $customer->id)
@@ -55,14 +59,19 @@ class PricingService
         }
 
         // الأولوية 2: سعر مجموعة العميل
-        if ($customer !== null && $customer->customer_group_id !== null) {
+        $group = $eligibleCustomer ? $customer->customerGroup()->where('is_active', true)->first() : null;
+        if ($group !== null) {
             $item = $this->ordered((clone $baseQuery)
                 ->where('price_lists.type', PriceListType::CustomerGroup)
-                ->where('price_lists.customer_group_id', $customer->customer_group_id)
+                ->where('price_lists.customer_group_id', $group->id)
             )->first();
 
             if ($item !== null) {
                 return $this->formatResponse((float) $item->price, PriceListType::CustomerGroup->value, (int) $item->price_list_id, $variant, $channel);
+            }
+            // Default group discount is a fallback at group priority, applied once to base price.
+            if ((float) $group->discount_percentage > 0) {
+                return $this->formatResponse((float) $variant->base_price * (1 - (float) $group->discount_percentage / 100), 'customer_group_discount', null, $variant, $channel);
             }
         }
 
@@ -75,7 +84,7 @@ class PricingService
             return $this->formatResponse((float) $item->price, $channel->value, (int) $item->price_list_id, $variant, $channel);
         }
 
-        // الأولوية 4: السعر الأساسي للمتغير حسب القناة
+        // الأولوية 4: السعر الأساسي الموحد؛ أسعار الجملة والموزعين تأتي من القوائم.
         return $this->formatResponse($this->basePrice($variant, $channel), 'base_price', null, $variant, $channel);
     }
 
@@ -93,7 +102,7 @@ class PricingService
 
     private function basePrice(ProductVariant $variant, PriceListType $channel): float
     {
-        return (float) ($channel === PriceListType::Retail ? $variant->retail_price : $variant->wholesale_price);
+        return (float) $variant->base_price;
     }
 
     /** كل عناصر التسعير السارية لهذا المتغير والكمية والفرع والوقت. */

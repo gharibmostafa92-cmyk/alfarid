@@ -10,6 +10,7 @@ use App\Http\Requests\Admin\Stocktake\StoreStocktakeRequest;
 use App\Http\Requests\Admin\Stocktake\UpdateStocktakeRequest;
 use App\Http\Resources\Admin\StocktakeResource;
 use App\Models\Stocktake;
+use App\Services\BranchAccess;
 use App\Services\StocktakeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -41,6 +42,8 @@ class StocktakeController extends Controller implements HasMiddleware
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
+        $filters['staff_branch_id'] = app(BranchAccess::class)->restrictedBranch($request->user());
+
         return StocktakeResource::collection($this->stocktakes->paginate($filters));
     }
 
@@ -54,19 +57,21 @@ class StocktakeController extends Controller implements HasMiddleware
             ->setStatusCode(201);
     }
 
-    public function show(Stocktake $stocktake): StocktakeResource
+    public function show(Request $request, Stocktake $stocktake): StocktakeResource
     {
+        app(BranchAccess::class)->assertBranch($request->user()->id, $stocktake->branch_id);
+
         return new StocktakeResource($this->stocktakes->find($stocktake->id));
     }
 
     public function update(UpdateStocktakeRequest $request, Stocktake $stocktake): StocktakeResource
     {
-        return new StocktakeResource($this->stocktakes->update($stocktake, $request->validated()));
+        return new StocktakeResource($this->stocktakes->update($stocktake, $request->validated(), $request->user()->id));
     }
 
-    public function destroy(Stocktake $stocktake): JsonResponse
+    public function destroy(Request $request, Stocktake $stocktake): JsonResponse
     {
-        $this->stocktakes->delete($stocktake);
+        $this->stocktakes->delete($stocktake, $request->user()->id);
 
         return response()->json(['message' => 'تم حذف جلسة الجرد بنجاح']);
     }

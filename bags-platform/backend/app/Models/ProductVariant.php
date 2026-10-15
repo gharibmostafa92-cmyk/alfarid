@@ -34,6 +34,12 @@ class ProductVariant extends Model implements HasMedia
         return $this->belongsTo(Product::class);
     }
 
+    /** Compatibility with the catalog's existing editable retail price. */
+    public function getBasePriceAttribute(): string
+    {
+        return (string) ($this->retail_price ?? 0);
+    }
+
     // صور خاصة باللون ده
     public function registerMediaCollections(): void
     {

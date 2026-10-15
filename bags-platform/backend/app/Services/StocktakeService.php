@@ -8,6 +8,8 @@ use App\Enums\StockBucket;
 use App\Enums\StockMovementType;
 use App\Enums\StocktakeStatus;
 use App\Exceptions\BusinessException;
+use App\Models\Location;
+use App\Models\StockLevel;
 use App\Models\Stocktake;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
@@ -27,6 +29,7 @@ class StocktakeService
     public function paginate(array $filters): LengthAwarePaginator
     {
         return Stocktake::query()
+            ->when($filters['staff_branch_id'] ?? null, fn ($q, $branch) => $q->where('branch_id', $branch))
             ->with(['branch', 'location', 'creator'])
             ->withCount('items')
             ->when($filters['branch_id'] ?? null, fn ($q, $v) => $q->where('branch_id', $v))
@@ -45,6 +48,7 @@ class StocktakeService
     public function create(array $data, int $userId): Stocktake
     {
         return DB::transaction(function () use ($data, $userId): Stocktake {
+            app(BranchAccess::class)->assertBranch($userId, (int) $data['branch_id']);
             $stocktake = Stocktake::query()->create([
                 'stocktake_number' => $this->settings->generateNextNumber('stocktake'),
                 'branch_id' => $data['branch_id'],
@@ -60,11 +64,23 @@ class StocktakeService
         });
     }
 
-    public function update(Stocktake $stocktake, array $data): Stocktake
+    public function update(Stocktake $stocktake, array $data, int $userId): Stocktake
     {
-        return DB::transaction(function () use ($stocktake, $data): Stocktake {
+        return DB::transaction(function () use ($stocktake, $data, $userId): Stocktake {
             $stocktake = Stocktake::query()->lockForUpdate()->findOrFail($stocktake->id);
             $this->assertEditable($stocktake);
+            app(BranchAccess::class)->assertBranch($userId, $stocktake->branch_id);
+            app(BranchAccess::class)->assertBranch($userId, (int) ($data['branch_id'] ?? $stocktake->branch_id));
+
+            $branchId = $data['branch_id'] ?? $stocktake->branch_id;
+            $locationId = array_key_exists('location_id', $data) ? $data['location_id'] : $stocktake->location_id;
+            if ($locationId !== null && ! Location::query()->whereKey($locationId)->where('branch_id', $branchId)->exists()) {
+                throw new BusinessException('موقع الجرد لا يتبع الفرع المحدد.');
+            }
+            if (((int) $branchId !== $stocktake->branch_id || ($locationId === null ? null : (int) $locationId) !== $stocktake->location_id)
+                && ! array_key_exists('items', $data) && $stocktake->items()->exists()) {
+                throw new BusinessException('تغيير نطاق الجرد يتطلب إعادة إرسال العناصر والعد الفعلي.');
+            }
 
             if (isset($data['status'])) {
                 $target = StocktakeStatus::from($data['status']);
@@ -84,7 +100,7 @@ class StocktakeService
             $stocktake->fill([
                 'branch_id' => $data['branch_id'] ?? $stocktake->branch_id,
                 'location_id' => array_key_exists('location_id', $data) ? $data['location_id'] : $stocktake->location_id,
-                'notes' => $data['notes'] ?? $stocktake->notes,
+                'notes' => array_key_exists('notes', $data) ? $data['notes'] : $stocktake->notes,
             ])->save();
 
             if (isset($data['items'])) {
@@ -104,7 +120,8 @@ class StocktakeService
     {
         return DB::transaction(function () use ($stocktake, $userId): Stocktake {
             $stocktake = Stocktake::query()->lockForUpdate()->findOrFail($stocktake->id);
-            $stocktake->load('items');
+            app(BranchAccess::class)->assertBranch($userId, $stocktake->branch_id);
+            $stocktake->load('items.variant');
 
             if (! in_array($stocktake->status, [StocktakeStatus::Draft, StocktakeStatus::InProgress], true)) {
                 throw new BusinessException('لا يمكن اعتماد جرد بحالة '.$stocktake->status->value.'.');
@@ -112,11 +129,32 @@ class StocktakeService
 
             $uncounted = $stocktake->items->filter(fn ($item) => $item->counted_qty === null);
 
+            if ($stocktake->items->isEmpty()) {
+                throw new BusinessException('لا يمكن اعتماد جرد بلا عناصر.');
+            }
+
             if ($uncounted->isNotEmpty()) {
                 throw new BusinessException('لا يمكن الاعتماد: توجد عناصر لم تُعدّ بعد.');
             }
 
-            $stocktake->items->each->refresh(); // التأكد من قيم difference المولّدة في القاعدة
+            $levels = $this->inventory->lockLevels($stocktake->items->map(fn ($item) => [
+                'product_variant_id' => $item->product_variant_id,
+                'branch_id' => $stocktake->branch_id, 'location_id' => $stocktake->location_id,
+            ])->all());
+
+            // A count becomes stale after a stock change; never overwrite intervening sales/receipts.
+            foreach ($stocktake->items as $item) {
+                $key = $this->inventory->levelKey([
+                    'product_variant_id' => $item->product_variant_id,
+                    'branch_id' => $stocktake->branch_id, 'location_id' => $stocktake->location_id,
+                ]);
+                if ((int) round((float) $levels[$key]->on_hand * 10000) !== (int) round((float) $item->system_qty * 10000)) {
+                    throw new BusinessException('تغير رصيد المخزون منذ آخر عد؛ راجع الكميات وأعد حفظ الجرد قبل الاعتماد.');
+                }
+                if ((int) round((float) $item->counted_qty * 10000) < (int) round((float) $levels[$key]->reserved * 10000) + (int) round((float) $levels[$key]->damaged * 10000)) {
+                    throw new BusinessException('العد الفعلي أقل من المحجوز والتالف؛ راجع الحجوزات وسوِّ التالف قبل إعادة العد والاعتماد.');
+                }
+            }
 
             foreach ($stocktake->items as $item) {
                 $difference = (float) $item->difference;
@@ -150,10 +188,11 @@ class StocktakeService
         });
     }
 
-    public function delete(Stocktake $stocktake): void
+    public function delete(Stocktake $stocktake, int $userId): void
     {
-        DB::transaction(function () use ($stocktake): void {
+        DB::transaction(function () use ($stocktake, $userId): void {
             $stocktake = Stocktake::query()->lockForUpdate()->findOrFail($stocktake->id);
+            app(BranchAccess::class)->assertBranch($userId, $stocktake->branch_id);
 
             if (! in_array($stocktake->status, [StocktakeStatus::Draft, StocktakeStatus::Cancelled], true)) {
                 throw new BusinessException('لا يمكن حذف جرد إلا في حالة المسودة أو الملغي.');
@@ -177,8 +216,12 @@ class StocktakeService
      */
     private function syncItems(Stocktake $stocktake, array $items): void
     {
+        $levels = StockLevel::query()->where('branch_id', $stocktake->branch_id)
+            ->where('location_id', $stocktake->location_id)
+            ->whereIn('product_variant_id', array_column($items, 'product_variant_id'))
+            ->get()->keyBy('product_variant_id');
         foreach ($items as $item) {
-            $level = $this->inventory->levelFor($item['product_variant_id'], $stocktake->branch_id, $stocktake->location_id);
+            $level = $levels->get($item['product_variant_id']);
 
             $stocktake->items()->create([
                 'product_variant_id' => $item['product_variant_id'],
