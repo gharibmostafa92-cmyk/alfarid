@@ -26,9 +26,9 @@ class UpdateBrandRequest extends FormRequest
             'slug' => ['sometimes', 'nullable', 'string', 'max:180', 'alpha_dash', Rule::unique('brands', 'slug')->ignore($this->route('brand'))],
             'description_ar' => ['sometimes', 'nullable', 'string'],
             'description_en' => ['sometimes', 'nullable', 'string'],
-            'sort_order' => ['sometimes', 'nullable', 'integer', 'min:0'],
+            'sort_order' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:2147483647'],
             'is_active' => ['sometimes', 'nullable', 'boolean'],
-            'logo' => ['sometimes', 'nullable', 'image:allow_svg', 'mimes:jpg,jpeg,png,webp,svg', 'max:4096'],
+            'logo' => ['sometimes', 'nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
             'remove_logo' => ['sometimes', 'nullable', 'boolean'],
         ];
     }

@@ -27,7 +27,7 @@ class StoreCategoryRequest extends FormRequest
             'slug' => ['nullable', 'string', 'max:180', 'alpha_dash', Rule::unique('categories', 'slug')],
             'description_ar' => ['nullable', 'string'],
             'description_en' => ['nullable', 'string'],
-            'sort_order' => ['nullable', 'integer', 'min:0'],
+            'sort_order' => ['nullable', 'integer', 'min:0', 'max:2147483647'],
             'is_active' => ['nullable', 'boolean'],
             'image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
         ];

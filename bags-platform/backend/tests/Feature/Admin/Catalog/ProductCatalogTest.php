@@ -124,11 +124,11 @@ class ProductCatalogTest extends TestCase
         $token = $this->adminToken();
         $targetId = $this->createProduct($token, [
             'name_en' => 'Target Bag',
-            'variants' => [['color_name_en' => 'Red', 'barcode' => '2000000000015']],
+            'variants' => [['color_name_en' => 'Red', 'barcode' => '6220001112223']],
         ]);
         $this->createProduct($token, ['name_en' => 'Other Bag']);
 
-        $this->requestWithToken($token, 'GET', '/api/v1/admin/products?search=2000000000015')
+        $this->requestWithToken($token, 'GET', '/api/v1/admin/products?search=6220001112223')
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.id', $targetId);

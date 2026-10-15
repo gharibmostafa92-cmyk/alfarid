@@ -13,12 +13,14 @@ use Illuminate\Support\Facades\DB;
 
 class VariantService
 {
+    public function __construct(private ProductPublishabilityChecker $publishability) {}
+
     public function create(Product $product, array $data): ProductVariant
     {
         $data = array_filter($data, fn ($value) => $value !== null);
 
         return DB::transaction(function () use ($product, $data) {
-            Product::whereKey($product->id)->lockForUpdate()->first(); // منع تكرار الترقيم
+            $locked = Product::whereKey($product->id)->lockForUpdate()->first(); // منع تكرار الترقيم
             $this->assertUniqueCombination($product, $data);
 
             if (empty($data['sku'])) {
@@ -36,6 +38,11 @@ class VariantService
                 $variant->update(['barcode' => BarcodeGenerator::fromId($variant->id)]);
             }
 
+            // متغير جديد على منتج منشور لازم ميكسرش قواعد النشر، وإلا التعديل كله يتلغي
+            if (($locked ?? $product)->status === ProductStatus::Published) {
+                $this->publishability->assertPublishable($product);
+            }
+
             return $variant;
         });
     }
@@ -49,12 +56,18 @@ class VariantService
         }
 
         return DB::transaction(function () use ($variant, $data) {
-            $this->assertUniqueCombination($variant->product, array_merge($variant->only(['color_name_en', 'size', 'capacity']), $data), $variant->id);
+            $product = Product::whereKey($variant->product_id)->lockForUpdate()->firstOrFail();
+            $this->assertUniqueCombination($product, array_merge($variant->only(['color_name_en', 'size', 'capacity']), $data), $variant->id);
 
             if (array_key_exists('is_active', $data) && ! $data['is_active']) {
                 $this->assertNotLastActiveOfPublished($variant);
             }
             $variant->update($data);
+
+            // أي تعديل على متغير منتج منشور بيعيد فحص قواعد النشر جوه نفس الـ transaction
+            if ($product->status === ProductStatus::Published) {
+                $this->publishability->assertPublishable($product);
+            }
 
             return $variant->fresh('media');
         });
@@ -62,8 +75,15 @@ class VariantService
 
     public function delete(ProductVariant $variant): void
     {
-        $this->assertNotLastActiveOfPublished($variant);
-        $variant->delete();
+        DB::transaction(function () use ($variant): void {
+            $product = Product::whereKey($variant->product_id)->lockForUpdate()->firstOrFail();
+            $this->assertNotLastActiveOfPublished($variant);
+            $variant->delete();
+
+            if ($product->status === ProductStatus::Published) {
+                $this->publishability->assertPublishable($product);
+            }
+        });
         // TODO مرحلة المخزون: منع الحذف لو عليه رصيد
     }
 

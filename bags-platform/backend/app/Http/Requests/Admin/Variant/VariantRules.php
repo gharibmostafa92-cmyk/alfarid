@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Variant;
 
+use App\Models\ProductVariant;
+use Closure;
 use Illuminate\Validation\Rule;
 
 // قواعد الـ validation المشتركة لمتغيرات المنتج — تُستخدم في إنشاء/تعديل المتغير وفي variants.* عند إنشاء منتج.
@@ -16,7 +18,19 @@ class VariantRules
     {
         return [
             'sku' => ['nullable', 'string', 'max:64', 'alpha_dash', Rule::unique('product_variants', 'sku')->ignore($ignoreId)],
-            'barcode' => ['nullable', 'string', 'max:32', 'regex:/^[0-9A-Za-z\-]+$/', Rule::unique('product_variants', 'barcode')->ignore($ignoreId)],
+            'barcode' => ['nullable', 'string', 'max:32', 'regex:/^[0-9A-Za-z\-]+$/', Rule::unique('product_variants', 'barcode')->ignore($ignoreId),
+                // صيغة 2 + 12 رقم محجوزة للباركود الداخلي اللي النظام بيولّده من id المتغير (M3)
+                function (string $attribute, mixed $value, Closure $fail) use ($ignoreId): void {
+                    if (is_string($value) && preg_match('/^2\d{12}$/', $value) === 1) {
+                        $current = $ignoreId !== null
+                            ? ProductVariant::whereKey($ignoreId)->value('barcode')
+                            : null;
+                        if ($value !== $current) {
+                            $fail('صيغة الباركود دي محجوزة لباركودات النظام الداخلية');
+                        }
+                    }
+                },
+            ],
             'color_name_ar' => ['nullable', 'string', 'max:50'],
             'color_name_en' => ['nullable', 'string', 'max:50'],
             'color_hex' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
@@ -25,9 +39,9 @@ class VariantRules
             'cost_price' => ['nullable', 'numeric', 'min:0', 'max:9999999'],
             'retail_price' => ['nullable', 'numeric', 'min:0', 'max:9999999'],
             'wholesale_price' => ['nullable', 'numeric', 'min:0', 'max:9999999'],
-            'reorder_level' => ['nullable', 'integer', 'min:0'],
-            'weight_kg' => ['nullable', 'numeric', 'min:0'],
-            'sort_order' => ['nullable', 'integer', 'min:0'],
+            'reorder_level' => ['nullable', 'integer', 'min:0', 'max:2147483647'],
+            'weight_kg' => ['nullable', 'numeric', 'min:0', 'max:99999.999'],
+            'sort_order' => ['nullable', 'integer', 'min:0', 'max:2147483647'],
             'is_active' => ['nullable', 'boolean'],
         ];
     }

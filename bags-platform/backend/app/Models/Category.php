@@ -43,15 +43,22 @@ class Category extends Model implements HasMedia
             ->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp']);
     }
 
-    // بيرجّع IDs كل الأقسام اللي تحته على أي مستوى
+    // بيرجّع IDs كل الأقسام اللي تحته على أي مستوى — مجموعة visited بتمنع اللف اللانهائي لو فيه دورة في البيانات
     public function descendantIds(): array
     {
         $ids = [];
+        $seen = [$this->id => true];
         $queue = [$this->id];
         while ($queue) {
             $children = Category::whereIn('parent_id', $queue)->pluck('id')->all();
-            $ids = array_merge($ids, $children);
-            $queue = $children;
+            $queue = [];
+            foreach ($children as $childId) {
+                if (! isset($seen[$childId])) {
+                    $seen[$childId] = true;
+                    $ids[] = $childId;
+                    $queue[] = $childId;
+                }
+            }
         }
 
         return $ids;
@@ -60,8 +67,13 @@ class Category extends Model implements HasMedia
     public function depth(): int
     {
         $depth = 1;
+        $seen = [$this->id => true];
         $p = $this->parent;
         while ($p) {
+            if (isset($seen[$p->id])) {
+                throw new \RuntimeException('توجد دورة في شجرة الأقسام');
+            }
+            $seen[$p->id] = true;
             $depth++;
             $p = $p->parent;
         }

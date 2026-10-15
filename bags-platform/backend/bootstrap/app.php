@@ -4,6 +4,7 @@ use App\Http\Middleware\EnsureCustomerAuthenticated;
 use App\Http\Middleware\EnsureStaffAuthenticated;
 use App\Http\Middleware\EnsureSupplierAuthenticated;
 use App\Http\Middleware\EnsureWholesaleApproved;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -44,4 +45,13 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
+
+        // سباق على قيد unique (فحص exists وبعده إدخال متزامن): القيد سليم، فالرد يبقى 409 متحكم فيه بدل 500
+        $exceptions->render(function (UniqueConstraintViolationException $e, Request $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return response()->json(['message' => 'توجد بيانات متعارضة. أعد المحاولة'], 409);
+            }
+
+            return null;
+        });
     })->create();
