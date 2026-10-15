@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\Admin\AuthController;
 use App\Http\Controllers\Api\V1\Admin\BranchController;
+use App\Http\Controllers\Api\V1\Admin\CategoryController;
 use App\Http\Controllers\Api\V1\Admin\LocationController;
 use App\Http\Controllers\Api\V1\Admin\PermissionController;
 use App\Http\Controllers\Api\V1\Admin\RoleController;
@@ -80,6 +81,11 @@ Route::middleware(['auth:sanctum', 'auth.staff'])
         Route::get('permissions', [PermissionController::class, 'index'])
             ->middleware('permission:permissions.view|roles.manage')
             ->name('permissions.index');
+
+        // Categories: authorization is handled in CategoryController via can:categories.* middleware.
+        Route::post('categories/reorder', [CategoryController::class, 'reorder'])
+            ->name('categories.reorder');
+        Route::apiResource('categories', CategoryController::class);
 
         Route::get('settings', [SettingController::class, 'index'])
             ->middleware('permission:settings.view|settings.manage')
