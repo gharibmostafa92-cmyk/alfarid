@@ -405,7 +405,11 @@ class InventoryReviewFixesTest extends TestCase
     private function staff(?Branch $branch = null): User
     {
         $staff = User::factory()->create(['branch_id' => $branch?->id]);
-        $staff->givePermissionTo(Permission::where('guard_name', 'staff')->get());
+        // موظف مرتبط بفرع لا يأخذ امتياز كل الفروع، وإلا انكسر تقييد نطاقه.
+        $permissions = Permission::where('guard_name', 'staff')
+            ->when($branch !== null, fn ($query) => $query->where('name', '!=', 'inventory.all_branches'))
+            ->get();
+        $staff->givePermissionTo($permissions);
 
         return $staff;
     }

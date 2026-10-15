@@ -26,7 +26,7 @@ class InventorySystemTest extends TestCase
     use LazilyRefreshDatabase;
 
     private const ALL_PERMISSIONS = [
-        'inventory.view', 'inventory.adjust',
+        'inventory.view', 'inventory.adjust', 'inventory.all_branches',
         'transfers.view', 'transfers.create', 'transfers.update', 'transfers.delete',
         'transfers.approve', 'transfers.ship', 'transfers.receive',
         'stocktakes.view', 'stocktakes.create', 'stocktakes.update', 'stocktakes.delete', 'stocktakes.approve',

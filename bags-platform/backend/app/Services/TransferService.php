@@ -9,7 +9,9 @@ use App\Enums\StockMovementType;
 use App\Enums\TransferStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Location;
+use App\Models\StockMovement;
 use App\Models\StockTransfer;
+use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
@@ -102,11 +104,12 @@ class TransferService
     }
 
     /** الاعتماد: حجز الكميات المعتمدة في الفرع المرسل حتى لا تُباع قبل الشحن. */
-    public function approve(StockTransfer $transfer, array $itemsPayload, int $userId): StockTransfer
+    public function approve(StockTransfer $transfer, array $itemsPayload, int $userId, ?string $expectedUpdatedAt = null): StockTransfer
     {
-        return DB::transaction(function () use ($transfer, $itemsPayload, $userId): StockTransfer {
+        return DB::transaction(function () use ($transfer, $itemsPayload, $userId, $expectedUpdatedAt): StockTransfer {
             $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
             $transfer->load('items.variant');
+            $this->assertPayloadMatchesLockedItems($transfer, $itemsPayload, $expectedUpdatedAt);
             $this->assertStatus($transfer, TransferStatus::Draft, 'الاعتماد');
             app(BranchAccess::class)->assertBranch($userId, $transfer->from_branch_id);
             if ($transfer->items->sum(fn ($item) => (float) ($itemsPayload[$item->id] ?? $item->requested_qty)) <= 0) {
@@ -147,11 +150,12 @@ class TransferService
     }
 
     /** الشحن: فك الحجز وإخراج البضاعة من المرسل، وتسجيلها "في الطريق" عند المستلم. */
-    public function ship(StockTransfer $transfer, array $itemsPayload, int $userId): StockTransfer
+    public function ship(StockTransfer $transfer, array $itemsPayload, int $userId, ?string $expectedUpdatedAt = null): StockTransfer
     {
-        return DB::transaction(function () use ($transfer, $itemsPayload, $userId): StockTransfer {
+        return DB::transaction(function () use ($transfer, $itemsPayload, $userId, $expectedUpdatedAt): StockTransfer {
             $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
             $transfer->load('items.variant');
+            $this->assertPayloadMatchesLockedItems($transfer, $itemsPayload, $expectedUpdatedAt);
             $this->assertStatus($transfer, TransferStatus::Approved, 'الشحن');
             app(BranchAccess::class)->assertBranch($userId, $transfer->from_branch_id);
             if ($transfer->items->sum(fn ($item) => (float) ($itemsPayload[$item->id] ?? $item->approved_qty)) <= 0) {
@@ -244,11 +248,12 @@ class TransferService
     }
 
     /** الاستلام: تسوية in_transit بالكامل، وإضافة المستلم فعليًا، وتسوية أي عجز كحركة مستقلة. */
-    public function receive(StockTransfer $transfer, array $itemsPayload, int $userId): StockTransfer
+    public function receive(StockTransfer $transfer, array $itemsPayload, int $userId, ?string $expectedUpdatedAt = null): StockTransfer
     {
-        return DB::transaction(function () use ($transfer, $itemsPayload, $userId): StockTransfer {
+        return DB::transaction(function () use ($transfer, $itemsPayload, $userId, $expectedUpdatedAt): StockTransfer {
             $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
             $transfer->load('items.variant');
+            $this->assertPayloadMatchesLockedItems($transfer, $itemsPayload, $expectedUpdatedAt);
             $this->assertStatus($transfer, TransferStatus::Shipped, 'الاستلام');
             app(BranchAccess::class)->assertBranch($userId, $transfer->to_branch_id);
             $this->lockTransferLevels($transfer, false, true);
@@ -367,8 +372,41 @@ class TransferService
                 throw new BusinessException('لا يمكن حذف تحويل إلا في حالة المسودة أو الملغي.');
             }
 
+            // تحويل اعتُمد ثم أُلغي له حركات دفتر (حجز/فك حجز) تشير إليه بلا FK؛
+            // حذفه يترك مراجع يتيمة ويقطع أثر التدقيق — الإلغاء نفسه هو الحفظ الصحيح.
+            if (StockMovement::query()->where('reference_type', StockTransfer::class)->where('reference_id', $transfer->id)->exists()) {
+                throw new BusinessException('لا يمكن حذف تحويل له حركات مخزون مسجلة في الدفتر؛ إلغاؤه يحفظ أثر التدقيق.');
+            }
+
             $transfer->delete();
         });
+    }
+
+    /**
+     * حماية من الحمولات القديمة: أي معرّف عنصر لا يتبع التحويل المقفول يُرفض بدل
+     * تجاهله بصمت (التعديل بين تحقق الطلب والقفل كان يبدّل المعرّفات)، وطابع
+     * expected_updated_at الاختياري يمنع اعتماد نسخة لم يراجعها المعتمد.
+     */
+    private function assertPayloadMatchesLockedItems(StockTransfer $transfer, array $itemsPayload, ?string $expectedUpdatedAt): void
+    {
+        $unknownIds = array_diff(array_map('intval', array_keys($itemsPayload)), $transfer->items->pluck('id')->map(fn ($id) => (int) $id)->all());
+
+        if ($unknownIds !== []) {
+            throw new BusinessException(
+                'توجد عناصر في الطلب لا تتبع هذا التحويل (المعرّفات: '.implode(', ', $unknownIds).'). أعد تحميل التحويل وراجع الكميات.',
+                ['unknown_item_ids' => array_values($unknownIds)],
+                409,
+            );
+        }
+
+        if ($expectedUpdatedAt !== null
+            && $transfer->updated_at->format('Y-m-d H:i:s') !== Carbon::parse($expectedUpdatedAt)->format('Y-m-d H:i:s')) {
+            throw new BusinessException(
+                'تم تعديل هذا التحويل بعد تحميله. أعد تحميله وراجع الكميات قبل التنفيذ.',
+                ['current_updated_at' => $transfer->updated_at->toIso8601String()],
+                409,
+            );
+        }
     }
 
     private function assertStatus(StockTransfer $transfer, TransferStatus $expected, string $action): void
