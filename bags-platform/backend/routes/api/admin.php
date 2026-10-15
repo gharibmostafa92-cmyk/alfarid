@@ -119,28 +119,34 @@ Route::middleware(['auth:sanctum', 'auth.staff'])
         Route::post('products/{product}/media', [ProductMediaController::class, 'store'])->name('products.media.store');
         Route::delete('products/{product}/media/{media}', [ProductMediaController::class, 'destroy'])->name('products.media.destroy');
 
-        // Inventory: العرض والتسويات — التعديل على الأرصدة بيمر من InventoryService بس
-        Route::get('inventory', [InventoryController::class, 'index'])->name('inventory.index');
-        Route::get('inventory/movements', [InventoryController::class, 'movements'])->name('inventory.movements');
-        Route::post('inventory/adjustments', [InventoryController::class, 'adjustments'])->name('inventory.adjustments');
+        // ================== المرحلة 3: المخزون ==================
+        Route::prefix('inventory')->name('inventory.')->group(function () {
+            Route::get('/', [InventoryController::class, 'index'])->name('index');
+            Route::get('/movements', [InventoryController::class, 'movements'])->name('movements');
+            Route::post('/adjustments', [InventoryController::class, 'adjustments'])->name('adjustments');
+        });
 
-        // Transfers: أفعال دورة الحياة قبل apiResource
+        // التحويلات المخزنية
+        Route::apiResource('transfers', TransferController::class);
         Route::post('transfers/{transfer}/approve', [TransferController::class, 'approve'])->name('transfers.approve');
         Route::post('transfers/{transfer}/ship', [TransferController::class, 'ship'])->name('transfers.ship');
         Route::post('transfers/{transfer}/receive', [TransferController::class, 'receive'])->name('transfers.receive');
         Route::post('transfers/{transfer}/cancel', [TransferController::class, 'cancel'])->name('transfers.cancel');
-        Route::apiResource('transfers', TransferController::class);
 
-        // Stocktakes: الاعتماد قبل apiResource
-        Route::post('stocktakes/{stocktake}/approve', [StocktakeController::class, 'approve'])->name('stocktakes.approve');
+        // الجرد المخزني
         Route::apiResource('stocktakes', StocktakeController::class);
+        Route::post('stocktakes/{stocktake}/approve', [StocktakeController::class, 'approve'])->name('stocktakes.approve');
 
-        // Pricing: مجموعات العملاء وقوائم الأسعار وعناصرها واستيراد/تصدير CSV
+        // ================== المرحلة 4: الأسعار ==================
         Route::apiResource('customer-groups', CustomerGroupController::class);
+
+        Route::apiResource('price-lists', PriceListController::class);
         Route::post('price-lists/{price_list}/import', [PriceListController::class, 'import'])->name('price-lists.import');
         Route::get('price-lists/{price_list}/export', [PriceListController::class, 'export'])->name('price-lists.export');
-        Route::apiResource('price-lists', PriceListController::class);
-        Route::apiResource('price-lists.items', PriceListItemController::class)->scoped();
+
+        Route::scopeBindings()->group(function () {
+            Route::apiResource('price-lists.items', PriceListItemController::class);
+        });
 
         Route::get('settings', [SettingController::class, 'index'])
             ->middleware('permission:settings.view|settings.manage')
