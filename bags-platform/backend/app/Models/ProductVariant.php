@@ -21,13 +21,18 @@ class ProductVariant extends Model implements HasMedia
 
     protected $fillable = [
         'product_id', 'sku', 'barcode', 'color_name_ar', 'color_name_en', 'color_hex', 'size', 'capacity',
-        'cost_price', 'retail_price', 'wholesale_price', 'reorder_level', 'weight_kg', 'sort_order', 'is_active',
+        'cost_price', 'retail_price', 'wholesale_price', 'compare_at_price', 'reorder_level', 'weight_kg', 'sort_order', 'is_active',
     ];
 
     protected $casts = [
-        'cost_price' => 'decimal:2', 'retail_price' => 'decimal:2', 'wholesale_price' => 'decimal:2',
+        'cost_price' => 'decimal:2', 'retail_price' => 'decimal:2', 'wholesale_price' => 'decimal:2', 'compare_at_price' => 'decimal:2',
         'weight_kg' => 'decimal:3', 'is_active' => 'boolean',
     ];
+
+    public function stockLevels(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(StockLevel::class);
+    }
 
     public function product(): BelongsTo
     {

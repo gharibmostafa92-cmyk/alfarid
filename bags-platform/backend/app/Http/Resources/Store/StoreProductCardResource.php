@@ -1,0 +1,55 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Resources\Store;
+
+use App\Models\Customer;
+use App\Services\StoreCatalogService;
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+/**
+ * بطاقة منتج في المتجر: السعر النهائي عبر PricingService للعميل الحالي
+ * (زائر = قناة قطاعي، وعميل بتوكن = مجموعته/أسعاره الخاصة تسرى عليه).
+ */
+class StoreProductCardResource extends JsonResource
+{
+    /**
+     * @return array<string, mixed>
+     */
+    public function toArray(Request $request): array
+    {
+        $service = app(StoreCatalogService::class);
+        $user = auth('sanctum')->user();
+        $customer = $user instanceof Customer ? $user : null;
+
+        $display = $service->displayPrice($this->resource, $customer);
+
+        $available = $this->store_available !== null
+            ? (float) $this->store_available
+            : array_sum($service->availabilityMap($this->variants->pluck('id')->all()));
+
+        return [
+            'id' => $this->id,
+            'name_ar' => $this->name_ar,
+            'name_en' => $this->name_en,
+            'slug' => $this->slug,
+            'image' => $this->getFirstMediaUrl('images', 'thumb') ?: ($this->getFirstMediaUrl('images') ?: null),
+            'brand' => $this->whenLoaded('brand', fn () => $this->brand ? [
+                'id' => $this->brand->id, 'name_ar' => $this->brand->name_ar, 'name_en' => $this->brand->name_en, 'slug' => $this->brand->slug,
+            ] : null),
+            'category' => $this->whenLoaded('category', fn () => $this->category ? [
+                'id' => $this->category->id, 'name_ar' => $this->category->name_ar, 'name_en' => $this->category->name_en, 'slug' => $this->category->slug,
+            ] : null),
+            'price' => $display['price'] ?? null,
+            'old_price' => $display !== null && $display['compare_at'] !== null && $display['compare_at'] > $display['price']
+                ? $display['compare_at'] : null,
+            'discount_percentage' => $display['discount_percentage'] ?? null,
+            'is_featured' => (bool) $this->is_featured,
+            'sales_count' => (int) $this->sales_count,
+            'store_available' => $available,
+            'in_stock' => $available > 0,
+        ];
+    }
+}

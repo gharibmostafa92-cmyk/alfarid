@@ -26,13 +26,14 @@ class Product extends Model implements HasMedia
         'code', 'category_id', 'brand_id', 'supplier_id', 'name_ar', 'name_en', 'slug',
         'description_ar', 'description_en', 'material_ar', 'material_en',
         'length_cm', 'width_cm', 'height_cm', 'weight_kg', 'warranty_months', 'warranty_details',
-        'country_of_origin', 'status', 'sales_channel', 'is_featured', 'published_at', 'created_by',
+        'country_of_origin', 'status', 'sales_channel', 'is_featured', 'sales_count', 'published_at', 'created_by',
     ];
 
     protected $casts = [
         'status' => ProductStatus::class,
         'sales_channel' => SalesChannel::class,
         'is_featured' => 'boolean',
+        'sales_count' => 'integer',
         'published_at' => 'datetime',
         'length_cm' => 'decimal:2', 'width_cm' => 'decimal:2', 'height_cm' => 'decimal:2',
         'weight_kg' => 'decimal:3',

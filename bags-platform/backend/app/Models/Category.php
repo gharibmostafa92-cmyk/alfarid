@@ -37,6 +37,12 @@ class Category extends Model implements HasMedia
         return $this->hasMany(Product::class);
     }
 
+    /** المنتجات المنشورة فقط — أساس عدّادات أقسام المتجر. */
+    public function activeProducts(): HasMany
+    {
+        return $this->hasMany(Product::class)->where('status', \App\Enums\ProductStatus::Published);
+    }
+
     public function registerMediaCollections(): void
     {
         $this->addMediaCollection('image')->singleFile()
