@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Database\Seeders;
 
 use App\Models\Setting;
+use App\Services\SettingService;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 
 class SettingSeeder extends Seeder
 {
@@ -33,8 +35,10 @@ class SettingSeeder extends Seeder
         ['group' => 'numbering', 'key' => 'order_padding', 'value' => '6', 'type' => 'integer'],
         ['group' => 'numbering', 'key' => 'purchase_order_prefix', 'value' => 'PO-', 'type' => 'string'],
         ['group' => 'numbering', 'key' => 'purchase_order_next_number', 'value' => '1000', 'type' => 'integer'],
+        ['group' => 'numbering', 'key' => 'purchase_order_padding', 'value' => '6', 'type' => 'integer'],
         ['group' => 'numbering', 'key' => 'quotation_prefix', 'value' => 'QT-', 'type' => 'string'],
         ['group' => 'numbering', 'key' => 'quotation_next_number', 'value' => '1000', 'type' => 'integer'],
+        ['group' => 'numbering', 'key' => 'quotation_padding', 'value' => '6', 'type' => 'integer'],
     ];
 
     public function run(): void
@@ -50,5 +54,6 @@ class SettingSeeder extends Seeder
         );
 
         Setting::query()->insertOrIgnore($rows);
+        DB::afterCommit(fn () => app(SettingService::class)->clearCache());
     }
 }

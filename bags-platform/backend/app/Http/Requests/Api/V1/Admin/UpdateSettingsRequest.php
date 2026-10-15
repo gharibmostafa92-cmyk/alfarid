@@ -15,6 +15,12 @@ class UpdateSettingsRequest extends FormRequest
         return $this->user() !== null;
     }
 
+    /** @return array<string, mixed> */
+    public function validationData(): array
+    {
+        return $this->isJson() ? $this->json()->all() : $this->request->all();
+    }
+
     /**
      * @return array<string, array<mixed>|string|ValidationRule>
      */
@@ -41,15 +47,17 @@ class UpdateSettingsRequest extends FormRequest
             'order_padding' => ['sometimes', 'integer', 'min:1', 'max:20'],
             'purchase_order_prefix' => ['sometimes', 'nullable', 'string', 'max:30'],
             'purchase_order_next_number' => ['sometimes', 'integer', 'min:1'],
+            'purchase_order_padding' => ['sometimes', 'integer', 'min:1', 'max:20'],
             'quotation_prefix' => ['sometimes', 'nullable', 'string', 'max:30'],
             'quotation_next_number' => ['sometimes', 'integer', 'min:1'],
+            'quotation_padding' => ['sometimes', 'integer', 'min:1', 'max:20'],
         ];
     }
 
     public function withValidator(Validator $validator): void
     {
         $allowedKeys = array_keys($this->rules());
-        $body = $this->isJson() ? $this->json()->all() : $this->request->all();
+        $body = $this->validationData();
         $unknownKeys = array_diff(array_keys($body), $allowedKeys, ['_method', '_token']);
 
         $validator->after(function (Validator $validator) use ($unknownKeys): void {

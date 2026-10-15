@@ -6,6 +6,7 @@ namespace Tests\Feature;
 
 use App\Models\Branch;
 use App\Models\Setting;
+use App\Services\SettingService;
 use Database\Seeders\DatabaseSeeder;
 use Database\Seeders\LocationSeeder;
 use Database\Seeders\SettingSeeder;
@@ -48,6 +49,18 @@ class DatabaseSeederTest extends TestCase
 
         $this->assertDatabaseHas('settings', ['key' => 'company_name', 'value' => 'Custom Company']);
         $this->assertDatabaseHas('settings', ['key' => 'tax_enabled', 'value' => '0']);
+    }
+
+    public function test_setting_seeder_invalidates_cache_when_restoring_missing_settings(): void
+    {
+        $this->seed(SettingSeeder::class);
+        Setting::query()->where('key', 'purchase_order_padding')->delete();
+        $service = app(SettingService::class);
+        $this->assertNull($service->get('purchase_order_padding'));
+
+        $this->seed(SettingSeeder::class);
+
+        $this->assertSame(6, $service->get('purchase_order_padding'));
     }
 
     public function test_location_seeder_fills_missing_shelves_for_every_branch_without_overwriting_existing_locations(): void

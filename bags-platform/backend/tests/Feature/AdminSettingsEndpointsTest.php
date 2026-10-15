@@ -105,8 +105,47 @@ class AdminSettingsEndpointsTest extends TestCase
         $this->assertTrue(Cache::has('app_settings_static'));
         $this->assertSame('ORD-001001', $service->generateNextNumber('order'));
         $this->assertSame(1002, $service->get('order_next_number'));
-        $this->assertSame('PO-1000', $service->generateNextNumber('purchase_order'));
-        $this->assertSame('QT-1000', $service->generateNextNumber('quotation'));
+        $this->assertSame('PO-001000', $service->generateNextNumber('purchase_order'));
+        $this->assertSame('QT-001000', $service->generateNextNumber('quotation'));
+    }
+
+    public function test_purchase_order_and_quotation_padding_can_be_configured_and_validated(): void
+    {
+        $this->seedSettings();
+        $token = $this->staffWithSettingsPermission()->createToken('settings-test')->plainTextToken;
+
+        $this->requestWithToken($token, 'PUT', '/api/v1/admin/settings', [
+            'purchase_order_padding' => 8,
+            'quotation_padding' => 7,
+        ])->assertOk()
+            ->assertJsonPath('data.numbering.purchase_order_padding', 8)
+            ->assertJsonPath('data.numbering.quotation_padding', 7);
+
+        $service = app(SettingService::class);
+        $this->assertSame('PO-00001000', $service->generateNextNumber('purchase_order'));
+        $this->assertSame('QT-0001000', $service->generateNextNumber('quotation'));
+        $this->assertDatabaseHas('settings', ['key' => 'purchase_order_next_number', 'value' => '1001']);
+        $this->assertDatabaseHas('settings', ['key' => 'quotation_next_number', 'value' => '1001']);
+
+        $this->requestWithToken($token, 'PUT', '/api/v1/admin/settings', [
+            'purchase_order_padding' => 0,
+            'quotation_padding' => 21,
+        ])->assertUnprocessable()->assertJsonValidationErrors(['purchase_order_padding', 'quotation_padding']);
+    }
+
+    public function test_settings_query_parameters_cannot_change_setting_values(): void
+    {
+        $this->seedSettings();
+        $token = $this->staffWithSettingsPermission()->createToken('settings-test')->plainTextToken;
+
+        $this->requestWithToken($token, 'PUT', '/api/v1/admin/settings?company_name=Injected&tax_enabled=1', [
+            'invoice_prefix' => 'BILL-',
+        ])->assertOk()
+            ->assertJsonPath('data.company.company_name', 'Alfarid')
+            ->assertJsonPath('data.tax.tax_enabled', false);
+
+        $this->assertDatabaseHas('settings', ['key' => 'company_name', 'value' => 'Alfarid']);
+        $this->assertDatabaseHas('settings', ['key' => 'invoice_prefix', 'value' => 'BILL-']);
     }
 
     public function test_settings_update_cannot_decrease_a_numbering_counter(): void

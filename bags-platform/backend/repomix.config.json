@@ -61,14 +61,7 @@
     "database/seeders/RolePermissionSeeder.php",
     "database/seeders/BranchSeeder.php",
     "database/seeders/LocationSeeder.php",
-    "database/seeders/SettingSeeder.php",
-    "tests/TestCase.php",
-    "tests/Feature/AdminAuthEndpointsTest.php",
-    "tests/Feature/BranchEndpointsTest.php",
-    "tests/Feature/LocationEndpointsTest.php",
-    "tests/Feature/AdminUserEndpointsTest.php",
-    "tests/Feature/RolePermissionEndpointsTest.php",
-    "tests/Feature/AdminSettingsEndpointsTest.php",
-    "tests/Feature/AdminRouteAggregationTest.php"
+    "database/seeders/SettingSeeder.php"
+
   ]
 }

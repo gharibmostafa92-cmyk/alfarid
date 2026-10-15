@@ -112,7 +112,7 @@ class SettingService
                 $setting->save();
             }
 
-            DB::afterCommit(fn () => Cache::forget(self::CACHE_KEY));
+            DB::afterCommit(fn () => $this->clearCache());
         }, attempts: 3);
     }
 
@@ -126,8 +126,8 @@ class SettingService
         $definitions = [
             'invoice' => ['prefix' => 'invoice_prefix', 'next' => 'invoice_next_number', 'padding' => 'invoice_padding'],
             'order' => ['prefix' => 'order_prefix', 'next' => 'order_next_number', 'padding' => 'order_padding'],
-            'purchase_order' => ['prefix' => 'purchase_order_prefix', 'next' => 'purchase_order_next_number', 'padding' => null],
-            'quotation' => ['prefix' => 'quotation_prefix', 'next' => 'quotation_next_number', 'padding' => null],
+            'purchase_order' => ['prefix' => 'purchase_order_prefix', 'next' => 'purchase_order_next_number', 'padding' => 'purchase_order_padding'],
+            'quotation' => ['prefix' => 'quotation_prefix', 'next' => 'quotation_next_number', 'padding' => 'quotation_padding'],
         ];
 
         if (! isset($definitions[$type])) {
@@ -158,9 +158,7 @@ class SettingService
             $prefix = (string) $settings->get($definition['prefix'])->value;
             $nextSetting = $settings->get($definition['next']);
             $nextValue = (int) $nextSetting->value;
-            $padding = $definition['padding'] === null
-                ? 0
-                : max(0, (int) $settings->get($definition['padding'])->value);
+            $padding = max(0, (int) $settings->get($definition['padding'])->value);
 
             $formatted = $prefix.str_pad((string) $nextValue, $padding, '0', STR_PAD_LEFT);
             $nextSetting->value = (string) ($nextValue + 1);
@@ -168,6 +166,11 @@ class SettingService
 
             return $formatted;
         }, attempts: 3);
+    }
+
+    public function clearCache(): void
+    {
+        Cache::forget(self::CACHE_KEY);
     }
 
     private function castValue(?string $value, string $type): mixed
