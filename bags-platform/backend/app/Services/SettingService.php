@@ -96,6 +96,7 @@ class SettingService
     public function updateBatch(array $settings): void
     {
         DB::transaction(function () use ($settings): void {
+            $movementSequenceTarget = null;
             $lockedSettings = Setting::query()
                 ->whereIn('key', array_keys($settings))
                 ->orderBy('key')
@@ -116,10 +117,8 @@ class SettingService
                 if (in_array($key, self::NUMBERING_COUNTER_KEYS, true)) {
                     $value = max($this->counterValue($setting->value), $this->counterValue($value));
                     if ($key === 'movement_next_number') {
-                        // Configuration changes are rare; lock the sequence only here, never per movement.
-                        DB::statement('ALTER SEQUENCE stock_movement_number_seq INCREMENT BY 1');
                         $value = max($value, $this->nextMovementNumber());
-                        DB::statement('ALTER SEQUENCE stock_movement_number_seq RESTART WITH '.$value);
+                        $movementSequenceTarget = $value;
                     }
                 }
 
@@ -130,6 +129,19 @@ class SettingService
             }
 
             DB::afterCommit(fn () => $this->clearCache());
+
+            if ($movementSequenceTarget !== null) {
+                // مزامنة التسلسل بعد الاعتماد لا داخله: ALTER SEQUENCE داخل
+                // المعاملة كان يحجب كل nextval (أي كل حركات المخزون) حتى نهاية
+                // معاملة الإعدادات (L-9). setval بـ GREATEST لا يرجع بالتسلسل
+                // تحت رقم صدر فعلًا أثناء النافذة.
+                DB::afterCommit(function () use ($movementSequenceTarget): void {
+                    DB::statement(
+                        "SELECT setval('stock_movement_number_seq', GREATEST(?, CASE WHEN is_called THEN last_value + 1 ELSE last_value END), false) FROM stock_movement_number_seq",
+                        [$movementSequenceTarget],
+                    );
+                });
+            }
         }, attempts: 3);
     }
 

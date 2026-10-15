@@ -11,6 +11,7 @@ use App\Exceptions\BusinessException;
 use App\Models\Location;
 use App\Models\StockLevel;
 use App\Models\Stocktake;
+use App\Services\Concerns\HandlesIdempotentCreation;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
@@ -21,6 +22,8 @@ use Illuminate\Support\Facades\DB;
  */
 class StocktakeService
 {
+    use HandlesIdempotentCreation;
+
     public function __construct(
         private readonly InventoryService $inventory,
         private readonly SettingService $settings,
@@ -45,7 +48,21 @@ class StocktakeService
             ->findOrFail($id);
     }
 
-    public function create(array $data, int $userId): Stocktake
+    public function create(array $data, int $userId, ?string $idempotencyKey = null): Stocktake
+    {
+        /** @var Stocktake */
+        return $this->createIdempotently(
+            'stocktake_store',
+            $data,
+            $userId,
+            $idempotencyKey,
+            Stocktake::class,
+            ['items.variant', 'branch', 'location', 'creator'],
+            fn (): Stocktake => $this->doCreate($data, $userId),
+        );
+    }
+
+    private function doCreate(array $data, int $userId): Stocktake
     {
         return DB::transaction(function () use ($data, $userId): Stocktake {
             app(BranchAccess::class)->assertBranch($userId, (int) $data['branch_id']);
@@ -141,9 +158,15 @@ class StocktakeService
                 'branch_id' => $stocktake->branch_id, 'location_id' => $stocktake->location_id,
             ])->all());
 
-            // A count becomes stale after a stock change; never overwrite intervening sales/receipts.
-            // اللقطة مربوطة بلحظة العد، فأي حركة بعدها تجعل الصنف محتاجًا إعادة عد —
-            // ولا تُحدَّث اللقطة بإعادة الحفظ، بل بتغيير العدد أو بعلم recount فقط.
+            // سياسة اللقطة القديمة قابلة للضبط (inventory.stocktake_stale_policy):
+            // - reject (الافتراضي): أي حركة بعد العد ترفض الاعتماد وتعيد قائمة
+            //   إعادة العد. يمنع أيضًا تطبيق نفس الفرق مرتين عند تداخل جلستين.
+            // - apply_difference: تطبيق الفرق (counted − system_qty) على الرصيد
+            //   الحالي يحفظ الحركات البينية حسابيًا (النهائي = المعدود + صافيها)
+            //   فلا تُحبس جلسات الفروع النشطة — لكنه غير آمن مع جردين متداخلين
+            //   لنفس الصنف، فلا يُفعَّل إلا بضبط صريح (M-5).
+            // ولا تُحدَّث اللقطة بإعادة الحفظ في أي سياسة، بل بتغيير العدد أو recount.
+            $rejectStale = config('inventory.stocktake_stale_policy', 'reject') !== 'apply_difference';
             $staleItemIds = [];
             $staleVariantIds = [];
             foreach ($stocktake->items as $item) {
@@ -151,7 +174,7 @@ class StocktakeService
                     'product_variant_id' => $item->product_variant_id,
                     'branch_id' => $stocktake->branch_id, 'location_id' => $stocktake->location_id,
                 ]);
-                if ((int) round((float) $levels[$key]->on_hand * 10000) !== (int) round((float) $item->system_qty * 10000)) {
+                if ($rejectStale && (int) round((float) $levels[$key]->on_hand * 10000) !== (int) round((float) $item->system_qty * 10000)) {
                     $staleItemIds[] = $item->id;
                     $staleVariantIds[] = $item->product_variant_id;
                 }
@@ -248,15 +271,36 @@ class StocktakeService
     }
 
     /**
+     * تحديث جزئي لعناصر جرد قائم (M-4): upsert للعناصر المرسلة فقط دون حذف
+     * الغائبين — تسجيل عدّ صنف واحد لا يتطلب إعادة إرسال قائمة الجلسة كاملة،
+     * والجلسات الأكبر من حد الحمولة (500) تُبنى عبر دفعات متتالية هنا.
+     *
+     * @param  list<array{product_variant_id: int, counted_qty?: float|int|string|null, recount?: bool|null}>  $items
+     */
+    public function upsertSomeItems(Stocktake $stocktake, array $items, int $userId): Stocktake
+    {
+        return DB::transaction(function () use ($stocktake, $items, $userId): Stocktake {
+            $stocktake = Stocktake::query()->lockForUpdate()->findOrFail($stocktake->id);
+            $this->assertEditable($stocktake);
+            app(BranchAccess::class)->assertBranch($userId, $stocktake->branch_id);
+
+            $this->upsertItems($stocktake, $items, deleteAbsent: false);
+            $stocktake->touch();
+
+            return $stocktake->load(['items.variant', 'branch', 'location', 'creator']);
+        });
+    }
+
+    /**
      * تحديث عناصر جرد قائم بدون كسر ربط اللقطة بلحظة العد:
      * - عنصر جديد يُنشأ بلقطة الآن.
      * - لقطة عنصر قائم لا تتجدد إلا إذا سُجّل counted_qty أو تغيّر، أو أُرسل recount=true.
      * - إعادة حفظ بنفس الأعداد (الواجهة ترسل المصفوفة كاملة) لا تلمس اللقطات.
-     * - عنصر غائب من الحمولة يُحذف من الجرد.
+     * - عنصر غائب من الحمولة يُحذف من الجرد (في الاستبدال الكامل فقط).
      *
      * @param  list<array{product_variant_id: int, counted_qty?: float|int|string|null, recount?: bool|null}>  $items
      */
-    private function upsertItems(Stocktake $stocktake, array $items): void
+    private function upsertItems(Stocktake $stocktake, array $items, bool $deleteAbsent = true): void
     {
         $existing = $stocktake->items()->get()->keyBy('product_variant_id');
         $levels = StockLevel::query()->where('branch_id', $stocktake->branch_id)
@@ -302,6 +346,8 @@ class StocktakeService
             }
         }
 
-        $stocktake->items()->whereNotIn('id', $keepIds)->delete();
+        if ($deleteAbsent) {
+            $stocktake->items()->whereNotIn('id', $keepIds)->delete();
+        }
     }
 }

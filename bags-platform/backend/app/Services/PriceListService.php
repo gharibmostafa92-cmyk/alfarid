@@ -14,8 +14,10 @@ use Carbon\Carbon;
 use DateTimeInterface;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -71,13 +73,20 @@ class PriceListService
     public function update(PriceList $priceList, array $data, ?User $user = null): PriceList
     {
         $this->assertListAccess($user, $priceList);
-        if ($this->restrictedBranch($user) !== null && isset($data['branch_id']) && (int) $data['branch_id'] !== $this->restrictedBranch($user)) {
+        $restricted = $this->restrictedBranch($user);
+        // array_key_exists لا isset: إرسال branch_id = null كان يتخطى الفحص كله
+        // ويحوّل قائمة الفرع إلى قائمة عامة لكل الفروع (C-1).
+        if ($restricted !== null && array_key_exists('branch_id', $data)
+            && ($data['branch_id'] === null || (int) $data['branch_id'] !== $restricted)) {
             throw new AuthorizationException('لا تملك صلاحية نقل قائمة أسعار إلى فرع آخر.');
         }
         $data = $this->normalizeDates($data);
 
-        return DB::transaction(function () use ($priceList, $data): PriceList {
+        return DB::transaction(function () use ($priceList, $data, $user): PriceList {
             $priceList = PriceList::query()->lockForUpdate()->findOrFail($priceList->id);
+            // إعادة الفحص على الصف المقفول: القائمة قد تكون انتقلت لفرع آخر بين
+            // فحص الـ route binding والقفل (L-1).
+            $this->assertListAccess($user, $priceList);
             $this->validateDates($data, $priceList);
             $data = $this->withValidOwner($data, $priceList);
             $priceList->update($data);
@@ -118,7 +127,12 @@ class PriceListService
     public function delete(PriceList $priceList, ?User $user = null): void
     {
         $this->assertListAccess($user, $priceList);
-        $priceList->delete(); // العناصر بتتحذف بـ cascade في القاعدة
+
+        DB::transaction(function () use ($priceList, $user): void {
+            $locked = PriceList::query()->lockForUpdate()->findOrFail($priceList->id);
+            $this->assertListAccess($user, $locked); // إعادة فحص بعد القفل (L-1)
+            $locked->delete(); // العناصر بتتحذف بـ cascade في القاعدة
+        });
     }
 
     // ---------- Items ----------
@@ -141,8 +155,9 @@ class PriceListService
         $this->assertListAccess($user, $priceList);
         $data = $this->normalizeDates($data);
 
-        return DB::transaction(function () use ($priceList, $data): PriceListItem {
+        return DB::transaction(function () use ($priceList, $data, $user): PriceListItem {
             $priceList = PriceList::query()->lockForUpdate()->findOrFail($priceList->id);
+            $this->assertListAccess($user, $priceList); // إعادة فحص بعد القفل (L-1)
             $data['min_qty'] = $data['min_qty'] ?? 1;
             $this->validateDates($data);
             $this->assertNoDuplicateTier($priceList, (int) $data['product_variant_id'], (float) $data['min_qty']);
@@ -156,8 +171,9 @@ class PriceListService
         $this->assertListAccess($user, $item->priceList);
         $data = $this->normalizeDates($data);
 
-        return DB::transaction(function () use ($item, $data): PriceListItem {
-            PriceList::query()->lockForUpdate()->findOrFail($item->price_list_id);
+        return DB::transaction(function () use ($item, $data, $user): PriceListItem {
+            $lockedList = PriceList::query()->lockForUpdate()->findOrFail($item->price_list_id);
+            $this->assertListAccess($user, $lockedList); // إعادة فحص بعد القفل (L-1)
             $item = PriceListItem::query()->lockForUpdate()->findOrFail($item->id);
             $this->validateDates($data, $item);
             if (isset($data['product_variant_id']) || isset($data['min_qty'])) {
@@ -178,7 +194,12 @@ class PriceListService
     public function deleteItem(PriceListItem $item, ?User $user = null): void
     {
         $this->assertListAccess($user, $item->priceList);
-        $item->delete();
+
+        DB::transaction(function () use ($item, $user): void {
+            $lockedList = PriceList::query()->lockForUpdate()->findOrFail($item->price_list_id);
+            $this->assertListAccess($user, $lockedList); // إعادة فحص بعد القفل (L-1)
+            PriceListItem::query()->lockForUpdate()->findOrFail($item->id)->delete();
+        });
     }
 
     private function assertNoDuplicateTier(PriceList $priceList, int $variantId, float $minQty, ?int $ignoreItemId = null): void
@@ -204,7 +225,9 @@ class PriceListService
         return response()->streamDownload(function () use ($priceList): void {
             $handle = fopen('php://output', 'w');
             try {
-                fputcsv($handle, ['sku', 'variant_id', 'product_name', 'min_qty', 'price', 'starts_at', 'ends_at']);
+                // escape: '' — آلية الهروب الخاصة بـ PHP تكسر الحقول المنتهية بشرطة
+                // مائلة ومُهملة في PHP 8.4 (L-5).
+                fputcsv($handle, ['sku', 'variant_id', 'product_name', 'min_qty', 'price', 'starts_at', 'ends_at'], escape: '');
 
                 $priceList->items()
                     ->with(['variant.product' => fn ($query) => $query->withTrashed()])
@@ -218,10 +241,19 @@ class PriceListService
                                 $item->price,
                                 $item->starts_at?->toIso8601String(),
                                 $item->ends_at?->toIso8601String(),
-                            ]);
+                            ], escape: '');
                         }
                     });
 
+            } catch (\Throwable $e) {
+                // فشل في منتصف البث يترك ملفًا مبتورًا عند العميل بحالة 200؛
+                // لا يمكن التراجع، لكن الفشل لازم يتسجل (L-5).
+                Log::error('فشل تصدير قائمة أسعار أثناء البث', [
+                    'price_list_id' => $priceList->id,
+                    'exception' => $e->getMessage(),
+                ]);
+
+                throw $e;
             } finally {
                 fclose($handle);
             }
@@ -247,7 +279,7 @@ class PriceListService
             throw new BusinessException('تعذرت قراءة ملف الاستيراد.');
         }
         try {
-            $header = fgetcsv($handle);
+            $header = fgetcsv($handle, escape: '');
             if ($header === false) {
                 throw new BusinessException('ملف الاستيراد فارغ.');
             }
@@ -259,7 +291,7 @@ class PriceListService
             }
             $rows = [];
             $line = 1;
-            while (($row = fgetcsv($handle)) !== false) {
+            while (($row = fgetcsv($handle, escape: '')) !== false) {
                 $line++;
                 if ($line > 10000) {
                     throw new BusinessException('عدد أسطر الملف يتجاوز الحد المسموح.');
@@ -283,8 +315,12 @@ class PriceListService
         $ids = array_values(array_filter(array_map(fn ($row) => filter_var($row['variant_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]), $rows)));
         $skus = [];
         foreach ($rows as $row) {
+            // الكتالوج يخزن SKU بأحرف كبيرة؛ مطابقة الاستيراد لا يجب أن تفشل على
+            // اختلاف الحالة (L-5)، فنجمع كل الصور المحتملة للبحث.
             $skus[] = $row['sku'];
             $skus[] = $this->unescapeCsvText($row['sku']);
+            $skus[] = strtoupper($row['sku']);
+            $skus[] = strtoupper($this->unescapeCsvText($row['sku']));
         }
         $variants = ProductVariant::query()->where('is_active', true)
             ->where(fn ($q) => $q->whereIn('id', $ids)->orWhereIn('sku', array_unique($skus)))->get();
@@ -296,8 +332,9 @@ class PriceListService
             try {
                 $variant = $row['variant_id'] !== ''
                     ? $byId->get(filter_var($row['variant_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?: 0)
-                    : ($bySku->get($row['sku']) ?? $bySku->get($this->unescapeCsvText($row['sku'])));
-                if ($variant === null || ($row['sku'] !== '' && $row['sku'] !== $variant->sku && $row['sku'] !== $this->csvText($variant->sku))) {
+                    : ($bySku->get($row['sku']) ?? $bySku->get($this->unescapeCsvText($row['sku']))
+                        ?? $bySku->get(strtoupper($row['sku'])) ?? $bySku->get(strtoupper($this->unescapeCsvText($row['sku']))));
+                if ($variant === null || ($row['sku'] !== '' && $row['sku'] !== $variant->sku && strtoupper($row['sku']) !== $variant->sku && $row['sku'] !== $this->csvText($variant->sku) && strtoupper($row['sku']) !== $this->csvText($variant->sku))) {
                     throw new BusinessException('الصنف غير موجود أو يوجد تعارض بين sku وvariant_id.');
                 }
                 $validator = Validator::make($row, [
@@ -317,13 +354,45 @@ class PriceListService
                 $report['errors'][] = ['line' => $row['line'], 'message' => $exception->getMessage()];
             }
         }
-        DB::transaction(function () use ($valid, $priceList, &$report): void {
-            PriceList::query()->lockForUpdate()->findOrFail($priceList->id);
+        // تكرار نفس (متغير، min_qty) داخل الملف: الصف الأخير يكسب، والعدّ مرة واحدة
+        $deduped = [];
+        foreach ($valid as $row) {
+            $deduped[$row['product_variant_id'].':'.number_format((float) $row['min_qty'], 4, '.', '')] = $row;
+        }
+        $valid = array_values($deduped);
+
+        DB::transaction(function () use ($valid, $priceList, $user, &$report): void {
+            $locked = PriceList::query()->lockForUpdate()->findOrFail($priceList->id);
+            $this->assertListAccess($user, $locked); // إعادة فحص بعد القفل (L-1)
+
+            // كتابة مجمّعة بدل updateOrCreate لكل صف: استعلام وجود واحد + upsert
+            // على دفعات، بدل آلاف الاستعلامات والقائمة مقفولة (M-6).
+            $existing = PriceListItem::query()
+                ->where('price_list_id', $priceList->id)
+                ->whereIn('product_variant_id', array_column($valid, 'product_variant_id'))
+                ->get(['product_variant_id', 'min_qty'])
+                ->map(fn ($item) => $item->product_variant_id.':'.number_format((float) $item->min_qty, 4, '.', ''))
+                ->flip();
+
+            $rows = [];
+            $now = now();
             foreach ($valid as $row) {
-                $item = PriceListItem::query()->updateOrCreate([
-                    'price_list_id' => $priceList->id, 'product_variant_id' => $row['product_variant_id'], 'min_qty' => $row['min_qty'],
-                ], ['price' => $row['price'], 'starts_at' => $row['starts_at'], 'ends_at' => $row['ends_at']]);
-                $item->wasRecentlyCreated ? $report['created']++ : $report['updated']++;
+                $key = $row['product_variant_id'].':'.number_format((float) $row['min_qty'], 4, '.', '');
+                $existing->has($key) ? $report['updated']++ : $report['created']++;
+                $rows[] = [
+                    'price_list_id' => $priceList->id,
+                    'product_variant_id' => $row['product_variant_id'],
+                    'min_qty' => $row['min_qty'],
+                    'price' => $row['price'],
+                    'starts_at' => $row['starts_at'],
+                    'ends_at' => $row['ends_at'],
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+
+            foreach (array_chunk($rows, 500) as $chunk) {
+                PriceListItem::query()->upsert($chunk, ['price_list_id', 'product_variant_id', 'min_qty'], ['price', 'starts_at', 'ends_at', 'updated_at']);
             }
         });
 
@@ -389,7 +458,9 @@ class PriceListService
     {
         $restricted = $this->restrictedBranch($user);
         if ($restricted !== null && $priceList->branch_id !== $restricted) {
-            throw new AuthorizationException('قائمة الأسعار هذه خارج نطاق فرعك.');
+            // 404 لا 403: كشف الوجود غير متسق مع find() الذي يرجع 404 أصلًا،
+            // وإخفاء الوجود هو السلوك الموحد لقوائم خارج النطاق (L-6).
+            throw new ModelNotFoundException('قائمة الأسعار غير موجودة.');
         }
     }
 

@@ -20,7 +20,8 @@ use Illuminate\Database\Eloquent\Builder;
  * شجرة الأولويات:
  * 1. سعر خاص بالعميل (customer_specific)
  * 2. سعر مجموعة العميل (customer_group)
- * 3. قائمة النوع (wholesale/distributor للمعتمدين فقط، وإلا retail)
+ * 3. قائمة النوع (wholesale/distributor للمعتمدين فقط، وإلا retail)؛ وقناة
+ *    جملة/موزع بلا عنصر مطابق ترجع لقوائم retail النشطة قبل السعر الأساسي.
  * 4. السعر الأساسي للمتغير (base_price، المتوافق مع retail_price من المرحلة 2).
  *
  * خصم مجموعة العميل (discount_percentage) لا يصنع مستوى مستقلًا: يُطبق فوق ناتج
@@ -79,6 +80,18 @@ class PricingService
         $item = $this->ordered((clone $baseQuery)
             ->where('price_lists.type', $channel)
         )->first();
+
+        // قناة جملة/موزع بلا عنصر في قائمتها ترجع لقوائم القطاعي النشطة قبل
+        // السعر الأساسي — وإلا دفع عميل الجملة أكثر من عميل التجزئة (M-1).
+        if ($item === null && $channel !== PriceListType::Retail) {
+            $item = $this->ordered((clone $baseQuery)
+                ->where('price_lists.type', PriceListType::Retail)
+            )->first();
+
+            if ($item !== null) {
+                $channel = PriceListType::Retail;
+            }
+        }
 
         if ($item !== null) {
             $channelPrice = (float) $item->price;
