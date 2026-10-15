@@ -11,6 +11,7 @@ use App\Models\StockLevel;
 use App\Models\StockMovement;
 use App\Models\User;
 use App\Services\InventoryService;
+use App\Services\SettingService;
 use App\Services\StocktakeService;
 use App\Services\TransferService;
 use Database\Seeders\SettingSeeder;
@@ -126,6 +127,78 @@ class InventoryConcurrencyTest extends TestCase
         $operation = 'app(App\Services\PriceListService::class)->createItem(App\Models\PriceList::findOrFail('.$list->id.'), '.var_export(['product_variant_id' => $variant->id, 'min_qty' => 1, 'price' => 10], true).');';
         $this->race([$operation, $operation], ['OK', 'REJECTED']);
         $this->assertSame(1, $list->items()->count());
+    }
+
+    public function test_waiting_for_an_uncommitted_first_stock_row_returns_409(): void
+    {
+        $branch = Branch::factory()->create();
+        $variant = ProductVariant::factory()->create();
+        $key = var_export(['branch_id' => $branch->id, 'product_variant_id' => $variant->id], true);
+        $holder = <<<'PHP'
+Illuminate\Support\Facades\DB::transaction(function () {
+PHP;
+        $holder .= 'Illuminate\Support\Facades\DB::table("stock_levels")->insert('.$key.');';
+        $holder .= <<<'PHP'
+    $prefix = getenv('INVENTORY_START_FILE');
+    touch($prefix.'.left');
+    $deadline = microtime(true) + 10;
+    while (!is_file($prefix.'.right')) {
+        if (microtime(true) > $deadline) { throw new RuntimeException('Contender did not finish'); }
+        usleep(10000);
+    }
+});
+PHP;
+        $contender = <<<'PHP'
+$prefix = getenv('INVENTORY_START_FILE');
+$deadline = microtime(true) + 10;
+while (!is_file($prefix.'.left')) {
+    if (microtime(true) > $deadline) { throw new RuntimeException('Holder did not insert'); }
+    usleep(10000);
+}
+try {
+PHP;
+        $contender .= 'app(App\Services\InventoryService::class)->recordMovement('.var_export($this->data($variant, $branch), true).');';
+        $contender .= <<<'PHP'
+    touch($prefix.'.right');
+    throw new RuntimeException('Expected a lock conflict');
+} catch (App\Exceptions\BusinessException $exception) {
+    touch($prefix.'.right');
+    if ($exception->status !== 409) { throw new RuntimeException('Expected status 409'); }
+    throw $exception;
+}
+PHP;
+        $this->race([$holder, $contender], ['OK', 'REJECTED']);
+        $this->assertDatabaseCount('stock_movements', 0);
+        $this->assertSame('0.0000', StockLevel::firstOrFail()->on_hand);
+    }
+
+    public function test_movement_counter_updates_do_not_hold_a_sequence_lock_until_commit(): void
+    {
+        $data = $this->data(ProductVariant::factory()->create(), Branch::factory()->create());
+        $holder = <<<'PHP'
+Illuminate\Support\Facades\DB::transaction(function () {
+    app(App\Services\SettingService::class)->updateBatch(['movement_next_number' => 20000]);
+    $prefix = getenv('INVENTORY_START_FILE');
+    touch($prefix.'.left');
+    $deadline = microtime(true) + 8;
+    while (!is_file($prefix.'.right')) {
+        if (microtime(true) > $deadline) { throw new RuntimeException('Counter change blocked inventory'); }
+        usleep(10000);
+    }
+});
+PHP;
+        $writer = <<<'PHP'
+$prefix = getenv('INVENTORY_START_FILE');
+$deadline = microtime(true) + 8;
+while (!is_file($prefix.'.left')) {
+    if (microtime(true) > $deadline) { throw new RuntimeException('Counter update did not start'); }
+    usleep(10000);
+}
+PHP;
+        $writer .= 'app(App\Services\InventoryService::class)->recordMovement('.var_export($data, true).'); touch($prefix.".right");';
+        $this->race([$holder, $writer]);
+        $this->assertDatabaseCount('stock_movements', 1);
+        $this->assertStringEndsWith('20000', app(SettingService::class)->generateNextNumber('movement'));
     }
 
     private function data(ProductVariant $variant, Branch $branch): array

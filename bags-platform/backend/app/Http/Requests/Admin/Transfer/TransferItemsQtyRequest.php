@@ -29,6 +29,7 @@ class TransferItemsQtyRequest extends FormRequest
         $transferId = $this->route('transfer')?->id;
 
         return [
+            'expected_version' => ['nullable', 'integer', 'min:1'],
             'expected_updated_at' => ['nullable', 'date'],
             'items' => ['nullable', 'array', 'max:100'],
             'items.*.id' => [

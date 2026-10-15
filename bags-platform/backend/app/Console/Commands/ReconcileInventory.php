@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
-use App\Models\StockLevel;
-use App\Models\StockMovement;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * مطابقة دورية بين الدفتر والأرصدة (M-8): القاعدة تضمن صحة كل حركة على حدة،
@@ -22,58 +22,69 @@ class ReconcileInventory extends Command
 
     protected $description = 'مطابقة أرصدة المخزون مع دفتر الحركات وكشف أي كتابة مباشرة';
 
-    /** @var list<string> */
-    private array $buckets = ['on_hand', 'reserved', 'damaged', 'in_transit'];
-
     public function handle(): int
     {
-        $problems = [];
-        $checked = 0;
+        $branch = $this->option('branch_id');
+        if ($branch !== null && filter_var($branch, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) === false) {
+            $this->error('branch_id يجب أن يكون عددًا صحيحًا موجبًا.');
 
-        $levels = StockLevel::query()
-            ->when($this->option('branch_id'), fn ($q, $v) => $q->where('branch_id', (int) $v))
-            ->orderBy('branch_id')->orderBy('id')
-            ->lazy(200);
-
-        foreach ($levels as $level) {
-            $checked++;
-            $movements = StockMovement::query()
-                ->where('product_variant_id', $level->product_variant_id)
-                ->where('branch_id', $level->branch_id)
-                ->where('location_id', $level->location_id)
-                ->orderBy('id')
-                ->get(['id', 'affected_bucket', 'balance_before', 'balance_after']);
-
-            $expected = array_fill_keys($this->buckets, 0);
-            foreach ($movements as $movement) {
-                $bucket = $movement->affected_bucket instanceof \BackedEnum
-                    ? $movement->affected_bucket->value
-                    : (string) $movement->affected_bucket;
-
-                if ((int) round((float) $movement->balance_before * 10000) !== (int) round($expected[$bucket] * 10000)) {
-                    $problems[] = "حركة #{$movement->id}: balance_before ({$movement->balance_before}) لا يساوي الرصيد السابق ({$expected[$bucket]}) لوعاء {$bucket} — متغير {$level->product_variant_id} فرع {$level->branch_id}";
-                }
-                $expected[$bucket] = (float) $movement->balance_after;
-            }
-
-            foreach ($this->buckets as $bucket) {
-                if ((int) round((float) $level->{$bucket} * 10000) !== (int) round($expected[$bucket] * 10000)) {
-                    $problems[] = "متغير {$level->product_variant_id} فرع {$level->branch_id} موقع ".($level->location_id ?? '—').": رصيد {$bucket} في stock_levels ({$level->{$bucket}}) لا يطابق الدفتر ({$expected[$bucket]})";
-                }
-            }
+            return self::INVALID;
         }
 
-        foreach ($problems as $problem) {
-            $this->error($problem);
-        }
+        // One SQL statement sees one committed snapshot, even while sales continue.
+        // Window functions also catch broken chains and movements without a stock row.
+        $result = DB::selectOne(<<<'SQL'
+WITH levels AS (
+    SELECT * FROM stock_levels WHERE (?::bigint IS NULL OR branch_id = ?::bigint)
+), ledger AS (
+    SELECT *,
+        LAG(balance_after, 1, 0::numeric) OVER (
+            PARTITION BY branch_id, location_id, product_variant_id, affected_bucket ORDER BY id
+        ) AS previous_balance,
+        ROW_NUMBER() OVER (
+            PARTITION BY branch_id, location_id, product_variant_id, affected_bucket ORDER BY id DESC
+        ) AS recency
+    FROM stock_movements WHERE (?::bigint IS NULL OR branch_id = ?::bigint)
+), buckets AS (
+    SELECT l.id, l.branch_id, l.location_id, l.product_variant_id, b.bucket, b.balance
+    FROM levels l CROSS JOIN LATERAL (VALUES
+        ('on_hand', l.on_hand), ('reserved', l.reserved),
+        ('damaged', l.damaged), ('in_transit', l.in_transit)
+    ) b(bucket, balance)
+), problems AS (
+    SELECT 'chain' AS issue, id, branch_id, location_id, product_variant_id, affected_bucket AS bucket,
+        previous_balance AS expected, balance_before AS actual
+    FROM ledger WHERE balance_before <> previous_balance
+    UNION ALL
+    SELECT 'balance', b.id, b.branch_id, b.location_id, b.product_variant_id, b.bucket,
+        COALESCE(m.balance_after, 0), b.balance
+    FROM buckets b LEFT JOIN ledger m ON m.recency = 1
+        AND m.branch_id = b.branch_id AND m.product_variant_id = b.product_variant_id
+        AND m.location_id IS NOT DISTINCT FROM b.location_id AND m.affected_bucket = b.bucket
+    WHERE b.balance <> COALESCE(m.balance_after, 0)
+    UNION ALL
+    SELECT 'missing_level', m.id, m.branch_id, m.location_id, m.product_variant_id,
+        m.affected_bucket, m.balance_after, NULL::numeric
+    FROM ledger m LEFT JOIN levels l ON l.branch_id = m.branch_id
+        AND l.product_variant_id = m.product_variant_id AND l.location_id IS NOT DISTINCT FROM m.location_id
+    WHERE m.recency = 1 AND l.id IS NULL
+)
+SELECT (SELECT COUNT(*) FROM levels) AS checked, (SELECT COUNT(*) FROM problems) AS problem_count,
+    COALESCE((SELECT json_agg(p) FROM (SELECT * FROM problems ORDER BY branch_id, product_variant_id, id LIMIT 100) p), '[]'::json) AS samples
+SQL, [$branch, $branch, $branch, $branch]);
 
-        if ($problems !== []) {
-            $this->error('المطابقة فشلت: '.count($problems).' فرق في '.$checked.' صف رصيد.');
+        if ((int) $result->problem_count > 0) {
+            $samples = json_decode($result->samples, true, flags: JSON_THROW_ON_ERROR);
+            foreach ($samples as $problem) {
+                $this->error(json_encode($problem, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+            }
+            Log::error('Inventory reconciliation failed', ['problem_count' => (int) $result->problem_count, 'samples' => $samples]);
+            $this->error("المطابقة فشلت: {$result->problem_count} فرق في {$result->checked} صف رصيد.");
 
             return self::FAILURE;
         }
 
-        $this->info("المطابقة سليمة: {$checked} صف رصيد مطابق للدفتر.");
+        $this->info("المطابقة سليمة: {$result->checked} صف رصيد مطابق للدفتر.");
 
         return self::SUCCESS;
     }

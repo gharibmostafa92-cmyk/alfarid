@@ -133,13 +133,10 @@ class SettingService
             if ($movementSequenceTarget !== null) {
                 // مزامنة التسلسل بعد الاعتماد لا داخله: ALTER SEQUENCE داخل
                 // المعاملة كان يحجب كل nextval (أي كل حركات المخزون) حتى نهاية
-                // معاملة الإعدادات (L-9). setval بـ GREATEST لا يرجع بالتسلسل
-                // تحت رقم صدر فعلًا أثناء النافذة.
+                // معاملة الإعدادات (L-9). الدالة تقفل الترقيم لمدة الاستعلام
+                // نفسه وتنسّق رفع الحد الأدنى مع كل تخصيص جديد لمنع إعادة رقم.
                 DB::afterCommit(function () use ($movementSequenceTarget): void {
-                    DB::statement(
-                        "SELECT setval('stock_movement_number_seq', GREATEST(?, CASE WHEN is_called THEN last_value + 1 ELSE last_value END), false) FROM stock_movement_number_seq",
-                        [$movementSequenceTarget],
-                    );
+                    DB::selectOne('SELECT inventory_movement_number(?) AS number', [$movementSequenceTarget]);
                 });
             }
         }, attempts: 3);
@@ -154,7 +151,7 @@ class SettingService
     {
         if ($type === 'movement') {
             [$prefix, $padding] = $this->numberingConfig('movement', 'movement_prefix', 'movement_padding');
-            $number = DB::selectOne("SELECT nextval('stock_movement_number_seq') AS number")->number;
+            $number = DB::selectOne('SELECT inventory_movement_number() AS number')->number;
 
             return $prefix.str_pad((string) $number, $padding, '0', STR_PAD_LEFT);
         }

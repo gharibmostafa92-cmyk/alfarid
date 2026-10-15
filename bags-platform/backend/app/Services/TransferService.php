@@ -54,6 +54,8 @@ class TransferService
 
     public function create(array $data, int $userId, ?string $idempotencyKey = null): StockTransfer
     {
+        app(BranchAccess::class)->assertBranch($userId, (int) $data['from_branch_id']);
+
         /** @var StockTransfer */
         return $this->createIdempotently(
             'transfer_store',
@@ -116,10 +118,6 @@ class TransferService
             if (isset($data['items'])) {
                 $transfer->items()->delete();
                 $this->syncItems($transfer, $data['items']);
-                // استبدال البنود تغيير حقيقي حتى لو الرأس لم يتغير: update() بلا
-                // قيم جديدة لا يحرّك updated_at، فيمرّ طابع expected_updated_at
-                // عند الاعتماد على بنود لم يراجعها أحد (H-1). touch يفرض التحديث.
-                $transfer->touch();
             }
 
             return $transfer->load(['items.variant', 'fromBranch', 'toBranch', 'creator']);
@@ -127,14 +125,14 @@ class TransferService
     }
 
     /** الاعتماد: حجز الكميات المعتمدة في الفرع المرسل حتى لا تُباع قبل الشحن. */
-    public function approve(StockTransfer $transfer, array $itemsPayload, int $userId, ?string $expectedUpdatedAt = null): StockTransfer
+    public function approve(StockTransfer $transfer, array $itemsPayload, int $userId, ?string $expectedUpdatedAt = null, ?int $expectedVersion = null): StockTransfer
     {
-        return DB::transaction(function () use ($transfer, $itemsPayload, $userId, $expectedUpdatedAt): StockTransfer {
+        return DB::transaction(function () use ($transfer, $itemsPayload, $userId, $expectedUpdatedAt, $expectedVersion): StockTransfer {
             $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
             $transfer->load('items.variant');
-            $this->assertPayloadMatchesLockedItems($transfer, $itemsPayload, $expectedUpdatedAt);
-            $this->assertStatus($transfer, TransferStatus::Draft, 'الاعتماد');
             app(BranchAccess::class)->assertBranch($userId, $transfer->from_branch_id);
+            $this->assertPayloadMatchesLockedItems($transfer, $itemsPayload, $expectedUpdatedAt, $expectedVersion);
+            $this->assertStatus($transfer, TransferStatus::Draft, 'الاعتماد');
             if ($transfer->items->sum(fn ($item) => (float) ($itemsPayload[$item->id] ?? $item->requested_qty)) <= 0) {
                 throw new BusinessException('يجب اعتماد كمية موجبة واحدة على الأقل؛ يمكن إلغاء التحويل بدلًا من اعتماده بصفر.');
             }
@@ -182,14 +180,17 @@ class TransferService
     }
 
     /** الشحن: فك الحجز وإخراج البضاعة من المرسل، وتسجيلها "في الطريق" عند المستلم. */
-    public function ship(StockTransfer $transfer, array $itemsPayload, int $userId, ?string $expectedUpdatedAt = null): StockTransfer
+    public function ship(StockTransfer $transfer, array $itemsPayload, int $userId, ?string $expectedUpdatedAt = null, ?int $expectedVersion = null): StockTransfer
     {
-        return DB::transaction(function () use ($transfer, $itemsPayload, $userId, $expectedUpdatedAt): StockTransfer {
+        return DB::transaction(function () use ($transfer, $itemsPayload, $userId, $expectedUpdatedAt, $expectedVersion): StockTransfer {
             $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
             $transfer->load('items.variant');
-            $this->assertPayloadMatchesLockedItems($transfer, $itemsPayload, $expectedUpdatedAt);
-            $this->assertStatus($transfer, TransferStatus::Approved, 'الشحن');
             app(BranchAccess::class)->assertBranch($userId, $transfer->from_branch_id);
+            if (in_array($transfer->status, [TransferStatus::Shipped, TransferStatus::Received], true)) {
+                return $this->replayCompletedStage($transfer, $itemsPayload, 'shipped_qty');
+            }
+            $this->assertPayloadMatchesLockedItems($transfer, $itemsPayload, $expectedUpdatedAt, $expectedVersion);
+            $this->assertStatus($transfer, TransferStatus::Approved, 'الشحن');
             if ($transfer->items->sum(fn ($item) => (float) ($itemsPayload[$item->id] ?? $item->approved_qty)) <= 0) {
                 throw new BusinessException('يجب شحن كمية موجبة واحدة على الأقل؛ يمكن إلغاء التحويل لفك الحجز.');
             }
@@ -285,14 +286,17 @@ class TransferService
     }
 
     /** الاستلام: تسوية in_transit بالكامل، وإضافة المستلم فعليًا، وتسوية أي عجز كحركة مستقلة. */
-    public function receive(StockTransfer $transfer, array $itemsPayload, int $userId, ?string $expectedUpdatedAt = null): StockTransfer
+    public function receive(StockTransfer $transfer, array $itemsPayload, int $userId, ?string $expectedUpdatedAt = null, ?int $expectedVersion = null): StockTransfer
     {
-        return DB::transaction(function () use ($transfer, $itemsPayload, $userId, $expectedUpdatedAt): StockTransfer {
+        return DB::transaction(function () use ($transfer, $itemsPayload, $userId, $expectedUpdatedAt, $expectedVersion): StockTransfer {
             $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
             $transfer->load('items.variant');
-            $this->assertPayloadMatchesLockedItems($transfer, $itemsPayload, $expectedUpdatedAt);
-            $this->assertStatus($transfer, TransferStatus::Shipped, 'الاستلام');
             app(BranchAccess::class)->assertBranch($userId, $transfer->to_branch_id);
+            if ($transfer->status === TransferStatus::Received) {
+                return $this->replayCompletedStage($transfer, $itemsPayload, 'received_qty');
+            }
+            $this->assertPayloadMatchesLockedItems($transfer, $itemsPayload, $expectedUpdatedAt, $expectedVersion);
+            $this->assertStatus($transfer, TransferStatus::Shipped, 'الاستلام');
             $levels = $this->lockTransferLevels($transfer, false, true);
 
             $shortageNotes = [];
@@ -429,8 +433,12 @@ class TransferService
      * تجاهله بصمت (التعديل بين تحقق الطلب والقفل كان يبدّل المعرّفات)، وطابع
      * expected_updated_at الاختياري يمنع اعتماد نسخة لم يراجعها المعتمد.
      */
-    private function assertPayloadMatchesLockedItems(StockTransfer $transfer, array $itemsPayload, ?string $expectedUpdatedAt): void
+    private function assertPayloadMatchesLockedItems(StockTransfer $transfer, array $itemsPayload, ?string $expectedUpdatedAt, ?int $expectedVersion = null): void
     {
+        if ($expectedVersion !== null && $expectedVersion !== $transfer->version) {
+            throw new BusinessException('تم تعديل التحويل؛ أعد تحميله وراجع الكميات.', ['current_version' => $transfer->version], 409);
+        }
+
         $unknownIds = array_diff(array_map('intval', array_keys($itemsPayload)), $transfer->items->pluck('id')->map(fn ($id) => (int) $id)->all());
 
         if ($unknownIds !== []) {
@@ -449,6 +457,19 @@ class TransferService
                 409,
             );
         }
+    }
+
+    private function replayCompletedStage(StockTransfer $transfer, array $itemsPayload, string $quantityField): StockTransfer
+    {
+        $this->assertPayloadMatchesLockedItems($transfer, $itemsPayload, null);
+        foreach ($transfer->items as $item) {
+            if (array_key_exists($item->id, $itemsPayload)
+                && (int) round((float) $itemsPayload[$item->id] * 10000) !== (int) round((float) $item->{$quantityField} * 10000)) {
+                throw new BusinessException('تم تنفيذ المرحلة بكميات مختلفة؛ أعد تحميل التحويل.', [], 409);
+            }
+        }
+
+        return $transfer->load(['fromBranch', 'toBranch']);
     }
 
     private function assertStatus(StockTransfer $transfer, TransferStatus $expected, string $action): void

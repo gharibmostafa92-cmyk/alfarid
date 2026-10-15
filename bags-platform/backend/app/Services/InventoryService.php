@@ -35,7 +35,7 @@ class InventoryService
      */
     public function recordMovement(array $data, ?StockLevel $prelockedLevel = null): StockMovement
     {
-        return DB::transaction(function () use ($data, $prelockedLevel): StockMovement {
+        $apply = function () use ($data, $prelockedLevel): StockMovement {
             $rawQty = $data['quantity'];
             if (! is_numeric($rawQty) || ! is_finite((float) $rawQty) || abs((float) $rawQty) > 99999999.9999) {
                 throw new BusinessException('كمية الحركة غير صالحة.');
@@ -72,6 +72,14 @@ class InventoryService
                     'branch_id' => $data['branch_id'],
                     'location_id' => $locationId,
                 ]])->first();
+            }
+
+            if ($bucket === StockBucket::OnHand && $units > 0) {
+                $variant = $stock->variant;
+                if ($variant === null || $variant->trashed() || ! $variant->is_active
+                    || ($stock->location_id !== null && ! $stock->location?->is_active)) {
+                    throw new BusinessException('الإدخال يتطلب متغيرًا وموقعًا نشطين.');
+                }
             }
 
             $bucketKey = $bucket->value;
@@ -137,7 +145,17 @@ class InventoryService
             $stock->save();
 
             return $movement;
-        });
+        };
+
+        if ($prelockedLevel !== null) {
+            if (DB::transactionLevel() === 0) {
+                throw new \LogicException('Prelocked stock requires an active transaction.');
+            }
+
+            return $apply();
+        }
+
+        return DB::transaction($apply);
     }
 
     /**
@@ -152,6 +170,7 @@ class InventoryService
      */
     public function applyAdjustments(array $payload, int $userId, ?string $idempotencyKey = null): array
     {
+        app(BranchAccess::class)->assertBranch($userId, (int) $payload['branch_id']);
         if ($idempotencyKey === null) {
             return $this->executeAdjustments($payload, $userId);
         }
@@ -178,7 +197,7 @@ class InventoryService
         } catch (UniqueConstraintViolationException $e) {
             // الالتقاط خاص بقيد مفتاح عدم التكرار وحده: أي انتهاك فريد آخر داخل
             // المعاملة خطأ حقيقي يجب أن يظهر، لا أن يُقنَّع كتعارض مفتاح (L-2).
-            if (! str_contains($e->getMessage(), 'inventory_idempotency_keys')) {
+            if (! str_contains($e->getMessage(), 'inventory_idempotency_keys_user_id_key_unique')) {
                 throw $e;
             }
 
@@ -318,7 +337,7 @@ class InventoryService
                 'location_id' => $key['location_id'] ?? null, 'created_at' => $now, 'updated_at' => $now,
             ])->values()->all());
 
-            $levels = StockLevel::query()->where(function ($query) use ($keys): void {
+            $levels = StockLevel::query()->with(['variant:id,is_active,deleted_at', 'location:id,is_active'])->where(function ($query) use ($keys): void {
                 foreach ($keys->groupBy(fn ($key) => $key['branch_id'].':'.($key['location_id'] ?? 0)) as $group) {
                     $identity = $group->first();
                     $query->orWhere(fn ($scope) => $scope->where('branch_id', $identity['branch_id'])

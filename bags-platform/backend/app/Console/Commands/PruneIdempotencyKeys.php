@@ -19,9 +19,13 @@ class PruneIdempotencyKeys extends Command
 
     public function handle(): int
     {
-        $deleted = InventoryIdempotencyKey::query()
-            ->where('created_at', '<', now()->subDays(7))
-            ->delete();
+        $deleted = 0;
+        $cutoff = now()->subDays(7);
+        do {
+            $ids = InventoryIdempotencyKey::query()->where('created_at', '<', $cutoff)
+                ->orderBy('id')->limit(1000)->pluck('id');
+            $deleted += InventoryIdempotencyKey::query()->whereIn('id', $ids)->delete();
+        } while ($ids->count() === 1000);
 
         $this->info("تم حذف {$deleted} مفتاح عدم تكرار قديم.");
 

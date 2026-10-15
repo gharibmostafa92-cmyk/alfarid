@@ -78,8 +78,8 @@ class InventoryController extends Controller implements HasMiddleware
             'product_id' => ['nullable', 'integer', 'min:1'],
             'product_variant_id' => ['nullable', 'integer', 'min:1'],
             'type' => ['nullable', Rule::in(array_column(StockMovementType::cases(), 'value'))],
-            'from_date' => ['nullable', 'date'],
-            'to_date' => ['nullable', 'date'],
+            'from_date' => ['nullable', 'date_format:Y-m-d'],
+            'to_date' => ['nullable', 'date_format:Y-m-d', Rule::when($request->filled('from_date'), 'after_or_equal:from_date')],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 

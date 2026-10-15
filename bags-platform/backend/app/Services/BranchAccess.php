@@ -42,4 +42,11 @@ class BranchAccess
             throw new AuthorizationException('لا تملك صلاحية الوصول إلى هذا الفرع.');
         }
     }
+
+    public function assertCentralAccess(?User $user): void
+    {
+        if ($this->restrictedBranch($user) !== null) {
+            throw new AuthorizationException('تعديل مجموعات العملاء والأسعار العامة يتطلب صلاحية الوصول لكل الفروع.');
+        }
+    }
 }

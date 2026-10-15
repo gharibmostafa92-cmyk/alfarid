@@ -5,6 +5,7 @@ use App\Http\Middleware\EnsureStaffAuthenticated;
 use App\Http\Middleware\EnsureSupplierAuthenticated;
 use App\Http\Middleware\EnsureWholesaleApproved;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -44,6 +45,14 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        $exceptions->render(function (QueryException $e, Request $request) {
+            if (($request->is('api/*') || $request->expectsJson())
+                && in_array($e->errorInfo[0] ?? $e->getCode(), ['55P03', '40P01'], true)) {
+                return response()->json(['message' => 'العملية مشغولة بطلب آخر؛ أعد المحاولة بعد لحظات.'], 409);
+            }
+
+            return null;
+        });
         $exceptions->render(function (NotFoundHttpException $e, Request $request) {
             if ($e->getPrevious() instanceof ModelNotFoundException && ($request->is('api/*') || $request->expectsJson())) {
                 return response()->json(['message' => 'العنصر المطلوب غير موجود'], 404);

@@ -40,7 +40,7 @@ class RolePermissionEndpointsTest extends TestCase
 
         $this->requestWithToken($token, 'GET', '/api/v1/admin/permissions')
             ->assertOk()
-            ->assertJsonPath('data.inventory.0.name', 'inventory.view')
+            ->assertJsonPath('data.inventory', fn ($permissions) => in_array('inventory.view', array_column($permissions, 'name'), true))
             ->assertJsonPath('data.users.0.name', 'users.view')
             ->assertJsonMissing(['name' => 'web.only']);
     }

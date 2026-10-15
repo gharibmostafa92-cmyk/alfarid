@@ -6,6 +6,7 @@ namespace App\Services\Concerns;
 
 use App\Exceptions\BusinessException;
 use App\Models\InventoryIdempotencyKey;
+use App\Services\BranchAccess;
 use App\Services\IdempotencyFingerprint;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -46,7 +47,7 @@ trait HandlesIdempotentCreation
                 return $model;
             });
         } catch (UniqueConstraintViolationException $e) {
-            if (! str_contains($e->getMessage(), 'inventory_idempotency_keys')) {
+            if (! str_contains($e->getMessage(), 'inventory_idempotency_keys_user_id_key_unique')) {
                 throw $e;
             }
 
@@ -57,7 +58,10 @@ trait HandlesIdempotentCreation
                 throw new BusinessException('مفتاح عدم التكرار هذا مستخدم مسبقًا مع بيانات مختلفة.', [], 409);
             }
 
-            return $modelClass::query()->with($relations)->findOrFail((int) ($record->response[0] ?? 0));
+            $model = $modelClass::query()->with($relations)->findOrFail((int) ($record->response[0] ?? 0));
+            app(BranchAccess::class)->assertBranch($userId, (int) ($model->getAttribute('branch_id') ?? $model->getAttribute('from_branch_id')));
+
+            return $model;
         }
     }
 }

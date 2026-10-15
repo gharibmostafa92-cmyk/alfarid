@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Models\Stocktake;
 use App\Models\StockTransfer;
 use App\Services\BranchAccess;
+use App\Services\SettingService;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\Request;
@@ -22,6 +23,7 @@ class AppServiceProvider extends ServiceProvider
         // scoped لا singleton: ذاكرة المستخدمين لكل طلب تعمل داخل الطلب، ولا
         // تتسرب صلاحيات مستخدم لطلب آخر تحت Octane (L-6).
         $this->app->scoped(BranchAccess::class);
+        $this->app->scoped(SettingService::class);
     }
 
     /**

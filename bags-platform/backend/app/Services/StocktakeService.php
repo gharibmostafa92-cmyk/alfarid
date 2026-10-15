@@ -9,10 +9,11 @@ use App\Enums\StockMovementType;
 use App\Enums\StocktakeStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Location;
-use App\Models\StockLevel;
+use App\Models\StockMovement;
 use App\Models\Stocktake;
 use App\Services\Concerns\HandlesIdempotentCreation;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -50,6 +51,8 @@ class StocktakeService
 
     public function create(array $data, int $userId, ?string $idempotencyKey = null): Stocktake
     {
+        app(BranchAccess::class)->assertBranch($userId, (int) $data['branch_id']);
+
         /** @var Stocktake */
         return $this->createIdempotently(
             'stocktake_store',
@@ -94,7 +97,8 @@ class StocktakeService
             if ($locationId !== null && ! Location::query()->whereKey($locationId)->where('branch_id', $branchId)->exists()) {
                 throw new BusinessException('موقع الجرد لا يتبع الفرع المحدد.');
             }
-            if (((int) $branchId !== $stocktake->branch_id || ($locationId === null ? null : (int) $locationId) !== $stocktake->location_id)
+            $scopeChanged = (int) $branchId !== $stocktake->branch_id || ($locationId === null ? null : (int) $locationId) !== $stocktake->location_id;
+            if ($scopeChanged
                 && ! array_key_exists('items', $data) && $stocktake->items()->exists()) {
                 throw new BusinessException('تغيير نطاق الجرد يتطلب إعادة إرسال العناصر والعد الفعلي.');
             }
@@ -121,6 +125,9 @@ class StocktakeService
             ])->save();
 
             if (isset($data['items'])) {
+                if ($scopeChanged) {
+                    $data['items'] = array_map(fn ($item) => [...$item, 'recount' => true], $data['items']);
+                }
                 $this->upsertItems($stocktake, $data['items']);
             }
 
@@ -163,22 +170,30 @@ class StocktakeService
             //   إعادة العد. يمنع أيضًا تطبيق نفس الفرق مرتين عند تداخل جلستين.
             // - apply_difference: تطبيق الفرق (counted − system_qty) على الرصيد
             //   الحالي يحفظ الحركات البينية حسابيًا (النهائي = المعدود + صافيها)
-            //   فلا تُحبس جلسات الفروع النشطة — لكنه غير آمن مع جردين متداخلين
-            //   لنفس الصنف، فلا يُفعَّل إلا بضبط صريح (M-5).
+            //   فلا تُحبس جلسات الفروع النشطة. تسوية جرد أخرى بعد اللقطة تُرفض
+            //   في الوضعين حتى لا يُطبّق نفس الفرق مرتين.
             // ولا تُحدَّث اللقطة بإعادة الحفظ في أي سياسة، بل بتغيير العدد أو recount.
             $rejectStale = config('inventory.stocktake_stale_policy', 'reject') !== 'apply_difference';
             $staleItemIds = [];
             $staleVariantIds = [];
+            $latestMovements = StockMovement::query()->where('branch_id', $stocktake->branch_id)
+                ->where('location_id', $stocktake->location_id)->where('affected_bucket', StockBucket::OnHand->value)
+                ->whereIn('product_variant_id', $stocktake->items->pluck('product_variant_id'))
+                ->when(! $rejectStale, fn ($q) => $q->whereIn('type', [StockMovementType::StocktakeGain->value, StockMovementType::StocktakeLoss->value]))
+                ->selectRaw('product_variant_id, MAX(id) AS last_id')->groupBy('product_variant_id')
+                ->pluck('last_id', 'product_variant_id');
             foreach ($stocktake->items as $item) {
                 $key = $this->inventory->levelKey([
                     'product_variant_id' => $item->product_variant_id,
                     'branch_id' => $stocktake->branch_id, 'location_id' => $stocktake->location_id,
                 ]);
-                if ($rejectStale && (int) round((float) $levels[$key]->on_hand * 10000) !== (int) round((float) $item->system_qty * 10000)) {
+                if ((int) ($latestMovements[$item->product_variant_id] ?? 0) > (int) $item->snapshot_movement_id
+                    || ($rejectStale && (int) round((float) $levels[$key]->on_hand * 10000) !== (int) round((float) $item->system_qty * 10000))) {
                     $staleItemIds[] = $item->id;
                     $staleVariantIds[] = $item->product_variant_id;
                 }
-                if ((int) round((float) $item->counted_qty * 10000) < (int) round((float) $levels[$key]->reserved * 10000) + (int) round((float) $levels[$key]->damaged * 10000)) {
+                $finalQty = (float) $levels[$key]->on_hand + (float) $item->difference;
+                if ((int) round($finalQty * 10000) < (int) round((float) $levels[$key]->reserved * 10000) + (int) round((float) $levels[$key]->damaged * 10000)) {
                     throw new BusinessException('العد الفعلي أقل من المحجوز والتالف؛ راجع الحجوزات وسوِّ التالف قبل إعادة العد والاعتماد.');
                 }
             }
@@ -255,16 +270,15 @@ class StocktakeService
      */
     private function syncItems(Stocktake $stocktake, array $items): void
     {
-        $levels = StockLevel::query()->where('branch_id', $stocktake->branch_id)
-            ->where('location_id', $stocktake->location_id)
-            ->whereIn('product_variant_id', array_column($items, 'product_variant_id'))
-            ->get()->keyBy('product_variant_id');
+        $levels = $this->snapshotLevels($stocktake, $items);
+        $snapshotMovementId = (int) StockMovement::query()->max('id');
         foreach ($items as $item) {
             $level = $levels->get($item['product_variant_id']);
 
             $stocktake->items()->create([
                 'product_variant_id' => $item['product_variant_id'],
                 'system_qty' => $level ? (float) $level->on_hand : 0,
+                'snapshot_movement_id' => $snapshotMovementId,
                 'counted_qty' => $item['counted_qty'] ?? null,
             ]);
         }
@@ -303,10 +317,8 @@ class StocktakeService
     private function upsertItems(Stocktake $stocktake, array $items, bool $deleteAbsent = true): void
     {
         $existing = $stocktake->items()->get()->keyBy('product_variant_id');
-        $levels = StockLevel::query()->where('branch_id', $stocktake->branch_id)
-            ->where('location_id', $stocktake->location_id)
-            ->whereIn('product_variant_id', array_column($items, 'product_variant_id'))
-            ->get()->keyBy('product_variant_id');
+        $levels = $this->snapshotLevels($stocktake, $items);
+        $snapshotMovementId = (int) StockMovement::query()->max('id');
 
         $keepIds = [];
         foreach ($items as $item) {
@@ -318,6 +330,7 @@ class StocktakeService
                 $created = $stocktake->items()->create([
                     'product_variant_id' => $variantId,
                     'system_qty' => $currentOnHand,
+                    'snapshot_movement_id' => $snapshotMovementId,
                     'counted_qty' => $item['counted_qty'] ?? null,
                 ]);
                 $keepIds[] = $created->id;
@@ -336,9 +349,11 @@ class StocktakeService
 
                 if ($countChanged || ! empty($item['recount'])) {
                     $updates['system_qty'] = $currentOnHand;
+                    $updates['snapshot_movement_id'] = $snapshotMovementId;
                 }
             } elseif (! empty($item['recount'])) {
                 $updates['system_qty'] = $currentOnHand;
+                $updates['snapshot_movement_id'] = $snapshotMovementId;
             }
 
             if ($updates !== []) {
@@ -349,5 +364,13 @@ class StocktakeService
         if ($deleteAbsent) {
             $stocktake->items()->whereNotIn('id', $keepIds)->delete();
         }
+    }
+
+    private function snapshotLevels(Stocktake $stocktake, array $items): Collection
+    {
+        return $this->inventory->lockLevels(array_map(fn ($item) => [
+            'branch_id' => $stocktake->branch_id, 'location_id' => $stocktake->location_id,
+            'product_variant_id' => $item['product_variant_id'],
+        ], $items))->keyBy('product_variant_id');
     }
 }

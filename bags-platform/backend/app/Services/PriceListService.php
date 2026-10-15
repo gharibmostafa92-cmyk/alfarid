@@ -257,7 +257,10 @@ class PriceListService
             } finally {
                 fclose($handle);
             }
-        }, 'price-list-'.$priceList->id.'.csv', ['Content-Type' => 'text/csv; charset=UTF-8']);
+        }, 'price-list-'.$priceList->id.'.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'X-Row-Count' => (string) $priceList->items()->count(),
+        ]);
     }
 
     private function csvText(string $value): string
@@ -417,13 +420,15 @@ class PriceListService
         }
 
         $businessTz = (string) config('app.business_timezone', 'Africa/Cairo');
-        foreach (['Y-m-d\TH:i:sP', 'Y-m-d H:i:s', 'Y-m-d'] as $format) {
+        $value = preg_replace('/Z$/', '+00:00', $value);
+        $value = preg_replace_callback('/\.(\d{1,6})([+-]\d{2}:\d{2})$/', fn ($matches) => '.'.str_pad($matches[1], 6, '0').$matches[2], $value);
+        foreach (['Y-m-d\TH:i:s.uP', 'Y-m-d\TH:i:sP', 'Y-m-d H:i:s', 'Y-m-d'] as $format) {
             try {
-                $parsed = Carbon::rawCreateFromFormat($format, $value, $businessTz);
+                $parsed = Carbon::rawCreateFromFormat('!'.$format, $value, $businessTz);
             } catch (\Throwable) {
-                $parsed = false;
+                $parsed = null;
             }
-            if ($parsed !== false && $parsed->format($format) === $value) {
+            if ($parsed !== null && $parsed->format($format) === $value) {
                 return $parsed->utc()->format('Y-m-d H:i:s');
             }
         }

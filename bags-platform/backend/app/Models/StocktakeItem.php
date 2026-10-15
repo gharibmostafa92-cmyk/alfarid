@@ -10,10 +10,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class StocktakeItem extends Model
 {
     protected $fillable = [
-        'stocktake_id', 'product_variant_id', 'system_qty', 'counted_qty',
+        'stocktake_id', 'product_variant_id', 'system_qty', 'counted_qty', 'snapshot_movement_id',
     ];
 
     protected $casts = [
+        'snapshot_movement_id' => 'integer',
         'system_qty' => 'decimal:4',
         'counted_qty' => 'decimal:4',
         'difference' => 'decimal:4',

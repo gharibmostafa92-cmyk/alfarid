@@ -18,6 +18,7 @@ class StockTransferResource extends JsonResource
     {
         return [
             'id' => $this->id,
+            'version' => $this->version,
             'transfer_number' => $this->transfer_number,
             'from_branch' => $this->whenLoaded('fromBranch', fn () => [
                 'id' => $this->fromBranch->id,

@@ -9,6 +9,7 @@ use App\Http\Requests\Admin\Pricing\StoreCustomerGroupRequest;
 use App\Http\Requests\Admin\Pricing\UpdateCustomerGroupRequest;
 use App\Http\Resources\Admin\CustomerGroupResource;
 use App\Models\CustomerGroup;
+use App\Services\BranchAccess;
 use App\Services\CustomerGroupService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -43,6 +44,7 @@ class CustomerGroupController extends Controller implements HasMiddleware
 
     public function store(StoreCustomerGroupRequest $request): JsonResponse
     {
+        app(BranchAccess::class)->assertCentralAccess($request->user());
         $group = $this->groups->create($request->validated());
 
         return (new CustomerGroupResource($group))
@@ -58,11 +60,14 @@ class CustomerGroupController extends Controller implements HasMiddleware
 
     public function update(UpdateCustomerGroupRequest $request, CustomerGroup $customerGroup): CustomerGroupResource
     {
+        app(BranchAccess::class)->assertCentralAccess($request->user());
+
         return new CustomerGroupResource($this->groups->update($customerGroup, $request->validated()));
     }
 
-    public function destroy(CustomerGroup $customerGroup): JsonResponse
+    public function destroy(Request $request, CustomerGroup $customerGroup): JsonResponse
     {
+        app(BranchAccess::class)->assertCentralAccess($request->user());
         $this->groups->delete($customerGroup);
 
         return response()->json(['message' => 'تم حذف مجموعة العملاء بنجاح']);

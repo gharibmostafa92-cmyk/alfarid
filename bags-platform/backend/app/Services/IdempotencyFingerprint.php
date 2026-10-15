@@ -16,9 +16,11 @@ final class IdempotencyFingerprint
         return hash('sha256', json_encode(self::canonicalize($payload), JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION));
     }
 
-    private static function canonicalize(mixed $value): mixed
+    private static function canonicalize(mixed $value, ?string $field = null): mixed
     {
-        if (is_string($value) && is_numeric($value)) {
+        if (is_string($value) && is_numeric($value)
+            && ($field === 'id' || str_ends_with($field ?? '', '_id')
+                || in_array($field, ['quantity', 'requested_qty', 'counted_qty', 'approved_qty', 'shipped_qty', 'received_qty'], true))) {
             $value = $value + 0;
         }
 
@@ -31,7 +33,10 @@ final class IdempotencyFingerprint
         }
 
         $isList = array_is_list($value);
-        $mapped = array_map(fn ($item) => self::canonicalize($item), $value);
+        $mapped = [];
+        foreach ($value as $key => $item) {
+            $mapped[$key] = self::canonicalize($item, is_string($key) ? $key : null);
+        }
 
         if (! $isList) {
             ksort($mapped);
