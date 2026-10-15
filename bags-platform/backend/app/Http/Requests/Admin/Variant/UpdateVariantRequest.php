@@ -22,6 +22,10 @@ class UpdateVariantRequest extends FormRequest
         $rules = VariantRules::base($this->route('variant')->id);
 
         foreach ($rules as $field => $rule) {
+            if ($field === 'sku') {
+                $rule = array_values(array_filter($rule, fn ($value) => $value !== 'nullable'));
+                array_unshift($rule, 'required');
+            }
             array_unshift($rule, 'sometimes');
             $rules[$field] = $rule;
         }

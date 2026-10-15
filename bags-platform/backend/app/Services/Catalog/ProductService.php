@@ -46,6 +46,10 @@ class ProductService
             $newStatus = isset($data['status']) ? ProductStatus::from($data['status']) : null;
             unset($data['status']);
 
+            if (array_key_exists('slug', $data) && empty($data['slug'])) {
+                $data['slug'] = SlugService::make(Product::class, $data['name_en'] ?? $product->name_en, $product->id);
+            }
+
             if (array_key_exists('is_featured', $data) && $data['is_featured'] === null) {
                 unset($data['is_featured']);
             }

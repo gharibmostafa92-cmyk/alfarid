@@ -33,7 +33,7 @@ class ProductController extends Controller implements HasMiddleware
 
     public function index(Request $request): AnonymousResourceCollection
     {
-        $perPage = min((int) $request->input('per_page', 15), 100);
+        $perPage = max(1, min((int) $request->input('per_page', 15), 100));
 
         $q = Product::query()
             ->with(['category:id,name_ar,name_en', 'brand:id,name_ar,name_en', 'media'])
@@ -74,7 +74,13 @@ class ProductController extends Controller implements HasMiddleware
 
     public function store(StoreProductRequest $request): JsonResponse
     {
-        $product = $this->service->create($request->validated(), $request->user());
+        $data = $request->validated();
+        if (! $request->user()->can('products.view_cost')) {
+            foreach ($data['variants'] ?? [] as $index => $variant) {
+                unset($data['variants'][$index]['cost_price']);
+            }
+        }
+        $product = $this->service->create($data, $request->user());
 
         return ProductResource::make($product)->response()->setStatusCode(201);
     }

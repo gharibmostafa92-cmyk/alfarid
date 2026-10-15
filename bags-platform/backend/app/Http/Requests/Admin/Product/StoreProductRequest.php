@@ -46,10 +46,13 @@ class StoreProductRequest extends FormRequest
             'is_featured' => ['nullable', 'boolean'],
             // اختياري: متغيرات مع الإنشاء
             'variants' => ['nullable', 'array'],
-            'variants.*' => ['array'],
+            'variants.*' => ['array:'.implode(',', array_keys(VariantRules::base()))],
         ];
 
         foreach (VariantRules::base() as $field => $rule) {
+            if (in_array($field, ['sku', 'barcode'], true)) {
+                $rule[] = 'distinct';
+            }
             $rules["variants.*.$field"] = $rule;
         }
 

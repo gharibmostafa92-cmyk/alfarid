@@ -11,6 +11,7 @@ use App\Models\Product;
 use App\Models\User;
 use App\Services\Catalog\ProductService;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 /**
@@ -20,9 +21,11 @@ class CatalogSeeder extends Seeder
 {
     public function run(): void
     {
-        $categories = $this->seedCategories();
-        $brands = $this->seedBrands();
-        $this->seedProducts($categories, $brands);
+        DB::transaction(function (): void {
+            $categories = $this->seedCategories();
+            $brands = $this->seedBrands();
+            $this->seedProducts($categories, $brands);
+        });
     }
 
     /** @return array<string, Category> */

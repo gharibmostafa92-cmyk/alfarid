@@ -15,62 +15,66 @@ class CategoryService
 {
     public function create(array $data, ?UploadedFile $image): Category
     {
-        unset($data['image']);
-        $data = array_filter($data, fn ($value) => $value !== null);
+        return DB::transaction(function () use ($data, $image) {
+            unset($data['image']);
+            $data = array_filter($data, fn ($value) => $value !== null);
 
-        if (empty($data['slug'])) {
-            $data['slug'] = SlugService::make(Category::class, $data['name_en']);
-        }
-
-        if (! empty($data['parent_id'])) {
-            $parent = Category::findOrFail($data['parent_id']);
-            if ($parent->depth() >= 3) {
-                throw new BusinessException('أقصى عمق للأقسام 3 مستويات');
+            if (empty($data['slug'])) {
+                $data['slug'] = SlugService::make(Category::class, $data['name_en']);
             }
-        }
 
-        $category = Category::create($data);
+            if (! empty($data['parent_id'])) {
+                $parent = Category::findOrFail($data['parent_id']);
+                if ($parent->depth() >= 3) {
+                    throw new BusinessException('أقصى عمق للأقسام 3 مستويات');
+                }
+            }
 
-        if ($image) {
-            $category->addMedia($image)->toMediaCollection('image');
-        }
+            $category = Category::create($data);
 
-        return $category;
+            if ($image) {
+                $category->addMedia($image)->toMediaCollection('image');
+            }
+
+            return $category;
+        });
     }
 
     public function update(Category $category, array $data, ?UploadedFile $image): Category
     {
-        $removeImage = (bool) ($data['remove_image'] ?? false);
-        unset($data['image'], $data['remove_image']);
+        return DB::transaction(function () use ($category, $data, $image) {
+            $removeImage = (bool) ($data['remove_image'] ?? false);
+            unset($data['image'], $data['remove_image']);
 
-        if (array_key_exists('parent_id', $data)) {
-            $newParentId = $data['parent_id'] === null ? null : (int) $data['parent_id'];
-            if ($newParentId !== $category->parent_id) {
-                $this->assertValidParent($category, $newParentId);
+            if (array_key_exists('parent_id', $data)) {
+                $newParentId = $data['parent_id'] === null ? null : (int) $data['parent_id'];
+                if ($newParentId !== $category->parent_id) {
+                    $this->assertValidParent($category, $newParentId);
+                }
             }
-        }
 
-        if (array_key_exists('slug', $data) && empty($data['slug'])) {
-            $data['slug'] = SlugService::make(Category::class, $data['name_en'] ?? $category->name_en, $category->id);
-        }
-
-        foreach (['sort_order', 'is_active'] as $field) {
-            if (array_key_exists($field, $data) && $data[$field] === null) {
-                unset($data[$field]);
+            if (array_key_exists('slug', $data) && empty($data['slug'])) {
+                $data['slug'] = SlugService::make(Category::class, $data['name_en'] ?? $category->name_en, $category->id);
             }
-        }
 
-        $category->update($data);
+            foreach (['sort_order', 'is_active'] as $field) {
+                if (array_key_exists($field, $data) && $data[$field] === null) {
+                    unset($data[$field]);
+                }
+            }
 
-        if ($removeImage) {
-            $category->clearMediaCollection('image');
-        }
+            $category->update($data);
 
-        if ($image) {
-            $category->addMedia($image)->toMediaCollection('image');
-        }
+            if ($removeImage) {
+                $category->clearMediaCollection('image');
+            }
 
-        return $category;
+            if ($image) {
+                $category->addMedia($image)->toMediaCollection('image');
+            }
+
+            return $category;
+        });
     }
 
     public function delete(Category $category): void

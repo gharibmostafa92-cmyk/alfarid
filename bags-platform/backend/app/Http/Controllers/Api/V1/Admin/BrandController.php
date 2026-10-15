@@ -32,7 +32,7 @@ class BrandController extends Controller implements HasMiddleware
 
     public function index(Request $request): AnonymousResourceCollection
     {
-        $perPage = min((int) $request->input('per_page', 15), 100);
+        $perPage = max(1, min((int) $request->input('per_page', 15), 100));
 
         $brands = Brand::query()
             ->with('media')

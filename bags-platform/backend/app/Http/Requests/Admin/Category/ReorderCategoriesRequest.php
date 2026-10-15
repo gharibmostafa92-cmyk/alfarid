@@ -6,6 +6,7 @@ namespace App\Http\Requests\Admin\Category;
 
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class ReorderCategoriesRequest extends FormRequest
 {
@@ -21,8 +22,8 @@ class ReorderCategoriesRequest extends FormRequest
     {
         return [
             'items' => ['required', 'array', 'min:1'],
-            'items.*.id' => ['required', 'integer', 'exists:categories,id'],
-            'items.*.parent_id' => ['nullable', 'integer', 'exists:categories,id'],
+            'items.*.id' => ['required', 'integer', 'distinct', Rule::exists('categories', 'id')->whereNull('deleted_at')],
+            'items.*.parent_id' => ['nullable', 'integer', Rule::exists('categories', 'id')->whereNull('deleted_at')],
             'items.*.sort_order' => ['required', 'integer', 'min:0'],
         ];
     }

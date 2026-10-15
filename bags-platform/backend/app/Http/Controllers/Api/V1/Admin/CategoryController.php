@@ -37,7 +37,7 @@ class CategoryController extends Controller implements HasMiddleware
             return CategoryResource::collection($this->service->tree());
         }
 
-        $perPage = min((int) $request->input('per_page', 15), 100);
+        $perPage = max(1, min((int) $request->input('per_page', 15), 100));
 
         $categories = Category::query()
             ->with('parent', 'media')
