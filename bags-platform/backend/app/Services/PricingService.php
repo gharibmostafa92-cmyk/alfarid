@@ -1,0 +1,142 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Services;
+
+use App\Enums\CustomerStatus;
+use App\Enums\CustomerType;
+use App\Enums\PriceListType;
+use App\Models\Customer;
+use App\Models\PriceListItem;
+use App\Models\ProductVariant;
+use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
+
+/**
+ * محرك التسعير المركزي — يُستدعى من المتجر والجملة والـ POS ولوحة الإدارة.
+ *
+ * شجرة الأولويات:
+ * 1. سعر خاص بالعميل (customer_specific)
+ * 2. سعر مجموعة العميل (customer_group)
+ * 3. قائمة النوع (wholesale/distributor للمعتمدين فقط، وإلا retail)
+ * 4. السعر الأساسي للمتغير حسب القناة (retail_price / wholesale_price —
+ *    لا يوجد عمود base_price في المخطط؛ هذان هما سعرا الأساس من المرحلة 2)
+ *
+ * داخل كل مستوى: القائمة المخصصة للفرع أولًا، ثم أعلى شريحة كمية محققة،
+ * ثم أولوية القائمة، ثم السعر الأقل.
+ */
+class PricingService
+{
+    /**
+     * @return array{unit_price: float, base_price: float, source: string, price_list_id: int|null}
+     */
+    public function resolve(
+        ProductVariant $variant,
+        ?Customer $customer = null,
+        float $qty = 1,
+        ?int $branchId = null,
+    ): array {
+        $now = Carbon::now();
+
+        $baseQuery = $this->eligibleItems($variant, $qty, $branchId, $now);
+        $channel = $this->channelFor($customer);
+
+        // الأولوية 1: سعر خاص بالعميل
+        if ($customer !== null) {
+            $item = $this->ordered((clone $baseQuery)
+                ->where('price_lists.type', PriceListType::CustomerSpecific)
+                ->where('price_lists.customer_id', $customer->id)
+            )->first();
+
+            if ($item !== null) {
+                return $this->formatResponse((float) $item->price, PriceListType::CustomerSpecific->value, (int) $item->price_list_id, $variant, $channel);
+            }
+        }
+
+        // الأولوية 2: سعر مجموعة العميل
+        if ($customer !== null && $customer->customer_group_id !== null) {
+            $item = $this->ordered((clone $baseQuery)
+                ->where('price_lists.type', PriceListType::CustomerGroup)
+                ->where('price_lists.customer_group_id', $customer->customer_group_id)
+            )->first();
+
+            if ($item !== null) {
+                return $this->formatResponse((float) $item->price, PriceListType::CustomerGroup->value, (int) $item->price_list_id, $variant, $channel);
+            }
+        }
+
+        // الأولوية 3: قائمة نوع العميل (أو القطاعي افتراضيًا)
+        $item = $this->ordered((clone $baseQuery)
+            ->where('price_lists.type', $channel)
+        )->first();
+
+        if ($item !== null) {
+            return $this->formatResponse((float) $item->price, $channel->value, (int) $item->price_list_id, $variant, $channel);
+        }
+
+        // الأولوية 4: السعر الأساسي للمتغير حسب القناة
+        return $this->formatResponse($this->basePrice($variant, $channel), 'base_price', null, $variant, $channel);
+    }
+
+    /** قناة التسعير: الجملة/الموزع للحسابات المعتمدة فقط، وغير ذلك قطاعي. */
+    private function channelFor(?Customer $customer): PriceListType
+    {
+        if ($customer !== null
+            && in_array($customer->type, [CustomerType::Wholesale, CustomerType::Distributor], true)
+            && $customer->status === CustomerStatus::Approved) {
+            return PriceListType::from($customer->type->value);
+        }
+
+        return PriceListType::Retail;
+    }
+
+    private function basePrice(ProductVariant $variant, PriceListType $channel): float
+    {
+        return (float) ($channel === PriceListType::Retail ? $variant->retail_price : $variant->wholesale_price);
+    }
+
+    /** كل عناصر التسعير السارية لهذا المتغير والكمية والفرع والوقت. */
+    private function eligibleItems(ProductVariant $variant, float $qty, ?int $branchId, Carbon $now): Builder
+    {
+        return PriceListItem::query()
+            ->select('price_list_items.*')
+            ->join('price_lists', 'price_lists.id', '=', 'price_list_items.price_list_id')
+            ->where('price_lists.is_active', true)
+            ->where('price_list_items.product_variant_id', $variant->id)
+            ->where('price_list_items.min_qty', '<=', $qty)
+            ->where(fn ($q) => $q->whereNull('price_lists.starts_at')->orWhere('price_lists.starts_at', '<=', $now))
+            ->where(fn ($q) => $q->whereNull('price_lists.ends_at')->orWhere('price_lists.ends_at', '>=', $now))
+            ->where(fn ($q) => $q->whereNull('price_list_items.starts_at')->orWhere('price_list_items.starts_at', '<=', $now))
+            ->where(fn ($q) => $q->whereNull('price_list_items.ends_at')->orWhere('price_list_items.ends_at', '>=', $now))
+            ->where(function ($q) use ($branchId): void {
+                $q->whereNull('price_lists.branch_id');
+                if ($branchId !== null) {
+                    $q->orWhere('price_lists.branch_id', $branchId);
+                }
+            });
+    }
+
+    /** ترتيب داخل المستوى الواحد: فرع مخصص أولًا، أعلى شريحة، أعلى أولوية، أقل سعر. */
+    private function ordered(Builder $query): Builder
+    {
+        return $query
+            ->orderByRaw('price_lists.branch_id IS NULL ASC')
+            ->orderByDesc('price_list_items.min_qty')
+            ->orderByDesc('price_lists.priority')
+            ->orderBy('price_list_items.price');
+    }
+
+    /**
+     * @return array{unit_price: float, base_price: float, source: string, price_list_id: int|null}
+     */
+    private function formatResponse(float $unitPrice, string $source, ?int $priceListId, ProductVariant $variant, PriceListType $channel): array
+    {
+        return [
+            'unit_price' => round($unitPrice, 2),
+            'base_price' => round($this->basePrice($variant, $channel), 2),
+            'source' => $source,
+            'price_list_id' => $priceListId,
+        ];
+    }
+}

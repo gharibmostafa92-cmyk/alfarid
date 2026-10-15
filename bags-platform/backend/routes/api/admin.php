@@ -6,9 +6,12 @@ use App\Http\Controllers\Api\V1\Admin\AuthController;
 use App\Http\Controllers\Api\V1\Admin\BranchController;
 use App\Http\Controllers\Api\V1\Admin\BrandController;
 use App\Http\Controllers\Api\V1\Admin\CategoryController;
+use App\Http\Controllers\Api\V1\Admin\CustomerGroupController;
 use App\Http\Controllers\Api\V1\Admin\InventoryController;
 use App\Http\Controllers\Api\V1\Admin\LocationController;
 use App\Http\Controllers\Api\V1\Admin\PermissionController;
+use App\Http\Controllers\Api\V1\Admin\PriceListController;
+use App\Http\Controllers\Api\V1\Admin\PriceListItemController;
 use App\Http\Controllers\Api\V1\Admin\ProductController;
 use App\Http\Controllers\Api\V1\Admin\ProductMediaController;
 use App\Http\Controllers\Api\V1\Admin\ProductVariantController;
@@ -27,6 +30,9 @@ Route::pattern('variant', '[0-9]{1,18}');
 Route::pattern('media', '[0-9]{1,18}');
 Route::pattern('transfer', '[0-9]{1,18}');
 Route::pattern('stocktake', '[0-9]{1,18}');
+Route::pattern('customer_group', '[0-9]{1,18}');
+Route::pattern('price_list', '[0-9]{1,18}');
+Route::pattern('item', '[0-9]{1,18}');
 
 // Public admin authentication endpoint.
 Route::post('auth/login', [AuthController::class, 'login'])
@@ -128,6 +134,13 @@ Route::middleware(['auth:sanctum', 'auth.staff'])
         // Stocktakes: الاعتماد قبل apiResource
         Route::post('stocktakes/{stocktake}/approve', [StocktakeController::class, 'approve'])->name('stocktakes.approve');
         Route::apiResource('stocktakes', StocktakeController::class);
+
+        // Pricing: مجموعات العملاء وقوائم الأسعار وعناصرها واستيراد/تصدير CSV
+        Route::apiResource('customer-groups', CustomerGroupController::class);
+        Route::post('price-lists/{price_list}/import', [PriceListController::class, 'import'])->name('price-lists.import');
+        Route::get('price-lists/{price_list}/export', [PriceListController::class, 'export'])->name('price-lists.export');
+        Route::apiResource('price-lists', PriceListController::class);
+        Route::apiResource('price-lists.items', PriceListItemController::class)->scoped();
 
         Route::get('settings', [SettingController::class, 'index'])
             ->middleware('permission:settings.view|settings.manage')

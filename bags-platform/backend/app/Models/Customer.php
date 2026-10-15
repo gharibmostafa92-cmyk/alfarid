@@ -8,6 +8,7 @@ use App\Enums\CustomerStatus;
 use App\Enums\CustomerType;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -19,6 +20,7 @@ use Laravel\Sanctum\HasApiTokens;
     'password',
     'type',
     'status',
+    'customer_group_id',
     'tax_number',
     'commercial_register',
 ])]
@@ -26,6 +28,11 @@ use Laravel\Sanctum\HasApiTokens;
 class Customer extends Authenticatable
 {
     use HasApiTokens, Notifiable;
+
+    public function customerGroup(): BelongsTo
+    {
+        return $this->belongsTo(CustomerGroup::class);
+    }
 
     protected function casts(): array
     {

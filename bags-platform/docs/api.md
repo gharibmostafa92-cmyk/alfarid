@@ -113,3 +113,15 @@ Run php artisan media:backfill-path-layouts once for existing uploads. It persis
 - سجل `stock_movements` غير قابل للتعديل أو الحذف برمجيًا وبنيويًا (بدون updated_at).
 - جرد بموقع (location_id) نطاقه هو صف ذلك الموقع فقط؛ من غير موقع نطاقه صف "بدون موقع".
 - ترقيم المستندات من الإعدادات: الحركات `MOV-`، التحويلات `TRF-`، الجرد `STK-`.
+
+## التسعير ومجموعات العملاء (المرحلة 4)
+
+محرك التسعير `PricingService::resolve(variant, customer?, qty, branchId?)` بيطبق شجرة أولويات: سعر خاص بالعميل ← سعر مجموعته ← قائمة نوعه (wholesale/distributor للمعتمدين فقط، وإلا retail) ← السعر الأساسي للمتغير حسب القناة (`retail_price`/`wholesale_price` — لا يوجد عمود base_price). داخل كل مستوى: قائمة الفرع المخصص أولًا، ثم أعلى شريحة كمية محققة، ثم priority، ثم السعر الأقل. ملحوظة: حقل `discount_percentage` على المجموعة بيانات مُدخلة حاليًا ولا يدخل في حساب المحرك (الشجرة مطبقة كما هي).
+
+| المسار | الصلاحية | الوصف |
+|---|---|---|
+| `CRUD /customer-groups` | `customer_groups.*` | مجموعات عملاء (الحذف ممنوع مع عملاء أو قوائم مرتبطة) |
+| `CRUD /price-lists` | `price_lists.*` | قوائم أسعار — النوع customer_specific يتطلب customer_id، وcustomer_group يتطلب customer_group_id، وغير مسموح بمالك لأي نوع آخر |
+| `CRUD /price-lists/{id}/items` | `price_lists.*` | شرائح كميات — ممنوع تكرار (variant + min_qty) في نفس القائمة |
+| `POST /price-lists/{id}/import` | `price_lists.import` | استيراد CSV (أعمدة التصدير نفسها) بـ updateOrCreate، ويرجع تقرير created/updated/skipped/errors |
+| `GET /price-lists/{id}/export` | `price_lists.export` | تصدير CSV: sku, variant_id, product_name, min_qty, price, starts_at, ends_at |
