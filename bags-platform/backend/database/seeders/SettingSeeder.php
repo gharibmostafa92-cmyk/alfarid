@@ -39,6 +39,15 @@ class SettingSeeder extends Seeder
         ['group' => 'numbering', 'key' => 'quotation_prefix', 'value' => 'QT-', 'type' => 'string'],
         ['group' => 'numbering', 'key' => 'quotation_next_number', 'value' => '1000', 'type' => 'integer'],
         ['group' => 'numbering', 'key' => 'quotation_padding', 'value' => '6', 'type' => 'integer'],
+        ['group' => 'numbering', 'key' => 'movement_prefix', 'value' => 'MOV-', 'type' => 'string'],
+        ['group' => 'numbering', 'key' => 'movement_next_number', 'value' => '1000', 'type' => 'integer'],
+        ['group' => 'numbering', 'key' => 'movement_padding', 'value' => '6', 'type' => 'integer'],
+        ['group' => 'numbering', 'key' => 'transfer_prefix', 'value' => 'TRF-', 'type' => 'string'],
+        ['group' => 'numbering', 'key' => 'transfer_next_number', 'value' => '1000', 'type' => 'integer'],
+        ['group' => 'numbering', 'key' => 'transfer_padding', 'value' => '6', 'type' => 'integer'],
+        ['group' => 'numbering', 'key' => 'stocktake_prefix', 'value' => 'STK-', 'type' => 'string'],
+        ['group' => 'numbering', 'key' => 'stocktake_next_number', 'value' => '1000', 'type' => 'integer'],
+        ['group' => 'numbering', 'key' => 'stocktake_padding', 'value' => '6', 'type' => 'integer'],
     ];
 
     public function run(): void

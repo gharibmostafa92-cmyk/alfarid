@@ -91,3 +91,25 @@ authorization and file handling then work as expected.
 ### Existing media layout maintenance
 
 Run php artisan media:backfill-path-layouts once for existing uploads. It persists numeric/UUID layout markers without moving or deleting files, so future URL generation does not probe remote storage. The command is idempotent.
+
+## المخزون والتحويلات والجرد (المرحلة 3)
+
+قاعدة صارمة: أرصدة المخزون لا تُعدَّل إلا عبر `InventoryService::recordMovement` — حركة دفتر أولًا ثم تحديث الرصيد، في نفس الـ transaction. `available = on_hand - reserved - damaged`.
+
+| المسار | الصلاحية | الوصف |
+|---|---|---|
+| `GET /inventory` | `inventory.view` | أرصدة حالية (فلاتر: branch_id, location_id, product_id, product_variant_id, low_stock=1) |
+| `GET /inventory/movements` | `inventory.view` | دفتر الحركات من الأحدث (فلاتر: branch/product/type/from_date/to_date) |
+| `POST /inventory/adjustments` | `inventory.adjust` | تسوية يدوية: items[{product_variant_id, adjustment_type: increase\|decrease\|mark_damaged, quantity, reason}] — الكل في transaction واحدة |
+| `CRUD /transfers` | `transfers.*` | تحويلات بين الفروع (التعديل/الحذف للمسودة والملغي فقط) |
+| `POST /transfers/{id}/approve` | `transfers.approve` | اعتماد + حجز الكميات عند المرسل (اختياري: items[{id, approved_qty}]) |
+| `POST /transfers/{id}/ship` | `transfers.ship` | فك الحجز + إخراج فعلي + in_transit عند المستلم (اختياري: items[{id, shipped_qty}]) |
+| `POST /transfers/{id}/receive` | `transfers.receive` | استلام: تسوية in_transit وإضافة المستلم؛ العجز يُسجَّل حركة adjustment_out موثقة + في الملاحظات (اختياري: items[{id, received_qty}]) |
+| `POST /transfers/{id}/cancel` | `transfers.update` | إلغاء (المسودة مباشرة، والمعتمد بعد فك الحجز، والمشحون لا يُلغى) |
+| `CRUD /stocktakes` | `stocktakes.*` | جلسات جرد — system_qty لقطة تلقائية وdifference محسوب في القاعدة |
+| `POST /stocktakes/{id}/approve` | `stocktakes.approve` | اعتماد: فروق الجرد تتحول لحركات stocktake_gain/stocktake_loss وتتقفل الجلسة |
+
+ملاحظات:
+- سجل `stock_movements` غير قابل للتعديل أو الحذف برمجيًا وبنيويًا (بدون updated_at).
+- جرد بموقع (location_id) نطاقه هو صف ذلك الموقع فقط؛ من غير موقع نطاقه صف "بدون موقع".
+- ترقيم المستندات من الإعدادات: الحركات `MOV-`، التحويلات `TRF-`، الجرد `STK-`.
