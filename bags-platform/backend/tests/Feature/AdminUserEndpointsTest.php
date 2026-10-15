@@ -234,6 +234,77 @@ class AdminUserEndpointsTest extends TestCase
         $this->requestWithToken($inactiveToken, 'GET', '/api/v1/admin/me')->assertUnauthorized();
     }
 
+    public function test_user_manager_cannot_assign_roles_with_permissions_they_do_not_own(): void
+    {
+        $role = Role::create(['name' => 'Finance Manager', 'guard_name' => 'staff']);
+        $role->givePermissionTo(Permission::findOrCreate('settings.manage', 'staff'));
+        $manager = $this->staffWithPermission('users.manage');
+        $token = $manager->createToken('manager')->plainTextToken;
+        $target = User::factory()->create();
+
+        $this->requestWithToken($token, 'POST', '/api/v1/admin/users', [
+            'name' => 'Unauthorized Finance Manager',
+            'email' => 'unauthorized-finance@example.test',
+            'password' => 'long-password',
+            'roles' => ['Finance Manager'],
+        ])->assertForbidden();
+        $this->requestWithToken($token, 'PATCH', "/api/v1/admin/users/{$target->id}", [
+            'roles' => ['Finance Manager'],
+        ])->assertForbidden();
+
+        $this->assertDatabaseMissing('users', ['email' => 'unauthorized-finance@example.test']);
+        $this->assertFalse($target->refresh()->hasRole($role, 'staff'));
+    }
+
+    public function test_user_manager_cannot_take_over_or_deactivate_a_more_privileged_account(): void
+    {
+        $manager = $this->staffWithPermission('users.manage');
+        $token = $manager->createToken('manager')->plainTextToken;
+        $target = $this->staffWithPermission('settings.manage');
+        $targetToken = $target->createToken('target')->plainTextToken;
+        $originalEmail = $target->email;
+
+        $this->requestWithToken($token, 'PATCH', "/api/v1/admin/users/{$target->id}", [
+            'email' => 'takeover@example.test',
+            'password' => 'replacement-password',
+        ])->assertForbidden();
+        $this->requestWithToken($token, 'DELETE', "/api/v1/admin/users/{$target->id}")
+            ->assertForbidden();
+
+        $this->assertDatabaseHas('users', ['id' => $target->id, 'email' => $originalEmail, 'is_active' => true]);
+        $this->assertTrue(Hash::check('password', $target->refresh()->password));
+        $this->requestWithToken($targetToken, 'GET', '/api/v1/admin/me')->assertOk();
+    }
+
+    public function test_user_manager_can_assign_permissions_they_own_and_super_admin_can_assign_any_role(): void
+    {
+        $role = Role::create(['name' => 'Finance Manager', 'guard_name' => 'staff']);
+        $permission = Permission::findOrCreate('settings.manage', 'staff');
+        $role->givePermissionTo($permission);
+        $manager = $this->staffWithPermission('users.manage');
+        $manager->givePermissionTo($permission);
+        $token = $manager->createToken('manager')->plainTextToken;
+        $target = User::factory()->create();
+
+        $this->requestWithToken($token, 'PATCH', "/api/v1/admin/users/{$target->id}", [
+            'roles' => ['Finance Manager'],
+        ])->assertOk();
+        $this->assertTrue($target->refresh()->hasRole($role, 'staff'));
+
+        $superRole = Role::create(['name' => StaffRole::SuperAdmin->value, 'guard_name' => 'staff']);
+        $superRole->givePermissionTo(Permission::findOrCreate('users.manage', 'staff'));
+        $superAdmin = User::factory()->create()->assignRole($superRole);
+        $superToken = $superAdmin->createToken('super-admin')->plainTextToken;
+
+        $this->requestWithToken($superToken, 'POST', '/api/v1/admin/users', [
+            'name' => 'Authorized Finance Manager',
+            'email' => 'authorized-finance@example.test',
+            'password' => 'long-password',
+            'roles' => ['Finance Manager'],
+        ])->assertCreated();
+        $this->assertTrue(User::where('email', 'authorized-finance@example.test')->firstOrFail()->hasRole($role, 'staff'));
+    }
+
     private function staffWithPermission(string $permissionName): User
     {
         $permission = Permission::findOrCreate($permissionName, 'staff');

@@ -32,7 +32,8 @@ class DatabaseSeederTest extends TestCase
     {
         $this->app['env'] = 'production';
 
-        $this->seed(DatabaseSeeder::class);
+        $this->artisan('db:seed', ['--class' => DatabaseSeeder::class, '--force' => true])
+            ->assertSuccessful();
 
         $this->assertDatabaseMissing('users', ['email' => 'test@example.com']);
     }

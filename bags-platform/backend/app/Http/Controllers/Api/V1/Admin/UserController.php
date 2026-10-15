@@ -16,6 +16,7 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Spatie\Permission\Models\Role;
 
 class UserController extends Controller
 {
@@ -70,6 +71,10 @@ class UserController extends Controller
             ], 403);
         }
 
+        if (! $this->mayManageUser($currentUser, roles: $roles)) {
+            return $this->insufficientPermissionsResponse();
+        }
+
         $userAttributes = Arr::except($validated, ['roles']);
         $userAttributes['is_active'] ??= true;
 
@@ -116,6 +121,7 @@ class UserController extends Controller
             $user,
             $userAttributes,
             $roles,
+            $currentUser,
             $isSuperAdminRequester,
             $assigningSuperAdmin,
         ): ?string {
@@ -133,6 +139,10 @@ class UserController extends Controller
                 $targetIsSuperAdmin || $assigningSuperAdmin
             )) {
                 return 'protected';
+            }
+
+            if (! $this->mayManageUser($currentUser, $lockedUser, $roles ?? [])) {
+                return 'insufficient_permissions';
             }
 
             $lockedUser->update($userAttributes);
@@ -153,6 +163,10 @@ class UserController extends Controller
         });
 
         if ($failure !== null) {
+            if ($failure === 'insufficient_permissions') {
+                return $this->insufficientPermissionsResponse();
+            }
+
             return response()->json([
                 'message' => $failure === 'protected_super_admin'
                     ? 'لا يمكن تعطيل حساب Super Admin الأساسي أو إزالة دوره.'
@@ -173,20 +187,61 @@ class UserController extends Controller
             ], 403);
         }
 
-        if ($user->hasRole(StaffRole::SuperAdmin->value, 'staff')) {
+        $deleted = DB::transaction(function () use ($currentUser, $user): bool {
+            $lockedUser = User::query()->whereKey($user->getKey())->lockForUpdate()->firstOrFail();
+
+            if ($lockedUser->hasRole(StaffRole::SuperAdmin->value, 'staff')
+                || ! $this->mayManageUser($currentUser, $lockedUser)) {
+                return false;
+            }
+
+            $lockedUser->forceFill(['is_active' => false])->save();
+            $lockedUser->tokens()->delete();
+
+            return true;
+        });
+
+        if (! $deleted) {
             return response()->json([
-                'message' => 'لا يمكن تعطيل حساب Super Admin الأساسي.',
+                'message' => 'لا يمكن تعطيل حساب Super Admin أو حساب يمتلك صلاحيات لا تملكها.',
             ], 403);
         }
 
-        DB::transaction(function () use ($user): void {
-            $user->forceFill(['is_active' => false])->save();
-            $user->tokens()->delete();
-        });
-
         return response()->json([
             'message' => 'تم تعطيل حساب الموظف وإلغاء رموزه.',
-            'data' => UserResource::make($user->load(['branch', 'roles.permissions', 'permissions']))->resolve($request),
+            'data' => UserResource::make($user->refresh()->load(['branch', 'roles.permissions', 'permissions']))->resolve($request),
         ]);
+    }
+
+    /** @param list<string> $roles */
+    private function mayManageUser(mixed $actor, ?User $target = null, array $roles = []): bool
+    {
+        if (! $actor instanceof User) {
+            return false;
+        }
+
+        if ($actor->hasRole(StaffRole::SuperAdmin->value, 'staff')) {
+            return true;
+        }
+
+        $permissions = Role::query()
+            ->where('guard_name', 'staff')
+            ->whereIn('name', $roles)
+            ->with('permissions')
+            ->get()
+            ->flatMap(fn (Role $role) => $role->permissions->pluck('name'));
+
+        if ($target !== null) {
+            $permissions = $permissions->merge($target->getAllPermissions()->pluck('name'));
+        }
+
+        return $actor->hasAllPermissions($permissions->unique()->all());
+    }
+
+    private function insufficientPermissionsResponse(): JsonResponse
+    {
+        return response()->json([
+            'message' => 'لا يمكنك إدارة حساب أو إسناد دور يمتلك صلاحيات لا تملكها.',
+        ], 403);
     }
 }
