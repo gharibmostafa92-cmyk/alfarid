@@ -21,6 +21,7 @@ class DatabaseSeeder extends Seeder
         $this->call(BranchSeeder::class);
         $this->call(LocationSeeder::class);
         $this->call(RolePermissionSeeder::class);
+        $this->call(CatalogPermissionSeeder::class);
 
         if (app()->environment(['local', 'testing'])) {
             $testUser = User::factory()->make([
