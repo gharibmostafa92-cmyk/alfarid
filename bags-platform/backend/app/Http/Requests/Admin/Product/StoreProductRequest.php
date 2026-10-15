@@ -6,6 +6,7 @@ namespace App\Http\Requests\Admin\Product;
 
 use App\Enums\ProductStatus;
 use App\Enums\SalesChannel;
+use App\Http\Requests\Admin\Variant\VariantRules;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;

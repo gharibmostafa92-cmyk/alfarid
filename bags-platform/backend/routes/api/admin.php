@@ -9,6 +9,8 @@ use App\Http\Controllers\Api\V1\Admin\CategoryController;
 use App\Http\Controllers\Api\V1\Admin\LocationController;
 use App\Http\Controllers\Api\V1\Admin\PermissionController;
 use App\Http\Controllers\Api\V1\Admin\ProductController;
+use App\Http\Controllers\Api\V1\Admin\ProductMediaController;
+use App\Http\Controllers\Api\V1\Admin\ProductVariantController;
 use App\Http\Controllers\Api\V1\Admin\RoleController;
 use App\Http\Controllers\Api\V1\Admin\SettingController;
 use App\Http\Controllers\Api\V1\Admin\UserController;
@@ -84,14 +86,20 @@ Route::middleware(['auth:sanctum', 'auth.staff'])
             ->middleware('permission:permissions.view|roles.manage')
             ->name('permissions.index');
 
-        // Categories: authorization is handled in CategoryController via can:categories.* middleware.
-        Route::post('categories/reorder', [CategoryController::class, 'reorder'])
-            ->name('categories.reorder');
+        // Catalog: authorization is handled in the controllers via can:* middleware.
+        // مهم: reorder قبل apiResource عشان ميتقريش كأنه {category}
+        Route::put('categories/reorder', [CategoryController::class, 'reorder'])->name('categories.reorder');
         Route::apiResource('categories', CategoryController::class);
 
-        // Brands & Products: authorization is handled in their controllers via can:brands.* / can:products.* middleware.
         Route::apiResource('brands', BrandController::class);
+
         Route::apiResource('products', ProductController::class);
+        Route::apiResource('products.variants', ProductVariantController::class)->scoped();
+
+        Route::put('products/{product}/media/reorder', [ProductMediaController::class, 'reorder'])->name('products.media.reorder');
+        Route::get('products/{product}/media', [ProductMediaController::class, 'index'])->name('products.media.index');
+        Route::post('products/{product}/media', [ProductMediaController::class, 'store'])->name('products.media.store');
+        Route::delete('products/{product}/media/{media}', [ProductMediaController::class, 'destroy'])->name('products.media.destroy');
 
         Route::get('settings', [SettingController::class, 'index'])
             ->middleware('permission:settings.view|settings.manage')

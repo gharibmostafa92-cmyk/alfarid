@@ -22,22 +22,17 @@ class VariantResource extends JsonResource
             'product_id' => $this->product_id,
             'sku' => $this->sku,
             'barcode' => $this->barcode,
-            'color_name_ar' => $this->color_name_ar,
-            'color_name_en' => $this->color_name_en,
-            'color_hex' => $this->color_hex,
+            'color' => ['name_ar' => $this->color_name_ar, 'name_en' => $this->color_name_en, 'hex' => $this->color_hex],
             'size' => $this->size,
             'capacity' => $this->capacity,
-            // سعر التكلفة لا يظهر إلا لمن يملك products.view_cost
             'cost_price' => $this->when($request->user()?->can('products.view_cost'), $this->cost_price),
             'retail_price' => $this->retail_price,
             'wholesale_price' => $this->wholesale_price,
             'reorder_level' => $this->reorder_level,
-            'weight_kg' => $this->weight_kg,
+            'weight_kg' => $this->weight_kg ?? $this->product?->weight_kg,
             'sort_order' => $this->sort_order,
             'is_active' => $this->is_active,
             'images' => MediaResource::collection($this->whenLoaded('media', fn () => $this->getMedia('images'))),
-            'created_at' => $this->created_at,
-            'updated_at' => $this->updated_at,
         ];
     }
 }
