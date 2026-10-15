@@ -61,6 +61,7 @@ class AdminAuthEndpointsTest extends TestCase
         Customer::create([
             'name' => 'Customer with shared credentials',
             'email' => 'shared@example.test',
+            'phone' => '01099998888',
             'password' => 'secret-password',
         ]);
 

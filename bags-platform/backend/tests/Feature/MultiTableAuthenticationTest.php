@@ -76,7 +76,7 @@ class MultiTableAuthenticationTest extends TestCase
         $this->requestWithToken($inactiveToken, '/_test-auth/staff')->assertForbidden();
     }
 
-    public function test_returns_403_for_blocked_customers_but_allows_pending_customers(): void
+    public function test_returns_403_for_suspended_customers_but_allows_pending_customers(): void
     {
         $pendingCustomer = $this->createCustomer(status: CustomerStatus::Pending);
         $pendingToken = $pendingCustomer->createToken('test')->plainTextToken;
@@ -85,10 +85,10 @@ class MultiTableAuthenticationTest extends TestCase
             ->assertOk()
             ->assertJsonPath('model', Customer::class);
 
-        $blockedCustomer = $this->createCustomer(status: CustomerStatus::Blocked);
-        $blockedToken = $blockedCustomer->createToken('test')->plainTextToken;
+        $suspendedCustomer = $this->createCustomer(status: CustomerStatus::Suspended);
+        $suspendedToken = $suspendedCustomer->createToken('test')->plainTextToken;
 
-        $this->requestWithToken($blockedToken, '/_test-auth/customer')->assertForbidden();
+        $this->requestWithToken($suspendedToken, '/_test-auth/customer')->assertForbidden();
 
         $rejectedCustomer = $this->createCustomer(status: CustomerStatus::Rejected);
         $rejectedToken = $rejectedCustomer->createToken('test')->plainTextToken;
@@ -213,6 +213,7 @@ class MultiTableAuthenticationTest extends TestCase
         return Customer::create([
             'name' => 'Test customer',
             'email' => fake()->unique()->safeEmail(),
+            'phone' => fake()->unique()->numerify('010########'),
             'password' => 'password',
             'type' => $type,
             'status' => $status,

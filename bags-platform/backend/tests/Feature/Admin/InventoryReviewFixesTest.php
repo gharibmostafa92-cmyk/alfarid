@@ -227,7 +227,7 @@ class InventoryReviewFixesTest extends TestCase
         $this->assertSame(100.0, $pricing->resolve($variant, $customer)['unit_price']);
         $specific = PriceList::create(['name' => 'Special', 'type' => 'customer_specific', 'customer_id' => $customer->id]);
         $specific->items()->create(['product_variant_id' => $variant->id, 'price' => 10]);
-        foreach ([CustomerStatus::Pending, CustomerStatus::Blocked, CustomerStatus::Rejected] as $status) {
+        foreach ([CustomerStatus::Pending, CustomerStatus::Suspended, CustomerStatus::Rejected] as $status) {
             $customer->update(['status' => $status]);
             $this->assertSame(100.0, $pricing->resolve($variant, $customer)['unit_price']);
         }
@@ -352,7 +352,8 @@ class InventoryReviewFixesTest extends TestCase
         $customer = $this->customer();
         PriceList::create(['name' => 'Owned', 'type' => 'customer_specific', 'customer_id' => $customer->id]);
         try {
-            DB::transaction(fn () => $customer->delete());
+            // الحذف الناعم (مرحلة 5) لا يكسر الـ FK؛ القيد يُختبر على الحذف النهائي
+            DB::transaction(fn () => $customer->forceDelete());
             $this->fail('Deleting the owner must be restricted.');
         } catch (QueryException) {
             $this->assertDatabaseHas('customers', ['id' => $customer->id]);

@@ -176,3 +176,32 @@ Run php artisan media:backfill-path-layouts once for existing uploads. It persis
 - تصدير CSV يعيد `X-Row-Count` لتمكين العميل من اكتشاف الملف المبتور؛ أخطاء البث مسجلة. التواريخ ISO المعادة من API (بما فيها Z والكسور) قابلة لإعادة الإرسال، والتاريخ بلا وقت يبدأ عند منتصف ليل منطقة العمل.
 - ترقيم الحركات لا يستخدم `ALTER SEQUENCE` في التطبيق؛ قفل قصير داخل دالة قاعدة البيانات ينسق تخصيص الرقم ورفع الحد الأدنى، ويُفك قبل انتهاء معاملة المخزون. يتطلب مستخدم التطبيق USAGE وSELECT وUPDATE على التسلسل وEXECUTE على الدالة، ولا يتطلب ملكية التسلسل.
 - قرارات السياسة الحالية محفوظة: قائمة الفرع تتقدم على الشريحة العامة؛ خصم المجموعة فوق سعر القناة؛ القناة الصريحة تتقدم على retail حتى لو كانت أعلى سعرًا؛ لا فرض لفصل المنشئ عن المعتمد؛ العنصر الغائب في حمولة المرحلة يستخدم كامل كميته الافتراضية. نقل المواقع داخل نفس الفرع غير مدعوم ضمن هذا المسار. تكلفة الحركة هي تكلفة الكتالوج الحالية، وليست متوسط تكلفة محاسبيًا.
+
+## المرحلة 5: العملاء ومصادقة المتجر واعتماد الجملة
+
+ثلاث قنوات على جدول `customers` واحد: المتجر (`api/v1/store`) والجملة (`api/v1/wholesale`) والإدارة (`api/v1/admin`).
+
+### مصادقة المتجر القطاعي
+
+- `POST /store/auth/register` {name, phone*, email?, password(min 8)} — يُنشئ عميلًا `retail/approved` دائمًا (أي type/status في الطلب يُتجاهل) ويرجع 201 مع `token` (تسجيل دخول تلقائي).
+- `POST /store/auth/login` {login (بريد أو هاتف), password} — الحساب الموقوف يرجع 403 مع سبب الإيقاف؛ بيانات خاطئة 401. حد محاولات: 5/دقيقة للمُعرّف و30/دقيقة للـ IP.
+- `POST /store/auth/logout` (auth:sanctum + auth.customer) — يحذف التوكن الحالي فقط.
+- `POST /store/auth/forgot-password` {email أو phone} — يخزن رمزًا مُجزّأ في `password_reset_tokens` ويرسل إشعارًا بالبريد إن وُجد؛ الرد واحد دائمًا حتى لا يُستدل على وجود الحساب.
+
+### تسجيل الجملة ومتابعة الحالة
+
+- `POST /wholesale/auth/register` (multipart) {name, phone*, email?, password, company_name*, tax_number*, commercial_register*, documents[]* (pdf/jpg/png ≤ 5MB للملف، حتى 5 ملفات), document_types[]? موازية} — يُنشئ حساب `wholesale/pending` ومستنداته في **تخزين خاص** `storage/app/private/customer_documents/{id}` (لا روابط عامة)، ويرجع توكنًا لمتابعة الحالة.
+- `GET /wholesale/auth/application-status` (auth:sanctum فقط لعميل) — الحالة الحالية؛ عند الرفض يرجع `rejection_reason` وقائمة المستندات بحالاتها (المرفوض منها ظاهر). بوابة `auth.customer` لا تُستخدم هنا لأنها ترفض الحسابات المرفوضة أصلًا (سلوك المرحلة 1)، و`wholesale.approved` لا تُستخدم طبعًا لأن الحساب لم يُعتمد بعد.
+
+### إدارة العملاء في لوحة الإدارة (صلاحيات customers.*)
+
+- `GET /admin/customers` فلاتر: `type`, `status`, `customer_group_id`, `search` (اسم/هاتف/بريد/سجل تجاري).
+- `POST /admin/customers` — الحالة الافتراضية حسب النوع (قطاعي approved، جملة/موزع pending) ما لم تُرسل صراحة.
+- `GET /admin/customers/{id}` — مع `documents` (لكل مستند `download_url` محمي) و`customer_group` و`addresses`.
+- `PUT /admin/customers/{id}`، `DELETE` (حذف ناعم + إنهاء جلسات العميل).
+- `POST /admin/customers/{id}/approve` {customer_group_id?, credit_limit?, type?: wholesale|distributor} — يضبط `approved_by/approved_at` ويمسح أسباب الرفض/الإيقاف. اعتماد حساب معتمد أصلًا يرجع 422.
+- `POST /admin/customers/{id}/reject` {reason*} — الرفض **لا** يقتل توكن التاجر حتى يطّلع على السبب.
+- `POST /admin/customers/{id}/suspend` {reason*} — يوقف الحساب و**يحذف كل توكناته فورًا**.
+- `GET /admin/customers/{customer}/documents/{document}/download` — تنزيل مستند من التخزين الخاص (الربط مقيّد: مستند عميل آخر يرجع 404).
+
+حالات العميل: `pending/approved/rejected/suspended` (حلت suspended محل blocked من المرحلة 1 في المرحلة 5). الهاتف فريد وإلزامي، والبريد فريد واختياري.
