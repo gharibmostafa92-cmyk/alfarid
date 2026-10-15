@@ -23,6 +23,7 @@ use App\Services\PricingService;
 use App\Services\SettingService;
 use App\Services\StocktakeService;
 use App\Services\TransferService;
+use Carbon\Carbon;
 use Database\Seeders\InventoryPermissionSeeder;
 use Database\Seeders\PricingPermissionSeeder;
 use Database\Seeders\SettingSeeder;
@@ -383,11 +384,13 @@ class InventoryReviewFixesTest extends TestCase
         $branch = Branch::factory()->create();
         $variant = ProductVariant::factory()->create();
         try {
+            // حدود الفلتر بأيام العمل (Africa/Cairo) والتخزين UTC: الحركة الثانية في
+            // آخر ثانية من يوم القاهرة، والثالثة في أول ثانية من اليوم التالي (خارج النطاق).
             $this->travelTo(now()->setDate(2026, 10, 1)->startOfDay());
             $this->movement($variant, $branch, 1);
-            $this->travelTo(now()->setDate(2026, 10, 2)->setTime(23, 59, 59));
+            $this->travelTo(Carbon::createFromFormat('Y-m-d H:i:s', '2026-10-02 23:59:59', 'Africa/Cairo')->utc());
             $this->movement($variant, $branch, 1);
-            $this->travelTo(now()->setDate(2026, 10, 3)->startOfDay());
+            $this->travelTo(Carbon::createFromFormat('Y-m-d H:i:s', '2026-10-03 00:00:00', 'Africa/Cairo')->utc());
             $this->movement($variant, $branch, 1);
             $this->api('GET', 'inventory/movements?from_date=2026-10-02&to_date=2026-10-02')->assertOk()->assertJsonCount(1, 'data');
         } finally {

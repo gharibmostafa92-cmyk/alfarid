@@ -9,8 +9,10 @@ use App\Enums\StockMovementType;
 use App\Exceptions\BusinessException;
 use App\Models\InventoryIdempotencyKey;
 use App\Models\Location;
+use App\Models\ProductVariant;
 use App\Models\StockLevel;
 use App\Models\StockMovement;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -31,9 +33,9 @@ class InventoryService
      *
      * @param  array{product_variant_id: int, branch_id: int, location_id?: int|null, type: StockMovementType|string, affected_bucket: StockBucket|string, quantity: float|int|string, unit_cost?: float|null, reference_type?: string|null, reference_id?: int|null, created_by?: int|null, notes?: string|null}  $data
      */
-    public function recordMovement(array $data): StockMovement
+    public function recordMovement(array $data, ?StockLevel $prelockedLevel = null): StockMovement
     {
-        return DB::transaction(function () use ($data): StockMovement {
+        return DB::transaction(function () use ($data, $prelockedLevel): StockMovement {
             $rawQty = $data['quantity'];
             if (! is_numeric($rawQty) || ! is_finite((float) $rawQty) || abs((float) $rawQty) > 99999999.9999) {
                 throw new BusinessException('كمية الحركة غير صالحة.');
@@ -50,17 +52,27 @@ class InventoryService
             $bucket = $data['affected_bucket'] instanceof StockBucket ? $data['affected_bucket'] : StockBucket::from($data['affected_bucket']);
             $this->assertValidMovementSemantics($type, $bucket, $units);
             $locationId = $data['location_id'] ?? null;
-            if ($locationId !== null && ! Location::query()->whereKey($locationId)->where('branch_id', $data['branch_id'])->exists()) {
-                throw new BusinessException('الموقع لا يتبع الفرع المحدد.');
+
+            // صف مقفول مسبقًا من المستدعي (lockLevels): لا إعادة قفل ولا فحص موقع —
+            // المستدعي ضمن الصف والموقع عند القفل. خلاف ذلك نقفل هنا ونتحقق.
+            if ($prelockedLevel !== null) {
+                if ((int) $prelockedLevel->product_variant_id !== (int) $data['product_variant_id']
+                    || (int) $prelockedLevel->branch_id !== (int) $data['branch_id']
+                    || ($prelockedLevel->location_id === null ? null : (int) $prelockedLevel->location_id) !== ($locationId === null ? null : (int) $locationId)) {
+                    throw new \LogicException('الصف المقفول مسبقًا لا يطابق مفتاح الحركة.');
+                }
+                $stock = $prelockedLevel;
+            } else {
+                if ($locationId !== null && ! Location::query()->whereKey($locationId)->where('branch_id', $data['branch_id'])->exists()) {
+                    throw new BusinessException('الموقع لا يتبع الفرع المحدد.');
+                }
+
+                $stock = $this->lockLevels([[
+                    'product_variant_id' => $data['product_variant_id'],
+                    'branch_id' => $data['branch_id'],
+                    'location_id' => $locationId,
+                ]])->first();
             }
-
-            $levels = $this->lockLevels([[
-                'product_variant_id' => $data['product_variant_id'],
-                'branch_id' => $data['branch_id'],
-                'location_id' => $locationId,
-            ]]);
-
-            $stock = $levels->first();
 
             $bucketKey = $bucket->value;
             $before = (float) $stock->{$bucketKey};
@@ -88,6 +100,20 @@ class InventoryService
                 throw new BusinessException("الكمية المتاحة للبيع ({$availableNow}) غير كافية لإتمام العملية.");
             }
 
+            // منفّذ الحركة إلزامي: من console/queue بلا مستخدم مصادق وبلا created_by
+            // صريح، الفشل الواضح أفضل من QueryException على قيد NOT NULL.
+            $createdBy = $data['created_by'] ?? auth()->id();
+            if ($createdBy === null) {
+                throw new \LogicException('recordMovement يتطلب created_by صريحًا عند غياب مستخدم مصادق.');
+            }
+
+            // مرجع الدفتر يُخزن بالاسم القصير من morph map إن وُجد (stock_transfer/stocktake)
+            // حتى لا تكسر إعادة تسمية الكلاسات أثر التدقيق؛ الأسماء الكاملة القديمة تظل مقروءة.
+            $referenceType = $data['reference_type'] ?? null;
+            if (is_string($referenceType) && class_exists($referenceType)) {
+                $referenceType = (new $referenceType)->getMorphClass();
+            }
+
             // 4. تسجيل الحركة في دفتر الأستاذ (Ledger)
             $movement = StockMovement::query()->create([
                 'reference_number' => $this->settings->generateNextNumber('movement'),
@@ -100,9 +126,9 @@ class InventoryService
                 'balance_before' => $before,
                 'balance_after' => $after,
                 'unit_cost' => $data['unit_cost'] ?? null,
-                'reference_type' => $data['reference_type'] ?? null,
+                'reference_type' => $referenceType,
                 'reference_id' => $data['reference_id'] ?? null,
-                'created_by' => $data['created_by'] ?? auth()->id(),
+                'created_by' => $createdBy,
                 'notes' => $data['notes'] ?? null,
             ]);
 
@@ -176,7 +202,28 @@ class InventoryService
     {
         return DB::transaction(function () use ($payload, $userId): array {
             app(BranchAccess::class)->assertBranch($userId, (int) $payload['branch_id']);
-            $this->lockLevels(array_map(fn ($item) => [
+
+            // M5: التعطيل لا يحبس الرصيد — عمليات الإخراج (decrease/تالف/شطب) مسموحة على
+            // متغير/موقع معطّل لتصفية رصيده، والإدخال (increase) وحده يتطلب النشاط.
+            if (collect($payload['items'])->contains('adjustment_type', 'increase')) {
+                $variants = ProductVariant::query()
+                    ->whereIn('id', array_column($payload['items'], 'product_variant_id'))
+                    ->get()->keyBy('id');
+                $location = ($payload['location_id'] ?? null) !== null ? Location::query()->find($payload['location_id']) : null;
+
+                foreach ($payload['items'] as $item) {
+                    if ($item['adjustment_type'] !== 'increase') {
+                        continue;
+                    }
+                    if ($variants->get($item['product_variant_id'])?->is_active === false) {
+                        throw new BusinessException('لا يمكن الإدخال على متغير معطّل؛ فعّله أولًا أو استخدم عمليات الإخراج لتصفية رصيده.');
+                    }
+                    if ($location !== null && ! $location->is_active) {
+                        throw new BusinessException('لا يمكن الإدخال إلى موقع معطّل؛ فعّله أولًا.');
+                    }
+                }
+            }
+            $levels = $this->lockLevels(array_map(fn ($item) => [
                 'product_variant_id' => $item['product_variant_id'],
                 'branch_id' => $payload['branch_id'],
                 'location_id' => $payload['location_id'] ?? null,
@@ -184,6 +231,12 @@ class InventoryService
             $movements = [];
 
             foreach ($payload['items'] as $item) {
+                // الصف مقفول مسبقًا أعلاه — تُمرَّر حركتا العنصر عليه مباشرة.
+                $level = $levels->get($this->levelKey([
+                    'product_variant_id' => $item['product_variant_id'],
+                    'branch_id' => $payload['branch_id'],
+                    'location_id' => $payload['location_id'] ?? null,
+                ]));
                 if (in_array($item['adjustment_type'], ['write_off_damaged', 'restore_damaged'], true)) {
                     $base = [
                         'product_variant_id' => $item['product_variant_id'],
@@ -191,9 +244,9 @@ class InventoryService
                         'created_by' => $userId, 'notes' => $item['reason'] ?? null,
                         'quantity' => -abs((float) $item['quantity']),
                     ];
-                    $movements[] = $this->recordMovement([...$base, 'type' => StockMovementType::DamageRelease, 'affected_bucket' => StockBucket::Damaged]);
+                    $movements[] = $this->recordMovement([...$base, 'type' => StockMovementType::DamageRelease, 'affected_bucket' => StockBucket::Damaged], $level);
                     if ($item['adjustment_type'] === 'write_off_damaged') {
-                        $movements[] = $this->recordMovement([...$base, 'type' => StockMovementType::DamageWriteOff, 'affected_bucket' => StockBucket::OnHand]);
+                        $movements[] = $this->recordMovement([...$base, 'type' => StockMovementType::DamageWriteOff, 'affected_bucket' => StockBucket::OnHand], $level);
                     }
 
                     continue;
@@ -214,7 +267,7 @@ class InventoryService
                     'quantity' => $sign * abs((float) $item['quantity']),
                     'created_by' => $userId,
                     'notes' => $item['reason'] ?? null,
-                ]);
+                ], $level);
             }
 
             return $movements;
@@ -237,6 +290,9 @@ class InventoryService
         if (DB::transactionLevel() === 0) {
             throw new \LogicException('Stock locks require an active transaction.');
         }
+        // انتظار محدود للأقفال داخل هذه المعاملة فقط؛ التنافس الطويل يتحول لرفض
+        // واضح (409) بدل تعليق الطلب حتى مهلة PHP-FPM.
+        DB::statement("SET LOCAL lock_timeout = '5s'");
         $keys = collect($keys)->unique(fn ($key) => $this->levelKey($key))
             ->sortBy(fn ($key) => [(int) $key['branch_id'], (int) ($key['location_id'] ?? 0), (int) $key['product_variant_id']]);
         if ($keys->isEmpty()) {
@@ -248,15 +304,23 @@ class InventoryService
             'location_id' => $key['location_id'] ?? null, 'created_at' => $now, 'updated_at' => $now,
         ])->values()->all());
 
-        $levels = StockLevel::query()->where(function ($query) use ($keys): void {
-            foreach ($keys->groupBy(fn ($key) => $key['branch_id'].':'.($key['location_id'] ?? 0)) as $group) {
-                $identity = $group->first();
-                $query->orWhere(fn ($scope) => $scope->where('branch_id', $identity['branch_id'])
-                    ->where('location_id', $identity['location_id'] ?? null)
-                    ->whereIn('product_variant_id', $group->pluck('product_variant_id')->all()));
+        try {
+            $levels = StockLevel::query()->where(function ($query) use ($keys): void {
+                foreach ($keys->groupBy(fn ($key) => $key['branch_id'].':'.($key['location_id'] ?? 0)) as $group) {
+                    $identity = $group->first();
+                    $query->orWhere(fn ($scope) => $scope->where('branch_id', $identity['branch_id'])
+                        ->where('location_id', $identity['location_id'] ?? null)
+                        ->whereIn('product_variant_id', $group->pluck('product_variant_id')->all()));
+                }
+            })->orderBy('branch_id')->orderByRaw('location_id ASC NULLS FIRST')->orderBy('product_variant_id')
+                ->lockForUpdate()->get()->keyBy(fn ($stock) => $this->levelKey($stock->getAttributes()));
+        } catch (QueryException $e) {
+            if (($e->errorInfo[0] ?? $e->getCode()) === '55P03') {
+                throw new BusinessException('المخزون مشغول بعملية أخرى الآن؛ أعد المحاولة بعد لحظات.', [], 409);
             }
-        })->orderBy('branch_id')->orderByRaw('location_id ASC NULLS FIRST')->orderBy('product_variant_id')
-            ->lockForUpdate()->get()->keyBy(fn ($stock) => $this->levelKey($stock->getAttributes()));
+
+            throw $e;
+        }
 
         return $levels;
     }

@@ -13,6 +13,7 @@ use App\Models\StockMovement;
 use App\Models\StockTransfer;
 use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -115,7 +116,7 @@ class TransferService
             if ($transfer->items->sum(fn ($item) => (float) ($itemsPayload[$item->id] ?? $item->requested_qty)) <= 0) {
                 throw new BusinessException('يجب اعتماد كمية موجبة واحدة على الأقل؛ يمكن إلغاء التحويل بدلًا من اعتماده بصفر.');
             }
-            $this->lockTransferLevels($transfer, true, false);
+            $levels = $this->lockTransferLevels($transfer, true, false);
 
             foreach ($transfer->items as $item) {
                 $approvedQty = (float) ($itemsPayload[$item->id] ?? $item->requested_qty);
@@ -127,7 +128,7 @@ class TransferService
                 $item->update(['approved_qty' => $approvedQty]);
 
                 if ($approvedQty > 0) {
-                    $this->inventory->recordMovement([
+                    $this->move([
                         'product_variant_id' => $item->product_variant_id,
                         'branch_id' => $transfer->from_branch_id,
                         'location_id' => $item->from_location_id,
@@ -139,7 +140,7 @@ class TransferService
                         'reference_id' => $transfer->id,
                         'created_by' => $userId,
                         'notes' => 'حجز لصالح تحويل '.$transfer->transfer_number,
-                    ]);
+                    ], $levels);
                 }
             }
 
@@ -161,7 +162,7 @@ class TransferService
             if ($transfer->items->sum(fn ($item) => (float) ($itemsPayload[$item->id] ?? $item->approved_qty)) <= 0) {
                 throw new BusinessException('يجب شحن كمية موجبة واحدة على الأقل؛ يمكن إلغاء التحويل لفك الحجز.');
             }
-            $this->lockTransferLevels($transfer, true, true);
+            $levels = $this->lockTransferLevels($transfer, true, true);
 
             foreach ($transfer->items as $item) {
                 $shippedQty = (float) ($itemsPayload[$item->id] ?? $item->approved_qty);
@@ -174,7 +175,7 @@ class TransferService
 
                 if ($shippedQty <= 0) {
                     if ((float) $item->approved_qty > 0) {
-                        $this->inventory->recordMovement([
+                        $this->move([
                             'product_variant_id' => $item->product_variant_id,
                             'branch_id' => $transfer->from_branch_id,
                             'location_id' => $item->from_location_id,
@@ -185,7 +186,7 @@ class TransferService
                             'reference_id' => $transfer->id,
                             'created_by' => $userId,
                             'notes' => 'فك حجز صنف غير مشحون من تحويل '.$transfer->transfer_number,
-                        ]);
+                        ], $levels);
                     }
 
                     continue;
@@ -200,45 +201,45 @@ class TransferService
                 ];
 
                 // المرسل: فك الحجز ثم إخراج فعلي
-                $this->inventory->recordMovement([...$base,
+                $this->move([...$base,
                     'branch_id' => $transfer->from_branch_id,
                     'location_id' => $item->from_location_id,
                     'type' => StockMovementType::ReleaseReserve,
                     'affected_bucket' => StockBucket::Reserved,
                     'quantity' => -$shippedQty,
                     'notes' => 'فك حجز عند شحن تحويل '.$transfer->transfer_number,
-                ]);
-                $this->inventory->recordMovement([...$base,
+                ], $levels);
+                $this->move([...$base,
                     'branch_id' => $transfer->from_branch_id,
                     'location_id' => $item->from_location_id,
                     'type' => StockMovementType::TransferOut,
                     'affected_bucket' => StockBucket::OnHand,
                     'quantity' => -$shippedQty,
                     'notes' => 'شحن تحويل '.$transfer->transfer_number,
-                ]);
+                ], $levels);
 
                 // الباقي المحجوز (معتمد ولم يُشحن) يرجع متاحًا للبيع
                 $unshipped = round((float) $item->approved_qty - $shippedQty, 4);
                 if ($unshipped > 0) {
-                    $this->inventory->recordMovement([...$base,
+                    $this->move([...$base,
                         'branch_id' => $transfer->from_branch_id,
                         'location_id' => $item->from_location_id,
                         'type' => StockMovementType::ReleaseReserve,
                         'affected_bucket' => StockBucket::Reserved,
                         'quantity' => -$unshipped,
                         'notes' => 'فك حجز الكمية المعتمدة غير المشحونة من تحويل '.$transfer->transfer_number,
-                    ]);
+                    ], $levels);
                 }
 
                 // المستلم: بضاعة في الطريق
-                $this->inventory->recordMovement([...$base,
+                $this->move([...$base,
                     'branch_id' => $transfer->to_branch_id,
                     'location_id' => $item->to_location_id,
                     'type' => StockMovementType::TransferInTransit,
                     'affected_bucket' => StockBucket::InTransit,
                     'quantity' => $shippedQty,
                     'notes' => 'بضاعة في الطريق من تحويل '.$transfer->transfer_number,
-                ]);
+                ], $levels);
             }
 
             $transfer->update(['status' => TransferStatus::Shipped, 'shipped_at' => now()]);
@@ -256,7 +257,7 @@ class TransferService
             $this->assertPayloadMatchesLockedItems($transfer, $itemsPayload, $expectedUpdatedAt);
             $this->assertStatus($transfer, TransferStatus::Shipped, 'الاستلام');
             app(BranchAccess::class)->assertBranch($userId, $transfer->to_branch_id);
-            $this->lockTransferLevels($transfer, false, true);
+            $levels = $this->lockTransferLevels($transfer, false, true);
 
             $shortageNotes = [];
 
@@ -286,29 +287,29 @@ class TransferService
 
                 // خروج الجزء المستلم من "في الطريق" ودخوله الرصيد الفعلي
                 if ($receivedQty > 0) {
-                    $this->inventory->recordMovement([...$base,
+                    $this->move([...$base,
                         'type' => StockMovementType::TransferTransitRelease,
                         'affected_bucket' => StockBucket::InTransit,
                         'quantity' => -$receivedQty,
                         'notes' => 'استلام تحويل '.$transfer->transfer_number,
-                    ]);
-                    $this->inventory->recordMovement([...$base,
+                    ], $levels);
+                    $this->move([...$base,
                         'type' => StockMovementType::TransferIn,
                         'affected_bucket' => StockBucket::OnHand,
                         'quantity' => $receivedQty,
                         'notes' => 'استلام تحويل '.$transfer->transfer_number,
-                    ]);
+                    ], $levels);
                 }
 
                 // العجز بين المشحون والمستلم: تسوية مستقلة موثقة من رصيد "في الطريق"
                 $shortage = round($shippedQty - $receivedQty, 4);
                 if ($shortage > 0) {
-                    $this->inventory->recordMovement([...$base,
+                    $this->move([...$base,
                         'type' => StockMovementType::TransferShortage,
                         'affected_bucket' => StockBucket::InTransit,
                         'quantity' => -$shortage,
                         'notes' => 'عجز عند استلام تحويل '.$transfer->transfer_number,
-                    ]);
+                    ], $levels);
                     $shortageNotes[] = "عجز {$shortage} وحدة في المتغير #{$item->product_variant_id}";
                 }
             }
@@ -333,13 +334,13 @@ class TransferService
             app(BranchAccess::class)->assertBranch($userId, $transfer->from_branch_id);
 
             if ($transfer->status === TransferStatus::Approved) {
-                $this->lockTransferLevels($transfer, true, false);
+                $levels = $this->lockTransferLevels($transfer, true, false);
                 foreach ($transfer->items as $item) {
                     if ((float) $item->approved_qty <= 0) {
                         continue;
                     }
 
-                    $this->inventory->recordMovement([
+                    $this->move([
                         'product_variant_id' => $item->product_variant_id,
                         'branch_id' => $transfer->from_branch_id,
                         'location_id' => $item->from_location_id,
@@ -350,7 +351,7 @@ class TransferService
                         'reference_id' => $transfer->id,
                         'created_by' => $userId,
                         'notes' => 'فك حجز عند إلغاء تحويل '.$transfer->transfer_number,
-                    ]);
+                    ], $levels);
                 }
             } elseif ($transfer->status !== TransferStatus::Draft) {
                 throw new BusinessException('لا يمكن إلغاء تحويل بحالة '.$transfer->status->value.'.');
@@ -374,7 +375,7 @@ class TransferService
 
             // تحويل اعتُمد ثم أُلغي له حركات دفتر (حجز/فك حجز) تشير إليه بلا FK؛
             // حذفه يترك مراجع يتيمة ويقطع أثر التدقيق — الإلغاء نفسه هو الحفظ الصحيح.
-            if (StockMovement::query()->where('reference_type', StockTransfer::class)->where('reference_id', $transfer->id)->exists()) {
+            if (StockMovement::query()->whereIn('reference_type', [StockTransfer::class, 'stock_transfer'])->where('reference_id', $transfer->id)->exists()) {
                 throw new BusinessException('لا يمكن حذف تحويل له حركات مخزون مسجلة في الدفتر؛ إلغاؤه يحفظ أثر التدقيق.');
             }
 
@@ -440,7 +441,19 @@ class TransferService
         }
     }
 
-    private function lockTransferLevels(StockTransfer $transfer, bool $source, bool $destination): void
+    /** حركة على صف مقفول مسبقًا ضمن $levels — بلا إعادة قفل أو فحص موقع. */
+    private function move(array $data, Collection $levels): void
+    {
+        $level = $levels->get($this->inventory->levelKey([
+            'product_variant_id' => $data['product_variant_id'],
+            'branch_id' => $data['branch_id'],
+            'location_id' => $data['location_id'] ?? null,
+        ]));
+
+        $this->inventory->recordMovement($data, $level);
+    }
+
+    private function lockTransferLevels(StockTransfer $transfer, bool $source, bool $destination): Collection
     {
         $keys = [];
         foreach ($transfer->items as $item) {
@@ -451,6 +464,7 @@ class TransferService
                 $keys[] = ['branch_id' => $transfer->to_branch_id, 'location_id' => $item->to_location_id, 'product_variant_id' => $item->product_variant_id];
             }
         }
-        $this->inventory->lockLevels($keys);
+
+        return $this->inventory->lockLevels($keys);
     }
 }

@@ -9,7 +9,10 @@ use App\Exceptions\BusinessException;
 use App\Models\PriceList;
 use App\Models\PriceListItem;
 use App\Models\ProductVariant;
+use App\Models\User;
 use Carbon\Carbon;
+use DateTimeInterface;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -22,11 +25,12 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class PriceListService
 {
-    public function paginate(array $filters): LengthAwarePaginator
+    public function paginate(array $filters, ?User $user = null): LengthAwarePaginator
     {
         return PriceList::query()
             ->with(['customer', 'customerGroup', 'branch'])
             ->withCount('items')
+            ->when($this->restrictedBranch($user) !== null, fn ($q) => $q->where('branch_id', $this->restrictedBranch($user)))
             ->when($filters['type'] ?? null, fn ($q, $v) => $q->where('type', $v))
             ->when($filters['customer_id'] ?? null, fn ($q, $v) => $q->where('customer_id', $v))
             ->when($filters['customer_group_id'] ?? null, fn ($q, $v) => $q->where('customer_group_id', $v))
@@ -38,16 +42,25 @@ class PriceListService
             ->paginate($filters['per_page'] ?? 15);
     }
 
-    public function find(int $id): PriceList
+    public function find(int $id, ?User $user = null): PriceList
     {
         return PriceList::query()
             ->with(['customer', 'customerGroup', 'branch'])
             ->withCount('items')
+            ->when($this->restrictedBranch($user) !== null, fn ($q) => $q->where('branch_id', $this->restrictedBranch($user)))
             ->findOrFail($id);
     }
 
-    public function create(array $data): PriceList
+    public function create(array $data, ?User $user = null): PriceList
     {
+        $restricted = $this->restrictedBranch($user);
+        if ($restricted !== null) {
+            if (isset($data['branch_id']) && (int) $data['branch_id'] !== $restricted) {
+                throw new AuthorizationException('لا تملك صلاحية إنشاء قوائم أسعار لفرع آخر.');
+            }
+            $data['branch_id'] = $restricted;
+        }
+        $data = $this->normalizeDates($data);
         $data = array_filter($data, fn ($value, $key) => $value !== null || ! in_array($key, ['currency', 'priority', 'is_active'], true), ARRAY_FILTER_USE_BOTH);
         $this->validateDates($data);
         $data = $this->withValidOwner($data);
@@ -55,8 +68,14 @@ class PriceListService
         return PriceList::query()->create($data)->load(['customer', 'customerGroup', 'branch']);
     }
 
-    public function update(PriceList $priceList, array $data): PriceList
+    public function update(PriceList $priceList, array $data, ?User $user = null): PriceList
     {
+        $this->assertListAccess($user, $priceList);
+        if ($this->restrictedBranch($user) !== null && isset($data['branch_id']) && (int) $data['branch_id'] !== $this->restrictedBranch($user)) {
+            throw new AuthorizationException('لا تملك صلاحية نقل قائمة أسعار إلى فرع آخر.');
+        }
+        $data = $this->normalizeDates($data);
+
         return DB::transaction(function () use ($priceList, $data): PriceList {
             $priceList = PriceList::query()->lockForUpdate()->findOrFail($priceList->id);
             $this->validateDates($data, $priceList);
@@ -96,15 +115,18 @@ class PriceListService
         return $data;
     }
 
-    public function delete(PriceList $priceList): void
+    public function delete(PriceList $priceList, ?User $user = null): void
     {
+        $this->assertListAccess($user, $priceList);
         $priceList->delete(); // العناصر بتتحذف بـ cascade في القاعدة
     }
 
     // ---------- Items ----------
 
-    public function paginateItems(PriceList $priceList, array $filters): LengthAwarePaginator
+    public function paginateItems(PriceList $priceList, array $filters, ?User $user = null): LengthAwarePaginator
     {
+        $this->assertListAccess($user, $priceList);
+
         return $priceList->items()
             ->with(['variant.product'])
             ->when($filters['product_variant_id'] ?? null, fn ($q, $v) => $q->where('product_variant_id', $v))
@@ -114,8 +136,11 @@ class PriceListService
             ->paginate($filters['per_page'] ?? 15);
     }
 
-    public function createItem(PriceList $priceList, array $data): PriceListItem
+    public function createItem(PriceList $priceList, array $data, ?User $user = null): PriceListItem
     {
+        $this->assertListAccess($user, $priceList);
+        $data = $this->normalizeDates($data);
+
         return DB::transaction(function () use ($priceList, $data): PriceListItem {
             $priceList = PriceList::query()->lockForUpdate()->findOrFail($priceList->id);
             $data['min_qty'] = $data['min_qty'] ?? 1;
@@ -126,8 +151,11 @@ class PriceListService
         });
     }
 
-    public function updateItem(PriceListItem $item, array $data): PriceListItem
+    public function updateItem(PriceListItem $item, array $data, ?User $user = null): PriceListItem
     {
+        $this->assertListAccess($user, $item->priceList);
+        $data = $this->normalizeDates($data);
+
         return DB::transaction(function () use ($item, $data): PriceListItem {
             PriceList::query()->lockForUpdate()->findOrFail($item->price_list_id);
             $item = PriceListItem::query()->lockForUpdate()->findOrFail($item->id);
@@ -147,8 +175,9 @@ class PriceListService
         });
     }
 
-    public function deleteItem(PriceListItem $item): void
+    public function deleteItem(PriceListItem $item, ?User $user = null): void
     {
+        $this->assertListAccess($user, $item->priceList);
         $item->delete();
     }
 
@@ -168,8 +197,10 @@ class PriceListService
     // ---------- CSV ----------
 
     /** تصدير عناصر القائمة كـ CSV بنفس أعمدة الاستيراد عشان إعادة الاستيراد تشتغل. */
-    public function exportCsv(PriceList $priceList): StreamedResponse
+    public function exportCsv(PriceList $priceList, ?User $user = null): StreamedResponse
     {
+        $this->assertListAccess($user, $priceList);
+
         return response()->streamDownload(function () use ($priceList): void {
             $handle = fopen('php://output', 'w');
             try {
@@ -185,8 +216,8 @@ class PriceListService
                                 $this->csvText($item->variant?->product?->name_ar ?? ''),
                                 $item->min_qty,
                                 $item->price,
-                                $item->starts_at?->format('Y-m-d H:i:s'),
-                                $item->ends_at?->format('Y-m-d H:i:s'),
+                                $item->starts_at?->toIso8601String(),
+                                $item->ends_at?->toIso8601String(),
                             ]);
                         }
                     });
@@ -208,8 +239,9 @@ class PriceListService
      *
      * @return array{created: int, updated: int, skipped: int, errors: list<array{line: int, message: string}>}
      */
-    public function importCsv(PriceList $priceList, UploadedFile $file): array
+    public function importCsv(PriceList $priceList, UploadedFile $file, ?User $user = null): array
     {
+        $this->assertListAccess($user, $priceList);
         $handle = fopen($file->getRealPath(), 'r');
         if ($handle === false) {
             throw new BusinessException('تعذرت قراءة ملف الاستيراد.');
@@ -303,19 +335,62 @@ class PriceListService
         return str_starts_with($value, "'") && $this->csvText(substr($value, 1)) === $value ? substr($value, 1) : $value;
     }
 
+    /**
+     * تحليل صارم للتواريخ: Y-m-d أو Y-m-d H:i:s أو ISO-8601 مع إزاحة فقط.
+     * القيم بلا إزاحة تُفسَّر بمنطقة عمل (business_timezone) وتُخزَّن UTC —
+     * لا strtotime: لا "next monday" ولا خلط بين التنسيقين الأمريكي والأوروبي.
+     */
     private function parseDate(string $value): ?string
     {
+        $value = trim($value);
         if ($value === '') {
             return null;
         }
 
-        $timestamp = strtotime($value);
-
-        if ($timestamp === false) {
-            throw new BusinessException("تاريخ غير صالح: {$value}");
+        $businessTz = (string) config('app.business_timezone', 'Africa/Cairo');
+        foreach (['Y-m-d\TH:i:sP', 'Y-m-d H:i:s', 'Y-m-d'] as $format) {
+            try {
+                $parsed = Carbon::rawCreateFromFormat($format, $value, $businessTz);
+            } catch (\Throwable) {
+                $parsed = false;
+            }
+            if ($parsed !== false && $parsed->format($format) === $value) {
+                return $parsed->utc()->format('Y-m-d H:i:s');
+            }
         }
 
-        return date('Y-m-d H:i:s', $timestamp);
+        throw new BusinessException("تاريخ غير صالح: {$value} — الصيغ المقبولة: Y-m-d أو Y-m-d H:i:s أو ISO-8601 مع إزاحة.");
+    }
+
+    /** تطبيع starts_at/ends_at القادمة من الـ API لنفس قواعد parseDate قبل الحفظ. */
+    private function normalizeDates(array $data): array
+    {
+        foreach (['starts_at', 'ends_at'] as $field) {
+            if (! array_key_exists($field, $data) || $data[$field] === null) {
+                continue;
+            }
+            $data[$field] = $data[$field] instanceof DateTimeInterface
+                ? Carbon::instance($data[$field])->utc()->format('Y-m-d H:i:s')
+                : $this->parseDate((string) $data[$field]);
+        }
+
+        return $data;
+    }
+
+    // ----- نطاق الفرع (M4): الموظف المقيد لا يرى/يعدّل إلا قوائم فرعه -----
+    // مجموعات العملاء كيان مركزي بلا فرع بالتصميم، فلا ينطبق عليها هذا التقييد.
+
+    private function restrictedBranch(?User $user): ?int
+    {
+        return $user === null ? null : app(BranchAccess::class)->restrictedBranch($user);
+    }
+
+    public function assertListAccess(?User $user, PriceList $priceList): void
+    {
+        $restricted = $this->restrictedBranch($user);
+        if ($restricted !== null && $priceList->branch_id !== $restricted) {
+            throw new AuthorizationException('قائمة الأسعار هذه خارج نطاق فرعك.');
+        }
     }
 
     private function validateDates(array $data, PriceList|PriceListItem|null $model = null): void
