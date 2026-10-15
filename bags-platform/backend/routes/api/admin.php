@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\Admin\AuthController;
 use App\Http\Controllers\Api\V1\Admin\BranchController;
+use App\Http\Controllers\Api\V1\Admin\BrandController;
 use App\Http\Controllers\Api\V1\Admin\CategoryController;
 use App\Http\Controllers\Api\V1\Admin\LocationController;
 use App\Http\Controllers\Api\V1\Admin\PermissionController;
+use App\Http\Controllers\Api\V1\Admin\ProductController;
 use App\Http\Controllers\Api\V1\Admin\RoleController;
 use App\Http\Controllers\Api\V1\Admin\SettingController;
 use App\Http\Controllers\Api\V1\Admin\UserController;
@@ -86,6 +88,10 @@ Route::middleware(['auth:sanctum', 'auth.staff'])
         Route::post('categories/reorder', [CategoryController::class, 'reorder'])
             ->name('categories.reorder');
         Route::apiResource('categories', CategoryController::class);
+
+        // Brands & Products: authorization is handled in their controllers via can:brands.* / can:products.* middleware.
+        Route::apiResource('brands', BrandController::class);
+        Route::apiResource('products', ProductController::class);
 
         Route::get('settings', [SettingController::class, 'index'])
             ->middleware('permission:settings.view|settings.manage')
