@@ -10,6 +10,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Testing\TestResponse;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -111,6 +112,27 @@ class AdminAuthEndpointsTest extends TestCase
 
         $this->getAsToken($currentToken, '/api/v1/admin/me')->assertUnauthorized();
         $this->getAsToken($otherToken, '/api/v1/admin/me')->assertOk();
+    }
+
+    public function test_login_attempts_are_limited_per_account_across_different_ips(): void
+    {
+        $emailKey = hash('sha256', 'target@example.test');
+        RateLimiter::clear('admin-login-email:'.$emailKey);
+        RateLimiter::clear('admin-login-email-hour:'.$emailKey);
+
+        for ($attempt = 1; $attempt <= 5; $attempt++) {
+            $this->withServerVariables(['REMOTE_ADDR' => "198.51.100.{$attempt}"])
+                ->postJson('/api/v1/admin/auth/login', [
+                    'email' => 'target@example.test',
+                    'password' => 'wrong-password',
+                ])->assertUnauthorized();
+        }
+
+        $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.80'])
+            ->postJson('/api/v1/admin/auth/login', [
+                'email' => 'target@example.test',
+                'password' => 'wrong-password',
+            ])->assertStatus(429);
     }
 
     private function getAsToken(string $token, string $uri): TestResponse

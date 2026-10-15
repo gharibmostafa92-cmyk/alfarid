@@ -87,6 +87,7 @@ class AdminUserEndpointsTest extends TestCase
         )->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.id', $matchingUser->id)
+            ->assertJsonMissingPath('data.0.permissions')
             ->assertJsonPath('meta.per_page', 1);
     }
 

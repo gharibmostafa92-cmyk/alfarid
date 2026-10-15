@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Models\Setting;
 use App\Models\User;
 use App\Services\SettingService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
@@ -64,12 +66,43 @@ class AdminSettingsEndpointsTest extends TestCase
             ->assertJsonValidationErrors(['default_tax_rate', 'invoice_next_number', 'unknown_option']);
     }
 
+    public function test_settings_update_ignores_query_parameters_and_allows_clearing_prefixes(): void
+    {
+        $this->seedSettings();
+        $token = $this->staffWithSettingsPermission()->createToken('settings-test')->plainTextToken;
+
+        $this->requestWithToken($token, 'PUT', '/api/v1/admin/settings?lang=ar&_t=123', [
+            'invoice_prefix' => '',
+        ])->assertOk()
+            ->assertJsonPath('data.numbering.invoice_prefix', '');
+
+        $this->assertDatabaseHas('settings', ['key' => 'invoice_prefix', 'value' => '']);
+    }
+
+    public function test_update_returns_conflict_instead_of_server_error_if_setting_row_is_missing(): void
+    {
+        $this->seedSettings();
+        Setting::query()->where('key', 'company_name')->delete();
+        $token = $this->staffWithSettingsPermission()->createToken('settings-test')->plainTextToken;
+
+        $this->requestWithToken($token, 'PUT', '/api/v1/admin/settings', [
+            'company_name' => 'New Name',
+            'tax_enabled' => true,
+        ])->assertStatus(409);
+
+        $this->assertDatabaseMissing('settings', ['key' => 'company_name']);
+        $this->assertDatabaseHas('settings', ['key' => 'tax_enabled', 'value' => '0']);
+    }
+
     public function test_number_generation_increments_the_counter_and_applies_padding(): void
     {
         $this->seedSettings();
         $service = app(SettingService::class);
+        $service->getAllGrouped();
+        $this->assertTrue(Cache::has('app_settings_static'));
 
         $this->assertSame('ORD-001000', $service->generateNextNumber('order'));
+        $this->assertTrue(Cache::has('app_settings_static'));
         $this->assertSame('ORD-001001', $service->generateNextNumber('order'));
         $this->assertSame(1002, $service->get('order_next_number'));
         $this->assertSame('PO-1000', $service->generateNextNumber('purchase_order'));

@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Route;
 
 // Public admin authentication endpoint.
 Route::post('auth/login', [AuthController::class, 'login'])
-    ->middleware('throttle:5,1')
+    ->middleware('throttle:admin-login')
     ->name('admin.auth.login');
 
 // Staff-only API endpoints: require a Sanctum token and an active staff account.

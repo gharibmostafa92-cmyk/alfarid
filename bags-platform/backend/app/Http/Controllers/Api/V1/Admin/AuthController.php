@@ -13,19 +13,29 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
+    private const DUMMY_PASSWORD_HASH = '$2y$12$dRibbzvWAKqkXBRPna4QCuri7dR8TKHRGDIt.RsplFZRfRcJzmPlq';
+
     public function login(AdminLoginRequest $request): JsonResource|JsonResponse
     {
         $credentials = $request->validated();
         $user = User::query()->where('email', $credentials['email'])->first();
+        $storedHash = $user instanceof User ? $user->password : self::DUMMY_PASSWORD_HASH;
+        $passwordMatches = Hash::check($credentials['password'], $storedHash);
 
-        if (! $user instanceof User || ! $user->is_active || ! Hash::check($credentials['password'], $user->password)) {
+        if (! $user instanceof User || ! $user->is_active || ! $passwordMatches) {
             return response()->json([
                 'message' => 'بيانات تسجيل الدخول غير صحيحة أو الحساب غير نشط.',
             ], 401);
         }
+
+        $emailKey = hash('sha256', Str::transliterate(Str::lower(trim($credentials['email']))));
+        RateLimiter::clear('admin-login-email:'.$emailKey);
+        RateLimiter::clear('admin-login-email-hour:'.$emailKey);
 
         $user->load(['branch', 'roles.permissions', 'permissions']);
         $token = $user->createToken('staff-token')->plainTextToken;

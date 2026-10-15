@@ -32,7 +32,9 @@ class UserResource extends JsonResource
                 ])->values(),
             ),
             'permissions' => $this->when(
-                $this->relationLoaded('roles') || $this->relationLoaded('permissions'),
+                $this->relationLoaded('roles')
+                    && $this->relationLoaded('permissions')
+                    && $this->roles->every(fn ($role): bool => $role->relationLoaded('permissions')),
                 fn () => $this->getAllPermissions()->pluck('name')->unique()->values(),
             ),
             'created_at' => $this->created_at,

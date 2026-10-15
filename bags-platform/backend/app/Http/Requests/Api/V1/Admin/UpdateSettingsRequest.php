@@ -33,15 +33,15 @@ class UpdateSettingsRequest extends FormRequest
             'default_tax_rate' => ['sometimes', 'numeric', 'between:0,100'],
             'prices_include_tax' => ['sometimes', 'boolean'],
 
-            'invoice_prefix' => ['sometimes', 'string', 'max:30'],
+            'invoice_prefix' => ['sometimes', 'nullable', 'string', 'max:30'],
             'invoice_next_number' => ['sometimes', 'integer', 'min:1'],
             'invoice_padding' => ['sometimes', 'integer', 'min:1', 'max:20'],
-            'order_prefix' => ['sometimes', 'string', 'max:30'],
+            'order_prefix' => ['sometimes', 'nullable', 'string', 'max:30'],
             'order_next_number' => ['sometimes', 'integer', 'min:1'],
             'order_padding' => ['sometimes', 'integer', 'min:1', 'max:20'],
-            'purchase_order_prefix' => ['sometimes', 'string', 'max:30'],
+            'purchase_order_prefix' => ['sometimes', 'nullable', 'string', 'max:30'],
             'purchase_order_next_number' => ['sometimes', 'integer', 'min:1'],
-            'quotation_prefix' => ['sometimes', 'string', 'max:30'],
+            'quotation_prefix' => ['sometimes', 'nullable', 'string', 'max:30'],
             'quotation_next_number' => ['sometimes', 'integer', 'min:1'],
         ];
     }
@@ -49,7 +49,8 @@ class UpdateSettingsRequest extends FormRequest
     public function withValidator(Validator $validator): void
     {
         $allowedKeys = array_keys($this->rules());
-        $unknownKeys = array_diff(array_keys($this->all()), $allowedKeys);
+        $body = $this->isJson() ? $this->json()->all() : $this->request->all();
+        $unknownKeys = array_diff(array_keys($body), $allowedKeys, ['_method', '_token']);
 
         $validator->after(function (Validator $validator) use ($unknownKeys): void {
             foreach ($unknownKeys as $unknownKey) {

@@ -33,7 +33,7 @@ class UserController extends Controller
         ]);
 
         $users = User::query()
-            ->with(['branch', 'roles.permissions', 'permissions'])
+            ->with(['branch', 'roles'])
             ->when(array_key_exists('branch_id', $filters), function ($query) use ($filters): void {
                 if ($filters['branch_id'] === null) {
                     $query->whereNull('branch_id');

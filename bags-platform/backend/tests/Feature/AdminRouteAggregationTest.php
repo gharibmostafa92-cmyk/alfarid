@@ -28,7 +28,7 @@ class AdminRouteAggregationTest extends TestCase
         }
 
         $login = $routes->getByName('admin.auth.login');
-        $this->assertContains('throttle:5,1', $login->gatherMiddleware());
+        $this->assertContains('throttle:admin-login', $login->gatherMiddleware());
         $this->assertNotContains('auth:sanctum', $login->gatherMiddleware());
 
         foreach ([

@@ -12,17 +12,29 @@ use JsonException;
 
 class SettingService
 {
-    private const CACHE_KEY = 'app_settings';
+    private const CACHE_KEY = 'app_settings_static';
+
+    private const CACHE_TTL_SECONDS = 3600;
+
+    /** @var list<string> */
+    private const NUMBERING_COUNTER_KEYS = [
+        'invoice_next_number',
+        'order_next_number',
+        'purchase_order_next_number',
+        'quotation_next_number',
+    ];
 
     /**
      * Return all settings grouped by their group name, with values cast to their declared types.
+     * Numbering counters are read fresh because they change for every generated document number.
      *
      * @return array<string, array<string, mixed>>
      */
     public function getAllGrouped(): array
     {
-        return Cache::rememberForever(self::CACHE_KEY, function (): array {
+        $grouped = Cache::remember(self::CACHE_KEY, self::CACHE_TTL_SECONDS, function (): array {
             return Setting::query()
+                ->whereNotIn('key', self::NUMBERING_COUNTER_KEYS)
                 ->orderBy('group')
                 ->orderBy('key')
                 ->get()
@@ -34,6 +46,22 @@ class SettingService
                     ->all())
                 ->all();
         });
+
+        $counters = Setting::query()
+            ->whereIn('key', self::NUMBERING_COUNTER_KEYS)
+            ->orderBy('key')
+            ->get()
+            ->mapWithKeys(fn (Setting $setting): array => [
+                $setting->key => $this->castValue($setting->value, $setting->type),
+            ])
+            ->all();
+
+        if ($counters !== []) {
+            $grouped['numbering'] = array_merge($grouped['numbering'] ?? [], $counters);
+            ksort($grouped['numbering']);
+        }
+
+        return $grouped;
     }
 
     public function get(string $key, mixed $default = null): mixed
@@ -48,7 +76,7 @@ class SettingService
     }
 
     /**
-     * Update a flat key/value map atomically and invalidate the cached settings afterward.
+     * Update a flat key/value map atomically and invalidate the cached settings after commit.
      *
      * @param  array<string, mixed>  $settings
      *
@@ -57,22 +85,30 @@ class SettingService
     public function updateBatch(array $settings): void
     {
         DB::transaction(function () use ($settings): void {
+            $lockedSettings = Setting::query()
+                ->whereIn('key', array_keys($settings))
+                ->orderBy('key')
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('key');
+
+            $missingKeys = array_diff(array_keys($settings), $lockedSettings->keys()->all());
+
+            if ($missingKeys !== []) {
+                throw new InvalidArgumentException('Settings are not initialized: '.implode(', ', $missingKeys));
+            }
+
             foreach ($settings as $key => $value) {
-                $setting = Setting::query()
-                    ->where('key', $key)
-                    ->lockForUpdate()
-                    ->first();
-
-                if (! $setting instanceof Setting) {
-                    throw new InvalidArgumentException("Unknown setting [{$key}].");
-                }
-
-                $setting->value = $this->serializeValue($value, $setting->type);
+                /** @var Setting $setting */
+                $setting = $lockedSettings->get($key);
+                $setting->value = $value === null && str_ends_with($key, '_prefix')
+                    ? ''
+                    : $this->serializeValue($value, $setting->type);
                 $setting->save();
             }
-        }, attempts: 3);
 
-        Cache::forget(self::CACHE_KEY);
+            DB::afterCommit(fn () => Cache::forget(self::CACHE_KEY));
+        }, attempts: 3);
     }
 
     /**
@@ -100,7 +136,7 @@ class SettingService
             $definition['padding'],
         ]));
 
-        $number = DB::transaction(function () use ($definition, $keys): string {
+        return DB::transaction(function () use ($definition, $keys): string {
             $settings = Setting::query()
                 ->whereIn('key', $keys)
                 ->orderBy('key')
@@ -127,10 +163,6 @@ class SettingService
 
             return $formatted;
         }, attempts: 3);
-
-        Cache::forget(self::CACHE_KEY);
-
-        return $number;
     }
 
     private function castValue(?string $value, string $type): mixed

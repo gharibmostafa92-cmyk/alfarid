@@ -53,22 +53,23 @@ class LocationController extends Controller
         $this->ensureLocationBelongsToBranch($branch, $location);
         $location->update($request->validated());
 
-        return LocationResource::make($location->refresh());
+        return LocationResource::make($location);
     }
 
     public function destroy(Branch $branch, Location $location): JsonResponse|Response
     {
         $this->ensureLocationBelongsToBranch($branch, $location);
+        $inventoryTables = $this->inventoryMovementTables();
 
         try {
-            $deleted = DB::transaction(function () use ($branch, $location): bool {
+            $deleted = DB::transaction(function () use ($branch, $location, $inventoryTables): bool {
                 $lockedLocation = Location::query()
                     ->whereKey($location->getKey())
                     ->lockForUpdate()
                     ->firstOrFail();
                 $this->ensureLocationBelongsToBranch($branch, $lockedLocation);
 
-                if ($this->hasInventoryMovements($lockedLocation)) {
+                if ($this->hasInventoryMovements($lockedLocation, $inventoryTables)) {
                     return false;
                 }
 
@@ -91,13 +92,30 @@ class LocationController extends Controller
         return response()->noContent();
     }
 
-    private function hasInventoryMovements(Location $location): bool
+    /**
+     * @return list<string>
+     */
+    private function inventoryMovementTables(): array
     {
+        $tables = [];
+
         foreach (['inventory_movements', 'stock_movements', 'inventory_transactions', 'stock_transactions'] as $table) {
             if (! Schema::hasTable($table) || ! Schema::hasColumn($table, 'location_id')) {
                 continue;
             }
 
+            $tables[] = $table;
+        }
+
+        return $tables;
+    }
+
+    /**
+     * @param  list<string>  $tables
+     */
+    private function hasInventoryMovements(Location $location, array $tables): bool
+    {
+        foreach ($tables as $table) {
             if (DB::table($table)->where('location_id', $location->getKey())->exists()) {
                 return true;
             }

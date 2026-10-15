@@ -124,13 +124,34 @@ class RoleController extends Controller
     {
         $this->ensureStaffRole($role);
 
-        if ($role->name === StaffRole::SuperAdmin->value) {
+        $result = DB::transaction(function () use ($role): string {
+            $lockedRole = Role::query()->whereKey($role->getKey())->lockForUpdate()->firstOrFail();
+            $this->ensureStaffRole($lockedRole);
+
+            if ($lockedRole->name === StaffRole::SuperAdmin->value) {
+                return 'protected';
+            }
+
+            if ($lockedRole->users()->exists()) {
+                return 'in_use';
+            }
+
+            $lockedRole->delete();
+
+            return 'deleted';
+        });
+
+        if ($result === 'protected') {
             return response()->json([
                 'message' => 'لا يمكن حذف دور Super Admin الأساسي.',
             ], 403);
         }
 
-        $role->delete();
+        if ($result === 'in_use') {
+            return response()->json([
+                'message' => 'لا يمكن حذف دور مسند إلى موظفين. انقل الموظفين إلى دور آخر أولًا.',
+            ], 409);
+        }
 
         return response()->noContent();
     }

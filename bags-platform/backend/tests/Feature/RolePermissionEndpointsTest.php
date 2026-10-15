@@ -130,6 +130,21 @@ class RolePermissionEndpointsTest extends TestCase
         $this->assertDatabaseHas('roles', ['id' => $superAdmin->id]);
     }
 
+    public function test_role_assigned_to_staff_cannot_be_deleted(): void
+    {
+        $role = Role::create(['name' => 'Assigned Role', 'guard_name' => 'staff']);
+        $staff = User::factory()->create();
+        $staff->assignRole($role);
+        $admin = $this->staffWithPermission('roles.manage');
+        $token = $admin->createToken('test')->plainTextToken;
+
+        $this->requestWithToken($token, 'DELETE', "/api/v1/admin/roles/{$role->id}")
+            ->assertStatus(409);
+
+        $this->assertDatabaseHas('roles', ['id' => $role->id]);
+        $this->assertTrue($staff->refresh()->hasRole($role, 'staff'));
+    }
+
     public function test_seeder_creates_an_idempotent_super_admin_with_every_staff_permission(): void
     {
         $this->seed(RolePermissionSeeder::class);

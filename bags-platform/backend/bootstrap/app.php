@@ -24,6 +24,13 @@ return Application::configure(basePath: dirname(__DIR__))
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $trustedProxies = env('TRUSTED_PROXIES');
+        $middleware->trustProxies(
+            at: is_string($trustedProxies) && trim($trustedProxies) !== ''
+                ? array_map('trim', explode(',', $trustedProxies))
+                : null,
+        );
+
         $middleware->alias([
             'auth.staff' => EnsureStaffAuthenticated::class,
             'auth.customer' => EnsureCustomerAuthenticated::class,

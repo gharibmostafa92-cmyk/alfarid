@@ -56,14 +56,16 @@ class BranchController extends Controller
 
     public function destroy(Branch $branch): JsonResponse|Response
     {
+        $inventoryTables = $this->inventoryMovementTables();
+
         try {
-            $deleted = DB::transaction(function () use ($branch): bool {
+            $deleted = DB::transaction(function () use ($branch, $inventoryTables): bool {
                 $lockedBranch = Branch::query()
                     ->whereKey($branch->getKey())
                     ->lockForUpdate()
                     ->firstOrFail();
 
-                if ($lockedBranch->users()->exists() || $this->hasInventoryMovements($lockedBranch)) {
+                if ($lockedBranch->users()->exists() || $this->hasInventoryMovements($lockedBranch, $inventoryTables)) {
                     return false;
                 }
 
@@ -86,18 +88,45 @@ class BranchController extends Controller
         return response()->noContent();
     }
 
-    private function hasInventoryMovements(Branch $branch): bool
+    /**
+     * @return array<string, list<string>>
+     */
+    private function inventoryMovementTables(): array
     {
+        $tables = [];
+
         foreach (['inventory_movements', 'stock_movements', 'inventory_transactions', 'stock_transactions'] as $table) {
             if (! Schema::hasTable($table)) {
                 continue;
             }
 
-            if (Schema::hasColumn($table, 'branch_id') && DB::table($table)->where('branch_id', $branch->getKey())->exists()) {
+            $columns = [];
+
+            foreach (['branch_id', 'location_id'] as $column) {
+                if (Schema::hasColumn($table, $column)) {
+                    $columns[] = $column;
+                }
+            }
+
+            if ($columns !== []) {
+                $tables[$table] = $columns;
+            }
+        }
+
+        return $tables;
+    }
+
+    /**
+     * @param  array<string, list<string>>  $tables
+     */
+    private function hasInventoryMovements(Branch $branch, array $tables): bool
+    {
+        foreach ($tables as $table => $columns) {
+            if (in_array('branch_id', $columns, true) && DB::table($table)->where('branch_id', $branch->getKey())->exists()) {
                 return true;
             }
 
-            if (Schema::hasColumn($table, 'location_id')) {
+            if (in_array('location_id', $columns, true)) {
                 $locationIds = $branch->locations()->select('locations.id');
 
                 if (DB::table($table)->whereIn('location_id', $locationIds)->exists()) {

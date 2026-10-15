@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Admin\UpdateSettingsRequest;
 use App\Services\SettingService;
 use Illuminate\Http\JsonResponse;
+use InvalidArgumentException;
 
 class SettingController extends Controller
 {
@@ -22,7 +23,13 @@ class SettingController extends Controller
 
     public function update(UpdateSettingsRequest $request): JsonResponse
     {
-        $this->settings->updateBatch($request->validated());
+        try {
+            $this->settings->updateBatch($request->validated());
+        } catch (InvalidArgumentException) {
+            return response()->json([
+                'message' => 'إعداد أو أكثر غير مهيأ في قاعدة البيانات. شغّل Seeder الإعدادات ثم أعد المحاولة.',
+            ], 409);
+        }
 
         return response()->json([
             'data' => $this->settings->getAllGrouped(),
