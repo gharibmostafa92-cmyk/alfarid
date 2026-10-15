@@ -5,16 +5,14 @@ declare(strict_types=1);
 use App\Http\Controllers\Api\V1\Wholesale\RegisterController;
 use Illuminate\Support\Facades\Route;
 
-/*
-|--------------------------------------------------------------------------
-| روابط قناة الجملة (api/v1/wholesale)
-|--------------------------------------------------------------------------
-| التسجيل يصدر توكنًا فورًا لحساب pending حتى يتابع التاجر حالة طلبه.
-| متابعة الحالة بـ auth:sanctum فقط (بلا wholesale.approved وبلا بوابة
-| ترفض المرفوضين) — التفاصيل في RegisterController::applicationStatus.
-*/
+Route::prefix('auth')->name('auth.')->group(function (): void {
+    // التسجيل ورفع المستندات لتاجر الجملة
+    Route::post('register', [RegisterController::class, 'register'])->name('register');
 
-Route::prefix('auth')->group(function (): void {
-    Route::post('register', [RegisterController::class, 'register']);
-    Route::middleware('auth:sanctum')->get('application-status', [RegisterController::class, 'applicationStatus']);
+    // متابعة حالة الطلب (يتطلب توكن عميل فقط، ولا يتطلب wholesale.approved)
+    // ملحوظة مرحلة 5: بلا auth.customer هنا — تلك البوابة ترفض الحسابات
+    // المرفوضة، وهم تحديدًا من يحتاج رؤية سبب الرفض ومستنداته المرفوضة.
+    Route::middleware(['auth:sanctum'])->group(function (): void {
+        Route::get('application-status', [RegisterController::class, 'applicationStatus'])->name('application-status');
+    });
 });
