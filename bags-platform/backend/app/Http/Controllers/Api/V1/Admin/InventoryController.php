@@ -15,6 +15,7 @@ use App\Models\StockMovement;
 use App\Services\BranchAccess;
 use App\Services\InventoryService;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -53,7 +54,11 @@ class InventoryController extends Controller implements HasMiddleware
             ->when($filters['location_id'] ?? null, fn ($q, $v) => $q->where('location_id', $v))
             ->when($filters['product_variant_id'] ?? null, fn ($q, $v) => $q->where('product_variant_id', $v))
             ->when($filters['product_id'] ?? null, fn ($q, $v) => $q->whereHas('variant', fn ($vq) => $vq->where('product_id', $v)))
-            ->when($filters['low_stock'] ?? null, fn ($q) => $q->whereColumn('available', '<=', 'reorder_level'))
+            // حد إعادة الطلب الفعّال: مستوى الصف إن ضُبط (> 0)، وإلا مستوى المتغير نفسه
+            ->when($filters['low_stock'] ?? null, fn ($q) => $q
+                ->join('product_variants', 'product_variants.id', '=', 'stock_levels.product_variant_id')
+                ->whereRaw('stock_levels.available <= COALESCE(NULLIF(stock_levels.reorder_level, 0), product_variants.reorder_level, 0)')
+                ->select('stock_levels.*'))
             ->orderBy('branch_id')
             ->orderBy('product_variant_id')
             ->orderBy('id')
@@ -84,10 +89,12 @@ class InventoryController extends Controller implements HasMiddleware
             ->when($filters['product_variant_id'] ?? null, fn ($q, $v) => $q->where('product_variant_id', $v))
             ->when($filters['product_id'] ?? null, fn ($q, $v) => $q->whereHas('variant', fn ($vq) => $vq->where('product_id', $v)))
             ->when($filters['type'] ?? null, fn ($q, $v) => $q->where('type', $v))
-            ->when($filters['from_date'] ?? null, fn ($q, $v) => $q->where('created_at', '>=', Carbon::parse($v)->startOfDay()))
-            ->when($filters['to_date'] ?? null, fn ($q, $v) => $q->where('created_at', '<', Carbon::parse($v)->addDay()->startOfDay()))
+            // حدود الأيام بأيام العمل (business_timezone) لا UTC، والتخزين يظل UTC
+            ->when($filters['from_date'] ?? null, fn ($q, $v) => $q->where('created_at', '>=', Carbon::parse($v, config('app.business_timezone'))->startOfDay()->utc()))
+            ->when($filters['to_date'] ?? null, fn ($q, $v) => $q->where('created_at', '<', Carbon::parse($v, config('app.business_timezone'))->addDay()->startOfDay()->utc()))
             ->orderByDesc('id')
-            ->paginate($filters['per_page'] ?? 15);
+            // الدفتر append-only وسيكبر لملايين الصفوف: بلا COUNT(*) لكل صفحة
+            ->simplePaginate($filters['per_page'] ?? 15);
 
         return StockMovementResource::collection($movements);
     }
@@ -107,7 +114,7 @@ class InventoryController extends Controller implements HasMiddleware
 
         return response()->json([
             'message' => 'تم تنفيذ التسوية بنجاح',
-            'data' => StockMovementResource::collection(collect($movements)->each->load(['variant', 'branch', 'location'])),
+            'data' => StockMovementResource::collection((new EloquentCollection($movements))->load(['variant', 'branch', 'location'])),
         ], 201);
     }
 }

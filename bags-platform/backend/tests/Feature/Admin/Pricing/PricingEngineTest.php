@@ -28,6 +28,7 @@ class PricingEngineTest extends TestCase
 
     private const ALL_PERMISSIONS = [
         'customer_groups.view', 'customer_groups.create', 'customer_groups.update', 'customer_groups.delete',
+        'inventory.all_branches',
         'price_lists.view', 'price_lists.create', 'price_lists.update', 'price_lists.delete',
         'price_lists.import', 'price_lists.export',
     ];

@@ -13,6 +13,9 @@ use JsonException;
 
 class SettingService
 {
+    /** @var array<string, array{0: string, 1: int}> بادئة وحشو الترقيم لكل نوع — يُقرآن مرة واحدة لكل طلب (M11). */
+    private array $numberingConfig = [];
+
     private const CACHE_KEY = 'app_settings_static';
 
     private const CACHE_TTL_SECONDS = 3600;
@@ -138,13 +141,10 @@ class SettingService
     public function generateNextNumber(string $type): string
     {
         if ($type === 'movement') {
-            $settings = Setting::query()->whereIn('key', ['movement_prefix', 'movement_padding'])->pluck('value', 'key');
-            if (! $settings->has('movement_prefix') || ! $settings->has('movement_padding')) {
-                throw new InvalidArgumentException('Movement numbering settings are not initialized.');
-            }
+            [$prefix, $padding] = $this->numberingConfig('movement', 'movement_prefix', 'movement_padding');
             $number = DB::selectOne("SELECT nextval('stock_movement_number_seq') AS number")->number;
 
-            return $settings['movement_prefix'].str_pad((string) $number, max(0, (int) $settings['movement_padding']), '0', STR_PAD_LEFT);
+            return $prefix.str_pad((string) $number, $padding, '0', STR_PAD_LEFT);
         }
         $definitions = [
             'invoice' => ['prefix' => 'invoice_prefix', 'next' => 'invoice_next_number', 'padding' => 'invoice_padding'],
@@ -160,30 +160,20 @@ class SettingService
         }
 
         $definition = $definitions[$type];
-        $keys = array_values(array_filter([
-            $definition['prefix'],
-            $definition['next'],
-            $definition['padding'],
-        ]));
+        [$prefix, $padding] = $this->numberingConfig($type, $definition['prefix'], $definition['padding']);
 
-        return DB::transaction(function () use ($definition, $keys): string {
-            $settings = Setting::query()
-                ->whereIn('key', $keys)
-                ->orderBy('key')
+        return DB::transaction(function () use ($definition, $prefix, $padding): string {
+            // العداد وحده يُقفل ويُقرأ طازجًا كل مرة؛ البادئة والحشو من ذاكرة الطلب.
+            $nextSetting = Setting::query()
+                ->where('key', $definition['next'])
                 ->lockForUpdate()
-                ->get()
-                ->keyBy('key');
+                ->first();
 
-            foreach ($keys as $key) {
-                if (! $settings->has($key)) {
-                    throw new InvalidArgumentException("Required numbering setting [{$key}] is missing.");
-                }
+            if ($nextSetting === null) {
+                throw new InvalidArgumentException("Required numbering setting [{$definition['next']}] is missing.");
             }
 
-            $prefix = (string) $settings->get($definition['prefix'])->value;
-            $nextSetting = $settings->get($definition['next']);
             $nextValue = $this->counterValue($nextSetting->value);
-            $padding = max(0, (int) $settings->get($definition['padding'])->value);
 
             $formatted = $prefix.str_pad((string) $nextValue, $padding, '0', STR_PAD_LEFT);
             $nextSetting->value = (string) ($nextValue + 1);
@@ -193,9 +183,30 @@ class SettingService
         }, attempts: 3);
     }
 
+    /**
+     * بادئة وحشو نوع ترقيم — قراءة واحدة لكل طلب بدل استعلام مع كل حركة/مستند.
+     *
+     * @return array{0: string, 1: int}
+     */
+    private function numberingConfig(string $type, string $prefixKey, string $paddingKey): array
+    {
+        return $this->numberingConfig[$type] ??= (function () use ($prefixKey, $paddingKey): array {
+            $settings = Setting::query()->whereIn('key', [$prefixKey, $paddingKey])->pluck('value', 'key');
+
+            foreach ([$prefixKey, $paddingKey] as $key) {
+                if (! $settings->has($key)) {
+                    throw new InvalidArgumentException("Required numbering setting [{$key}] is missing.");
+                }
+            }
+
+            return [(string) $settings[$prefixKey], max(0, (int) $settings[$paddingKey])];
+        })();
+    }
+
     public function clearCache(): void
     {
         Cache::forget(self::CACHE_KEY);
+        $this->numberingConfig = [];
     }
 
     private function nextMovementNumber(): int

@@ -277,7 +277,7 @@ class SecurityReviewRound3Test extends TestCase
         // له حركتا حجز وفك حجز في الدفتر: الحذف يقطع أثر التدقيق
         $this->requestWithToken($token, 'DELETE', "/api/v1/admin/transfers/{$created['id']}")->assertUnprocessable();
         $this->assertDatabaseHas('stock_transfers', ['id' => $created['id'], 'status' => 'cancelled']);
-        $this->assertGreaterThan(0, StockMovement::where('reference_type', 'App\\Models\\StockTransfer')->where('reference_id', $created['id'])->count());
+        $this->assertGreaterThan(0, StockMovement::where('reference_type', 'stock_transfer')->where('reference_id', $created['id'])->count());
     }
 
     // ---------- helpers ----------

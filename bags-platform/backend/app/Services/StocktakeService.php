@@ -174,6 +174,11 @@ class StocktakeService
                     continue;
                 }
 
+                $key = $this->inventory->levelKey([
+                    'product_variant_id' => $item->product_variant_id,
+                    'branch_id' => $stocktake->branch_id, 'location_id' => $stocktake->location_id,
+                ]);
+
                 $this->inventory->recordMovement([
                     'product_variant_id' => $item->product_variant_id,
                     'branch_id' => $stocktake->branch_id,
@@ -186,7 +191,7 @@ class StocktakeService
                     'reference_id' => $stocktake->id,
                     'created_by' => $userId,
                     'notes' => 'تسوية جرد '.$stocktake->stocktake_number,
-                ]);
+                ], $levels[$key] ?? null);
             }
 
             $stocktake->update([
