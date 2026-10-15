@@ -29,7 +29,7 @@ class UpdatePriceListRequest extends FormRequest
             'customer_id' => ['sometimes', 'nullable', 'bail', 'integer', 'min:1', Rule::exists('customers', 'id')],
             'customer_group_id' => ['sometimes', 'nullable', 'bail', 'integer', 'min:1', Rule::exists('customer_groups', 'id')],
             'branch_id' => ['sometimes', 'nullable', 'bail', 'integer', 'min:1', Rule::exists('branches', 'id')->where('is_active', true)],
-            'currency' => ['sometimes', 'string', 'size:3'],
+            'currency' => ['sometimes', 'string', 'size:3', Rule::in(['EGP'])], // عملة واحدة مدعومة حاليًا (M9)
             'starts_at' => ['sometimes', 'nullable', 'date'],
             'ends_at' => ['sometimes', 'nullable', 'date'],
             'priority' => ['sometimes', 'bail', 'integer', 'min:-10000', 'max:10000'],

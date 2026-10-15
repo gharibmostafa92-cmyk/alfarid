@@ -38,7 +38,8 @@ class StockMovementResource extends JsonResource
             'quantity' => $this->quantity,
             'balance_before' => $this->balance_before,
             'balance_after' => $this->balance_after,
-            'unit_cost' => $this->unit_cost,
+            // تكلفة الشراء معلومة تجارية حساسة: لا تظهر إلا بصلاحية صريحة
+            'unit_cost' => $this->when($request->user()?->can('inventory.view_cost'), $this->unit_cost),
             'reference_type' => $this->reference_type,
             'reference_id' => $this->reference_id,
             'created_by' => $this->created_by,

@@ -2,7 +2,11 @@
 
 namespace App\Providers;
 
+use App\Models\Stocktake;
+use App\Models\StockTransfer;
+use App\Services\BranchAccess;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
@@ -15,7 +19,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Singleton حتى تعمل ذاكرة المستخدمين لكل طلب في BranchAccess فعلًا.
+        $this->app->singleton(BranchAccess::class);
     }
 
     /**
@@ -23,6 +28,14 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // أسماء قصيرة ثابتة لمراجع الدفتر (stock_movements.reference_type):
+        // إعادة تسمية/نقل الكلاسات لاحقًا لا تكسر أثر التدقيق التاريخي.
+        // الصفوف القديمة المخزنة باسم الكلاس الكامل تظل قابلة للقراءة.
+        Relation::morphMap([
+            'stock_transfer' => StockTransfer::class,
+            'stocktake' => Stocktake::class,
+        ]);
+
         RateLimiter::for('admin-login', function (Request $request): array {
             $email = $request->input('email');
             $normalizedEmail = is_string($email)

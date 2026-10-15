@@ -48,12 +48,12 @@ class PriceListController extends Controller implements HasMiddleware
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
-        return PriceListResource::collection($this->priceLists->paginate($filters));
+        return PriceListResource::collection($this->priceLists->paginate($filters, $request->user()));
     }
 
     public function store(StorePriceListRequest $request): JsonResponse
     {
-        $priceList = $this->priceLists->create($request->validated());
+        $priceList = $this->priceLists->create($request->validated(), $request->user());
 
         return (new PriceListResource($priceList))
             ->additional(['message' => 'تم إنشاء قائمة الأسعار بنجاح'])
@@ -61,19 +61,19 @@ class PriceListController extends Controller implements HasMiddleware
             ->setStatusCode(201);
     }
 
-    public function show(PriceList $priceList): PriceListResource
+    public function show(Request $request, PriceList $priceList): PriceListResource
     {
-        return new PriceListResource($this->priceLists->find($priceList->id));
+        return new PriceListResource($this->priceLists->find($priceList->id, $request->user()));
     }
 
     public function update(UpdatePriceListRequest $request, PriceList $priceList): PriceListResource
     {
-        return new PriceListResource($this->priceLists->update($priceList, $request->validated()));
+        return new PriceListResource($this->priceLists->update($priceList, $request->validated(), $request->user()));
     }
 
-    public function destroy(PriceList $priceList): JsonResponse
+    public function destroy(Request $request, PriceList $priceList): JsonResponse
     {
-        $this->priceLists->delete($priceList);
+        $this->priceLists->delete($priceList, $request->user());
 
         return response()->json(['message' => 'تم حذف قائمة الأسعار بنجاح']);
     }
@@ -81,7 +81,7 @@ class PriceListController extends Controller implements HasMiddleware
     /** استيراد أسعار من CSV (updateOrCreate على القائمة/المتغير/حد الكمية). */
     public function import(ImportPriceListItemsRequest $request, PriceList $priceList): JsonResponse
     {
-        $report = $this->priceLists->importCsv($priceList, $request->file('file'));
+        $report = $this->priceLists->importCsv($priceList, $request->file('file'), $request->user());
 
         return response()->json([
             'message' => 'تم تنفيذ الاستيراد',
@@ -90,8 +90,8 @@ class PriceListController extends Controller implements HasMiddleware
     }
 
     /** تصدير عناصر القائمة كملف CSV قابل لإعادة الاستيراد. */
-    public function export(PriceList $priceList): StreamedResponse
+    public function export(Request $request, PriceList $priceList): StreamedResponse
     {
-        return $this->priceLists->exportCsv($priceList);
+        return $this->priceLists->exportCsv($priceList, $request->user());
     }
 }

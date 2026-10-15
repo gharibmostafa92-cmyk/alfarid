@@ -38,12 +38,12 @@ class PriceListItemController extends Controller implements HasMiddleware
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
-        return PriceListItemResource::collection($this->priceLists->paginateItems($priceList, $filters));
+        return PriceListItemResource::collection($this->priceLists->paginateItems($priceList, $filters, $request->user()));
     }
 
     public function store(StorePriceListItemRequest $request, PriceList $priceList): JsonResponse
     {
-        $item = $this->priceLists->createItem($priceList, $request->validated());
+        $item = $this->priceLists->createItem($priceList, $request->validated(), $request->user());
 
         return (new PriceListItemResource($item))
             ->additional(['message' => 'تمت إضافة سعر الصنف بنجاح'])
@@ -51,19 +51,21 @@ class PriceListItemController extends Controller implements HasMiddleware
             ->setStatusCode(201);
     }
 
-    public function show(PriceList $priceList, PriceListItem $item): PriceListItemResource
+    public function show(Request $request, PriceList $priceList, PriceListItem $item): PriceListItemResource
     {
+        $this->priceLists->assertListAccess($request->user(), $priceList);
+
         return new PriceListItemResource($item->load('variant.product'));
     }
 
     public function update(UpdatePriceListItemRequest $request, PriceList $priceList, PriceListItem $item): PriceListItemResource
     {
-        return new PriceListItemResource($this->priceLists->updateItem($item, $request->validated()));
+        return new PriceListItemResource($this->priceLists->updateItem($item, $request->validated(), $request->user()));
     }
 
-    public function destroy(PriceList $priceList, PriceListItem $item): JsonResponse
+    public function destroy(Request $request, PriceList $priceList, PriceListItem $item): JsonResponse
     {
-        $this->priceLists->deleteItem($item);
+        $this->priceLists->deleteItem($item, $request->user());
 
         return response()->json(['message' => 'تم حذف سعر الصنف بنجاح']);
     }

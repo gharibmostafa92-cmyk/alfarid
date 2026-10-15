@@ -34,7 +34,7 @@ class StorePriceListRequest extends FormRequest
                 'nullable', 'bail', 'integer', 'min:1', Rule::exists('customer_groups', 'id'),
             ],
             'branch_id' => ['nullable', 'bail', 'integer', 'min:1', Rule::exists('branches', 'id')->where('is_active', true)],
-            'currency' => ['nullable', 'string', 'size:3'],
+            'currency' => ['nullable', 'string', 'size:3', Rule::in(['EGP'])], // عملة واحدة مدعومة حاليًا (M9)
             'starts_at' => ['nullable', 'date'],
             'ends_at' => ['nullable', 'date'],
             'priority' => ['nullable', 'bail', 'integer', 'min:-10000', 'max:10000'],

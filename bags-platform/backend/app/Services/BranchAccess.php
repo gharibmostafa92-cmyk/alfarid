@@ -15,6 +15,9 @@ use Illuminate\Auth\Access\AuthorizationException;
  */
 class BranchAccess
 {
+    /** @var array<int, User> ذاكرة لكل طلب حتى لا يُعاد تحميل المستخدم مع كل فحص. */
+    private array $usersById = [];
+
     public function restrictedBranch(?User $user): ?int
     {
         if ($user === null) {
@@ -34,7 +37,7 @@ class BranchAccess
 
     public function assertBranch(int $userId, int ...$branchIds): void
     {
-        $branchId = $this->restrictedBranch(User::findOrFail($userId));
+        $branchId = $this->restrictedBranch($this->usersById[$userId] ??= User::findOrFail($userId));
         if ($branchId !== null && ! in_array($branchId, $branchIds, true)) {
             throw new AuthorizationException('لا تملك صلاحية الوصول إلى هذا الفرع.');
         }

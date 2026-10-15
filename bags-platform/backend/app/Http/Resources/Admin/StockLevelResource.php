@@ -41,9 +41,20 @@ class StockLevelResource extends JsonResource
             'damaged' => $this->damaged,
             'in_transit' => $this->in_transit,
             'available' => number_format($this->available, 4, '.', ''),
-            'reorder_level' => $this->reorder_level,
-            'is_low_stock' => $this->available <= (float) $this->reorder_level,
+            // حد إعادة الطلب الفعّال: مستوى الصف إن ضُبط (> 0)، وإلا مستوى المتغير
+            'reorder_level' => $this->effectiveReorderLevel(),
+            'is_low_stock' => $this->available <= $this->effectiveReorderLevel(),
             'updated_at' => $this->updated_at,
         ];
+    }
+
+    /** حد إعادة الطلب الفعّال (نفس صيغة فلتر low_stock في الكنترولر). */
+    private function effectiveReorderLevel(): float
+    {
+        if ((float) $this->reorder_level > 0) {
+            return (float) $this->reorder_level;
+        }
+
+        return $this->relationLoaded('variant') ? (float) ($this->variant?->reorder_level ?? 0) : 0.0;
     }
 }

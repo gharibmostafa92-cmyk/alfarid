@@ -7,6 +7,8 @@ namespace App\Services;
 use App\Exceptions\BusinessException;
 use App\Models\CustomerGroup;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 
 class CustomerGroupService
 {
@@ -39,14 +41,29 @@ class CustomerGroupService
 
     public function delete(CustomerGroup $group): void
     {
-        if ($group->customers()->exists()) {
-            throw new BusinessException('لا يمكن حذف مجموعة مرتبطة بعملاء؛ انقل العملاء أولًا أو عطّل المجموعة.');
-        }
+        try {
+            DB::transaction(function () use ($group): void {
+                // قفل الصف قبل الفحص والحذف حتى لا يتسلل عميل/قائمة بينهما (L3):
+                // عميل يُضاف أثناء الحذف كان يفقد مجموعته بصمت عبر nullOnDelete.
+                $group = CustomerGroup::query()->lockForUpdate()->findOrFail($group->id);
 
-        if ($group->priceLists()->exists()) {
-            throw new BusinessException('لا يمكن حذف مجموعة مرتبطة بقوائم أسعار.');
-        }
+                if ($group->customers()->exists()) {
+                    throw new BusinessException('لا يمكن حذف مجموعة مرتبطة بعملاء؛ انقل العملاء أولًا أو عطّل المجموعة.');
+                }
 
-        $group->delete();
+                if ($group->priceLists()->exists()) {
+                    throw new BusinessException('لا يمكن حذف مجموعة مرتبطة بقوائم أسعار.');
+                }
+
+                $group->delete();
+            });
+        } catch (QueryException $e) {
+            // أي سباق متبقٍ عند قيد FK يظهر كـ 422 مفهوم لا 500
+            if (($e->errorInfo[0] ?? $e->getCode()) === '23503') {
+                throw new BusinessException('لا يمكن حذف مجموعة مرتبطة بعملاء أو قوائم أسعار.');
+            }
+
+            throw $e;
+        }
     }
 }
