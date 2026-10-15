@@ -58,7 +58,7 @@ class ProductController extends Controller implements HasMiddleware
             ->withMin(['variants as min_retail_price' => fn ($v) => $v->where('is_active', true)], 'retail_price')
             ->withMax(['variants as max_retail_price' => fn ($v) => $v->where('is_active', true)], 'retail_price');
 
-        if (! empty($filters['search'])) {
+        if (isset($filters['search']) && $filters['search'] !== '') {
             $s = $filters['search'];
             $pattern = SearchTerm::pattern($s);
             $q->where(fn ($w) => $w->whereLike('name_ar', $pattern, caseSensitive: false)
@@ -88,14 +88,20 @@ class ProductController extends Controller implements HasMiddleware
 
     public function show(Product $product): ProductResource
     {
-        $product->load(['category', 'brand', 'variants.media', 'media']);
+        $product->load(['category.media', 'brand.media', 'variants.media', 'media']);
 
         return ProductResource::make($product);
     }
 
     public function store(StoreProductRequest $request): JsonResponse
     {
-        $product = $this->service->create($request->validated(), $request->user());
+        $data = $request->validated();
+        if (! $request->user()->can('products.view_cost')) {
+            foreach ($data['variants'] ?? [] as $index => $variant) {
+                unset($data['variants'][$index]['cost_price']);
+            }
+        }
+        $product = $this->service->create($data, $request->user());
 
         return ProductResource::make($product)->response()->setStatusCode(201);
     }

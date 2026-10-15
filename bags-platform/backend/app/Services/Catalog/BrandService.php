@@ -14,59 +14,62 @@ class BrandService
 {
     public function create(array $data, ?UploadedFile $logo): Brand
     {
-        unset($data['logo']);
-        $data = array_filter($data, fn ($value) => $value !== null);
+        return DB::transaction(function () use ($data, $logo) {
+            unset($data['logo']);
+            $data = array_filter($data, fn ($value) => $value !== null);
 
-        if (empty($data['slug'])) {
-            $data['slug'] = SlugService::make(Brand::class, $data['name_en']);
-        }
+            if (empty($data['slug'])) {
+                $data['slug'] = SlugService::make(Brand::class, $data['name_en']);
+            }
 
-        $brand = DB::transaction(fn () => Brand::create($data));
+            $brand = Brand::create($data);
 
-        // عمليات الملفات بره الـ transaction: ملف اتمسح مبيترجعش مع الـ rollback
-        if ($logo) {
-            $brand->addMedia($logo)->toMediaCollection('logo');
-        }
+            if ($logo) {
+                $brand->addMedia($logo)->toMediaCollection('logo');
+            }
 
-        return $brand;
+            return $brand;
+        });
     }
 
     public function update(Brand $brand, array $data, ?UploadedFile $logo): Brand
     {
-        $removeLogo = (bool) ($data['remove_logo'] ?? false);
-        unset($data['logo'], $data['remove_logo']);
+        return DB::transaction(function () use ($brand, $data, $logo) {
+            $brand = Brand::whereKey($brand->id)->lockForUpdate()->firstOrFail();
+            $removeLogo = (bool) ($data['remove_logo'] ?? false);
+            unset($data['logo'], $data['remove_logo']);
 
-        if (array_key_exists('slug', $data) && empty($data['slug'])) {
-            $data['slug'] = SlugService::make(Brand::class, $data['name_en'] ?? $brand->name_en, $brand->id);
-        }
-
-        foreach (['sort_order', 'is_active'] as $field) {
-            if (array_key_exists($field, $data) && $data[$field] === null) {
-                unset($data[$field]);
+            if (array_key_exists('slug', $data) && empty($data['slug'])) {
+                $data['slug'] = SlugService::make(Brand::class, $data['name_en'] ?? $brand->name_en, $brand->id);
             }
-        }
 
-        DB::transaction(fn () => $brand->update($data));
+            foreach (['sort_order', 'is_active'] as $field) {
+                if (array_key_exists($field, $data) && $data[$field] === null) {
+                    unset($data[$field]);
+                }
+            }
 
-        // استبدال/مسح الشعار آخر خطوة وبعد نجاح حفظ البيانات، عشان فشل لاحق ميسيبش رابط مكسور
-        if ($removeLogo) {
-            $brand->clearMediaCollection('logo');
-        }
+            $brand->update($data);
 
-        if ($logo) {
-            $brand->addMedia($logo)->toMediaCollection('logo');
-        }
+            if ($removeLogo) {
+                $brand->clearMediaCollection('logo');
+            }
 
-        return $brand;
+            if ($logo) {
+                $brand->addMedia($logo)->toMediaCollection('logo');
+            }
+
+            return $brand;
+        });
     }
 
     public function delete(Brand $brand): void
     {
         DB::transaction(function () use ($brand): void {
             // قفل الصف بيمنع حذف البراند في نفس لحظة إنشاء منتج عليه
-            $locked = Brand::whereKey($brand->id)->lockForUpdate()->first() ?? $brand;
+            $locked = Brand::whereKey($brand->id)->lockForUpdate()->firstOrFail();
 
-            if ($locked->products()->exists()) {
+            if ($locked->products()->withTrashed()->exists()) {
                 throw new BusinessException('لا يمكن حذف براند مرتبط بمنتجات');
             }
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests\Admin\Variant;
 
 use App\Models\ProductVariant;
+use App\Rules\UniqueCatalogIdentifier;
 use Closure;
 use Illuminate\Validation\Rule;
 
@@ -14,10 +15,10 @@ class VariantRules
     /**
      * @return array<string, array<mixed>>
      */
-    public static function base(?int $ignoreId = null): array
+    public static function base(?int $ignoreId = null, string $prefix = ''): array
     {
         return [
-            'sku' => ['nullable', 'string', 'max:64', 'alpha_dash', Rule::unique('product_variants', 'sku')->ignore($ignoreId)],
+            'sku' => ['nullable', 'string', 'max:64', 'alpha_dash:ascii', new UniqueCatalogIdentifier('product_variants', 'sku', $ignoreId)],
             'barcode' => ['nullable', 'string', 'max:32', 'regex:/^[0-9A-Za-z\-]+$/', Rule::unique('product_variants', 'barcode')->ignore($ignoreId),
                 // صيغة 2 + 12 رقم محجوزة للباركود الداخلي اللي النظام بيولّده من id المتغير (M3)
                 function (string $attribute, mixed $value, Closure $fail) use ($ignoreId): void {
@@ -33,13 +34,13 @@ class VariantRules
             ],
             'color_name_ar' => ['nullable', 'string', 'max:50'],
             // اسم اللون الإنجليزي هو مفتاح منع التكرار، فبيبقى مطلوب لو أي بيانات لون تانية موجودة
-            'color_name_en' => ['nullable', 'string', 'max:50', 'required_with:color_name_ar,color_hex'],
+            'color_name_en' => ['nullable', 'string', 'max:50', 'required_with:'.$prefix.'color_name_ar,'.$prefix.'color_hex'],
             'color_hex' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
             'size' => ['nullable', 'string', 'max:50'],
             'capacity' => ['nullable', 'string', 'max:50'],
-            'cost_price' => ['nullable', 'numeric', 'min:0', 'max:9999999'],
-            'retail_price' => ['nullable', 'numeric', 'min:0', 'max:9999999'],
-            'wholesale_price' => ['nullable', 'numeric', 'min:0', 'max:9999999'],
+            'cost_price' => ['nullable', 'numeric', 'decimal:0,2', 'min:0', 'max:9999999'],
+            'retail_price' => ['nullable', 'numeric', 'decimal:0,2', 'min:0', 'max:9999999'],
+            'wholesale_price' => ['nullable', 'numeric', 'decimal:0,2', 'min:0', 'max:9999999'],
             'reorder_level' => ['nullable', 'integer', 'min:0', 'max:2147483647'],
             'weight_kg' => ['nullable', 'numeric', 'min:0', 'max:99999.999'],
             'sort_order' => ['nullable', 'integer', 'min:0', 'max:2147483647'],

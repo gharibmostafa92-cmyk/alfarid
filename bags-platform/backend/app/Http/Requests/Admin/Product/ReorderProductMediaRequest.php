@@ -4,11 +4,19 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Product;
 
+use App\Http\Requests\Admin\Concerns\LimitsArrayInput;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
 class ReorderProductMediaRequest extends FormRequest
 {
+    use LimitsArrayInput;
+
+    protected function arrayLimits(): array
+    {
+        return ['ids' => 200];
+    }
+
     public function authorize(): bool
     {
         return $this->user() !== null;

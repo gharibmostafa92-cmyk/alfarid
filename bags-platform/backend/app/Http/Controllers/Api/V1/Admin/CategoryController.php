@@ -12,7 +12,6 @@ use App\Http\Resources\Admin\CategoryResource;
 use App\Models\Category;
 use App\Services\Catalog\CategoryService;
 use App\Services\SearchTerm;
-use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -35,27 +34,24 @@ class CategoryController extends Controller implements HasMiddleware
 
     public function index(Request $request): AnonymousResourceCollection
     {
-        if ($request->boolean('tree')) {
-            return CategoryResource::collection($this->service->tree());
-        }
-
         $filters = $request->validate([
+            'tree' => ['nullable', 'boolean'],
             'search' => ['nullable', 'string', 'max:100'],
-            'parent_id' => ['nullable', function (string $attribute, mixed $value, Closure $fail): void {
-                if ($value !== 'root' && ! ctype_digit((string) $value)) {
-                    $fail('قيمة القسم الأب غير صحيحة');
-                }
-            }],
+            'parent_id' => ['nullable', 'string', 'regex:/^(root|[0-9]{1,18})$/'],
             'is_active' => ['nullable', 'boolean'],
             'per_page' => ['nullable', 'integer', 'min:1'],
         ]);
+
+        if ($request->boolean('tree')) {
+            return CategoryResource::collection($this->service->tree());
+        }
 
         $perPage = min((int) ($filters['per_page'] ?? 15), 100);
 
         $categories = Category::query()
             ->with(['parent.media', 'media'])
             ->withCount('products')
-            ->when(! empty($filters['search']), function ($query) use ($filters): void {
+            ->when(isset($filters['search']) && $filters['search'] !== '', function ($query) use ($filters): void {
                 $pattern = SearchTerm::pattern($filters['search']);
                 $query->where(fn ($q) => $q->whereLike('name_ar', $pattern, caseSensitive: false)
                     ->orWhereLike('name_en', $pattern, caseSensitive: false));
@@ -86,7 +82,7 @@ class CategoryController extends Controller implements HasMiddleware
     public function store(StoreCategoryRequest $request): JsonResponse
     {
         $category = $this->service->create($request->validated(), $request->file('image'));
-        $category->load('parent', 'media')->loadCount('products');
+        $category->load('parent.media', 'media')->loadCount('products');
 
         return CategoryResource::make($category)->response()->setStatusCode(201);
     }
@@ -95,7 +91,7 @@ class CategoryController extends Controller implements HasMiddleware
     public function update(UpdateCategoryRequest $request, Category $category): CategoryResource
     {
         $category = $this->service->update($category, $request->validated(), $request->file('image'));
-        $category->load('parent', 'media')->loadCount('products');
+        $category->load('parent.media', 'media')->loadCount('products');
 
         return CategoryResource::make($category);
     }

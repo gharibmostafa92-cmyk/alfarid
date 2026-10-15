@@ -4,10 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Catalog;
 
-use App\Enums\ProductStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Category;
-use App\Models\Product;
 use App\Services\SlugService;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
@@ -15,12 +13,9 @@ use Illuminate\Support\Facades\DB;
 
 class CategoryService
 {
-    /** مفتاح قفل استشاري واحد لكل تعديلات هيكل الشجرة، بيرتّبها ويمنع سباقات النقل المتزامن (H4). */
-    private const TREE_LOCK_KEY = 2026101501;
-
     public function create(array $data, ?UploadedFile $image): Category
     {
-        $category = DB::transaction(function () use ($data) {
+        $category = DB::transaction(function () use ($data, $image) {
             $this->lockTree();
 
             unset($data['image']);
@@ -37,13 +32,13 @@ class CategoryService
                 }
             }
 
-            return Category::create($data);
-        });
+            $category = Category::create($data);
+            if ($image) {
+                $category->addMedia($image)->toMediaCollection('image');
+            }
 
-        // عمليات الملفات بره الـ transaction: ملف اتمسح مبيترجعش مع الـ rollback
-        if ($image) {
-            $category->addMedia($image)->toMediaCollection('image');
-        }
+            return $category;
+        });
 
         return $category;
     }
@@ -52,60 +47,68 @@ class CategoryService
     {
         $removeImage = (bool) ($data['remove_image'] ?? false);
         unset($data['image'], $data['remove_image']);
-
-        DB::transaction(function () use ($category, $data): void {
-            $this->lockTree();
-            // قفل صف القسم نفسه بيسلسل التعطيل مع نشر منتجاته (changeStatus بيقفل صف القسم كمان)
-            Category::whereKey($category->id)->lockForUpdate()->first();
-
-            if (array_key_exists('parent_id', $data)) {
-                $newParentId = $data['parent_id'] === null ? null : (int) $data['parent_id'];
-                if ($newParentId !== $category->parent_id) {
-                    $this->assertValidParent($category, $newParentId);
-                }
-            }
-
-            // تعطيل قسم (أو شجرته الفرعية) فيها منتجات منشورة ممنوع: هتكسر قواعد نشرها (H1)
-            if (array_key_exists('is_active', $data) && ! $data['is_active'] && $category->is_active) {
-                $this->assertNoPublishedProducts($category);
-            }
-
-            if (array_key_exists('slug', $data) && empty($data['slug'])) {
-                $data['slug'] = SlugService::make(Category::class, $data['name_en'] ?? $category->name_en, $category->id);
-            }
-
-            foreach (['sort_order', 'is_active'] as $field) {
-                if (array_key_exists($field, $data) && $data[$field] === null) {
-                    unset($data[$field]);
-                }
-            }
-
-            $category->update($data);
-        });
-
-        // استبدال/مسح الصورة بعد نجاح حفظ البيانات، عشان فشل لاحق ميسيبش رابط مكسور
-        if ($removeImage) {
-            $category->clearMediaCollection('image');
+        if (isset($data['parent_id'])) {
+            $data['parent_id'] = (int) $data['parent_id'];
         }
 
-        if ($image) {
-            $category->addMedia($image)->toMediaCollection('image');
+        foreach (['sort_order', 'is_active'] as $field) {
+            if (array_key_exists($field, $data) && $data[$field] === null) {
+                unset($data[$field]);
+            }
         }
+        $apply = function (bool $exclusive) use ($category, $data, $image, $removeImage): ?Category {
+            return DB::transaction(function () use ($category, $data, $image, $removeImage, $exclusive) {
+                CatalogLock::tree(shared: ! $exclusive);
+                $category = Category::whereKey($category->id)->lockForUpdate()->firstOrFail();
+                $parentChanged = array_key_exists('parent_id', $data) && $data['parent_id'] !== $category->parent_id;
+                $activeChanged = isset($data['is_active']) && (bool) $data['is_active'] !== $category->is_active;
+                if (($parentChanged || $activeChanged) && ! $exclusive) {
+                    return null;
+                }
+                if ($parentChanged || $activeChanged) {
+                    $nodes = CategoryHierarchy::snapshot();
+                    $nodes[$category->id] = array_replace($nodes[$category->id], array_intersect_key($data, array_flip(['parent_id', 'is_active'])));
+                    CategoryHierarchy::assertValid($nodes);
+                    CategoryHierarchy::assertPublishedPathsActive($nodes);
+                }
+                if (array_key_exists('slug', $data) && empty($data['slug'])) {
+                    $data['slug'] = SlugService::make(Category::class, $data['name_en'] ?? $category->name_en, $category->id);
+                }
 
-        return $category;
+                foreach (['sort_order', 'is_active'] as $field) {
+                    if (array_key_exists($field, $data) && $data[$field] === null) {
+                        unset($data[$field]);
+                    }
+                }
+
+                $category->update($data);
+
+                if ($removeImage) {
+                    $category->clearMediaCollection('image');
+                }
+
+                if ($image) {
+                    $category->addMedia($image)->toMediaCollection('image');
+                }
+
+                return $category;
+            });
+        };
+
+        return $apply(false) ?? $apply(true);
     }
 
     public function delete(Category $category): void
     {
         DB::transaction(function () use ($category): void {
             $this->lockTree();
-            $locked = Category::whereKey($category->id)->lockForUpdate()->first() ?? $category;
+            $locked = Category::whereKey($category->id)->lockForUpdate()->firstOrFail();
 
-            if ($locked->children()->exists()) {
+            if ($locked->children()->withTrashed()->exists()) {
                 throw new BusinessException('لا يمكن حذف قسم يحتوي على أقسام فرعية');
             }
 
-            if ($locked->products()->exists()) {
+            if ($locked->products()->withTrashed()->exists()) {
                 throw new BusinessException('لا يمكن حذف قسم مرتبط بمنتجات');
             }
 
@@ -115,16 +118,43 @@ class CategoryService
 
     public function reorder(array $items): void
     {
-        DB::transaction(function () use ($items): void {
-            $this->lockTree();
+        // Retry with an exclusive tree lock only if the fresh snapshot contains a move.
+        // Never upgrade a shared advisory lock while retaining it.
+        $apply = function (bool $exclusive) use ($items): bool {
+            return DB::transaction(function () use ($items, $exclusive): bool {
+                CatalogLock::tree(shared: ! $exclusive);
+                $categories = Category::query()->get()->keyBy('id');
+                $nodes = $categories->toArray();
+                $moved = false;
+                foreach ($items as $item) {
+                    if (! array_key_exists('parent_id', $item)) {
+                        throw new BusinessException('يجب إرسال parent_id لكل عنصر في الترتيب');
+                    }
+                    $category = $categories->get($item['id']);
+                    if (! $category) {
+                        throw new BusinessException('القسم غير موجود', ['items' => ['أحد الأقسام لم يعد متاحًا']]);
+                    }
+                    $parentId = $item['parent_id'] === null ? null : (int) $item['parent_id'];
+                    $moved = $moved || $parentId !== $category->parent_id;
+                    $nodes[$category->id]['parent_id'] = $parentId;
+                }
+                if ($moved && ! $exclusive) {
+                    return false;
+                }
+                if ($moved) {
+                    CategoryHierarchy::assertValid($nodes);
+                    CategoryHierarchy::assertPublishedPathsActive($nodes);
+                }
+                foreach ($items as $item) {
+                    $categories->get($item['id'])->update(['parent_id' => $nodes[$item['id']]['parent_id'], 'sort_order' => $item['sort_order']]);
+                }
 
-            foreach ($items as $item) {
-                $category = Category::findOrFail($item['id']);
-                $parentId = isset($item['parent_id']) ? (int) $item['parent_id'] : null;
-                $this->assertValidParent($category, $parentId);
-                $category->update(['parent_id' => $parentId, 'sort_order' => $item['sort_order']]);
-            }
-        });
+                return true;
+            });
+        };
+        if (! $apply(false)) {
+            $apply(true);
+        }
     }
 
     public function tree(bool $onlyActive = false): Collection
@@ -146,55 +176,14 @@ class CategoryService
 
     public function assertValidParent(Category $category, ?int $parentId): void
     {
-        if ($parentId === null) {
-            return;
-        }
-
-        if ($parentId === $category->id) {
-            throw new BusinessException('لا يمكن أن يكون القسم أبًا لنفسه');
-        }
-
-        if (in_array($parentId, $category->descendantIds(), true)) {
-            throw new BusinessException('لا يمكن نقل القسم إلى أحد أقسامه الفرعية');
-        }
-
-        $parent = Category::findOrFail($parentId);
-
-        if ($parent->depth() + $this->subtreeHeight($category) > 3) {
-            throw new BusinessException('أقصى عمق للأقسام 3 مستويات');
-        }
-    }
-
-    private function assertNoPublishedProducts(Category $category): void
-    {
-        $ids = array_merge([$category->id], $category->descendantIds());
-        $hasPublished = Product::whereIn('category_id', $ids)
-            ->where('status', ProductStatus::Published)
-            ->exists();
-        if ($hasPublished) {
-            throw new BusinessException('لا يمكن تعطيل قسم يحتوي على منتجات منشورة');
-        }
+        $nodes = CategoryHierarchy::snapshot();
+        $nodes[$category->id]['parent_id'] = $parentId;
+        CategoryHierarchy::assertValid($nodes);
+        CategoryHierarchy::assertPublishedPathsActive($nodes);
     }
 
     private function lockTree(): void
     {
-        if (DB::connection()->getDriverName() === 'pgsql') {
-            DB::statement('SELECT pg_advisory_xact_lock(?)', [self::TREE_LOCK_KEY]);
-        }
-    }
-
-    private function subtreeHeight(Category $category, int $guard = 0): int
-    {
-        // أقصى عمق مشروع 3؛ أي تجاوز كبير معناه بيانات فاسدة (دورة) فنوقف بدل ما نلف للأبد
-        if ($guard > 10) {
-            throw new \RuntimeException('توجد دورة في شجرة الأقسام');
-        }
-
-        $height = 1;
-        foreach ($category->children as $child) {
-            $height = max($height, 1 + $this->subtreeHeight($child, $guard + 1));
-        }
-
-        return $height;
+        CatalogLock::tree();
     }
 }

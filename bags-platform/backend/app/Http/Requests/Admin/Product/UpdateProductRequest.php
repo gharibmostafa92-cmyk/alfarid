@@ -6,12 +6,22 @@ namespace App\Http\Requests\Admin\Product;
 
 use App\Enums\ProductStatus;
 use App\Enums\SalesChannel;
+use App\Http\Requests\Admin\Concerns\NormalizesCatalogInput;
+use App\Rules\UniqueCatalogIdentifier;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 class UpdateProductRequest extends FormRequest
 {
+    use NormalizesCatalogInput;
+
+    protected function prepareForValidation(): void
+    {
+        parent::prepareForValidation();
+        $this->normalizeCatalogIdentifiers();
+    }
+
     public function authorize(): bool
     {
         return $this->user() !== null;
@@ -28,7 +38,7 @@ class UpdateProductRequest extends FormRequest
             'supplier_id' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'name_ar' => ['sometimes', 'required', 'string', 'max:255'],
             'name_en' => ['sometimes', 'required', 'string', 'max:255'],
-            'slug' => ['sometimes', 'nullable', 'alpha_dash', 'max:255', Rule::unique('products', 'slug')->ignore($this->route('product'))],
+            'slug' => ['sometimes', 'nullable', 'alpha_dash:ascii', 'max:255', new UniqueCatalogIdentifier('products', 'slug', $this->route('product')->id)],
             'description_ar' => ['sometimes', 'nullable', 'string'],
             'description_en' => ['sometimes', 'nullable', 'string'],
             'material_ar' => ['sometimes', 'nullable', 'string', 'max:150'],

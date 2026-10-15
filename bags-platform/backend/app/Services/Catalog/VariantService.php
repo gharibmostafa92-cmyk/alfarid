@@ -20,7 +20,7 @@ class VariantService
         $data = array_filter($data, fn ($value) => $value !== null);
 
         return DB::transaction(function () use ($product, $data) {
-            $locked = Product::whereKey($product->id)->lockForUpdate()->first(); // منع تكرار الترقيم
+            $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail(); // منع تكرار الترقيم
             $this->assertUniqueCombination($product, $data);
 
             if (empty($data['sku'])) {
@@ -39,7 +39,7 @@ class VariantService
             }
 
             // متغير جديد على منتج منشور لازم ميكسرش قواعد النشر، وإلا التعديل كله يتلغي
-            if (($locked ?? $product)->status === ProductStatus::Published) {
+            if ($product->status === ProductStatus::Published) {
                 $this->publishability->assertPublishable($product);
             }
 
@@ -57,10 +57,14 @@ class VariantService
 
         return DB::transaction(function () use ($variant, $data) {
             $product = Product::whereKey($variant->product_id)->lockForUpdate()->firstOrFail();
+            $variant = $product->variants()->whereKey($variant->id)->firstOrFail();
             $this->assertUniqueCombination($product, array_merge($variant->only(['color_name_en', 'size', 'capacity']), $data), $variant->id);
 
             if (array_key_exists('is_active', $data) && ! $data['is_active']) {
                 $this->assertNotLastActiveOfPublished($variant);
+            }
+            if (array_key_exists('barcode', $data) && blank($data['barcode'])) {
+                $data['barcode'] = BarcodeGenerator::fromId($variant->id);
             }
             $variant->update($data);
 
@@ -69,7 +73,7 @@ class VariantService
                 $this->publishability->assertPublishable($product);
             }
 
-            return $variant->fresh('media');
+            return $variant->fresh(['media', 'product']);
         });
     }
 
@@ -77,6 +81,7 @@ class VariantService
     {
         DB::transaction(function () use ($variant): void {
             $product = Product::whereKey($variant->product_id)->lockForUpdate()->firstOrFail();
+            $variant = $product->variants()->whereKey($variant->id)->firstOrFail();
             $this->assertNotLastActiveOfPublished($variant);
             $variant->delete();
 

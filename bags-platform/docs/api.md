@@ -5,15 +5,15 @@
 - `GET /categories` — list with pagination (`per_page`, default 15, max 100), filters: `search`, `parent_id` (`root` for top-level), `is_active`. Use `?tree=1` for the full nested tree without pagination.
 - `GET /categories/{id}` — single category with parent, children and products count.
 - `POST /categories` — create (201). `slug` is generated automatically from `name_en` when omitted.
-- `PUT /categories/reorder` — body: `items: [{id, parent_id, sort_order}]`.
-- `DELETE /categories/{id}` — fails with 422 when the category has children or linked products.
+- `PUT /categories/reorder` — body: `items: [{id, parent_id, sort_order}]`. Every item must explicitly include `parent_id`; use `null` for a root. The final tree is validated atomically, regardless of item order.
+- `DELETE /categories/{id}` — fails with 422 when the category has children or linked products, including soft-deleted references.
 - Maximum category depth is 3 levels; violations return 422.
 
 ## Admin Brands (`/api/v1/admin/brands`)
 
 - Same pattern as categories, without parent/tree/reorder. Logo is uploaded in the `logo` field
-  (jpg, jpeg, png, webp, **svg** allowed) and returned as `logo_url`.
-- Deleting a brand linked to products fails with 422.
+  (jpg, jpeg, png, webp; SVG is rejected) and returned as `logo_url`.
+- Deleting a brand linked to products (including soft-deleted products) fails with 422.
 
 ## Admin Products (`/api/v1/admin/products`)
 
@@ -21,13 +21,14 @@
   (add `include_children=1` to include subcategories), `brand_id`, `status`, `sales_channel`,
   `is_featured`; `sort`: `latest` (default), `oldest`, `name`. Response includes
   `variants_count`, `min_retail_price`, `max_retail_price`.
-- `POST /products` — creates the product as `draft` first and auto-assigns `code` (`P00001`…).
+- `POST /products` — creates a `draft` and auto-assigns `code` (`P00001`…). If supplied, `status` must be `draft`; upload media after creation and then publish via update.
   Optional `variants: [...]` can be sent with creation; a variant without `barcode` gets an
   internal EAN-13 barcode (prefix `2`), and without `sku` gets `{product_code}-{n}`.
 - Publishing (`status: published`) requires the `products.publish` permission and a publishable
   product: at least one active variant, retail/wholesale prices on all active variants according
-  to `sales_channel`, at least one image, and an active category. Violations return 422 with
+  to `sales_channel`, at least one image, and an active category with active ancestors. Violations return 422 with
   `errors.status` listing every problem; missing publish permission returns 403.
+- Moving into or out of `published` requires `products.publish`, including unpublishing and archiving a published product.
 - `cost_price` is only visible to users with the `products.view_cost` permission.
 - `DELETE /products/{id}` — soft-deletes the product and its variants.
 - `supplier_id` is accepted as a positive integer but is **not** checked against any table yet —
@@ -36,7 +37,9 @@
 - List filters are validated: a malformed or unknown filter value (e.g. `category_id=abc` or a
   non-existent category) returns 422, and non-numeric ids in paths return 404. Search is
   case-insensitive and treats `%`/`_` literally.
-- Media files are served under UUID paths (`/storage/{uuid}/...`), not sequential media ids.
+- New media files use UUID paths (`/storage/{uuid}/...`). Existing files at numeric paths
+  remain readable and deletable without moving files. These are public URLs; UUIDs do not
+  provide authorization for private assets.
 
 ## Product Variants (`/api/v1/admin/products/{product}/variants`)
 
@@ -48,6 +51,14 @@
   an internal EAN-13 barcode (prefix `2`).
 - The last active variant of a published product cannot be deleted or deactivated (422).
 - Sending `cost_price` without the `products.view_cost` permission is silently ignored on write.
+  This also applies to nested variants when creating a product.
+- Manual barcodes matching `2` followed by 12 digits are reserved for system generation.
+  Updating a variant may resend its own current generated barcode.
+- Prices accept at most two decimal places; excess precision returns 422. Empty barcode on update regenerates the internal barcode.
+- Slugs use lowercase ASCII, and SKUs use uppercase ASCII. Uniqueness also checks legacy mixed-case values and soft-deleted records.
+- Color combinations compare English color name, size and capacity without case sensitivity.
+  English color name is required when Arabic color name or hex is supplied. Partial updates
+  can retain the existing English name, but cannot clear it while other color details remain.
 
 ## Product Media (`/api/v1/admin/products/{product}/media`)
 
@@ -56,8 +67,18 @@
 - `POST` with `collection=images` + `files[]` (max 10, jpg/png/webp, 5MB each), optionally with
   `variant_id` to attach the images to a variant instead. With `collection=video` + `file`
   (mp4/webm/quicktime, 50MB) — video is product-only; sending it with `variant_id` returns 422.
-- `PUT /media/reorder` with `ids: [...]` in the desired order.
+- `PUT /media/reorder` with `ids: [...]` in the desired order. Media of soft-deleted variants is excluded from listing, reorder, and delete.
 - `DELETE /media/{media}` — the last image of a published product cannot be deleted (422).
+- Originals and conversions from failed uploads are removed on rollback. Replacing or deleting
+  existing media removes its files only after the database transaction commits.
+- Images have a maximum width and height of 6000 pixels. Batch limits: 100 nested variants,
+  500 category reorder items, 200 media reorder ids, and 10 uploaded images. Oversized batches
+  are rejected before per-item validation queries. Reorder ids must be distinct.
+- Published product edits and variant mutations recheck publishability inside a product lock.
+  To remove a required price, change the product to draft first. Category deactivation is
+  rejected while that category or a descendant contains published products.
+- Invalid pagination (`per_page < 1`) returns 422; values above 100 are capped at 100.
+  Catalog path ids accept 1–18 digits; malformed or oversized path ids return 404.
 
 ### Updating with a file upload (important)
 
@@ -66,3 +87,7 @@ Therefore, to update a category (or any resource) **with an image**, the fronten
 `POST` request to `/categories/{id}` with `_method=PUT` included in the form body.
 Laravel converts it to a `PUT` request automatically (method spoofing), and validation,
 authorization and file handling then work as expected.
+
+### Existing media layout maintenance
+
+Run php artisan media:backfill-path-layouts once for existing uploads. It persists numeric/UUID layout markers without moving or deleting files, so future URL generation does not probe remote storage. The command is idempotent.

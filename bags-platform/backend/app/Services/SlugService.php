@@ -10,28 +10,30 @@ class SlugService
 {
     public static function make(string $modelClass, string $source, ?int $ignoreId = null): string
     {
-        $base = Str::slug($source) ?: Str::random(8);
+        $base = Str::slug($source) ?: strtolower(Str::random(8));
         // قص القاعدة لـ 240 حرف عشان اللاحقة الرقمية متعديش عمود varchar(255) وترجع 500
         $base = rtrim(Str::substr($base, 0, 240), '-');
 
-        // استعلام واحد بيجيب الـ slug نفسه وأي لاحقات موجودة، وينبني منه أول لاحقة متاحة فوق أعلى لاحقة
+        // استعلام واحد لكل اللاحقات، ثم اختيار أول لاحقة متاحة في الذاكرة.
         $like = strtr($base, ['\\' => '\\\\', '%' => '\\%', '_' => '\\_']).'-%';
-        $existing = $modelClass::withTrashed()
-            ->where(fn ($q) => $q->where('slug', $base)->orWhere('slug', 'like', $like))
+        $query = $modelClass::withTrashed();
+        $existing = $query
+            ->when($query->getModel()->getConnection()->getDriverName() === 'pgsql',
+                fn ($q) => $q->whereRaw('slug ~* ?', ['^'.preg_quote($base).'(-[0-9]+)?$']),
+                fn ($q) => $q->where(fn ($where) => $where->whereLike('slug', $base)->orWhereLike('slug', $like)))
             ->when($ignoreId, fn ($q) => $q->where('id', '!=', $ignoreId))
-            ->pluck('slug');
+            ->pluck('slug')->map(fn ($slug) => strtolower($slug));
 
         if (! $existing->contains($base)) {
             return $base;
         }
 
-        $max = 1;
-        foreach ($existing as $slug) {
-            if (preg_match('/^'.preg_quote($base, '/').'-(\d+)$/', (string) $slug, $m)) {
-                $max = max($max, (int) $m[1]);
-            }
+        $taken = array_fill_keys($existing->all(), true);
+        $suffix = 2;
+        while (isset($taken[$base.'-'.$suffix])) {
+            $suffix++;
         }
 
-        return $base.'-'.($max + 1);
+        return $base.'-'.$suffix;
     }
 }

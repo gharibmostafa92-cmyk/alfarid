@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Exceptions\BusinessException;
 use App\Models\Setting;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -102,8 +103,8 @@ class SettingService
                 /** @var Setting $setting */
                 $setting = $lockedSettings->get($key);
 
-                if (in_array($key, self::NUMBERING_COUNTER_KEYS, true) && is_numeric($value)) {
-                    $value = max((int) $setting->value, (int) $value);
+                if (in_array($key, self::NUMBERING_COUNTER_KEYS, true)) {
+                    $value = max($this->counterValue($setting->value), $this->counterValue($value));
                 }
 
                 $setting->value = $value === null && str_ends_with($key, '_prefix')
@@ -157,7 +158,7 @@ class SettingService
 
             $prefix = (string) $settings->get($definition['prefix'])->value;
             $nextSetting = $settings->get($definition['next']);
-            $nextValue = (int) $nextSetting->value;
+            $nextValue = $this->counterValue($nextSetting->value);
             $padding = max(0, (int) $settings->get($definition['padding'])->value);
 
             $formatted = $prefix.str_pad((string) $nextValue, $padding, '0', STR_PAD_LEFT);
@@ -171,6 +172,18 @@ class SettingService
     public function clearCache(): void
     {
         Cache::forget(self::CACHE_KEY);
+    }
+
+    private function counterValue(mixed $value): int
+    {
+        $number = (is_int($value) || is_string($value))
+            ? filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => PHP_INT_MAX - 1]])
+            : false;
+        if ($number === false) {
+            throw new BusinessException('قيمة عداد الترقيم يجب أن تكون عددًا صحيحًا موجبًا ضمن النطاق المسموح');
+        }
+
+        return $number;
     }
 
     private function castValue(?string $value, string $type): mixed

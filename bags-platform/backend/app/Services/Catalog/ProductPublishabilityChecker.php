@@ -33,8 +33,8 @@ class ProductPublishabilityChecker
         if ($product->getMedia('images')->isEmpty()) {
             $errors[] = 'يجب رفع صورة واحدة على الأقل';
         }
-        if (! $product->category?->is_active) {
-            $errors[] = 'القسم غير نشط';
+        if (! CategoryHierarchy::activePath($product->category)) {
+            $errors[] = 'القسم أو أحد أقسامه الأب غير نشط';
         }
 
         if ($errors) {

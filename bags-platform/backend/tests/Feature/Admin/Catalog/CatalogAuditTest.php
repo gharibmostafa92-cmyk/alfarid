@@ -166,10 +166,10 @@ class CatalogAuditTest extends TestCase
         $this->assertSame($root->id, $child->fresh()->parent_id);
     }
 
-    public function test_brand_supports_svg_and_rejects_deletion_with_products(): void
+    public function test_brand_supports_raster_logo_and_rejects_deletion_with_products(): void
     {
         $this->signIn(['brands.create', 'brands.delete']);
-        $logo = UploadedFile::fake()->createWithContent('logo.svg', '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>');
+        $logo = UploadedFile::fake()->image('logo.png');
         $response = $this->post('/api/v1/admin/brands', ['name_ar' => 'براند', 'name_en' => 'Brand', 'logo' => $logo])->assertCreated();
         $this->assertNotEmpty($response->json('data.logo_url'));
         $brandId = $response->json('data.id');
@@ -248,11 +248,11 @@ class CatalogAuditTest extends TestCase
         $this->assertSoftDeleted('product_variants', ['id' => $variant->id]);
     }
 
-    public function test_non_positive_pagination_is_clamped(): void
+    public function test_non_positive_pagination_is_rejected_and_upper_limit_is_clamped(): void
     {
         $this->signIn(['categories.view', 'brands.view', 'products.view']);
         foreach (['categories', 'brands', 'products'] as $resource) {
-            $this->getJson("/api/v1/admin/{$resource}?per_page=-1")->assertOk()->assertJsonPath('meta.per_page', 1);
+            $this->getJson("/api/v1/admin/{$resource}?per_page=-1")->assertUnprocessable()->assertJsonValidationErrors('per_page');
             $this->getJson("/api/v1/admin/{$resource}?per_page=101")->assertOk()->assertJsonPath('meta.per_page', 100);
         }
     }

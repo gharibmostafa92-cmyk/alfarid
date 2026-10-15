@@ -1,5 +1,5 @@
 This file is a merged representation of a subset of the codebase, containing specifically included files, combined into a single document by Repomix.
-The content has been processed where line numbers have been added, content has been formatted for parsing in markdown style.
+The content has been processed where line numbers have been added.
 
 # File Summary
 
@@ -25,19 +25,16 @@ The content is organized as follows:
   between different files in the repository.
 - Be aware that this file may contain sensitive information. Handle it with
   the same level of security as you would the original repository.
-- Pay special attention to the Repository Description. These contain important context and guidelines specific to this project.
+
 - Pay special attention to the Repository Instruction. These contain important context and guidelines specific to this project.
 
 ## Notes
 - Some files may have been excluded based on .gitignore rules and Repomix's configuration
 - Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
-- Only files matching these patterns are included: bags-platform/backend/app/Enums/*.php, bags-platform/backend/app/Exceptions/BusinessException.php, bags-platform/backend/app/Services/Catalog/**/*.php, bags-platform/backend/app/Services/SlugService.php, bags-platform/backend/app/Services/BarcodeGenerator.php, bags-platform/backend/app/Services/SettingService.php, bags-platform/backend/app/Models/*.php, bags-platform/backend/app/Http/Requests/Admin/**/*.php, bags-platform/backend/app/Http/Resources/Admin/*.php, bags-platform/backend/app/Http/Resources/MediaResource.php, bags-platform/backend/app/Http/Controllers/Api/V1/Admin/BrandController.php, bags-platform/backend/app/Http/Controllers/Api/V1/Admin/CategoryController.php, bags-platform/backend/app/Http/Controllers/Api/V1/Admin/ProductController.php, bags-platform/backend/app/Http/Controllers/Api/V1/Admin/ProductVariantController.php, bags-platform/backend/app/Http/Controllers/Api/V1/Admin/ProductMediaController.php, bags-platform/backend/app/Http/Controllers/Controller.php, bags-platform/backend/app/Http/Middleware/*.php, bags-platform/backend/app/Providers/AppServiceProvider.php, bags-platform/backend/app/Modules/Catalog/**/*.php, bags-platform/backend/app/Modules/Products/**/*.php, bags-platform/backend/database/migrations/*.php, bags-platform/backend/database/factories/*.php, bags-platform/backend/database/seeders/*.php, bags-platform/backend/routes/api/admin.php, bags-platform/backend/bootstrap/app.php, bags-platform/backend/bootstrap/providers.php, bags-platform/backend/config/app.php, bags-platform/backend/config/auth.php, bags-platform/backend/config/permission.php, bags-platform/backend/config/sanctum.php, bags-platform/backend/config/media-library.php, bags-platform/backend/config/filesystems.php, bags-platform/backend/config/database.php, bags-platform/backend/config/cache.php, bags-platform/backend/config/queue.php, bags-platform/backend/composer.json, bags-platform/backend/composer.lock, bags-platform/backend/.env.example, bags-platform/backend/phpunit.xml, bags-platform/backend/tests/TestCase.php, bags-platform/backend/tests/Feature/Admin/Catalog/*.php, bags-platform/backend/tests/Feature/DatabaseSeederTest.php, bags-platform/backend/tests/Feature/DatabaseIndexTest.php, bags-platform/backend/tests/Feature/AdminRouteAggregationTest.php, bags-platform/docs/api.md, bags-platform/docs/phase2-audit.md
+- Only files matching these patterns are included: bags-platform/backend/app/Services/**, bags-platform/backend/app/Models/**, bags-platform/backend/app/Enums/**, bags-platform/backend/app/Exceptions/**, bags-platform/backend/app/Http/Requests/Admin/**, bags-platform/backend/app/Http/Resources/Admin/**, bags-platform/backend/app/Http/Resources/MediaResource.php, bags-platform/backend/app/Http/Controllers/Api/V1/Admin/{Category,Brand,Product,ProductVariant,ProductMedia}Controller.php, bags-platform/backend/database/**, bags-platform/backend/routes/api/admin.php, bags-platform/backend/bootstrap/*.php, bags-platform/backend/config/**, bags-platform/backend/tests/Feature/Admin/Catalog/**, bags-platform/backend/tests/TestCase.php, bags-platform/backend/composer.*, bags-platform/backend/phpunit.xml, bags-platform/backend/.env.example, bags-platform/docs/**
 - Files matching patterns in .gitignore are excluded
 - Line numbers have been added to the beginning of each line
-- Content has been formatted for parsing in markdown style
-
-# User Provided Header
-Phase 2 Catalog bundle: current implementation after fixes, complete dependency manifests including composer.lock, tests, supporting database/authentication configuration, API documentation and audit report. The original phase 2 plan is embedded in the Instructions section. Source code is full and uncompressed, with line numbers. Framework remains the existing Laravel 13. Actual .env files, vendor, node_modules, storage and previous bundles are excluded.
+- Files are sorted by Git change count (files with more changes are at the bottom)
 
 # Directory Structure
 ```
@@ -64,12 +61,6 @@ bags-platform/
                 ProductController.php
                 ProductMediaController.php
                 ProductVariantController.php
-          Controller.php
-        Middleware/
-          EnsureCustomerAuthenticated.php
-          EnsureStaffAuthenticated.php
-          EnsureSupplierAuthenticated.php
-          EnsureWholesaleApproved.php
         Requests/
           Admin/
             Brand/
@@ -79,6 +70,8 @@ bags-platform/
               ReorderCategoriesRequest.php
               StoreCategoryRequest.php
               UpdateCategoryRequest.php
+            Concerns/
+              LimitsArrayInput.php
             Product/
               ReorderProductMediaRequest.php
               StoreProductRequest.php
@@ -106,27 +99,20 @@ bags-platform/
         Setting.php
         SupplierUser.php
         User.php
-      Modules/
-        Catalog/
-          Routes/
-            api.php
-            web.php
-          CatalogServiceProvider.php
-        Products/
-          Routes/
-            api.php
-            web.php
-          ProductsServiceProvider.php
-      Providers/
-        AppServiceProvider.php
       Services/
         Catalog/
           BrandService.php
+          CatalogLock.php
           CategoryService.php
           ProductMediaService.php
+          ProductPublishabilityChecker.php
           ProductService.php
           VariantService.php
+        Media/
+          TransactionalMediaObserver.php
+          UuidPathGenerator.php
         BarcodeGenerator.php
+        SearchTerm.php
         SettingService.php
         SlugService.php
     bootstrap/
@@ -138,12 +124,18 @@ bags-platform/
       cache.php
       database.php
       filesystems.php
+      logging.php
+      mail.php
       media-library.php
       permission.php
       queue.php
       sanctum.php
+      services.php
+      session.php
     database/
       factories/
+        Modules/
+          .gitkeep
         BranchFactory.php
         BrandFactory.php
         CategoryFactory.php
@@ -170,7 +162,10 @@ bags-platform/
         2026_10_15_140045_create_categories_table.php
         2026_10_15_140046_create_products_table.php
         2026_10_15_140047_create_product_variants_table.php
+        2026_10_15_150000_add_catalog_lookup_indexes.php
       seeders/
+        Modules/
+          .gitkeep
         BranchSeeder.php
         CatalogPermissionSeeder.php
         CatalogSeeder.php
@@ -178,6 +173,7 @@ bags-platform/
         LocationSeeder.php
         RolePermissionSeeder.php
         SettingSeeder.php
+      .gitignore
     routes/
       api/
         admin.php
@@ -186,24 +182,616 @@ bags-platform/
         Admin/
           Catalog/
             CatalogAuditTest.php
+            CatalogConcurrencyTest.php
+            CatalogHardeningTest.php
+            CatalogImprovementReviewTest.php
+            CatalogRobustnessTest.php
             CategoryCatalogTest.php
             ProductCatalogTest.php
             ProductMediaCatalogTest.php
             VariantCatalogTest.php
-        AdminRouteAggregationTest.php
-        DatabaseIndexTest.php
-        DatabaseSeederTest.php
       TestCase.php
     .env.example
     composer.json
     composer.lock
     phpunit.xml
   docs/
+    .gitkeep
     api.md
+    catalog-improvements-review.md
     phase2-audit.md
 ```
 
 # Files
+
+## File: bags-platform/backend/app/Http/Requests/Admin/Concerns/LimitsArrayInput.php
+```php
+ 1: <?php
+ 2: 
+ 3: declare(strict_types=1);
+ 4: 
+ 5: namespace App\Http\Requests\Admin\Concerns;
+ 6: 
+ 7: use Illuminate\Validation\ValidationException;
+ 8: 
+ 9: trait LimitsArrayInput
+10: {
+11:     protected function prepareForValidation(): void
+12:     {
+13:         parent::prepareForValidation();
+14: 
+15:         // Reject before Laravel expands wildcard rules and runs per-item queries.
+16:         foreach ($this->arrayLimits() as $field => $limit) {
+17:             $value = $this->input($field) ?? $this->file($field);
+18:             if (is_array($value) && count($value) > $limit) {
+19:                 throw ValidationException::withMessages([$field => "الحد الأقصى لعدد العناصر هو {$limit}"]);
+20:             }
+21:         }
+22:     }
+23: 
+24:     abstract protected function arrayLimits(): array;
+25: }
+```
+
+## File: bags-platform/backend/app/Services/Catalog/CatalogLock.php
+```php
+ 1: <?php
+ 2: 
+ 3: declare(strict_types=1);
+ 4: 
+ 5: namespace App\Services\Catalog;
+ 6: 
+ 7: use Illuminate\Support\Facades\DB;
+ 8: 
+ 9: class CatalogLock
+10: {
+11:     public static function tree(bool $shared = false): void
+12:     {
+13:         if (DB::connection()->getDriverName() === 'pgsql') {
+14:             $function = $shared ? 'pg_advisory_xact_lock_shared' : 'pg_advisory_xact_lock';
+15:             DB::select("SELECT {$function}(?)", [2026101501]);
+16:         }
+17:     }
+18: }
+```
+
+## File: bags-platform/backend/app/Services/Media/TransactionalMediaObserver.php
+```php
+ 1: <?php
+ 2: 
+ 3: declare(strict_types=1);
+ 4: 
+ 5: namespace App\Services\Media;
+ 6: 
+ 7: use Spatie\MediaLibrary\MediaCollections\Filesystem;
+ 8: use Spatie\MediaLibrary\MediaCollections\Models\Media;
+ 9: use Spatie\MediaLibrary\MediaCollections\Models\Observers\MediaObserver;
+10: 
+11: class TransactionalMediaObserver extends MediaObserver
+12: {
+13:     public function creating(Media $media): void
+14:     {
+15:         parent::creating($media);
+16:         $media->setCustomProperty('path_layout', 'uuid');
+17:     }
+18: 
+19:     public function created(Media $media): void
+20:     {
+21:         if ($media->getConnection()->transactionLevel() > 0) {
+22:             $media->getConnection()->afterRollBack(fn () => app(Filesystem::class)->removeAllFiles($media));
+23:         }
+24:     }
+25: 
+26:     public function deleted(Media $media): void
+27:     {
+28:         // Resolve legacy paths while the original file still exists.
+29:         $copy = clone $media;
+30:         $path = app(UuidPathGenerator::class)->getPath($copy);
+31:         $copy->setCustomProperty('path_layout', $path === $copy->id.'/' ? 'id' : 'uuid');
+32:         $media->getConnection()->afterCommit(fn () => parent::deleted($copy));
+33:     }
+34: }
+```
+
+## File: bags-platform/backend/tests/Feature/Admin/Catalog/CatalogConcurrencyTest.php
+```php
+  1: <?php
+  2: 
+  3: declare(strict_types=1);
+  4: 
+  5: namespace Tests\Feature\Admin\Catalog;
+  6: 
+  7: use App\Enums\ProductStatus;
+  8: use App\Models\Category;
+  9: use App\Models\Product;
+ 10: use App\Models\ProductVariant;
+ 11: use App\Models\User;
+ 12: use Illuminate\Foundation\Testing\DatabaseMigrations;
+ 13: use Illuminate\Http\UploadedFile;
+ 14: use Illuminate\Support\Facades\Storage;
+ 15: use Spatie\Permission\Models\Permission;
+ 16: use Symfony\Component\Process\Process;
+ 17: use Tests\TestCase;
+ 18: 
+ 19: class CatalogConcurrencyTest extends TestCase
+ 20: {
+ 21:     use DatabaseMigrations;
+ 22: 
+ 23:     protected function setUp(): void
+ 24:     {
+ 25:         parent::setUp();
+ 26:         Storage::fake('public');
+ 27:     }
+ 28: 
+ 29:     public function test_concurrent_deletes_cannot_remove_both_remaining_active_variants(): void
+ 30:     {
+ 31:         $product = $this->completeProduct();
+ 32:         $first = $product->variants()->firstOrFail();
+ 33:         $second = ProductVariant::factory()->create(['product_id' => $product->id, 'retail_price' => 100, 'wholesale_price' => 80]);
+ 34:         $this->race([
+ 35:             ['$variant = App\Models\ProductVariant::findOrFail('.$first->id.'); $variant->load("product");', 'app(App\Services\Catalog\VariantService::class)->delete($variant);'],
+ 36:             ['$variant = App\Models\ProductVariant::findOrFail('.$second->id.'); $variant->load("product");', 'app(App\Services\Catalog\VariantService::class)->delete($variant);'],
+ 37:         ]);
+ 38:         $this->assertSame(1, $product->variants()->where('is_active', true)->count());
+ 39:     }
+ 40: 
+ 41:     public function test_concurrent_deletes_cannot_remove_both_remaining_product_images(): void
+ 42:     {
+ 43:         $product = $this->completeProduct();
+ 44:         $first = $product->getFirstMedia('images');
+ 45:         $second = $product->addMedia(UploadedFile::fake()->image('second.jpg'))->toMediaCollection('images');
+ 46:         $setup = '$product = App\Models\Product::findOrFail('.$product->id.'); $product->load("media"); ';
+ 47:         $this->race([
+ 48:             [$setup.'$media = Spatie\MediaLibrary\MediaCollections\Models\Media::findOrFail('.$first->id.');', 'app(App\Services\Catalog\ProductMediaService::class)->delete($product, $media);'],
+ 49:             [$setup.'$media = Spatie\MediaLibrary\MediaCollections\Models\Media::findOrFail('.$second->id.');', 'app(App\Services\Catalog\ProductMediaService::class)->delete($product, $media);'],
+ 50:         ]);
+ 51:         $remaining = $product->fresh()->getMedia('images');
+ 52:         $this->assertCount(1, $remaining);
+ 53:         Storage::disk('public')->assertExists($remaining->first()->getPathRelativeToRoot());
+ 54:     }
+ 55: 
+ 56:     public function test_concurrent_opposite_reparents_cannot_create_a_cycle(): void
+ 57:     {
+ 58:         $a = Category::factory()->create();
+ 59:         $b = Category::factory()->create();
+ 60:         $this->race([
+ 61:             ['$category = App\Models\Category::findOrFail('.$a->id.');', 'app(App\Services\Catalog\CategoryService::class)->update($category, ["parent_id" => '.$b->id.'], null);'],
+ 62:             ['$category = App\Models\Category::findOrFail('.$b->id.');', 'app(App\Services\Catalog\CategoryService::class)->update($category, ["parent_id" => '.$a->id.'], null);'],
+ 63:         ]);
+ 64:         $this->assertEqualsCanonicalizing([1, 2], [$a->fresh()->depth(), $b->fresh()->depth()]);
+ 65:     }
+ 66: 
+ 67:     public function test_publication_and_category_deactivation_are_serialized(): void
+ 68:     {
+ 69:         $product = $this->completeProduct();
+ 70:         $product->update(['status' => ProductStatus::Draft, 'published_at' => null]);
+ 71:         Permission::findOrCreate('products.publish', 'staff');
+ 72:         $staff = User::factory()->create();
+ 73:         $staff->givePermissionTo('products.publish');
+ 74:         $this->race([
+ 75:             ['$product = App\Models\Product::findOrFail('.$product->id.'); $user = App\Models\User::findOrFail('.$staff->id.');', 'app(App\Services\Catalog\ProductService::class)->changeStatus($product, App\Enums\ProductStatus::Published, $user);'],
+ 76:             ['$category = App\Models\Category::findOrFail('.$product->category_id.');', 'app(App\Services\Catalog\CategoryService::class)->update($category, ["is_active" => false], null);'],
+ 77:         ]);
+ 78:         $product->refresh();
+ 79:         $this->assertSame($product->status === ProductStatus::Published, $product->category->is_active);
+ 80:     }
+ 81: 
+ 82:     private function completeProduct(): Product
+ 83:     {
+ 84:         $product = Product::factory()->published()->create();
+ 85:         ProductVariant::factory()->create(['product_id' => $product->id, 'retail_price' => 100, 'wholesale_price' => 80]);
+ 86:         $product->addMedia(UploadedFile::fake()->image('first.jpg'))->toMediaCollection('images');
+ 87: 
+ 88:         return $product;
+ 89:     }
+ 90: 
+ 91:     /** Both processes read their models before either starts the mutation. */
+ 92:     private function race(array $jobs): void
+ 93:     {
+ 94:         $this->assertSame('pgsql', config('database.default'));
+ 95:         $barrier = tempnam(sys_get_temp_dir(), 'catalog-race-');
+ 96:         unlink($barrier);
+ 97:         $db = config('database.connections.pgsql');
+ 98:         $environment = [
+ 99:             'APP_ENV' => 'testing', 'DB_CONNECTION' => 'pgsql', 'DB_DATABASE' => $db['database'],
+100:             'DB_HOST' => $db['host'], 'DB_PORT' => (string) $db['port'], 'DB_USERNAME' => $db['username'],
+101:             'DB_PASSWORD' => $db['password'], 'DB_URL' => '', 'CACHE_STORE' => 'array', 'QUEUE_CONNECTION' => 'sync',
+102:             'CATALOG_START_FILE' => $barrier, 'CATALOG_MEDIA_ROOT' => config('filesystems.disks.public.root'),
+103:         ];
+104:         $processes = [];
+105:         try {
+106:             foreach ($jobs as [$setup, $operation]) {
+107:                 $script = <<<'PHP'
+108: require 'vendor/autoload.php';
+109: $app = require 'bootstrap/app.php';
+110: $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+111: config(['filesystems.disks.public.root' => getenv('CATALOG_MEDIA_ROOT')]);
+112: PHP;
+113:                 $script .= $setup;
+114:                 $script .= <<<'PHP'
+115: echo "READY\n";
+116: $deadline = microtime(true) + 12;
+117: while (!is_file(getenv('CATALOG_START_FILE'))) {
+118:     if (microtime(true) > $deadline) { exit(4); }
+119:     usleep(10000);
+120: }
+121: try {
+122: PHP;
+123:                 $script .= $operation;
+124:                 $script .= <<<'PHP'
+125: echo "OK\n";
+126: } catch (App\Exceptions\BusinessException $exception) {
+127:     echo "REJECTED\n";
+128: } catch (Throwable $exception) {
+129:     fwrite(STDERR, get_class($exception).': '.$exception->getMessage());
+130:     exit(3);
+131: }
+132: PHP;
+133:                 $process = new Process([PHP_BINARY, '-r', $script], base_path(), $environment, timeout: 15);
+134:                 $process->start();
+135:                 $processes[] = $process;
+136:             }
+137:             foreach ($processes as $process) {
+138:                 $this->assertTrue($process->waitUntil(fn ($type, $output) => str_contains($output, 'READY')), $process->getErrorOutput());
+139:             }
+140:             touch($barrier);
+141:             $results = [];
+142:             foreach ($processes as $process) {
+143:                 $process->wait();
+144:                 $this->assertTrue($process->isSuccessful(), $process->getErrorOutput());
+145:                 $results[] = trim(str_replace('READY', '', $process->getOutput()));
+146:             }
+147:             $this->assertEqualsCanonicalizing(['OK', 'REJECTED'], $results);
+148:         } finally {
+149:             foreach ($processes as $process) {
+150:                 if ($process->isRunning()) {
+151:                     $process->stop();
+152:                 }
+153:             }
+154:             if (is_file($barrier)) {
+155:                 unlink($barrier);
+156:             }
+157:         }
+158:     }
+159: }
+```
+
+## File: bags-platform/backend/tests/Feature/Admin/Catalog/CatalogImprovementReviewTest.php
+```php
+  1: <?php
+  2: 
+  3: declare(strict_types=1);
+  4: 
+  5: namespace Tests\Feature\Admin\Catalog;
+  6: 
+  7: use App\Exceptions\BusinessException;
+  8: use App\Models\Brand;
+  9: use App\Models\Category;
+ 10: use App\Models\Product;
+ 11: use App\Models\ProductVariant;
+ 12: use App\Models\User;
+ 13: use App\Services\Catalog\BrandService;
+ 14: use App\Services\Catalog\CategoryService;
+ 15: use App\Services\Catalog\ProductMediaService;
+ 16: use App\Services\Catalog\ProductService;
+ 17: use App\Services\Catalog\VariantService;
+ 18: use App\Services\Media\UuidPathGenerator;
+ 19: use Illuminate\Database\Eloquent\ModelNotFoundException;
+ 20: use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+ 21: use Illuminate\Http\UploadedFile;
+ 22: use Illuminate\Support\Facades\DB;
+ 23: use Illuminate\Support\Facades\Storage;
+ 24: use RuntimeException;
+ 25: use Spatie\MediaLibrary\Conversions\FileManipulator;
+ 26: use Spatie\MediaLibrary\MediaCollections\Models\Media;
+ 27: use Spatie\Permission\Models\Permission;
+ 28: use Tests\TestCase;
+ 29: 
+ 30: class CatalogImprovementReviewTest extends TestCase
+ 31: {
+ 32:     use LazilyRefreshDatabase;
+ 33: 
+ 34:     protected function setUp(): void
+ 35:     {
+ 36:         parent::setUp();
+ 37:         Storage::fake('public');
+ 38:         $permissions = ['products.create', 'products.view', 'products.update', 'products.publish', 'categories.view', 'categories.update', 'brands.view'];
+ 39:         foreach ($permissions as $permission) {
+ 40:             Permission::findOrCreate($permission, 'staff');
+ 41:         }
+ 42:         $staff = User::factory()->create();
+ 43:         $staff->givePermissionTo($permissions);
+ 44:         $this->withToken($staff->createToken('review')->plainTextToken);
+ 45:     }
+ 46: 
+ 47:     public function test_multi_image_failure_removes_originals_and_conversions_even_for_the_failing_item(): void
+ 48:     {
+ 49:         $product = Product::factory()->create();
+ 50:         $real = app(FileManipulator::class);
+ 51:         $calls = 0;
+ 52:         $this->mock(FileManipulator::class)->shouldReceive('createDerivedFiles')->twice()
+ 53:             ->andReturnUsing(function (Media $media) use ($real, &$calls): void {
+ 54:                 $real->createDerivedFiles($media);
+ 55:                 if (++$calls === 2) {
+ 56:                     throw new RuntimeException('Conversion failed after writing files');
+ 57:                 }
+ 58:             });
+ 59:         try {
+ 60:             app(ProductMediaService::class)->upload($product, ['collection' => 'images'], [UploadedFile::fake()->image('one.jpg'), UploadedFile::fake()->image('two.jpg')]);
+ 61:             $this->fail('Expected conversion failure');
+ 62:         } catch (RuntimeException $exception) {
+ 63:             $this->assertSame('Conversion failed after writing files', $exception->getMessage());
+ 64:         }
+ 65:         $this->assertDatabaseCount('media', 0);
+ 66:         $this->assertSame([], Storage::disk('public')->allFiles());
+ 67:     }
+ 68: 
+ 69:     public function test_failed_replacement_keeps_old_brand_and_category_files_and_database_values(): void
+ 70:     {
+ 71:         foreach ([BrandService::class => [Brand::class, 'logo'], CategoryService::class => [Category::class, 'image']] as $service => [$model, $collection]) {
+ 72:             $this->app->forgetInstance(FileManipulator::class);
+ 73:             $record = $model::factory()->create(['name_en' => 'Original']);
+ 74:             $old = $record->addMedia(UploadedFile::fake()->image('old.jpg'))->toMediaCollection($collection);
+ 75:             $oldPath = $old->getPathRelativeToRoot();
+ 76:             $before = Storage::disk('public')->allFiles();
+ 77:             $this->mock(FileManipulator::class)->shouldReceive('createDerivedFiles')->once()->andThrow(new RuntimeException('Disk failure'));
+ 78:             try {
+ 79:                 app($service)->update($record, ['name_en' => 'Changed', 'remove_'.$collection => true], UploadedFile::fake()->image('new.jpg'));
+ 80:                 $this->fail('Expected upload failure');
+ 81:             } catch (RuntimeException $exception) {
+ 82:                 $this->assertSame('Disk failure', $exception->getMessage());
+ 83:             }
+ 84:             $this->assertSame('Original', $record->fresh()->name_en);
+ 85:             $this->assertDatabaseHas('media', ['id' => $old->id]);
+ 86:             Storage::disk('public')->assertExists($oldPath);
+ 87:             $this->assertSame($before, Storage::disk('public')->allFiles());
+ 88:         }
+ 89:     }
+ 90: 
+ 91:     public function test_outer_rollback_restores_a_replaced_logo_without_orphan_files(): void
+ 92:     {
+ 93:         $brand = Brand::factory()->create();
+ 94:         $old = $brand->addMedia(UploadedFile::fake()->image('old.jpg'))->toMediaCollection('logo');
+ 95:         $before = Storage::disk('public')->allFiles();
+ 96:         try {
+ 97:             DB::transaction(function () use ($brand): void {
+ 98:                 app(BrandService::class)->update($brand, [], UploadedFile::fake()->image('new.jpg'));
+ 99:                 throw new RuntimeException('Outer rollback');
+100:             });
+101:         } catch (RuntimeException) {
+102:             $this->assertDatabaseHas('media', ['id' => $old->id]);
+103:         }
+104:         $this->assertSame($before, Storage::disk('public')->allFiles());
+105:         $this->assertDatabaseCount('media', 1);
+106:     }
+107: 
+108:     public function test_successful_replacement_removes_the_old_file_after_commit(): void
+109:     {
+110:         $brand = Brand::factory()->create();
+111:         $old = $brand->addMedia(UploadedFile::fake()->image('old.jpg'))->toMediaCollection('logo');
+112:         $updated = app(BrandService::class)->update($brand, [], UploadedFile::fake()->image('new.jpg'));
+113:         Storage::disk('public')->assertMissing($old->getPathRelativeToRoot());
+114:         $this->assertDatabaseMissing('media', ['id' => $old->id]);
+115:         $new = $updated->fresh()->getFirstMedia('logo');
+116:         Storage::disk('public')->assertExists($new->getPathRelativeToRoot());
+117:     }
+118: 
+119:     public function test_deleting_image_inside_rolled_back_transaction_keeps_its_file(): void
+120:     {
+121:         $product = Product::factory()->create();
+122:         $media = $product->addMedia(UploadedFile::fake()->image('old.jpg'))->toMediaCollection('images');
+123:         try {
+124:             DB::transaction(function () use ($product, $media): void {
+125:                 app(ProductMediaService::class)->delete($product, $media);
+126:                 throw new RuntimeException('Rollback delete');
+127:             });
+128:         } catch (RuntimeException) {
+129:             $this->assertDatabaseHas('media', ['id' => $media->id]);
+130:         }
+131:         Storage::disk('public')->assertExists($media->getPathRelativeToRoot());
+132:     }
+133: 
+134:     public function test_legacy_media_paths_and_conversions_remain_available(): void
+135:     {
+136:         $media = new Media(['file_name' => 'legacy.jpg', 'disk' => 'public', 'uuid' => 'a9bad36d-413e-466a-8ced-686f6cff8f1d', 'custom_properties' => []]);
+137:         $media->id = 123;
+138:         Storage::disk('public')->put('123/legacy.jpg', 'legacy');
+139:         $paths = app(UuidPathGenerator::class);
+140:         $this->assertSame('123/', $paths->getPath($media));
+141:         $this->assertSame('123/conversions/', $paths->getPathForConversions($media));
+142:         $media->uuid = null;
+143:         $this->assertSame('123/', $paths->getPath($media));
+144:     }
+145: 
+146:     public function test_deleting_legacy_media_removes_its_conversions_without_touching_other_files(): void
+147:     {
+148:         $product = Product::factory()->create();
+149:         $media = $product->addMedia(UploadedFile::fake()->image('legacy.jpg'))->toMediaCollection('images');
+150:         foreach (Storage::disk('public')->allFiles($media->uuid) as $file) {
+151:             Storage::disk('public')->move($file, $media->id.substr($file, strlen($media->uuid)));
+152:         }
+153:         DB::table('media')->where('id', $media->id)->update(['custom_properties' => '{}']);
+154:         Storage::disk('public')->put('unrelated/keep.txt', 'keep');
+155:         app(ProductMediaService::class)->delete($product, $media->fresh());
+156:         $this->assertSame(['unrelated/keep.txt'], Storage::disk('public')->allFiles());
+157:     }
+158: 
+159:     public function test_nested_color_details_require_the_english_name_on_the_same_item(): void
+160:     {
+161:         $this->postJson('/api/v1/admin/products', [
+162:             'category_id' => Category::factory()->create()->id, 'name_ar' => 'حقيبة', 'name_en' => 'Color bag', 'sales_channel' => 'retail',
+163:             'variants' => [['color_name_en' => 'Red'], ['color_hex' => '#000000']],
+164:         ])->assertUnprocessable()->assertJsonValidationErrors('variants.1.color_name_en');
+165:     }
+166: 
+167:     public function test_oversized_variant_array_is_rejected_before_per_item_database_queries(): void
+168:     {
+169:         $category = Category::factory()->create();
+170:         $variants = array_map(fn ($index) => ['sku' => 'SKU-'.$index, 'barcode' => 'EXT-'.$index], range(1, 101));
+171:         DB::enableQueryLog();
+172:         try {
+173:             $this->postJson('/api/v1/admin/products', [
+174:                 'category_id' => $category->id, 'name_ar' => 'حقيبة', 'name_en' => 'Large batch',
+175:                 'sales_channel' => 'retail', 'variants' => $variants,
+176:             ])->assertUnprocessable()->assertJsonValidationErrors('variants');
+177:             $variantQueries = array_filter(DB::getQueryLog(), fn ($query) => str_contains($query['query'], 'product_variants'));
+178:             $this->assertCount(0, $variantQueries);
+179:         } finally {
+180:             DB::disableQueryLog();
+181:             DB::flushQueryLog();
+182:         }
+183:     }
+184: 
+185:     public function test_partial_color_update_uses_existing_name_but_cannot_clear_it(): void
+186:     {
+187:         $variant = ProductVariant::factory()->create(['color_name_en' => 'Black', 'color_name_ar' => 'أسود', 'color_hex' => '#000000']);
+188:         $url = "/api/v1/admin/products/{$variant->product_id}/variants/{$variant->id}";
+189:         $this->patchJson($url, ['color_hex' => '#111111'])->assertOk();
+190:         $this->patchJson($url, ['color_name_en' => '0'])->assertOk();
+191:         $this->patchJson($url, ['color_hex' => '#222222'])->assertOk();
+192:         $this->patchJson($url, ['color_name_en' => null])->assertUnprocessable()->assertJsonValidationErrors('color_name_en');
+193:     }
+194: 
+195:     public function test_stale_variant_instance_does_not_reintroduce_duplicate_combinations(): void
+196:     {
+197:         $product = Product::factory()->create();
+198:         $stale = ProductVariant::factory()->create(['product_id' => $product->id, 'color_name_en' => 'Red', 'size' => 'S', 'capacity' => null]);
+199:         $product->variants()->whereKey($stale->id)->update(['color_name_en' => 'Blue']);
+200:         ProductVariant::factory()->create(['product_id' => $product->id, 'color_name_en' => 'Blue', 'size' => 'M', 'capacity' => null]);
+201:         $this->expectException(BusinessException::class);
+202:         app(VariantService::class)->update($stale, ['size' => 'M']);
+203:     }
+204: 
+205:     public function test_parent_array_and_invalid_tree_filters_are_validation_errors(): void
+206:     {
+207:         foreach (['parent_id[]=1', 'tree[]=1', 'tree=banana', 'tree=1 & search[]=x', 'parent_id=999999999999999999999999999'] as $query) {
+208:             $this->getJson('/api/v1/admin/categories?'.$query)->assertUnprocessable();
+209:         }
+210:     }
+211: 
+212:     public function test_zero_is_a_literal_search_term_in_all_catalog_lists(): void
+213:     {
+214:         $category = Category::factory()->create(['name_ar' => 'دعم', 'name_en' => 'Support']);
+215:         $brand = Brand::factory()->create(['name_ar' => 'دعم', 'name_en' => 'Support']);
+216:         $zeroCategory = Category::factory()->create(['name_ar' => 'صفر', 'name_en' => 'Category 0']);
+217:         $zeroBrand = Brand::factory()->create(['name_ar' => 'صفر', 'name_en' => 'Brand 0']);
+218:         $zeroProduct = Product::factory()->create(['category_id' => $category->id, 'brand_id' => $brand->id, 'name_ar' => 'صفر', 'name_en' => 'Product 0']);
+219:         Product::factory()->create(['category_id' => $category->id, 'brand_id' => $brand->id, 'name_ar' => 'واحد', 'name_en' => 'Product 1']);
+220:         foreach (['categories' => $zeroCategory->id, 'brands' => $zeroBrand->id, 'products' => $zeroProduct->id] as $resource => $id) {
+221:             $this->getJson('/api/v1/admin/'.$resource.'?search=0')->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $id);
+222:         }
+223:     }
+224: 
+225:     public function test_out_of_range_route_ids_return_404(): void
+226:     {
+227:         foreach (['products', 'categories', 'brands'] as $resource) {
+228:             $this->getJson('/api/v1/admin/'.$resource.'/999999999999999999999999999')->assertNotFound();
+229:         }
+230:     }
+231: 
+232:     public function test_deleted_variant_is_rejected_by_media_validation(): void
+233:     {
+234:         $variant = ProductVariant::factory()->create();
+235:         $variant->delete();
+236:         $this->post("/api/v1/admin/products/{$variant->product_id}/media", [
+237:             'collection' => 'images', 'variant_id' => $variant->id, 'files' => [UploadedFile::fake()->image('a.jpg')],
+238:         ])->assertUnprocessable()->assertJsonValidationErrors('variant_id');
+239:     }
+240: 
+241:     public function test_creation_cannot_reference_a_category_deleted_after_validation(): void
+242:     {
+243:         $category = Category::factory()->create();
+244:         $category->delete();
+245:         $this->expectException(ModelNotFoundException::class);
+246:         app(ProductService::class)->create(['category_id' => $category->id, 'name_ar' => 'حقيبة', 'name_en' => 'Deleted category', 'sales_channel' => 'retail'], User::factory()->create());
+247:     }
+248: 
+249:     public function test_null_active_flag_does_not_deactivate_or_reject_a_published_category(): void
+250:     {
+251:         $category = Category::factory()->create();
+252:         Product::factory()->published()->create(['category_id' => $category->id]);
+253:         $this->patchJson("/api/v1/admin/categories/{$category->id}", ['is_active' => null])->assertOk();
+254:         $this->assertTrue($category->fresh()->is_active);
+255:     }
+256: }
+```
+
+## File: bags-platform/docs/catalog-improvements-review.md
+```markdown
+ 1: # مراجعة تحسينات الكتالوج
+ 2: 
+ 3: تاريخ المراجعة: 15 أكتوبر 2026.
+ 4: 
+ 5: تمت مراجعة الملاحظات H1–H4 وM1–M11 وL1–L9 على الكود الحالي، وليس على ملف Repomix القديم. عند بدء المراجعة كان هناك 133 اختبارًا: نجح 125 وفشل 8. ستة إخفاقات كانت مشاكل فعلية، واثنان كانا توقعين قديمين لا يتفقان مع التغييرات المقصودة: السماح بـSVG، وقبول per_page سالب.
+ 6: 
+ 7: ## المشاكل التي أُصلحت في هذه المراجعة
+ 8: 
+ 9: - أُعيد منع حقول id وproduct_id وغيرها داخل variants المتداخلة، والتحقق من SKU وbarcode المكرر داخل الطلب نفسه قبل الكتابة.
+10: - أُعيد تجاهل سعر التكلفة في إنشاء المنتج بمتغيراته إذا لم يملك الموظف products.view_cost.
+11: - أُصلح slug الفارغ عند تحديث المنتج حتى لا يصطدم بعمود NOT NULL.
+12: - أُعيد جمع كتابة القسم/البراند وصورتهما في transaction واحدة. نقل عمليات الملفات خارج transaction كان يسمح بحفظ بيانات جزئية رغم فشل الرفع.
+13: - أُضيف TransactionalMediaObserver: تنظيف كل الملفات والتحويلات الجديدة بعد rollback، بما فيها الصورة التي فشلت أثناء التحويل؛ وتأجيل مسح الملفات الموجودة حتى afterCommit. اختُبرت أيضًا rollback لعملية خارجية تحتوي استبدال شعار أو حذف صورة.
+14: - عمليات رفع/ترتيب/حذف الميديا تقفل صف المنتج وتقرأ الحالة الحالية؛ حماية آخر صورة لا تعتمد على نسخة قديمة من الموديل أو مجموعة صور سبق تحميلها.
+15: - changeStatus أصبحت تفتح transaction بنفسها، وتقرأ المنتج الحالي قبل قفل قسمه، بدل الاعتماد على وجود transaction عند كل مستدعٍ.
+16: - أُضيف قفل advisory مشترك لعمليات إنشاء/تعديل/نشر المنتجات، يقابله قفل حصري لتعديلات الأقسام على المفتاح نفسه. يمنع هذا سباق نشر المنتج أو نقله مع تعطيل القسم/أحد أسلافه، دون تسلسل تعديلات المنتجات المختلفة كلها على قفل حصري واحد.
+17: - إنشاء المنتج وإسناد قسم/براند جديد يتأكدان من وجود الصف غير المحذوف بعد انتظار القفل، بدل تجاهل نتيجة first() الفارغة. تحديث المتغير يعيد قراءته بعد قفل المنتج حتى لا يفحص التركيبة باستخدام بيانات قديمة.
+18: - قواعد color_name_en تعمل داخل variants.* على العنصر نفسه. التعديل الجزئي يحتفظ بالاسم الإنجليزي الحالي، ويرفض تفريغه عند بقاء الاسم العربي أو hex.
+19: - فلاتر الأقسام تُفحص قبل فرع tree. parent_id[]=1 وtree[]=1 لم يعودا يتجاوزان الفحص أو يتسببان في تحويل array إلى string. المعرّفات الطويلة خارج نطاق قاعدة البيانات تُرفض في المسار بـ404.
+20: - أُعيد رفض الأقسام/المتغيرات المحذوفة في ترتيب الأقسام ورفع صور المتغير، ومنع IDs المكررة في ترتيب الأقسام.
+21: - حدود المصفوفات تُفحص في prepareForValidation قبل توسيع wildcard rules وتشغيل استعلامات كل عنصر؛ مجرد max على المصفوفة لا يوقف Laravel عن فحص جميع عناصر طلب ضخم. يوجد اختبار يثبت عدم تنفيذ استعلامات product_variants للطلب الزائد عن 100 عنصر.
+22: - مسارات UUID تحافظ على الوصول للملفات القديمة الموجودة تحت id، مع معالجة UUID الفارغ دون إرجاع مسار جذر القرص. اختُبر حذف الملفات القديمة وتحويلاتها دون مساس بملفات أخرى.
+23: - أُصلح البحث عن النص "0" في قوائم الأقسام والبراندات والمنتجات، بدل اعتباره قيمة فارغة، وكذلك قبول اسم اللون النصي "0" في التعديل الجزئي.
+24: - أُكمل eager loading لصور الأقسام والبراندات في show/store/update، وأُضيف id لترتيب الميديا المستقر.
+25: - توليد slug يستخدم استعلامًا واحدًا ويختار أول لاحقة متاحة في الذاكرة، دون تحويل لاحقة يحددها المستخدم إلى integer قد يفيض.
+26: - is_active=null في تعديل القسم يُعامل كعدم تغيير، بدل تشغيل فحص تعطيل القسم بالخطأ.
+27: - تم تحديث توثيق API والاختبارات القديمة بخصوص منع SVG ورفض pagination غير صالحة.
+28: 
+29: ## التحقق من ملاحظات الملف
+30: 
+31: | البنود | النتيجة |
+32: | --- | --- |
+33: | H1 / M10 | إعادة فحص قابلية النشر موجودة. اكتملت transactions والأقفال وقراءة الحالة الحديثة، مع اختبارات تزامن فعلية للمتغيرات والصور والنشر. |
+34: | H2 | migration الفهارس موجودة وسليمة، واختبارات وجود الفهارس ناجحة. كانت migration غير مطبّقة على قاعدة local؛ تم تطبيقها مع بقية migrations الكتالوج المعلّقة. |
+35: | H3 | SVG مرفوض في طلبات الإنشاء والتعديل ومجموعة الميديا. أُصلح التوثيق والاختبار القديم اللذان كانا ما زالا يعتبرانه مسموحًا. |
+36: | H4 | قفل الشجرة وحماية depth/descendantIds من الدوران موجودان؛ اختبار نقل قسمين تحت بعضهما بالتزامن ناجح. |
+37: | M1 / M2 / M3 | حدود الأعمدة ومعالجة unique بـ409 وحجز صيغة الباركود الداخلي موجودة، مع إعادة إصلاح slug الفارغ وتكرار المعرّفات داخل دفعة واحدة. |
+38: | M4 / M5 | فحص الفلاتر والبحث غير الحساس لحالة الحروف وescape للـwildcards موجودة. أُغلقت حالات parent_id كمصفوفة وفرع tree والمعرّفات الطويلة. |
+39: | M6 | اكتمل التنسيق بين rollback وملفات الميديا باستخدام observer، بدل الاكتفاء بنقل الملفات خارج transaction. |
+40: | M7 / M8 | حدود الأبعاد موجودة؛ أُضيف الرفض المبكر للدفعات قبل validation لكل عنصر. التحويلات ما زالت فورية للمحافظة على عقد API الحالي. |
+41: | M9 | chaperone وإلغاء select الجزئي موجودان؛ اكتمل eager loading في مسارات عرض/حفظ المنتج والقسم. |
+42: | M11 | المقارنة بدون حساسية لحالة الحروف موجودة؛ أُصلح التحقق من اللون في المتغيرات المتداخلة والتعديل الجزئي. |
+43: | L1 / L2 / L3 / L4 | archived عند الإنشاء مرفوض، والترتيب ثابت، وقراءة الصفوف بعد الأقفال مكتملة، وصور المتغيرات موجودة في fresh. |
+44: | L5 / L6 | supplier_id موجب ومؤجل التحقق المرجعي لمرحلة الموردين؛ min/max للأسعار من المتغيرات النشطة، كما هو موثّق. |
+45: | L7 / L8 / L9 | UUID للملفات الجديدة مع توافق القديم، وفلتر قسم غير موجود يرجع 422، وتوليد slug باستعلام واحد. |
+46: 
+47: ## اختبارات التزامن
+48: 
+49: CatalogConcurrencyTest يشغّل عمليتي PHP منفصلتين واتصالين حقيقيين بقاعدة PostgreSQL. تقرأ العمليتان الموديلات أولًا، ثم تنطلقان من حاجز واحد. كل سيناريو ينتج نجاح عملية واحدة ورفض الأخرى بقاعدة بيزنس:
+50: 
+51: 1. حذف آخر متغيرين نشطين: يظل متغير نشط واحد.
+52: 2. حذف آخر صورتين: تظل صورة واحدة وملفها على القرص.
+53: 3. نقل A تحت B وB تحت A: لا تتكون دورة.
+54: 4. نشر المنتج وتعطيل قسمه: لا توجد حالة نهائية فيها منتج منشور وقسمه غير نشط.
+55: 
+56: ## التحقق النهائي
+57: 
+58: - php artisan test --compact: نجح 154 اختبارًا و735 assertion، بما فيها 21 اختبارًا جديدًا لهذه المراجعة.
+59: - اختبارات السباقات الأربعة نجحت باستخدام عمليتي PHP واتصالين منفصلين بـPostgreSQL.
+60: - Laravel Pint وcomposer validate وفحص git diff --check لملفات backend/docs المعدّلة: نجحت.
+61: - مسارات المنتجات والأقسام موجودة؛ لا تغييرات على عناوين API المطلوبة.
+62: 
+63: تم تطبيق migrations المعلّقة بـphp artisan migrate --force على البيئة المحلية بعد التحقق أن APP_ENV=local. لم يتم استخدام migrate:fresh أو حذف بيانات قاعدة التطوير. لا توجد migrations معلّقة بعد ذلك.
+64: 
+65: ## حدود وقرارات مقصودة
+66: 
+67: - المشروع ومحرك اختبارات التزامن الحاليان Laravel 13 وPostgreSQL. الأقفال الاستشارية مرتبطة بـPostgreSQL، وafterRollBack مستخدمة من الإصدار المثبّت فعليًا.
+68: - UUID يقلل قابلية تخمين الروابط لكنه لا يجعل الملفات خاصة. الملفات القديمة لا تُنقل تلقائيًا ولا تُكسر روابطها. لم تُضف منظومة ملفات خاصة أو توقيع روابط إلى هذه المرحلة.
+69: - منع SVG يمنع الرفع الجديد؛ لا يعيد كتابة محتويات ملفات SVG رُفعت سابقًا في أي بيئة أخرى.
+70: - migration الفهارس الحالية مناسبة لبيئة التطوير. فهارس جداول إنتاج كبيرة تحتاج خطة نشر مستقلة بـCONCURRENTLY؛ لم يحدث اتصال ببيئة إنتاج.
+71: - تبقى published_at الأصلية عند إعادة النشر، وتبقى سياسة آخر تعديل يفوز؛ لم تُضف optimistic locking غير مطلوبة بعقد API.
+72: - تكلفة المتغير غير المرسلة تبقى 0 وفق مخطط المرحلة الحالي. فصل التكلفة المجهولة عن صفر يحتاج قرارًا لمرحلة المحاسبة/الهامش، ولم تُمنح صلاحية التكلفة لموظف غير مخوّل.
+73: - لا توجد بيانات وصول إلى بيئة إنتاج للتحقق من APP_DEBUG فيها؛ التوثيق لا يعتبر قيمة .env.example دليلًا على إعداد نشر فعلي.
+```
 
 ## File: bags-platform/backend/app/Enums/BranchType.php
 ```php
@@ -353,370 +941,6 @@ bags-platform/
 22: }
 ```
 
-## File: bags-platform/backend/app/Http/Controllers/Api/V1/Admin/BrandController.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace App\Http\Controllers\Api\V1\Admin;
- 6: 
- 7: use App\Http\Controllers\Controller;
- 8: use App\Http\Requests\Admin\Brand\StoreBrandRequest;
- 9: use App\Http\Requests\Admin\Brand\UpdateBrandRequest;
-10: use App\Http\Resources\Admin\BrandResource;
-11: use App\Models\Brand;
-12: use App\Services\Catalog\BrandService;
-13: use Illuminate\Http\JsonResponse;
-14: use Illuminate\Http\Request;
-15: use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
-16: use Illuminate\Routing\Controllers\HasMiddleware;
-17: use Illuminate\Routing\Controllers\Middleware;
-18: 
-19: class BrandController extends Controller implements HasMiddleware
-20: {
-21:     public function __construct(private BrandService $service) {}
-22: 
-23:     public static function middleware(): array
-24:     {
-25:         return [
-26:             new Middleware('can:brands.view', only: ['index', 'show']),
-27:             new Middleware('can:brands.create', only: ['store']),
-28:             new Middleware('can:brands.update', only: ['update']),
-29:             new Middleware('can:brands.delete', only: ['destroy']),
-30:         ];
-31:     }
-32: 
-33:     public function index(Request $request): AnonymousResourceCollection
-34:     {
-35:         $perPage = max(1, min((int) $request->input('per_page', 15), 100));
-36: 
-37:         $brands = Brand::query()
-38:             ->with('media')
-39:             ->withCount('products')
-40:             ->when($request->filled('search'), function ($query) use ($request): void {
-41:                 $search = $request->input('search');
-42:                 $query->where(function ($q) use ($search): void {
-43:                     $q->where('name_ar', 'like', "%{$search}%")
-44:                         ->orWhere('name_en', 'like', "%{$search}%");
-45:                 });
-46:             })
-47:             ->when($request->has('is_active'), fn ($query) => $query->where('is_active', $request->boolean('is_active')))
-48:             ->orderBy('sort_order')
-49:             ->orderBy('id')
-50:             ->paginate($perPage)
-51:             ->withQueryString();
-52: 
-53:         return BrandResource::collection($brands);
-54:     }
-55: 
-56:     public function show(Brand $brand): BrandResource
-57:     {
-58:         $brand->load('media')->loadCount('products');
-59: 
-60:         return BrandResource::make($brand);
-61:     }
-62: 
-63:     public function store(StoreBrandRequest $request): JsonResponse
-64:     {
-65:         $brand = $this->service->create($request->validated(), $request->file('logo'));
-66:         $brand->load('media')->loadCount('products');
-67: 
-68:         return BrandResource::make($brand)->response()->setStatusCode(201);
-69:     }
-70: 
-71:     // ملحوظة: تحديث براند مع لوجو بيتبعت POST مع _method=PUT، لأن PHP لا يقرأ ملفات multipart مع PUT.
-72:     public function update(UpdateBrandRequest $request, Brand $brand): BrandResource
-73:     {
-74:         $brand = $this->service->update($brand, $request->validated(), $request->file('logo'));
-75:         $brand->load('media')->loadCount('products');
-76: 
-77:         return BrandResource::make($brand);
-78:     }
-79: 
-80:     public function destroy(Brand $brand): JsonResponse
-81:     {
-82:         $this->service->delete($brand);
-83: 
-84:         return response()->json(['message' => 'تم الحذف']);
-85:     }
-86: }
-```
-
-## File: bags-platform/backend/app/Http/Controllers/Api/V1/Admin/CategoryController.php
-```php
-  1: <?php
-  2: 
-  3: declare(strict_types=1);
-  4: 
-  5: namespace App\Http\Controllers\Api\V1\Admin;
-  6: 
-  7: use App\Http\Controllers\Controller;
-  8: use App\Http\Requests\Admin\Category\ReorderCategoriesRequest;
-  9: use App\Http\Requests\Admin\Category\StoreCategoryRequest;
- 10: use App\Http\Requests\Admin\Category\UpdateCategoryRequest;
- 11: use App\Http\Resources\Admin\CategoryResource;
- 12: use App\Models\Category;
- 13: use App\Services\Catalog\CategoryService;
- 14: use Illuminate\Http\JsonResponse;
- 15: use Illuminate\Http\Request;
- 16: use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
- 17: use Illuminate\Routing\Controllers\HasMiddleware;
- 18: use Illuminate\Routing\Controllers\Middleware;
- 19: 
- 20: class CategoryController extends Controller implements HasMiddleware
- 21: {
- 22:     public function __construct(private CategoryService $service) {}
- 23: 
- 24:     public static function middleware(): array
- 25:     {
- 26:         return [
- 27:             new Middleware('can:categories.view', only: ['index', 'show']),
- 28:             new Middleware('can:categories.create', only: ['store']),
- 29:             new Middleware('can:categories.update', only: ['update', 'reorder']),
- 30:             new Middleware('can:categories.delete', only: ['destroy']),
- 31:         ];
- 32:     }
- 33: 
- 34:     public function index(Request $request): AnonymousResourceCollection
- 35:     {
- 36:         if ($request->boolean('tree')) {
- 37:             return CategoryResource::collection($this->service->tree());
- 38:         }
- 39: 
- 40:         $perPage = max(1, min((int) $request->input('per_page', 15), 100));
- 41: 
- 42:         $categories = Category::query()
- 43:             ->with('parent', 'media')
- 44:             ->withCount('products')
- 45:             ->when($request->filled('search'), function ($query) use ($request): void {
- 46:                 $search = $request->input('search');
- 47:                 $query->where(function ($q) use ($search): void {
- 48:                     $q->where('name_ar', 'like', "%{$search}%")
- 49:                         ->orWhere('name_en', 'like', "%{$search}%");
- 50:                 });
- 51:             })
- 52:             ->when($request->has('parent_id'), function ($query) use ($request): void {
- 53:                 if ($request->input('parent_id') === 'root') {
- 54:                     $query->whereNull('parent_id');
- 55:                 } else {
- 56:                     $query->where('parent_id', $request->input('parent_id'));
- 57:                 }
- 58:             })
- 59:             ->when($request->has('is_active'), fn ($query) => $query->where('is_active', $request->boolean('is_active')))
- 60:             ->orderBy('sort_order')
- 61:             ->orderBy('id')
- 62:             ->paginate($perPage)
- 63:             ->withQueryString();
- 64: 
- 65:         return CategoryResource::collection($categories);
- 66:     }
- 67: 
- 68:     public function show(Category $category): CategoryResource
- 69:     {
- 70:         $category->load('parent', 'children', 'media')->loadCount('products');
- 71: 
- 72:         return CategoryResource::make($category);
- 73:     }
- 74: 
- 75:     public function store(StoreCategoryRequest $request): JsonResponse
- 76:     {
- 77:         $category = $this->service->create($request->validated(), $request->file('image'));
- 78:         $category->load('parent', 'media')->loadCount('products');
- 79: 
- 80:         return CategoryResource::make($category)->response()->setStatusCode(201);
- 81:     }
- 82: 
- 83:     // ملحوظة: تحديث قسم مع صورة بيتبعت POST مع _method=PUT، لأن PHP لا يقرأ ملفات multipart مع PUT.
- 84:     public function update(UpdateCategoryRequest $request, Category $category): CategoryResource
- 85:     {
- 86:         $category = $this->service->update($category, $request->validated(), $request->file('image'));
- 87:         $category->load('parent', 'media')->loadCount('products');
- 88: 
- 89:         return CategoryResource::make($category);
- 90:     }
- 91: 
- 92:     public function destroy(Category $category): JsonResponse
- 93:     {
- 94:         $this->service->delete($category);
- 95: 
- 96:         return response()->json(['message' => 'تم الحذف']);
- 97:     }
- 98: 
- 99:     public function reorder(ReorderCategoriesRequest $request): JsonResponse
-100:     {
-101:         $this->service->reorder($request->validated()['items']);
-102: 
-103:         return response()->json(['message' => 'تم الترتيب']);
-104:     }
-105: }
-```
-
-## File: bags-platform/backend/app/Http/Controllers/Api/V1/Admin/ProductController.php
-```php
-  1: <?php
-  2: 
-  3: declare(strict_types=1);
-  4: 
-  5: namespace App\Http\Controllers\Api\V1\Admin;
-  6: 
-  7: use App\Http\Controllers\Controller;
-  8: use App\Http\Requests\Admin\Product\StoreProductRequest;
-  9: use App\Http\Requests\Admin\Product\UpdateProductRequest;
- 10: use App\Http\Resources\Admin\ProductResource;
- 11: use App\Models\Category;
- 12: use App\Models\Product;
- 13: use App\Services\Catalog\ProductService;
- 14: use Illuminate\Http\JsonResponse;
- 15: use Illuminate\Http\Request;
- 16: use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
- 17: use Illuminate\Routing\Controllers\HasMiddleware;
- 18: use Illuminate\Routing\Controllers\Middleware;
- 19: 
- 20: class ProductController extends Controller implements HasMiddleware
- 21: {
- 22:     public function __construct(private ProductService $service) {}
- 23: 
- 24:     public static function middleware(): array
- 25:     {
- 26:         return [
- 27:             new Middleware('can:products.view', only: ['index', 'show']),
- 28:             new Middleware('can:products.create', only: ['store']),
- 29:             new Middleware('can:products.update', only: ['update']),
- 30:             new Middleware('can:products.delete', only: ['destroy']),
- 31:         ];
- 32:     }
- 33: 
- 34:     public function index(Request $request): AnonymousResourceCollection
- 35:     {
- 36:         $perPage = max(1, min((int) $request->input('per_page', 15), 100));
- 37: 
- 38:         $q = Product::query()
- 39:             ->with(['category:id,name_ar,name_en', 'brand:id,name_ar,name_en', 'media'])
- 40:             ->withCount('variants')
- 41:             ->withMin('variants as min_retail_price', 'retail_price')
- 42:             ->withMax('variants as max_retail_price', 'retail_price');
- 43: 
- 44:         if ($s = $request->search) {
- 45:             $q->where(fn ($w) => $w->where('name_ar', 'like', "%$s%")->orWhere('name_en', 'like', "%$s%")
- 46:                 ->orWhere('code', $s)
- 47:                 ->orWhereHas('variants', fn ($v) => $v->where('sku', $s)->orWhere('barcode', $s)));
- 48:         }
- 49:         if ($request->filled('category_id')) {
- 50:             $cat = Category::findOrFail($request->category_id);
- 51:             $ids = $request->boolean('include_children') ? [$cat->id, ...$cat->descendantIds()] : [$cat->id];
- 52:             $q->whereIn('category_id', $ids);
- 53:         }
- 54:         $q->when($request->brand_id, fn ($x, $v) => $x->where('brand_id', $v))
- 55:             ->when($request->status, fn ($x, $v) => $x->where('status', $v))
- 56:             ->when($request->sales_channel, fn ($x, $v) => $x->where('sales_channel', $v))
- 57:             ->when($request->has('is_featured'), fn ($x) => $x->where('is_featured', $request->boolean('is_featured')));
- 58: 
- 59:         match ($request->input('sort', 'latest')) {
- 60:             'oldest' => $q->oldest(),
- 61:             'name' => $q->orderBy('name_en'),
- 62:             default => $q->latest(),
- 63:         };
- 64: 
- 65:         return ProductResource::collection($q->paginate($perPage)->withQueryString());
- 66:     }
- 67: 
- 68:     public function show(Product $product): ProductResource
- 69:     {
- 70:         $product->load(['category', 'brand', 'variants.media', 'media']);
- 71: 
- 72:         return ProductResource::make($product);
- 73:     }
- 74: 
- 75:     public function store(StoreProductRequest $request): JsonResponse
- 76:     {
- 77:         $data = $request->validated();
- 78:         if (! $request->user()->can('products.view_cost')) {
- 79:             foreach ($data['variants'] ?? [] as $index => $variant) {
- 80:                 unset($data['variants'][$index]['cost_price']);
- 81:             }
- 82:         }
- 83:         $product = $this->service->create($data, $request->user());
- 84: 
- 85:         return ProductResource::make($product)->response()->setStatusCode(201);
- 86:     }
- 87: 
- 88:     public function update(UpdateProductRequest $request, Product $product): ProductResource
- 89:     {
- 90:         $product = $this->service->update($product, $request->validated(), $request->user());
- 91: 
- 92:         return ProductResource::make($product);
- 93:     }
- 94: 
- 95:     public function destroy(Product $product): JsonResponse
- 96:     {
- 97:         $this->service->delete($product);
- 98: 
- 99:         return response()->json(['message' => 'تم الحذف']);
-100:     }
-101: }
-```
-
-## File: bags-platform/backend/app/Http/Controllers/Api/V1/Admin/ProductMediaController.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace App\Http\Controllers\Api\V1\Admin;
- 6: 
- 7: use App\Http\Controllers\Controller;
- 8: use App\Http\Requests\Admin\Product\ReorderProductMediaRequest;
- 9: use App\Http\Requests\Admin\Product\UploadProductMediaRequest;
-10: use App\Http\Resources\MediaResource;
-11: use App\Models\Product;
-12: use App\Services\Catalog\ProductMediaService;
-13: use Illuminate\Http\JsonResponse;
-14: use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
-15: use Illuminate\Routing\Controllers\HasMiddleware;
-16: use Illuminate\Routing\Controllers\Middleware;
-17: use Spatie\MediaLibrary\MediaCollections\Models\Media;
-18: 
-19: class ProductMediaController extends Controller implements HasMiddleware
-20: {
-21:     public function __construct(private ProductMediaService $service) {}
-22: 
-23:     public static function middleware(): array
-24:     {
-25:         return [
-26:             new Middleware('can:products.view', only: ['index']),
-27:             new Middleware('can:products.update', only: ['store', 'reorder', 'destroy']),
-28:         ];
-29:     }
-30: 
-31:     public function index(Product $product): AnonymousResourceCollection
-32:     {
-33:         return MediaResource::collection($this->service->index($product));
-34:     }
-35: 
-36:     public function store(UploadProductMediaRequest $request, Product $product): JsonResponse
-37:     {
-38:         $media = $this->service->upload($product, $request->validated(), $request->file('files', []), $request->file('file'));
-39: 
-40:         return MediaResource::collection($media)->response()->setStatusCode(201);
-41:     }
-42: 
-43:     public function reorder(ReorderProductMediaRequest $request, Product $product): JsonResponse
-44:     {
-45:         $this->service->reorder($product, $request->validated('ids'));
-46: 
-47:         return response()->json(['message' => 'تم الترتيب']);
-48:     }
-49: 
-50:     public function destroy(Product $product, Media $media): JsonResponse
-51:     {
-52:         $this->service->delete($product, $media);
-53: 
-54:         return response()->json(['message' => 'تم الحذف']);
-55:     }
-56: }
-```
-
 ## File: bags-platform/backend/app/Http/Controllers/Api/V1/Admin/ProductVariantController.php
 ```php
  1: <?php
@@ -796,550 +1020,6 @@ bags-platform/
 75: }
 ```
 
-## File: bags-platform/backend/app/Http/Controllers/Controller.php
-```php
-1: <?php
-2: 
-3: namespace App\Http\Controllers;
-4: 
-5: abstract class Controller
-6: {
-7:     //
-8: }
-```
-
-## File: bags-platform/backend/app/Http/Middleware/EnsureCustomerAuthenticated.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace App\Http\Middleware;
- 6: 
- 7: use App\Enums\CustomerStatus;
- 8: use App\Models\Customer;
- 9: use Closure;
-10: use Illuminate\Http\Request;
-11: use Illuminate\Support\Facades\Auth;
-12: use Symfony\Component\HttpFoundation\Response;
-13: 
-14: class EnsureCustomerAuthenticated
-15: {
-16:     public function handle(Request $request, Closure $next): Response
-17:     {
-18:         Auth::shouldUse('customer');
-19:         $user = $request->user('customer');
-20: 
-21:         if ($request->user('sanctum') === null) {
-22:             return response()->json([
-23:                 'message' => 'يرجى تسجيل الدخول أولًا.',
-24:             ], 401);
-25:         }
-26: 
-27:         if (! $user instanceof Customer || in_array($user->status, [CustomerStatus::Blocked, CustomerStatus::Rejected], true)) {
-28:             return response()->json([
-29:                 'message' => 'غير مصرح لك بالدخول كعميل.',
-30:             ], 403);
-31:         }
-32: 
-33:         return $next($request);
-34:     }
-35: }
-```
-
-## File: bags-platform/backend/app/Http/Middleware/EnsureStaffAuthenticated.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace App\Http\Middleware;
- 6: 
- 7: use App\Models\User;
- 8: use Closure;
- 9: use Illuminate\Http\Request;
-10: use Illuminate\Support\Facades\Auth;
-11: use Symfony\Component\HttpFoundation\Response;
-12: 
-13: class EnsureStaffAuthenticated
-14: {
-15:     public function handle(Request $request, Closure $next): Response
-16:     {
-17:         Auth::shouldUse('staff');
-18:         $user = $request->user('staff');
-19: 
-20:         if ($request->user('sanctum') === null) {
-21:             return response()->json([
-22:                 'message' => 'يرجى تسجيل الدخول أولًا.',
-23:             ], 401);
-24:         }
-25: 
-26:         if (! $user instanceof User || ! $user->is_active) {
-27:             return response()->json([
-28:                 'message' => 'غير مصرح لك بالدخول كموظف أو الحساب غير نشط.',
-29:             ], 403);
-30:         }
-31: 
-32:         return $next($request);
-33:     }
-34: }
-```
-
-## File: bags-platform/backend/app/Http/Middleware/EnsureSupplierAuthenticated.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace App\Http\Middleware;
- 6: 
- 7: use App\Models\SupplierUser;
- 8: use Closure;
- 9: use Illuminate\Http\Request;
-10: use Illuminate\Support\Facades\Auth;
-11: use Symfony\Component\HttpFoundation\Response;
-12: 
-13: class EnsureSupplierAuthenticated
-14: {
-15:     public function handle(Request $request, Closure $next): Response
-16:     {
-17:         Auth::shouldUse('supplier');
-18:         $user = $request->user('supplier');
-19: 
-20:         if ($request->user('sanctum') === null) {
-21:             return response()->json([
-22:                 'message' => 'يرجى تسجيل الدخول أولًا.',
-23:             ], 401);
-24:         }
-25: 
-26:         if (! $user instanceof SupplierUser || ! $user->is_active || $user->supplier_id === null) {
-27:             return response()->json([
-28:                 'message' => 'غير مصرح لك بالدخول كمستخدم مورد أو الحساب غير نشط.',
-29:             ], 403);
-30:         }
-31: 
-32:         return $next($request);
-33:     }
-34: }
-```
-
-## File: bags-platform/backend/app/Http/Middleware/EnsureWholesaleApproved.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace App\Http\Middleware;
- 6: 
- 7: use App\Enums\CustomerStatus;
- 8: use App\Enums\CustomerType;
- 9: use App\Models\Customer;
-10: use Closure;
-11: use Illuminate\Http\Request;
-12: use Illuminate\Support\Facades\Auth;
-13: use Symfony\Component\HttpFoundation\Response;
-14: 
-15: class EnsureWholesaleApproved
-16: {
-17:     public function handle(Request $request, Closure $next): Response
-18:     {
-19:         Auth::shouldUse('customer');
-20:         $user = $request->user('customer');
-21: 
-22:         if ($request->user('sanctum') === null) {
-23:             return response()->json([
-24:                 'message' => 'يرجى تسجيل الدخول أولًا.',
-25:             ], 401);
-26:         }
-27: 
-28:         if (
-29:             ! $user instanceof Customer
-30:             || ! in_array($user->type, [CustomerType::Wholesale, CustomerType::Distributor], true)
-31:             || $user->status !== CustomerStatus::Approved
-32:         ) {
-33:             return response()->json([
-34:                 'message' => 'هذا القسم مخصص لتجار الجملة المعتمدين فقط.',
-35:             ], 403);
-36:         }
-37: 
-38:         return $next($request);
-39:     }
-40: }
-```
-
-## File: bags-platform/backend/app/Http/Requests/Admin/Brand/StoreBrandRequest.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace App\Http\Requests\Admin\Brand;
- 6: 
- 7: use Illuminate\Contracts\Validation\ValidationRule;
- 8: use Illuminate\Foundation\Http\FormRequest;
- 9: use Illuminate\Validation\Rule;
-10: 
-11: class StoreBrandRequest extends FormRequest
-12: {
-13:     public function authorize(): bool
-14:     {
-15:         return $this->user() !== null;
-16:     }
-17: 
-18:     /**
-19:      * @return array<string, array<mixed>|string|ValidationRule>
-20:      */
-21:     public function rules(): array
-22:     {
-23:         return [
-24:             'name_ar' => ['required', 'string', 'max:150'],
-25:             'name_en' => ['required', 'string', 'max:150'],
-26:             'slug' => ['nullable', 'string', 'max:180', 'alpha_dash', Rule::unique('brands', 'slug')],
-27:             'description_ar' => ['nullable', 'string'],
-28:             'description_en' => ['nullable', 'string'],
-29:             'sort_order' => ['nullable', 'integer', 'min:0'],
-30:             'is_active' => ['nullable', 'boolean'],
-31:             'logo' => ['nullable', 'image:allow_svg', 'mimes:jpg,jpeg,png,webp,svg', 'max:4096'],
-32:         ];
-33:     }
-34: }
-```
-
-## File: bags-platform/backend/app/Http/Requests/Admin/Brand/UpdateBrandRequest.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace App\Http\Requests\Admin\Brand;
- 6: 
- 7: use Illuminate\Contracts\Validation\ValidationRule;
- 8: use Illuminate\Foundation\Http\FormRequest;
- 9: use Illuminate\Validation\Rule;
-10: 
-11: class UpdateBrandRequest extends FormRequest
-12: {
-13:     public function authorize(): bool
-14:     {
-15:         return $this->user() !== null;
-16:     }
-17: 
-18:     /**
-19:      * @return array<string, array<mixed>|string|ValidationRule>
-20:      */
-21:     public function rules(): array
-22:     {
-23:         return [
-24:             'name_ar' => ['sometimes', 'required', 'string', 'max:150'],
-25:             'name_en' => ['sometimes', 'required', 'string', 'max:150'],
-26:             'slug' => ['sometimes', 'nullable', 'string', 'max:180', 'alpha_dash', Rule::unique('brands', 'slug')->ignore($this->route('brand'))],
-27:             'description_ar' => ['sometimes', 'nullable', 'string'],
-28:             'description_en' => ['sometimes', 'nullable', 'string'],
-29:             'sort_order' => ['sometimes', 'nullable', 'integer', 'min:0'],
-30:             'is_active' => ['sometimes', 'nullable', 'boolean'],
-31:             'logo' => ['sometimes', 'nullable', 'image:allow_svg', 'mimes:jpg,jpeg,png,webp,svg', 'max:4096'],
-32:             'remove_logo' => ['sometimes', 'nullable', 'boolean'],
-33:         ];
-34:     }
-35: }
-```
-
-## File: bags-platform/backend/app/Http/Requests/Admin/Category/ReorderCategoriesRequest.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace App\Http\Requests\Admin\Category;
- 6: 
- 7: use Illuminate\Contracts\Validation\ValidationRule;
- 8: use Illuminate\Foundation\Http\FormRequest;
- 9: use Illuminate\Validation\Rule;
-10: 
-11: class ReorderCategoriesRequest extends FormRequest
-12: {
-13:     public function authorize(): bool
-14:     {
-15:         return $this->user() !== null;
-16:     }
-17: 
-18:     /**
-19:      * @return array<string, array<mixed>|string|ValidationRule>
-20:      */
-21:     public function rules(): array
-22:     {
-23:         return [
-24:             'items' => ['required', 'array', 'min:1'],
-25:             'items.*.id' => ['required', 'integer', 'distinct', Rule::exists('categories', 'id')->whereNull('deleted_at')],
-26:             'items.*.parent_id' => ['nullable', 'integer', Rule::exists('categories', 'id')->whereNull('deleted_at')],
-27:             'items.*.sort_order' => ['required', 'integer', 'min:0'],
-28:         ];
-29:     }
-30: }
-```
-
-## File: bags-platform/backend/app/Http/Requests/Admin/Category/StoreCategoryRequest.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace App\Http\Requests\Admin\Category;
- 6: 
- 7: use Illuminate\Contracts\Validation\ValidationRule;
- 8: use Illuminate\Foundation\Http\FormRequest;
- 9: use Illuminate\Validation\Rule;
-10: 
-11: class StoreCategoryRequest extends FormRequest
-12: {
-13:     public function authorize(): bool
-14:     {
-15:         return $this->user() !== null;
-16:     }
-17: 
-18:     /**
-19:      * @return array<string, array<mixed>|string|ValidationRule>
-20:      */
-21:     public function rules(): array
-22:     {
-23:         return [
-24:             'parent_id' => ['nullable', 'integer', Rule::exists('categories', 'id')->whereNull('deleted_at')],
-25:             'name_ar' => ['required', 'string', 'max:150'],
-26:             'name_en' => ['required', 'string', 'max:150'],
-27:             'slug' => ['nullable', 'string', 'max:180', 'alpha_dash', Rule::unique('categories', 'slug')],
-28:             'description_ar' => ['nullable', 'string'],
-29:             'description_en' => ['nullable', 'string'],
-30:             'sort_order' => ['nullable', 'integer', 'min:0'],
-31:             'is_active' => ['nullable', 'boolean'],
-32:             'image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
-33:         ];
-34:     }
-35: }
-```
-
-## File: bags-platform/backend/app/Http/Requests/Admin/Category/UpdateCategoryRequest.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace App\Http\Requests\Admin\Category;
- 6: 
- 7: use Illuminate\Contracts\Validation\ValidationRule;
- 8: use Illuminate\Foundation\Http\FormRequest;
- 9: use Illuminate\Validation\Rule;
-10: 
-11: class UpdateCategoryRequest extends FormRequest
-12: {
-13:     public function authorize(): bool
-14:     {
-15:         return $this->user() !== null;
-16:     }
-17: 
-18:     /**
-19:      * @return array<string, array<mixed>|string|ValidationRule>
-20:      */
-21:     public function rules(): array
-22:     {
-23:         return [
-24:             'parent_id' => ['sometimes', 'nullable', 'integer', Rule::exists('categories', 'id')->whereNull('deleted_at')],
-25:             'name_ar' => ['sometimes', 'required', 'string', 'max:150'],
-26:             'name_en' => ['sometimes', 'required', 'string', 'max:150'],
-27:             'slug' => ['sometimes', 'nullable', 'string', 'max:180', 'alpha_dash', Rule::unique('categories', 'slug')->ignore($this->route('category'))],
-28:             'description_ar' => ['sometimes', 'nullable', 'string'],
-29:             'description_en' => ['sometimes', 'nullable', 'string'],
-30:             'sort_order' => ['sometimes', 'nullable', 'integer', 'min:0'],
-31:             'is_active' => ['sometimes', 'nullable', 'boolean'],
-32:             'image' => ['sometimes', 'nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
-33:             'remove_image' => ['sometimes', 'nullable', 'boolean'],
-34:         ];
-35:     }
-36: }
-```
-
-## File: bags-platform/backend/app/Http/Requests/Admin/Product/ReorderProductMediaRequest.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace App\Http\Requests\Admin\Product;
- 6: 
- 7: use Illuminate\Contracts\Validation\ValidationRule;
- 8: use Illuminate\Foundation\Http\FormRequest;
- 9: 
-10: class ReorderProductMediaRequest extends FormRequest
-11: {
-12:     public function authorize(): bool
-13:     {
-14:         return $this->user() !== null;
-15:     }
-16: 
-17:     /**
-18:      * @return array<string, array<mixed>|string|ValidationRule>
-19:      */
-20:     public function rules(): array
-21:     {
-22:         return [
-23:             'ids' => ['required', 'array', 'min:1'],
-24:             'ids.*' => ['integer'],
-25:         ];
-26:     }
-27: }
-```
-
-## File: bags-platform/backend/app/Http/Requests/Admin/Product/StoreProductRequest.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace App\Http\Requests\Admin\Product;
- 6: 
- 7: use App\Enums\ProductStatus;
- 8: use App\Enums\SalesChannel;
- 9: use App\Http\Requests\Admin\Variant\VariantRules;
-10: use Illuminate\Contracts\Validation\ValidationRule;
-11: use Illuminate\Foundation\Http\FormRequest;
-12: use Illuminate\Validation\Rule;
-13: 
-14: class StoreProductRequest extends FormRequest
-15: {
-16:     public function authorize(): bool
-17:     {
-18:         return $this->user() !== null;
-19:     }
-20: 
-21:     /**
-22:      * @return array<string, array<mixed>|string|ValidationRule>
-23:      */
-24:     public function rules(): array
-25:     {
-26:         $rules = [
-27:             'category_id' => ['required', 'integer', Rule::exists('categories', 'id')->whereNull('deleted_at')],
-28:             'brand_id' => ['nullable', 'integer', Rule::exists('brands', 'id')->whereNull('deleted_at')],
-29:             'supplier_id' => ['nullable', 'integer'],
-30:             'name_ar' => ['required', 'string', 'max:255'],
-31:             'name_en' => ['required', 'string', 'max:255'],
-32:             'slug' => ['nullable', 'alpha_dash', 'max:280', Rule::unique('products', 'slug')],
-33:             'description_ar' => ['nullable', 'string'],
-34:             'description_en' => ['nullable', 'string'],
-35:             'material_ar' => ['nullable', 'string', 'max:150'],
-36:             'material_en' => ['nullable', 'string', 'max:150'],
-37:             'length_cm' => ['nullable', 'numeric', 'min:0'],
-38:             'width_cm' => ['nullable', 'numeric', 'min:0'],
-39:             'height_cm' => ['nullable', 'numeric', 'min:0'],
-40:             'weight_kg' => ['nullable', 'numeric', 'min:0'],
-41:             'warranty_months' => ['nullable', 'integer', 'min:0', 'max:120'],
-42:             'warranty_details' => ['nullable', 'string', 'max:255'],
-43:             'country_of_origin' => ['nullable', 'string', 'max:100'],
-44:             'status' => ['nullable', Rule::enum(ProductStatus::class)],
-45:             'sales_channel' => ['required', Rule::enum(SalesChannel::class)],
-46:             'is_featured' => ['nullable', 'boolean'],
-47:             // اختياري: متغيرات مع الإنشاء
-48:             'variants' => ['nullable', 'array'],
-49:             'variants.*' => ['array:'.implode(',', array_keys(VariantRules::base()))],
-50:         ];
-51: 
-52:         foreach (VariantRules::base() as $field => $rule) {
-53:             if (in_array($field, ['sku', 'barcode'], true)) {
-54:                 $rule[] = 'distinct';
-55:             }
-56:             $rules["variants.*.$field"] = $rule;
-57:         }
-58: 
-59:         return $rules;
-60:     }
-61: }
-```
-
-## File: bags-platform/backend/app/Http/Requests/Admin/Product/UpdateProductRequest.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace App\Http\Requests\Admin\Product;
- 6: 
- 7: use App\Enums\ProductStatus;
- 8: use App\Enums\SalesChannel;
- 9: use Illuminate\Contracts\Validation\ValidationRule;
-10: use Illuminate\Foundation\Http\FormRequest;
-11: use Illuminate\Validation\Rule;
-12: 
-13: class UpdateProductRequest extends FormRequest
-14: {
-15:     public function authorize(): bool
-16:     {
-17:         return $this->user() !== null;
-18:     }
-19: 
-20:     /**
-21:      * @return array<string, array<mixed>|string|ValidationRule>
-22:      */
-23:     public function rules(): array
-24:     {
-25:         return [
-26:             'category_id' => ['sometimes', 'required', 'integer', Rule::exists('categories', 'id')->whereNull('deleted_at')],
-27:             'brand_id' => ['sometimes', 'nullable', 'integer', Rule::exists('brands', 'id')->whereNull('deleted_at')],
-28:             'supplier_id' => ['sometimes', 'nullable', 'integer'],
-29:             'name_ar' => ['sometimes', 'required', 'string', 'max:255'],
-30:             'name_en' => ['sometimes', 'required', 'string', 'max:255'],
-31:             'slug' => ['sometimes', 'nullable', 'alpha_dash', 'max:280', Rule::unique('products', 'slug')->ignore($this->route('product'))],
-32:             'description_ar' => ['sometimes', 'nullable', 'string'],
-33:             'description_en' => ['sometimes', 'nullable', 'string'],
-34:             'material_ar' => ['sometimes', 'nullable', 'string', 'max:150'],
-35:             'material_en' => ['sometimes', 'nullable', 'string', 'max:150'],
-36:             'length_cm' => ['sometimes', 'nullable', 'numeric', 'min:0'],
-37:             'width_cm' => ['sometimes', 'nullable', 'numeric', 'min:0'],
-38:             'height_cm' => ['sometimes', 'nullable', 'numeric', 'min:0'],
-39:             'weight_kg' => ['sometimes', 'nullable', 'numeric', 'min:0'],
-40:             'warranty_months' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:120'],
-41:             'warranty_details' => ['sometimes', 'nullable', 'string', 'max:255'],
-42:             'country_of_origin' => ['sometimes', 'nullable', 'string', 'max:100'],
-43:             'status' => ['sometimes', 'nullable', Rule::enum(ProductStatus::class)],
-44:             'sales_channel' => ['sometimes', 'required', Rule::enum(SalesChannel::class)],
-45:             'is_featured' => ['sometimes', 'nullable', 'boolean'],
-46:         ];
-47:     }
-48: }
-```
-
-## File: bags-platform/backend/app/Http/Requests/Admin/Product/UploadProductMediaRequest.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace App\Http\Requests\Admin\Product;
- 6: 
- 7: use Illuminate\Contracts\Validation\ValidationRule;
- 8: use Illuminate\Foundation\Http\FormRequest;
- 9: use Illuminate\Validation\Rule;
-10: 
-11: class UploadProductMediaRequest extends FormRequest
-12: {
-13:     public function authorize(): bool
-14:     {
-15:         return $this->user() !== null;
-16:     }
-17: 
-18:     /**
-19:      * @return array<string, array<mixed>|string|ValidationRule>
-20:      */
-21:     public function rules(): array
-22:     {
-23:         return [
-24:             'collection' => ['required', Rule::in(['images', 'video'])],
-25:             'variant_id' => ['nullable', 'integer', Rule::exists('product_variants', 'id')->where('product_id', $this->route('product')->id)->whereNull('deleted_at')],
-26:             'files' => ['required_if:collection,images', 'array', 'max:10'],
-27:             'files.*' => ['image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
-28:             'file' => ['required_if:collection,video', 'file', 'mimetypes:video/mp4,video/webm,video/quicktime', 'max:51200'],
-29:         ];
-30:     }
-31: }
-```
-
 ## File: bags-platform/backend/app/Http/Requests/Admin/Variant/StoreVariantRequest.php
 ```php
  1: <?php
@@ -1366,83 +1046,6 @@ bags-platform/
 22:         return VariantRules::base();
 23:     }
 24: }
-```
-
-## File: bags-platform/backend/app/Http/Requests/Admin/Variant/UpdateVariantRequest.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace App\Http\Requests\Admin\Variant;
- 6: 
- 7: use Illuminate\Contracts\Validation\ValidationRule;
- 8: use Illuminate\Foundation\Http\FormRequest;
- 9: 
-10: class UpdateVariantRequest extends FormRequest
-11: {
-12:     public function authorize(): bool
-13:     {
-14:         return $this->user() !== null;
-15:     }
-16: 
-17:     /**
-18:      * @return array<string, array<mixed>|string|ValidationRule>
-19:      */
-20:     public function rules(): array
-21:     {
-22:         $rules = VariantRules::base($this->route('variant')->id);
-23: 
-24:         foreach ($rules as $field => $rule) {
-25:             if ($field === 'sku') {
-26:                 $rule = array_values(array_filter($rule, fn ($value) => $value !== 'nullable'));
-27:                 array_unshift($rule, 'required');
-28:             }
-29:             array_unshift($rule, 'sometimes');
-30:             $rules[$field] = $rule;
-31:         }
-32: 
-33:         return $rules;
-34:     }
-35: }
-```
-
-## File: bags-platform/backend/app/Http/Requests/Admin/Variant/VariantRules.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace App\Http\Requests\Admin\Variant;
- 6: 
- 7: use Illuminate\Validation\Rule;
- 8: 
- 9: // قواعد الـ validation المشتركة لمتغيرات المنتج — تُستخدم في إنشاء/تعديل المتغير وفي variants.* عند إنشاء منتج.
-10: class VariantRules
-11: {
-12:     /**
-13:      * @return array<string, array<mixed>>
-14:      */
-15:     public static function base(?int $ignoreId = null): array
-16:     {
-17:         return [
-18:             'sku' => ['nullable', 'string', 'max:64', 'alpha_dash', Rule::unique('product_variants', 'sku')->ignore($ignoreId)],
-19:             'barcode' => ['nullable', 'string', 'max:32', 'regex:/^[0-9A-Za-z\-]+$/', Rule::unique('product_variants', 'barcode')->ignore($ignoreId)],
-20:             'color_name_ar' => ['nullable', 'string', 'max:50'],
-21:             'color_name_en' => ['nullable', 'string', 'max:50'],
-22:             'color_hex' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
-23:             'size' => ['nullable', 'string', 'max:50'],
-24:             'capacity' => ['nullable', 'string', 'max:50'],
-25:             'cost_price' => ['nullable', 'numeric', 'min:0', 'max:9999999'],
-26:             'retail_price' => ['nullable', 'numeric', 'min:0', 'max:9999999'],
-27:             'wholesale_price' => ['nullable', 'numeric', 'min:0', 'max:9999999'],
-28:             'reorder_level' => ['nullable', 'integer', 'min:0'],
-29:             'weight_kg' => ['nullable', 'numeric', 'min:0'],
-30:             'sort_order' => ['nullable', 'integer', 'min:0'],
-31:             'is_active' => ['nullable', 'boolean'],
-32:         ];
-33:     }
-34: }
 ```
 
 ## File: bags-platform/backend/app/Http/Resources/Admin/BrandResource.php
@@ -1573,48 +1176,6 @@ bags-platform/
 47: }
 ```
 
-## File: bags-platform/backend/app/Http/Resources/Admin/VariantResource.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace App\Http\Resources\Admin;
- 6: 
- 7: use App\Http\Resources\MediaResource;
- 8: use Illuminate\Http\Request;
- 9: use Illuminate\Http\Resources\Json\JsonResource;
-10: 
-11: class VariantResource extends JsonResource
-12: {
-13:     /**
-14:      * Transform the resource into an array.
-15:      *
-16:      * @return array<string, mixed>
-17:      */
-18:     public function toArray(Request $request): array
-19:     {
-20:         return [
-21:             'id' => $this->id,
-22:             'product_id' => $this->product_id,
-23:             'sku' => $this->sku,
-24:             'barcode' => $this->barcode,
-25:             'color' => ['name_ar' => $this->color_name_ar, 'name_en' => $this->color_name_en, 'hex' => $this->color_hex],
-26:             'size' => $this->size,
-27:             'capacity' => $this->capacity,
-28:             'cost_price' => $this->when($request->user()?->can('products.view_cost'), $this->cost_price),
-29:             'retail_price' => $this->retail_price,
-30:             'wholesale_price' => $this->wholesale_price,
-31:             'reorder_level' => $this->reorder_level,
-32:             'weight_kg' => $this->weight_kg ?? $this->product?->weight_kg,
-33:             'sort_order' => $this->sort_order,
-34:             'is_active' => $this->is_active,
-35:             'images' => MediaResource::collection($this->whenLoaded('media', fn () => $this->getMedia('images'))),
-36:         ];
-37:     }
-38: }
-```
-
 ## File: bags-platform/backend/app/Http/Resources/MediaResource.php
 ```php
  1: <?php
@@ -1649,163 +1210,6 @@ bags-platform/
 30:         ];
 31:     }
 32: }
-```
-
-## File: bags-platform/backend/app/Models/Branch.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace App\Models;
- 6: 
- 7: use App\Enums\BranchType;
- 8: use Database\Factories\BranchFactory;
- 9: use Illuminate\Database\Eloquent\Attributes\Fillable;
-10: use Illuminate\Database\Eloquent\Factories\HasFactory;
-11: use Illuminate\Database\Eloquent\Model;
-12: use Illuminate\Database\Eloquent\Relations\HasMany;
-13: 
-14: #[Fillable(['name', 'code', 'type', 'phone', 'email', 'address', 'city', 'is_active'])]
-15: class Branch extends Model
-16: {
-17:     /** @use HasFactory<BranchFactory> */
-18:     use HasFactory;
-19: 
-20:     public function locations(): HasMany
-21:     {
-22:         return $this->hasMany(Location::class);
-23:     }
-24: 
-25:     public function users(): HasMany
-26:     {
-27:         return $this->hasMany(User::class);
-28:     }
-29: 
-30:     /**
-31:      * @return array<string, string>
-32:      */
-33:     protected function casts(): array
-34:     {
-35:         return [
-36:             'type' => BranchType::class,
-37:             'is_active' => 'boolean',
-38:         ];
-39:     }
-40: }
-```
-
-## File: bags-platform/backend/app/Models/Brand.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace App\Models;
- 6: 
- 7: use Database\Factories\BrandFactory;
- 8: use Illuminate\Database\Eloquent\Factories\HasFactory;
- 9: use Illuminate\Database\Eloquent\Model;
-10: use Illuminate\Database\Eloquent\Relations\HasMany;
-11: use Illuminate\Database\Eloquent\SoftDeletes;
-12: use Spatie\MediaLibrary\HasMedia;
-13: use Spatie\MediaLibrary\InteractsWithMedia;
-14: 
-15: class Brand extends Model implements HasMedia
-16: {
-17:     /** @use HasFactory<BrandFactory> */
-18:     use HasFactory, InteractsWithMedia, SoftDeletes;
-19: 
-20:     protected $fillable = ['name_ar', 'name_en', 'slug', 'description_ar', 'description_en', 'sort_order', 'is_active'];
-21: 
-22:     protected $casts = ['is_active' => 'boolean'];
-23: 
-24:     public function products(): HasMany
-25:     {
-26:         return $this->hasMany(Product::class);
-27:     }
-28: 
-29:     public function registerMediaCollections(): void
-30:     {
-31:         $this->addMediaCollection('logo')->singleFile()
-32:             ->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml']);
-33:     }
-34: }
-```
-
-## File: bags-platform/backend/app/Models/Category.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace App\Models;
- 6: 
- 7: use Database\Factories\CategoryFactory;
- 8: use Illuminate\Database\Eloquent\Factories\HasFactory;
- 9: use Illuminate\Database\Eloquent\Model;
-10: use Illuminate\Database\Eloquent\Relations\BelongsTo;
-11: use Illuminate\Database\Eloquent\Relations\HasMany;
-12: use Illuminate\Database\Eloquent\SoftDeletes;
-13: use Spatie\MediaLibrary\HasMedia;
-14: use Spatie\MediaLibrary\InteractsWithMedia;
-15: 
-16: class Category extends Model implements HasMedia
-17: {
-18:     /** @use HasFactory<CategoryFactory> */
-19:     use HasFactory, InteractsWithMedia, SoftDeletes;
-20: 
-21:     protected $fillable = ['parent_id', 'name_ar', 'name_en', 'slug', 'description_ar', 'description_en', 'sort_order', 'is_active'];
-22: 
-23:     protected $casts = ['is_active' => 'boolean'];
-24: 
-25:     public function parent(): BelongsTo
-26:     {
-27:         return $this->belongsTo(Category::class, 'parent_id');
-28:     }
-29: 
-30:     public function children(): HasMany
-31:     {
-32:         return $this->hasMany(Category::class, 'parent_id')->orderBy('sort_order');
-33:     }
-34: 
-35:     public function products(): HasMany
-36:     {
-37:         return $this->hasMany(Product::class);
-38:     }
-39: 
-40:     public function registerMediaCollections(): void
-41:     {
-42:         $this->addMediaCollection('image')->singleFile()
-43:             ->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp']);
-44:     }
-45: 
-46:     // بيرجّع IDs كل الأقسام اللي تحته على أي مستوى
-47:     public function descendantIds(): array
-48:     {
-49:         $ids = [];
-50:         $queue = [$this->id];
-51:         while ($queue) {
-52:             $children = Category::whereIn('parent_id', $queue)->pluck('id')->all();
-53:             $ids = array_merge($ids, $children);
-54:             $queue = $children;
-55:         }
-56: 
-57:         return $ids;
-58:     }
-59: 
-60:     public function depth(): int
-61:     {
-62:         $depth = 1;
-63:         $p = $this->parent;
-64:         while ($p) {
-65:             $depth++;
-66:             $p = $p->parent;
-67:         }
-68: 
-69:         return $depth;
-70:     }
-71: }
 ```
 
 ## File: bags-platform/backend/app/Models/Customer.php
@@ -1848,172 +1252,6 @@ bags-platform/
 36:         ];
 37:     }
 38: }
-```
-
-## File: bags-platform/backend/app/Models/Location.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace App\Models;
- 6: 
- 7: use App\Enums\LocationType;
- 8: use Database\Factories\LocationFactory;
- 9: use Illuminate\Database\Eloquent\Attributes\Fillable;
-10: use Illuminate\Database\Eloquent\Factories\HasFactory;
-11: use Illuminate\Database\Eloquent\Model;
-12: use Illuminate\Database\Eloquent\Relations\BelongsTo;
-13: 
-14: #[Fillable(['branch_id', 'name', 'code', 'type', 'is_active'])]
-15: class Location extends Model
-16: {
-17:     /** @use HasFactory<LocationFactory> */
-18:     use HasFactory;
-19: 
-20:     public function branch(): BelongsTo
-21:     {
-22:         return $this->belongsTo(Branch::class);
-23:     }
-24: 
-25:     /**
-26:      * @return array<string, string>
-27:      */
-28:     protected function casts(): array
-29:     {
-30:         return [
-31:             'type' => LocationType::class,
-32:             'is_active' => 'boolean',
-33:         ];
-34:     }
-35: }
-```
-
-## File: bags-platform/backend/app/Models/Product.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace App\Models;
- 6: 
- 7: use App\Enums\ProductStatus;
- 8: use App\Enums\SalesChannel;
- 9: use Database\Factories\ProductFactory;
-10: use Illuminate\Database\Eloquent\Factories\HasFactory;
-11: use Illuminate\Database\Eloquent\Model;
-12: use Illuminate\Database\Eloquent\Relations\BelongsTo;
-13: use Illuminate\Database\Eloquent\Relations\HasMany;
-14: use Illuminate\Database\Eloquent\SoftDeletes;
-15: use Spatie\Image\Enums\Fit;
-16: use Spatie\MediaLibrary\HasMedia;
-17: use Spatie\MediaLibrary\InteractsWithMedia;
-18: use Spatie\MediaLibrary\MediaCollections\Models\Media;
-19: 
-20: class Product extends Model implements HasMedia
-21: {
-22:     /** @use HasFactory<ProductFactory> */
-23:     use HasFactory, InteractsWithMedia, SoftDeletes;
-24: 
-25:     protected $fillable = [
-26:         'code', 'category_id', 'brand_id', 'supplier_id', 'name_ar', 'name_en', 'slug',
-27:         'description_ar', 'description_en', 'material_ar', 'material_en',
-28:         'length_cm', 'width_cm', 'height_cm', 'weight_kg', 'warranty_months', 'warranty_details',
-29:         'country_of_origin', 'status', 'sales_channel', 'is_featured', 'published_at', 'created_by',
-30:     ];
-31: 
-32:     protected $casts = [
-33:         'status' => ProductStatus::class,
-34:         'sales_channel' => SalesChannel::class,
-35:         'is_featured' => 'boolean',
-36:         'published_at' => 'datetime',
-37:         'length_cm' => 'decimal:2', 'width_cm' => 'decimal:2', 'height_cm' => 'decimal:2',
-38:         'weight_kg' => 'decimal:3',
-39:     ];
-40: 
-41:     public function category(): BelongsTo
-42:     {
-43:         return $this->belongsTo(Category::class);
-44:     }
-45: 
-46:     public function brand(): BelongsTo
-47:     {
-48:         return $this->belongsTo(Brand::class);
-49:     }
-50: 
-51:     public function variants(): HasMany
-52:     {
-53:         return $this->hasMany(ProductVariant::class)->orderBy('sort_order');
-54:     }
-55: 
-56:     public function registerMediaCollections(): void
-57:     {
-58:         $this->addMediaCollection('images')
-59:             ->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp']);
-60:         $this->addMediaCollection('video')->singleFile()
-61:             ->acceptsMimeTypes(['video/mp4', 'video/webm', 'video/quicktime']);
-62:     }
-63: 
-64:     public function registerMediaConversions(?Media $media = null): void
-65:     {
-66:         $this->addMediaConversion('thumb')->fit(Fit::Crop, 300, 300)->format('webp')
-67:             ->performOnCollections('images')->nonQueued();
-68:         $this->addMediaConversion('medium')->fit(Fit::Contain, 800, 800)->format('webp')
-69:             ->performOnCollections('images')->nonQueued();
-70:     }
-71: }
-```
-
-## File: bags-platform/backend/app/Models/ProductVariant.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace App\Models;
- 6: 
- 7: use Database\Factories\ProductVariantFactory;
- 8: use Illuminate\Database\Eloquent\Factories\HasFactory;
- 9: use Illuminate\Database\Eloquent\Model;
-10: use Illuminate\Database\Eloquent\Relations\BelongsTo;
-11: use Illuminate\Database\Eloquent\SoftDeletes;
-12: use Spatie\Image\Enums\Fit;
-13: use Spatie\MediaLibrary\HasMedia;
-14: use Spatie\MediaLibrary\InteractsWithMedia;
-15: use Spatie\MediaLibrary\MediaCollections\Models\Media;
-16: 
-17: class ProductVariant extends Model implements HasMedia
-18: {
-19:     /** @use HasFactory<ProductVariantFactory> */
-20:     use HasFactory, InteractsWithMedia, SoftDeletes;
-21: 
-22:     protected $fillable = [
-23:         'product_id', 'sku', 'barcode', 'color_name_ar', 'color_name_en', 'color_hex', 'size', 'capacity',
-24:         'cost_price', 'retail_price', 'wholesale_price', 'reorder_level', 'weight_kg', 'sort_order', 'is_active',
-25:     ];
-26: 
-27:     protected $casts = [
-28:         'cost_price' => 'decimal:2', 'retail_price' => 'decimal:2', 'wholesale_price' => 'decimal:2',
-29:         'weight_kg' => 'decimal:3', 'is_active' => 'boolean',
-30:     ];
-31: 
-32:     public function product(): BelongsTo
-33:     {
-34:         return $this->belongsTo(Product::class);
-35:     }
-36: 
-37:     // صور خاصة باللون ده
-38:     public function registerMediaCollections(): void
-39:     {
-40:         $this->addMediaCollection('images')->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp']);
-41:     }
-42: 
-43:     public function registerMediaConversions(?Media $media = null): void
-44:     {
-45:         $this->addMediaConversion('thumb')->fit(Fit::Crop, 300, 300)->format('webp')->nonQueued();
-46:         $this->addMediaConversion('medium')->fit(Fit::Contain, 800, 800)->format('webp')->nonQueued();
-47:     }
-48: }
 ```
 
 ## File: bags-platform/backend/app/Models/Setting.php
@@ -2068,384 +1306,6 @@ bags-platform/
 26: }
 ```
 
-## File: bags-platform/backend/app/Models/User.php
-```php
- 1: <?php
- 2: 
- 3: namespace App\Models;
- 4: 
- 5: use Illuminate\Database\Eloquent\Relations\BelongsTo;
- 6: // use Illuminate\Contracts\Auth\MustVerifyEmail;
- 7: use Database\Factories\UserFactory;
- 8: use Illuminate\Database\Eloquent\Attributes\Fillable;
- 9: use Illuminate\Database\Eloquent\Attributes\Hidden;
-10: use Illuminate\Database\Eloquent\Factories\HasFactory;
-11: use Illuminate\Foundation\Auth\User as Authenticatable;
-12: use Illuminate\Notifications\Notifiable;
-13: use Laravel\Sanctum\HasApiTokens;
-14: use Spatie\Permission\Traits\HasRoles;
-15: 
-16: #[Fillable(['name', 'email', 'phone', 'password', 'branch_id', 'is_active'])]
-17: #[Hidden(['password', 'remember_token'])]
-18: class User extends Authenticatable
-19: {
-20:     /** @use HasFactory<UserFactory> */
-21:     use HasApiTokens, HasFactory, HasRoles, Notifiable;
-22: 
-23:     protected string $guard_name = 'staff';
-24: 
-25:     public function branch(): BelongsTo
-26:     {
-27:         return $this->belongsTo(Branch::class);
-28:     }
-29: 
-30:     /**
-31:      * Get the attributes that should be cast.
-32:      *
-33:      * @return array<string, string>
-34:      */
-35:     protected function casts(): array
-36:     {
-37:         return [
-38:             'email_verified_at' => 'datetime',
-39:             'password' => 'hashed',
-40:             'is_active' => 'boolean',
-41:         ];
-42:     }
-43: }
-```
-
-## File: bags-platform/backend/app/Modules/Catalog/Routes/api.php
-```php
-1: <?php
-2: 
-3: declare(strict_types=1);
-```
-
-## File: bags-platform/backend/app/Modules/Catalog/Routes/web.php
-```php
-1: <?php
-2: 
-3: declare(strict_types=1);
-```
-
-## File: bags-platform/backend/app/Modules/Catalog/CatalogServiceProvider.php
-```php
-1: <?php
-2: 
-3: declare(strict_types=1);
-4: 
-5: namespace App\Modules\Catalog;
-6: 
-7: use Illuminate\Support\ServiceProvider;
-8: 
-9: class CatalogServiceProvider extends ServiceProvider {}
-```
-
-## File: bags-platform/backend/app/Modules/Products/Routes/api.php
-```php
-1: <?php
-2: 
-3: declare(strict_types=1);
-```
-
-## File: bags-platform/backend/app/Modules/Products/Routes/web.php
-```php
-1: <?php
-2: 
-3: declare(strict_types=1);
-```
-
-## File: bags-platform/backend/app/Modules/Products/ProductsServiceProvider.php
-```php
-1: <?php
-2: 
-3: declare(strict_types=1);
-4: 
-5: namespace App\Modules\Products;
-6: 
-7: use Illuminate\Support\ServiceProvider;
-8: 
-9: class ProductsServiceProvider extends ServiceProvider {}
-```
-
-## File: bags-platform/backend/app/Providers/AppServiceProvider.php
-```php
- 1: <?php
- 2: 
- 3: namespace App\Providers;
- 4: 
- 5: use Illuminate\Cache\RateLimiting\Limit;
- 6: use Illuminate\Http\Request;
- 7: use Illuminate\Support\Facades\RateLimiter;
- 8: use Illuminate\Support\ServiceProvider;
- 9: use Illuminate\Support\Str;
-10: 
-11: class AppServiceProvider extends ServiceProvider
-12: {
-13:     /**
-14:      * Register any application services.
-15:      */
-16:     public function register(): void
-17:     {
-18:         //
-19:     }
-20: 
-21:     /**
-22:      * Bootstrap any application services.
-23:      */
-24:     public function boot(): void
-25:     {
-26:         RateLimiter::for('admin-login', function (Request $request): array {
-27:             $email = $request->input('email');
-28:             $normalizedEmail = is_string($email)
-29:                 ? Str::transliterate(Str::lower(trim($email)))
-30:                 : '';
-31:             $emailKey = hash('sha256', $normalizedEmail);
-32: 
-33:             return [
-34:                 Limit::perMinute(5)->by('admin-login-email:'.$emailKey),
-35:                 Limit::perHour(30)->by('admin-login-email-hour:'.$emailKey),
-36:                 Limit::perMinute(120)->by('admin-login-ip:'.($request->ip() ?? 'unknown')),
-37:             ];
-38:         });
-39:     }
-40: }
-```
-
-## File: bags-platform/backend/app/Services/Catalog/BrandService.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace App\Services\Catalog;
- 6: 
- 7: use App\Exceptions\BusinessException;
- 8: use App\Models\Brand;
- 9: use App\Services\SlugService;
-10: use Illuminate\Http\UploadedFile;
-11: use Illuminate\Support\Facades\DB;
-12: 
-13: class BrandService
-14: {
-15:     public function create(array $data, ?UploadedFile $logo): Brand
-16:     {
-17:         return DB::transaction(function () use ($data, $logo) {
-18:             unset($data['logo']);
-19:             $data = array_filter($data, fn ($value) => $value !== null);
-20: 
-21:             if (empty($data['slug'])) {
-22:                 $data['slug'] = SlugService::make(Brand::class, $data['name_en']);
-23:             }
-24: 
-25:             $brand = Brand::create($data);
-26: 
-27:             if ($logo) {
-28:                 $brand->addMedia($logo)->toMediaCollection('logo');
-29:             }
-30: 
-31:             return $brand;
-32:         });
-33:     }
-34: 
-35:     public function update(Brand $brand, array $data, ?UploadedFile $logo): Brand
-36:     {
-37:         return DB::transaction(function () use ($brand, $data, $logo) {
-38:             $removeLogo = (bool) ($data['remove_logo'] ?? false);
-39:             unset($data['logo'], $data['remove_logo']);
-40: 
-41:             if (array_key_exists('slug', $data) && empty($data['slug'])) {
-42:                 $data['slug'] = SlugService::make(Brand::class, $data['name_en'] ?? $brand->name_en, $brand->id);
-43:             }
-44: 
-45:             foreach (['sort_order', 'is_active'] as $field) {
-46:                 if (array_key_exists($field, $data) && $data[$field] === null) {
-47:                     unset($data[$field]);
-48:                 }
-49:             }
-50: 
-51:             $brand->update($data);
-52: 
-53:             if ($removeLogo) {
-54:                 $brand->clearMediaCollection('logo');
-55:             }
-56: 
-57:             if ($logo) {
-58:                 $brand->addMedia($logo)->toMediaCollection('logo');
-59:             }
-60: 
-61:             return $brand;
-62:         });
-63:     }
-64: 
-65:     public function delete(Brand $brand): void
-66:     {
-67:         if ($brand->products()->exists()) {
-68:             throw new BusinessException('لا يمكن حذف براند مرتبط بمنتجات');
-69:         }
-70: 
-71:         $brand->delete();
-72:     }
-73: }
-```
-
-## File: bags-platform/backend/app/Services/Catalog/CategoryService.php
-```php
-  1: <?php
-  2: 
-  3: declare(strict_types=1);
-  4: 
-  5: namespace App\Services\Catalog;
-  6: 
-  7: use App\Exceptions\BusinessException;
-  8: use App\Models\Category;
-  9: use App\Services\SlugService;
- 10: use Illuminate\Http\UploadedFile;
- 11: use Illuminate\Support\Collection;
- 12: use Illuminate\Support\Facades\DB;
- 13: 
- 14: class CategoryService
- 15: {
- 16:     public function create(array $data, ?UploadedFile $image): Category
- 17:     {
- 18:         return DB::transaction(function () use ($data, $image) {
- 19:             unset($data['image']);
- 20:             $data = array_filter($data, fn ($value) => $value !== null);
- 21: 
- 22:             if (empty($data['slug'])) {
- 23:                 $data['slug'] = SlugService::make(Category::class, $data['name_en']);
- 24:             }
- 25: 
- 26:             if (! empty($data['parent_id'])) {
- 27:                 $parent = Category::findOrFail($data['parent_id']);
- 28:                 if ($parent->depth() >= 3) {
- 29:                     throw new BusinessException('أقصى عمق للأقسام 3 مستويات');
- 30:                 }
- 31:             }
- 32: 
- 33:             $category = Category::create($data);
- 34: 
- 35:             if ($image) {
- 36:                 $category->addMedia($image)->toMediaCollection('image');
- 37:             }
- 38: 
- 39:             return $category;
- 40:         });
- 41:     }
- 42: 
- 43:     public function update(Category $category, array $data, ?UploadedFile $image): Category
- 44:     {
- 45:         return DB::transaction(function () use ($category, $data, $image) {
- 46:             $removeImage = (bool) ($data['remove_image'] ?? false);
- 47:             unset($data['image'], $data['remove_image']);
- 48: 
- 49:             if (array_key_exists('parent_id', $data)) {
- 50:                 $newParentId = $data['parent_id'] === null ? null : (int) $data['parent_id'];
- 51:                 if ($newParentId !== $category->parent_id) {
- 52:                     $this->assertValidParent($category, $newParentId);
- 53:                 }
- 54:             }
- 55: 
- 56:             if (array_key_exists('slug', $data) && empty($data['slug'])) {
- 57:                 $data['slug'] = SlugService::make(Category::class, $data['name_en'] ?? $category->name_en, $category->id);
- 58:             }
- 59: 
- 60:             foreach (['sort_order', 'is_active'] as $field) {
- 61:                 if (array_key_exists($field, $data) && $data[$field] === null) {
- 62:                     unset($data[$field]);
- 63:                 }
- 64:             }
- 65: 
- 66:             $category->update($data);
- 67: 
- 68:             if ($removeImage) {
- 69:                 $category->clearMediaCollection('image');
- 70:             }
- 71: 
- 72:             if ($image) {
- 73:                 $category->addMedia($image)->toMediaCollection('image');
- 74:             }
- 75: 
- 76:             return $category;
- 77:         });
- 78:     }
- 79: 
- 80:     public function delete(Category $category): void
- 81:     {
- 82:         if ($category->children()->exists()) {
- 83:             throw new BusinessException('لا يمكن حذف قسم يحتوي على أقسام فرعية');
- 84:         }
- 85: 
- 86:         if ($category->products()->exists()) {
- 87:             throw new BusinessException('لا يمكن حذف قسم مرتبط بمنتجات');
- 88:         }
- 89: 
- 90:         $category->delete();
- 91:     }
- 92: 
- 93:     public function reorder(array $items): void
- 94:     {
- 95:         DB::transaction(function () use ($items): void {
- 96:             foreach ($items as $item) {
- 97:                 $category = Category::findOrFail($item['id']);
- 98:                 $parentId = isset($item['parent_id']) ? (int) $item['parent_id'] : null;
- 99:                 $this->assertValidParent($category, $parentId);
-100:                 $category->update(['parent_id' => $parentId, 'sort_order' => $item['sort_order']]);
-101:             }
-102:         });
-103:     }
-104: 
-105:     public function tree(bool $onlyActive = false): Collection
-106:     {
-107:         $all = Category::query()->with('media')->withCount('products')
-108:             ->when($onlyActive, fn ($q) => $q->where('is_active', true))
-109:             ->orderBy('sort_order')->get();
-110:         $grouped = $all->groupBy('parent_id');
-111:         $build = function ($parentId) use (&$build, $grouped) {
-112:             return ($grouped[$parentId ?? ''] ?? collect())->map(function ($cat) use ($build) {
-113:                 $cat->setRelation('children', $build($cat->id));
-114: 
-115:                 return $cat;
-116:             })->values();
-117:         };
-118: 
-119:         return $build(null);
-120:     }
-121: 
-122:     public function assertValidParent(Category $category, ?int $parentId): void
-123:     {
-124:         if ($parentId === null) {
-125:             return;
-126:         }
-127: 
-128:         if ($parentId === $category->id) {
-129:             throw new BusinessException('لا يمكن أن يكون القسم أبًا لنفسه');
-130:         }
-131: 
-132:         if (in_array($parentId, $category->descendantIds(), true)) {
-133:             throw new BusinessException('لا يمكن نقل القسم إلى أحد أقسامه الفرعية');
-134:         }
-135: 
-136:         $parent = Category::findOrFail($parentId);
-137: 
-138:         if ($parent->depth() + $this->subtreeHeight($category) > 3) {
-139:             throw new BusinessException('أقصى عمق للأقسام 3 مستويات');
-140:         }
-141:     }
-142: 
-143:     private function subtreeHeight(Category $category): int
-144:     {
-145:         $height = 1;
-146:         foreach ($category->children as $child) {
-147:             $height = max($height, 1 + $this->subtreeHeight($child));
-148:         }
-149: 
-150:         return $height;
-151:     }
-152: }
-```
-
 ## File: bags-platform/backend/app/Services/Catalog/ProductMediaService.php
 ```php
  1: <?php
@@ -2471,7 +1331,7 @@ bags-platform/
 21:         $media = Media::query()
 22:             ->where(fn ($q) => $q->where(['model_type' => Product::class, 'model_id' => $product->id])
 23:                 ->orWhere(fn ($w) => $w->where('model_type', ProductVariant::class)->whereIn('model_id', $variantIds)))
-24:             ->orderBy('order_column')->get();
+24:             ->orderBy('order_column')->orderBy('id')->get();
 25: 
 26:         return $media;
 27:     }
@@ -2479,168 +1339,58 @@ bags-platform/
 29:     public function upload(Product $product, array $data, array $files = [], ?UploadedFile $file = null): Collection
 30:     {
 31:         return DB::transaction(function () use ($product, $data, $files, $file) {
-32:             $owner = ! empty($data['variant_id']) ? $product->variants()->findOrFail($data['variant_id']) : $product;
-33:             if ($data['collection'] === 'video') {
-34:                 if ($owner instanceof ProductVariant) {
-35:                     throw new BusinessException('الفيديو للمنتج فقط');
-36:                 }
-37: 
-38:                 return collect([$product->addMedia($file)->toMediaCollection('video')]);
-39:             }
-40: 
-41:             return collect($files)->map(fn ($image) => $owner->addMedia($image)->toMediaCollection('images'));
-42:         });
-43:     }
-44: 
-45:     public function reorder(Product $product, array $ids): void
-46:     {
-47:         $this->assertMediaBelongs($product, $ids);
-48:         DB::transaction(fn () => Media::setNewOrder($ids));
-49:     }
-50: 
-51:     public function delete(Product $product, Media $media): void
-52:     {
-53:         $this->assertMediaBelongs($product, [$media->id]);
-54:         if ($product->status === ProductStatus::Published && $media->collection_name === 'images'
-55:             && $media->model_type === Product::class && $product->getMedia('images')->count() <= 1) {
-56:             throw new BusinessException('لا يمكن حذف آخر صورة لمنتج منشور');
-57:         }
-58:         $media->delete();
-59:     }
-60: 
-61:     private function assertMediaBelongs(Product $product, array $ids): void
-62:     {
-63:         $variantIds = $product->variants()->withTrashed()->pluck('id')->all();
-64:         $count = Media::whereIn('id', $ids)->where(fn ($q) => $q
-65:             ->where(fn ($w) => $w->where('model_type', Product::class)->where('model_id', $product->id))
-66:             ->orWhere(fn ($w) => $w->where('model_type', ProductVariant::class)->whereIn('model_id', $variantIds))
-67:         )->count();
-68:         if ($count !== count(array_unique($ids))) {
-69:             abort(404, 'ملف غير تابع لهذا المنتج');
-70:         }
-71:     }
-72: }
+32:             $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
+33:             $owner = ! empty($data['variant_id']) ? $product->variants()->findOrFail($data['variant_id']) : $product;
+34:             if ($data['collection'] === 'video') {
+35:                 if ($owner instanceof ProductVariant) {
+36:                     throw new BusinessException('الفيديو للمنتج فقط');
+37:                 }
+38: 
+39:                 return collect([$product->addMedia($file)->toMediaCollection('video')]);
+40:             }
+41: 
+42:             return collect($files)->map(fn ($image) => $owner->addMedia($image)->toMediaCollection('images'));
+43:         });
+44:     }
+45: 
+46:     public function reorder(Product $product, array $ids): void
+47:     {
+48:         DB::transaction(function () use ($product, $ids): void {
+49:             $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
+50:             $this->assertMediaBelongs($product, $ids);
+51:             Media::setNewOrder($ids);
+52:         });
+53:     }
+54: 
+55:     public function delete(Product $product, Media $media): void
+56:     {
+57:         DB::transaction(function () use ($product, $media): void {
+58:             $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
+59:             $media = Media::whereKey($media->id)->firstOrFail();
+60:             $this->assertMediaBelongs($product, [$media->id]);
+61:             if ($product->status === ProductStatus::Published && $media->collection_name === 'images'
+62:                 && $media->model_type === Product::class && $product->getMedia('images')->count() <= 1) {
+63:                 throw new BusinessException('لا يمكن حذف آخر صورة لمنتج منشور');
+64:             }
+65:             $media->delete();
+66:         });
+67:     }
+68: 
+69:     private function assertMediaBelongs(Product $product, array $ids): void
+70:     {
+71:         $variantIds = $product->variants()->withTrashed()->pluck('id')->all();
+72:         $count = Media::whereIn('id', $ids)->where(fn ($q) => $q
+73:             ->where(fn ($w) => $w->where('model_type', Product::class)->where('model_id', $product->id))
+74:             ->orWhere(fn ($w) => $w->where('model_type', ProductVariant::class)->whereIn('model_id', $variantIds))
+75:         )->count();
+76:         if ($count !== count(array_unique($ids))) {
+77:             abort(404, 'ملف غير تابع لهذا المنتج');
+78:         }
+79:     }
+80: }
 ```
 
-## File: bags-platform/backend/app/Services/Catalog/ProductService.php
-```php
-  1: <?php
-  2: 
-  3: declare(strict_types=1);
-  4: 
-  5: namespace App\Services\Catalog;
-  6: 
-  7: use App\Enums\ProductStatus;
-  8: use App\Exceptions\BusinessException;
-  9: use App\Models\Product;
- 10: use App\Models\User;
- 11: use App\Services\SlugService;
- 12: use Illuminate\Support\Facades\DB;
- 13: 
- 14: class ProductService
- 15: {
- 16:     public function create(array $data, User $user): Product
- 17:     {
- 18:         return DB::transaction(function () use ($data, $user) {
- 19:             $variants = $data['variants'] ?? [];
- 20:             unset($data['variants']);
- 21:             $data = array_filter($data, fn ($value) => $value !== null);
- 22: 
- 23:             $data['slug'] = $data['slug'] ?? SlugService::make(Product::class, $data['name_en']);
- 24:             $data['created_by'] = $user->id;
- 25:             $wantsPublish = ($data['status'] ?? 'draft') === ProductStatus::Published->value;
- 26:             $data['status'] = ProductStatus::Draft->value; // دايمًا يتعمل draft الأول
- 27: 
- 28:             $product = Product::create($data);
- 29:             $product->update(['code' => 'P'.str_pad((string) $product->id, 5, '0', STR_PAD_LEFT)]);
- 30: 
- 31:             foreach ($variants as $v) {
- 32:                 app(VariantService::class)->create($product, $v);
- 33:             }
- 34: 
- 35:             if ($wantsPublish) {
- 36:                 $this->changeStatus($product, ProductStatus::Published, $user);
- 37:             }
- 38: 
- 39:             return $product->fresh(['category', 'brand', 'variants', 'media']);
- 40:         });
- 41:     }
- 42: 
- 43:     public function update(Product $product, array $data, User $user): Product
- 44:     {
- 45:         return DB::transaction(function () use ($product, $data, $user) {
- 46:             $newStatus = isset($data['status']) ? ProductStatus::from($data['status']) : null;
- 47:             unset($data['status']);
- 48: 
- 49:             if (array_key_exists('slug', $data) && empty($data['slug'])) {
- 50:                 $data['slug'] = SlugService::make(Product::class, $data['name_en'] ?? $product->name_en, $product->id);
- 51:             }
- 52: 
- 53:             if (array_key_exists('is_featured', $data) && $data['is_featured'] === null) {
- 54:                 unset($data['is_featured']);
- 55:             }
- 56: 
- 57:             $product->update($data);
- 58: 
- 59:             if ($newStatus && $newStatus !== $product->status) {
- 60:                 $this->changeStatus($product, $newStatus, $user);
- 61:             }
- 62: 
- 63:             return $product->fresh(['category', 'brand', 'variants', 'media']);
- 64:         });
- 65:     }
- 66: 
- 67:     public function changeStatus(Product $product, ProductStatus $status, User $user): void
- 68:     {
- 69:         if ($status === ProductStatus::Published) {
- 70:             if (! $user->can('products.publish')) {
- 71:                 throw new BusinessException('ليس لديك صلاحية نشر المنتجات', [], 403);
- 72:             }
- 73:             $this->assertPublishable($product);
- 74:             $product->published_at ??= now();
- 75:         }
- 76:         $product->status = $status;
- 77:         $product->save();
- 78:     }
- 79: 
- 80:     public function assertPublishable(Product $product): void
- 81:     {
- 82:         $errors = [];
- 83:         $active = $product->variants()->where('is_active', true)->get();
- 84: 
- 85:         if ($active->isEmpty()) {
- 86:             $errors[] = 'يجب وجود متغير واحد نشط على الأقل';
- 87:         }
- 88:         if ($product->sales_channel->allowsRetail() && $active->contains(fn ($v) => ! $v->retail_price || $v->retail_price <= 0)) {
- 89:             $errors[] = 'كل المتغيرات النشطة لازم يكون لها سعر قطاعي';
- 90:         }
- 91:         if ($product->sales_channel->allowsWholesale() && $active->contains(fn ($v) => ! $v->wholesale_price || $v->wholesale_price <= 0)) {
- 92:             $errors[] = 'كل المتغيرات النشطة لازم يكون لها سعر جملة';
- 93:         }
- 94:         if ($product->getMedia('images')->isEmpty()) {
- 95:             $errors[] = 'يجب رفع صورة واحدة على الأقل';
- 96:         }
- 97:         if (! $product->category?->is_active) {
- 98:             $errors[] = 'القسم غير نشط';
- 99:         }
-100: 
-101:         if ($errors) {
-102:             throw new BusinessException('لا يمكن نشر المنتج', ['status' => $errors]);
-103:         }
-104:     }
-105: 
-106:     public function delete(Product $product): void
-107:     {
-108:         DB::transaction(function () use ($product): void {
-109:             $product->variants()->delete();  // soft
-110:             $product->delete();              // soft
-111:         });
-112:         // TODO مرحلة الطلبات: منع الحذف لو المنتج عليه طلبات، وبدل كده يتعمل archived
-113:     }
-114: }
-```
-
-## File: bags-platform/backend/app/Services/Catalog/VariantService.php
+## File: bags-platform/backend/app/Services/Catalog/ProductPublishabilityChecker.php
 ```php
  1: <?php
  2: 
@@ -2648,91 +1398,84 @@ bags-platform/
  4: 
  5: namespace App\Services\Catalog;
  6: 
- 7: use App\Enums\ProductStatus;
- 8: use App\Exceptions\BusinessException;
- 9: use App\Models\Product;
-10: use App\Models\ProductVariant;
-11: use App\Services\BarcodeGenerator;
-12: use Illuminate\Support\Facades\DB;
-13: 
-14: class VariantService
+ 7: use App\Exceptions\BusinessException;
+ 8: use App\Models\Product;
+ 9: 
+10: /**
+11:  * قواعد قابلية النشر: بتتفحص وقت النشر، وبتتعاد بعد أي تعديل على منتج منشور
+12:  * عشان المنتج المنشور يفضل دايمًا مستوفي الشروط (H1).
+13:  */
+14: class ProductPublishabilityChecker
 15: {
-16:     public function create(Product $product, array $data): ProductVariant
+16:     public function assertPublishable(Product $product): void
 17:     {
-18:         $data = array_filter($data, fn ($value) => $value !== null);
-19: 
-20:         return DB::transaction(function () use ($product, $data) {
-21:             Product::whereKey($product->id)->lockForUpdate()->first(); // منع تكرار الترقيم
-22:             $this->assertUniqueCombination($product, $data);
+18:         // نشتغل على نسخة حديثة من قاعدة البيانات عشان الفحص يشوف آخر تعديلات
+19:         $product = $product->fresh() ?? $product;
+20: 
+21:         $errors = [];
+22:         $active = $product->variants()->where('is_active', true)->get();
 23: 
-24:             if (empty($data['sku'])) {
-25:                 $seq = $product->variants()->withTrashed()->count() + 1;
-26:                 do {
-27:                     $sku = $product->code.'-'.str_pad((string) $seq, 2, '0', STR_PAD_LEFT);
-28:                     $seq++;
-29:                 } while (ProductVariant::withTrashed()->where('sku', $sku)->exists());
-30:                 $data['sku'] = $sku;
-31:             }
-32: 
-33:             $variant = $product->variants()->create($data);
-34: 
-35:             if (empty($variant->barcode)) {
-36:                 $variant->update(['barcode' => BarcodeGenerator::fromId($variant->id)]);
-37:             }
-38: 
-39:             return $variant;
-40:         });
-41:     }
-42: 
-43:     public function update(ProductVariant $variant, array $data): ProductVariant
-44:     {
-45:         foreach (['cost_price', 'reorder_level', 'sort_order', 'is_active'] as $field) {
-46:             if (array_key_exists($field, $data) && $data[$field] === null) {
-47:                 unset($data[$field]);
-48:             }
-49:         }
-50: 
-51:         return DB::transaction(function () use ($variant, $data) {
-52:             $this->assertUniqueCombination($variant->product, array_merge($variant->only(['color_name_en', 'size', 'capacity']), $data), $variant->id);
-53: 
-54:             if (array_key_exists('is_active', $data) && ! $data['is_active']) {
-55:                 $this->assertNotLastActiveOfPublished($variant);
-56:             }
-57:             $variant->update($data);
-58: 
-59:             return $variant->fresh('media');
-60:         });
-61:     }
-62: 
-63:     public function delete(ProductVariant $variant): void
-64:     {
-65:         $this->assertNotLastActiveOfPublished($variant);
-66:         $variant->delete();
-67:         // TODO مرحلة المخزون: منع الحذف لو عليه رصيد
-68:     }
-69: 
-70:     private function assertUniqueCombination(Product $product, array $d, ?int $ignoreId = null): void
-71:     {
-72:         $exists = $product->variants()
-73:             ->when($ignoreId, fn ($q) => $q->where('id', '!=', $ignoreId))
-74:             ->where(fn ($q) => isset($d['color_name_en']) ? $q->where('color_name_en', $d['color_name_en']) : $q->whereNull('color_name_en'))
-75:             ->where(fn ($q) => isset($d['size']) ? $q->where('size', $d['size']) : $q->whereNull('size'))
-76:             ->where(fn ($q) => isset($d['capacity']) ? $q->where('capacity', $d['capacity']) : $q->whereNull('capacity'))
-77:             ->exists();
-78:         if ($exists) {
-79:             throw new BusinessException('يوجد متغير بنفس اللون والمقاس والسعة لهذا المنتج');
-80:         }
-81:     }
-82: 
-83:     private function assertNotLastActiveOfPublished(ProductVariant $variant): void
-84:     {
-85:         $product = $variant->product;
-86:         if ($product->status === ProductStatus::Published
-87:             && $product->variants()->where('is_active', true)->where('id', '!=', $variant->id)->doesntExist()) {
-88:             throw new BusinessException('لا يمكن حذف/تعطيل آخر متغير نشط في منتج منشور');
-89:         }
-90:     }
-91: }
+24:         if ($active->isEmpty()) {
+25:             $errors[] = 'يجب وجود متغير واحد نشط على الأقل';
+26:         }
+27:         if ($product->sales_channel->allowsRetail() && $active->contains(fn ($v) => ! $v->retail_price || $v->retail_price <= 0)) {
+28:             $errors[] = 'كل المتغيرات النشطة لازم يكون لها سعر قطاعي';
+29:         }
+30:         if ($product->sales_channel->allowsWholesale() && $active->contains(fn ($v) => ! $v->wholesale_price || $v->wholesale_price <= 0)) {
+31:             $errors[] = 'كل المتغيرات النشطة لازم يكون لها سعر جملة';
+32:         }
+33:         if ($product->getMedia('images')->isEmpty()) {
+34:             $errors[] = 'يجب رفع صورة واحدة على الأقل';
+35:         }
+36:         if (! $product->category?->is_active) {
+37:             $errors[] = 'القسم غير نشط';
+38:         }
+39: 
+40:         if ($errors) {
+41:             throw new BusinessException('لا يمكن نشر المنتج', ['status' => $errors]);
+42:         }
+43:     }
+44: }
+```
+
+## File: bags-platform/backend/app/Services/Media/UuidPathGenerator.php
+```php
+ 1: <?php
+ 2: 
+ 3: declare(strict_types=1);
+ 4: 
+ 5: namespace App\Services\Media;
+ 6: 
+ 7: use Illuminate\Support\Facades\Storage;
+ 8: use Spatie\MediaLibrary\MediaCollections\Models\Media;
+ 9: use Spatie\MediaLibrary\Support\PathGenerator\PathGenerator;
+10: 
+11: // مسارات الميديا بالـ uuid بدل الـ id المتسلسل، فصور المسودات مبتتخمنش بترقيم بسيط
+12: class UuidPathGenerator implements PathGenerator
+13: {
+14:     public function getPath(Media $media): string
+15:     {
+16:         if (! $media->uuid || $media->getCustomProperty('path_layout') === 'id') {
+17:             return $media->id.'/';
+18:         }
+19: 
+20:         if (! $media->hasCustomProperty('path_layout') && Storage::disk($media->disk)->exists($media->id.'/'.$media->file_name)) {
+21:             return $media->id.'/';
+22:         }
+23: 
+24:         return $media->uuid.'/';
+25:     }
+26: 
+27:     public function getPathForConversions(Media $media): string
+28:     {
+29:         return $this->getPath($media).'conversions/';
+30:     }
+31: 
+32:     public function getPathForResponsiveImages(Media $media): string
+33:     {
+34:         return $this->getPath($media).'responsive-images/';
+35:     }
+36: }
 ```
 
 ## File: bags-platform/backend/app/Services/BarcodeGenerator.php
@@ -2760,219 +1503,7 @@ bags-platform/
 21: }
 ```
 
-## File: bags-platform/backend/app/Services/SettingService.php
-```php
-  1: <?php
-  2: 
-  3: declare(strict_types=1);
-  4: 
-  5: namespace App\Services;
-  6: 
-  7: use App\Models\Setting;
-  8: use Illuminate\Support\Facades\Cache;
-  9: use Illuminate\Support\Facades\DB;
- 10: use InvalidArgumentException;
- 11: use JsonException;
- 12: 
- 13: class SettingService
- 14: {
- 15:     private const CACHE_KEY = 'app_settings_static';
- 16: 
- 17:     private const CACHE_TTL_SECONDS = 3600;
- 18: 
- 19:     /** @var list<string> */
- 20:     private const NUMBERING_COUNTER_KEYS = [
- 21:         'invoice_next_number',
- 22:         'order_next_number',
- 23:         'purchase_order_next_number',
- 24:         'quotation_next_number',
- 25:     ];
- 26: 
- 27:     /**
- 28:      * Return all settings grouped by their group name, with values cast to their declared types.
- 29:      * Numbering counters are read fresh because they change for every generated document number.
- 30:      *
- 31:      * @return array<string, array<string, mixed>>
- 32:      */
- 33:     public function getAllGrouped(): array
- 34:     {
- 35:         $grouped = Cache::remember(self::CACHE_KEY, self::CACHE_TTL_SECONDS, function (): array {
- 36:             return Setting::query()
- 37:                 ->whereNotIn('key', self::NUMBERING_COUNTER_KEYS)
- 38:                 ->orderBy('group')
- 39:                 ->orderBy('key')
- 40:                 ->get()
- 41:                 ->groupBy('group')
- 42:                 ->map(fn ($settings): array => $settings
- 43:                     ->mapWithKeys(fn (Setting $setting): array => [
- 44:                         $setting->key => $this->castValue($setting->value, $setting->type),
- 45:                     ])
- 46:                     ->all())
- 47:                 ->all();
- 48:         });
- 49: 
- 50:         $counters = Setting::query()
- 51:             ->whereIn('key', self::NUMBERING_COUNTER_KEYS)
- 52:             ->orderBy('key')
- 53:             ->get()
- 54:             ->mapWithKeys(fn (Setting $setting): array => [
- 55:                 $setting->key => $this->castValue($setting->value, $setting->type),
- 56:             ])
- 57:             ->all();
- 58: 
- 59:         if ($counters !== []) {
- 60:             $grouped['numbering'] = array_merge($grouped['numbering'] ?? [], $counters);
- 61:             ksort($grouped['numbering']);
- 62:         }
- 63: 
- 64:         return $grouped;
- 65:     }
- 66: 
- 67:     public function get(string $key, mixed $default = null): mixed
- 68:     {
- 69:         foreach ($this->getAllGrouped() as $settings) {
- 70:             if (array_key_exists($key, $settings)) {
- 71:                 return $settings[$key];
- 72:             }
- 73:         }
- 74: 
- 75:         return $default;
- 76:     }
- 77: 
- 78:     /**
- 79:      * Update a flat key/value map atomically and invalidate the cached settings after commit.
- 80:      *
- 81:      * @param  array<string, mixed>  $settings
- 82:      *
- 83:      * @throws JsonException
- 84:      */
- 85:     public function updateBatch(array $settings): void
- 86:     {
- 87:         DB::transaction(function () use ($settings): void {
- 88:             $lockedSettings = Setting::query()
- 89:                 ->whereIn('key', array_keys($settings))
- 90:                 ->orderBy('key')
- 91:                 ->lockForUpdate()
- 92:                 ->get()
- 93:                 ->keyBy('key');
- 94: 
- 95:             $missingKeys = array_diff(array_keys($settings), $lockedSettings->keys()->all());
- 96: 
- 97:             if ($missingKeys !== []) {
- 98:                 throw new InvalidArgumentException('Settings are not initialized: '.implode(', ', $missingKeys));
- 99:             }
-100: 
-101:             foreach ($settings as $key => $value) {
-102:                 /** @var Setting $setting */
-103:                 $setting = $lockedSettings->get($key);
-104: 
-105:                 if (in_array($key, self::NUMBERING_COUNTER_KEYS, true) && is_numeric($value)) {
-106:                     $value = max((int) $setting->value, (int) $value);
-107:                 }
-108: 
-109:                 $setting->value = $value === null && str_ends_with($key, '_prefix')
-110:                     ? ''
-111:                     : $this->serializeValue($value, $setting->type);
-112:                 $setting->save();
-113:             }
-114: 
-115:             DB::afterCommit(fn () => $this->clearCache());
-116:         }, attempts: 3);
-117:     }
-118: 
-119:     /**
-120:      * Atomically return and increment the next document number for the requested type.
-121:      *
-122:      * @throws JsonException
-123:      */
-124:     public function generateNextNumber(string $type): string
-125:     {
-126:         $definitions = [
-127:             'invoice' => ['prefix' => 'invoice_prefix', 'next' => 'invoice_next_number', 'padding' => 'invoice_padding'],
-128:             'order' => ['prefix' => 'order_prefix', 'next' => 'order_next_number', 'padding' => 'order_padding'],
-129:             'purchase_order' => ['prefix' => 'purchase_order_prefix', 'next' => 'purchase_order_next_number', 'padding' => 'purchase_order_padding'],
-130:             'quotation' => ['prefix' => 'quotation_prefix', 'next' => 'quotation_next_number', 'padding' => 'quotation_padding'],
-131:         ];
-132: 
-133:         if (! isset($definitions[$type])) {
-134:             throw new InvalidArgumentException("Unsupported numbering type [{$type}].");
-135:         }
-136: 
-137:         $definition = $definitions[$type];
-138:         $keys = array_values(array_filter([
-139:             $definition['prefix'],
-140:             $definition['next'],
-141:             $definition['padding'],
-142:         ]));
-143: 
-144:         return DB::transaction(function () use ($definition, $keys): string {
-145:             $settings = Setting::query()
-146:                 ->whereIn('key', $keys)
-147:                 ->orderBy('key')
-148:                 ->lockForUpdate()
-149:                 ->get()
-150:                 ->keyBy('key');
-151: 
-152:             foreach ($keys as $key) {
-153:                 if (! $settings->has($key)) {
-154:                     throw new InvalidArgumentException("Required numbering setting [{$key}] is missing.");
-155:                 }
-156:             }
-157: 
-158:             $prefix = (string) $settings->get($definition['prefix'])->value;
-159:             $nextSetting = $settings->get($definition['next']);
-160:             $nextValue = (int) $nextSetting->value;
-161:             $padding = max(0, (int) $settings->get($definition['padding'])->value);
-162: 
-163:             $formatted = $prefix.str_pad((string) $nextValue, $padding, '0', STR_PAD_LEFT);
-164:             $nextSetting->value = (string) ($nextValue + 1);
-165:             $nextSetting->save();
-166: 
-167:             return $formatted;
-168:         }, attempts: 3);
-169:     }
-170: 
-171:     public function clearCache(): void
-172:     {
-173:         Cache::forget(self::CACHE_KEY);
-174:     }
-175: 
-176:     private function castValue(?string $value, string $type): mixed
-177:     {
-178:         if ($value === null) {
-179:             return null;
-180:         }
-181: 
-182:         return match ($type) {
-183:             'boolean' => filter_var($value, FILTER_VALIDATE_BOOLEAN),
-184:             'integer' => (int) $value,
-185:             'float' => (float) $value,
-186:             'json' => json_decode($value, true, 512, JSON_THROW_ON_ERROR),
-187:             default => $value,
-188:         };
-189:     }
-190: 
-191:     /** @throws JsonException */
-192:     private function serializeValue(mixed $value, string $type): ?string
-193:     {
-194:         if ($value === null) {
-195:             return null;
-196:         }
-197: 
-198:         if ($type === 'json') {
-199:             return json_encode($value, JSON_THROW_ON_ERROR);
-200:         }
-201: 
-202:         if ($type === 'boolean') {
-203:             return filter_var($value, FILTER_VALIDATE_BOOLEAN) ? '1' : '0';
-204:         }
-205: 
-206:         return (string) $value;
-207:     }
-208: }
-```
-
-## File: bags-platform/backend/app/Services/SlugService.php
+## File: bags-platform/backend/app/Services/SearchTerm.php
 ```php
  1: <?php
  2: 
@@ -2980,75 +1511,19 @@ bags-platform/
  4: 
  5: namespace App\Services;
  6: 
- 7: use Illuminate\Support\Str;
- 8: 
- 9: class SlugService
-10: {
-11:     public static function make(string $modelClass, string $source, ?int $ignoreId = null): string
-12:     {
-13:         $base = Str::slug($source) ?: Str::random(8);
-14:         $slug = $base;
-15:         $i = 2;
-16:         while ($modelClass::withTrashed()->where('slug', $slug)
-17:             ->when($ignoreId, fn ($q) => $q->where('id', '!=', $ignoreId))->exists()) {
-18:             $slug = "{$base}-{$i}";
-19:             $i++;
-20:         }
-21: 
-22:         return $slug;
-23:     }
-24: }
-```
-
-## File: bags-platform/backend/bootstrap/app.php
-```php
- 1: <?php
- 2: 
- 3: use App\Http\Middleware\EnsureCustomerAuthenticated;
- 4: use App\Http\Middleware\EnsureStaffAuthenticated;
- 5: use App\Http\Middleware\EnsureSupplierAuthenticated;
- 6: use App\Http\Middleware\EnsureWholesaleApproved;
- 7: use Illuminate\Foundation\Application;
- 8: use Illuminate\Foundation\Configuration\Exceptions;
- 9: use Illuminate\Foundation\Configuration\Middleware;
-10: use Illuminate\Http\Request;
-11: use Illuminate\Support\Facades\Route;
-12: use Spatie\Permission\Middleware\PermissionMiddleware;
-13: use Spatie\Permission\Middleware\RoleMiddleware;
+ 7: // تجهيز نص البحث لاستعلام LIKE: الـ wildcards اللي جاية من المستخدم بتتعامل كنص حرفي مش نمط
+ 8: class SearchTerm
+ 9: {
+10:     public static function escape(string $term): string
+11:     {
+12:         return strtr($term, ['\\' => '\\\\', '%' => '\\%', '_' => '\\_']);
+13:     }
 14: 
-15: return Application::configure(basePath: dirname(__DIR__))
-16:     ->withRouting(
-17:         web: __DIR__.'/../routes/web.php',
-18:         commands: __DIR__.'/../routes/console.php',
-19:         health: '/up',
-20:         then: function (): void {
-21:             Route::middleware('api')
-22:                 ->prefix('api/v1/admin')
-23:                 ->group(base_path('routes/api/admin.php'));
-24:         },
-25:     )
-26:     ->withMiddleware(function (Middleware $middleware): void {
-27:         $trustedProxies = env('TRUSTED_PROXIES');
-28:         $middleware->trustProxies(
-29:             at: is_string($trustedProxies) && trim($trustedProxies) !== ''
-30:                 ? array_map('trim', explode(',', $trustedProxies))
-31:                 : null,
-32:         );
-33: 
-34:         $middleware->alias([
-35:             'auth.staff' => EnsureStaffAuthenticated::class,
-36:             'auth.customer' => EnsureCustomerAuthenticated::class,
-37:             'auth.supplier' => EnsureSupplierAuthenticated::class,
-38:             'wholesale.approved' => EnsureWholesaleApproved::class,
-39:             'role' => RoleMiddleware::class,
-40:             'permission' => PermissionMiddleware::class,
-41:         ]);
-42:     })
-43:     ->withExceptions(function (Exceptions $exceptions): void {
-44:         $exceptions->shouldRenderJsonWhen(
-45:             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
-46:         );
-47:     })->create();
+15:     public static function pattern(string $term): string
+16:     {
+17:         return '%'.self::escape($term).'%';
+18:     }
+19: }
 ```
 
 ## File: bags-platform/backend/bootstrap/providers.php
@@ -3192,151 +1667,6 @@ bags-platform/
 126: ];
 ```
 
-## File: bags-platform/backend/config/auth.php
-```php
-  1: <?php
-  2: 
-  3: use App\Models\Customer;
-  4: use App\Models\SupplierUser;
-  5: use App\Models\User;
-  6: 
-  7: return [
-  8: 
-  9:     /*
- 10:     |--------------------------------------------------------------------------
- 11:     | Authentication Defaults
- 12:     |--------------------------------------------------------------------------
- 13:     |
- 14:     | This option defines the default authentication "guard" and password
- 15:     | reset "broker" for your application. You may change these values
- 16:     | as required, but they're a perfect start for most applications.
- 17:     |
- 18:     */
- 19: 
- 20:     'defaults' => [
- 21:         'guard' => env('AUTH_GUARD', 'web'),
- 22:         'passwords' => env('AUTH_PASSWORD_BROKER', 'users'),
- 23:     ],
- 24: 
- 25:     /*
- 26:     |--------------------------------------------------------------------------
- 27:     | Authentication Guards
- 28:     |--------------------------------------------------------------------------
- 29:     |
- 30:     | Next, you may define every authentication guard for your application.
- 31:     | Of course, a great default configuration has been defined for you
- 32:     | which utilizes session storage plus the Eloquent user provider.
- 33:     |
- 34:     | All authentication guards have a user provider, which defines how the
- 35:     | users are actually retrieved out of your database or other storage
- 36:     | system used by the application. Typically, Eloquent is utilized.
- 37:     |
- 38:     | Supported: "session"
- 39:     |
- 40:     */
- 41: 
- 42:     'guards' => [
- 43:         'web' => [
- 44:             'driver' => 'session',
- 45:             'provider' => 'users',
- 46:         ],
- 47:         'staff' => [
- 48:             'driver' => 'sanctum',
- 49:             'provider' => 'users',
- 50:         ],
- 51:         'customer' => [
- 52:             'driver' => 'sanctum',
- 53:             'provider' => 'customers',
- 54:         ],
- 55:         'supplier' => [
- 56:             'driver' => 'sanctum',
- 57:             'provider' => 'supplier_users',
- 58:         ],
- 59:     ],
- 60: 
- 61:     /*
- 62:     |--------------------------------------------------------------------------
- 63:     | User Providers
- 64:     |--------------------------------------------------------------------------
- 65:     |
- 66:     | All authentication guards have a user provider, which defines how the
- 67:     | users are actually retrieved out of your database or other storage
- 68:     | system used by the application. Typically, Eloquent is utilized.
- 69:     |
- 70:     | If you have multiple user tables or models you may configure multiple
- 71:     | providers to represent the model / table. These providers may then
- 72:     | be assigned to any extra authentication guards you have defined.
- 73:     |
- 74:     | Supported: "database", "eloquent"
- 75:     |
- 76:     */
- 77: 
- 78:     'providers' => [
- 79:         'users' => [
- 80:             'driver' => 'eloquent',
- 81:             'model' => env('AUTH_MODEL', User::class),
- 82:         ],
- 83: 
- 84:         'customers' => [
- 85:             'driver' => 'eloquent',
- 86:             'model' => Customer::class,
- 87:         ],
- 88: 
- 89:         'supplier_users' => [
- 90:             'driver' => 'eloquent',
- 91:             'model' => SupplierUser::class,
- 92:         ],
- 93: 
- 94:         // 'users' => [
- 95:         //     'driver' => 'database',
- 96:         //     'table' => 'users',
- 97:         // ],
- 98:     ],
- 99: 
-100:     /*
-101:     |--------------------------------------------------------------------------
-102:     | Resetting Passwords
-103:     |--------------------------------------------------------------------------
-104:     |
-105:     | These configuration options specify the behavior of Laravel's password
-106:     | reset functionality, including the table utilized for token storage
-107:     | and the user provider that is invoked to actually retrieve users.
-108:     |
-109:     | The expiry time is the number of minutes that each reset token will be
-110:     | considered valid. This security feature keeps tokens short-lived so
-111:     | they have less time to be guessed. You may change this as needed.
-112:     |
-113:     | The throttle setting is the number of seconds a user must wait before
-114:     | generating more password reset tokens. This prevents the user from
-115:     | quickly generating a very large amount of password reset tokens.
-116:     |
-117:     */
-118: 
-119:     'passwords' => [
-120:         'users' => [
-121:             'provider' => 'users',
-122:             'table' => env('AUTH_PASSWORD_RESET_TOKEN_TABLE', 'password_reset_tokens'),
-123:             'expire' => 60,
-124:             'throttle' => 60,
-125:         ],
-126:     ],
-127: 
-128:     /*
-129:     |--------------------------------------------------------------------------
-130:     | Password Confirmation Timeout
-131:     |--------------------------------------------------------------------------
-132:     |
-133:     | Here you may define the number of seconds before a password confirmation
-134:     | window expires and users are asked to re-enter their password via the
-135:     | confirmation screen. By default, the timeout lasts for three hours.
-136:     |
-137:     */
-138: 
-139:     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
-140: 
-141: ];
-```
-
 ## File: bags-platform/backend/config/cache.php
 ```php
   1: <?php
@@ -3477,194 +1807,6 @@ bags-platform/
 136: ];
 ```
 
-## File: bags-platform/backend/config/database.php
-```php
-  1: <?php
-  2: 
-  3: use Illuminate\Support\Str;
-  4: use Pdo\Mysql;
-  5: 
-  6: return [
-  7: 
-  8:     /*
-  9:     |--------------------------------------------------------------------------
- 10:     | Default Database Connection Name
- 11:     |--------------------------------------------------------------------------
- 12:     |
- 13:     | Here you may specify which of the database connections below you wish
- 14:     | to use as your default connection for database operations. This is
- 15:     | the connection which will be utilized unless another connection
- 16:     | is explicitly specified when you execute a query / statement.
- 17:     |
- 18:     */
- 19: 
- 20:     'default' => env('DB_CONNECTION', 'pgsql'),
- 21: 
- 22:     /*
- 23:     |--------------------------------------------------------------------------
- 24:     | Database Connections
- 25:     |--------------------------------------------------------------------------
- 26:     |
- 27:     | Below are all of the database connections defined for your application.
- 28:     | An example configuration is provided for each database system which
- 29:     | is supported by Laravel. You're free to add / remove connections.
- 30:     |
- 31:     */
- 32: 
- 33:     'connections' => [
- 34: 
- 35:         'sqlite' => [
- 36:             'driver' => 'sqlite',
- 37:             'url' => env('DB_URL'),
- 38:             'database' => env('DB_DATABASE', database_path('database.sqlite')),
- 39:             'prefix' => '',
- 40:             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
- 41:             'busy_timeout' => null,
- 42:             'journal_mode' => null,
- 43:             'synchronous' => null,
- 44:             'transaction_mode' => 'DEFERRED',
- 45:         ],
- 46: 
- 47:         'mysql' => [
- 48:             'driver' => 'mysql',
- 49:             'url' => env('DB_URL'),
- 50:             'host' => env('DB_HOST', '127.0.0.1'),
- 51:             'port' => env('DB_PORT', '3306'),
- 52:             'database' => env('DB_DATABASE', 'laravel'),
- 53:             'username' => env('DB_USERNAME', 'root'),
- 54:             'password' => env('DB_PASSWORD', ''),
- 55:             'unix_socket' => env('DB_SOCKET', ''),
- 56:             'charset' => env('DB_CHARSET', 'utf8mb4'),
- 57:             'collation' => env('DB_COLLATION', 'utf8mb4_unicode_ci'),
- 58:             'prefix' => '',
- 59:             'prefix_indexes' => true,
- 60:             'strict' => true,
- 61:             'engine' => null,
- 62:             'options' => extension_loaded('pdo_mysql') ? array_filter([
- 63:                 Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
- 64:             ]) : [],
- 65:         ],
- 66: 
- 67:         'mariadb' => [
- 68:             'driver' => 'mariadb',
- 69:             'url' => env('DB_URL'),
- 70:             'host' => env('DB_HOST', '127.0.0.1'),
- 71:             'port' => env('DB_PORT', '3306'),
- 72:             'database' => env('DB_DATABASE', 'laravel'),
- 73:             'username' => env('DB_USERNAME', 'root'),
- 74:             'password' => env('DB_PASSWORD', ''),
- 75:             'unix_socket' => env('DB_SOCKET', ''),
- 76:             'charset' => env('DB_CHARSET', 'utf8mb4'),
- 77:             'collation' => env('DB_COLLATION', 'utf8mb4_unicode_ci'),
- 78:             'prefix' => '',
- 79:             'prefix_indexes' => true,
- 80:             'strict' => true,
- 81:             'engine' => null,
- 82:             'options' => extension_loaded('pdo_mysql') ? array_filter([
- 83:                 Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
- 84:             ]) : [],
- 85:         ],
- 86: 
- 87:         'pgsql' => [
- 88:             'driver' => 'pgsql',
- 89:             'url' => env('DB_URL'),
- 90:             'host' => env('DB_HOST', '127.0.0.1'),
- 91:             'port' => env('DB_PORT', '5432'),
- 92:             'database' => env('DB_DATABASE', 'alfarid'),
- 93:             'username' => env('DB_USERNAME', 'postgres'),
- 94:             'password' => env('DB_PASSWORD', ''),
- 95:             'charset' => env('DB_CHARSET', 'utf8'),
- 96:             'prefix' => '',
- 97:             'prefix_indexes' => true,
- 98:             'search_path' => 'public',
- 99:             'sslmode' => env('DB_SSLMODE', 'prefer'),
-100:         ],
-101: 
-102:         'sqlsrv' => [
-103:             'driver' => 'sqlsrv',
-104:             'url' => env('DB_URL'),
-105:             'host' => env('DB_HOST', 'localhost'),
-106:             'port' => env('DB_PORT', '1433'),
-107:             'database' => env('DB_DATABASE', 'laravel'),
-108:             'username' => env('DB_USERNAME', 'root'),
-109:             'password' => env('DB_PASSWORD', ''),
-110:             'charset' => env('DB_CHARSET', 'utf8'),
-111:             'prefix' => '',
-112:             'prefix_indexes' => true,
-113:             // 'encrypt' => env('DB_ENCRYPT', 'yes'),
-114:             // 'trust_server_certificate' => env('DB_TRUST_SERVER_CERTIFICATE', 'false'),
-115:         ],
-116: 
-117:     ],
-118: 
-119:     /*
-120:     |--------------------------------------------------------------------------
-121:     | Migration Repository Table
-122:     |--------------------------------------------------------------------------
-123:     |
-124:     | This table keeps track of all the migrations that have already run for
-125:     | your application. Using this information, we can determine which of
-126:     | the migrations on disk haven't actually been run on the database.
-127:     |
-128:     */
-129: 
-130:     'migrations' => [
-131:         'table' => 'migrations',
-132:         'update_date_on_publish' => true,
-133:     ],
-134: 
-135:     /*
-136:     |--------------------------------------------------------------------------
-137:     | Redis Databases
-138:     |--------------------------------------------------------------------------
-139:     |
-140:     | Redis is an open source, fast, and advanced key-value store that also
-141:     | provides a richer body of commands than a typical key-value system
-142:     | such as Memcached. You may define your connection settings here.
-143:     |
-144:     */
-145: 
-146:     'redis' => [
-147: 
-148:         'client' => env('REDIS_CLIENT', 'phpredis'),
-149: 
-150:         'options' => [
-151:             'cluster' => env('REDIS_CLUSTER', 'redis'),
-152:             'prefix' => env('REDIS_PREFIX', Str::slug((string) env('APP_NAME', 'laravel')).'-database-'),
-153:             'persistent' => env('REDIS_PERSISTENT', false),
-154:         ],
-155: 
-156:         'default' => [
-157:             'url' => env('REDIS_URL'),
-158:             'host' => env('REDIS_HOST', '127.0.0.1'),
-159:             'username' => env('REDIS_USERNAME'),
-160:             'password' => env('REDIS_PASSWORD'),
-161:             'port' => env('REDIS_PORT', '6379'),
-162:             'database' => env('REDIS_DB', '0'),
-163:             'max_retries' => env('REDIS_MAX_RETRIES', 3),
-164:             'backoff_algorithm' => env('REDIS_BACKOFF_ALGORITHM', 'decorrelated_jitter'),
-165:             'backoff_base' => env('REDIS_BACKOFF_BASE', 100),
-166:             'backoff_cap' => env('REDIS_BACKOFF_CAP', 1000),
-167:         ],
-168: 
-169:         'cache' => [
-170:             'url' => env('REDIS_URL'),
-171:             'host' => env('REDIS_HOST', '127.0.0.1'),
-172:             'username' => env('REDIS_USERNAME'),
-173:             'password' => env('REDIS_PASSWORD'),
-174:             'port' => env('REDIS_PORT', '6379'),
-175:             'database' => env('REDIS_CACHE_DB', '1'),
-176:             'max_retries' => env('REDIS_MAX_RETRIES', 3),
-177:             'backoff_algorithm' => env('REDIS_BACKOFF_ALGORITHM', 'decorrelated_jitter'),
-178:             'backoff_base' => env('REDIS_BACKOFF_BASE', 100),
-179:             'backoff_cap' => env('REDIS_BACKOFF_CAP', 1000),
-180:         ],
-181: 
-182:     ],
-183: 
-184: ];
-```
-
 ## File: bags-platform/backend/config/filesystems.php
 ```php
  1: <?php
@@ -3749,371 +1891,270 @@ bags-platform/
 80: ];
 ```
 
-## File: bags-platform/backend/config/media-library.php
+## File: bags-platform/backend/config/logging.php
 ```php
   1: <?php
   2: 
-  3: use Spatie\ImageOptimizer\Optimizers\Avifenc;
-  4: use Spatie\ImageOptimizer\Optimizers\Cwebp;
-  5: use Spatie\ImageOptimizer\Optimizers\Gifsicle;
-  6: use Spatie\ImageOptimizer\Optimizers\Jpegoptim;
-  7: use Spatie\ImageOptimizer\Optimizers\Optipng;
-  8: use Spatie\ImageOptimizer\Optimizers\Pngquant;
-  9: use Spatie\ImageOptimizer\Optimizers\Svgo;
- 10: use Spatie\MediaLibrary\Conversions\ImageGenerators\Avif;
- 11: use Spatie\MediaLibrary\Conversions\ImageGenerators\Image;
- 12: use Spatie\MediaLibrary\Conversions\ImageGenerators\Pdf;
- 13: use Spatie\MediaLibrary\Conversions\ImageGenerators\Svg;
- 14: use Spatie\MediaLibrary\Conversions\ImageGenerators\Video;
- 15: use Spatie\MediaLibrary\Conversions\ImageGenerators\Webp;
- 16: use Spatie\MediaLibrary\Conversions\Jobs\PerformConversionsJob;
- 17: use Spatie\MediaLibrary\Downloaders\DefaultDownloader;
- 18: use Spatie\MediaLibrary\MediaCollections\FileAdder;
- 19: use Spatie\MediaLibrary\MediaCollections\Models\Media;
- 20: use Spatie\MediaLibrary\MediaCollections\Models\Observers\MediaObserver;
- 21: use Spatie\MediaLibrary\ResponsiveImages\Jobs\GenerateResponsiveImagesJob;
- 22: use Spatie\MediaLibrary\ResponsiveImages\TinyPlaceholderGenerator\Blurred;
- 23: use Spatie\MediaLibrary\ResponsiveImages\WidthCalculator\FileSizeOptimizedWidthCalculator;
- 24: use Spatie\MediaLibrary\Support\FileNamer\DefaultFileNamer;
- 25: use Spatie\MediaLibrary\Support\FileRemover\DefaultFileRemover;
- 26: use Spatie\MediaLibrary\Support\PathGenerator\DefaultPathGenerator;
- 27: use Spatie\MediaLibrary\Support\UrlGenerator\DefaultUrlGenerator;
- 28: use Spatie\MediaLibraryPro\Models\TemporaryUpload;
- 29: 
- 30: return [
- 31: 
- 32:     /*
- 33:      * The disk on which to store added files and derived images by default. Choose
- 34:      * one or more of the disks you've configured in config/filesystems.php.
- 35:      */
- 36:     'disk_name' => env('MEDIA_DISK', 'public'),
- 37: 
- 38:     /*
- 39:      * The disk on which to store conversions (thumbnails, etc.) and responsive images
- 40:      * when no disk is specified explicitly on the media collection or via
- 41:      * `storingConversionsOnDisk()`. When left null, conversions are stored on the
- 42:      * same disk as the original media — preserving previous behavior.
- 43:      *
- 44:      * This is useful when the originals live on a remote disk (e.g. S3) but the
- 45:      * generated derivatives should stay local for faster access and lower egress.
- 46:      */
- 47:     'conversions_disk_name' => env('MEDIA_CONVERSIONS_DISK', null),
- 48: 
- 49:     /*
- 50:      * The maximum file size of an item in bytes.
- 51:      * Adding a larger file will result in an exception.
- 52:      */
- 53:     'max_file_size' => 1024 * 1024 * 50, // 50MB
+  3: use Monolog\Handler\NullHandler;
+  4: use Monolog\Handler\StreamHandler;
+  5: use Monolog\Handler\SyslogUdpHandler;
+  6: use Monolog\Processor\PsrLogMessageProcessor;
+  7: 
+  8: return [
+  9: 
+ 10:     /*
+ 11:     |--------------------------------------------------------------------------
+ 12:     | Default Log Channel
+ 13:     |--------------------------------------------------------------------------
+ 14:     |
+ 15:     | This option defines the default log channel that is utilized to write
+ 16:     | messages to your logs. The value provided here should match one of
+ 17:     | the channels present in the list of "channels" configured below.
+ 18:     |
+ 19:     */
+ 20: 
+ 21:     'default' => env('LOG_CHANNEL', 'stack'),
+ 22: 
+ 23:     /*
+ 24:     |--------------------------------------------------------------------------
+ 25:     | Deprecations Log Channel
+ 26:     |--------------------------------------------------------------------------
+ 27:     |
+ 28:     | This option controls the log channel that should be used to log warnings
+ 29:     | regarding deprecated PHP and library features. This allows you to get
+ 30:     | your application ready for upcoming major versions of dependencies.
+ 31:     |
+ 32:     */
+ 33: 
+ 34:     'deprecations' => [
+ 35:         'channel' => env('LOG_DEPRECATIONS_CHANNEL', 'null'),
+ 36:         'trace' => env('LOG_DEPRECATIONS_TRACE', false),
+ 37:     ],
+ 38: 
+ 39:     /*
+ 40:     |--------------------------------------------------------------------------
+ 41:     | Log Channels
+ 42:     |--------------------------------------------------------------------------
+ 43:     |
+ 44:     | Here you may configure the log channels for your application. Laravel
+ 45:     | utilizes the Monolog PHP logging library, which includes a variety
+ 46:     | of powerful log handlers and formatters that you're free to use.
+ 47:     |
+ 48:     | Available drivers: "single", "daily", "monthly", "slack", "syslog",
+ 49:     |                    "errorlog", "monolog", "custom", "stack"
+ 50:     |
+ 51:     */
+ 52: 
+ 53:     'channels' => [
  54: 
- 55:     /*
- 56:      * Uploads whose file name contains any of these extensions will be rejected.
- 57:      * The check looks at every extension in the file name, so a file named
- 58:      * `malicious.php.jpg` is blocked as well. Matching is case-insensitive
- 59:      * and a leading dot is optional.
- 60:      *
- 61:      * The default list lives on the `FileAdder` class so the shipped config
- 62:      * and the in-code fallback (used when the config is cached without the
- 63:      * key) cannot drift. Override here to extend or shrink it.
- 64:      */
- 65:     'disallowed_extensions' => FileAdder::$defaultDisallowedExtensions,
- 66: 
- 67:     /*
- 68:      * When this is set to an array of extensions, only uploads whose final
- 69:      * extension is in the list will be accepted. Matching is case-insensitive
- 70:      * and a leading dot is optional. The `disallowed_extensions` list above
- 71:      * is still enforced, so an interior dangerous segment (such as the `php`
- 72:      * in `shell.php.jpg`) is rejected even if the final extension is allowed.
- 73:      * Leave `null` to disable allowlisting.
- 74:      */
- 75:     'allowed_extensions' => null,
- 76: 
- 77:     /*
- 78:      * This queue connection will be used to generate derived and responsive images.
- 79:      * Leave empty to use the default queue connection.
- 80:      */
- 81:     'queue_connection_name' => env('QUEUE_CONNECTION', 'sync'),
- 82: 
- 83:     /*
- 84:      * This queue will be used to generate derived and responsive images.
- 85:      * Leave empty to use the default queue.
- 86:      */
- 87:     'queue_name' => env('MEDIA_QUEUE', ''),
- 88: 
- 89:     /*
- 90:      * By default all conversions will be performed on a queue.
- 91:      */
- 92:     'queue_conversions_by_default' => env('QUEUE_CONVERSIONS_BY_DEFAULT', true),
- 93: 
- 94:     /*
- 95:      * Should database transactions be run after database commits?
- 96:      */
- 97:     'queue_conversions_after_database_commit' => env('QUEUE_CONVERSIONS_AFTER_DB_COMMIT', true),
- 98: 
- 99:     /*
-100:      * The fully qualified class name of the media model.
-101:      */
-102:     'media_model' => Media::class,
-103: 
-104:     /*
-105:      * The fully qualified class name of the media observer.
-106:      */
-107:     'media_observer' => MediaObserver::class,
-108: 
-109:     /*
-110:      * When enabled, media collections will be serialised using the default
-111:      * laravel model serialization behaviour.
-112:      *
-113:      * Keep this option disabled if using Media Library Pro components (https://medialibrary.pro)
-114:      */
-115:     'use_default_collection_serialization' => false,
-116: 
-117:     /*
-118:      * The fully qualified class name of the model used for temporary uploads.
-119:      *
-120:      * This model is only used in Media Library Pro (https://medialibrary.pro)
-121:      */
-122:     'temporary_upload_model' => TemporaryUpload::class,
-123: 
-124:     /*
-125:      * When enabled, Media Library Pro will only process temporary uploads that were uploaded
-126:      * in the same session. You can opt to disable this for stateless usage of
-127:      * the pro components.
-128:      */
-129:     'enable_temporary_uploads_session_affinity' => true,
-130: 
-131:     /*
-132:      * When enabled, Media Library pro will generate thumbnails for uploaded file.
-133:      */
-134:     'generate_thumbnails_for_temporary_uploads' => true,
-135: 
-136:     /*
-137:      * This is the class that is responsible for naming generated files.
-138:      */
-139:     'file_namer' => DefaultFileNamer::class,
-140: 
-141:     /*
-142:      * The class that contains the strategy for determining a media file's path.
-143:      */
-144:     'path_generator' => DefaultPathGenerator::class,
-145: 
-146:     /*
-147:      * The class that contains the strategy for determining how to remove files.
-148:      */
-149:     'file_remover_class' => DefaultFileRemover::class,
-150: 
-151:     /*
-152:      * Here you can specify which path generator should be used for the given class.
-153:      */
-154:     'custom_path_generators' => [
-155:         // Model::class => PathGenerator::class
-156:         // or
-157:         // 'model_morph_alias' => PathGenerator::class
-158:     ],
-159: 
-160:     /*
-161:      * When urls to files get generated, this class will be called. Use the default
-162:      * if your files are stored locally above the site root or on s3.
-163:      */
-164:     'url_generator' => DefaultUrlGenerator::class,
-165: 
-166:     /*
-167:      * Moves media on updating to keep path consistent. Enable it only with a custom
-168:      * PathGenerator that uses, for example, the media UUID.
-169:      */
-170:     'moves_media_on_update' => false,
-171: 
-172:     /*
-173:      * Whether to activate versioning when urls to files get generated.
-174:      * When activated, this attaches a ?v=xx query string to the URL.
-175:      */
-176:     'version_urls' => false,
-177: 
-178:     /*
-179:      * The media library will try to optimize all converted images by removing
-180:      * metadata and applying a little bit of compression. These are
-181:      * the optimizers that will be used by default.
-182:      */
-183:     'image_optimizers' => [
-184:         Jpegoptim::class => [
-185:             '-m85', // set maximum quality to 85%
-186:             '--force', // ensure that progressive generation is always done also if a little bigger
-187:             '--strip-all', // this strips out all text information such as comments and EXIF data
-188:             '--all-progressive', // this will make sure the resulting image is a progressive one
-189:         ],
-190:         Pngquant::class => [
-191:             '--force', // required parameter for this package
-192:         ],
-193:         Optipng::class => [
-194:             '-i0', // this will result in a non-interlaced, progressive scanned image
-195:             '-o2', // this set the optimization level to two (multiple IDAT compression trials)
-196:             '-quiet', // required parameter for this package
-197:         ],
-198:         Svgo::class => [
-199:             '--disable=cleanupIDs', // disabling because it is known to cause troubles
-200:         ],
-201:         Gifsicle::class => [
-202:             '-b', // required parameter for this package
-203:             '-O3', // this produces the slowest but best results
-204:         ],
-205:         Cwebp::class => [
-206:             '-m 6', // for the slowest compression method in order to get the best compression.
-207:             '-pass 10', // for maximizing the amount of analysis pass.
-208:             '-mt', // multithreading for some speed improvements.
-209:             '-q 90', // quality factor that brings the least noticeable changes.
-210:         ],
-211:         Avifenc::class => [
-212:             '-a cq-level=23', // constant quality level, lower values mean better quality and greater file size (0-63).
-213:             '-j all', // number of jobs (worker threads, "all" uses all available cores).
-214:             '--min 0', // min quantizer for color (0-63).
-215:             '--max 63', // max quantizer for color (0-63).
-216:             '--minalpha 0', // min quantizer for alpha (0-63).
-217:             '--maxalpha 63', // max quantizer for alpha (0-63).
-218:             '-a end-usage=q', // rate control mode set to Constant Quality mode.
-219:             '-a tune=ssim', // SSIM as tune the encoder for distortion metric.
-220:         ],
-221:     ],
-222: 
-223:     /*
-224:      * These generators will be used to create an image of media files.
-225:      */
-226:     'image_generators' => [
-227:         Image::class,
-228:         Webp::class,
-229:         Avif::class,
-230:         Pdf::class,
-231:         Svg::class,
-232:         Video::class,
-233:     ],
-234: 
-235:     /*
-236:      * The path where to store temporary files while performing image conversions.
-237:      * If set to null, storage_path('media-library/temp') will be used.
-238:      */
-239:     'temporary_directory_path' => null,
-240: 
-241:     /*
-242:      * The engine that should perform the image conversions.
-243:      * Should be either `gd`, `imagick` or `vips`.
-244:      */
-245:     'image_driver' => env('IMAGE_DRIVER', 'gd'),
-246: 
-247:     /*
-248:      * FFMPEG & FFProbe binaries paths, only used if you try to generate video
-249:      * thumbnails and have installed the php-ffmpeg/php-ffmpeg composer
-250:      * dependency.
-251:      */
-252:     'ffmpeg_path' => env('FFMPEG_PATH', '/usr/bin/ffmpeg'),
-253:     'ffprobe_path' => env('FFPROBE_PATH', '/usr/bin/ffprobe'),
-254: 
-255:     /*
-256:      * The timeout (in seconds) that will be used when generating video
-257:      * thumbnails via FFMPEG.
-258:      */
-259:     'ffmpeg_timeout' => env('FFMPEG_TIMEOUT', 900),
-260: 
-261:     /*
-262:      * The number of threads that FFMPEG should use. 0 means that FFMPEG
-263:      * may decide itself.
-264:      */
-265:     'ffmpeg_threads' => env('FFMPEG_THREADS', 0),
-266: 
-267:     /*
-268:      * Here you can override the class names of the jobs used by this package. Make sure
-269:      * your custom jobs extend the ones provided by the package.
-270:      */
-271:     'jobs' => [
-272:         'perform_conversions' => PerformConversionsJob::class,
-273:         'generate_responsive_images' => GenerateResponsiveImagesJob::class,
-274:     ],
-275: 
-276:     /*
-277:      * When using the addMediaFromUrl method you may want to replace the default downloader.
-278:      * This is particularly useful when the url of the image is behind a firewall and
-279:      * need to add additional flags, possibly using curl.
-280:      */
-281:     'media_downloader' => DefaultDownloader::class,
-282: 
-283:     /*
-284:      * When using the addMediaFromUrl method the SSL is verified by default.
-285:      * This is option disables SSL verification when downloading remote media.
-286:      * Please note that this is a security risk and should only be false in a local environment.
-287:      */
-288:     'media_downloader_ssl' => env('MEDIA_DOWNLOADER_SSL', true),
-289: 
-290:     /*
-291:      * The default lifetime in minutes for temporary urls.
-292:      * This is used when you call the `getLastTemporaryUrl` or `getLastTemporaryUrl` method on a media item.
-293:      */
-294:     'temporary_url_default_lifetime' => env('MEDIA_TEMPORARY_URL_DEFAULT_LIFETIME', 5),
-295: 
-296:     'remote' => [
-297:         /*
-298:          * Any extra headers that should be included when uploading media to
-299:          * a remote disk. Even though supported headers may vary between
-300:          * different drivers, a sensible default has been provided.
-301:          *
-302:          * Supported by S3: CacheControl, Expires, StorageClass,
-303:          * ServerSideEncryption, Metadata, ACL, ContentEncoding
-304:          */
-305:         'extra_headers' => [
-306:             'CacheControl' => 'max-age=604800',
-307:         ],
-308:     ],
-309: 
-310:     'responsive_images' => [
-311:         /*
-312:          * This class is responsible for calculating the target widths of the responsive
-313:          * images. By default we optimize for filesize and create variations that each are 30%
-314:          * smaller than the previous one. More info in the documentation.
-315:          *
-316:          * https://docs.spatie.be/laravel-medialibrary/v9/advanced-usage/generating-responsive-images
-317:          */
-318:         'width_calculator' => FileSizeOptimizedWidthCalculator::class,
-319: 
-320:         /*
-321:          * By default rendering media to a responsive image will add some javascript and a tiny placeholder.
-322:          * This ensures that the browser can already determine the correct layout.
-323:          * When disabled, no tiny placeholder is generated.
-324:          */
-325:         'use_tiny_placeholders' => true,
-326: 
-327:         /*
-328:          * This class will generate the tiny placeholder used for progressive image loading. By default
-329:          * the media library will use a tiny blurred jpg image.
-330:          */
-331:         'tiny_placeholder_generator' => Blurred::class,
-332:     ],
-333: 
-334:     /*
-335:      * When enabling this option, a route will be registered that will enable
-336:      * the Media Library Pro Vue and React components to move uploaded files
-337:      * in a S3 bucket to their right place.
-338:      */
-339:     'enable_vapor_uploads' => env('ENABLE_MEDIA_LIBRARY_VAPOR_UPLOADS', false),
-340: 
-341:     /*
-342:      * When converting Media instances to response the media library will add
-343:      * a `loading` attribute to the `img` tag. Here you can set the default
-344:      * value of that attribute.
-345:      *
-346:      * Possible values: 'lazy', 'eager', 'auto' or null if you don't want to set any loading instruction.
-347:      *
-348:      * More info: https://css-tricks.com/native-lazy-loading/
-349:      */
-350:     'default_loading_attribute_value' => null,
-351: 
-352:     /*
-353:      * You can specify a prefix for that is used for storing all media.
-354:      * If you set this to `/my-subdir`, all your media will be stored in a `/my-subdir` directory.
-355:      */
-356:     'prefix' => env('MEDIA_PREFIX', ''),
-357: 
-358:     /*
-359:      * When forcing lazy loading, media will be loaded even if you don't eager load media and you have
-360:      * disabled lazy loading globally in the service provider.
-361:      */
-362:     'force_lazy_loading' => env('FORCE_MEDIA_LIBRARY_LAZY_LOADING', true),
-363: ];
+ 55:         'stack' => [
+ 56:             'driver' => 'stack',
+ 57:             'channels' => explode(',', (string) env('LOG_STACK', 'single')),
+ 58:             'ignore_exceptions' => false,
+ 59:         ],
+ 60: 
+ 61:         'single' => [
+ 62:             'driver' => 'single',
+ 63:             'path' => storage_path('logs/laravel.log'),
+ 64:             'level' => env('LOG_LEVEL', 'debug'),
+ 65:             'replace_placeholders' => true,
+ 66:         ],
+ 67: 
+ 68:         'daily' => [
+ 69:             'driver' => 'daily',
+ 70:             'path' => storage_path('logs/laravel.log'),
+ 71:             'level' => env('LOG_LEVEL', 'debug'),
+ 72:             'max_files' => env('LOG_DAILY_DAYS', 14),
+ 73:             'replace_placeholders' => true,
+ 74:         ],
+ 75: 
+ 76:         'monthly' => [
+ 77:             'driver' => 'monthly',
+ 78:             'path' => storage_path('logs/laravel.log'),
+ 79:             'level' => env('LOG_LEVEL', 'debug'),
+ 80:             'max_files' => 3,
+ 81:             'replace_placeholders' => true,
+ 82:         ],
+ 83: 
+ 84:         'slack' => [
+ 85:             'driver' => 'slack',
+ 86:             'url' => env('LOG_SLACK_WEBHOOK_URL'),
+ 87:             'username' => env('LOG_SLACK_USERNAME', env('APP_NAME', 'Laravel')),
+ 88:             'emoji' => env('LOG_SLACK_EMOJI', ':boom:'),
+ 89:             'level' => env('LOG_LEVEL', 'critical'),
+ 90:             'replace_placeholders' => true,
+ 91:         ],
+ 92: 
+ 93:         'papertrail' => [
+ 94:             'driver' => 'monolog',
+ 95:             'level' => env('LOG_LEVEL', 'debug'),
+ 96:             'handler' => env('LOG_PAPERTRAIL_HANDLER', SyslogUdpHandler::class),
+ 97:             'handler_with' => [
+ 98:                 'host' => env('PAPERTRAIL_URL'),
+ 99:                 'port' => env('PAPERTRAIL_PORT'),
+100:                 'connectionString' => 'tls://'.env('PAPERTRAIL_URL').':'.env('PAPERTRAIL_PORT'),
+101:             ],
+102:             'processors' => [PsrLogMessageProcessor::class],
+103:         ],
+104: 
+105:         'stderr' => [
+106:             'driver' => 'monolog',
+107:             'level' => env('LOG_LEVEL', 'debug'),
+108:             'handler' => StreamHandler::class,
+109:             'handler_with' => [
+110:                 'stream' => 'php://stderr',
+111:             ],
+112:             'formatter' => env('LOG_STDERR_FORMATTER'),
+113:             'processors' => [PsrLogMessageProcessor::class],
+114:         ],
+115: 
+116:         'syslog' => [
+117:             'driver' => 'syslog',
+118:             'level' => env('LOG_LEVEL', 'debug'),
+119:             'facility' => env('LOG_SYSLOG_FACILITY', LOG_USER),
+120:             'replace_placeholders' => true,
+121:         ],
+122: 
+123:         'errorlog' => [
+124:             'driver' => 'errorlog',
+125:             'level' => env('LOG_LEVEL', 'debug'),
+126:             'replace_placeholders' => true,
+127:         ],
+128: 
+129:         'null' => [
+130:             'driver' => 'monolog',
+131:             'handler' => NullHandler::class,
+132:         ],
+133: 
+134:         'emergency' => [
+135:             'path' => storage_path('logs/laravel.log'),
+136:         ],
+137: 
+138:     ],
+139: 
+140: ];
+```
+
+## File: bags-platform/backend/config/mail.php
+```php
+  1: <?php
+  2: 
+  3: return [
+  4: 
+  5:     /*
+  6:     |--------------------------------------------------------------------------
+  7:     | Default Mailer
+  8:     |--------------------------------------------------------------------------
+  9:     |
+ 10:     | This option controls the default mailer that is used to send all email
+ 11:     | messages unless another mailer is explicitly specified when sending
+ 12:     | the message. All additional mailers can be configured within the
+ 13:     | "mailers" array. Examples of each type of mailer are provided.
+ 14:     |
+ 15:     */
+ 16: 
+ 17:     'default' => env('MAIL_MAILER', 'log'),
+ 18: 
+ 19:     /*
+ 20:     |--------------------------------------------------------------------------
+ 21:     | Mailer Configurations
+ 22:     |--------------------------------------------------------------------------
+ 23:     |
+ 24:     | Here you may configure all of the mailers used by your application plus
+ 25:     | their respective settings. Several examples have been configured for
+ 26:     | you and you are free to add your own as your application requires.
+ 27:     |
+ 28:     | Laravel supports a variety of mail "transport" drivers that can be used
+ 29:     | when delivering an email. You may specify which one you're using for
+ 30:     | your mailers below. You may also add additional mailers if needed.
+ 31:     |
+ 32:     | Supported: "smtp", "sendmail", "mailgun", "ses", "ses-v2",
+ 33:     |            "postmark", "resend", "log", "array",
+ 34:     |            "failover", "roundrobin"
+ 35:     |
+ 36:     */
+ 37: 
+ 38:     'mailers' => [
+ 39: 
+ 40:         'smtp' => [
+ 41:             'transport' => 'smtp',
+ 42:             'scheme' => env('MAIL_SCHEME'),
+ 43:             'url' => env('MAIL_URL'),
+ 44:             'host' => env('MAIL_HOST', '127.0.0.1'),
+ 45:             'port' => env('MAIL_PORT', 2525),
+ 46:             'username' => env('MAIL_USERNAME'),
+ 47:             'password' => env('MAIL_PASSWORD'),
+ 48:             'timeout' => null,
+ 49:             'local_domain' => env('MAIL_EHLO_DOMAIN', parse_url((string) env('APP_URL', 'http://localhost'), PHP_URL_HOST)),
+ 50:         ],
+ 51: 
+ 52:         'ses' => [
+ 53:             'transport' => 'ses',
+ 54:         ],
+ 55: 
+ 56:         'postmark' => [
+ 57:             'transport' => 'postmark',
+ 58:             // 'message_stream_id' => env('POSTMARK_MESSAGE_STREAM_ID'),
+ 59:             // 'client' => [
+ 60:             //     'timeout' => 5,
+ 61:             // ],
+ 62:         ],
+ 63: 
+ 64:         'resend' => [
+ 65:             'transport' => 'resend',
+ 66:         ],
+ 67: 
+ 68:         'sendmail' => [
+ 69:             'transport' => 'sendmail',
+ 70:             'path' => env('MAIL_SENDMAIL_PATH', '/usr/sbin/sendmail -bs -i'),
+ 71:         ],
+ 72: 
+ 73:         'log' => [
+ 74:             'transport' => 'log',
+ 75:             'channel' => env('MAIL_LOG_CHANNEL'),
+ 76:         ],
+ 77: 
+ 78:         'array' => [
+ 79:             'transport' => 'array',
+ 80:         ],
+ 81: 
+ 82:         'failover' => [
+ 83:             'transport' => 'failover',
+ 84:             'mailers' => [
+ 85:                 'smtp',
+ 86:                 'log',
+ 87:             ],
+ 88:             'retry_after' => 60,
+ 89:         ],
+ 90: 
+ 91:         'roundrobin' => [
+ 92:             'transport' => 'roundrobin',
+ 93:             'mailers' => [
+ 94:                 'ses',
+ 95:                 'postmark',
+ 96:             ],
+ 97:             'retry_after' => 60,
+ 98:         ],
+ 99: 
+100:     ],
+101: 
+102:     /*
+103:     |--------------------------------------------------------------------------
+104:     | Global "From" Address
+105:     |--------------------------------------------------------------------------
+106:     |
+107:     | You may wish for all emails sent by your application to be sent from
+108:     | the same address. Here you may specify a name and address that is
+109:     | used globally for all emails that are sent by your application.
+110:     |
+111:     */
+112: 
+113:     'from' => [
+114:         'address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),
+115:         'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'Laravel')),
+116:     ],
+117: 
+118: ];
 ```
 
 ## File: bags-platform/backend/config/permission.php
@@ -4472,128 +2513,288 @@ bags-platform/
 129: ];
 ```
 
-## File: bags-platform/backend/config/sanctum.php
+## File: bags-platform/backend/config/services.php
 ```php
  1: <?php
  2: 
- 3: use Illuminate\Cookie\Middleware\EncryptCookies;
- 4: use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
- 5: use Laravel\Sanctum\Http\Middleware\AuthenticateSession;
- 6: use Laravel\Sanctum\Sanctum;
- 7: 
- 8: return [
- 9: 
-10:     /*
-11:     |--------------------------------------------------------------------------
-12:     | Stateful Domains
-13:     |--------------------------------------------------------------------------
+ 3: return [
+ 4: 
+ 5:     /*
+ 6:     |--------------------------------------------------------------------------
+ 7:     | Third Party Services
+ 8:     |--------------------------------------------------------------------------
+ 9:     |
+10:     | This file is for storing the credentials for third party services such
+11:     | as Resend, Postmark, AWS, and more. This file provides the de facto
+12:     | location for this type of information, allowing packages to have
+13:     | a conventional file to locate the various service credentials.
 14:     |
-15:     | Requests from the following domains / hosts will receive stateful API
-16:     | authentication cookies. Typically, these should include your local
-17:     | and production domains which access your API via a frontend SPA.
-18:     |
-19:     */
+15:     */
+16: 
+17:     'postmark' => [
+18:         'key' => env('POSTMARK_API_KEY'),
+19:     ],
 20: 
-21:     'stateful' => explode(',', env('SANCTUM_STATEFUL_DOMAINS', sprintf(
-22:         '%s%s',
-23:         'localhost,localhost:3000,127.0.0.1,127.0.0.1:8000,::1',
-24:         Sanctum::currentApplicationUrlWithPort(),
-25:         // Sanctum::currentRequestHost(),
-26:     ))),
-27: 
-28:     /*
-29:     |--------------------------------------------------------------------------
-30:     | Sanctum Guards
-31:     |--------------------------------------------------------------------------
-32:     |
-33:     | This array contains the authentication guards that will be checked when
-34:     | Sanctum is trying to authenticate a request. If none of these guards
-35:     | are able to authenticate the request, Sanctum will use the bearer
-36:     | token that's present on an incoming request for authentication.
-37:     |
-38:     */
-39: 
-40:     'guard' => ['web'],
-41: 
-42:     /*
-43:     |--------------------------------------------------------------------------
-44:     | Expiration Minutes
-45:     |--------------------------------------------------------------------------
-46:     |
-47:     | This value controls the number of minutes until an issued token will be
-48:     | considered expired. This will override any values set in the token's
-49:     | "expires_at" attribute, but first-party sessions are not affected.
-50:     |
-51:     */
-52: 
-53:     'expiration' => env('SANCTUM_EXPIRATION', 1440),
-54: 
-55:     /*
-56:     |--------------------------------------------------------------------------
-57:     | Token Prefix
-58:     |--------------------------------------------------------------------------
-59:     |
-60:     | Sanctum can prefix new tokens in order to take advantage of numerous
-61:     | security scanning initiatives maintained by open source platforms
-62:     | that notify developers if they commit tokens into repositories.
-63:     |
-64:     | See: https://docs.github.com/en/code-security/secret-scanning/about-secret-scanning
-65:     |
-66:     */
-67: 
-68:     'token_prefix' => env('SANCTUM_TOKEN_PREFIX', ''),
-69: 
-70:     /*
-71:     |--------------------------------------------------------------------------
-72:     | Sanctum Middleware
-73:     |--------------------------------------------------------------------------
-74:     |
-75:     | When authenticating your first-party SPA with Sanctum you may need to
-76:     | customize some of the middleware Sanctum uses while processing the
-77:     | request. You may change the middleware listed below as required.
-78:     |
-79:     */
-80: 
-81:     'middleware' => [
-82:         'authenticate_session' => AuthenticateSession::class,
-83:         'encrypt_cookies' => EncryptCookies::class,
-84:         'validate_csrf_token' => ValidateCsrfToken::class,
-85:     ],
-86: 
-87: ];
+21:     'resend' => [
+22:         'key' => env('RESEND_API_KEY'),
+23:     ],
+24: 
+25:     'ses' => [
+26:         'key' => env('AWS_ACCESS_KEY_ID'),
+27:         'secret' => env('AWS_SECRET_ACCESS_KEY'),
+28:         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
+29:     ],
+30: 
+31:     'slack' => [
+32:         'notifications' => [
+33:             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
+34:             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
+35:         ],
+36:     ],
+37: 
+38: ];
 ```
 
-## File: bags-platform/backend/database/factories/BranchFactory.php
+## File: bags-platform/backend/config/session.php
 ```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace Database\Factories;
- 6: 
- 7: use App\Enums\BranchType;
- 8: use App\Models\Branch;
- 9: use Illuminate\Database\Eloquent\Factories\Factory;
-10: 
-11: /**
-12:  * @extends Factory<Branch>
-13:  */
-14: class BranchFactory extends Factory
-15: {
-16:     public function definition(): array
-17:     {
-18:         return [
-19:             'name' => fake()->company(),
-20:             'code' => 'BR-'.fake()->unique()->numerify('#####'),
-21:             'type' => BranchType::Branch,
-22:             'phone' => fake()->phoneNumber(),
-23:             'email' => fake()->safeEmail(),
-24:             'address' => fake()->streetAddress(),
-25:             'city' => fake()->city(),
-26:             'is_active' => true,
-27:         ];
-28:     }
-29: }
+  1: <?php
+  2: 
+  3: use Illuminate\Support\Str;
+  4: 
+  5: return [
+  6: 
+  7:     /*
+  8:     |--------------------------------------------------------------------------
+  9:     | Default Session Driver
+ 10:     |--------------------------------------------------------------------------
+ 11:     |
+ 12:     | This option determines the default session driver that is utilized for
+ 13:     | incoming requests. Laravel supports a variety of storage options to
+ 14:     | persist session data. Database storage is a great default choice.
+ 15:     |
+ 16:     | Supported: "file", "cookie", "database", "memcached",
+ 17:     |            "redis", "dynamodb", "array"
+ 18:     |
+ 19:     */
+ 20: 
+ 21:     'driver' => env('SESSION_DRIVER', 'database'),
+ 22: 
+ 23:     /*
+ 24:     |--------------------------------------------------------------------------
+ 25:     | Session Lifetime
+ 26:     |--------------------------------------------------------------------------
+ 27:     |
+ 28:     | Here you may specify the number of minutes that you wish the session
+ 29:     | to be allowed to remain idle before it expires. If you want them
+ 30:     | to expire immediately when the browser is closed then you may
+ 31:     | indicate that via the expire_on_close configuration option.
+ 32:     |
+ 33:     */
+ 34: 
+ 35:     'lifetime' => (int) env('SESSION_LIFETIME', 120),
+ 36: 
+ 37:     'expire_on_close' => env('SESSION_EXPIRE_ON_CLOSE', false),
+ 38: 
+ 39:     /*
+ 40:     |--------------------------------------------------------------------------
+ 41:     | Session Encryption
+ 42:     |--------------------------------------------------------------------------
+ 43:     |
+ 44:     | This option allows you to easily specify that all of your session data
+ 45:     | should be encrypted before it's stored. All encryption is performed
+ 46:     | automatically by Laravel and you may use the session like normal.
+ 47:     |
+ 48:     */
+ 49: 
+ 50:     'encrypt' => env('SESSION_ENCRYPT', false),
+ 51: 
+ 52:     /*
+ 53:     |--------------------------------------------------------------------------
+ 54:     | Session File Location
+ 55:     |--------------------------------------------------------------------------
+ 56:     |
+ 57:     | When utilizing the "file" session driver, the session files are placed
+ 58:     | on disk. The default storage location is defined here; however, you
+ 59:     | are free to provide another location where they should be stored.
+ 60:     |
+ 61:     */
+ 62: 
+ 63:     'files' => storage_path('framework/sessions'),
+ 64: 
+ 65:     /*
+ 66:     |--------------------------------------------------------------------------
+ 67:     | Session Database Connection
+ 68:     |--------------------------------------------------------------------------
+ 69:     |
+ 70:     | When using the "database" or "redis" session drivers, you may specify a
+ 71:     | connection that should be used to manage these sessions. This should
+ 72:     | correspond to a connection in your database configuration options.
+ 73:     |
+ 74:     */
+ 75: 
+ 76:     'connection' => env('SESSION_CONNECTION'),
+ 77: 
+ 78:     /*
+ 79:     |--------------------------------------------------------------------------
+ 80:     | Session Database Table
+ 81:     |--------------------------------------------------------------------------
+ 82:     |
+ 83:     | When using the "database" session driver, you may specify the table to
+ 84:     | be used to store sessions. Of course, a sensible default is defined
+ 85:     | for you; however, you're welcome to change this to another table.
+ 86:     |
+ 87:     */
+ 88: 
+ 89:     'table' => env('SESSION_TABLE', 'sessions'),
+ 90: 
+ 91:     /*
+ 92:     |--------------------------------------------------------------------------
+ 93:     | Session Cache Store
+ 94:     |--------------------------------------------------------------------------
+ 95:     |
+ 96:     | When using one of the framework's cache driven session backends, you may
+ 97:     | define the cache store which should be used to store the session data
+ 98:     | between requests. This must match one of your defined cache stores.
+ 99:     |
+100:     | Affects: "dynamodb", "memcached", "redis"
+101:     |
+102:     */
+103: 
+104:     'store' => env('SESSION_STORE'),
+105: 
+106:     /*
+107:     |--------------------------------------------------------------------------
+108:     | Session Sweeping Lottery
+109:     |--------------------------------------------------------------------------
+110:     |
+111:     | Some session drivers must manually sweep their storage location to get
+112:     | rid of old sessions from storage. Here are the chances that it will
+113:     | happen on a given request. By default, the odds are 2 out of 100.
+114:     |
+115:     */
+116: 
+117:     'lottery' => [2, 100],
+118: 
+119:     /*
+120:     |--------------------------------------------------------------------------
+121:     | Session Cookie Name
+122:     |--------------------------------------------------------------------------
+123:     |
+124:     | Here you may change the name of the session cookie that is created by
+125:     | the framework. Typically, you should not need to change this value
+126:     | since doing so does not grant a meaningful security improvement.
+127:     |
+128:     */
+129: 
+130:     'cookie' => env(
+131:         'SESSION_COOKIE',
+132:         Str::slug((string) env('APP_NAME', 'laravel')).'-session'
+133:     ),
+134: 
+135:     /*
+136:     |--------------------------------------------------------------------------
+137:     | Session Cookie Path
+138:     |--------------------------------------------------------------------------
+139:     |
+140:     | The session cookie path determines the path for which the cookie will
+141:     | be regarded as available. Typically, this will be the root path of
+142:     | your application, but you're free to change this when necessary.
+143:     |
+144:     */
+145: 
+146:     'path' => env('SESSION_PATH', '/'),
+147: 
+148:     /*
+149:     |--------------------------------------------------------------------------
+150:     | Session Cookie Domain
+151:     |--------------------------------------------------------------------------
+152:     |
+153:     | This value determines the domain and subdomains the session cookie is
+154:     | available to. By default, the cookie will be available to the root
+155:     | domain without subdomains. Typically, this shouldn't be changed.
+156:     |
+157:     */
+158: 
+159:     'domain' => env('SESSION_DOMAIN'),
+160: 
+161:     /*
+162:     |--------------------------------------------------------------------------
+163:     | HTTPS Only Cookies
+164:     |--------------------------------------------------------------------------
+165:     |
+166:     | By setting this option to true, session cookies will only be sent back
+167:     | to the server if the browser has a HTTPS connection. This will keep
+168:     | the cookie from being sent to you when it can't be done securely.
+169:     |
+170:     */
+171: 
+172:     'secure' => env('SESSION_SECURE_COOKIE'),
+173: 
+174:     /*
+175:     |--------------------------------------------------------------------------
+176:     | HTTP Access Only
+177:     |--------------------------------------------------------------------------
+178:     |
+179:     | Setting this value to true will prevent JavaScript from accessing the
+180:     | value of the cookie and the cookie will only be accessible through
+181:     | the HTTP protocol. It's unlikely you should disable this option.
+182:     |
+183:     */
+184: 
+185:     'http_only' => env('SESSION_HTTP_ONLY', true),
+186: 
+187:     /*
+188:     |--------------------------------------------------------------------------
+189:     | Same-Site Cookies
+190:     |--------------------------------------------------------------------------
+191:     |
+192:     | This option determines how your cookies behave when cross-site requests
+193:     | take place, and can be used to mitigate CSRF attacks. By default, we
+194:     | will set this value to "lax" to permit secure cross-site requests.
+195:     |
+196:     | See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie#samesitesamesite-value
+197:     |
+198:     | Supported: "lax", "strict", "none", null
+199:     |
+200:     */
+201: 
+202:     'same_site' => env('SESSION_SAME_SITE', 'lax'),
+203: 
+204:     /*
+205:     |--------------------------------------------------------------------------
+206:     | Partitioned Cookies
+207:     |--------------------------------------------------------------------------
+208:     |
+209:     | Setting this value to true will tie the cookie to the top-level site for
+210:     | a cross-site context. Partitioned cookies are accepted by the browser
+211:     | when flagged "secure" and the Same-Site attribute is set to "none".
+212:     |
+213:     */
+214: 
+215:     'partitioned' => env('SESSION_PARTITIONED_COOKIE', false),
+216: 
+217:     /*
+218:     |--------------------------------------------------------------------------
+219:     | Session Serialization
+220:     |--------------------------------------------------------------------------
+221:     |
+222:     | This value controls the serialization strategy for session data, which
+223:     | is JSON by default. Setting this to "php" allows the storage of PHP
+224:     | objects in the session but can make an application vulnerable to
+225:     | "gadget chain" serialization attacks if the APP_KEY is leaked.
+226:     |
+227:     | Supported: "json", "php"
+228:     |
+229:     */
+230: 
+231:     'serialization' => 'json',
+232: 
+233: ];
+```
+
+## File: bags-platform/backend/database/factories/Modules/.gitkeep
+```
+1: 
 ```
 
 ## File: bags-platform/backend/database/factories/BrandFactory.php
@@ -5745,6 +3946,60 @@ bags-platform/
 43: };
 ```
 
+## File: bags-platform/backend/database/migrations/2026_10_15_150000_add_catalog_lookup_indexes.php
+```php
+ 1: <?php
+ 2: 
+ 3: use Illuminate\Database\Migrations\Migration;
+ 4: use Illuminate\Database\Schema\Blueprint;
+ 5: use Illuminate\Support\Facades\Schema;
+ 6: 
+ 7: return new class extends Migration
+ 8: {
+ 9:     /**
+10:      * فهارس للعلاقات والترتيب: ‏foreignId()->constrained() على PostgreSQL
+11:      * بيعمل قيد بس من غير فهرس، فالاستعلامات على العلاقات دي كانت Seq Scan.
+12:      * على جدول كبير في الإنتاج شغّل إنشاء الفهارس بـ CREATE INDEX CONCURRENTLY.
+13:      */
+14:     public function up(): void
+15:     {
+16:         Schema::table('products', function (Blueprint $table): void {
+17:             $table->index('category_id', 'products_category_id_index');
+18:             $table->index('brand_id', 'products_brand_id_index');
+19:             $table->index('created_by', 'products_created_by_index');
+20:             $table->index('created_at', 'products_created_at_index');
+21:         });
+22: 
+23:         Schema::table('product_variants', function (Blueprint $table): void {
+24:             $table->index(['product_id', 'is_active'], 'product_variants_product_active_index');
+25:             $table->index(['product_id', 'retail_price'], 'product_variants_product_retail_index');
+26:             $table->index(['product_id', 'wholesale_price'], 'product_variants_product_wholesale_index');
+27:         });
+28:     }
+29: 
+30:     public function down(): void
+31:     {
+32:         Schema::table('products', function (Blueprint $table): void {
+33:             $table->dropIndex('products_category_id_index');
+34:             $table->dropIndex('products_brand_id_index');
+35:             $table->dropIndex('products_created_by_index');
+36:             $table->dropIndex('products_created_at_index');
+37:         });
+38: 
+39:         Schema::table('product_variants', function (Blueprint $table): void {
+40:             $table->dropIndex('product_variants_product_active_index');
+41:             $table->dropIndex('product_variants_product_retail_index');
+42:             $table->dropIndex('product_variants_product_wholesale_index');
+43:         });
+44:     }
+45: };
+```
+
+## File: bags-platform/backend/database/seeders/Modules/.gitkeep
+```
+1: 
+```
+
 ## File: bags-platform/backend/database/seeders/BranchSeeder.php
 ```php
  1: <?php
@@ -5767,6 +4022,2385 @@ bags-platform/
 18:         Branch::factory()->count(3)->create();
 19:     }
 20: }
+```
+
+## File: bags-platform/backend/database/.gitignore
+```
+1: *.sqlite*
+```
+
+## File: bags-platform/backend/tests/Feature/Admin/Catalog/CatalogAuditTest.php
+```php
+  1: <?php
+  2: 
+  3: declare(strict_types=1);
+  4: 
+  5: namespace Tests\Feature\Admin\Catalog;
+  6: 
+  7: use App\Enums\ProductStatus;
+  8: use App\Models\Brand;
+  9: use App\Models\Category;
+ 10: use App\Models\Product;
+ 11: use App\Models\ProductVariant;
+ 12: use App\Models\User;
+ 13: use App\Services\Catalog\BrandService;
+ 14: use App\Services\Catalog\CategoryService;
+ 15: use Database\Seeders\DatabaseSeeder;
+ 16: use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+ 17: use Illuminate\Http\UploadedFile;
+ 18: use Illuminate\Support\Facades\Auth;
+ 19: use Illuminate\Support\Facades\Storage;
+ 20: use Spatie\MediaLibrary\MediaCollections\Exceptions\FileUnacceptableForCollection;
+ 21: use Spatie\Permission\Models\Permission;
+ 22: use Tests\TestCase;
+ 23: 
+ 24: class CatalogAuditTest extends TestCase
+ 25: {
+ 26:     use LazilyRefreshDatabase;
+ 27: 
+ 28:     protected function setUp(): void
+ 29:     {
+ 30:         parent::setUp();
+ 31:         Storage::fake('public');
+ 32:     }
+ 33: 
+ 34:     private function signIn(array $permissions): void
+ 35:     {
+ 36:         Auth::forgetGuards();
+ 37:         $staff = User::factory()->create();
+ 38:         foreach ($permissions as $permission) {
+ 39:             Permission::findOrCreate($permission, 'staff');
+ 40:         }
+ 41:         $staff->givePermissionTo($permissions);
+ 42:         $this->withToken($staff->createToken('audit')->plainTextToken);
+ 43:     }
+ 44: 
+ 45:     public function test_nested_cost_is_ignored_without_permission(): void
+ 46:     {
+ 47:         $this->signIn(['products.create']);
+ 48:         $response = $this->postJson('/api/v1/admin/products', [
+ 49:             'category_id' => Category::factory()->create()->id,
+ 50:             'name_ar' => 'حقيبة', 'name_en' => 'Bag', 'sales_channel' => 'retail',
+ 51:             'variants' => [['cost_price' => 999, 'retail_price' => 1200]],
+ 52:         ])->assertCreated();
+ 53:         $this->assertArrayNotHasKey('cost_price', $response->json('data.variants.0'));
+ 54:         $this->assertDatabaseHas('product_variants', ['product_id' => $response->json('data.id'), 'cost_price' => 0]);
+ 55:     }
+ 56: 
+ 57:     public function test_nested_variants_cannot_override_their_product_or_inject_columns(): void
+ 58:     {
+ 59:         $this->signIn(['products.create', 'products.view_cost']);
+ 60:         $other = Product::factory()->create();
+ 61:         $this->postJson('/api/v1/admin/products', [
+ 62:             'category_id' => $other->category_id, 'name_ar' => 'حقيبة', 'name_en' => 'Bag',
+ 63:             'sales_channel' => 'retail', 'variants' => [['product_id' => $other->id, 'id' => 800]],
+ 64:         ])->assertUnprocessable()->assertJsonValidationErrors('variants.0');
+ 65:         $this->assertSame(0, $other->variants()->count());
+ 66:         $this->assertDatabaseCount('products', 1);
+ 67:     }
+ 68: 
+ 69:     public function test_duplicate_nested_identifiers_are_validation_errors(): void
+ 70:     {
+ 71:         $this->signIn(['products.create']);
+ 72:         $this->postJson('/api/v1/admin/products', [
+ 73:             'category_id' => Category::factory()->create()->id,
+ 74:             'name_ar' => 'حقيبة', 'name_en' => 'Bag', 'sales_channel' => 'retail',
+ 75:             'variants' => [
+ 76:                 ['sku' => 'REPEATED', 'barcode' => '123', 'color_name_en' => 'Red'],
+ 77:                 ['sku' => 'REPEATED', 'barcode' => '123', 'color_name_en' => 'Blue'],
+ 78:             ],
+ 79:         ])->assertUnprocessable()->assertJsonValidationErrors(['variants.0.sku', 'variants.1.barcode']);
+ 80:         $this->assertDatabaseCount('products', 0);
+ 81:     }
+ 82: 
+ 83:     public function test_empty_product_slug_is_regenerated_on_update(): void
+ 84:     {
+ 85:         $this->signIn(['products.update']);
+ 86:         $product = Product::factory()->create();
+ 87:         $this->putJson("/api/v1/admin/products/{$product->id}", ['slug' => null, 'name_en' => 'New Bag'])
+ 88:             ->assertOk()->assertJsonPath('data.slug', 'new-bag');
+ 89:     }
+ 90: 
+ 91:     public function test_empty_variant_sku_returns_validation_error(): void
+ 92:     {
+ 93:         $this->signIn(['products.update']);
+ 94:         $variant = ProductVariant::factory()->create();
+ 95:         $this->putJson("/api/v1/admin/products/{$variant->product_id}/variants/{$variant->id}", ['sku' => null])
+ 96:             ->assertUnprocessable()->assertJsonValidationErrors('sku');
+ 97:         $this->assertSame($variant->sku, $variant->fresh()->sku);
+ 98:     }
+ 99: 
+100:     public function test_variant_cost_writes_require_permission(): void
+101:     {
+102:         $this->signIn(['products.update']);
+103:         $product = Product::factory()->create();
+104:         $created = $this->postJson("/api/v1/admin/products/{$product->id}/variants", ['cost_price' => 500])
+105:             ->assertCreated();
+106:         $id = $created->json('data.id');
+107:         $this->putJson("/api/v1/admin/products/{$product->id}/variants/{$id}", ['cost_price' => 700])
+108:             ->assertOk();
+109:         $this->assertDatabaseHas('product_variants', ['id' => $id, 'cost_price' => 0]);
+110:     }
+111: 
+112:     public function test_create_with_invalid_media_rolls_back_category_and_brand(): void
+113:     {
+114:         foreach ([CategoryService::class => Category::class, BrandService::class => Brand::class] as $service => $model) {
+115:             try {
+116:                 app($service)->create(['name_ar' => 'اختبار', 'name_en' => 'Rollback'], UploadedFile::fake()->create('bad.txt', 1, 'text/plain'));
+117:                 $this->fail('Invalid media must fail.');
+118:             } catch (FileUnacceptableForCollection) {
+119:                 $this->assertSame(0, $model::where('name_en', 'Rollback')->count());
+120:             }
+121:         }
+122:     }
+123: 
+124:     public function test_update_with_invalid_media_rolls_back_category_and_brand_changes(): void
+125:     {
+126:         foreach ([CategoryService::class => Category::class, BrandService::class => Brand::class] as $service => $model) {
+127:             $record = $model::factory()->create(['name_en' => 'Original']);
+128:             try {
+129:                 app($service)->update($record, ['name_en' => 'Changed'], UploadedFile::fake()->create('bad.txt', 1, 'text/plain'));
+130:                 $this->fail('Invalid media must fail.');
+131:             } catch (FileUnacceptableForCollection) {
+132:                 $this->assertSame('Original', $record->fresh()->name_en);
+133:             }
+134:         }
+135:     }
+136: 
+137:     public function test_reordering_invalid_subtree_rolls_back_all_items(): void
+138:     {
+139:         $this->signIn(['categories.update']);
+140:         $root = Category::factory()->create(['sort_order' => 0]);
+141:         $child = Category::factory()->create(['parent_id' => $root->id]);
+142:         $leaf = Category::factory()->create(['parent_id' => $child->id]);
+143:         $this->putJson('/api/v1/admin/categories/reorder', ['items' => [
+144:             ['id' => $root->id, 'parent_id' => null, 'sort_order' => 50],
+145:             ['id' => $root->id, 'parent_id' => $leaf->id, 'sort_order' => 1],
+146:         ]])->assertUnprocessable();
+147:         $this->assertSame(0, $root->fresh()->sort_order);
+148:         // A distinct second item makes this fail inside the service after the first update.
+149:         $other = Category::factory()->create(['sort_order' => 0]);
+150:         $this->putJson('/api/v1/admin/categories/reorder', ['items' => [
+151:             ['id' => $other->id, 'parent_id' => null, 'sort_order' => 50],
+152:             ['id' => $root->id, 'parent_id' => $leaf->id, 'sort_order' => 1],
+153:         ]])->assertUnprocessable();
+154:         $this->assertSame(0, $other->fresh()->sort_order);
+155:     }
+156: 
+157:     public function test_moving_a_subtree_cannot_exceed_three_levels(): void
+158:     {
+159:         $this->signIn(['categories.update']);
+160:         $root = Category::factory()->create();
+161:         $child = Category::factory()->create(['parent_id' => $root->id]);
+162:         $otherRoot = Category::factory()->create();
+163:         $otherChild = Category::factory()->create(['parent_id' => $otherRoot->id]);
+164:         $this->putJson("/api/v1/admin/categories/{$root->id}", ['parent_id' => $otherChild->id])->assertUnprocessable();
+165:         $this->assertNull($root->fresh()->parent_id);
+166:         $this->assertSame($root->id, $child->fresh()->parent_id);
+167:     }
+168: 
+169:     public function test_brand_supports_raster_logo_and_rejects_deletion_with_products(): void
+170:     {
+171:         $this->signIn(['brands.create', 'brands.delete']);
+172:         $logo = UploadedFile::fake()->image('logo.png');
+173:         $response = $this->post('/api/v1/admin/brands', ['name_ar' => 'براند', 'name_en' => 'Brand', 'logo' => $logo])->assertCreated();
+174:         $this->assertNotEmpty($response->json('data.logo_url'));
+175:         $brandId = $response->json('data.id');
+176:         Product::factory()->create(['brand_id' => $brandId]);
+177:         $this->deleteJson("/api/v1/admin/brands/{$brandId}")->assertUnprocessable();
+178:     }
+179: 
+180:     public function test_last_active_variant_of_published_product_is_protected(): void
+181:     {
+182:         $this->signIn(['products.update']);
+183:         $product = Product::factory()->published()->create();
+184:         $variant = ProductVariant::factory()->create(['product_id' => $product->id]);
+185:         $url = "/api/v1/admin/products/{$product->id}/variants/{$variant->id}";
+186:         $this->putJson($url, ['is_active' => false])->assertUnprocessable();
+187:         $this->deleteJson($url)->assertUnprocessable();
+188:         $this->assertTrue($variant->fresh()->is_active);
+189:         $this->assertFalse($variant->fresh()->trashed());
+190:     }
+191: 
+192:     public function test_media_conversions_reorder_and_last_image_protection(): void
+193:     {
+194:         $this->signIn(['products.view', 'products.update']);
+195:         $product = Product::factory()->create();
+196:         $url = "/api/v1/admin/products/{$product->id}/media";
+197:         $uploaded = $this->post($url, ['collection' => 'images', 'files' => [
+198:             UploadedFile::fake()->image('first.jpg'), UploadedFile::fake()->image('second.jpg'),
+199:         ]])->assertCreated();
+200:         $first = $uploaded->json('data.0.id');
+201:         $second = $uploaded->json('data.1.id');
+202:         $this->assertNotEmpty($uploaded->json('data.0.thumb_url'));
+203:         $this->assertNotEmpty($uploaded->json('data.0.medium_url'));
+204:         $this->putJson($url.'/reorder', ['ids' => [$second, $first]])->assertOk();
+205:         $this->getJson($url)->assertOk()->assertJsonPath('data.0.id', $second);
+206:         $product->update(['status' => ProductStatus::Published]);
+207:         $this->deleteJson($url.'/'.$first)->assertOk();
+208:         $this->deleteJson($url.'/'.$second)->assertUnprocessable();
+209:     }
+210: 
+211:     public function test_reordering_foreign_media_is_rejected_without_changes(): void
+212:     {
+213:         $this->signIn(['products.update']);
+214:         $product = Product::factory()->create();
+215:         $other = Product::factory()->create();
+216:         $media = $other->addMedia(UploadedFile::fake()->image('other.jpg'))->toMediaCollection('images');
+217:         $this->putJson("/api/v1/admin/products/{$product->id}/media/reorder", ['ids' => [$media->id]])->assertNotFound();
+218:         $this->assertSame($other->id, $media->fresh()->model_id);
+219:     }
+220: 
+221:     public function test_variant_video_is_rejected(): void
+222:     {
+223:         $this->signIn(['products.update']);
+224:         $variant = ProductVariant::factory()->create();
+225:         $this->post("/api/v1/admin/products/{$variant->product_id}/media", [
+226:             'collection' => 'video', 'variant_id' => $variant->id,
+227:             'file' => UploadedFile::fake()->create('clip.mp4', 10, 'video/mp4'),
+228:         ])->assertUnprocessable();
+229:         $this->assertDatabaseCount('media', 0);
+230:     }
+231: 
+232:     public function test_publishing_requires_permission_and_rolls_back_edits(): void
+233:     {
+234:         $this->signIn(['products.update']);
+235:         $product = Product::factory()->create(['name_en' => 'Original']);
+236:         $this->putJson("/api/v1/admin/products/{$product->id}", ['status' => 'published', 'name_en' => 'Changed'])
+237:             ->assertForbidden();
+238:         $this->assertSame('Original', $product->fresh()->name_en);
+239:         $this->assertSame(ProductStatus::Draft, $product->fresh()->status);
+240:     }
+241: 
+242:     public function test_product_delete_soft_deletes_all_variants(): void
+243:     {
+244:         $this->signIn(['products.delete']);
+245:         $variant = ProductVariant::factory()->create();
+246:         $this->deleteJson("/api/v1/admin/products/{$variant->product_id}")->assertOk();
+247:         $this->assertSoftDeleted('products', ['id' => $variant->product_id]);
+248:         $this->assertSoftDeleted('product_variants', ['id' => $variant->id]);
+249:     }
+250: 
+251:     public function test_non_positive_pagination_is_rejected_and_upper_limit_is_clamped(): void
+252:     {
+253:         $this->signIn(['categories.view', 'brands.view', 'products.view']);
+254:         foreach (['categories', 'brands', 'products'] as $resource) {
+255:             $this->getJson("/api/v1/admin/{$resource}?per_page=-1")->assertUnprocessable()->assertJsonValidationErrors('per_page');
+256:             $this->getJson("/api/v1/admin/{$resource}?per_page=101")->assertOk()->assertJsonPath('meta.per_page', 100);
+257:         }
+258:     }
+259: 
+260:     public function test_catalog_seed_matches_plan_and_is_repeatable(): void
+261:     {
+262:         $this->seed(DatabaseSeeder::class);
+263:         $this->seed(DatabaseSeeder::class);
+264:         $this->assertDatabaseCount('categories', 7);
+265:         $this->assertDatabaseCount('brands', 4);
+266:         $this->assertDatabaseCount('products', 10);
+267:         $this->assertSame(3, Category::where('slug', 'luggage')->firstOrFail()->children()->count());
+268:         foreach (Product::with('variants')->get() as $product) {
+269:             $this->assertSame(ProductStatus::Draft, $product->status);
+270:             $this->assertContains($product->variants->count(), [2, 3]);
+271:             $this->assertSame('P'.str_pad((string) $product->id, 5, '0', STR_PAD_LEFT), $product->code);
+272:             foreach ($product->variants as $variant) {
+273:                 $this->assertStringStartsWith($product->code.'-', $variant->sku);
+274:                 $this->assertMatchesRegularExpression('/^2[0-9]{12}$/', $variant->barcode);
+275:             }
+276:         }
+277:     }
+278: }
+```
+
+## File: bags-platform/backend/tests/Feature/Admin/Catalog/CatalogHardeningTest.php
+```php
+  1: <?php
+  2: 
+  3: declare(strict_types=1);
+  4: 
+  5: namespace Tests\Feature\Admin\Catalog;
+  6: 
+  7: use App\Models\Category;
+  8: use App\Models\Product;
+  9: use App\Models\ProductVariant;
+ 10: use App\Models\User;
+ 11: use Illuminate\Contracts\Debug\ExceptionHandler;
+ 12: use Illuminate\Database\UniqueConstraintViolationException;
+ 13: use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+ 14: use Illuminate\Http\Request;
+ 15: use Illuminate\Http\UploadedFile;
+ 16: use Illuminate\Support\Facades\Auth;
+ 17: use Illuminate\Support\Facades\DB;
+ 18: use Illuminate\Support\Facades\Schema;
+ 19: use Illuminate\Support\Facades\Storage;
+ 20: use Illuminate\Testing\TestResponse;
+ 21: use PDOException;
+ 22: use RuntimeException;
+ 23: use Spatie\Permission\Models\Permission;
+ 24: use Tests\TestCase;
+ 25: 
+ 26: class CatalogHardeningTest extends TestCase
+ 27: {
+ 28:     use LazilyRefreshDatabase;
+ 29: 
+ 30:     private const ALL_PERMISSIONS = [
+ 31:         'categories.view', 'categories.create', 'categories.update', 'categories.delete',
+ 32:         'brands.view', 'brands.create', 'brands.update', 'brands.delete',
+ 33:         'products.view', 'products.create', 'products.update', 'products.delete',
+ 34:         'products.publish', 'products.view_cost',
+ 35:     ];
+ 36: 
+ 37:     // ---------- H1: قواعد النشر بتتفحص بعد أي تعديل على منتج منشور ----------
+ 38: 
+ 39:     public function test_clearing_price_of_a_published_product_variant_is_rejected_and_rolled_back(): void
+ 40:     {
+ 41:         $token = $this->adminToken();
+ 42:         [$productId, $variantId] = $this->publishedProduct($token);
+ 43: 
+ 44:         $this->requestWithToken($token, 'PUT', "/api/v1/admin/products/{$productId}/variants/{$variantId}", [
+ 45:             'retail_price' => null,
+ 46:         ])->assertUnprocessable();
+ 47: 
+ 48:         $this->assertSame('100.00', (string) ProductVariant::find($variantId)->retail_price);
+ 49:     }
+ 50: 
+ 51:     public function test_valid_price_update_on_published_product_still_works(): void
+ 52:     {
+ 53:         $token = $this->adminToken();
+ 54:         [$productId, $variantId] = $this->publishedProduct($token);
+ 55: 
+ 56:         $this->requestWithToken($token, 'PUT', "/api/v1/admin/products/{$productId}/variants/{$variantId}", [
+ 57:             'retail_price' => 150,
+ 58:         ])->assertOk()
+ 59:             ->assertJsonPath('data.retail_price', '150.00');
+ 60:     }
+ 61: 
+ 62:     public function test_switching_published_product_to_both_without_wholesale_prices_is_rejected(): void
+ 63:     {
+ 64:         $token = $this->adminToken();
+ 65:         [$productId] = $this->publishedProduct($token);
+ 66: 
+ 67:         $this->requestWithToken($token, 'PUT', "/api/v1/admin/products/{$productId}", [
+ 68:             'sales_channel' => 'both',
+ 69:         ])->assertUnprocessable();
+ 70: 
+ 71:         $this->assertSame('retail', Product::find($productId)->sales_channel->value);
+ 72:     }
+ 73: 
+ 74:     public function test_moving_published_product_to_inactive_category_is_rejected(): void
+ 75:     {
+ 76:         $token = $this->adminToken();
+ 77:         [$productId] = $this->publishedProduct($token);
+ 78:         $inactive = Category::factory()->create(['is_active' => false]);
+ 79: 
+ 80:         $this->requestWithToken($token, 'PUT', "/api/v1/admin/products/{$productId}", [
+ 81:             'category_id' => $inactive->id,
+ 82:         ])->assertUnprocessable();
+ 83:     }
+ 84: 
+ 85:     public function test_adding_unpriced_active_variant_to_published_product_is_rejected(): void
+ 86:     {
+ 87:         $token = $this->adminToken();
+ 88:         [$productId] = $this->publishedProduct($token);
+ 89: 
+ 90:         $this->requestWithToken($token, 'POST', "/api/v1/admin/products/{$productId}/variants", [
+ 91:             'color_name_en' => 'Green',
+ 92:         ])->assertUnprocessable();
+ 93: 
+ 94:         $this->assertSame(1, Product::find($productId)->variants()->count());
+ 95:     }
+ 96: 
+ 97:     public function test_deactivating_a_category_with_published_products_is_rejected(): void
+ 98:     {
+ 99:         $token = $this->adminToken();
+100:         [, , $categoryId] = $this->publishedProduct($token);
+101: 
+102:         $this->requestWithToken($token, 'PUT', "/api/v1/admin/categories/{$categoryId}", [
+103:             'is_active' => false,
+104:         ])->assertUnprocessable();
+105: 
+106:         $this->assertTrue(Category::find($categoryId)->is_active);
+107:     }
+108: 
+109:     // ---------- H2: فهارس العلاقات موجودة ----------
+110: 
+111:     public function test_catalog_lookup_indexes_exist(): void
+112:     {
+113:         $productIndexes = collect(Schema::getIndexes('products'))->pluck('name');
+114:         $variantIndexes = collect(Schema::getIndexes('product_variants'))->pluck('name');
+115: 
+116:         $this->assertTrue($productIndexes->contains('products_category_id_index'));
+117:         $this->assertTrue($productIndexes->contains('products_brand_id_index'));
+118:         $this->assertTrue($productIndexes->contains('products_created_by_index'));
+119:         $this->assertTrue($productIndexes->contains('products_created_at_index'));
+120:         $this->assertTrue($variantIndexes->contains('product_variants_product_active_index'));
+121:         $this->assertTrue($variantIndexes->contains('product_variants_product_retail_index'));
+122:     }
+123: 
+124:     // ---------- H3: SVG مرفوض كشعار ----------
+125: 
+126:     public function test_svg_brand_logo_is_rejected(): void
+127:     {
+128:         Storage::fake('public');
+129:         $token = $this->adminToken();
+130: 
+131:         Auth::forgetGuards();
+132:         $this->withToken($token)->post('/api/v1/admin/brands', [
+133:             'name_ar' => 'براند',
+134:             'name_en' => 'Svg Brand',
+135:             'logo' => UploadedFile::fake()->create('logo.svg', 4, 'image/svg+xml'),
+136:         ])->assertUnprocessable()
+137:             ->assertJsonValidationErrors(['logo']);
+138:     }
+139: 
+140:     // ---------- H4: حماية من الدورات في شجرة الأقسام ----------
+141: 
+142:     public function test_descendant_ids_terminates_on_a_cycle(): void
+143:     {
+144:         $a = Category::factory()->create();
+145:         $b = Category::factory()->create(['parent_id' => $a->id]);
+146:         DB::table('categories')->where('id', $a->id)->update(['parent_id' => $b->id]); // دورة A<->B
+147: 
+148:         $this->assertSame([$b->id], $a->fresh()->descendantIds());
+149:     }
+150: 
+151:     public function test_depth_throws_on_a_cycle_instead_of_looping(): void
+152:     {
+153:         $a = Category::factory()->create();
+154:         $b = Category::factory()->create(['parent_id' => $a->id]);
+155:         DB::table('categories')->where('id', $a->id)->update(['parent_id' => $b->id]);
+156: 
+157:         $this->expectException(RuntimeException::class);
+158:         $a->fresh()->depth();
+159:     }
+160: 
+161:     // ---------- M1: حدود مطابقة للأعمدة ----------
+162: 
+163:     public function test_product_slug_longer_than_the_column_is_a_validation_error(): void
+164:     {
+165:         $token = $this->adminToken();
+166:         $category = Category::factory()->create();
+167: 
+168:         $this->requestWithToken($token, 'POST', '/api/v1/admin/products', [
+169:             'category_id' => $category->id,
+170:             'name_ar' => 'منتج',
+171:             'name_en' => 'Slugged',
+172:             'slug' => str_repeat('a', 256),
+173:             'sales_channel' => 'retail',
+174:         ])->assertUnprocessable()
+175:             ->assertJsonValidationErrors(['slug']);
+176:     }
+177: 
+178:     public function test_oversized_weight_is_a_validation_error(): void
+179:     {
+180:         $token = $this->adminToken();
+181:         $category = Category::factory()->create();
+182: 
+183:         $this->requestWithToken($token, 'POST', '/api/v1/admin/products', [
+184:             'category_id' => $category->id,
+185:             'name_ar' => 'منتج',
+186:             'name_en' => 'Heavy',
+187:             'sales_channel' => 'retail',
+188:             'weight_kg' => 100000,
+189:         ])->assertUnprocessable()
+190:             ->assertJsonValidationErrors(['weight_kg']);
+191:     }
+192: 
+193:     public function test_generated_slugs_stay_within_the_column_even_with_suffixes(): void
+194:     {
+195:         $token = $this->adminToken();
+196:         $category = Category::factory()->create();
+197:         $longName = str_repeat('a', 250);
+198: 
+199:         foreach ([1, 2] as $i) {
+200:             $response = $this->requestWithToken($token, 'POST', '/api/v1/admin/products', [
+201:                 'category_id' => $category->id,
+202:                 'name_ar' => 'منتج '.$i,
+203:                 'name_en' => $longName,
+204:                 'sales_channel' => 'retail',
+205:             ])->assertCreated();
+206:             $this->assertLessThanOrEqual(255, strlen((string) $response->json('data.slug')));
+207:         }
+208:     }
+209: 
+210:     // ---------- M2: سباق الـ unique يرجع 409 ----------
+211: 
+212:     public function test_unique_constraint_violation_renders_as_409(): void
+213:     {
+214:         $request = Request::create('/api/v1/admin/products', 'POST');
+215:         $request->headers->set('Accept', 'application/json');
+216: 
+217:         $exception = new UniqueConstraintViolationException(
+218:             'pgsql', 'insert into products ...', [], new PDOException('duplicate key'),
+219:         );
+220:         $response = app(ExceptionHandler::class)->render($request, $exception);
+221: 
+222:         $this->assertSame(409, $response->getStatusCode());
+223:     }
+224: 
+225:     // ---------- M3: صيغة الباركود الداخلي محجوزة ----------
+226: 
+227:     public function test_manual_barcode_in_the_internal_format_is_rejected(): void
+228:     {
+229:         $token = $this->adminToken();
+230:         $product = Product::factory()->create();
+231: 
+232:         $this->requestWithToken($token, 'POST', "/api/v1/admin/products/{$product->id}/variants", [
+233:             'color_name_en' => 'Red',
+234:             'barcode' => '2000000000015',
+235:         ])->assertUnprocessable()
+236:             ->assertJsonValidationErrors(['barcode']);
+237:     }
+238: 
+239:     public function test_external_barcode_and_resending_own_generated_barcode_are_allowed(): void
+240:     {
+241:         $token = $this->adminToken();
+242:         $product = Product::factory()->create();
+243: 
+244:         $this->requestWithToken($token, 'POST', "/api/v1/admin/products/{$product->id}/variants", [
+245:             'color_name_en' => 'Red',
+246:             'barcode' => 'EXT-987',
+247:         ])->assertCreated();
+248: 
+249:         $created = $this->requestWithToken($token, 'POST', "/api/v1/admin/products/{$product->id}/variants", [
+250:             'color_name_en' => 'Blue',
+251:         ])->assertCreated();
+252:         $variantId = $created->json('data.id');
+253:         $generated = (string) $created->json('data.barcode');
+254:         $this->assertMatchesRegularExpression('/^2\d{12}$/', $generated);
+255: 
+256:         // إعادة إرسال نفس الباركود المولّد للمتغير نفسه (فورم كامل) مسموحة
+257:         $this->requestWithToken($token, 'PUT', "/api/v1/admin/products/{$product->id}/variants/{$variantId}", [
+258:             'barcode' => $generated,
+259:         ])->assertOk();
+260: 
+261:         // لكن باركود داخلي الصيغة بتاع متغير تاني مرفوض
+262:         $this->requestWithToken($token, 'PUT', "/api/v1/admin/products/{$product->id}/variants/{$variantId}", [
+263:             'barcode' => '2000000000099',
+264:         ])->assertUnprocessable();
+265:     }
+266: 
+267:     // ---------- helpers ----------
+268: 
+269:     /** @return array{0: int, 1: int, 2: int} product id, variant id, category id */
+270:     private function publishedProduct(string $token): array
+271:     {
+272:         Storage::fake('public');
+273:         $category = Category::factory()->create();
+274: 
+275:         $created = $this->requestWithToken($token, 'POST', '/api/v1/admin/products', [
+276:             'category_id' => $category->id,
+277:             'name_ar' => 'منتج منشور',
+278:             'name_en' => 'Published Product '.uniqid(),
+279:             'sales_channel' => 'retail',
+280:             'variants' => [['color_name_en' => 'Red', 'retail_price' => 100]],
+281:         ])->assertCreated();
+282:         $productId = $created->json('data.id');
+283:         $variantId = $created->json('data.variants.0.id');
+284: 
+285:         Auth::forgetGuards();
+286:         $this->withToken($token)->post("/api/v1/admin/products/{$productId}/media", [
+287:             'collection' => 'images',
+288:             'files' => [UploadedFile::fake()->image('p.jpg')],
+289:         ])->assertCreated();
+290: 
+291:         $this->requestWithToken($token, 'PUT', "/api/v1/admin/products/{$productId}", [
+292:             'status' => 'published',
+293:         ])->assertOk();
+294: 
+295:         return [$productId, $variantId, $category->id];
+296:     }
+297: 
+298:     private function adminToken(): string
+299:     {
+300:         foreach (self::ALL_PERMISSIONS as $permission) {
+301:             Permission::findOrCreate($permission, 'staff');
+302:         }
+303:         $staff = User::factory()->create();
+304:         $staff->givePermissionTo(self::ALL_PERMISSIONS);
+305: 
+306:         return $staff->createToken('test')->plainTextToken;
+307:     }
+308: 
+309:     private function requestWithToken(string $token, string $method, string $uri, array $payload = []): TestResponse
+310:     {
+311:         Auth::forgetGuards();
+312: 
+313:         return $this->withToken($token)->json($method, $uri, $payload);
+314:     }
+315: }
+```
+
+## File: bags-platform/backend/tests/Feature/Admin/Catalog/CatalogRobustnessTest.php
+```php
+  1: <?php
+  2: 
+  3: declare(strict_types=1);
+  4: 
+  5: namespace Tests\Feature\Admin\Catalog;
+  6: 
+  7: use App\Models\Category;
+  8: use App\Models\Product;
+  9: use App\Models\User;
+ 10: use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+ 11: use Illuminate\Http\UploadedFile;
+ 12: use Illuminate\Support\Facades\Auth;
+ 13: use Illuminate\Support\Facades\Storage;
+ 14: use Illuminate\Testing\TestResponse;
+ 15: use Spatie\Permission\Models\Permission;
+ 16: use Tests\TestCase;
+ 17: 
+ 18: class CatalogRobustnessTest extends TestCase
+ 19: {
+ 20:     use LazilyRefreshDatabase;
+ 21: 
+ 22:     private const ALL_PERMISSIONS = [
+ 23:         'categories.view', 'categories.create', 'categories.update', 'categories.delete',
+ 24:         'brands.view', 'brands.create', 'brands.update', 'brands.delete',
+ 25:         'products.view', 'products.create', 'products.update', 'products.delete',
+ 26:         'products.publish', 'products.view_cost',
+ 27:     ];
+ 28: 
+ 29:     // ---------- M4: مدخلات غلط بترجع 404/422 مش 500 ----------
+ 30: 
+ 31:     public function test_non_numeric_route_id_returns_404(): void
+ 32:     {
+ 33:         $token = $this->adminToken();
+ 34: 
+ 35:         $this->requestWithToken($token, 'GET', '/api/v1/admin/products/abc')->assertNotFound();
+ 36:         $this->requestWithToken($token, 'GET', '/api/v1/admin/categories/abc')->assertNotFound();
+ 37:         $this->requestWithToken($token, 'GET', '/api/v1/admin/products/1/media/xyz')->assertNotFound();
+ 38:     }
+ 39: 
+ 40:     public function test_malformed_index_filters_return_422(): void
+ 41:     {
+ 42:         $token = $this->adminToken();
+ 43: 
+ 44:         $this->requestWithToken($token, 'GET', '/api/v1/admin/products?category_id=abc')->assertUnprocessable();
+ 45:         $this->requestWithToken($token, 'GET', '/api/v1/admin/products?brand_id=abc')->assertUnprocessable();
+ 46:         $this->requestWithToken($token, 'GET', '/api/v1/admin/products?status=banana')->assertUnprocessable();
+ 47:         $this->requestWithToken($token, 'GET', '/api/v1/admin/categories?parent_id=abc')->assertUnprocessable();
+ 48:     }
+ 49: 
+ 50:     public function test_array_query_params_return_422_not_500(): void
+ 51:     {
+ 52:         $token = $this->adminToken();
+ 53: 
+ 54:         $this->requestWithToken($token, 'GET', '/api/v1/admin/products?search[]=x')->assertUnprocessable();
+ 55:         $this->requestWithToken($token, 'GET', '/api/v1/admin/products?category_id[]=1&category_id[]=2')->assertUnprocessable();
+ 56:         $this->requestWithToken($token, 'GET', '/api/v1/admin/brands?search[]=x')->assertUnprocessable();
+ 57:         $this->requestWithToken($token, 'GET', '/api/v1/admin/categories?search[]=x')->assertUnprocessable();
+ 58:     }
+ 59: 
+ 60:     public function test_unknown_category_filter_returns_422(): void
+ 61:     {
+ 62:         $token = $this->adminToken();
+ 63: 
+ 64:         $this->requestWithToken($token, 'GET', '/api/v1/admin/products?category_id=999999')->assertUnprocessable();
+ 65:     }
+ 66: 
+ 67:     // ---------- M5: بحث مش حساس لحالة الحروف والـ wildcards حرفية ----------
+ 68: 
+ 69:     public function test_search_is_case_insensitive(): void
+ 70:     {
+ 71:         $token = $this->adminToken();
+ 72:         $category = Category::factory()->create();
+ 73:         $this->createProduct($token, $category->id, 'Classic Leather Handbag');
+ 74: 
+ 75:         foreach (['handbag', 'HANDBAG', 'LeAtHeR'] as $term) {
+ 76:             $this->requestWithToken($token, 'GET', '/api/v1/admin/products?search='.urlencode($term))
+ 77:                 ->assertOk()
+ 78:                 ->assertJsonCount(1, 'data');
+ 79:         }
+ 80:     }
+ 81: 
+ 82:     public function test_search_wildcards_are_escaped(): void
+ 83:     {
+ 84:         $token = $this->adminToken();
+ 85:         $category = Category::factory()->create();
+ 86:         $this->createProduct($token, $category->id, 'Cotton Bag');
+ 87:         $this->createProduct($token, $category->id, '100% Cotton Bag');
+ 88: 
+ 89:         // ‏% لو اتعامل كـ wildcard هيرجع المنتجين؛ متعشّق بيرجع اللي فيه % حرفيًا بس
+ 90:         $this->requestWithToken($token, 'GET', '/api/v1/admin/products?search='.urlencode('100%'))
+ 91:             ->assertOk()
+ 92:             ->assertJsonCount(1, 'data')
+ 93:             ->assertJsonPath('data.0.name_en', '100% Cotton Bag');
+ 94: 
+ 95:         $this->requestWithToken($token, 'GET', '/api/v1/admin/products?search='.urlencode('%'))
+ 96:             ->assertOk()
+ 97:             ->assertJsonCount(1, 'data');
+ 98:     }
+ 99: 
+100:     // ---------- L6: أرخص/أغلى سعر من النشطين بس ----------
+101: 
+102:     public function test_min_max_retail_prices_ignore_inactive_variants(): void
+103:     {
+104:         $token = $this->adminToken();
+105:         $category = Category::factory()->create();
+106:         $productId = $this->createProduct($token, $category->id, 'Priced Bag', [
+107:             'variants' => [
+108:                 ['color_name_en' => 'Red', 'retail_price' => 100],
+109:                 ['color_name_en' => 'Blue', 'retail_price' => 40, 'is_active' => false],
+110:             ],
+111:         ]);
+112: 
+113:         $this->requestWithToken($token, 'GET', '/api/v1/admin/products')
+114:             ->assertOk()
+115:             ->assertJsonPath('data.0.id', $productId)
+116:             ->assertJsonPath('data.0.min_retail_price', '100.00')
+117:             ->assertJsonPath('data.0.max_retail_price', '100.00');
+118:     }
+119: 
+120:     // ---------- M11: تكرار التركيبة وحالة الحروف ----------
+121: 
+122:     public function test_combination_check_is_case_insensitive(): void
+123:     {
+124:         $token = $this->adminToken();
+125:         $product = Product::factory()->create();
+126: 
+127:         $this->requestWithToken($token, 'POST', "/api/v1/admin/products/{$product->id}/variants", [
+128:             'color_name_en' => 'Black', 'size' => 'M',
+129:         ])->assertCreated();
+130: 
+131:         $this->requestWithToken($token, 'POST', "/api/v1/admin/products/{$product->id}/variants", [
+132:             'color_name_en' => 'black', 'size' => 'm',
+133:         ])->assertUnprocessable();
+134:     }
+135: 
+136:     public function test_color_details_without_english_name_are_rejected(): void
+137:     {
+138:         $token = $this->adminToken();
+139:         $product = Product::factory()->create();
+140: 
+141:         $this->requestWithToken($token, 'POST', "/api/v1/admin/products/{$product->id}/variants", [
+142:             'color_hex' => '#112233',
+143:         ])->assertUnprocessable()
+144:             ->assertJsonValidationErrors(['color_name_en']);
+145: 
+146:         $this->requestWithToken($token, 'POST', "/api/v1/admin/products/{$product->id}/variants", [
+147:             'color_name_ar' => 'أسود',
+148:         ])->assertUnprocessable()
+149:             ->assertJsonValidationErrors(['color_name_en']);
+150:     }
+151: 
+152:     // ---------- L1: archived وقت الإنشاء مرفوض مش بيتحول draft بصمت ----------
+153: 
+154:     public function test_creating_a_product_directly_as_archived_is_rejected(): void
+155:     {
+156:         $token = $this->adminToken();
+157:         $category = Category::factory()->create();
+158: 
+159:         $this->requestWithToken($token, 'POST', '/api/v1/admin/products', [
+160:             'category_id' => $category->id,
+161:             'name_ar' => 'منتج',
+162:             'name_en' => 'Archived At Birth',
+163:             'sales_channel' => 'retail',
+164:             'status' => 'archived',
+165:         ])->assertUnprocessable()
+166:             ->assertJsonValidationErrors(['status']);
+167:     }
+168: 
+169:     // ---------- M7/M8: حدود الأبعاد والـ arrays ----------
+170: 
+171:     public function test_oversized_image_dimensions_are_rejected(): void
+172:     {
+173:         Storage::fake('public');
+174:         $token = $this->adminToken();
+175: 
+176:         Auth::forgetGuards();
+177:         $this->withToken($token)->post('/api/v1/admin/categories', [
+178:             'name_ar' => 'قسم',
+179:             'name_en' => 'Huge Image Category',
+180:             'image' => UploadedFile::fake()->image('huge.jpg', 6001, 40),
+181:         ])->assertUnprocessable()
+182:             ->assertJsonValidationErrors(['image']);
+183:     }
+184: 
+185:     public function test_too_many_variants_on_create_are_rejected(): void
+186:     {
+187:         $token = $this->adminToken();
+188:         $category = Category::factory()->create();
+189:         $variants = array_map(fn ($i) => ['color_name_en' => 'Color '.$i], range(1, 101));
+190: 
+191:         $this->requestWithToken($token, 'POST', '/api/v1/admin/products', [
+192:             'category_id' => $category->id,
+193:             'name_ar' => 'منتج',
+194:             'name_en' => 'Many Variants',
+195:             'sales_channel' => 'retail',
+196:             'variants' => $variants,
+197:         ])->assertUnprocessable()
+198:             ->assertJsonValidationErrors(['variants']);
+199:     }
+200: 
+201:     public function test_media_reorder_rejects_duplicate_and_too_many_ids(): void
+202:     {
+203:         $token = $this->adminToken();
+204:         $product = Product::factory()->create();
+205: 
+206:         $this->requestWithToken($token, 'PUT', "/api/v1/admin/products/{$product->id}/media/reorder", [
+207:             'ids' => [1, 1],
+208:         ])->assertUnprocessable();
+209: 
+210:         $this->requestWithToken($token, 'PUT', "/api/v1/admin/products/{$product->id}/media/reorder", [
+211:             'ids' => range(1, 201),
+212:         ])->assertUnprocessable();
+213:     }
+214: 
+215:     // ---------- L7: روابط الميديا بالـ uuid ----------
+216: 
+217:     public function test_media_urls_use_uuid_paths(): void
+218:     {
+219:         Storage::fake('public');
+220:         $token = $this->adminToken();
+221:         $product = Product::factory()->create();
+222: 
+223:         Auth::forgetGuards();
+224:         $uploaded = $this->withToken($token)->post("/api/v1/admin/products/{$product->id}/media", [
+225:             'collection' => 'images',
+226:             'files' => [UploadedFile::fake()->image('a.jpg')],
+227:         ])->assertCreated();
+228: 
+229:         $url = (string) $uploaded->json('data.0.url');
+230:         $uuid = (string) $product->getFirstMedia('images')->uuid;
+231:         $this->assertNotEmpty($uuid);
+232:         $this->assertStringContainsString($uuid, $url);
+233:     }
+234: 
+235:     // ---------- helpers ----------
+236: 
+237:     private function createProduct(string $token, int $categoryId, string $nameEn, array $extra = []): int
+238:     {
+239:         $response = $this->requestWithToken($token, 'POST', '/api/v1/admin/products', array_merge([
+240:             'category_id' => $categoryId,
+241:             'name_ar' => 'منتج',
+242:             'name_en' => $nameEn,
+243:             'sales_channel' => 'retail',
+244:         ], $extra));
+245:         $response->assertCreated();
+246: 
+247:         return $response->json('data.id');
+248:     }
+249: 
+250:     private function adminToken(): string
+251:     {
+252:         foreach (self::ALL_PERMISSIONS as $permission) {
+253:             Permission::findOrCreate($permission, 'staff');
+254:         }
+255:         $staff = User::factory()->create();
+256:         $staff->givePermissionTo(self::ALL_PERMISSIONS);
+257: 
+258:         return $staff->createToken('test')->plainTextToken;
+259:     }
+260: 
+261:     private function requestWithToken(string $token, string $method, string $uri, array $payload = []): TestResponse
+262:     {
+263:         Auth::forgetGuards();
+264: 
+265:         return $this->withToken($token)->json($method, $uri, $payload);
+266:     }
+267: }
+```
+
+## File: bags-platform/backend/tests/Feature/Admin/Catalog/CategoryCatalogTest.php
+```php
+  1: <?php
+  2: 
+  3: declare(strict_types=1);
+  4: 
+  5: namespace Tests\Feature\Admin\Catalog;
+  6: 
+  7: use App\Models\Category;
+  8: use App\Models\Product;
+  9: use App\Models\User;
+ 10: use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+ 11: use Illuminate\Http\UploadedFile;
+ 12: use Illuminate\Support\Facades\Auth;
+ 13: use Illuminate\Support\Facades\Storage;
+ 14: use Illuminate\Testing\TestResponse;
+ 15: use Spatie\Permission\Models\Permission;
+ 16: use Tests\TestCase;
+ 17: 
+ 18: class CategoryCatalogTest extends TestCase
+ 19: {
+ 20:     use LazilyRefreshDatabase;
+ 21: 
+ 22:     private const ALL_PERMISSIONS = [
+ 23:         'categories.view', 'categories.create', 'categories.update', 'categories.delete',
+ 24:     ];
+ 25: 
+ 26:     public function test_staff_without_create_permission_gets_403(): void
+ 27:     {
+ 28:         $viewer = $this->staffWithPermissions(['categories.view']);
+ 29:         $token = $viewer->createToken('test')->plainTextToken;
+ 30: 
+ 31:         $this->requestWithToken($token, 'POST', '/api/v1/admin/categories', [
+ 32:             'name_ar' => 'قسم', 'name_en' => 'Category',
+ 33:         ])->assertForbidden();
+ 34:     }
+ 35: 
+ 36:     public function test_create_category_with_image_returns_201_and_image_url(): void
+ 37:     {
+ 38:         Storage::fake('public');
+ 39:         $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
+ 40:         $token = $admin->createToken('test')->plainTextToken;
+ 41: 
+ 42:         $response = $this->uploadWithToken($token, '/api/v1/admin/categories', [
+ 43:             'name_ar' => 'شنط يد',
+ 44:             'name_en' => 'Handbags',
+ 45:             'image' => UploadedFile::fake()->image('handbags.jpg'),
+ 46:         ]);
+ 47: 
+ 48:         $response->assertCreated()
+ 49:             ->assertJsonPath('data.name_en', 'Handbags')
+ 50:             ->assertJsonPath('data.slug', 'handbags');
+ 51:         $this->assertNotEmpty($response->json('data.image_url'));
+ 52:     }
+ 53: 
+ 54:     public function test_category_cannot_be_its_own_parent(): void
+ 55:     {
+ 56:         $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
+ 57:         $token = $admin->createToken('test')->plainTextToken;
+ 58:         $category = Category::factory()->create();
+ 59: 
+ 60:         $this->requestWithToken($token, 'PUT', "/api/v1/admin/categories/{$category->id}", [
+ 61:             'parent_id' => $category->id,
+ 62:         ])->assertUnprocessable();
+ 63:     }
+ 64: 
+ 65:     public function test_category_cannot_move_under_its_descendant(): void
+ 66:     {
+ 67:         $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
+ 68:         $token = $admin->createToken('test')->plainTextToken;
+ 69:         $root = Category::factory()->create();
+ 70:         $child = Category::factory()->create(['parent_id' => $root->id]);
+ 71:         $grandchild = Category::factory()->create(['parent_id' => $child->id]);
+ 72: 
+ 73:         $this->requestWithToken($token, 'PUT', "/api/v1/admin/categories/{$root->id}", [
+ 74:             'parent_id' => $grandchild->id,
+ 75:         ])->assertUnprocessable();
+ 76:     }
+ 77: 
+ 78:     public function test_creating_a_fourth_level_category_is_rejected(): void
+ 79:     {
+ 80:         $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
+ 81:         $token = $admin->createToken('test')->plainTextToken;
+ 82:         $level1 = Category::factory()->create();
+ 83:         $level2 = Category::factory()->create(['parent_id' => $level1->id]);
+ 84:         $level3 = Category::factory()->create(['parent_id' => $level2->id]);
+ 85: 
+ 86:         $this->requestWithToken($token, 'POST', '/api/v1/admin/categories', [
+ 87:             'name_ar' => 'مستوى رابع', 'name_en' => 'Level Four', 'parent_id' => $level3->id,
+ 88:         ])->assertUnprocessable();
+ 89:     }
+ 90: 
+ 91:     public function test_deleting_a_category_with_products_is_rejected(): void
+ 92:     {
+ 93:         $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
+ 94:         $token = $admin->createToken('test')->plainTextToken;
+ 95:         $category = Category::factory()->create();
+ 96:         Product::factory()->create(['category_id' => $category->id]);
+ 97: 
+ 98:         $this->requestWithToken($token, 'DELETE', "/api/v1/admin/categories/{$category->id}")
+ 99:             ->assertUnprocessable();
+100:     }
+101: 
+102:     public function test_tree_returns_correctly_nested_categories(): void
+103:     {
+104:         $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
+105:         $token = $admin->createToken('test')->plainTextToken;
+106:         $root = Category::factory()->create(['name_en' => 'Luggage']);
+107:         $child = Category::factory()->create(['parent_id' => $root->id]);
+108:         $grandchild = Category::factory()->create(['parent_id' => $child->id]);
+109:         Category::factory()->create(['name_en' => 'Other Root']);
+110: 
+111:         $response = $this->requestWithToken($token, 'GET', '/api/v1/admin/categories?tree=1');
+112:         $response->assertOk();
+113: 
+114:         $treeRoot = collect($response->json('data'))->firstWhere('id', $root->id);
+115:         $this->assertNotNull($treeRoot);
+116:         $this->assertSame($child->id, $treeRoot['children'][0]['id']);
+117:         $this->assertSame($grandchild->id, $treeRoot['children'][0]['children'][0]['id']);
+118:     }
+119: 
+120:     /** @param list<string> $permissions */
+121:     private function staffWithPermissions(array $permissions): User
+122:     {
+123:         foreach ($permissions as $permission) {
+124:             Permission::findOrCreate($permission, 'staff');
+125:         }
+126:         $staff = User::factory()->create();
+127:         $staff->givePermissionTo($permissions);
+128: 
+129:         return $staff;
+130:     }
+131: 
+132:     private function requestWithToken(string $token, string $method, string $uri, array $payload = []): TestResponse
+133:     {
+134:         Auth::forgetGuards();
+135: 
+136:         return $this->withToken($token)->json($method, $uri, $payload);
+137:     }
+138: 
+139:     private function uploadWithToken(string $token, string $uri, array $payload): TestResponse
+140:     {
+141:         Auth::forgetGuards();
+142: 
+143:         return $this->withToken($token)->post($uri, $payload);
+144:     }
+145: }
+```
+
+## File: bags-platform/backend/tests/Feature/Admin/Catalog/ProductMediaCatalogTest.php
+```php
+ 1: <?php
+ 2: 
+ 3: declare(strict_types=1);
+ 4: 
+ 5: namespace Tests\Feature\Admin\Catalog;
+ 6: 
+ 7: use App\Models\Product;
+ 8: use App\Models\User;
+ 9: use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+10: use Illuminate\Http\UploadedFile;
+11: use Illuminate\Support\Facades\Auth;
+12: use Illuminate\Support\Facades\Storage;
+13: use Spatie\Permission\Models\Permission;
+14: use Tests\TestCase;
+15: 
+16: class ProductMediaCatalogTest extends TestCase
+17: {
+18:     use LazilyRefreshDatabase;
+19: 
+20:     private const ALL_PERMISSIONS = [
+21:         'products.view', 'products.create', 'products.update', 'products.delete',
+22:         'products.publish', 'products.view_cost',
+23:     ];
+24: 
+25:     public function test_deleting_media_of_another_product_returns_404(): void
+26:     {
+27:         Storage::fake('public');
+28:         $staff = $this->staffWithPermissions(self::ALL_PERMISSIONS);
+29:         $token = $staff->createToken('test')->plainTextToken;
+30: 
+31:         $product = Product::factory()->create();
+32:         $other = Product::factory()->create();
+33: 
+34:         Auth::forgetGuards();
+35:         $uploaded = $this->withToken($token)->post("/api/v1/admin/products/{$other->id}/media", [
+36:             'collection' => 'images',
+37:             'files' => [UploadedFile::fake()->image('other.jpg')],
+38:         ])->assertCreated();
+39:         $mediaId = $uploaded->json('data.0.id');
+40:         $this->assertNotEmpty($mediaId);
+41: 
+42:         Auth::forgetGuards();
+43:         $this->withToken($token)->deleteJson("/api/v1/admin/products/{$product->id}/media/{$mediaId}")
+44:             ->assertNotFound();
+45: 
+46:         Auth::forgetGuards();
+47:         $this->withToken($token)->deleteJson("/api/v1/admin/products/{$other->id}/media/{$mediaId}")
+48:             ->assertOk()
+49:             ->assertJsonPath('message', 'تم الحذف');
+50:     }
+51: 
+52:     /** @param list<string> $permissions */
+53:     private function staffWithPermissions(array $permissions): User
+54:     {
+55:         foreach ($permissions as $permission) {
+56:             Permission::findOrCreate($permission, 'staff');
+57:         }
+58:         $staff = User::factory()->create();
+59:         $staff->givePermissionTo($permissions);
+60: 
+61:         return $staff;
+62:     }
+63: }
+```
+
+## File: bags-platform/backend/tests/Feature/Admin/Catalog/VariantCatalogTest.php
+```php
+  1: <?php
+  2: 
+  3: declare(strict_types=1);
+  4: 
+  5: namespace Tests\Feature\Admin\Catalog;
+  6: 
+  7: use App\Models\Category;
+  8: use App\Models\Product;
+  9: use App\Models\ProductVariant;
+ 10: use App\Models\User;
+ 11: use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+ 12: use Illuminate\Support\Facades\Auth;
+ 13: use Illuminate\Testing\TestResponse;
+ 14: use Spatie\Permission\Models\Permission;
+ 15: use Tests\TestCase;
+ 16: 
+ 17: class VariantCatalogTest extends TestCase
+ 18: {
+ 19:     use LazilyRefreshDatabase;
+ 20: 
+ 21:     private const ALL_PERMISSIONS = [
+ 22:         'products.view', 'products.create', 'products.update', 'products.delete',
+ 23:         'products.publish', 'products.view_cost',
+ 24:     ];
+ 25: 
+ 26:     public function test_variant_without_sku_gets_sequence_sku_and_valid_ean13_barcode(): void
+ 27:     {
+ 28:         $token = $this->adminToken();
+ 29:         $category = Category::factory()->create();
+ 30: 
+ 31:         $product = $this->requestWithToken($token, 'POST', '/api/v1/admin/products', [
+ 32:             'category_id' => $category->id,
+ 33:             'name_ar' => 'منتج',
+ 34:             'name_en' => 'Barcode Product',
+ 35:             'sales_channel' => 'retail',
+ 36:         ])->assertCreated();
+ 37:         $productId = $product->json('data.id');
+ 38:         $code = (string) $product->json('data.code');
+ 39:         $this->assertMatchesRegularExpression('/^P\d{5}$/', $code);
+ 40: 
+ 41:         // أول متغير لأي منتج بياخد لاحقة ‎-01‎ (في قاعدة فاضية بيبقى P00001-01)
+ 42:         $variant = $this->requestWithToken($token, 'POST', "/api/v1/admin/products/{$productId}/variants", [
+ 43:             'color_name_en' => 'Red', 'size' => 'M', 'retail_price' => 100,
+ 44:         ])->assertCreated()
+ 45:             ->assertJsonPath('data.sku', $code.'-01');
+ 46: 
+ 47:         $barcode = (string) $variant->json('data.barcode');
+ 48:         $this->assertMatchesRegularExpression('/^\d{13}$/', $barcode);
+ 49:         $this->assertTrue($this->ean13CheckDigitIsValid($barcode), "Invalid EAN-13 check digit: {$barcode}");
+ 50:     }
+ 51: 
+ 52:     public function test_two_variants_with_same_color_and_size_are_rejected(): void
+ 53:     {
+ 54:         $token = $this->adminToken();
+ 55:         $product = Product::factory()->create();
+ 56: 
+ 57:         $payload = ['color_name_en' => 'Red', 'size' => 'M'];
+ 58:         $this->requestWithToken($token, 'POST', "/api/v1/admin/products/{$product->id}/variants", $payload)
+ 59:             ->assertCreated();
+ 60:         $this->requestWithToken($token, 'POST', "/api/v1/admin/products/{$product->id}/variants", $payload)
+ 61:             ->assertUnprocessable();
+ 62:     }
+ 63: 
+ 64:     public function test_variant_of_another_product_returns_404(): void
+ 65:     {
+ 66:         $token = $this->adminToken();
+ 67:         $product = Product::factory()->create();
+ 68:         $other = Product::factory()->create();
+ 69:         $foreignVariant = ProductVariant::factory()->create(['product_id' => $other->id]);
+ 70: 
+ 71:         $this->requestWithToken($token, 'GET', "/api/v1/admin/products/{$product->id}/variants/{$foreignVariant->id}")
+ 72:             ->assertNotFound();
+ 73:         $this->requestWithToken($token, 'PUT', "/api/v1/admin/products/{$product->id}/variants/{$foreignVariant->id}", [
+ 74:             'retail_price' => 10,
+ 75:         ])->assertNotFound();
+ 76:     }
+ 77: 
+ 78:     private function ean13CheckDigitIsValid(string $barcode): bool
+ 79:     {
+ 80:         $sum = 0;
+ 81:         foreach (str_split(substr($barcode, 0, 12)) as $i => $digit) {
+ 82:             $sum += (int) $digit * ($i % 2 === 0 ? 1 : 3);
+ 83:         }
+ 84: 
+ 85:         return ((10 - ($sum % 10)) % 10) === (int) $barcode[12];
+ 86:     }
+ 87: 
+ 88:     private function adminToken(): string
+ 89:     {
+ 90:         $staff = $this->staffWithPermissions(self::ALL_PERMISSIONS);
+ 91: 
+ 92:         return $staff->createToken('test')->plainTextToken;
+ 93:     }
+ 94: 
+ 95:     /** @param list<string> $permissions */
+ 96:     private function staffWithPermissions(array $permissions): User
+ 97:     {
+ 98:         foreach ($permissions as $permission) {
+ 99:             Permission::findOrCreate($permission, 'staff');
+100:         }
+101:         $staff = User::factory()->create();
+102:         $staff->givePermissionTo($permissions);
+103: 
+104:         return $staff;
+105:     }
+106: 
+107:     private function requestWithToken(string $token, string $method, string $uri, array $payload = []): TestResponse
+108:     {
+109:         Auth::forgetGuards();
+110: 
+111:         return $this->withToken($token)->json($method, $uri, $payload);
+112:     }
+113: }
+```
+
+## File: bags-platform/backend/tests/TestCase.php
+```php
+ 1: <?php
+ 2: 
+ 3: namespace Tests;
+ 4: 
+ 5: use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+ 6: 
+ 7: abstract class TestCase extends BaseTestCase
+ 8: {
+ 9:     //
+10: }
+```
+
+## File: bags-platform/docs/.gitkeep
+```
+1: 
+```
+
+## File: bags-platform/docs/phase2-audit.md
+```markdown
+ 1: # مراجعة المرحلة الثانية: الكتالوج
+ 2: 
+ 3: تاريخ المراجعة: 15 أكتوبر 2026.
+ 4: 
+ 5: الخطة كانت منفذة بدرجة كبيرة، لكن لم تكن مطابقة بالكامل. تم إصلاح النواقص التالية والتحقق من السلوك الحالي بالاختبارات.
+ 6: 
+ 7: ## نتيجة مراجعة المهام
+ 8: 
+ 9: | المهمة | النتيجة بعد المراجعة |
+10: | --- | --- |
+11: | 0 — إعداد الميديا | إصلاح composer.lock وتثبيت spatie/laravel-medialibrary 11.23.9 وتبعياتها؛ إضافة MEDIA_DISK=public للبيئة المحلية و.env.example؛ حد المكتبة 50MB؛ تفعيل GD وEXIF وإنشاء public/storage. |
+12: | 1 — Enums | ProductStatus وSalesChannel والقيم والدوال المطلوبة موجودة. |
+13: | 2 — Migrations | الجداول والحقول والعلاقات والفهارس المطلوبة موجودة؛ إعادة البناء والـ seed نجحا على PostgreSQL. لا أعمدة stock أو quantity في الكتالوج. |
+14: | 3 — Models | العلاقات وSoftDeletes وcasts ومجموعات الميديا وتحويلات الصور المطلوبة موجودة. |
+15: | 4 — الصلاحيات | الصلاحيات الأربع عشرة موجودة، وتُمنح لـ super-admin على guard اسمه staff، مطابق للمرحلة الأولى. أُضيف transaction لكتابات Seeder الصلاحيات. |
+16: | 5 — الأدوات المشتركة | BusinessException وSlugService وBarcodeGenerator وMediaResource موجودة. أُضيف حد أدنى 1 لـ per_page مع الاحتفاظ بالافتراضي 15 والحد الأعلى 100. |
+17: | 6 — الأقسام | الإنشاء والتعديل والصور والحذف والفلاتر والشجرة والترتيب والتحقق من الدورات وارتفاع الشجرة موجودة. أُضيفت transactions لحفظ القسم وصورته، والتحقق من الأقسام غير المحذوفة ومنع تكرار العناصر أثناء الترتيب. |
+18: | 7 — البراندات | CRUD والفلاتر والصلاحيات ومنع الحذف عند وجود منتجات ورفع SVG موجودة. أُضيفت transactions لحفظ البراند وشعاره. |
+19: | 8 — المنتجات | CRUD والفلاتر والبحث بالباركود والترقيم التلقائي وشروط النشر والصلاحيات والحذف الناعم موجودة. أُصلح slug الفارغ عند التعديل، وتم منع تجاوز صلاحية التكلفة عبر variants المرسلة أثناء إنشاء المنتج. |
+20: | 9 — المتغيرات | الترقيم والباركود ومنع التركيبات المكررة والصلاحيات وإخفاء التكلفة وحماية آخر متغير نشط والربط بالمنتج موجودة. إرسال SKU فارغ في التعديل يرجع 422 بدل خطأ قاعدة بيانات. |
+21: | 10 — الميديا | الرفع والعرض والترتيب والحذف والتحقق من الملكية وحماية آخر صورة موجودة. نُقل منطق التنفيذ من Controller إلى ProductMediaService، وأُضيفت transactions للرفع والترتيب. المتغير المحذوف لا يُقبل في طلب الرفع. |
+22: | 11 — Routes | جميع مسارات الكتالوج المطلوبة موجودة تحت api/v1/admin مع auth:sanctum وauth.staff، وreorder قبل apiResource، وربط variants بالمنتج scoped. |
+23: | 12 — Factories وSeeders | المصانع الأربعة موجودة؛ البيانات التجريبية تنتج 7 أقسام و4 براندات و10 منتجات draft، لكل منتج 2–3 متغيرات، عبر ProductService. أُضيف transaction لـ CatalogSeeder، واختبار لإعادة تشغيله بدون تكرار البيانات. |
+24: | 13 — الاختبارات | اختبارات الخطة موجودة وناجحة؛ أُضيف 19 اختبارًا للمشكلات المكتشفة والحماية والبيانات التجريبية. |
+25: 
+26: ## إصلاحات إضافية في التحقق من الطلبات
+27: 
+28: - تقييد مفاتيح كل عنصر في variants عند إنشاء المنتج، لمنع تمرير product_id أو id أو حقول غير مسموحة داخل المصفوفة.
+29: - رفض SKU أو barcode المكرر بين متغيرات الطلب نفسه بـ422 قبل الوصول إلى قيود قاعدة البيانات.
+30: - تجاهل cost_price بدون products.view_cost في إنشاء المنتج بمتغيراته، وكذلك مسارات المتغيرات المستقلة.
+31: - اختبارات تؤكد تراجع تغييرات القسم والبراند عند رفض الملف المرفوع، وتراجع ترتيب الأقسام عند فشل أحد العناصر.
+32: 
+33: ## التحقق المنفذ
+34: 
+35: - php artisan test --compact: نجح 103 اختبارات و524 assertion.
+36: - اختبارات الكتالوج وحدها: نجح 36 اختبارًا.
+37: - php artisan migrate:fresh --seed --force: نجح على قاعدة alfarid_testing، للحفاظ على بيانات قاعدة alfarid المحلية.
+38: - php artisan route:list --path=api/v1/admin --except-vendor: ظهرت جميع المسارات المطلوبة.
+39: - composer validate --no-check-publish: نجح.
+40: - composer check-platform-reqs: نجح.
+41: - composer install --dry-run --no-interaction: لا مكتبات ناقصة أو تغييرات مطلوبة.
+42: - Laravel Pint وgit diff --check: نجحا.
+43: 
+44: ## فروق عن النص الأصلي وحدود التحقق
+45: 
+46: - المشروع القائم يستخدم Laravel 13.36.0، بينما مقدمة الخطة تفترض Laravel 11/12. تم الحفاظ على إصدار المشروع الموجود؛ لم يتم تنفيذ downgrade للإطار أو تغيير مصادقة المرحلة الأولى.
+47: - migration الميديا موجودة قبل migrations الكتالوج زمنيًا؛ جدولها متعدد الأشكال ولا يعتمد على foreign key لجداول المنتجات، وإعادة البناء نجحت. تم الحفاظ على أسماء migrations الموجودة.
+48: - لا يمكن إثبات أن المنفذ السابق شغّل migrate:fresh --seed بعد كل مهمة أو التزم بترتيب العمل تاريخيًا. ما تم التحقق منه هو الكود الحالي والتشغيل الفعلي بعد الإصلاح.
+49: - النص يسمح بـSKU فارغ في تحديث المتغير رغم أن العمود غير nullable؛ تم حسم التعارض بإرجاع خطأ validation 422 مع الاحتفاظ بالـSKU الحالي.
+50: - إعدادات PHP المحلية المستخدمة في المراجعة عُدلت في C:/php8/php.ini: تفعيل gd وexif، upload_max_filesize=50M، post_max_size=64M. لم يتم اختبار إعدادات خادم نشر خارجي.
+51: - توثيق POST مع _method=PUT لرفع الملفات أثناء التعديل موجود بالفعل في docs/api.md.
+52: - لم تُضف وظائف مخزون أو قوائم أسعار أو خصومات.
+```
+
+## File: bags-platform/backend/app/Http/Requests/Admin/Product/ReorderProductMediaRequest.php
+```php
+ 1: <?php
+ 2: 
+ 3: declare(strict_types=1);
+ 4: 
+ 5: namespace App\Http\Requests\Admin\Product;
+ 6: 
+ 7: use App\Http\Requests\Admin\Concerns\LimitsArrayInput;
+ 8: use Illuminate\Contracts\Validation\ValidationRule;
+ 9: use Illuminate\Foundation\Http\FormRequest;
+10: 
+11: class ReorderProductMediaRequest extends FormRequest
+12: {
+13:     use LimitsArrayInput;
+14: 
+15:     protected function arrayLimits(): array
+16:     {
+17:         return ['ids' => 200];
+18:     }
+19: 
+20:     public function authorize(): bool
+21:     {
+22:         return $this->user() !== null;
+23:     }
+24: 
+25:     /**
+26:      * @return array<string, array<mixed>|string|ValidationRule>
+27:      */
+28:     public function rules(): array
+29:     {
+30:         return [
+31:             'ids' => ['required', 'array', 'min:1', 'max:200'],
+32:             'ids.*' => ['integer', 'distinct'],
+33:         ];
+34:     }
+35: }
+```
+
+## File: bags-platform/backend/app/Http/Requests/Admin/Variant/UpdateVariantRequest.php
+```php
+ 1: <?php
+ 2: 
+ 3: declare(strict_types=1);
+ 4: 
+ 5: namespace App\Http\Requests\Admin\Variant;
+ 6: 
+ 7: use Illuminate\Contracts\Validation\ValidationRule;
+ 8: use Illuminate\Foundation\Http\FormRequest;
+ 9: use Illuminate\Validation\Validator;
+10: 
+11: class UpdateVariantRequest extends FormRequest
+12: {
+13:     public function authorize(): bool
+14:     {
+15:         return $this->user() !== null;
+16:     }
+17: 
+18:     /**
+19:      * @return array<string, array<mixed>|string|ValidationRule>
+20:      */
+21:     public function rules(): array
+22:     {
+23:         $rules = VariantRules::base($this->route('variant')->id);
+24: 
+25:         foreach ($rules as $field => $rule) {
+26:             if ($field === 'color_name_en') {
+27:                 $rule = array_values(array_filter($rule, fn ($value) => ! is_string($value) || ! str_starts_with($value, 'required_with:')));
+28:             }
+29:             if ($field === 'sku') {
+30:                 $rule = array_values(array_filter($rule, fn ($value) => $value !== 'nullable'));
+31:                 array_unshift($rule, 'required');
+32:             }
+33:             array_unshift($rule, 'sometimes');
+34:             $rules[$field] = $rule;
+35:         }
+36: 
+37:         return $rules;
+38:     }
+39: 
+40:     public function after(): array
+41:     {
+42:         return [function (Validator $validator): void {
+43:             $color = array_replace($this->route('variant')->only(['color_name_en', 'color_name_ar', 'color_hex']), $this->only(['color_name_en', 'color_name_ar', 'color_hex']));
+44:             if ((filled($color['color_name_ar']) || filled($color['color_hex'])) && blank($color['color_name_en'])) {
+45:                 $validator->errors()->add('color_name_en', 'اسم اللون الإنجليزي مطلوب عند وجود بيانات لون');
+46:             }
+47:         }];
+48:     }
+49: }
+```
+
+## File: bags-platform/backend/app/Http/Resources/Admin/VariantResource.php
+```php
+ 1: <?php
+ 2: 
+ 3: declare(strict_types=1);
+ 4: 
+ 5: namespace App\Http\Resources\Admin;
+ 6: 
+ 7: use App\Http\Resources\MediaResource;
+ 8: use Illuminate\Http\Request;
+ 9: use Illuminate\Http\Resources\Json\JsonResource;
+10: 
+11: class VariantResource extends JsonResource
+12: {
+13:     /**
+14:      * Transform the resource into an array.
+15:      *
+16:      * @return array<string, mixed>
+17:      */
+18:     public function toArray(Request $request): array
+19:     {
+20:         return [
+21:             'id' => $this->id,
+22:             'product_id' => $this->product_id,
+23:             'sku' => $this->sku,
+24:             'barcode' => $this->barcode,
+25:             'color' => ['name_ar' => $this->color_name_ar, 'name_en' => $this->color_name_en, 'hex' => $this->color_hex],
+26:             'size' => $this->size,
+27:             'capacity' => $this->capacity,
+28:             'cost_price' => $this->when($request->user()?->can('products.view_cost'), $this->cost_price),
+29:             'retail_price' => $this->retail_price,
+30:             'wholesale_price' => $this->wholesale_price,
+31:             'reorder_level' => $this->reorder_level,
+32:             'weight_kg' => $this->weight_kg ?? $this->product?->weight_kg,
+33:             'sort_order' => $this->sort_order,
+34:             'is_active' => $this->is_active,
+35:             'images' => MediaResource::collection($this->whenLoaded('media', fn () => $this->getMedia('images'))),
+36:         ];
+37:     }
+38: }
+```
+
+## File: bags-platform/backend/app/Models/Branch.php
+```php
+ 1: <?php
+ 2: 
+ 3: declare(strict_types=1);
+ 4: 
+ 5: namespace App\Models;
+ 6: 
+ 7: use App\Enums\BranchType;
+ 8: use Database\Factories\BranchFactory;
+ 9: use Illuminate\Database\Eloquent\Attributes\Fillable;
+10: use Illuminate\Database\Eloquent\Factories\HasFactory;
+11: use Illuminate\Database\Eloquent\Model;
+12: use Illuminate\Database\Eloquent\Relations\HasMany;
+13: 
+14: #[Fillable(['name', 'code', 'type', 'phone', 'email', 'address', 'city', 'is_active'])]
+15: class Branch extends Model
+16: {
+17:     /** @use HasFactory<BranchFactory> */
+18:     use HasFactory;
+19: 
+20:     public function locations(): HasMany
+21:     {
+22:         return $this->hasMany(Location::class);
+23:     }
+24: 
+25:     public function users(): HasMany
+26:     {
+27:         return $this->hasMany(User::class);
+28:     }
+29: 
+30:     /**
+31:      * @return array<string, string>
+32:      */
+33:     protected function casts(): array
+34:     {
+35:         return [
+36:             'type' => BranchType::class,
+37:             'is_active' => 'boolean',
+38:         ];
+39:     }
+40: }
+```
+
+## File: bags-platform/backend/app/Models/Location.php
+```php
+ 1: <?php
+ 2: 
+ 3: declare(strict_types=1);
+ 4: 
+ 5: namespace App\Models;
+ 6: 
+ 7: use App\Enums\LocationType;
+ 8: use Database\Factories\LocationFactory;
+ 9: use Illuminate\Database\Eloquent\Attributes\Fillable;
+10: use Illuminate\Database\Eloquent\Factories\HasFactory;
+11: use Illuminate\Database\Eloquent\Model;
+12: use Illuminate\Database\Eloquent\Relations\BelongsTo;
+13: 
+14: #[Fillable(['branch_id', 'name', 'code', 'type', 'is_active'])]
+15: class Location extends Model
+16: {
+17:     /** @use HasFactory<LocationFactory> */
+18:     use HasFactory;
+19: 
+20:     public function branch(): BelongsTo
+21:     {
+22:         return $this->belongsTo(Branch::class);
+23:     }
+24: 
+25:     /**
+26:      * @return array<string, string>
+27:      */
+28:     protected function casts(): array
+29:     {
+30:         return [
+31:             'type' => LocationType::class,
+32:             'is_active' => 'boolean',
+33:         ];
+34:     }
+35: }
+```
+
+## File: bags-platform/backend/app/Models/ProductVariant.php
+```php
+ 1: <?php
+ 2: 
+ 3: declare(strict_types=1);
+ 4: 
+ 5: namespace App\Models;
+ 6: 
+ 7: use Database\Factories\ProductVariantFactory;
+ 8: use Illuminate\Database\Eloquent\Factories\HasFactory;
+ 9: use Illuminate\Database\Eloquent\Model;
+10: use Illuminate\Database\Eloquent\Relations\BelongsTo;
+11: use Illuminate\Database\Eloquent\SoftDeletes;
+12: use Spatie\Image\Enums\Fit;
+13: use Spatie\MediaLibrary\HasMedia;
+14: use Spatie\MediaLibrary\InteractsWithMedia;
+15: use Spatie\MediaLibrary\MediaCollections\Models\Media;
+16: 
+17: class ProductVariant extends Model implements HasMedia
+18: {
+19:     /** @use HasFactory<ProductVariantFactory> */
+20:     use HasFactory, InteractsWithMedia, SoftDeletes;
+21: 
+22:     protected $fillable = [
+23:         'product_id', 'sku', 'barcode', 'color_name_ar', 'color_name_en', 'color_hex', 'size', 'capacity',
+24:         'cost_price', 'retail_price', 'wholesale_price', 'reorder_level', 'weight_kg', 'sort_order', 'is_active',
+25:     ];
+26: 
+27:     protected $casts = [
+28:         'cost_price' => 'decimal:2', 'retail_price' => 'decimal:2', 'wholesale_price' => 'decimal:2',
+29:         'weight_kg' => 'decimal:3', 'is_active' => 'boolean',
+30:     ];
+31: 
+32:     public function product(): BelongsTo
+33:     {
+34:         return $this->belongsTo(Product::class);
+35:     }
+36: 
+37:     // صور خاصة باللون ده
+38:     public function registerMediaCollections(): void
+39:     {
+40:         $this->addMediaCollection('images')->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp']);
+41:     }
+42: 
+43:     public function registerMediaConversions(?Media $media = null): void
+44:     {
+45:         $this->addMediaConversion('thumb')->fit(Fit::Crop, 300, 300)->format('webp')->nonQueued();
+46:         $this->addMediaConversion('medium')->fit(Fit::Contain, 800, 800)->format('webp')->nonQueued();
+47:     }
+48: }
+```
+
+## File: bags-platform/backend/config/auth.php
+```php
+  1: <?php
+  2: 
+  3: use App\Models\Customer;
+  4: use App\Models\SupplierUser;
+  5: use App\Models\User;
+  6: 
+  7: return [
+  8: 
+  9:     /*
+ 10:     |--------------------------------------------------------------------------
+ 11:     | Authentication Defaults
+ 12:     |--------------------------------------------------------------------------
+ 13:     |
+ 14:     | This option defines the default authentication "guard" and password
+ 15:     | reset "broker" for your application. You may change these values
+ 16:     | as required, but they're a perfect start for most applications.
+ 17:     |
+ 18:     */
+ 19: 
+ 20:     'defaults' => [
+ 21:         'guard' => env('AUTH_GUARD', 'web'),
+ 22:         'passwords' => env('AUTH_PASSWORD_BROKER', 'users'),
+ 23:     ],
+ 24: 
+ 25:     /*
+ 26:     |--------------------------------------------------------------------------
+ 27:     | Authentication Guards
+ 28:     |--------------------------------------------------------------------------
+ 29:     |
+ 30:     | Next, you may define every authentication guard for your application.
+ 31:     | Of course, a great default configuration has been defined for you
+ 32:     | which utilizes session storage plus the Eloquent user provider.
+ 33:     |
+ 34:     | All authentication guards have a user provider, which defines how the
+ 35:     | users are actually retrieved out of your database or other storage
+ 36:     | system used by the application. Typically, Eloquent is utilized.
+ 37:     |
+ 38:     | Supported: "session"
+ 39:     |
+ 40:     */
+ 41: 
+ 42:     'guards' => [
+ 43:         'web' => [
+ 44:             'driver' => 'session',
+ 45:             'provider' => 'users',
+ 46:         ],
+ 47:         'staff' => [
+ 48:             'driver' => 'sanctum',
+ 49:             'provider' => 'users',
+ 50:         ],
+ 51:         'customer' => [
+ 52:             'driver' => 'sanctum',
+ 53:             'provider' => 'customers',
+ 54:         ],
+ 55:         'supplier' => [
+ 56:             'driver' => 'sanctum',
+ 57:             'provider' => 'supplier_users',
+ 58:         ],
+ 59:     ],
+ 60: 
+ 61:     /*
+ 62:     |--------------------------------------------------------------------------
+ 63:     | User Providers
+ 64:     |--------------------------------------------------------------------------
+ 65:     |
+ 66:     | All authentication guards have a user provider, which defines how the
+ 67:     | users are actually retrieved out of your database or other storage
+ 68:     | system used by the application. Typically, Eloquent is utilized.
+ 69:     |
+ 70:     | If you have multiple user tables or models you may configure multiple
+ 71:     | providers to represent the model / table. These providers may then
+ 72:     | be assigned to any extra authentication guards you have defined.
+ 73:     |
+ 74:     | Supported: "database", "eloquent"
+ 75:     |
+ 76:     */
+ 77: 
+ 78:     'providers' => [
+ 79:         'users' => [
+ 80:             'driver' => 'eloquent',
+ 81:             'model' => env('AUTH_MODEL', User::class),
+ 82:         ],
+ 83: 
+ 84:         'customers' => [
+ 85:             'driver' => 'eloquent',
+ 86:             'model' => Customer::class,
+ 87:         ],
+ 88: 
+ 89:         'supplier_users' => [
+ 90:             'driver' => 'eloquent',
+ 91:             'model' => SupplierUser::class,
+ 92:         ],
+ 93: 
+ 94:         // 'users' => [
+ 95:         //     'driver' => 'database',
+ 96:         //     'table' => 'users',
+ 97:         // ],
+ 98:     ],
+ 99: 
+100:     /*
+101:     |--------------------------------------------------------------------------
+102:     | Resetting Passwords
+103:     |--------------------------------------------------------------------------
+104:     |
+105:     | These configuration options specify the behavior of Laravel's password
+106:     | reset functionality, including the table utilized for token storage
+107:     | and the user provider that is invoked to actually retrieve users.
+108:     |
+109:     | The expiry time is the number of minutes that each reset token will be
+110:     | considered valid. This security feature keeps tokens short-lived so
+111:     | they have less time to be guessed. You may change this as needed.
+112:     |
+113:     | The throttle setting is the number of seconds a user must wait before
+114:     | generating more password reset tokens. This prevents the user from
+115:     | quickly generating a very large amount of password reset tokens.
+116:     |
+117:     */
+118: 
+119:     'passwords' => [
+120:         'users' => [
+121:             'provider' => 'users',
+122:             'table' => env('AUTH_PASSWORD_RESET_TOKEN_TABLE', 'password_reset_tokens'),
+123:             'expire' => 60,
+124:             'throttle' => 60,
+125:         ],
+126:     ],
+127: 
+128:     /*
+129:     |--------------------------------------------------------------------------
+130:     | Password Confirmation Timeout
+131:     |--------------------------------------------------------------------------
+132:     |
+133:     | Here you may define the number of seconds before a password confirmation
+134:     | window expires and users are asked to re-enter their password via the
+135:     | confirmation screen. By default, the timeout lasts for three hours.
+136:     |
+137:     */
+138: 
+139:     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
+140: 
+141: ];
+```
+
+## File: bags-platform/backend/config/database.php
+```php
+  1: <?php
+  2: 
+  3: use Illuminate\Support\Str;
+  4: use Pdo\Mysql;
+  5: 
+  6: return [
+  7: 
+  8:     /*
+  9:     |--------------------------------------------------------------------------
+ 10:     | Default Database Connection Name
+ 11:     |--------------------------------------------------------------------------
+ 12:     |
+ 13:     | Here you may specify which of the database connections below you wish
+ 14:     | to use as your default connection for database operations. This is
+ 15:     | the connection which will be utilized unless another connection
+ 16:     | is explicitly specified when you execute a query / statement.
+ 17:     |
+ 18:     */
+ 19: 
+ 20:     'default' => env('DB_CONNECTION', 'pgsql'),
+ 21: 
+ 22:     /*
+ 23:     |--------------------------------------------------------------------------
+ 24:     | Database Connections
+ 25:     |--------------------------------------------------------------------------
+ 26:     |
+ 27:     | Below are all of the database connections defined for your application.
+ 28:     | An example configuration is provided for each database system which
+ 29:     | is supported by Laravel. You're free to add / remove connections.
+ 30:     |
+ 31:     */
+ 32: 
+ 33:     'connections' => [
+ 34: 
+ 35:         'sqlite' => [
+ 36:             'driver' => 'sqlite',
+ 37:             'url' => env('DB_URL'),
+ 38:             'database' => env('DB_DATABASE', database_path('database.sqlite')),
+ 39:             'prefix' => '',
+ 40:             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
+ 41:             'busy_timeout' => null,
+ 42:             'journal_mode' => null,
+ 43:             'synchronous' => null,
+ 44:             'transaction_mode' => 'DEFERRED',
+ 45:         ],
+ 46: 
+ 47:         'mysql' => [
+ 48:             'driver' => 'mysql',
+ 49:             'url' => env('DB_URL'),
+ 50:             'host' => env('DB_HOST', '127.0.0.1'),
+ 51:             'port' => env('DB_PORT', '3306'),
+ 52:             'database' => env('DB_DATABASE', 'laravel'),
+ 53:             'username' => env('DB_USERNAME', 'root'),
+ 54:             'password' => env('DB_PASSWORD', ''),
+ 55:             'unix_socket' => env('DB_SOCKET', ''),
+ 56:             'charset' => env('DB_CHARSET', 'utf8mb4'),
+ 57:             'collation' => env('DB_COLLATION', 'utf8mb4_unicode_ci'),
+ 58:             'prefix' => '',
+ 59:             'prefix_indexes' => true,
+ 60:             'strict' => true,
+ 61:             'engine' => null,
+ 62:             'options' => extension_loaded('pdo_mysql') ? array_filter([
+ 63:                 Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
+ 64:             ]) : [],
+ 65:         ],
+ 66: 
+ 67:         'mariadb' => [
+ 68:             'driver' => 'mariadb',
+ 69:             'url' => env('DB_URL'),
+ 70:             'host' => env('DB_HOST', '127.0.0.1'),
+ 71:             'port' => env('DB_PORT', '3306'),
+ 72:             'database' => env('DB_DATABASE', 'laravel'),
+ 73:             'username' => env('DB_USERNAME', 'root'),
+ 74:             'password' => env('DB_PASSWORD', ''),
+ 75:             'unix_socket' => env('DB_SOCKET', ''),
+ 76:             'charset' => env('DB_CHARSET', 'utf8mb4'),
+ 77:             'collation' => env('DB_COLLATION', 'utf8mb4_unicode_ci'),
+ 78:             'prefix' => '',
+ 79:             'prefix_indexes' => true,
+ 80:             'strict' => true,
+ 81:             'engine' => null,
+ 82:             'options' => extension_loaded('pdo_mysql') ? array_filter([
+ 83:                 Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
+ 84:             ]) : [],
+ 85:         ],
+ 86: 
+ 87:         'pgsql' => [
+ 88:             'driver' => 'pgsql',
+ 89:             'url' => env('DB_URL'),
+ 90:             'host' => env('DB_HOST', '127.0.0.1'),
+ 91:             'port' => env('DB_PORT', '5432'),
+ 92:             'database' => env('DB_DATABASE', 'alfarid'),
+ 93:             'username' => env('DB_USERNAME', 'postgres'),
+ 94:             'password' => env('DB_PASSWORD', ''),
+ 95:             'charset' => env('DB_CHARSET', 'utf8'),
+ 96:             'prefix' => '',
+ 97:             'prefix_indexes' => true,
+ 98:             'search_path' => 'public',
+ 99:             'sslmode' => env('DB_SSLMODE', 'prefer'),
+100:         ],
+101: 
+102:         'sqlsrv' => [
+103:             'driver' => 'sqlsrv',
+104:             'url' => env('DB_URL'),
+105:             'host' => env('DB_HOST', 'localhost'),
+106:             'port' => env('DB_PORT', '1433'),
+107:             'database' => env('DB_DATABASE', 'laravel'),
+108:             'username' => env('DB_USERNAME', 'root'),
+109:             'password' => env('DB_PASSWORD', ''),
+110:             'charset' => env('DB_CHARSET', 'utf8'),
+111:             'prefix' => '',
+112:             'prefix_indexes' => true,
+113:             // 'encrypt' => env('DB_ENCRYPT', 'yes'),
+114:             // 'trust_server_certificate' => env('DB_TRUST_SERVER_CERTIFICATE', 'false'),
+115:         ],
+116: 
+117:     ],
+118: 
+119:     /*
+120:     |--------------------------------------------------------------------------
+121:     | Migration Repository Table
+122:     |--------------------------------------------------------------------------
+123:     |
+124:     | This table keeps track of all the migrations that have already run for
+125:     | your application. Using this information, we can determine which of
+126:     | the migrations on disk haven't actually been run on the database.
+127:     |
+128:     */
+129: 
+130:     'migrations' => [
+131:         'table' => 'migrations',
+132:         'update_date_on_publish' => true,
+133:     ],
+134: 
+135:     /*
+136:     |--------------------------------------------------------------------------
+137:     | Redis Databases
+138:     |--------------------------------------------------------------------------
+139:     |
+140:     | Redis is an open source, fast, and advanced key-value store that also
+141:     | provides a richer body of commands than a typical key-value system
+142:     | such as Memcached. You may define your connection settings here.
+143:     |
+144:     */
+145: 
+146:     'redis' => [
+147: 
+148:         'client' => env('REDIS_CLIENT', 'phpredis'),
+149: 
+150:         'options' => [
+151:             'cluster' => env('REDIS_CLUSTER', 'redis'),
+152:             'prefix' => env('REDIS_PREFIX', Str::slug((string) env('APP_NAME', 'laravel')).'-database-'),
+153:             'persistent' => env('REDIS_PERSISTENT', false),
+154:         ],
+155: 
+156:         'default' => [
+157:             'url' => env('REDIS_URL'),
+158:             'host' => env('REDIS_HOST', '127.0.0.1'),
+159:             'username' => env('REDIS_USERNAME'),
+160:             'password' => env('REDIS_PASSWORD'),
+161:             'port' => env('REDIS_PORT', '6379'),
+162:             'database' => env('REDIS_DB', '0'),
+163:             'max_retries' => env('REDIS_MAX_RETRIES', 3),
+164:             'backoff_algorithm' => env('REDIS_BACKOFF_ALGORITHM', 'decorrelated_jitter'),
+165:             'backoff_base' => env('REDIS_BACKOFF_BASE', 100),
+166:             'backoff_cap' => env('REDIS_BACKOFF_CAP', 1000),
+167:         ],
+168: 
+169:         'cache' => [
+170:             'url' => env('REDIS_URL'),
+171:             'host' => env('REDIS_HOST', '127.0.0.1'),
+172:             'username' => env('REDIS_USERNAME'),
+173:             'password' => env('REDIS_PASSWORD'),
+174:             'port' => env('REDIS_PORT', '6379'),
+175:             'database' => env('REDIS_CACHE_DB', '1'),
+176:             'max_retries' => env('REDIS_MAX_RETRIES', 3),
+177:             'backoff_algorithm' => env('REDIS_BACKOFF_ALGORITHM', 'decorrelated_jitter'),
+178:             'backoff_base' => env('REDIS_BACKOFF_BASE', 100),
+179:             'backoff_cap' => env('REDIS_BACKOFF_CAP', 1000),
+180:         ],
+181: 
+182:     ],
+183: 
+184: ];
+```
+
+## File: bags-platform/backend/config/media-library.php
+```php
+  1: <?php
+  2: 
+  3: use App\Services\Media\TransactionalMediaObserver;
+  4: use App\Services\Media\UuidPathGenerator;
+  5: use Spatie\ImageOptimizer\Optimizers\Avifenc;
+  6: use Spatie\ImageOptimizer\Optimizers\Cwebp;
+  7: use Spatie\ImageOptimizer\Optimizers\Gifsicle;
+  8: use Spatie\ImageOptimizer\Optimizers\Jpegoptim;
+  9: use Spatie\ImageOptimizer\Optimizers\Optipng;
+ 10: use Spatie\ImageOptimizer\Optimizers\Pngquant;
+ 11: use Spatie\ImageOptimizer\Optimizers\Svgo;
+ 12: use Spatie\MediaLibrary\Conversions\ImageGenerators\Avif;
+ 13: use Spatie\MediaLibrary\Conversions\ImageGenerators\Image;
+ 14: use Spatie\MediaLibrary\Conversions\ImageGenerators\Pdf;
+ 15: use Spatie\MediaLibrary\Conversions\ImageGenerators\Svg;
+ 16: use Spatie\MediaLibrary\Conversions\ImageGenerators\Video;
+ 17: use Spatie\MediaLibrary\Conversions\ImageGenerators\Webp;
+ 18: use Spatie\MediaLibrary\Conversions\Jobs\PerformConversionsJob;
+ 19: use Spatie\MediaLibrary\Downloaders\DefaultDownloader;
+ 20: use Spatie\MediaLibrary\MediaCollections\FileAdder;
+ 21: use Spatie\MediaLibrary\MediaCollections\Models\Media;
+ 22: use Spatie\MediaLibrary\ResponsiveImages\Jobs\GenerateResponsiveImagesJob;
+ 23: use Spatie\MediaLibrary\ResponsiveImages\TinyPlaceholderGenerator\Blurred;
+ 24: use Spatie\MediaLibrary\ResponsiveImages\WidthCalculator\FileSizeOptimizedWidthCalculator;
+ 25: use Spatie\MediaLibrary\Support\FileNamer\DefaultFileNamer;
+ 26: use Spatie\MediaLibrary\Support\FileRemover\DefaultFileRemover;
+ 27: use Spatie\MediaLibrary\Support\UrlGenerator\DefaultUrlGenerator;
+ 28: use Spatie\MediaLibraryPro\Models\TemporaryUpload;
+ 29: 
+ 30: return [
+ 31: 
+ 32:     /*
+ 33:      * The disk on which to store added files and derived images by default. Choose
+ 34:      * one or more of the disks you've configured in config/filesystems.php.
+ 35:      */
+ 36:     'disk_name' => env('MEDIA_DISK', 'public'),
+ 37: 
+ 38:     /*
+ 39:      * The disk on which to store conversions (thumbnails, etc.) and responsive images
+ 40:      * when no disk is specified explicitly on the media collection or via
+ 41:      * `storingConversionsOnDisk()`. When left null, conversions are stored on the
+ 42:      * same disk as the original media — preserving previous behavior.
+ 43:      *
+ 44:      * This is useful when the originals live on a remote disk (e.g. S3) but the
+ 45:      * generated derivatives should stay local for faster access and lower egress.
+ 46:      */
+ 47:     'conversions_disk_name' => env('MEDIA_CONVERSIONS_DISK', null),
+ 48: 
+ 49:     /*
+ 50:      * The maximum file size of an item in bytes.
+ 51:      * Adding a larger file will result in an exception.
+ 52:      */
+ 53:     'max_file_size' => 1024 * 1024 * 50, // 50MB
+ 54: 
+ 55:     /*
+ 56:      * Uploads whose file name contains any of these extensions will be rejected.
+ 57:      * The check looks at every extension in the file name, so a file named
+ 58:      * `malicious.php.jpg` is blocked as well. Matching is case-insensitive
+ 59:      * and a leading dot is optional.
+ 60:      *
+ 61:      * The default list lives on the `FileAdder` class so the shipped config
+ 62:      * and the in-code fallback (used when the config is cached without the
+ 63:      * key) cannot drift. Override here to extend or shrink it.
+ 64:      */
+ 65:     'disallowed_extensions' => FileAdder::$defaultDisallowedExtensions,
+ 66: 
+ 67:     /*
+ 68:      * When this is set to an array of extensions, only uploads whose final
+ 69:      * extension is in the list will be accepted. Matching is case-insensitive
+ 70:      * and a leading dot is optional. The `disallowed_extensions` list above
+ 71:      * is still enforced, so an interior dangerous segment (such as the `php`
+ 72:      * in `shell.php.jpg`) is rejected even if the final extension is allowed.
+ 73:      * Leave `null` to disable allowlisting.
+ 74:      */
+ 75:     'allowed_extensions' => null,
+ 76: 
+ 77:     /*
+ 78:      * This queue connection will be used to generate derived and responsive images.
+ 79:      * Leave empty to use the default queue connection.
+ 80:      */
+ 81:     'queue_connection_name' => env('QUEUE_CONNECTION', 'sync'),
+ 82: 
+ 83:     /*
+ 84:      * This queue will be used to generate derived and responsive images.
+ 85:      * Leave empty to use the default queue.
+ 86:      */
+ 87:     'queue_name' => env('MEDIA_QUEUE', ''),
+ 88: 
+ 89:     /*
+ 90:      * By default all conversions will be performed on a queue.
+ 91:      */
+ 92:     'queue_conversions_by_default' => env('QUEUE_CONVERSIONS_BY_DEFAULT', true),
+ 93: 
+ 94:     /*
+ 95:      * Should database transactions be run after database commits?
+ 96:      */
+ 97:     'queue_conversions_after_database_commit' => env('QUEUE_CONVERSIONS_AFTER_DB_COMMIT', true),
+ 98: 
+ 99:     /*
+100:      * The fully qualified class name of the media model.
+101:      */
+102:     'media_model' => Media::class,
+103: 
+104:     /*
+105:      * The fully qualified class name of the media observer.
+106:      */
+107:     'media_observer' => TransactionalMediaObserver::class,
+108: 
+109:     /*
+110:      * When enabled, media collections will be serialised using the default
+111:      * laravel model serialization behaviour.
+112:      *
+113:      * Keep this option disabled if using Media Library Pro components (https://medialibrary.pro)
+114:      */
+115:     'use_default_collection_serialization' => false,
+116: 
+117:     /*
+118:      * The fully qualified class name of the model used for temporary uploads.
+119:      *
+120:      * This model is only used in Media Library Pro (https://medialibrary.pro)
+121:      */
+122:     'temporary_upload_model' => TemporaryUpload::class,
+123: 
+124:     /*
+125:      * When enabled, Media Library Pro will only process temporary uploads that were uploaded
+126:      * in the same session. You can opt to disable this for stateless usage of
+127:      * the pro components.
+128:      */
+129:     'enable_temporary_uploads_session_affinity' => true,
+130: 
+131:     /*
+132:      * When enabled, Media Library pro will generate thumbnails for uploaded file.
+133:      */
+134:     'generate_thumbnails_for_temporary_uploads' => true,
+135: 
+136:     /*
+137:      * This is the class that is responsible for naming generated files.
+138:      */
+139:     'file_namer' => DefaultFileNamer::class,
+140: 
+141:     /*
+142:      * The class that contains the strategy for determining a media file's path.
+143:      */
+144:     // مسارات بالـ uuid بدل الـ id المتسلسل عشان روابط صور المسودات متتخمنش
+145:     'path_generator' => UuidPathGenerator::class,
+146: 
+147:     /*
+148:      * The class that contains the strategy for determining how to remove files.
+149:      */
+150:     'file_remover_class' => DefaultFileRemover::class,
+151: 
+152:     /*
+153:      * Here you can specify which path generator should be used for the given class.
+154:      */
+155:     'custom_path_generators' => [
+156:         // Model::class => PathGenerator::class
+157:         // or
+158:         // 'model_morph_alias' => PathGenerator::class
+159:     ],
+160: 
+161:     /*
+162:      * When urls to files get generated, this class will be called. Use the default
+163:      * if your files are stored locally above the site root or on s3.
+164:      */
+165:     'url_generator' => DefaultUrlGenerator::class,
+166: 
+167:     /*
+168:      * Moves media on updating to keep path consistent. Enable it only with a custom
+169:      * PathGenerator that uses, for example, the media UUID.
+170:      */
+171:     'moves_media_on_update' => false,
+172: 
+173:     /*
+174:      * Whether to activate versioning when urls to files get generated.
+175:      * When activated, this attaches a ?v=xx query string to the URL.
+176:      */
+177:     'version_urls' => false,
+178: 
+179:     /*
+180:      * The media library will try to optimize all converted images by removing
+181:      * metadata and applying a little bit of compression. These are
+182:      * the optimizers that will be used by default.
+183:      */
+184:     'image_optimizers' => [
+185:         Jpegoptim::class => [
+186:             '-m85', // set maximum quality to 85%
+187:             '--force', // ensure that progressive generation is always done also if a little bigger
+188:             '--strip-all', // this strips out all text information such as comments and EXIF data
+189:             '--all-progressive', // this will make sure the resulting image is a progressive one
+190:         ],
+191:         Pngquant::class => [
+192:             '--force', // required parameter for this package
+193:         ],
+194:         Optipng::class => [
+195:             '-i0', // this will result in a non-interlaced, progressive scanned image
+196:             '-o2', // this set the optimization level to two (multiple IDAT compression trials)
+197:             '-quiet', // required parameter for this package
+198:         ],
+199:         Svgo::class => [
+200:             '--disable=cleanupIDs', // disabling because it is known to cause troubles
+201:         ],
+202:         Gifsicle::class => [
+203:             '-b', // required parameter for this package
+204:             '-O3', // this produces the slowest but best results
+205:         ],
+206:         Cwebp::class => [
+207:             '-m 6', // for the slowest compression method in order to get the best compression.
+208:             '-pass 10', // for maximizing the amount of analysis pass.
+209:             '-mt', // multithreading for some speed improvements.
+210:             '-q 90', // quality factor that brings the least noticeable changes.
+211:         ],
+212:         Avifenc::class => [
+213:             '-a cq-level=23', // constant quality level, lower values mean better quality and greater file size (0-63).
+214:             '-j all', // number of jobs (worker threads, "all" uses all available cores).
+215:             '--min 0', // min quantizer for color (0-63).
+216:             '--max 63', // max quantizer for color (0-63).
+217:             '--minalpha 0', // min quantizer for alpha (0-63).
+218:             '--maxalpha 63', // max quantizer for alpha (0-63).
+219:             '-a end-usage=q', // rate control mode set to Constant Quality mode.
+220:             '-a tune=ssim', // SSIM as tune the encoder for distortion metric.
+221:         ],
+222:     ],
+223: 
+224:     /*
+225:      * These generators will be used to create an image of media files.
+226:      */
+227:     'image_generators' => [
+228:         Image::class,
+229:         Webp::class,
+230:         Avif::class,
+231:         Pdf::class,
+232:         Svg::class,
+233:         Video::class,
+234:     ],
+235: 
+236:     /*
+237:      * The path where to store temporary files while performing image conversions.
+238:      * If set to null, storage_path('media-library/temp') will be used.
+239:      */
+240:     'temporary_directory_path' => null,
+241: 
+242:     /*
+243:      * The engine that should perform the image conversions.
+244:      * Should be either `gd`, `imagick` or `vips`.
+245:      */
+246:     'image_driver' => env('IMAGE_DRIVER', 'gd'),
+247: 
+248:     /*
+249:      * FFMPEG & FFProbe binaries paths, only used if you try to generate video
+250:      * thumbnails and have installed the php-ffmpeg/php-ffmpeg composer
+251:      * dependency.
+252:      */
+253:     'ffmpeg_path' => env('FFMPEG_PATH', '/usr/bin/ffmpeg'),
+254:     'ffprobe_path' => env('FFPROBE_PATH', '/usr/bin/ffprobe'),
+255: 
+256:     /*
+257:      * The timeout (in seconds) that will be used when generating video
+258:      * thumbnails via FFMPEG.
+259:      */
+260:     'ffmpeg_timeout' => env('FFMPEG_TIMEOUT', 900),
+261: 
+262:     /*
+263:      * The number of threads that FFMPEG should use. 0 means that FFMPEG
+264:      * may decide itself.
+265:      */
+266:     'ffmpeg_threads' => env('FFMPEG_THREADS', 0),
+267: 
+268:     /*
+269:      * Here you can override the class names of the jobs used by this package. Make sure
+270:      * your custom jobs extend the ones provided by the package.
+271:      */
+272:     'jobs' => [
+273:         'perform_conversions' => PerformConversionsJob::class,
+274:         'generate_responsive_images' => GenerateResponsiveImagesJob::class,
+275:     ],
+276: 
+277:     /*
+278:      * When using the addMediaFromUrl method you may want to replace the default downloader.
+279:      * This is particularly useful when the url of the image is behind a firewall and
+280:      * need to add additional flags, possibly using curl.
+281:      */
+282:     'media_downloader' => DefaultDownloader::class,
+283: 
+284:     /*
+285:      * When using the addMediaFromUrl method the SSL is verified by default.
+286:      * This is option disables SSL verification when downloading remote media.
+287:      * Please note that this is a security risk and should only be false in a local environment.
+288:      */
+289:     'media_downloader_ssl' => env('MEDIA_DOWNLOADER_SSL', true),
+290: 
+291:     /*
+292:      * The default lifetime in minutes for temporary urls.
+293:      * This is used when you call the `getLastTemporaryUrl` or `getLastTemporaryUrl` method on a media item.
+294:      */
+295:     'temporary_url_default_lifetime' => env('MEDIA_TEMPORARY_URL_DEFAULT_LIFETIME', 5),
+296: 
+297:     'remote' => [
+298:         /*
+299:          * Any extra headers that should be included when uploading media to
+300:          * a remote disk. Even though supported headers may vary between
+301:          * different drivers, a sensible default has been provided.
+302:          *
+303:          * Supported by S3: CacheControl, Expires, StorageClass,
+304:          * ServerSideEncryption, Metadata, ACL, ContentEncoding
+305:          */
+306:         'extra_headers' => [
+307:             'CacheControl' => 'max-age=604800',
+308:         ],
+309:     ],
+310: 
+311:     'responsive_images' => [
+312:         /*
+313:          * This class is responsible for calculating the target widths of the responsive
+314:          * images. By default we optimize for filesize and create variations that each are 30%
+315:          * smaller than the previous one. More info in the documentation.
+316:          *
+317:          * https://docs.spatie.be/laravel-medialibrary/v9/advanced-usage/generating-responsive-images
+318:          */
+319:         'width_calculator' => FileSizeOptimizedWidthCalculator::class,
+320: 
+321:         /*
+322:          * By default rendering media to a responsive image will add some javascript and a tiny placeholder.
+323:          * This ensures that the browser can already determine the correct layout.
+324:          * When disabled, no tiny placeholder is generated.
+325:          */
+326:         'use_tiny_placeholders' => true,
+327: 
+328:         /*
+329:          * This class will generate the tiny placeholder used for progressive image loading. By default
+330:          * the media library will use a tiny blurred jpg image.
+331:          */
+332:         'tiny_placeholder_generator' => Blurred::class,
+333:     ],
+334: 
+335:     /*
+336:      * When enabling this option, a route will be registered that will enable
+337:      * the Media Library Pro Vue and React components to move uploaded files
+338:      * in a S3 bucket to their right place.
+339:      */
+340:     'enable_vapor_uploads' => env('ENABLE_MEDIA_LIBRARY_VAPOR_UPLOADS', false),
+341: 
+342:     /*
+343:      * When converting Media instances to response the media library will add
+344:      * a `loading` attribute to the `img` tag. Here you can set the default
+345:      * value of that attribute.
+346:      *
+347:      * Possible values: 'lazy', 'eager', 'auto' or null if you don't want to set any loading instruction.
+348:      *
+349:      * More info: https://css-tricks.com/native-lazy-loading/
+350:      */
+351:     'default_loading_attribute_value' => null,
+352: 
+353:     /*
+354:      * You can specify a prefix for that is used for storing all media.
+355:      * If you set this to `/my-subdir`, all your media will be stored in a `/my-subdir` directory.
+356:      */
+357:     'prefix' => env('MEDIA_PREFIX', ''),
+358: 
+359:     /*
+360:      * When forcing lazy loading, media will be loaded even if you don't eager load media and you have
+361:      * disabled lazy loading globally in the service provider.
+362:      */
+363:     'force_lazy_loading' => env('FORCE_MEDIA_LIBRARY_LAZY_LOADING', true),
+364: ];
+```
+
+## File: bags-platform/backend/config/sanctum.php
+```php
+ 1: <?php
+ 2: 
+ 3: use Illuminate\Cookie\Middleware\EncryptCookies;
+ 4: use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
+ 5: use Laravel\Sanctum\Http\Middleware\AuthenticateSession;
+ 6: use Laravel\Sanctum\Sanctum;
+ 7: 
+ 8: return [
+ 9: 
+10:     /*
+11:     |--------------------------------------------------------------------------
+12:     | Stateful Domains
+13:     |--------------------------------------------------------------------------
+14:     |
+15:     | Requests from the following domains / hosts will receive stateful API
+16:     | authentication cookies. Typically, these should include your local
+17:     | and production domains which access your API via a frontend SPA.
+18:     |
+19:     */
+20: 
+21:     'stateful' => explode(',', env('SANCTUM_STATEFUL_DOMAINS', sprintf(
+22:         '%s%s',
+23:         'localhost,localhost:3000,127.0.0.1,127.0.0.1:8000,::1',
+24:         Sanctum::currentApplicationUrlWithPort(),
+25:         // Sanctum::currentRequestHost(),
+26:     ))),
+27: 
+28:     /*
+29:     |--------------------------------------------------------------------------
+30:     | Sanctum Guards
+31:     |--------------------------------------------------------------------------
+32:     |
+33:     | This array contains the authentication guards that will be checked when
+34:     | Sanctum is trying to authenticate a request. If none of these guards
+35:     | are able to authenticate the request, Sanctum will use the bearer
+36:     | token that's present on an incoming request for authentication.
+37:     |
+38:     */
+39: 
+40:     'guard' => ['web'],
+41: 
+42:     /*
+43:     |--------------------------------------------------------------------------
+44:     | Expiration Minutes
+45:     |--------------------------------------------------------------------------
+46:     |
+47:     | This value controls the number of minutes until an issued token will be
+48:     | considered expired. This will override any values set in the token's
+49:     | "expires_at" attribute, but first-party sessions are not affected.
+50:     |
+51:     */
+52: 
+53:     'expiration' => env('SANCTUM_EXPIRATION', 1440),
+54: 
+55:     /*
+56:     |--------------------------------------------------------------------------
+57:     | Token Prefix
+58:     |--------------------------------------------------------------------------
+59:     |
+60:     | Sanctum can prefix new tokens in order to take advantage of numerous
+61:     | security scanning initiatives maintained by open source platforms
+62:     | that notify developers if they commit tokens into repositories.
+63:     |
+64:     | See: https://docs.github.com/en/code-security/secret-scanning/about-secret-scanning
+65:     |
+66:     */
+67: 
+68:     'token_prefix' => env('SANCTUM_TOKEN_PREFIX', ''),
+69: 
+70:     /*
+71:     |--------------------------------------------------------------------------
+72:     | Sanctum Middleware
+73:     |--------------------------------------------------------------------------
+74:     |
+75:     | When authenticating your first-party SPA with Sanctum you may need to
+76:     | customize some of the middleware Sanctum uses while processing the
+77:     | request. You may change the middleware listed below as required.
+78:     |
+79:     */
+80: 
+81:     'middleware' => [
+82:         'authenticate_session' => AuthenticateSession::class,
+83:         'encrypt_cookies' => EncryptCookies::class,
+84:         'validate_csrf_token' => ValidateCsrfToken::class,
+85:     ],
+86: 
+87: ];
+```
+
+## File: bags-platform/backend/database/factories/BranchFactory.php
+```php
+ 1: <?php
+ 2: 
+ 3: declare(strict_types=1);
+ 4: 
+ 5: namespace Database\Factories;
+ 6: 
+ 7: use App\Enums\BranchType;
+ 8: use App\Models\Branch;
+ 9: use Illuminate\Database\Eloquent\Factories\Factory;
+10: 
+11: /**
+12:  * @extends Factory<Branch>
+13:  */
+14: class BranchFactory extends Factory
+15: {
+16:     public function definition(): array
+17:     {
+18:         return [
+19:             'name' => fake()->company(),
+20:             'code' => 'BR-'.fake()->unique()->numerify('#####'),
+21:             'type' => BranchType::Branch,
+22:             'phone' => fake()->phoneNumber(),
+23:             'email' => fake()->safeEmail(),
+24:             'address' => fake()->streetAddress(),
+25:             'city' => fake()->city(),
+26:             'is_active' => true,
+27:         ];
+28:     }
+29: }
 ```
 
 ## File: bags-platform/backend/database/seeders/CatalogPermissionSeeder.php
@@ -6035,51 +6669,6 @@ bags-platform/
 215: }
 ```
 
-## File: bags-platform/backend/database/seeders/DatabaseSeeder.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace Database\Seeders;
- 6: 
- 7: use App\Models\User;
- 8: use Illuminate\Database\Console\Seeds\WithoutModelEvents;
- 9: use Illuminate\Database\Seeder;
-10: 
-11: class DatabaseSeeder extends Seeder
-12: {
-13:     use WithoutModelEvents;
-14: 
-15:     /**
-16:      * Seed the application's database.
-17:      */
-18:     public function run(): void
-19:     {
-20:         $this->call(SettingSeeder::class);
-21:         $this->call(BranchSeeder::class);
-22:         $this->call(LocationSeeder::class);
-23:         $this->call(RolePermissionSeeder::class);
-24:         $this->call(CatalogPermissionSeeder::class);
-25: 
-26:         if (app()->environment(['local', 'testing'])) {
-27:             $testUser = User::factory()->make([
-28:                 'name' => 'Test User',
-29:                 'email' => 'test@example.com',
-30:             ]);
-31: 
-32:             User::query()->firstOrCreate(
-33:                 ['email' => 'test@example.com'],
-34:                 $testUser->getAttributes(),
-35:             );
-36: 
-37:             // بيانات الكتالوج التجريبية للبيئات المحلية والاختبار بس
-38:             $this->call(CatalogSeeder::class);
-39:         }
-40:     }
-41: }
-```
-
 ## File: bags-platform/backend/database/seeders/LocationSeeder.php
 ```php
  1: <?php
@@ -6123,674 +6712,6 @@ bags-platform/
 39:         }
 40:     }
 41: }
-```
-
-## File: bags-platform/backend/database/seeders/RolePermissionSeeder.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace Database\Seeders;
- 6: 
- 7: use App\Enums\StaffRole;
- 8: use Illuminate\Database\Seeder;
- 9: use Spatie\Permission\Models\Permission;
-10: use Spatie\Permission\Models\Role;
-11: 
-12: class RolePermissionSeeder extends Seeder
-13: {
-14:     /**
-15:      * @var array<string, list<string>>
-16:      */
-17:     private const PERMISSIONS_BY_MODULE = [
-18:         'branches' => ['view', 'create', 'update', 'delete', 'manage'],
-19:         'locations' => ['view', 'create', 'update', 'delete', 'manage'],
-20:         'users' => ['view', 'create', 'update', 'delete', 'manage'],
-21:         'roles' => ['view', 'create', 'update', 'delete', 'manage'],
-22:         'permissions' => ['view'],
-23:         'customers' => ['view', 'create', 'update', 'delete', 'manage'],
-24:         'suppliers' => ['view', 'create', 'update', 'delete', 'manage'],
-25:         'products' => ['view', 'create', 'update', 'delete', 'manage'],
-26:         'categories' => ['view', 'create', 'update', 'delete', 'manage'],
-27:         'inventory' => ['view', 'create', 'update', 'delete', 'manage'],
-28:         'warehouses' => ['view', 'create', 'update', 'delete', 'manage'],
-29:         'orders' => ['view', 'create', 'update', 'delete', 'manage'],
-30:         'sales' => ['view', 'create', 'update', 'delete', 'manage'],
-31:         'purchases' => ['view', 'create', 'update', 'delete', 'manage'],
-32:         'returns' => ['view', 'create', 'update', 'delete', 'manage'],
-33:         'payments' => ['view', 'create', 'update', 'delete', 'manage'],
-34:         'shipping' => ['view', 'create', 'update', 'delete', 'manage'],
-35:         'transfers' => ['view', 'create', 'update', 'delete', 'manage'],
-36:         'reports' => ['view', 'export'],
-37:         'notifications' => ['view', 'create', 'update', 'delete', 'manage'],
-38:         'pricing' => ['view', 'create', 'update', 'delete', 'manage'],
-39:         'settings' => ['view', 'update', 'manage'],
-40:         'pos' => ['access', 'sales.view', 'sales.create', 'sales.refund'],
-41:     ];
-42: 
-43:     public function run(): void
-44:     {
-45:         foreach (self::PERMISSIONS_BY_MODULE as $module => $actions) {
-46:             foreach ($actions as $action) {
-47:                 Permission::findOrCreate("{$module}.{$action}", 'staff');
-48:             }
-49:         }
-50: 
-51:         $superAdmin = Role::findOrCreate(StaffRole::SuperAdmin->value, 'staff');
-52:         $superAdmin->syncPermissions(
-53:             Permission::query()->where('guard_name', 'staff')->get(),
-54:         );
-55:     }
-56: }
-```
-
-## File: bags-platform/backend/database/seeders/SettingSeeder.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace Database\Seeders;
- 6: 
- 7: use App\Models\Setting;
- 8: use App\Services\SettingService;
- 9: use Illuminate\Database\Seeder;
-10: use Illuminate\Support\Facades\DB;
-11: 
-12: class SettingSeeder extends Seeder
-13: {
-14:     /**
-15:      * @var list<array{group: string, key: string, value: string|null, type: string}>
-16:      */
-17:     private const SETTINGS = [
-18:         ['group' => 'company', 'key' => 'company_name', 'value' => 'Alfarid', 'type' => 'string'],
-19:         ['group' => 'company', 'key' => 'company_email', 'value' => null, 'type' => 'string'],
-20:         ['group' => 'company', 'key' => 'company_phone', 'value' => null, 'type' => 'string'],
-21:         ['group' => 'company', 'key' => 'company_address', 'value' => null, 'type' => 'string'],
-22:         ['group' => 'company', 'key' => 'company_logo', 'value' => null, 'type' => 'string'],
-23:         ['group' => 'company', 'key' => 'commercial_register', 'value' => null, 'type' => 'string'],
-24: 
-25:         ['group' => 'tax', 'key' => 'tax_enabled', 'value' => '0', 'type' => 'boolean'],
-26:         ['group' => 'tax', 'key' => 'tax_number', 'value' => null, 'type' => 'string'],
-27:         ['group' => 'tax', 'key' => 'default_tax_rate', 'value' => '14', 'type' => 'float'],
-28:         ['group' => 'tax', 'key' => 'prices_include_tax', 'value' => '0', 'type' => 'boolean'],
-29: 
-30:         ['group' => 'numbering', 'key' => 'invoice_prefix', 'value' => 'INV-', 'type' => 'string'],
-31:         ['group' => 'numbering', 'key' => 'invoice_next_number', 'value' => '1000', 'type' => 'integer'],
-32:         ['group' => 'numbering', 'key' => 'invoice_padding', 'value' => '6', 'type' => 'integer'],
-33:         ['group' => 'numbering', 'key' => 'order_prefix', 'value' => 'ORD-', 'type' => 'string'],
-34:         ['group' => 'numbering', 'key' => 'order_next_number', 'value' => '1000', 'type' => 'integer'],
-35:         ['group' => 'numbering', 'key' => 'order_padding', 'value' => '6', 'type' => 'integer'],
-36:         ['group' => 'numbering', 'key' => 'purchase_order_prefix', 'value' => 'PO-', 'type' => 'string'],
-37:         ['group' => 'numbering', 'key' => 'purchase_order_next_number', 'value' => '1000', 'type' => 'integer'],
-38:         ['group' => 'numbering', 'key' => 'purchase_order_padding', 'value' => '6', 'type' => 'integer'],
-39:         ['group' => 'numbering', 'key' => 'quotation_prefix', 'value' => 'QT-', 'type' => 'string'],
-40:         ['group' => 'numbering', 'key' => 'quotation_next_number', 'value' => '1000', 'type' => 'integer'],
-41:         ['group' => 'numbering', 'key' => 'quotation_padding', 'value' => '6', 'type' => 'integer'],
-42:     ];
-43: 
-44:     public function run(): void
-45:     {
-46:         $now = now();
-47:         $rows = array_map(
-48:             static fn (array $setting): array => [
-49:                 ...$setting,
-50:                 'created_at' => $now,
-51:                 'updated_at' => $now,
-52:             ],
-53:             self::SETTINGS,
-54:         );
-55: 
-56:         Setting::query()->insertOrIgnore($rows);
-57:         DB::afterCommit(fn () => app(SettingService::class)->clearCache());
-58:     }
-59: }
-```
-
-## File: bags-platform/backend/routes/api/admin.php
-```php
-  1: <?php
-  2: 
-  3: declare(strict_types=1);
-  4: 
-  5: use App\Http\Controllers\Api\V1\Admin\AuthController;
-  6: use App\Http\Controllers\Api\V1\Admin\BranchController;
-  7: use App\Http\Controllers\Api\V1\Admin\BrandController;
-  8: use App\Http\Controllers\Api\V1\Admin\CategoryController;
-  9: use App\Http\Controllers\Api\V1\Admin\LocationController;
- 10: use App\Http\Controllers\Api\V1\Admin\PermissionController;
- 11: use App\Http\Controllers\Api\V1\Admin\ProductController;
- 12: use App\Http\Controllers\Api\V1\Admin\ProductMediaController;
- 13: use App\Http\Controllers\Api\V1\Admin\ProductVariantController;
- 14: use App\Http\Controllers\Api\V1\Admin\RoleController;
- 15: use App\Http\Controllers\Api\V1\Admin\SettingController;
- 16: use App\Http\Controllers\Api\V1\Admin\UserController;
- 17: use Illuminate\Support\Facades\Route;
- 18: 
- 19: // Public admin authentication endpoint.
- 20: Route::post('auth/login', [AuthController::class, 'login'])
- 21:     ->middleware('throttle:admin-login')
- 22:     ->name('admin.auth.login');
- 23: 
- 24: // Staff-only API endpoints: require a Sanctum token and an active staff account.
- 25: Route::middleware(['auth:sanctum', 'auth.staff'])
- 26:     ->name('admin.')
- 27:     ->group(function (): void {
- 28:         Route::get('me', [AuthController::class, 'me'])->name('auth.me');
- 29:         Route::post('auth/logout', [AuthController::class, 'logout'])->name('auth.logout');
- 30: 
- 31:         Route::apiResource('branches', BranchController::class)
- 32:             ->only(['index', 'show'])
- 33:             ->middleware('permission:branches.view|branches.manage');
- 34:         Route::apiResource('branches', BranchController::class)
- 35:             ->only(['store'])
- 36:             ->middleware('permission:branches.create|branches.manage');
- 37:         Route::apiResource('branches', BranchController::class)
- 38:             ->only(['update'])
- 39:             ->middleware('permission:branches.update|branches.manage');
- 40:         Route::apiResource('branches', BranchController::class)
- 41:             ->only(['destroy'])
- 42:             ->middleware('permission:branches.delete|branches.manage');
- 43: 
- 44:         Route::scopeBindings()->group(function (): void {
- 45:             Route::apiResource('branches.locations', LocationController::class)
- 46:                 ->only(['index', 'show'])
- 47:                 ->middleware('permission:locations.view|locations.manage');
- 48:             Route::apiResource('branches.locations', LocationController::class)
- 49:                 ->only(['store'])
- 50:                 ->middleware('permission:locations.create|locations.manage');
- 51:             Route::apiResource('branches.locations', LocationController::class)
- 52:                 ->only(['update'])
- 53:                 ->middleware('permission:locations.update|locations.manage');
- 54:             Route::apiResource('branches.locations', LocationController::class)
- 55:                 ->only(['destroy'])
- 56:                 ->middleware('permission:locations.delete|locations.manage');
- 57:         });
- 58: 
- 59:         Route::apiResource('users', UserController::class)
- 60:             ->only(['index', 'show'])
- 61:             ->middleware('permission:users.view|users.manage');
- 62:         Route::apiResource('users', UserController::class)
- 63:             ->only(['store'])
- 64:             ->middleware('permission:users.create|users.manage');
- 65:         Route::apiResource('users', UserController::class)
- 66:             ->only(['update'])
- 67:             ->middleware('permission:users.update|users.manage');
- 68:         Route::apiResource('users', UserController::class)
- 69:             ->only(['destroy'])
- 70:             ->middleware('permission:users.delete|users.manage');
- 71: 
- 72:         Route::apiResource('roles', RoleController::class)
- 73:             ->only(['index', 'show'])
- 74:             ->middleware('permission:roles.view|roles.manage');
- 75:         Route::apiResource('roles', RoleController::class)
- 76:             ->only(['store'])
- 77:             ->middleware('permission:roles.create|roles.manage');
- 78:         Route::apiResource('roles', RoleController::class)
- 79:             ->only(['update'])
- 80:             ->middleware('permission:roles.update|roles.manage');
- 81:         Route::apiResource('roles', RoleController::class)
- 82:             ->only(['destroy'])
- 83:             ->middleware('permission:roles.delete|roles.manage');
- 84: 
- 85:         Route::get('permissions', [PermissionController::class, 'index'])
- 86:             ->middleware('permission:permissions.view|roles.manage')
- 87:             ->name('permissions.index');
- 88: 
- 89:         // Catalog: authorization is handled in the controllers via can:* middleware.
- 90:         // مهم: reorder قبل apiResource عشان ميتقريش كأنه {category}
- 91:         Route::put('categories/reorder', [CategoryController::class, 'reorder'])->name('categories.reorder');
- 92:         Route::apiResource('categories', CategoryController::class);
- 93: 
- 94:         Route::apiResource('brands', BrandController::class);
- 95: 
- 96:         Route::apiResource('products', ProductController::class);
- 97:         Route::apiResource('products.variants', ProductVariantController::class)->scoped();
- 98: 
- 99:         Route::put('products/{product}/media/reorder', [ProductMediaController::class, 'reorder'])->name('products.media.reorder');
-100:         Route::get('products/{product}/media', [ProductMediaController::class, 'index'])->name('products.media.index');
-101:         Route::post('products/{product}/media', [ProductMediaController::class, 'store'])->name('products.media.store');
-102:         Route::delete('products/{product}/media/{media}', [ProductMediaController::class, 'destroy'])->name('products.media.destroy');
-103: 
-104:         Route::get('settings', [SettingController::class, 'index'])
-105:             ->middleware('permission:settings.view|settings.manage')
-106:             ->name('settings.index');
-107:         Route::put('settings', [SettingController::class, 'update'])
-108:             ->middleware('permission:settings.update|settings.manage')
-109:             ->name('settings.update');
-110:     });
-```
-
-## File: bags-platform/backend/tests/Feature/Admin/Catalog/CatalogAuditTest.php
-```php
-  1: <?php
-  2: 
-  3: declare(strict_types=1);
-  4: 
-  5: namespace Tests\Feature\Admin\Catalog;
-  6: 
-  7: use App\Enums\ProductStatus;
-  8: use App\Models\Brand;
-  9: use App\Models\Category;
- 10: use App\Models\Product;
- 11: use App\Models\ProductVariant;
- 12: use App\Models\User;
- 13: use App\Services\Catalog\BrandService;
- 14: use App\Services\Catalog\CategoryService;
- 15: use Database\Seeders\DatabaseSeeder;
- 16: use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
- 17: use Illuminate\Http\UploadedFile;
- 18: use Illuminate\Support\Facades\Auth;
- 19: use Illuminate\Support\Facades\Storage;
- 20: use Spatie\MediaLibrary\MediaCollections\Exceptions\FileUnacceptableForCollection;
- 21: use Spatie\Permission\Models\Permission;
- 22: use Tests\TestCase;
- 23: 
- 24: class CatalogAuditTest extends TestCase
- 25: {
- 26:     use LazilyRefreshDatabase;
- 27: 
- 28:     protected function setUp(): void
- 29:     {
- 30:         parent::setUp();
- 31:         Storage::fake('public');
- 32:     }
- 33: 
- 34:     private function signIn(array $permissions): void
- 35:     {
- 36:         Auth::forgetGuards();
- 37:         $staff = User::factory()->create();
- 38:         foreach ($permissions as $permission) {
- 39:             Permission::findOrCreate($permission, 'staff');
- 40:         }
- 41:         $staff->givePermissionTo($permissions);
- 42:         $this->withToken($staff->createToken('audit')->plainTextToken);
- 43:     }
- 44: 
- 45:     public function test_nested_cost_is_ignored_without_permission(): void
- 46:     {
- 47:         $this->signIn(['products.create']);
- 48:         $response = $this->postJson('/api/v1/admin/products', [
- 49:             'category_id' => Category::factory()->create()->id,
- 50:             'name_ar' => 'حقيبة', 'name_en' => 'Bag', 'sales_channel' => 'retail',
- 51:             'variants' => [['cost_price' => 999, 'retail_price' => 1200]],
- 52:         ])->assertCreated();
- 53:         $this->assertArrayNotHasKey('cost_price', $response->json('data.variants.0'));
- 54:         $this->assertDatabaseHas('product_variants', ['product_id' => $response->json('data.id'), 'cost_price' => 0]);
- 55:     }
- 56: 
- 57:     public function test_nested_variants_cannot_override_their_product_or_inject_columns(): void
- 58:     {
- 59:         $this->signIn(['products.create', 'products.view_cost']);
- 60:         $other = Product::factory()->create();
- 61:         $this->postJson('/api/v1/admin/products', [
- 62:             'category_id' => $other->category_id, 'name_ar' => 'حقيبة', 'name_en' => 'Bag',
- 63:             'sales_channel' => 'retail', 'variants' => [['product_id' => $other->id, 'id' => 800]],
- 64:         ])->assertUnprocessable()->assertJsonValidationErrors('variants.0');
- 65:         $this->assertSame(0, $other->variants()->count());
- 66:         $this->assertDatabaseCount('products', 1);
- 67:     }
- 68: 
- 69:     public function test_duplicate_nested_identifiers_are_validation_errors(): void
- 70:     {
- 71:         $this->signIn(['products.create']);
- 72:         $this->postJson('/api/v1/admin/products', [
- 73:             'category_id' => Category::factory()->create()->id,
- 74:             'name_ar' => 'حقيبة', 'name_en' => 'Bag', 'sales_channel' => 'retail',
- 75:             'variants' => [
- 76:                 ['sku' => 'REPEATED', 'barcode' => '123', 'color_name_en' => 'Red'],
- 77:                 ['sku' => 'REPEATED', 'barcode' => '123', 'color_name_en' => 'Blue'],
- 78:             ],
- 79:         ])->assertUnprocessable()->assertJsonValidationErrors(['variants.0.sku', 'variants.1.barcode']);
- 80:         $this->assertDatabaseCount('products', 0);
- 81:     }
- 82: 
- 83:     public function test_empty_product_slug_is_regenerated_on_update(): void
- 84:     {
- 85:         $this->signIn(['products.update']);
- 86:         $product = Product::factory()->create();
- 87:         $this->putJson("/api/v1/admin/products/{$product->id}", ['slug' => null, 'name_en' => 'New Bag'])
- 88:             ->assertOk()->assertJsonPath('data.slug', 'new-bag');
- 89:     }
- 90: 
- 91:     public function test_empty_variant_sku_returns_validation_error(): void
- 92:     {
- 93:         $this->signIn(['products.update']);
- 94:         $variant = ProductVariant::factory()->create();
- 95:         $this->putJson("/api/v1/admin/products/{$variant->product_id}/variants/{$variant->id}", ['sku' => null])
- 96:             ->assertUnprocessable()->assertJsonValidationErrors('sku');
- 97:         $this->assertSame($variant->sku, $variant->fresh()->sku);
- 98:     }
- 99: 
-100:     public function test_variant_cost_writes_require_permission(): void
-101:     {
-102:         $this->signIn(['products.update']);
-103:         $product = Product::factory()->create();
-104:         $created = $this->postJson("/api/v1/admin/products/{$product->id}/variants", ['cost_price' => 500])
-105:             ->assertCreated();
-106:         $id = $created->json('data.id');
-107:         $this->putJson("/api/v1/admin/products/{$product->id}/variants/{$id}", ['cost_price' => 700])
-108:             ->assertOk();
-109:         $this->assertDatabaseHas('product_variants', ['id' => $id, 'cost_price' => 0]);
-110:     }
-111: 
-112:     public function test_create_with_invalid_media_rolls_back_category_and_brand(): void
-113:     {
-114:         foreach ([CategoryService::class => Category::class, BrandService::class => Brand::class] as $service => $model) {
-115:             try {
-116:                 app($service)->create(['name_ar' => 'اختبار', 'name_en' => 'Rollback'], UploadedFile::fake()->create('bad.txt', 1, 'text/plain'));
-117:                 $this->fail('Invalid media must fail.');
-118:             } catch (FileUnacceptableForCollection) {
-119:                 $this->assertSame(0, $model::where('name_en', 'Rollback')->count());
-120:             }
-121:         }
-122:     }
-123: 
-124:     public function test_update_with_invalid_media_rolls_back_category_and_brand_changes(): void
-125:     {
-126:         foreach ([CategoryService::class => Category::class, BrandService::class => Brand::class] as $service => $model) {
-127:             $record = $model::factory()->create(['name_en' => 'Original']);
-128:             try {
-129:                 app($service)->update($record, ['name_en' => 'Changed'], UploadedFile::fake()->create('bad.txt', 1, 'text/plain'));
-130:                 $this->fail('Invalid media must fail.');
-131:             } catch (FileUnacceptableForCollection) {
-132:                 $this->assertSame('Original', $record->fresh()->name_en);
-133:             }
-134:         }
-135:     }
-136: 
-137:     public function test_reordering_invalid_subtree_rolls_back_all_items(): void
-138:     {
-139:         $this->signIn(['categories.update']);
-140:         $root = Category::factory()->create(['sort_order' => 0]);
-141:         $child = Category::factory()->create(['parent_id' => $root->id]);
-142:         $leaf = Category::factory()->create(['parent_id' => $child->id]);
-143:         $this->putJson('/api/v1/admin/categories/reorder', ['items' => [
-144:             ['id' => $root->id, 'parent_id' => null, 'sort_order' => 50],
-145:             ['id' => $root->id, 'parent_id' => $leaf->id, 'sort_order' => 1],
-146:         ]])->assertUnprocessable();
-147:         $this->assertSame(0, $root->fresh()->sort_order);
-148:         // A distinct second item makes this fail inside the service after the first update.
-149:         $other = Category::factory()->create(['sort_order' => 0]);
-150:         $this->putJson('/api/v1/admin/categories/reorder', ['items' => [
-151:             ['id' => $other->id, 'parent_id' => null, 'sort_order' => 50],
-152:             ['id' => $root->id, 'parent_id' => $leaf->id, 'sort_order' => 1],
-153:         ]])->assertUnprocessable();
-154:         $this->assertSame(0, $other->fresh()->sort_order);
-155:     }
-156: 
-157:     public function test_moving_a_subtree_cannot_exceed_three_levels(): void
-158:     {
-159:         $this->signIn(['categories.update']);
-160:         $root = Category::factory()->create();
-161:         $child = Category::factory()->create(['parent_id' => $root->id]);
-162:         $otherRoot = Category::factory()->create();
-163:         $otherChild = Category::factory()->create(['parent_id' => $otherRoot->id]);
-164:         $this->putJson("/api/v1/admin/categories/{$root->id}", ['parent_id' => $otherChild->id])->assertUnprocessable();
-165:         $this->assertNull($root->fresh()->parent_id);
-166:         $this->assertSame($root->id, $child->fresh()->parent_id);
-167:     }
-168: 
-169:     public function test_brand_supports_svg_and_rejects_deletion_with_products(): void
-170:     {
-171:         $this->signIn(['brands.create', 'brands.delete']);
-172:         $logo = UploadedFile::fake()->createWithContent('logo.svg', '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>');
-173:         $response = $this->post('/api/v1/admin/brands', ['name_ar' => 'براند', 'name_en' => 'Brand', 'logo' => $logo])->assertCreated();
-174:         $this->assertNotEmpty($response->json('data.logo_url'));
-175:         $brandId = $response->json('data.id');
-176:         Product::factory()->create(['brand_id' => $brandId]);
-177:         $this->deleteJson("/api/v1/admin/brands/{$brandId}")->assertUnprocessable();
-178:     }
-179: 
-180:     public function test_last_active_variant_of_published_product_is_protected(): void
-181:     {
-182:         $this->signIn(['products.update']);
-183:         $product = Product::factory()->published()->create();
-184:         $variant = ProductVariant::factory()->create(['product_id' => $product->id]);
-185:         $url = "/api/v1/admin/products/{$product->id}/variants/{$variant->id}";
-186:         $this->putJson($url, ['is_active' => false])->assertUnprocessable();
-187:         $this->deleteJson($url)->assertUnprocessable();
-188:         $this->assertTrue($variant->fresh()->is_active);
-189:         $this->assertFalse($variant->fresh()->trashed());
-190:     }
-191: 
-192:     public function test_media_conversions_reorder_and_last_image_protection(): void
-193:     {
-194:         $this->signIn(['products.view', 'products.update']);
-195:         $product = Product::factory()->create();
-196:         $url = "/api/v1/admin/products/{$product->id}/media";
-197:         $uploaded = $this->post($url, ['collection' => 'images', 'files' => [
-198:             UploadedFile::fake()->image('first.jpg'), UploadedFile::fake()->image('second.jpg'),
-199:         ]])->assertCreated();
-200:         $first = $uploaded->json('data.0.id');
-201:         $second = $uploaded->json('data.1.id');
-202:         $this->assertNotEmpty($uploaded->json('data.0.thumb_url'));
-203:         $this->assertNotEmpty($uploaded->json('data.0.medium_url'));
-204:         $this->putJson($url.'/reorder', ['ids' => [$second, $first]])->assertOk();
-205:         $this->getJson($url)->assertOk()->assertJsonPath('data.0.id', $second);
-206:         $product->update(['status' => ProductStatus::Published]);
-207:         $this->deleteJson($url.'/'.$first)->assertOk();
-208:         $this->deleteJson($url.'/'.$second)->assertUnprocessable();
-209:     }
-210: 
-211:     public function test_reordering_foreign_media_is_rejected_without_changes(): void
-212:     {
-213:         $this->signIn(['products.update']);
-214:         $product = Product::factory()->create();
-215:         $other = Product::factory()->create();
-216:         $media = $other->addMedia(UploadedFile::fake()->image('other.jpg'))->toMediaCollection('images');
-217:         $this->putJson("/api/v1/admin/products/{$product->id}/media/reorder", ['ids' => [$media->id]])->assertNotFound();
-218:         $this->assertSame($other->id, $media->fresh()->model_id);
-219:     }
-220: 
-221:     public function test_variant_video_is_rejected(): void
-222:     {
-223:         $this->signIn(['products.update']);
-224:         $variant = ProductVariant::factory()->create();
-225:         $this->post("/api/v1/admin/products/{$variant->product_id}/media", [
-226:             'collection' => 'video', 'variant_id' => $variant->id,
-227:             'file' => UploadedFile::fake()->create('clip.mp4', 10, 'video/mp4'),
-228:         ])->assertUnprocessable();
-229:         $this->assertDatabaseCount('media', 0);
-230:     }
-231: 
-232:     public function test_publishing_requires_permission_and_rolls_back_edits(): void
-233:     {
-234:         $this->signIn(['products.update']);
-235:         $product = Product::factory()->create(['name_en' => 'Original']);
-236:         $this->putJson("/api/v1/admin/products/{$product->id}", ['status' => 'published', 'name_en' => 'Changed'])
-237:             ->assertForbidden();
-238:         $this->assertSame('Original', $product->fresh()->name_en);
-239:         $this->assertSame(ProductStatus::Draft, $product->fresh()->status);
-240:     }
-241: 
-242:     public function test_product_delete_soft_deletes_all_variants(): void
-243:     {
-244:         $this->signIn(['products.delete']);
-245:         $variant = ProductVariant::factory()->create();
-246:         $this->deleteJson("/api/v1/admin/products/{$variant->product_id}")->assertOk();
-247:         $this->assertSoftDeleted('products', ['id' => $variant->product_id]);
-248:         $this->assertSoftDeleted('product_variants', ['id' => $variant->id]);
-249:     }
-250: 
-251:     public function test_non_positive_pagination_is_clamped(): void
-252:     {
-253:         $this->signIn(['categories.view', 'brands.view', 'products.view']);
-254:         foreach (['categories', 'brands', 'products'] as $resource) {
-255:             $this->getJson("/api/v1/admin/{$resource}?per_page=-1")->assertOk()->assertJsonPath('meta.per_page', 1);
-256:             $this->getJson("/api/v1/admin/{$resource}?per_page=101")->assertOk()->assertJsonPath('meta.per_page', 100);
-257:         }
-258:     }
-259: 
-260:     public function test_catalog_seed_matches_plan_and_is_repeatable(): void
-261:     {
-262:         $this->seed(DatabaseSeeder::class);
-263:         $this->seed(DatabaseSeeder::class);
-264:         $this->assertDatabaseCount('categories', 7);
-265:         $this->assertDatabaseCount('brands', 4);
-266:         $this->assertDatabaseCount('products', 10);
-267:         $this->assertSame(3, Category::where('slug', 'luggage')->firstOrFail()->children()->count());
-268:         foreach (Product::with('variants')->get() as $product) {
-269:             $this->assertSame(ProductStatus::Draft, $product->status);
-270:             $this->assertContains($product->variants->count(), [2, 3]);
-271:             $this->assertSame('P'.str_pad((string) $product->id, 5, '0', STR_PAD_LEFT), $product->code);
-272:             foreach ($product->variants as $variant) {
-273:                 $this->assertStringStartsWith($product->code.'-', $variant->sku);
-274:                 $this->assertMatchesRegularExpression('/^2[0-9]{12}$/', $variant->barcode);
-275:             }
-276:         }
-277:     }
-278: }
-```
-
-## File: bags-platform/backend/tests/Feature/Admin/Catalog/CategoryCatalogTest.php
-```php
-  1: <?php
-  2: 
-  3: declare(strict_types=1);
-  4: 
-  5: namespace Tests\Feature\Admin\Catalog;
-  6: 
-  7: use App\Models\Category;
-  8: use App\Models\Product;
-  9: use App\Models\User;
- 10: use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
- 11: use Illuminate\Http\UploadedFile;
- 12: use Illuminate\Support\Facades\Auth;
- 13: use Illuminate\Support\Facades\Storage;
- 14: use Illuminate\Testing\TestResponse;
- 15: use Spatie\Permission\Models\Permission;
- 16: use Tests\TestCase;
- 17: 
- 18: class CategoryCatalogTest extends TestCase
- 19: {
- 20:     use LazilyRefreshDatabase;
- 21: 
- 22:     private const ALL_PERMISSIONS = [
- 23:         'categories.view', 'categories.create', 'categories.update', 'categories.delete',
- 24:     ];
- 25: 
- 26:     public function test_staff_without_create_permission_gets_403(): void
- 27:     {
- 28:         $viewer = $this->staffWithPermissions(['categories.view']);
- 29:         $token = $viewer->createToken('test')->plainTextToken;
- 30: 
- 31:         $this->requestWithToken($token, 'POST', '/api/v1/admin/categories', [
- 32:             'name_ar' => 'قسم', 'name_en' => 'Category',
- 33:         ])->assertForbidden();
- 34:     }
- 35: 
- 36:     public function test_create_category_with_image_returns_201_and_image_url(): void
- 37:     {
- 38:         Storage::fake('public');
- 39:         $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
- 40:         $token = $admin->createToken('test')->plainTextToken;
- 41: 
- 42:         $response = $this->uploadWithToken($token, '/api/v1/admin/categories', [
- 43:             'name_ar' => 'شنط يد',
- 44:             'name_en' => 'Handbags',
- 45:             'image' => UploadedFile::fake()->image('handbags.jpg'),
- 46:         ]);
- 47: 
- 48:         $response->assertCreated()
- 49:             ->assertJsonPath('data.name_en', 'Handbags')
- 50:             ->assertJsonPath('data.slug', 'handbags');
- 51:         $this->assertNotEmpty($response->json('data.image_url'));
- 52:     }
- 53: 
- 54:     public function test_category_cannot_be_its_own_parent(): void
- 55:     {
- 56:         $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
- 57:         $token = $admin->createToken('test')->plainTextToken;
- 58:         $category = Category::factory()->create();
- 59: 
- 60:         $this->requestWithToken($token, 'PUT', "/api/v1/admin/categories/{$category->id}", [
- 61:             'parent_id' => $category->id,
- 62:         ])->assertUnprocessable();
- 63:     }
- 64: 
- 65:     public function test_category_cannot_move_under_its_descendant(): void
- 66:     {
- 67:         $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
- 68:         $token = $admin->createToken('test')->plainTextToken;
- 69:         $root = Category::factory()->create();
- 70:         $child = Category::factory()->create(['parent_id' => $root->id]);
- 71:         $grandchild = Category::factory()->create(['parent_id' => $child->id]);
- 72: 
- 73:         $this->requestWithToken($token, 'PUT', "/api/v1/admin/categories/{$root->id}", [
- 74:             'parent_id' => $grandchild->id,
- 75:         ])->assertUnprocessable();
- 76:     }
- 77: 
- 78:     public function test_creating_a_fourth_level_category_is_rejected(): void
- 79:     {
- 80:         $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
- 81:         $token = $admin->createToken('test')->plainTextToken;
- 82:         $level1 = Category::factory()->create();
- 83:         $level2 = Category::factory()->create(['parent_id' => $level1->id]);
- 84:         $level3 = Category::factory()->create(['parent_id' => $level2->id]);
- 85: 
- 86:         $this->requestWithToken($token, 'POST', '/api/v1/admin/categories', [
- 87:             'name_ar' => 'مستوى رابع', 'name_en' => 'Level Four', 'parent_id' => $level3->id,
- 88:         ])->assertUnprocessable();
- 89:     }
- 90: 
- 91:     public function test_deleting_a_category_with_products_is_rejected(): void
- 92:     {
- 93:         $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
- 94:         $token = $admin->createToken('test')->plainTextToken;
- 95:         $category = Category::factory()->create();
- 96:         Product::factory()->create(['category_id' => $category->id]);
- 97: 
- 98:         $this->requestWithToken($token, 'DELETE', "/api/v1/admin/categories/{$category->id}")
- 99:             ->assertUnprocessable();
-100:     }
-101: 
-102:     public function test_tree_returns_correctly_nested_categories(): void
-103:     {
-104:         $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
-105:         $token = $admin->createToken('test')->plainTextToken;
-106:         $root = Category::factory()->create(['name_en' => 'Luggage']);
-107:         $child = Category::factory()->create(['parent_id' => $root->id]);
-108:         $grandchild = Category::factory()->create(['parent_id' => $child->id]);
-109:         Category::factory()->create(['name_en' => 'Other Root']);
-110: 
-111:         $response = $this->requestWithToken($token, 'GET', '/api/v1/admin/categories?tree=1');
-112:         $response->assertOk();
-113: 
-114:         $treeRoot = collect($response->json('data'))->firstWhere('id', $root->id);
-115:         $this->assertNotNull($treeRoot);
-116:         $this->assertSame($child->id, $treeRoot['children'][0]['id']);
-117:         $this->assertSame($grandchild->id, $treeRoot['children'][0]['children'][0]['id']);
-118:     }
-119: 
-120:     /** @param list<string> $permissions */
-121:     private function staffWithPermissions(array $permissions): User
-122:     {
-123:         foreach ($permissions as $permission) {
-124:             Permission::findOrCreate($permission, 'staff');
-125:         }
-126:         $staff = User::factory()->create();
-127:         $staff->givePermissionTo($permissions);
-128: 
-129:         return $staff;
-130:     }
-131: 
-132:     private function requestWithToken(string $token, string $method, string $uri, array $payload = []): TestResponse
-133:     {
-134:         Auth::forgetGuards();
-135: 
-136:         return $this->withToken($token)->json($method, $uri, $payload);
-137:     }
-138: 
-139:     private function uploadWithToken(string $token, string $uri, array $payload): TestResponse
-140:     {
-141:         Auth::forgetGuards();
-142: 
-143:         return $this->withToken($token)->post($uri, $payload);
-144:     }
-145: }
 ```
 
 ## File: bags-platform/backend/tests/Feature/Admin/Catalog/ProductCatalogTest.php
@@ -6921,11 +6842,11 @@ bags-platform/
 124:         $token = $this->adminToken();
 125:         $targetId = $this->createProduct($token, [
 126:             'name_en' => 'Target Bag',
-127:             'variants' => [['color_name_en' => 'Red', 'barcode' => '2000000000015']],
+127:             'variants' => [['color_name_en' => 'Red', 'barcode' => '6220001112223']],
 128:         ]);
 129:         $this->createProduct($token, ['name_en' => 'Other Bag']);
 130: 
-131:         $this->requestWithToken($token, 'GET', '/api/v1/admin/products?search=2000000000015')
+131:         $this->requestWithToken($token, 'GET', '/api/v1/admin/products?search=6220001112223')
 132:             ->assertOk()
 133:             ->assertJsonCount(1, 'data')
 134:             ->assertJsonPath('data.0.id', $targetId);
@@ -6971,546 +6892,1297 @@ bags-platform/
 174: }
 ```
 
-## File: bags-platform/backend/tests/Feature/Admin/Catalog/ProductMediaCatalogTest.php
+## File: bags-platform/backend/phpunit.xml
+```xml
+ 1: <?xml version="1.0" encoding="UTF-8"?>
+ 2: <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+ 3:          xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+ 4:          bootstrap="vendor/autoload.php"
+ 5:          colors="true"
+ 6: >
+ 7:     <testsuites>
+ 8:         <testsuite name="Unit">
+ 9:             <directory>tests/Unit</directory>
+10:         </testsuite>
+11:         <testsuite name="Feature">
+12:             <directory>tests/Feature</directory>
+13:         </testsuite>
+14:     </testsuites>
+15:     <source>
+16:         <include>
+17:             <directory>app</directory>
+18:         </include>
+19:     </source>
+20:     <php>
+21:         <env name="APP_ENV" value="testing"/>
+22:         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
+23:         <env name="BCRYPT_ROUNDS" value="4"/>
+24:         <env name="BROADCAST_CONNECTION" value="null"/>
+25:         <env name="CACHE_STORE" value="array"/>
+26:         <env name="DB_CONNECTION" value="pgsql" force="true"/>
+27:         <env name="DB_DATABASE" value="alfarid_testing" force="true"/>
+28:         <env name="DB_URL" value="" force="true"/>
+29:         <env name="MAIL_MAILER" value="array"/>
+30:         <env name="QUEUE_CONNECTION" value="sync"/>
+31:         <env name="SESSION_DRIVER" value="array"/>
+32:         <env name="PULSE_ENABLED" value="false"/>
+33:         <env name="TELESCOPE_ENABLED" value="false"/>
+34:         <env name="NIGHTWATCH_ENABLED" value="false"/>
+35:     </php>
+36: </phpunit>
+```
+
+## File: bags-platform/backend/app/Http/Controllers/Api/V1/Admin/BrandController.php
 ```php
  1: <?php
  2: 
  3: declare(strict_types=1);
  4: 
- 5: namespace Tests\Feature\Admin\Catalog;
+ 5: namespace App\Http\Controllers\Api\V1\Admin;
  6: 
- 7: use App\Models\Product;
- 8: use App\Models\User;
- 9: use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
-10: use Illuminate\Http\UploadedFile;
-11: use Illuminate\Support\Facades\Auth;
-12: use Illuminate\Support\Facades\Storage;
-13: use Spatie\Permission\Models\Permission;
-14: use Tests\TestCase;
-15: 
-16: class ProductMediaCatalogTest extends TestCase
-17: {
-18:     use LazilyRefreshDatabase;
+ 7: use App\Http\Controllers\Controller;
+ 8: use App\Http\Requests\Admin\Brand\StoreBrandRequest;
+ 9: use App\Http\Requests\Admin\Brand\UpdateBrandRequest;
+10: use App\Http\Resources\Admin\BrandResource;
+11: use App\Models\Brand;
+12: use App\Services\Catalog\BrandService;
+13: use App\Services\SearchTerm;
+14: use Illuminate\Http\JsonResponse;
+15: use Illuminate\Http\Request;
+16: use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+17: use Illuminate\Routing\Controllers\HasMiddleware;
+18: use Illuminate\Routing\Controllers\Middleware;
 19: 
-20:     private const ALL_PERMISSIONS = [
-21:         'products.view', 'products.create', 'products.update', 'products.delete',
-22:         'products.publish', 'products.view_cost',
-23:     ];
-24: 
-25:     public function test_deleting_media_of_another_product_returns_404(): void
-26:     {
-27:         Storage::fake('public');
-28:         $staff = $this->staffWithPermissions(self::ALL_PERMISSIONS);
-29:         $token = $staff->createToken('test')->plainTextToken;
-30: 
-31:         $product = Product::factory()->create();
-32:         $other = Product::factory()->create();
+20: class BrandController extends Controller implements HasMiddleware
+21: {
+22:     public function __construct(private BrandService $service) {}
+23: 
+24:     public static function middleware(): array
+25:     {
+26:         return [
+27:             new Middleware('can:brands.view', only: ['index', 'show']),
+28:             new Middleware('can:brands.create', only: ['store']),
+29:             new Middleware('can:brands.update', only: ['update']),
+30:             new Middleware('can:brands.delete', only: ['destroy']),
+31:         ];
+32:     }
 33: 
-34:         Auth::forgetGuards();
-35:         $uploaded = $this->withToken($token)->post("/api/v1/admin/products/{$other->id}/media", [
-36:             'collection' => 'images',
-37:             'files' => [UploadedFile::fake()->image('other.jpg')],
-38:         ])->assertCreated();
-39:         $mediaId = $uploaded->json('data.0.id');
-40:         $this->assertNotEmpty($mediaId);
+34:     public function index(Request $request): AnonymousResourceCollection
+35:     {
+36:         $filters = $request->validate([
+37:             'search' => ['nullable', 'string', 'max:100'],
+38:             'is_active' => ['nullable', 'boolean'],
+39:             'per_page' => ['nullable', 'integer', 'min:1'],
+40:         ]);
 41: 
-42:         Auth::forgetGuards();
-43:         $this->withToken($token)->deleteJson("/api/v1/admin/products/{$product->id}/media/{$mediaId}")
-44:             ->assertNotFound();
-45: 
-46:         Auth::forgetGuards();
-47:         $this->withToken($token)->deleteJson("/api/v1/admin/products/{$other->id}/media/{$mediaId}")
-48:             ->assertOk()
-49:             ->assertJsonPath('message', 'تم الحذف');
-50:     }
-51: 
-52:     /** @param list<string> $permissions */
-53:     private function staffWithPermissions(array $permissions): User
-54:     {
-55:         foreach ($permissions as $permission) {
-56:             Permission::findOrCreate($permission, 'staff');
-57:         }
-58:         $staff = User::factory()->create();
-59:         $staff->givePermissionTo($permissions);
+42:         $perPage = min((int) ($filters['per_page'] ?? 15), 100);
+43: 
+44:         $brands = Brand::query()
+45:             ->with('media')
+46:             ->withCount('products')
+47:             ->when(isset($filters['search']) && $filters['search'] !== '', function ($query) use ($filters): void {
+48:                 $pattern = SearchTerm::pattern($filters['search']);
+49:                 $query->where(fn ($q) => $q->whereLike('name_ar', $pattern, caseSensitive: false)
+50:                     ->orWhereLike('name_en', $pattern, caseSensitive: false));
+51:             })
+52:             ->when(isset($filters['is_active']), fn ($query) => $query->where('is_active', filter_var($filters['is_active'], FILTER_VALIDATE_BOOLEAN)))
+53:             ->orderBy('sort_order')
+54:             ->orderBy('id')
+55:             ->paginate($perPage)
+56:             ->withQueryString();
+57: 
+58:         return BrandResource::collection($brands);
+59:     }
 60: 
-61:         return $staff;
-62:     }
-63: }
+61:     public function show(Brand $brand): BrandResource
+62:     {
+63:         $brand->load('media')->loadCount('products');
+64: 
+65:         return BrandResource::make($brand);
+66:     }
+67: 
+68:     public function store(StoreBrandRequest $request): JsonResponse
+69:     {
+70:         $brand = $this->service->create($request->validated(), $request->file('logo'));
+71:         $brand->load('media')->loadCount('products');
+72: 
+73:         return BrandResource::make($brand)->response()->setStatusCode(201);
+74:     }
+75: 
+76:     // ملحوظة: تحديث براند مع لوجو بيتبعت POST مع _method=PUT، لأن PHP لا يقرأ ملفات multipart مع PUT.
+77:     public function update(UpdateBrandRequest $request, Brand $brand): BrandResource
+78:     {
+79:         $brand = $this->service->update($brand, $request->validated(), $request->file('logo'));
+80:         $brand->load('media')->loadCount('products');
+81: 
+82:         return BrandResource::make($brand);
+83:     }
+84: 
+85:     public function destroy(Brand $brand): JsonResponse
+86:     {
+87:         $this->service->delete($brand);
+88: 
+89:         return response()->json(['message' => 'تم الحذف']);
+90:     }
+91: }
 ```
 
-## File: bags-platform/backend/tests/Feature/Admin/Catalog/VariantCatalogTest.php
+## File: bags-platform/backend/app/Http/Controllers/Api/V1/Admin/CategoryController.php
 ```php
   1: <?php
   2: 
   3: declare(strict_types=1);
   4: 
-  5: namespace Tests\Feature\Admin\Catalog;
+  5: namespace App\Http\Controllers\Api\V1\Admin;
   6: 
-  7: use App\Models\Category;
-  8: use App\Models\Product;
-  9: use App\Models\ProductVariant;
- 10: use App\Models\User;
- 11: use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
- 12: use Illuminate\Support\Facades\Auth;
- 13: use Illuminate\Testing\TestResponse;
- 14: use Spatie\Permission\Models\Permission;
- 15: use Tests\TestCase;
- 16: 
- 17: class VariantCatalogTest extends TestCase
- 18: {
- 19:     use LazilyRefreshDatabase;
+  7: use App\Http\Controllers\Controller;
+  8: use App\Http\Requests\Admin\Category\ReorderCategoriesRequest;
+  9: use App\Http\Requests\Admin\Category\StoreCategoryRequest;
+ 10: use App\Http\Requests\Admin\Category\UpdateCategoryRequest;
+ 11: use App\Http\Resources\Admin\CategoryResource;
+ 12: use App\Models\Category;
+ 13: use App\Services\Catalog\CategoryService;
+ 14: use App\Services\SearchTerm;
+ 15: use Illuminate\Http\JsonResponse;
+ 16: use Illuminate\Http\Request;
+ 17: use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+ 18: use Illuminate\Routing\Controllers\HasMiddleware;
+ 19: use Illuminate\Routing\Controllers\Middleware;
  20: 
- 21:     private const ALL_PERMISSIONS = [
- 22:         'products.view', 'products.create', 'products.update', 'products.delete',
- 23:         'products.publish', 'products.view_cost',
- 24:     ];
- 25: 
- 26:     public function test_variant_without_sku_gets_sequence_sku_and_valid_ean13_barcode(): void
- 27:     {
- 28:         $token = $this->adminToken();
- 29:         $category = Category::factory()->create();
- 30: 
- 31:         $product = $this->requestWithToken($token, 'POST', '/api/v1/admin/products', [
- 32:             'category_id' => $category->id,
- 33:             'name_ar' => 'منتج',
- 34:             'name_en' => 'Barcode Product',
- 35:             'sales_channel' => 'retail',
- 36:         ])->assertCreated();
- 37:         $productId = $product->json('data.id');
- 38:         $code = (string) $product->json('data.code');
- 39:         $this->assertMatchesRegularExpression('/^P\d{5}$/', $code);
- 40: 
- 41:         // أول متغير لأي منتج بياخد لاحقة ‎-01‎ (في قاعدة فاضية بيبقى P00001-01)
- 42:         $variant = $this->requestWithToken($token, 'POST', "/api/v1/admin/products/{$productId}/variants", [
- 43:             'color_name_en' => 'Red', 'size' => 'M', 'retail_price' => 100,
- 44:         ])->assertCreated()
- 45:             ->assertJsonPath('data.sku', $code.'-01');
- 46: 
- 47:         $barcode = (string) $variant->json('data.barcode');
- 48:         $this->assertMatchesRegularExpression('/^\d{13}$/', $barcode);
- 49:         $this->assertTrue($this->ean13CheckDigitIsValid($barcode), "Invalid EAN-13 check digit: {$barcode}");
- 50:     }
- 51: 
- 52:     public function test_two_variants_with_same_color_and_size_are_rejected(): void
- 53:     {
- 54:         $token = $this->adminToken();
- 55:         $product = Product::factory()->create();
- 56: 
- 57:         $payload = ['color_name_en' => 'Red', 'size' => 'M'];
- 58:         $this->requestWithToken($token, 'POST', "/api/v1/admin/products/{$product->id}/variants", $payload)
- 59:             ->assertCreated();
- 60:         $this->requestWithToken($token, 'POST', "/api/v1/admin/products/{$product->id}/variants", $payload)
- 61:             ->assertUnprocessable();
- 62:     }
- 63: 
- 64:     public function test_variant_of_another_product_returns_404(): void
- 65:     {
- 66:         $token = $this->adminToken();
- 67:         $product = Product::factory()->create();
- 68:         $other = Product::factory()->create();
- 69:         $foreignVariant = ProductVariant::factory()->create(['product_id' => $other->id]);
- 70: 
- 71:         $this->requestWithToken($token, 'GET', "/api/v1/admin/products/{$product->id}/variants/{$foreignVariant->id}")
- 72:             ->assertNotFound();
- 73:         $this->requestWithToken($token, 'PUT', "/api/v1/admin/products/{$product->id}/variants/{$foreignVariant->id}", [
- 74:             'retail_price' => 10,
- 75:         ])->assertNotFound();
- 76:     }
- 77: 
- 78:     private function ean13CheckDigitIsValid(string $barcode): bool
- 79:     {
- 80:         $sum = 0;
- 81:         foreach (str_split(substr($barcode, 0, 12)) as $i => $digit) {
- 82:             $sum += (int) $digit * ($i % 2 === 0 ? 1 : 3);
- 83:         }
- 84: 
- 85:         return ((10 - ($sum % 10)) % 10) === (int) $barcode[12];
- 86:     }
- 87: 
- 88:     private function adminToken(): string
- 89:     {
- 90:         $staff = $this->staffWithPermissions(self::ALL_PERMISSIONS);
- 91: 
- 92:         return $staff->createToken('test')->plainTextToken;
- 93:     }
- 94: 
- 95:     /** @param list<string> $permissions */
- 96:     private function staffWithPermissions(array $permissions): User
+ 21: class CategoryController extends Controller implements HasMiddleware
+ 22: {
+ 23:     public function __construct(private CategoryService $service) {}
+ 24: 
+ 25:     public static function middleware(): array
+ 26:     {
+ 27:         return [
+ 28:             new Middleware('can:categories.view', only: ['index', 'show']),
+ 29:             new Middleware('can:categories.create', only: ['store']),
+ 30:             new Middleware('can:categories.update', only: ['update', 'reorder']),
+ 31:             new Middleware('can:categories.delete', only: ['destroy']),
+ 32:         ];
+ 33:     }
+ 34: 
+ 35:     public function index(Request $request): AnonymousResourceCollection
+ 36:     {
+ 37:         $filters = $request->validate([
+ 38:             'tree' => ['nullable', 'boolean'],
+ 39:             'search' => ['nullable', 'string', 'max:100'],
+ 40:             'parent_id' => ['nullable', 'string', 'regex:/^(root|[0-9]{1,18})$/'],
+ 41:             'is_active' => ['nullable', 'boolean'],
+ 42:             'per_page' => ['nullable', 'integer', 'min:1'],
+ 43:         ]);
+ 44: 
+ 45:         if ($request->boolean('tree')) {
+ 46:             return CategoryResource::collection($this->service->tree());
+ 47:         }
+ 48: 
+ 49:         $perPage = min((int) ($filters['per_page'] ?? 15), 100);
+ 50: 
+ 51:         $categories = Category::query()
+ 52:             ->with(['parent.media', 'media'])
+ 53:             ->withCount('products')
+ 54:             ->when(isset($filters['search']) && $filters['search'] !== '', function ($query) use ($filters): void {
+ 55:                 $pattern = SearchTerm::pattern($filters['search']);
+ 56:                 $query->where(fn ($q) => $q->whereLike('name_ar', $pattern, caseSensitive: false)
+ 57:                     ->orWhereLike('name_en', $pattern, caseSensitive: false));
+ 58:             })
+ 59:             ->when(isset($filters['parent_id']), function ($query) use ($filters): void {
+ 60:                 if ($filters['parent_id'] === 'root') {
+ 61:                     $query->whereNull('parent_id');
+ 62:                 } else {
+ 63:                     $query->where('parent_id', (int) $filters['parent_id']);
+ 64:                 }
+ 65:             })
+ 66:             ->when(isset($filters['is_active']), fn ($query) => $query->where('is_active', filter_var($filters['is_active'], FILTER_VALIDATE_BOOLEAN)))
+ 67:             ->orderBy('sort_order')
+ 68:             ->orderBy('id')
+ 69:             ->paginate($perPage)
+ 70:             ->withQueryString();
+ 71: 
+ 72:         return CategoryResource::collection($categories);
+ 73:     }
+ 74: 
+ 75:     public function show(Category $category): CategoryResource
+ 76:     {
+ 77:         $category->load('parent.media', 'children.media', 'media')->loadCount('products');
+ 78: 
+ 79:         return CategoryResource::make($category);
+ 80:     }
+ 81: 
+ 82:     public function store(StoreCategoryRequest $request): JsonResponse
+ 83:     {
+ 84:         $category = $this->service->create($request->validated(), $request->file('image'));
+ 85:         $category->load('parent.media', 'media')->loadCount('products');
+ 86: 
+ 87:         return CategoryResource::make($category)->response()->setStatusCode(201);
+ 88:     }
+ 89: 
+ 90:     // ملحوظة: تحديث قسم مع صورة بيتبعت POST مع _method=PUT، لأن PHP لا يقرأ ملفات multipart مع PUT.
+ 91:     public function update(UpdateCategoryRequest $request, Category $category): CategoryResource
+ 92:     {
+ 93:         $category = $this->service->update($category, $request->validated(), $request->file('image'));
+ 94:         $category->load('parent.media', 'media')->loadCount('products');
+ 95: 
+ 96:         return CategoryResource::make($category);
+ 97:     }
+ 98: 
+ 99:     public function destroy(Category $category): JsonResponse
+100:     {
+101:         $this->service->delete($category);
+102: 
+103:         return response()->json(['message' => 'تم الحذف']);
+104:     }
+105: 
+106:     public function reorder(ReorderCategoriesRequest $request): JsonResponse
+107:     {
+108:         $this->service->reorder($request->validated()['items']);
+109: 
+110:         return response()->json(['message' => 'تم الترتيب']);
+111:     }
+112: }
+```
+
+## File: bags-platform/backend/app/Http/Controllers/Api/V1/Admin/ProductController.php
+```php
+  1: <?php
+  2: 
+  3: declare(strict_types=1);
+  4: 
+  5: namespace App\Http\Controllers\Api\V1\Admin;
+  6: 
+  7: use App\Enums\ProductStatus;
+  8: use App\Enums\SalesChannel;
+  9: use App\Http\Controllers\Controller;
+ 10: use App\Http\Requests\Admin\Product\StoreProductRequest;
+ 11: use App\Http\Requests\Admin\Product\UpdateProductRequest;
+ 12: use App\Http\Resources\Admin\ProductResource;
+ 13: use App\Models\Category;
+ 14: use App\Models\Product;
+ 15: use App\Services\Catalog\ProductService;
+ 16: use App\Services\SearchTerm;
+ 17: use Illuminate\Http\JsonResponse;
+ 18: use Illuminate\Http\Request;
+ 19: use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+ 20: use Illuminate\Routing\Controllers\HasMiddleware;
+ 21: use Illuminate\Routing\Controllers\Middleware;
+ 22: use Illuminate\Validation\Rule;
+ 23: 
+ 24: class ProductController extends Controller implements HasMiddleware
+ 25: {
+ 26:     public function __construct(private ProductService $service) {}
+ 27: 
+ 28:     public static function middleware(): array
+ 29:     {
+ 30:         return [
+ 31:             new Middleware('can:products.view', only: ['index', 'show']),
+ 32:             new Middleware('can:products.create', only: ['store']),
+ 33:             new Middleware('can:products.update', only: ['update']),
+ 34:             new Middleware('can:products.delete', only: ['destroy']),
+ 35:         ];
+ 36:     }
+ 37: 
+ 38:     public function index(Request $request): AnonymousResourceCollection
+ 39:     {
+ 40:         // فلاتر القائمة بتتفحص الأول: أي قيمة غلط تبقى 422 بدل 500 من Postgres
+ 41:         $filters = $request->validate([
+ 42:             'search' => ['nullable', 'string', 'max:100'],
+ 43:             'category_id' => ['nullable', 'integer', Rule::exists('categories', 'id')->whereNull('deleted_at')],
+ 44:             'brand_id' => ['nullable', 'integer', Rule::exists('brands', 'id')->whereNull('deleted_at')],
+ 45:             'status' => ['nullable', Rule::enum(ProductStatus::class)],
+ 46:             'sales_channel' => ['nullable', Rule::enum(SalesChannel::class)],
+ 47:             'is_featured' => ['nullable', 'boolean'],
+ 48:             'include_children' => ['nullable', 'boolean'],
+ 49:             'sort' => ['nullable', Rule::in(['latest', 'oldest', 'name'])],
+ 50:             'per_page' => ['nullable', 'integer', 'min:1'],
+ 51:         ]);
+ 52: 
+ 53:         $perPage = min((int) ($filters['per_page'] ?? 15), 100);
+ 54: 
+ 55:         $q = Product::query()
+ 56:             ->with(['category.media', 'brand.media', 'media'])
+ 57:             ->withCount('variants')
+ 58:             ->withMin(['variants as min_retail_price' => fn ($v) => $v->where('is_active', true)], 'retail_price')
+ 59:             ->withMax(['variants as max_retail_price' => fn ($v) => $v->where('is_active', true)], 'retail_price');
+ 60: 
+ 61:         if (isset($filters['search']) && $filters['search'] !== '') {
+ 62:             $s = $filters['search'];
+ 63:             $pattern = SearchTerm::pattern($s);
+ 64:             $q->where(fn ($w) => $w->whereLike('name_ar', $pattern, caseSensitive: false)
+ 65:                 ->orWhereLike('name_en', $pattern, caseSensitive: false)
+ 66:                 ->orWhere('code', $s)
+ 67:                 ->orWhereHas('variants', fn ($v) => $v->where('sku', $s)->orWhere('barcode', $s)));
+ 68:         }
+ 69:         if (! empty($filters['category_id'])) {
+ 70:             $cat = Category::findOrFail($filters['category_id']);
+ 71:             $ids = ! empty($filters['include_children']) ? [$cat->id, ...$cat->descendantIds()] : [$cat->id];
+ 72:             $q->whereIn('category_id', $ids);
+ 73:         }
+ 74:         $q->when($filters['brand_id'] ?? null, fn ($x, $v) => $x->where('brand_id', $v))
+ 75:             ->when($filters['status'] ?? null, fn ($x, $v) => $x->where('status', $v))
+ 76:             ->when($filters['sales_channel'] ?? null, fn ($x, $v) => $x->where('sales_channel', $v))
+ 77:             ->when(isset($filters['is_featured']), fn ($x) => $x->where('is_featured', filter_var($filters['is_featured'], FILTER_VALIDATE_BOOLEAN)));
+ 78: 
+ 79:         // ترتيب ثابت: id مفتاح كاسر للتعادل عشان الصفحات متتكررش ولا تختفي منها عناصر
+ 80:         match ($filters['sort'] ?? 'latest') {
+ 81:             'oldest' => $q->oldest()->orderBy('id'),
+ 82:             'name' => $q->orderBy('name_en')->orderBy('id'),
+ 83:             default => $q->latest()->orderByDesc('id'),
+ 84:         };
+ 85: 
+ 86:         return ProductResource::collection($q->paginate($perPage)->withQueryString());
+ 87:     }
+ 88: 
+ 89:     public function show(Product $product): ProductResource
+ 90:     {
+ 91:         $product->load(['category.media', 'brand.media', 'variants.media', 'media']);
+ 92: 
+ 93:         return ProductResource::make($product);
+ 94:     }
+ 95: 
+ 96:     public function store(StoreProductRequest $request): JsonResponse
  97:     {
- 98:         foreach ($permissions as $permission) {
- 99:             Permission::findOrCreate($permission, 'staff');
-100:         }
-101:         $staff = User::factory()->create();
-102:         $staff->givePermissionTo($permissions);
-103: 
-104:         return $staff;
-105:     }
-106: 
-107:     private function requestWithToken(string $token, string $method, string $uri, array $payload = []): TestResponse
-108:     {
-109:         Auth::forgetGuards();
-110: 
-111:         return $this->withToken($token)->json($method, $uri, $payload);
+ 98:         $data = $request->validated();
+ 99:         if (! $request->user()->can('products.view_cost')) {
+100:             foreach ($data['variants'] ?? [] as $index => $variant) {
+101:                 unset($data['variants'][$index]['cost_price']);
+102:             }
+103:         }
+104:         $product = $this->service->create($data, $request->user());
+105: 
+106:         return ProductResource::make($product)->response()->setStatusCode(201);
+107:     }
+108: 
+109:     public function update(UpdateProductRequest $request, Product $product): ProductResource
+110:     {
+111:         $product = $this->service->update($product, $request->validated(), $request->user());
+112: 
+113:         return ProductResource::make($product);
+114:     }
+115: 
+116:     public function destroy(Product $product): JsonResponse
+117:     {
+118:         $this->service->delete($product);
+119: 
+120:         return response()->json(['message' => 'تم الحذف']);
+121:     }
+122: }
+```
+
+## File: bags-platform/backend/app/Http/Controllers/Api/V1/Admin/ProductMediaController.php
+```php
+  1: <?php
+  2: 
+  3: declare(strict_types=1);
+  4: 
+  5: namespace App\Http\Controllers\Api\V1\Admin;
+  6: 
+  7: use App\Enums\ProductStatus;
+  8: use App\Exceptions\BusinessException;
+  9: use App\Http\Controllers\Controller;
+ 10: use App\Http\Requests\Admin\Product\ReorderProductMediaRequest;
+ 11: use App\Http\Requests\Admin\Product\UploadProductMediaRequest;
+ 12: use App\Http\Resources\MediaResource;
+ 13: use App\Models\Product;
+ 14: use App\Models\ProductVariant;
+ 15: use Illuminate\Http\JsonResponse;
+ 16: use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+ 17: use Illuminate\Routing\Controllers\HasMiddleware;
+ 18: use Illuminate\Routing\Controllers\Middleware;
+ 19: use Illuminate\Support\Facades\DB;
+ 20: use Spatie\MediaLibrary\MediaCollections\Models\Media;
+ 21: use Throwable;
+ 22: 
+ 23: class ProductMediaController extends Controller implements HasMiddleware
+ 24: {
+ 25:     public static function middleware(): array
+ 26:     {
+ 27:         return [
+ 28:             new Middleware('can:products.view', only: ['index']),
+ 29:             new Middleware('can:products.update', only: ['store', 'reorder', 'destroy']),
+ 30:         ];
+ 31:     }
+ 32: 
+ 33:     // GET /products/{product}/media
+ 34:     public function index(Product $product): AnonymousResourceCollection
+ 35:     {
+ 36:         $variantIds = $product->variants()->pluck('id');
+ 37:         $media = Media::query()
+ 38:             ->where(fn ($q) => $q->where(['model_type' => Product::class, 'model_id' => $product->id])
+ 39:                 ->orWhere(fn ($w) => $w->where('model_type', ProductVariant::class)->whereIn('model_id', $variantIds)))
+ 40:             ->orderBy('order_column')->orderBy('id')->get();
+ 41: 
+ 42:         return MediaResource::collection($media);
+ 43:     }
+ 44: 
+ 45:     // POST /products/{product}/media
+ 46:     public function store(UploadProductMediaRequest $request, Product $product): JsonResponse
+ 47:     {
+ 48:         $owner = $request->variant_id ? $product->variants()->findOrFail($request->variant_id) : $product;
+ 49: 
+ 50:         if ($request->collection === 'video') {
+ 51:             if ($owner instanceof ProductVariant) {
+ 52:                 throw new BusinessException('الفيديو للمنتج فقط');
+ 53:             }
+ 54:             $media = collect([$product->addMediaFromRequest('file')->toMediaCollection('video')]);
+ 55:         } else {
+ 56:             // الملفات بتتكتب على الـ disk فورًا ومفيش rollback لها: لو صورة فشلت في النص
+ 57:             // نمسح اللي اتضاف قبلها بدل ما تفضل ملفات يتيمة على الـ disk
+ 58:             $added = [];
+ 59:             try {
+ 60:                 foreach ($request->file('files') as $file) {
+ 61:                     $added[] = $owner->addMedia($file)->toMediaCollection('images');
+ 62:                 }
+ 63:             } catch (Throwable $e) {
+ 64:                 foreach ($added as $item) {
+ 65:                     $item->delete();
+ 66:                 }
+ 67:                 throw $e;
+ 68:             }
+ 69:             $media = collect($added);
+ 70:         }
+ 71: 
+ 72:         return MediaResource::collection($media)->response()->setStatusCode(201);
+ 73:     }
+ 74: 
+ 75:     // PUT /products/{product}/media/reorder
+ 76:     public function reorder(ReorderProductMediaRequest $request, Product $product): JsonResponse
+ 77:     {
+ 78:         $this->assertMediaBelongs($product, $request->ids);
+ 79:         Media::setNewOrder($request->ids);
+ 80: 
+ 81:         return response()->json(['message' => 'تم الترتيب']);
+ 82:     }
+ 83: 
+ 84:     // DELETE /products/{product}/media/{media}
+ 85:     public function destroy(Product $product, Media $media): JsonResponse
+ 86:     {
+ 87:         DB::transaction(function () use ($product, $media): void {
+ 88:             // قفل صف المنتج بيمنع سباق حذف آخر صورتين (أو الحذف مع النشر) في نفس اللحظة
+ 89:             $locked = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
+ 90: 
+ 91:             $this->assertMediaBelongs($locked, [$media->id]);
+ 92:             if ($locked->status === ProductStatus::Published && $media->collection_name === 'images'
+ 93:                 && $media->model_type === Product::class && $locked->getMedia('images')->count() <= 1) {
+ 94:                 throw new BusinessException('لا يمكن حذف آخر صورة لمنتج منشور');
+ 95:             }
+ 96:             $media->delete();
+ 97:         });
+ 98: 
+ 99:         return response()->json(['message' => 'تم الحذف']);
+100:     }
+101: 
+102:     private function assertMediaBelongs(Product $product, array $ids): void
+103:     {
+104:         $variantIds = $product->variants()->withTrashed()->pluck('id')->all();
+105:         $count = Media::whereIn('id', $ids)->where(fn ($q) => $q
+106:             ->where(fn ($w) => $w->where('model_type', Product::class)->where('model_id', $product->id))
+107:             ->orWhere(fn ($w) => $w->where('model_type', ProductVariant::class)->whereIn('model_id', $variantIds))
+108:         )->count();
+109:         if ($count !== count(array_unique($ids))) {
+110:             abort(404, 'ملف غير تابع لهذا المنتج');
+111:         }
 112:     }
 113: }
 ```
 
-## File: bags-platform/backend/tests/Feature/AdminRouteAggregationTest.php
+## File: bags-platform/backend/app/Http/Requests/Admin/Brand/StoreBrandRequest.php
 ```php
  1: <?php
  2: 
  3: declare(strict_types=1);
  4: 
- 5: namespace Tests\Feature;
+ 5: namespace App\Http\Requests\Admin\Brand;
  6: 
- 7: use Illuminate\Support\Facades\Route;
- 8: use Tests\TestCase;
- 9: 
-10: class AdminRouteAggregationTest extends TestCase
-11: {
-12:     public function test_admin_routes_are_loaded_with_expected_names_and_security_middleware(): void
-13:     {
-14:         $routes = Route::getRoutes();
-15: 
-16:         foreach ([
-17:             'admin.auth.login',
-18:             'admin.auth.me',
-19:             'admin.branches.index',
-20:             'admin.branches.locations.index',
-21:             'admin.users.index',
-22:             'admin.roles.index',
-23:             'admin.permissions.index',
-24:             'admin.settings.index',
-25:             'admin.settings.update',
-26:         ] as $routeName) {
-27:             $this->assertNotNull($routes->getByName($routeName), "Expected [{$routeName}] to be registered.");
-28:         }
-29: 
-30:         $login = $routes->getByName('admin.auth.login');
-31:         $this->assertContains('throttle:admin-login', $login->gatherMiddleware());
-32:         $this->assertNotContains('auth:sanctum', $login->gatherMiddleware());
-33: 
-34:         foreach ([
-35:             'admin.auth.me',
-36:             'admin.branches.index',
-37:             'admin.branches.locations.index',
-38:             'admin.users.index',
-39:             'admin.roles.index',
-40:             'admin.permissions.index',
-41:             'admin.settings.index',
-42:             'admin.settings.update',
-43:         ] as $routeName) {
-44:             $middleware = $routes->getByName($routeName)->gatherMiddleware();
-45:             $this->assertContains('auth:sanctum', $middleware, "Expected [{$routeName}] to require a Sanctum token.");
-46:             $this->assertContains('auth.staff', $middleware, "Expected [{$routeName}] to require staff authentication.");
-47:         }
-48: 
-49:         $this->assertContains(
-50:             'permission:settings.update|settings.manage',
-51:             $routes->getByName('admin.settings.update')->gatherMiddleware(),
-52:         );
-53:     }
-54: }
-```
-
-## File: bags-platform/backend/tests/Feature/DatabaseIndexTest.php
-```php
- 1: <?php
- 2: 
- 3: declare(strict_types=1);
- 4: 
- 5: namespace Tests\Feature;
- 6: 
- 7: use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
- 8: use Illuminate\Support\Facades\Schema;
- 9: use Tests\TestCase;
+ 7: use Illuminate\Contracts\Validation\ValidationRule;
+ 8: use Illuminate\Foundation\Http\FormRequest;
+ 9: use Illuminate\Validation\Rule;
 10: 
-11: class DatabaseIndexTest extends TestCase
+11: class StoreBrandRequest extends FormRequest
 12: {
-13:     use LazilyRefreshDatabase;
-14: 
-15:     public function test_lookup_indexes_exist_for_customer_supplier_branch_and_location_queries(): void
-16:     {
-17:         $this->assertTrue(Schema::hasIndex('customers', ['type', 'status']));
-18:         $this->assertTrue(Schema::hasIndex('customers', ['phone']));
-19:         $this->assertTrue(Schema::hasIndex('supplier_users', ['supplier_id', 'is_active']));
-20:         $this->assertTrue(Schema::hasIndex('branches', ['type', 'is_active']));
-21:         $this->assertTrue(Schema::hasIndex('locations', ['branch_id', 'is_active', 'type']));
-22:     }
-23: }
+13:     public function authorize(): bool
+14:     {
+15:         return $this->user() !== null;
+16:     }
+17: 
+18:     /**
+19:      * @return array<string, array<mixed>|string|ValidationRule>
+20:      */
+21:     public function rules(): array
+22:     {
+23:         return [
+24:             'name_ar' => ['required', 'string', 'max:150'],
+25:             'name_en' => ['required', 'string', 'max:150'],
+26:             'slug' => ['nullable', 'string', 'max:180', 'alpha_dash', Rule::unique('brands', 'slug')],
+27:             'description_ar' => ['nullable', 'string'],
+28:             'description_en' => ['nullable', 'string'],
+29:             'sort_order' => ['nullable', 'integer', 'min:0', 'max:2147483647'],
+30:             'is_active' => ['nullable', 'boolean'],
+31:             // من غير SVG: بيتنفذ كسكريبت على نفس الـ origin (Stored XSS)
+32:             'logo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096', 'dimensions:max_width=6000,max_height=6000'],
+33:         ];
+34:     }
+35: }
 ```
 
-## File: bags-platform/backend/tests/Feature/DatabaseSeederTest.php
+## File: bags-platform/backend/app/Http/Requests/Admin/Brand/UpdateBrandRequest.php
 ```php
  1: <?php
  2: 
  3: declare(strict_types=1);
  4: 
- 5: namespace Tests\Feature;
+ 5: namespace App\Http\Requests\Admin\Brand;
  6: 
- 7: use App\Models\Branch;
- 8: use App\Models\Setting;
- 9: use App\Services\SettingService;
-10: use Database\Seeders\DatabaseSeeder;
-11: use Database\Seeders\LocationSeeder;
-12: use Database\Seeders\SettingSeeder;
-13: use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
-14: use Tests\TestCase;
-15: 
-16: class DatabaseSeederTest extends TestCase
-17: {
-18:     use LazilyRefreshDatabase;
+ 7: use Illuminate\Contracts\Validation\ValidationRule;
+ 8: use Illuminate\Foundation\Http\FormRequest;
+ 9: use Illuminate\Validation\Rule;
+10: 
+11: class UpdateBrandRequest extends FormRequest
+12: {
+13:     public function authorize(): bool
+14:     {
+15:         return $this->user() !== null;
+16:     }
+17: 
+18:     /**
+19:      * @return array<string, array<mixed>|string|ValidationRule>
+20:      */
+21:     public function rules(): array
+22:     {
+23:         return [
+24:             'name_ar' => ['sometimes', 'required', 'string', 'max:150'],
+25:             'name_en' => ['sometimes', 'required', 'string', 'max:150'],
+26:             'slug' => ['sometimes', 'nullable', 'string', 'max:180', 'alpha_dash', Rule::unique('brands', 'slug')->ignore($this->route('brand'))],
+27:             'description_ar' => ['sometimes', 'nullable', 'string'],
+28:             'description_en' => ['sometimes', 'nullable', 'string'],
+29:             'sort_order' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:2147483647'],
+30:             'is_active' => ['sometimes', 'nullable', 'boolean'],
+31:             'logo' => ['sometimes', 'nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096', 'dimensions:max_width=6000,max_height=6000'],
+32:             'remove_logo' => ['sometimes', 'nullable', 'boolean'],
+33:         ];
+34:     }
+35: }
+```
+
+## File: bags-platform/backend/app/Http/Requests/Admin/Category/StoreCategoryRequest.php
+```php
+ 1: <?php
+ 2: 
+ 3: declare(strict_types=1);
+ 4: 
+ 5: namespace App\Http\Requests\Admin\Category;
+ 6: 
+ 7: use Illuminate\Contracts\Validation\ValidationRule;
+ 8: use Illuminate\Foundation\Http\FormRequest;
+ 9: use Illuminate\Validation\Rule;
+10: 
+11: class StoreCategoryRequest extends FormRequest
+12: {
+13:     public function authorize(): bool
+14:     {
+15:         return $this->user() !== null;
+16:     }
+17: 
+18:     /**
+19:      * @return array<string, array<mixed>|string|ValidationRule>
+20:      */
+21:     public function rules(): array
+22:     {
+23:         return [
+24:             'parent_id' => ['nullable', 'integer', Rule::exists('categories', 'id')->whereNull('deleted_at')],
+25:             'name_ar' => ['required', 'string', 'max:150'],
+26:             'name_en' => ['required', 'string', 'max:150'],
+27:             'slug' => ['nullable', 'string', 'max:180', 'alpha_dash', Rule::unique('categories', 'slug')],
+28:             'description_ar' => ['nullable', 'string'],
+29:             'description_en' => ['nullable', 'string'],
+30:             'sort_order' => ['nullable', 'integer', 'min:0', 'max:2147483647'],
+31:             'is_active' => ['nullable', 'boolean'],
+32:             'image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096', 'dimensions:max_width=6000,max_height=6000'],
+33:         ];
+34:     }
+35: }
+```
+
+## File: bags-platform/backend/app/Http/Requests/Admin/Category/UpdateCategoryRequest.php
+```php
+ 1: <?php
+ 2: 
+ 3: declare(strict_types=1);
+ 4: 
+ 5: namespace App\Http\Requests\Admin\Category;
+ 6: 
+ 7: use Illuminate\Contracts\Validation\ValidationRule;
+ 8: use Illuminate\Foundation\Http\FormRequest;
+ 9: use Illuminate\Validation\Rule;
+10: 
+11: class UpdateCategoryRequest extends FormRequest
+12: {
+13:     public function authorize(): bool
+14:     {
+15:         return $this->user() !== null;
+16:     }
+17: 
+18:     /**
+19:      * @return array<string, array<mixed>|string|ValidationRule>
+20:      */
+21:     public function rules(): array
+22:     {
+23:         return [
+24:             'parent_id' => ['sometimes', 'nullable', 'integer', Rule::exists('categories', 'id')->whereNull('deleted_at')],
+25:             'name_ar' => ['sometimes', 'required', 'string', 'max:150'],
+26:             'name_en' => ['sometimes', 'required', 'string', 'max:150'],
+27:             'slug' => ['sometimes', 'nullable', 'string', 'max:180', 'alpha_dash', Rule::unique('categories', 'slug')->ignore($this->route('category'))],
+28:             'description_ar' => ['sometimes', 'nullable', 'string'],
+29:             'description_en' => ['sometimes', 'nullable', 'string'],
+30:             'sort_order' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:2147483647'],
+31:             'is_active' => ['sometimes', 'nullable', 'boolean'],
+32:             'image' => ['sometimes', 'nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096', 'dimensions:max_width=6000,max_height=6000'],
+33:             'remove_image' => ['sometimes', 'nullable', 'boolean'],
+34:         ];
+35:     }
+36: }
+```
+
+## File: bags-platform/backend/app/Http/Requests/Admin/Product/UpdateProductRequest.php
+```php
+ 1: <?php
+ 2: 
+ 3: declare(strict_types=1);
+ 4: 
+ 5: namespace App\Http\Requests\Admin\Product;
+ 6: 
+ 7: use App\Enums\ProductStatus;
+ 8: use App\Enums\SalesChannel;
+ 9: use Illuminate\Contracts\Validation\ValidationRule;
+10: use Illuminate\Foundation\Http\FormRequest;
+11: use Illuminate\Validation\Rule;
+12: 
+13: class UpdateProductRequest extends FormRequest
+14: {
+15:     public function authorize(): bool
+16:     {
+17:         return $this->user() !== null;
+18:     }
 19: 
-20:     public function test_database_seeder_is_idempotent_in_testing_environment(): void
-21:     {
-22:         $this->seed(DatabaseSeeder::class);
-23:         $this->seed(DatabaseSeeder::class);
+20:     /**
+21:      * @return array<string, array<mixed>|string|ValidationRule>
+22:      */
+23:     public function rules(): array
+24:     {
+25:         return [
+26:             'category_id' => ['sometimes', 'required', 'integer', Rule::exists('categories', 'id')->whereNull('deleted_at')],
+27:             'brand_id' => ['sometimes', 'nullable', 'integer', Rule::exists('brands', 'id')->whereNull('deleted_at')],
+28:             'supplier_id' => ['sometimes', 'nullable', 'integer', 'min:1'],
+29:             'name_ar' => ['sometimes', 'required', 'string', 'max:255'],
+30:             'name_en' => ['sometimes', 'required', 'string', 'max:255'],
+31:             'slug' => ['sometimes', 'nullable', 'alpha_dash', 'max:255', Rule::unique('products', 'slug')->ignore($this->route('product'))],
+32:             'description_ar' => ['sometimes', 'nullable', 'string'],
+33:             'description_en' => ['sometimes', 'nullable', 'string'],
+34:             'material_ar' => ['sometimes', 'nullable', 'string', 'max:150'],
+35:             'material_en' => ['sometimes', 'nullable', 'string', 'max:150'],
+36:             'length_cm' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:999999.99'],
+37:             'width_cm' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:999999.99'],
+38:             'height_cm' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:999999.99'],
+39:             'weight_kg' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:99999.999'],
+40:             'warranty_months' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:120'],
+41:             'warranty_details' => ['sometimes', 'nullable', 'string', 'max:255'],
+42:             'country_of_origin' => ['sometimes', 'nullable', 'string', 'max:100'],
+43:             'status' => ['sometimes', 'nullable', Rule::enum(ProductStatus::class)],
+44:             'sales_channel' => ['sometimes', 'required', Rule::enum(SalesChannel::class)],
+45:             'is_featured' => ['sometimes', 'nullable', 'boolean'],
+46:         ];
+47:     }
+48: }
+```
+
+## File: bags-platform/backend/app/Http/Requests/Admin/Product/UploadProductMediaRequest.php
+```php
+ 1: <?php
+ 2: 
+ 3: declare(strict_types=1);
+ 4: 
+ 5: namespace App\Http\Requests\Admin\Product;
+ 6: 
+ 7: use App\Http\Requests\Admin\Concerns\LimitsArrayInput;
+ 8: use Illuminate\Contracts\Validation\ValidationRule;
+ 9: use Illuminate\Foundation\Http\FormRequest;
+10: use Illuminate\Validation\Rule;
+11: 
+12: class UploadProductMediaRequest extends FormRequest
+13: {
+14:     use LimitsArrayInput;
+15: 
+16:     protected function arrayLimits(): array
+17:     {
+18:         return ['files' => 10];
+19:     }
+20: 
+21:     public function authorize(): bool
+22:     {
+23:         return $this->user() !== null;
+24:     }
+25: 
+26:     /**
+27:      * @return array<string, array<mixed>|string|ValidationRule>
+28:      */
+29:     public function rules(): array
+30:     {
+31:         return [
+32:             'collection' => ['required', Rule::in(['images', 'video'])],
+33:             'variant_id' => ['nullable', 'integer', Rule::exists('product_variants', 'id')->where('product_id', $this->route('product')->id)->whereNull('deleted_at')],
+34:             'files' => ['required_if:collection,images', 'array', 'max:10'],
+35:             'files.*' => ['image', 'mimes:jpg,jpeg,png,webp', 'max:5120', 'dimensions:max_width=6000,max_height=6000'],
+36:             'file' => ['required_if:collection,video', 'file', 'mimetypes:video/mp4,video/webm,video/quicktime', 'max:51200'],
+37:         ];
+38:     }
+39: }
+```
+
+## File: bags-platform/backend/app/Http/Requests/Admin/Variant/VariantRules.php
+```php
+ 1: <?php
+ 2: 
+ 3: declare(strict_types=1);
+ 4: 
+ 5: namespace App\Http\Requests\Admin\Variant;
+ 6: 
+ 7: use App\Models\ProductVariant;
+ 8: use Closure;
+ 9: use Illuminate\Validation\Rule;
+10: 
+11: // قواعد الـ validation المشتركة لمتغيرات المنتج — تُستخدم في إنشاء/تعديل المتغير وفي variants.* عند إنشاء منتج.
+12: class VariantRules
+13: {
+14:     /**
+15:      * @return array<string, array<mixed>>
+16:      */
+17:     public static function base(?int $ignoreId = null, string $prefix = ''): array
+18:     {
+19:         return [
+20:             'sku' => ['nullable', 'string', 'max:64', 'alpha_dash', Rule::unique('product_variants', 'sku')->ignore($ignoreId)],
+21:             'barcode' => ['nullable', 'string', 'max:32', 'regex:/^[0-9A-Za-z\-]+$/', Rule::unique('product_variants', 'barcode')->ignore($ignoreId),
+22:                 // صيغة 2 + 12 رقم محجوزة للباركود الداخلي اللي النظام بيولّده من id المتغير (M3)
+23:                 function (string $attribute, mixed $value, Closure $fail) use ($ignoreId): void {
+24:                     if (is_string($value) && preg_match('/^2\d{12}$/', $value) === 1) {
+25:                         $current = $ignoreId !== null
+26:                             ? ProductVariant::whereKey($ignoreId)->value('barcode')
+27:                             : null;
+28:                         if ($value !== $current) {
+29:                             $fail('صيغة الباركود دي محجوزة لباركودات النظام الداخلية');
+30:                         }
+31:                     }
+32:                 },
+33:             ],
+34:             'color_name_ar' => ['nullable', 'string', 'max:50'],
+35:             // اسم اللون الإنجليزي هو مفتاح منع التكرار، فبيبقى مطلوب لو أي بيانات لون تانية موجودة
+36:             'color_name_en' => ['nullable', 'string', 'max:50', 'required_with:'.$prefix.'color_name_ar,'.$prefix.'color_hex'],
+37:             'color_hex' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+38:             'size' => ['nullable', 'string', 'max:50'],
+39:             'capacity' => ['nullable', 'string', 'max:50'],
+40:             'cost_price' => ['nullable', 'numeric', 'min:0', 'max:9999999'],
+41:             'retail_price' => ['nullable', 'numeric', 'min:0', 'max:9999999'],
+42:             'wholesale_price' => ['nullable', 'numeric', 'min:0', 'max:9999999'],
+43:             'reorder_level' => ['nullable', 'integer', 'min:0', 'max:2147483647'],
+44:             'weight_kg' => ['nullable', 'numeric', 'min:0', 'max:99999.999'],
+45:             'sort_order' => ['nullable', 'integer', 'min:0', 'max:2147483647'],
+46:             'is_active' => ['nullable', 'boolean'],
+47:         ];
+48:     }
+49: }
+```
+
+## File: bags-platform/backend/app/Models/Brand.php
+```php
+ 1: <?php
+ 2: 
+ 3: declare(strict_types=1);
+ 4: 
+ 5: namespace App\Models;
+ 6: 
+ 7: use Database\Factories\BrandFactory;
+ 8: use Illuminate\Database\Eloquent\Factories\HasFactory;
+ 9: use Illuminate\Database\Eloquent\Model;
+10: use Illuminate\Database\Eloquent\Relations\HasMany;
+11: use Illuminate\Database\Eloquent\SoftDeletes;
+12: use Spatie\MediaLibrary\HasMedia;
+13: use Spatie\MediaLibrary\InteractsWithMedia;
+14: 
+15: class Brand extends Model implements HasMedia
+16: {
+17:     /** @use HasFactory<BrandFactory> */
+18:     use HasFactory, InteractsWithMedia, SoftDeletes;
+19: 
+20:     protected $fillable = ['name_ar', 'name_en', 'slug', 'description_ar', 'description_en', 'sort_order', 'is_active'];
+21: 
+22:     protected $casts = ['is_active' => 'boolean'];
+23: 
+24:     public function products(): HasMany
+25:     {
+26:         return $this->hasMany(Product::class);
+27:     }
+28: 
+29:     public function registerMediaCollections(): void
+30:     {
+31:         $this->addMediaCollection('logo')->singleFile()
+32:             ->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp']);
+33:     }
+34: }
+```
+
+## File: bags-platform/backend/app/Models/Category.php
+```php
+ 1: <?php
+ 2: 
+ 3: declare(strict_types=1);
+ 4: 
+ 5: namespace App\Models;
+ 6: 
+ 7: use Database\Factories\CategoryFactory;
+ 8: use Illuminate\Database\Eloquent\Factories\HasFactory;
+ 9: use Illuminate\Database\Eloquent\Model;
+10: use Illuminate\Database\Eloquent\Relations\BelongsTo;
+11: use Illuminate\Database\Eloquent\Relations\HasMany;
+12: use Illuminate\Database\Eloquent\SoftDeletes;
+13: use Spatie\MediaLibrary\HasMedia;
+14: use Spatie\MediaLibrary\InteractsWithMedia;
+15: 
+16: class Category extends Model implements HasMedia
+17: {
+18:     /** @use HasFactory<CategoryFactory> */
+19:     use HasFactory, InteractsWithMedia, SoftDeletes;
+20: 
+21:     protected $fillable = ['parent_id', 'name_ar', 'name_en', 'slug', 'description_ar', 'description_en', 'sort_order', 'is_active'];
+22: 
+23:     protected $casts = ['is_active' => 'boolean'];
 24: 
-25:         $this->assertDatabaseCount('users', 1);
-26:         $this->assertDatabaseHas('users', [
-27:             'name' => 'Test User',
-28:             'email' => 'test@example.com',
-29:         ]);
-30:     }
+25:     public function parent(): BelongsTo
+26:     {
+27:         return $this->belongsTo(Category::class, 'parent_id');
+28:     }
+29: 
+30:     public function children(): HasMany
+31:     {
+32:         return $this->hasMany(Category::class, 'parent_id')->orderBy('sort_order');
+33:     }
+34: 
+35:     public function products(): HasMany
+36:     {
+37:         return $this->hasMany(Product::class);
+38:     }
+39: 
+40:     public function registerMediaCollections(): void
+41:     {
+42:         $this->addMediaCollection('image')->singleFile()
+43:             ->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp']);
+44:     }
+45: 
+46:     // بيرجّع IDs كل الأقسام اللي تحته على أي مستوى — مجموعة visited بتمنع اللف اللانهائي لو فيه دورة في البيانات
+47:     public function descendantIds(): array
+48:     {
+49:         $ids = [];
+50:         $seen = [$this->id => true];
+51:         $queue = [$this->id];
+52:         while ($queue) {
+53:             $children = Category::whereIn('parent_id', $queue)->pluck('id')->all();
+54:             $queue = [];
+55:             foreach ($children as $childId) {
+56:                 if (! isset($seen[$childId])) {
+57:                     $seen[$childId] = true;
+58:                     $ids[] = $childId;
+59:                     $queue[] = $childId;
+60:                 }
+61:             }
+62:         }
+63: 
+64:         return $ids;
+65:     }
+66: 
+67:     public function depth(): int
+68:     {
+69:         $depth = 1;
+70:         $seen = [$this->id => true];
+71:         $p = $this->parent;
+72:         while ($p) {
+73:             if (isset($seen[$p->id])) {
+74:                 throw new \RuntimeException('توجد دورة في شجرة الأقسام');
+75:             }
+76:             $seen[$p->id] = true;
+77:             $depth++;
+78:             $p = $p->parent;
+79:         }
+80: 
+81:         return $depth;
+82:     }
+83: }
+```
+
+## File: bags-platform/backend/app/Models/Product.php
+```php
+ 1: <?php
+ 2: 
+ 3: declare(strict_types=1);
+ 4: 
+ 5: namespace App\Models;
+ 6: 
+ 7: use App\Enums\ProductStatus;
+ 8: use App\Enums\SalesChannel;
+ 9: use Database\Factories\ProductFactory;
+10: use Illuminate\Database\Eloquent\Factories\HasFactory;
+11: use Illuminate\Database\Eloquent\Model;
+12: use Illuminate\Database\Eloquent\Relations\BelongsTo;
+13: use Illuminate\Database\Eloquent\Relations\HasMany;
+14: use Illuminate\Database\Eloquent\SoftDeletes;
+15: use Spatie\Image\Enums\Fit;
+16: use Spatie\MediaLibrary\HasMedia;
+17: use Spatie\MediaLibrary\InteractsWithMedia;
+18: use Spatie\MediaLibrary\MediaCollections\Models\Media;
+19: 
+20: class Product extends Model implements HasMedia
+21: {
+22:     /** @use HasFactory<ProductFactory> */
+23:     use HasFactory, InteractsWithMedia, SoftDeletes;
+24: 
+25:     protected $fillable = [
+26:         'code', 'category_id', 'brand_id', 'supplier_id', 'name_ar', 'name_en', 'slug',
+27:         'description_ar', 'description_en', 'material_ar', 'material_en',
+28:         'length_cm', 'width_cm', 'height_cm', 'weight_kg', 'warranty_months', 'warranty_details',
+29:         'country_of_origin', 'status', 'sales_channel', 'is_featured', 'published_at', 'created_by',
+30:     ];
 31: 
-32:     public function test_database_seeder_does_not_create_test_account_in_production_environment(): void
-33:     {
-34:         $this->app['env'] = 'production';
-35: 
-36:         $this->artisan('db:seed', ['--class' => DatabaseSeeder::class, '--force' => true])
-37:             ->assertSuccessful();
-38: 
-39:         $this->assertDatabaseMissing('users', ['email' => 'test@example.com']);
-40:     }
+32:     protected $casts = [
+33:         'status' => ProductStatus::class,
+34:         'sales_channel' => SalesChannel::class,
+35:         'is_featured' => 'boolean',
+36:         'published_at' => 'datetime',
+37:         'length_cm' => 'decimal:2', 'width_cm' => 'decimal:2', 'height_cm' => 'decimal:2',
+38:         'weight_kg' => 'decimal:3',
+39:     ];
+40: 
+41:     public function category(): BelongsTo
+42:     {
+43:         return $this->belongsTo(Category::class);
+44:     }
+45: 
+46:     public function brand(): BelongsTo
+47:     {
+48:         return $this->belongsTo(Brand::class);
+49:     }
+50: 
+51:     public function variants(): HasMany
+52:     {
+53:         // chaperone: كل variant متحمل من العلاقة دي بيبقى عارف منتجه من غير lazy load (N+1)
+54:         return $this->hasMany(ProductVariant::class)->orderBy('sort_order')->chaperone();
+55:     }
+56: 
+57:     public function registerMediaCollections(): void
+58:     {
+59:         $this->addMediaCollection('images')
+60:             ->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp']);
+61:         $this->addMediaCollection('video')->singleFile()
+62:             ->acceptsMimeTypes(['video/mp4', 'video/webm', 'video/quicktime']);
+63:     }
+64: 
+65:     public function registerMediaConversions(?Media $media = null): void
+66:     {
+67:         $this->addMediaConversion('thumb')->fit(Fit::Crop, 300, 300)->format('webp')
+68:             ->performOnCollections('images')->nonQueued();
+69:         $this->addMediaConversion('medium')->fit(Fit::Contain, 800, 800)->format('webp')
+70:             ->performOnCollections('images')->nonQueued();
+71:     }
+72: }
+```
+
+## File: bags-platform/backend/app/Models/User.php
+```php
+ 1: <?php
+ 2: 
+ 3: namespace App\Models;
+ 4: 
+ 5: use Illuminate\Database\Eloquent\Relations\BelongsTo;
+ 6: // use Illuminate\Contracts\Auth\MustVerifyEmail;
+ 7: use Database\Factories\UserFactory;
+ 8: use Illuminate\Database\Eloquent\Attributes\Fillable;
+ 9: use Illuminate\Database\Eloquent\Attributes\Hidden;
+10: use Illuminate\Database\Eloquent\Factories\HasFactory;
+11: use Illuminate\Foundation\Auth\User as Authenticatable;
+12: use Illuminate\Notifications\Notifiable;
+13: use Laravel\Sanctum\HasApiTokens;
+14: use Spatie\Permission\Traits\HasRoles;
+15: 
+16: #[Fillable(['name', 'email', 'phone', 'password', 'branch_id', 'is_active'])]
+17: #[Hidden(['password', 'remember_token'])]
+18: class User extends Authenticatable
+19: {
+20:     /** @use HasFactory<UserFactory> */
+21:     use HasApiTokens, HasFactory, HasRoles, Notifiable;
+22: 
+23:     protected string $guard_name = 'staff';
+24: 
+25:     public function branch(): BelongsTo
+26:     {
+27:         return $this->belongsTo(Branch::class);
+28:     }
+29: 
+30:     /**
+31:      * Get the attributes that should be cast.
+32:      *
+33:      * @return array<string, string>
+34:      */
+35:     protected function casts(): array
+36:     {
+37:         return [
+38:             'email_verified_at' => 'datetime',
+39:             'password' => 'hashed',
+40:             'is_active' => 'boolean',
+41:         ];
+42:     }
+43: }
+```
+
+## File: bags-platform/backend/app/Services/Catalog/BrandService.php
+```php
+ 1: <?php
+ 2: 
+ 3: declare(strict_types=1);
+ 4: 
+ 5: namespace App\Services\Catalog;
+ 6: 
+ 7: use App\Exceptions\BusinessException;
+ 8: use App\Models\Brand;
+ 9: use App\Services\SlugService;
+10: use Illuminate\Http\UploadedFile;
+11: use Illuminate\Support\Facades\DB;
+12: 
+13: class BrandService
+14: {
+15:     public function create(array $data, ?UploadedFile $logo): Brand
+16:     {
+17:         return DB::transaction(function () use ($data, $logo) {
+18:             unset($data['logo']);
+19:             $data = array_filter($data, fn ($value) => $value !== null);
+20: 
+21:             if (empty($data['slug'])) {
+22:                 $data['slug'] = SlugService::make(Brand::class, $data['name_en']);
+23:             }
+24: 
+25:             $brand = Brand::create($data);
+26: 
+27:             if ($logo) {
+28:                 $brand->addMedia($logo)->toMediaCollection('logo');
+29:             }
+30: 
+31:             return $brand;
+32:         });
+33:     }
+34: 
+35:     public function update(Brand $brand, array $data, ?UploadedFile $logo): Brand
+36:     {
+37:         return DB::transaction(function () use ($brand, $data, $logo) {
+38:             $brand = Brand::whereKey($brand->id)->lockForUpdate()->firstOrFail();
+39:             $removeLogo = (bool) ($data['remove_logo'] ?? false);
+40:             unset($data['logo'], $data['remove_logo']);
 41: 
-42:     public function test_setting_seeder_fills_missing_settings_without_overwriting_custom_values(): void
-43:     {
-44:         $this->seed(SettingSeeder::class);
-45:         Setting::query()->where('key', 'company_name')->update(['value' => 'Custom Company']);
-46:         Setting::query()->where('key', 'tax_enabled')->delete();
-47: 
-48:         $this->seed(SettingSeeder::class);
-49: 
-50:         $this->assertDatabaseHas('settings', ['key' => 'company_name', 'value' => 'Custom Company']);
-51:         $this->assertDatabaseHas('settings', ['key' => 'tax_enabled', 'value' => '0']);
-52:     }
+42:             if (array_key_exists('slug', $data) && empty($data['slug'])) {
+43:                 $data['slug'] = SlugService::make(Brand::class, $data['name_en'] ?? $brand->name_en, $brand->id);
+44:             }
+45: 
+46:             foreach (['sort_order', 'is_active'] as $field) {
+47:                 if (array_key_exists($field, $data) && $data[$field] === null) {
+48:                     unset($data[$field]);
+49:                 }
+50:             }
+51: 
+52:             $brand->update($data);
 53: 
-54:     public function test_setting_seeder_invalidates_cache_when_restoring_missing_settings(): void
-55:     {
-56:         $this->seed(SettingSeeder::class);
-57:         Setting::query()->where('key', 'purchase_order_padding')->delete();
-58:         $service = app(SettingService::class);
-59:         $this->assertNull($service->get('purchase_order_padding'));
-60: 
-61:         $this->seed(SettingSeeder::class);
-62: 
-63:         $this->assertSame(6, $service->get('purchase_order_padding'));
+54:             if ($removeLogo) {
+55:                 $brand->clearMediaCollection('logo');
+56:             }
+57: 
+58:             if ($logo) {
+59:                 $brand->addMedia($logo)->toMediaCollection('logo');
+60:             }
+61: 
+62:             return $brand;
+63:         });
 64:     }
 65: 
-66:     public function test_location_seeder_fills_missing_shelves_for_every_branch_without_overwriting_existing_locations(): void
+66:     public function delete(Brand $brand): void
 67:     {
-68:         $firstBranch = Branch::factory()->create();
-69:         $secondBranch = Branch::factory()->create();
-70:         $customLocation = $firstBranch->locations()->create([
-71:             'name' => 'Custom shelf name',
-72:             'code' => 'A-01-01',
-73:             'type' => 'shelf',
-74:         ]);
+68:         DB::transaction(function () use ($brand): void {
+69:             // قفل الصف بيمنع حذف البراند في نفس لحظة إنشاء منتج عليه
+70:             $locked = Brand::whereKey($brand->id)->lockForUpdate()->firstOrFail();
+71: 
+72:             if ($locked->products()->exists()) {
+73:                 throw new BusinessException('لا يمكن حذف براند مرتبط بمنتجات');
+74:             }
 75: 
-76:         $this->seed(LocationSeeder::class);
-77: 
-78:         $this->assertDatabaseCount('locations', 6);
-79:         $this->assertDatabaseHas('locations', [
-80:             'id' => $customLocation->id,
-81:             'name' => 'Custom shelf name',
-82:         ]);
-83: 
-84:         foreach ([$firstBranch, $secondBranch] as $branch) {
-85:             $this->assertSame(3, $branch->locations()->count());
-86:         }
-87:     }
-88: }
+76:             $locked->delete();
+77:         });
+78:     }
+79: }
 ```
 
-## File: bags-platform/backend/tests/TestCase.php
+## File: bags-platform/backend/app/Services/SlugService.php
 ```php
  1: <?php
  2: 
- 3: namespace Tests;
+ 3: declare(strict_types=1);
  4: 
- 5: use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+ 5: namespace App\Services;
  6: 
- 7: abstract class TestCase extends BaseTestCase
- 8: {
- 9:     //
-10: }
-```
-
-## File: bags-platform/backend/.env.example
-```
- 1: APP_NAME=Laravel
- 2: APP_ENV=local
- 3: APP_KEY=
- 4: APP_DEBUG=true
- 5: APP_URL=http://localhost:8000
- 6: SANCTUM_EXPIRATION=1440
- 7: # Configure only your actual reverse-proxy IPs/CIDRs in production.
- 8: # TRUSTED_PROXIES=10.0.0.10,192.0.2.0/24
- 9: 
-10: APP_LOCALE=en
-11: APP_FALLBACK_LOCALE=en
-12: APP_FAKER_LOCALE=en_US
-13: 
-14: APP_MAINTENANCE_DRIVER=file
-15: # APP_MAINTENANCE_STORE=database
+ 7: use Illuminate\Support\Str;
+ 8: 
+ 9: class SlugService
+10: {
+11:     public static function make(string $modelClass, string $source, ?int $ignoreId = null): string
+12:     {
+13:         $base = Str::slug($source) ?: Str::random(8);
+14:         // قص القاعدة لـ 240 حرف عشان اللاحقة الرقمية متعديش عمود varchar(255) وترجع 500
+15:         $base = rtrim(Str::substr($base, 0, 240), '-');
 16: 
-17: # PHP_CLI_SERVER_WORKERS=4
-18: 
-19: BCRYPT_ROUNDS=12
-20: 
-21: LOG_CHANNEL=stack
-22: LOG_STACK=single
-23: LOG_DEPRECATIONS_CHANNEL=null
-24: LOG_LEVEL=debug
-25: 
-26: DB_CONNECTION=pgsql
-27: DB_HOST=127.0.0.1
-28: DB_PORT=5432
-29: DB_DATABASE=alfarid
-30: DB_USERNAME=postgres
-31: DB_PASSWORD=
-32: 
-33: SESSION_DRIVER=database
-34: SESSION_LIFETIME=120
-35: SESSION_ENCRYPT=false
-36: SESSION_PATH=/
-37: SESSION_DOMAIN=null
-38: 
-39: BROADCAST_CONNECTION=log
-40: FILESYSTEM_DISK=local
-41: QUEUE_CONNECTION=database
-42: 
-43: CACHE_STORE=database
-44: # CACHE_PREFIX=
-45: 
-46: MEMCACHED_HOST=127.0.0.1
-47: 
-48: REDIS_CLIENT=phpredis
-49: REDIS_HOST=127.0.0.1
-50: REDIS_PASSWORD=null
-51: REDIS_PORT=6379
-52: 
-53: MAIL_MAILER=log
-54: MAIL_SCHEME=null
-55: MAIL_HOST=127.0.0.1
-56: MAIL_PORT=2525
-57: MAIL_USERNAME=null
-58: MAIL_PASSWORD=null
-59: MAIL_FROM_ADDRESS="hello@example.com"
-60: MAIL_FROM_NAME="${APP_NAME}"
-61: 
-62: AWS_ACCESS_KEY_ID=
-63: AWS_SECRET_ACCESS_KEY=
-64: AWS_DEFAULT_REGION=us-east-1
-65: AWS_BUCKET=
-66: AWS_USE_PATH_STYLE_ENDPOINT=false
-67: 
-68: VITE_APP_NAME="${APP_NAME}"
-69: 
-70: MEDIA_DISK=public
+17:         // استعلام واحد لكل اللاحقات، ثم اختيار أول لاحقة متاحة في الذاكرة.
+18:         $like = strtr($base, ['\\' => '\\\\', '%' => '\\%', '_' => '\\_']).'-%';
+19:         $existing = $modelClass::withTrashed()
+20:             ->where(fn ($q) => $q->where('slug', $base)->orWhere('slug', 'like', $like))
+21:             ->when($ignoreId, fn ($q) => $q->where('id', '!=', $ignoreId))
+22:             ->pluck('slug');
+23: 
+24:         if (! $existing->contains($base)) {
+25:             return $base;
+26:         }
+27: 
+28:         $taken = array_fill_keys($existing->all(), true);
+29:         $suffix = 2;
+30:         while (isset($taken[$base.'-'.$suffix])) {
+31:             $suffix++;
+32:         }
+33: 
+34:         return $base.'-'.$suffix;
+35:     }
+36: }
 ```
 
-## File: bags-platform/backend/composer.json
-```json
- 1: {
- 2:     "$schema": "https://getcomposer.org/schema.json",
- 3:     "name": "laravel/laravel",
- 4:     "type": "project",
- 5:     "description": "The skeleton application for the Laravel framework.",
- 6:     "keywords": ["laravel", "framework"],
- 7:     "license": "MIT",
- 8:     "require": {
- 9:         "php": "^8.3",
-10:         "laravel/framework": "^13.17",
-11:         "laravel/sanctum": "^4.3",
-12:         "laravel/tinker": "^3.0",
-13:         "spatie/laravel-medialibrary": "^11.23",
-14:         "spatie/laravel-permission": "^8.3"
-15:     },
-16:     "require-dev": {
-17:         "fakerphp/faker": "^1.23",
-18:         "laravel/boost": "^2.10",
-19:         "laravel/pail": "^1.2.5",
-20:         "laravel/pao": "^1.0.6",
-21:         "laravel/pint": "^1.27",
-22:         "mockery/mockery": "^1.6",
-23:         "nunomaduro/collision": "^8.6",
-24:         "phpunit/phpunit": "^12.5.12"
-25:     },
-26:     "autoload": {
-27:         "psr-4": {
-28:             "App\\": "app/",
-29:             "Database\\Factories\\": "database/factories/",
-30:             "Database\\Seeders\\": "database/seeders/"
-31:         }
-32:     },
-33:     "autoload-dev": {
-34:         "psr-4": {
-35:             "Tests\\": "tests/"
-36:         }
-37:     },
-38:     "scripts": {
-39:         "setup": [
-40:             "composer install",
-41:             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
-42:             "@php artisan key:generate",
-43:             "@php artisan migrate --force",
-44:             "npm install --ignore-scripts",
-45:             "npm run build"
-46:         ],
-47:         "dev": [
-48:             "Composer\\Config::disableProcessTimeout",
-49:             "@php artisan dev"
-50:         ],
-51:         "test": [
-52:             "@php artisan config:clear --ansi @no_additional_args",
-53:             "@php artisan test"
-54:         ],
-55:         "post-autoload-dump": [
-56:             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
-57:             "@php artisan package:discover --ansi"
-58:         ],
-59:         "post-update-cmd": [
-60:             "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
-61:         ],
-62:         "post-root-package-install": [
-63:             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\""
-64:         ],
-65:         "post-create-project-cmd": [
-66:             "@php artisan key:generate --ansi",
-67:             "@php artisan migrate --graceful --ansi"
-68:         ],
-69:         "pre-package-uninstall": [
-70:             "Illuminate\\Foundation\\ComposerScripts::prePackageUninstall"
-71:         ]
-72:     },
-73:     "extra": {
-74:         "laravel": {
-75:             "dont-discover": []
-76:         }
-77:     },
-78:     "config": {
-79:         "optimize-autoloader": true,
-80:         "preferred-install": "dist",
-81:         "sort-packages": true,
-82:         "allow-plugins": {
-83:             "pestphp/pest-plugin": true,
-84:             "php-http/discovery": true
-85:         }
-86:     },
-87:     "minimum-stability": "stable",
-88:     "prefer-stable": true
-89: }
+## File: bags-platform/backend/database/seeders/RolePermissionSeeder.php
+```php
+ 1: <?php
+ 2: 
+ 3: declare(strict_types=1);
+ 4: 
+ 5: namespace Database\Seeders;
+ 6: 
+ 7: use App\Enums\StaffRole;
+ 8: use Illuminate\Database\Seeder;
+ 9: use Spatie\Permission\Models\Permission;
+10: use Spatie\Permission\Models\Role;
+11: 
+12: class RolePermissionSeeder extends Seeder
+13: {
+14:     /**
+15:      * @var array<string, list<string>>
+16:      */
+17:     private const PERMISSIONS_BY_MODULE = [
+18:         'branches' => ['view', 'create', 'update', 'delete', 'manage'],
+19:         'locations' => ['view', 'create', 'update', 'delete', 'manage'],
+20:         'users' => ['view', 'create', 'update', 'delete', 'manage'],
+21:         'roles' => ['view', 'create', 'update', 'delete', 'manage'],
+22:         'permissions' => ['view'],
+23:         'customers' => ['view', 'create', 'update', 'delete', 'manage'],
+24:         'suppliers' => ['view', 'create', 'update', 'delete', 'manage'],
+25:         'products' => ['view', 'create', 'update', 'delete', 'manage'],
+26:         'categories' => ['view', 'create', 'update', 'delete', 'manage'],
+27:         'inventory' => ['view', 'create', 'update', 'delete', 'manage'],
+28:         'warehouses' => ['view', 'create', 'update', 'delete', 'manage'],
+29:         'orders' => ['view', 'create', 'update', 'delete', 'manage'],
+30:         'sales' => ['view', 'create', 'update', 'delete', 'manage'],
+31:         'purchases' => ['view', 'create', 'update', 'delete', 'manage'],
+32:         'returns' => ['view', 'create', 'update', 'delete', 'manage'],
+33:         'payments' => ['view', 'create', 'update', 'delete', 'manage'],
+34:         'shipping' => ['view', 'create', 'update', 'delete', 'manage'],
+35:         'transfers' => ['view', 'create', 'update', 'delete', 'manage'],
+36:         'reports' => ['view', 'export'],
+37:         'notifications' => ['view', 'create', 'update', 'delete', 'manage'],
+38:         'pricing' => ['view', 'create', 'update', 'delete', 'manage'],
+39:         'settings' => ['view', 'update', 'manage'],
+40:         'pos' => ['access', 'sales.view', 'sales.create', 'sales.refund'],
+41:     ];
+42: 
+43:     public function run(): void
+44:     {
+45:         foreach (self::PERMISSIONS_BY_MODULE as $module => $actions) {
+46:             foreach ($actions as $action) {
+47:                 Permission::findOrCreate("{$module}.{$action}", 'staff');
+48:             }
+49:         }
+50: 
+51:         $superAdmin = Role::findOrCreate(StaffRole::SuperAdmin->value, 'staff');
+52:         $superAdmin->syncPermissions(
+53:             Permission::query()->where('guard_name', 'staff')->get(),
+54:         );
+55:     }
+56: }
+```
+
+## File: bags-platform/backend/database/seeders/SettingSeeder.php
+```php
+ 1: <?php
+ 2: 
+ 3: declare(strict_types=1);
+ 4: 
+ 5: namespace Database\Seeders;
+ 6: 
+ 7: use App\Models\Setting;
+ 8: use App\Services\SettingService;
+ 9: use Illuminate\Database\Seeder;
+10: use Illuminate\Support\Facades\DB;
+11: 
+12: class SettingSeeder extends Seeder
+13: {
+14:     /**
+15:      * @var list<array{group: string, key: string, value: string|null, type: string}>
+16:      */
+17:     private const SETTINGS = [
+18:         ['group' => 'company', 'key' => 'company_name', 'value' => 'Alfarid', 'type' => 'string'],
+19:         ['group' => 'company', 'key' => 'company_email', 'value' => null, 'type' => 'string'],
+20:         ['group' => 'company', 'key' => 'company_phone', 'value' => null, 'type' => 'string'],
+21:         ['group' => 'company', 'key' => 'company_address', 'value' => null, 'type' => 'string'],
+22:         ['group' => 'company', 'key' => 'company_logo', 'value' => null, 'type' => 'string'],
+23:         ['group' => 'company', 'key' => 'commercial_register', 'value' => null, 'type' => 'string'],
+24: 
+25:         ['group' => 'tax', 'key' => 'tax_enabled', 'value' => '0', 'type' => 'boolean'],
+26:         ['group' => 'tax', 'key' => 'tax_number', 'value' => null, 'type' => 'string'],
+27:         ['group' => 'tax', 'key' => 'default_tax_rate', 'value' => '14', 'type' => 'float'],
+28:         ['group' => 'tax', 'key' => 'prices_include_tax', 'value' => '0', 'type' => 'boolean'],
+29: 
+30:         ['group' => 'numbering', 'key' => 'invoice_prefix', 'value' => 'INV-', 'type' => 'string'],
+31:         ['group' => 'numbering', 'key' => 'invoice_next_number', 'value' => '1000', 'type' => 'integer'],
+32:         ['group' => 'numbering', 'key' => 'invoice_padding', 'value' => '6', 'type' => 'integer'],
+33:         ['group' => 'numbering', 'key' => 'order_prefix', 'value' => 'ORD-', 'type' => 'string'],
+34:         ['group' => 'numbering', 'key' => 'order_next_number', 'value' => '1000', 'type' => 'integer'],
+35:         ['group' => 'numbering', 'key' => 'order_padding', 'value' => '6', 'type' => 'integer'],
+36:         ['group' => 'numbering', 'key' => 'purchase_order_prefix', 'value' => 'PO-', 'type' => 'string'],
+37:         ['group' => 'numbering', 'key' => 'purchase_order_next_number', 'value' => '1000', 'type' => 'integer'],
+38:         ['group' => 'numbering', 'key' => 'purchase_order_padding', 'value' => '6', 'type' => 'integer'],
+39:         ['group' => 'numbering', 'key' => 'quotation_prefix', 'value' => 'QT-', 'type' => 'string'],
+40:         ['group' => 'numbering', 'key' => 'quotation_next_number', 'value' => '1000', 'type' => 'integer'],
+41:         ['group' => 'numbering', 'key' => 'quotation_padding', 'value' => '6', 'type' => 'integer'],
+42:     ];
+43: 
+44:     public function run(): void
+45:     {
+46:         $now = now();
+47:         $rows = array_map(
+48:             static fn (array $setting): array => [
+49:                 ...$setting,
+50:                 'created_at' => $now,
+51:                 'updated_at' => $now,
+52:             ],
+53:             self::SETTINGS,
+54:         );
+55: 
+56:         Setting::query()->insertOrIgnore($rows);
+57:         DB::afterCommit(fn () => app(SettingService::class)->clearCache());
+58:     }
+59: }
 ```
 
 ## File: bags-platform/backend/composer.lock
@@ -16955,44 +17627,802 @@ bags-platform/
 9438: }
 ```
 
-## File: bags-platform/backend/phpunit.xml
-```xml
- 1: <?xml version="1.0" encoding="UTF-8"?>
- 2: <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
- 3:          xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
- 4:          bootstrap="vendor/autoload.php"
- 5:          colors="true"
- 6: >
- 7:     <testsuites>
- 8:         <testsuite name="Unit">
- 9:             <directory>tests/Unit</directory>
-10:         </testsuite>
-11:         <testsuite name="Feature">
-12:             <directory>tests/Feature</directory>
-13:         </testsuite>
-14:     </testsuites>
-15:     <source>
-16:         <include>
-17:             <directory>app</directory>
-18:         </include>
-19:     </source>
-20:     <php>
-21:         <env name="APP_ENV" value="testing"/>
-22:         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
-23:         <env name="BCRYPT_ROUNDS" value="4"/>
-24:         <env name="BROADCAST_CONNECTION" value="null"/>
-25:         <env name="CACHE_STORE" value="array"/>
-26:         <env name="DB_CONNECTION" value="pgsql" force="true"/>
-27:         <env name="DB_DATABASE" value="alfarid_testing" force="true"/>
-28:         <env name="DB_URL" value="" force="true"/>
-29:         <env name="MAIL_MAILER" value="array"/>
-30:         <env name="QUEUE_CONNECTION" value="sync"/>
-31:         <env name="SESSION_DRIVER" value="array"/>
-32:         <env name="PULSE_ENABLED" value="false"/>
-33:         <env name="TELESCOPE_ENABLED" value="false"/>
-34:         <env name="NIGHTWATCH_ENABLED" value="false"/>
-35:     </php>
-36: </phpunit>
+## File: bags-platform/backend/app/Http/Requests/Admin/Category/ReorderCategoriesRequest.php
+```php
+ 1: <?php
+ 2: 
+ 3: declare(strict_types=1);
+ 4: 
+ 5: namespace App\Http\Requests\Admin\Category;
+ 6: 
+ 7: use App\Http\Requests\Admin\Concerns\LimitsArrayInput;
+ 8: use Illuminate\Contracts\Validation\ValidationRule;
+ 9: use Illuminate\Foundation\Http\FormRequest;
+10: use Illuminate\Validation\Rule;
+11: 
+12: class ReorderCategoriesRequest extends FormRequest
+13: {
+14:     use LimitsArrayInput;
+15: 
+16:     protected function arrayLimits(): array
+17:     {
+18:         return ['items' => 500];
+19:     }
+20: 
+21:     public function authorize(): bool
+22:     {
+23:         return $this->user() !== null;
+24:     }
+25: 
+26:     /**
+27:      * @return array<string, array<mixed>|string|ValidationRule>
+28:      */
+29:     public function rules(): array
+30:     {
+31:         return [
+32:             'items' => ['required', 'array', 'min:1', 'max:500'],
+33:             'items.*.id' => ['required', 'integer', 'distinct', Rule::exists('categories', 'id')->whereNull('deleted_at')],
+34:             'items.*.parent_id' => ['nullable', 'integer', Rule::exists('categories', 'id')->whereNull('deleted_at')],
+35:             'items.*.sort_order' => ['required', 'integer', 'min:0', 'max:2147483647'],
+36:         ];
+37:     }
+38: }
+```
+
+## File: bags-platform/backend/app/Services/Catalog/CategoryService.php
+```php
+  1: <?php
+  2: 
+  3: declare(strict_types=1);
+  4: 
+  5: namespace App\Services\Catalog;
+  6: 
+  7: use App\Enums\ProductStatus;
+  8: use App\Exceptions\BusinessException;
+  9: use App\Models\Category;
+ 10: use App\Models\Product;
+ 11: use App\Services\SlugService;
+ 12: use Illuminate\Http\UploadedFile;
+ 13: use Illuminate\Support\Collection;
+ 14: use Illuminate\Support\Facades\DB;
+ 15: 
+ 16: class CategoryService
+ 17: {
+ 18:     public function create(array $data, ?UploadedFile $image): Category
+ 19:     {
+ 20:         $category = DB::transaction(function () use ($data, $image) {
+ 21:             $this->lockTree();
+ 22: 
+ 23:             unset($data['image']);
+ 24:             $data = array_filter($data, fn ($value) => $value !== null);
+ 25: 
+ 26:             if (empty($data['slug'])) {
+ 27:                 $data['slug'] = SlugService::make(Category::class, $data['name_en']);
+ 28:             }
+ 29: 
+ 30:             if (! empty($data['parent_id'])) {
+ 31:                 $parent = Category::findOrFail($data['parent_id']);
+ 32:                 if ($parent->depth() >= 3) {
+ 33:                     throw new BusinessException('أقصى عمق للأقسام 3 مستويات');
+ 34:                 }
+ 35:             }
+ 36: 
+ 37:             $category = Category::create($data);
+ 38:             if ($image) {
+ 39:                 $category->addMedia($image)->toMediaCollection('image');
+ 40:             }
+ 41: 
+ 42:             return $category;
+ 43:         });
+ 44: 
+ 45:         return $category;
+ 46:     }
+ 47: 
+ 48:     public function update(Category $category, array $data, ?UploadedFile $image): Category
+ 49:     {
+ 50:         $removeImage = (bool) ($data['remove_image'] ?? false);
+ 51:         unset($data['image'], $data['remove_image']);
+ 52: 
+ 53:         return DB::transaction(function () use ($category, $data, $image, $removeImage) {
+ 54:             $this->lockTree();
+ 55:             // قفل صف القسم نفسه بيسلسل التعطيل مع نشر منتجاته (changeStatus بيقفل صف القسم كمان)
+ 56:             $category = Category::whereKey($category->id)->lockForUpdate()->firstOrFail();
+ 57: 
+ 58:             if (array_key_exists('parent_id', $data)) {
+ 59:                 $newParentId = $data['parent_id'] === null ? null : (int) $data['parent_id'];
+ 60:                 if ($newParentId !== $category->parent_id) {
+ 61:                     $this->assertValidParent($category, $newParentId);
+ 62:                 }
+ 63:             }
+ 64: 
+ 65:             // تعطيل قسم (أو شجرته الفرعية) فيها منتجات منشورة ممنوع: هتكسر قواعد نشرها (H1)
+ 66:             if (isset($data['is_active']) && ! $data['is_active'] && $category->is_active) {
+ 67:                 $this->assertNoPublishedProducts($category);
+ 68:             }
+ 69: 
+ 70:             if (array_key_exists('slug', $data) && empty($data['slug'])) {
+ 71:                 $data['slug'] = SlugService::make(Category::class, $data['name_en'] ?? $category->name_en, $category->id);
+ 72:             }
+ 73: 
+ 74:             foreach (['sort_order', 'is_active'] as $field) {
+ 75:                 if (array_key_exists($field, $data) && $data[$field] === null) {
+ 76:                     unset($data[$field]);
+ 77:                 }
+ 78:             }
+ 79: 
+ 80:             $category->update($data);
+ 81: 
+ 82:             if ($removeImage) {
+ 83:                 $category->clearMediaCollection('image');
+ 84:             }
+ 85: 
+ 86:             if ($image) {
+ 87:                 $category->addMedia($image)->toMediaCollection('image');
+ 88:             }
+ 89: 
+ 90:             return $category;
+ 91:         });
+ 92:     }
+ 93: 
+ 94:     public function delete(Category $category): void
+ 95:     {
+ 96:         DB::transaction(function () use ($category): void {
+ 97:             $this->lockTree();
+ 98:             $locked = Category::whereKey($category->id)->lockForUpdate()->firstOrFail();
+ 99: 
+100:             if ($locked->children()->exists()) {
+101:                 throw new BusinessException('لا يمكن حذف قسم يحتوي على أقسام فرعية');
+102:             }
+103: 
+104:             if ($locked->products()->exists()) {
+105:                 throw new BusinessException('لا يمكن حذف قسم مرتبط بمنتجات');
+106:             }
+107: 
+108:             $locked->delete();
+109:         });
+110:     }
+111: 
+112:     public function reorder(array $items): void
+113:     {
+114:         DB::transaction(function () use ($items): void {
+115:             $this->lockTree();
+116: 
+117:             foreach ($items as $item) {
+118:                 $category = Category::findOrFail($item['id']);
+119:                 $parentId = isset($item['parent_id']) ? (int) $item['parent_id'] : null;
+120:                 $this->assertValidParent($category, $parentId);
+121:                 $category->update(['parent_id' => $parentId, 'sort_order' => $item['sort_order']]);
+122:             }
+123:         });
+124:     }
+125: 
+126:     public function tree(bool $onlyActive = false): Collection
+127:     {
+128:         $all = Category::query()->with('media')->withCount('products')
+129:             ->when($onlyActive, fn ($q) => $q->where('is_active', true))
+130:             ->orderBy('sort_order')->get();
+131:         $grouped = $all->groupBy('parent_id');
+132:         $build = function ($parentId) use (&$build, $grouped) {
+133:             return ($grouped[$parentId ?? ''] ?? collect())->map(function ($cat) use ($build) {
+134:                 $cat->setRelation('children', $build($cat->id));
+135: 
+136:                 return $cat;
+137:             })->values();
+138:         };
+139: 
+140:         return $build(null);
+141:     }
+142: 
+143:     public function assertValidParent(Category $category, ?int $parentId): void
+144:     {
+145:         if ($parentId === null) {
+146:             return;
+147:         }
+148: 
+149:         if ($parentId === $category->id) {
+150:             throw new BusinessException('لا يمكن أن يكون القسم أبًا لنفسه');
+151:         }
+152: 
+153:         if (in_array($parentId, $category->descendantIds(), true)) {
+154:             throw new BusinessException('لا يمكن نقل القسم إلى أحد أقسامه الفرعية');
+155:         }
+156: 
+157:         $parent = Category::findOrFail($parentId);
+158: 
+159:         if ($parent->depth() + $this->subtreeHeight($category) > 3) {
+160:             throw new BusinessException('أقصى عمق للأقسام 3 مستويات');
+161:         }
+162:     }
+163: 
+164:     private function assertNoPublishedProducts(Category $category): void
+165:     {
+166:         $ids = array_merge([$category->id], $category->descendantIds());
+167:         $hasPublished = Product::whereIn('category_id', $ids)
+168:             ->where('status', ProductStatus::Published)
+169:             ->exists();
+170:         if ($hasPublished) {
+171:             throw new BusinessException('لا يمكن تعطيل قسم يحتوي على منتجات منشورة');
+172:         }
+173:     }
+174: 
+175:     private function lockTree(): void
+176:     {
+177:         CatalogLock::tree();
+178:     }
+179: 
+180:     private function subtreeHeight(Category $category, int $guard = 0): int
+181:     {
+182:         // أقصى عمق مشروع 3؛ أي تجاوز كبير معناه بيانات فاسدة (دورة) فنوقف بدل ما نلف للأبد
+183:         if ($guard > 10) {
+184:             throw new \RuntimeException('توجد دورة في شجرة الأقسام');
+185:         }
+186: 
+187:         $height = 1;
+188:         foreach ($category->children as $child) {
+189:             $height = max($height, 1 + $this->subtreeHeight($child, $guard + 1));
+190:         }
+191: 
+192:         return $height;
+193:     }
+194: }
+```
+
+## File: bags-platform/backend/app/Services/Catalog/ProductService.php
+```php
+  1: <?php
+  2: 
+  3: declare(strict_types=1);
+  4: 
+  5: namespace App\Services\Catalog;
+  6: 
+  7: use App\Enums\ProductStatus;
+  8: use App\Exceptions\BusinessException;
+  9: use App\Models\Brand;
+ 10: use App\Models\Category;
+ 11: use App\Models\Product;
+ 12: use App\Models\User;
+ 13: use App\Services\SlugService;
+ 14: use Illuminate\Support\Facades\DB;
+ 15: 
+ 16: class ProductService
+ 17: {
+ 18:     public function __construct(private ProductPublishabilityChecker $publishability) {}
+ 19: 
+ 20:     public function create(array $data, User $user): Product
+ 21:     {
+ 22:         return DB::transaction(function () use ($data, $user) {
+ 23:             CatalogLock::tree(shared: true);
+ 24:             $variants = $data['variants'] ?? [];
+ 25:             unset($data['variants']);
+ 26:             $data = array_filter($data, fn ($value) => $value !== null);
+ 27: 
+ 28:             $data['slug'] = $data['slug'] ?? SlugService::make(Product::class, $data['name_en']);
+ 29:             $data['created_by'] = $user->id;
+ 30:             $wantsPublish = ($data['status'] ?? 'draft') === ProductStatus::Published->value;
+ 31:             $data['status'] = ProductStatus::Draft->value; // دايمًا يتعمل draft الأول
+ 32: 
+ 33:             // قفل صفوف القسم والبراند بيمنع حذفهم في نفس لحظة إنشاء المنتج عليهم
+ 34:             Category::whereKey($data['category_id'])->lockForUpdate()->firstOrFail();
+ 35:             if (! empty($data['brand_id'])) {
+ 36:                 Brand::whereKey($data['brand_id'])->lockForUpdate()->firstOrFail();
+ 37:             }
+ 38: 
+ 39:             $product = Product::create($data);
+ 40:             $product->update(['code' => 'P'.str_pad((string) $product->id, 5, '0', STR_PAD_LEFT)]);
+ 41: 
+ 42:             foreach ($variants as $v) {
+ 43:                 app(VariantService::class)->create($product, $v);
+ 44:             }
+ 45: 
+ 46:             if ($wantsPublish) {
+ 47:                 $this->changeStatus($product, ProductStatus::Published, $user);
+ 48:             }
+ 49: 
+ 50:             return $product->fresh(['category.media', 'brand.media', 'variants.media', 'media']);
+ 51:         });
+ 52:     }
+ 53: 
+ 54:     public function update(Product $product, array $data, User $user): Product
+ 55:     {
+ 56:         return DB::transaction(function () use ($product, $data, $user) {
+ 57:             CatalogLock::tree(shared: true);
+ 58:             // قفل صف المنتج طول التعديل عشان فحص النشر ميعديش مع تعديل متزامن
+ 59:             $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
+ 60: 
+ 61:             $newStatus = isset($data['status']) ? ProductStatus::from($data['status']) : null;
+ 62:             unset($data['status']);
+ 63: 
+ 64:             if (array_key_exists('slug', $data) && empty($data['slug'])) {
+ 65:                 $data['slug'] = SlugService::make(Product::class, $data['name_en'] ?? $product->name_en, $product->id);
+ 66:             }
+ 67:             Category::whereKey($data['category_id'] ?? $product->category_id)->lockForUpdate()->firstOrFail();
+ 68:             if (! empty($data['brand_id'])) {
+ 69:                 Brand::whereKey($data['brand_id'])->lockForUpdate()->firstOrFail();
+ 70:             }
+ 71: 
+ 72:             if (array_key_exists('is_featured', $data) && $data['is_featured'] === null) {
+ 73:                 unset($data['is_featured']);
+ 74:             }
+ 75: 
+ 76:             $product->update($data);
+ 77: 
+ 78:             if ($newStatus && $newStatus !== $product->status) {
+ 79:                 $this->changeStatus($product, $newStatus, $user);
+ 80:             } elseif ($product->status === ProductStatus::Published) {
+ 81:                 // تعديل من غير تغيير حالة على منتج منشور: القواعد بتتفحص من جديد
+ 82:                 $this->assertPublishable($product);
+ 83:             }
+ 84: 
+ 85:             return $product->fresh(['category.media', 'brand.media', 'variants.media', 'media']);
+ 86:         });
+ 87:     }
+ 88: 
+ 89:     public function changeStatus(Product $product, ProductStatus $status, User $user): void
+ 90:     {
+ 91:         DB::transaction(function () use ($product, $status, $user): void {
+ 92:             CatalogLock::tree(shared: true);
+ 93:             // قفل صف المنتج وقسمه قبل الفحص والنشر، عشان مفيش تعديل متزامن يعدي بين الفحص والحفظ
+ 94:             $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
+ 95:             if ($product->category_id) {
+ 96:                 Category::whereKey($product->category_id)->lockForUpdate()->firstOrFail();
+ 97:             }
+ 98:             $product->refresh();
+ 99: 
+100:             if ($status === ProductStatus::Published) {
+101:                 if (! $user->can('products.publish')) {
+102:                     throw new BusinessException('ليس لديك صلاحية نشر المنتجات', [], 403);
+103:                 }
+104:                 $this->assertPublishable($product);
+105:                 $product->published_at ??= now();
+106:             }
+107:             $product->status = $status;
+108:             $product->save();
+109:         });
+110:         $product->refresh();
+111:     }
+112: 
+113:     public function assertPublishable(Product $product): void
+114:     {
+115:         $this->publishability->assertPublishable($product);
+116:     }
+117: 
+118:     public function delete(Product $product): void
+119:     {
+120:         DB::transaction(function () use ($product): void {
+121:             $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
+122:             $product->variants()->delete();  // soft
+123:             $product->delete();              // soft
+124:         });
+125:         // TODO مرحلة الطلبات: منع الحذف لو المنتج عليه طلبات، وبدل كده يتعمل archived
+126:     }
+127: }
+```
+
+## File: bags-platform/backend/app/Services/Catalog/VariantService.php
+```php
+  1: <?php
+  2: 
+  3: declare(strict_types=1);
+  4: 
+  5: namespace App\Services\Catalog;
+  6: 
+  7: use App\Enums\ProductStatus;
+  8: use App\Exceptions\BusinessException;
+  9: use App\Models\Product;
+ 10: use App\Models\ProductVariant;
+ 11: use App\Services\BarcodeGenerator;
+ 12: use Illuminate\Support\Facades\DB;
+ 13: 
+ 14: class VariantService
+ 15: {
+ 16:     public function __construct(private ProductPublishabilityChecker $publishability) {}
+ 17: 
+ 18:     public function create(Product $product, array $data): ProductVariant
+ 19:     {
+ 20:         $data = array_filter($data, fn ($value) => $value !== null);
+ 21: 
+ 22:         return DB::transaction(function () use ($product, $data) {
+ 23:             $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail(); // منع تكرار الترقيم
+ 24:             $this->assertUniqueCombination($product, $data);
+ 25: 
+ 26:             if (empty($data['sku'])) {
+ 27:                 $seq = $product->variants()->withTrashed()->count() + 1;
+ 28:                 do {
+ 29:                     $sku = $product->code.'-'.str_pad((string) $seq, 2, '0', STR_PAD_LEFT);
+ 30:                     $seq++;
+ 31:                 } while (ProductVariant::withTrashed()->where('sku', $sku)->exists());
+ 32:                 $data['sku'] = $sku;
+ 33:             }
+ 34: 
+ 35:             $variant = $product->variants()->create($data);
+ 36: 
+ 37:             if (empty($variant->barcode)) {
+ 38:                 $variant->update(['barcode' => BarcodeGenerator::fromId($variant->id)]);
+ 39:             }
+ 40: 
+ 41:             // متغير جديد على منتج منشور لازم ميكسرش قواعد النشر، وإلا التعديل كله يتلغي
+ 42:             if ($product->status === ProductStatus::Published) {
+ 43:                 $this->publishability->assertPublishable($product);
+ 44:             }
+ 45: 
+ 46:             return $variant;
+ 47:         });
+ 48:     }
+ 49: 
+ 50:     public function update(ProductVariant $variant, array $data): ProductVariant
+ 51:     {
+ 52:         foreach (['cost_price', 'reorder_level', 'sort_order', 'is_active'] as $field) {
+ 53:             if (array_key_exists($field, $data) && $data[$field] === null) {
+ 54:                 unset($data[$field]);
+ 55:             }
+ 56:         }
+ 57: 
+ 58:         return DB::transaction(function () use ($variant, $data) {
+ 59:             $product = Product::whereKey($variant->product_id)->lockForUpdate()->firstOrFail();
+ 60:             $variant = $product->variants()->whereKey($variant->id)->firstOrFail();
+ 61:             $this->assertUniqueCombination($product, array_merge($variant->only(['color_name_en', 'size', 'capacity']), $data), $variant->id);
+ 62: 
+ 63:             if (array_key_exists('is_active', $data) && ! $data['is_active']) {
+ 64:                 $this->assertNotLastActiveOfPublished($variant);
+ 65:             }
+ 66:             $variant->update($data);
+ 67: 
+ 68:             // أي تعديل على متغير منتج منشور بيعيد فحص قواعد النشر جوه نفس الـ transaction
+ 69:             if ($product->status === ProductStatus::Published) {
+ 70:                 $this->publishability->assertPublishable($product);
+ 71:             }
+ 72: 
+ 73:             return $variant->fresh('media');
+ 74:         });
+ 75:     }
+ 76: 
+ 77:     public function delete(ProductVariant $variant): void
+ 78:     {
+ 79:         DB::transaction(function () use ($variant): void {
+ 80:             $product = Product::whereKey($variant->product_id)->lockForUpdate()->firstOrFail();
+ 81:             $variant = $product->variants()->whereKey($variant->id)->firstOrFail();
+ 82:             $this->assertNotLastActiveOfPublished($variant);
+ 83:             $variant->delete();
+ 84: 
+ 85:             if ($product->status === ProductStatus::Published) {
+ 86:                 $this->publishability->assertPublishable($product);
+ 87:             }
+ 88:         });
+ 89:         // TODO مرحلة المخزون: منع الحذف لو عليه رصيد
+ 90:     }
+ 91: 
+ 92:     private function assertUniqueCombination(Product $product, array $d, ?int $ignoreId = null): void
+ 93:     {
+ 94:         // المقارنة من غير حساسية لحالة الحروف: Black وblack نفس اللون
+ 95:         $matchField = fn ($q, string $column, ?string $value) => $value === null
+ 96:             ? $q->whereNull($column)
+ 97:             : $q->whereRaw("lower({$column}) = ?", [mb_strtolower($value)]);
+ 98: 
+ 99:         $exists = $product->variants()
+100:             ->when($ignoreId, fn ($q) => $q->where('id', '!=', $ignoreId))
+101:             ->where(fn ($q) => $matchField($q, 'color_name_en', $d['color_name_en'] ?? null))
+102:             ->where(fn ($q) => $matchField($q, 'size', $d['size'] ?? null))
+103:             ->where(fn ($q) => $matchField($q, 'capacity', $d['capacity'] ?? null))
+104:             ->exists();
+105:         if ($exists) {
+106:             throw new BusinessException('يوجد متغير بنفس اللون والمقاس والسعة لهذا المنتج');
+107:         }
+108:     }
+109: 
+110:     private function assertNotLastActiveOfPublished(ProductVariant $variant): void
+111:     {
+112:         $product = $variant->product;
+113:         if ($product->status === ProductStatus::Published
+114:             && $product->variants()->where('is_active', true)->where('id', '!=', $variant->id)->doesntExist()) {
+115:             throw new BusinessException('لا يمكن حذف/تعطيل آخر متغير نشط في منتج منشور');
+116:         }
+117:     }
+118: }
+```
+
+## File: bags-platform/backend/app/Services/SettingService.php
+```php
+  1: <?php
+  2: 
+  3: declare(strict_types=1);
+  4: 
+  5: namespace App\Services;
+  6: 
+  7: use App\Models\Setting;
+  8: use Illuminate\Support\Facades\Cache;
+  9: use Illuminate\Support\Facades\DB;
+ 10: use InvalidArgumentException;
+ 11: use JsonException;
+ 12: 
+ 13: class SettingService
+ 14: {
+ 15:     private const CACHE_KEY = 'app_settings_static';
+ 16: 
+ 17:     private const CACHE_TTL_SECONDS = 3600;
+ 18: 
+ 19:     /** @var list<string> */
+ 20:     private const NUMBERING_COUNTER_KEYS = [
+ 21:         'invoice_next_number',
+ 22:         'order_next_number',
+ 23:         'purchase_order_next_number',
+ 24:         'quotation_next_number',
+ 25:     ];
+ 26: 
+ 27:     /**
+ 28:      * Return all settings grouped by their group name, with values cast to their declared types.
+ 29:      * Numbering counters are read fresh because they change for every generated document number.
+ 30:      *
+ 31:      * @return array<string, array<string, mixed>>
+ 32:      */
+ 33:     public function getAllGrouped(): array
+ 34:     {
+ 35:         $grouped = Cache::remember(self::CACHE_KEY, self::CACHE_TTL_SECONDS, function (): array {
+ 36:             return Setting::query()
+ 37:                 ->whereNotIn('key', self::NUMBERING_COUNTER_KEYS)
+ 38:                 ->orderBy('group')
+ 39:                 ->orderBy('key')
+ 40:                 ->get()
+ 41:                 ->groupBy('group')
+ 42:                 ->map(fn ($settings): array => $settings
+ 43:                     ->mapWithKeys(fn (Setting $setting): array => [
+ 44:                         $setting->key => $this->castValue($setting->value, $setting->type),
+ 45:                     ])
+ 46:                     ->all())
+ 47:                 ->all();
+ 48:         });
+ 49: 
+ 50:         $counters = Setting::query()
+ 51:             ->whereIn('key', self::NUMBERING_COUNTER_KEYS)
+ 52:             ->orderBy('key')
+ 53:             ->get()
+ 54:             ->mapWithKeys(fn (Setting $setting): array => [
+ 55:                 $setting->key => $this->castValue($setting->value, $setting->type),
+ 56:             ])
+ 57:             ->all();
+ 58: 
+ 59:         if ($counters !== []) {
+ 60:             $grouped['numbering'] = array_merge($grouped['numbering'] ?? [], $counters);
+ 61:             ksort($grouped['numbering']);
+ 62:         }
+ 63: 
+ 64:         return $grouped;
+ 65:     }
+ 66: 
+ 67:     public function get(string $key, mixed $default = null): mixed
+ 68:     {
+ 69:         foreach ($this->getAllGrouped() as $settings) {
+ 70:             if (array_key_exists($key, $settings)) {
+ 71:                 return $settings[$key];
+ 72:             }
+ 73:         }
+ 74: 
+ 75:         return $default;
+ 76:     }
+ 77: 
+ 78:     /**
+ 79:      * Update a flat key/value map atomically and invalidate the cached settings after commit.
+ 80:      *
+ 81:      * @param  array<string, mixed>  $settings
+ 82:      *
+ 83:      * @throws JsonException
+ 84:      */
+ 85:     public function updateBatch(array $settings): void
+ 86:     {
+ 87:         DB::transaction(function () use ($settings): void {
+ 88:             $lockedSettings = Setting::query()
+ 89:                 ->whereIn('key', array_keys($settings))
+ 90:                 ->orderBy('key')
+ 91:                 ->lockForUpdate()
+ 92:                 ->get()
+ 93:                 ->keyBy('key');
+ 94: 
+ 95:             $missingKeys = array_diff(array_keys($settings), $lockedSettings->keys()->all());
+ 96: 
+ 97:             if ($missingKeys !== []) {
+ 98:                 throw new InvalidArgumentException('Settings are not initialized: '.implode(', ', $missingKeys));
+ 99:             }
+100: 
+101:             foreach ($settings as $key => $value) {
+102:                 /** @var Setting $setting */
+103:                 $setting = $lockedSettings->get($key);
+104: 
+105:                 if (in_array($key, self::NUMBERING_COUNTER_KEYS, true) && is_numeric($value)) {
+106:                     $value = max((int) $setting->value, (int) $value);
+107:                 }
+108: 
+109:                 $setting->value = $value === null && str_ends_with($key, '_prefix')
+110:                     ? ''
+111:                     : $this->serializeValue($value, $setting->type);
+112:                 $setting->save();
+113:             }
+114: 
+115:             DB::afterCommit(fn () => $this->clearCache());
+116:         }, attempts: 3);
+117:     }
+118: 
+119:     /**
+120:      * Atomically return and increment the next document number for the requested type.
+121:      *
+122:      * @throws JsonException
+123:      */
+124:     public function generateNextNumber(string $type): string
+125:     {
+126:         $definitions = [
+127:             'invoice' => ['prefix' => 'invoice_prefix', 'next' => 'invoice_next_number', 'padding' => 'invoice_padding'],
+128:             'order' => ['prefix' => 'order_prefix', 'next' => 'order_next_number', 'padding' => 'order_padding'],
+129:             'purchase_order' => ['prefix' => 'purchase_order_prefix', 'next' => 'purchase_order_next_number', 'padding' => 'purchase_order_padding'],
+130:             'quotation' => ['prefix' => 'quotation_prefix', 'next' => 'quotation_next_number', 'padding' => 'quotation_padding'],
+131:         ];
+132: 
+133:         if (! isset($definitions[$type])) {
+134:             throw new InvalidArgumentException("Unsupported numbering type [{$type}].");
+135:         }
+136: 
+137:         $definition = $definitions[$type];
+138:         $keys = array_values(array_filter([
+139:             $definition['prefix'],
+140:             $definition['next'],
+141:             $definition['padding'],
+142:         ]));
+143: 
+144:         return DB::transaction(function () use ($definition, $keys): string {
+145:             $settings = Setting::query()
+146:                 ->whereIn('key', $keys)
+147:                 ->orderBy('key')
+148:                 ->lockForUpdate()
+149:                 ->get()
+150:                 ->keyBy('key');
+151: 
+152:             foreach ($keys as $key) {
+153:                 if (! $settings->has($key)) {
+154:                     throw new InvalidArgumentException("Required numbering setting [{$key}] is missing.");
+155:                 }
+156:             }
+157: 
+158:             $prefix = (string) $settings->get($definition['prefix'])->value;
+159:             $nextSetting = $settings->get($definition['next']);
+160:             $nextValue = (int) $nextSetting->value;
+161:             $padding = max(0, (int) $settings->get($definition['padding'])->value);
+162: 
+163:             $formatted = $prefix.str_pad((string) $nextValue, $padding, '0', STR_PAD_LEFT);
+164:             $nextSetting->value = (string) ($nextValue + 1);
+165:             $nextSetting->save();
+166: 
+167:             return $formatted;
+168:         }, attempts: 3);
+169:     }
+170: 
+171:     public function clearCache(): void
+172:     {
+173:         Cache::forget(self::CACHE_KEY);
+174:     }
+175: 
+176:     private function castValue(?string $value, string $type): mixed
+177:     {
+178:         if ($value === null) {
+179:             return null;
+180:         }
+181: 
+182:         return match ($type) {
+183:             'boolean' => filter_var($value, FILTER_VALIDATE_BOOLEAN),
+184:             'integer' => (int) $value,
+185:             'float' => (float) $value,
+186:             'json' => json_decode($value, true, 512, JSON_THROW_ON_ERROR),
+187:             default => $value,
+188:         };
+189:     }
+190: 
+191:     /** @throws JsonException */
+192:     private function serializeValue(mixed $value, string $type): ?string
+193:     {
+194:         if ($value === null) {
+195:             return null;
+196:         }
+197: 
+198:         if ($type === 'json') {
+199:             return json_encode($value, JSON_THROW_ON_ERROR);
+200:         }
+201: 
+202:         if ($type === 'boolean') {
+203:             return filter_var($value, FILTER_VALIDATE_BOOLEAN) ? '1' : '0';
+204:         }
+205: 
+206:         return (string) $value;
+207:     }
+208: }
+```
+
+## File: bags-platform/backend/composer.json
+```json
+ 1: {
+ 2:     "$schema": "https://getcomposer.org/schema.json",
+ 3:     "name": "laravel/laravel",
+ 4:     "type": "project",
+ 5:     "description": "The skeleton application for the Laravel framework.",
+ 6:     "keywords": ["laravel", "framework"],
+ 7:     "license": "MIT",
+ 8:     "require": {
+ 9:         "php": "^8.3",
+10:         "laravel/framework": "^13.17",
+11:         "laravel/sanctum": "^4.3",
+12:         "laravel/tinker": "^3.0",
+13:         "spatie/laravel-medialibrary": "^11.23",
+14:         "spatie/laravel-permission": "^8.3"
+15:     },
+16:     "require-dev": {
+17:         "fakerphp/faker": "^1.23",
+18:         "laravel/boost": "^2.10",
+19:         "laravel/pail": "^1.2.5",
+20:         "laravel/pao": "^1.0.6",
+21:         "laravel/pint": "^1.27",
+22:         "mockery/mockery": "^1.6",
+23:         "nunomaduro/collision": "^8.6",
+24:         "phpunit/phpunit": "^12.5.12"
+25:     },
+26:     "autoload": {
+27:         "psr-4": {
+28:             "App\\": "app/",
+29:             "Database\\Factories\\": "database/factories/",
+30:             "Database\\Seeders\\": "database/seeders/"
+31:         }
+32:     },
+33:     "autoload-dev": {
+34:         "psr-4": {
+35:             "Tests\\": "tests/"
+36:         }
+37:     },
+38:     "scripts": {
+39:         "setup": [
+40:             "composer install",
+41:             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
+42:             "@php artisan key:generate",
+43:             "@php artisan migrate --force",
+44:             "npm install --ignore-scripts",
+45:             "npm run build"
+46:         ],
+47:         "dev": [
+48:             "Composer\\Config::disableProcessTimeout",
+49:             "@php artisan dev"
+50:         ],
+51:         "test": [
+52:             "@php artisan config:clear --ansi @no_additional_args",
+53:             "@php artisan test"
+54:         ],
+55:         "post-autoload-dump": [
+56:             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
+57:             "@php artisan package:discover --ansi"
+58:         ],
+59:         "post-update-cmd": [
+60:             "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
+61:         ],
+62:         "post-root-package-install": [
+63:             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\""
+64:         ],
+65:         "post-create-project-cmd": [
+66:             "@php artisan key:generate --ansi",
+67:             "@php artisan migrate --graceful --ansi"
+68:         ],
+69:         "pre-package-uninstall": [
+70:             "Illuminate\\Foundation\\ComposerScripts::prePackageUninstall"
+71:         ]
+72:     },
+73:     "extra": {
+74:         "laravel": {
+75:             "dont-discover": []
+76:         }
+77:     },
+78:     "config": {
+79:         "optimize-autoloader": true,
+80:         "preferred-install": "dist",
+81:         "sort-packages": true,
+82:         "allow-plugins": {
+83:             "pestphp/pest-plugin": true,
+84:             "php-http/discovery": true
+85:         }
+86:     },
+87:     "minimum-stability": "stable",
+88:     "prefer-stable": true
+89: }
 ```
 
 ## File: bags-platform/docs/api.md
@@ -17011,7 +18441,7 @@ bags-platform/
 12: ## Admin Brands (`/api/v1/admin/brands`)
 13: 
 14: - Same pattern as categories, without parent/tree/reorder. Logo is uploaded in the `logo` field
-15:   (jpg, jpeg, png, webp, **svg** allowed) and returned as `logo_url`.
+15:   (jpg, jpeg, png, webp; SVG is rejected) and returned as `logo_url`.
 16: - Deleting a brand linked to products fails with 422.
 17: 
 18: ## Admin Products (`/api/v1/admin/products`)
@@ -17029,91 +18459,431 @@ bags-platform/
 30:   `errors.status` listing every problem; missing publish permission returns 403.
 31: - `cost_price` is only visible to users with the `products.view_cost` permission.
 32: - `DELETE /products/{id}` — soft-deletes the product and its variants.
-33: 
-34: ## Product Variants (`/api/v1/admin/products/{product}/variants`)
-35: 
-36: - Nested and scoped: a variant id under the wrong product returns 404.
-37: - `GET` returns all variants without pagination. Create/update/delete require `products.update`
-38:   (editing variants is editing the product); read requires `products.view`.
-39: - The combination (color_name_en, size, capacity) must be unique per product — duplicates return 422.
-40: - A variant without `sku` gets `{product_code}-{NN}` (e.g. `P00001-01`); without `barcode` it gets
-41:   an internal EAN-13 barcode (prefix `2`).
-42: - The last active variant of a published product cannot be deleted or deactivated (422).
-43: - Sending `cost_price` without the `products.view_cost` permission is silently ignored on write.
+33: - `supplier_id` is accepted as a positive integer but is **not** checked against any table yet —
+34:   the suppliers foreign key arrives in a later phase, and existing values must be audited/cleaned
+35:   before that FK migration can run.
+36: - List filters are validated: a malformed or unknown filter value (e.g. `category_id=abc` or a
+37:   non-existent category) returns 422, and non-numeric ids in paths return 404. Search is
+38:   case-insensitive and treats `%`/`_` literally.
+39: - New media files use UUID paths (`/storage/{uuid}/...`). Existing files at numeric paths
+40:   remain readable and deletable without moving files. These are public URLs; UUIDs do not
+41:   provide authorization for private assets.
+42: 
+43: ## Product Variants (`/api/v1/admin/products/{product}/variants`)
 44: 
-45: ## Product Media (`/api/v1/admin/products/{product}/media`)
-46: 
-47: - `GET` lists the product's media **and** its variants' media ordered by `order_column`
-48:   (variant media items carry `variant_id`).
-49: - `POST` with `collection=images` + `files[]` (max 10, jpg/png/webp, 5MB each), optionally with
-50:   `variant_id` to attach the images to a variant instead. With `collection=video` + `file`
-51:   (mp4/webm/quicktime, 50MB) — video is product-only; sending it with `variant_id` returns 422.
-52: - `PUT /media/reorder` with `ids: [...]` in the desired order.
-53: - `DELETE /media/{media}` — the last image of a published product cannot be deleted (422).
-54: 
-55: ### Updating with a file upload (important)
-56: 
-57: PHP does not parse uploaded files from `multipart/form-data` when the request method is `PUT`.
-58: Therefore, to update a category (or any resource) **with an image**, the frontend must send a
-59: `POST` request to `/categories/{id}` with `_method=PUT` included in the form body.
-60: Laravel converts it to a `PUT` request automatically (method spoofing), and validation,
-61: authorization and file handling then work as expected.
+45: - Nested and scoped: a variant id under the wrong product returns 404.
+46: - `GET` returns all variants without pagination. Create/update/delete require `products.update`
+47:   (editing variants is editing the product); read requires `products.view`.
+48: - The combination (color_name_en, size, capacity) must be unique per product — duplicates return 422.
+49: - A variant without `sku` gets `{product_code}-{NN}` (e.g. `P00001-01`); without `barcode` it gets
+50:   an internal EAN-13 barcode (prefix `2`).
+51: - The last active variant of a published product cannot be deleted or deactivated (422).
+52: - Sending `cost_price` without the `products.view_cost` permission is silently ignored on write.
+53:   This also applies to nested variants when creating a product.
+54: - Manual barcodes matching `2` followed by 12 digits are reserved for system generation.
+55:   Updating a variant may resend its own current generated barcode.
+56: - Color combinations compare English color name, size and capacity without case sensitivity.
+57:   English color name is required when Arabic color name or hex is supplied. Partial updates
+58:   can retain the existing English name, but cannot clear it while other color details remain.
+59: 
+60: ## Product Media (`/api/v1/admin/products/{product}/media`)
+61: 
+62: - `GET` lists the product's media **and** its variants' media ordered by `order_column`
+63:   (variant media items carry `variant_id`).
+64: - `POST` with `collection=images` + `files[]` (max 10, jpg/png/webp, 5MB each), optionally with
+65:   `variant_id` to attach the images to a variant instead. With `collection=video` + `file`
+66:   (mp4/webm/quicktime, 50MB) — video is product-only; sending it with `variant_id` returns 422.
+67: - `PUT /media/reorder` with `ids: [...]` in the desired order.
+68: - `DELETE /media/{media}` — the last image of a published product cannot be deleted (422).
+69: - Originals and conversions from failed uploads are removed on rollback. Replacing or deleting
+70:   existing media removes its files only after the database transaction commits.
+71: - Images have a maximum width and height of 6000 pixels. Batch limits: 100 nested variants,
+72:   500 category reorder items, 200 media reorder ids, and 10 uploaded images. Oversized batches
+73:   are rejected before per-item validation queries. Reorder ids must be distinct.
+74: - Published product edits and variant mutations recheck publishability inside a product lock.
+75:   To remove a required price, change the product to draft first. Category deactivation is
+76:   rejected while that category or a descendant contains published products.
+77: - Invalid pagination (`per_page < 1`) returns 422; values above 100 are capped at 100.
+78:   Catalog path ids accept 1–18 digits; malformed or oversized path ids return 404.
+79: 
+80: ### Updating with a file upload (important)
+81: 
+82: PHP does not parse uploaded files from `multipart/form-data` when the request method is `PUT`.
+83: Therefore, to update a category (or any resource) **with an image**, the frontend must send a
+84: `POST` request to `/categories/{id}` with `_method=PUT` included in the form body.
+85: Laravel converts it to a `PUT` request automatically (method spoofing), and validation,
+86: authorization and file handling then work as expected.
 ```
 
-## File: bags-platform/docs/phase2-audit.md
-```markdown
- 1: # مراجعة المرحلة الثانية: الكتالوج
+## File: bags-platform/backend/app/Http/Requests/Admin/Product/StoreProductRequest.php
+```php
+ 1: <?php
  2: 
- 3: تاريخ المراجعة: 15 أكتوبر 2026.
+ 3: declare(strict_types=1);
  4: 
- 5: الخطة كانت منفذة بدرجة كبيرة، لكن لم تكن مطابقة بالكامل. تم إصلاح النواقص التالية والتحقق من السلوك الحالي بالاختبارات.
+ 5: namespace App\Http\Requests\Admin\Product;
  6: 
- 7: ## نتيجة مراجعة المهام
- 8: 
- 9: | المهمة | النتيجة بعد المراجعة |
-10: | --- | --- |
-11: | 0 — إعداد الميديا | إصلاح composer.lock وتثبيت spatie/laravel-medialibrary 11.23.9 وتبعياتها؛ إضافة MEDIA_DISK=public للبيئة المحلية و.env.example؛ حد المكتبة 50MB؛ تفعيل GD وEXIF وإنشاء public/storage. |
-12: | 1 — Enums | ProductStatus وSalesChannel والقيم والدوال المطلوبة موجودة. |
-13: | 2 — Migrations | الجداول والحقول والعلاقات والفهارس المطلوبة موجودة؛ إعادة البناء والـ seed نجحا على PostgreSQL. لا أعمدة stock أو quantity في الكتالوج. |
-14: | 3 — Models | العلاقات وSoftDeletes وcasts ومجموعات الميديا وتحويلات الصور المطلوبة موجودة. |
-15: | 4 — الصلاحيات | الصلاحيات الأربع عشرة موجودة، وتُمنح لـ super-admin على guard اسمه staff، مطابق للمرحلة الأولى. أُضيف transaction لكتابات Seeder الصلاحيات. |
-16: | 5 — الأدوات المشتركة | BusinessException وSlugService وBarcodeGenerator وMediaResource موجودة. أُضيف حد أدنى 1 لـ per_page مع الاحتفاظ بالافتراضي 15 والحد الأعلى 100. |
-17: | 6 — الأقسام | الإنشاء والتعديل والصور والحذف والفلاتر والشجرة والترتيب والتحقق من الدورات وارتفاع الشجرة موجودة. أُضيفت transactions لحفظ القسم وصورته، والتحقق من الأقسام غير المحذوفة ومنع تكرار العناصر أثناء الترتيب. |
-18: | 7 — البراندات | CRUD والفلاتر والصلاحيات ومنع الحذف عند وجود منتجات ورفع SVG موجودة. أُضيفت transactions لحفظ البراند وشعاره. |
-19: | 8 — المنتجات | CRUD والفلاتر والبحث بالباركود والترقيم التلقائي وشروط النشر والصلاحيات والحذف الناعم موجودة. أُصلح slug الفارغ عند التعديل، وتم منع تجاوز صلاحية التكلفة عبر variants المرسلة أثناء إنشاء المنتج. |
-20: | 9 — المتغيرات | الترقيم والباركود ومنع التركيبات المكررة والصلاحيات وإخفاء التكلفة وحماية آخر متغير نشط والربط بالمنتج موجودة. إرسال SKU فارغ في التعديل يرجع 422 بدل خطأ قاعدة بيانات. |
-21: | 10 — الميديا | الرفع والعرض والترتيب والحذف والتحقق من الملكية وحماية آخر صورة موجودة. نُقل منطق التنفيذ من Controller إلى ProductMediaService، وأُضيفت transactions للرفع والترتيب. المتغير المحذوف لا يُقبل في طلب الرفع. |
-22: | 11 — Routes | جميع مسارات الكتالوج المطلوبة موجودة تحت api/v1/admin مع auth:sanctum وauth.staff، وreorder قبل apiResource، وربط variants بالمنتج scoped. |
-23: | 12 — Factories وSeeders | المصانع الأربعة موجودة؛ البيانات التجريبية تنتج 7 أقسام و4 براندات و10 منتجات draft، لكل منتج 2–3 متغيرات، عبر ProductService. أُضيف transaction لـ CatalogSeeder، واختبار لإعادة تشغيله بدون تكرار البيانات. |
-24: | 13 — الاختبارات | اختبارات الخطة موجودة وناجحة؛ أُضيف 19 اختبارًا للمشكلات المكتشفة والحماية والبيانات التجريبية. |
-25: 
-26: ## إصلاحات إضافية في التحقق من الطلبات
+ 7: use App\Enums\SalesChannel;
+ 8: use App\Http\Requests\Admin\Concerns\LimitsArrayInput;
+ 9: use App\Http\Requests\Admin\Variant\VariantRules;
+10: use Illuminate\Contracts\Validation\ValidationRule;
+11: use Illuminate\Foundation\Http\FormRequest;
+12: use Illuminate\Validation\Rule;
+13: 
+14: class StoreProductRequest extends FormRequest
+15: {
+16:     use LimitsArrayInput;
+17: 
+18:     protected function arrayLimits(): array
+19:     {
+20:         return ['variants' => 100];
+21:     }
+22: 
+23:     public function authorize(): bool
+24:     {
+25:         return $this->user() !== null;
+26:     }
 27: 
-28: - تقييد مفاتيح كل عنصر في variants عند إنشاء المنتج، لمنع تمرير product_id أو id أو حقول غير مسموحة داخل المصفوفة.
-29: - رفض SKU أو barcode المكرر بين متغيرات الطلب نفسه بـ422 قبل الوصول إلى قيود قاعدة البيانات.
-30: - تجاهل cost_price بدون products.view_cost في إنشاء المنتج بمتغيراته، وكذلك مسارات المتغيرات المستقلة.
-31: - اختبارات تؤكد تراجع تغييرات القسم والبراند عند رفض الملف المرفوع، وتراجع ترتيب الأقسام عند فشل أحد العناصر.
+28:     /**
+29:      * @return array<string, array<mixed>|string|ValidationRule>
+30:      */
+31:     public function rules(): array
+32:     {
+33:         $rules = [
+34:             'category_id' => ['required', 'integer', Rule::exists('categories', 'id')->whereNull('deleted_at')],
+35:             'brand_id' => ['nullable', 'integer', Rule::exists('brands', 'id')->whereNull('deleted_at')],
+36:             'supplier_id' => ['nullable', 'integer', 'min:1'],
+37:             'name_ar' => ['required', 'string', 'max:255'],
+38:             'name_en' => ['required', 'string', 'max:255'],
+39:             'slug' => ['nullable', 'alpha_dash', 'max:255', Rule::unique('products', 'slug')],
+40:             'description_ar' => ['nullable', 'string'],
+41:             'description_en' => ['nullable', 'string'],
+42:             'material_ar' => ['nullable', 'string', 'max:150'],
+43:             'material_en' => ['nullable', 'string', 'max:150'],
+44:             'length_cm' => ['nullable', 'numeric', 'min:0', 'max:999999.99'],
+45:             'width_cm' => ['nullable', 'numeric', 'min:0', 'max:999999.99'],
+46:             'height_cm' => ['nullable', 'numeric', 'min:0', 'max:999999.99'],
+47:             'weight_kg' => ['nullable', 'numeric', 'min:0', 'max:99999.999'],
+48:             'warranty_months' => ['nullable', 'integer', 'min:0', 'max:120'],
+49:             'warranty_details' => ['nullable', 'string', 'max:255'],
+50:             'country_of_origin' => ['nullable', 'string', 'max:100'],
+51:             'status' => ['nullable', Rule::in(['draft', 'published'])],
+52:             'sales_channel' => ['required', Rule::enum(SalesChannel::class)],
+53:             'is_featured' => ['nullable', 'boolean'],
+54:             // اختياري: متغيرات مع الإنشاء
+55:             'variants' => ['nullable', 'array', 'max:100'],
+56:             'variants.*' => ['array:'.implode(',', array_keys(VariantRules::base()))],
+57:         ];
+58: 
+59:         foreach (VariantRules::base(null, 'variants.*.') as $field => $rule) {
+60:             if (in_array($field, ['sku', 'barcode'], true)) {
+61:                 $rule[] = 'distinct';
+62:             }
+63:             $rules["variants.*.$field"] = $rule;
+64:         }
+65: 
+66:         return $rules;
+67:     }
+68: }
+```
+
+## File: bags-platform/backend/.env.example
+```
+ 1: APP_NAME=Laravel
+ 2: APP_ENV=local
+ 3: APP_KEY=
+ 4: APP_DEBUG=false
+ 5: APP_URL=http://localhost:8000
+ 6: SANCTUM_EXPIRATION=1440
+ 7: # Configure only your actual reverse-proxy IPs/CIDRs in production.
+ 8: # TRUSTED_PROXIES=10.0.0.10,192.0.2.0/24
+ 9: 
+10: APP_LOCALE=en
+11: APP_FALLBACK_LOCALE=en
+12: APP_FAKER_LOCALE=en_US
+13: 
+14: APP_MAINTENANCE_DRIVER=file
+15: # APP_MAINTENANCE_STORE=database
+16: 
+17: # PHP_CLI_SERVER_WORKERS=4
+18: 
+19: BCRYPT_ROUNDS=12
+20: 
+21: LOG_CHANNEL=stack
+22: LOG_STACK=single
+23: LOG_DEPRECATIONS_CHANNEL=null
+24: LOG_LEVEL=debug
+25: 
+26: DB_CONNECTION=pgsql
+27: DB_HOST=127.0.0.1
+28: DB_PORT=5432
+29: DB_DATABASE=alfarid
+30: DB_USERNAME=postgres
+31: DB_PASSWORD=
 32: 
-33: ## التحقق المنفذ
-34: 
-35: - php artisan test --compact: نجح 103 اختبارات و524 assertion.
-36: - اختبارات الكتالوج وحدها: نجح 36 اختبارًا.
-37: - php artisan migrate:fresh --seed --force: نجح على قاعدة alfarid_testing، للحفاظ على بيانات قاعدة alfarid المحلية.
-38: - php artisan route:list --path=api/v1/admin --except-vendor: ظهرت جميع المسارات المطلوبة.
-39: - composer validate --no-check-publish: نجح.
-40: - composer check-platform-reqs: نجح.
-41: - composer install --dry-run --no-interaction: لا مكتبات ناقصة أو تغييرات مطلوبة.
-42: - Laravel Pint وgit diff --check: نجحا.
-43: 
-44: ## فروق عن النص الأصلي وحدود التحقق
+33: SESSION_DRIVER=database
+34: SESSION_LIFETIME=120
+35: SESSION_ENCRYPT=false
+36: SESSION_PATH=/
+37: SESSION_DOMAIN=null
+38: 
+39: BROADCAST_CONNECTION=log
+40: FILESYSTEM_DISK=local
+41: QUEUE_CONNECTION=database
+42: 
+43: CACHE_STORE=database
+44: # CACHE_PREFIX=
 45: 
-46: - المشروع القائم يستخدم Laravel 13.36.0، بينما مقدمة الخطة تفترض Laravel 11/12. تم الحفاظ على إصدار المشروع الموجود؛ لم يتم تنفيذ downgrade للإطار أو تغيير مصادقة المرحلة الأولى.
-47: - migration الميديا موجودة قبل migrations الكتالوج زمنيًا؛ جدولها متعدد الأشكال ولا يعتمد على foreign key لجداول المنتجات، وإعادة البناء نجحت. تم الحفاظ على أسماء migrations الموجودة.
-48: - لا يمكن إثبات أن المنفذ السابق شغّل migrate:fresh --seed بعد كل مهمة أو التزم بترتيب العمل تاريخيًا. ما تم التحقق منه هو الكود الحالي والتشغيل الفعلي بعد الإصلاح.
-49: - النص يسمح بـSKU فارغ في تحديث المتغير رغم أن العمود غير nullable؛ تم حسم التعارض بإرجاع خطأ validation 422 مع الاحتفاظ بالـSKU الحالي.
-50: - إعدادات PHP المحلية المستخدمة في المراجعة عُدلت في C:/php8/php.ini: تفعيل gd وexif، upload_max_filesize=50M، post_max_size=64M. لم يتم اختبار إعدادات خادم نشر خارجي.
-51: - توثيق POST مع _method=PUT لرفع الملفات أثناء التعديل موجود بالفعل في docs/api.md.
-52: - لم تُضف وظائف مخزون أو قوائم أسعار أو خصومات.
+46: MEMCACHED_HOST=127.0.0.1
+47: 
+48: REDIS_CLIENT=phpredis
+49: REDIS_HOST=127.0.0.1
+50: REDIS_PASSWORD=null
+51: REDIS_PORT=6379
+52: 
+53: MAIL_MAILER=log
+54: MAIL_SCHEME=null
+55: MAIL_HOST=127.0.0.1
+56: MAIL_PORT=2525
+57: MAIL_USERNAME=null
+58: MAIL_PASSWORD=null
+59: MAIL_FROM_ADDRESS="hello@example.com"
+60: MAIL_FROM_NAME="${APP_NAME}"
+61: 
+62: AWS_ACCESS_KEY_ID=
+63: AWS_SECRET_ACCESS_KEY=
+64: AWS_DEFAULT_REGION=us-east-1
+65: AWS_BUCKET=
+66: AWS_USE_PATH_STYLE_ENDPOINT=false
+67: 
+68: VITE_APP_NAME="${APP_NAME}"
+```
+
+## File: bags-platform/backend/database/seeders/DatabaseSeeder.php
+```php
+ 1: <?php
+ 2: 
+ 3: declare(strict_types=1);
+ 4: 
+ 5: namespace Database\Seeders;
+ 6: 
+ 7: use App\Models\User;
+ 8: use Illuminate\Database\Console\Seeds\WithoutModelEvents;
+ 9: use Illuminate\Database\Seeder;
+10: 
+11: class DatabaseSeeder extends Seeder
+12: {
+13:     use WithoutModelEvents;
+14: 
+15:     /**
+16:      * Seed the application's database.
+17:      */
+18:     public function run(): void
+19:     {
+20:         $this->call(SettingSeeder::class);
+21:         $this->call(BranchSeeder::class);
+22:         $this->call(LocationSeeder::class);
+23:         $this->call(RolePermissionSeeder::class);
+24:         $this->call(CatalogPermissionSeeder::class);
+25: 
+26:         if (app()->environment(['local', 'testing'])) {
+27:             $testUser = User::factory()->make([
+28:                 'name' => 'Test User',
+29:                 'email' => 'test@example.com',
+30:             ]);
+31: 
+32:             User::query()->firstOrCreate(
+33:                 ['email' => 'test@example.com'],
+34:                 $testUser->getAttributes(),
+35:             );
+36: 
+37:             // بيانات الكتالوج التجريبية للبيئات المحلية والاختبار بس
+38:             $this->call(CatalogSeeder::class);
+39:         }
+40:     }
+41: }
+```
+
+## File: bags-platform/backend/routes/api/admin.php
+```php
+  1: <?php
+  2: 
+  3: declare(strict_types=1);
+  4: 
+  5: use App\Http\Controllers\Api\V1\Admin\AuthController;
+  6: use App\Http\Controllers\Api\V1\Admin\BranchController;
+  7: use App\Http\Controllers\Api\V1\Admin\BrandController;
+  8: use App\Http\Controllers\Api\V1\Admin\CategoryController;
+  9: use App\Http\Controllers\Api\V1\Admin\LocationController;
+ 10: use App\Http\Controllers\Api\V1\Admin\PermissionController;
+ 11: use App\Http\Controllers\Api\V1\Admin\ProductController;
+ 12: use App\Http\Controllers\Api\V1\Admin\ProductMediaController;
+ 13: use App\Http\Controllers\Api\V1\Admin\ProductVariantController;
+ 14: use App\Http\Controllers\Api\V1\Admin\RoleController;
+ 15: use App\Http\Controllers\Api\V1\Admin\SettingController;
+ 16: use App\Http\Controllers\Api\V1\Admin\UserController;
+ 17: use Illuminate\Support\Facades\Route;
+ 18: 
+ 19: // معرّفات الكتالوج رقمية بس: أي قيمة غير رقمية تبقى 404 بدل ما Postgres يرمي خطأ نوع ويرجع 500
+ 20: Route::pattern('category', '[0-9]{1,18}');
+ 21: Route::pattern('brand', '[0-9]{1,18}');
+ 22: Route::pattern('product', '[0-9]{1,18}');
+ 23: Route::pattern('variant', '[0-9]{1,18}');
+ 24: Route::pattern('media', '[0-9]{1,18}');
+ 25: 
+ 26: // Public admin authentication endpoint.
+ 27: Route::post('auth/login', [AuthController::class, 'login'])
+ 28:     ->middleware('throttle:admin-login')
+ 29:     ->name('admin.auth.login');
+ 30: 
+ 31: // Staff-only API endpoints: require a Sanctum token and an active staff account.
+ 32: Route::middleware(['auth:sanctum', 'auth.staff'])
+ 33:     ->name('admin.')
+ 34:     ->group(function (): void {
+ 35:         Route::get('me', [AuthController::class, 'me'])->name('auth.me');
+ 36:         Route::post('auth/logout', [AuthController::class, 'logout'])->name('auth.logout');
+ 37: 
+ 38:         Route::apiResource('branches', BranchController::class)
+ 39:             ->only(['index', 'show'])
+ 40:             ->middleware('permission:branches.view|branches.manage');
+ 41:         Route::apiResource('branches', BranchController::class)
+ 42:             ->only(['store'])
+ 43:             ->middleware('permission:branches.create|branches.manage');
+ 44:         Route::apiResource('branches', BranchController::class)
+ 45:             ->only(['update'])
+ 46:             ->middleware('permission:branches.update|branches.manage');
+ 47:         Route::apiResource('branches', BranchController::class)
+ 48:             ->only(['destroy'])
+ 49:             ->middleware('permission:branches.delete|branches.manage');
+ 50: 
+ 51:         Route::scopeBindings()->group(function (): void {
+ 52:             Route::apiResource('branches.locations', LocationController::class)
+ 53:                 ->only(['index', 'show'])
+ 54:                 ->middleware('permission:locations.view|locations.manage');
+ 55:             Route::apiResource('branches.locations', LocationController::class)
+ 56:                 ->only(['store'])
+ 57:                 ->middleware('permission:locations.create|locations.manage');
+ 58:             Route::apiResource('branches.locations', LocationController::class)
+ 59:                 ->only(['update'])
+ 60:                 ->middleware('permission:locations.update|locations.manage');
+ 61:             Route::apiResource('branches.locations', LocationController::class)
+ 62:                 ->only(['destroy'])
+ 63:                 ->middleware('permission:locations.delete|locations.manage');
+ 64:         });
+ 65: 
+ 66:         Route::apiResource('users', UserController::class)
+ 67:             ->only(['index', 'show'])
+ 68:             ->middleware('permission:users.view|users.manage');
+ 69:         Route::apiResource('users', UserController::class)
+ 70:             ->only(['store'])
+ 71:             ->middleware('permission:users.create|users.manage');
+ 72:         Route::apiResource('users', UserController::class)
+ 73:             ->only(['update'])
+ 74:             ->middleware('permission:users.update|users.manage');
+ 75:         Route::apiResource('users', UserController::class)
+ 76:             ->only(['destroy'])
+ 77:             ->middleware('permission:users.delete|users.manage');
+ 78: 
+ 79:         Route::apiResource('roles', RoleController::class)
+ 80:             ->only(['index', 'show'])
+ 81:             ->middleware('permission:roles.view|roles.manage');
+ 82:         Route::apiResource('roles', RoleController::class)
+ 83:             ->only(['store'])
+ 84:             ->middleware('permission:roles.create|roles.manage');
+ 85:         Route::apiResource('roles', RoleController::class)
+ 86:             ->only(['update'])
+ 87:             ->middleware('permission:roles.update|roles.manage');
+ 88:         Route::apiResource('roles', RoleController::class)
+ 89:             ->only(['destroy'])
+ 90:             ->middleware('permission:roles.delete|roles.manage');
+ 91: 
+ 92:         Route::get('permissions', [PermissionController::class, 'index'])
+ 93:             ->middleware('permission:permissions.view|roles.manage')
+ 94:             ->name('permissions.index');
+ 95: 
+ 96:         // Catalog: authorization is handled in the controllers via can:* middleware.
+ 97:         // مهم: reorder قبل apiResource عشان ميتقريش كأنه {category}
+ 98:         Route::put('categories/reorder', [CategoryController::class, 'reorder'])->name('categories.reorder');
+ 99:         Route::apiResource('categories', CategoryController::class);
+100: 
+101:         Route::apiResource('brands', BrandController::class);
+102: 
+103:         Route::apiResource('products', ProductController::class);
+104:         Route::apiResource('products.variants', ProductVariantController::class)->scoped();
+105: 
+106:         Route::put('products/{product}/media/reorder', [ProductMediaController::class, 'reorder'])->name('products.media.reorder');
+107:         Route::get('products/{product}/media', [ProductMediaController::class, 'index'])->name('products.media.index');
+108:         Route::post('products/{product}/media', [ProductMediaController::class, 'store'])->name('products.media.store');
+109:         Route::delete('products/{product}/media/{media}', [ProductMediaController::class, 'destroy'])->name('products.media.destroy');
+110: 
+111:         Route::get('settings', [SettingController::class, 'index'])
+112:             ->middleware('permission:settings.view|settings.manage')
+113:             ->name('settings.index');
+114:         Route::put('settings', [SettingController::class, 'update'])
+115:             ->middleware('permission:settings.update|settings.manage')
+116:             ->name('settings.update');
+117:     });
+```
+
+## File: bags-platform/backend/bootstrap/app.php
+```php
+ 1: <?php
+ 2: 
+ 3: use App\Http\Middleware\EnsureCustomerAuthenticated;
+ 4: use App\Http\Middleware\EnsureStaffAuthenticated;
+ 5: use App\Http\Middleware\EnsureSupplierAuthenticated;
+ 6: use App\Http\Middleware\EnsureWholesaleApproved;
+ 7: use Illuminate\Database\UniqueConstraintViolationException;
+ 8: use Illuminate\Foundation\Application;
+ 9: use Illuminate\Foundation\Configuration\Exceptions;
+10: use Illuminate\Foundation\Configuration\Middleware;
+11: use Illuminate\Http\Request;
+12: use Illuminate\Support\Facades\Route;
+13: use Spatie\Permission\Middleware\PermissionMiddleware;
+14: use Spatie\Permission\Middleware\RoleMiddleware;
+15: 
+16: return Application::configure(basePath: dirname(__DIR__))
+17:     ->withRouting(
+18:         web: __DIR__.'/../routes/web.php',
+19:         commands: __DIR__.'/../routes/console.php',
+20:         health: '/up',
+21:         then: function (): void {
+22:             Route::middleware('api')
+23:                 ->prefix('api/v1/admin')
+24:                 ->group(base_path('routes/api/admin.php'));
+25:         },
+26:     )
+27:     ->withMiddleware(function (Middleware $middleware): void {
+28:         $trustedProxies = env('TRUSTED_PROXIES');
+29:         $middleware->trustProxies(
+30:             at: is_string($trustedProxies) && trim($trustedProxies) !== ''
+31:                 ? array_map('trim', explode(',', $trustedProxies))
+32:                 : null,
+33:         );
+34: 
+35:         $middleware->alias([
+36:             'auth.staff' => EnsureStaffAuthenticated::class,
+37:             'auth.customer' => EnsureCustomerAuthenticated::class,
+38:             'auth.supplier' => EnsureSupplierAuthenticated::class,
+39:             'wholesale.approved' => EnsureWholesaleApproved::class,
+40:             'role' => RoleMiddleware::class,
+41:             'permission' => PermissionMiddleware::class,
+42:         ]);
+43:     })
+44:     ->withExceptions(function (Exceptions $exceptions): void {
+45:         $exceptions->shouldRenderJsonWhen(
+46:             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
+47:         );
+48: 
+49:         // سباق على قيد unique (فحص exists وبعده إدخال متزامن): القيد سليم، فالرد يبقى 409 متحكم فيه بدل 500
+50:         $exceptions->render(function (UniqueConstraintViolationException $e, Request $request) {
+51:             if ($request->is('api/*') || $request->expectsJson()) {
+52:                 return response()->json(['message' => 'توجد بيانات متعارضة. أعد المحاولة'], 409);
+53:             }
+54: 
+55:             return null;
+56:         });
+57:     })->create();
 ```
 
 

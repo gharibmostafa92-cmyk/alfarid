@@ -44,7 +44,7 @@ class BrandController extends Controller implements HasMiddleware
         $brands = Brand::query()
             ->with('media')
             ->withCount('products')
-            ->when(! empty($filters['search']), function ($query) use ($filters): void {
+            ->when(isset($filters['search']) && $filters['search'] !== '', function ($query) use ($filters): void {
                 $pattern = SearchTerm::pattern($filters['search']);
                 $query->where(fn ($q) => $q->whereLike('name_ar', $pattern, caseSensitive: false)
                     ->orWhereLike('name_en', $pattern, caseSensitive: false));
