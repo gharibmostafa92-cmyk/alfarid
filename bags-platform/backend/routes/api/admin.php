@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\Admin\AuthController;
 use App\Http\Controllers\Api\V1\Admin\BranchController;
 use App\Http\Controllers\Api\V1\Admin\BrandController;
 use App\Http\Controllers\Api\V1\Admin\CategoryController;
+use App\Http\Controllers\Api\V1\Admin\CustomerController;
 use App\Http\Controllers\Api\V1\Admin\CustomerGroupController;
 use App\Http\Controllers\Api\V1\Admin\InventoryController;
 use App\Http\Controllers\Api\V1\Admin\LocationController;
@@ -31,6 +32,8 @@ Route::pattern('media', '[0-9]{1,18}');
 Route::pattern('transfer', '[0-9]{1,18}');
 Route::pattern('stocktake', '[0-9]{1,18}');
 Route::pattern('customer_group', '[0-9]{1,18}');
+Route::pattern('customer', '[0-9]{1,18}');
+Route::pattern('document', '[0-9]{1,18}');
 Route::pattern('price_list', '[0-9]{1,18}');
 Route::pattern('item', '[0-9]{1,18}');
 
@@ -147,6 +150,16 @@ Route::middleware(['auth:sanctum', 'auth.staff'])
 
         Route::scopeBindings()->group(function () {
             Route::apiResource('price-lists.items', PriceListItemController::class);
+        });
+
+        // ================== المرحلة 5: العملاء ==================
+        Route::apiResource('customers', CustomerController::class);
+        Route::post('customers/{customer}/approve', [CustomerController::class, 'approve'])->name('customers.approve');
+        Route::post('customers/{customer}/reject', [CustomerController::class, 'reject'])->name('customers.reject');
+        Route::post('customers/{customer}/suspend', [CustomerController::class, 'suspend'])->name('customers.suspend');
+        Route::scopeBindings()->group(function (): void {
+            Route::get('customers/{customer}/documents/{document}/download', [CustomerController::class, 'downloadDocument'])
+                ->name('customers.documents.download');
         });
 
         Route::get('settings', [SettingController::class, 'index'])

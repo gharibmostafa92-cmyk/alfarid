@@ -24,7 +24,7 @@ class EnsureCustomerAuthenticated
             ], 401);
         }
 
-        if (! $user instanceof Customer || in_array($user->status, [CustomerStatus::Blocked, CustomerStatus::Rejected], true)) {
+        if (! $user instanceof Customer || in_array($user->status, [CustomerStatus::Suspended, CustomerStatus::Rejected], true)) {
             return response()->json([
                 'message' => 'غير مصرح لك بالدخول كعميل.',
             ], 403);

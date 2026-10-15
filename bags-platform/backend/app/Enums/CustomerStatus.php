@@ -9,5 +9,5 @@ enum CustomerStatus: string
     case Pending = 'pending';
     case Approved = 'approved';
     case Rejected = 'rejected';
-    case Blocked = 'blocked';
+    case Suspended = 'suspended';
 }

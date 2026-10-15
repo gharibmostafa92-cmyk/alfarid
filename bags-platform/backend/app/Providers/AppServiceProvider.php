@@ -39,6 +39,17 @@ class AppServiceProvider extends ServiceProvider
             'stocktake' => Stocktake::class,
         ]);
 
+        // حد دخول العملاء (متجر/جملة): بالمُعرّف (بريد/هاتف) وبالـ IP معًا
+        RateLimiter::for('customer-login', function (Request $request): array {
+            $identifier = $request->input('login');
+            $idKey = is_string($identifier) ? hash('sha256', Str::lower(trim($identifier))) : 'none';
+
+            return [
+                Limit::perMinute(5)->by('customer-login-id:'.$idKey),
+                Limit::perMinute(30)->by('customer-login-ip:'.($request->ip() ?? 'unknown')),
+            ];
+        });
+
         RateLimiter::for('admin-login', function (Request $request): array {
             $email = $request->input('email');
             $normalizedEmail = is_string($email)
