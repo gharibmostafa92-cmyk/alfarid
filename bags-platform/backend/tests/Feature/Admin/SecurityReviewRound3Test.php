@@ -61,6 +61,9 @@ class SecurityReviewRound3Test extends TestCase
 
     public function test_resaving_a_stocktake_does_not_refresh_snapshots_or_hide_sales(): void
     {
+        // سياسة الرفض الصارمة (سلوك هذه الجولة) — الافتراضي من الجولة 5 هو
+        // apply_difference، والرفض يظل متاحًا بالضبط (M-5 جولة 5).
+        config(['inventory.stocktake_stale_policy' => 'reject']);
         $staff = $this->staffWithPermissions(self::ALL_PERMISSIONS);
         $branch = Branch::factory()->create();
         $variant = ProductVariant::factory()->create();

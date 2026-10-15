@@ -65,7 +65,8 @@ class SecurityReviewRound4Test extends TestCase
         $this->assertSame([$listA->id], $ids->all()); // لا العامة ولا فرع آخر
 
         $this->requestWithToken($token, 'GET', "/api/v1/admin/price-lists/{$listB->id}")->assertNotFound();
-        $this->requestWithToken($token, 'PUT', "/api/v1/admin/price-lists/{$global->id}", ['name' => 'Hijack'])->assertForbidden();
+        // من الجولة 5 (L-6): 404 موحد لقوائم خارج النطاق بدل 403 الكاشف للوجود
+        $this->requestWithToken($token, 'PUT', "/api/v1/admin/price-lists/{$global->id}", ['name' => 'Hijack'])->assertNotFound();
 
         $this->requestWithToken($token, 'POST', '/api/v1/admin/price-lists', [
             'name' => 'For B', 'type' => 'retail', 'branch_id' => $branchB->id,

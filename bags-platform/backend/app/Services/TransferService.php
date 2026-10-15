@@ -11,6 +11,8 @@ use App\Exceptions\BusinessException;
 use App\Models\Location;
 use App\Models\StockMovement;
 use App\Models\StockTransfer;
+use App\Models\StockTransferItem;
+use App\Services\Concerns\HandlesIdempotentCreation;
 use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -24,6 +26,8 @@ use Illuminate\Support\Facades\DB;
  */
 class TransferService
 {
+    use HandlesIdempotentCreation;
+
     public function __construct(
         private readonly InventoryService $inventory,
         private readonly SettingService $settings,
@@ -48,7 +52,21 @@ class TransferService
             ->findOrFail($id);
     }
 
-    public function create(array $data, int $userId): StockTransfer
+    public function create(array $data, int $userId, ?string $idempotencyKey = null): StockTransfer
+    {
+        /** @var StockTransfer */
+        return $this->createIdempotently(
+            'transfer_store',
+            $data,
+            $userId,
+            $idempotencyKey,
+            StockTransfer::class,
+            ['items.variant', 'fromBranch', 'toBranch', 'creator'],
+            fn (): StockTransfer => $this->doCreate($data, $userId),
+        );
+    }
+
+    private function doCreate(array $data, int $userId): StockTransfer
     {
         return DB::transaction(function () use ($data, $userId): StockTransfer {
             app(BranchAccess::class)->assertBranch($userId, (int) $data['from_branch_id']);
@@ -98,6 +116,10 @@ class TransferService
             if (isset($data['items'])) {
                 $transfer->items()->delete();
                 $this->syncItems($transfer, $data['items']);
+                // استبدال البنود تغيير حقيقي حتى لو الرأس لم يتغير: update() بلا
+                // قيم جديدة لا يحرّك updated_at، فيمرّ طابع expected_updated_at
+                // عند الاعتماد على بنود لم يراجعها أحد (H-1). touch يفرض التحديث.
+                $transfer->touch();
             }
 
             return $transfer->load(['items.variant', 'fromBranch', 'toBranch', 'creator']);
@@ -117,6 +139,7 @@ class TransferService
                 throw new BusinessException('يجب اعتماد كمية موجبة واحدة على الأقل؛ يمكن إلغاء التحويل بدلًا من اعتماده بصفر.');
             }
             $levels = $this->lockTransferLevels($transfer, true, false);
+            $qtyUpdates = [];
 
             foreach ($transfer->items as $item) {
                 $approvedQty = (float) ($itemsPayload[$item->id] ?? $item->requested_qty);
@@ -125,7 +148,11 @@ class TransferService
                     throw new BusinessException('الكمية المعتمدة يجب أن تكون بين صفر والكمية المطلوبة.');
                 }
 
-                $item->update(['approved_qty' => $approvedQty]);
+                // تحديثات البنود تتجمع في UPDATE واحد بعد الحلقة (M-6) — الأقفال
+                // مأخوذة طوال العملية، فتقليل الاستعلامات يقلل زمن احتجازها.
+                // الصف يُمرَّر كاملًا بحالته الحالية: PostgreSQL يتحقق من قيود
+                // NOT NULL وCHECK على الصف المقترح في upsert قبل حل التعارض.
+                $qtyUpdates[] = [...$item->only(['id', 'stock_transfer_id', 'product_variant_id', 'from_location_id', 'to_location_id', 'requested_qty', 'approved_qty', 'shipped_qty', 'received_qty', 'created_at']), 'approved_qty' => $approvedQty, 'updated_at' => now()];
 
                 if ($approvedQty > 0) {
                     $this->move([
@@ -142,6 +169,10 @@ class TransferService
                         'notes' => 'حجز لصالح تحويل '.$transfer->transfer_number,
                     ], $levels);
                 }
+            }
+
+            if ($qtyUpdates !== []) {
+                StockTransferItem::query()->upsert($qtyUpdates, ['id'], ['approved_qty', 'updated_at']);
             }
 
             $transfer->update(['status' => TransferStatus::Approved, 'approved_by' => $userId]);
@@ -163,6 +194,7 @@ class TransferService
                 throw new BusinessException('يجب شحن كمية موجبة واحدة على الأقل؛ يمكن إلغاء التحويل لفك الحجز.');
             }
             $levels = $this->lockTransferLevels($transfer, true, true);
+            $qtyUpdates = [];
 
             foreach ($transfer->items as $item) {
                 $shippedQty = (float) ($itemsPayload[$item->id] ?? $item->approved_qty);
@@ -171,7 +203,7 @@ class TransferService
                     throw new BusinessException('الكمية المشحونة يجب أن تكون بين صفر والكمية المعتمدة.');
                 }
 
-                $item->update(['shipped_qty' => $shippedQty]);
+                $qtyUpdates[] = [...$item->only(['id', 'stock_transfer_id', 'product_variant_id', 'from_location_id', 'to_location_id', 'requested_qty', 'approved_qty', 'shipped_qty', 'received_qty', 'created_at']), 'shipped_qty' => $shippedQty, 'updated_at' => now()];
 
                 if ($shippedQty <= 0) {
                     if ((float) $item->approved_qty > 0) {
@@ -242,6 +274,10 @@ class TransferService
                 ], $levels);
             }
 
+            if ($qtyUpdates !== []) {
+                StockTransferItem::query()->upsert($qtyUpdates, ['id'], ['shipped_qty', 'updated_at']);
+            }
+
             $transfer->update(['status' => TransferStatus::Shipped, 'shipped_at' => now()]);
 
             return $transfer->load(['items.variant', 'fromBranch', 'toBranch']);
@@ -260,6 +296,7 @@ class TransferService
             $levels = $this->lockTransferLevels($transfer, false, true);
 
             $shortageNotes = [];
+            $qtyUpdates = [];
 
             foreach ($transfer->items as $item) {
                 $receivedQty = (float) ($itemsPayload[$item->id] ?? $item->shipped_qty);
@@ -269,7 +306,7 @@ class TransferService
                     throw new BusinessException('الكمية المستلمة يجب أن تكون بين صفر والكمية المشحونة.');
                 }
 
-                $item->update(['received_qty' => $receivedQty]);
+                $qtyUpdates[] = [...$item->only(['id', 'stock_transfer_id', 'product_variant_id', 'from_location_id', 'to_location_id', 'requested_qty', 'approved_qty', 'shipped_qty', 'received_qty', 'created_at']), 'received_qty' => $receivedQty, 'updated_at' => now()];
 
                 if ($shippedQty <= 0) {
                     continue;
@@ -312,6 +349,10 @@ class TransferService
                     ], $levels);
                     $shortageNotes[] = "عجز {$shortage} وحدة في المتغير #{$item->product_variant_id}";
                 }
+            }
+
+            if ($qtyUpdates !== []) {
+                StockTransferItem::query()->upsert($qtyUpdates, ['id'], ['received_qty', 'updated_at']);
             }
 
             $notes = $transfer->notes;
@@ -401,7 +442,7 @@ class TransferService
         }
 
         if ($expectedUpdatedAt !== null
-            && $transfer->updated_at->format('Y-m-d H:i:s') !== Carbon::parse($expectedUpdatedAt)->format('Y-m-d H:i:s')) {
+            && ! Carbon::parse($expectedUpdatedAt)->equalTo($transfer->updated_at)) {
             throw new BusinessException(
                 'تم تعديل هذا التحويل بعد تحميله. أعد تحميله وراجع الكميات قبل التنفيذ.',
                 ['current_updated_at' => $transfer->updated_at->toIso8601String()],

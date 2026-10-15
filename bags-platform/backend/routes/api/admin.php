@@ -135,6 +135,7 @@ Route::middleware(['auth:sanctum', 'auth.staff'])
 
         // الجرد المخزني
         Route::apiResource('stocktakes', StocktakeController::class);
+        Route::patch('stocktakes/{stocktake}/items', [StocktakeController::class, 'updateItems'])->name('stocktakes.items.update');
         Route::post('stocktakes/{stocktake}/approve', [StocktakeController::class, 'approve'])->name('stocktakes.approve');
 
         // ================== المرحلة 4: الأسعار ==================
