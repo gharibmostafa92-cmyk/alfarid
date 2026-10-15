@@ -205,3 +205,16 @@ Run php artisan media:backfill-path-layouts once for existing uploads. It persis
 - `GET /admin/customers/{customer}/documents/{document}/download` — تنزيل مستند من التخزين الخاص (الربط مقيّد: مستند عميل آخر يرجع 404).
 
 حالات العميل: `pending/approved/rejected/suspended` (حلت suspended محل blocked من المرحلة 1 في المرحلة 5). الهاتف فريد وإلزامي، والبريد فريد واختياري.
+
+## المرحلة 6: واجهة المتجر للقراءة (Storefront Read APIs)
+
+كل روابط التصفح عامة (بلا مصادقة). إن أرسل العميل Bearer Token يُقرأ عبر `auth('sanctum')->user()` وتُحسب أسعاره الشخصية في البطاقات (خصم مجموعة/قائمة خاصة/قناة جملة للمعتمدين) — الزائر يُسعَّر بقناة القطاعي. «منتج نشط» = منشور (`published`)، و«متغير نشط» = `is_active`.
+
+- `GET /store/home` — رد مجمّع: `banners` (نشطة وداخل نافذتها الزمنية، بترتيب sort_order)، `latest_products` (أحدث 12)، `best_sellers` (بـ `sales_count`،‏ 12)، `discounted_products` (متغير بـ `compare_at_price > base_price` أو عنصر في قائمة أسعار سارية أرخص من الأساسي، 12). كاش `store_home_data` ‏300 ثانية يخزن **المعرّفات فقط** — الأسعار تُحسب لكل طلب فلا تتسرب بين العملاء.
+- `GET /store/categories` — شجرة الأقسام النشطة (3 مستويات) مع `products_count` للمنشور فقط في كل عقدة.
+- `GET /store/brands` — النشطة بترتيب sort_order ثم الاسم. `GET /store/cities` — مدن الشحن النشطة مع `shipping_cost`.
+- `GET /store/products` — فلاتر: `category` (id أو slug، يشمل الفروع)، `brand` (id/slug أو مصفوفة `brand[]`)، `color` (اسم اللون عربي/إنجليزي)، `price_min/price_max` (على `base_price` للمتغيرات النشطة)، `in_stock=1`، و`sort`: ‏`newest|best_selling|price_asc|price_desc`. الترقيم 20 للصفحة. البطاقة: `price` النهائي من PricingService لأرخص متغير قابل للتسعير، `old_price` من `compare_at_price` الأعلى، `discount_percentage`، و`store_available`/`in_stock`.
+- المتاح أونلاين (`store_available`) = مجموع `available` ‏(on_hand − reserved − damaged) عبر **الفروع النشطة فقط**، باستعلام فرعي مجمّع واحد — مخزون فرع معطّل لا يُحتسب.
+- `GET /store/products/{slug}` — المنشور فقط (غيره 404): الوصف والصور وكل متغير نشط بسعره النهائي و`old_price` ومتاحه وحالة توفره. متغير غير مُسعَّر يظهر بسعر null بدل كسر الصفحة.
+- `GET /store/products/{slug}/similar` — حتى 8: نفس القسم الفرعي أولًا ثم نفس العلامة، والمتوفر مخزونيًا أولًا، ويستبعد المنتج نفسه وغير المنشور.
+- جداول/حقول جديدة: `banners` ‏(link_type/product|category|brand|external|none، position/main_slider|middle_banner|popup، نافذة زمنية)، `products.sales_count` (يُحدَّث مع مبيعات الطلبات في مرحلة الطلبات)، `product_variants.compare_at_price`.
