@@ -23,6 +23,9 @@ class SettingService
         'order_next_number',
         'purchase_order_next_number',
         'quotation_next_number',
+        'movement_next_number',
+        'transfer_next_number',
+        'stocktake_next_number',
     ];
 
     /**
@@ -129,6 +132,9 @@ class SettingService
             'order' => ['prefix' => 'order_prefix', 'next' => 'order_next_number', 'padding' => 'order_padding'],
             'purchase_order' => ['prefix' => 'purchase_order_prefix', 'next' => 'purchase_order_next_number', 'padding' => 'purchase_order_padding'],
             'quotation' => ['prefix' => 'quotation_prefix', 'next' => 'quotation_next_number', 'padding' => 'quotation_padding'],
+            'movement' => ['prefix' => 'movement_prefix', 'next' => 'movement_next_number', 'padding' => 'movement_padding'],
+            'transfer' => ['prefix' => 'transfer_prefix', 'next' => 'transfer_next_number', 'padding' => 'transfer_padding'],
+            'stocktake' => ['prefix' => 'stocktake_prefix', 'next' => 'stocktake_next_number', 'padding' => 'stocktake_padding'],
         ];
 
         if (! isset($definitions[$type])) {

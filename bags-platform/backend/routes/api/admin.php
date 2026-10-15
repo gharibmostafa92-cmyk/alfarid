@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\Admin\AuthController;
 use App\Http\Controllers\Api\V1\Admin\BranchController;
 use App\Http\Controllers\Api\V1\Admin\BrandController;
 use App\Http\Controllers\Api\V1\Admin\CategoryController;
+use App\Http\Controllers\Api\V1\Admin\InventoryController;
 use App\Http\Controllers\Api\V1\Admin\LocationController;
 use App\Http\Controllers\Api\V1\Admin\PermissionController;
 use App\Http\Controllers\Api\V1\Admin\ProductController;
@@ -13,6 +14,8 @@ use App\Http\Controllers\Api\V1\Admin\ProductMediaController;
 use App\Http\Controllers\Api\V1\Admin\ProductVariantController;
 use App\Http\Controllers\Api\V1\Admin\RoleController;
 use App\Http\Controllers\Api\V1\Admin\SettingController;
+use App\Http\Controllers\Api\V1\Admin\StocktakeController;
+use App\Http\Controllers\Api\V1\Admin\TransferController;
 use App\Http\Controllers\Api\V1\Admin\UserController;
 use Illuminate\Support\Facades\Route;
 
@@ -22,6 +25,8 @@ Route::pattern('brand', '[0-9]{1,18}');
 Route::pattern('product', '[0-9]{1,18}');
 Route::pattern('variant', '[0-9]{1,18}');
 Route::pattern('media', '[0-9]{1,18}');
+Route::pattern('transfer', '[0-9]{1,18}');
+Route::pattern('stocktake', '[0-9]{1,18}');
 
 // Public admin authentication endpoint.
 Route::post('auth/login', [AuthController::class, 'login'])
@@ -107,6 +112,22 @@ Route::middleware(['auth:sanctum', 'auth.staff'])
         Route::get('products/{product}/media', [ProductMediaController::class, 'index'])->name('products.media.index');
         Route::post('products/{product}/media', [ProductMediaController::class, 'store'])->name('products.media.store');
         Route::delete('products/{product}/media/{media}', [ProductMediaController::class, 'destroy'])->name('products.media.destroy');
+
+        // Inventory: العرض والتسويات — التعديل على الأرصدة بيمر من InventoryService بس
+        Route::get('inventory', [InventoryController::class, 'index'])->name('inventory.index');
+        Route::get('inventory/movements', [InventoryController::class, 'movements'])->name('inventory.movements');
+        Route::post('inventory/adjustments', [InventoryController::class, 'adjustments'])->name('inventory.adjustments');
+
+        // Transfers: أفعال دورة الحياة قبل apiResource
+        Route::post('transfers/{transfer}/approve', [TransferController::class, 'approve'])->name('transfers.approve');
+        Route::post('transfers/{transfer}/ship', [TransferController::class, 'ship'])->name('transfers.ship');
+        Route::post('transfers/{transfer}/receive', [TransferController::class, 'receive'])->name('transfers.receive');
+        Route::post('transfers/{transfer}/cancel', [TransferController::class, 'cancel'])->name('transfers.cancel');
+        Route::apiResource('transfers', TransferController::class);
+
+        // Stocktakes: الاعتماد قبل apiResource
+        Route::post('stocktakes/{stocktake}/approve', [StocktakeController::class, 'approve'])->name('stocktakes.approve');
+        Route::apiResource('stocktakes', StocktakeController::class);
 
         Route::get('settings', [SettingController::class, 'index'])
             ->middleware('permission:settings.view|settings.manage')
