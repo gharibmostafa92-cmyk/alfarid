@@ -56,7 +56,7 @@ class TransferController extends Controller implements HasMiddleware
 
     public function store(StoreTransferRequest $request): JsonResponse
     {
-        $transfer = $this->transfers->create($request->validated(), $request->user()->id);
+        $transfer = $this->transfers->create($request->validated(), $request->user()->id, $this->idempotencyKey($request));
 
         return (new StockTransferResource($transfer))
             ->additional(['message' => 'تم إنشاء التحويل بنجاح'])

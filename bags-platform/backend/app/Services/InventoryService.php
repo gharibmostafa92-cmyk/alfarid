@@ -156,7 +156,7 @@ class InventoryService
             return $this->executeAdjustments($payload, $userId);
         }
 
-        $requestHash = hash('sha256', json_encode($this->canonicalize($payload), JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION));
+        $requestHash = IdempotencyFingerprint::hash($payload);
 
         try {
             return DB::transaction(function () use ($payload, $userId, $idempotencyKey, $requestHash): array {
@@ -175,7 +175,13 @@ class InventoryService
 
                 return $movements;
             });
-        } catch (UniqueConstraintViolationException) {
+        } catch (UniqueConstraintViolationException $e) {
+            // الالتقاط خاص بقيد مفتاح عدم التكرار وحده: أي انتهاك فريد آخر داخل
+            // المعاملة خطأ حقيقي يجب أن يظهر، لا أن يُقنَّع كتعارض مفتاح (L-2).
+            if (! str_contains($e->getMessage(), 'inventory_idempotency_keys')) {
+                throw $e;
+            }
+
             $record = InventoryIdempotencyKey::query()
                 ->where('user_id', $userId)->where('key', $idempotencyKey)->first();
 
@@ -206,7 +212,7 @@ class InventoryService
             // M5: التعطيل لا يحبس الرصيد — عمليات الإخراج (decrease/تالف/شطب) مسموحة على
             // متغير/موقع معطّل لتصفية رصيده، والإدخال (increase) وحده يتطلب النشاط.
             if (collect($payload['items'])->contains('adjustment_type', 'increase')) {
-                $variants = ProductVariant::query()
+                $variants = ProductVariant::query()->withTrashed()
                     ->whereIn('id', array_column($payload['items'], 'product_variant_id'))
                     ->get()->keyBy('id');
                 $location = ($payload['location_id'] ?? null) !== null ? Location::query()->find($payload['location_id']) : null;
@@ -215,7 +221,10 @@ class InventoryService
                     if ($item['adjustment_type'] !== 'increase') {
                         continue;
                     }
-                    if ($variants->get($item['product_variant_id'])?->is_active === false) {
+                    // المحذوف ناعمًا يعامل كمعطّل للإدخال، لكن إخراجه يظل مسموحًا
+                    // حتى لا يُحبس رصيده للأبد (M-9).
+                    $variant = $variants->get($item['product_variant_id']);
+                    if ($variant === null || $variant->trashed() || ! $variant->is_active) {
                         throw new BusinessException('لا يمكن الإدخال على متغير معطّل؛ فعّله أولًا أو استخدم عمليات الإخراج لتصفية رصيده.');
                     }
                     if ($location !== null && ! $location->is_active) {
@@ -299,12 +308,16 @@ class InventoryService
             return collect();
         }
         $now = now();
-        DB::table('stock_levels')->insertOrIgnore($keys->map(fn ($key) => [
-            'product_variant_id' => $key['product_variant_id'], 'branch_id' => $key['branch_id'],
-            'location_id' => $key['location_id'] ?? null, 'created_at' => $now, 'updated_at' => $now,
-        ])->values()->all());
 
         try {
+            // الإدخال نفسه قد ينتظر قفلًا: ON CONFLICT ينتظر معاملة أخرى أدخلت
+            // نفس المفتاح ولم تعتمد بعد، فيخضع لنفس lock_timeout — لازم يكون
+            // جوه الـ try حتى يتحول الانتظار الطويل لـ 409 لا 500 (M-2).
+            DB::table('stock_levels')->insertOrIgnore($keys->map(fn ($key) => [
+                'product_variant_id' => $key['product_variant_id'], 'branch_id' => $key['branch_id'],
+                'location_id' => $key['location_id'] ?? null, 'created_at' => $now, 'updated_at' => $now,
+            ])->values()->all());
+
             $levels = StockLevel::query()->where(function ($query) use ($keys): void {
                 foreach ($keys->groupBy(fn ($key) => $key['branch_id'].':'.($key['location_id'] ?? 0)) as $group) {
                     $identity = $group->first();
@@ -315,7 +328,9 @@ class InventoryService
             })->orderBy('branch_id')->orderByRaw('location_id ASC NULLS FIRST')->orderBy('product_variant_id')
                 ->lockForUpdate()->get()->keyBy(fn ($stock) => $this->levelKey($stock->getAttributes()));
         } catch (QueryException $e) {
-            if (($e->errorInfo[0] ?? $e->getCode()) === '55P03') {
+            // 55P03 = lock_timeout، و40P01 = deadlock — كلاهما ازدحام مؤقت
+            // على الأقفال، فيُرجع 409 قابلًا لإعادة المحاولة لا 500 (M-2).
+            if (in_array($e->errorInfo[0] ?? $e->getCode(), ['55P03', '40P01'], true)) {
                 throw new BusinessException('المخزون مشغول بعملية أخرى الآن؛ أعد المحاولة بعد لحظات.', [], 409);
             }
 
@@ -348,22 +363,5 @@ class InventoryService
         if (! in_array($bucket, $allowed, true) || ($units > 0) !== $positive) {
             throw new BusinessException('نوع الحركة لا يطابق وعاء المخزون أو اتجاه الكمية.');
         }
-    }
-
-    /** ترتيب حتمي لمفاتيح الحمولة قبل الحوسبة (نفس البيانات = نفس البصمة دائمًا). */
-    private function canonicalize(mixed $value): mixed
-    {
-        if (! is_array($value)) {
-            return $value;
-        }
-
-        $isList = array_is_list($value);
-        $mapped = array_map(fn ($item) => $this->canonicalize($item), $value);
-
-        if (! $isList) {
-            ksort($mapped);
-        }
-
-        return $mapped;
     }
 }

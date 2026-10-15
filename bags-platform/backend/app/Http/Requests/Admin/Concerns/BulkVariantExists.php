@@ -34,7 +34,10 @@ trait BulkVariantExists
                 return;
             }
 
-            $found = ProductVariant::query()->whereIn('id', $ids)->pluck('id')->map(fn ($id) => (int) $id)->all();
+            // withTrashed: متغير محذوف ناعمًا وله رصيد لا يجب أن يُحبس رصيده —
+            // عمليات الإخراج (تسوية/جرد/تحويل) تظل ممكنة عليه لتصفيته (M-9)،
+            // والإدخال عليه محظور في InventoryService لأنه يعامل كمعطّل.
+            $found = ProductVariant::query()->withTrashed()->whereIn('id', $ids)->pluck('id')->map(fn ($id) => (int) $id)->all();
             $missing = $ids->diff($found);
 
             if ($missing->isEmpty()) {

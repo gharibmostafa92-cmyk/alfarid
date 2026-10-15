@@ -8,6 +8,7 @@ use App\Enums\ProductStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Models\StockLevel;
 use App\Services\BarcodeGenerator;
 use Illuminate\Support\Facades\DB;
 
@@ -83,13 +84,20 @@ class VariantService
             $product = Product::whereKey($variant->product_id)->lockForUpdate()->firstOrFail();
             $variant = $product->variants()->whereKey($variant->id)->firstOrFail();
             $this->assertNotLastActiveOfPublished($variant);
+            // متغير له رصيد في أي وعاء لا يُحذف: الحذف الناعم كان يحبس الرصيد
+            // لأن فحوص وجود المتغير تستبعد المحذوف (M-9). صفِّ الرصيد أولًا.
+            if (StockLevel::query()->where('product_variant_id', $variant->id)
+                ->where(fn ($q) => $q->where('on_hand', '<>', 0)->orWhere('reserved', '<>', 0)
+                    ->orWhere('damaged', '<>', 0)->orWhere('in_transit', '<>', 0))
+                ->exists()) {
+                throw new BusinessException('لا يمكن حذف متغير له رصيد مخزون؛ صفِّ رصيده أولًا أو عطّله بدلًا من حذفه.');
+            }
             $variant->delete();
 
             if ($product->status === ProductStatus::Published) {
                 $this->publishability->assertPublishable($product);
             }
         });
-        // TODO مرحلة المخزون: منع الحذف لو عليه رصيد
     }
 
     private function assertUniqueCombination(Product $product, array $d, ?int $ignoreId = null): void

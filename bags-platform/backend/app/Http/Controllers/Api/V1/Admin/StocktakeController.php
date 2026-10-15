@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\V1\Admin;
 use App\Enums\StocktakeStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Stocktake\StoreStocktakeRequest;
+use App\Http\Requests\Admin\Stocktake\UpdateStocktakeItemsRequest;
 use App\Http\Requests\Admin\Stocktake\UpdateStocktakeRequest;
 use App\Http\Resources\Admin\StocktakeResource;
 use App\Models\Stocktake;
@@ -28,7 +29,7 @@ class StocktakeController extends Controller implements HasMiddleware
         return [
             new Middleware('can:stocktakes.view', only: ['index', 'show']),
             new Middleware('can:stocktakes.create', only: ['store']),
-            new Middleware('can:stocktakes.update', only: ['update']),
+            new Middleware('can:stocktakes.update', only: ['update', 'updateItems']),
             new Middleware('can:stocktakes.delete', only: ['destroy']),
             new Middleware('can:stocktakes.approve', only: ['approve']),
         ];
@@ -49,7 +50,7 @@ class StocktakeController extends Controller implements HasMiddleware
 
     public function store(StoreStocktakeRequest $request): JsonResponse
     {
-        $stocktake = $this->stocktakes->create($request->validated(), $request->user()->id);
+        $stocktake = $this->stocktakes->create($request->validated(), $request->user()->id, $this->idempotencyKey($request));
 
         return (new StocktakeResource($stocktake))
             ->additional(['message' => 'تم إنشاء جلسة الجرد بنجاح'])
@@ -67,6 +68,12 @@ class StocktakeController extends Controller implements HasMiddleware
     public function update(UpdateStocktakeRequest $request, Stocktake $stocktake): StocktakeResource
     {
         return new StocktakeResource($this->stocktakes->update($stocktake, $request->validated(), $request->user()->id));
+    }
+
+    /** تحديث جزئي للعناصر: upsert للمرسلة فقط دون حذف الغائبة (M-4). */
+    public function updateItems(UpdateStocktakeItemsRequest $request, Stocktake $stocktake): StocktakeResource
+    {
+        return new StocktakeResource($this->stocktakes->upsertSomeItems($stocktake, $request->validated()['items'], $request->user()->id));
     }
 
     public function destroy(Request $request, Stocktake $stocktake): JsonResponse

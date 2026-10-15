@@ -19,8 +19,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        // Singleton حتى تعمل ذاكرة المستخدمين لكل طلب في BranchAccess فعلًا.
-        $this->app->singleton(BranchAccess::class);
+        // scoped لا singleton: ذاكرة المستخدمين لكل طلب تعمل داخل الطلب، ولا
+        // تتسرب صلاحيات مستخدم لطلب آخر تحت Octane (L-6).
+        $this->app->scoped(BranchAccess::class);
     }
 
     /**

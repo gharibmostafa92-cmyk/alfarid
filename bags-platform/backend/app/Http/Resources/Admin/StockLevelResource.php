@@ -43,7 +43,8 @@ class StockLevelResource extends JsonResource
             'available' => number_format($this->available, 4, '.', ''),
             // حد إعادة الطلب الفعّال: مستوى الصف إن ضُبط (> 0)، وإلا مستوى المتغير
             'reorder_level' => $this->effectiveReorderLevel(),
-            'is_low_stock' => $this->available <= $this->effectiveReorderLevel(),
+            // بلا حد فعّال (> 0) لا معنى لـ "منخفض" — نفس شرط فلتر low_stock (L-4)
+            'is_low_stock' => $this->effectiveReorderLevel() > 0 && $this->available <= $this->effectiveReorderLevel(),
             'updated_at' => $this->updated_at,
         ];
     }

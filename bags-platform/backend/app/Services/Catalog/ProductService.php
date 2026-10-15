@@ -9,6 +9,7 @@ use App\Exceptions\BusinessException;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\StockLevel;
 use App\Models\User;
 use App\Services\SlugService;
 use Illuminate\Support\Facades\DB;
@@ -126,6 +127,13 @@ class ProductService
     {
         DB::transaction(function () use ($product): void {
             $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
+            // حذف المنتج يحذف متغيراته ناعمًا: أي رصيد على أي منها يُحبس (M-9)
+            if (StockLevel::query()->whereIn('product_variant_id', $product->variants()->pluck('id'))
+                ->where(fn ($q) => $q->where('on_hand', '<>', 0)->orWhere('reserved', '<>', 0)
+                    ->orWhere('damaged', '<>', 0)->orWhere('in_transit', '<>', 0))
+                ->exists()) {
+                throw new BusinessException('لا يمكن حذف منتج له متغيرات برصيد مخزون؛ صفِّ الأرصدة أولًا.');
+            }
             $product->variants()->delete();  // soft
             $product->delete();              // soft
         });

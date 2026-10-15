@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Enums\StockMovementType;
-use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Inventory\StoreAdjustmentRequest;
 use App\Http\Resources\Admin\StockLevelResource;
@@ -58,6 +57,9 @@ class InventoryController extends Controller implements HasMiddleware
             ->when($filters['low_stock'] ?? null, fn ($q) => $q
                 ->join('product_variants', 'product_variants.id', '=', 'stock_levels.product_variant_id')
                 ->whereRaw('stock_levels.available <= COALESCE(NULLIF(stock_levels.reorder_level, 0), product_variants.reorder_level, 0)')
+                // صف بلا حد إعادة طلب فعّال ليس "منخفضًا": صفوف صفرية ينشئها
+                // lockLevels كأثر جانبي كانت تملأ الفلتر وهميًا (L-4).
+                ->whereRaw('COALESCE(NULLIF(stock_levels.reorder_level, 0), product_variants.reorder_level, 0) > 0')
                 ->select('stock_levels.*'))
             ->orderBy('branch_id')
             ->orderBy('product_variant_id')
@@ -93,8 +95,10 @@ class InventoryController extends Controller implements HasMiddleware
             ->when($filters['from_date'] ?? null, fn ($q, $v) => $q->where('created_at', '>=', Carbon::parse($v, config('app.business_timezone'))->startOfDay()->utc()))
             ->when($filters['to_date'] ?? null, fn ($q, $v) => $q->where('created_at', '<', Carbon::parse($v, config('app.business_timezone'))->addDay()->startOfDay()->utc()))
             ->orderByDesc('id')
-            // الدفتر append-only وسيكبر لملايين الصفوف: بلا COUNT(*) لكل صفحة
-            ->simplePaginate($filters['per_page'] ?? 15);
+            // الدفتر append-only وسيكبر لملايين الصفوف: بلا COUNT(*) وبلا OFFSET —
+            // ترقيم بالمؤشر على (branch_id, id DESC) يجعل الصفحات العميقة بنفس
+            // تكلفة الأولى (M-7). المقايضة: لا قفز لرقم صفحة محدد.
+            ->cursorPaginate($filters['per_page'] ?? 15);
 
         return StockMovementResource::collection($movements);
     }
@@ -102,15 +106,7 @@ class InventoryController extends Controller implements HasMiddleware
     /** تسوية يدوية: كل العناصر في transaction واحدة عبر InventoryService فقط. */
     public function adjustments(StoreAdjustmentRequest $request): JsonResponse
     {
-        $idempotencyKey = $request->header('Idempotency-Key');
-        if ($idempotencyKey !== null) {
-            $idempotencyKey = trim($idempotencyKey);
-            if ($idempotencyKey === '' || strlen($idempotencyKey) > 128) {
-                throw new BusinessException('قيمة Idempotency-Key غير صالحة (1 إلى 128 حرفًا).');
-            }
-        }
-
-        $movements = $this->inventory->applyAdjustments($request->validated(), $request->user()->id, $idempotencyKey);
+        $movements = $this->inventory->applyAdjustments($request->validated(), $request->user()->id, $this->idempotencyKey($request));
 
         return response()->json([
             'message' => 'تم تنفيذ التسوية بنجاح',
