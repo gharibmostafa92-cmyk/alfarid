@@ -1,0 +1,1683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sophie — 3D Interactive Bag Showcase</title>
+  <!-- Google Fonts: Oswald (Condensed) & Poppins -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@300;400;500;600;700&family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+
+  <style>
+    :root {
+      --bg: #ffffff;
+      --text: #111111;
+      --muted: #777777;
+      --light-gray: #f3f4f6;
+      --accent: #4f7d88;
+      --accent-soft: #dfe5e9;
+      --pill-bg: #111111;
+      --pill-hover: #2c2c2c;
+      --transition-slow: 0.85s cubic-bezier(0.22, 1, 0.36, 1);
+      --transition-fast: 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: 'Poppins', sans-serif;
+      overflow-x: hidden;
+      min-height: 100vh;
+      opacity: 1;
+      transition: opacity 0.22s ease-in-out;
+      animation: pageFadeIn 0.35s ease-out;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body.page-fade-out {
+      opacity: 0;
+    }
+
+    @keyframes pageFadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(4px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    a {
+      text-decoration: none;
+      color: inherit;
+    }
+
+    /* ================= NAVBAR ================= */
+    header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 80px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 50px;
+      z-index: 100;
+      background: rgba(255, 255, 255, 0.94);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+      transition: background 0.3s;
+    }
+
+    .nav-left {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      width: 220px;
+    }
+
+    .back-btn {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-family: 'Oswald', sans-serif;
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: var(--text);
+      cursor: pointer;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateX(-15px);
+      transition: var(--transition-fast);
+    }
+
+    .back-btn.visible {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateX(0);
+    }
+
+    .back-circle {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: 1px solid #ddd;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      transition: var(--transition-fast);
+      background: #fff;
+    }
+
+    .back-btn:hover .back-circle {
+      border-color: var(--text);
+      background-color: var(--text);
+      color: #fff;
+      transform: scale(1.08);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: 'Poppins', sans-serif;
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      color: #000;
+      transition: opacity 0.2s ease;
+    }
+
+    .logo:hover {
+      opacity: 0.85;
+    }
+
+    .logo svg {
+      width: 24px;
+      height: 24px;
+    }
+
+    .nav-center {
+      display: flex;
+      align-items: center;
+      gap: 34px;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 32px;
+      list-style: none;
+      font-family: 'Oswald', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .nav-links li a {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      color: #111;
+      transition: color 0.2s ease;
+    }
+
+    .nav-links li a.active,
+    .nav-links li a:hover {
+      color: var(--accent);
+    }
+
+    .nav-links li a i {
+      font-size: 9px;
+      margin-top: 1px;
+    }
+
+    .nav-right {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 20px;
+      width: 220px;
+      font-size: 15px;
+      color: #000;
+    }
+
+    .icon-btn {
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      position: relative;
+      color: #111;
+      transition: color 0.2s;
+    }
+
+    .icon-btn:hover {
+      color: var(--accent);
+    }
+
+    .cart-badge {
+      position: absolute;
+      top: -6px;
+      right: -8px;
+      background: var(--text);
+      color: #fff;
+      font-family: 'Poppins', sans-serif;
+      font-size: 9px;
+      font-weight: 700;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.2s ease;
+    }
+
+    .cart-badge.bump {
+      transform: scale(1.3);
+      background-color: var(--accent);
+    }
+
+    /* ================= VIEW SWITCHER (TOP RIGHT) ================= */
+    .view-switcher {
+      position: fixed;
+      top: 98px;
+      right: 50px;
+      display: flex;
+      background: #f4f6f8;
+      border-radius: 30px;
+      padding: 4px;
+      gap: 4px;
+      z-index: 90;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
+      border: 1px solid #e9ecef;
+      transition: var(--transition-fast);
+    }
+
+    .view-switcher.hidden {
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(-8px);
+    }
+
+    .switch-btn {
+      padding: 6px 14px;
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: 'Oswald', sans-serif;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      cursor: pointer;
+      color: #777;
+      transition: all 0.25s ease;
+    }
+
+    .switch-btn i {
+      font-size: 12px;
+    }
+
+    .switch-btn.active {
+      background-color: #000;
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    /* ================= LEFT SIDEBAR ================= */
+    .sidebar {
+      position: fixed;
+      top: 130px;
+      left: 50px;
+      z-index: 80;
+      transition: var(--transition-slow);
+    }
+
+    .sidebar.hidden {
+      opacity: 0;
+      transform: translateX(-40px);
+      pointer-events: none;
+    }
+
+    .sidebar-tag {
+      font-family: 'Oswald', sans-serif;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 12px;
+    }
+
+    .cat-list {
+      list-style: none;
+      font-family: 'Oswald', sans-serif;
+      font-size: 30px;
+      line-height: 1.15;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .cat-item {
+      color: transparent;
+      -webkit-text-stroke: 1px #cccccc;
+      cursor: pointer;
+      transition: var(--transition-fast);
+      margin-bottom: 3px;
+    }
+
+    .cat-item:hover {
+      -webkit-text-stroke: 1px #888;
+    }
+
+    .cat-item.active {
+      color: var(--text);
+      -webkit-text-stroke: 0px;
+    }
+
+    .subcat-list {
+      list-style: none;
+      margin-top: 14px;
+      font-family: 'Poppins', sans-serif;
+      font-size: 12px;
+      font-weight: 400;
+      color: #888;
+      line-height: 2;
+    }
+
+    .subcat-item {
+      cursor: pointer;
+      transition: color 0.2s;
+      overflow: hidden;
+      max-height: 0;
+      opacity: 0;
+      transition: max-height 0.4s ease, opacity 0.4s ease;
+    }
+
+    .subcat-item.always-show,
+    .sidebar.expanded-subcats .subcat-item {
+      max-height: 30px;
+      opacity: 1;
+    }
+
+    .subcat-item.active {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    /* ================= CAROUSEL VIEW ================= */
+    .carousel-view {
+      position: relative;
+      width: 100%;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      transition: opacity 0.5s ease, transform 0.6s ease;
+      background: radial-gradient(circle at 50% 45%, #f9fbfd 0%, #ffffff 70%);
+    }
+
+    .carousel-view.hidden {
+      opacity: 0;
+      pointer-events: none;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+
+    /* Scroll Hint Pill */
+    .scroll-hint {
+      position: absolute;
+      bottom: 26px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: 'Oswald', sans-serif;
+      font-size: 11px;
+      font-weight: 400;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: #999;
+      opacity: 0.8;
+      animation: bounceHint 2s infinite ease-in-out;
+    }
+
+    @keyframes bounceHint {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-5px); }
+    }
+
+    .stage {
+      position: relative;
+      width: 100%;
+      max-width: 1200px;
+      height: 420px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: -20px;
+    }
+
+    .bag-slot {
+      position: absolute;
+      transition: all 0.85s cubic-bezier(0.22, 1, 0.36, 1);
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .bag-slot img {
+      width: 420px;
+      height: 320px;
+      object-fit: contain;
+      mix-blend-mode: multiply;
+      transition: transform 0.85s cubic-bezier(0.22, 1, 0.36, 1);
+      pointer-events: none;
+    }
+
+    /* Realistic drop shadow underneath bag */
+    .bag-shadow {
+      width: 250px;
+      height: 24px;
+      background: radial-gradient(ellipse at center, rgba(0,0,0,0.22) 0%, rgba(0,0,0,0) 72%);
+      border-radius: 50%;
+      margin-top: 6px;
+      transition: all 0.85s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    /* Slot 3D Positions */
+    .bag-slot.center {
+      transform: translate3d(0, -10px, 0) scale(1.08);
+      z-index: 30;
+      filter: blur(0px);
+      opacity: 1;
+    }
+    .bag-slot.center img {
+      transform: rotate(-6deg);
+    }
+
+    .bag-slot.left {
+      transform: translate3d(-390px, 15px, -100px) scale(0.62);
+      z-index: 10;
+      filter: blur(6px);
+      opacity: 0.75;
+    }
+    .bag-slot.left img {
+      transform: rotate(-10deg);
+    }
+
+    .bag-slot.right {
+      transform: translate3d(390px, 15px, -100px) scale(0.62);
+      z-index: 10;
+      filter: blur(6px);
+      opacity: 0.75;
+    }
+    .bag-slot.right img {
+      transform: rotate(-3deg);
+    }
+
+    /* Product Meta below Center Bag */
+    .carousel-info {
+      text-align: center;
+      margin-top: 10px;
+      z-index: 40;
+      transition: opacity 0.35s ease, transform 0.35s ease;
+    }
+
+    .carousel-info.fade-out {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+
+    .brand-title {
+      font-family: 'Oswald', sans-serif;
+      font-size: 58px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      line-height: 1.05;
+      color: #111;
+    }
+
+    .bag-subtitle {
+      font-size: 13.5px;
+      font-weight: 400;
+      color: #555;
+      margin-top: 8px;
+      margin-bottom: 22px;
+    }
+
+    .btn-pill {
+      background-color: var(--text);
+      color: #ffffff;
+      border: none;
+      padding: 13px 38px;
+      border-radius: 30px;
+      font-family: 'Oswald', sans-serif;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: var(--transition-fast);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    }
+
+    .btn-pill:hover {
+      background-color: #2c2c2c;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+    }
+
+    /* Carousel Nav Arrows */
+    .carousel-arrow {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      border: 1px solid #ddd;
+      background: rgba(255, 255, 255, 0.9);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 50;
+      color: #222;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+    }
+
+    .carousel-arrow:hover {
+      background: #111;
+      color: #fff;
+      border-color: #111;
+      transform: translateY(-50%) scale(1.08);
+    }
+
+    .carousel-arrow.prev { left: 40px; }
+    .carousel-arrow.next { right: 40px; }
+
+    /* ================= DETAILS VIEW ================= */
+    .details-view {
+      display: none;
+      width: 100%;
+      padding-top: 85px;
+      opacity: 0;
+      transition: opacity 0.6s ease;
+    }
+
+    .details-view.active {
+      display: block;
+      opacity: 1;
+    }
+
+    .details-hero {
+      position: relative;
+      height: 380px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      background: radial-gradient(circle at 50% 50%, #f6f8fa 0%, #ffffff 70%);
+    }
+
+    .variant-stage {
+      position: relative;
+      width: 900px;
+      height: 350px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .variant-bag {
+      position: absolute;
+      transition: all 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+      cursor: pointer;
+    }
+
+    .variant-bag img {
+      width: 420px;
+      height: 300px;
+      object-fit: contain;
+      mix-blend-mode: multiply;
+      transform: rotate(-6deg);
+    }
+
+    .variant-bag.active-variant {
+      transform: translate3d(0, 0, 0) scale(1.08);
+      filter: blur(0px);
+      opacity: 1;
+      z-index: 20;
+    }
+
+    .variant-bag.inactive-variant-right {
+      transform: translate3d(330px, 15px, 0) scale(0.62);
+      filter: blur(6px);
+      opacity: 0.75;
+      z-index: 5;
+    }
+
+    .variant-bag.inactive-variant-left {
+      transform: translate3d(-330px, 15px, 0) scale(0.62);
+      filter: blur(6px);
+      opacity: 0.75;
+      z-index: 5;
+    }
+
+    /* Sticky / Mid Bar in Details View */
+    .details-header-bar {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 15px 50px 30px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .details-title-group .sku-row {
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+    }
+
+    .details-title-group h1 {
+      font-family: 'Oswald', sans-serif;
+      font-size: 52px;
+      font-weight: 700;
+      text-transform: uppercase;
+      line-height: 1;
+      color: #111;
+    }
+
+    .sku-code {
+      font-family: 'Oswald', sans-serif;
+      font-size: 32px;
+      font-weight: 700;
+      color: transparent;
+      -webkit-text-stroke: 1px #d0d5dc;
+    }
+
+    .details-title-group p {
+      font-size: 13.5px;
+      color: #666;
+      margin-top: 8px;
+      font-weight: 400;
+    }
+
+    .details-actions {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 14px;
+    }
+
+    .details-price {
+      font-family: 'Oswald', sans-serif;
+      font-size: 32px;
+      font-weight: 700;
+      color: #111;
+    }
+
+    .swatches-and-size {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .swatch {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      cursor: pointer;
+      position: relative;
+      border: 2px solid #fff;
+      box-shadow: 0 0 0 1px #ddd;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .swatch.active {
+      box-shadow: 0 0 0 2px #111;
+      transform: scale(1.15);
+    }
+
+    .swatch-rose { background: #e89aa8; }
+    .swatch-black { background: #1a1a1a; }
+    .swatch-camel { background: #d4b38d; }
+    .swatch-slate { background: #4f7d88; }
+
+    .size-select {
+      font-family: 'Oswald', sans-serif;
+      border: 1px solid #ddd;
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: #333;
+      background: #fff;
+      cursor: pointer;
+      outline: none;
+    }
+
+    .cart-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .wishlist-circle {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 1px solid #ddd;
+      background: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 14px;
+      color: #444;
+      transition: var(--transition-fast);
+    }
+
+    .wishlist-circle:hover {
+      border-color: #111;
+      color: #e11d48;
+    }
+
+    /* Details Content Lower Section (Sticky Scroll) */
+    .details-body {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 40px 50px 100px;
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 60px;
+      align-items: start;
+    }
+
+    .details-gallery {
+      display: flex;
+      flex-direction: column;
+      gap: 30px;
+    }
+
+    .gallery-card {
+      background: var(--light-gray);
+      border-radius: 4px;
+      height: 420px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      padding: 30px;
+    }
+
+    .gallery-card img {
+      width: 85%;
+      height: 85%;
+      object-fit: contain;
+      mix-blend-mode: multiply;
+      transition: transform 0.5s ease;
+    }
+
+    .gallery-card:hover img {
+      transform: scale(1.05);
+    }
+
+    .details-description {
+      position: sticky;
+      top: 110px;
+      padding-top: 10px;
+    }
+
+    .desc-text {
+      font-size: 13px;
+      line-height: 1.8;
+      color: #555;
+      margin-bottom: 34px;
+    }
+
+    .accordion-item {
+      border-bottom: 1px solid #ececec;
+      padding: 18px 0;
+      cursor: pointer;
+    }
+
+    .accordion-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: 'Oswald', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: var(--text);
+    }
+
+    .accordion-header i {
+      font-size: 11px;
+      color: #999;
+      transition: transform 0.3s;
+    }
+
+    .accordion-item.open .accordion-header i {
+      transform: rotate(90deg);
+      color: #111;
+    }
+
+    .accordion-content {
+      max-height: 0;
+      overflow: hidden;
+      font-size: 12.5px;
+      color: #666;
+      line-height: 1.65;
+      transition: max-height 0.35s ease, margin-top 0.35s ease;
+    }
+
+    .accordion-item.open .accordion-content {
+      max-height: 140px;
+      margin-top: 12px;
+    }
+
+    /* ================= GRID CATALOG VIEW ================= */
+    .grid-view {
+      display: none;
+      padding: 130px 50px 80px 290px;
+      opacity: 0;
+      transition: opacity 0.5s ease;
+    }
+
+    .grid-view.active {
+      display: block;
+      opacity: 1;
+    }
+
+    .products-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 36px 24px;
+    }
+
+    .grid-card {
+      cursor: pointer;
+      transition: transform 0.35s ease;
+      text-align: left;
+    }
+
+    .grid-card:hover {
+      transform: translateY(-6px);
+    }
+
+    .grid-img-box {
+      background: var(--light-gray);
+      height: 250px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      margin-bottom: 14px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .grid-img-box img {
+      width: 85%;
+      height: 85%;
+      object-fit: contain;
+      mix-blend-mode: multiply;
+      transition: transform 0.45s ease;
+    }
+
+    .grid-card:hover .grid-img-box img {
+      transform: scale(1.08) rotate(-3deg);
+    }
+
+    .grid-card-badge {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      background: var(--accent);
+      color: #fff;
+      font-family: 'Oswald', sans-serif;
+      font-size: 9px;
+      font-weight: 500;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      padding: 3px 8px;
+    }
+
+    .grid-meta-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-family: 'Oswald', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .grid-meta-sub {
+      font-size: 12px;
+      color: #777;
+    }
+
+    /* Color Filters */
+    .tint-pink { filter: sepia(0.25) saturate(1.4) hue-rotate(315deg) brightness(1.03); }
+    .tint-black { filter: grayscale(1) brightness(0.35) contrast(1.4); }
+    .tint-beige { filter: sepia(0.35) saturate(0.85) brightness(1.02); }
+    .tint-blue { filter: sepia(0.2) saturate(1.2) hue-rotate(165deg) brightness(1.02); }
+    .tint-cream { filter: sepia(0.18) saturate(0.6) brightness(1.08); }
+
+    /* Toast Notification */
+    .toast-notice {
+      position: fixed;
+      bottom: 30px;
+      right: 30px;
+      background-color: #111;
+      color: #fff;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.25);
+      border-left: 4px solid var(--accent);
+      font-family: 'Poppins', sans-serif;
+      font-size: 12.5px;
+      z-index: 9999;
+      transform: translateY(100px);
+      opacity: 0;
+      transition: all 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    .toast-notice.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    @media (max-width: 1024px) {
+      .grid-view {
+        padding-left: 200px;
+      }
+      .products-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .bag-slot.left {
+        transform: translate3d(-260px, 15px, -100px) scale(0.55);
+      }
+      .bag-slot.right {
+        transform: translate3d(260px, 15px, -100px) scale(0.55);
+      }
+      .details-body {
+        grid-template-columns: 1fr;
+      }
+      .details-description {
+        position: static;
+      }
+    }
+
+    @media (max-width: 768px) {
+      header {
+        padding: 0 20px;
+      }
+      .nav-links {
+        display: none;
+      }
+      .sidebar {
+        display: none;
+      }
+      .grid-view {
+        padding: 110px 20px 60px;
+      }
+      .view-switcher {
+        right: 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ================= TOP NAVIGATION ================= -->
+  <header>
+    <div class="nav-left">
+      <div class="back-btn" id="backBtn" onclick="closeDetails()">
+        <div class="back-circle">
+          <i class="fa-solid fa-arrow-left"></i>
+        </div>
+        <span>Back</span>
+      </div>
+      <!-- Logo for mobile / normal when back is hidden -->
+      <a href="home.html" class="logo" id="headerLogo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="2,12 20,3 14,21 10,14 2,12" fill="#000" />
+          <line x1="20" y1="3" x2="10" y2="14" stroke="#fff" stroke-width="1.5" />
+        </svg>
+        Sophie
+      </a>
+    </div>
+
+    <nav class="nav-center">
+      <ul class="nav-links">
+        <li><a href="home.html">HOME</a></li>
+        <li><a href="categories.html">SHOP <i class="fa-solid fa-chevron-down"></i></a></li>
+        <li><a href="categories.html">CATEGORIES <i class="fa-solid fa-chevron-down"></i></a></li>
+        <li><a href="design.html" class="active">3D SHOWCASE</a></li>
+        <li><a href="#">ABOUT</a></li>
+        <li><a href="#">CONTACT US</a></li>
+      </ul>
+    </nav>
+
+    <div class="nav-right">
+      <a href="#" class="icon-btn" aria-label="Search" title="Search"><i class="fa-solid fa-magnifying-glass"></i></a>
+      <a href="#" class="icon-btn" aria-label="Settings" title="Settings"><i class="fa-solid fa-gear"></i></a>
+      <div class="icon-btn" title="Bag" onclick="showToast('You have 2 items in your shopping bag.')">
+        <i class="fa-solid fa-cart-shopping"></i>
+        <span class="cart-badge" id="cartBadge">2</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ================= VIEW SWITCHER BUTTONS ================= -->
+  <div class="view-switcher" id="viewSwitcher">
+    <div class="switch-btn active" id="btnCarousel" onclick="switchMode('carousel')" title="3D Carousel">
+      <i class="fa-solid fa-cube"></i> <span>3D Stage</span>
+    </div>
+    <div class="switch-btn" id="btnGrid" onclick="switchMode('grid')" title="Catalog Grid">
+      <i class="fa-solid fa-table-cells-large"></i> <span>Grid</span>
+    </div>
+  </div>
+
+  <!-- ================= LEFT SIDEBAR ================= -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-tag">// SOPHIE ATELIER</div>
+    <ul class="cat-list">
+      <li class="cat-item active" onclick="filterBySidebar(0)">BACKPACKS</li>
+      <li class="cat-item" onclick="filterBySidebar(1)">HANDBAGS</li>
+      <li class="cat-item" onclick="filterBySidebar(2)">CROSSBODY</li>
+      <li class="cat-item" onclick="filterBySidebar(0)">TOTES</li>
+      <li class="cat-item" onclick="filterBySidebar(1)">CLUTCHES</li>
+    </ul>
+    <ul class="subcat-list">
+      <li class="subcat-item always-show active">Signature Leather</li>
+      <li class="subcat-item">Urban Laptop Commute</li>
+      <li class="subcat-item">Anti-Theft Travel</li>
+      <li class="subcat-item">Mini Saffiano Satchel</li>
+      <li class="subcat-item">Velvet Evening Series</li>
+    </ul>
+  </aside>
+
+  <!-- ================= 1. 3D CAROUSEL VIEW ================= -->
+  <main class="carousel-view" id="carouselView">
+    <!-- Carousel Navigation Arrows -->
+    <button class="carousel-arrow prev" onclick="navigateCarousel(-1)" aria-label="Previous Bag">
+      <i class="fa-solid fa-chevron-left"></i>
+    </button>
+    <button class="carousel-arrow next" onclick="navigateCarousel(1)" aria-label="Next Bag">
+      <i class="fa-solid fa-chevron-right"></i>
+    </button>
+
+    <div class="stage" id="carouselStage">
+      <!-- 3D Bag Slots -->
+      <div class="bag-slot left" id="slot-0" onclick="selectSlide(0)">
+        <img id="img-slot-0" src="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=900&q=85" class="tint-pink" alt="Sophie Bag 1" />
+        <div class="bag-shadow"></div>
+      </div>
+
+      <div class="bag-slot center" id="slot-1" onclick="selectSlide(1)">
+        <img id="img-slot-1" src="https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=900&q=85" class="tint-black" alt="Sophie Bag 2" />
+        <div class="bag-shadow"></div>
+      </div>
+
+      <div class="bag-slot right" id="slot-2" onclick="selectSlide(2)">
+        <img id="img-slot-2" src="https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=900&q=85" class="tint-beige" alt="Sophie Bag 3" />
+        <div class="bag-shadow"></div>
+      </div>
+    </div>
+
+    <!-- Product Details Label & Action -->
+    <div class="carousel-info" id="carouselInfo">
+      <h1 class="brand-title" id="brandTitle">SOPHIE ATELIER</h1>
+      <p class="bag-subtitle" id="bagSubtitle">Vogue Elegance Women's Backpack &nbsp;|&nbsp; £85.00</p>
+      <button class="btn-pill" onclick="openDetails()">
+        <span>EXPLORE DETAILS</span>
+        <i class="fa-solid fa-arrow-right"></i>
+      </button>
+    </div>
+
+    <!-- Scroll Hint -->
+    <div class="scroll-hint">
+      <i class="fa-solid fa-arrow-down"></i> Scroll Mouse Wheel / Swipe to Browse
+    </div>
+  </main>
+
+  <!-- ================= 2. PRODUCT DETAILS VIEW ================= -->
+  <section class="details-view" id="detailsView">
+    <div class="details-hero">
+      <div class="variant-stage">
+        <div class="variant-bag active-variant" id="variantPrimary" onclick="selectColorVariant('primary')">
+          <img id="detailMainImg" src="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=900&q=85" class="tint-pink" alt="Primary Variant" />
+          <div class="bag-shadow" style="margin: 0 auto;"></div>
+        </div>
+        <div class="variant-bag inactive-variant-right" id="variantSecondary" onclick="selectColorVariant('secondary')">
+          <img id="detailSecondaryImg" src="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=900&q=85" class="tint-black" alt="Secondary Variant" />
+          <div class="bag-shadow" style="margin: 0 auto;"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="details-header-bar">
+      <div class="details-title-group">
+        <div class="sku-row">
+          <h1 id="detailBrand">SOPHIE ATELIER</h1>
+          <span class="sku-code" id="detailSku">SP-2026-VG</span>
+        </div>
+        <p id="detailSubtitle">Vogue Elegance Women's Backpack &mdash; Rose Gold Edition</p>
+      </div>
+
+      <div class="details-actions">
+        <div class="details-price" id="detailPrice">£85.00</div>
+        <div class="swatches-and-size">
+          <div class="swatch swatch-rose active" id="swatchRose" onclick="selectColorVariant('primary')" title="Dusty Rose"></div>
+          <div class="swatch swatch-black" id="swatchBlack" onclick="selectColorVariant('secondary')" title="Noir Black"></div>
+          <div class="swatch swatch-camel" id="swatchCamel" onclick="selectColorVariant('camel')" title="Camel Beige"></div>
+          <select class="size-select">
+            <option>Medium (14L)</option>
+            <option>Large (20L)</option>
+            <option>Compact (9L)</option>
+          </select>
+        </div>
+        <div class="cart-row">
+          <button class="btn-pill" onclick="addToCart()">
+            <i class="fa-solid fa-bag-shopping"></i> ADD TO SHOPPING BAG
+          </button>
+          <button class="wishlist-circle" onclick="toggleWishlist(this)" title="Add to Wishlist">
+            <i class="fa-regular fa-heart"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="details-body">
+      <!-- Left Column: Vertical Gallery (Scrollable) -->
+      <div class="details-gallery">
+        <div class="gallery-card">
+          <img id="galleryImg1" src="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=900&q=85" class="tint-pink" alt="Front Profile" />
+        </div>
+        <div class="gallery-card">
+          <img id="galleryImg2" src="https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=900&q=85" class="tint-beige" alt="Detail Craftsmanship" />
+        </div>
+        <div class="gallery-card">
+          <img id="galleryImg3" src="https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=900&q=85" class="tint-black" alt="Interior & Hardware" />
+        </div>
+      </div>
+
+      <!-- Right Column: Sticky Description & Accordions (Smooth Sticky Behavior) -->
+      <div class="details-description">
+        <p class="desc-text" id="detailDesc">
+          Exquisitely tailored from supple grain faux calfskin, the Vogue Elegance seamlessly balances poised aesthetics with modern practicality. Features padded ergonomic shoulder straps, a protective padded tablet sleeve, discreet passport zip compartments, and polished rose-gold signature hardware.
+        </p>
+
+        <div class="accordion-item" onclick="toggleAccordion(this)">
+          <div class="accordion-header">
+            <span>Material &amp; Craftsmanship</span>
+            <i class="fa-solid fa-chevron-right"></i>
+          </div>
+          <div class="accordion-content">
+            Crafted from high-grade water-resistant vegan leather. Lining: 100% recycled cotton twill. Hardware: Polished scratch-resistant zinc alloy. Designed in London, artisan assembled.
+          </div>
+        </div>
+
+        <div class="accordion-item" onclick="toggleAccordion(this)">
+          <div class="accordion-header">
+            <span>Complimentary Delivery &amp; Returns</span>
+            <i class="fa-solid fa-chevron-right"></i>
+          </div>
+          <div class="accordion-content">
+            Enjoy complimentary express UK delivery on all orders over £50. Effortless 30-day return and exchange policy with prepaid return labels included.
+          </div>
+        </div>
+
+        <div class="accordion-item" onclick="toggleAccordion(this)">
+          <div class="accordion-header">
+            <span>2-Year Artisan Warranty</span>
+            <i class="fa-solid fa-chevron-right"></i>
+          </div>
+          <div class="accordion-content">
+            Each Sophie piece comes protected by our 24-month comprehensive craftsmanship guarantee covering stitching, seams, and hardware integrity.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 3. GRID CATALOG VIEW ================= -->
+  <section class="grid-view" id="gridView">
+    <div class="products-grid" id="productsGrid"></div>
+  </section>
+
+  <!-- ================= FLOATING TOAST ================= -->
+  <div id="cartToast" class="toast-notice">
+    <i class="fa-solid fa-circle-check" style="color:var(--accent); font-size:18px;"></i>
+    <span id="toastMsg">Added to your Sophie shopping bag!</span>
+  </div>
+
+  <!-- ================= JAVASCRIPT ================= -->
+  <script>
+    // Flagship 3D Showcase Products
+    const products = [
+      {
+        brand: "SOPHIE ATELIER",
+        subtitle: "Vogue Elegance Women's Backpack",
+        price: "£85.00",
+        sku: "SP-2026-VG",
+        img: "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=900&q=85",
+        tint: "tint-pink",
+        desc: "Exquisitely tailored from supple grain faux calfskin, the Vogue Elegance seamlessly balances poised aesthetics with modern practicality. Features padded ergonomic shoulder straps, a protective padded tablet sleeve, and rose-gold signature hardware.",
+        secondaryImg: "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=900&q=85",
+        secondaryTint: "tint-black",
+        gallery: [
+          { url: "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=900&q=85", tint: "tint-pink" },
+          { url: "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=900&q=85", tint: "tint-beige" },
+          { url: "https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=900&q=85", tint: "tint-black" }
+        ]
+      },
+      {
+        brand: "SOPHIE MAISON",
+        subtitle: "Saffiano Structured Handbag",
+        price: "£145.00",
+        sku: "SP-2026-SF",
+        img: "https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=900&q=85",
+        tint: "tint-black",
+        desc: "An emblem of executive poise. Built from scratch-resistant Saffiano finish leather with protective base studs, reinforced dual carry handles, and an organized triple-compartment interior designed for boardroom to evening transitions.",
+        secondaryImg: "https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=900&q=85",
+        secondaryTint: "tint-pink",
+        gallery: [
+          { url: "https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=900&q=85", tint: "tint-black" },
+          { url: "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=900&q=85", tint: "tint-cream" },
+          { url: "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=900&q=85", tint: "tint-pink" }
+        ]
+      },
+      {
+        brand: "SOPHIE STUDIO",
+        subtitle: "Travel Lite Anti-Theft Backpack",
+        price: "£80.00",
+        sku: "SP-2026-TL",
+        img: "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=900&q=85",
+        tint: "tint-beige",
+        desc: "Engineered for mindful globetrotters. Featuring slash-proof reinforced weave canvas, concealed RFID security pockets, interlocking zipper pulls, and a built-in trolley pass-through strap for effortless airport navigation.",
+        secondaryImg: "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=900&q=85",
+        secondaryTint: "tint-cream",
+        gallery: [
+          { url: "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=900&q=85", tint: "tint-beige" },
+          { url: "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=900&q=85", tint: "tint-blue" },
+          { url: "https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=900&q=85", tint: "tint-cream" }
+        ]
+      }
+    ];
+
+    // Grid Catalog Items
+    const gridCatalog = [
+      {
+        brand: "SOPHIE ATELIER",
+        subtitle: "Vogue Elegance Women's Backpack",
+        price: "£85.00",
+        badge: "NEW",
+        img: "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=700&q=80",
+        tint: "tint-pink",
+        slideIndex: 0
+      },
+      {
+        brand: "SOPHIE MAISON",
+        subtitle: "Saffiano Structured Handbag",
+        price: "£145.00",
+        badge: "LUXE",
+        img: "https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=700&q=80",
+        tint: "tint-black",
+        slideIndex: 1
+      },
+      {
+        brand: "SOPHIE STUDIO",
+        subtitle: "Travel Lite Anti-Theft Backpack",
+        price: "£80.00",
+        badge: "-20%",
+        img: "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=700&q=80",
+        tint: "tint-beige",
+        slideIndex: 2
+      },
+      {
+        brand: "SOPHIE HERITAGE",
+        subtitle: "Classic Fashion Backpack",
+        price: "£100.00",
+        badge: "NEW",
+        img: "https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=700&q=80",
+        tint: "tint-pink",
+        slideIndex: 0
+      },
+      {
+        brand: "SOPHIE LUXE",
+        subtitle: "Parisian Leather Crossbody Bag",
+        price: "£115.00",
+        badge: "TRENDING",
+        img: "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=700&q=80",
+        tint: "tint-cream",
+        slideIndex: 2
+      },
+      {
+        brand: "SOPHIE VOYAGE",
+        subtitle: "Executive Weekender Duffel Tote",
+        price: "£160.00",
+        badge: "EXCLUSIVE",
+        img: "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=700&q=80",
+        tint: "tint-blue",
+        slideIndex: 1
+      }
+    ];
+
+    let activeIndex = 0;
+    let isScrollLocked = false;
+    let currentMode = 'carousel';
+
+    // Update 3D Stage Carousel
+    function updateCarousel() {
+      const total = products.length;
+      const leftIdx = (activeIndex - 1 + total) % total;
+      const rightIdx = (activeIndex + 1) % total;
+
+      const slots = [
+        document.getElementById('slot-0'),
+        document.getElementById('slot-1'),
+        document.getElementById('slot-2')
+      ];
+
+      // Update positions and classes
+      slots.forEach((slot, idx) => {
+        const img = slot.querySelector('img');
+        img.src = products[idx].img;
+        img.className = products[idx].tint;
+
+        slot.className = 'bag-slot';
+        if (idx === activeIndex) {
+          slot.classList.add('center');
+        } else if (idx === leftIdx) {
+          slot.classList.add('left');
+        } else if (idx === rightIdx) {
+          slot.classList.add('right');
+        }
+      });
+
+      // Update Text with smooth fade-and-slide
+      const info = document.getElementById('carouselInfo');
+      info.classList.add('fade-out');
+      setTimeout(() => {
+        const current = products[activeIndex];
+        document.getElementById('brandTitle').textContent = current.brand;
+        document.getElementById('bagSubtitle').innerHTML = `${current.subtitle} &nbsp;|&nbsp; ${current.price}`;
+        info.classList.remove('fade-out');
+      }, 220);
+
+      // Update Sidebar active state
+      document.querySelectorAll('.cat-item').forEach((item, idx) => {
+        if (idx === activeIndex) item.classList.add('active');
+        else item.classList.remove('active');
+      });
+    }
+
+    function selectSlide(index) {
+      if (index === activeIndex) {
+        openDetails();
+        return;
+      }
+      activeIndex = index;
+      updateCarousel();
+    }
+
+    function navigateCarousel(direction) {
+      const total = products.length;
+      activeIndex = (activeIndex + direction + total) % total;
+      updateCarousel();
+    }
+
+    // Filter by Sidebar Item
+    function filterBySidebar(idx) {
+      activeIndex = idx % products.length;
+      if (currentMode === 'grid') {
+        switchMode('carousel');
+      } else {
+        updateCarousel();
+      }
+    }
+
+    // ================= MOUSE WHEEL SCROLL LOGIC =================
+    // Seamlessly transitions 3D carousel on wheel scroll
+    window.addEventListener('wheel', (e) => {
+      // Only handle wheel when in carousel view
+      if (currentMode !== 'carousel') return;
+      if (document.getElementById('detailsView').classList.contains('active')) return;
+
+      if (isScrollLocked) return;
+
+      if (Math.abs(e.deltaY) > 25) {
+        isScrollLocked = true;
+        if (e.deltaY > 0) {
+          navigateCarousel(1); // Scroll down -> next bag
+        } else {
+          navigateCarousel(-1); // Scroll up -> prev bag
+        }
+
+        setTimeout(() => {
+          isScrollLocked = false;
+        }, 550);
+      }
+    }, { passive: true });
+
+    // Keyboard Navigation
+    window.addEventListener('keydown', (e) => {
+      if (currentMode !== 'carousel' || document.getElementById('detailsView').classList.contains('active')) return;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        navigateCarousel(1);
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        navigateCarousel(-1);
+      }
+    });
+
+    // Touch Swipe Navigation for Mobile / Tablets
+    let touchStartX = 0;
+    let touchStartY = 0;
+    window.addEventListener('touchstart', (e) => {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    }, { passive: true });
+
+    window.addEventListener('touchend', (e) => {
+      if (currentMode !== 'carousel' || document.getElementById('detailsView').classList.contains('active')) return;
+      const touchEndX = e.changedTouches[0].clientX;
+      const touchEndY = e.changedTouches[0].clientY;
+      const diffX = touchStartX - touchEndX;
+      const diffY = touchStartY - touchEndY;
+
+      if (Math.abs(diffX) > 40 && Math.abs(diffX) > Math.abs(diffY)) {
+        if (diffX > 0) navigateCarousel(1);
+        else navigateCarousel(-1);
+      }
+    }, { passive: true });
+
+    // Open Product Details View
+    function openDetails() {
+      const current = products[activeIndex];
+      document.getElementById('detailBrand').textContent = current.brand;
+      document.getElementById('detailSubtitle').textContent = `${current.subtitle} — Rose Gold Edition`;
+      document.getElementById('detailPrice').textContent = current.price;
+      document.getElementById('detailSku').textContent = current.sku;
+      document.getElementById('detailDesc').textContent = current.desc;
+
+      const mainImg = document.getElementById('detailMainImg');
+      mainImg.src = current.img;
+      mainImg.className = current.tint;
+
+      const secImg = document.getElementById('detailSecondaryImg');
+      secImg.src = current.secondaryImg;
+      secImg.className = current.secondaryTint;
+
+      // Update Gallery images
+      document.getElementById('galleryImg1').src = current.gallery[0].url;
+      document.getElementById('galleryImg1').className = current.gallery[0].tint;
+
+      document.getElementById('galleryImg2').src = current.gallery[1].url;
+      document.getElementById('galleryImg2').className = current.gallery[1].tint;
+
+      document.getElementById('galleryImg3').src = current.gallery[2].url;
+      document.getElementById('galleryImg3').className = current.gallery[2].tint;
+
+      // Reset color variant
+      selectColorVariant('primary');
+
+      // Hide sidebar & switcher, show Back button
+      document.getElementById('sidebar').classList.add('hidden');
+      document.getElementById('viewSwitcher').classList.add('hidden');
+      document.getElementById('backBtn').classList.add('visible');
+      document.getElementById('headerLogo').style.display = 'none';
+
+      // Transition views
+      document.getElementById('carouselView').classList.add('hidden');
+      document.getElementById('gridView').classList.remove('active');
+      document.getElementById('detailsView').classList.add('active');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // Close Details and return to Carousel
+    function closeDetails() {
+      document.getElementById('detailsView').classList.remove('active');
+      document.getElementById('carouselView').classList.remove('hidden');
+
+      document.getElementById('sidebar').classList.remove('hidden');
+      document.getElementById('viewSwitcher').classList.remove('hidden');
+      document.getElementById('backBtn').classList.remove('visible');
+      document.getElementById('headerLogo').style.display = 'flex';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // Switch between Color Variants in 3D Stage
+    function selectColorVariant(variant) {
+      const varPrimary = document.getElementById('variantPrimary');
+      const varSecondary = document.getElementById('variantSecondary');
+      const swatchRose = document.getElementById('swatchRose');
+      const swatchBlack = document.getElementById('swatchBlack');
+      const swatchCamel = document.getElementById('swatchCamel');
+      const subtitle = document.getElementById('detailSubtitle');
+      const current = products[activeIndex];
+
+      // Reset swatches
+      document.querySelectorAll('.swatch').forEach(s => s.classList.remove('active'));
+
+      if (variant === 'secondary') {
+        varPrimary.className = 'variant-bag inactive-variant-left';
+        varSecondary.className = 'variant-bag active-variant';
+        swatchBlack.classList.add('active');
+        subtitle.textContent = `${current.subtitle} — Noir Edition`;
+      } else if (variant === 'camel') {
+        varPrimary.className = 'variant-bag active-variant';
+        varSecondary.className = 'variant-bag inactive-variant-right';
+        swatchCamel.classList.add('active');
+        document.getElementById('detailMainImg').className = 'tint-beige';
+        subtitle.textContent = `${current.subtitle} — Camel Sand Edition`;
+      } else {
+        varPrimary.className = 'variant-bag active-variant';
+        varSecondary.className = 'variant-bag inactive-variant-right';
+        swatchRose.classList.add('active');
+        document.getElementById('detailMainImg').className = current.tint;
+        subtitle.textContent = `${current.subtitle} — Rose Gold Edition`;
+      }
+    }
+
+    // Switch between Carousel View and Grid View
+    function switchMode(mode) {
+      currentMode = mode;
+      const carouselView = document.getElementById('carouselView');
+      const gridView = document.getElementById('gridView');
+      const detailsView = document.getElementById('detailsView');
+      const sidebar = document.getElementById('sidebar');
+      const btnCarousel = document.getElementById('btnCarousel');
+      const btnGrid = document.getElementById('btnGrid');
+
+      detailsView.classList.remove('active');
+      document.getElementById('backBtn').classList.remove('visible');
+      document.getElementById('headerLogo').style.display = 'flex';
+      document.getElementById('viewSwitcher').classList.remove('hidden');
+      sidebar.classList.remove('hidden');
+
+      if (mode === 'grid') {
+        carouselView.classList.add('hidden');
+        gridView.classList.add('active');
+        sidebar.classList.add('expanded-subcats');
+        btnGrid.classList.add('active');
+        btnCarousel.classList.remove('active');
+      } else {
+        gridView.classList.remove('active');
+        carouselView.classList.remove('hidden');
+        sidebar.classList.remove('expanded-subcats');
+        btnCarousel.classList.add('active');
+        btnGrid.classList.remove('active');
+      }
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // Populate Grid View Cards
+    function renderGrid() {
+      const container = document.getElementById('productsGrid');
+      container.innerHTML = gridCatalog.map((item) => `
+        <div class="grid-card" onclick="activeIndex = ${item.slideIndex}; updateCarousel(); switchMode('carousel');">
+          <div class="grid-img-box">
+            <span class="grid-card-badge">${item.badge}</span>
+            <img src="${item.img}" class="${item.tint}" alt="${item.brand}" />
+          </div>
+          <div class="grid-meta-top">
+            <span>${item.brand}</span>
+            <span>${item.price}</span>
+          </div>
+          <div class="grid-meta-sub">${item.subtitle}</div>
+        </div>
+      `).join('');
+    }
+
+    // Collapsible Accordions in Details View
+    function toggleAccordion(el) {
+      el.classList.toggle('open');
+    }
+
+    // Cart and Wishlist Interactions
+    function addToCart() {
+      const badge = document.getElementById('cartBadge');
+      const currentCount = parseInt(badge.textContent, 10) || 0;
+      badge.textContent = currentCount + 1;
+      badge.classList.add('bump');
+      setTimeout(() => badge.classList.remove('bump'), 300);
+
+      const title = products[activeIndex].subtitle;
+      showToast(`Added "${title}" to your shopping bag!`);
+    }
+
+    function toggleWishlist(btn) {
+      const icon = btn.querySelector('i');
+      if (icon.classList.contains('fa-regular')) {
+        icon.classList.remove('fa-regular');
+        icon.classList.add('fa-solid');
+        icon.style.color = '#e11d48';
+        showToast('Saved to your wishlist!');
+      } else {
+        icon.classList.remove('fa-solid');
+        icon.classList.add('fa-regular');
+        icon.style.color = '';
+        showToast('Removed from your wishlist.');
+      }
+    }
+
+    // Toast Notification
+    function showToast(msg) {
+      const toast = document.getElementById('cartToast');
+      document.getElementById('toastMsg').textContent = msg;
+      toast.classList.add('show');
+      setTimeout(() => {
+        toast.classList.remove('show');
+      }, 3000);
+    }
+
+    // Smooth Page Navigation Transition between all 3 pages
+    document.querySelectorAll('a[href]').forEach(link => {
+      const href = link.getAttribute('href');
+      if (href && (href === 'home.html' || href === 'categories.html' || href === 'design.html')) {
+        link.addEventListener('click', e => {
+          const currentFile = window.location.pathname.split('/').pop() || 'design.html';
+          if (link.target !== '_blank' && !e.ctrlKey && !e.metaKey && href !== currentFile) {
+            e.preventDefault();
+            document.body.classList.add('page-fade-out');
+            setTimeout(() => {
+              window.location.href = href;
+            }, 180);
+          }
+        });
+      }
+    });
+
+    // Initialize
+    updateCarousel();
+    renderGrid();
+  </script>
+</body>
+</html>

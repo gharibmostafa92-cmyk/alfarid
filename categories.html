@@ -1311,6 +1311,7 @@
           <li><a href="home.html">HOME</a></li>
           <li><a href="categories.html" class="active">SHOP <i class="fa-solid fa-chevron-down"></i></a></li>
           <li><a href="categories.html">CATEGORIES <i class="fa-solid fa-chevron-down"></i></a></li>
+          <li><a href="design.html">3D SHOWCASE</a></li>
           <li><a href="#">ABOUT</a></li>
           <li><a href="#">CONTACT US</a></li>
         </ul>
@@ -2135,7 +2136,7 @@
     // Smooth Navigation Transition between Pages
     document.querySelectorAll('a[href]').forEach(link => {
       const href = link.getAttribute('href');
-      if (href && (href === 'home.html' || href === 'categories.html')) {
+      if (href && (href === 'home.html' || href === 'categories.html' || href === 'design.html')) {
         link.addEventListener('click', e => {
           const currentFile = window.location.pathname.split('/').pop() || 'categories.html';
           if (link.target !== '_blank' && !e.ctrlKey && !e.metaKey && href !== currentFile) {

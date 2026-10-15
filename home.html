@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -513,6 +513,7 @@
           <li><a href="home.html" class="active">HOME</a></li>
           <li><a href="categories.html">SHOP <i class="fa-solid fa-chevron-down"></i></a></li>
           <li><a href="categories.html">CATEGORIES <i class="fa-solid fa-chevron-down"></i></a></li>
+          <li><a href="design.html">3D SHOWCASE</a></li>
           <li><a href="#">ABOUT</a></li>
           <li><a href="#">CONTACT US</a></li>
         </ul>
@@ -698,7 +699,7 @@
     // Smooth Page Navigation Transition
     document.querySelectorAll('a[href]').forEach(link => {
       const href = link.getAttribute('href');
-      if (href && (href === 'home.html' || href === 'categories.html')) {
+      if (href && (href === 'home.html' || href === 'categories.html' || href === 'design.html')) {
         link.addEventListener('click', e => {
           const currentFile = window.location.pathname.split('/').pop() || 'home.html';
           if (link.target !== '_blank' && !e.ctrlKey && !e.metaKey && href !== currentFile) {
