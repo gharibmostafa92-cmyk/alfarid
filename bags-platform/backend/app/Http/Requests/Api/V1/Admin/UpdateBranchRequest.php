@@ -23,6 +23,7 @@ class UpdateBranchRequest extends FormRequest
     public function rules(): array
     {
         $branch = $this->route('branch');
+        $branchId = $branch instanceof Branch ? $branch->getKey() : $branch;
 
         return [
             'name' => ['sometimes', 'required', 'string', 'max:255'],
@@ -31,7 +32,7 @@ class UpdateBranchRequest extends FormRequest
                 'required',
                 'string',
                 'max:50',
-                Rule::unique('branches', 'code')->ignore($branch instanceof Branch ? $branch : null),
+                Rule::unique('branches', 'code')->ignore($branchId),
             ],
             'type' => ['sometimes', 'required', Rule::enum(BranchType::class)],
             'phone' => ['sometimes', 'nullable', 'string', 'max:50'],

@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['name', 'code', 'type', 'is_active'])]
+#[Fillable(['branch_id', 'name', 'code', 'type', 'is_active'])]
 class Location extends Model
 {
     /** @use HasFactory<LocationFactory> */

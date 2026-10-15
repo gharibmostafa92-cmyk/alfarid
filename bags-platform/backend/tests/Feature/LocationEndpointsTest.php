@@ -54,6 +54,7 @@ class LocationEndpointsTest extends TestCase
 
         $this->requestWithToken($token, 'PATCH', "/api/v1/admin/branches/{$branch->id}/locations/{$locationId}", [
             'name' => 'Updated Bin',
+            'code' => 'A-01-02',
         ])->assertOk()->assertJsonPath('data.name', 'Updated Bin');
 
         $this->requestWithToken($token, 'DELETE', "/api/v1/admin/branches/{$branch->id}/locations/{$locationId}")

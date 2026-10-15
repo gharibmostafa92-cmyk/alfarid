@@ -17,6 +17,12 @@ class EnsureStaffAuthenticated
         Auth::shouldUse('staff');
         $user = $request->user('staff');
 
+        if ($request->user('sanctum') === null) {
+            return response()->json([
+                'message' => 'يرجى تسجيل الدخول أولًا.',
+            ], 401);
+        }
+
         if (! $user instanceof User || ! $user->is_active) {
             return response()->json([
                 'message' => 'غير مصرح لك بالدخول كموظف أو الحساب غير نشط.',

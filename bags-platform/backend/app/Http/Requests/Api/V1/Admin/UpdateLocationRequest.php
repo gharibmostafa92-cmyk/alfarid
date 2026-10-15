@@ -26,6 +26,7 @@ class UpdateLocationRequest extends FormRequest
         $branch = $this->route('branch');
         $location = $this->route('location');
         $branchId = $branch instanceof Branch ? $branch->getKey() : $branch;
+        $locationId = $location instanceof Location ? $location->getKey() : $location;
 
         return [
             'name' => ['sometimes', 'required', 'string', 'max:255'],
@@ -36,7 +37,7 @@ class UpdateLocationRequest extends FormRequest
                 'max:100',
                 Rule::unique('locations', 'code')
                     ->where('branch_id', $branchId)
-                    ->ignore($location instanceof Location ? $location : null),
+                    ->ignore($locationId),
             ],
             'type' => ['sometimes', 'required', Rule::enum(LocationType::class)],
             'is_active' => ['sometimes', 'boolean'],

@@ -106,6 +106,22 @@ class AdminSettingsEndpointsTest extends TestCase
         $this->assertSame('ORD-001001', $service->generateNextNumber('order'));
         $this->assertSame(1002, $service->get('order_next_number'));
         $this->assertSame('PO-1000', $service->generateNextNumber('purchase_order'));
+        $this->assertSame('QT-1000', $service->generateNextNumber('quotation'));
+    }
+
+    public function test_settings_update_cannot_decrease_a_numbering_counter(): void
+    {
+        $this->seedSettings();
+        $service = app(SettingService::class);
+        $service->generateNextNumber('order');
+        $token = $this->staffWithSettingsPermission()->createToken('settings-test')->plainTextToken;
+
+        $this->requestWithToken($token, 'PUT', '/api/v1/admin/settings', [
+            'order_next_number' => 1000,
+        ])->assertOk()
+            ->assertJsonPath('data.numbering.order_next_number', 1001);
+
+        $this->assertDatabaseHas('settings', ['key' => 'order_next_number', 'value' => '1001']);
     }
 
     private function seedSettings(): void

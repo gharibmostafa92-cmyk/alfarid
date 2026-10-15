@@ -18,7 +18,13 @@ class EnsureCustomerAuthenticated
         Auth::shouldUse('customer');
         $user = $request->user('customer');
 
-        if (! $user instanceof Customer || $user->status === CustomerStatus::Blocked) {
+        if ($request->user('sanctum') === null) {
+            return response()->json([
+                'message' => 'يرجى تسجيل الدخول أولًا.',
+            ], 401);
+        }
+
+        if (! $user instanceof Customer || in_array($user->status, [CustomerStatus::Blocked, CustomerStatus::Rejected], true)) {
             return response()->json([
                 'message' => 'غير مصرح لك بالدخول كعميل.',
             ], 403);

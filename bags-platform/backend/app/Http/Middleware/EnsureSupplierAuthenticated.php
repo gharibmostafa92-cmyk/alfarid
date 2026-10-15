@@ -17,7 +17,13 @@ class EnsureSupplierAuthenticated
         Auth::shouldUse('supplier');
         $user = $request->user('supplier');
 
-        if (! $user instanceof SupplierUser || ! $user->is_active) {
+        if ($request->user('sanctum') === null) {
+            return response()->json([
+                'message' => 'يرجى تسجيل الدخول أولًا.',
+            ], 401);
+        }
+
+        if (! $user instanceof SupplierUser || ! $user->is_active || $user->supplier_id === null) {
             return response()->json([
                 'message' => 'غير مصرح لك بالدخول كمستخدم مورد أو الحساب غير نشط.',
             ], 403);

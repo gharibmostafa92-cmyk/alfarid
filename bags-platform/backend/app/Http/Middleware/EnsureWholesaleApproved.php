@@ -19,6 +19,12 @@ class EnsureWholesaleApproved
         Auth::shouldUse('customer');
         $user = $request->user('customer');
 
+        if ($request->user('sanctum') === null) {
+            return response()->json([
+                'message' => 'يرجى تسجيل الدخول أولًا.',
+            ], 401);
+        }
+
         if (
             ! $user instanceof Customer
             || ! in_array($user->type, [CustomerType::Wholesale, CustomerType::Distributor], true)

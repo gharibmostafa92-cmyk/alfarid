@@ -101,6 +101,11 @@ class SettingService
             foreach ($settings as $key => $value) {
                 /** @var Setting $setting */
                 $setting = $lockedSettings->get($key);
+
+                if (in_array($key, self::NUMBERING_COUNTER_KEYS, true) && is_numeric($value)) {
+                    $value = max((int) $setting->value, (int) $value);
+                }
+
                 $setting->value = $value === null && str_ends_with($key, '_prefix')
                     ? ''
                     : $this->serializeValue($value, $setting->type);

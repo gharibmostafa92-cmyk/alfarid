@@ -13,6 +13,7 @@ use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Spatie\Permission\Models\Permission;
@@ -22,6 +23,12 @@ use Tests\TestCase;
 class MultiTableAuthenticationTest extends TestCase
 {
     use LazilyRefreshDatabase;
+
+    public function test_customer_and_supplier_auth_tables_have_remember_token_columns(): void
+    {
+        $this->assertTrue(Schema::hasColumn('customers', 'remember_token'));
+        $this->assertTrue(Schema::hasColumn('supplier_users', 'remember_token'));
+    }
 
     protected function setUp(): void
     {
@@ -82,6 +89,11 @@ class MultiTableAuthenticationTest extends TestCase
         $blockedToken = $blockedCustomer->createToken('test')->plainTextToken;
 
         $this->requestWithToken($blockedToken, '/_test-auth/customer')->assertForbidden();
+
+        $rejectedCustomer = $this->createCustomer(status: CustomerStatus::Rejected);
+        $rejectedToken = $rejectedCustomer->createToken('test')->plainTextToken;
+
+        $this->requestWithToken($rejectedToken, '/_test-auth/customer')->assertForbidden();
     }
 
     #[DataProvider('wholesaleAccessCases')]
@@ -118,6 +130,7 @@ class MultiTableAuthenticationTest extends TestCase
     public function test_returns_403_for_inactive_supplier_users(): void
     {
         $supplier = SupplierUser::create([
+            'supplier_id' => 1,
             'name' => 'Active supplier user',
             'email' => 'active-supplier@example.test',
             'password' => 'password',
@@ -129,7 +142,18 @@ class MultiTableAuthenticationTest extends TestCase
             ->assertOk()
             ->assertJsonPath('model', SupplierUser::class);
 
+        $unassignedSupplier = SupplierUser::create([
+            'name' => 'Unassigned supplier user',
+            'email' => 'unassigned-supplier@example.test',
+            'password' => 'password',
+            'is_active' => true,
+        ]);
+        $unassignedToken = $unassignedSupplier->createToken('test')->plainTextToken;
+
+        $this->requestWithToken($unassignedToken, '/_test-auth/supplier')->assertForbidden();
+
         $inactiveSupplier = SupplierUser::create([
+            'supplier_id' => 1,
             'name' => 'Inactive supplier user',
             'email' => 'inactive-supplier@example.test',
             'password' => 'password',
@@ -140,11 +164,13 @@ class MultiTableAuthenticationTest extends TestCase
         $this->requestWithToken($inactiveToken, '/_test-auth/supplier')->assertForbidden();
     }
 
-    public function test_returns_403_when_staff_route_has_no_token(): void
+    public function test_authentication_middlewares_return_401_when_no_token_is_present(): void
     {
-        Auth::forgetGuards();
+        foreach (['staff', 'customer', 'supplier', 'wholesale'] as $route) {
+            Auth::forgetGuards();
 
-        $this->getJson('/_test-auth/staff')->assertForbidden();
+            $this->getJson("/_test-auth/{$route}")->assertUnauthorized();
+        }
     }
 
     public function test_returns_403_when_customer_token_is_used_as_staff(): void

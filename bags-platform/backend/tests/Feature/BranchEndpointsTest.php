@@ -5,12 +5,13 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Models\Branch;
+use App\Models\Location;
 use App\Models\User;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Testing\TestResponse;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
@@ -45,6 +46,7 @@ class BranchEndpointsTest extends TestCase
 
         $this->requestWithToken($token, 'PATCH', "/api/v1/admin/branches/{$branchId}", [
             'name' => 'Central Warehouse',
+            'code' => 'BR-001',
             'type' => 'warehouse',
         ])->assertOk()
             ->assertJsonPath('data.name', 'Central Warehouse')
@@ -124,6 +126,24 @@ class BranchEndpointsTest extends TestCase
         $this->assertDatabaseMissing('locations', ['id' => $location->id]);
     }
 
+    public function test_location_can_be_created_directly_with_its_branch_id(): void
+    {
+        $branch = Branch::factory()->create();
+
+        $location = Location::create([
+            'branch_id' => $branch->id,
+            'name' => 'Directly Created Location',
+            'code' => 'DIRECT-01',
+            'type' => 'shelf',
+            'is_active' => true,
+        ]);
+
+        $this->assertDatabaseHas('locations', [
+            'id' => $location->id,
+            'branch_id' => $branch->id,
+        ]);
+    }
+
     private function staffWithPermission(string $permissionName): User
     {
         $permission = Permission::findOrCreate($permissionName, 'staff');
@@ -134,7 +154,7 @@ class BranchEndpointsTest extends TestCase
     }
 
     /**
-     * @param array<string, mixed> $payload
+     * @param  array<string, mixed>  $payload
      */
     private function requestWithToken(string $token, string $method, string $uri, array $payload = []): TestResponse
     {
