@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Enums\ProductStatus;
 use App\Enums\SalesChannel;
+use Database\Factories\ProductFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -18,6 +19,7 @@ use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 class Product extends Model implements HasMedia
 {
+    /** @use HasFactory<ProductFactory> */
     use HasFactory, InteractsWithMedia, SoftDeletes;
 
     protected $fillable = [

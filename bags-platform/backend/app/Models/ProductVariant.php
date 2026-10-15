@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use Database\Factories\ProductVariantFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -15,6 +16,7 @@ use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 class ProductVariant extends Model implements HasMedia
 {
+    /** @use HasFactory<ProductVariantFactory> */
     use HasFactory, InteractsWithMedia, SoftDeletes;
 
     protected $fillable = [

@@ -33,6 +33,9 @@ class DatabaseSeeder extends Seeder
                 ['email' => 'test@example.com'],
                 $testUser->getAttributes(),
             );
+
+            // بيانات الكتالوج التجريبية للبيئات المحلية والاختبار بس
+            $this->call(CatalogSeeder::class);
         }
     }
 }
