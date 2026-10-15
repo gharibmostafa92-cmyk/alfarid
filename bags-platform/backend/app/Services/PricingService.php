@@ -23,6 +23,10 @@ use Illuminate\Database\Eloquent\Builder;
  * 3. قائمة النوع (wholesale/distributor للمعتمدين فقط، وإلا retail)
  * 4. السعر الأساسي للمتغير (base_price، المتوافق مع retail_price من المرحلة 2).
  *
+ * خصم مجموعة العميل (discount_percentage) لا يصنع مستوى مستقلًا: يُطبق فوق ناتج
+ * المستويين 3/4 (سعر القناة)، ولا يُخصم من سعر خاص بالعميل أو سعر قائمة المجموعة.
+ * متغير بلا retail_price ولا قائمة مطابقة = غير مُسعَّر، ويرمي BusinessException.
+ *
  * داخل كل مستوى: القائمة المخصصة للفرع أولًا، ثم أعلى شريحة كمية محققة،
  * ثم أولوية القائمة، ثم السعر الأقل.
  */
@@ -69,10 +73,6 @@ class PricingService
             if ($item !== null) {
                 return $this->formatResponse((float) $item->price, PriceListType::CustomerGroup->value, (int) $item->price_list_id, $variant, $channel);
             }
-            // Default group discount is a fallback at group priority, applied once to base price.
-            if ((float) $group->discount_percentage > 0) {
-                return $this->formatResponse((float) $variant->base_price * (1 - (float) $group->discount_percentage / 100), 'customer_group_discount', null, $variant, $channel);
-            }
         }
 
         // الأولوية 3: قائمة نوع العميل (أو القطاعي افتراضيًا)
@@ -81,11 +81,33 @@ class PricingService
         )->first();
 
         if ($item !== null) {
-            return $this->formatResponse((float) $item->price, $channel->value, (int) $item->price_list_id, $variant, $channel);
+            $channelPrice = (float) $item->price;
+            $channelListId = (int) $item->price_list_id;
+            $channelSource = $channel->value;
+        } elseif ($variant->retail_price === null) {
+            // الأولوية 4 مستحيلة: لا قائمة مطابقة ولا سعر قطاعي — الصنف غير مُسعَّر
+            // ولا يجوز أن يخرج بسعر صفر ليُباع مجانًا.
+            throw new BusinessException('الصنف غير مُسعَّر: لا توجد قائمة أسعار مطابقة ولا سعر قطاعي للمتغير.');
+        } else {
+            // الأولوية 4: السعر الأساسي الموحد؛ أسعار الجملة والموزعين تأتي من القوائم.
+            $channelPrice = $this->basePrice($variant, $channel);
+            $channelListId = null;
+            $channelSource = 'base_price';
         }
 
-        // الأولوية 4: السعر الأساسي الموحد؛ أسعار الجملة والموزعين تأتي من القوائم.
-        return $this->formatResponse($this->basePrice($variant, $channel), 'base_price', null, $variant, $channel);
+        // خصم مجموعة العميل يُطبق "فوق" سعر القناة المحسوب (قائمة القناة أو الأساسي)،
+        // ولا يتجاوزه أبدًا — فلا يخسر العميل سعر جملة/موزع أفضل بسبب خصم مجموعته.
+        if ($group !== null && (float) $group->discount_percentage > 0) {
+            return $this->formatResponse(
+                $channelPrice * (1 - (float) $group->discount_percentage / 100),
+                'customer_group_discount',
+                $channelListId,
+                $variant,
+                $channel,
+            );
+        }
+
+        return $this->formatResponse($channelPrice, $channelSource, $channelListId, $variant, $channel);
     }
 
     /** قناة التسعير: الجملة/الموزع للحسابات المعتمدة فقط، وغير ذلك قطاعي. */

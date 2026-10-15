@@ -104,8 +104,7 @@ class StocktakeService
             ])->save();
 
             if (isset($data['items'])) {
-                $stocktake->items()->delete();
-                $this->syncItems($stocktake, $data['items']);
+                $this->upsertItems($stocktake, $data['items']);
             }
 
             return $stocktake->load(['items.variant', 'branch', 'location', 'creator']);
@@ -143,17 +142,29 @@ class StocktakeService
             ])->all());
 
             // A count becomes stale after a stock change; never overwrite intervening sales/receipts.
+            // اللقطة مربوطة بلحظة العد، فأي حركة بعدها تجعل الصنف محتاجًا إعادة عد —
+            // ولا تُحدَّث اللقطة بإعادة الحفظ، بل بتغيير العدد أو بعلم recount فقط.
+            $staleItemIds = [];
+            $staleVariantIds = [];
             foreach ($stocktake->items as $item) {
                 $key = $this->inventory->levelKey([
                     'product_variant_id' => $item->product_variant_id,
                     'branch_id' => $stocktake->branch_id, 'location_id' => $stocktake->location_id,
                 ]);
                 if ((int) round((float) $levels[$key]->on_hand * 10000) !== (int) round((float) $item->system_qty * 10000)) {
-                    throw new BusinessException('تغير رصيد المخزون منذ آخر عد؛ راجع الكميات وأعد حفظ الجرد قبل الاعتماد.');
+                    $staleItemIds[] = $item->id;
+                    $staleVariantIds[] = $item->product_variant_id;
                 }
                 if ((int) round((float) $item->counted_qty * 10000) < (int) round((float) $levels[$key]->reserved * 10000) + (int) round((float) $levels[$key]->damaged * 10000)) {
                     throw new BusinessException('العد الفعلي أقل من المحجوز والتالف؛ راجع الحجوزات وسوِّ التالف قبل إعادة العد والاعتماد.');
                 }
+            }
+
+            if ($staleItemIds !== []) {
+                throw new BusinessException(
+                    'توجد أصناف تغيّر رصيدها بعد عدّها وتحتاج إعادة عد قبل الاعتماد.',
+                    ['recount_item_ids' => $staleItemIds, 'recount_variant_ids' => $staleVariantIds],
+                );
             }
 
             foreach ($stocktake->items as $item) {
@@ -229,5 +240,63 @@ class StocktakeService
                 'counted_qty' => $item['counted_qty'] ?? null,
             ]);
         }
+    }
+
+    /**
+     * تحديث عناصر جرد قائم بدون كسر ربط اللقطة بلحظة العد:
+     * - عنصر جديد يُنشأ بلقطة الآن.
+     * - لقطة عنصر قائم لا تتجدد إلا إذا سُجّل counted_qty أو تغيّر، أو أُرسل recount=true.
+     * - إعادة حفظ بنفس الأعداد (الواجهة ترسل المصفوفة كاملة) لا تلمس اللقطات.
+     * - عنصر غائب من الحمولة يُحذف من الجرد.
+     *
+     * @param  list<array{product_variant_id: int, counted_qty?: float|int|string|null, recount?: bool|null}>  $items
+     */
+    private function upsertItems(Stocktake $stocktake, array $items): void
+    {
+        $existing = $stocktake->items()->get()->keyBy('product_variant_id');
+        $levels = StockLevel::query()->where('branch_id', $stocktake->branch_id)
+            ->where('location_id', $stocktake->location_id)
+            ->whereIn('product_variant_id', array_column($items, 'product_variant_id'))
+            ->get()->keyBy('product_variant_id');
+
+        $keepIds = [];
+        foreach ($items as $item) {
+            $variantId = (int) $item['product_variant_id'];
+            $currentOnHand = $levels->get($variantId) ? (float) $levels->get($variantId)->on_hand : 0.0;
+            $row = $existing->get($variantId);
+
+            if ($row === null) {
+                $created = $stocktake->items()->create([
+                    'product_variant_id' => $variantId,
+                    'system_qty' => $currentOnHand,
+                    'counted_qty' => $item['counted_qty'] ?? null,
+                ]);
+                $keepIds[] = $created->id;
+
+                continue;
+            }
+
+            $keepIds[] = $row->id;
+            $updates = [];
+
+            if (array_key_exists('counted_qty', $item)) {
+                $updates['counted_qty'] = $item['counted_qty'];
+
+                $countChanged = $item['counted_qty'] !== null
+                    && ($row->counted_qty === null || (float) $item['counted_qty'] !== (float) $row->counted_qty);
+
+                if ($countChanged || ! empty($item['recount'])) {
+                    $updates['system_qty'] = $currentOnHand;
+                }
+            } elseif (! empty($item['recount'])) {
+                $updates['system_qty'] = $currentOnHand;
+            }
+
+            if ($updates !== []) {
+                $row->update($updates);
+            }
+        }
+
+        $stocktake->items()->whereNotIn('id', $keepIds)->delete();
     }
 }

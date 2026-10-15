@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Enums\StockMovementType;
+use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Inventory\StoreAdjustmentRequest;
 use App\Http\Resources\Admin\StockLevelResource;
@@ -94,7 +95,15 @@ class InventoryController extends Controller implements HasMiddleware
     /** تسوية يدوية: كل العناصر في transaction واحدة عبر InventoryService فقط. */
     public function adjustments(StoreAdjustmentRequest $request): JsonResponse
     {
-        $movements = $this->inventory->applyAdjustments($request->validated(), $request->user()->id);
+        $idempotencyKey = $request->header('Idempotency-Key');
+        if ($idempotencyKey !== null) {
+            $idempotencyKey = trim($idempotencyKey);
+            if ($idempotencyKey === '' || strlen($idempotencyKey) > 128) {
+                throw new BusinessException('قيمة Idempotency-Key غير صالحة (1 إلى 128 حرفًا).');
+            }
+        }
+
+        $movements = $this->inventory->applyAdjustments($request->validated(), $request->user()->id, $idempotencyKey);
 
         return response()->json([
             'message' => 'تم تنفيذ التسوية بنجاح',

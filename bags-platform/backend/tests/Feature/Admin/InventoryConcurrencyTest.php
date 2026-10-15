@@ -15,6 +15,7 @@ use App\Services\StocktakeService;
 use App\Services\TransferService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
+use Spatie\Permission\Models\Permission;
 use Symfony\Component\Process\Process;
 use Tests\TestCase;
 
@@ -28,7 +29,9 @@ class InventoryConcurrencyTest extends TestCase
     {
         parent::setUp();
         $this->seed(SettingSeeder::class);
+        // مشغّل مركز رئيسي: بلا فرع لكن بامتياز صريح لكل الفروع (fail-closed خلاف ذلك)
         $this->staff = User::factory()->create();
+        $this->staff->givePermissionTo(Permission::findOrCreate('inventory.all_branches', 'staff'));
     }
 
     protected function tearDown(): void

@@ -31,6 +31,7 @@ class StoreStocktakeRequest extends FormRequest
                 'required_with:items', 'bail', 'integer', 'min:1', 'distinct', Rule::exists('product_variants', 'id')->whereNull('deleted_at')->where('is_active', true),
             ],
             'items.*.counted_qty' => ['nullable', 'numeric', 'decimal:0,4', 'min:0', 'max:99999999.9999'],
+            'items.*.recount' => ['nullable', 'boolean'],
         ];
     }
 }

@@ -7,9 +7,11 @@ namespace App\Services;
 use App\Enums\StockBucket;
 use App\Enums\StockMovementType;
 use App\Exceptions\BusinessException;
+use App\Models\InventoryIdempotencyKey;
 use App\Models\Location;
 use App\Models\StockLevel;
 use App\Models\StockMovement;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -115,10 +117,62 @@ class InventoryService
     /**
      * تسوية يدوية متعددة العناصر داخل transaction واحدة (أي فشل يلغي الكل).
      *
+     * مع مفتاح عدم تكرار (Idempotency-Key): يُدرج المفتاح داخل نفس الـ transaction،
+     * فالتكرار المتزامن يصطدم بالقيد الفريد بعد commit الأول ويعيد الحركات المحفوظة،
+     * ونفس المفتاح بحمولة مختلفة يُرفض 409، وفشل الطلب يلغي المفتاح معه.
+     *
      * @param  array{branch_id: int, location_id?: int|null, items: list<array{product_variant_id: int, adjustment_type: string, quantity: float|int|string, reason?: string|null}>}  $payload
      * @return list<StockMovement>
      */
-    public function applyAdjustments(array $payload, int $userId): array
+    public function applyAdjustments(array $payload, int $userId, ?string $idempotencyKey = null): array
+    {
+        if ($idempotencyKey === null) {
+            return $this->executeAdjustments($payload, $userId);
+        }
+
+        $requestHash = hash('sha256', json_encode($this->canonicalize($payload), JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION));
+
+        try {
+            return DB::transaction(function () use ($payload, $userId, $idempotencyKey, $requestHash): array {
+                $record = InventoryIdempotencyKey::query()->create([
+                    'user_id' => $userId,
+                    'key' => $idempotencyKey,
+                    'request_hash' => $requestHash,
+                ]);
+
+                $movements = $this->executeAdjustments($payload, $userId);
+
+                $record->update([
+                    'response' => array_map(fn (StockMovement $movement) => $movement->id, $movements),
+                    'status_code' => 201,
+                ]);
+
+                return $movements;
+            });
+        } catch (UniqueConstraintViolationException) {
+            $record = InventoryIdempotencyKey::query()
+                ->where('user_id', $userId)->where('key', $idempotencyKey)->first();
+
+            if ($record === null) {
+                throw new BusinessException('تعارض في مفتاح عدم التكرار؛ أعد المحاولة.', [], 409);
+            }
+
+            if (! hash_equals($record->request_hash, $requestHash)) {
+                throw new BusinessException('مفتاح عدم التكرار هذا مستخدم مسبقًا مع بيانات مختلفة.', [], 409);
+            }
+
+            $ids = $record->response ?? [];
+            $byId = StockMovement::query()->whereIn('id', $ids)->get()->keyBy('id');
+
+            return array_values(array_filter(array_map(fn ($id) => $byId->get($id), $ids)));
+        }
+    }
+
+    /**
+     * @param  array{branch_id: int, location_id?: int|null, items: list<array{product_variant_id: int, adjustment_type: string, quantity: float|int|string, reason?: string|null}>}  $payload
+     * @return list<StockMovement>
+     */
+    private function executeAdjustments(array $payload, int $userId): array
     {
         return DB::transaction(function () use ($payload, $userId): array {
             app(BranchAccess::class)->assertBranch($userId, (int) $payload['branch_id']);
@@ -230,5 +284,22 @@ class InventoryService
         if (! in_array($bucket, $allowed, true) || ($units > 0) !== $positive) {
             throw new BusinessException('نوع الحركة لا يطابق وعاء المخزون أو اتجاه الكمية.');
         }
+    }
+
+    /** ترتيب حتمي لمفاتيح الحمولة قبل الحوسبة (نفس البيانات = نفس البصمة دائمًا). */
+    private function canonicalize(mixed $value): mixed
+    {
+        if (! is_array($value)) {
+            return $value;
+        }
+
+        $isList = array_is_list($value);
+        $mapped = array_map(fn ($item) => $this->canonicalize($item), $value);
+
+        if (! $isList) {
+            ksort($mapped);
+        }
+
+        return $mapped;
     }
 }
