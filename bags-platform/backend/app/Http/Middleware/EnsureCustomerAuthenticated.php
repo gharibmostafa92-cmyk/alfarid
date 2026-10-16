@@ -24,7 +24,10 @@ class EnsureCustomerAuthenticated
             ], 401);
         }
 
-        if (! $user instanceof Customer || in_array($user->status, [CustomerStatus::Suspended, CustomerStatus::Rejected], true)) {
+        $canInspectRejection = $request->routeIs('wholesale.auth.application-status', 'store.auth.logout');
+
+        if (! $user instanceof Customer || $user->status === CustomerStatus::Suspended
+            || ($user->status === CustomerStatus::Rejected && ! $canInspectRejection)) {
             return response()->json([
                 'message' => 'غير مصرح لك بالدخول كعميل.',
             ], 403);

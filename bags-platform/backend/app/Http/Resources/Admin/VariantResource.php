@@ -27,6 +27,7 @@ class VariantResource extends JsonResource
             'capacity' => $this->capacity,
             'cost_price' => $this->when($request->user()?->can('products.view_cost'), $this->cost_price),
             'retail_price' => $this->retail_price,
+            'compare_at_price' => $this->compare_at_price,
             'wholesale_price' => $this->wholesale_price,
             'reorder_level' => $this->reorder_level,
             'weight_kg' => $this->weight_kg ?? $this->product?->weight_kg,

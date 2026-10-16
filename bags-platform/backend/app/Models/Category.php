@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\ProductStatus;
+use App\Enums\SalesChannel;
 use Database\Factories\CategoryFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -40,7 +42,9 @@ class Category extends Model implements HasMedia
     /** المنتجات المنشورة فقط — أساس عدّادات أقسام المتجر. */
     public function activeProducts(): HasMany
     {
-        return $this->hasMany(Product::class)->where('status', \App\Enums\ProductStatus::Published);
+        return $this->hasMany(Product::class)->where('status', ProductStatus::Published)
+            ->whereIn('sales_channel', [SalesChannel::Retail, SalesChannel::Both])
+            ->where(fn ($q) => $q->whereNull('brand_id')->orWhereHas('brand', fn ($brand) => $brand->where('is_active', true)));
     }
 
     public function registerMediaCollections(): void

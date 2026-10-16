@@ -24,6 +24,9 @@ class ApproveCustomerRequest extends FormRequest
             'credit_limit' => ['nullable', 'numeric', 'min:0', 'max:9999999999.99'],
             // الاعتماد يبقي النوع أو يرقّيه لموزع — لا يحوّل لقطاعي
             'type' => ['nullable', Rule::in(['wholesale', 'distributor'])],
+            'company_name' => ['sometimes', 'string', 'max:255'],
+            'tax_number' => ['sometimes', 'string', 'max:50'],
+            'commercial_register' => ['sometimes', 'string', 'max:50'],
         ];
     }
 }

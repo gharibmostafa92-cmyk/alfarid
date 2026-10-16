@@ -7,7 +7,9 @@ namespace App\Services;
 use App\Enums\CustomerStatus;
 use App\Enums\CustomerType;
 use App\Exceptions\BusinessException;
+use App\Jobs\SendCustomerPasswordReset;
 use App\Models\Customer;
+use App\Notifications\Channels\CustomerSmsChannel;
 use App\Notifications\CustomerPasswordReset;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -39,9 +41,9 @@ class CustomerAuthService
      */
     public function login(string $identifier, string $password): Customer
     {
+        $identifier = mb_strtolower(trim($identifier));
         $customer = Customer::query()
-            ->where('email', $identifier)
-            ->orWhere('phone', $identifier)
+            ->where(fn ($q) => $q->whereRaw('LOWER(email) = ?', [$identifier])->orWhere('phone', $identifier))
             ->first();
 
         if ($customer === null || ! Hash::check($password, $customer->password)) {
@@ -65,31 +67,88 @@ class CustomerAuthService
      */
     public function forgotPassword(?string $email, ?string $phone): void
     {
+        if (! $email && ! $phone) {
+            return;
+        }
+
+        SendCustomerPasswordReset::dispatch($email, $phone)
+            ->onConnection(config('auth.customer_password_reset.connection', 'database'));
+    }
+
+    public function sendPasswordReset(?string $email, ?string $phone): void
+    {
+        if (! $email && ! $phone) {
+            return;
+        }
+
         $customer = Customer::query()
-            ->when($email, fn ($q) => $q->where('email', $email))
-            ->when($phone, fn ($q) => $q->orWhere('phone', $phone))
+            ->when($email, fn ($q) => $q->whereRaw('LOWER(email) = ?', [mb_strtolower(trim($email))]),
+                fn ($q) => $q->where('phone', trim($phone)))
             ->first();
 
-        if ($customer === null) {
+        if ($customer === null || $customer->status === CustomerStatus::Suspended) {
             return;
         }
 
         $plainToken = Str::random(64);
-        $key = $customer->email ?? $customer->phone;
+        $key = $customer->getEmailForPasswordReset();
 
-        DB::table('password_reset_tokens')->updateOrInsert(
-            ['email' => $key],
-            ['token' => Hash::make($plainToken), 'created_at' => now()],
-        );
+        $stored = DB::transaction(function () use ($customer, $key, $plainToken): bool {
+            $current = Customer::query()->lockForUpdate()->find($customer->id);
+            if ($current === null || $current->status === CustomerStatus::Suspended) {
+                return false;
+            }
+            $existing = DB::table('password_reset_tokens')->where('email', $key)->first();
+            if ($existing && now()->subSeconds(60)->lt($existing->created_at)) {
+                return false;
+            }
+            DB::table('password_reset_tokens')->updateOrInsert(
+                ['email' => $key], ['token' => Hash::make($plainToken), 'created_at' => now()],
+            );
 
-        if ($customer->email) {
-            $customer->notify(new CustomerPasswordReset($plainToken));
+            return true;
+        });
+        if (! $stored) {
+            return;
         }
+
+        try {
+            $customer->notify(new CustomerPasswordReset($plainToken, $email ? 'mail' : CustomerSmsChannel::class));
+        } catch (\Throwable $exception) {
+            report($exception);
+        }
+    }
+
+    public function resetPassword(array $data): void
+    {
+        DB::transaction(function () use ($data): void {
+            $customer = Customer::query()
+                ->when(! empty($data['email']), fn ($q) => $q->whereRaw('LOWER(email) = ?', [$data['email']]),
+                    fn ($q) => $q->where('phone', $data['phone']))
+                ->lockForUpdate()->first();
+            $key = $customer?->getEmailForPasswordReset();
+            $row = DB::table('password_reset_tokens')->where('email', $key)->lockForUpdate()->first();
+            if ($customer === null || $customer->status === CustomerStatus::Suspended || $row === null
+                || $row->created_at === null || now()->subMinutes(60)->gte($row->created_at)
+                || now()->lt($row->created_at) || ! Hash::check($data['token'], $row->token)) {
+                throw new BusinessException('رمز الاستعادة غير صالح أو انتهت صلاحيته.');
+            }
+            $customer->update(['password' => $data['password'], 'remember_token' => Str::random(60)]);
+            $customer->tokens()->delete();
+            DB::table('password_reset_tokens')->where('email', $key)->delete();
+        });
     }
 
     /** إصدار توكن Sanctum باسم القناة (store-token / wholesale-token). */
     public function issueToken(Customer $customer, string $name): string
     {
-        return $customer->createToken($name)->plainTextToken;
+        return DB::transaction(function () use ($customer, $name): string {
+            $customer = Customer::query()->lockForUpdate()->findOrFail($customer->id);
+            if ($customer->status === CustomerStatus::Suspended) {
+                throw new BusinessException('هذا الحساب موقوف.', [], 403);
+            }
+
+            return $customer->createToken($name)->plainTextToken;
+        });
     }
 }

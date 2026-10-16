@@ -154,10 +154,13 @@ Route::middleware(['auth:sanctum', 'auth.staff'])
 
         // ================== المرحلة 5: العملاء ==================
         Route::apiResource('customers', CustomerController::class);
+        Route::post('customers/{customer}/restore', [CustomerController::class, 'restore'])->withTrashed()->name('customers.restore');
         Route::post('customers/{customer}/approve', [CustomerController::class, 'approve'])->name('customers.approve');
         Route::post('customers/{customer}/reject', [CustomerController::class, 'reject'])->name('customers.reject');
         Route::post('customers/{customer}/suspend', [CustomerController::class, 'suspend'])->name('customers.suspend');
         Route::scopeBindings()->group(function (): void {
+            Route::patch('customers/{customer}/documents/{document}', [CustomerController::class, 'reviewDocument'])
+                ->name('customers.documents.update');
             Route::get('customers/{customer}/documents/{document}/download', [CustomerController::class, 'downloadDocument'])
                 ->name('customers.documents.download');
         });

@@ -40,6 +40,7 @@ class VariantRules
             'capacity' => ['nullable', 'string', 'max:50'],
             'cost_price' => ['nullable', 'numeric', 'decimal:0,2', 'min:0', 'max:9999999'],
             'retail_price' => ['nullable', 'numeric', 'decimal:0,2', 'min:0', 'max:9999999'],
+            'compare_at_price' => ['nullable', 'numeric', 'decimal:0,2', 'min:0', 'max:9999999999.99'],
             'wholesale_price' => ['nullable', 'numeric', 'decimal:0,2', 'min:0', 'max:9999999'],
             'reorder_level' => ['nullable', 'integer', 'min:0', 'max:2147483647'],
             'weight_kg' => ['nullable', 'numeric', 'min:0', 'max:99999.999'],

@@ -9,6 +9,7 @@ use App\Enums\CustomerDocumentType;
 use App\Enums\CustomerStatus;
 use App\Enums\CustomerType;
 use App\Models\Customer;
+use App\Models\CustomerDocument;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -20,16 +21,36 @@ use Illuminate\Support\Str;
  */
 class WholesaleRegistrationService
 {
+    public function __construct(private readonly CustomerAuthService $auth) {}
+
     /**
      * @param  list<UploadedFile>  $files
      * @param  list<string|null>  $documentTypes  أنواع موازية للملفات (افتراضي other)
+     * @return array{customer: Customer, token: string}
      */
-    public function register(array $data, array $files, array $documentTypes = []): Customer
+    public function register(array $data, array $files, array $documentTypes = []): array
     {
         $storedPaths = [];
+        $staged = [];
+        $stagingDirectory = 'customer_documents/pending/'.Str::uuid();
 
         try {
-            return DB::transaction(function () use ($data, $files, $documentTypes, &$storedPaths): Customer {
+            foreach ($files as $i => $file) {
+                $filename = Str::uuid().'.'.($file->extension() ?: 'bin');
+                $path = Storage::disk('local')->putFileAs($stagingDirectory, $file, $filename);
+                if ($path === false) {
+                    throw new \RuntimeException('تعذر حفظ مستند العميل.');
+                }
+                $storedPaths[] = $path;
+                $staged[] = [
+                    'filename' => $filename, 'path' => $path,
+                    'document_type' => $documentTypes[$i] ?? CustomerDocumentType::Other->value,
+                    'original_name' => CustomerDocument::safeName($file->getClientOriginalName()),
+                    'mime_type' => $file->getMimeType() ?? 'application/octet-stream',
+                ];
+            }
+
+            $registration = DB::transaction(function () use ($data, $staged, &$storedPaths): array {
                 $customer = Customer::query()->create([
                     'name' => $data['name'],
                     'email' => $data['email'] ?? null,
@@ -42,31 +63,43 @@ class WholesaleRegistrationService
                     'commercial_register' => $data['commercial_register'],
                 ]);
 
-                foreach ($files as $i => $file) {
+                foreach ($staged as $document) {
                     // تخزين خاص: وثائق الشركات لا تخرج بروابط عامة أبدًا،
                     // والتنزيل لاحقًا عبر نهاية الأدمن المحمية فقط.
-                    $filename = Str::uuid().'.'.strtolower($file->getClientOriginalExtension() ?: 'bin');
-                    $path = Storage::disk('local')->putFileAs("customer_documents/{$customer->id}", $file, $filename);
+                    $path = "customer_documents/{$customer->id}/".$document['filename'];
+                    if (! Storage::disk('local')->move($document['path'], $path)) {
+                        throw new \RuntimeException('تعذر حفظ مستند العميل.');
+                    }
                     $storedPaths[] = $path;
 
                     $customer->documents()->create([
-                        'document_type' => $documentTypes[$i] ?? CustomerDocumentType::Other->value,
+                        'document_type' => $document['document_type'],
                         'file_path' => $path,
-                        'original_name' => $file->getClientOriginalName(),
-                        'mime_type' => $file->getMimeType() ?? 'application/octet-stream',
+                        'original_name' => $document['original_name'],
+                        'mime_type' => $document['mime_type'],
                         'status' => CustomerDocumentStatus::Pending,
                     ]);
                 }
 
-                return $customer->load('documents');
+                return [
+                    'customer' => $customer->load('documents'),
+                    'token' => $this->auth->issueToken($customer, 'wholesale-token'),
+                ];
             });
         } catch (\Throwable $e) {
             // فشل قاعدة البيانات بعد رفع ملفات: نظّفها حتى لا تبقى يتيمة
             foreach ($storedPaths as $path) {
                 Storage::disk('local')->delete($path);
             }
+            if ($storedPaths !== []) {
+                Storage::disk('local')->deleteDirectory($stagingDirectory);
+            }
 
             throw $e;
         }
+
+        Storage::disk('local')->deleteDirectory($stagingDirectory);
+
+        return $registration;
     }
 }

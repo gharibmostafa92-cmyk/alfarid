@@ -186,34 +186,38 @@ Run php artisan media:backfill-path-layouts once for existing uploads. It persis
 - `POST /store/auth/register` {name, phone*, email?, password(min 8)} — يُنشئ عميلًا `retail/approved` دائمًا (أي type/status في الطلب يُتجاهل) ويرجع 201 مع `token` (تسجيل دخول تلقائي).
 - `POST /store/auth/login` {login (بريد أو هاتف), password} — الحساب الموقوف يرجع 403 مع سبب الإيقاف؛ بيانات خاطئة 401. حد محاولات: 5/دقيقة للمُعرّف و30/دقيقة للـ IP.
 - `POST /store/auth/logout` (auth:sanctum + auth.customer) — يحذف التوكن الحالي فقط.
-- `POST /store/auth/forgot-password` {email أو phone} — يخزن رمزًا مُجزّأ في `password_reset_tokens` ويرسل إشعارًا بالبريد إن وُجد؛ الرد واحد دائمًا حتى لا يُستدل على وجود الحساب.
+- `POST /store/auth/forgot-password` {email أو phone، واحد فقط} — يضع نفس مهمة الطابور للحساب المعروف وغير المعروف. العامل يولّد رمزًا مُجزّأ بمفتاح `customer:{id}` في `password_reset_tokens` ويرسله عبر القناة المطلوبة (mail للبريد، SMS للهاتف)، ويستبعد الحساب الموقوف، مع مهلة 60 ثانية بين الإرسالات. الرد واحد دائمًا حتى لا يُستدل على وجود الحساب.
+- `POST /store/auth/reset-password` {email أو phone، token (64 حرفًا)، password، password_confirmation} — صلاحية الرمز 60 دقيقة؛ يُستهلك مرة واحدة داخل معاملة، مع تغيير كلمة المرور وإلغاء جميع جلسات العميل. الرمز غير الصالح/المنتهي أو الحساب الموقوف يرجع 422.
+- التشغيل: اضبط مزود البريد و`CUSTOMER_SMS_URL`/`CUSTOMER_SMS_TOKEN` (HTTPS gateway يستقبل JSON `to` و`message` مع Bearer authentication). اتصال طابور الاستعادة `CUSTOMER_PASSWORD_RESET_QUEUE_CONNECTION=database` مستقل عن اتصال الطابور العام. شغّل `php artisan queue:work database` لمعالجة الطلبات؛ اتصال `sync` مخصص للاختبارات.
 
 ### تسجيل الجملة ومتابعة الحالة
 
 - `POST /wholesale/auth/register` (multipart) {name, phone*, email?, password, company_name*, tax_number*, commercial_register*, documents[]* (pdf/jpg/png ≤ 5MB للملف، حتى 5 ملفات), document_types[]? موازية} — يُنشئ حساب `wholesale/pending` ومستنداته في **تخزين خاص** `storage/app/private/customer_documents/{id}` (لا روابط عامة)، ويرجع توكنًا لمتابعة الحالة.
-- `GET /wholesale/auth/application-status` (auth:sanctum فقط لعميل) — الحالة الحالية؛ عند الرفض يرجع `rejection_reason` وقائمة المستندات بحالاتها (المرفوض منها ظاهر). بوابة `auth.customer` لا تُستخدم هنا لأنها ترفض الحسابات المرفوضة أصلًا (سلوك المرحلة 1)، و`wholesale.approved` لا تُستخدم طبعًا لأن الحساب لم يُعتمد بعد.
+- `GET /wholesale/auth/application-status` (auth:sanctum + auth.customer، بدون wholesale.approved) — الحالة الحالية و`documents` و`rejected_documents`؛ الحساب المرفوض مسموح له بمتابعة السبب والخروج فقط، والحساب الموقوف يُرفض.
 
 ### إدارة العملاء في لوحة الإدارة (صلاحيات customers.*)
 
-- `GET /admin/customers` فلاتر: `type`, `status`, `customer_group_id`, `search` (اسم/هاتف/بريد/سجل تجاري).
+- `GET /admin/customers` فلاتر: `type`, `status`, `customer_group_id`, `search` (اسم/هاتف/بريد/سجل تجاري/اسم الشركة/رقم ضريبي)، و`trashed=only` لعرض المحذوفين. البحث مدعوم بعمود مولّد وفهرس GIN من امتداد PostgreSQL `pg_trgm`.
 - `POST /admin/customers` — الحالة الافتراضية حسب النوع (قطاعي approved، جملة/موزع pending) ما لم تُرسل صراحة.
 - `GET /admin/customers/{id}` — مع `documents` (لكل مستند `download_url` محمي) و`customer_group` و`addresses`.
-- `PUT /admin/customers/{id}`، `DELETE` (حذف ناعم + إنهاء جلسات العميل).
-- `POST /admin/customers/{id}/approve` {customer_group_id?, credit_limit?, type?: wholesale|distributor} — يضبط `approved_by/approved_at` ويمسح أسباب الرفض/الإيقاف. اعتماد حساب معتمد أصلًا يرجع 422.
-- `POST /admin/customers/{id}/reject` {reason*} — الرفض **لا** يقتل توكن التاجر حتى يطّلع على السبب.
+- `PUT /admin/customers/{id}` — تغيير `type` أو `status` ممنوع. إرسال `credit_limit` أو `customer_group_id` أثناء الإنشاء أو التعديل يتطلب `customers.approve` بالإضافة لصلاحية العملية. لا يمكن مسح بيانات الجملة الإلزامية لحساب جملة/موزع معتمد.
+- `DELETE /admin/customers/{id}` — حذف ناعم + إنهاء الجلسات. `POST /admin/customers/{id}/restore` بصلاحية `customers.delete` يستعيد الحساب بنفس نوعه وحالته وتاريخه؛ الاستعادة لا تعيد توكناته السابقة.
+- `POST /admin/customers/{id}/approve` {customer_group_id?, credit_limit?, type?: wholesale|distributor، company_name?, tax_number?, commercial_register?} — بيانات الشركة والضريبة والسجل مطلوبة قبل اعتماد الجملة/الموزع، ويمكن استكمالها في نفس الطلب. يضبط `approved_by/approved_at` ويمسح أسباب الرفض/الإيقاف. اعتماد مكرر بنفس النوع يرجع 422، وترقية النوع تمر بنفس التحقق.
+- `POST /admin/customers/{id}/reject` {reason*} — للطلبات `pending` فقط؛ الرفض **لا** يقتل توكن التاجر حتى يطّلع على السبب. إيقاف حساب معتمد يتم عبر suspend.
 - `POST /admin/customers/{id}/suspend` {reason*} — يوقف الحساب و**يحذف كل توكناته فورًا**.
 - `GET /admin/customers/{customer}/documents/{document}/download` — تنزيل مستند من التخزين الخاص (الربط مقيّد: مستند عميل آخر يرجع 404).
+- `PATCH /admin/customers/{customer}/documents/{document}` {status: pending|verified|rejected} — مراجعة مستند بصلاحية `customers.approve` والربط المقيّد نفسه. تنزيل ملف مفقود يرجع 404 واسم التنزيل يُطهَّر.
 
-حالات العميل: `pending/approved/rejected/suspended` (حلت suspended محل blocked من المرحلة 1 في المرحلة 5). الهاتف فريد وإلزامي، والبريد فريد واختياري.
+حالات العميل: `pending/approved/rejected/suspended` (حلت suspended محل blocked من المرحلة 1 في المرحلة 5). الهاتف فريد وإلزامي، والبريد فريد واختياري وغير حساس لحالة الأحرف. البريد يُطبَّع إلى lowercase وتُحذف المسافات المحيطة بالهاتف والبريد. هوية المحذوف تبقى محجوزة لحسابه الأصلي ويمكن استعادته؛ لا يُنشأ حساب جديد بنفس الهوية.
 
 ## المرحلة 6: واجهة المتجر للقراءة (Storefront Read APIs)
 
-كل روابط التصفح عامة (بلا مصادقة). إن أرسل العميل Bearer Token يُقرأ عبر `auth('sanctum')->user()` وتُحسب أسعاره الشخصية في البطاقات (خصم مجموعة/قائمة خاصة/قناة جملة للمعتمدين) — الزائر يُسعَّر بقناة القطاعي. «منتج نشط» = منشور (`published`)، و«متغير نشط» = `is_active`.
+كل روابط التصفح عامة (بلا مصادقة). إن أرسل عميل معتمد Bearer Token تُحسب أسعاره الشخصية (خصم مجموعة/قائمة خاصة/قناة جملة)؛ بقية الحالات والزائر يرون أسعار القطاعي. المنتجات المعروضة منشورة، قناتها retail أو both، أقسامها وأسلافها نشطة، وعلامتها إن وجدت نشطة. `products.is_active` مولّد من حالة النشر، و«متغير نشط» = `is_active` مع استبعاد المحذوف ناعمًا.
 
 - `GET /store/home` — رد مجمّع: `banners` (نشطة وداخل نافذتها الزمنية، بترتيب sort_order)، `latest_products` (أحدث 12)، `best_sellers` (بـ `sales_count`،‏ 12)، `discounted_products` (متغير بـ `compare_at_price > base_price` أو عنصر في قائمة أسعار سارية أرخص من الأساسي، 12). كاش `store_home_data` ‏300 ثانية يخزن **المعرّفات فقط** — الأسعار تُحسب لكل طلب فلا تتسرب بين العملاء.
 - `GET /store/categories` — شجرة الأقسام النشطة (3 مستويات) مع `products_count` للمنشور فقط في كل عقدة.
 - `GET /store/brands` — النشطة بترتيب sort_order ثم الاسم. `GET /store/cities` — مدن الشحن النشطة مع `shipping_cost`.
-- `GET /store/products` — فلاتر: `category` (id أو slug، يشمل الفروع)، `brand` (id/slug أو مصفوفة `brand[]`)، `color` (اسم اللون عربي/إنجليزي)، `price_min/price_max` (على `base_price` للمتغيرات النشطة)، `in_stock=1`، و`sort`: ‏`newest|best_selling|price_asc|price_desc`. الترقيم 20 للصفحة. البطاقة: `price` النهائي من PricingService لأرخص متغير قابل للتسعير، `old_price` من `compare_at_price` الأعلى، `discount_percentage`، و`store_available`/`in_stock`.
+- `GET /store/products` — فلاتر: `category` (id أو slug، يشمل الفروع)، `brand` (id/slug أو مصفوفة `brand[]` باستعلام واحد)، `color` (اسم اللون عربي/إنجليزي)، `price_min/price_max` والترتيب بالسعر على **أقل سعر نهائي معروض للعميل**، `in_stock=1`، و`sort`: ‏`newest|best_selling|price_asc|price_desc`. غير المسعّر يظهر أخيرًا في ترتيبي السعر. الترقيم 20 للصفحة. البطاقة: `price` النهائي، `old_price` مرجع نسبة الخصم (الأكبر من السعر الأساسي وcompare_at_price عند وجود خصم)، و`discount_percentage` و`store_available`/`in_stock`. أسعار المتغيرات تُحمّل مجمعة بقواعد PricingService نفسها ولا يُعاد الاستعلام لكل متغير.
 - المتاح أونلاين (`store_available`) = مجموع `available` ‏(on_hand − reserved − damaged) عبر **الفروع النشطة فقط**، باستعلام فرعي مجمّع واحد — مخزون فرع معطّل لا يُحتسب.
 - `GET /store/products/{slug}` — المنشور فقط (غيره 404): الوصف والصور وكل متغير نشط بسعره النهائي و`old_price` ومتاحه وحالة توفره. متغير غير مُسعَّر يظهر بسعر null بدل كسر الصفحة.
 - `GET /store/products/{slug}/similar` — حتى 8: نفس القسم الفرعي أولًا ثم نفس العلامة، والمتوفر مخزونيًا أولًا، ويستبعد المنتج نفسه وغير المنشور.

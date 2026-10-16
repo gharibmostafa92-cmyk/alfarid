@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Wholesale;
 
+use App\Enums\CustomerDocumentStatus;
 use App\Enums\CustomerStatus;
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Wholesale\WholesaleRegisterRequest;
 use App\Http\Resources\Store\CustomerResource;
 use App\Models\Customer;
-use App\Services\CustomerAuthService;
 use App\Services\WholesaleRegistrationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -20,30 +20,26 @@ class RegisterController extends Controller
 {
     public function __construct(
         private readonly WholesaleRegistrationService $registrations,
-        private readonly CustomerAuthService $auth,
     ) {}
 
     public function register(WholesaleRegisterRequest $request): JsonResponse
     {
         $data = $request->validated();
-        $customer = $this->registrations->register(
+        $registration = $this->registrations->register(
             $data,
             $request->file('documents', []),
             $data['document_types'] ?? [],
         );
-        $token = $this->auth->issueToken($customer, 'wholesale-token');
 
-        return CustomerResource::make($customer)
-            ->additional(['message' => 'تم استلام طلب التسجيل؛ حسابك قيد المراجعة', 'token' => $token])
+        return CustomerResource::make($registration['customer'])
+            ->additional(['message' => 'تم استلام طلب التسجيل؛ حسابك قيد المراجعة', 'token' => $registration['token']])
             ->response()
             ->setStatusCode(201);
     }
 
     /**
      * حالة الطلب لصاحبه — بما فيه المرفوض (يحتاج سبب الرفض ومستنداته).
-     * ملحوظة: البوابة auth.customer وحدها ترفض الحسابات المرفوضة (سلوك مرحلة 1)،
-     * فهذه النهاية تعمل بـ auth:sanctum مع تحقق صريح أن التوكن لعميل،
-     * وبدون wholesale.approved طبعًا (الحساب لم يُعتمد بعد أصلًا).
+     * محمي بمصادقة العملاء فقط؛ لا يحتاج اعتماد الجملة.
      */
     public function applicationStatus(Request $request): JsonResponse
     {
@@ -66,6 +62,13 @@ class RegisterController extends Controller
                     'status' => $document->status,
                     'original_name' => $document->original_name,
                 ])->all(),
+                'rejected_documents' => $customer->documents
+                    ->where('status', CustomerDocumentStatus::Rejected)
+                    ->map(fn ($document) => [
+                        'id' => $document->id,
+                        'document_type' => $document->document_type,
+                        'original_name' => $document->original_name,
+                    ])->values()->all(),
             ],
         ]);
     }

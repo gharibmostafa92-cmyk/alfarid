@@ -5,11 +5,14 @@ declare(strict_types=1);
 namespace App\Http\Requests\Wholesale;
 
 use App\Enums\CustomerDocumentType;
+use App\Http\Requests\Concerns\NormalizesCustomerInput;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 class WholesaleRegisterRequest extends FormRequest
 {
+    use NormalizesCustomerInput;
+
     public function authorize(): bool
     {
         return true;

@@ -1,6 +1,10 @@
 <?php
 
 return [
+    'customer_sms' => [
+        'url' => env('CUSTOMER_SMS_URL'),
+        'token' => env('CUSTOMER_SMS_TOKEN'),
+    ],
 
     /*
     |--------------------------------------------------------------------------

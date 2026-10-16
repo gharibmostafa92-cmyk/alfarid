@@ -22,10 +22,11 @@ class CatalogController extends Controller
         $roots = Category::query()
             ->whereNull('parent_id')
             ->where('is_active', true)
+            ->with('media')
             ->withCount('activeProducts')
             ->with([
-                'children' => fn ($q) => $q->where('is_active', true)->withCount('activeProducts')->orderBy('sort_order')
-                    ->with(['children' => fn ($q2) => $q2->where('is_active', true)->withCount('activeProducts')->orderBy('sort_order')]),
+                'children' => fn ($q) => $q->where('is_active', true)->with('media')->withCount('activeProducts')->orderBy('sort_order')
+                    ->with(['children' => fn ($q2) => $q2->where('is_active', true)->with('media')->withCount('activeProducts')->orderBy('sort_order')]),
             ])
             ->orderBy('sort_order')
             ->get();
@@ -36,6 +37,7 @@ class CatalogController extends Controller
     public function brands(Request $request): JsonResponse
     {
         $brands = Brand::query()
+            ->with('media')
             ->where('is_active', true)
             ->orderBy('sort_order')
             ->orderBy('name_ar')

@@ -38,9 +38,34 @@ class Customer extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
 
+    protected static function booted(): void
+    {
+        static::creating(function (Customer $customer): void {
+            if (! array_key_exists('status', $customer->getAttributes())) {
+                $customer->status = in_array($customer->type, [CustomerType::Wholesale, CustomerType::Distributor], true)
+                    ? CustomerStatus::Pending : CustomerStatus::Approved;
+            }
+        });
+    }
+
     public function customerGroup(): BelongsTo
     {
         return $this->belongsTo(CustomerGroup::class);
+    }
+
+    public function getEmailForPasswordReset(): string
+    {
+        return 'customer:'.$this->getKey();
+    }
+
+    public function setEmailAttribute(?string $email): void
+    {
+        $this->attributes['email'] = $email === null ? null : mb_strtolower(trim($email));
+    }
+
+    public function setPhoneAttribute(string $phone): void
+    {
+        $this->attributes['phone'] = trim($phone);
     }
 
     public function approver(): BelongsTo

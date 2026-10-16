@@ -9,6 +9,7 @@ use App\Enums\CustomerType;
 use App\Models\Customer;
 use App\Notifications\CustomerPasswordReset;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 use Tests\TestCase;
@@ -42,7 +43,7 @@ class StoreAuthTest extends TestCase
         // التوكن يعمل فورًا (تسجيل دخول تلقائي)
         $this->withToken($token)->postJson('/api/v1/store/auth/logout')->assertOk();
         // وبعد الخروج يموت التوكن نفسه
-        \Illuminate\Support\Facades\Auth::forgetGuards();
+        Auth::forgetGuards();
         $this->withToken($token)->postJson('/api/v1/store/auth/logout')->assertUnauthorized();
     }
 
@@ -106,9 +107,9 @@ class StoreAuthTest extends TestCase
         $tokenB = $customer->createToken('store-token')->plainTextToken;
 
         $this->withToken($tokenA)->postJson('/api/v1/store/auth/logout')->assertOk();
-        \Illuminate\Support\Facades\Auth::forgetGuards();
+        Auth::forgetGuards();
         $this->withToken($tokenA)->postJson('/api/v1/store/auth/logout')->assertUnauthorized();
-        \Illuminate\Support\Facades\Auth::forgetGuards();
+        Auth::forgetGuards();
         $this->withToken($tokenB)->postJson('/api/v1/store/auth/logout')->assertOk();
     }
 
@@ -118,8 +119,8 @@ class StoreAuthTest extends TestCase
         $customer = Customer::factory()->create(['email' => 'reset@example.com', 'phone' => '01077776666']);
 
         $this->postJson('/api/v1/store/auth/forgot-password', ['email' => 'reset@example.com'])->assertOk();
-        $this->assertDatabaseHas('password_reset_tokens', ['email' => 'reset@example.com']);
-        $row = DB::table('password_reset_tokens')->where('email', 'reset@example.com')->first();
+        $this->assertDatabaseHas('password_reset_tokens', ['email' => 'customer:'.$customer->id]);
+        $row = DB::table('password_reset_tokens')->where('email', 'customer:'.$customer->id)->first();
         $this->assertNotSame('plain', $row->token); // مخزن مُجزّأ
         Notification::assertSentTo($customer, CustomerPasswordReset::class);
 
@@ -131,6 +132,6 @@ class StoreAuthTest extends TestCase
         // بالهاتف لمن لا بريد له: يُخزن بالمفتاح المتاح
         $phoneless = Customer::factory()->create(['email' => null, 'phone' => '01066665555']);
         $this->postJson('/api/v1/store/auth/forgot-password', ['phone' => '01066665555'])->assertOk();
-        $this->assertDatabaseHas('password_reset_tokens', ['email' => '01066665555']);
+        $this->assertDatabaseHas('password_reset_tokens', ['email' => 'customer:'.$phoneless->id]);
     }
 }

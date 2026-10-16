@@ -8,10 +8,12 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Store\ForgotPasswordRequest;
 use App\Http\Requests\Store\LoginRequest;
 use App\Http\Requests\Store\RegisterRequest;
+use App\Http\Requests\Store\ResetPasswordRequest;
 use App\Http\Resources\Store\CustomerResource;
 use App\Services\CustomerAuthService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 /** مصادقة المتجر القطاعي: تسجيل فوري معتمد، دخول، خروج، واستعادة كلمة المرور. */
 class AuthController extends Controller
@@ -20,8 +22,11 @@ class AuthController extends Controller
 
     public function register(RegisterRequest $request): JsonResponse
     {
-        $customer = $this->auth->registerRetail($request->validated());
-        $token = $this->auth->issueToken($customer, 'store-token');
+        [$customer, $token] = DB::transaction(function () use ($request): array {
+            $customer = $this->auth->registerRetail($request->validated());
+
+            return [$customer, $this->auth->issueToken($customer, 'store-token')];
+        });
 
         return CustomerResource::make($customer)
             ->additional(['message' => 'تم إنشاء حسابك بنجاح', 'token' => $token])
@@ -51,5 +56,12 @@ class AuthController extends Controller
         $this->auth->forgotPassword($request->validated()['email'] ?? null, $request->validated()['phone'] ?? null);
 
         return response()->json(['message' => 'لو الحساب موجود، أرسلنا رمز الاستعادة إليه.']);
+    }
+
+    public function resetPassword(ResetPasswordRequest $request): JsonResponse
+    {
+        $this->auth->resetPassword($request->validated());
+
+        return response()->json(['message' => 'تم تغيير كلمة المرور؛ سجل الدخول من جديد.']);
     }
 }

@@ -8,7 +8,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\Store\StoreBannerResource;
 use App\Http\Resources\Store\StoreProductCardResource;
 use App\Models\Banner;
-use App\Models\Product;
 use App\Services\StoreCatalogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -27,13 +26,21 @@ class HomeController extends Controller
     public function index(Request $request): JsonResponse
     {
         $ids = Cache::remember('store_home_data', 300, fn () => $this->catalog->homeSectionIds());
+        $allIds = array_unique([...$ids['latest_ids'], ...$ids['best_seller_ids'], ...$ids['discounted_ids']]);
+        $cards = StoreProductCardResource::collection($this->catalog->publishedQuery()
+            ->whereIn('products.id', $allIds)->get())->resolve($request);
+        $cards = collect($cards)->keyBy('id');
+        $section = fn (array $sectionIds) => collect($sectionIds)->map(fn ($id) => $cards->get($id))->filter()->values();
 
         return response()->json([
             'data' => [
-                'banners' => StoreBannerResource::collection($this->inOrder(Banner::query(), $ids['banner_ids']))->resolve($request),
-                'latest_products' => StoreProductCardResource::collection($this->productsInOrder($ids['latest_ids']))->resolve($request),
-                'best_sellers' => StoreProductCardResource::collection($this->productsInOrder($ids['best_seller_ids']))->resolve($request),
-                'discounted_products' => StoreProductCardResource::collection($this->productsInOrder($ids['discounted_ids']))->resolve($request),
+                'banners' => StoreBannerResource::collection($this->inOrder(Banner::query()
+                    ->where('is_active', true)
+                    ->where(fn ($q) => $q->whereNull('starts_at')->orWhere('starts_at', '<=', now()))
+                    ->where(fn ($q) => $q->whereNull('ends_at')->orWhere('ends_at', '>=', now())), $ids['banner_ids']))->resolve($request),
+                'latest_products' => $section($ids['latest_ids']),
+                'best_sellers' => $section($ids['best_seller_ids']),
+                'discounted_products' => $section($ids['discounted_ids'])->filter(fn ($card) => $card['price'] !== null && $card['discount_percentage'] !== null)->values(),
             ],
         ]);
     }
@@ -47,20 +54,5 @@ class HomeController extends Controller
         $positions = array_flip($ids);
 
         return $query->whereIn('id', $ids)->get()->sortBy(fn ($m) => $positions[$m->id] ?? PHP_INT_MAX)->values();
-    }
-
-    /** @param list<int> $ids */
-    private function productsInOrder(array $ids): Collection
-    {
-        if ($ids === []) {
-            return collect();
-        }
-        $positions = array_flip($ids);
-
-        return $this->catalog->publishedQuery()
-            ->whereIn('products.id', $ids)
-            ->get()
-            ->sortBy(fn (Product $p) => $positions[$p->id] ?? PHP_INT_MAX)
-            ->values();
     }
 }

@@ -5,6 +5,9 @@ use App\Models\SupplierUser;
 use App\Models\User;
 
 return [
+    'customer_password_reset' => [
+        'connection' => env('CUSTOMER_PASSWORD_RESET_QUEUE_CONNECTION', 'database'),
+    ],
 
     /*
     |--------------------------------------------------------------------------

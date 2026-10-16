@@ -63,5 +63,8 @@ class AppServiceProvider extends ServiceProvider
                 Limit::perMinute(120)->by('admin-login-ip:'.($request->ip() ?? 'unknown')),
             ];
         });
+
+        RateLimiter::for('customer-password-reset', fn (Request $request) => Limit::perMinute(5)
+            ->by('customer-password-reset:'.($request->ip() ?? 'unknown')));
     }
 }

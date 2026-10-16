@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Store;
 
+use App\Http\Requests\Concerns\NormalizesCustomerInput;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
 
 class ForgotPasswordRequest extends FormRequest
 {
+    use NormalizesCustomerInput;
+
     public function authorize(): bool
     {
         return true;
@@ -20,8 +23,8 @@ class ForgotPasswordRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'email' => ['nullable', 'email', 'max:255'],
-            'phone' => ['nullable', 'string', 'max:20'],
+            'email' => ['nullable', 'email', 'max:255', 'prohibits:phone'],
+            'phone' => ['nullable', 'string', 'max:20', 'prohibits:email'],
         ];
     }
 

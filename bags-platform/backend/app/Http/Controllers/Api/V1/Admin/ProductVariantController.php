@@ -43,6 +43,7 @@ class ProductVariantController extends Controller implements HasMiddleware
 
         $variant = $this->service->create($product, $data);
         $variant->load('media');
+        $variant->setRelation('product', $product);
 
         return VariantResource::make($variant)->response()->setStatusCode(201);
     }
@@ -50,6 +51,7 @@ class ProductVariantController extends Controller implements HasMiddleware
     public function show(Product $product, ProductVariant $variant): VariantResource
     {
         $variant->load('media');
+        $variant->setRelation('product', $product);
 
         return VariantResource::make($variant);
     }
@@ -62,6 +64,7 @@ class ProductVariantController extends Controller implements HasMiddleware
         }
 
         $variant = $this->service->update($variant, $data);
+        $variant->load('media')->setRelation('product', $product);
 
         return VariantResource::make($variant);
     }

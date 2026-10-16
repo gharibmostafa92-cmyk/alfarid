@@ -13,7 +13,8 @@ Route::prefix('auth')->name('auth.')->group(function (): void {
     Route::post('register', [AuthController::class, 'register'])->name('register');
     // حد محاولات الدخول (مرحلة 5) محفوظ فوق الشكل المطلوب: حماية من التخمين
     Route::post('login', [AuthController::class, 'login'])->middleware('throttle:customer-login')->name('login');
-    Route::post('forgot-password', [AuthController::class, 'forgotPassword'])->name('forgot-password');
+    Route::post('forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:customer-password-reset')->name('forgot-password');
+    Route::post('reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:customer-password-reset')->name('reset-password');
 
     Route::middleware(['auth:sanctum', 'auth.customer'])->group(function (): void {
         Route::post('logout', [AuthController::class, 'logout'])->name('logout');

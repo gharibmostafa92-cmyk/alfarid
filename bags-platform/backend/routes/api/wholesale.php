@@ -10,9 +10,7 @@ Route::prefix('auth')->name('auth.')->group(function (): void {
     Route::post('register', [RegisterController::class, 'register'])->name('register');
 
     // متابعة حالة الطلب (يتطلب توكن عميل فقط، ولا يتطلب wholesale.approved)
-    // ملحوظة مرحلة 5: بلا auth.customer هنا — تلك البوابة ترفض الحسابات
-    // المرفوضة، وهم تحديدًا من يحتاج رؤية سبب الرفض ومستنداته المرفوضة.
-    Route::middleware(['auth:sanctum'])->group(function (): void {
+    Route::middleware(['auth:sanctum', 'auth.customer'])->group(function (): void {
         Route::get('application-status', [RegisterController::class, 'applicationStatus'])->name('application-status');
     });
 });

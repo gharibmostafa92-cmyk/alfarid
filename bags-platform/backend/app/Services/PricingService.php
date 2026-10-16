@@ -33,6 +33,35 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class PricingService
 {
+    /** Resolve storefront prices in SQL using the same owner, tier and priority rules as resolve(). */
+    public function withStorePrice(Builder $variants, ?Customer $customer): Builder
+    {
+        $eligible = $customer !== null && $customer->status === CustomerStatus::Approved;
+        $channel = $this->channelFor($customer);
+        $group = $eligible ? $customer->customerGroup : null;
+        $group = $group?->is_active ? $group : null;
+        $factor = $group !== null ? 1 - (float) $group->discount_percentage / 100 : 1;
+        $items = $this->eligibleItems(null, 1, null, Carbon::now())
+            ->where(function ($q) use ($eligible, $customer, $group, $channel): void {
+                $q->whereIn('price_lists.type', array_unique([$channel->value, PriceListType::Retail->value]));
+                if ($eligible) {
+                    $q->orWhere(fn ($q) => $q->where('price_lists.type', PriceListType::CustomerSpecific)
+                        ->where('price_lists.customer_id', $customer->id));
+                }
+                if ($group !== null) {
+                    $q->orWhere(fn ($q) => $q->where('price_lists.type', PriceListType::CustomerGroup)
+                        ->where('price_lists.customer_group_id', $group->id));
+                }
+            })
+            ->select([])
+            ->selectRaw("price_list_items.price * CASE WHEN price_lists.type IN ('customer_specific', 'customer_group') THEN 1::numeric ELSE ?::numeric END", [$factor])
+            ->orderByRaw("CASE WHEN price_lists.type = 'customer_specific' THEN 0 WHEN price_lists.type = 'customer_group' THEN 1 WHEN price_lists.type = ? THEN 2 ELSE 3 END", [$channel->value]);
+        $items = $this->ordered($items)->limit(1);
+
+        return $variants->select('product_variants.*')
+            ->selectRaw('ROUND(COALESCE(('.$items->toSql().'), product_variants.retail_price * ?)::numeric, 2) AS store_price', [...$items->getBindings(), $factor]);
+    }
+
     /**
      * @return array{unit_price: float, base_price: float, source: string, price_list_id: int|null}
      */
@@ -141,13 +170,15 @@ class PricingService
     }
 
     /** كل عناصر التسعير السارية لهذا المتغير والكمية والفرع والوقت. */
-    private function eligibleItems(ProductVariant $variant, float $qty, ?int $branchId, Carbon $now): Builder
+    private function eligibleItems(?ProductVariant $variant, float $qty, ?int $branchId, Carbon $now): Builder
     {
         return PriceListItem::query()
             ->select('price_list_items.*')
             ->join('price_lists', 'price_lists.id', '=', 'price_list_items.price_list_id')
             ->where('price_lists.is_active', true)
-            ->where('price_list_items.product_variant_id', $variant->id)
+            ->when($variant !== null,
+                fn ($q) => $q->where('price_list_items.product_variant_id', $variant->id),
+                fn ($q) => $q->whereColumn('price_list_items.product_variant_id', 'product_variants.id'))
             ->where('price_list_items.min_qty', '<=', $qty)
             ->where(fn ($q) => $q->whereNull('price_lists.starts_at')->orWhere('price_lists.starts_at', '<=', $now))
             ->where(fn ($q) => $q->whereNull('price_lists.ends_at')->orWhere('price_lists.ends_at', '>=', $now))

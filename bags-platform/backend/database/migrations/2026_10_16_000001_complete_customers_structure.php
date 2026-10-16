@@ -18,8 +18,8 @@ return new class extends Migration
     public function up(): void
     {
         // --- customers: الحالة suspended بدل blocked (بيانات قديمة تُرحَّل) ---
-        DB::statement("UPDATE customers SET status = 'suspended' WHERE status = 'blocked'");
         DB::statement('ALTER TABLE customers DROP CONSTRAINT IF EXISTS customers_status_check');
+        DB::statement("UPDATE customers SET status = 'suspended' WHERE status = 'blocked'");
         DB::statement("ALTER TABLE customers ADD CONSTRAINT customers_status_check CHECK (status IN ('pending', 'approved', 'rejected', 'suspended'))");
         // الافتراضي العام approved؛ تسجيل الجملة يفرض pending برمجيًا (مهمة 5.3)
         DB::statement("ALTER TABLE customers ALTER COLUMN status SET DEFAULT 'approved'");
@@ -91,9 +91,10 @@ return new class extends Migration
 
         DB::statement('DROP INDEX IF EXISTS customers_phone_unique');
         DB::statement('ALTER TABLE customers ALTER COLUMN phone DROP NOT NULL');
+        DB::statement("UPDATE customers SET email = 'legacy-customer-' || id || '@rollback.invalid' WHERE email IS NULL");
         DB::statement('ALTER TABLE customers ALTER COLUMN email SET NOT NULL');
-        DB::statement("UPDATE customers SET status = 'blocked' WHERE status = 'suspended'");
         DB::statement('ALTER TABLE customers DROP CONSTRAINT IF EXISTS customers_status_check');
+        DB::statement("UPDATE customers SET status = 'blocked' WHERE status = 'suspended'");
         DB::statement("ALTER TABLE customers ADD CONSTRAINT customers_status_check CHECK (status IN ('pending', 'approved', 'rejected', 'blocked'))");
         DB::statement("ALTER TABLE customers ALTER COLUMN status SET DEFAULT 'pending'");
     }

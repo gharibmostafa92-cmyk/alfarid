@@ -5,8 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Resources\Store;
 
 use App\Exceptions\BusinessException;
-use App\Models\Customer;
-use App\Services\PricingService;
+use App\Services\StoreCatalogService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -25,9 +24,8 @@ class StoreProductResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
-        $pricing = app(PricingService::class);
-        $user = auth('sanctum')->user();
-        $customer = $user instanceof Customer ? $user : null;
+        $pricing = app(StoreCatalogService::class);
+        $customer = $pricing->customer();
 
         $card = (new StoreProductCardResource($this->resource))->resolve($request);
 
@@ -47,7 +45,7 @@ class StoreProductResource extends JsonResource
             'variants' => $this->variants->map(function ($variant) use ($pricing, $customer) {
                 $resolved = null;
                 try {
-                    $resolved = $pricing->resolve($variant, $customer, 1);
+                    $resolved = $pricing->variantPrice($variant, $customer);
                 } catch (BusinessException) {
                     // متغير غير مُسعَّر: يظهر بلا سعر بدل كسر صفحة المنتج
                 }
@@ -62,8 +60,8 @@ class StoreProductResource extends JsonResource
                     'size' => $variant->size,
                     'capacity' => $variant->capacity,
                     'price' => $resolved !== null ? (float) $resolved['unit_price'] : null,
-                    'old_price' => $variant->compare_at_price !== null && $resolved !== null && (float) $variant->compare_at_price > (float) $resolved['unit_price']
-                        ? (float) $variant->compare_at_price : null,
+                    'old_price' => $resolved !== null && max((float) $variant->compare_at_price, (float) $resolved['base_price']) > (float) $resolved['unit_price']
+                        ? max((float) $variant->compare_at_price, (float) $resolved['base_price']) : null,
                     'available' => $available,
                     'in_stock' => $available > 0,
                 ];

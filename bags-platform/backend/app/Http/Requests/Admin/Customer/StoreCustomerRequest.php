@@ -6,14 +6,18 @@ namespace App\Http\Requests\Admin\Customer;
 
 use App\Enums\CustomerStatus;
 use App\Enums\CustomerType;
+use App\Http\Requests\Concerns\NormalizesCustomerInput;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 class StoreCustomerRequest extends FormRequest
 {
+    use NormalizesCustomerInput;
+
     public function authorize(): bool
     {
-        return true;
+        return (! $this->hasAny(['credit_limit', 'customer_group_id']) && $this->input('type') !== 'distributor')
+            || $this->user()->can('customers.approve');
     }
 
     /**

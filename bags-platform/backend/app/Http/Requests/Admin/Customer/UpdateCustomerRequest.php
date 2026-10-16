@@ -4,16 +4,17 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Customer;
 
-use App\Enums\CustomerStatus;
-use App\Enums\CustomerType;
+use App\Http\Requests\Concerns\NormalizesCustomerInput;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 class UpdateCustomerRequest extends FormRequest
 {
+    use NormalizesCustomerInput;
+
     public function authorize(): bool
     {
-        return true;
+        return ! $this->hasAny(['credit_limit', 'customer_group_id']) || $this->user()->can('customers.approve');
     }
 
     /**
@@ -28,13 +29,13 @@ class UpdateCustomerRequest extends FormRequest
             'email' => ['sometimes', 'nullable', 'email', 'max:255', Rule::unique('customers', 'email')->ignore($customerId)],
             'phone' => ['sometimes', 'string', 'max:20', Rule::unique('customers', 'phone')->ignore($customerId)],
             'password' => ['sometimes', 'string', 'min:8', 'max:255'],
-            'type' => ['sometimes', Rule::in(array_column(CustomerType::cases(), 'value'))],
-            'status' => ['sometimes', Rule::in(array_column(CustomerStatus::cases(), 'value'))],
+            'type' => ['missing'],
+            'status' => ['missing'],
             'company_name' => ['sometimes', 'nullable', 'string', 'max:255'],
             'tax_number' => ['sometimes', 'nullable', 'string', 'max:50'],
             'commercial_register' => ['sometimes', 'nullable', 'string', 'max:50'],
             'customer_group_id' => ['sometimes', 'nullable', 'integer', Rule::exists('customer_groups', 'id')],
-            'credit_limit' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:9999999999.99'],
+            'credit_limit' => ['sometimes', 'numeric', 'min:0', 'max:9999999999.99'],
         ];
     }
 }

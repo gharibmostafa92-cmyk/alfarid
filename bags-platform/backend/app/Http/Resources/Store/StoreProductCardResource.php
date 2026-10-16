@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Store;
 
-use App\Models\Customer;
 use App\Services\StoreCatalogService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -21,8 +20,7 @@ class StoreProductCardResource extends JsonResource
     public function toArray(Request $request): array
     {
         $service = app(StoreCatalogService::class);
-        $user = auth('sanctum')->user();
-        $customer = $user instanceof Customer ? $user : null;
+        $customer = $service->customer();
 
         $display = $service->displayPrice($this->resource, $customer);
 

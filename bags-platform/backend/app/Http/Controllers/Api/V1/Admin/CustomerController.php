@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
+use App\Enums\CustomerDocumentStatus;
 use App\Enums\CustomerStatus;
 use App\Enums\CustomerType;
 use App\Http\Controllers\Controller;
@@ -36,8 +37,8 @@ class CustomerController extends Controller implements HasMiddleware
             new Middleware('can:customers.view', only: ['index', 'show', 'downloadDocument']),
             new Middleware('can:customers.create', only: ['store']),
             new Middleware('can:customers.update', only: ['update']),
-            new Middleware('can:customers.delete', only: ['destroy']),
-            new Middleware('can:customers.approve', only: ['approve', 'reject', 'suspend']),
+            new Middleware('can:customers.delete', only: ['destroy', 'restore']),
+            new Middleware('can:customers.approve', only: ['approve', 'reject', 'suspend', 'reviewDocument']),
         ];
     }
 
@@ -49,6 +50,7 @@ class CustomerController extends Controller implements HasMiddleware
             'customer_group_id' => ['nullable', 'integer', 'min:1'],
             'search' => ['nullable', 'string', 'max:255'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'trashed' => ['nullable', Rule::in(['only'])],
         ]);
 
         return CustomerResource::collection($this->customers->paginate($filters));
@@ -105,6 +107,26 @@ class CustomerController extends Controller implements HasMiddleware
     /** تنزيل مستند تحقق من التخزين الخاص (scoped: المستند تابع لهذا العميل حصرًا). */
     public function downloadDocument(Customer $customer, CustomerDocument $document): StreamedResponse
     {
-        return Storage::disk('local')->download($document->file_path, $document->original_name);
+        abort_unless(Storage::disk('local')->exists($document->file_path), 404, 'المستند غير موجود.');
+
+        return Storage::disk('local')->download($document->file_path, CustomerDocument::safeName($document->original_name));
+    }
+
+    public function restore(Customer $customer): CustomerResource
+    {
+        abort_unless($customer->trashed(), 422, 'الحساب غير محذوف.');
+        $customer->restore();
+
+        return new CustomerResource($customer->load('customerGroup'));
+    }
+
+    public function reviewDocument(Request $request, Customer $customer, CustomerDocument $document): JsonResponse
+    {
+        $data = $request->validate([
+            'status' => ['required', Rule::enum(CustomerDocumentStatus::class)],
+        ]);
+        $document->update($data);
+
+        return response()->json(['data' => ['id' => $document->id, 'status' => $document->status]]);
     }
 }
