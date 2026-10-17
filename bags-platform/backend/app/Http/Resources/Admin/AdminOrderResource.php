@@ -20,6 +20,7 @@ class AdminOrderResource extends JsonResource
             'status' => $this->status,
             'payment_method' => $this->payment_method,
             'payment_status' => $this->payment_status,
+            'requires_refund' => (bool) $this->requires_refund,
             'customer' => $this->whenLoaded('customer', fn () => $this->customer === null ? null : [
                 'id' => $this->customer->id,
                 'name' => $this->customer->name,

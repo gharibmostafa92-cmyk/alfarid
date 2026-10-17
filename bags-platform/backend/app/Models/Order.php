@@ -36,6 +36,7 @@ class Order extends Model
         'status',
         'payment_method',
         'payment_status',
+        'requires_refund',
         'subtotal',
         'discount_amount',
         'coupon_id',

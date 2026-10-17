@@ -59,6 +59,14 @@ class CartController extends Controller
         return response()->json(['data' => $this->carts->present($cart, $customer)]);
     }
 
+    public function removeCoupon(Request $request): JsonResponse
+    {
+        [$customer, $cart] = $this->currentCart($request);
+        $cart->update(['coupon_id' => null]);
+
+        return response()->json(['data' => $this->carts->present($cart->refresh(), $customer)]);
+    }
+
     public function applyCoupon(ApplyCouponRequest $request): JsonResponse
     {
         [$customer, $cart] = $this->currentCart($request);
