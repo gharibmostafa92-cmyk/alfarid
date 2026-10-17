@@ -51,14 +51,13 @@ class StoreOrderFlowTest extends TestCase
         $variant = $this->purchasableVariant(200);
         $this->giveStock($variant, 5);
 
-        $cart = $this->getJson('/api/v1/store/cart/items')->assertOk();
-        $token = $cart->json('data.cart_token');
-        $this->assertNotEmpty($token);
-        $headers = ['X-Cart-Session' => $token];
-
-        $added = $this->withHeaders($headers)->postJson('/api/v1/store/cart/items', [
+        // القراءة لا تنشئ سلة (M3): التوكن يصدر من أول إضافة فعلية
+        $added = $this->postJson('/api/v1/store/cart/items', [
             'product_variant_id' => $variant->id, 'qty' => 2,
         ])->assertOk()->assertJsonPath('data.totals.items_total', 400);
+        $token = $added->json('data.cart_token');
+        $this->assertNotEmpty($token);
+        $headers = ['X-Cart-Session' => $token];
         $itemId = $added->json('data.items.0.id');
         $this->assertNotEmpty($itemId);
 
@@ -96,11 +95,10 @@ class StoreOrderFlowTest extends TestCase
         $city = City::factory()->create(['shipping_cost' => 30]);
         Coupon::factory()->create(['code' => 'SAVE10', 'type' => 'percentage', 'value' => 10]);
 
-        $token = $this->getJson('/api/v1/store/cart/items')->json('data.cart_token');
-        $headers = ['X-Cart-Session' => $token];
-        $this->withHeaders($headers)->postJson('/api/v1/store/cart/items', [
+        $token = $this->postJson('/api/v1/store/cart/items', [
             'product_variant_id' => $variant->id, 'qty' => 2,
-        ])->assertOk();
+        ])->assertOk()->json('data.cart_token');
+        $headers = ['X-Cart-Session' => $token];
         $this->withHeaders($headers)->postJson('/api/v1/store/cart/coupon', ['code' => 'save10'])
             ->assertOk()->assertJsonPath('data.coupon_discount', 40);
 
@@ -137,11 +135,9 @@ class StoreOrderFlowTest extends TestCase
         $variant = $this->purchasableVariant(200);
         $this->giveStock($variant, 10);
         $city = City::factory()->create(['shipping_cost' => 30]);
-        $token = $this->getJson('/api/v1/store/cart/items')->json('data.cart_token');
-
-        $this->withHeaders(['X-Cart-Session' => $token])->postJson('/api/v1/store/cart/items', [
+        $token = $this->postJson('/api/v1/store/cart/items', [
             'product_variant_id' => $variant->id, 'qty' => 2,
-        ])->assertOk();
+        ])->assertOk()->json('data.cart_token');
 
         $this->withHeaders(['X-Cart-Session' => $token])->postJson('/api/v1/store/checkout', [
             'recipient_name' => 'ضيف', 'recipient_phone' => '01012345678',
@@ -161,10 +157,9 @@ class StoreOrderFlowTest extends TestCase
             'password' => Hash::make('secret123'),
         ]);
 
-        $token = $this->getJson('/api/v1/store/cart/items')->json('data.cart_token');
-        $this->withHeaders(['X-Cart-Session' => $token])->postJson('/api/v1/store/cart/items', [
+        $token = $this->postJson('/api/v1/store/cart/items', [
             'product_variant_id' => $variant->id, 'qty' => 2,
-        ])->assertOk();
+        ])->assertOk()->json('data.cart_token');
 
         $login = $this->withHeaders(['X-Cart-Session' => $token])->postJson('/api/v1/store/auth/login', [
             'login' => '01099998888', 'password' => 'secret123',
@@ -212,11 +207,10 @@ class StoreOrderFlowTest extends TestCase
         $variant = $this->purchasableVariant(100);
         $this->giveStock($variant, 5);
         $city = City::factory()->create(['shipping_cost' => 0]);
-        $token = $this->getJson('/api/v1/store/cart/items')->json('data.cart_token');
-        $headers = ['X-Cart-Session' => $token];
-        $this->withHeaders($headers)->postJson('/api/v1/store/cart/items', [
+        $token = $this->postJson('/api/v1/store/cart/items', [
             'product_variant_id' => $variant->id, 'qty' => 1,
-        ])->assertOk();
+        ])->assertOk()->json('data.cart_token');
+        $headers = ['X-Cart-Session' => $token];
         $number = $this->withHeaders($headers)->postJson('/api/v1/store/checkout', [
             'recipient_name' => 'ضيف', 'recipient_phone' => '01012345678',
             'city_id' => $city->id, 'shipping_address_line' => 'عنوان', 'payment_method' => 'cod',

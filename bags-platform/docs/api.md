@@ -297,3 +297,16 @@ Run php artisan media:backfill-path-layouts once for existing uploads. It persis
 - (H8) ‏DELETE /store/cart/coupon يزيل الكوبون، وفشل الكوبون عند إتمام الشراء يرجع 422 مع code=coupon_invalid في جسم الرد.
 - (H9) طرق دفع المتجر من config/store.php ‏(STORE_PAYMENT_METHODS، الافتراضي cod فقط) — وcredit متاح برمجيًا لعملاء الجملة/التوزيع المعتمدين فقط، ولا تُفتح طريقة إلكترونية قبل ربط بوابتها.
 - (H10) ‏reserveItemFromBranch يقفل صفوف الأرصدة بـ lockForUpdate وبترتيب id ثابت؛ وفحص canBranchFulfillFullOrder استشاري — الحارس النهائي هو إعادة تحقق recordMovement تحت قفله.
+
+## جولة تقوية المتجر والسلة والويب هوك (M1–M10)
+
+- (M1) توسيع أعمدة shipping_address_line/shipping_notes/order_status_histories.notes/tracking_url_template إلى varchar(500) لتوافق تحقق max:500 — قيم 256–500 لم تعد تنهار 22001.
+- (M2) ‏X-Cart-Session غير الـ UUID يُتجاهل، وتوكن أي سلة جديدة يُولّد على الخادم دائمًا.
+- (M3) قراءة السلة (GET cart/items وخيارات الشحن) لا تحفظ صفًا — سلة فارغة افتراضية، والإنشاء عند أول إضافة. محددات مسماة: throttle:cart ‏(60/دقيقة)، checkout ‏(10/دقيقة)، order-tracking ‏(10/دقيقة)، webhooks ‏(120/دقيقة).
+- (M4) التحقق من التوقيع قبل تخزين حمولة الويب هوك؛ الرفض يُسجل صفًا مختصرًا بلا payload؛ حد جسم 256KB (يرجع 413)؛ ‏webhooks:prune-logs مجدول يوميًا باحتفاظ 90 يومًا.
+- (M5) تتبع الطلب: لا notes في السجل المعروض للعامة، ومقارنة الهاتف بصيغة موحدة الطرفين، وحد 10/دقيقة لكل IP.
+- (M6) قيد فريد carts.customer_id ودمج سلة الزائر داخل transaction بقفل صف — لا سلال مكررة ولا كميات مضاعفة مع الطلبات المتوازية.
+- (M7) أنماط رقمية لمعاملات item/order في المتجر وorder/coupon/promotion/shipping_* في الأدمن — غير الرقمي 404.
+- (M8) ‏null صريح لحقول NOT NULL في الكوبونات/العروض يُحذف من حمولة الحفظ في المتحكم (الأعمدة القابلة للإفراغ فعلًا مثل min_order_amount تظل قابلة للتصفير).
+- (M9) حذف شركة شحن لها بوليصات أو كوبون له استخدامات يرجع 422 (التعطيل هو البديل)، وحذف كوبون غير مستخدم يفك carts.coupon_id أولًا.
+- (M10) تعديل شركة الشحن بـ api_credentials=null لا يمحو الأسرار، وسر توقيع الويب هوك هو webhook_secret الخاص بالشركة فقط — بلا رجوع api_key ولا سر افتراضي.

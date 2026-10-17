@@ -212,12 +212,10 @@ class ShippingPromotionsTest extends TestCase
         $variant = $this->purchasableVariant(100);
         $this->giveStock($variant, 5);
         $city = City::factory()->create(['shipping_cost' => 45]);
-        $token = $this->getJson('/api/v1/store/cart/items')->json('data.cart_token');
-        $headers = ['X-Cart-Session' => $token];
-
-        $this->withHeaders($headers)->postJson('/api/v1/store/cart/items', [
+        $token = $this->postJson('/api/v1/store/cart/items', [
             'product_variant_id' => $variant->id, 'qty' => 1,
-        ])->assertOk();
+        ])->assertOk()->json('data.cart_token');
+        $headers = ['X-Cart-Session' => $token];
         $this->withHeaders($headers)->postJson('/api/v1/store/cart/coupon', ['code' => 'FREESHIP'])->assertOk();
 
         $this->withHeaders($headers)->postJson('/api/v1/store/checkout', [
