@@ -22,10 +22,16 @@ class DatabaseSeederTest extends TestCase
         $this->seed(DatabaseSeeder::class);
         $this->seed(DatabaseSeeder::class);
 
-        $this->assertDatabaseCount('users', 1);
+        // مستخدمان: حساب الاختبار + مستخدم النظام المخصص لحركات
+        // المخزون التلقائية (M19 — يُنشأ بهجرة insertOrIgnore، فالعدد ثابت)
+        $this->assertDatabaseCount('users', 2);
         $this->assertDatabaseHas('users', [
             'name' => 'Test User',
             'email' => 'test@example.com',
+        ]);
+        $this->assertDatabaseHas('users', [
+            'name' => 'System',
+            'email' => 'system@alfarid.local',
         ]);
     }
 
