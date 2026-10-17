@@ -142,6 +142,7 @@ class CartService
                 $unit = (float) $resolved['unit_price'];
                 $base = (float) $resolved['base_price'];
                 $lines[] = [
+                    'item_id' => $item->id,
                     'variant' => $variant,
                     'qty' => $qty,
                     'unit_price' => $unit,
@@ -151,6 +152,7 @@ class CartService
                 ];
             } catch (BusinessException) {
                 $lines[] = [
+                    'item_id' => $item->id,
                     'variant' => $variant,
                     'qty' => $qty,
                     'unit_price' => null,
@@ -188,7 +190,7 @@ class CartService
         $couponCode = null;
         if ($cart->coupon_id !== null && $itemsTotal > 0) {
             try {
-                $coupon = $this->coupons->redeemableById((int) $cart->coupon_id, $itemsTotal);
+                $coupon = $this->coupons->redeemableById((int) $cart->coupon_id, $itemsTotal, $customer);
                 $couponDiscount = $this->coupons->discountFor($coupon, $itemsTotal);
                 $couponCode = $coupon->code;
             } catch (BusinessException) {
@@ -237,6 +239,7 @@ class CartService
         foreach ($lines as $line) {
             $variant = $line['variant'];
             $items[] = [
+                'id' => $line['item_id'],
                 'product_variant_id' => $variant->id,
                 'product_id' => $variant->product_id,
                 'product_name' => $variant->product?->name_ar,
