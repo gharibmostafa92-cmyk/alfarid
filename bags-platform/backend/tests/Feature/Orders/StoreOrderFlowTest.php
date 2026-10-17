@@ -131,6 +131,8 @@ class StoreOrderFlowTest extends TestCase
 
     public function test_checkout_applies_tax_when_enabled_in_settings(): void
     {
+        // الدفع بالكارت يُفتح من الإعدادات فقط بعد ربط بوابته (H9)
+        config(['store.payment_methods' => ['cod', 'card']]);
         Setting::query()->where('key', 'tax_enabled')->update(['value' => '1']);
         $variant = $this->purchasableVariant(200);
         $this->giveStock($variant, 10);

@@ -283,3 +283,17 @@ Run php artisan media:backfill-path-layouts once for existing uploads. It persis
 - تغيير `company_name/tax_number/commercial_register` يتطلب `customers.approve` ويسجل `business_identity_changed`. إنشاء العميل يقبل pending/approved فقط؛ اعتماد القطاعي يثبت approved_at. يسجل التدقيق أيضًا التسجيل الذاتي، الدخول الناجح والفاشل وإصدار التوكنات دون أسرار خام.
 - التنظيف الدوري يزيل مجلدات المستندات النهائية اليتيمة بعد ساعة، ويحافظ على ملفات العملاء المحذوفين ناعمًا. تطبيع الهواتف يستخدم خطة مؤقتة في PostgreSQL وكشف التصادمات بـ GROUP BY ودفعات 500 بدل تحميل كل الهواتف في ذاكرة PHP. أخطاء VALIDATE CONSTRAINT غير 23514 لا تُعرض كأخطاء بيانات.
 - المخزون السالب ممنوع أصلًا بقيد stock_levels_valid_balances (`on_hand >= reserved + damaged`)، لذلك لا يلزم تغيير معنى الجمع. النصوص العربية ورسائل SMS الأصلية محفوظة بصيغة UTF-8. لا يوجد مسار لإعادة تقديم طلب جملة مرفوض؛ الرقم يبقى محجوزًا، ويمكن للموظف متابعة معالجة الحساب الأصلي. `credit_limit/customer_group_id` في رد العميل الحالي مستمران كجزء من عقد حساب الجملة.
+
+## جولة مراجعة المرحلة 8: الأقفال والذرّية وحماية الدفع
+
+- (C1) ‏OrderService::changeStatus وOrderAllocationService::allocate يعيدان قراءة الطلب بـ lockForUpdate داخل المعاملة — النسخ القديمة بيد المتصلين لا تُمرَّر، والانتقالات على نفس الطلب تتسلسل.
+- (H1) ‏ShipmentService يقفل الطلب ويتحقق: الحالة Confirmed/Processing فقط، ولا بوليصة نشطة (غير failed/returned) — إعادة الشحن بعد فشل مسموحة بسياسة صريحة.
+- (H2) ‏createFromCart يقفل صف السلة ويقرأ بنودها طازجة — نقرة مكررة تجد سلة فارغة (422) بدل طلب مكرر.
+- (H3) عند الشراء يُقفل صف الكوبون حتى نهاية المعاملة (التحقق والعدّ والتسجيل ذرّية)، وحد العميل الواحد يُفرض على الزائر بهاتفه الموحد الصيغة (Customer::normalizePhone) عبر طلباته غير الملغاة — تبديل cart_token لا يتجاوزه. فحص السلة قبل الشراء للزائر يظل بالحد الكلي فقط (لا هاتف بعد).
+- (H4) معالجة الويب هوك كلها داخل DB::transaction تبدأ بـ pg_advisory_xact_lock على (provider, event)، ومفتاح الحدث عند غياب معرّف حقيقي هو sha256 لجسم الطلب.
+- (H5) حدث paid يُتحقق من مبلغه وعملته مقابل grand_total (مبالغ القروش تُقسم على 100) وعدم التطابق يُسجل amount mismatch بلا أي تغيير؛ لا رجوع من paid إلى failed؛ حدث Paymob المعلّق (pending=true) ليس فشلًا؛ دفع على طلب ملغي يُثبت الدفع ويرفع علم orders.requires_refund (يظهر في رد الأدمن) ولا يُحيي الطلب.
+- (H6) مفتاح حدث الشحن: event_id حقيقي فقط (id الشحنة الثابت لا يصلح)، وإلا awb|status|timestamp، وإلا sha256. وحالات البوليصة مرتبة: لا تراجع في سلسلة created→picked_up→in_transit→out_for_delivery→delivered، والحالتان delivered/returned نهائيتان، والفشل قابل للاستئناف.
+- (H7) هجرة فهارس للمفاتيح الساخنة: carts.customer_id، orders.customer_id/allocated_branch_id، order_items.order_id/product_variant_id/allocated_branch_id، shipments.order_id، coupon_usages.order_id.
+- (H8) ‏DELETE /store/cart/coupon يزيل الكوبون، وفشل الكوبون عند إتمام الشراء يرجع 422 مع code=coupon_invalid في جسم الرد.
+- (H9) طرق دفع المتجر من config/store.php ‏(STORE_PAYMENT_METHODS، الافتراضي cod فقط) — وcredit متاح برمجيًا لعملاء الجملة/التوزيع المعتمدين فقط، ولا تُفتح طريقة إلكترونية قبل ربط بوابتها.
+- (H10) ‏reserveItemFromBranch يقفل صفوف الأرصدة بـ lockForUpdate وبترتيب id ثابت؛ وفحص canBranchFulfillFullOrder استشاري — الحارس النهائي هو إعادة تحقق recordMovement تحت قفله.
