@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Enums\OrderStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Cart;
 use App\Models\Coupon;
@@ -31,13 +32,13 @@ class CouponService
     }
 
     /** يتحقق من كوبون مرتبط بسلة (عند إتمام الشراء) ويرجعه أو يرمي استثناءً. */
-    public function redeemableById(int $couponId, float $subtotal, ?Customer $customer = null): Coupon
+    public function redeemableById(int $couponId, float $subtotal, ?Customer $customer = null, ?string $guestPhone = null): Coupon
     {
         $coupon = Coupon::query()->find($couponId);
         if ($coupon === null) {
             throw new BusinessException('الكوبون المرتبط بالسلة لم يعد موجودًا.');
         }
-        $this->assertRedeemable($coupon, $subtotal, $customer);
+        $this->assertRedeemable($coupon, $subtotal, $customer, $guestPhone);
 
         return $coupon;
     }
@@ -85,7 +86,7 @@ class CouponService
         return $coupon;
     }
 
-    private function assertRedeemable(Coupon $coupon, float $subtotal, ?Customer $customer): void
+    private function assertRedeemable(Coupon $coupon, float $subtotal, ?Customer $customer, ?string $guestPhone = null): void
     {
         if (! $coupon->isRedeemableNow()) {
             throw new BusinessException('كود الخصم غير متاح أو انتهت صلاحيته أو استُنفد حد استخدامه.');
@@ -93,10 +94,30 @@ class CouponService
         if ($coupon->min_order_amount !== null && $subtotal < (float) $coupon->min_order_amount) {
             throw new BusinessException('قيمة السلة أقل من الحد الأدنى لاستخدام هذا الكوبون.');
         }
-        if ($customer !== null && (int) $coupon->usage_limit_per_customer > 0) {
-            $usedByCustomer = $coupon->usages()->where('customer_id', $customer->id)->count();
+        if ((int) $coupon->usage_limit_per_customer <= 0) {
+            return;
+        }
+        if ($customer !== null) {
+            // استخدامات العميل المسجل — الطلبات الملغاة لا تحتسب
+            $usedByCustomer = $coupon->usages()
+                ->where('customer_id', $customer->id)
+                ->whereHas('order', fn ($q) => $q->where('status', '!=', OrderStatus::Cancelled->value))
+                ->count();
             if ($usedByCustomer >= (int) $coupon->usage_limit_per_customer) {
                 throw new BusinessException('وصلت لحد استخدام هذا الكوبون لحسابك.');
+            }
+        } elseif ($guestPhone !== null && trim($guestPhone) !== '') {
+            // هوية الزائر هي رقم هاتفه الموحد الصيغة — تبديل cart_token لا يتجاوز الحد (H3)
+            $normalized = Customer::normalizePhone($guestPhone);
+            $usedByPhone = $coupon->usages()
+                ->join('orders', 'orders.id', '=', 'coupon_usages.order_id')
+                ->where('orders.status', '!=', OrderStatus::Cancelled->value)
+                ->whereNotNull('orders.guest_phone')
+                ->pluck('orders.guest_phone')
+                ->filter(fn ($phone): bool => Customer::normalizePhone((string) $phone) === $normalized)
+                ->count();
+            if ($usedByPhone >= (int) $coupon->usage_limit_per_customer) {
+                throw new BusinessException('وصلت لحد استخدام هذا الكوبون لرقم هاتفك.');
             }
         }
     }

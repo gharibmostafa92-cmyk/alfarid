@@ -10,6 +10,7 @@ use App\Enums\StockMovementType;
 use App\Exceptions\BusinessException;
 use App\Models\Cart;
 use App\Models\City;
+use App\Models\Coupon;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\StockMovement;
@@ -56,7 +57,10 @@ class OrderService
     public function createFromCart(Cart $cart, array $data, ?Customer $customer = null): Order
     {
         return DB::transaction(function () use ($cart, $data, $customer): Order {
-            $cart->loadMissing('items');
+            // قفل صف السلة وقراءة بنودها طازجة: طلب متزامن ثانٍ ينتظر
+            // ثم يجد السلة فارغة بدل إنشاء طلب مكرر (H2)
+            $cart = Cart::query()->whereKey($cart->id)->lockForUpdate()->firstOrFail();
+            $cart->load('items');
             if ($cart->items->isEmpty()) {
                 throw new BusinessException('السلة فارغة؛ لا يمكن إنشاء طلب.');
             }
@@ -80,7 +84,20 @@ class OrderService
             $couponCode = null;
             $coupon = null;
             if ($cart->coupon_id !== null) {
-                $coupon = $this->couponService->redeemableById((int) $cart->coupon_id, $totals['items_total'], $customer);
+                // قفل صف الكوبون حتى نهاية المعاملة: التحقق من الحدود والعدّ
+                // وتسجيل الاستخدام تصبح ذرّية أمام عمليات شراء متزامنة (H3)
+                Coupon::query()->whereKey((int) $cart->coupon_id)->lockForUpdate()->first();
+                try {
+                    $coupon = $this->couponService->redeemableById(
+                        (int) $cart->coupon_id,
+                        $totals['items_total'],
+                        $customer,
+                        $customer === null ? ($data['recipient_phone'] ?? null) : null,
+                    );
+                } catch (BusinessException $e) {
+                    // رمز مميز حتى تعرض الواجهة زر إزالة الكوبون (H8)
+                    throw new BusinessException($e->getMessage(), $e->errors, $e->status, 'coupon_invalid');
+                }
                 $couponDiscount = $this->couponService->discountFor($coupon, $totals['items_total']);
                 $couponId = $coupon->id;
                 $couponCode = $coupon->code;
@@ -189,6 +206,9 @@ class OrderService
         $to = $toStatus instanceof OrderStatus ? $toStatus : OrderStatus::from($toStatus);
 
         return DB::transaction(function () use ($order, $to, $actor, $notes): Order {
+            // إعادة قراءة الطلب بقفل صف: النسخة الممرَّرة قد تكون قديمة،
+            // وكل الانتقالات على نفس الطلب يجب أن تتسلسل (C1)
+            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $from = $order->status;
             if ($from === $to) {
                 return $order;

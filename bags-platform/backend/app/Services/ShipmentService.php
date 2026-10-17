@@ -29,6 +29,19 @@ class ShipmentService
     public function createForOrder(Order $order, int $companyId, ?string $awbNumber, User $actor): Shipment
     {
         return DB::transaction(function () use ($order, $companyId, $awbNumber, $actor): Shipment {
+            // قفل الطلب والتحقق من حالته ومن عدم وجود بوليصة نشطة —
+            // نقرة مزدوجة لا تنتج بوليصتين ولا بيعًا مكررًا (H1)
+            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            if (! in_array($order->status, [OrderStatus::Confirmed, OrderStatus::Processing], true)) {
+                throw new BusinessException('لا يمكن إنشاء بوليصة إلا لطلب مؤكد أو قيد التجهيز.');
+            }
+            $hasActiveShipment = $order->shipments()
+                ->whereNotIn('status', [ShipmentStatus::Failed->value, ShipmentStatus::Returned->value])
+                ->exists();
+            if ($hasActiveShipment) {
+                throw new BusinessException('توجد بوليصة نشطة لهذا الطلب بالفعل.');
+            }
+
             $company = ShippingCompany::query()->where('is_active', true)->find($companyId);
             if ($company === null) {
                 throw new BusinessException('شركة الشحن غير موجودة أو غير نشطة.');

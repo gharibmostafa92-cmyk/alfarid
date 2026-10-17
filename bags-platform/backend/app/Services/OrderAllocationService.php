@@ -32,7 +32,9 @@ class OrderAllocationService
     public function allocate(Order $order, ?int $forcedBranchId = null, ?int $performedBy = null): Order
     {
         return DB::transaction(function () use ($order, $forcedBranchId, $performedBy): Order {
-            $order->loadMissing('items');
+            // إعادة قراءة الطلب بقفل صف قبل فحص التوزيع السابق (C1)
+            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $order->load('items');
             $performedBy ??= auth()->id();
 
             if ($order->allocated_branch_id !== null
@@ -122,9 +124,11 @@ class OrderAllocationService
     private function reserveItemFromBranch(Order $order, OrderItem $item, int $branchId, ?int $performedBy): void
     {
         $remaining = (float) $item->qty;
+        // قفل صفوف الأرصدة بترتيب ثابت (id) حتى لا يُحجز نفس الرصيد مرتين (H10)
         $levels = $this->usableLevels((int) $item->product_variant_id, $branchId)
             ->where('available', '>', 0)
-            ->orderByDesc('available')
+            ->orderBy('id')
+            ->lockForUpdate()
             ->get();
 
         foreach ($levels as $level) {
