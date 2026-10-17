@@ -33,6 +33,11 @@ return Application::configure(basePath: dirname(__DIR__))
                 ->prefix('api/v1/wholesale')
                 ->name('wholesale.')
                 ->group(base_path('routes/api/wholesale.php'));
+            // ويب هوكس خارجية: بلا مصادقة — الحماية بالتوقيع الرقمي داخل المتحكمات
+            Route::middleware('api')
+                ->prefix('api/v1/webhooks')
+                ->name('webhooks.')
+                ->group(base_path('routes/api/webhooks.php'));
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {

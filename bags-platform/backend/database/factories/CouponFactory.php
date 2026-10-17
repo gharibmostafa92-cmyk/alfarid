@@ -21,6 +21,7 @@ class CouponFactory extends Factory
             'min_order_amount' => null,
             'max_discount_amount' => null,
             'usage_limit' => null,
+            'usage_limit_per_customer' => 1,
             'used_count' => 0,
             'starts_at' => null,
             'ends_at' => null,
