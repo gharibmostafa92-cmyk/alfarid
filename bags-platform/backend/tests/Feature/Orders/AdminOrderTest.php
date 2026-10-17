@@ -12,6 +12,7 @@ use App\Models\Cart;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Models\ShippingCompany;
 use App\Models\StockLevel;
 use App\Models\User;
 use App\Services\InventoryService;
@@ -73,8 +74,11 @@ class AdminOrderTest extends TestCase
         $this->assertSame('3.0000', (string) $this->level($variant->id)->reserved);
         $this->assertSame('10.0000', (string) $this->level($variant->id)->on_hand);
 
-        $this->api('PATCH', "/api/v1/admin/orders/{$order->id}/status", ['status' => 'shipped'])
-            ->assertOk()->assertJsonPath('data.status', 'shipped');
+        // الشحن من إنشاء البوليصة فقط (L3)
+        $company = ShippingCompany::factory()->create();
+        $this->api('POST', "/api/v1/admin/orders/{$order->id}/shipment", ['shipping_company_id' => $company->id])
+            ->assertOk();
+        $this->assertSame('shipped', $order->fresh()->status->value);
         $level = $this->level($variant->id);
         $this->assertSame('0.0000', (string) $level->reserved);
         $this->assertSame('7.0000', (string) $level->on_hand);
