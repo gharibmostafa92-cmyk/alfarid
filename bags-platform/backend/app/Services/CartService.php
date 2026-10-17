@@ -9,7 +9,9 @@ use App\Exceptions\BusinessException;
 use App\Models\Cart;
 use App\Models\Customer;
 use App\Models\ProductVariant;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
  * سلة التسوق للزائر والعميل المسجل.
@@ -26,14 +28,22 @@ class CartService
     ) {}
 
     /**
-     * سلة الزائر/العميل الحالية — تُنشأ عند الحاجة.
+     * سلة الزائر/العميل الحالية.
+     * - التوكن غير الـ UUID يُتجاهل تمامًا (M2)؛ وتوكن أي سلة جديدة
+     *   يُولّد على الخادم دائمًا (Cart::booted) ولا يُقبل مقترح العميل.
+     * - بوضع القراءة ($create=false) لا يُحفظ أي صف: تُرجع سلة فارغة
+     *   افتراضية حتى لا تملأ الزواحف جدول carts (M3).
      * لو وُجدت سلة زائر بالتوكن وعميل مسجل، تُدمج فيها أولًا.
      */
-    public function resolveCart(?Customer $customer, ?string $guestToken): Cart
+    public function resolveCart(?Customer $customer, ?string $guestToken, bool $create = true): Cart
     {
+        $guestToken = $guestToken !== null && Str::isUuid($guestToken) ? $guestToken : null;
+
         if ($customer !== null) {
-            $cart = Cart::query()->firstOrCreate(['customer_id' => $customer->id]);
-            if ($guestToken !== null && $guestToken !== $cart->cart_token) {
+            $cart = $create
+                ? $this->accountCart($customer)
+                : (Cart::query()->where('customer_id', $customer->id)->first() ?? new Cart(['customer_id' => $customer->id]));
+            if ($create && $guestToken !== null && $guestToken !== $cart->cart_token) {
                 $this->mergeGuestCart($customer, $guestToken);
                 $cart = $cart->fresh();
             }
@@ -44,25 +54,46 @@ class CartService
         $cart = $guestToken !== null
             ? Cart::query()->where('cart_token', $guestToken)->whereNull('customer_id')->first()
             : null;
+        if ($cart !== null) {
+            return $cart->loadMissing('items');
+        }
 
-        return ($cart ?? Cart::create([]))->loadMissing('items');
+        return ($create ? Cart::create([]) : new Cart)->loadMissing('items');
+    }
+
+    /** سلة حساب العميل الوحيدة — القيد الفريد على customer_id يحسم السباق (M6). */
+    private function accountCart(Customer $customer): Cart
+    {
+        try {
+            return Cart::query()->firstOrCreate(['customer_id' => $customer->id]);
+        } catch (UniqueConstraintViolationException) {
+            return Cart::query()->where('customer_id', $customer->id)->firstOrFail();
+        }
     }
 
     /** دمج سلة زائر (بالتوكن) في سلة حساب العميل — تُستدعى عند تسجيل الدخول. */
     public function mergeGuestCart(Customer $customer, ?string $guestToken): void
     {
+        $guestToken = $guestToken !== null && Str::isUuid($guestToken) ? $guestToken : null;
         if ($guestToken === null) {
             return;
         }
-        $guest = Cart::query()->where('cart_token', $guestToken)->whereNull('customer_id')->first();
-        if ($guest === null || ! $guest->items()->exists()) {
-            $guest?->delete();
 
-            return;
-        }
+        // كل الدمج داخل transaction واحدة وسلة الزائر مقفولة: طلبات متوازية
+        // بعد تسجيل الدخول بنفس التوكن لا تضاعف الكميات (M6)
+        DB::transaction(function () use ($customer, $guestToken): void {
+            $guest = Cart::query()->where('cart_token', $guestToken)->whereNull('customer_id')
+                ->lockForUpdate()->first();
+            if ($guest === null) {
+                return;
+            }
+            if (! $guest->items()->exists()) {
+                $guest->delete();
 
-        DB::transaction(function () use ($customer, $guest): void {
-            $account = Cart::query()->firstOrCreate(['customer_id' => $customer->id]);
+                return;
+            }
+
+            $account = $this->accountCart($customer);
             foreach ($guest->items as $item) {
                 $existing = $account->items()->where('product_variant_id', $item->product_variant_id)->first();
                 if ($existing !== null) {

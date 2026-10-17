@@ -28,7 +28,7 @@ class CheckoutController extends Controller
     public function shippingOptions(ShippingOptionsRequest $request): JsonResponse
     {
         $city = City::query()->where('is_active', true)->findOrFail((int) $request->validated()['city_id']);
-        [$customer, $cart] = $this->currentCart($request);
+        [$customer, $cart] = $this->currentCart($request, create: false);
         $totals = $this->carts->totals($cart, $customer);
 
         return response()->json(['data' => [
@@ -64,11 +64,11 @@ class CheckoutController extends Controller
     }
 
     /** @return array{0: ?Customer, 1: Cart} */
-    private function currentCart(Request $request): array
+    private function currentCart(Request $request, bool $create = true): array
     {
         $user = auth('sanctum')->user();
         $customer = $user instanceof Customer ? $user : null;
-        $cart = $this->carts->resolveCart($customer, $request->header('X-Cart-Session'));
+        $cart = $this->carts->resolveCart($customer, $request->header('X-Cart-Session'), $create);
 
         return [$customer, $cart];
     }

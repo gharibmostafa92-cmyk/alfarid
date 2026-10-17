@@ -33,9 +33,11 @@ class OrderController extends Controller
             ->with(['items', 'statusHistories'])
             ->first();
 
+        // مقارنة بعد توحيد صيغة الهاتف على الجانبين (M5)
+        $inputPhone = Customer::normalizePhone((string) $request->input('phone'));
         $phoneMatches = $order !== null
-            && ($order->guest_phone === $request->input('phone')
-                || $order->customer?->phone === $request->input('phone'));
+            && (($order->guest_phone !== null && Customer::normalizePhone($order->guest_phone) === $inputPhone)
+                || ($order->customer?->phone !== null && Customer::normalizePhone($order->customer->phone) === $inputPhone));
 
         if (! $phoneMatches) {
             abort(404);

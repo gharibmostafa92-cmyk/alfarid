@@ -98,6 +98,20 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
+        // حدود مسارات السلة وإتمام الشراء وتتبع الطلب والويب هوك (M3/M5)
+        RateLimiter::for('cart', fn (Request $request) => [
+            Limit::perMinute(60)->by('cart-ip:'.$request->ip()),
+        ]);
+        RateLimiter::for('checkout', fn (Request $request) => [
+            Limit::perMinute(10)->by('checkout-ip:'.$request->ip()),
+        ]);
+        RateLimiter::for('order-tracking', fn (Request $request) => [
+            Limit::perMinute(10)->by('order-tracking-ip:'.$request->ip()),
+        ]);
+        RateLimiter::for('webhooks', fn (Request $request) => [
+            Limit::perMinute(120)->by('webhooks-ip:'.$request->ip()),
+        ]);
+
         RateLimiter::for('admin-login', function (Request $request): array {
             $email = $request->input('email');
             $normalizedEmail = is_string($email)

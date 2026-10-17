@@ -20,11 +20,11 @@ class TrackOrderResource extends JsonResource
                 'product_name' => $item->product_name_snapshot,
                 'qty' => $item->qty,
             ])->all()),
+            // بلا notes: ملاحظات السجل داخلية (أدمن/نظام) ولا تُعرض للعامة (M5)
             'status_history' => $this->whenLoaded('statusHistories', fn () => $this->statusHistories
                 ->sortBy('id')
                 ->map(fn ($history): array => [
                     'status' => $history->to_status,
-                    'notes' => $history->notes,
                     'at' => $history->created_at,
                 ])->values()->all()),
             'created_at' => $this->created_at,
