@@ -56,6 +56,7 @@ class Shipment extends Model
             return null;
         }
 
-        return str_replace('{awb}', $this->awb_number, $template);
+        // رقم البوليصة قد يحمل محارف خاصة من إدخال الأدمن — تُرمَّز (L4)
+        return str_replace('{awb}', rawurlencode((string) $this->awb_number), $template);
     }
 }

@@ -122,7 +122,8 @@ class CartService
         $this->assertPriced($variant, $customer, $targetQty);
 
         if ($existing !== null) {
-            $existing->update(['qty' => $targetQty]);
+            // زيادة ذرّية بدل قراءة ثم كتابة (L2)
+            $existing->increment('qty', $qty);
         } else {
             $cart->items()->create(['product_variant_id' => $variantId, 'qty' => $qty]);
         }
@@ -202,9 +203,13 @@ class CartService
      *
      * @return array{subtotal: float, pricing_discount: float, items_total: float, coupon_discount: float, total: float, coupon_code: string|null}
      */
-    public function totals(Cart $cart, ?Customer $customer): array
+    /**
+     * @param  array<int, array<string, mixed>>|null  $lines  بنود محسوبة مسبقًا
+     *                                                        لتجنب إعادة التسعير (M15)
+     */
+    public function totals(Cart $cart, ?Customer $customer, ?array $lines = null): array
     {
-        $lines = $this->pricedLines($cart, $customer);
+        $lines ??= $this->pricedLines($cart, $customer);
         $subtotal = 0.0;
         $pricingDiscount = 0.0;
         $itemsTotal = 0.0;
@@ -212,7 +217,8 @@ class CartService
             if ($line['unit_price'] === null) {
                 continue;
             }
-            $subtotal += (float) $line['base_price'] * $line['qty'];
+            // كل سطر يُقرَّب أولًا ثم تُجمع القيم المقرّبة (M17)
+            $subtotal += round((float) $line['base_price'] * $line['qty'], 2);
             $pricingDiscount += $line['line_discount'];
             $itemsTotal += $line['line_total'];
         }
@@ -237,6 +243,26 @@ class CartService
             'total' => round($itemsTotal - $couponDiscount, 2),
             'coupon_code' => $couponCode,
         ];
+    }
+
+    /**
+     * إعادة التحقق من قابلية البيع لكل بند لحظة الشراء بشكل مجمّع (M14):
+     * متغير معطّل أو منتج غير منشور/محذوف ناعمًا بعد الإضافة يوقف الطلب.
+     *
+     * @param  array<int, array{variant: ProductVariant, qty: float}>  $lines
+     */
+    public function assertLinesPurchasable(array $lines): void
+    {
+        $ids = array_map(fn (array $line): int => (int) $line['variant']->id, $lines);
+        $variants = ProductVariant::query()->with('product')
+            ->whereIn('id', $ids)->get()->keyBy('id');
+        foreach ($lines as $line) {
+            $variant = $variants->get($line['variant']->id) ?? $line['variant'];
+            if (! $variant->is_active || $variant->product === null
+                || $variant->product->status !== ProductStatus::Published || $variant->product->trashed()) {
+                throw new BusinessException("الصنف ({$variant->sku}) لم يعد متاحًا للبيع؛ أزله من السلة وأعد المحاولة.");
+            }
+        }
     }
 
     /**
@@ -290,7 +316,7 @@ class CartService
             'cart_token' => $cart->cart_token,
             'customer_id' => $cart->customer_id,
             'items' => $items,
-            'totals' => $this->totals($cart, $customer),
+            'totals' => $this->totals($cart, $customer, $lines),
         ];
     }
 

@@ -54,16 +54,22 @@ class OrderAllocationService
                 return $order->fresh(['items']);
             }
 
-            // 2. فرع واحد يغطي الطلب كاملًا (أولوية لنفس مدينة العميل)
+            // خريطة تغطية واحدة مجمّعة لكل الفروع والأصناف (M15) بدل
+            // استعلام لكل فرع × صنف — القرارات التالية كلها في الذاكرة
+            $coverage = $this->branchAvailabilityMap($order);
+
+            // 2. فرع واحد يغطي الطلب كاملًا (أولوية لنفس مدينة العميل:
+            // بالمعرّف أولًا ثم بمطابقة الاسم كرجوع — L5)
             $cityName = $order->city?->name_ar;
             $branches = Branch::query()
                 ->where('is_active', true)
+                ->when($order->city_id !== null, fn (Builder $q): Builder => $q->orderByRaw('CASE WHEN city_id = ? THEN 0 ELSE 1 END', [$order->city_id]))
                 ->when($cityName !== null, fn (Builder $q): Builder => $q->orderByRaw('city = ? DESC', [$cityName]))
                 ->orderBy('id')
                 ->get();
 
             foreach ($branches as $branch) {
-                if ($this->canBranchFulfillFullOrder($order, $branch->id)) {
+                if ($this->canBranchFulfillFullOrder($order, $branch->id, $coverage)) {
                     $this->reserveItemsFromBranch($order, $branch->id, $performedBy);
                     $order->update(['allocated_branch_id' => $branch->id]);
 
@@ -73,7 +79,7 @@ class OrderAllocationService
 
             // 3. كل صنف من الفرع الأعلى رصيدًا متاحًا له
             foreach ($order->items as $item) {
-                $branchId = $this->bestBranchForItem($item);
+                $branchId = $this->bestBranchForItem($item, $coverage);
                 if ($branchId === null) {
                     throw new BusinessException("الرصيد المتاح غير كافٍ للصنف ({$item->sku_snapshot}) في أي فرع.");
                 }
@@ -85,11 +91,41 @@ class OrderAllocationService
         });
     }
 
-    private function canBranchFulfillFullOrder(Order $order, int $branchId): bool
+    /**
+     * تغطية الفروع لأصناف الطلب باستعلام واحد مجمّع (M15):
+     * ‏[branch_id][variant_id] => مجموع المتاح في المواقع النشطة.
+     *
+     * @return array<int, array<int, float>>
+     */
+    private function branchAvailabilityMap(Order $order): array
+    {
+        $variantIds = $order->items
+            ->map(fn (OrderItem $item): int => (int) $item->product_variant_id)
+            ->unique()->values()->all();
+
+        $rows = StockLevel::query()
+            ->whereIn('product_variant_id', $variantIds)
+            ->whereHas('branch', fn (Builder $q): Builder => $q->where('is_active', true))
+            ->where(fn (Builder $q): Builder => $q
+                ->whereNull('location_id')
+                ->orWhereHas('location', fn (Builder $l): Builder => $l->where('is_active', true)))
+            ->groupBy('branch_id', 'product_variant_id')
+            ->selectRaw('branch_id, product_variant_id, SUM(available) as total_available')
+            ->get();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[(int) $row->branch_id][(int) $row->product_variant_id] = (float) $row->total_available;
+        }
+
+        return $map;
+    }
+
+    /** @param array<int, array<int, float>> $coverage */
+    private function canBranchFulfillFullOrder(Order $order, int $branchId, array $coverage): bool
     {
         foreach ($order->items as $item) {
-            $available = (float) ($this->usableLevels((int) $item->product_variant_id, $branchId)->sum('available') ?? 0);
-            if ($available < (float) $item->qty) {
+            if (($coverage[$branchId][(int) $item->product_variant_id] ?? 0) < (float) $item->qty) {
                 return false;
             }
         }
@@ -97,17 +133,20 @@ class OrderAllocationService
         return true;
     }
 
-    private function bestBranchForItem(OrderItem $item): ?int
+    /** @param array<int, array<int, float>> $coverage */
+    private function bestBranchForItem(OrderItem $item, array $coverage): ?int
     {
-        $row = $this->usableLevels((int) $item->product_variant_id)
-            ->whereHas('branch', fn (Builder $q): Builder => $q->where('is_active', true))
-            ->groupBy('branch_id')
-            ->selectRaw('branch_id, SUM(available) as total_available')
-            ->havingRaw('SUM(available) >= ?', [(float) $item->qty])
-            ->orderByDesc('total_available')
-            ->first();
+        $best = null;
+        $bestAvailable = 0.0;
+        foreach ($coverage as $branchId => $variants) {
+            $available = $variants[(int) $item->product_variant_id] ?? 0;
+            if ($available >= (float) $item->qty && $available > $bestAvailable) {
+                $best = $branchId;
+                $bestAvailable = $available;
+            }
+        }
 
-        return $row === null ? null : (int) $row->branch_id;
+        return $best;
     }
 
     private function reserveItemsFromBranch(Order $order, int $branchId, ?int $performedBy): void

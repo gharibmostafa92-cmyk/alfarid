@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['name', 'code', 'type', 'phone', 'email', 'address', 'city', 'is_active'])]
+#[Fillable(['name', 'code', 'type', 'phone', 'email', 'address', 'city', 'city_id', 'is_active'])]
 class Branch extends Model
 {
     /** @use HasFactory<BranchFactory> */
