@@ -33,7 +33,7 @@ class PromotionController extends Controller implements HasMiddleware
 
     public function store(PromotionRequest $request): JsonResponse
     {
-        $promotion = Promotion::create($request->validated());
+        $promotion = Promotion::create($this->withoutNulls($request->validated()));
 
         return PromotionResource::make($promotion)->response()->setStatusCode(201);
     }
@@ -45,9 +45,26 @@ class PromotionController extends Controller implements HasMiddleware
 
     public function update(PromotionRequest $request, Promotion $promotion): PromotionResource
     {
-        $promotion->update($request->validated());
+        $promotion->update($this->withoutNulls($request->validated()));
 
         return PromotionResource::make($promotion);
+    }
+
+    /**
+     * ‏null صريح لحقول NOT NULL يُحذف من الحمولة بدل ما يكسر الحفظ بـ 500 (M8).
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function withoutNulls(array $data): array
+    {
+        foreach (['value', 'applies_to', 'is_active'] as $key) {
+            if (array_key_exists($key, $data) && $data[$key] === null) {
+                unset($data[$key]);
+            }
+        }
+
+        return $data;
     }
 
     public function destroy(Promotion $promotion): JsonResponse

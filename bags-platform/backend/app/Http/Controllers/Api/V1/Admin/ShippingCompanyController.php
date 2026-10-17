@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
+use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Shipping\ShippingCompanyRequest;
 use App\Http\Resources\Admin\ShippingCompanyResource;
@@ -45,13 +46,23 @@ class ShippingCompanyController extends Controller implements HasMiddleware
 
     public function update(ShippingCompanyRequest $request, ShippingCompany $shippingCompany): ShippingCompanyResource
     {
-        $shippingCompany->update($request->validated());
+        $data = $request->validated();
+        // الأسرار لا تُرجع في الردود (has_api_credentials فقط)، فشاشة التعديل
+        // ترسل null — تُتجاهل ولا تمحو الأسرار المحفوظة (M10)
+        if (array_key_exists('api_credentials', $data) && $data['api_credentials'] === null) {
+            unset($data['api_credentials']);
+        }
+        $shippingCompany->update($data);
 
         return ShippingCompanyResource::make($shippingCompany);
     }
 
     public function destroy(ShippingCompany $shippingCompany): JsonResponse
     {
+        // شركة لها بوليصات: الحذف يكسر FK — يُمنع ويُعطَّل بدلًا منه (M9)
+        if ($shippingCompany->shipments()->exists()) {
+            throw new BusinessException('لا يمكن حذف شركة شحن لها بوليصات مسجلة؛ عطّلها بدلًا من حذفها.');
+        }
         $shippingCompany->delete();
 
         return response()->json(['message' => 'تم حذف شركة الشحن']);

@@ -28,7 +28,8 @@ class CartController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        [$customer, $cart] = $this->currentCart($request);
+        // قراءة فقط: لا يُحفظ صف سلة لمجرد العرض (M3)
+        [$customer, $cart] = $this->currentCart($request, create: false);
 
         return response()->json(['data' => $this->carts->present($cart, $customer)]);
     }
@@ -80,11 +81,11 @@ class CartController extends Controller
     }
 
     /** @return array{0: ?Customer, 1: Cart} */
-    private function currentCart(Request $request): array
+    private function currentCart(Request $request, bool $create = true): array
     {
         $user = auth('sanctum')->user();
         $customer = $user instanceof Customer ? $user : null;
-        $cart = $this->carts->resolveCart($customer, $request->header('X-Cart-Session'));
+        $cart = $this->carts->resolveCart($customer, $request->header('X-Cart-Session'), $create);
 
         return [$customer, $cart];
     }
