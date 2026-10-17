@@ -56,6 +56,7 @@ class UpdateBranchRequest extends FormRequest
             'email' => ['sometimes', 'nullable', 'email', 'max:255'],
             'address' => ['sometimes', 'nullable', 'string', 'max:255'],
             'city' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'city_id' => ['sometimes', 'nullable', 'integer', 'exists:cities,id'],
             'is_active' => ['sometimes', 'boolean'],
         ];
     }

@@ -46,6 +46,7 @@ class StoreBranchRequest extends FormRequest
             'email' => ['nullable', 'email', 'max:255'],
             'address' => ['nullable', 'string', 'max:255'],
             'city' => ['nullable', 'string', 'max:120'],
+            'city_id' => ['nullable', 'integer', 'exists:cities,id'],
             'is_active' => ['sometimes', 'boolean'],
         ];
     }

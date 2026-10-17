@@ -14,6 +14,7 @@ use App\Models\City;
 use App\Models\Customer;
 use App\Services\CartService;
 use App\Services\OrderService;
+use App\Services\ShippingQuoteService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -23,6 +24,7 @@ class CheckoutController extends Controller
     public function __construct(
         private readonly CartService $carts,
         private readonly OrderService $orders,
+        private readonly ShippingQuoteService $shippingQuote,
     ) {}
 
     public function shippingOptions(ShippingOptionsRequest $request): JsonResponse
@@ -30,6 +32,10 @@ class CheckoutController extends Controller
         $city = City::query()->where('is_active', true)->findOrFail((int) $request->validated()['city_id']);
         [$customer, $cart] = $this->currentCart($request, create: false);
         $totals = $this->carts->totals($cart, $customer);
+        // نفس تسعيرة المناطق الموحدة التي سيحاسب عليها إتمام الشراء (M12)
+        $quote = $this->shippingQuote->quoteForCity($city->id, $totals['items_total'], true);
+        $rate = $quote['rate'];
+        $days = $rate !== null ? "من {$rate->estimated_days_min} إلى {$rate->estimated_days_max} أيام عمل" : null;
 
         return response()->json(['data' => [
             'city' => ['id' => $city->id, 'name_ar' => $city->name_ar, 'name_en' => $city->name_en],
@@ -37,9 +43,10 @@ class CheckoutController extends Controller
             'options' => [[
                 'key' => 'standard',
                 'label' => 'شحن قياسي',
-                'cost' => (float) $city->shipping_cost,
+                'cost' => $quote['cost'],
+                'cod_fee' => $quote['cod_fee'],
                 'currency' => 'EGP',
-                'estimated_days' => 'من 2 إلى 4 أيام عمل',
+                'estimated_days' => $days ?? 'من 2 إلى 4 أيام عمل',
             ]],
         ]]);
     }

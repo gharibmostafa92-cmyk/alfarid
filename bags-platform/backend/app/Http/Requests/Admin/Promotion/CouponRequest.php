@@ -22,7 +22,8 @@ class CouponRequest extends FormRequest
         return [
             'code' => ['required', 'string', 'max:50', Rule::unique('coupons', 'code')->ignore($coupon)],
             'type' => ['required', Rule::in(['percentage', 'fixed', 'free_shipping'])],
-            'value' => ['nullable', 'numeric', 'min:0'],
+            // كوبون نسبي فوق 100% يعني خصمًا كاملًا وأكثر — ممنوع (M18)
+            'value' => ['nullable', 'numeric', 'min:0', Rule::when($this->input('type') === 'percentage', ['max:100'])],
             'max_discount_amount' => ['nullable', 'numeric', 'min:0'],
             'min_order_amount' => ['nullable', 'numeric', 'min:0'],
             'usage_limit' => ['nullable', 'integer', 'min:1'],

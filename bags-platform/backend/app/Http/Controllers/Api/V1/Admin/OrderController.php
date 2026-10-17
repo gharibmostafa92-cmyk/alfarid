@@ -20,6 +20,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
 
 /** إدارة الطلبات: عرض وفلترة، تغيير الحالة عبر OrderService، وتوزيع يدوي/مُجبر. */
@@ -57,12 +58,20 @@ class OrderController extends Controller implements HasMiddleware
             ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
             ->when($filters['allocated_branch_id'] ?? null, fn ($q, $branchId) => $q->where('allocated_branch_id', $branchId))
             ->when($filters['payment_method'] ?? null, fn ($q, $method) => $q->where('payment_method', $method))
-            ->when($filters['date_from'] ?? null, fn ($q, $date) => $q->whereDate('created_at', '>=', $date))
-            ->when($filters['date_to'] ?? null, fn ($q, $date) => $q->whereDate('created_at', '<=', $date))
-            ->when($filters['search'] ?? null, fn ($q, $term) => $q->where(fn ($inner) => $inner
-                ->where('order_number', 'like', "%{$term}%")
-                ->orWhere('guest_phone', 'like', "%{$term}%")
-                ->orWhere('guest_name', 'like', "%{$term}%")))
+            // نطاق زمني بدل whereDate حتى يعمل فهرس created_at (M16)،
+            // بمنطقة العمل ثم يُخزّن/يُقارن بـ UTC
+            ->when($filters['date_from'] ?? null, fn ($q, $date) => $q->where('created_at', '>=',
+                Carbon::parse($date, (string) config('app.business_timezone'))->startOfDay()->utc()))
+            ->when($filters['date_to'] ?? null, fn ($q, $date) => $q->where('created_at', '<',
+                Carbon::parse($date, (string) config('app.business_timezone'))->startOfDay()->addDay()->utc()))
+            // بحث: رقم الطلب والهاتف بالبادئة (يستخدم الفهارس)، والاسم
+            // بالاحتواء مع تهريب محارف LIKE من مدخل المستخدم (M16)
+            ->when($filters['search'] ?? null, fn ($q, $term) => $q->where(function ($inner) use ($term): void {
+                $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], (string) $term);
+                $inner->where('order_number', 'like', $escaped.'%')
+                    ->orWhere('guest_phone', 'like', $escaped.'%')
+                    ->orWhere('guest_name', 'like', '%'.$escaped.'%');
+            }))
             ->latest('id')
             ->paginate(20);
 
@@ -78,6 +87,12 @@ class OrderController extends Controller implements HasMiddleware
 
     public function updateStatus(UpdateOrderStatusRequest $request, Order $order): AdminOrderResource
     {
+        // الشحن له بوليصة ومسار مخزون: من إنشاء البوليصة فقط (L3) —
+        // وضع Shipped يدويًا يترك الطلب بلا بوليصة فلا يصله ويب هوك تسليم
+        if (($request->validated()['status'] ?? null) === OrderStatus::Shipped->value) {
+            throw new BusinessException('حالة الشحن تتم فقط عبر إنشاء بوليصة شحن للطلب.');
+        }
+
         $order = $this->orders->changeStatus(
             $order,
             (string) $request->validated()['status'],
