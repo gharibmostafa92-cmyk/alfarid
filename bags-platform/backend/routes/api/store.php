@@ -39,8 +39,12 @@ Route::middleware(['throttle:store-catalog', ProtectStorefrontCaching::class])->
     Route::get('products/{slug}/similar', [ProductController::class, 'similar'])->name('products.similar');
 });
 
+// معرّفات بنود السلة وطلبات الحساب رقمية فقط: غير الرقمي 404 لا 500 (M7)
+Route::pattern('item', '[0-9]{1,18}');
+Route::pattern('order', '[0-9]{1,18}');
+
 // مسارات السلة وإتمام الطلب (تعمل للزائر بـ X-Cart-Session وللعميل المسجل بـ Sanctum Token)
-Route::prefix('cart')->name('cart.')->group(function (): void {
+Route::middleware('throttle:cart')->prefix('cart')->name('cart.')->group(function (): void {
     Route::get('items', [CartController::class, 'index'])->name('items.index');
     Route::post('items', [CartController::class, 'store'])->name('items.store');
     Route::put('items/{item}', [CartController::class, 'update'])->name('items.update');
@@ -49,13 +53,14 @@ Route::prefix('cart')->name('cart.')->group(function (): void {
     Route::delete('coupon', [CartController::class, 'removeCoupon'])->name('coupon.remove');
 });
 
-Route::prefix('checkout')->name('checkout.')->group(function (): void {
+Route::middleware('throttle:checkout')->prefix('checkout')->name('checkout.')->group(function (): void {
     Route::post('shipping-options', [CheckoutController::class, 'shippingOptions'])->name('shipping-options');
     Route::post('/', [CheckoutController::class, 'store'])->name('store');
 });
 
-// تتبع الطلب للزائر والعميل
-Route::get('orders/{number}/track', [StoreOrderController::class, 'track'])->name('orders.track');
+// تتبع الطلب للزائر والعميل — حد صارم ضد التعداد (M5)
+Route::get('orders/{number}/track', [StoreOrderController::class, 'track'])
+    ->middleware('throttle:order-tracking')->name('orders.track');
 
 // مسارات حساب العميل المسجل فقط
 Route::middleware(['auth:sanctum', 'auth.customer'])->prefix('account')->name('account.')->group(function (): void {

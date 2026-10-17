@@ -265,12 +265,10 @@ class PhaseEightReviewTest extends TestCase
         Coupon::factory()->create(['code' => 'TEN', 'type' => 'fixed', 'value' => 10]);
         $variant = $this->purchasableVariant(100);
         $this->giveStock($variant, 5);
-        $token = $this->getJson('/api/v1/store/cart/items')->json('data.cart_token');
-        $headers = ['X-Cart-Session' => $token];
-
-        $this->withHeaders($headers)->postJson('/api/v1/store/cart/items', [
+        $token = $this->postJson('/api/v1/store/cart/items', [
             'product_variant_id' => $variant->id, 'qty' => 1,
-        ])->assertOk();
+        ])->assertOk()->json('data.cart_token');
+        $headers = ['X-Cart-Session' => $token];
         $this->withHeaders($headers)->postJson('/api/v1/store/cart/coupon', ['code' => 'TEN'])
             ->assertOk()->assertJsonPath('data.cart.totals.coupon_code', 'TEN')
             ->assertJsonPath('data.coupon_discount', 10);
@@ -287,11 +285,10 @@ class PhaseEightReviewTest extends TestCase
         $variant = $this->purchasableVariant(100);
         $this->giveStock($variant, 5);
         $city = City::factory()->create(['shipping_cost' => 0]);
-        $token = $this->getJson('/api/v1/store/cart/items')->json('data.cart_token');
-        $headers = ['X-Cart-Session' => $token];
-        $this->withHeaders($headers)->postJson('/api/v1/store/cart/items', [
+        $token = $this->postJson('/api/v1/store/cart/items', [
             'product_variant_id' => $variant->id, 'qty' => 1,
-        ])->assertOk();
+        ])->assertOk()->json('data.cart_token');
+        $headers = ['X-Cart-Session' => $token];
 
         foreach (['card', 'credit', 'wallet'] as $method) {
             $this->withHeaders($headers)->postJson('/api/v1/store/checkout', [

@@ -42,6 +42,12 @@ Route::pattern('customer', '[0-9]{1,18}');
 Route::pattern('document', '[0-9]{1,18}');
 Route::pattern('price_list', '[0-9]{1,18}');
 Route::pattern('item', '[0-9]{1,18}');
+Route::pattern('order', '[0-9]{1,18}');
+Route::pattern('coupon', '[0-9]{1,18}');
+Route::pattern('promotion', '[0-9]{1,18}');
+Route::pattern('shipping_company', '[0-9]{1,18}');
+Route::pattern('shipping_zone', '[0-9]{1,18}');
+Route::pattern('shipping_rate', '[0-9]{1,18}');
 
 // Public admin authentication endpoint.
 Route::post('auth/login', [AuthController::class, 'login'])
