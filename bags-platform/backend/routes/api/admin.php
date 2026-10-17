@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\Admin\AuthController;
 use App\Http\Controllers\Api\V1\Admin\BranchController;
 use App\Http\Controllers\Api\V1\Admin\BrandController;
 use App\Http\Controllers\Api\V1\Admin\CategoryController;
+use App\Http\Controllers\Api\V1\Admin\CouponController;
 use App\Http\Controllers\Api\V1\Admin\CustomerController;
 use App\Http\Controllers\Api\V1\Admin\CustomerGroupController;
 use App\Http\Controllers\Api\V1\Admin\InventoryController;
@@ -17,8 +18,12 @@ use App\Http\Controllers\Api\V1\Admin\PriceListItemController;
 use App\Http\Controllers\Api\V1\Admin\ProductController;
 use App\Http\Controllers\Api\V1\Admin\ProductMediaController;
 use App\Http\Controllers\Api\V1\Admin\ProductVariantController;
+use App\Http\Controllers\Api\V1\Admin\PromotionController;
 use App\Http\Controllers\Api\V1\Admin\RoleController;
 use App\Http\Controllers\Api\V1\Admin\SettingController;
+use App\Http\Controllers\Api\V1\Admin\ShippingCompanyController;
+use App\Http\Controllers\Api\V1\Admin\ShippingRateController;
+use App\Http\Controllers\Api\V1\Admin\ShippingZoneController;
 use App\Http\Controllers\Api\V1\Admin\StocktakeController;
 use App\Http\Controllers\Api\V1\Admin\TransferController;
 use App\Http\Controllers\Api\V1\Admin\UserController;
@@ -169,8 +174,18 @@ Route::middleware(['auth:sanctum', 'auth.staff'])
         // ================== المرحلة 7: الطلبات ==================
         Route::get('orders', [OrderController::class, 'index'])->name('orders.index');
         Route::get('orders/{order}', [OrderController::class, 'show'])->name('orders.show');
-        Route::patch('orders/{order}/status', [OrderController::class, 'updateStatus'])->name('orders.status');
+        Route::patch('orders/{order}/status', [OrderController::class, 'updateStatus'])->name('orders.update-status');
         Route::post('orders/{order}/allocate', [OrderController::class, 'allocate'])->name('orders.allocate');
+        Route::post('orders/{order}/shipment', [OrderController::class, 'createShipment'])->name('orders.shipment');
+
+        // ================== المرحلة 8: الشحن ==================
+        Route::apiResource('shipping-companies', ShippingCompanyController::class);
+        Route::apiResource('shipping-zones', ShippingZoneController::class);
+        Route::apiResource('shipping-rates', ShippingRateController::class);
+
+        // ================== المرحلة 8: العروض والكوبونات ==================
+        Route::apiResource('promotions', PromotionController::class);
+        Route::apiResource('coupons', CouponController::class);
 
         Route::get('settings', [SettingController::class, 'index'])
             ->middleware('permission:settings.view|settings.manage')
