@@ -227,7 +227,9 @@ class OrderAllocationTest extends TestCase
     public function test_change_status_records_customer_actor_without_allocating(): void
     {
         $customer = Customer::factory()->create();
+        // طلب مؤكد مباشرة (بلا توزيع) — الانتقال لـ processing قانوني ولا أثر مخزوني له
         $order = $this->makeOrder([], customerId: $customer->id);
+        $order->update(['status' => OrderStatus::Confirmed]);
 
         $result = app(OrderService::class)->changeStatus($order, OrderStatus::Processing, $customer);
 
