@@ -8,11 +8,14 @@ use App\Enums\OrderStatus;
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Order\AllocateOrderRequest;
+use App\Http\Requests\Admin\Order\CreateShipmentRequest;
 use App\Http\Requests\Admin\Order\UpdateOrderStatusRequest;
 use App\Http\Resources\Admin\AdminOrderResource;
+use App\Http\Resources\Admin\ShipmentResource;
 use App\Models\Order;
 use App\Services\OrderAllocationService;
 use App\Services\OrderService;
+use App\Services\ShipmentService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controllers\HasMiddleware;
@@ -25,13 +28,14 @@ class OrderController extends Controller implements HasMiddleware
     public function __construct(
         private readonly OrderService $orders,
         private readonly OrderAllocationService $allocation,
+        private readonly ShipmentService $shipments,
     ) {}
 
     public static function middleware(): array
     {
         return [
             new Middleware('can:orders.view', only: ['index', 'show']),
-            new Middleware('can:orders.update', only: ['updateStatus']),
+            new Middleware('can:orders.update', only: ['updateStatus', 'createShipment']),
             new Middleware('can:orders.allocate', only: ['allocate']),
         ];
     }
@@ -84,6 +88,19 @@ class OrderController extends Controller implements HasMiddleware
         return AdminOrderResource::make(
             $order->load(['items', 'statusHistories', 'customer', 'city', 'allocatedBranch'])
         );
+    }
+
+    /** إنشاء بوليصة شحن للطلب وتحويله إلى SHIPPED عبر OrderService. */
+    public function createShipment(CreateShipmentRequest $request, Order $order): ShipmentResource
+    {
+        $shipment = $this->shipments->createForOrder(
+            $order,
+            (int) $request->validated()['shipping_company_id'],
+            $request->validated()['awb_number'] ?? null,
+            $request->user(),
+        );
+
+        return ShipmentResource::make($shipment);
     }
 
     public function allocate(AllocateOrderRequest $request, Order $order): AdminOrderResource

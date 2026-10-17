@@ -41,19 +41,20 @@ class CartController extends Controller
         return response()->json(['data' => $this->carts->present($cart, $customer)]);
     }
 
-    public function update(UpdateCartItemRequest $request): JsonResponse
+    public function update(UpdateCartItemRequest $request, int $item): JsonResponse
     {
         [$customer, $cart] = $this->currentCart($request);
-        $cart = $this->carts->updateItemQty($cart, $customer, (int) $request->validated()['product_variant_id'], (float) $request->validated()['qty']);
+        $cartItem = $cart->items()->findOrFail($item);
+        $cart = $this->carts->updateItemQty($cart, $customer, (int) $cartItem->product_variant_id, (float) $request->validated()['qty']);
 
         return response()->json(['data' => $this->carts->present($cart, $customer)]);
     }
 
-    public function destroy(Request $request): JsonResponse
+    public function destroy(Request $request, int $item): JsonResponse
     {
-        $request->validate(['product_variant_id' => ['required', 'integer']]);
         [$customer, $cart] = $this->currentCart($request);
-        $cart = $this->carts->removeItem($cart, (int) $request->input('product_variant_id'));
+        $cartItem = $cart->items()->findOrFail($item);
+        $cart = $this->carts->removeItem($cart, (int) $cartItem->product_variant_id);
 
         return response()->json(['data' => $this->carts->present($cart, $customer)]);
     }
@@ -62,7 +63,7 @@ class CartController extends Controller
     {
         [$customer, $cart] = $this->currentCart($request);
         $totals = $this->carts->totals($cart, $customer);
-        $discount = $this->coupons->validateAndApply($cart, (string) $request->validated()['code'], $totals['items_total']);
+        $discount = $this->coupons->validateAndApply($cart, (string) $request->validated()['code'], $totals['items_total'], $customer);
 
         return response()->json(['data' => [
             'cart' => $this->carts->present($cart->fresh(), $customer),

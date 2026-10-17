@@ -7,6 +7,7 @@ namespace App\Models;
 use Database\Factories\CouponFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Coupon extends Model
 {
@@ -20,11 +21,19 @@ class Coupon extends Model
         'min_order_amount',
         'max_discount_amount',
         'usage_limit',
+        'usage_limit_per_customer',
         'used_count',
         'starts_at',
         'ends_at',
         'is_active',
     ];
+
+    protected static function booted(): void
+    {
+        static::saving(function (Coupon $coupon): void {
+            $coupon->code = strtoupper(trim($coupon->code));
+        });
+    }
 
     protected function casts(): array
     {
@@ -33,11 +42,18 @@ class Coupon extends Model
             'min_order_amount' => 'decimal:2',
             'max_discount_amount' => 'decimal:2',
             'usage_limit' => 'integer',
+            'usage_limit_per_customer' => 'integer',
             'used_count' => 'integer',
             'starts_at' => 'datetime',
             'ends_at' => 'datetime',
             'is_active' => 'boolean',
         ];
+    }
+
+    /** @return HasMany<CouponUsage, $this> */
+    public function usages(): HasMany
+    {
+        return $this->hasMany(CouponUsage::class);
     }
 
     public function isRedeemableNow(): bool

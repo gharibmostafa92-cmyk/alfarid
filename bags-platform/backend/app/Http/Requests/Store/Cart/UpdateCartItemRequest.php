@@ -17,8 +17,7 @@ class UpdateCartItemRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'product_variant_id' => ['required', 'integer', 'exists:product_variants,id'],
-            // صفر يعني إزالة البند من السلة
+            // البند يُعرّف من مسار الرابط {item} — هنا الكمية فقط، وصفر يعني الإزالة
             'qty' => ['required', 'numeric', 'min:0'],
         ];
     }

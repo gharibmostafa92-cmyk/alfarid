@@ -9,17 +9,15 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Store\Checkout\CheckoutRequest;
 use App\Http\Requests\Store\Checkout\ShippingOptionsRequest;
 use App\Http\Resources\Store\OrderResource;
-use App\Http\Resources\Store\TrackOrderResource;
 use App\Models\Cart;
 use App\Models\City;
 use App\Models\Customer;
-use App\Models\Order;
 use App\Services\CartService;
 use App\Services\OrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-/** إتمام الشراء (زائر/مسجل) وخيارات الشحن وتتبع الطلب العام. */
+/** إتمام الشراء (زائر/مسجل) وخيارات الشحن. */
 class CheckoutController extends Controller
 {
     public function __construct(
@@ -46,7 +44,7 @@ class CheckoutController extends Controller
         ]]);
     }
 
-    public function checkout(CheckoutRequest $request): JsonResponse
+    public function store(CheckoutRequest $request): JsonResponse
     {
         [$customer, $cart] = $this->currentCart($request);
         $data = $request->validated();
@@ -63,27 +61,6 @@ class CheckoutController extends Controller
             'payment_url' => null,
             'message' => 'تم إنشاء الطلب بنجاح',
         ], 201);
-    }
-
-    /** تتبع عام: رقم الطلب + رقم هاتف الطلب للتحقق. */
-    public function track(Request $request, string $number): TrackOrderResource
-    {
-        $request->validate(['phone' => ['required', 'string', 'max:50']]);
-
-        $order = Order::query()
-            ->where('order_number', $number)
-            ->with(['items', 'statusHistories'])
-            ->first();
-
-        $phoneMatches = $order !== null
-            && ($order->guest_phone === $request->input('phone')
-                || $order->customer?->phone === $request->input('phone'));
-
-        if (! $phoneMatches) {
-            abort(404);
-        }
-
-        return TrackOrderResource::make($order);
     }
 
     /** @return array{0: ?Customer, 1: Cart} */
