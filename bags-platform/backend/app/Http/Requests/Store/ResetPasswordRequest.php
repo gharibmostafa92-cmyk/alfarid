@@ -25,7 +25,7 @@ class ResetPasswordRequest extends FormRequest
     {
         return [
             'email' => ['nullable', 'email', 'max:255', 'required_without:phone', 'prohibits:phone'],
-            'phone' => ['nullable', 'string', 'max:20', 'required_without:email', 'prohibits:email'],
+            'phone' => ['nullable', 'string', 'regex:/^01[0125][0-9]{8}$/', 'required_without:email', 'prohibits:email'],
             'token' => ['required', 'string', 'size:64'],
             'password' => ['required', 'string', 'min:8', 'max:255', 'confirmed'],
         ];

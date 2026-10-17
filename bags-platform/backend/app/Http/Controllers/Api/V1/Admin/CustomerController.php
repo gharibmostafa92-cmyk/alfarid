@@ -15,6 +15,7 @@ use App\Http\Requests\Admin\Customer\SuspendCustomerRequest;
 use App\Http\Requests\Admin\Customer\UpdateCustomerRequest;
 use App\Http\Resources\Admin\CustomerResource;
 use App\Models\Customer;
+use App\Models\CustomerAuditLog;
 use App\Models\CustomerDocument;
 use App\Services\CustomerManagementService;
 use Illuminate\Http\JsonResponse;
@@ -34,7 +35,8 @@ class CustomerController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('can:customers.view', only: ['index', 'show', 'downloadDocument']),
+            new Middleware('can:customers.view', only: ['index', 'show']),
+            new Middleware('can:customers.documents.view', only: ['downloadDocument', 'reviewDocument']),
             new Middleware('can:customers.create', only: ['store']),
             new Middleware('can:customers.update', only: ['update']),
             new Middleware('can:customers.delete', only: ['destroy', 'restore']),
@@ -58,7 +60,7 @@ class CustomerController extends Controller implements HasMiddleware
 
     public function store(StoreCustomerRequest $request): JsonResponse
     {
-        $customer = $this->customers->create($request->validated());
+        $customer = $this->customers->create($request->validated(), $request->user()->id);
 
         return CustomerResource::make($customer)
             ->additional(['message' => 'تم إنشاء العميل بنجاح'])
@@ -73,12 +75,12 @@ class CustomerController extends Controller implements HasMiddleware
 
     public function update(UpdateCustomerRequest $request, Customer $customer): CustomerResource
     {
-        return new CustomerResource($this->customers->update($customer, $request->validated()));
+        return new CustomerResource($this->customers->update($customer, $request->validated(), $request->user()->id));
     }
 
-    public function destroy(Customer $customer): JsonResponse
+    public function destroy(Request $request, Customer $customer): JsonResponse
     {
-        $this->customers->delete($customer);
+        $this->customers->delete($customer, $request->user()->id);
 
         return response()->json(['message' => 'تم حذف العميل بنجاح']);
     }
@@ -92,14 +94,14 @@ class CustomerController extends Controller implements HasMiddleware
 
     public function reject(RejectCustomerRequest $request, Customer $customer): CustomerResource
     {
-        $customer = $this->customers->reject($customer, $request->validated()['reason']);
+        $customer = $this->customers->reject($customer, $request->validated()['reason'], $request->user()->id);
 
         return (new CustomerResource($customer))->additional(['message' => 'تم رفض الحساب']);
     }
 
     public function suspend(SuspendCustomerRequest $request, Customer $customer): CustomerResource
     {
-        $customer = $this->customers->suspend($customer, $request->validated()['reason']);
+        $customer = $this->customers->suspend($customer, $request->validated()['reason'], $request->user()->id);
 
         return (new CustomerResource($customer))->additional(['message' => 'تم إيقاف الحساب وإنهاء جلساته']);
     }
@@ -108,16 +110,14 @@ class CustomerController extends Controller implements HasMiddleware
     public function downloadDocument(Customer $customer, CustomerDocument $document): StreamedResponse
     {
         abort_unless(Storage::disk('local')->exists($document->file_path), 404, 'المستند غير موجود.');
+        CustomerAuditLog::record($customer, 'document_downloaded', request()->user()->id, ['document_id' => $document->id]);
 
         return Storage::disk('local')->download($document->file_path, CustomerDocument::safeName($document->original_name));
     }
 
-    public function restore(Customer $customer): CustomerResource
+    public function restore(Request $request, Customer $customer): CustomerResource
     {
-        abort_unless($customer->trashed(), 422, 'الحساب غير محذوف.');
-        $customer->restore();
-
-        return new CustomerResource($customer->load('customerGroup'));
+        return new CustomerResource($this->customers->restore($customer, $request->user()->id));
     }
 
     public function reviewDocument(Request $request, Customer $customer, CustomerDocument $document): JsonResponse
@@ -125,7 +125,7 @@ class CustomerController extends Controller implements HasMiddleware
         $data = $request->validate([
             'status' => ['required', Rule::enum(CustomerDocumentStatus::class)],
         ]);
-        $document->update($data);
+        $document = $this->customers->reviewDocument($customer, $document, $data['status'], $request->user()->id);
 
         return response()->json(['data' => ['id' => $document->id, 'status' => $document->status]]);
     }

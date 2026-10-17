@@ -3,7 +3,7 @@
     "filePath": "repomix-phases-5-6.xml",
     "style": "xml",
     "parsableStyle": true,
-    "headerText": "Phases 5 and 6: Customers, Retail Store Authentication, Wholesale Registration and Approval, Private Customer Documents, Addresses and Cities, Public Storefront Catalog, Home Banners, Product Filters, Similar Products, Customer-aware Pricing and Online Stock Availability. Includes current implementation and audit fixes, API routes, validation, resources, notifications and SMS gateway integration, shared models/enums, complete schema migration history and seed/factory context, relevant automated tests, and related frontend files. Frontend files may be empty scaffolds and are included for context, not as evidence of implemented UI. PostgreSQL is required. products.is_active is generated from publication status; base_price is generated from retail_price. Password reset keys are namespaced by customer ID. Real email/SMS delivery requires external provider configuration. Paths are relative to the repository root. Source contents are preserved, including comments and line numbers.",
+    "headerText": "Phases 5 and 6: Customers, Retail Store Authentication, Wholesale Registration and Approval, Private Customer Documents, Addresses and Cities, Public Storefront Catalog, Home Banners, Product Filters, Similar Products, Customer-aware Pricing and Online Stock Availability. Includes current implementation and audit fixes, API routes, validation, resources, notifications and SMS gateway integration, shared models/enums, complete schema migration history and seed/factory context, relevant automated tests, and related frontend files. Frontend files may be empty scaffolds and are included for context, not as evidence of implemented UI. PostgreSQL is required. products.is_active is generated from publication status; base_price is generated from retail_price. Password reset keys are namespaced by customer ID. Real email/SMS delivery requires external provider configuration. Paths are relative to the repository root. Source contents are preserved, including comments and line numbers. Latest hardening: mandatory phone OTP before public registration, encrypted notification jobs, durable daily message budgets, shared registration and catalog throttles, single LATERAL price calculation, decimal-safe pricing, customer audit trail, independent private-document permissions, database domain checks and scheduled maintenance. Consult docs/api.md for OTP API contracts and deployment requirements.",
     "showLineNumbers": true,
     "removeComments": false,
     "removeEmptyLines": false,
@@ -113,7 +113,14 @@
     "bags-platform/frontend/src/app/(store)/brands/**/*.tsx",
     "bags-platform/frontend/src/app/(store)/search/**/*.tsx",
     "bags-platform/backend/app/Jobs/SendCustomerPasswordReset.php",
-    "bags-platform/backend/app/Http/Requests/Concerns/NormalizesCustomerInput.php"
+    "bags-platform/backend/app/Http/Requests/Concerns/NormalizesCustomerInput.php",
+    "bags-platform/backend/routes/console.php",
+    "bags-platform/backend/app/Console/Commands/NormalizeCustomerPhones.php",
+    "bags-platform/backend/app/Console/Commands/PruneCustomerArtifacts.php",
+    "bags-platform/backend/app/Console/Commands/ValidateCustomerDomains.php",
+    "bags-platform/backend/app/Services/CustomerPhoneVerificationService.php",
+    "bags-platform/backend/app/Services/CustomerMessageBudget.php",
+    "bags-platform/backend/app/Jobs/SendCustomerPhoneVerification.php"
   ],
   "ignore": {
     "useDefaultPatterns": true,

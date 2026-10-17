@@ -47,7 +47,7 @@ class StoreAuthTest extends TestCase
         $this->withToken($token)->postJson('/api/v1/store/auth/logout')->assertUnauthorized();
     }
 
-    public function test_register_validates_unique_phone_and_email_and_password_length(): void
+    public function test_register_validates_unique_phone_and_password_and_accepts_contact_email(): void
     {
         Customer::factory()->create(['phone' => '01012345678', 'email' => 'taken@example.com']);
 
@@ -56,8 +56,8 @@ class StoreAuthTest extends TestCase
         ])->assertUnprocessable()->assertJsonValidationErrors('phone');
 
         $this->postJson('/api/v1/store/auth/register', [
-            'name' => 'X', 'phone' => '01087654321', 'email' => 'taken@example.com', 'password' => 'password123',
-        ])->assertUnprocessable()->assertJsonValidationErrors('email');
+            'name' => 'X', 'phone' => '01087654322', 'email' => 'taken@example.com', 'password' => 'password123',
+        ])->assertCreated()->assertJsonPath('data.email_verified_at', null);
 
         $this->postJson('/api/v1/store/auth/register', [
             'name' => 'X', 'phone' => '01087654321', 'password' => 'short',

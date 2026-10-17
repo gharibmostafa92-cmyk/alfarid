@@ -14,14 +14,17 @@ class StoreCategoryResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        $children = $this->relationLoaded('children') ? self::collection($this->children)->resolve($request) : [];
+
         return [
             'id' => $this->id,
             'name_ar' => $this->name_ar,
             'name_en' => $this->name_en,
             'slug' => $this->slug,
             'image' => $this->getFirstMediaUrl('image') ?: null,
-            'products_count' => $this->whenCounted('activeProducts'),
-            'children' => $this->whenLoaded('children', fn () => self::collection($this->children)->resolve($request)),
+            'direct_products_count' => $this->whenCounted('activeProducts'),
+            'products_count' => (int) $this->active_products_count + array_sum(array_column($children, 'products_count')),
+            'children' => $children,
         ];
     }
 }

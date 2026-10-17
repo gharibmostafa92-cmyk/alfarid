@@ -86,7 +86,8 @@ class StorefrontCatalogTest extends TestCase
 
         $categories = $this->getJson('/api/v1/store/categories')->assertOk();
         $this->assertCount(1, $categories->json('data'));
-        $this->assertSame(0, $categories->json('data.0.products_count'));
+        $this->assertSame(1, $categories->json('data.0.products_count'));
+        $this->assertSame(0, $categories->json('data.0.direct_products_count'));
         $this->assertSame(1, $categories->json('data.0.children.0.products_count'));
 
         // مصانع المنتجات تنشئ علامات إضافية — نتحقق من الحضور/الغياب لا العدد الكلي
@@ -106,7 +107,7 @@ class StorefrontCatalogTest extends TestCase
 
         $p1 = $this->product(['category_id' => $subA->id, 'brand_id' => $brandX->id], ['color_name_en' => 'Black', 'retail_price' => 500]);
         $p2 = $this->product(['category_id' => $catA->id, 'brand_id' => $brandY->id], ['color_name_en' => 'Red', 'retail_price' => 1500]);
-        $p3 = $this->product(['brand_id' => $brandY->id], ['retail_price' => 900]);
+        $p3 = $this->product(['brand_id' => $brandY->id], ['retail_price' => 900, 'color_name_en' => 'Navy', 'color_name_ar' => 'أزرق']);
         $this->stock($p1->variants->first(), 3);
         Product::factory()->create(['status' => ProductStatus::Draft, 'category_id' => $subA->id]);
 
@@ -123,7 +124,7 @@ class StorefrontCatalogTest extends TestCase
         $this->assertSame([$p1->id], collect($inStock->json('data'))->pluck('id')->all());
         $card = collect($inStock->json('data'))->first();
         $this->assertTrue($card['in_stock']);
-        $this->assertSame(3.0, (float) $card['store_available']);
+        $this->assertArrayNotHasKey('store_available', $card);
 
         // الفرز بالسعر
         $asc = $this->getJson('/api/v1/store/products?sort=price_asc')->assertOk();
@@ -169,7 +170,7 @@ class StorefrontCatalogTest extends TestCase
         $this->assertCount(2, $variants); // المعطّل مستبعد
         $first = $variants->firstWhere('id', $variant->id);
         $this->assertSame(1000.0, (float) $first['price']);
-        $this->assertSame(5.0, (float) $first['available']);
+        $this->assertArrayNotHasKey('available', $first);
         $this->assertTrue($first['in_stock']);
         $secondData = $variants->firstWhere('id', $second->id);
         $this->assertSame(2500.0, (float) $secondData['old_price']);

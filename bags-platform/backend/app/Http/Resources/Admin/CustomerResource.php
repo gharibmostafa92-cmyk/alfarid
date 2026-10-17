@@ -19,6 +19,7 @@ class CustomerResource extends JsonResource
             'id' => $this->id,
             'name' => $this->name,
             'email' => $this->email,
+            'email_verified_at' => $this->email_verified_at,
             'phone' => $this->phone,
             'type' => $this->type,
             'status' => $this->status,
@@ -42,6 +43,8 @@ class CustomerResource extends JsonResource
                 'status' => $document->status,
                 'original_name' => $document->original_name,
                 'mime_type' => $document->mime_type,
+                'reviewed_by' => $document->reviewed_by,
+                'reviewed_at' => $document->reviewed_at,
                 // تنزيل محمي بصلاحيات الأدمن من التخزين الخاص — لا رابط عام
                 'download_url' => route('admin.customers.documents.download', ['customer' => $this->id, 'document' => $document->id]),
                 'created_at' => $document->created_at,

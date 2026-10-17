@@ -28,7 +28,7 @@ class ProductFilterRequest extends FormRequest
             'price_max' => ['nullable', 'numeric', 'min:0', ...($this->filled('price_min') ? ['gte:price_min'] : [])],
             'in_stock' => ['nullable', 'boolean'],
             'sort' => ['nullable', Rule::in(['newest', 'best_selling', 'price_asc', 'price_desc'])],
-            'page' => ['nullable', 'integer', 'min:1'],
+            'page' => ['nullable', 'integer', 'min:1', 'max:500'],
         ];
     }
 

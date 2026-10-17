@@ -125,12 +125,13 @@ class StoreCatalogService
                     ->orWhere('color_name_ar', $color)));
         }
 
-        if (isset($filters['price_min']) || isset($filters['price_max'])) {
+        if (isset($filters['price_min']) || isset($filters['price_max']) || in_array($filters['sort'] ?? null, ['price_asc', 'price_desc'], true)) {
+            $query->leftJoinLateral($this->minimumPriceQuery(), 'catalog_price');
             if (isset($filters['price_min'])) {
-                $query->where($this->minimumPriceQuery(), '>=', $filters['price_min']);
+                $query->where('catalog_price.minimum_price', '>=', $filters['price_min']);
             }
             if (isset($filters['price_max'])) {
-                $query->where($this->minimumPriceQuery(), '<=', $filters['price_max']);
+                $query->where('catalog_price.minimum_price', '<=', $filters['price_max']);
             }
         }
 
@@ -153,9 +154,7 @@ class StoreCatalogService
     private function applySort(Builder $query, string $sort): Builder
     {
         if (in_array($sort, ['price_asc', 'price_desc'], true)) {
-            $prices = $this->minimumPriceQuery();
-
-            return $query->orderByRaw('('.$prices->toSql().') '.($sort === 'price_asc' ? 'ASC' : 'DESC').' NULLS LAST', $prices->getBindings())
+            return $query->orderByRaw('catalog_price.minimum_price '.($sort === 'price_asc' ? 'ASC' : 'DESC').' NULLS LAST')
                 ->orderBy('products.id');
         }
 
@@ -167,10 +166,10 @@ class StoreCatalogService
 
     private function resolveCategory(int|string $value): ?Category
     {
-        return Category::query()
-            ->where('is_active', true)
-            ->when(is_numeric($value), fn ($q) => $q->where('id', (int) $value), fn ($q) => $q->where('slug', $value))
-            ->first();
+        $category = Category::query()->where('is_active', true)->where('slug', $value)->first();
+
+        return $category ?? (ctype_digit((string) $value) && strlen((string) $value) <= 18
+            ? Category::query()->where('is_active', true)->find((int) $value) : null);
     }
 
     // ------------------------------------------------------------------ أسعار العرض
@@ -202,8 +201,9 @@ class StoreCatalogService
             $display = [
                 'price' => $price,
                 'base_price' => (float) $resolved['base_price'],
-                'compare_at' => $basis > $price ? $basis : null,
-                'discount_percentage' => $basis > $price ? (int) round((1 - $price / $basis) * 100) : null,
+                'compare_at' => $basis > $price && (int) round((1 - $price / $basis) * 100) >= 1 ? $basis : null,
+                'discount_percentage' => $basis > $price && (int) round((1 - $price / $basis) * 100) >= 1
+                    ? (int) round((1 - $price / $basis) * 100) : null,
                 'variant_id' => $variant->id,
             ];
             if ($best === null || $price < $best['price']) {
@@ -230,7 +230,7 @@ class StoreCatalogService
             throw new BusinessException('الصنف غير مُسعَّر.');
         }
 
-        return ['unit_price' => (float) $variant->store_price, 'base_price' => (float) $variant->base_price];
+        return ['unit_price' => (float) $variant->store_price, 'base_price' => (float) ($variant->retail_price === null ? $variant->store_price : $variant->base_price)];
     }
 
     private function minimumPriceQuery(): \Illuminate\Database\Query\Builder
@@ -239,7 +239,7 @@ class StoreCatalogService
             ->where('is_active', true);
 
         return DB::query()->fromSub($variants, 'priced_variants')
-            ->selectRaw('MIN(priced_variants.store_price)')
+            ->selectRaw('MIN(priced_variants.store_price) AS minimum_price')
             ->whereColumn('priced_variants.product_id', 'products.id');
     }
 
@@ -306,7 +306,10 @@ class StoreCatalogService
             })
             ->reorder()
             ->orderByRaw('CASE WHEN products.category_id = ? THEN 0 ELSE 1 END', [$product->category_id])
-            ->orderByDesc('store_available')
+            ->withExists(['variants as has_store_stock' => fn ($q) => $q->where('is_active', true)
+                ->whereHas('stockLevels', fn ($stock) => $stock->where('available', '>', 0)
+                    ->whereHas('branch', fn ($branch) => $branch->where('is_active', true)))])
+            ->orderByDesc('has_store_stock')
             ->orderByDesc('products.sales_count')
             ->orderByDesc('products.id')
             ->limit(8)

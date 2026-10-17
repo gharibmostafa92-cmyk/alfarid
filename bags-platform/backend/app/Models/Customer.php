@@ -32,6 +32,7 @@ use Laravel\Sanctum\HasApiTokens;
     'suspension_reason',
     'approved_at',
     'approved_by',
+    'phone_verified_at',
 ])]
 #[Hidden(['password', 'remember_token'])]
 class Customer extends Authenticatable
@@ -60,12 +61,38 @@ class Customer extends Authenticatable
 
     public function setEmailAttribute(?string $email): void
     {
-        $this->attributes['email'] = $email === null ? null : mb_strtolower(trim($email));
+        $normalized = $email === null ? null : mb_strtolower(trim($email));
+        if (($this->attributes['email'] ?? null) !== $normalized) {
+            $this->attributes['email_verified_at'] = null;
+        }
+        $this->attributes['email'] = $normalized;
     }
 
     public function setPhoneAttribute(string $phone): void
     {
-        $this->attributes['phone'] = trim($phone);
+        $this->attributes['phone'] = self::normalizePhone($phone);
+    }
+
+    public static function normalizePhone(string $phone): string
+    {
+        $phone = strtr(trim($phone), array_combine(
+            preg_split('//u', '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', -1, PREG_SPLIT_NO_EMPTY),
+            str_split('01234567890123456789'),
+        ));
+        $phone = preg_replace('/[\s().-]+/u', '', $phone);
+        if (str_starts_with($phone, '+20')) {
+            return '0'.substr($phone, 3);
+        }
+        if (str_starts_with($phone, '0020')) {
+            return '0'.substr($phone, 4);
+        }
+
+        return $phone;
+    }
+
+    public function auditLogs(): HasMany
+    {
+        return $this->hasMany(CustomerAuditLog::class);
     }
 
     public function approver(): BelongsTo
@@ -91,6 +118,8 @@ class Customer extends Authenticatable
             'status' => CustomerStatus::class,
             'credit_limit' => 'decimal:2',
             'approved_at' => 'datetime',
+            'phone_verified_at' => 'datetime',
+            'email_verified_at' => 'datetime',
         ];
     }
 }

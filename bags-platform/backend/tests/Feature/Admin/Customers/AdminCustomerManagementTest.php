@@ -14,6 +14,7 @@ use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Testing\TestResponse;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
@@ -24,6 +25,7 @@ class AdminCustomerManagementTest extends TestCase
 
     private const ALL_CUSTOMER_PERMISSIONS = [
         'customers.view', 'customers.create', 'customers.update', 'customers.delete', 'customers.approve',
+        'customers.documents.view',
     ];
 
     protected function setUp(): void
@@ -43,7 +45,7 @@ class AdminCustomerManagementTest extends TestCase
         return $staff->createToken('test')->plainTextToken;
     }
 
-    private function api(string $token, string $method, string $uri, array $data = []): \Illuminate\Testing\TestResponse
+    private function api(string $token, string $method, string $uri, array $data = []): TestResponse
     {
         Auth::forgetGuards();
 
@@ -131,6 +133,7 @@ class AdminCustomerManagementTest extends TestCase
         $group = CustomerGroup::create(['name' => 'موزعون', 'code' => 'distributors', 'discount_percentage' => 15]);
         $customer = Customer::factory()->wholesale()->create();
 
+        $customer->documents()->create(['document_type' => 'commercial_register', 'file_path' => 'verified.pdf', 'original_name' => 'verified.pdf', 'mime_type' => 'application/pdf', 'status' => 'verified']);
         $response = $this->api($token, 'POST', "/api/v1/admin/customers/{$customer->id}/approve", [
             'customer_group_id' => $group->id, 'credit_limit' => 50000, 'type' => 'distributor',
         ])->assertOk()

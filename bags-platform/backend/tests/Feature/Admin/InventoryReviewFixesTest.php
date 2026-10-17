@@ -402,7 +402,8 @@ class InventoryReviewFixesTest extends TestCase
 
     private function customer(?CustomerGroup $group = null): Customer
     {
-        return Customer::create(['name' => 'Buyer', 'email' => uniqid().'@example.com', 'phone' => uniqid(),
+        return Customer::create(['name' => 'Buyer', 'email' => uniqid().'@example.com', 'phone' => fake()->unique()->numerify('010########'),
+            'company_name' => 'Company', 'tax_number' => '123', 'commercial_register' => '456',
             'password' => 'password', 'type' => CustomerType::Wholesale, 'status' => CustomerStatus::Approved,
             'customer_group_id' => $group?->id]);
     }

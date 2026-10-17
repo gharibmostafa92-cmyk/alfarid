@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Radox AI Studio | واجهة المحادثة الذكية</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Marked for Markdown -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- Highlight.js for Code Highlighting -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Fira+Code:wght@400;500&display=swap');
+    body {
+      font-family: 'Cairo', sans-serif;
+    }
+    pre code {
+      font-family: 'Fira Code', monospace;
+      direction: ltr;
+      text-align: left;
+    }
+    .chat-bubble {
+      word-break: break-word;
+    }
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #111827;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #374151;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #4b5563;
+    }
+  </style>
+</head>
+<body class="bg-[#0f172a] text-slate-100 min-h-screen flex flex-col antialiased">
+
+  <!-- Header -->
+  <header class="border-b border-slate-800 bg-[#1e293b]/80 backdrop-blur sticky top-0 z-30 px-4 py-3">
+    <div class="max-w-5xl mx-auto flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-indigo-600 flex items-center justify-center font-black text-xl shadow-lg shadow-indigo-500/20">
+          ⚡
+        </div>
+        <div>
+          <h1 class="font-bold text-lg leading-tight flex items-center gap-2">
+            <span>Radox AI Studio</span>
+            <span class="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-medium">متصل $50</span>
+          </h1>
+          <p class="text-xs text-slate-400">Claude Opus • GPT-5 • Gemini 3.7 • DeepSeek V4</p>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="flex items-center gap-2">
+        <div class="relative">
+          <select id="modelSelect" class="bg-slate-900 border border-slate-700 text-sm rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer">
+            <optgroup label="👑 أقوى النماذج (للتفكير والبرمجة الصعبة)">
+              <option value="claude-opus-4.8" selected>Claude Opus 4.8 (القمة)</option>
+              <option value="claude-sonnet-5">Claude Sonnet 5 (سرعة ودقة فائقة)</option>
+              <option value="claude-opus-5.5">Claude Opus 5.5</option>
+              <option value="gpt-5.5-pro">GPT-5.5 Pro</option>
+              <option value="deepseek-v4-pro-max">DeepSeek V4 Pro Max</option>
+            </optgroup>
+            <optgroup label="⚡ فائقة السرعة واقتصادية في الرصيد">
+              <option value="gemini-3.7-flash">Gemini 3.7 Flash (سريع جداً وموفر)</option>
+              <option value="gemini-3.6-flash">Gemini 3.6 Flash</option>
+              <option value="deepseek-v4-flash-0731">DeepSeek V4 Flash</option>
+              <option value="seed-2.1-turbo">Seed 2.1 Turbo</option>
+            </optgroup>
+            <optgroup label="🧠 نماذج مميزة أخرى">
+              <option value="grok-4.6">Grok 4.6</option>
+              <option value="qwen3.8-max">Qwen 3.8 Max</option>
+              <option value="kimi-k3">Kimi K3</option>
+              <option value="glm-5.3">GLM 5.3</option>
+            </optgroup>
+          </select>
+        </div>
+        <button id="clearChatBtn" title="مسح المحادثة" class="p-2 rounded-lg bg-slate-800 hover:bg-rose-900/40 hover:text-rose-400 text-slate-400 transition text-sm flex items-center gap-1 border border-slate-700">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+          <span class="hidden sm:inline">مسح</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Chat Container -->
+  <main class="flex-1 max-w-4xl w-full mx-auto p-4 flex flex-col justify-between overflow-hidden">
+    <div id="messagesContainer" class="flex-1 overflow-y-auto space-y-4 pb-6 pr-1">
+      
+      <!-- Welcome Message -->
+      <div class="flex items-start gap-3 bg-slate-800/40 border border-slate-700/60 p-4 rounded-2xl">
+        <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-sm font-bold shrink-0">
+          🤖
+        </div>
+        <div class="space-y-2 text-sm leading-relaxed">
+          <p class="font-bold text-indigo-400 text-base">مرحباً بك! اشتراك Radox AI جاهز للعمل 🚀</p>
+          <p class="text-slate-300">
+            تم ضبط مفتاح الـ API الخاص بك بنجاح. يمكنك الآن كتابة أي سؤال أو طلب برمجي، وتجربة أحدث النماذج مثل:
+            <span class="inline-block bg-slate-700 px-2 py-0.5 rounded text-xs text-amber-300 mx-1">Claude Opus 4.8</span>
+            <span class="inline-block bg-slate-700 px-2 py-0.5 rounded text-xs text-emerald-300 mx-1">Claude Sonnet 5</span>
+            <span class="inline-block bg-slate-700 px-2 py-0.5 rounded text-xs text-sky-300 mx-1">Gemini 3.7 Flash</span>
+          </p>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Input Area -->
+    <div class="sticky bottom-0 bg-[#0f172a]/90 backdrop-blur pt-3">
+      <form id="chatForm" class="relative flex items-end gap-2 bg-[#1e293b] border border-slate-700 rounded-2xl p-2 shadow-2xl focus-within:border-indigo-500 transition">
+        <textarea
+          id="userInput"
+          rows="1"
+          placeholder="اكتب رسالتك هنا... (اضغط Enter للإرسال، و Shift+Enter لسطر جديد)"
+          class="flex-1 bg-transparent border-0 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none resize-none max-h-40"
+          style="min-height: 44px;"
+        ></textarea>
+        <button
+          type="submit"
+          id="sendBtn"
+          class="bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-bold p-2.5 rounded-xl transition flex items-center justify-center shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <svg class="w-5 h-5 transform -rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+        </button>
+      </form>
+      <div class="flex justify-between items-center text-[11px] text-slate-500 px-2 mt-2">
+        <span>مدعوم بواسطة Radox AI • متوافق مع OpenAI API</span>
+        <span id="tokenStatus">جاهز</span>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const API_KEY = "cc_uzpQ97tRSFcXu0jvBxDKkTNhSkL7e6CdUFYqLlG1j2Y2dILd";
+    const BASE_URL = "https://radoxai.com/v1";
+
+    const messagesContainer = document.getElementById("messagesContainer");
+    const chatForm = document.getElementById("chatForm");
+    const userInput = document.getElementById("userInput");
+    const sendBtn = document.getElementById("sendBtn");
+    const modelSelect = document.getElementById("modelSelect");
+    const clearChatBtn = document.getElementById("clearChatBtn");
+    const tokenStatus = document.getElementById("tokenStatus");
+
+    // محادثة الذاكرة
+    let conversationHistory = [];
+
+    // استرجاع المحادثة المحفوظة
+    const saved = localStorage.getItem("radox_chat_history");
+    if (saved) {
+      try {
+        conversationHistory = JSON.parse(saved);
+        conversationHistory.forEach(msg => appendMessage(msg.role, msg.content, false));
+      } catch (e) {
+        conversationHistory = [];
+      }
+    }
+
+    // تعديل ارتفاع التكست أريا تلقائياً
+    userInput.addEventListener("input", function() {
+      this.style.height = "auto";
+      this.style.height = (this.scrollHeight) + "px";
+    });
+
+    userInput.addEventListener("keydown", function(e) {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        chatForm.dispatchEvent(new Event("submit"));
+      }
+    });
+
+    function saveHistory() {
+      localStorage.setItem("radox_chat_history", JSON.stringify(conversationHistory));
+    }
+
+    clearChatBtn.addEventListener("click", () => {
+      if (confirm("هل تريد مسح سجل المحادثة؟")) {
+        conversationHistory = [];
+        localStorage.removeItem("radox_chat_history");
+        messagesContainer.innerHTML = "";
+        location.reload();
+      }
+    });
+
+    function appendMessage(role, content, save = true) {
+      if (save) {
+        conversationHistory.push({ role, content });
+        saveHistory();
+      }
+
+      const msgDiv = document.createElement("div");
+      msgDiv.className = `flex items-start gap-3 ${role === "user" ? "flex-row-reverse" : ""}`;
+
+      const avatar = document.createElement("div");
+      avatar.className = `w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold shrink-0 ${
+        role === "user" ? "bg-slate-700 text-slate-200" : "bg-gradient-to-tr from-cyan-600 to-indigo-600 text-white"
+      }`;
+      avatar.innerHTML = role === "user" ? "👤" : "⚡";
+
+      const bubble = document.createElement("div");
+      bubble.className = `chat-bubble max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+        role === "user"
+          ? "bg-indigo-600 text-white rounded-tr-none"
+          : "bg-[#1e293b] text-slate-100 border border-slate-700/80 rounded-tl-none shadow"
+      }`;
+
+      if (role === "user") {
+        bubble.textContent = content;
+      } else {
+        bubble.innerHTML = marked.parse(content);
+        bubble.querySelectorAll("pre code").forEach(el => hljs.highlightElement(el));
+      }
+
+      msgDiv.appendChild(avatar);
+      msgDiv.appendChild(bubble);
+      messagesContainer.appendChild(msgDiv);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+      return bubble;
+    }
+
+    chatForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const text = userInput.value.trim();
+      if (!text) return;
+
+      appendMessage("user", text);
+      userInput.value = "";
+      userInput.style.height = "44px";
+      userInput.disabled = true;
+      sendBtn.disabled = true;
+
+      const model = modelSelect.value;
+      tokenStatus.textContent = `جاري استدعاء ${model}...`;
+
+      // إنشاء بالونة الرد
+      const aiBubble = appendMessage("assistant", "...", false);
+      let aiText = "";
+
+      try {
+        const response = await fetch(`${BASE_URL}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${API_KEY}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            model: model,
+            stream: true,
+            messages: conversationHistory.map(m => ({ role: m.role, content: m.content }))
+          })
+        });
+
+        if (!response.ok) {
+          const errData = await response.text();
+          throw new Error(`خطأ (${response.status}): ${errData}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        aiText = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split("\n");
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              const dataStr = line.slice(6).trim();
+              if (dataStr === "[DONE]") break;
+              try {
+                const parsed = JSON.parse(dataStr);
+                const delta = parsed.choices[0]?.delta?.content || "";
+                if (delta) {
+                  aiText += delta;
+                  aiBubble.innerHTML = marked.parse(aiText);
+                  aiBubble.querySelectorAll("pre code").forEach(el => hljs.highlightElement(el));
+                  messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                }
+              } catch (e) {}
+            }
+          }
+        }
+
+        conversationHistory.push({ role: "assistant", content: aiText });
+        saveHistory();
+        tokenStatus.textContent = `تم الاستلام بنجاح (${model})`;
+
+      } catch (error) {
+        aiBubble.innerHTML = `<span class="text-rose-400 font-bold">⚠️ خطأ: ${error.message}</span>`;
+        tokenStatus.textContent = "حدث خطأ أثناء الطلب";
+      } finally {
+        userInput.disabled = false;
+        sendBtn.disabled = false;
+        userInput.focus();
+      }
+    });
+  </script>
+</body>
+</html>

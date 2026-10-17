@@ -5,6 +5,27 @@ use App\Models\SupplierUser;
 use App\Models\User;
 
 return [
+    'require_phone_verification' => env('CUSTOMER_REQUIRE_PHONE_VERIFICATION', true),
+    'customer_max_tokens' => (int) env('CUSTOMER_MAX_TOKENS', 10),
+    'customer_sms_daily_limit' => (int) env('CUSTOMER_SMS_DAILY_LIMIT', 1000),
+    'customer_sms_hourly_limit' => (int) env('CUSTOMER_SMS_HOURLY_LIMIT', 100),
+    'customer_limits' => [
+        'phone_verify_ip_minute' => (int) env('CUSTOMER_PHONE_VERIFY_IP_MINUTE', 120),
+        'reset_confirm_ip_minute' => (int) env('CUSTOMER_RESET_CONFIRM_IP_MINUTE', 120),
+        'login_ip_minute' => (int) env('CUSTOMER_LOGIN_IP_MINUTE', 120),
+        'reset_ip_minute' => (int) env('CUSTOMER_RESET_IP_MINUTE', 20),
+        'reset_ip_day' => (int) env('CUSTOMER_RESET_IP_DAY', 500),
+        'registration_ip_minute' => (int) env('CUSTOMER_REGISTRATION_IP_MINUTE', 20),
+        'registration_ip_day' => (int) env('CUSTOMER_REGISTRATION_IP_DAY', 500),
+        'phone_ip_minute' => (int) env('CUSTOMER_PHONE_IP_MINUTE', 20),
+        'phone_ip_day' => (int) env('CUSTOMER_PHONE_IP_DAY', 500),
+        'catalog_ip_minute' => (int) env('STORE_CATALOG_IP_MINUTE', 600),
+        'price_ip_minute' => (int) env('STORE_PRICE_IP_MINUTE', 20),
+        'price_global_minute' => (int) env('STORE_PRICE_GLOBAL_MINUTE', 200),
+        'login_id_hour' => (int) env('CUSTOMER_LOGIN_ID_HOUR', 30),
+        'login_id_day' => (int) env('CUSTOMER_LOGIN_ID_DAY', 100),
+    ],
+    'customer_daily_messages' => (int) env('CUSTOMER_DAILY_MESSAGES', 5),
     'customer_password_reset' => [
         'connection' => env('CUSTOMER_PASSWORD_RESET_QUEUE_CONNECTION', 'database'),
     ],

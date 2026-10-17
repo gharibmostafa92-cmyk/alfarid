@@ -19,8 +19,13 @@ class ProductController extends Controller
 
     public function index(ProductFilterRequest $request): AnonymousResourceCollection
     {
+        $filters = $request->validated();
+        $total = in_array($filters['sort'] ?? null, ['price_asc', 'price_desc'], true)
+            && ! isset($filters['price_min']) && ! isset($filters['price_max'])
+            ? fn () => $this->catalog->applyFilters($this->catalog->publishedQuery(), [...$filters, 'sort' => 'newest'])
+                ->reorder()->count('products.id') : null;
         $products = $this->catalog->applyFilters($this->catalog->publishedQuery(), $request->validated())
-            ->paginate(20);
+            ->paginate(20, total: $total)->withQueryString();
 
         return StoreProductCardResource::collection($products);
     }
@@ -40,6 +45,8 @@ class ProductController extends Controller
     public function similar(string $slug): JsonResponse
     {
         $product = $this->catalog->publishedQuery()
+            ->withoutEagerLoads()
+            ->select(['products.id', 'products.category_id', 'products.brand_id'])
             ->where('products.slug', $slug)
             ->firstOrFail();
 

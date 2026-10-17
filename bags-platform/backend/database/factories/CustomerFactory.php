@@ -22,7 +22,11 @@ class CustomerFactory extends Factory
         return [
             'name' => fake()->name(),
             'email' => fake()->unique()->safeEmail(),
-            'phone' => fake()->unique()->numerify('01#########'),
+            'email_verified_at' => now(),
+            'phone' => fake()->unique()->numerify('010########'),
+            'company_name' => fn (array $attributes) => in_array($attributes['type'], [CustomerType::Retail, 'retail'], true) ? null : fake()->company(),
+            'tax_number' => fn (array $attributes) => in_array($attributes['type'], [CustomerType::Retail, 'retail'], true) ? null : fake()->numerify('#########'),
+            'commercial_register' => fn (array $attributes) => in_array($attributes['type'], [CustomerType::Retail, 'retail'], true) ? null : fake()->numerify('######'),
             'password' => Hash::make('password'),
             'type' => CustomerType::Retail,
             'status' => CustomerStatus::Approved,

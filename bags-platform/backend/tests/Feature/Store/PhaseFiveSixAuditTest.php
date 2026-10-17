@@ -16,6 +16,7 @@ use App\Models\StockLevel;
 use App\Models\User;
 use App\Notifications\CustomerPasswordReset;
 use App\Services\CustomerAuthService;
+use App\Services\StoreCatalogService;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -42,9 +43,11 @@ class PhaseFiveSixAuditTest extends TestCase
         return $product;
     }
 
-    private function staff(string $permission): string
+    private function staff(string|array $permission): string
     {
-        Permission::findOrCreate($permission, 'staff');
+        foreach ((array) $permission as $ability) {
+            Permission::findOrCreate($ability, 'staff');
+        }
         $user = User::factory()->create();
         $user->givePermissionTo($permission);
 
@@ -98,7 +101,7 @@ class PhaseFiveSixAuditTest extends TestCase
 
         $this->getJson('/api/v1/store/products?in_stock=1')->assertOk()->assertJsonCount(0, 'data');
         $this->getJson('/api/v1/store/products/'.$product->slug)
-            ->assertOk()->assertJsonPath('data.in_stock', false)->assertJsonPath('data.store_available', 0);
+            ->assertOk()->assertJsonPath('data.in_stock', false)->assertJsonMissingPath('data.store_available');
     }
 
     public function test_reserved_and_damaged_are_subtracted_across_active_branches(): void
@@ -113,7 +116,9 @@ class PhaseFiveSixAuditTest extends TestCase
         }
 
         $this->getJson('/api/v1/store/products/'.$product->slug)->assertOk()
-            ->assertJsonPath('data.store_available', 10)->assertJsonPath('data.variants.0.available', 10);
+            ->assertJsonPath('data.in_stock', true)->assertJsonPath('data.variants.0.in_stock', true)
+            ->assertJsonMissingPath('data.store_available')->assertJsonMissingPath('data.variants.0.available');
+        $this->assertSame(10.0, app(StoreCatalogService::class)->availabilityMap([$product->variants->first()->id])[$product->variants->first()->id]);
     }
 
     public function test_card_uses_cheapest_resolved_price(): void
@@ -192,7 +197,7 @@ class PhaseFiveSixAuditTest extends TestCase
 
     public function test_document_review_is_scoped_and_requires_approval_permission(): void
     {
-        $token = $this->staff('customers.approve');
+        $token = $this->staff(['customers.approve', 'customers.documents.view']);
         $customer = Customer::factory()->wholesale()->create();
         $document = $customer->documents()->create(['document_type' => 'tax_card', 'file_path' => 'private.pdf',
             'original_name' => 'tax.pdf', 'mime_type' => 'application/pdf']);
@@ -214,14 +219,14 @@ class PhaseFiveSixAuditTest extends TestCase
     {
         config(['services.customer_sms.url' => 'https://sms.example.test/send', 'services.customer_sms.token' => 'secret']);
         Http::preventStrayRequests();
-        Http::fake(['https://sms.example.test/send' => Http::response([], 200)]);
+        Http::fake(['https://sms.example.test/send' => Http::response(['success' => true], 200)]);
         $customer = Customer::factory()->create(['email' => null]);
 
         $this->postJson('/api/v1/store/auth/forgot-password', ['phone' => $customer->phone])->assertOk();
 
         $row = DB::table('password_reset_tokens')->where('email', 'customer:'.$customer->id)->first();
         Http::assertSent(fn (Request $request) => $request['to'] === $customer->phone
-            && Hash::check(str_replace('رمز استعادة كلمة المرور: ', '', $request['message']), $row->token));
+            && hash_equals($row->token, hash('sha256', str_replace('رمز استعادة كلمة المرور: ', '', $request['message']))));
     }
 
     public function test_customer_migration_handles_legacy_blocked_accounts_and_nullable_email_rollback(): void
@@ -333,6 +338,7 @@ class PhaseFiveSixAuditTest extends TestCase
         $this->assertDatabaseHas('customers', ['id' => $customer->id, 'type' => 'retail']);
         Auth::forgetGuards();
         $approver = $this->staff('customers.approve');
+        $customer->documents()->create(['document_type' => 'commercial_register', 'file_path' => 'verified.pdf', 'original_name' => 'verified.pdf', 'mime_type' => 'application/pdf', 'status' => 'verified']);
         $this->withToken($approver)->postJson('/api/v1/admin/customers/'.$customer->id.'/approve', [
             'type' => 'distributor', 'company_name' => 'Company', 'tax_number' => '123', 'commercial_register' => '456',
         ])
@@ -361,7 +367,7 @@ class PhaseFiveSixAuditTest extends TestCase
         $customer = Customer::factory()->create(['email' => null]);
 
         $known = $this->postJson('/api/v1/store/auth/forgot-password', ['phone' => $customer->phone])->assertOk();
-        $unknown = $this->postJson('/api/v1/store/auth/forgot-password', ['phone' => 'unknown'])->assertOk();
+        $unknown = $this->postJson('/api/v1/store/auth/forgot-password', ['phone' => '01099999999'])->assertOk();
 
         $this->assertSame($known->json(), $unknown->json());
         Exceptions::assertReported(BusinessException::class);

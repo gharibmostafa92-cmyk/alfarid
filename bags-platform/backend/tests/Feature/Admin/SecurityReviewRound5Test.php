@@ -127,6 +127,7 @@ class SecurityReviewRound5Test extends TestCase
 
         $wholesale = Customer::create([
             'name' => 'WS', 'email' => 'ws-r5@example.com', 'phone' => '01055500001',
+            'company_name' => 'Company', 'tax_number' => '123', 'commercial_register' => '456',
             'password' => Hash::make('secret'), 'type' => CustomerType::Wholesale, 'status' => CustomerStatus::Approved,
         ]);
 

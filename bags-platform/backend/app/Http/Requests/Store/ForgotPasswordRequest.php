@@ -24,7 +24,7 @@ class ForgotPasswordRequest extends FormRequest
     {
         return [
             'email' => ['nullable', 'email', 'max:255', 'prohibits:phone'],
-            'phone' => ['nullable', 'string', 'max:20', 'prohibits:email'],
+            'phone' => ['nullable', 'string', 'regex:/^01[0125][0-9]{8}$/', 'prohibits:email'],
         ];
     }
 

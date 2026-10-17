@@ -6,6 +6,7 @@ use Laravel\Sanctum\Http\Middleware\AuthenticateSession;
 use Laravel\Sanctum\Sanctum;
 
 return [
+    'last_used_at' => env('SANCTUM_TRACK_LAST_USED', false),
 
     /*
     |--------------------------------------------------------------------------

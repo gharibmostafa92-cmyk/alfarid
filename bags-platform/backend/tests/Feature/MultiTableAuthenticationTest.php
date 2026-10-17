@@ -214,6 +214,7 @@ class MultiTableAuthenticationTest extends TestCase
             'name' => 'Test customer',
             'email' => fake()->unique()->safeEmail(),
             'phone' => fake()->unique()->numerify('010########'),
+            'company_name' => 'Company', 'tax_number' => '123', 'commercial_register' => '456',
             'password' => 'password',
             'type' => $type,
             'status' => $status,

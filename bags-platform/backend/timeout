@@ -1,0 +1,211 @@
+3941 matches in 39 files:
+
+tests/Feature\AdminAuthEndpointsTest.php:25:$branch = Branch::factory()->create();
+tests/Feature\AdminAuthEndpointsTest.php:28:$role->givePermissionTo($permission);
+tests/Feature\AdminAuthEndpointsTest.php:29:$staff = User::factory()->create([
+tests/Feature\AdminAuthEndpointsTest.php:32:'password' => 'secret-password',
+tests/Feature\AdminAuthEndpointsTest.php:33:'branch_id' => $branch->id,
+tests/Feature\AdminAuthEndpointsTest.php:36:$staff->assignRole($role);
+tests/Feature\AdminAuthEndpointsTest.php:38:$response = $this->postJson('/api/v1/admin/auth/login', [
+tests/Feature\AdminAuthEndpointsTest.php:40:'password' => 'secret-password',
+tests/Feature\AdminAuthEndpointsTest.php:43:$response->assertOk()
+tests/Feature\AdminAuthEndpointsTest.php:44:->assertJsonPath('data.email', 'admin@example.test')
+tests/Feature\AdminAuthEndpointsTest.php:45:->assertJsonPath('data.branch.id', $branch->id)
+tests/Feature\AdminAuthEndpointsTest.php:46:->assertJsonPath('data.roles.0.name', 'Manager')
+tests/Feature\AdminAuthEndpointsTest.php:47:->assertJsonPath('data.permissions.0', 'users.view')
+tests/Feature\AdminAuthEndpointsTest.php:48:->assertJsonStructure(['data' => ['id', 'name', 'email', 'branch', 'roles', '...
+tests/Feature\AdminAuthEndpointsTest.php:50:$token = $response->json('token');
+tests/Feature\AdminAuthEndpointsTest.php:51:$this->getAsToken($token, '/api/v1/admin/me')
+tests/Feature\AdminAuthEndpointsTest.php:52:->assertOk()
+tests/Feature\AdminAuthEndpointsTest.php:53:->assertJsonPath('data.id', $staff->id)
+tests/Feature\AdminAuthEndpointsTest.php:54:->assertJsonPath('data.branch.name', $branch->name);
+tests/Feature\AdminAuthEndpointsTest.php:56:$this->assertTrue(Hash::check('secret-password', $staff->refresh()->password));
+tests/Feature\AdminAuthEndpointsTest.php:65:'password' => 'secret-password',
+tests/Feature\AdminAuthEndpointsTest.php:68:$this->postJson('/api/v1/admin/auth/login', [
+tests/Feature\AdminAuthEndpointsTest.php:70:'password' => 'secret-password',
+tests/Feature\AdminAuthEndpointsTest.php:71:])->assertUnauthorized();
+tests/Feature\AdminAuthEndpointsTest.php:73:User::factory()->create([
+  +35 more in tests/Feature\AdminAuthEndpointsTest.php [+35 hidden: rtk recall bd813ff9ffce]
+tests/Feature\AdminRouteAggregationTest.php:27:$this->assertNotNull($routes->getByName($routeName), "Expected [{$routeName}]...
+tests/Feature\AdminRouteAggregationTest.php:30:$login = $routes->getByName('admin.auth.login');
+tests/Feature\AdminRouteAggregationTest.php:31:$this->assertContains('throttle:admin-login', $login->gatherMiddleware());
+tests/Feature\AdminRouteAggregationTest.php:32:$this->assertNotContains('auth:sanctum', $login->gatherMiddleware());
+tests/Feature\AdminRouteAggregationTest.php:44:$middleware = $routes->getByName($routeName)->gatherMiddleware();
+tests/Feature\AdminRouteAggregationTest.php:45:$this->assertContains('auth:sanctum', $middleware, "Expected [{$routeName}] t...
+tests/Feature\AdminRouteAggregationTest.php:46:$this->assertContains('auth.staff', $middleware, "Expected [{$routeName}] to ...
+tests/Feature\AdminRouteAggregationTest.php:49:$this->assertContains(
+tests/Feature\AdminRouteAggregationTest.php:51:$routes->getByName('admin.settings.update')->gatherMiddleware(),
+tests/Feature\AdminSettingsEndpointsTest.php:23:$this->seedSettings();
+tests/Feature\AdminSettingsEndpointsTest.php:24:$token = $this->staffWithSettingsPermission()->createToken('settings-test')->...
+tests/Feature\AdminSettingsEndpointsTest.php:26:$this->requestWithToken($token, 'GET', '/api/v1/admin/settings')
+tests/Feature\AdminSettingsEndpointsTest.php:27:->assertOk()
+tests/Feature\AdminSettingsEndpointsTest.php:28:->assertJsonPath('data.tax.tax_enabled', false)
+tests/Feature\AdminSettingsEndpointsTest.php:29:->assertJsonPath('data.tax.default_tax_rate', 14)
+tests/Feature\AdminSettingsEndpointsTest.php:30:->assertJsonPath('data.numbering.invoice_next_number', 1000)
+tests/Feature\AdminSettingsEndpointsTest.php:31:->assertJsonPath('data.company.company_name', 'Alfarid');
+tests/Feature\AdminSettingsEndpointsTest.php:36:$this->seedSettings();
+tests/Feature\AdminSettingsEndpointsTest.php:38:$this->assertSame(14.0, $service->get('default_tax_rate'));
+tests/Feature\AdminSettingsEndpointsTest.php:39:$token = $this->staffWithSettingsPermission()->createToken('settings-test')->...
+tests/Feature\AdminSettingsEndpointsTest.php:41:$this->requestWithToken($token, 'PUT', '/api/v1/admin/settings', [
+tests/Feature\AdminSettingsEndpointsTest.php:46:])->assertOk()
+tests/Feature\AdminSettingsEndpointsTest.php:47:->assertJsonPath('data.company.company_name', 'Alfarid Trading')
+tests/Feature\AdminSettingsEndpointsTest.php:48:->assertJsonPath('data.tax.tax_enabled', true)
+tests/Feature\AdminSettingsEndpointsTest.php:49:->assertJsonPath('data.tax.default_tax_rate', 15)
+tests/Feature\AdminSettingsEndpointsTest.php:50:->assertJsonPath('data.numbering.order_next_number', 2000);
+tests/Feature\AdminSettingsEndpointsTest.php:52:$this->assertSame('Alfarid Trading', $service->get('company_name'));
+tests/Feature\AdminSettingsEndpointsTest.php:53:$this->assertDatabaseHas('settings', ['key' => 'tax_enabled', 'value' => '1']);
+tests/Feature\AdminSettingsEndpointsTest.php:58:$this->seedSettings();
+tests/Feature\AdminSettingsEndpointsTest.php:59:$token = $this->staffWithSettingsPermission()->createToken('settings-test')->...
+tests/Feature\AdminSettingsEndpointsTest.php:61:$this->requestWithToken($token, 'PUT', '/api/v1/admin/settings', [
+tests/Feature\AdminSettingsEndpointsTest.php:65:])->assertUnprocessable()
+tests/Feature\AdminSettingsEndpointsTest.php:66:->assertJsonValidationErrors(['default_tax_rate', 'invoice_next_number', 'unk...
+tests/Feature\AdminSettingsEndpointsTest.php:71:$this->seedSettings();
+  +53 more in tests/Feature\AdminSettingsEndpointsTest.php [+53 hidden: rtk recall bdab8ecfa831]
+tests/Feature\AdminUserEndpointsTest.php:24:$staff = User::factory()->create();
+tests/Feature\AdminUserEndpointsTest.php:25:$token = $staff->createToken('test')->plainTextToken;
+tests/Feature\AdminUserEndpointsTest.php:27:$this->requestWithToken($token, 'GET', '/api/v1/admin/users')->assertForbidde...
+tests/Feature\AdminUserEndpointsTest.php:32:$branch = Branch::factory()->create();
+tests/Feature\AdminUserEndpointsTest.php:34:$manager = $this->staffWithPermission('users.manage');
+tests/Feature\AdminUserEndpointsTest.php:35:$token = $manager->createToken('test')->plainTextToken;
+tests/Feature\AdminUserEndpointsTest.php:37:$created = $this->requestWithToken($token, 'POST', '/api/v1/admin/users', [
+tests/Feature\AdminUserEndpointsTest.php:41:'password' => 'long-password',
+tests/Feature\AdminUserEndpointsTest.php:42:'branch_id' => $branch->id,
+tests/Feature\AdminUserEndpointsTest.php:45:$created->assertCreated()
+tests/Feature\AdminUserEndpointsTest.php:46:->assertJsonPath('data.name', 'New Cashier')
+tests/Feature\AdminUserEndpointsTest.php:47:->assertJsonPath('data.email', 'cashier@example.test')
+tests/Feature\AdminUserEndpointsTest.php:48:->assertJsonPath('data.branch.id', $branch->id)
+tests/Feature\AdminUserEndpointsTest.php:49:->assertJsonPath('data.roles.0.name', 'Cashier');
+tests/Feature\AdminUserEndpointsTest.php:51:$userId = $created->json('data.id');
+tests/Feature\AdminUserEndpointsTest.php:53:$this->assertTrue(Hash::check('long-password', $user->password));
+tests/Feature\AdminUserEndpointsTest.php:54:$this->assertTrue($user->hasRole($cashierRole, 'staff'));
+tests/Feature\AdminUserEndpointsTest.php:56:$this->requestWithToken($token, 'PATCH', "/api/v1/admin/users/{$userId}", [
+tests/Feature\AdminUserEndpointsTest.php:61:])->assertOk()
+tests/Feature\AdminUserEndpointsTest.php:62:->assertJsonPath('data.name', 'Updated Cashier')
+tests/Feature\AdminUserEndpointsTest.php:63:->assertJsonPath('data.branch', null)
+tests/Feature\AdminUserEndpointsTest.php:64:->assertJsonPath('data.roles', []);
+tests/Feature\AdminUserEndpointsTest.php:66:$this->requestWithToken($token, 'GET', "/api/v1/admin/users/{$userId}")
+tests/Feature\AdminUserEndpointsTest.php:67:->assertOk()
+tests/Feature\AdminUserEndpointsTest.php:68:->assertJsonPath('data.email', 'cashier@example.test');
+  +141 more in tests/Feature\AdminUserEndpointsTest.php [+141 hidden: rtk recall 4cb28deae839]
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:37:$staff = User::factory()->create();
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:41:$staff->givePermissionTo($permissions);
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:42:$this->withToken($staff->createToken('audit')->plainTextToken);
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:47:$this->signIn(['products.create']);
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:48:$response = $this->postJson('/api/v1/admin/products', [
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:49:'category_id' => Category::factory()->create()->id,
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:52:])->assertCreated();
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:53:$this->assertArrayNotHasKey('cost_price', $response->json('data.variants.0'));
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:54:$this->assertDatabaseHas('product_variants', ['product_id' => $response->json...
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:59:$this->signIn(['products.create', 'products.view_cost']);
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:60:$other = Product::factory()->create();
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:61:$this->postJson('/api/v1/admin/products', [
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:62:'category_id' => $other->category_id, 'name_ar' => 'حقيبة', 'name_en' => 'Bag...
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:63:'sales_channel' => 'retail', 'variants' => [['product_id' => $other->id, 'id'...
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:64:])->assertUnprocessable()->assertJsonValidationErrors('variants.0');
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:65:$this->assertSame(0, $other->variants()->count());
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:66:$this->assertDatabaseCount('products', 1);
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:71:$this->signIn(['products.create']);
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:72:$this->postJson('/api/v1/admin/products', [
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:73:'category_id' => Category::factory()->create()->id,
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:79:])->assertUnprocessable()->assertJsonValidationErrors(['variants.0.sku', 'var...
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:80:$this->assertDatabaseCount('products', 0);
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:85:$this->signIn(['products.update']);
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:86:$product = Product::factory()->create();
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:87:$this->putJson("/api/v1/admin/products/{$product->id}", ['slug' => null, 'nam...
+  +114 more in tests/Feature\Admin\Catalog\CatalogAuditTest.php [+114 hidden: rtk recall ea0258a7dd63]
+tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php:31:$product = $this->completeProduct();
+tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php:32:$first = $product->variants()->firstOrFail();
+tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php:33:$second = ProductVariant::factory()->create(['product_id' => $product->id, 'r...
+tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php:34:$this->race([
+tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php:35:['$variant = App\Models\ProductVariant::findOrFail('.$first->id.'); $variant-...
+tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php:36:['$variant = App\Models\ProductVariant::findOrFail('.$second->id.'); $variant...
+tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php:38:$this->assertSame(1, $product->variants()->where('is_active', true)->count());
+tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php:43:$product = $this->completeProduct();
+tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php:44:$first = $product->getFirstMedia('images');
+tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php:45:$second = $product->addMedia(UploadedFile::fake()->image('second.jpg'))->toMe...
+tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php:46:$setup = '$product = App\Models\Product::findOrFail('.$product->id.'); $produ...
+tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php:47:$this->race([
+tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php:48:[$setup.'$media = Spatie\MediaLibrary\MediaCollections\Models\Media::findOrFa...
+tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php:49:[$setup.'$media = Spatie\MediaLibrary\MediaCollections\Models\Media::findOrFa...
+tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php:51:$remaining = $product->fresh()->getMedia('images');
+tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php:52:$this->assertCount(1, $remaining);
+tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php:53:Storage::disk('public')->assertExists($remaining->first()->getPathRelativeToR...
+tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php:58:$a = Category::factory()->create();
+tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php:59:$b = Category::factory()->create();
+tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php:60:$this->race([
+tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php:61:['$category = App\Models\Category::findOrFail('.$a->id.');', 'app(App\Service...
+tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php:62:['$category = App\Models\Category::findOrFail('.$b->id.');', 'app(App\Service...
+tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php:64:$this->assertEqualsCanonicalizing([1, 2], [$a->fresh()->depth(), $b->fresh()-...
+tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php:69:$product = $this->completeProduct();
+tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php:70:$product->update(['status' => ProductStatus::Draft, 'published_at' => null]);
+  +31 more in tests/Feature\Admin\Catalog\CatalogConcurrencyTest.php [+31 hidden: rtk recall 8b131f015e53]
+tests/Feature\Admin\Catalog\CatalogHardeningTest.php:37:// ---------- H1: قواعد النشر بتتفحص بعد أي تعديل على منتج منشور ----------...
+tests/Feature\Admin\Catalog\CatalogHardeningTest.php:41:$token = $this->adminToken();
+tests/Feature\Admin\Catalog\CatalogHardeningTest.php:42:[$productId, $variantId] = $this->publishedProduct($token);
+tests/Feature\Admin\Catalog\CatalogHardeningTest.php:44:$this->requestWithToken($token, 'PUT', "/api/v1/admin/products/{$productId}/v...
+tests/Feature\Admin\Catalog\CatalogHardeningTest.php:46:])->assertUnprocessable();
+tests/Feature\Admin\Catalog\CatalogHardeningTest.php:48:$this->assertSame('100.00', (string) ProductVariant::find($variantId)->retail...
+tests/Feature\Admin\Catalog\CatalogHardeningTest.php:53:$token = $this->adminToken();
+tests/Feature\Admin\Catalog\CatalogHardeningTest.php:54:[$productId, $variantId] = $this->publishedProduct($token);
+tests/Feature\Admin\Catalog\CatalogHardeningTest.php:56:$this->requestWithToken($token, 'PUT', "/api/v1/admin/products/{$productId}/v...
+tests/Feature\Admin\Catalog\CatalogHardeningTest.php:58:])->assertOk()
+tests/Feature\Admin\Catalog\CatalogHardeningTest.php:59:->assertJsonPath('data.retail_price', '150.00');
+tests/Feature\Admin\Catalog\CatalogHardeningTest.php:64:$token = $this->adminToken();
+tests/Feature\Admin\Catalog\CatalogHardeningTest.php:65:[$productId] = $this->publishedProduct($token);
+tests/Feature\Admin\Catalog\CatalogHardeningTest.php:67:$this->requestWithToken($token, 'PUT', "/api/v1/admin/products/{$productId}", [
+tests/Feature\Admin\Catalog\CatalogHardeningTest.php:69:])->assertUnprocessable();
+tests/Feature\Admin\Catalog\CatalogHardeningTest.php:71:$this->assertSame('retail', Product::find($productId)->sales_channel->value);
+tests/Feature\Admin\Catalog\CatalogHardeningTest.php:76:$token = $this->adminToken();
+tests/Feature\Admin\Catalog\CatalogHardeningTest.php:77:[$productId] = $this->publishedProduct($token);
+tests/Feature\Admin\Catalog\CatalogHardeningTest.php:78:$inactive = Category::factory()->create(['is_active' => false]);
+tests/Feature\Admin\Catalog\CatalogHardeningTest.php:80:$this->requestWithToken($token, 'PUT', "/api/v1/admin/products/{$productId}", [
+tests/Feature\Admin\Catalog\CatalogHardeningTest.php:81:'category_id' => $inactive->id,
+tests/Feature\Admin\Catalog\CatalogHardeningTest.php:82:])->assertUnprocessable();
+tests/Feature\Admin\Catalog\CatalogHardeningTest.php:87:$token = $this->adminToken();
+tests/Feature\Admin\Catalog\CatalogHardeningTest.php:88:[$productId] = $this->publishedProduct($token);
+tests/Feature\Admin\Catalog\CatalogHardeningTest.php:90:$this->requestWithToken($token, 'POST', "/api/v1/admin/products/{$productId}/...
+  +92 more in tests/Feature\Admin\Catalog\CatalogHardeningTest.php [+92 hidden: rtk recall 0479fab3bd92]
+tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php:41:$staff = User::factory()->create();
+tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php:42:$staff->givePermissionTo($permissions);
+tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php:43:$this->withToken($staff->createToken('review')->plainTextToken);
+tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php:48:$product = Product::factory()->create();
+tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php:51:$this->mock(FileManipulator::class)->shouldReceive('createDerivedFiles')->twi...
+tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php:52:->andReturnUsing(function (Media $media) use ($real, &$calls): void {
+tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php:53:$real->createDerivedFiles($media);
+tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php:59:app(ProductMediaService::class)->upload($product, ['collection' => 'images'],...
+tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php:60:$this->fail('Expected conversion failure');
+tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php:62:$this->assertSame('Conversion failed after writing files', $exception->getMes...
+tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php:64:$this->assertDatabaseCount('media', 0);
+tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php:65:$this->assertSame([], Storage::disk('public')->allFiles());
+tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php:71:$this->app->forgetInstance(FileManipulator::class);
+tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php:72:$record = $model::factory()->create(['name_en' => 'Original']);
+tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php:73:$old = $record->addMedia(UploadedFile::fake()->image('old.jpg'))->toMediaColl...
+tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php:74:$oldPath = $old->getPathRelativeToRoot();
+tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php:75:$before = Storage::disk('public')->allFiles();
+tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php:76:$this->mock(FileManipulator::class)->shouldReceive('createDerivedFiles')->onc...
+tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php:78:app($service)->update($record, ['name_en' => 'Changed', 'remove_'.$collection...
+tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php:79:$this->fail('Expected upload failure');
+tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php:81:$this->assertSame('Disk failure', $exception->getMessage());
+tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php:83:$this->assertSame('Original', $record->fresh()->name_en);
+tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php:84:$this->assertDatabaseHas('media', ['id' => $old->id]);
+tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php:85:Storage::disk('public')->assertExists($oldPath);
+tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php:86:$this->assertSame($before, Storage::disk('public')->allFiles());
+  +78 more in tests/Feature\Admin\Catalog\CatalogImprovementReviewTest.php [+78 hidden: rtk recall 9d0fc4ac8cfe]
+tests/Feature\Admin\Catalog\CatalogReviewRoundTwoTest.php:42:$this->signIn(['categories.view', 'categories.create', 'categories.update', '...
+tests/Feature\Admin\Catalog\CatalogReviewRoundTwoTest.php:51:$staff = User::factory()->create();
+tests/Feature\Admin\Catalog\CatalogReviewRoundTwoTest.php:52:$staff->givePermissionTo($permissions);
+tests/Feature\Admin\Catalog\CatalogReviewRoundTwoTest.php:53:$this->withToken($staff->createToken('round-two')->plainTextToken);
+tests/Feature\Admin\Catalog\CatalogReviewRoundTwoTest.php:58:$product = Product::factory()->create($attributes);
+tests/Feature\Admin\Catalog\CatalogReviewRoundTwoTest.php:59:ProductVariant::factory()->create(['product_id' => $product->id, 'retail_pric...
+tests/Feature\Admin\Catalog\CatalogReviewRoundTwoTest.php:60:$product->addMedia(UploadedFile::fake()->image('product.jpg'))->toMediaCollec...
+tests/Feature\Admin\Catalog\CatalogReviewRoundTwoTest.php:67:$parent = Category::factory()->create();
+tests/Feature\Admin\Catalog\CatalogReviewRoundTwoTest.php:68:$child = Category::factory()->create(['parent_id' => $parent->id]);
+tests/Feature\Admin\Catalog\CatalogReviewRoundTwoTest.php:69:$this->putJson('/api/v1/admin/categories/reorder', ['items' => [['id' => $chi...
+tests/Feature\Admin\Catalog\CatalogReviewRoundTwoTest.php:70:->assertUnprocessable()->assertJsonValidationErrors('items.0.parent_id');
+tests/Feature\Admin\Catalog\CatalogReviewRoundTwoTest.php:71:$this->assertSame($parent->id, $child->fresh()->parent_id);
+tests/Feature\Admin\Catalog\CatalogReviewRoundTwoTest.php:72:$this->expectException(BusinessException::class);
+tests/Feature\Admin\Catalog\CatalogReviewRoundTwoTest.php:73:app(CategoryService::class)->reorder([['id' => $child->id, 'sort_order' => 4]]);
+tests/Feature\Admin\Catalog\CatalogReviewRoundTwoTest.php:79:$root = Category::factory()->create();
+tests/Feature\Admin\Catalog\CatalogReviewRoundTwoTest.php:80:$child = Category::factory()->create(['parent_id' => $root->id]);
+  +120 more in tests/Feature\Admin\Catalog\CatalogReviewRoundTwoTest.php [+120 hidden: rtk recall fe6af54e2483]
++30 more files [+3077 hidden: rtk recall c1cf13e145cd]

@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Stocktake;
 use App\Models\StockTransfer;
@@ -9,7 +10,10 @@ use App\Services\BranchAccess;
 use App\Services\SettingService;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
+use Illuminate\Queue\Events\QueueBusy;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
@@ -32,6 +36,45 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $proxies = config('app.trusted_proxies');
+        if ($this->app->environment('production') && (! is_string($proxies) || trim($proxies) === '' || preg_match('/(?:^|,)\s*\*{1,2}\s*(?:,|$)/', $proxies))) {
+            throw new \LogicException('Set TRUSTED_PROXIES to explicit proxy IPs/CIDRs, or none for direct access. Wildcards are not allowed in production.');
+        }
+        TrustProxies::at(is_string($proxies) && trim($proxies) !== '' && $proxies !== 'none'
+            ? array_map('trim', explode(',', $proxies)) : []);
+        Event::listen(QueueBusy::class,
+            fn ($event) => logger()->error('Queue backlog exceeded its configured threshold.', ['connection' => $event->connectionName, 'queue' => $event->queue, 'size' => $event->size]));
+        RateLimiter::for('customer-registration', fn (Request $request) => [
+            Limit::perMinute(config('auth.customer_limits.registration_ip_minute', 20))->by('customer-register-minute:'.$request->ip()),
+            Limit::perDay(config('auth.customer_limits.registration_ip_day', 500))->by('customer-register-day:'.$request->ip()),
+        ]);
+        RateLimiter::for('store-catalog', fn (Request $request) => [
+            Limit::perMinute(config('auth.customer_limits.catalog_ip_minute', 600))->by('store-catalog:'.$request->ip()),
+            ...($request->hasAny(['price_min', 'price_max']) || in_array($request->input('sort'), ['price_asc', 'price_desc'], true)
+                ? [Limit::perMinute(config('auth.customer_limits.price_ip_minute', 20))->by('store-price-query:'.$request->ip()),
+                    Limit::perMinute(config('auth.customer_limits.price_global_minute', 200))->by('store-price-query:global')] : []),
+        ]);
+        $identifierKey = function (Request $request): string {
+            $email = $request->input('email');
+            $phone = $request->input('phone');
+
+            return hash('sha256', is_string($email) && $email !== '' ? mb_strtolower(trim($email))
+                : (is_string($phone) ? Customer::normalizePhone($phone) : 'invalid'));
+        };
+        RateLimiter::for('customer-reset-confirm', fn (Request $request) => [
+            Limit::perMinute(config('auth.customer_limits.reset_confirm_ip_minute', 120))->by('reset-confirm-ip:'.$request->ip()),
+            Limit::perMinute(10)->by('reset-confirm-id:'.$identifierKey($request)),
+        ]);
+        $phoneKey = fn (Request $request): string => hash('sha256', is_string($request->input('phone')) ? Customer::normalizePhone($request->input('phone')) : 'invalid');
+        RateLimiter::for('customer-phone-send', fn (Request $request) => [
+            Limit::perMinute(config('auth.customer_limits.phone_ip_minute', 20))->by('phone-send-ip:'.$request->ip()),
+            Limit::perDay(config('auth.customer_limits.phone_ip_day', 500))->by('phone-send-day:'.$request->ip()),
+            Limit::perMinute(1)->by('phone-send-id:'.$phoneKey($request)),
+        ]);
+        RateLimiter::for('customer-phone-verify', fn (Request $request) => [
+            Limit::perMinute(config('auth.customer_limits.phone_verify_ip_minute', 120))->by('phone-verify-ip:'.$request->ip()),
+            Limit::perMinute(5)->by('phone-verify-id:'.$phoneKey($request)),
+        ]);
         // أسماء قصيرة ثابتة لمراجع الدفتر (stock_movements.reference_type):
         // إعادة تسمية/نقل الكلاسات لاحقًا لا تكسر أثر التدقيق التاريخي.
         // الصفوف القديمة المخزنة باسم الكلاس الكامل تظل قابلة للقراءة.
@@ -44,11 +87,14 @@ class AppServiceProvider extends ServiceProvider
         // حد دخول العملاء (متجر/جملة): بالمُعرّف (بريد/هاتف) وبالـ IP معًا
         RateLimiter::for('customer-login', function (Request $request): array {
             $identifier = $request->input('login');
-            $idKey = is_string($identifier) ? hash('sha256', Str::lower(trim($identifier))) : 'none';
+            $idKey = is_string($identifier) ? hash('sha256', str_contains($identifier, '@')
+                ? Str::lower(trim($identifier)) : Customer::normalizePhone($identifier)) : 'none';
 
             return [
                 Limit::perMinute(5)->by('customer-login-id:'.$idKey),
-                Limit::perMinute(30)->by('customer-login-ip:'.($request->ip() ?? 'unknown')),
+                Limit::perHour(config('auth.customer_limits.login_id_hour', 30))->by('customer-login-id-hour:'.$idKey),
+                Limit::perDay(config('auth.customer_limits.login_id_day', 100))->by('customer-login-id-day:'.$idKey),
+                Limit::perMinute(config('auth.customer_limits.login_ip_minute', 120))->by('customer-login-ip:'.($request->ip() ?? 'unknown')),
             ];
         });
 
@@ -66,7 +112,11 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
-        RateLimiter::for('customer-password-reset', fn (Request $request) => Limit::perMinute(5)
-            ->by('customer-password-reset:'.($request->ip() ?? 'unknown')));
+        RateLimiter::for('customer-password-reset', fn (Request $request) => [
+            Limit::perMinute(config('auth.customer_limits.reset_ip_minute', 20))->by('customer-password-reset:'.$request->ip()),
+            Limit::perDay(config('auth.customer_limits.reset_ip_day', 500))->by('customer-password-reset-day:'.$request->ip()),
+            Limit::perMinute(5)->by('customer-password-reset-id:'.$identifierKey($request)),
+            Limit::perDay(10)->by('customer-password-reset-id-day:'.$identifierKey($request)),
+        ]);
     }
 }

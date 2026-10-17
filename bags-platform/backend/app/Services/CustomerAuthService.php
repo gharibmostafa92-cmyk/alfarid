@@ -9,6 +9,7 @@ use App\Enums\CustomerType;
 use App\Exceptions\BusinessException;
 use App\Jobs\SendCustomerPasswordReset;
 use App\Models\Customer;
+use App\Models\CustomerAuditLog;
 use App\Notifications\Channels\CustomerSmsChannel;
 use App\Notifications\CustomerPasswordReset;
 use Illuminate\Support\Facades\DB;
@@ -21,17 +22,32 @@ use Illuminate\Support\Str;
  */
 class CustomerAuthService
 {
+    public static function dummyHash(): string
+    {
+        static $hashes = [];
+        $key = json_encode(config('hashing'));
+
+        return $hashes[$key] ??= Hash::make('not-a-customer-password');
+    }
+
     /** تسجيل متجر قطاعي: نوع retail وحالة approved دائمًا. */
     public function registerRetail(array $data): Customer
     {
-        return Customer::query()->create([
+        $verified = app(CustomerPhoneVerificationService::class)->consume($data);
+
+        $customer = Customer::query()->create([
             'name' => $data['name'],
             'email' => $data['email'] ?? null,
             'phone' => $data['phone'],
             'password' => $data['password'],
             'type' => CustomerType::Retail,
             'status' => CustomerStatus::Approved,
+            'phone_verified_at' => $verified ? now() : null,
+            'approved_at' => now(),
         ]);
+        CustomerAuditLog::record($customer, 'self_registered', null, ['channel' => 'store']);
+
+        return $customer;
     }
 
     /**
@@ -41,22 +57,29 @@ class CustomerAuthService
      */
     public function login(string $identifier, string $password): Customer
     {
-        $identifier = mb_strtolower(trim($identifier));
+        $emailLogin = str_contains($identifier, '@');
+        $identifier = $emailLogin ? mb_strtolower(trim($identifier)) : Customer::normalizePhone($identifier);
+        $dummyHash = self::dummyHash();
         $customer = Customer::query()
-            ->where(fn ($q) => $q->whereRaw('LOWER(email) = ?', [$identifier])->orWhere('phone', $identifier))
+            ->when($emailLogin, fn ($q) => $q->whereNotNull('email_verified_at')->whereRaw('LOWER(email) = ?', [$identifier]), fn ($q) => $q->where('phone', $identifier))
             ->first();
 
-        if ($customer === null || ! Hash::check($password, $customer->password)) {
+        $validPassword = Hash::check($password, $customer?->password ?? $dummyHash);
+        if ($customer === null || ! $validPassword) {
+            CustomerAuditLog::record($customer, 'login_failed', null, ['identifier_key' => hash('sha256', $identifier)]);
             throw new BusinessException('بيانات الدخول غير صحيحة.', [], 401);
         }
 
         if ($customer->status === CustomerStatus::Suspended) {
+            CustomerAuditLog::record($customer, 'login_failed', null, ['reason' => 'suspended']);
             throw new BusinessException(
                 'هذا الحساب موقوف.'.($customer->suspension_reason ? ' السبب: '.$customer->suspension_reason : ''),
                 ['suspension_reason' => $customer->suspension_reason],
                 403,
             );
         }
+
+        CustomerAuditLog::record($customer, 'login_succeeded', null);
 
         return $customer;
     }
@@ -82,8 +105,8 @@ class CustomerAuthService
         }
 
         $customer = Customer::query()
-            ->when($email, fn ($q) => $q->whereRaw('LOWER(email) = ?', [mb_strtolower(trim($email))]),
-                fn ($q) => $q->where('phone', trim($phone)))
+            ->when($email, fn ($q) => $q->whereNotNull('email_verified_at')->whereRaw('LOWER(email) = ?', [mb_strtolower(trim($email))]),
+                fn ($q) => $q->where('phone', Customer::normalizePhone($phone)))
             ->first();
 
         if ($customer === null || $customer->status === CustomerStatus::Suspended) {
@@ -93,17 +116,23 @@ class CustomerAuthService
         $plainToken = Str::random(64);
         $key = $customer->getEmailForPasswordReset();
 
-        $stored = DB::transaction(function () use ($customer, $key, $plainToken): bool {
+        $stored = DB::transaction(function () use ($customer, $key, $plainToken, $email): bool {
             $current = Customer::query()->lockForUpdate()->find($customer->id);
             if ($current === null || $current->status === CustomerStatus::Suspended) {
+                return false;
+            }
+            if ($email && ($current->email_verified_at === null || $current->email !== mb_strtolower(trim($email)))) {
                 return false;
             }
             $existing = DB::table('password_reset_tokens')->where('email', $key)->first();
             if ($existing && now()->subSeconds(60)->lt($existing->created_at)) {
                 return false;
             }
+            if (! app(CustomerMessageBudget::class)->claim('reset:customer:'.$customer->id, sms: ! $email)) {
+                return false;
+            }
             DB::table('password_reset_tokens')->updateOrInsert(
-                ['email' => $key], ['token' => Hash::make($plainToken), 'created_at' => now()],
+                ['email' => $key], ['token' => hash('sha256', $plainToken), 'created_at' => now()],
             );
 
             return true;
@@ -121,21 +150,26 @@ class CustomerAuthService
 
     public function resetPassword(array $data): void
     {
-        DB::transaction(function () use ($data): void {
+        $dummyHash = self::dummyHash();
+        DB::transaction(function () use ($data, $dummyHash): void {
             $customer = Customer::query()
-                ->when(! empty($data['email']), fn ($q) => $q->whereRaw('LOWER(email) = ?', [$data['email']]),
+                ->when(! empty($data['email']), fn ($q) => $q->whereNotNull('email_verified_at')->whereRaw('LOWER(email) = ?', [mb_strtolower(trim($data['email']))]),
                     fn ($q) => $q->where('phone', $data['phone']))
                 ->lockForUpdate()->first();
             $key = $customer?->getEmailForPasswordReset();
             $row = DB::table('password_reset_tokens')->where('email', $key)->lockForUpdate()->first();
+            $storedToken = $row?->token ?? '';
+            $validToken = strlen($storedToken) === 64 ? hash_equals($storedToken, hash('sha256', $data['token']))
+                : Hash::check($data['token'], $storedToken ?: $dummyHash);
             if ($customer === null || $customer->status === CustomerStatus::Suspended || $row === null
                 || $row->created_at === null || now()->subMinutes(60)->gte($row->created_at)
-                || now()->lt($row->created_at) || ! Hash::check($data['token'], $row->token)) {
+                || now()->lt($row->created_at) || ! $validToken) {
                 throw new BusinessException('رمز الاستعادة غير صالح أو انتهت صلاحيته.');
             }
-            $customer->update(['password' => $data['password'], 'remember_token' => Str::random(60)]);
+            $customer->forceFill(['password' => $data['password'], 'remember_token' => Str::random(60)])->save();
             $customer->tokens()->delete();
             DB::table('password_reset_tokens')->where('email', $key)->delete();
+            CustomerAuditLog::record($customer, 'password_reset', null);
         });
     }
 
@@ -148,7 +182,19 @@ class CustomerAuthService
                 throw new BusinessException('هذا الحساب موقوف.', [], 403);
             }
 
-            return $customer->createToken($name)->plainTextToken;
+            $expiry = config('sanctum.expiration');
+            $customer->tokens()->where(fn ($q) => $q->where('expires_at', '<=', now())
+                ->when($expiry, fn ($q) => $q->orWhere('created_at', '<=', now()->subMinutes((int) $expiry))))->delete();
+            $limit = max(1, (int) config('auth.customer_max_tokens', 10));
+            $old = $customer->tokens()->orderByDesc('id')->skip($limit - 1)->pluck('id');
+            if ($old->isNotEmpty()) {
+                $customer->tokens()->whereIn('id', $old)->delete();
+            }
+
+            $token = $customer->createToken($name);
+            CustomerAuditLog::record($customer, 'token_issued', null, ['token_id' => $token->accessToken->id, 'channel' => $name]);
+
+            return $token->plainTextToken;
         });
     }
 }

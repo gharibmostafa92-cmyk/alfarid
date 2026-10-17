@@ -61,8 +61,8 @@ class StoreProductResource extends JsonResource
                     'capacity' => $variant->capacity,
                     'price' => $resolved !== null ? (float) $resolved['unit_price'] : null,
                     'old_price' => $resolved !== null && max((float) $variant->compare_at_price, (float) $resolved['base_price']) > (float) $resolved['unit_price']
+                        && (int) round((1 - $resolved['unit_price'] / max((float) $variant->compare_at_price, (float) $resolved['base_price'])) * 100) >= 1
                         ? max((float) $variant->compare_at_price, (float) $resolved['base_price']) : null,
-                    'available' => $available,
                     'in_stock' => $available > 0,
                 ];
             })->all(),

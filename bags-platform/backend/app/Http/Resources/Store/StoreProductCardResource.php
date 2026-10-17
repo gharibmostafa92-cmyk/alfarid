@@ -46,7 +46,6 @@ class StoreProductCardResource extends JsonResource
             'discount_percentage' => $display['discount_percentage'] ?? null,
             'is_featured' => (bool) $this->is_featured,
             'sales_count' => (int) $this->sales_count,
-            'store_available' => $available,
             'in_stock' => $available > 0,
         ];
     }

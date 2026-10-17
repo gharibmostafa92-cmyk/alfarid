@@ -9,6 +9,7 @@ use App\Enums\CustomerDocumentType;
 use App\Enums\CustomerStatus;
 use App\Enums\CustomerType;
 use App\Models\Customer;
+use App\Models\CustomerAuditLog;
 use App\Models\CustomerDocument;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -30,6 +31,8 @@ class WholesaleRegistrationService
      */
     public function register(array $data, array $files, array $documentTypes = []): array
     {
+        $files = array_values($files);
+        $documentTypes = array_values($documentTypes);
         $storedPaths = [];
         $staged = [];
         $stagingDirectory = 'customer_documents/pending/'.Str::uuid();
@@ -51,6 +54,7 @@ class WholesaleRegistrationService
             }
 
             $registration = DB::transaction(function () use ($data, $staged, &$storedPaths): array {
+                $verified = app(CustomerPhoneVerificationService::class)->consume($data);
                 $customer = Customer::query()->create([
                     'name' => $data['name'],
                     'email' => $data['email'] ?? null,
@@ -58,6 +62,7 @@ class WholesaleRegistrationService
                     'password' => $data['password'],
                     'type' => CustomerType::Wholesale,
                     'status' => CustomerStatus::Pending,
+                    'phone_verified_at' => $verified ? now() : null,
                     'company_name' => $data['company_name'],
                     'tax_number' => $data['tax_number'],
                     'commercial_register' => $data['commercial_register'],
@@ -80,6 +85,8 @@ class WholesaleRegistrationService
                         'status' => CustomerDocumentStatus::Pending,
                     ]);
                 }
+
+                CustomerAuditLog::record($customer, 'self_registered', null, ['channel' => 'wholesale']);
 
                 return [
                     'customer' => $customer->load('documents'),

@@ -35,6 +35,7 @@ class CustomerDocument extends Model
         return [
             'document_type' => CustomerDocumentType::class,
             'status' => CustomerDocumentStatus::class,
+            'reviewed_at' => 'datetime',
         ];
     }
 }

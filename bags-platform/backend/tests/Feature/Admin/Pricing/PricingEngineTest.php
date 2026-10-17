@@ -292,6 +292,7 @@ class PricingEngineTest extends TestCase
             'name' => 'عميل '.uniqid(),
             'email' => uniqid().'@example.com',
             'phone' => '010'.random_int(10000000, 99999999),
+            'company_name' => 'Company', 'tax_number' => '123', 'commercial_register' => '456',
             'password' => Hash::make('password'),
             'type' => $type,
             'status' => $status,

@@ -22,6 +22,7 @@ class CustomerPermissionSeeder extends Seeder
         $permissions = [
             'customers.view', 'customers.create', 'customers.update', 'customers.delete',
             'customers.approve',
+            'customers.documents.view',
         ];
 
         $created = [];

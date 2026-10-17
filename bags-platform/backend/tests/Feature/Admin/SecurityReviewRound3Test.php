@@ -316,7 +316,8 @@ class SecurityReviewRound3Test extends TestCase
     private function customer(CustomerType $type, ?int $groupId = null): Customer
     {
         return Customer::create([
-            'name' => 'Buyer', 'email' => uniqid().'@example.com', 'phone' => uniqid(),
+            'name' => 'Buyer', 'email' => uniqid().'@example.com', 'phone' => fake()->unique()->numerify('010########'),
+            'company_name' => 'Company', 'tax_number' => '123', 'commercial_register' => '456',
             'password' => 'password', 'type' => $type, 'status' => CustomerStatus::Approved,
             'customer_group_id' => $groupId,
         ]);

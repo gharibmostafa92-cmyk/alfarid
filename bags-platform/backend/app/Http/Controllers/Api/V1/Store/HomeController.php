@@ -9,6 +9,7 @@ use App\Http\Resources\Store\StoreBannerResource;
 use App\Http\Resources\Store\StoreProductCardResource;
 use App\Models\Banner;
 use App\Services\StoreCatalogService;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -25,7 +26,13 @@ class HomeController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $ids = Cache::remember('store_home_data', 300, fn () => $this->catalog->homeSectionIds());
+        try {
+            $load = fn () => Cache::flexible('store_home_data', [300, 1800],
+                fn () => $this->catalog->homeSectionIds(), ['seconds' => 120]);
+            $ids = Cache::has('store_home_data') ? $load() : Cache::lock('store_home_data:build', 120)->block(3, $load);
+        } catch (LockTimeoutException) {
+            return response()->json(['message' => 'الصفحة قيد التحديث؛ أعد المحاولة بعد لحظات.'], 503, ['Retry-After' => '2']);
+        }
         $allIds = array_unique([...$ids['latest_ids'], ...$ids['best_seller_ids'], ...$ids['discounted_ids']]);
         $cards = StoreProductCardResource::collection($this->catalog->publishedQuery()
             ->whereIn('products.id', $allIds)->get())->resolve($request);

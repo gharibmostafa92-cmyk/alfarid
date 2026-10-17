@@ -11,6 +11,8 @@ use App\Exceptions\BusinessException;
 use App\Models\Customer;
 use App\Models\PriceListItem;
 use App\Models\ProductVariant;
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -40,7 +42,7 @@ class PricingService
         $channel = $this->channelFor($customer);
         $group = $eligible ? $customer->customerGroup : null;
         $group = $group?->is_active ? $group : null;
-        $factor = $group !== null ? 1 - (float) $group->discount_percentage / 100 : 1;
+        $factor = $this->discountFactor($group?->discount_percentage ?? '0');
         $items = $this->eligibleItems(null, 1, null, Carbon::now())
             ->where(function ($q) use ($eligible, $customer, $group, $channel): void {
                 $q->whereIn('price_lists.type', array_unique([$channel->value, PriceListType::Retail->value]));
@@ -88,7 +90,7 @@ class PricingService
             )->first();
 
             if ($item !== null) {
-                return $this->formatResponse((float) $item->price, PriceListType::CustomerSpecific->value, (int) $item->price_list_id, $variant, $channel);
+                return $this->formatResponse($item->price, PriceListType::CustomerSpecific->value, (int) $item->price_list_id, $variant, $channel);
             }
         }
 
@@ -101,7 +103,7 @@ class PricingService
             )->first();
 
             if ($item !== null) {
-                return $this->formatResponse((float) $item->price, PriceListType::CustomerGroup->value, (int) $item->price_list_id, $variant, $channel);
+                return $this->formatResponse($item->price, PriceListType::CustomerGroup->value, (int) $item->price_list_id, $variant, $channel);
             }
         }
 
@@ -123,7 +125,7 @@ class PricingService
         }
 
         if ($item !== null) {
-            $channelPrice = (float) $item->price;
+            $channelPrice = (string) $item->price;
             $channelListId = (int) $item->price_list_id;
             $channelSource = $channel->value;
         } elseif ($variant->retail_price === null) {
@@ -141,7 +143,7 @@ class PricingService
         // ولا يتجاوزه أبدًا — فلا يخسر العميل سعر جملة/موزع أفضل بسبب خصم مجموعته.
         if ($group !== null && (float) $group->discount_percentage > 0) {
             return $this->formatResponse(
-                $channelPrice * (1 - (float) $group->discount_percentage / 100),
+                (string) BigDecimal::of($channelPrice)->multipliedBy($this->discountFactor($group->discount_percentage)),
                 'customer_group_discount',
                 $channelListId,
                 $variant,
@@ -164,9 +166,14 @@ class PricingService
         return PriceListType::Retail;
     }
 
-    private function basePrice(ProductVariant $variant, PriceListType $channel): float
+    private function basePrice(ProductVariant $variant, PriceListType $channel): ?string
     {
-        return (float) $variant->base_price;
+        return $variant->retail_price === null ? null : $variant->base_price;
+    }
+
+    private function discountFactor(string $percentage): string
+    {
+        return (string) BigDecimal::of('100')->minus($percentage)->dividedBy('100', 8);
     }
 
     /** كل عناصر التسعير السارية لهذا المتغير والكمية والفرع والوقت. */
@@ -205,11 +212,11 @@ class PricingService
     /**
      * @return array{unit_price: float, base_price: float, source: string, price_list_id: int|null}
      */
-    private function formatResponse(float $unitPrice, string $source, ?int $priceListId, ProductVariant $variant, PriceListType $channel): array
+    private function formatResponse(string|float $unitPrice, string $source, ?int $priceListId, ProductVariant $variant, PriceListType $channel): array
     {
         return [
-            'unit_price' => round($unitPrice, 2),
-            'base_price' => round($this->basePrice($variant, $channel), 2),
+            'unit_price' => (float) (string) BigDecimal::of((string) $unitPrice)->toScale(2, RoundingMode::HalfUp),
+            'base_price' => (float) (string) BigDecimal::of($this->basePrice($variant, $channel) ?? (string) $unitPrice)->toScale(2, RoundingMode::HalfUp),
             'source' => $source,
             'price_list_id' => $priceListId,
         ];

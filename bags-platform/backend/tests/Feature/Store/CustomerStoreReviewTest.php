@@ -250,13 +250,13 @@ class CustomerStoreReviewTest extends TestCase
         $this->assertSame(CustomerType::Wholesale, $customer->refresh()->type);
     }
 
-    public function test_email_normalization_prevents_duplicates_and_allows_case_insensitive_login(): void
+    public function test_email_is_normalized_and_unverified_addresses_do_not_reserve_login_identity(): void
     {
         $this->postJson('/api/v1/store/auth/register', ['name' => 'X', 'email' => ' User@Example.Test ', 'phone' => ' 01000000000 ', 'password' => 'password'])
             ->assertCreated()->assertJsonPath('data.email', 'user@example.test')->assertJsonPath('data.phone', '01000000000');
-        $this->postJson('/api/v1/store/auth/login', ['login' => 'USER@EXAMPLE.TEST', 'password' => 'password'])->assertOk();
+        $this->postJson('/api/v1/store/auth/login', ['login' => 'USER@EXAMPLE.TEST', 'password' => 'password'])->assertUnauthorized();
         $this->postJson('/api/v1/store/auth/register', ['name' => 'Y', 'email' => 'USER@example.test', 'phone' => '01000000001', 'password' => 'password'])
-            ->assertUnprocessable()->assertJsonValidationErrors('email');
+            ->assertCreated();
     }
 
     public function test_deleted_customers_can_be_found_and_restored_without_losing_status_or_history(): void
@@ -360,7 +360,7 @@ class CustomerStoreReviewTest extends TestCase
         $customer = Customer::factory()->create();
         $document = $customer->documents()->create(['document_type' => 'other', 'file_path' => 'missing.pdf',
             'original_name' => "directory\\bad\"name\r\n.pdf", 'mime_type' => 'application/pdf']);
-        $token = $this->staff(['customers.view']);
+        $token = $this->staff(['customers.view', 'customers.documents.view']);
         $uri = "/api/v1/admin/customers/{$customer->id}/documents/{$document->id}/download";
 
         $this->withToken($token)->getJson($uri)->assertNotFound();
@@ -433,7 +433,7 @@ class CustomerStoreReviewTest extends TestCase
     public function test_verified_wholesale_details_cannot_be_erased_by_basic_update(): void
     {
         $customer = Customer::factory()->wholesale()->create(['status' => 'approved']);
-        $token = $this->staff(['customers.update']);
+        $token = $this->staff(['customers.update', 'customers.approve']);
 
         $this->withToken($token)->putJson('/api/v1/admin/customers/'.$customer->id, ['tax_number' => null])->assertUnprocessable();
         $this->assertNotNull($customer->refresh()->tax_number);
@@ -442,7 +442,8 @@ class CustomerStoreReviewTest extends TestCase
     public function test_variant_list_inherits_weight_without_per_variant_parent_queries_and_update_keeps_images(): void
     {
         $product = Product::factory()->create(['weight_kg' => 2]);
-        $variants = ProductVariant::factory()->count(8)->create(['product_id' => $product->id, 'weight_kg' => null]);
+        $variants = ProductVariant::factory()->count(8)->sequence(fn ($sequence) => ['size' => 'size-'.$sequence->index])
+            ->create(['product_id' => $product->id, 'weight_kg' => null]);
         $token = $this->staff(['products.view', 'products.update']);
         $queries = [];
         DB::listen(function ($event) use (&$queries): void {

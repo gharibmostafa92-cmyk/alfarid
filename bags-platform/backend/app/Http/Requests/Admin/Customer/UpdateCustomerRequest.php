@@ -14,7 +14,7 @@ class UpdateCustomerRequest extends FormRequest
 
     public function authorize(): bool
     {
-        return ! $this->hasAny(['credit_limit', 'customer_group_id']) || $this->user()->can('customers.approve');
+        return ! $this->hasAny(['credit_limit', 'customer_group_id', 'password', 'email', 'phone', 'company_name', 'tax_number', 'commercial_register']) || $this->user()->can('customers.approve');
     }
 
     /**
@@ -26,8 +26,8 @@ class UpdateCustomerRequest extends FormRequest
 
         return [
             'name' => ['sometimes', 'string', 'max:255'],
-            'email' => ['sometimes', 'nullable', 'email', 'max:255', Rule::unique('customers', 'email')->ignore($customerId)],
-            'phone' => ['sometimes', 'string', 'max:20', Rule::unique('customers', 'phone')->ignore($customerId)],
+            'email' => ['sometimes', 'nullable', 'email', 'max:255'],
+            'phone' => ['sometimes', 'string', 'regex:/^01[0125][0-9]{8}$/', Rule::unique('customers', 'phone')->ignore($customerId)],
             'password' => ['sometimes', 'string', 'min:8', 'max:255'],
             'type' => ['missing'],
             'status' => ['missing'],

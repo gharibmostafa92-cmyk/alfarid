@@ -7,11 +7,14 @@ namespace App\Http\Controllers\Api\V1\Store;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Store\ForgotPasswordRequest;
 use App\Http\Requests\Store\LoginRequest;
+use App\Http\Requests\Store\PhoneVerificationRequest;
 use App\Http\Requests\Store\RegisterRequest;
 use App\Http\Requests\Store\ResetPasswordRequest;
 use App\Http\Resources\Store\CustomerResource;
+use App\Jobs\SendCustomerPhoneVerification;
 use App\Services\CartService;
 use App\Services\CustomerAuthService;
+use App\Services\CustomerPhoneVerificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -73,5 +76,21 @@ class AuthController extends Controller
         $this->auth->resetPassword($request->validated());
 
         return response()->json(['message' => 'تم تغيير كلمة المرور؛ سجل الدخول من جديد.']);
+    }
+
+    public function sendPhoneVerification(PhoneVerificationRequest $request): JsonResponse
+    {
+        SendCustomerPhoneVerification::dispatch($request->validated()['phone'])
+            ->onConnection(config('auth.customer_password_reset.connection', 'database'));
+
+        return response()->json(['message' => 'لو الرقم متاح للتسجيل، سيتم إرسال رمز التحقق إليه.']);
+    }
+
+    public function verifyPhone(PhoneVerificationRequest $request): JsonResponse
+    {
+        $data = $request->validated();
+        $proof = app(CustomerPhoneVerificationService::class)->verify($data['phone'], $data['code']);
+
+        return response()->json(['phone_verification_token' => $proof, 'expires_in' => 600]);
     }
 }
