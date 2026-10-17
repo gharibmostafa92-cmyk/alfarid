@@ -34,20 +34,30 @@ class PaymentWebhookService
         $provider = 'payment:'.$gateway;
         // مفتاح الحدث: معرّف البوابة، وإلا بصمة جسم الطلب (H4)
         $eventId = $this->extractEventId($payload) ?? 'sha256:'.hash('sha256', $rawBody);
-        $log = $this->startLog($provider, $eventId, $payload, $ip);
+
+        // حد حجم الجسم أولًا — الرفض بسجل مختصر بلا حمولة (M4)
+        if (strlen($rawBody) > 262144) {
+            $this->slimLog($provider, $eventId, 'rejected', 'payload too large', $ip);
+
+            return ['http' => 413, 'body' => ['received' => false, 'message' => 'payload too large']];
+        }
 
         $config = config("webhooks.payment.{$gateway}");
         if (! is_array($config)) {
-            $log->update(['status' => 'failed', 'error' => 'بوابة دفع غير معروفة']);
+            $this->slimLog($provider, $eventId, 'failed', 'بوابة دفع غير معروفة', $ip);
 
             return ['http' => 404, 'body' => ['received' => false, 'message' => 'unknown gateway']];
         }
 
+        // التحقق من التوقيع قبل تخزين الحمولة: محاولات مجهولة لا تملأ
+        // webhook_logs.payload — تُسجل مختصرة فقط (M4)
         if (! $this->verifier->verify($config['secret'] ?? null, $rawBody, $signature)) {
-            $log->update(['status' => 'invalid_signature', 'signature_valid' => false]);
+            $this->slimLog($provider, $eventId, 'invalid_signature', null, $ip);
 
             return ['http' => 403, 'body' => ['received' => false, 'message' => 'invalid signature']];
         }
+
+        $log = $this->startLog($provider, $eventId, $payload, $ip);
         $log->update(['signature_valid' => true]);
 
         return DB::transaction(function () use ($gateway, $provider, $eventId, $payload, $log, $config): array {
@@ -217,6 +227,20 @@ class PaymentWebhookService
             'event_id' => $eventId,
             'payload' => $payload,
             'status' => 'received',
+            'ip_address' => $ip,
+        ]);
+    }
+
+    /** سجل مختصر للطلبات المرفوضة قبل التحقق — بلا تخزين للحمولة (M4). */
+    private function slimLog(string $provider, string $eventId, string $status, ?string $error, ?string $ip): void
+    {
+        WebhookLog::create([
+            'provider' => $provider,
+            'event_id' => $eventId,
+            'payload' => null,
+            'signature_valid' => false,
+            'status' => $status,
+            'error' => $error,
             'ip_address' => $ip,
         ]);
     }

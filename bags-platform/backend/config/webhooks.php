@@ -30,7 +30,8 @@ return [
     ],
 
     'shipping' => [
-        'default_secret' => env('SHIPPING_WEBHOOK_SECRET'),
+        // سر التوقيع لكل شركة من api_credentials.webhook_secret حصرًا (M10):
+        // لا سر افتراضي مشترك ولا رجوع لمفتاح API.
         'signature_header' => env('SHIPPING_SIGNATURE_HEADER', 'X-Webhook-Signature'),
     ],
 ];

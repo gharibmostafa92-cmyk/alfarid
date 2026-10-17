@@ -59,22 +59,32 @@ class ShippingWebhookService
     {
         $provider = 'shipping:'.$companyCode;
         $eventId = $this->effectiveEventId($payload, $rawBody);
-        $log = $this->startLog($provider, $eventId, $payload, $ip);
+
+        if (strlen($rawBody) > 262144) {
+            $this->slimLog($provider, $eventId, 'rejected', 'payload too large', $ip);
+
+            return ['http' => 413, 'body' => ['received' => false, 'message' => 'payload too large']];
+        }
 
         $company = ShippingCompany::query()->where('code', $companyCode)->first();
         if ($company === null) {
-            $log->update(['status' => 'failed', 'error' => 'شركة شحن غير معروفة']);
+            $this->slimLog($provider, $eventId, 'failed', 'شركة شحن غير معروفة', $ip);
 
             return ['http' => 404, 'body' => ['received' => false, 'message' => 'unknown company']];
         }
 
+        // سر التوقيع: webhook_secret الخاص بالشركة فقط — لا رجوع لمفتاح API
+        // ولا لسر افتراضي مشترك (M10)، والتحقق قبل تخزين الحمولة (M4)
         $credentials = $company->api_credentials ?? [];
-        $secret = $credentials['webhook_secret'] ?? $credentials['api_key'] ?? config('webhooks.shipping.default_secret');
-        if (! $this->verifier->verify(is_string($secret) ? $secret : null, $rawBody, $signature)) {
-            $log->update(['status' => 'invalid_signature', 'signature_valid' => false]);
+        $secret = $credentials['webhook_secret'] ?? null;
+        if (! is_string($secret) || $secret === '' || ! $this->verifier->verify($secret, $rawBody, $signature)) {
+            $this->slimLog($provider, $eventId, 'invalid_signature',
+                (! is_string($secret) || $secret === '') ? 'لا يوجد webhook_secret مضبوط للشركة' : null, $ip);
 
             return ['http' => 403, 'body' => ['received' => false, 'message' => 'invalid signature']];
         }
+
+        $log = $this->startLog($provider, $eventId, $payload, $ip);
         $log->update(['signature_valid' => true]);
 
         return DB::transaction(function () use ($provider, $payload, $log, $company): array {
@@ -208,6 +218,20 @@ class ShippingWebhookService
             'event_id' => $eventId,
             'payload' => $payload,
             'status' => 'received',
+            'ip_address' => $ip,
+        ]);
+    }
+
+    /** سجل مختصر للطلبات المرفوضة قبل التحقق — بلا تخزين للحمولة (M4). */
+    private function slimLog(string $provider, string $eventId, string $status, ?string $error, ?string $ip): void
+    {
+        WebhookLog::create([
+            'provider' => $provider,
+            'event_id' => $eventId,
+            'payload' => null,
+            'signature_valid' => false,
+            'status' => $status,
+            'error' => $error,
             'ip_address' => $ip,
         ]);
     }
