@@ -9,12 +9,14 @@ use App\Enums\ShipmentStatus;
 use App\Models\Shipment;
 use App\Models\ShippingCompany;
 use App\Models\WebhookLog;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 /**
  * معالجة ويب هوك شركات الشحن:
- * تسجيل أولًا (Idempotency) ← تحقق HMAC بسر الشركة ← تحديث البوليصة ←
- * عند delivered تحويل الطلب إلى DELIVERED (وإثبات دفع COD).
+ * تسجيل أولًا ← تحقق HMAC بسر الشركة ← معالجة ذرّية بقفل استشاري (H4) ←
+ * تحديث البوليصة مع احترام ترتيب الحالات وعدم التراجع من حالة نهائية (H6) ←
+ * عند delivered تحويل الطلب إلى DELIVERED وإثبات دفع COD.
  */
 class ShippingWebhookService
 {
@@ -37,6 +39,16 @@ class ShippingWebhookService
         'rto' => ShipmentStatus::Returned,
     ];
 
+    /** رتبة التقدم في سلسلة التسليم — التراجع في الرتبة يعني حدثًا متأخرًا. */
+    private const RANK = [
+        'created' => 0,
+        'picked_up' => 1,
+        'in_transit' => 2,
+        'out_for_delivery' => 3,
+        'delivered' => 4,
+        'returned' => 4,
+    ];
+
     public function __construct(
         protected WebhookSignatureVerifier $verifier,
         protected OrderService $orders,
@@ -46,11 +58,12 @@ class ShippingWebhookService
     public function handle(string $companyCode, array $payload, string $rawBody, ?string $signature, ?string $ip): array
     {
         $provider = 'shipping:'.$companyCode;
-        $log = $this->startLog($provider, $this->extractEventId($payload), $payload, $ip);
+        $eventId = $this->effectiveEventId($payload, $rawBody);
+        $log = $this->startLog($provider, $eventId, $payload, $ip);
 
         $company = ShippingCompany::query()->where('code', $companyCode)->first();
         if ($company === null) {
-            $log?->update(['status' => 'failed', 'error' => 'شركة شحن غير معروفة']);
+            $log->update(['status' => 'failed', 'error' => 'شركة شحن غير معروفة']);
 
             return ['http' => 404, 'body' => ['received' => false, 'message' => 'unknown company']];
         }
@@ -58,57 +71,110 @@ class ShippingWebhookService
         $credentials = $company->api_credentials ?? [];
         $secret = $credentials['webhook_secret'] ?? $credentials['api_key'] ?? config('webhooks.shipping.default_secret');
         if (! $this->verifier->verify(is_string($secret) ? $secret : null, $rawBody, $signature)) {
-            $log?->update(['status' => 'invalid_signature', 'signature_valid' => false]);
+            $log->update(['status' => 'invalid_signature', 'signature_valid' => false]);
 
             return ['http' => 403, 'body' => ['received' => false, 'message' => 'invalid signature']];
         }
-        $log?->update(['signature_valid' => true]);
+        $log->update(['signature_valid' => true]);
 
-        if ($log !== null && $this->alreadyProcessed($provider, $log)) {
-            $log->update(['status' => 'duplicate']);
+        return DB::transaction(function () use ($provider, $payload, $log, $company): array {
+            DB::statement('SELECT pg_advisory_xact_lock(hashtext(?))', [$provider.':'.$log->event_id]);
 
-            return ['http' => 200, 'body' => ['received' => true, 'duplicate' => true]];
-        }
+            if ($this->alreadyProcessed($provider, $log)) {
+                $log->update(['status' => 'duplicate']);
 
-        $awb = $this->firstValue($payload, ['awb_number', 'tracking_number', 'awb', 'data.awb_number', 'data.tracking_number']);
-        $shipment = $awb !== null
-            ? Shipment::query()->where('awb_number', (string) $awb)->where('shipping_company_id', $company->id)->first()
-            : null;
-        if ($shipment === null) {
-            $log?->update(['status' => 'failed', 'error' => 'بوليصة غير موجودة: '.($awb !== null ? (string) $awb : '—')]);
+                return ['http' => 200, 'body' => ['received' => true, 'duplicate' => true]];
+            }
 
-            return ['http' => 200, 'body' => ['received' => false, 'message' => 'shipment not found']];
-        }
+            $awb = $this->firstValue($payload, ['awb_number', 'tracking_number', 'awb', 'data.awb_number', 'data.tracking_number']);
+            $shipment = $awb !== null
+                ? Shipment::query()->where('awb_number', (string) $awb)->where('shipping_company_id', $company->id)->lockForUpdate()->first()
+                : null;
+            if ($shipment === null) {
+                $log->update(['status' => 'failed', 'error' => 'بوليصة غير موجودة: '.($awb !== null ? (string) $awb : '—')]);
 
-        $status = $this->mapStatus($payload);
-        if ($status === null) {
-            $log?->update(['status' => 'ignored', 'error' => 'حالة شحن غير معروفة في الحمولة']);
+                return ['http' => 200, 'body' => ['received' => false, 'message' => 'shipment not found']];
+            }
 
-            return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
-        }
+            $status = $this->mapStatus($payload);
+            if ($status === null) {
+                $log->update(['status' => 'ignored', 'error' => 'حالة شحن غير معروفة في الحمولة']);
 
-        $shipment->update(['status' => $status]);
+                return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
+            }
 
-        $note = null;
-        if ($status === ShipmentStatus::Delivered) {
-            $order = $shipment->order;
-            if ($order !== null) {
-                if ($order->payment_method === 'cod' && $order->payment_status !== 'paid') {
-                    $order->update(['payment_status' => 'paid']);
-                }
-                if ($order->status === OrderStatus::Shipped) {
-                    try {
-                        $this->orders->changeStatus($order, OrderStatus::Delivered, null, 'تم التسليم — إشعار شركة الشحن');
-                    } catch (Throwable $e) {
-                        $note = 'تم تسليم البوليصة لكن تحويل الطلب فشل: '.$e->getMessage();
+            // ترتيب الحالات: لا تراجع من حالة نهائية ولا في سلسلة التقدم (H6)
+            if (! $this->transitionAllowed($shipment->status, $status)) {
+                $log->update(['status' => 'ignored', 'error' => "حدث متأخر/متراجع: {$shipment->status->value} ← {$status->value}"]);
+
+                return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
+            }
+
+            $shipment->update(['status' => $status]);
+
+            $note = null;
+            if ($status === ShipmentStatus::Delivered) {
+                $order = $shipment->order;
+                if ($order !== null) {
+                    if ($order->payment_method === 'cod' && $order->payment_status !== 'paid') {
+                        $order->update(['payment_status' => 'paid']);
+                    }
+                    if ($order->status === OrderStatus::Shipped) {
+                        try {
+                            $this->orders->changeStatus($order, OrderStatus::Delivered, null, 'تم التسليم — إشعار شركة الشحن');
+                        } catch (Throwable $e) {
+                            $note = 'تم تسليم البوليصة لكن تحويل الطلب فشل: '.$e->getMessage();
+                        }
                     }
                 }
             }
+
+            $log->update(['status' => 'processed', 'error' => $note]);
+
+            return ['http' => 200, 'body' => ['received' => true]];
+        });
+    }
+
+    private function transitionAllowed(ShipmentStatus $current, ShipmentStatus $new): bool
+    {
+        if ($current === $new) {
+            return true;
+        }
+        // الحالات النهائية لا تتحرك
+        if (in_array($current, [ShipmentStatus::Delivered, ShipmentStatus::Returned], true)) {
+            return false;
+        }
+        // الفشل قد يحدث في أي مرحلة، ومن الفشل يمكن استئناف التقدم (إعادة محاولة التسليم)
+        if ($new === ShipmentStatus::Failed || $current === ShipmentStatus::Failed) {
+            return true;
+        }
+        // الإرجاع مسموح من أي مرحلة غير نهائية
+        if ($new === ShipmentStatus::Returned) {
+            return true;
         }
 
-        $log?->update(['status' => 'processed', 'error' => $note]);
+        return (self::RANK[$new->value] ?? 0) >= (self::RANK[$current->value] ?? 0);
+    }
 
-        return ['http' => 200, 'body' => ['received' => true]];
+    /**
+     * مفتاح حدث فعّال: معرّف حدث حقيقي فقط (id الشحنة ثابت في كل تحديثاتها
+     * فلا يصلح مفتاحًا)، وإلا مركّب awb|status|timestamp، وإلا بصمة الجسم.
+     */
+    private function effectiveEventId(array $payload, string $rawBody): string
+    {
+        $eventId = $this->firstValue($payload, ['event_id', 'eventId', 'data.event_id']);
+        if ($eventId !== null) {
+            return (string) $eventId;
+        }
+
+        $awb = $this->firstValue($payload, ['awb_number', 'tracking_number', 'awb', 'data.awb_number']);
+        $status = $this->firstValue($payload, ['status', 'state', 'shipment_status', 'data.status']);
+        $timestamp = $this->firstValue($payload, ['timestamp', 'occurred_at', 'updated_at', 'data.timestamp', 'data.updated_at']);
+        if ($awb !== null && $status !== null && $timestamp !== null) {
+            return $awb.'|'.$status.'|'.$timestamp;
+        }
+
+        return 'sha256:'.hash('sha256', $rawBody);
     }
 
     private function mapStatus(array $payload): ?ShipmentStatus
@@ -120,13 +186,6 @@ class ShippingWebhookService
         $key = str_replace([' ', '-'], '_', strtolower(trim((string) $raw)));
 
         return self::STATUS_MAP[$key] ?? null;
-    }
-
-    private function extractEventId(array $payload): ?string
-    {
-        $value = $this->firstValue($payload, ['event_id', 'id', 'data.id', 'data.event_id']);
-
-        return $value !== null ? (string) $value : null;
     }
 
     /** @param array<int, string> $keys */
@@ -142,7 +201,7 @@ class ShippingWebhookService
         return null;
     }
 
-    private function startLog(string $provider, ?string $eventId, array $payload, ?string $ip): ?WebhookLog
+    private function startLog(string $provider, string $eventId, array $payload, ?string $ip): WebhookLog
     {
         return WebhookLog::create([
             'provider' => $provider,
@@ -155,10 +214,6 @@ class ShippingWebhookService
 
     private function alreadyProcessed(string $provider, WebhookLog $current): bool
     {
-        if ($current->event_id === null) {
-            return false;
-        }
-
         return WebhookLog::query()
             ->where('provider', $provider)
             ->where('event_id', $current->event_id)

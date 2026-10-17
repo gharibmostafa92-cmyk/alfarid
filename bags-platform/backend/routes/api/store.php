@@ -46,6 +46,7 @@ Route::prefix('cart')->name('cart.')->group(function (): void {
     Route::put('items/{item}', [CartController::class, 'update'])->name('items.update');
     Route::delete('items/{item}', [CartController::class, 'destroy'])->name('items.destroy');
     Route::post('coupon', [CartController::class, 'applyCoupon'])->name('coupon.apply');
+    Route::delete('coupon', [CartController::class, 'removeCoupon'])->name('coupon.remove');
 });
 
 Route::prefix('checkout')->name('checkout.')->group(function (): void {
