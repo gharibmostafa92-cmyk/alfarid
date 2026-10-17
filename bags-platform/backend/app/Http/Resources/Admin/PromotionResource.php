@@ -23,6 +23,8 @@ class PromotionResource extends JsonResource
             'starts_at' => $this->starts_at,
             'ends_at' => $this->ends_at,
             'is_active' => $this->is_active,
+            // العروض تُدار فقط حاليًا ولا تُطبق تلقائيًا عند الشراء (M12)
+            'auto_applied' => false,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];

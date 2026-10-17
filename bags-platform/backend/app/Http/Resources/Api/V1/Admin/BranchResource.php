@@ -23,6 +23,7 @@ class BranchResource extends JsonResource
             'email' => $this->email,
             'address' => $this->address,
             'city' => $this->city,
+            'city_id' => $this->city_id,
             'is_active' => $this->is_active,
             'locations_count' => $this->whenCounted('locations'),
             'employees_count' => $this->whenCounted('users'),
