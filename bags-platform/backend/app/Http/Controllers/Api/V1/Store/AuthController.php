@@ -10,6 +10,7 @@ use App\Http\Requests\Store\LoginRequest;
 use App\Http\Requests\Store\RegisterRequest;
 use App\Http\Requests\Store\ResetPasswordRequest;
 use App\Http\Resources\Store\CustomerResource;
+use App\Services\CartService;
 use App\Services\CustomerAuthService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,7 +19,10 @@ use Illuminate\Support\Facades\DB;
 /** مصادقة المتجر القطاعي: تسجيل فوري معتمد، دخول، خروج، واستعادة كلمة المرور. */
 class AuthController extends Controller
 {
-    public function __construct(private readonly CustomerAuthService $auth) {}
+    public function __construct(
+        private readonly CustomerAuthService $auth,
+        private readonly CartService $carts,
+    ) {}
 
     public function register(RegisterRequest $request): JsonResponse
     {
@@ -27,6 +31,9 @@ class AuthController extends Controller
 
             return [$customer, $this->auth->issueToken($customer, 'store-token')];
         });
+
+        // حساب جديد = دخول فوري: تُدمج سلة الزائر إن وُجدت
+        $this->carts->mergeGuestCart($customer, $request->header('X-Cart-Session'));
 
         return CustomerResource::make($customer)
             ->additional(['message' => 'تم إنشاء حسابك بنجاح', 'token' => $token])
@@ -38,6 +45,9 @@ class AuthController extends Controller
     {
         $customer = $this->auth->login($request->validated()['login'], $request->validated()['password']);
         $token = $this->auth->issueToken($customer, 'store-token');
+
+        // دمج سلة الزائر (إن وُجدت بهيدر الجلسة) في سلة الحساب تلقائيًا
+        $this->carts->mergeGuestCart($customer, $request->header('X-Cart-Session'));
 
         return CustomerResource::make($customer)
             ->additional(['message' => 'تم تسجيل الدخول بنجاح', 'token' => $token]);

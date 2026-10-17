@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\V1\Admin\CustomerController;
 use App\Http\Controllers\Api\V1\Admin\CustomerGroupController;
 use App\Http\Controllers\Api\V1\Admin\InventoryController;
 use App\Http\Controllers\Api\V1\Admin\LocationController;
+use App\Http\Controllers\Api\V1\Admin\OrderController;
 use App\Http\Controllers\Api\V1\Admin\PermissionController;
 use App\Http\Controllers\Api\V1\Admin\PriceListController;
 use App\Http\Controllers\Api\V1\Admin\PriceListItemController;
@@ -164,6 +165,12 @@ Route::middleware(['auth:sanctum', 'auth.staff'])
             Route::get('customers/{customer}/documents/{document}/download', [CustomerController::class, 'downloadDocument'])
                 ->name('customers.documents.download');
         });
+
+        // ================== المرحلة 7: الطلبات ==================
+        Route::get('orders', [OrderController::class, 'index'])->name('orders.index');
+        Route::get('orders/{order}', [OrderController::class, 'show'])->name('orders.show');
+        Route::patch('orders/{order}/status', [OrderController::class, 'updateStatus'])->name('orders.status');
+        Route::post('orders/{order}/allocate', [OrderController::class, 'allocate'])->name('orders.allocate');
 
         Route::get('settings', [SettingController::class, 'index'])
             ->middleware('permission:settings.view|settings.manage')

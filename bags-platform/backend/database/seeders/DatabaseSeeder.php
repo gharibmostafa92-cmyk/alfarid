@@ -25,6 +25,7 @@ class DatabaseSeeder extends Seeder
         $this->call(InventoryPermissionSeeder::class);
         $this->call(PricingPermissionSeeder::class);
         $this->call(CustomerPermissionSeeder::class);
+        $this->call(OrderPermissionSeeder::class);
 
         if (app()->environment(['local', 'testing'])) {
             $testUser = User::factory()->make([
