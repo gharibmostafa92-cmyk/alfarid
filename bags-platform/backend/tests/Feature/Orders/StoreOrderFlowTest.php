@@ -56,9 +56,11 @@ class StoreOrderFlowTest extends TestCase
         $this->assertNotEmpty($token);
         $headers = ['X-Cart-Session' => $token];
 
-        $this->withHeaders($headers)->postJson('/api/v1/store/cart/items', [
+        $added = $this->withHeaders($headers)->postJson('/api/v1/store/cart/items', [
             'product_variant_id' => $variant->id, 'qty' => 2,
         ])->assertOk()->assertJsonPath('data.totals.items_total', 400);
+        $itemId = $added->json('data.items.0.id');
+        $this->assertNotEmpty($itemId);
 
         // إضافة نفس الصنف تتراكم على نفس البند
         $this->withHeaders($headers)->postJson('/api/v1/store/cart/items', [
@@ -66,17 +68,16 @@ class StoreOrderFlowTest extends TestCase
         ])->assertOk()->assertJsonPath('data.items.0.qty', 3);
 
         // كمية تتجاوز المتاح تُرفض
-        $this->withHeaders($headers)->putJson('/api/v1/store/cart/items', [
-            'product_variant_id' => $variant->id, 'qty' => 6,
+        $this->withHeaders($headers)->putJson("/api/v1/store/cart/items/{$itemId}", [
+            'qty' => 6,
         ])->assertUnprocessable();
 
-        $this->withHeaders($headers)->putJson('/api/v1/store/cart/items', [
-            'product_variant_id' => $variant->id, 'qty' => 4,
+        $this->withHeaders($headers)->putJson("/api/v1/store/cart/items/{$itemId}", [
+            'qty' => 4,
         ])->assertOk()->assertJsonPath('data.items.0.qty', 4);
 
-        $this->withHeaders($headers)->deleteJson('/api/v1/store/cart/items', [
-            'product_variant_id' => $variant->id,
-        ])->assertOk()->assertJsonPath('data.items', []);
+        $this->withHeaders($headers)->deleteJson("/api/v1/store/cart/items/{$itemId}")
+            ->assertOk()->assertJsonPath('data.items', []);
     }
 
     public function test_cart_rejects_unpublished_product(): void

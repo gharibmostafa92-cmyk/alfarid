@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-use App\Http\Controllers\Api\V1\Store\AccountOrderController;
 use App\Http\Controllers\Api\V1\Store\AuthController;
 use App\Http\Controllers\Api\V1\Store\CartController;
 use App\Http\Controllers\Api\V1\Store\CatalogController;
 use App\Http\Controllers\Api\V1\Store\CheckoutController;
 use App\Http\Controllers\Api\V1\Store\HomeController;
+use App\Http\Controllers\Api\V1\Store\OrderController as StoreOrderController;
 use App\Http\Controllers\Api\V1\Store\ProductController;
 use Illuminate\Support\Facades\Route;
 
@@ -34,24 +34,25 @@ Route::get('products', [ProductController::class, 'index'])->name('products.inde
 Route::get('products/{slug}', [ProductController::class, 'show'])->name('products.show');
 Route::get('products/{slug}/similar', [ProductController::class, 'similar'])->name('products.similar');
 
-// سلة التسوق (زائر بهيدر X-Cart-Session أو عميل مسجل — الهوية تُحسم في الخدمة)
+// مسارات السلة وإتمام الطلب (تعمل للزائر بـ X-Cart-Session وللعميل المسجل بـ Sanctum Token)
 Route::prefix('cart')->name('cart.')->group(function (): void {
     Route::get('items', [CartController::class, 'index'])->name('items.index');
     Route::post('items', [CartController::class, 'store'])->name('items.store');
-    Route::put('items', [CartController::class, 'update'])->name('items.update');
-    Route::delete('items', [CartController::class, 'destroy'])->name('items.destroy');
-    Route::post('coupon', [CartController::class, 'applyCoupon'])->name('coupon');
+    Route::put('items/{item}', [CartController::class, 'update'])->name('items.update');
+    Route::delete('items/{item}', [CartController::class, 'destroy'])->name('items.destroy');
+    Route::post('coupon', [CartController::class, 'applyCoupon'])->name('coupon.apply');
 });
 
-// إتمام الشراء وتتبع الطلب
 Route::prefix('checkout')->name('checkout.')->group(function (): void {
     Route::post('shipping-options', [CheckoutController::class, 'shippingOptions'])->name('shipping-options');
-    Route::post('/', [CheckoutController::class, 'checkout'])->name('process');
+    Route::post('/', [CheckoutController::class, 'store'])->name('store');
 });
-Route::get('orders/{number}/track', [CheckoutController::class, 'track'])->name('orders.track');
 
-// طلبات العميل المسجل
+// تتبع الطلب للزائر والعميل
+Route::get('orders/{number}/track', [StoreOrderController::class, 'track'])->name('orders.track');
+
+// مسارات حساب العميل المسجل فقط
 Route::middleware(['auth:sanctum', 'auth.customer'])->prefix('account')->name('account.')->group(function (): void {
-    Route::get('orders', [AccountOrderController::class, 'index'])->name('orders.index');
-    Route::post('orders/{id}/cancel', [AccountOrderController::class, 'cancel'])->name('orders.cancel');
+    Route::get('orders', [StoreOrderController::class, 'index'])->name('orders.index');
+    Route::post('orders/{order}/cancel', [StoreOrderController::class, 'cancel'])->name('orders.cancel');
 });
