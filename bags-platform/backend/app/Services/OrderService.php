@@ -74,20 +74,20 @@ class OrderService
             $subtotal = $totals['subtotal'];
             $pricingDiscount = $totals['pricing_discount'];
 
-            // الكوبون: إعادة تحقق صارمة عند الشراء + احتساب الخصم + حجز استخدام
+            // الكوبون: إعادة تحقق صارمة عند الشراء (يشمل حد العميل الواحد)
             $couponDiscount = 0.0;
             $couponId = null;
             $couponCode = null;
+            $coupon = null;
             if ($cart->coupon_id !== null) {
-                $coupon = $this->couponService->redeemableById((int) $cart->coupon_id, $totals['items_total']);
+                $coupon = $this->couponService->redeemableById((int) $cart->coupon_id, $totals['items_total'], $customer);
                 $couponDiscount = $this->couponService->discountFor($coupon, $totals['items_total']);
                 $couponId = $coupon->id;
                 $couponCode = $coupon->code;
-                $coupon->increment('used_count');
             }
             $discountAmount = round($pricingDiscount + $couponDiscount, 2);
 
-            // الشحن من مدينة التوصيل
+            // الشحن من مدينة التوصيل — كوبون الشحن المجاني يعفي منه كاملًا
             $city = null;
             $shippingCost = 0.0;
             if (! empty($data['city_id'])) {
@@ -96,6 +96,11 @@ class OrderService
                     throw new BusinessException('مدينة التوصيل غير متاحة.');
                 }
                 $shippingCost = (float) $city->shipping_cost;
+            }
+            $waivedShipping = 0.0;
+            if ($coupon !== null && $coupon->type === 'free_shipping' && $shippingCost > 0) {
+                $waivedShipping = $shippingCost;
+                $shippingCost = 0.0;
             }
 
             // الضريبة من الإعدادات (مفعّلة وغير مشمولة في الأسعار فقط)
@@ -150,6 +155,16 @@ class OrderService
                     'tax_amount' => max($lineTax, 0),
                     'line_total' => $line['line_total'],
                 ]);
+            }
+
+            // تسجيل استخدام الكوبون فعليًا (خصم البضاعة أو الشحن المُعفى)
+            if ($coupon !== null) {
+                $this->couponService->recordUsage(
+                    $coupon,
+                    $order,
+                    $customer,
+                    $coupon->type === 'free_shipping' ? $waivedShipping : $couponDiscount,
+                );
             }
 
             // أول سجل حالة: إنشاء الطلب
