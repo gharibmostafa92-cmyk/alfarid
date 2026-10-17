@@ -11,7 +11,6 @@ use App\Models\Order;
 use App\Models\Shipment;
 use App\Models\ShippingCompany;
 use App\Models\ShippingRate;
-use App\Models\ShippingZone;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -73,24 +72,28 @@ class ShipmentService
     }
 
     /** سعر الشركة لمنطقة مدينة الطلب إن وُجد. */
+    /**
+     * سعر الشركة لمدينة الطلب: join مباشر rates × zone_cities مفلتر بالشركة
+     * والمدينة معًا — مدينة في أكثر من منطقة لا تختار منطقة بلا سعر (M12).
+     */
     private function rateFor(Order $order, int $companyId): ?ShippingRate
     {
         if ($order->city_id === null) {
             return null;
         }
-        $zone = ShippingZone::query()
-            ->where('is_active', true)
-            ->whereHas('cities', fn ($q) => $q->where('cities.id', $order->city_id))
-            ->first();
-        if ($zone === null) {
-            return null;
-        }
 
         return ShippingRate::query()
-            ->where('shipping_company_id', $companyId)
-            ->where('shipping_zone_id', $zone->id)
+            ->join('shipping_zones', 'shipping_zones.id', '=', 'shipping_rates.shipping_zone_id')
+            ->join('shipping_zone_cities', 'shipping_zone_cities.shipping_zone_id', '=', 'shipping_zones.id')
+            ->where('shipping_rates.shipping_company_id', $companyId)
+            ->where('shipping_zone_cities.city_id', $order->city_id)
+            ->where('shipping_zones.is_active', true)
+            ->orderBy('shipping_rates.id')
+            ->select('shipping_rates.*')
             ->first();
     }
+
+    // تسعيرة العميل الموحدة في ShippingQuoteService (بلا تبعية دائرية)
 
     private function generateAwb(ShippingCompany $company): string
     {

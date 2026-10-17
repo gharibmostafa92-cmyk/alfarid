@@ -11,6 +11,7 @@ use App\Exceptions\BusinessException;
 use App\Models\Cart;
 use App\Models\City;
 use App\Models\Coupon;
+use App\Models\CouponUsage;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\StockMovement;
@@ -47,6 +48,7 @@ class OrderService
         protected CouponService $couponService,
         protected SettingService $settings,
         protected InventoryService $inventoryService,
+        protected ShippingQuoteService $shippingQuote,
     ) {}
 
     /**
@@ -72,9 +74,11 @@ class OrderService
                 }
             }
 
-            // إعادة التحقق من التوفر لحظة الشراء (رصيد المتجر عبر الفروع النشطة)
+            // إعادة التحقق من التوفر وقابلية البيع لحظة الشراء (M14):
+            // صنف عُطّل أو منتج أُلغي نشره/حُذف بعد الإضافة لا يُشترى
             $this->cartService->assertLinesAvailable($lines);
-            $totals = $this->cartService->totals($cart, $customer);
+            $this->cartService->assertLinesPurchasable($lines);
+            $totals = $this->cartService->totals($cart, $customer, $lines);
             $subtotal = $totals['subtotal'];
             $pricingDiscount = $totals['pricing_discount'];
 
@@ -104,15 +108,24 @@ class OrderService
             }
             $discountAmount = round($pricingDiscount + $couponDiscount, 2);
 
-            // الشحن من مدينة التوصيل — كوبون الشحن المجاني يعفي منه كاملًا
+            // الشحن من تسعيرة المناطق الموحدة (M12): سعر المنطقة/الشركة
+            // وحدها المجاني ورسوم COD — ورجوع لسعر المدينة عند غياب سعر.
+            // كوبون الشحن المجاني يعفي من تكلفة الشحن (لا من رسوم COD)
             $city = null;
             $shippingCost = 0.0;
+            $codFee = 0.0;
             if (! empty($data['city_id'])) {
                 $city = City::query()->where('is_active', true)->find((int) $data['city_id']);
                 if ($city === null) {
                     throw new BusinessException('مدينة التوصيل غير متاحة.');
                 }
-                $shippingCost = (float) $city->shipping_cost;
+                $quote = $this->shippingQuote->quoteForCity(
+                    $city->id,
+                    $totals['items_total'] - $couponDiscount,
+                    ($data['payment_method'] ?? 'cod') === 'cod',
+                );
+                $shippingCost = $quote['cost'];
+                $codFee = $quote['cod_fee'];
             }
             $waivedShipping = 0.0;
             if ($coupon !== null && $coupon->type === 'free_shipping' && $shippingCost > 0) {
@@ -129,7 +142,7 @@ class OrderService
                 $taxAmount = round(($subtotal - $discountAmount) * $taxRate / 100, 2);
             }
 
-            $grandTotal = round(($subtotal - $discountAmount) + $shippingCost + $taxAmount, 2);
+            $grandTotal = round(($subtotal - $discountAmount) + $shippingCost + $codFee + $taxAmount, 2);
 
             $order = Order::create([
                 'order_number' => $this->settings->generateNextNumber('order'),
@@ -149,18 +162,25 @@ class OrderService
                 'coupon_id' => $couponId,
                 'coupon_code' => $couponCode,
                 'shipping_cost' => $shippingCost,
+                'cod_fee' => $codFee,
                 'tax_amount' => $taxAmount,
                 'grand_total' => $grandTotal,
             ]);
 
-            // بنود الطلب بلقطات الاسم والـ SKU والسعر + توزيع الضريبة تناسبيًا
+            // بنود الطلب بلقطات الاسم والـ SKU والسعر + توزيع الضريبة وحصة
+            // الكوبون تناسبيًا حتى يساوي مجموع خصومات البنود خصم الطلب (M17)
             $remainingTax = $taxAmount;
+            $remainingCoupon = $couponDiscount;
             $lastIndex = count($lines) - 1;
             foreach ($lines as $i => $line) {
                 $lineTax = $i === $lastIndex
                     ? $remainingTax
                     : round($taxAmount * ($line['line_total'] / max($totals['items_total'], 0.01)), 2);
                 $remainingTax = round($remainingTax - $lineTax, 2);
+                $couponShare = $i === $lastIndex
+                    ? $remainingCoupon
+                    : round($couponDiscount * ($line['line_total'] / max($totals['items_total'], 0.01)), 2);
+                $remainingCoupon = round($remainingCoupon - $couponShare, 2);
 
                 $order->items()->create([
                     'product_variant_id' => $line['variant']->id,
@@ -168,7 +188,7 @@ class OrderService
                     'sku_snapshot' => $line['variant']->sku,
                     'qty' => $line['qty'],
                     'unit_price' => $line['unit_price'],
-                    'discount_amount' => $line['line_discount'],
+                    'discount_amount' => round($line['line_discount'] + max($couponShare, 0), 2),
                     'tax_amount' => max($lineTax, 0),
                     'line_total' => $line['line_total'],
                 ]);
@@ -221,11 +241,26 @@ class OrderService
             $actorId = $this->inventoryActorId($actor);
 
             // آثار المخزون بحسب الانتقال
+            $extraNote = null;
             if ($to === OrderStatus::Shipped) {
                 $this->shipOrder($order, $actorId);
             } elseif ($to === OrderStatus::Cancelled
                 && in_array($from, [OrderStatus::Confirmed, OrderStatus::Processing], true)) {
                 $this->releaseReservations($order, $actorId, 'إلغاء الطلب');
+            } elseif ($to === OrderStatus::Returned
+                && in_array($from, [OrderStatus::Shipped, OrderStatus::Delivered], true)) {
+                // إعادة البضاعة المشحونة للمخزون بحركات sale_return (M13)
+                if (! $this->returnSalesToStock($order, $actorId)) {
+                    $extraNote = 'لا توجد حركات بيع مسجلة؛ يتطلب المرتجع استلامًا يدويًا في المستودع.';
+                }
+            }
+
+            if ($to === OrderStatus::Cancelled) {
+                // عكس استخدام الكوبون حتى لا يُحرم العميل منه بإلغاء (M13)
+                $this->reverseCouponUsage($order);
+                if ($order->payment_status === 'paid') {
+                    $order->update(['requires_refund' => true]);
+                }
             }
 
             $order->update(['status' => $to]);
@@ -235,7 +270,7 @@ class OrderService
                 'to_status' => $to,
                 'changed_by_type' => $actor?->getMorphClass(),
                 'changed_by_id' => $actor?->getKey(),
-                'notes' => $notes,
+                'notes' => trim(($notes ?? '').($extraNote !== null ? ' — '.$extraNote : '')) ?: $notes,
             ]);
 
             if ($to === OrderStatus::Confirmed && $order->allocated_branch_id === null) {
@@ -304,6 +339,57 @@ class OrderService
         }
     }
 
+    /**
+     * إعادة بضاعة طلب مشحون/مُسلَّم إلى المخزون: لكل حركة بيع حركة
+     * sale_return معاكسة على نفس الرصيد، وتنقيص عدّاد المبيعات (M13).
+     * ترجع false إذا لم توجد حركات بيع (يحتاج استلامًا يدويًا).
+     */
+    private function returnSalesToStock(Order $order, ?int $actorId): bool
+    {
+        $sales = StockMovement::query()
+            ->where('reference_type', $order->getMorphClass())
+            ->where('reference_id', $order->id)
+            ->where('type', StockMovementType::Sale)
+            ->orderBy('id')
+            ->get();
+        if ($sales->isEmpty()) {
+            return false;
+        }
+
+        foreach ($sales as $movement) {
+            $this->inventoryService->recordMovement([
+                'product_variant_id' => $movement->product_variant_id,
+                'branch_id' => $movement->branch_id,
+                'location_id' => $movement->location_id,
+                'type' => StockMovementType::SaleReturn,
+                'affected_bucket' => StockBucket::OnHand,
+                'quantity' => -1 * (float) $movement->quantity,
+                'reference_type' => Order::class,
+                'reference_id' => $order->id,
+                'created_by' => $actorId,
+                'notes' => "مرتجع مبيعات للطلب {$order->order_number}",
+            ]);
+        }
+
+        foreach ($order->items as $item) {
+            $product = $item->variant?->product;
+            if ($product !== null) {
+                $product->update(['sales_count' => max(0, (int) $product->sales_count - (int) round((float) $item->qty))]);
+            }
+        }
+
+        return true;
+    }
+
+    /** عكس تسجيل استخدام الكوبون عند إلغاء الطلب: حذف السجل وإنقاص العدّاد (M13). */
+    private function reverseCouponUsage(Order $order): void
+    {
+        foreach (CouponUsage::query()->where('order_id', $order->id)->get() as $usage) {
+            Coupon::query()->whereKey($usage->coupon_id)->where('used_count', '>', 0)->decrement('used_count');
+            $usage->delete();
+        }
+    }
+
     /** حركات الحجز الأصلية للطلب من الدفتر (مصدر الحقيقة لمواضع الحجز ومواقعه). */
     private function reserveMovements(Order $order): Collection
     {
@@ -315,9 +401,14 @@ class OrderService
             ->get();
     }
 
+    private static ?int $systemActorId = null;
+
+    private static bool $systemActorResolved = false;
+
     /**
-     * منفّذ حركات المخزون: الموظف الفاعل نفسه؛ وعند غيابه (عميل/نظام)
-     * يُنسب التنفيذ لأول حساب Super Admin — الدفتر يتطلب موظفًا دائمًا.
+     * منفّذ حركات المخزون: الموظف الفاعل نفسه؛ وعند غيابه (عميل/ويب هوك)
+     * يُنسب التنفيذ لمستخدم النظام المخصص (M19) — لا لأول Super Admin،
+     * حتى يبقى سجل التدقيق صادقًا. يُحسم مرة واحدة لكل عملية تشغيل.
      */
     private function inventoryActorId(?Model $actor): ?int
     {
@@ -325,11 +416,23 @@ class OrderService
             return (int) $actor->getKey();
         }
 
-        $systemUserId = User::query()
+        if (! self::$systemActorResolved) {
+            self::$systemActorResolved = true;
+            $systemId = User::query()
+                ->where('email', (string) config('orders.system_user_email', 'system@alfarid.local'))
+                ->value('id');
+            self::$systemActorId = $systemId !== null ? (int) $systemId : null;
+        }
+        if (self::$systemActorId !== null) {
+            return self::$systemActorId;
+        }
+
+        // رجوع احتياطي إن لم تُزرع هجرة مستخدم النظام بعد
+        $adminId = User::query()
             ->whereHas('roles', fn ($q) => $q->where('name', 'Super Admin'))
             ->orderBy('id')
             ->value('id');
 
-        return $systemUserId !== null ? (int) $systemUserId : (auth()->user() instanceof User ? (int) auth()->id() : null);
+        return $adminId !== null ? (int) $adminId : (auth()->user() instanceof User ? (int) auth()->id() : null);
     }
 }

@@ -8,6 +8,7 @@ use App\Enums\OrderStatus;
 use App\Models\Order;
 use App\Models\WebhookLog;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
@@ -109,6 +110,15 @@ class PaymentWebhookService
                         try {
                             $this->orders->changeStatus($order, OrderStatus::Confirmed, null, "تأكيد تلقائي بعد نجاح الدفع عبر {$gateway}");
                         } catch (Throwable $e) {
+                            // «دُفع ولم يُؤكَّد» حالة تشغيلية خطيرة: تنبيه سجل +
+                            // علامة ظاهرة في شاشة الطلب بدل دفنها في الويب هوك (M19)
+                            Log::warning('Payment captured but order auto-confirm failed.', [
+                                'order_id' => $order->id,
+                                'order_number' => $order->order_number,
+                                'gateway' => $gateway,
+                                'exception' => $e->getMessage(),
+                            ]);
+                            $order->update(['needs_attention' => true]);
                             $note = 'تم الدفع لكن تأكيد الطلب فشل: '.$e->getMessage();
                         }
                     }

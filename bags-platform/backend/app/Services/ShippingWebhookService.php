@@ -123,18 +123,31 @@ class ShippingWebhookService
             $shipment->update(['status' => $status]);
 
             $note = null;
+            if ($status === ShipmentStatus::Returned) {
+                // مرتجع الشحن ينعكس على الطلب عبر بوابة الحالة (M11)
+                $order = $shipment->order;
+                if ($order !== null && in_array($order->status, [OrderStatus::Shipped, OrderStatus::Delivered], true)) {
+                    try {
+                        $this->orders->changeStatus($order, OrderStatus::Returned, null, 'أرجعت شركة الشحن البوليصة');
+                    } catch (Throwable $e) {
+                        $note = 'تم إرجاع البوليصة لكن تحويل الطلب فشل: '.$e->getMessage();
+                    }
+                }
+            }
             if ($status === ShipmentStatus::Delivered) {
                 $order = $shipment->order;
-                if ($order !== null) {
-                    if ($order->payment_method === 'cod' && $order->payment_status !== 'paid') {
-                        $order->update(['payment_status' => 'paid']);
+                if ($order !== null && $order->status === OrderStatus::Shipped) {
+                    try {
+                        $this->orders->changeStatus($order, OrderStatus::Delivered, null, 'تم التسليم — إشعار شركة الشحن');
+                    } catch (Throwable $e) {
+                        $note = 'تم تسليم البوليصة لكن تحويل الطلب فشل: '.$e->getMessage();
                     }
-                    if ($order->status === OrderStatus::Shipped) {
-                        try {
-                            $this->orders->changeStatus($order, OrderStatus::Delivered, null, 'تم التسليم — إشعار شركة الشحن');
-                        } catch (Throwable $e) {
-                            $note = 'تم تسليم البوليصة لكن تحويل الطلب فشل: '.$e->getMessage();
-                        }
+                    // تحصيل COD يُثبت فقط مع انتقال فعلي Shipped → Delivered
+                    // وبنفس المعاملة (M11): حدث على ملغي/مرتجع لا يثبت دفعًا
+                    $order->refresh();
+                    if ($order->status === OrderStatus::Delivered
+                        && $order->payment_method === 'cod' && $order->payment_status !== 'paid') {
+                        $order->update(['payment_status' => 'paid']);
                     }
                 }
             }
