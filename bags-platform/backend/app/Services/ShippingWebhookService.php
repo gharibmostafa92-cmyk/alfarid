@@ -128,30 +128,36 @@ class ShippingWebhookService
 
             $note = null;
             if ($status === ShipmentStatus::Returned) {
-                // مرتجع الشحن ينعكس على الطلب عبر بوابة الحالة (M11)
+                // إشعار المرتجع (بما فيه rto) يعني بدء الإرجاع لا وصوله:
+                // لا إعادة للمخزون من الويب هوك (F-15) — البضاعة قد تكون
+                // في الطريق أو تالفة. يُعلَّم الطلب للانتباه، والإعادة
+                // الفعلية عند استلام المستودع يدويًا (الأدمن → Returned
+                // عبر changeStatus فيسجل sale_return عندها فقط)
                 $order = $shipment->order;
                 if ($order !== null && in_array($order->status, [OrderStatus::Shipped, OrderStatus::Delivered], true)) {
-                    try {
-                        $this->orders->changeStatus($order, OrderStatus::Returned, null, 'أرجعت شركة الشحن البوليصة');
-                    } catch (Throwable $e) {
-                        $note = 'تم إرجاع البوليصة لكن تحويل الطلب فشل: '.$e->getMessage();
-                    }
+                    $order->update(['needs_attention' => true]);
+                    $note = 'أبلغت شركة الشحن بمرتجع — بانتظار استلام المستودع الفعلي قبل إعادة البضاعة للمخزون';
+                }
+            }
+            if ($status === ShipmentStatus::Failed) {
+                // بوليصة فاشلة لا تترك الطلب صامتًا (F-16): انتباه للمتابعة
+                // (وإصدار بديلة ممكن من نفس شاشة الطلب طالما لا بوليصة نشطة)
+                $order = $shipment->order;
+                if ($order !== null) {
+                    $order->update(['needs_attention' => true]);
+                    $note = 'فشلت البوليصة لدى شركة الشحن — يحتاج متابعة أو إصدار بوليصة بديلة';
                 }
             }
             if ($status === ShipmentStatus::Delivered) {
                 $order = $shipment->order;
                 if ($order !== null && $order->status === OrderStatus::Shipped) {
                     try {
+                        // تسوية COD صارت أثرًا مركزيًا في changeStatus عند
+                        // انتقال Delivered (F-14) — لا تكرار ولا تحصيل
+                        // مُصنّع هنا: طلب غير مشحون لا ينتقل أصلًا
                         $this->orders->changeStatus($order, OrderStatus::Delivered, null, 'تم التسليم — إشعار شركة الشحن');
                     } catch (Throwable $e) {
                         $note = 'تم تسليم البوليصة لكن تحويل الطلب فشل: '.$e->getMessage();
-                    }
-                    // تحصيل COD يُثبت فقط مع انتقال فعلي Shipped → Delivered
-                    // وبنفس المعاملة (M11): حدث على ملغي/مرتجع لا يثبت دفعًا
-                    $order->refresh();
-                    if ($order->status === OrderStatus::Delivered
-                        && $order->payment_method === 'cod' && $order->payment_status !== 'paid') {
-                        $order->update(['payment_status' => 'paid']);
                     }
                 }
             }

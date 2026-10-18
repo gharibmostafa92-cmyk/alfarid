@@ -123,7 +123,22 @@ class OrderEffectsReviewTest extends TestCase
         $this->assertSame('7.0000', (string) $level->fresh()->on_hand);
         $this->assertSame(3, (int) $variant->product->fresh()->sales_count);
 
+        // إشعار المرتجع وحده لا يعيد البضاعة للمخزون (F-15): الإشعار يعني
+        // بدء الإرجاع — الطلب يُعلَّم للانتباه ويبقى مشحونًا والمخزون كما هو
         $this->shippingWebhook($shipment, 'returned', 'evt-ret-1');
+
+        $this->assertSame(OrderStatus::Shipped, $order->fresh()->status);
+        $this->assertTrue($order->fresh()->needs_attention);
+        $this->assertSame('7.0000', (string) $level->fresh()->on_hand);
+        $this->assertFalse(StockMovement::query()
+            ->where('reference_id', $order->id)->where('type', StockMovementType::SaleReturn)->exists());
+
+        // الاستلام الفعلي في المستودع: الأدمن ينقل الطلب Returned فيدخل
+        // المخزون عندها فقط بحركات sale_return ويُنقص sales_count (M13)
+        $token = $this->staff->createToken('t')->plainTextToken;
+        $this->withToken($token)->patchJson("/api/v1/admin/orders/{$order->id}/status", [
+            'status' => 'returned',
+        ])->assertOk();
 
         $this->assertSame(OrderStatus::Returned, $order->fresh()->status);
         $this->assertSame('10.0000', (string) $level->fresh()->on_hand);

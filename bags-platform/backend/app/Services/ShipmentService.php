@@ -31,7 +31,16 @@ class ShipmentService
             // قفل الطلب والتحقق من حالته ومن عدم وجود بوليصة نشطة —
             // نقرة مزدوجة لا تنتج بوليصتين ولا بيعًا مكررًا (H1)
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
-            if (! in_array($order->status, [OrderStatus::Confirmed, OrderStatus::Processing], true)) {
+            $hasActiveShipmentEarly = $order->shipments()
+                ->whereNotIn('status', [ShipmentStatus::Failed->value, ShipmentStatus::Returned->value])
+                ->exists();
+            // بوليصة بديلة (F-16): طلب مشحون كل بوالصه فاشلة/مرتجعة يمكن
+            // إعادة إصدار بوليصة له — بلا changeStatus (حالته Shipped أصلًا
+            // ومخزونه خرج مع الشحنة الأولى)
+            $isReplacement = $order->status === OrderStatus::Shipped
+                && ! $hasActiveShipmentEarly
+                && $order->shipments()->exists();
+            if (! in_array($order->status, [OrderStatus::Confirmed, OrderStatus::Processing], true) && ! $isReplacement) {
                 throw new BusinessException('لا يمكن إنشاء بوليصة إلا لطلب مؤكد أو قيد التجهيز.');
             }
             // الدفع المسبق (غير COD) لا يُشحن إلا وحالته paid (F-05): طلب
@@ -40,10 +49,7 @@ class ShipmentService
             if ($order->payment_method !== 'cod' && $order->payment_status !== 'paid') {
                 throw new BusinessException('لا يمكن شحن طلب دفع مسبق لم يُدفع بعد (الحالة الحالية: '.$order->payment_status.').');
             }
-            $hasActiveShipment = $order->shipments()
-                ->whereNotIn('status', [ShipmentStatus::Failed->value, ShipmentStatus::Returned->value])
-                ->exists();
-            if ($hasActiveShipment) {
+            if ($hasActiveShipmentEarly) {
                 throw new BusinessException('توجد بوليصة نشطة لهذا الطلب بالفعل.');
             }
 
@@ -70,8 +76,11 @@ class ShipmentService
                 'raw_response' => ['source' => 'internal'],
             ]);
 
-            // الشحن الفعلي للطلب (يفك الحجز ويخصم البيع) عبر بوابة الحالة
-            $this->orders->changeStatus($order, OrderStatus::Shipped, $actor, "تم إنشاء بوليصة الشحن {$shipment->awb_number}");
+            // الشحن الفعلي للطلب (يفك الحجز ويخصم البيع) عبر بوابة الحالة —
+            // البديلة لا تستدعيه: الطلب مشحون ومخزونه خرج من الشحنة الأولى
+            if (! $isReplacement) {
+                $this->orders->changeStatus($order, OrderStatus::Shipped, $actor, "تم إنشاء بوليصة الشحن {$shipment->awb_number}");
+            }
 
             return $shipment->fresh(['company', 'order']);
         });
