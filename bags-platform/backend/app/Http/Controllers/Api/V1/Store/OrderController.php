@@ -71,7 +71,10 @@ class OrderController extends Controller
             throw new BusinessException('لا يمكن إلغاء الطلب في حالته الحالية؛ الإلغاء متاح قبل بدء التجهيز والشحن فقط.');
         }
 
-        $order = $this->orders->changeStatus($order, OrderStatus::Cancelled, $customer, 'ألغاه العميل من حسابه');
+        // الفحص على النسخة المقفولة داخل changeStatus (F-11): الفحص أعلاه
+        // على نسخة غير مقفولة لا يكفي ضد انتقال متزامن إلى Processing
+        $order = $this->orders->changeStatus($order, OrderStatus::Cancelled, $customer, 'ألغاه العميل من حسابه',
+            [OrderStatus::Pending, OrderStatus::Confirmed]);
 
         return OrderResource::make($order->load('items'));
     }

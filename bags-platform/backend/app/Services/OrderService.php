@@ -58,7 +58,19 @@ class OrderService
      */
     public function createFromCart(Cart $cart, array $data, ?Customer $customer = null): Order
     {
-        return DB::transaction(function () use ($cart, $data, $customer): Order {
+        // إعادة إرسال بنفس مفتاح منع التكرار ترجع الطلب نفسه (F-13):
+        // انقطاع الشبكة بعد إنشاء الطلب لا يعني «سلة فارغة» ولا طلبًا مكررًا
+        $idempotencyKey = isset($data['idempotency_key']) && is_string($data['idempotency_key']) && $data['idempotency_key'] !== ''
+            ? mb_substr($data['idempotency_key'], 0, 191)
+            : null;
+        if ($idempotencyKey !== null) {
+            $existing = Order::query()->where('idempotency_key', $idempotencyKey)->first();
+            if ($existing !== null) {
+                return $existing->load('items');
+            }
+        }
+
+        return DB::transaction(function () use ($cart, $data, $customer, $idempotencyKey): Order {
             // قفل صف السلة وقراءة بنودها طازجة: طلب متزامن ثانٍ ينتظر
             // ثم يجد السلة فارغة بدل إنشاء طلب مكرر (H2)
             $cart = Cart::query()->whereKey($cart->id)->lockForUpdate()->firstOrFail();
@@ -150,6 +162,7 @@ class OrderService
 
             $order = Order::create([
                 'order_number' => $this->settings->generateNextNumber('order'),
+                'idempotency_key' => $idempotencyKey,
                 'channel' => $data['channel'] ?? 'store',
                 'customer_id' => $customer?->id,
                 'guest_name' => $data['recipient_name'] ?? $customer?->name,
@@ -232,15 +245,27 @@ class OrderService
         });
     }
 
-    public function changeStatus(Order $order, OrderStatus|string $toStatus, ?Model $actor = null, ?string $notes = null): Order
+    /**
+     * بوابة الحالة الوحيدة. $expectedFrom (F-11): حالات مصدر يفترضها
+     * المستدعي على نسخته غير المقفولة — تُفحص بعد إعادة القراءة بالقفل،
+     * فسباق (عميل يلغي × أدمن يجهّز) لا يمر من فحص قديم.
+     *
+     * @param  array<int, OrderStatus>|null  $expectedFrom
+     */
+    public function changeStatus(Order $order, OrderStatus|string $toStatus, ?Model $actor = null, ?string $notes = null, ?array $expectedFrom = null): Order
     {
         $to = $toStatus instanceof OrderStatus ? $toStatus : OrderStatus::from($toStatus);
 
-        return DB::transaction(function () use ($order, $to, $actor, $notes): Order {
+        return DB::transaction(function () use ($order, $to, $actor, $notes, $expectedFrom): Order {
             // إعادة قراءة الطلب بقفل صف: النسخة الممرَّرة قد تكون قديمة،
             // وكل الانتقالات على نفس الطلب يجب أن تتسلسل (C1)
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $from = $order->status;
+
+            if ($expectedFrom !== null && ! in_array($from, $expectedFrom, true)) {
+                throw new BusinessException("تغيّرت حالة الطلب أثناء العملية (أصبحت {$from->value})؛ أعد المحاولة.");
+            }
+
             if ($from === $to) {
                 return $order;
             }
@@ -275,7 +300,20 @@ class OrderService
                 }
             }
 
+            // مرتجع لطلب مدفوع يحتاج استردادًا أيضًا، لا الإلغاء فقط (F-14)
+            if ($to === OrderStatus::Returned && $order->payment_status === 'paid') {
+                $order->update(['requires_refund' => true]);
+            }
+
             $order->update(['status' => $to]);
+
+            // تسوية COD عند التسليم من أي مسار (أدمن يدوي أو ويب هوك) —
+            // الأثر هنا في بوابة الحالة لا في ويب هوك الشحن فقط (F-14)
+            if ($to === OrderStatus::Delivered
+                && $order->payment_method === 'cod'
+                && $order->payment_status !== 'paid') {
+                $order->update(['payment_status' => 'paid']);
+            }
 
             $order->statusHistories()->create([
                 'from_status' => $from,

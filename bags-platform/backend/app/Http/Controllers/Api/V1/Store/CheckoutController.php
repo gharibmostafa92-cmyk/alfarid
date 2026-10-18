@@ -55,6 +55,11 @@ class CheckoutController extends Controller
     {
         [$customer, $cart] = $this->currentCart($request);
         $data = $request->validated();
+        // هيدر اختياري: إعادة الإرسال بنفس المفتاح ترجع الطلب نفسه (F-13)
+        $idempotencyKey = $request->header('Idempotency-Key');
+        if (is_string($idempotencyKey) && $idempotencyKey !== '') {
+            $data['idempotency_key'] = $idempotencyKey;
+        }
 
         if ($customer === null && (empty($data['recipient_name']) || empty($data['recipient_phone']))) {
             throw new BusinessException('بيانات المستلم (الاسم ورقم الهاتف) مطلوبة لإتمام الشراء كزائر.');

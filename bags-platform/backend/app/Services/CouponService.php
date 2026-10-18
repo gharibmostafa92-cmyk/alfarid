@@ -111,6 +111,20 @@ class CouponService
                 throw new BusinessException('وصلت لحد استخدام هذا الكوبون لحسابك.');
             }
         } elseif ($guestPhone !== null && trim($guestPhone) !== '') {
+            // سقف استخدامات الزوار المعلّقة (F-17): تدوير أرقام هواتف غير
+            // مُتحققة لا يستنزف حد الحملة الكلي بطلبات وهمية بلا حدود —
+            // الاستخدامات المعلّقة تُحسم بانتهاء صلاحية الطلب فيُلغى
+            // ويُعكس الاستخدام (F-01 + M13)
+            $pendingCap = (int) config('store.guest_coupon_pending_cap', 20);
+            if ($pendingCap > 0) {
+                $pendingGuestUsages = $coupon->usages()
+                    ->whereNotNull('guest_phone_normalized')
+                    ->whereHas('order', fn ($q) => $q->where('status', OrderStatus::Pending->value))
+                    ->count();
+                if ($pendingGuestUsages >= $pendingCap) {
+                    throw new BusinessException('وصل هذا الكوبون لحد الطلبات المعلقة من الزوار؛ حاول لاحقًا.');
+                }
+            }
             // هوية الزائر هي رقم هاتفه الموحد الصيغة — تبديل cart_token لا
             // يتجاوز الحد (H3). العدّ في SQL على العمود المفهرس (F-04)
             // بدل مسح كل الاستخدامات أثناء إمساك قفل الكوبون

@@ -39,6 +39,7 @@ class Order extends Model
         'requires_refund',
         'needs_attention',
         'cod_fee',
+        'idempotency_key',
         'subtotal',
         'discount_amount',
         'coupon_id',
