@@ -29,6 +29,7 @@ class SettingService
         'movement_next_number',
         'transfer_next_number',
         'stocktake_next_number',
+        'return_next_number',
     ];
 
     /**
@@ -162,6 +163,7 @@ class SettingService
             'quotation' => ['prefix' => 'quotation_prefix', 'next' => 'quotation_next_number', 'padding' => 'quotation_padding'],
             'transfer' => ['prefix' => 'transfer_prefix', 'next' => 'transfer_next_number', 'padding' => 'transfer_padding'],
             'stocktake' => ['prefix' => 'stocktake_prefix', 'next' => 'stocktake_next_number', 'padding' => 'stocktake_padding'],
+            'return' => ['prefix' => 'return_prefix', 'next' => 'return_next_number', 'padding' => 'return_padding'],
         ];
 
         if (! isset($definitions[$type])) {
