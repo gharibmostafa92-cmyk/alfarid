@@ -30,6 +30,10 @@ class SettingService
         'transfer_next_number',
         'stocktake_next_number',
         'return_next_number',
+        'purchase_request_next_number',
+        'delivery_next_number',
+        'supplier_invoice_next_number',
+        'supplier_payment_next_number',
     ];
 
     /**
@@ -164,6 +168,10 @@ class SettingService
             'transfer' => ['prefix' => 'transfer_prefix', 'next' => 'transfer_next_number', 'padding' => 'transfer_padding'],
             'stocktake' => ['prefix' => 'stocktake_prefix', 'next' => 'stocktake_next_number', 'padding' => 'stocktake_padding'],
             'return' => ['prefix' => 'return_prefix', 'next' => 'return_next_number', 'padding' => 'return_padding'],
+            'purchase_request' => ['prefix' => 'purchase_request_prefix', 'next' => 'purchase_request_next_number', 'padding' => 'purchase_request_padding'],
+            'delivery' => ['prefix' => 'delivery_prefix', 'next' => 'delivery_next_number', 'padding' => 'delivery_padding'],
+            'supplier_invoice' => ['prefix' => 'supplier_invoice_prefix', 'next' => 'supplier_invoice_next_number', 'padding' => 'supplier_invoice_padding'],
+            'supplier_payment' => ['prefix' => 'supplier_payment_prefix', 'next' => 'supplier_payment_next_number', 'padding' => 'supplier_payment_padding'],
         ];
 
         if (! isset($definitions[$type])) {

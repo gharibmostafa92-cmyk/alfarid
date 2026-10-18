@@ -33,6 +33,11 @@ return Application::configure(basePath: dirname(__DIR__))
                 ->prefix('api/v1/wholesale')
                 ->name('wholesale.')
                 ->group(base_path('routes/api/wholesale.php'));
+            // بوابة المورد: مصادقة supplier_users وكل الاستعلامات مقيدة بمورد المستخدم
+            Route::middleware('api')
+                ->prefix('api/v1/supplier')
+                ->name('supplier.')
+                ->group(base_path('routes/api/supplier.php'));
             // ويب هوكس خارجية: بلا مصادقة — الحماية بالتوقيع الرقمي داخل المتحكمات
             Route::middleware('api')
                 ->prefix('api/v1/webhooks')
