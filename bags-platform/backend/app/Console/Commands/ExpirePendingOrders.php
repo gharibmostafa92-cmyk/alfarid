@@ -23,10 +23,10 @@ class ExpirePendingOrders extends Command
 
     public function handle(OrderService $orders): int
     {
-        $onlineBefore = now()->subMinutes(max(1, (int) config('orders.pending_online_expire_minutes', 30)));
+        $onlineBefore = now()->subMinutes(max(1, (int) config('orders.pending_online_expire_minutes', 90)));
         $codBefore = now()->subHours(max(1, (int) config('orders.pending_cod_expire_hours', 72)));
-        // طلب الزائر (بلا حساب) أسرع انتهاءً: لا يحبس المخزون طويلًا بلا التزام (F5)
-        $guestCodBefore = now()->subHours(max(1, (int) config('orders.pending_guest_cod_expire_hours', 24)));
+        // طلب الزائر (بلا حساب) أسرع انتهاءً: لا يحبس المخزون طويلًا بلا التزام (F5/H2)
+        $guestCodBefore = now()->subHours(max(1, (int) config('orders.pending_guest_cod_expire_hours', 12)));
 
         $stale = Order::query()
             ->where('status', OrderStatus::Pending)

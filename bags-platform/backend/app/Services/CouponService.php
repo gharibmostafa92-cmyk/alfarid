@@ -12,6 +12,7 @@ use App\Models\CouponUsage;
 use App\Models\Customer;
 use App\Models\Order;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\RateLimiter;
 
 /**
  * التحقق من الكوبونات وربطها بالسلة وحساب خصمها وتسجيل استخدامها.
@@ -30,10 +31,30 @@ class CouponService
     public function validateAndApply(Cart $cart, string $code, float $subtotal, ?Customer $customer = null): float
     {
         $coupon = $this->findRedeemable($code, $subtotal, $customer);
+        $this->enforceRateLimit($coupon, 'apply');
 
         $cart->update(['coupon_id' => $coupon->id]);
 
         return $this->discountFor($coupon, $subtotal);
+    }
+
+    /**
+     * حد معدّل لكل (كوبون + IP) (H3): بديل آمن عن السقف العالمي لطلبات
+     * الزوار المعلّقة الذي كان مهاجم واحد يُعطّل به الحملة على كل الزوار.
+     * يُستدعى عند التطبيق وعند إتمام الشراء.
+     */
+    public function enforceRateLimit(Coupon $coupon, string $action = 'apply'): void
+    {
+        $max = (int) config('store.coupon_apply_per_minute', 20);
+        if ($max <= 0) {
+            return;
+        }
+
+        $key = 'coupon:'.$action.':'.$coupon->id.':'.(request()->ip() ?? 'unknown');
+        if (RateLimiter::tooManyAttempts($key, $max)) {
+            throw new BusinessException(self::NOT_REDEEMABLE, [], 429);
+        }
+        RateLimiter::hit($key, 60);
     }
 
     /** يتحقق من كوبون مرتبط بسلة (عند إتمام الشراء) ويرجعه أو يرمي استثناءً. */
@@ -130,24 +151,10 @@ class CouponService
             ? Customer::normalizePhone($guestPhone)
             : null;
 
-        // سقف الطلبات المعلقة للزوار (F16): يُفحص قبل حد العميل الواحد
-        // (F7) ليبقى فعّالًا حتى عند تعطيل الحد الفردي (usage_limit_per_customer=0)
-        // — تدوير أرقام غير مُتحققة لا يستنزف حد الحملة. العدّ من جانب الطلب
-        // (coupon_id + pending + بلا عميل) وليس من سجلات الاستخدام
-        if ($customer === null && $guestPhoneNormalized !== null) {
-            $pendingCap = (int) config('store.guest_coupon_pending_cap', 20);
-            if ($pendingCap > 0) {
-                $pendingGuestOrders = Order::query()
-                    ->where('coupon_id', $coupon->id)
-                    ->where('status', OrderStatus::Pending)
-                    ->whereNull('customer_id')
-                    ->count();
-                if ($pendingGuestOrders >= $pendingCap) {
-                    throw new BusinessException(self::NOT_REDEEMABLE);
-                }
-            }
-        }
-
+        // (H3) أُزيل السقف العالمي لطلبات الزوار المعلّقة: كان مهاجم واحد
+        // ينشئ حدًا من الطلبات الوهمية فيعطّل الحملة على كل زائر شرعي. الحماية
+        // الآن: حد لكل هوية (أدناه) + حد معدّل لكل كوبون/IP + تقصير مهلة
+        // المعلّق — حماية أضعف ضد تدوير الأرقام عبر IPs لكنها لا تعطّل الحملة.
         $this->assertPerIdentityAllowed($coupon, $customer, $guestPhoneNormalized);
     }
 

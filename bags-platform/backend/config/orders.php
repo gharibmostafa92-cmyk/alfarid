@@ -15,8 +15,10 @@ return [
      * المهجور يحبس مخزونًا — فيُلغى تلقائيًا (ويُفك حجزه) بعد هذه المدد.
      * الإلكتروني غير المدفوع: دقائق؛ والدفع عند الاستلام: ساعات يحددها النشاط.
      */
-    'pending_online_expire_minutes' => (int) env('ORDER_PENDING_ONLINE_EXPIRE_MINUTES', 30),
+    // 3DS والمحافظ والتحويلات قد تتأخر أكثر من 30 دقيقة فيصل الدفع بعد الإلغاء
+    // (M8): المهلة 90 دقيقة تعطيها مجالًا بلا استردادات ولا بيع مخزون محجوز
+    'pending_online_expire_minutes' => (int) env('ORDER_PENDING_ONLINE_EXPIRE_MINUTES', 90),
     'pending_cod_expire_hours' => (int) env('ORDER_PENDING_COD_EXPIRE_HOURS', 72),
-    // طلبات الزوار المؤكدة بالهاتف فقط أسرع انتهاءً (F5): لا تحبس المخزون طويلًا
-    'pending_guest_cod_expire_hours' => (int) env('ORDER_PENDING_GUEST_COD_EXPIRE_HOURS', 24),
+    // طلبات الزوار المؤكدة بالهاتف فقط أسرع انتهاءً (F5/H2): لا تحبس المخزون طويلًا بلا التزام
+    'pending_guest_cod_expire_hours' => (int) env('ORDER_PENDING_GUEST_COD_EXPIRE_HOURS', 12),
 ];

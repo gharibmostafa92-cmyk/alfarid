@@ -57,6 +57,11 @@ class PaymentWebhookService
             return ['http' => 404, 'body' => ['received' => false, 'message' => 'unknown gateway']];
         }
 
+        // Paymob (C1): توقيعه يغطي حقول obj المحددة فقط، فكل قرار (الحالة،
+        // المبلغ، المعرّف، ربط الطلب) يجب أن يُشتق من obj وحدها — لا من حقول
+        // أعلى المستوى غير الموقّعة (order_number/amount/event_id).
+        $isPaymob = (string) ($config['driver'] ?? 'hmac') === 'paymob';
+
         // التحقق بنمط البوابة (F-06) قبل تخزين الحمولة: محاولات مجهولة
         // لا تملأ webhook_logs.payload — تُسجل مختصرة فقط (M4)
         $verified = $this->verifier->verifyGateway(
@@ -77,14 +82,14 @@ class PaymentWebhookService
         // بعد التحقق فقط: معرّف الحدث من الحمولة مُنقّى (قيمة مفردة وحد
         // طول) ومدموجًا بنتيجة الحدث (F-08) حتى لا يبتلع الاستردادَ حدثُ
         // الدفعِ لنفس المعاملة فيُعلَّم duplicate
-        $outcome = $this->outcome($payload);
-        $extractedId = $this->extractEventId($payload);
+        $outcome = $isPaymob ? $this->paymobOutcome($payload) : $this->outcome($payload);
+        $extractedId = $isPaymob ? $this->paymobEventId($payload) : $this->extractEventId($payload);
         $eventId = $extractedId !== null ? $extractedId.':'.$outcome : $preVerifyKey;
 
         $log = $this->startLog($provider, $eventId, $payload, $ip);
         $log->update(['signature_valid' => true]);
 
-        return DB::transaction(function () use ($gateway, $provider, $eventId, $payload, $log, $config, $outcome): array {
+        return DB::transaction(function () use ($gateway, $provider, $eventId, $payload, $log, $config, $outcome, $isPaymob): array {
             // قفل استشاري على مفتاح الحدث: نسختان متزامنتان من نفس الحدث تتسلسلان هنا
             DB::statement('SELECT pg_advisory_xact_lock(hashtext(?))', [$provider.':'.$eventId]);
 
@@ -94,12 +99,20 @@ class PaymentWebhookService
                 return ['http' => 200, 'body' => ['received' => true, 'duplicate' => true]];
             }
 
-            $orderNumber = $this->extractOrderNumber($payload);
-            $order = $orderNumber !== null
-                ? Order::query()->where('order_number', $orderNumber)->lockForUpdate()->first()
+            // ربط الطلب (C1): لـ Paymob من obj.order.id الموقّع مقابل
+            // orders.gateway_order_id، ولباقي البوابات من حقولها المعتادة
+            $orderReference = $isPaymob
+                ? $this->paymobGatewayOrderId($payload)
+                : $this->extractOrderNumber($payload);
+            $order = $orderReference !== null
+                ? Order::query()
+                    ->when($isPaymob,
+                        fn ($q) => $q->where('gateway_order_id', $orderReference),
+                        fn ($q) => $q->where('order_number', $orderReference))
+                    ->lockForUpdate()->first()
                 : null;
             if ($order === null) {
-                $log->update(['status' => 'failed', 'error' => 'طلب غير موجود: '.($orderNumber ?? '—')]);
+                $log->update(['status' => 'failed', 'error' => 'طلب غير موجود: '.($orderReference ?? '—')]);
 
                 return ['http' => 200, 'body' => ['received' => false, 'message' => 'order not found']];
             }
@@ -113,8 +126,12 @@ class PaymentWebhookService
                 return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
             }
 
-            // التحقق من المبلغ والعملة قبل أي تغيير (H5)
-            if ($outcome === 'paid' && ! $this->amountMatches($payload, $order, $config)) {
+            // التحقق من المبلغ والعملة قبل أي تغيير (H5) — ولـ Paymob من
+            // obj.amount_cents/obj.currency الموقّعين فقط (C1)
+            $amountOk = $isPaymob
+                ? $this->paymobAmountMatches($payload, $order, $config)
+                : $this->amountMatches($payload, $order, $config);
+            if ($outcome === 'paid' && ! $amountOk) {
                 // المال قد يكون قُبض فعلًا مع مبلغ مخالف: يُعلَّم الطلب للانتباه
                 // ويُنبَّه السجل — لا يُكتفى بسجل failed صامت (F-22)
                 $order->update(['needs_attention' => true]);
@@ -298,6 +315,97 @@ class PaymentWebhookService
         return is_scalar($value) ? mb_substr((string) $value, 0, 191) : null;
     }
 
+    /** كائن معاملة Paymob الموقّع (obj) — مصدر الحقيقة الوحيد لبوابة Paymob. */
+    private function paymobObj(array $payload): ?array
+    {
+        $obj = $payload['obj'] ?? null;
+
+        return is_array($obj) ? $obj : null;
+    }
+
+    /**
+     * حالة حدث Paymob من الحقول الموقّعة فقط (C1): علم الاسترداد/الإلغاء
+     * يُفحص قبل success لأن Paymob يرسل success=true مع is_refunded/is_voided
+     * فيُصنّف الاسترداد خطأً كدفع ناجح إن فُحص success أولًا.
+     */
+    private function paymobOutcome(array $payload): string
+    {
+        $obj = $this->paymobObj($payload);
+        if ($obj === null) {
+            return 'ignored';
+        }
+
+        if ($this->paymobFlag($obj, 'is_refunded') || $this->paymobFlag($obj, 'is_voided')) {
+            return 'refunded';
+        }
+        if ($this->paymobFlag($obj, 'pending')) {
+            return 'pending';
+        }
+
+        $success = $obj['success'] ?? null;
+        if ($success === true || $success === 'true' || $success === 1 || $success === '1') {
+            return 'paid';
+        }
+        if ($success === false || $success === 'false' || $success === 0 || $success === '0') {
+            return 'failed';
+        }
+
+        return 'ignored';
+    }
+
+    /** معرّف حدث Paymob: obj.id الموقّع (لا event_id أعلى المستوى غير الموقّع). */
+    private function paymobEventId(array $payload): ?string
+    {
+        $obj = $this->paymobObj($payload);
+        $id = $obj['id'] ?? null;
+
+        return is_scalar($id) && $id !== '' ? mb_substr((string) $id, 0, 191) : null;
+    }
+
+    /** معرّف طلب Paymob الموقّع (obj.order.id) لربط الطلب. */
+    private function paymobGatewayOrderId(array $payload): ?string
+    {
+        $obj = $this->paymobObj($payload);
+        $id = is_array($obj['order'] ?? null) ? ($obj['order']['id'] ?? null) : null;
+
+        return is_scalar($id) && $id !== '' ? mb_substr((string) $id, 0, 191) : null;
+    }
+
+    /**
+     * مطابقة المبلغ والعملة لـ Paymob من obj.amount_cents وobj.currency فقط
+     * (C1) — لا من amount/currency أعلى المستوى غير الموقّعين.
+     *
+     * @param  array<string, mixed>  $config
+     */
+    private function paymobAmountMatches(array $payload, Order $order, array $config): bool
+    {
+        $obj = $this->paymobObj($payload);
+        if ($obj === null) {
+            return false;
+        }
+
+        $expectedCurrency = strtoupper((string) ($config['currency'] ?? 'EGP'));
+        $currency = $obj['currency'] ?? null;
+        if (! is_scalar($currency) || strtoupper((string) $currency) !== $expectedCurrency) {
+            return false;
+        }
+
+        $cents = $obj['amount_cents'] ?? null;
+        if (! is_numeric($cents)) {
+            return ! ($config['require_amount'] ?? false);
+        }
+
+        return abs(round(((float) $cents) / 100, 2) - (float) $order->grand_total) < 0.01;
+    }
+
+    /** @param array<string, mixed> $obj */
+    private function paymobFlag(array $obj, string $key): bool
+    {
+        $value = $obj[$key] ?? null;
+
+        return $value === true || $value === 'true' || $value === 1 || $value === '1';
+    }
+
     /** @param array<int, string> $keys */
     private function firstValue(array $payload, array $keys): mixed
     {
@@ -316,7 +424,8 @@ class PaymentWebhookService
         return WebhookLog::create([
             'provider' => $provider,
             'event_id' => $eventId,
-            'payload' => $payload,
+            // تنقية السر قبل التخزين (H1): Moyasar يضع secret_token في الجسم
+            'payload' => WebhookLog::sanitizePayload($payload),
             'status' => 'received',
             'ip_address' => $ip,
         ]);

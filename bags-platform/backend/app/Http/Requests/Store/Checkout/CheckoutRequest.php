@@ -22,11 +22,15 @@ class CheckoutRequest extends FormRequest
     {
         return [
             'recipient_name' => ['nullable', 'string', 'max:255'],
-            'recipient_phone' => ['nullable', 'string', 'max:50'],
+            // صيغة هاتف تحمل أرقامًا (M3): مدخل بلا أرقام كان يوحّد إلى هوية
+            // مشتركة 'guest:' فيفسح نطاق idempotency عامًا وتتبعًا خاطئًا
+            'recipient_phone' => ['nullable', 'string', 'max:50', 'regex:/^[0-9+][0-9\s().\-]{6,}$/'],
             'recipient_email' => ['nullable', 'email', 'max:255'],
             'city_id' => ['required', 'integer', 'exists:cities,id'],
             'shipping_address_line' => ['required', 'string', 'max:500'],
             'shipping_notes' => ['nullable', 'string', 'max:500'],
+            // الإجمالي الذي رآه العميل — يُقارن بالمحسوب لمنع تغيّر السعر الصامت (M6)
+            'expected_total' => ['nullable', 'numeric', 'min:0'],
             // طرق الدفع من الإعدادات فقط — طريقة بلا بوابة مربوطة لا تُقبل (H9)
             'payment_method' => ['required', Rule::in($this->allowedPaymentMethods())],
         ];

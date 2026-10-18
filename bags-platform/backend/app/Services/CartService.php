@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Enums\CustomerStatus;
+use App\Enums\CustomerType;
 use App\Enums\ProductStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Cart;
@@ -96,19 +98,50 @@ class CartService
             }
 
             $account = $this->accountCart($customer);
+            // الدمج يحترم سقوف السلة (M2): بغير ذلك بضع سلال زائر بحد البنود
+            // تُنتج سلة حساب بمئات البنود فتُلغي حماية F15
+            $maxLines = (int) config('store.max_cart_lines', 50);
+            $lineCap = $this->lineQtyCap($customer);
+            $accountQty = $account->items()->pluck('qty', 'product_variant_id')
+                ->map(fn ($qty): float => (float) $qty)->all();
+            $accountLines = count($accountQty);
+
             foreach ($guest->items as $item) {
+                $variantId = (int) $item->product_variant_id;
+                $existingQty = $accountQty[$variantId] ?? null;
+                $isNew = $existingQty === null;
+
+                // بنود جديدة فوق السقف تُتجاهل (لا تُفشل تسجيل الدخول)
+                if ($isNew && $maxLines > 0 && $accountLines >= $maxLines) {
+                    continue;
+                }
+
+                $qty = (float) $item->qty;
+                if ($lineCap > 0) {
+                    $allowed = $lineCap - (float) ($existingQty ?? 0);
+                    if ($allowed <= 0) {
+                        continue;
+                    }
+                    $qty = min($qty, $allowed);
+                }
+
                 // UPSERT ذرّي: دمج متزامن لا يصطدم بقيد التفرد (F-09)
                 CartItem::query()->upsert(
                     [[
                         'cart_id' => $account->id,
-                        'product_variant_id' => $item->product_variant_id,
-                        'qty' => $item->qty,
+                        'product_variant_id' => $variantId,
+                        'qty' => $qty,
                         'created_at' => now(),
                         'updated_at' => now(),
                     ]],
                     ['cart_id', 'product_variant_id'],
                     ['qty' => DB::raw('cart_items.qty + EXCLUDED.qty'), 'updated_at' => now()],
                 );
+
+                $accountQty[$variantId] = (float) ($existingQty ?? 0) + $qty;
+                if ($isNew) {
+                    $accountLines++;
+                }
             }
             if ($account->coupon_id === null && $guest->coupon_id !== null) {
                 $account->update(['coupon_id' => $guest->coupon_id]);
@@ -137,7 +170,7 @@ class CartService
             }
 
             $targetQty = ($existing !== null ? (float) $existing->qty : 0) + $qty;
-            $this->assertGuestLineQty($customer, $targetQty);
+            $this->assertLineQty($customer, $targetQty);
             $this->assertAvailable($variantId, $targetQty);
             $this->assertPriced($variant, $customer, $targetQty);
 
@@ -171,7 +204,7 @@ class CartService
             // قفل صف السلة (F19) بنفس منطق addItem
             $cart = Cart::query()->lockForUpdate()->findOrFail($cart->id);
             $variant = $this->purchasableVariant($variantId);
-            $this->assertGuestLineQty($customer, $qty);
+            $this->assertLineQty($customer, $qty);
             $this->assertAvailable($variantId, $qty);
             $this->assertPriced($variant, $customer, $qty);
 
@@ -267,8 +300,15 @@ class CartService
         }
 
         // الخصم السعري = الفرق بين الإجماليين المقرّبين، لا مجموع فروق
-        // السطور المقرّبة (F-26) حتى لا يظهر فرق قرش بين العرض والمحصّل
-        $pricingDiscount = round($subtotal - $itemsTotal, 2);
+        // السطور المقرّبة (F-26) حتى لا يظهر فرق قرش بين العرض والمحصّل.
+        // ‏(L6) سعر مخصص أعلى من الأساسي لا يصنع خصمًا سالبًا: يُرفع المرجع
+        // لسعر البيع الفعلي، فلا يزيد الخصم السالب الإجمالي المحصّل.
+        if ($subtotal < $itemsTotal) {
+            $subtotal = $itemsTotal;
+            $pricingDiscount = 0.0;
+        } else {
+            $pricingDiscount = round($subtotal - $itemsTotal, 2);
+        }
 
         $couponDiscount = 0.0;
         $couponCode = null;
@@ -378,16 +418,29 @@ class CartService
         return $variant;
     }
 
-    /** سقف كمية البند الواحد للزوار (F5) — للحسابات المسجلة بلا سقف. */
-    private function assertGuestLineQty(?Customer $customer, float $qty): void
+    /** سقف كمية البند الواحد (H2): للزوار، وللمسجّلين غير الجملة سقف تجزئة. */
+    private function assertLineQty(?Customer $customer, float $qty): void
     {
-        if ($customer !== null) {
-            return;
-        }
-        $cap = (float) config('store.guest_max_line_qty', 10);
+        $cap = $this->lineQtyCap($customer);
         if ($cap > 0 && $qty > $cap) {
-            throw new BusinessException("سقف كمية البند الواحد للزوار ({$cap}) — سجّل الدخول للكميات الأكبر.");
+            throw new BusinessException($customer === null
+                ? "سقف كمية البند الواحد للزوار ({$cap}) — سجّل الدخول للكميات الأكبر."
+                : "سقف كمية البند الواحد ({$cap}) — للكميات الأكبر تواصل مع مسار الجملة.");
         }
+    }
+
+    /** سقف كمية السطر الفعّال للهوية: 0 = بلا سقف (عملاء الجملة المعتمدون). */
+    private function lineQtyCap(?Customer $customer): float
+    {
+        if ($customer === null) {
+            return (float) config('store.guest_max_line_qty', 10);
+        }
+        if ($customer->status === CustomerStatus::Approved
+            && in_array($customer->type, [CustomerType::Wholesale, CustomerType::Distributor], true)) {
+            return 0.0;
+        }
+
+        return (float) config('store.retail_max_line_qty', 50);
     }
 
     private function assertAvailable(int $variantId, float $qty): void

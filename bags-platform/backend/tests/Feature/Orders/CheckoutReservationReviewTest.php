@@ -271,7 +271,12 @@ class CheckoutReservationReviewTest extends TestCase
     public function test_paymob_hmac_scheme_and_refund_not_merged_with_payment(): void
     {
         Config::set('webhooks.payment.paymob', ['driver' => 'paymob', 'secret' => 'paymob_hmac']);
-        $order = Order::factory()->create(['status' => 'pending', 'payment_status' => 'unpaid', 'grand_total' => 250]);
+        // الربط بمعرّف طلب Paymob الموقّع (C1): obj.order.id = 55، وليس برقم
+        // التاجر غير الموقّع merchant_order_id
+        $order = Order::factory()->create([
+            'status' => 'pending', 'payment_status' => 'unpaid', 'grand_total' => 250,
+            'gateway_order_id' => '55',
+        ]);
         $obj = [
             'amount_cents' => 25000, 'created_at' => '2026-10-18T00:00:00', 'currency' => 'EGP',
             'error_occured' => false, 'has_parent_transaction' => false, 'id' => 777,

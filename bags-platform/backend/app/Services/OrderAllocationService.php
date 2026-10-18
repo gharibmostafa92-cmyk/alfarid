@@ -11,6 +11,7 @@ use App\Models\Branch;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\StockLevel;
+use App\Models\StockMovement;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
@@ -102,6 +103,66 @@ class OrderAllocationService
 
             return $order->fresh(['items']);
         });
+    }
+
+    /**
+     * فك توزيع الطلب (M5): يُحرّر كل حجوزات الطلب من وعاء reserved ويعيده
+     * إلى «غير موزّع» — كان endpoint التوزيع يشير لهذه العملية في رسالته
+     * بينما لا سبيل لتنفيذها. الحجوزات تُقرأ من دفتر الحركات نفسه، فلا يعتمد
+     * الفك على حالة مشتقة قابلة للانحراف.
+     */
+    public function deallocate(Order $order, ?int $performedBy = null): Order
+    {
+        return DB::transaction(function () use ($order, $performedBy): Order {
+            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $order->load('items');
+            // ترتيب قفل عام ثابت كالتوزيع (F-02) لتفادي الجمود
+            $order->setRelation('items', $order->items
+                ->sortBy(fn (OrderItem $item): int => (int) $item->product_variant_id)
+                ->values());
+            $performedBy ??= auth()->id();
+
+            if (! $this->isAllocated($order)) {
+                throw new BusinessException('الطلب غير موزّع على أي فرع؛ لا شيء لفكه.');
+            }
+
+            // حركات الحجز تُقفل بترتيب ثابت ثم يُعكس كل منها بإفراج مقابل
+            $reservations = StockMovement::query()
+                ->where('reference_type', $order->getMorphClass())
+                ->where('reference_id', $order->id)
+                ->where('type', StockMovementType::Reserve->value)
+                ->orderBy('product_variant_id')
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($reservations as $movement) {
+                $this->inventoryService->recordMovement([
+                    'product_variant_id' => (int) $movement->product_variant_id,
+                    'branch_id' => (int) $movement->branch_id,
+                    'location_id' => $movement->location_id,
+                    'type' => StockMovementType::ReleaseReserve,
+                    'affected_bucket' => StockBucket::Reserved,
+                    'quantity' => -1 * (float) $movement->quantity,
+                    'reference_type' => Order::class,
+                    'reference_id' => $order->id,
+                    'created_by' => $performedBy,
+                    'notes' => "فك يدوي لتوزيع الطلب رقم {$order->order_number}",
+                ]);
+            }
+
+            $order->items()->update(['allocated_branch_id' => null]);
+            $order->update(['allocated_branch_id' => null]);
+
+            return $order->fresh(['items']);
+        });
+    }
+
+    /** هل الطلب موزّع على أي فرع (على مستوى الطلب أو أي بند)؟ */
+    public function isAllocated(Order $order): bool
+    {
+        return $order->allocated_branch_id !== null
+            || $order->items->contains(fn (OrderItem $item): bool => $item->allocated_branch_id !== null);
     }
 
     /** قفل صفوف أرصدة أصناف الطلب بترتيب ثابت (منتج ثم معرّف) — F8. */

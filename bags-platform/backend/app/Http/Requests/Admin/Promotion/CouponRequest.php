@@ -6,6 +6,7 @@ namespace App\Http\Requests\Admin\Promotion;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 class CouponRequest extends FormRequest
 {
@@ -32,6 +33,33 @@ class CouponRequest extends FormRequest
             'ends_at' => ['nullable', 'date', 'after_or_equal:starts_at'],
             'is_active' => ['nullable', 'boolean'],
         ];
+    }
+
+    /**
+     * (M1) فحص القيمة «الفعّالة» بعد الدمج مع الكوبون الحالي: قاعدة max:100
+     * أعلاه تعتمد على النوع المُرسل، فطلب تعديل يغيّر النوع إلى percentage
+     * دون إرسال value كان يترك قيمة قديمة (>100) تمرّ دون فحص.
+     *
+     * @return list<callable(Validator): void>
+     */
+    public function after(): array
+    {
+        return [function (Validator $validator): void {
+            if ($validator->errors()->isNotEmpty()) {
+                return;
+            }
+
+            $coupon = $this->route('coupon');
+            $type = $this->input('type');
+            // قيمة غير رقمية (بما فيها null الصريح) تعني «أبقِ الحالية» في
+            // مسار التعديل — فالفحص على القيمة الفعلية لا المُرسلة
+            $submitted = $this->input('value');
+            $effective = is_numeric($submitted) ? (float) $submitted : (float) ($coupon?->value ?? 0);
+
+            if ($type === 'percentage' && $effective > 100) {
+                $validator->errors()->add('value', 'نسبة الكوبون لا تتجاوز 100%.');
+            }
+        }];
     }
 
     protected function prepareForValidation(): void

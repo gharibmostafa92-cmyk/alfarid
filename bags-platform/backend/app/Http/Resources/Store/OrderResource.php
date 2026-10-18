@@ -28,6 +28,9 @@ class OrderResource extends JsonResource
             'discount_amount' => $this->discount_amount,
             'coupon_code' => $this->coupon_code,
             'shipping_cost' => $this->shipping_cost,
+            // رسوم الدفع عند الاستلام جزء من الإجمالي (M4): بغير عرضها يظهر
+            // للعميل subtotal − discount + shipping + tax ≠ grand_total
+            'cod_fee' => $this->cod_fee,
             'tax_amount' => $this->tax_amount,
             'grand_total' => $this->grand_total,
             'items' => $this->whenLoaded('items', fn () => $this->items->map(fn ($item): array => [

@@ -42,6 +42,7 @@ class Order extends Model
         'cod_fee',
         'idempotency_key',
         'idempotency_scope',
+        'gateway_order_id',
         'subtotal',
         'discount_amount',
         'coupon_id',
@@ -58,8 +59,11 @@ class Order extends Model
             'subtotal' => 'decimal:2',
             'discount_amount' => 'decimal:2',
             'shipping_cost' => 'decimal:2',
+            'cod_fee' => 'decimal:2',
             'tax_amount' => 'decimal:2',
             'grand_total' => 'decimal:2',
+            'requires_refund' => 'boolean',
+            'needs_attention' => 'boolean',
         ];
     }
 

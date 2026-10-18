@@ -22,11 +22,23 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 /** إدارة الطلبات: عرض وفلترة، تغيير الحالة عبر OrderService، وتوزيع يدوي/مُجبر. */
 class OrderController extends Controller implements HasMiddleware
 {
+    /**
+     * آلة انتقالات حالة الدفع (H4): تمنع الحالات المستحيلة مثل refunded→unpaid
+     * وpaid→failed ووضع paid على طلب ملغى بلا التزام استرداد.
+     */
+    private const PAYMENT_TRANSITIONS = [
+        'unpaid' => ['paid', 'failed'],
+        'failed' => ['paid', 'unpaid'],
+        'paid' => ['refunded'],
+        'refunded' => [],
+    ];
+
     public function __construct(
         private readonly OrderService $orders,
         private readonly OrderAllocationService $allocation,
@@ -37,8 +49,10 @@ class OrderController extends Controller implements HasMiddleware
     {
         return [
             new Middleware('can:orders.view', only: ['index', 'show']),
-            new Middleware('can:orders.update', only: ['updateStatus', 'createShipment', 'updatePayment']),
-            new Middleware('can:orders.allocate', only: ['allocate']),
+            new Middleware('can:orders.update', only: ['updateStatus', 'createShipment']),
+            // صلاحية مالية منفصلة (H4): تغيير الحالة التشغيلية لا يمنح تعديل الدفع
+            new Middleware('can:orders.payment', only: ['updatePayment']),
+            new Middleware('can:orders.allocate', only: ['allocate', 'deallocate']),
         ];
     }
 
@@ -126,24 +140,47 @@ class OrderController extends Controller implements HasMiddleware
     public function updatePayment(UpdateOrderPaymentRequest $request, Order $order): AdminOrderResource
     {
         $data = $request->validated();
-        $from = $order->payment_status;
         $to = (string) $data['payment_status'];
 
-        $order->update([
-            'payment_status' => $to,
-            // إثبات الدفع أو الاسترداد يزيل حاجة الاسترداد المعلّقة
-            'requires_refund' => in_array($to, ['paid', 'refunded'], true) ? false : $order->requires_refund,
-        ]);
+        // قفل صف + transaction (H4): سباق مع ويب هوك الدفع كان يضيّع تحديث
+        // أحدهما (lost update)، وآلة انتقالات تمنع الحالات المستحيلة.
+        $order = DB::transaction(function () use ($order, $to, $data, $request): Order {
+            $order = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $from = $order->payment_status;
 
-        $actor = $request->user();
-        $notes = trim("تحديث يدوي لحالة الدفع: {$from} ← {$to}. ".($data['notes'] ?? ''));
-        $order->statusHistories()->create([
-            'from_status' => $order->status,
-            'to_status' => $order->status,
-            'changed_by_type' => $actor?->getMorphClass(),
-            'changed_by_id' => $actor?->getKey(),
-            'notes' => mb_substr($notes, 0, 500),
-        ]);
+            if ($from === $to) {
+                return $order;
+            }
+            if (! in_array($to, self::PAYMENT_TRANSITIONS[$from] ?? [], true)) {
+                throw new BusinessException("انتقال حالة دفع غير مسموح: من ({$from}) إلى ({$to}).");
+            }
+
+            // حالة الاسترداد تتبع حالة الطلب لا القيمة القادمة (H4): دفع على
+            // طلب ملغى/مرتجع يستلزم استردادًا، والاسترداد يُسقط الالتزام.
+            // ضبط requires_refund مباشرة من $to كان يمحو الالتزام بصمت.
+            $requiresRefund = $to === 'paid'
+                && in_array($order->status, [OrderStatus::Cancelled, OrderStatus::Returned], true);
+            if ($to === 'refunded') {
+                $requiresRefund = false;
+            }
+
+            $order->update([
+                'payment_status' => $to,
+                'requires_refund' => $requiresRefund,
+            ]);
+
+            $actor = $request->user();
+            $notes = trim("تحديث يدوي لحالة الدفع: {$from} ← {$to}. ".($data['notes'] ?? ''));
+            $order->statusHistories()->create([
+                'from_status' => $order->status,
+                'to_status' => $order->status,
+                'changed_by_type' => $actor?->getMorphClass(),
+                'changed_by_id' => $actor?->getKey(),
+                'notes' => mb_substr($notes, 0, 500),
+            ]);
+
+            return $order;
+        });
 
         return AdminOrderResource::make(
             $order->load(['items', 'statusHistories', 'customer', 'city', 'allocatedBranch'])
@@ -174,6 +211,20 @@ class OrderController extends Controller implements HasMiddleware
             $request->validated()['branch_id'] ?? null,
             (int) $request->user()->id,
         );
+
+        return AdminOrderResource::make(
+            $order->load(['items', 'statusHistories', 'customer', 'city', 'allocatedBranch'])
+        );
+    }
+
+    /** فك توزيع الطلب (M5) — عكس allocate، يُحرّر الحجوزات ويعيد الطلب غير موزّع. */
+    public function deallocate(Request $request, Order $order): AdminOrderResource
+    {
+        if (! in_array($order->status, [OrderStatus::Confirmed, OrderStatus::Processing], true)) {
+            throw new BusinessException('فك التوزيع متاح فقط لطلب مؤكد أو قيد التجهيز.');
+        }
+
+        $order = $this->allocation->deallocate($order, (int) $request->user()->id);
 
         return AdminOrderResource::make(
             $order->load(['items', 'statusHistories', 'customer', 'city', 'allocatedBranch'])

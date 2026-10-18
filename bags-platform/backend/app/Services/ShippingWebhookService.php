@@ -9,6 +9,7 @@ use App\Enums\ShipmentStatus;
 use App\Models\Shipment;
 use App\Models\ShippingCompany;
 use App\Models\WebhookLog;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -69,10 +70,12 @@ class ShippingWebhookService
         }
 
         $company = ShippingCompany::query()->where('code', $companyCode)->first();
-        if ($company === null) {
-            $this->slimLog($provider, $preVerifyKey, 'failed', 'شركة شحن غير معروفة', $ip);
+        if ($company === null || ! $company->is_active) {
+            // ردّ عام (L3): لا نفرّق في الردّ بين كود صحيح لكن شركته معطّلة
+            // وكود وهمي — منعًا لاستخدام رمز 404 كأداة تعداد لأكواد الشركات
+            $this->slimLog($provider, $preVerifyKey, 'failed', 'شركة شحن غير معروفة أو معطّلة', $ip);
 
-            return ['http' => 404, 'body' => ['received' => false, 'message' => 'unknown company']];
+            return ['http' => 403, 'body' => ['received' => false, 'message' => 'invalid signature']];
         }
 
         // سر التوقيع: webhook_secret الخاص بالشركة فقط — لا رجوع لمفتاح API
@@ -127,6 +130,7 @@ class ShippingWebhookService
             $shipment->update(['status' => $status]);
 
             $note = null;
+            $failed = false;
             if ($status === ShipmentStatus::Returned) {
                 // إشعار المرتجع (بما فيه rto) يعني بدء الإرجاع لا وصوله:
                 // لا إعادة للمخزون من الويب هوك (F-15) — البضاعة قد تكون
@@ -161,15 +165,36 @@ class ShippingWebhookService
                         // مُصنّع هنا: طلب غير مشحون لا ينتقل أصلًا
                         $this->orders->changeStatus($order, OrderStatus::Delivered, null, 'تم التسليم — إشعار شركة الشحن');
                     } catch (Throwable $e) {
+                        // (H5) أخطاء الازدحام المؤقتة (جمود/مهلة قفل/انقطاع اتصال)
+                        // تُعاد للبوابة لتُعيد المحاولة — ابتلاعها وسوم الحدث
+                        // «processed» يمنع أي إعادة فيضيع تحويل الطلب صامتًا
+                        if ($this->isTransient($e)) {
+                            throw $e;
+                        }
+                        // فشل حقيقي غير مؤقت: لا نُعلن النجاح — نوسم الطلب
+                        // للانتباه ونُسجّل الحدث «failed» لا «processed»
+                        $order->update(['needs_attention' => true]);
+                        $failed = true;
                         $note = 'تم تسليم البوليصة لكن تحويل الطلب فشل: '.$e->getMessage();
                     }
                 }
             }
 
-            $log->update(['status' => 'processed', 'error' => $note]);
+            $log->update(['status' => $failed ? 'failed' : 'processed', 'error' => $note]);
 
             return ['http' => 200, 'body' => ['received' => true]];
         });
+    }
+
+    /** هل الخطأ ازدحام مؤقت يستحق إعادة المحاولة من البوابة (H5)؟ */
+    private function isTransient(Throwable $e): bool
+    {
+        if (! $e instanceof QueryException) {
+            return false;
+        }
+
+        // 55P03 = مهلة قفل، 40P01 = جمود، 08006/08003 = انقطاع اتصال
+        return in_array($e->errorInfo[0] ?? $e->getCode(), ['55P03', '40P01', '08006', '08003'], true);
     }
 
     private function transitionAllowed(ShipmentStatus $current, ShipmentStatus $new): bool
@@ -224,7 +249,9 @@ class ShippingWebhookService
     private function rawStatus(array $payload): ?string
     {
         $raw = $this->firstValue($payload, ['status', 'state', 'shipment_status', 'data.status', 'data.state']);
-        if ($raw === null) {
+        // قيمة غير قياسية (مصفوفة/كائن) تُتجاهل (L2): (string) عليها يُنتج
+        // تحذير "Array to string conversion" ومفتاحًا باطلًا
+        if (! is_scalar($raw)) {
             return null;
         }
 
@@ -235,7 +262,7 @@ class ShippingWebhookService
     private function mapStatus(array $payload): ?ShipmentStatus
     {
         $raw = $this->firstValue($payload, ['status', 'state', 'shipment_status', 'data.status', 'data.state']);
-        if ($raw === null) {
+        if (! is_scalar($raw)) {
             return null;
         }
         $key = str_replace([' ', '-'], '_', strtolower(trim((string) $raw)));
@@ -275,7 +302,8 @@ class ShippingWebhookService
         return WebhookLog::create([
             'provider' => $provider,
             'event_id' => $eventId,
-            'payload' => $payload,
+            // تنقية المفاتيح الحسّاسة قبل التخزين (H1)
+            'payload' => WebhookLog::sanitizePayload($payload),
             'status' => 'received',
             'ip_address' => $ip,
         ]);

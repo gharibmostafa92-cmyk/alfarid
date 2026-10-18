@@ -22,7 +22,6 @@ use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Database\Seeders\ShippingPermissionSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
-use Illuminate\Support\Facades\Config;
 use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
@@ -214,9 +213,11 @@ class OrderIntegrityReviewTest extends TestCase
 
     // ---------- F-17 ----------
 
-    public function test_guest_pending_coupon_cap_stops_phone_rotation_drain(): void
+    public function test_guest_coupon_limited_per_phone_not_globally(): void
     {
-        Config::set('store.guest_coupon_pending_cap', 2);
+        // (H3) أُزيل السقف العالمي الذي كان مهاجم واحد يُعطّل به الحملة على كل
+        // الزوار. الحماية الآن لكل هوية: نفس الرقم لا يعيد استخدام الكوبون،
+        // لكن رقم جديد لا يُحجب عالميًا.
         $variant = $this->variant();
         $this->giveStock($variant, 50);
         Coupon::create([
@@ -225,10 +226,10 @@ class OrderIntegrityReviewTest extends TestCase
         ]);
 
         $this->guestCheckout($variant, 1, null, 'CAMP', '01000000001')->assertCreated();
+        // نفس الرقم: حد الاستخدام لكل هوية يمنع الإعادة
+        $this->guestCheckout($variant, 1, null, 'CAMP', '01000000001')->assertStatus(422);
+        // رقم مختلف: لا سقف عالمي يحجب الزوار الشرعيين
         $this->guestCheckout($variant, 1, null, 'CAMP', '01000000002')->assertCreated();
-
-        // رقم ثالث جديد تمامًا — السقف العام للزوار المعلّقين يوقفه
-        $this->guestCheckout($variant, 1, null, 'CAMP', '01000000003')->assertStatus(422);
         $this->assertSame(2, Order::query()->count());
     }
 }

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Enums\CustomerStatus;
+use App\Enums\CustomerType;
 use App\Enums\OrderStatus;
 use App\Enums\StockBucket;
 use App\Enums\StockMovementType;
@@ -70,6 +72,13 @@ class OrderService
         $guestPhoneNormalized = is_string($guestPhone) && trim($guestPhone) !== ''
             ? Customer::normalizePhone($guestPhone)
             : null;
+        // هاتف زائر لا يحمل أرقامًا بعد التوحيد = هوية مشتركة بين كل من أرسل
+        // مدخلًا عشوائيًا (M3): نطاق idempotency يصير 'guest:' عامًا ويتطابق
+        // التتبع مع أي هاتف. يُرفض بدل أن يفسد Discounts/التتبع.
+        if ($customer === null && $guestPhoneNormalized !== null
+            && preg_match('/\d/', $guestPhoneNormalized) !== 1) {
+            throw new BusinessException('رقم هاتف صالح مطلوب لإتمام الشراء كزائر.');
+        }
         $idempotencyScope = $customer !== null
             ? 'customer:'.$customer->id
             : ($guestPhoneNormalized !== null ? 'guest:'.$guestPhoneNormalized : null);
@@ -117,18 +126,26 @@ class OrderService
                 }
             }
 
-            // سقوف الزوار (F5): الزائر بلا تحقق من الهاتف لا يحجز كميات ضخمة
-            // ولا يراكم طلبات معلّقة تحبس مخزونًا حقيقيًا
-            if ($customer === null) {
-                $guestMaxQty = (float) config('store.guest_max_line_qty', 10);
-                if ($guestMaxQty > 0) {
+            // سقوف المخزون (F5/H2): الزائر بلا تحقق من الهاتف، والعميل المسجّل
+            // بلا سقف كانا يحبسان المخزون بكميات ضخمة وطلبات معلّقة. عملاء
+            // الجملة/التوزيع المعتمدون مستثنون (مسار الجملة للكميات الكبيرة).
+            $isWholesale = $this->isWholesaleApproved($customer);
+            if (! $isWholesale) {
+                $lineCap = $customer === null
+                    ? (float) config('store.guest_max_line_qty', 10)
+                    : (float) config('store.retail_max_line_qty', 50);
+                if ($lineCap > 0) {
                     foreach ($lines as $line) {
-                        if ((float) $line['qty'] > $guestMaxQty) {
-                            throw new BusinessException("سقف كمية البند الواحد للزوار ({$guestMaxQty}) — سجّل الدخول للكميات الأكبر.");
+                        if ((float) $line['qty'] > $lineCap) {
+                            throw new BusinessException($customer === null
+                                ? "سقف كمية البند الواحد للزوار ({$lineCap}) — سجّل الدخول للكميات الأكبر."
+                                : "سقف كمية البند الواحد ({$lineCap}) — للكميات الأكبر تواصل مع مسار الجملة.");
                         }
                     }
                 }
+            }
 
+            if ($customer === null) {
                 $pendingCap = (int) config('store.guest_pending_orders_cap', 3);
                 if ($pendingCap > 0 && $guestPhoneNormalized !== null) {
                     $pendingForPhone = Order::query()
@@ -138,6 +155,17 @@ class OrderService
                         ->count();
                     if ($pendingForPhone >= $pendingCap) {
                         throw new BusinessException('لديك طلبات معلّقة كثيرة على هذا الرقم؛ أكملها أو ألغِها قبل طلب جديد.');
+                    }
+                }
+            } elseif (! $isWholesale) {
+                $pendingCap = (int) config('store.customer_pending_orders_cap', 5);
+                if ($pendingCap > 0) {
+                    $pendingForCustomer = Order::query()
+                        ->where('customer_id', $customer->id)
+                        ->where('status', OrderStatus::Pending)
+                        ->count();
+                    if ($pendingForCustomer >= $pendingCap) {
+                        throw new BusinessException('لديك طلبات معلّقة كثيرة؛ أكملها أو ألغِها قبل طلب جديد.');
                     }
                 }
             }
@@ -170,6 +198,8 @@ class OrderService
                     // رمز مميز حتى تعرض الواجهة زر إزالة الكوبون (H8)
                     throw new BusinessException($e->getMessage(), $e->errors, $e->status, 'coupon_invalid');
                 }
+                // حد معدّل لكل (كوبون + IP) عند إتمام الشراء (H3)
+                $this->couponService->enforceRateLimit($coupon, 'redeem');
                 $couponDiscount = $this->couponService->discountFor($coupon, $totals['items_total']);
                 $couponId = $coupon->id;
                 $couponCode = $coupon->code;
@@ -212,6 +242,16 @@ class OrderService
 
             $grandTotal = round(($subtotal - $discountAmount) + $shippingCost + $codFee + $taxAmount, 2);
 
+            // حماية من تغيّر السعر بين عرض السلة والشراء (M6): إن أرسل العميل
+            // الإجمالي الذي رآه واختلف عمّا حُسب فعليًا نرفض بدل تحصيل زائد صامت
+            if (isset($data['expected_total']) && is_numeric($data['expected_total'])
+                && abs((float) $data['expected_total'] - $grandTotal) > 0.01) {
+                throw new BusinessException(
+                    'تغيّر إجمالي الطلب منذ عرضه. راجع السلة ثم أعد المحاولة.',
+                    [], 422, 'price_changed',
+                );
+            }
+
             $order = Order::create([
                 'order_number' => $this->settings->generateNextNumber('order'),
                 'idempotency_key' => $idempotencyKey,
@@ -239,28 +279,21 @@ class OrderService
             ]);
 
             // بنود الطلب بلقطات الاسم والـ SKU والسعر + توزيع الضريبة وحصة
-            // الكوبون تناسبيًا حتى يساوي مجموع خصومات البنود خصم الطلب (M17)
-            $remainingTax = $taxAmount;
-            $remainingCoupon = $couponDiscount;
-            $lastIndex = count($lines) - 1;
+            // الكوبون على البنود بطريقة «أكبر باقٍ» (L5/M17): الحصة تُحسب
+            // بالقروش فتكون الأعداد صحيحة ومجموعها يساوي الإجمالي بالضبط،
+            // ولا يقع بند بحصة سالبة بسبب التقريب
+            $weights = array_map(fn (array $line): float => (float) $line['line_total'], $lines);
+            $taxShares = $this->distributeLargestRemainder($taxAmount, $weights);
+            $couponShares = $this->distributeLargestRemainder($couponDiscount, $weights);
             foreach ($lines as $i => $line) {
-                $lineTax = $i === $lastIndex
-                    ? $remainingTax
-                    : round($taxAmount * ($line['line_total'] / max($totals['items_total'], 0.01)), 2);
-                $remainingTax = round($remainingTax - $lineTax, 2);
-                $couponShare = $i === $lastIndex
-                    ? $remainingCoupon
-                    : round($couponDiscount * ($line['line_total'] / max($totals['items_total'], 0.01)), 2);
-                $remainingCoupon = round($remainingCoupon - $couponShare, 2);
-
                 $order->items()->create([
                     'product_variant_id' => $line['variant']->id,
                     'product_name_snapshot' => $line['variant']->product?->name_ar ?? '',
                     'sku_snapshot' => $line['variant']->sku,
                     'qty' => $line['qty'],
                     'unit_price' => $line['unit_price'],
-                    'discount_amount' => round($line['line_discount'] + max($couponShare, 0), 2),
-                    'tax_amount' => max($lineTax, 0),
+                    'discount_amount' => round($line['line_discount'] + $couponShares[$i], 2),
+                    'tax_amount' => $taxShares[$i],
                     'line_total' => $line['line_total'],
                 ]);
             }
@@ -272,8 +305,10 @@ class OrderService
             $this->allocationService->allocate($order, performedBy: $this->inventoryActorId($customer));
             $order->refresh();
 
-            // تسجيل استخدام الكوبون فعليًا (خصم البضاعة أو الشحن المُعفى)
-            if ($coupon !== null) {
+            // تسجيل استخدام الكوبون فعليًا (خصم البضاعة أو الشحن المُعفى).
+            // كوبون شحن مجاني وشحن الطلب صفر أصلًا لا يستهلك حدًا بلا فائدة (L4)
+            if ($coupon !== null
+                && ! ($coupon->type === 'free_shipping' && $waivedShipping <= 0)) {
                 $this->couponService->recordUsage(
                     $coupon,
                     $order,
@@ -418,6 +453,59 @@ class OrderService
         }
 
         return (int) $distribution->total === (int) $distribution->allocated;
+    }
+
+    /** عميل جملة/توزيع معتمد — يُستثنى من سقوف التجزئة (H2). */
+    private function isWholesaleApproved(?Customer $customer): bool
+    {
+        return $customer !== null
+            && $customer->status === CustomerStatus::Approved
+            && in_array($customer->type, [CustomerType::Wholesale, CustomerType::Distributor], true);
+    }
+
+    /**
+     * توزيع مبلغ على أوزان بطريقة «أكبر باقٍ» بعدد صحيح من القروش (L5):
+     * مجموع الحصص يساوي المبلغ بالضبط، ولا حصة سالبة بسبب التقريب.
+     *
+     * @param  array<int, float>  $weights
+     * @return array<int, float>
+     */
+    private function distributeLargestRemainder(float $total, array $weights): array
+    {
+        $count = count($weights);
+        if ($count === 0) {
+            return [];
+        }
+        $totalCents = (int) round($total * 100);
+        $weightSum = array_sum($weights);
+        if ($totalCents <= 0 || $weightSum <= 0) {
+            return array_fill(0, $count, 0.0);
+        }
+
+        $floorCents = [];
+        $remainders = [];
+        $assigned = 0;
+        foreach ($weights as $i => $weight) {
+            $exact = $totalCents * ((float) $weight / $weightSum);
+            $floor = (int) floor($exact);
+            $floorCents[$i] = $floor;
+            $remainders[$i] = $exact - $floor;
+            $assigned += $floor;
+        }
+
+        $left = $totalCents - $assigned;
+        arsort($remainders);
+        foreach (array_keys($remainders) as $i) {
+            if ($left <= 0) {
+                break;
+            }
+            $floorCents[$i]++;
+            $left--;
+        }
+
+        ksort($floorCents);
+
+        return array_map(fn (int $cents): float => $cents / 100, $floorCents);
     }
 
     /**

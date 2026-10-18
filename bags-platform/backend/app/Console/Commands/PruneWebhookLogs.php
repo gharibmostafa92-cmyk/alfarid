@@ -19,18 +19,38 @@ class PruneWebhookLogs extends Command
         $days = max(1, (int) $this->option('days'));
         $cutoff = now()->subDays($days);
         $deleted = 0;
+        $scrubbed = 0;
 
-        // الحذف على دفعات (F-29): عبارة DELETE واحدة على جدول ضخم تُطيل
-        // القفل وتفشل عند تراكم ملايين السجلات
+        // (L1) صفوف «processed» هي مفاتيح منع التكرار (provider + event_id):
+        // حذفها كان يسمح بإعادة معالجة نفس الحدث عند وصوله متأخرًا. نُبقي عليها
+        // لكن نُفرّغ حمولتها (المفتاح لا يحتاج الحمولة) — لا حذف لمفتاح التكرار.
+        do {
+            $ids = WebhookLog::query()
+                ->where('status', 'processed')
+                ->where('created_at', '<', $cutoff)
+                ->whereNotNull('payload')
+                ->limit(1000)
+                ->pluck('id');
+            if ($ids->isEmpty()) {
+                break;
+            }
+            WebhookLog::query()->whereIn('id', $ids->all())->update(['payload' => null]);
+            $scrubbed += $ids->count();
+        } while (true);
+
+        // بقية الحالات (received/duplicate/ignored/failed) لا تحمل دلالة منع
+        // تكرار، فتُحذف. الحذف على دفعات (F-29): عبارة DELETE واحدة على جدول
+        // ضخم تُطيل القفل وتفشل عند تراكم ملايين السجلات.
         do {
             $batch = WebhookLog::query()
                 ->where('created_at', '<', $cutoff)
+                ->where('status', '!=', 'processed')
                 ->limit(1000)
                 ->delete();
             $deleted += $batch;
         } while ($batch > 0);
 
-        $this->info("Pruned {$deleted} webhook log rows older than {$days} days.");
+        $this->info("Pruned {$deleted} webhook log rows and scrubbed {$scrubbed} processed rows older than {$days} days.");
 
         return self::SUCCESS;
     }
