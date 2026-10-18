@@ -15,6 +15,8 @@ Schedule::command('queue:monitor '.config('auth.customer_password_reset.connecti
 Schedule::command('inventory:reconcile')->dailyAt('02:00')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping()
     ->onFailure(fn () => logger()->error('Scheduled inventory reconciliation failed.'));
+Schedule::command('orders:expire-pending')->everyFifteenMinutes()
+    ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping();
 Schedule::command('webhooks:prune-logs')->dailyAt('04:00')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping();
 Schedule::command('inventory:prune-idempotency-keys')->dailyAt('03:00')
