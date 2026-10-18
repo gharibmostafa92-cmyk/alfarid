@@ -15,15 +15,19 @@ declare(strict_types=1);
 
 return [
     'payment' => [
+        // نمط تحقق لكل بوابة (F-06): driver يختار خوارزمية البوابة الحقيقية
         'paymob' => [
+            'driver' => 'paymob',
             'secret' => env('PAYMOB_WEBHOOK_SECRET'),
             'signature_header' => env('PAYMOB_SIGNATURE_HEADER', 'X-Webhook-Signature'),
         ],
         'stripe' => [
+            'driver' => 'stripe',
             'secret' => env('STRIPE_WEBHOOK_SECRET'),
-            'signature_header' => env('STRIPE_SIGNATURE_HEADER', 'X-Webhook-Signature'),
+            'signature_header' => env('STRIPE_SIGNATURE_HEADER', 'Stripe-Signature'),
         ],
         'moyasar' => [
+            'driver' => 'moyasar',
             'secret' => env('MOYASAR_WEBHOOK_SECRET'),
             'signature_header' => env('MOYASAR_SIGNATURE_HEADER', 'X-Webhook-Signature'),
         ],

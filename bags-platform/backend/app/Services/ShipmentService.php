@@ -34,6 +34,12 @@ class ShipmentService
             if (! in_array($order->status, [OrderStatus::Confirmed, OrderStatus::Processing], true)) {
                 throw new BusinessException('لا يمكن إنشاء بوليصة إلا لطلب مؤكد أو قيد التجهيز.');
             }
+            // الدفع المسبق (غير COD) لا يُشحن إلا وحالته paid (F-05): طلب
+            // مسترد أو غير مدفوع لا يخرج من المستودع فيُشحن مجانًا. ضبط
+            // paid يدويًا (تحويل بنكي) قبل الشحن مقصود هنا
+            if ($order->payment_method !== 'cod' && $order->payment_status !== 'paid') {
+                throw new BusinessException('لا يمكن شحن طلب دفع مسبق لم يُدفع بعد (الحالة الحالية: '.$order->payment_status.').');
+            }
             $hasActiveShipment = $order->shipments()
                 ->whereNotIn('status', [ShipmentStatus::Failed->value, ShipmentStatus::Returned->value])
                 ->exists();

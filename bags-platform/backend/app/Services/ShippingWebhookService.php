@@ -58,17 +58,19 @@ class ShippingWebhookService
     public function handle(string $companyCode, array $payload, string $rawBody, ?string $signature, ?string $ip): array
     {
         $provider = 'shipping:'.$companyCode;
-        $eventId = $this->effectiveEventId($payload, $rawBody);
+        // قبل التحقق: مفتاح السجل المختصر بصمة الجسم فقط — حقول الحمولة
+        // غير موثوقة وقد تكسر السجل أو تتجاوز أعمدته (F-07)
+        $preVerifyKey = 'sha256:'.hash('sha256', $rawBody);
 
         if (strlen($rawBody) > 262144) {
-            $this->slimLog($provider, $eventId, 'rejected', 'payload too large', $ip);
+            $this->slimLog($provider, $preVerifyKey, 'rejected', 'payload too large', $ip);
 
             return ['http' => 413, 'body' => ['received' => false, 'message' => 'payload too large']];
         }
 
         $company = ShippingCompany::query()->where('code', $companyCode)->first();
         if ($company === null) {
-            $this->slimLog($provider, $eventId, 'failed', 'شركة شحن غير معروفة', $ip);
+            $this->slimLog($provider, $preVerifyKey, 'failed', 'شركة شحن غير معروفة', $ip);
 
             return ['http' => 404, 'body' => ['received' => false, 'message' => 'unknown company']];
         }
@@ -78,12 +80,14 @@ class ShippingWebhookService
         $credentials = $company->api_credentials ?? [];
         $secret = $credentials['webhook_secret'] ?? null;
         if (! is_string($secret) || $secret === '' || ! $this->verifier->verify($secret, $rawBody, $signature)) {
-            $this->slimLog($provider, $eventId, 'invalid_signature',
+            $this->slimLog($provider, $preVerifyKey, 'invalid_signature',
                 (! is_string($secret) || $secret === '') ? 'لا يوجد webhook_secret مضبوط للشركة' : null, $ip);
 
             return ['http' => 403, 'body' => ['received' => false, 'message' => 'invalid signature']];
         }
 
+        // بعد التحقق فقط يُشتق مفتاح الحدث من الحمولة (مُنقّى)
+        $eventId = $this->effectiveEventId($payload, $rawBody);
         $log = $this->startLog($provider, $eventId, $payload, $ip);
         $log->update(['signature_valid' => true]);
 
@@ -185,16 +189,17 @@ class ShippingWebhookService
      */
     private function effectiveEventId(array $payload, string $rawBody): string
     {
+        // كل قيمة تُستخدم في المفتاح يجب أن تكون مفردة وبحد طول (F-07)
         $eventId = $this->firstValue($payload, ['event_id', 'eventId', 'data.event_id']);
-        if ($eventId !== null) {
-            return (string) $eventId;
+        if (is_scalar($eventId)) {
+            return mb_substr((string) $eventId, 0, 191);
         }
 
         $awb = $this->firstValue($payload, ['awb_number', 'tracking_number', 'awb', 'data.awb_number']);
         $status = $this->firstValue($payload, ['status', 'state', 'shipment_status', 'data.status']);
         $timestamp = $this->firstValue($payload, ['timestamp', 'occurred_at', 'updated_at', 'data.timestamp', 'data.updated_at']);
-        if ($awb !== null && $status !== null && $timestamp !== null) {
-            return $awb.'|'.$status.'|'.$timestamp;
+        if (is_scalar($awb) && is_scalar($status) && is_scalar($timestamp)) {
+            return mb_substr($awb.'|'.$status.'|'.$timestamp, 0, 191);
         }
 
         return 'sha256:'.hash('sha256', $rawBody);

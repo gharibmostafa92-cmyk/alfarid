@@ -9,4 +9,12 @@ return [
      * يُنشأ بحساب مخصص (هجرة إنشاء مستخدم النظام) بدل أول Super Admin.
      */
     'system_user_email' => env('ORDER_SYSTEM_USER_EMAIL', 'system@alfarid.local'),
+
+    /*
+     * انتهاء الطلبات المعلقة (F-01): الحجز الفوري عند الشراء يعني أن الطلب
+     * المهجور يحبس مخزونًا — فيُلغى تلقائيًا (ويُفك حجزه) بعد هذه المدد.
+     * الإلكتروني غير المدفوع: دقائق؛ والدفع عند الاستلام: ساعات يحددها النشاط.
+     */
+    'pending_online_expire_minutes' => (int) env('ORDER_PENDING_ONLINE_EXPIRE_MINUTES', 30),
+    'pending_cod_expire_hours' => (int) env('ORDER_PENDING_COD_EXPIRE_HOURS', 72),
 ];
