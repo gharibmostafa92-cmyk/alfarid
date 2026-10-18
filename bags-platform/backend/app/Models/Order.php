@@ -85,6 +85,12 @@ class Order extends Model
         return $this->hasMany(Shipment::class);
     }
 
+    /** @return HasMany<ReturnRequest, $this> */
+    public function returnRequests(): HasMany
+    {
+        return $this->hasMany(ReturnRequest::class);
+    }
+
     /** @return BelongsTo<Customer, $this> */
     public function customer(): BelongsTo
     {

@@ -345,14 +345,17 @@ class OrderService
      * بوابة الحالة الوحيدة. $expectedFrom (F-11): حالات مصدر يفترضها
      * المستدعي على نسخته غير المقفولة — تُفحص بعد إعادة القراءة بالقفل،
      * فسباق (عميل يلغي × أدمن يجهّز) لا يمر من فحص قديم.
+     * $returnEffects (المرحلة 9): عند false ينتقل الطلب إلى Returned بلا
+     * إعادة مخزون وبلا علم استرداد — مسار RMA سوّى المخزون عند الاستلام
+     * الفعلي والمال عند رد المبلغ، فتكرار الأثر هنا ازدواج.
      *
      * @param  array<int, OrderStatus>|null  $expectedFrom
      */
-    public function changeStatus(Order $order, OrderStatus|string $toStatus, ?Model $actor = null, ?string $notes = null, ?array $expectedFrom = null): Order
+    public function changeStatus(Order $order, OrderStatus|string $toStatus, ?Model $actor = null, ?string $notes = null, ?array $expectedFrom = null, bool $returnEffects = true): Order
     {
         $to = $toStatus instanceof OrderStatus ? $toStatus : OrderStatus::from($toStatus);
 
-        return DB::transaction(function () use ($order, $to, $actor, $notes, $expectedFrom): Order {
+        return DB::transaction(function () use ($order, $to, $actor, $notes, $expectedFrom, $returnEffects): Order {
             // إعادة قراءة الطلب بقفل صف: النسخة الممرَّرة قد تكون قديمة،
             // وكل الانتقالات على نفس الطلب يجب أن تتسلسل (C1)
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
@@ -381,8 +384,10 @@ class OrderService
                 // الحجز صار من لحظة الإنشاء (F-01) فيُفك من Pending أيضًا
                 $this->releaseReservations($order, $actorId, 'إلغاء الطلب');
             } elseif ($to === OrderStatus::Returned
-                && in_array($from, [OrderStatus::Shipped, OrderStatus::Delivered], true)) {
-                // إعادة البضاعة المشحونة للمخزون بحركات sale_return (M13)
+                && in_array($from, [OrderStatus::Shipped, OrderStatus::Delivered], true)
+                && $returnEffects) {
+                // إعادة البضاعة المشحونة للمخزون بحركات sale_return (M13) —
+                // تُتخطى في مسار RMA لأن الاستلام الفعلي سوّاها بالفعل (مرحلة 9)
                 if (! $this->returnSalesToStock($order, $actorId)) {
                     $extraNote = 'لا توجد حركات بيع مسجلة؛ يتطلب المرتجع استلامًا يدويًا في المستودع.';
                 }
@@ -396,8 +401,9 @@ class OrderService
                 }
             }
 
-            // مرتجع لطلب مدفوع يحتاج استردادًا أيضًا، لا الإلغاء فقط (F-14)
-            if ($to === OrderStatus::Returned && $order->payment_status === 'paid') {
+            // مرتجع لطلب مدفوع يحتاج استردادًا أيضًا، لا الإلغاء فقط (F-14) —
+            // في مسار RMA الاسترداد اكتمل داخل طلب المرتجع نفسه فلا علم هنا
+            if ($to === OrderStatus::Returned && $order->payment_status === 'paid' && $returnEffects) {
                 $order->update(['requires_refund' => true]);
             }
 
