@@ -35,6 +35,11 @@ class OrderAllocationService
             // إعادة قراءة الطلب بقفل صف قبل فحص التوزيع السابق (C1)
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $order->load('items');
+            // ترتيب قفل عام ثابت (F-02): البنود بترتيب product_variant_id
+            // في كل المسارات حتى لا ينتظر طلبان بعضهما دائريًا (40P01)
+            $order->setRelation('items', $order->items
+                ->sortBy(fn (OrderItem $item): int => (int) $item->product_variant_id)
+                ->values());
             $performedBy ??= auth()->id();
 
             if ($order->allocated_branch_id !== null

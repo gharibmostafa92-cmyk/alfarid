@@ -69,6 +69,10 @@ class CouponService
             'customer_id' => $customer?->id,
             'order_id' => $order->id,
             'discount_amount' => $discountAmount,
+            // هاتف الزائر الموحد يُخزَّن مع الاستخدام لفحص الحد لاحقًا في SQL (F-04)
+            'guest_phone_normalized' => $customer === null && $order->guest_phone !== null
+                ? Customer::normalizePhone($order->guest_phone)
+                : null,
         ]);
         $coupon->increment('used_count');
 
@@ -107,14 +111,12 @@ class CouponService
                 throw new BusinessException('وصلت لحد استخدام هذا الكوبون لحسابك.');
             }
         } elseif ($guestPhone !== null && trim($guestPhone) !== '') {
-            // هوية الزائر هي رقم هاتفه الموحد الصيغة — تبديل cart_token لا يتجاوز الحد (H3)
-            $normalized = Customer::normalizePhone($guestPhone);
+            // هوية الزائر هي رقم هاتفه الموحد الصيغة — تبديل cart_token لا
+            // يتجاوز الحد (H3). العدّ في SQL على العمود المفهرس (F-04)
+            // بدل مسح كل الاستخدامات أثناء إمساك قفل الكوبون
             $usedByPhone = $coupon->usages()
-                ->join('orders', 'orders.id', '=', 'coupon_usages.order_id')
-                ->where('orders.status', '!=', OrderStatus::Cancelled->value)
-                ->whereNotNull('orders.guest_phone')
-                ->pluck('orders.guest_phone')
-                ->filter(fn ($phone): bool => Customer::normalizePhone((string) $phone) === $normalized)
+                ->where('guest_phone_normalized', Customer::normalizePhone($guestPhone))
+                ->whereHas('order', fn ($q) => $q->where('status', '!=', OrderStatus::Cancelled->value))
                 ->count();
             if ($usedByPhone >= (int) $coupon->usage_limit_per_customer) {
                 throw new BusinessException('وصلت لحد استخدام هذا الكوبون لرقم هاتفك.');

@@ -7,9 +7,9 @@ namespace App\Services;
 use App\Enums\ProductStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Cart;
+use App\Models\CartItem;
 use App\Models\Customer;
 use App\Models\ProductVariant;
-use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -61,14 +61,16 @@ class CartService
         return ($create ? Cart::create([]) : new Cart)->loadMissing('items');
     }
 
-    /** سلة حساب العميل الوحيدة — القيد الفريد على customer_id يحسم السباق (M6). */
+    /**
+     * سلة حساب العميل الوحيدة — القيد الفريد على customer_id يحسم السباق (M6).
+     * createOrFirst يغلّف الإدراج في savepoint داخل المعاملات (F-10):
+     * firstOrCreate العادي إذا فشل إدراجه هنا — والدمج كله داخل transaction
+     * خارجية — ترك المعاملة aborted (25P02) فخرج 500 رغم الـ catch.
+     */
     private function accountCart(Customer $customer): Cart
     {
-        try {
-            return Cart::query()->firstOrCreate(['customer_id' => $customer->id]);
-        } catch (UniqueConstraintViolationException) {
-            return Cart::query()->where('customer_id', $customer->id)->firstOrFail();
-        }
+        return Cart::query()->where('customer_id', $customer->id)->first()
+            ?? Cart::query()->createOrFirst(['customer_id' => $customer->id]);
     }
 
     /** دمج سلة زائر (بالتوكن) في سلة حساب العميل — تُستدعى عند تسجيل الدخول. */
@@ -95,15 +97,18 @@ class CartService
 
             $account = $this->accountCart($customer);
             foreach ($guest->items as $item) {
-                $existing = $account->items()->where('product_variant_id', $item->product_variant_id)->first();
-                if ($existing !== null) {
-                    $existing->update(['qty' => (float) $existing->qty + (float) $item->qty]);
-                } else {
-                    $account->items()->create([
+                // UPSERT ذرّي: دمج متزامن لا يصطدم بقيد التفرد (F-09)
+                CartItem::query()->upsert(
+                    [[
+                        'cart_id' => $account->id,
                         'product_variant_id' => $item->product_variant_id,
                         'qty' => $item->qty,
-                    ]);
-                }
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]],
+                    ['cart_id', 'product_variant_id'],
+                    ['qty' => DB::raw('cart_items.qty + EXCLUDED.qty'), 'updated_at' => now()],
+                );
             }
             if ($account->coupon_id === null && $guest->coupon_id !== null) {
                 $account->update(['coupon_id' => $guest->coupon_id]);
@@ -121,12 +126,21 @@ class CartService
         $this->assertAvailable($variantId, $targetQty);
         $this->assertPriced($variant, $customer, $targetQty);
 
-        if ($existing !== null) {
-            // زيادة ذرّية بدل قراءة ثم كتابة (L2)
-            $existing->increment('qty', $qty);
-        } else {
-            $cart->items()->create(['product_variant_id' => $variantId, 'qty' => $qty]);
-        }
+        // كتابة ذرّية UPSERT (F-09): نقرتان متزامنتان على «أضف للسلة»
+        // كانتا تصطدمان بقيد التفرد عند الإدراج الثاني فتخرج 500 —
+        // ON CONFLICT تجمع الكمية على الصف نفسه. القراءة أعلاه تبقى
+        // للتحقق من حد التوفر فقط
+        CartItem::query()->upsert(
+            [[
+                'cart_id' => $cart->id,
+                'product_variant_id' => $variantId,
+                'qty' => $qty,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]],
+            ['cart_id', 'product_variant_id'],
+            ['qty' => DB::raw('cart_items.qty + EXCLUDED.qty'), 'updated_at' => now()],
+        );
 
         return $cart->fresh('items');
     }
@@ -140,9 +154,18 @@ class CartService
         $this->assertAvailable($variantId, $qty);
         $this->assertPriced($variant, $customer, $qty);
 
-        $cart->items()->updateOrCreate(
-            ['product_variant_id' => $variantId],
-            ['qty' => $qty],
+        // UPSERT ذرّي بنفس منطق addItem — updateOrCreate كان يصطدم
+        // بقيد التفرد تحت التزامن (F-09)، وهنا القيمة مطلقة لا تراكمية
+        CartItem::query()->upsert(
+            [[
+                'cart_id' => $cart->id,
+                'product_variant_id' => $variantId,
+                'qty' => $qty,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]],
+            ['cart_id', 'product_variant_id'],
+            ['qty' => $qty, 'updated_at' => now()],
         );
 
         return $cart->fresh('items');

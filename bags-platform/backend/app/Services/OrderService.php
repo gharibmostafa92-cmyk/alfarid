@@ -72,6 +72,10 @@ class OrderService
                 if ($line['unit_price'] === null) {
                     throw new BusinessException("الصنف ({$line['variant']->sku}) غير مُسعَّر؛ لا يمكن إتمام الطلب.");
                 }
+                // سطر بقيمة صفر (كمية شبه صفرية × سعر صغير) لا يمر (F-03)
+                if ($line['line_total'] <= 0) {
+                    throw new BusinessException("قيمة الصنف ({$line['variant']->sku}) صفر؛ راجع الكمية أو السعر.");
+                }
             }
 
             // إعادة التحقق من التوفر وقابلية البيع لحظة الشراء (M14):
@@ -194,6 +198,13 @@ class OrderService
                 ]);
             }
 
+            // الحجز الفوري داخل نفس معاملة الشراء (F-01): التوفر يتحول
+            // لحجز ذرّي تحت أقفال صفوف الأرصدة بدل انتظار التأكيد، فآخر
+            // وحدة لا تُباع مرتين. نقص الرصيد يُسقط الشراء كله هنا.
+            $order->load('items');
+            $this->allocationService->allocate($order, performedBy: $this->inventoryActorId($customer));
+            $order->refresh();
+
             // تسجيل استخدام الكوبون فعليًا (خصم البضاعة أو الشحن المُعفى)
             if ($coupon !== null) {
                 $this->couponService->recordUsage(
@@ -245,7 +256,8 @@ class OrderService
             if ($to === OrderStatus::Shipped) {
                 $this->shipOrder($order, $actorId);
             } elseif ($to === OrderStatus::Cancelled
-                && in_array($from, [OrderStatus::Confirmed, OrderStatus::Processing], true)) {
+                && in_array($from, [OrderStatus::Pending, OrderStatus::Confirmed, OrderStatus::Processing], true)) {
+                // الحجز صار من لحظة الإنشاء (F-01) فيُفك من Pending أيضًا
                 $this->releaseReservations($order, $actorId, 'إلغاء الطلب');
             } elseif ($to === OrderStatus::Returned
                 && in_array($from, [OrderStatus::Shipped, OrderStatus::Delivered], true)) {

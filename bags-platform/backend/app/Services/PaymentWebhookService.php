@@ -29,39 +29,61 @@ class PaymentWebhookService
         protected OrderService $orders,
     ) {}
 
-    /** @return array{http: int, body: array<string, mixed>} */
-    public function handle(string $gateway, array $payload, string $rawBody, ?string $signature, ?string $ip): array
+    /**
+     * @param  array<string, string|null>  $headers
+     * @param  array<string, mixed>  $query
+     * @return array{http: int, body: array<string, mixed>}
+     */
+    public function handle(string $gateway, array $payload, string $rawBody, array $headers, array $query, ?string $ip): array
     {
         $provider = 'payment:'.$gateway;
-        // مفتاح الحدث: معرّف البوابة، وإلا بصمة جسم الطلب (H4)
-        $eventId = $this->extractEventId($payload) ?? 'sha256:'.hash('sha256', $rawBody);
+        // قبل التحقق لا يُوثق بأي حقل من الحمولة (F-07): مفتاح السجل
+        // المختصر هو بصمة الجسم فقط، وأي معرّف من الحمولة قد يكون مصفوفة
+        // تكسر (string) أو نصًا أطول من عمود السجل فيحوّل الهجوم لـ 500
+        $preVerifyKey = 'sha256:'.hash('sha256', $rawBody);
 
         // حد حجم الجسم أولًا — الرفض بسجل مختصر بلا حمولة (M4)
         if (strlen($rawBody) > 262144) {
-            $this->slimLog($provider, $eventId, 'rejected', 'payload too large', $ip);
+            $this->slimLog($provider, $preVerifyKey, 'rejected', 'payload too large', $ip);
 
             return ['http' => 413, 'body' => ['received' => false, 'message' => 'payload too large']];
         }
 
         $config = config("webhooks.payment.{$gateway}");
         if (! is_array($config)) {
-            $this->slimLog($provider, $eventId, 'failed', 'بوابة دفع غير معروفة', $ip);
+            $this->slimLog($provider, $preVerifyKey, 'failed', 'بوابة دفع غير معروفة', $ip);
 
             return ['http' => 404, 'body' => ['received' => false, 'message' => 'unknown gateway']];
         }
 
-        // التحقق من التوقيع قبل تخزين الحمولة: محاولات مجهولة لا تملأ
-        // webhook_logs.payload — تُسجل مختصرة فقط (M4)
-        if (! $this->verifier->verify($config['secret'] ?? null, $rawBody, $signature)) {
-            $this->slimLog($provider, $eventId, 'invalid_signature', null, $ip);
+        // التحقق بنمط البوابة (F-06) قبل تخزين الحمولة: محاولات مجهولة
+        // لا تملأ webhook_logs.payload — تُسجل مختصرة فقط (M4)
+        $verified = $this->verifier->verifyGateway(
+            (string) ($config['driver'] ?? 'hmac'),
+            $config['secret'] ?? null,
+            $rawBody,
+            $headers,
+            $query,
+            $payload,
+            $config['signature_header'] ?? null,
+        );
+        if (! $verified) {
+            $this->slimLog($provider, $preVerifyKey, 'invalid_signature', null, $ip);
 
             return ['http' => 403, 'body' => ['received' => false, 'message' => 'invalid signature']];
         }
 
+        // بعد التحقق فقط: معرّف الحدث من الحمولة مُنقّى (قيمة مفردة وحد
+        // طول) ومدموجًا بنتيجة الحدث (F-08) حتى لا يبتلع الاستردادَ حدثُ
+        // الدفعِ لنفس المعاملة فيُعلَّم duplicate
+        $outcome = $this->outcome($payload);
+        $extractedId = $this->extractEventId($payload);
+        $eventId = $extractedId !== null ? $extractedId.':'.$outcome : $preVerifyKey;
+
         $log = $this->startLog($provider, $eventId, $payload, $ip);
         $log->update(['signature_valid' => true]);
 
-        return DB::transaction(function () use ($gateway, $provider, $eventId, $payload, $log, $config): array {
+        return DB::transaction(function () use ($gateway, $provider, $eventId, $payload, $log, $config, $outcome): array {
             // قفل استشاري على مفتاح الحدث: نسختان متزامنتان من نفس الحدث تتسلسلان هنا
             DB::statement('SELECT pg_advisory_xact_lock(hashtext(?))', [$provider.':'.$eventId]);
 
@@ -81,7 +103,6 @@ class PaymentWebhookService
                 return ['http' => 200, 'body' => ['received' => false, 'message' => 'order not found']];
             }
 
-            $outcome = $this->outcome($payload);
             if ($outcome === 'ignored' || $outcome === 'pending') {
                 $log->update([
                     'status' => 'ignored',
@@ -132,9 +153,21 @@ class PaymentWebhookService
                 }
                 $order->update(['payment_status' => 'failed']);
             } else { // refunded
-                $order->update(['payment_status' => 'refunded']);
+                // الاسترداد لا يلغي الطلب لكنه يوقفه عن التنفيذ الصامت (F-05):
+                // علم انتباه لأي استرداد على طلب غير ملغي — وبوابة الشحن
+                // ترفض شحن دفع مسبق حالته ليست paid
+                $order->update([
+                    'payment_status' => 'refunded',
+                    'needs_attention' => $order->status !== OrderStatus::Cancelled,
+                ]);
+                Log::warning('Payment refunded for a non-cancelled order.', [
+                    'order_number' => $order->order_number,
+                    'gateway' => $gateway,
+                ]);
                 if (in_array($order->status, [OrderStatus::Shipped, OrderStatus::Delivered], true)) {
                     $note = 'استرداد على طلب مشحون/مُسلَّم — يحتاج مراجعة';
+                } else {
+                    $note = 'تم استرداد الدفع — الطلب موسوم للانتباه ولن يخرج للشحن قبل مراجعة الدفع';
                 }
             }
 
@@ -207,14 +240,15 @@ class PaymentWebhookService
             'obj.order.merchant_order_id', 'obj.merchant_order_id', 'metadata.order_number',
         ]);
 
-        return $value !== null ? (string) $value : null;
+        // قيم غير مفردة (مصفوفات) لا تُحوَّل لنص — تُتجاهل (F-07)
+        return is_scalar($value) ? mb_substr((string) $value, 0, 191) : null;
     }
 
     private function extractEventId(array $payload): ?string
     {
         $value = $this->firstValue($payload, ['event_id', 'transaction_id', 'obj.id', 'data.id', 'data.transaction_id']);
 
-        return $value !== null ? (string) $value : null;
+        return is_scalar($value) ? mb_substr((string) $value, 0, 191) : null;
     }
 
     /** @param array<int, string> $keys */
