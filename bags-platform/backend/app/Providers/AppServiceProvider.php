@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Models\Customer;
 use App\Models\Order;
+use App\Models\PurchaseOrder;
 use App\Models\ReturnRequest;
 use App\Models\Stocktake;
 use App\Models\StockTransfer;
@@ -84,6 +85,7 @@ class AppServiceProvider extends ServiceProvider
             'stocktake' => Stocktake::class,
             'order' => Order::class,
             'return_request' => ReturnRequest::class,
+            'purchase_order' => PurchaseOrder::class,
         ]);
 
         // حد دخول العملاء (متجر/جملة): بالمُعرّف (بريد/هاتف) وبالـ IP معًا
