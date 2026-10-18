@@ -48,6 +48,12 @@ class SettingSeeder extends Seeder
         ['group' => 'numbering', 'key' => 'stocktake_prefix', 'value' => 'STK-', 'type' => 'string'],
         ['group' => 'numbering', 'key' => 'stocktake_next_number', 'value' => '1000', 'type' => 'integer'],
         ['group' => 'numbering', 'key' => 'stocktake_padding', 'value' => '6', 'type' => 'integer'],
+        ['group' => 'numbering', 'key' => 'return_prefix', 'value' => 'RET-', 'type' => 'string'],
+        ['group' => 'numbering', 'key' => 'return_next_number', 'value' => '1001', 'type' => 'integer'],
+        ['group' => 'numbering', 'key' => 'return_padding', 'value' => '6', 'type' => 'integer'],
+
+        // المرحلة 9: نافذة الاسترجاع المسموحة بالأيام من تاريخ التسليم
+        ['group' => 'orders', 'key' => 'return_window_days', 'value' => '14', 'type' => 'integer'],
     ];
 
     public function run(): void

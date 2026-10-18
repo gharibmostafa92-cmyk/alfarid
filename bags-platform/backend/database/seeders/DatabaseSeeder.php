@@ -26,6 +26,7 @@ class DatabaseSeeder extends Seeder
         $this->call(PricingPermissionSeeder::class);
         $this->call(CustomerPermissionSeeder::class);
         $this->call(OrderPermissionSeeder::class);
+        $this->call(ReturnPermissionSeeder::class);
         $this->call(ShippingPermissionSeeder::class);
         $this->call(PromotionPermissionSeeder::class);
 
