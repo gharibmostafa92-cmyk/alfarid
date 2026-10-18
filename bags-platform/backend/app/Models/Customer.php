@@ -28,6 +28,7 @@ use Laravel\Sanctum\HasApiTokens;
     'tax_number',
     'commercial_register',
     'credit_limit',
+    'wallet_balance',
     'rejection_reason',
     'suspension_reason',
     'approved_at',
@@ -110,6 +111,11 @@ class Customer extends Authenticatable
         return $this->hasMany(CustomerAddress::class);
     }
 
+    public function returnRequests(): HasMany
+    {
+        return $this->hasMany(ReturnRequest::class);
+    }
+
     protected function casts(): array
     {
         return [
@@ -117,6 +123,7 @@ class Customer extends Authenticatable
             'type' => CustomerType::class,
             'status' => CustomerStatus::class,
             'credit_limit' => 'decimal:2',
+            'wallet_balance' => 'decimal:2',
             'approved_at' => 'datetime',
             'phone_verified_at' => 'datetime',
             'email_verified_at' => 'datetime',
