@@ -18,7 +18,9 @@ class AddCartItemRequest extends FormRequest
     {
         return [
             'product_variant_id' => ['required', 'integer', 'exists:product_variants,id'],
-            'qty' => ['required', 'numeric', 'gt:0', 'max:10000'],
+            // البيع بالقطعة: كميات صحيحة فقط — الكسور كانت تنتج أسطرًا
+            // بقيمة صفر أو كميات تُخزَّن صفرًا فتُشحن قطعة كاملة (F-03)
+            'qty' => ['required', 'integer', 'min:1', 'max:10000'],
         ];
     }
 }

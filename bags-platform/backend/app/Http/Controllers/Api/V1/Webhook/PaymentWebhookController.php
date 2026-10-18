@@ -10,8 +10,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
- * ويب هوك بوابات الدفع — بلا مصادقة Sanctum؛ الحماية بالتوقيع
- * الرقمي HMAC والتسجيل المسبق في webhook_logs (Idempotency).
+ * ويب هوك بوابات الدفع — بلا مصادقة Sanctum؛ الحماية بنمط توقيع
+ * كل بوابة (driver) وبالتسجيل في webhook_logs (Idempotency).
  */
 class PaymentWebhookController extends Controller
 {
@@ -19,13 +19,18 @@ class PaymentWebhookController extends Controller
 
     public function handle(Request $request, string $gateway): JsonResponse
     {
-        $header = (string) (config("webhooks.payment.{$gateway}.signature_header") ?? 'X-Webhook-Signature');
         $payload = json_decode($request->getContent(), true);
+        // الهيدرات بمفاتيح صغيرة + الـ query: أنماط Paymob (hmac في query)
+        // وStripe (هيدر موقّع) تحتاج أكثر من هيدر واحد (F-06)
+        $headers = collect($request->headers->all())
+            ->map(fn (array $values): ?string => $values[0] ?? null)
+            ->all();
         $result = $this->webhooks->handle(
             $gateway,
             is_array($payload) ? $payload : [],
             $request->getContent(),
-            $request->header($header),
+            $headers,
+            $request->query(),
             $request->ip(),
         );
 
