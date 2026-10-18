@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Enums\OrderStatus;
 use App\Models\Order;
 use App\Models\WebhookLog;
+use Illuminate\Database\DeadlockException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -139,6 +140,10 @@ class PaymentWebhookService
                     if ($order->status === OrderStatus::Pending) {
                         try {
                             $this->orders->changeStatus($order, OrderStatus::Confirmed, null, "تأكيد تلقائي بعد نجاح الدفع عبر {$gateway}");
+                        } catch (DeadlockException $e) {
+                            // جمود قفل: يُعاد رميه ليُعيد الوسيط المحاولة، ولا يُبتلع
+                            // كـ «دُفع ولم يُؤكَّد» فيفقد الحدث أثره (F12)
+                            throw $e;
                         } catch (Throwable $e) {
                             // «دُفع ولم يُؤكَّد» حالة تشغيلية خطيرة: تنبيه سجل +
                             // علامة ظاهرة في شاشة الطلب بدل دفنها في الويب هوك (M19)
@@ -199,7 +204,10 @@ class PaymentWebhookService
             return $successFlag ? 'paid' : 'failed';
         }
 
-        $status = strtolower((string) ($this->firstValue($payload, ['status', 'payment_status', 'data.status', 'obj.status', 'state']) ?? ''));
+        $status = strtolower((string) ($this->firstValue($payload, [
+            'status', 'payment_status', 'data.status',
+            'data.object.payment_status', 'data.object.status', 'obj.status', 'state',
+        ]) ?? ''));
         if (in_array($status, self::SUCCESS, true)) {
             return 'paid';
         }
@@ -208,6 +216,22 @@ class PaymentWebhookService
         }
         if (in_array($status, self::FAILED, true)) {
             return 'failed';
+        }
+
+        // حدث Stripe بنيوي: النوع (type) هو مصدر الحالة، وليس status
+        // (F10) — charge.refunded / payment_intent.succeeded / *.failed
+        $type = strtolower((string) ($this->firstValue($payload, ['type', 'event_type', 'event']) ?? ''));
+        if ($type !== '') {
+            if (str_contains($type, 'refund')) {
+                return 'refunded';
+            }
+            if (str_contains($type, 'fail') || str_contains($type, 'declin')) {
+                return 'failed';
+            }
+            if (str_contains($type, 'succeeded') || str_contains($type, 'completed')
+                || str_contains($type, 'captured') || str_contains($type, 'paid')) {
+                return 'paid';
+            }
         }
 
         return 'ignored';
@@ -221,22 +245,32 @@ class PaymentWebhookService
      */
     private function amountMatches(array $payload, Order $order, array $config): bool
     {
-        $currency = $this->firstValue($payload, ['currency', 'data.currency', 'obj.currency', 'obj.order.currency']);
-        if ($currency !== null && strtoupper((string) $currency) !== 'EGP') {
+        $expectedCurrency = strtoupper((string) ($config['currency'] ?? 'EGP'));
+        $currency = $this->firstValue($payload, [
+            'currency', 'data.currency', 'data.object.currency', 'obj.currency', 'obj.order.currency',
+        ]);
+        if ($currency !== null && strtoupper((string) $currency) !== $expectedCurrency) {
             return false;
         }
 
-        $amount = $this->firstValue($payload, ['amount', 'data.amount', 'obj.amount', 'obj.order.amount']);
+        $amount = $this->firstValue($payload, [
+            'amount', 'data.amount', 'data.object.amount', 'data.object.amount_total',
+            'data.object.amount_received', 'obj.amount', 'obj.order.amount',
+        ]);
         $divisor = (float) ($config['amount_divisor'] ?? 1);
         if ($amount === null) {
-            $cents = $this->firstValue($payload, ['amount_cents', 'data.amount_cents', 'obj.amount_cents', 'obj.order.amount_cents']);
+            $cents = $this->firstValue($payload, [
+                'amount_cents', 'data.amount_cents', 'data.object.amount_total',
+                'data.object.amount_received', 'obj.amount_cents', 'obj.order.amount_cents',
+            ]);
             if ($cents !== null) {
                 $amount = $cents;
                 $divisor = 100.0;
             }
         }
         if ($amount === null) {
-            return true;
+            // بوابة تُعلن وجوب وجود المبلغ (F10): حدث ناجح بلا مبلغ لا يُقبل
+            return ! ($config['require_amount'] ?? false);
         }
 
         return abs(round(((float) $amount) / $divisor, 2) - (float) $order->grand_total) < 0.01;
@@ -246,6 +280,7 @@ class PaymentWebhookService
     {
         $value = $this->firstValue($payload, [
             'order_number', 'merchant_order_id', 'data.order_number',
+            'data.object.metadata.order_number', 'data.object.client_reference_id',
             'obj.order.merchant_order_id', 'obj.merchant_order_id', 'metadata.order_number',
         ]);
 
@@ -255,7 +290,10 @@ class PaymentWebhookService
 
     private function extractEventId(array $payload): ?string
     {
-        $value = $this->firstValue($payload, ['event_id', 'transaction_id', 'obj.id', 'data.id', 'data.transaction_id']);
+        $value = $this->firstValue($payload, [
+            'event_id', 'transaction_id', 'obj.id', 'data.id', 'data.transaction_id',
+            'data.object.id', 'id',
+        ]);
 
         return is_scalar($value) ? mb_substr((string) $value, 0, 191) : null;
     }

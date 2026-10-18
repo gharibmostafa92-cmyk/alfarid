@@ -47,6 +47,12 @@ class OrderAllocationService
                 throw new BusinessException('الطلب مُوزّع على الفروع من قبل؛ ألغِ التوزيع الحالي أولًا قبل إعادة التوزيع.');
             }
 
+            // قفل صفوف الأرصدة المرشّحة بترتيب ثابت قبل حساب التغطية (F8):
+            // متزامنان لا يقرآن «متاح» نفسه ثم يحجزان أكثر من الرصيد. القفل
+            // المجمّع على (branch_id, product_variant_id) غير ممكن، فتُقفل
+            // الصفوف الخام كلها بترتيب المنتج ثم المعرّف لمنع الجمود
+            $this->lockStockRows($order);
+
             // 1. فرع مُجبر يدويًا
             if ($forcedBranchId !== null) {
                 $branch = Branch::query()->where('is_active', true)->find($forcedBranchId);
@@ -69,7 +75,9 @@ class OrderAllocationService
             $branches = Branch::query()
                 ->where('is_active', true)
                 ->when($order->city_id !== null, fn (Builder $q): Builder => $q->orderByRaw('CASE WHEN city_id = ? THEN 0 ELSE 1 END', [$order->city_id]))
-                ->when($cityName !== null, fn (Builder $q): Builder => $q->orderByRaw('city = ? DESC', [$cityName]))
+                // CASE لا «city = ? DESC» (F17): في Postgres ترتيب DESC يضع
+                // NULL أولًا فتتقدّم فروع بلا مدينة معلنة على فرع مدينة العميل
+                ->when($cityName !== null, fn (Builder $q): Builder => $q->orderByRaw('CASE WHEN city = ? THEN 0 ELSE 1 END', [$cityName]))
                 ->orderBy('id')
                 ->get();
 
@@ -94,6 +102,24 @@ class OrderAllocationService
 
             return $order->fresh(['items']);
         });
+    }
+
+    /** قفل صفوف أرصدة أصناف الطلب بترتيب ثابت (منتج ثم معرّف) — F8. */
+    private function lockStockRows(Order $order): void
+    {
+        $variantIds = $order->items
+            ->map(fn (OrderItem $item): int => (int) $item->product_variant_id)
+            ->unique()->sort()->values()->all();
+        if ($variantIds === []) {
+            return;
+        }
+
+        StockLevel::query()
+            ->whereIn('product_variant_id', $variantIds)
+            ->orderBy('product_variant_id')
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
     }
 
     /**

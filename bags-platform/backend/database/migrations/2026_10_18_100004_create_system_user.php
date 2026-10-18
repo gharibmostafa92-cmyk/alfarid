@@ -24,7 +24,8 @@ return new class extends Migration
             'name' => 'System',
             'email' => $email,
             'password' => Hash::make(Str::random(48)),
-            'is_active' => true,
+            // معطّل: يُستخدم للتدقيق فقط ولا يُسجَّل دخوله (F23)
+            'is_active' => false,
             'email_verified_at' => now(),
             'created_at' => now(),
             'updated_at' => now(),

@@ -181,6 +181,7 @@ Route::middleware(['auth:sanctum', 'auth.staff'])
         Route::get('orders', [OrderController::class, 'index'])->name('orders.index');
         Route::get('orders/{order}', [OrderController::class, 'show'])->name('orders.show');
         Route::patch('orders/{order}/status', [OrderController::class, 'updateStatus'])->name('orders.update-status');
+        Route::post('orders/{order}/payment', [OrderController::class, 'updatePayment'])->name('orders.update-payment');
         Route::post('orders/{order}/allocate', [OrderController::class, 'allocate'])->name('orders.allocate');
         Route::post('orders/{order}/shipment', [OrderController::class, 'createShipment'])->name('orders.shipment');
 

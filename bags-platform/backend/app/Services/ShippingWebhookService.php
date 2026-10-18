@@ -141,11 +141,15 @@ class ShippingWebhookService
             }
             if ($status === ShipmentStatus::Failed) {
                 // بوليصة فاشلة لا تترك الطلب صامتًا (F-16): انتباه للمتابعة
-                // (وإصدار بديلة ممكن من نفس شاشة الطلب طالما لا بوليصة نشطة)
+                // (وإصدار بديلة ممكن من نفس شاشة الطلب طالما لا بوليصة نشطة).
+                // لكن تجاوز بلاغ فشل لبوليصة قديمة بعد إنشاء بوليصة بديلة نشطة
+                // ليس عطلًا حقيقيًا: لا يُوسم الطلب ولا يُنبَّه عليه (F-18)
                 $order = $shipment->order;
-                if ($order !== null) {
+                if ($order !== null && ! $this->hasNewerActiveShipment($shipment)) {
                     $order->update(['needs_attention' => true]);
                     $note = 'فشلت البوليصة لدى شركة الشحن — يحتاج متابعة أو إصدار بوليصة بديلة';
+                } else {
+                    $note = 'بلاغ فشل لبوليصة استُبدلت بأحدث منها — يُتجاهل';
                 }
             }
             if ($status === ShipmentStatus::Delivered) {
@@ -190,15 +194,20 @@ class ShippingWebhookService
     }
 
     /**
-     * مفتاح حدث فعّال: معرّف حدث حقيقي فقط (id الشحنة ثابت في كل تحديثاتها
-     * فلا يصلح مفتاحًا)، وإلا مركّب awb|status|timestamp، وإلا بصمة الجسم.
+     * مفتاح حدث فعّال: معرّف الحدث الحقيقي مدموجًا بحالة الشحنة المُطبّعة
+     * (F-03): بعض الشركات تعيد استخدام نفس event_id لتحديثات مختلفة لنفس
+     * البوليصة، فدمج الحالة يمنع ابتلاع تحديث حقيقي كـ duplicate. ثم مركّب
+     * awb|status|timestamp، وإلا بصمة الجسم.
      */
     private function effectiveEventId(array $payload, string $rawBody): string
     {
         // كل قيمة تُستخدم في المفتاح يجب أن تكون مفردة وبحد طول (F-07)
         $eventId = $this->firstValue($payload, ['event_id', 'eventId', 'data.event_id']);
         if (is_scalar($eventId)) {
-            return mb_substr((string) $eventId, 0, 191);
+            $status = $this->rawStatus($payload);
+            $suffix = $status !== null ? ':'.$status : '';
+
+            return mb_substr((string) $eventId.$suffix, 0, 191);
         }
 
         $awb = $this->firstValue($payload, ['awb_number', 'tracking_number', 'awb', 'data.awb_number']);
@@ -211,6 +220,18 @@ class ShippingWebhookService
         return 'sha256:'.hash('sha256', $rawBody);
     }
 
+    /** حالة الشحنة مطبّعة للاستخدام في مفتاح الحدث (F-03). */
+    private function rawStatus(array $payload): ?string
+    {
+        $raw = $this->firstValue($payload, ['status', 'state', 'shipment_status', 'data.status', 'data.state']);
+        if ($raw === null) {
+            return null;
+        }
+
+        return $this->mapStatus($payload)?->value
+            ?? str_replace([' ', '-'], '_', strtolower(trim((string) $raw)));
+    }
+
     private function mapStatus(array $payload): ?ShipmentStatus
     {
         $raw = $this->firstValue($payload, ['status', 'state', 'shipment_status', 'data.status', 'data.state']);
@@ -220,6 +241,20 @@ class ShippingWebhookService
         $key = str_replace([' ', '-'], '_', strtolower(trim((string) $raw)));
 
         return self::STATUS_MAP[$key] ?? null;
+    }
+
+    /** هل أُنشئت بوليصة أحدث ونشطة لهذا الطلب؟ (تجاوز بلاغ فشل قديم — F18). */
+    private function hasNewerActiveShipment(Shipment $shipment): bool
+    {
+        return Shipment::query()
+            ->where('order_id', $shipment->order_id)
+            ->where('id', '>', $shipment->id)
+            ->whereNotIn('status', [
+                ShipmentStatus::Failed->value,
+                ShipmentStatus::Returned->value,
+                ShipmentStatus::Delivered->value,
+            ])
+            ->exists();
     }
 
     /** @param array<int, string> $keys */

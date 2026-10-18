@@ -17,4 +17,6 @@ return [
      */
     'pending_online_expire_minutes' => (int) env('ORDER_PENDING_ONLINE_EXPIRE_MINUTES', 30),
     'pending_cod_expire_hours' => (int) env('ORDER_PENDING_COD_EXPIRE_HOURS', 72),
+    // طلبات الزوار المؤكدة بالهاتف فقط أسرع انتهاءً (F5): لا تحبس المخزون طويلًا
+    'pending_guest_cod_expire_hours' => (int) env('ORDER_PENDING_GUEST_COD_EXPIRE_HOURS', 24),
 ];

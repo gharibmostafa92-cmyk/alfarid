@@ -112,9 +112,19 @@ class AppServiceProvider extends ServiceProvider
                 Limit::perMinute(10)->by('coupon-id:'.hash('sha256', (string) $identity)),
             ];
         });
-        RateLimiter::for('checkout', fn (Request $request) => [
-            Limit::perMinute(10)->by('checkout-ip:'.$request->ip()),
-        ]);
+        // إتمام الشراء: بالـ IP وأيضًا بالهاتف المُوحَّد (F5) — الزائر بلا
+        // تحقق من الهاتف لا يراكم طلبات وهمية يحبس بها مخزونًا برقم واحد
+        RateLimiter::for('checkout', function (Request $request): array {
+            $phone = $request->input('recipient_phone');
+            $phoneKey = hash('sha256', is_string($phone) && trim($phone) !== ''
+                ? Customer::normalizePhone($phone) : 'guest');
+
+            return [
+                Limit::perMinute(10)->by('checkout-ip:'.$request->ip()),
+                Limit::perMinute(5)->by('checkout-phone:'.$phoneKey),
+                Limit::perDay(20)->by('checkout-phone-day:'.$phoneKey),
+            ];
+        });
         RateLimiter::for('order-tracking', fn (Request $request) => [
             Limit::perMinute(10)->by('order-tracking-ip:'.$request->ip()),
         ]);

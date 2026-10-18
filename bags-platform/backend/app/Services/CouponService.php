@@ -11,6 +11,7 @@ use App\Models\Coupon;
 use App\Models\CouponUsage;
 use App\Models\Customer;
 use App\Models\Order;
+use Illuminate\Support\Facades\DB;
 
 /**
  * التحقق من الكوبونات وربطها بالسلة وحساب خصمها وتسجيل استخدامها.
@@ -40,7 +41,7 @@ class CouponService
     {
         $coupon = Coupon::query()->find($couponId);
         if ($coupon === null) {
-            throw new BusinessException('الكوبون المرتبط بالسلة لم يعد موجودًا.');
+            throw new BusinessException(self::NOT_REDEEMABLE);
         }
         $this->assertRedeemable($coupon, $subtotal, $customer, $guestPhone);
 
@@ -65,22 +66,43 @@ class CouponService
         return round(min($discount, $subtotal), 2);
     }
 
-    /** تسجيل استخدام فعلي عند إتمام الطلب + تحديث العداد الكلي. */
+    /**
+     * تسجيل استخدام فعلي عند إتمام الطلب + تحديث العداد الكلي ذرّيًا (F4).
+     * قفل استشاري على (الكوبون + هوية المستخدم) يمنع سباق الحد الفردي،
+     * والزيادة الشرطية على العداد الكلي تمنع تجاوز usage_limit حتى بلا
+     * قفل صف الكوبون على مسار الشراء (أُزيل القفل المسبق من OrderService).
+     */
     public function recordUsage(Coupon $coupon, Order $order, ?Customer $customer, float $discountAmount): CouponUsage
     {
-        $usage = CouponUsage::create([
+        $guestPhoneNormalized = $customer === null && $order->guest_phone !== null
+            ? Customer::normalizePhone($order->guest_phone)
+            : null;
+
+        $identity = $customer !== null
+            ? 'customer:'.$customer->id
+            : 'phone:'.($guestPhoneNormalized ?? 'anonymous');
+        DB::statement('SELECT pg_advisory_xact_lock(hashtext(?))', ['coupon-usage:'.$coupon->id.':'.$identity]);
+
+        // إعادة التحقق الفردي تحت القفل: استخدامان متزامنان لنفس الهوية
+        // يتسلسلان فيرى الثاني استخدام الأول
+        $this->assertPerIdentityAllowed($coupon, $customer, $guestPhoneNormalized);
+
+        $incremented = Coupon::query()
+            ->whereKey($coupon->id)
+            ->where(fn ($q) => $q->whereNull('usage_limit')->orWhereColumn('used_count', '<', 'usage_limit'))
+            ->increment('used_count');
+        if ($incremented === 0) {
+            throw new BusinessException(self::NOT_REDEEMABLE);
+        }
+
+        return CouponUsage::create([
             'coupon_id' => $coupon->id,
             'customer_id' => $customer?->id,
             'order_id' => $order->id,
             'discount_amount' => $discountAmount,
             // هاتف الزائر الموحد يُخزَّن مع الاستخدام لفحص الحد لاحقًا في SQL (F-04)
-            'guest_phone_normalized' => $customer === null && $order->guest_phone !== null
-                ? Customer::normalizePhone($order->guest_phone)
-                : null,
+            'guest_phone_normalized' => $guestPhoneNormalized,
         ]);
-        $coupon->increment('used_count');
-
-        return $usage;
     }
 
     private function findRedeemable(string $code, float $subtotal, ?Customer $customer): Coupon
@@ -99,45 +121,68 @@ class CouponService
         if (! $coupon->isRedeemableNow()) {
             throw new BusinessException(self::NOT_REDEEMABLE);
         }
+        // رسالة موحّدة (F20): لا تُفصح عن سبب الرفض فيُستخدم لتمييز السياسات
         if ($coupon->min_order_amount !== null && $subtotal < (float) $coupon->min_order_amount) {
-            throw new BusinessException('قيمة السلة أقل من الحد الأدنى لاستخدام هذا الكوبون.');
+            throw new BusinessException(self::NOT_REDEEMABLE);
         }
-        if ((int) $coupon->usage_limit_per_customer <= 0) {
+
+        $guestPhoneNormalized = ($guestPhone !== null && trim($guestPhone) !== '')
+            ? Customer::normalizePhone($guestPhone)
+            : null;
+
+        // سقف الطلبات المعلقة للزوار (F16): يُفحص قبل حد العميل الواحد
+        // (F7) ليبقى فعّالًا حتى عند تعطيل الحد الفردي (usage_limit_per_customer=0)
+        // — تدوير أرقام غير مُتحققة لا يستنزف حد الحملة. العدّ من جانب الطلب
+        // (coupon_id + pending + بلا عميل) وليس من سجلات الاستخدام
+        if ($customer === null && $guestPhoneNormalized !== null) {
+            $pendingCap = (int) config('store.guest_coupon_pending_cap', 20);
+            if ($pendingCap > 0) {
+                $pendingGuestOrders = Order::query()
+                    ->where('coupon_id', $coupon->id)
+                    ->where('status', OrderStatus::Pending)
+                    ->whereNull('customer_id')
+                    ->count();
+                if ($pendingGuestOrders >= $pendingCap) {
+                    throw new BusinessException(self::NOT_REDEEMABLE);
+                }
+            }
+        }
+
+        $this->assertPerIdentityAllowed($coupon, $customer, $guestPhoneNormalized);
+    }
+
+    /**
+     * حد الاستخدام لكل هوية (عميل/رقم زائر) — الطلبات الملغاة لا تحتسب.
+     * limit <= 0 يعني بلا حد فردي.
+     */
+    private function assertPerIdentityAllowed(Coupon $coupon, ?Customer $customer, ?string $guestPhoneNormalized): void
+    {
+        $limit = (int) $coupon->usage_limit_per_customer;
+        if ($limit <= 0) {
             return;
         }
+
         if ($customer !== null) {
-            // استخدامات العميل المسجل — الطلبات الملغاة لا تحتسب
             $usedByCustomer = $coupon->usages()
                 ->where('customer_id', $customer->id)
                 ->whereHas('order', fn ($q) => $q->where('status', '!=', OrderStatus::Cancelled->value))
                 ->count();
-            if ($usedByCustomer >= (int) $coupon->usage_limit_per_customer) {
-                throw new BusinessException('وصلت لحد استخدام هذا الكوبون لحسابك.');
+            if ($usedByCustomer >= $limit) {
+                throw new BusinessException(self::NOT_REDEEMABLE);
             }
-        } elseif ($guestPhone !== null && trim($guestPhone) !== '') {
-            // سقف استخدامات الزوار المعلّقة (F-17): تدوير أرقام هواتف غير
-            // مُتحققة لا يستنزف حد الحملة الكلي بطلبات وهمية بلا حدود —
-            // الاستخدامات المعلّقة تُحسم بانتهاء صلاحية الطلب فيُلغى
-            // ويُعكس الاستخدام (F-01 + M13)
-            $pendingCap = (int) config('store.guest_coupon_pending_cap', 20);
-            if ($pendingCap > 0) {
-                $pendingGuestUsages = $coupon->usages()
-                    ->whereNotNull('guest_phone_normalized')
-                    ->whereHas('order', fn ($q) => $q->where('status', OrderStatus::Pending->value))
-                    ->count();
-                if ($pendingGuestUsages >= $pendingCap) {
-                    throw new BusinessException('وصل هذا الكوبون لحد الطلبات المعلقة من الزوار؛ حاول لاحقًا.');
-                }
-            }
-            // هوية الزائر هي رقم هاتفه الموحد الصيغة — تبديل cart_token لا
-            // يتجاوز الحد (H3). العدّ في SQL على العمود المفهرس (F-04)
-            // بدل مسح كل الاستخدامات أثناء إمساك قفل الكوبون
+
+            return;
+        }
+
+        if ($guestPhoneNormalized !== null) {
+            // هوية الزائر هي رقم هاتفه الموحد — تبديل cart_token لا يتجاوز
+            // الحد (H3)، والعدّ في SQL على العمود المفهرس (F-04)
             $usedByPhone = $coupon->usages()
-                ->where('guest_phone_normalized', Customer::normalizePhone($guestPhone))
+                ->where('guest_phone_normalized', $guestPhoneNormalized)
                 ->whereHas('order', fn ($q) => $q->where('status', '!=', OrderStatus::Cancelled->value))
                 ->count();
-            if ($usedByPhone >= (int) $coupon->usage_limit_per_customer) {
-                throw new BusinessException('وصلت لحد استخدام هذا الكوبون لرقم هاتفك.');
+            if ($usedByPhone >= $limit) {
+                throw new BusinessException(self::NOT_REDEEMABLE);
             }
         }
     }

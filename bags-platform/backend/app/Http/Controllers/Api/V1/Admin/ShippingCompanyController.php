@@ -49,8 +49,17 @@ class ShippingCompanyController extends Controller implements HasMiddleware
         $data = $request->validated();
         // الأسرار لا تُرجع في الردود (has_api_credentials فقط)، فشاشة التعديل
         // ترسل null — تُتجاهل ولا تمحو الأسرار المحفوظة (M10)
-        if (array_key_exists('api_credentials', $data) && $data['api_credentials'] === null) {
-            unset($data['api_credentials']);
+        if (array_key_exists('api_credentials', $data)) {
+            if ($data['api_credentials'] === null) {
+                unset($data['api_credentials']);
+            } else {
+                // دمج لا استبدال (F21): تحديث مفتاح واحد لا يمحو بقية أسرار
+                // الشركة (مفتاح API، سر الوب هوك...) المعروضة كـ null في الشاشة
+                $data['api_credentials'] = array_merge(
+                    $shippingCompany->api_credentials ?? [],
+                    $data['api_credentials'],
+                );
+            }
         }
         $shippingCompany->update($data);
 

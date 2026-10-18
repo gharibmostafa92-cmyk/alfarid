@@ -25,9 +25,13 @@ class ExpirePendingOrders extends Command
     {
         $onlineBefore = now()->subMinutes(max(1, (int) config('orders.pending_online_expire_minutes', 30)));
         $codBefore = now()->subHours(max(1, (int) config('orders.pending_cod_expire_hours', 72)));
+        // طلب الزائر (بلا حساب) أسرع انتهاءً: لا يحبس المخزون طويلًا بلا التزام (F5)
+        $guestCodBefore = now()->subHours(max(1, (int) config('orders.pending_guest_cod_expire_hours', 24)));
 
         $stale = Order::query()
             ->where('status', OrderStatus::Pending)
+            // «credit» (الدفع على الحساب) ليس بوابة تنتظر سدادًا: لا يُلغى بمهلة الدفع (F6)
+            ->whereNotIn('payment_method', ['credit'])
             ->where(fn ($q) => $q
                 ->where(fn ($online) => $online
                     ->where('payment_method', '!=', 'cod')
@@ -35,6 +39,11 @@ class ExpirePendingOrders extends Command
                     ->where('created_at', '<', $onlineBefore))
                 ->orWhere(fn ($cod) => $cod
                     ->where('payment_method', 'cod')
+                    ->whereNull('customer_id')
+                    ->where('created_at', '<', $guestCodBefore))
+                ->orWhere(fn ($cod) => $cod
+                    ->where('payment_method', 'cod')
+                    ->whereNotNull('customer_id')
                     ->where('created_at', '<', $codBefore)))
             ->orderBy('id')
             ->get();

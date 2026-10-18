@@ -120,29 +120,45 @@ class CartService
 
     public function addItem(Cart $cart, ?Customer $customer, int $variantId, float $qty): Cart
     {
-        $variant = $this->purchasableVariant($variantId);
-        $existing = $cart->items()->where('product_variant_id', $variantId)->first();
-        $targetQty = ($existing !== null ? (float) $existing->qty : 0) + $qty;
-        $this->assertAvailable($variantId, $targetQty);
-        $this->assertPriced($variant, $customer, $targetQty);
+        return DB::transaction(function () use ($cart, $customer, $variantId, $qty): Cart {
+            // قفل صف السلة (F19): إضافتان متزامنتان تتسلسلان فلا تُحسب
+            // الكمية على قراءة قديمة ولا يُتجاوز سقف البنود
+            $cart = Cart::query()->lockForUpdate()->findOrFail($cart->id);
 
-        // كتابة ذرّية UPSERT (F-09): نقرتان متزامنتان على «أضف للسلة»
-        // كانتا تصطدمان بقيد التفرد عند الإدراج الثاني فتخرج 500 —
-        // ON CONFLICT تجمع الكمية على الصف نفسه. القراءة أعلاه تبقى
-        // للتحقق من حد التوفر فقط
-        CartItem::query()->upsert(
-            [[
-                'cart_id' => $cart->id,
-                'product_variant_id' => $variantId,
-                'qty' => $qty,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]],
-            ['cart_id', 'product_variant_id'],
-            ['qty' => DB::raw('cart_items.qty + EXCLUDED.qty'), 'updated_at' => now()],
-        );
+            $variant = $this->purchasableVariant($variantId);
+            $existing = $cart->items()->where('product_variant_id', $variantId)->first();
 
-        return $cart->fresh('items');
+            // سقف أصناف السلة (F15): سلة بآلاف البنود تُثقل التسعير وكل عرض
+            if ($existing === null) {
+                $maxLines = (int) config('store.max_cart_lines', 50);
+                if ($maxLines > 0 && $cart->items()->count() >= $maxLines) {
+                    throw new BusinessException("بلغت سلة التسوق سقف الأصناف ({$maxLines})؛ احذف صنفًا قبل الإضافة.");
+                }
+            }
+
+            $targetQty = ($existing !== null ? (float) $existing->qty : 0) + $qty;
+            $this->assertGuestLineQty($customer, $targetQty);
+            $this->assertAvailable($variantId, $targetQty);
+            $this->assertPriced($variant, $customer, $targetQty);
+
+            // كتابة ذرّية UPSERT (F-09): نقرتان متزامنتان على «أضف للسلة»
+            // كانتا تصطدمان بقيد التفرد عند الإدراج الثاني فتخرج 500 —
+            // ON CONFLICT تجمع الكمية على الصف نفسه. القراءة أعلاه تبقى
+            // للتحقق من حد التوفر فقط
+            CartItem::query()->upsert(
+                [[
+                    'cart_id' => $cart->id,
+                    'product_variant_id' => $variantId,
+                    'qty' => $qty,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]],
+                ['cart_id', 'product_variant_id'],
+                ['qty' => DB::raw('cart_items.qty + EXCLUDED.qty'), 'updated_at' => now()],
+            );
+
+            return $cart->fresh('items');
+        });
     }
 
     public function updateItemQty(Cart $cart, ?Customer $customer, int $variantId, float $qty): Cart
@@ -150,25 +166,31 @@ class CartService
         if ($qty <= 0) {
             return $this->removeItem($cart, $variantId);
         }
-        $variant = $this->purchasableVariant($variantId);
-        $this->assertAvailable($variantId, $qty);
-        $this->assertPriced($variant, $customer, $qty);
 
-        // UPSERT ذرّي بنفس منطق addItem — updateOrCreate كان يصطدم
-        // بقيد التفرد تحت التزامن (F-09)، وهنا القيمة مطلقة لا تراكمية
-        CartItem::query()->upsert(
-            [[
-                'cart_id' => $cart->id,
-                'product_variant_id' => $variantId,
-                'qty' => $qty,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]],
-            ['cart_id', 'product_variant_id'],
-            ['qty' => $qty, 'updated_at' => now()],
-        );
+        return DB::transaction(function () use ($cart, $customer, $variantId, $qty): Cart {
+            // قفل صف السلة (F19) بنفس منطق addItem
+            $cart = Cart::query()->lockForUpdate()->findOrFail($cart->id);
+            $variant = $this->purchasableVariant($variantId);
+            $this->assertGuestLineQty($customer, $qty);
+            $this->assertAvailable($variantId, $qty);
+            $this->assertPriced($variant, $customer, $qty);
 
-        return $cart->fresh('items');
+            // UPSERT ذرّي بنفس منطق addItem — updateOrCreate كان يصطدم
+            // بقيد التفرد تحت التزامن (F-09)، وهنا القيمة مطلقة لا تراكمية
+            CartItem::query()->upsert(
+                [[
+                    'cart_id' => $cart->id,
+                    'product_variant_id' => $variantId,
+                    'qty' => $qty,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]],
+                ['cart_id', 'product_variant_id'],
+                ['qty' => $qty, 'updated_at' => now()],
+            );
+
+            return $cart->fresh('items');
+        });
     }
 
     public function removeItem(Cart $cart, int $variantId): Cart
@@ -354,6 +376,18 @@ class CartService
         }
 
         return $variant;
+    }
+
+    /** سقف كمية البند الواحد للزوار (F5) — للحسابات المسجلة بلا سقف. */
+    private function assertGuestLineQty(?Customer $customer, float $qty): void
+    {
+        if ($customer !== null) {
+            return;
+        }
+        $cap = (float) config('store.guest_max_line_qty', 10);
+        if ($cap > 0 && $qty > $cap) {
+            throw new BusinessException("سقف كمية البند الواحد للزوار ({$cap}) — سجّل الدخول للكميات الأكبر.");
+        }
     }
 
     private function assertAvailable(int $variantId, float $qty): void

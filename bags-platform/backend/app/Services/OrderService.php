@@ -59,18 +59,45 @@ class OrderService
     public function createFromCart(Cart $cart, array $data, ?Customer $customer = null): Order
     {
         // إعادة إرسال بنفس مفتاح منع التكرار ترجع الطلب نفسه (F-13):
-        // انقطاع الشبكة بعد إنشاء الطلب لا يعني «سلة فارغة» ولا طلبًا مكررًا
+        // انقطاع الشبكة بعد إنشاء الطلب لا يعني «سلة فارغة» ولا طلبًا مكررًا.
+        // المفتاح مقيّد بهوية المُرسِل (F2): زائر لا يستطيع سرقة طلب غيره أو
+        // تعطيله بمعرفة/تخمين مفتاحه، فالمفتاح وحده ملك مشترك للفضاء كله.
         $idempotencyKey = isset($data['idempotency_key']) && is_string($data['idempotency_key']) && $data['idempotency_key'] !== ''
             ? mb_substr($data['idempotency_key'], 0, 191)
             : null;
-        if ($idempotencyKey !== null) {
-            $existing = Order::query()->where('idempotency_key', $idempotencyKey)->first();
+
+        $guestPhone = $data['recipient_phone'] ?? $customer?->phone;
+        $guestPhoneNormalized = is_string($guestPhone) && trim($guestPhone) !== ''
+            ? Customer::normalizePhone($guestPhone)
+            : null;
+        $idempotencyScope = $customer !== null
+            ? 'customer:'.$customer->id
+            : ($guestPhoneNormalized !== null ? 'guest:'.$guestPhoneNormalized : null);
+
+        if ($idempotencyKey !== null && $idempotencyScope !== null) {
+            $existing = Order::query()
+                ->where('idempotency_key', $idempotencyKey)
+                ->where('idempotency_scope', $idempotencyScope)
+                ->first();
             if ($existing !== null) {
                 return $existing->load('items');
             }
         }
 
-        return DB::transaction(function () use ($cart, $data, $customer, $idempotencyKey): Order {
+        return DB::transaction(function () use ($cart, $data, $customer, $idempotencyKey, $idempotencyScope, $guestPhoneNormalized): Order {
+            // قفل استشاري على (النطاق + المفتاح): طلبان متزامنان بنفس المفتاح
+            // يتسلسلان، فيجد الثاني الطلب الأول ويعيده بدل إنشاء ثانٍ (F2/F-13)
+            if ($idempotencyKey !== null && $idempotencyScope !== null) {
+                DB::statement('SELECT pg_advisory_xact_lock(hashtext(?))', ['order-idem:'.$idempotencyScope.':'.$idempotencyKey]);
+                $existing = Order::query()
+                    ->where('idempotency_key', $idempotencyKey)
+                    ->where('idempotency_scope', $idempotencyScope)
+                    ->first();
+                if ($existing !== null) {
+                    return $existing->load('items');
+                }
+            }
+
             // قفل صف السلة وقراءة بنودها طازجة: طلب متزامن ثانٍ ينتظر
             // ثم يجد السلة فارغة بدل إنشاء طلب مكرر (H2)
             $cart = Cart::query()->whereKey($cart->id)->lockForUpdate()->firstOrFail();
@@ -90,6 +117,31 @@ class OrderService
                 }
             }
 
+            // سقوف الزوار (F5): الزائر بلا تحقق من الهاتف لا يحجز كميات ضخمة
+            // ولا يراكم طلبات معلّقة تحبس مخزونًا حقيقيًا
+            if ($customer === null) {
+                $guestMaxQty = (float) config('store.guest_max_line_qty', 10);
+                if ($guestMaxQty > 0) {
+                    foreach ($lines as $line) {
+                        if ((float) $line['qty'] > $guestMaxQty) {
+                            throw new BusinessException("سقف كمية البند الواحد للزوار ({$guestMaxQty}) — سجّل الدخول للكميات الأكبر.");
+                        }
+                    }
+                }
+
+                $pendingCap = (int) config('store.guest_pending_orders_cap', 3);
+                if ($pendingCap > 0 && $guestPhoneNormalized !== null) {
+                    $pendingForPhone = Order::query()
+                        ->whereNull('customer_id')
+                        ->where('status', OrderStatus::Pending)
+                        ->where('guest_phone_normalized', $guestPhoneNormalized)
+                        ->count();
+                    if ($pendingForPhone >= $pendingCap) {
+                        throw new BusinessException('لديك طلبات معلّقة كثيرة على هذا الرقم؛ أكملها أو ألغِها قبل طلب جديد.');
+                    }
+                }
+            }
+
             // إعادة التحقق من التوفر وقابلية البيع لحظة الشراء (M14):
             // صنف عُطّل أو منتج أُلغي نشره/حُذف بعد الإضافة لا يُشترى
             $this->cartService->assertLinesAvailable($lines);
@@ -104,9 +156,9 @@ class OrderService
             $couponCode = null;
             $coupon = null;
             if ($cart->coupon_id !== null) {
-                // قفل صف الكوبون حتى نهاية المعاملة: التحقق من الحدود والعدّ
-                // وتسجيل الاستخدام تصبح ذرّية أمام عمليات شراء متزامنة (H3)
-                Coupon::query()->whereKey((int) $cart->coupon_id)->lockForUpdate()->first();
+                // لا قفل صف كوبون مسبق (F4): ترتيب الأقفال صار مخزون←كوبون،
+                // والذرّية تُضمن عند تسجيل الاستخدام (قفل استشاري + زيادة
+                // شرطية) فلا جمود بين الشراء والإلغاء
                 try {
                     $coupon = $this->couponService->redeemableById(
                         (int) $cart->coupon_id,
@@ -163,10 +215,12 @@ class OrderService
             $order = Order::create([
                 'order_number' => $this->settings->generateNextNumber('order'),
                 'idempotency_key' => $idempotencyKey,
+                'idempotency_scope' => $idempotencyScope,
                 'channel' => $data['channel'] ?? 'store',
                 'customer_id' => $customer?->id,
                 'guest_name' => $data['recipient_name'] ?? $customer?->name,
                 'guest_phone' => $data['recipient_phone'] ?? $customer?->phone,
+                'guest_phone_normalized' => $guestPhoneNormalized,
                 'guest_email' => $data['recipient_email'] ?? $customer?->email,
                 'city_id' => $city?->id,
                 'shipping_address_line' => $data['shipping_address_line'] ?? null,
@@ -334,12 +388,36 @@ class OrderService
                 'notes' => $historyNotes !== null ? mb_substr($historyNotes, 0, 500) : null,
             ]);
 
-            if ($to === OrderStatus::Confirmed && $order->allocated_branch_id === null) {
+            // التوزيع ناقص إن غاب فرع الطلب أو بقي بند بلا فرع: الاعتماد على
+            // allocated_branch_id وحده يفشل عندما تُوزَّع البنود في فروع
+            // مختلفة فيبقى حقل الطلب فارغًا (F1)
+            if ($to === OrderStatus::Confirmed && ! $this->isAllocated($order)) {
                 $this->allocationService->allocate($order, performedBy: $actorId);
             }
 
             return $order->fresh(['items', 'statusHistories']);
         });
+    }
+
+    /**
+     * كفاية التوزيع: يكفي أن يكون لفرع الطلب قيمة أو أن يكون كل بند موزّعًا
+     * فعليًا في فرع ما (F1) — التوزيع الجزئي (بند بلا فرع) يُعيد الاستدعاء.
+     */
+    private function isAllocated(Order $order): bool
+    {
+        if ($order->allocated_branch_id !== null) {
+            return true;
+        }
+
+        $distribution = $order->items()
+            ->selectRaw('COUNT(*) AS total, COUNT(allocated_branch_id) AS allocated')
+            ->first();
+
+        if ($distribution === null || (int) $distribution->total === 0) {
+            return false;
+        }
+
+        return (int) $distribution->total === (int) $distribution->allocated;
     }
 
     /**

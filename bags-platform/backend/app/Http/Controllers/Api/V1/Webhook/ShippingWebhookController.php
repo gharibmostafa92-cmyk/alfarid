@@ -20,11 +20,14 @@ class ShippingWebhookController extends Controller
     public function handle(Request $request, string $company): JsonResponse
     {
         $header = (string) (config('webhooks.shipping.signature_header') ?? 'X-Webhook-Signature');
-        $payload = json_decode($request->getContent(), true);
+        $raw = $request->getContent();
+
+        // حد الحجم قبل أي فك ترميز (F9): الرفض والتسجيل في الخدمة
+        $payload = strlen($raw) > 262144 ? null : json_decode($raw, true);
         $result = $this->webhooks->handle(
             $company,
             is_array($payload) ? $payload : [],
-            $request->getContent(),
+            $raw,
             $request->header($header),
             $request->ip(),
         );

@@ -9,6 +9,7 @@ use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Order\AllocateOrderRequest;
 use App\Http\Requests\Admin\Order\CreateShipmentRequest;
+use App\Http\Requests\Admin\Order\UpdateOrderPaymentRequest;
 use App\Http\Requests\Admin\Order\UpdateOrderStatusRequest;
 use App\Http\Resources\Admin\AdminOrderResource;
 use App\Http\Resources\Admin\ShipmentResource;
@@ -36,7 +37,7 @@ class OrderController extends Controller implements HasMiddleware
     {
         return [
             new Middleware('can:orders.view', only: ['index', 'show']),
-            new Middleware('can:orders.update', only: ['updateStatus', 'createShipment']),
+            new Middleware('can:orders.update', only: ['updateStatus', 'createShipment', 'updatePayment']),
             new Middleware('can:orders.allocate', only: ['allocate']),
         ];
     }
@@ -71,13 +72,19 @@ class OrderController extends Controller implements HasMiddleware
                 Carbon::parse($date, (string) config('app.business_timezone'))->startOfDay()->utc()))
             ->when($filters['date_to'] ?? null, fn ($q, $date) => $q->where('created_at', '<',
                 Carbon::parse($date, (string) config('app.business_timezone'))->startOfDay()->addDay()->utc()))
-            // بحث: رقم الطلب والهاتف بالبادئة (يستخدم الفهارس)، والاسم
-            // بالاحتواء مع تهريب محارف LIKE من مدخل المستخدم (M16)
+            // بحث مُقسَّم حسب شكل المدخل (F11): الرقمي على رقم الطلب/الهاتف
+            // بالبادئة (فهرسي text_pattern_ops)، والنصي يضيف الاسم بالاحتواء
+            // عبر فهرس pg_trgm — فلا يُشغَّل فحص الاسم على مدخل رقمي،
+            // وتهريب محارف LIKE يمنع حقن الأنماط (M16)
             ->when($filters['search'] ?? null, fn ($q, $term) => $q->where(function ($inner) use ($term): void {
                 $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], (string) $term);
+                $numeric = preg_match('/^\s*[0-9+\-\s()]+\s*$/', (string) $term) === 1;
                 $inner->where('order_number', 'like', $escaped.'%')
                     ->orWhere('guest_phone', 'like', $escaped.'%')
-                    ->orWhere('guest_name', 'like', '%'.$escaped.'%');
+                    ->orWhere('guest_phone_normalized', 'like', $escaped.'%');
+                if (! $numeric) {
+                    $inner->orWhere('guest_name', 'ilike', '%'.$escaped.'%');
+                }
             }))
             ->latest('id')
             ->paginate(20);
@@ -106,6 +113,37 @@ class OrderController extends Controller implements HasMiddleware
             $request->user(),
             $request->validated()['notes'] ?? null,
         );
+
+        return AdminOrderResource::make(
+            $order->load(['items', 'statusHistories', 'customer', 'city', 'allocatedBranch'])
+        );
+    }
+
+    /**
+     * تحديث حالة الدفع يدويًا (F6): مسار إداري صريح بدل الترقيع عبر تغيير
+     * الحالة. يُسجّل التغيير في سجل الطلب بالمنفّذ والملاحظة للتدقيق.
+     */
+    public function updatePayment(UpdateOrderPaymentRequest $request, Order $order): AdminOrderResource
+    {
+        $data = $request->validated();
+        $from = $order->payment_status;
+        $to = (string) $data['payment_status'];
+
+        $order->update([
+            'payment_status' => $to,
+            // إثبات الدفع أو الاسترداد يزيل حاجة الاسترداد المعلّقة
+            'requires_refund' => in_array($to, ['paid', 'refunded'], true) ? false : $order->requires_refund,
+        ]);
+
+        $actor = $request->user();
+        $notes = trim("تحديث يدوي لحالة الدفع: {$from} ← {$to}. ".($data['notes'] ?? ''));
+        $order->statusHistories()->create([
+            'from_status' => $order->status,
+            'to_status' => $order->status,
+            'changed_by_type' => $actor?->getMorphClass(),
+            'changed_by_id' => $actor?->getKey(),
+            'notes' => mb_substr($notes, 0, 500),
+        ]);
 
         return AdminOrderResource::make(
             $order->load(['items', 'statusHistories', 'customer', 'city', 'allocatedBranch'])
