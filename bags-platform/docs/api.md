@@ -347,3 +347,27 @@ Run php artisan media:backfill-path-layouts once for existing uploads. It persis
 - (F-15) إشعار مرتجع شركة الشحن (بما فيه rto) لا يعيد البضاعة للمخزون: يعلّم الطلب needs_attention فقط. الإعادة الفعلية عند استلام المستودع — الأدمن ينقل الطلب Returned عبر changeStatus فتُسجل sale_return عندها.
 - (F-16) بوليصة فاشلة لم تعد طريقًا مسدودًا: حدث Failed يعلّم الطلب needs_attention، وطلب Shipped كل بوالصه فاشلة/مرتجعة يقبل بوليصة بديلة بلا changeStatus وبلا خصم مخزون ثانٍ.
 - (F-17) سقف استخدامات الزوار المعلّقة لكل كوبون: ‏STORE_GUEST_COUPON_PENDING_CAP (افتراضي 20، و0 يعطّله) في assertRedeemable — تدوير أرقام غير مُتحققة لا يستنزف الحملة؛ والمعلّقة تُحسم بانتهاء الصلاحية (إلغاء يعكس الاستخدام).
+
+## المرحلة 9: إدارة المرتجعات والاسترداد المالي (Returns / RMA)
+
+القاعدة الذهبية: إنشاء طلب المرتجع أو الموافقة المبدئية عليه لا يضيف أي رصيد للمخزون. الإضافة الفعلية تتم حصريًا في خطوة الاستلام (receive) بعد فحص كل قطعة، وعبر `InventoryService::recordMovement` فقط.
+
+### الجداول
+
+- `return_requests`: ‏return_number فريد بصيغة `RET-001001` (ترقيم SettingService: ‏return_prefix/return_next_number=1001/return_padding=6)، وorder_id/customer_id (nullable)/branch_id (فرع الاستلام — يُحدد عند الاعتماد)، وstatus enum ‏(pending/approved/rejected/received/refunded/cancelled)، وrefund_method enum ‏(original_payment/wallet/bank_transfer/cash)، وtotal_refund_amount، وreason/admin_notes/refund_reference، وحقول approved_by/at وreceived_by/at وrefunded_by/at.
+- `return_request_items`: ‏return_request_id (cascade) وorder_item_id وproduct_variant_id، وكميات requested/approved/received_good/received_damaged ‏(decimal 12,4)، وunit_refund_price = صافي ما دفعه العميل للوحدة بعد كل الخصومات (سعر البند × الكمية − discount_amount البند) ÷ الكمية، وitem_reason وattachments (مسارات صور العيوب على القرص العام `return_requests/{id}`).
+- `customers.wallet_balance` ‏(decimal 12,2): رصيد محفظة العميل — لم يكن موجودًا قبل هذه المرحلة، والاسترداد بطريقة wallet يُضاف إليه.
+- إعدادات: ‏`return_window_days` (افتراضي 14) في مجموعة orders — نافذة الاسترجاع من لحظة انتقال الطلب إلى delivered (آخر سجل حالة)، وتُزرع للقواعد القائمة بهجرة insertOrIgnore.
+
+### الخدمة (ReturnService)
+
+- ‏`createReturnRequest`: الطلب يجب أن يكون Delivered وداخل نافذة الاسترجاع، ولكل بند: ‏requested + (مجموع requested في طلبات غير مرفوضة/ملغاة لنفس order_item) ≤ qty المشتراة. عند إنشاء العميل تُفرض ملكية الطلب (غير الموجود في حسابه = 404 من المتحكم).
+- ‏`approve`: من pending فقط — يحدد branch_id والكميات المعتمدة (بند غير مذكور = كامل المطلوب؛ مجموع معتمد صفر = رفض الاعتماد). **لا أثر مخزني.**
+- ‏`receive`: من approved فقط، والحمولة تغطي كل البنود، وgood + damaged ≤ approved لكل بند. داخل transaction: السليم بحركة `sale_return` على `on_hand`، والتالف بحركتين: `sale_return` على `on_hand` (عودة فيزيائية) ثم `damage` على `damaged` — لأن وعاء التالف شريحة من الرصيد الفعلي في نموذج المخزون الحالي، فإدخاله على damaged وحده كان سيكسر قاعدة «المتاح لا يصير سالبًا» عند انخفاض الرصيد. الحركات كلها بمرجع morph ‏`return_request` وعلى مستوى الفرع المستلم (location فارغ)، وعدّاد مبيعات المنتج يتراجع بالكمية المستلمة. يحسب total_refund_amount = Σ (المستلم × unit_refund_price).
+- ‏`refund`: من received فقط. ‏wallet يضيف الإجمالي لرصيد محفظة العميل بقفل صف (طلبات الزوار بلا حساب تُرفض لهذه الطريقة)، وباقي الطرق تسجل refund_reference. عند اكتمال استلام كل بنود الطلب الأصلي ينقل `OrderService::changeStatus` الطلب إلى Returned بمعامل `returnEffects: false` — بلا إعادة مخزون ثانية (الاستلام سوّاها) وبلا علم requires_refund (الرد اكتمل داخل المرتجع). الإرجاع الجزئي يبقي الطلب Delivered.
+- الرفض (من pending) والإلغاء (من pending/approved) عبر PATCH — بلا آثار، ويحرران سقف كميات البند لطلبات لاحقة. حذف مرتجع received/refunded ممنوع (422).
+
+### المسارات
+
+- المتجر: ‏`POST /api/v1/store/account/returns` ‏(auth:sanctum + auth.customer) — order_id + reason + refund_method اختياري + items (order_item_id/requested_qty/item_reason/attachments صور حتى 5 × 5MB).
+- الأدمن (صلاحيات returns.view/create/update/delete — إجراءات approve/receive/refund تحت returns.update): ‏CRUD ‏`/api/v1/admin/returns` بفلاتر status/order_id/customer_id/search (برقم المرتجع أو رقم الطلب)، و`POST /api/v1/admin/returns/{id}/approve|receive|refund`، وإنشاء يدوي من نفس store لخدمة العملاء.

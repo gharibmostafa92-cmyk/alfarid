@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\V1\Admin\ProductController;
 use App\Http\Controllers\Api\V1\Admin\ProductMediaController;
 use App\Http\Controllers\Api\V1\Admin\ProductVariantController;
 use App\Http\Controllers\Api\V1\Admin\PromotionController;
+use App\Http\Controllers\Api\V1\Admin\ReturnController;
 use App\Http\Controllers\Api\V1\Admin\RoleController;
 use App\Http\Controllers\Api\V1\Admin\SettingController;
 use App\Http\Controllers\Api\V1\Admin\ShippingCompanyController;
@@ -45,6 +46,7 @@ Route::pattern('item', '[0-9]{1,18}');
 Route::pattern('order', '[0-9]{1,18}');
 Route::pattern('coupon', '[0-9]{1,18}');
 Route::pattern('promotion', '[0-9]{1,18}');
+Route::pattern('return_request', '[0-9]{1,18}');
 Route::pattern('shipping_company', '[0-9]{1,18}');
 Route::pattern('shipping_zone', '[0-9]{1,18}');
 Route::pattern('shipping_rate', '[0-9]{1,18}');
@@ -195,6 +197,12 @@ Route::middleware(['auth:sanctum', 'auth.staff'])
         // ================== المرحلة 8: العروض والكوبونات ==================
         Route::apiResource('promotions', PromotionController::class);
         Route::apiResource('coupons', CouponController::class);
+
+        // ================== المرحلة 9: المرتجعات ==================
+        Route::apiResource('returns', ReturnController::class)->parameters(['returns' => 'return_request']);
+        Route::post('returns/{return_request}/approve', [ReturnController::class, 'approve'])->name('returns.approve');
+        Route::post('returns/{return_request}/receive', [ReturnController::class, 'receive'])->name('returns.receive');
+        Route::post('returns/{return_request}/refund', [ReturnController::class, 'refund'])->name('returns.refund');
 
         Route::get('settings', [SettingController::class, 'index'])
             ->middleware('permission:settings.view|settings.manage')

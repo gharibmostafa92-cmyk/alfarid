@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\Store\CheckoutController;
 use App\Http\Controllers\Api\V1\Store\HomeController;
 use App\Http\Controllers\Api\V1\Store\OrderController as StoreOrderController;
 use App\Http\Controllers\Api\V1\Store\ProductController;
+use App\Http\Controllers\Api\V1\Store\ReturnController;
 use App\Http\Middleware\ProtectStorefrontCaching;
 use Illuminate\Support\Facades\Route;
 
@@ -66,4 +67,6 @@ Route::get('orders/{number}/track', [StoreOrderController::class, 'track'])
 Route::middleware(['auth:sanctum', 'auth.customer'])->prefix('account')->name('account.')->group(function (): void {
     Route::get('orders', [StoreOrderController::class, 'index'])->name('orders.index');
     Route::post('orders/{order}/cancel', [StoreOrderController::class, 'cancel'])->name('orders.cancel');
+    // المرحلة 9: تقديم طلب إرجاع لطلب مُسلَّم يخص العميل
+    Route::post('returns', [ReturnController::class, 'store'])->name('returns.store');
 });
