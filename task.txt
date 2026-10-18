@@ -1,0 +1,53 @@
+F-18 — MEDIUM: فهارس LIKE لا تعمل في PostgreSQL
+المشكلة: التعليق في Admin\OrderController::index يقول إن بحث البادئة يستخدم الفهارس. لكن order_number LIKE 'x%' لا يستخدم btree الافتراضي إلا مع collation C أو text_pattern_ops. ولا يوجد أي فهرس على guest_phone أصلًا. والبحث %name% يمسح الجدول كاملًا.
+الأثر: شاشة الطلبات تتباطأ خطيًا مع نمو الجدول، ومعها count(*) الخاص بالترقيم.
+الإصلاح: فهارس text_pattern_ops تُنشأ بـ CONCURRENTLY، وفهرس trigram للاسم إن لزم (الكود في القسم 9).
+F-19 — MEDIUM: العروض لا تُطبَّق إطلاقًا
+المشكلة: Promotion إدارة CRUD فقط، كما يقر PromotionResource. لا CartService ولا OrderService يقرأ العروض.
+الأثر: الأدمن ينشئ عرض "خصم 20%" يظهر نشطًا في اللوحة ولا يحصل عليه أي عميل. يضاف إلى ذلك:
+PromotionRequest لا يحد النسبة بـ 100.
+buy_x_get_y لا يوجد في الجدول ما يمثل x وy.
+الإصلاح: إما إخفاء الواجهة أو تعليمها "غير مفعّل"، وإما التطبيق الفعلي. وأضيفوا max:100 للنوع النسبي.
+F-20 — MEDIUM (مشروطة): حالة العميل لا تُفحص في السلة والشراء
+المشكلة: currentCart يقبل أي Customer بتوكن صالح، حتى المعلَّق أو المرفوض، لأن هذه المسارات خارج auth.customer.
+الأثر: إن كان PricingService يعطي أسعار الجملة حسب نوع العميل أو مجموعته بدون فحص الحالة، يحصل عميل جملة موقوف على أسعار الجملة. (الدفع الآجل نفسه محمي بشرط Approved.)
+الإصلاح: معاملة العميل غير النشط كزائر، أو رفضه بـ 403.
+F-21 — MEDIUM: Deadlock وتسلسل محتمل في generateNextNumber (مشروطة)
+المشكلة: لم يظهر لي تنفيذ generateNextNumber. إن كان يقفل صف إعدادات بـ lockForUpdate، فكل عمليات الشراء في النظام تتسلسل على صف واحد حتى انتهاء المعاملة الطويلة (تسعير، توفر، بنود، كوبون).
+الإصلاح: nextval('order_number_seq') في PostgreSQL، لا يحبس أي قفل.
+المقايضة: فجوات في الترقيم عند فشل المعاملة (rollback).
+F-22 — LOW–MEDIUM: نسبة الدفع غير المطابق لا تنبّه أحدًا
+المشكلة: عند amount mismatch يُرجع 200 ويكتب سجلًا failed، والمال قد قُبض. لا needs_attention ولا Log::warning. والمبلغ الغائب يُقبل بلا فحص، والعملة ثابتة على EGP.
+الإصلاح: ضبط needs_attention مع Log::warning.
+F-23 — LOW–MEDIUM: حذف بنود أضيفت أثناء الشراء
+المشكلة: $cart->items()->delete() في نهاية createFromCart يحذف أيضًا بندًا أُدرج والتزم أثناء المعاملة. addItem لا يقفل السلة، وفي وضع READ COMMITTED يرى DELETE الصفوف الملتزمة حتى بداية تنفيذه.
+الإصلاح: whereIn('id', $orderedItemIds)->delete().
+F-24 — LOW–MEDIUM: تخمين أكواد الكوبونات
+المشكلة: رسالة "الكود غير صحيح" تختلف عن "منتهي أو مستنفد"، فتكشف وجود الكود. الحد المطبق هو throttle:cart العام.
+الإصلاح: limiter خاص (مثل 10 في الدقيقة لكل IP وتوكن) ورسالة موحدة.
+F-25 — LOW–MEDIUM: tracking_url_template بلا تحقق
+المشكلة: الحقل نص حر. قيمة مثل javascript:… تصبح XSS مخزّنة إن عُرضت كـ href. وawb_number يُدرج في الرابط بلا ترميز.
+الإصلاح: ['url','starts_with:https://','regex:/\{awb\}/'] مع rawurlencode($awb).
+F-26 — LOW: فرق قرش في الإجماليات
+المشكلة: pricing_discount = Σround((b-u)q) وsubtotal = Σround(bq)، والفرق بينهما قد يختلف عن Σround(uq) بقرش. كما أن max($lineTax, 0) يكسر تساوي مجموع ضرائب البنود مع ضريبة الطلب.
+الإصلاح: pricingDiscount = round(subtotal - itemsTotal, 2).
+F-27 — LOW: inventoryActorId يخزّن النتيجة في متغير static
+المشكلة: في Octane أو العمال طويلة العمر (وبين الاختبارات)، إن كانت النتيجة الأولى null تبقى null، أو تبقى id قديمًا بعد تحديث قاعدة الاختبار. كما أن هجرة مستخدم النظام تثبّت البريد يدويًا وتتجاهل ORDER_SYSTEM_USER_EMAIL.
+الإصلاح: تخزين على مستوى instance الخدمة (singleton لكل طلب)، وقراءة البريد من config داخل الهجرة.
+F-28 — LOW: تجاوز طول notes في السجل
+المشكلة: ملاحظة الأدمن (500 حرف) مع ' — '.$extraNote تتجاوز varchar(500)، فيحدث 500 في مسار Returned بلا حركات بيع.
+الإصلاح: mb_substr(..., 0, 500).
+F-29 — LOW: صيانة وقيود
+PruneWebhookLogs يحذف كل شيء في عبارة واحدة، والأفضل الحذف على دفعات.
+فهرس carts.customer_id مكرر مع القيد unique اللاحق.
+لا يوجد unique على coupon_usages(coupon_id, order_id).
+cart_items.product_variant_id بلا cascadeOnDelete، فالسلال المهجورة تمنع حذف المتغيرات. ولا يوجد أمر لتنظيف سلال الزوار القديمة.
+ShippingOptionsRequest يقبل subtotal وtotal_weight_kg ثم يتجاهلهما.
+shippingOptions يحسب دائمًا مع cod=true وقبل خصم الكوبون، فقد يختلف السعر المعروض عن المحاسَب.
+قائمة الأدمن لا تفلتر بـ needs_attention ولا requires_refund، فالعلامات موجودة لكن لا شاشة لها.
+F-30 — INFO
+الطلبات المقسمة على عدة فروع تُبقي orders.allocated_branch_id = null، فلا تظهر في فلتر الفرع.
+لا يوجد مسار لإلغاء التوزيع أو إعادته.
+الدفع الآجل (credit) بلا فحص حد ائتماني ظاهر.
+ShippingQuoteService يختار أول شركة بالـ id، لا الأرخص ولا التي سيستخدمها الأدمن.
+تحقق مطلوب: هل requires_refund وneeds_attention وcod_fee موجودة في $fillable في Order؟ إن لم تكن، فإن update() يتجاهلها بصمت.

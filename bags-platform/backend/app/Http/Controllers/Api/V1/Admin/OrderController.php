@@ -50,6 +50,9 @@ class OrderController extends Controller implements HasMiddleware
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date'],
             'search' => ['nullable', 'string', 'max:100'],
+            // تظهر العلامتان في المورد بلا شاشة تصفية (F-29): تُتاح الآن كفلتر
+            'needs_attention' => ['nullable', 'boolean'],
+            'requires_refund' => ['nullable', 'boolean'],
         ]);
 
         $orders = Order::query()
@@ -58,6 +61,10 @@ class OrderController extends Controller implements HasMiddleware
             ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
             ->when($filters['allocated_branch_id'] ?? null, fn ($q, $branchId) => $q->where('allocated_branch_id', $branchId))
             ->when($filters['payment_method'] ?? null, fn ($q, $method) => $q->where('payment_method', $method))
+            ->when(array_key_exists('needs_attention', $filters) && $filters['needs_attention'] !== null,
+                fn ($q) => $q->where('needs_attention', (bool) $filters['needs_attention']))
+            ->when(array_key_exists('requires_refund', $filters) && $filters['requires_refund'] !== null,
+                fn ($q) => $q->where('requires_refund', (bool) $filters['requires_refund']))
             // نطاق زمني بدل whereDate حتى يعمل فهرس created_at (M16)،
             // بمنطقة العمل ثم يُخزّن/يُقارن بـ UTC
             ->when($filters['date_from'] ?? null, fn ($q, $date) => $q->where('created_at', '>=',

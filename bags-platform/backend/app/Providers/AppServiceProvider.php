@@ -102,6 +102,16 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('cart', fn (Request $request) => [
             Limit::perMinute(60)->by('cart-ip:'.$request->ip()),
         ]);
+        // تخمين أكواد الكوبونات (F-24): حد ضيق خاص لكل IP وأيضًا لكل
+        // توكن/جلسة سلة، بدل الاعتماد على حد السلة العام فقط
+        RateLimiter::for('coupon', function (Request $request): array {
+            $identity = $request->bearerToken() ?? $request->header('X-Cart-Session') ?? 'guest';
+
+            return [
+                Limit::perMinute(10)->by('coupon-ip:'.$request->ip()),
+                Limit::perMinute(10)->by('coupon-id:'.hash('sha256', (string) $identity)),
+            ];
+        });
         RateLimiter::for('checkout', fn (Request $request) => [
             Limit::perMinute(10)->by('checkout-ip:'.$request->ip()),
         ]);

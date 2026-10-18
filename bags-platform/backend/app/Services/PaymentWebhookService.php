@@ -114,7 +114,16 @@ class PaymentWebhookService
 
             // التحقق من المبلغ والعملة قبل أي تغيير (H5)
             if ($outcome === 'paid' && ! $this->amountMatches($payload, $order, $config)) {
+                // المال قد يكون قُبض فعلًا مع مبلغ مخالف: يُعلَّم الطلب للانتباه
+                // ويُنبَّه السجل — لا يُكتفى بسجل failed صامت (F-22)
+                $order->update(['needs_attention' => true]);
                 $log->update(['status' => 'failed', 'error' => 'amount mismatch']);
+                Log::warning('Payment amount/currency mismatch on a paid event.', [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'gateway' => $gateway,
+                    'expected' => (string) $order->grand_total,
+                ]);
 
                 return ['http' => 200, 'body' => ['received' => false, 'message' => 'amount mismatch']];
             }

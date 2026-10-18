@@ -49,7 +49,7 @@ Route::middleware('throttle:cart')->prefix('cart')->name('cart.')->group(functio
     Route::post('items', [CartController::class, 'store'])->name('items.store');
     Route::put('items/{item}', [CartController::class, 'update'])->name('items.update');
     Route::delete('items/{item}', [CartController::class, 'destroy'])->name('items.destroy');
-    Route::post('coupon', [CartController::class, 'applyCoupon'])->name('coupon.apply');
+    Route::post('coupon', [CartController::class, 'applyCoupon'])->middleware('throttle:coupon')->name('coupon.apply');
     Route::delete('coupon', [CartController::class, 'removeCoupon'])->name('coupon.remove');
 });
 

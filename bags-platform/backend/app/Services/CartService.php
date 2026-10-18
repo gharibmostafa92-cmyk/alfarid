@@ -234,7 +234,6 @@ class CartService
     {
         $lines ??= $this->pricedLines($cart, $customer);
         $subtotal = 0.0;
-        $pricingDiscount = 0.0;
         $itemsTotal = 0.0;
         foreach ($lines as $line) {
             if ($line['unit_price'] === null) {
@@ -242,9 +241,12 @@ class CartService
             }
             // كل سطر يُقرَّب أولًا ثم تُجمع القيم المقرّبة (M17)
             $subtotal += round((float) $line['base_price'] * $line['qty'], 2);
-            $pricingDiscount += $line['line_discount'];
             $itemsTotal += $line['line_total'];
         }
+
+        // الخصم السعري = الفرق بين الإجماليين المقرّبين، لا مجموع فروق
+        // السطور المقرّبة (F-26) حتى لا يظهر فرق قرش بين العرض والمحصّل
+        $pricingDiscount = round($subtotal - $itemsTotal, 2);
 
         $couponDiscount = 0.0;
         $couponCode = null;

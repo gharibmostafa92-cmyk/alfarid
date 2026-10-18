@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Store;
 
+use App\Enums\CustomerStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Store\Cart\AddCartItemRequest;
 use App\Http\Requests\Store\Cart\ApplyCouponRequest;
@@ -84,7 +85,12 @@ class CartController extends Controller
     private function currentCart(Request $request, bool $create = true): array
     {
         $user = auth('sanctum')->user();
-        $customer = $user instanceof Customer ? $user : null;
+        // عميل موقوف/مرفوض بتوكن صالح يُعامل كزائر (F-20): لا تُربط سلاته
+        // وطلباته بحساب غير نشط ولا تُمنح له أسعار/حدود العميل
+        $customer = $user instanceof Customer
+            && ! in_array($user->status, [CustomerStatus::Suspended, CustomerStatus::Rejected], true)
+                ? $user
+                : null;
         $cart = $this->carts->resolveCart($customer, $request->header('X-Cart-Session'), $create);
 
         return [$customer, $cart];

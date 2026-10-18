@@ -22,6 +22,10 @@ use App\Models\Order;
  */
 class CouponService
 {
+    // رسالة موحّدة لعدم صلاحية الكود (F-24): «غير موجود» و«موجود لكن غير
+    // قابل للاستخدام» يجب ألا يتيحا تمييز وجود الكود بالتخمين
+    private const NOT_REDEEMABLE = 'كود الخصم غير صحيح أو غير متاح أو انتهت صلاحيته أو استُنفد حد استخدامه.';
+
     public function validateAndApply(Cart $cart, string $code, float $subtotal, ?Customer $customer = null): float
     {
         $coupon = $this->findRedeemable($code, $subtotal, $customer);
@@ -83,7 +87,7 @@ class CouponService
     {
         $coupon = Coupon::query()->where('code', strtoupper(trim($code)))->first();
         if ($coupon === null) {
-            throw new BusinessException('كود الخصم غير صحيح.');
+            throw new BusinessException(self::NOT_REDEEMABLE);
         }
         $this->assertRedeemable($coupon, $subtotal, $customer);
 
@@ -93,7 +97,7 @@ class CouponService
     private function assertRedeemable(Coupon $coupon, float $subtotal, ?Customer $customer, ?string $guestPhone = null): void
     {
         if (! $coupon->isRedeemableNow()) {
-            throw new BusinessException('كود الخصم غير متاح أو انتهت صلاحيته أو استُنفد حد استخدامه.');
+            throw new BusinessException(self::NOT_REDEEMABLE);
         }
         if ($coupon->min_order_amount !== null && $subtotal < (float) $coupon->min_order_amount) {
             throw new BusinessException('قيمة السلة أقل من الحد الأدنى لاستخدام هذا الكوبون.');

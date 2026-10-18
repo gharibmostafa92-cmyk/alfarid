@@ -17,7 +17,19 @@ class PruneWebhookLogs extends Command
     public function handle(): int
     {
         $days = max(1, (int) $this->option('days'));
-        $deleted = WebhookLog::query()->where('created_at', '<', now()->subDays($days))->delete();
+        $cutoff = now()->subDays($days);
+        $deleted = 0;
+
+        // الحذف على دفعات (F-29): عبارة DELETE واحدة على جدول ضخم تُطيل
+        // القفل وتفشل عند تراكم ملايين السجلات
+        do {
+            $batch = WebhookLog::query()
+                ->where('created_at', '<', $cutoff)
+                ->limit(1000)
+                ->delete();
+            $deleted += $batch;
+        } while ($batch > 0);
+
         $this->info("Pruned {$deleted} webhook log rows older than {$days} days.");
 
         return self::SUCCESS;

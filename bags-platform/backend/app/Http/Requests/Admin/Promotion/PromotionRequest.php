@@ -20,7 +20,10 @@ class PromotionRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'max:255'],
             'type' => ['required', Rule::in(['percentage_discount', 'fixed_discount', 'buy_x_get_y', 'free_shipping'])],
-            'value' => ['nullable', 'numeric', 'min:0'],
+            // النسبة لا تتجاوز 100% (F-19) — يُفحص فقط للنوع النسبي
+            'value' => ['nullable', 'numeric', 'min:0',
+                Rule::when($this->input('type') === 'percentage_discount', ['max:100']),
+            ],
             'min_order_amount' => ['nullable', 'numeric', 'min:0'],
             'applies_to' => ['nullable', Rule::in(['all', 'categories', 'brands', 'variants'])],
             'target_ids' => ['nullable', 'array'],

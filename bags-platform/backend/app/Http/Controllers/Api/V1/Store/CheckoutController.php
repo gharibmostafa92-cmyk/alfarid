@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Store;
 
+use App\Enums\CustomerStatus;
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Store\Checkout\CheckoutRequest;
@@ -11,6 +12,7 @@ use App\Http\Requests\Store\Checkout\ShippingOptionsRequest;
 use App\Http\Resources\Store\OrderResource;
 use App\Models\Cart;
 use App\Models\City;
+use App\Models\Coupon;
 use App\Models\Customer;
 use App\Services\CartService;
 use App\Services\OrderService;
@@ -29,12 +31,25 @@ class CheckoutController extends Controller
 
     public function shippingOptions(ShippingOptionsRequest $request): JsonResponse
     {
-        $city = City::query()->where('is_active', true)->findOrFail((int) $request->validated()['city_id']);
+        $validated = $request->validated();
+        $city = City::query()->where('is_active', true)->findOrFail((int) $validated['city_id']);
         [$customer, $cart] = $this->currentCart($request, create: false);
         $totals = $this->carts->totals($cart, $customer);
-        // نفس تسعيرة المناطق الموحدة التي سيحاسب عليها إتمام الشراء (M12)
-        $quote = $this->shippingQuote->quoteForCity($city->id, $totals['items_total'], true);
+
+        // نفس المدخلات التي سيحاسب عليها إتمام الشراء (M12 + F-29): البضاعة
+        // بعد خصم الكوبون، ورسوم COD حسب طريقة الدفع الفعلية لا cod دائمًا
+        $merchandise = max($totals['items_total'] - $totals['coupon_discount'], 0.0);
+        $cod = ($validated['payment_method'] ?? 'cod') === 'cod';
+        $quote = $this->shippingQuote->quoteForCity($city->id, $merchandise, $cod);
         $rate = $quote['rate'];
+
+        // كوبون الشحن المجاني يعفي تكلفة الشحن (لا رسوم COD) كما عند الشراء
+        $cost = $quote['cost'];
+        if ($totals['coupon_code'] !== null && $cart->coupon_id !== null
+            && Coupon::query()->whereKey($cart->coupon_id)->value('type') === 'free_shipping') {
+            $cost = 0.0;
+        }
+
         $days = $rate !== null ? "من {$rate->estimated_days_min} إلى {$rate->estimated_days_max} أيام عمل" : null;
 
         return response()->json(['data' => [
@@ -43,7 +58,7 @@ class CheckoutController extends Controller
             'options' => [[
                 'key' => 'standard',
                 'label' => 'شحن قياسي',
-                'cost' => $quote['cost'],
+                'cost' => $cost,
                 'cod_fee' => $quote['cod_fee'],
                 'currency' => 'EGP',
                 'estimated_days' => $days ?? 'من 2 إلى 4 أيام عمل',
@@ -79,7 +94,12 @@ class CheckoutController extends Controller
     private function currentCart(Request $request, bool $create = true): array
     {
         $user = auth('sanctum')->user();
-        $customer = $user instanceof Customer ? $user : null;
+        // عميل موقوف/مرفوض بتوكن صالح يُعامل كزائر (F-20): لا تُربط سلاته
+        // وطلباته بحساب غير نشط ولا تُمنح له أسعار/حدود العميل
+        $customer = $user instanceof Customer
+            && ! in_array($user->status, [CustomerStatus::Suspended, CustomerStatus::Rejected], true)
+                ? $user
+                : null;
         $cart = $this->carts->resolveCart($customer, $request->header('X-Cart-Session'), $create);
 
         return [$customer, $cart];

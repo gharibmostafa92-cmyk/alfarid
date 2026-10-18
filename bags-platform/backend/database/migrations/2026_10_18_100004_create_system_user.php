@@ -16,9 +16,13 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // البريد من الإعداد لا نصًا ثابتًا (F-27): تغيير ORDER_SYSTEM_USER_EMAIL
+        // يجب أن يوافق المستخدم الذي يبحث عنه OrderService وحركات النظام
+        $email = (string) config('orders.system_user_email', 'system@alfarid.local');
+
         DB::table('users')->insertOrIgnore([
             'name' => 'System',
-            'email' => 'system@alfarid.local',
+            'email' => $email,
             'password' => Hash::make(Str::random(48)),
             'is_active' => true,
             'email_verified_at' => now(),
@@ -29,6 +33,8 @@ return new class extends Migration
 
     public function down(): void
     {
-        DB::table('users')->where('email', 'system@alfarid.local')->delete();
+        DB::table('users')
+            ->where('email', (string) config('orders.system_user_email', 'system@alfarid.local'))
+            ->delete();
     }
 };

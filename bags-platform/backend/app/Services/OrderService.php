@@ -237,8 +237,15 @@ class OrderService
                 'notes' => 'تم إنشاء الطلب من السلة',
             ]);
 
-            // إفراغ السلة بعد تحويلها لطلب
-            $cart->items()->delete();
+            // إفراغ السلة من البنود التي تحولت لطلب فقط (F-23): بند أُضيف
+            // والتزم أثناء المعاملة لا يجب أن يمسحه مسحٌ كامل للسلة
+            $orderedItemIds = array_values(array_unique(array_map(
+                fn (array $line): int => (int) $line['item_id'],
+                $lines,
+            )));
+            if ($orderedItemIds !== []) {
+                $cart->items()->whereIn('id', $orderedItemIds)->delete();
+            }
             $cart->update(['coupon_id' => null]);
 
             return $order->fresh(['items', 'statusHistories']);
@@ -315,12 +322,16 @@ class OrderService
                 $order->update(['payment_status' => 'paid']);
             }
 
+            // notes عمود varchar(500): ملاحظة الأدمن (حتى 500) مع الملحق قد
+            // تتجاوزه فتنفجر بحركة إرجاع بلا حركات بيع — تُقصّ على 500 (F-28)
+            $historyNotes = trim(($notes ?? '').($extraNote !== null ? ' — '.$extraNote : '')) ?: $notes;
+
             $order->statusHistories()->create([
                 'from_status' => $from,
                 'to_status' => $to,
                 'changed_by_type' => $actor?->getMorphClass(),
                 'changed_by_id' => $actor?->getKey(),
-                'notes' => trim(($notes ?? '').($extraNote !== null ? ' — '.$extraNote : '')) ?: $notes,
+                'notes' => $historyNotes !== null ? mb_substr($historyNotes, 0, 500) : null,
             ]);
 
             if ($to === OrderStatus::Confirmed && $order->allocated_branch_id === null) {
@@ -451,14 +462,16 @@ class OrderService
             ->get();
     }
 
-    private static ?int $systemActorId = null;
+    // التخزين على مستوى الـ instance لا static (F-27): في Octane/العمال
+    // طويلة العمر كانت قيمة static تبقى عالقة بين الطلبات وبين الاختبارات
+    private ?int $systemActorId = null;
 
-    private static bool $systemActorResolved = false;
+    private bool $systemActorResolved = false;
 
     /**
      * منفّذ حركات المخزون: الموظف الفاعل نفسه؛ وعند غيابه (عميل/ويب هوك)
      * يُنسب التنفيذ لمستخدم النظام المخصص (M19) — لا لأول Super Admin،
-     * حتى يبقى سجل التدقيق صادقًا. يُحسم مرة واحدة لكل عملية تشغيل.
+     * حتى يبقى سجل التدقيق صادقًا. يُحسم مرة واحدة لكل نسخة خدمة.
      */
     private function inventoryActorId(?Model $actor): ?int
     {
@@ -466,15 +479,15 @@ class OrderService
             return (int) $actor->getKey();
         }
 
-        if (! self::$systemActorResolved) {
-            self::$systemActorResolved = true;
+        if (! $this->systemActorResolved) {
+            $this->systemActorResolved = true;
             $systemId = User::query()
                 ->where('email', (string) config('orders.system_user_email', 'system@alfarid.local'))
                 ->value('id');
-            self::$systemActorId = $systemId !== null ? (int) $systemId : null;
+            $this->systemActorId = $systemId !== null ? (int) $systemId : null;
         }
-        if (self::$systemActorId !== null) {
-            return self::$systemActorId;
+        if ($this->systemActorId !== null) {
+            return $this->systemActorId;
         }
 
         // رجوع احتياطي إن لم تُزرع هجرة مستخدم النظام بعد
