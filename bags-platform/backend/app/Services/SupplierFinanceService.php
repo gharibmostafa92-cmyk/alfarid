@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Enums\PurchaseOrderStatus;
 use App\Enums\SupplierInvoiceStatus;
 use App\Exceptions\BusinessException;
 use App\Models\PurchaseOrder;
@@ -39,9 +40,9 @@ class SupplierFinanceService
             }
             $this->assertInvoiceNumberAvailable($supplier->id, $data['supplier_invoice_no']);
             $poId = $this->assertOrderBelongsToSupplier($data['purchase_order_id'] ?? null, $supplier);
-
             $subtotal = round((float) $data['subtotal'], 2);
             $tax = round((float) ($data['tax_amount'] ?? 0), 2);
+            $this->assertInvoiceDoesNotExceedOrder($poId, round($subtotal + $tax, 2));
             $issueDate = Carbon::parse($data['issue_date']);
             // الاستحقاق الافتراضي: تاريخ الإصدار + أجل سداد المورد
             $dueDate = ! empty($data['due_date'])
@@ -99,10 +100,17 @@ class SupplierFinanceService
             if (Carbon::parse($data['due_date'] ?? $invoice->due_date)->lt($issue)) {
                 throw new BusinessException('تاريخ الاستحقاق يجب ألا يسبق تاريخ الإصدار.');
             }
-            $invoice->update(array_intersect_key($data, array_flip([
+            $updates = array_intersect_key($data, array_flip([
                 'supplier_invoice_no', 'purchase_order_id', 'issue_date', 'due_date', 'subtotal', 'tax_amount',
-            ])));
-            $invoice->update(['total_amount' => round((float) $invoice->subtotal + (float) $invoice->tax_amount, 2)]);
+            ]));
+            $subtotal = round((float) ($updates['subtotal'] ?? $invoice->subtotal), 2);
+            $tax = round((float) ($updates['tax_amount'] ?? $invoice->tax_amount), 2);
+            $updates['subtotal'] = $subtotal;
+            $updates['tax_amount'] = $tax;
+            $updates['total_amount'] = round($subtotal + $tax, 2);
+            $poId = array_key_exists('purchase_order_id', $updates) ? $updates['purchase_order_id'] : $invoice->purchase_order_id;
+            $this->assertInvoiceDoesNotExceedOrder($poId, $updates['total_amount'], $invoice->id);
+            $invoice->update($updates);
 
             if ($attachment !== null) {
                 $oldPath = $invoice->attachment_path;
@@ -239,10 +247,13 @@ class SupplierFinanceService
         return DB::transaction(function () use ($payment, $data): SupplierPayment {
             $supplier = Supplier::query()->lockForUpdate()->findOrFail($payment->supplier_id);
             $payment = SupplierPayment::query()->where('supplier_id', $supplier->id)->lockForUpdate()->findOrFail($payment->id);
+            if ($payment->voided_at !== null) {
+                throw new BusinessException('لا يمكن تعديل دفعة ملغاة.');
+            }
             $method = $data['payment_method'] ?? $payment->payment_method->value;
             $reference = array_key_exists('reference_no', $data) ? $data['reference_no'] : $payment->reference_no;
             $data['reference_no'] = $this->paymentReference($supplier->id, $method, $reference, $payment->id);
-            $payment->update(array_intersect_key($data, array_flip(['payment_method', 'reference_no', 'payment_date', 'notes'])));
+            $payment->update(array_intersect_key($data, array_flip(['payment_method', 'reference_no', 'notes'])));
 
             return $payment->fresh();
         });
@@ -255,6 +266,7 @@ class SupplierFinanceService
             throw new BusinessException('مرجع الدفع مطلوب للدفعات غير النقدية.');
         }
         if ($method !== 'cash' && SupplierPayment::query()->where('supplier_id', $supplierId)
+            ->whereNull('voided_at')
             ->where('payment_method', '!=', 'cash')->when($exceptId, fn ($q) => $q->where('id', '!=', $exceptId))
             ->whereRaw('lower(btrim(reference_no)) = ?', [mb_strtolower($reference)])->exists()) {
             throw new BusinessException('مرجع الدفع مسجل سابقًا لهذا المورد.', [], 409);
@@ -263,12 +275,20 @@ class SupplierFinanceService
         return $reference;
     }
 
-    /** حذف دفعة يعكس أثرها كاملًا: رصيد المورد ومدفوعات فاتورتها. */
-    public function deletePayment(SupplierPayment $payment): void
+    /** إلغاء دفعة يعكس أثرها كاملًا: رصيد المورد ومدفوعات فاتورتها، ويبقى السجل للتدقيق. */
+    public function deletePayment(SupplierPayment $payment, ?User $actor = null, ?string $reason = null): void
     {
-        DB::transaction(function () use ($payment): void {
+        $this->voidPayment($payment, $actor, $reason);
+    }
+
+    public function voidPayment(SupplierPayment $payment, ?User $actor = null, ?string $reason = null): SupplierPayment
+    {
+        return DB::transaction(function () use ($payment, $actor, $reason): SupplierPayment {
             $supplier = Supplier::query()->lockForUpdate()->findOrFail($payment->supplier_id);
             $payment = SupplierPayment::query()->where('supplier_id', $supplier->id)->lockForUpdate()->findOrFail($payment->id);
+            if ($payment->voided_at !== null) {
+                throw new BusinessException('هذه الدفعة ملغاة سابقًا.');
+            }
             $supplier->increment('current_balance', (float) $payment->amount);
 
             if ($payment->supplier_invoice_id !== null) {
@@ -278,7 +298,45 @@ class SupplierFinanceService
                     $this->syncInvoicePaidStatus($invoice->fresh());
                 }
             }
-            $payment->delete();
+            $payment->update([
+                'voided_at' => now(),
+                'voided_by' => $actor?->id,
+                'void_reason' => $reason,
+            ]);
+
+            return $payment->fresh();
+        });
+    }
+
+    public function allocatePayment(SupplierPayment $payment, int $invoiceId): SupplierPayment
+    {
+        return DB::transaction(function () use ($payment, $invoiceId): SupplierPayment {
+            $supplier = Supplier::query()->lockForUpdate()->findOrFail($payment->supplier_id);
+            $payment = SupplierPayment::query()->where('supplier_id', $supplier->id)->lockForUpdate()->findOrFail($payment->id);
+            if ($payment->voided_at !== null) {
+                throw new BusinessException('لا يمكن تخصيص دفعة ملغاة.');
+            }
+            if ($payment->supplier_invoice_id !== null) {
+                throw new BusinessException('هذه الدفعة مخصصة لفاتورة بالفعل.');
+            }
+            $invoice = SupplierInvoice::query()->lockForUpdate()
+                ->where('supplier_id', $supplier->id)
+                ->find($invoiceId);
+            if ($invoice === null) {
+                throw new BusinessException('الفاتورة المرتبطة غير موجودة لهذا المورد.');
+            }
+            if (! in_array($invoice->status, [SupplierInvoiceStatus::Posted, SupplierInvoiceStatus::PartiallyPaid], true)) {
+                throw new BusinessException('لا يمكن تخصيص دفعة إلا لفاتورة معتمدة أو مسددة جزئيًا.');
+            }
+            $remaining = round((float) $invoice->total_amount - (float) $invoice->paid_amount, 2);
+            if ((float) $payment->amount > $remaining) {
+                throw new BusinessException("مبلغ الدفعة ({$payment->amount}) أكبر من المتبقي على الفاتورة ({$remaining}).");
+            }
+            $payment->update(['supplier_invoice_id' => $invoice->id]);
+            $invoice->increment('paid_amount', (float) $payment->amount);
+            $this->syncInvoicePaidStatus($invoice->fresh());
+
+            return $payment->fresh();
         });
     }
 
@@ -316,8 +374,30 @@ class SupplierFinanceService
         if ($po === null || (int) $po->supplier_id !== (int) $supplier->id) {
             throw new BusinessException('أمر الشراء المرتبط لا يخص هذا المورد.');
         }
+        if ($po->status === PurchaseOrderStatus::Cancelled) {
+            throw new BusinessException('لا يمكن ربط فاتورة بأمر شراء ملغى.');
+        }
 
         return $po->id;
+    }
+
+    private function assertInvoiceDoesNotExceedOrder(?int $poId, float $thisTotal, ?int $exceptInvoiceId = null): void
+    {
+        if ($poId === null) {
+            return;
+        }
+        $po = PurchaseOrder::query()->find($poId);
+        if ($po === null) {
+            return;
+        }
+        $existing = (float) SupplierInvoice::query()
+            ->where('purchase_order_id', $poId)
+            ->where('status', '!=', SupplierInvoiceStatus::Cancelled)
+            ->when($exceptInvoiceId, fn ($q) => $q->where('id', '!=', $exceptInvoiceId))
+            ->sum('total_amount');
+        if (round($existing + $thisTotal, 2) > round((float) $po->grand_total, 2)) {
+            throw new BusinessException('مجموع فواتير أمر الشراء يتجاوز إجمالي الأمر.');
+        }
     }
 
     /**
@@ -349,7 +429,12 @@ class SupplierFinanceService
             ->where('supplier_id', $supplier->id)
             ->where('payment_date', '<', $from)
             ->sum('amount');
-        $running = round((float) $supplier->opening_balance + $creditBefore - $debitBefore, 2);
+        $voidCreditBefore = (float) SupplierPayment::query()
+            ->where('supplier_id', $supplier->id)
+            ->whereNotNull('voided_at')
+            ->whereDate('voided_at', '<', $from)
+            ->sum('amount');
+        $running = round((float) $supplier->opening_balance + $creditBefore - $debitBefore + $voidCreditBefore, 2);
         $periodOpening = $running;
 
         $invoices = SupplierInvoice::query()
@@ -381,11 +466,26 @@ class SupplierFinanceService
                 'debit' => round((float) $pay->amount, 2),
                 'sort' => [$pay->payment_date->toDateString(), 1, $pay->id],
             ]);
+        $voids = SupplierPayment::query()
+            ->where('supplier_id', $supplier->id)
+            ->whereNotNull('voided_at')
+            ->whereDate('voided_at', '>=', $from)
+            ->whereDate('voided_at', '<=', $to)
+            ->get()
+            ->map(fn (SupplierPayment $pay): array => [
+                'date' => $pay->voided_at->toDateString(),
+                'type' => 'payment_void',
+                'reference' => $pay->payment_number,
+                'description' => 'إلغاء دفعة '.$pay->payment_number.($pay->void_reason ? ' — '.$pay->void_reason : ''),
+                'credit' => round((float) $pay->amount, 2),
+                'debit' => 0.0,
+                'sort' => [$pay->voided_at->toDateString(), 2, $pay->id],
+            ]);
 
         $entries = [];
         $totalCredit = 0.0;
         $totalDebit = 0.0;
-        foreach ($invoices->concat($payments)->sortBy(fn (array $e): array => $e['sort'])->values() as $entry) {
+        foreach ($invoices->concat($payments)->concat($voids)->sortBy(fn (array $e): array => $e['sort'])->values() as $entry) {
             $running = round($running + $entry['credit'] - $entry['debit'], 2);
             $totalCredit += $entry['credit'];
             $totalDebit += $entry['debit'];

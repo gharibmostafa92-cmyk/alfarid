@@ -36,6 +36,20 @@ class SettingService
         'supplier_payment_next_number',
     ];
 
+    /** مستندات داخلية تُرقَّم بتسلسل PostgreSQL (فجوات مقبولة) حتى لا يُحتجز قفل العداد داخل معاملات طويلة. */
+    private const SEQUENCE_TYPES = [
+        'order' => 'order_next_number',
+        'purchase_order' => 'purchase_order_next_number',
+        'quotation' => 'quotation_next_number',
+        'transfer' => 'transfer_next_number',
+        'stocktake' => 'stocktake_next_number',
+        'return' => 'return_next_number',
+        'purchase_request' => 'purchase_request_next_number',
+        'delivery' => 'delivery_next_number',
+        'supplier_invoice' => 'supplier_invoice_next_number',
+        'supplier_payment' => 'supplier_payment_next_number',
+    ];
+
     /**
      * Return all settings grouped by their group name, with values cast to their declared types.
      * Numbering counters are read fresh because they change for every generated document number.
@@ -71,6 +85,11 @@ class SettingService
         if (isset($counters['movement_next_number'])) {
             $counters['movement_next_number'] = $this->nextMovementNumber();
         }
+        foreach (self::SEQUENCE_TYPES as $type => $key) {
+            if (isset($counters[$key])) {
+                $counters[$key] = $this->nextDocumentNumber($type);
+            }
+        }
 
         if ($counters !== []) {
             $grouped['numbering'] = array_merge($grouped['numbering'] ?? [], $counters);
@@ -102,6 +121,8 @@ class SettingService
     {
         DB::transaction(function () use ($settings): void {
             $movementSequenceTarget = null;
+            /** @var array<string, int> $documentSequenceTargets */
+            $documentSequenceTargets = [];
             $lockedSettings = Setting::query()
                 ->whereIn('key', array_keys($settings))
                 ->orderBy('key')
@@ -125,6 +146,11 @@ class SettingService
                         $value = max($value, $this->nextMovementNumber());
                         $movementSequenceTarget = $value;
                     }
+                    $sequenceType = array_search($key, self::SEQUENCE_TYPES, true);
+                    if (is_string($sequenceType)) {
+                        $value = max($value, $this->nextDocumentNumber($sequenceType));
+                        $documentSequenceTargets[$sequenceType] = $value;
+                    }
                 }
 
                 $setting->value = $value === null && str_ends_with($key, '_prefix')
@@ -144,6 +170,13 @@ class SettingService
                     DB::selectOne('SELECT inventory_movement_number(?) AS number', [$movementSequenceTarget]);
                 });
             }
+            if ($documentSequenceTargets !== []) {
+                DB::afterCommit(function () use ($documentSequenceTargets): void {
+                    foreach ($documentSequenceTargets as $type => $minimum) {
+                        DB::selectOne('SELECT document_next_number(?, ?) AS number', [$type, $minimum]);
+                    }
+                });
+            }
         }, attempts: 3);
     }
 
@@ -160,19 +193,15 @@ class SettingService
 
             return $prefix.str_pad((string) $number, $padding, '0', STR_PAD_LEFT);
         }
-        $definitions = [
-            'invoice' => ['prefix' => 'invoice_prefix', 'next' => 'invoice_next_number', 'padding' => 'invoice_padding'],
-            'order' => ['prefix' => 'order_prefix', 'next' => 'order_next_number', 'padding' => 'order_padding'],
-            'purchase_order' => ['prefix' => 'purchase_order_prefix', 'next' => 'purchase_order_next_number', 'padding' => 'purchase_order_padding'],
-            'quotation' => ['prefix' => 'quotation_prefix', 'next' => 'quotation_next_number', 'padding' => 'quotation_padding'],
-            'transfer' => ['prefix' => 'transfer_prefix', 'next' => 'transfer_next_number', 'padding' => 'transfer_padding'],
-            'stocktake' => ['prefix' => 'stocktake_prefix', 'next' => 'stocktake_next_number', 'padding' => 'stocktake_padding'],
-            'return' => ['prefix' => 'return_prefix', 'next' => 'return_next_number', 'padding' => 'return_padding'],
-            'purchase_request' => ['prefix' => 'purchase_request_prefix', 'next' => 'purchase_request_next_number', 'padding' => 'purchase_request_padding'],
-            'delivery' => ['prefix' => 'delivery_prefix', 'next' => 'delivery_next_number', 'padding' => 'delivery_padding'],
-            'supplier_invoice' => ['prefix' => 'supplier_invoice_prefix', 'next' => 'supplier_invoice_next_number', 'padding' => 'supplier_invoice_padding'],
-            'supplier_payment' => ['prefix' => 'supplier_payment_prefix', 'next' => 'supplier_payment_next_number', 'padding' => 'supplier_payment_padding'],
-        ];
+        if (isset(self::SEQUENCE_TYPES[$type])) {
+            $definitions = $this->numberingDefinitions();
+            $definition = $definitions[$type];
+            [$prefix, $padding] = $this->numberingConfig($type, $definition['prefix'], $definition['padding']);
+            $number = DB::selectOne('SELECT document_next_number(?) AS number', [$type])->number;
+
+            return $prefix.str_pad((string) $number, $padding, '0', STR_PAD_LEFT);
+        }
+        $definitions = $this->numberingDefinitions();
 
         if (! isset($definitions[$type])) {
             throw new InvalidArgumentException("Unsupported numbering type [{$type}].");
@@ -228,9 +257,39 @@ class SettingService
         $this->numberingConfig = [];
     }
 
+    /**
+     * @return array<string, array{prefix: string, next: string, padding: string}>
+     */
+    private function numberingDefinitions(): array
+    {
+        return [
+            'invoice' => ['prefix' => 'invoice_prefix', 'next' => 'invoice_next_number', 'padding' => 'invoice_padding'],
+            'order' => ['prefix' => 'order_prefix', 'next' => 'order_next_number', 'padding' => 'order_padding'],
+            'purchase_order' => ['prefix' => 'purchase_order_prefix', 'next' => 'purchase_order_next_number', 'padding' => 'purchase_order_padding'],
+            'quotation' => ['prefix' => 'quotation_prefix', 'next' => 'quotation_next_number', 'padding' => 'quotation_padding'],
+            'transfer' => ['prefix' => 'transfer_prefix', 'next' => 'transfer_next_number', 'padding' => 'transfer_padding'],
+            'stocktake' => ['prefix' => 'stocktake_prefix', 'next' => 'stocktake_next_number', 'padding' => 'stocktake_padding'],
+            'return' => ['prefix' => 'return_prefix', 'next' => 'return_next_number', 'padding' => 'return_padding'],
+            'purchase_request' => ['prefix' => 'purchase_request_prefix', 'next' => 'purchase_request_next_number', 'padding' => 'purchase_request_padding'],
+            'delivery' => ['prefix' => 'delivery_prefix', 'next' => 'delivery_next_number', 'padding' => 'delivery_padding'],
+            'supplier_invoice' => ['prefix' => 'supplier_invoice_prefix', 'next' => 'supplier_invoice_next_number', 'padding' => 'supplier_invoice_padding'],
+            'supplier_payment' => ['prefix' => 'supplier_payment_prefix', 'next' => 'supplier_payment_next_number', 'padding' => 'supplier_payment_padding'],
+        ];
+    }
+
     private function nextMovementNumber(): int
     {
         $sequence = DB::selectOne('SELECT last_value, is_called FROM stock_movement_number_seq');
+
+        return (int) $sequence->last_value + ($sequence->is_called ? 1 : 0);
+    }
+
+    private function nextDocumentNumber(string $type): int
+    {
+        if (! isset(self::SEQUENCE_TYPES[$type])) {
+            throw new InvalidArgumentException("Unsupported numbering type [{$type}].");
+        }
+        $sequence = DB::selectOne("SELECT last_value, is_called FROM document_{$type}_number_seq");
 
         return (int) $sequence->last_value + ($sequence->is_called ? 1 : 0);
     }

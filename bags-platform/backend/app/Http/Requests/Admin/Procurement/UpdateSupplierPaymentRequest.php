@@ -24,7 +24,6 @@ class UpdateSupplierPaymentRequest extends FormRequest
         return [
             'payment_method' => ['sometimes', Rule::in(array_column(SupplierPaymentMethod::cases(), 'value'))],
             'reference_no' => ['nullable', 'string', 'max:100'],
-            'payment_date' => ['sometimes', 'date'],
             'notes' => ['nullable', 'string', 'max:2000'],
         ];
     }

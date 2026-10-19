@@ -28,7 +28,7 @@ class SupplierPaymentController extends Controller implements HasMiddleware
         return [
             new Middleware('can:purchases.view', only: ['index', 'show']),
             new Middleware('can:supplier_payments.create', only: ['store']),
-            new Middleware('can:supplier_payments.update', only: ['update']),
+            new Middleware('can:supplier_payments.update', only: ['update', 'allocate']),
             new Middleware('can:supplier_payments.delete', only: ['destroy']),
         ];
     }
@@ -71,10 +71,22 @@ class SupplierPaymentController extends Controller implements HasMiddleware
         return SupplierPaymentResource::make($supplierPayment->fresh(['invoice:id,invoice_number,supplier_invoice_no']));
     }
 
-    public function destroy(SupplierPayment $supplierPayment): JsonResponse
+    public function destroy(Request $request, SupplierPayment $supplierPayment): JsonResponse
     {
-        $this->finance->deletePayment($supplierPayment);
+        /** @var User $admin */
+        $admin = $request->user();
+        $this->finance->voidPayment($supplierPayment, $admin, $request->input('void_reason'));
 
-        return response()->json(['message' => 'تم حذف الدفعة وعكس أثرها على الرصيد والفاتورة.']);
+        return response()->json(['message' => 'تم إلغاء الدفعة وعكس أثرها على الرصيد والفاتورة.']);
+    }
+
+    public function allocate(Request $request, SupplierPayment $supplierPayment): SupplierPaymentResource
+    {
+        $data = $request->validate([
+            'supplier_invoice_id' => ['required', 'integer', 'exists:supplier_invoices,id'],
+        ]);
+        $payment = $this->finance->allocatePayment($supplierPayment, (int) $data['supplier_invoice_id']);
+
+        return SupplierPaymentResource::make($payment->load(['invoice:id,invoice_number,supplier_invoice_no']));
     }
 }

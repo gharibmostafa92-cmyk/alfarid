@@ -18,6 +18,14 @@ final class IdempotencyFingerprint
 
     private static function canonicalize(mixed $value, ?string $field = null): mixed
     {
+        if (is_numeric($value) && in_array($field, [
+            'amount', 'subtotal', 'tax_amount', 'unit_cost', 'unit_price', 'line_total',
+            'grand_total', 'discount_amount', 'total', 'total_amount', 'paid_amount',
+            'expected_total',
+        ], true)) {
+            return (int) round(((float) $value) * 100);
+        }
+
         if (is_string($value) && is_numeric($value)
             && ($field === 'id' || str_ends_with($field ?? '', '_id')
                 || in_array($field, ['qty', 'amount', 'received_good_qty', 'received_damaged_qty', 'quantity', 'requested_qty', 'counted_qty', 'approved_qty', 'shipped_qty', 'received_qty'], true))) {
@@ -38,10 +46,38 @@ final class IdempotencyFingerprint
             $mapped[$key] = self::canonicalize($item, is_string($key) ? $key : null);
         }
 
+        if ($isList && $mapped !== [] && self::isItemList($mapped)) {
+            usort($mapped, self::itemSort(...));
+        }
+
         if (! $isList) {
             ksort($mapped);
         }
 
         return $mapped;
+    }
+
+    /** @param list<mixed> $items */
+    private static function isItemList(array $items): bool
+    {
+        foreach ($items as $item) {
+            if (! is_array($item) || (! isset($item['id']) && ! isset($item['order_item_id']) && ! isset($item['purchase_order_item_id']) && ! isset($item['product_variant_id']))) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** @param array<string, mixed> $left */
+    private static function itemSort(array $left, array $right): int
+    {
+        foreach (['order_item_id', 'purchase_order_item_id', 'id', 'product_variant_id'] as $key) {
+            if (isset($left[$key], $right[$key])) {
+                return $left[$key] <=> $right[$key];
+            }
+        }
+
+        return 0;
     }
 }

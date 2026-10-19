@@ -16,7 +16,7 @@ Route::pattern('delivery', '[0-9]{1,18}');
 
 // دخول موظفي المورد (supplier_users) — عام مع حد محاولات
 Route::post('auth/login', [AuthController::class, 'login'])
-    ->middleware('throttle:10,1')
+    ->middleware('throttle:supplier-login')
     ->name('auth.login');
 
 // بوابة المورد: كل المسارات التالية مقيدة بمورد صاحب التوكن حصرًا

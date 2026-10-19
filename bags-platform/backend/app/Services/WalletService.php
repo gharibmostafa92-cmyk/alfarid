@@ -35,7 +35,7 @@ class WalletService
                 'balance_after' => $balanceCents / 100, 'reference_type' => $referenceType,
                 'reference_id' => $referenceId, 'created_by' => $createdBy,
             ]);
-            $customer->update(['wallet_balance' => $balanceCents / 100]);
+            $customer->forceFill(['wallet_balance' => $balanceCents / 100])->save();
 
             return $entry;
         });

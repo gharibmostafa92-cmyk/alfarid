@@ -7,6 +7,7 @@ use App\Models\User;
 return [
     'require_phone_verification' => env('CUSTOMER_REQUIRE_PHONE_VERIFICATION', true),
     'customer_max_tokens' => (int) env('CUSTOMER_MAX_TOKENS', 10),
+    'supplier_max_tokens' => (int) env('SUPPLIER_MAX_TOKENS', 5),
     'customer_sms_daily_limit' => (int) env('CUSTOMER_SMS_DAILY_LIMIT', 1000),
     'customer_sms_hourly_limit' => (int) env('CUSTOMER_SMS_HOURLY_LIMIT', 100),
     'customer_limits' => [

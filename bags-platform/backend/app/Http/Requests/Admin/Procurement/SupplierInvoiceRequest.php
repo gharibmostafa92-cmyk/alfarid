@@ -30,8 +30,8 @@ class SupplierInvoiceRequest extends FormRequest
             'purchase_order_id' => ['nullable', 'integer', 'exists:purchase_orders,id'],
             'issue_date' => [$isStore ? 'required' : 'sometimes', 'date'],
             'due_date' => ['nullable', 'date'],
-            'subtotal' => [$isStore ? 'required' : 'sometimes', 'numeric', 'min:0'],
-            'tax_amount' => ['sometimes', 'numeric', 'min:0'],
+            'subtotal' => [$isStore ? 'required' : 'sometimes', 'numeric', 'min:0', 'max:9999999999.99'],
+            'tax_amount' => ['sometimes', 'numeric', 'min:0', 'max:9999999999.99'],
             'attachment' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
         ];
     }

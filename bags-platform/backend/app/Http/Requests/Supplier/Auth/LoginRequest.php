@@ -17,6 +17,13 @@ class LoginRequest extends FormRequest
     /**
      * @return array<string, mixed>
      */
+    protected function prepareForValidation(): void
+    {
+        if (is_string($this->email)) {
+            $this->merge(['email' => mb_strtolower(trim($this->email))]);
+        }
+    }
+
     public function rules(): array
     {
         return [

@@ -136,6 +136,20 @@ class AppServiceProvider extends ServiceProvider
             Limit::perMinute(120)->by('webhooks-ip:'.$request->ip()),
         ]);
 
+        RateLimiter::for('supplier-login', function (Request $request): array {
+            $email = $request->input('email');
+            $normalizedEmail = is_string($email)
+                ? Str::transliterate(Str::lower(trim($email)))
+                : '';
+            $emailKey = hash('sha256', $normalizedEmail);
+
+            return [
+                Limit::perMinute(5)->by('supplier-login-email:'.$emailKey),
+                Limit::perHour(30)->by('supplier-login-email-hour:'.$emailKey),
+                Limit::perMinute(120)->by('supplier-login-ip:'.($request->ip() ?? 'unknown')),
+            ];
+        });
+
         RateLimiter::for('admin-login', function (Request $request): array {
             $email = $request->input('email');
             $normalizedEmail = is_string($email)

@@ -33,7 +33,7 @@ class PurchaseOrderRequest extends FormRequest
             'items' => [$isStore ? 'required_without:purchase_request_id' : 'sometimes', 'array', 'min:1', 'max:50'],
             'items.*.product_variant_id' => ['required', 'integer', 'exists:product_variants,id'],
             'items.*.ordered_qty' => ['required', 'integer', 'gt:0', 'max:99999999'],
-            'items.*.unit_cost' => ['required', 'numeric', 'min:0'],
+            'items.*.unit_cost' => ['required', 'numeric', 'min:0', 'max:99999999.9999'],
             'items.*.tax_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
         ];
     }

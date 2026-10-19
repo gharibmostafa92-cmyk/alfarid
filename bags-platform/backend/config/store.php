@@ -12,6 +12,7 @@ declare(strict_types=1);
 */
 
 return [
+    // أضيفوا wallet هنا لتفعيل المحفظة للعملاء المعتمدين. إزالتها توقف المحفظة.
     'payment_methods' => array_values(array_filter(array_map(
         'trim',
         explode(',', (string) env('STORE_PAYMENT_METHODS', 'cod')),

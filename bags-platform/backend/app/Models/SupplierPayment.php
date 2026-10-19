@@ -27,6 +27,9 @@ class SupplierPayment extends Model
         'payment_date',
         'notes',
         'created_by',
+        'voided_at',
+        'voided_by',
+        'void_reason',
     ];
 
     protected function casts(): array
@@ -35,6 +38,7 @@ class SupplierPayment extends Model
             'amount' => 'decimal:2',
             'payment_method' => SupplierPaymentMethod::class,
             'payment_date' => 'date',
+            'voided_at' => 'datetime',
         ];
     }
 

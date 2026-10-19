@@ -24,6 +24,9 @@ Schedule::command('carts:prune-guests')->dailyAt('04:15')
 Schedule::command('inventory:prune-idempotency-keys')->dailyAt('03:00')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping()
     ->onFailure(fn () => logger()->error('Scheduled inventory idempotency cleanup failed.'));
+Schedule::command('operations:prune-idempotency-keys')->dailyAt('03:10')
+    ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping()
+    ->onFailure(fn () => logger()->error('Scheduled operation idempotency cleanup failed.'));
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());

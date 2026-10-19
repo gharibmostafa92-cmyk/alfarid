@@ -10,7 +10,10 @@ use App\Http\Resources\Admin\SupplierUserResource;
 use App\Models\SupplierUser;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -21,9 +24,11 @@ class AuthController extends Controller
 {
     public function login(LoginRequest $request): JsonResponse
     {
-        $user = SupplierUser::query()->where('email', $request->validated('email'))->first();
+        $email = mb_strtolower(trim($request->validated('email')));
+        $user = SupplierUser::query()->whereRaw('lower(btrim(email)) = ?', [$email])->first();
+        $passwordMatches = Hash::check($request->validated('password'), $user?->password ?? self::dummyHash());
 
-        if ($user === null || ! Hash::check($request->validated('password'), $user->password)) {
+        if ($user === null || ! $passwordMatches) {
             throw ValidationException::withMessages([
                 'email' => ['بيانات الدخول غير صحيحة.'],
             ]);
@@ -40,8 +45,12 @@ class AuthController extends Controller
             ]);
         }
 
+        $emailKey = hash('sha256', Str::transliterate($email));
+        RateLimiter::clear('supplier-login-email:'.$emailKey);
+        RateLimiter::clear('supplier-login-email-hour:'.$emailKey);
+
         return response()->json([
-            'token' => $user->createToken('supplier-token')->plainTextToken,
+            'token' => $this->issueToken($user),
             'user' => SupplierUserResource::make($user),
             'supplier' => [
                 'id' => $supplier->id,
@@ -50,6 +59,30 @@ class AuthController extends Controller
                 'company_name' => $supplier->company_name,
             ],
         ]);
+    }
+
+    private static function dummyHash(): string
+    {
+        static $hash;
+
+        return $hash ??= Hash::make('not-a-supplier-password');
+    }
+
+    private function issueToken(SupplierUser $user): string
+    {
+        return DB::transaction(function () use ($user): string {
+            $user = SupplierUser::query()->lockForUpdate()->findOrFail($user->id);
+            $expiry = config('sanctum.expiration');
+            $user->tokens()->where(fn ($q) => $q->where('expires_at', '<=', now())
+                ->when($expiry, fn ($q) => $q->orWhere('created_at', '<=', now()->subMinutes((int) $expiry))))->delete();
+            $limit = max(1, (int) config('auth.supplier_max_tokens', 5));
+            $old = $user->tokens()->orderByDesc('id')->skip($limit - 1)->pluck('id');
+            if ($old->isNotEmpty()) {
+                $user->tokens()->whereIn('id', $old)->delete();
+            }
+
+            return $user->createToken('supplier-token')->plainTextToken;
+        });
     }
 
     public function logout(Request $request): JsonResponse

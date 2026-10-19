@@ -29,7 +29,8 @@ class PurchaseRequestController extends Controller implements HasMiddleware
         return [
             new Middleware('can:purchases.view', only: ['index', 'show']),
             new Middleware('can:purchases.create', only: ['store']),
-            new Middleware('can:purchases.update', only: ['update', 'submit', 'approve', 'reject']),
+            new Middleware('can:purchases.update', only: ['update', 'submit']),
+            new Middleware('can:purchase_requests.approve', only: ['approve', 'reject']),
             new Middleware('can:purchases.delete', only: ['destroy']),
         ];
     }

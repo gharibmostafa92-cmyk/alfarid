@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Exceptions\BusinessException;
 use App\Models\Supplier;
 use Illuminate\Support\Facades\DB;
 
@@ -35,7 +36,11 @@ class SupplierService
         return DB::transaction(function () use ($supplier, $data): Supplier {
             $supplier = Supplier::query()->lockForUpdate()->findOrFail($supplier->id);
             unset($data['current_balance']);
-            if (array_key_exists('opening_balance', $data)) {
+            if (array_key_exists('opening_balance', $data)
+                && (float) $data['opening_balance'] !== (float) $supplier->opening_balance) {
+                if ($supplier->invoices()->exists() || $supplier->payments()->exists()) {
+                    throw new BusinessException('لا يمكن تعديل الرصيد الافتتاحي بعد تسجيل فواتير أو دفعات.');
+                }
                 $data['current_balance'] = round((float) $supplier->current_balance
                     + (float) $data['opening_balance'] - (float) $supplier->opening_balance, 2);
             }

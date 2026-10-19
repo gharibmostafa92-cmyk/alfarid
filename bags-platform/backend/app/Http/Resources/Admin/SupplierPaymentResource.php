@@ -34,6 +34,9 @@ class SupplierPaymentResource extends JsonResource
             'payment_date' => $this->payment_date?->toDateString(),
             'notes' => $this->notes,
             'created_by' => $this->created_by,
+            'voided_at' => $this->voided_at?->toISOString(),
+            'voided_by' => $this->voided_by,
+            'void_reason' => $this->void_reason,
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),
         ];

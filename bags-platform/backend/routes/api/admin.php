@@ -247,6 +247,7 @@ Route::middleware(['auth:sanctum', 'auth.staff'])
 
         Route::apiResource('supplier-payments', SupplierPaymentController::class)
             ->parameters(['supplier-payments' => 'supplier_payment']);
+        Route::post('supplier-payments/{supplier_payment}/allocate', [SupplierPaymentController::class, 'allocate'])->name('supplier-payments.allocate');
 
         Route::get('settings', [SettingController::class, 'index'])
             ->middleware('permission:settings.view|settings.manage')

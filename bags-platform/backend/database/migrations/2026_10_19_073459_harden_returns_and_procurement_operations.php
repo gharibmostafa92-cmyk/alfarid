@@ -4,8 +4,6 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\Storage;
-
 return new class extends Migration
 {
     /**
@@ -13,29 +11,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        $legacyPaths = [];
-        DB::table('return_request_items')->whereNotNull('attachments')->orderBy('id')->chunkById(100, function ($items) use (&$legacyPaths): void {
-            foreach ($items as $item) {
-                foreach (json_decode($item->attachments, true) ?? [] as $path) {
-                    $public = Storage::disk('public');
-                    $private = Storage::disk('local');
-                    if ($public->exists($path)) {
-                        $stream = $public->readStream($path);
-                        try {
-                            if (! $private->put($path, $stream)) {
-                                throw new RuntimeException('Could not privatize a return attachment.');
-                            }
-                        } finally {
-                            if (is_resource($stream)) {
-                                fclose($stream);
-                            }
-                        }
-                        $legacyPaths[] = $path;
-                    }
-                }
-            }
-        });
-        DB::afterCommit(fn () => Storage::disk('public')->delete($legacyPaths));
+        // نسخ مرفقات المرتجعات من القرص العام إلى الخاص يُنفَّذ بأمر
+        // returns:privatize-attachments خارج هذه المعاملة حتى لا يطيل قفل الهجرة.
         DB::statement('ALTER TABLE product_variants ALTER COLUMN cost_price TYPE numeric(14, 4)');
         Schema::create('operation_idempotency_keys', function (Blueprint $table): void {
             $table->id();
@@ -98,6 +75,6 @@ return new class extends Migration
             $table->dropColumn('refund_amount');
         });
         Schema::dropIfExists('operation_idempotency_keys');
-        DB::statement('ALTER TABLE product_variants ALTER COLUMN cost_price TYPE numeric(12, 2)');
+        // لا نُرجع cost_price إلى numeric(12,2): التخفيض يفقد الدقة بصمت.
     }
 };

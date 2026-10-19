@@ -32,7 +32,7 @@ class SupplierRequest extends FormRequest
             'commercial_register' => ['nullable', 'string', 'max:50'],
             'address' => ['nullable', 'string', 'max:500'],
             'payment_terms_days' => ['sometimes', 'integer', 'min:0', 'max:365'],
-            'opening_balance' => ['sometimes', 'numeric'],
+            'opening_balance' => ['sometimes', 'numeric', 'min:-9999999999.99', 'max:9999999999.99'],
             'is_active' => ['sometimes', 'boolean'],
         ];
     }

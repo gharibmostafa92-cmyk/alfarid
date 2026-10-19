@@ -14,6 +14,7 @@ use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\Product;
 use App\Models\ReturnRequest;
 use App\Models\ReturnRequestItem;
 use App\Models\User;
@@ -142,7 +143,7 @@ class ReturnService
             if (! Branch::query()->whereKey($data['branch_id'])->where('is_active', true)->exists()) {
                 throw new BusinessException('فرع الاستلام غير نشط.');
             }
-            $return->load('items');
+            $return->load(['items.orderItem', 'items.variant.product']);
             $approved = collect($data['items'] ?? [])->keyBy(fn (array $line): int => (int) $line['id']);
             foreach ($approved->keys() as $itemId) {
                 if (! $return->items->contains('id', $itemId)) {
@@ -197,8 +198,11 @@ class ReturnService
             if ($return->branch_id === null) {
                 throw new BusinessException('لم يُحدد فرع الاستلام عند اعتماد هذا المرتجع.');
             }
+            if (! Branch::query()->whereKey($return->branch_id)->where('is_active', true)->exists()) {
+                throw new BusinessException('فرع الاستلام غير نشط.');
+            }
 
-            $return->load('items');
+            $return->load(['items.orderItem', 'items.variant.product']);
             $lines = collect($data['items'])->keyBy(fn (array $line): int => (int) $line['id']);
             foreach ($lines->keys() as $itemId) {
                 if (! $return->items->contains('id', $itemId)) {
@@ -256,18 +260,16 @@ class ReturnService
                 }
 
                 $receivedTotal = $good + $damaged;
-                if ($receivedTotal > 0) {
-                    $product = $item->variant?->product;
-                    if ($product !== null) {
-                        $product->update(['sales_count' => max(0, (int) $product->sales_count - (int) round($receivedTotal))]);
-                    }
+                if ($receivedTotal > 0 && $item->variant?->product_id) {
+                    Product::query()->whereKey($item->variant->product_id)
+                        ->update(['sales_count' => DB::raw('GREATEST(sales_count - '.(int) round($receivedTotal).', 0)')]);
                 }
 
                 $previous = ReturnRequestItem::query()->where('order_item_id', $item->order_item_id)
                     ->where('id', '!=', $item->id)->whereHas('returnRequest', fn ($q) => $q->whereIn('status', [ReturnStatus::Received, ReturnStatus::Refunded]))
                     ->selectRaw('COALESCE(SUM(received_good_qty + received_damaged_qty), 0) as qty, COALESCE(SUM(refund_amount), 0) as refunded')->first();
                 $orderItem = $item->orderItem;
-                $netCents = (int) round(max(0, (float) $orderItem->unit_price * (float) $orderItem->qty - (float) $orderItem->discount_amount) * 100);
+                $netCents = $this->netLineRefundCents($orderItem);
                 $cumulativeQty = (float) $previous->qty + $receivedTotal;
                 $targetCents = $cumulativeQty >= (float) $orderItem->qty
                     ? $netCents
@@ -318,6 +320,21 @@ class ReturnService
                 throw new BusinessException('مرجع التحويل أو بوابة الدفع مطلوب لإتمام الاسترداد.');
             }
 
+            if (! in_array($order->payment_status, ['paid', 'partially_refunded', 'refunded'], true)) {
+                throw new BusinessException('لا يمكن رد مبلغ نقدي أو إلى المحفظة لطلب غير مدفوع. يُقيَّد المرتجع كتخفيض للمستحق حتى يُبنى مسار إشعار دائن.');
+            }
+            if ($order->payment_method === 'wallet' && $method !== RefundMethod::Wallet->value) {
+                throw new BusinessException('طلب مدفوع بالمحفظة يُرد إلى المحفظة فقط.');
+            }
+            $reference = $reference !== null ? trim((string) $reference) : $reference;
+            if ($reference !== null && $reference !== '' && ReturnRequest::query()
+                ->where('id', '!=', $return->id)
+                ->whereNotIn('status', [ReturnStatus::Rejected, ReturnStatus::Cancelled])
+                ->whereRaw('lower(btrim(refund_reference)) = ?', [mb_strtolower($reference)])
+                ->exists()) {
+                throw new BusinessException('مرجع الرد مسجّل سابقًا.', [], 409);
+            }
+
             if ($method === RefundMethod::Wallet->value) {
                 if ($return->customer_id === null) {
                     throw new BusinessException('الاسترداد إلى المحفظة يتطلب حساب عميل مسجل؛ اختر طريقة أخرى لطلبات الزوار.');
@@ -334,11 +351,8 @@ class ReturnService
                 'refunded_at' => now(),
             ]);
 
+            $this->syncOrderPaymentStatusAfterRefund($order);
             if ($this->isOrderFullyReturned($order)) {
-                $refundedCents = (int) round((float) $order->returnRequests()->where('status', ReturnStatus::Refunded)->sum('total_refund_amount') * 100);
-                if ($order->payment_status === 'paid' && $refundedCents >= (int) round((float) $order->grand_total * 100)) {
-                    $order->update(['payment_status' => 'refunded', 'requires_refund' => false]);
-                }
                 $this->orders->changeStatus(
                     $order,
                     OrderStatus::Returned,
@@ -440,11 +454,17 @@ class ReturnService
         });
     }
 
-    /** نافذة الاسترجاع من الإعدادات (أيام من لحظة انتقال الطلب إلى delivered). */
+    /**
+     * نافذة الاسترجاع من الإعدادات (أيام من لحظة انتقال الطلب إلى delivered).
+     * 0 = الإرجاع متوقف، قيمة سالبة (مثل -1) = بلا حد زمني.
+     */
     private function assertWithinReturnWindow(Order $order): void
     {
         $windowDays = (int) $this->settings->get('return_window_days', 14);
-        if ($windowDays <= 0) {
+        if ($windowDays === 0) {
+            throw new BusinessException('الإرجاع متوقف من إعدادات المتجر.');
+        }
+        if ($windowDays < 0) {
             return;
         }
 
@@ -462,16 +482,39 @@ class ReturnService
         }
     }
 
-    /** سعر وحدة الرد الصافي: ما دفعه العميل فعليًا للبند ÷ كميته (بعد خصومات الأسعار وحصة الكوبون). */
+    /** سعر وحدة الرد الصافي: ما دفعه العميل فعليًا للبند ÷ كميته (بعد خصومات الأسعار وحصة الكوبون والضريبة غير المشمولة). */
     private function netUnitRefundPrice(OrderItem $orderItem): float
     {
         $qty = (float) $orderItem->qty;
         if ($qty <= 0) {
             return (float) $orderItem->unit_price;
         }
-        $net = (float) $orderItem->unit_price * $qty - (float) $orderItem->discount_amount;
 
-        return round(max(0.0, $net) / $qty, 4);
+        return round($this->netLineRefundCents($orderItem) / 100 / $qty, 4);
+    }
+
+    /** صافي البند بالسنت: السعر × الكمية − الخصم + ضريبة البند (صفر عندما تكون الأسعار شاملة الضريبة). */
+    private function netLineRefundCents(OrderItem $orderItem): int
+    {
+        $net = (float) $orderItem->unit_price * (float) $orderItem->qty
+            - (float) $orderItem->discount_amount
+            + (float) $orderItem->tax_amount;
+
+        return (int) round(max(0.0, $net) * 100);
+    }
+
+    private function syncOrderPaymentStatusAfterRefund(Order $order): void
+    {
+        if (! in_array($order->payment_status, ['paid', 'partially_refunded', 'refunded'], true)) {
+            return;
+        }
+        $refundedCents = (int) round((float) $order->returnRequests()->where('status', ReturnStatus::Refunded)->sum('total_refund_amount') * 100);
+        $refundableCents = (int) $order->items()->get()->sum(fn (OrderItem $item): int => $this->netLineRefundCents($item));
+        if ($refundableCents > 0 && $refundedCents >= $refundableCents) {
+            $order->update(['payment_status' => 'refunded', 'requires_refund' => false]);
+        } elseif ($refundedCents > 0) {
+            $order->update(['payment_status' => 'partially_refunded']);
+        }
     }
 
     /**
@@ -516,14 +559,14 @@ class ReturnService
             return false;
         }
 
+        $receivedByItem = ReturnRequestItem::query()
+            ->whereIn('order_item_id', $items->pluck('id'))
+            ->whereHas('returnRequest', fn ($q) => $q->where('status', ReturnStatus::Refunded->value))
+            ->selectRaw('order_item_id, COALESCE(SUM(received_good_qty + received_damaged_qty), 0) as total')
+            ->groupBy('order_item_id')
+            ->pluck('total', 'order_item_id');
         foreach ($items as $orderItem) {
-            $received = (float) ReturnRequestItem::query()
-                ->where('order_item_id', $orderItem->id)
-                ->whereHas('returnRequest', fn ($q) => $q->whereIn('status', [
-                    ReturnStatus::Refunded->value,
-                ]))
-                ->selectRaw('COALESCE(SUM(received_good_qty + received_damaged_qty), 0) as total')
-                ->value('total');
+            $received = (float) ($receivedByItem[$orderItem->id] ?? 0);
             if (round($received, 4) < round((float) $orderItem->qty, 4)) {
                 return false;
             }

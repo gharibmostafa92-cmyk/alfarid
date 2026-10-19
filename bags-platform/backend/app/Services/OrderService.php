@@ -18,6 +18,7 @@ use App\Models\CouponUsage;
 use App\Models\Customer;
 use App\Models\CustomerWalletTransaction;
 use App\Models\Order;
+use App\Models\Product;
 use App\Models\ReturnRequest;
 use App\Models\StockMovement;
 use App\Models\User;
@@ -634,9 +635,9 @@ class OrderService
         }
 
         foreach ($order->items as $item) {
-            $product = $item->variant?->product;
-            if ($product !== null) {
-                $product->update(['sales_count' => max(0, (int) $product->sales_count - (int) round((float) $item->qty))]);
+            if ($item->variant?->product_id) {
+                Product::query()->whereKey($item->variant->product_id)
+                    ->update(['sales_count' => DB::raw('GREATEST(sales_count - '.(int) round((float) $item->qty).', 0)')]);
             }
         }
 

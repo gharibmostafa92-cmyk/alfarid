@@ -7,6 +7,7 @@ namespace App\Http\Requests\Store\Return;
 use App\Enums\RefundMethod;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 /** تقديم طلب إرجاع من حساب العميل — مع صور عيوب اختيارية لكل بند. */
 class StoreReturnRequest extends FormRequest
@@ -22,7 +23,7 @@ class StoreReturnRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'order_id' => ['required', 'integer', 'exists:orders,id'],
+            'order_id' => ['required', 'integer'],
             'reason' => ['required', 'string', 'max:2000'],
             'refund_method' => ['nullable', Rule::in(array_column(RefundMethod::cases(), 'value'))],
             'items' => ['required', 'array', 'min:1', 'max:50'],
@@ -32,6 +33,31 @@ class StoreReturnRequest extends FormRequest
             'items.*.attachments' => ['nullable', 'array', 'max:5'],
             'items.*.attachments.*' => ['file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
         ];
+    }
+
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator): void {
+            $files = 0;
+            $kilobytes = 0;
+            foreach (array_keys($this->input('items', []) ?? []) as $index) {
+                $itemFiles = $this->file("items.{$index}.attachments");
+                $itemFiles = is_array($itemFiles) ? $itemFiles : ($itemFiles !== null ? [$itemFiles] : []);
+                foreach ($itemFiles as $file) {
+                    if (! is_object($file) || ! method_exists($file, 'getSize')) {
+                        continue;
+                    }
+                    $files++;
+                    $kilobytes += (int) ceil($file->getSize() / 1024);
+                }
+            }
+            if ($files > 10) {
+                $validator->errors()->add('items', 'الحد الأقصى لمرفقات طلب الإرجاع 10 ملفات.');
+            }
+            if ($kilobytes > 25600) {
+                $validator->errors()->add('items', 'الحجم الإجمالي لمرفقات طلب الإرجاع يجب ألا يتجاوز 25 ميغابايت.');
+            }
+        });
     }
 
     /**

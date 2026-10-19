@@ -24,6 +24,11 @@ class SupplierUser extends Authenticatable
         return $this->belongsTo(Supplier::class);
     }
 
+    public function setEmailAttribute(string $email): void
+    {
+        $this->attributes['email'] = mb_strtolower(trim($email));
+    }
+
     protected function casts(): array
     {
         return [

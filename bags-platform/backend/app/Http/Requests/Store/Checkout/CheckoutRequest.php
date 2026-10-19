@@ -39,11 +39,13 @@ class CheckoutRequest extends FormRequest
     /** @return array<int, string> */
     private function allowedPaymentMethods(): array
     {
-        $methods = array_values(array_filter((array) config('store.payment_methods', ['cod']), fn ($method) => $method !== 'wallet'));
+        $configured = array_values(array_filter((array) config('store.payment_methods', ['cod'])));
+        $walletEnabled = in_array('wallet', $configured, true);
+        $methods = array_values(array_filter($configured, fn ($method) => $method !== 'wallet'));
 
-        // الدفع الآجل (credit) لعملاء الجملة/التوزيع المعتمدين فقط
+        // المحفظة من الإعدادات فقط، ولعملاء معتمدين. إيقافها يتم بحذفها من STORE_PAYMENT_METHODS.
         $user = auth('sanctum')->user();
-        if ($user instanceof Customer && $user->status === CustomerStatus::Approved) {
+        if ($walletEnabled && $user instanceof Customer && $user->status === CustomerStatus::Approved) {
             $methods[] = 'wallet';
         }
         if ($user instanceof Customer

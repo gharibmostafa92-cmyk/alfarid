@@ -28,7 +28,6 @@ use Laravel\Sanctum\HasApiTokens;
     'tax_number',
     'commercial_register',
     'credit_limit',
-    'wallet_balance',
     'rejection_reason',
     'suspension_reason',
     'approved_at',

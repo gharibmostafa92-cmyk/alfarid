@@ -64,8 +64,9 @@ class SettingSeeder extends Seeder
         ['group' => 'numbering', 'key' => 'supplier_payment_next_number', 'value' => '1001', 'type' => 'integer'],
         ['group' => 'numbering', 'key' => 'supplier_payment_padding', 'value' => '6', 'type' => 'integer'],
 
-        // المرحلة 9: نافذة الاسترجاع المسموحة بالأيام من تاريخ التسليم
+        // المرحلة 9: نافذة الاسترجاع بالأيام من التسليم. 0 = متوقف، -1 = بلا حد.
         ['group' => 'orders', 'key' => 'return_window_days', 'value' => '14', 'type' => 'integer'],
+        ['group' => 'purchases', 'key' => 'allow_self_approve_purchases', 'value' => '0', 'type' => 'boolean'],
     ];
 
     public function run(): void

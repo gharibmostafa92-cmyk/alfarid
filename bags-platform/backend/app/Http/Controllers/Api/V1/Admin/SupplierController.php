@@ -76,11 +76,14 @@ class SupplierController extends Controller implements HasMiddleware
 
     public function destroy(Supplier $supplier): JsonResponse
     {
-        if ($supplier->purchaseOrders()->exists() || $supplier->invoices()->exists()
-            || $supplier->payments()->exists() || $supplier->users()->exists()) {
-            throw new BusinessException('لا يمكن حذف مورد له أوامر شراء أو فواتير أو دفعات أو حسابات مستخدمين؛ عطّله بدلًا من حذفه.');
-        }
-        $supplier->delete();
+        DB::transaction(function () use ($supplier): void {
+            $supplier = Supplier::query()->lockForUpdate()->findOrFail($supplier->id);
+            if ($supplier->purchaseOrders()->exists() || $supplier->invoices()->exists()
+                || $supplier->payments()->exists() || $supplier->users()->exists()) {
+                throw new BusinessException('لا يمكن حذف مورد له أوامر شراء أو فواتير أو دفعات أو حسابات مستخدمين؛ عطّله بدلًا من حذفه.');
+            }
+            $supplier->delete();
+        });
 
         return response()->json(['message' => 'تم حذف المورد.']);
     }

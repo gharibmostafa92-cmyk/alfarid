@@ -18,6 +18,13 @@ class UpdateSupplierUserRequest extends FormRequest
     /**
      * @return array<string, mixed>
      */
+    protected function prepareForValidation(): void
+    {
+        if (is_string($this->email)) {
+            $this->merge(['email' => mb_strtolower(trim($this->email))]);
+        }
+    }
+
     public function rules(): array
     {
         $userId = $this->route('user')?->id ?? $this->route('user');

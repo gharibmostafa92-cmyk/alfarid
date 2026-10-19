@@ -238,6 +238,10 @@ class ProcurementService
             if (! in_array($po->status, [PurchaseOrderStatus::Draft, PurchaseOrderStatus::ChangeRequested], true)) {
                 throw new BusinessException('لا يمكن اعتماد أمر شراء إلا وهو مسودة أو بانتظار معالجة التعديلات.');
             }
+            if ((int) $po->created_by === (int) $admin->id
+                && ! (bool) $this->settings->get('allow_self_approve_purchases', false)) {
+                throw new BusinessException('لا يجوز لمن أنشأ أمر الشراء اعتماده بنفسه.');
+            }
             $po->update(['approved_by' => $admin->id]);
 
             return $po->fresh(['items']);
@@ -256,6 +260,9 @@ class ProcurementService
             }
             if ($po->items()->count() === 0) {
                 throw new BusinessException('لا يمكن إرسال أمر شراء بلا بنود.');
+            }
+            if (! Supplier::query()->whereKey($po->supplier_id)->where('is_active', true)->exists()) {
+                throw new BusinessException('المورد غير نشط.');
             }
             $po->update(['status' => PurchaseOrderStatus::SentToSupplier, 'supplier_change_notes' => null]);
 
@@ -293,6 +300,9 @@ class ProcurementService
             DiscreteQuantity::assert($item['ordered_qty']);
             $qty = (float) $item['ordered_qty'];
             $cost = (float) $item['unit_cost'];
+            if (round($qty * $cost, 4) > 99999999.9999) {
+                throw new BusinessException('قيمة بند أمر الشراء تتجاوز السعة المسموحة.');
+            }
             $po->items()->create([
                 'product_variant_id' => (int) $item['product_variant_id'],
                 'ordered_qty' => $qty,
@@ -327,6 +337,11 @@ class ProcurementService
                 || $po->deliveries()->exists() || $po->items()->where('received_qty', '>', 0)->exists()
                 || $po->invoices()->exists()) {
                 throw new BusinessException('لا يمكن حذف أمر شراء له استلام أو توريدات أو فواتير؛ احتفظ بالمستند للتدقيق.');
+            }
+            if ($po->purchase_request_id !== null) {
+                PurchaseRequest::query()->whereKey($po->purchase_request_id)
+                    ->where('status', PurchaseRequestStatus::ConvertedToPo)
+                    ->update(['status' => PurchaseRequestStatus::Approved]);
             }
             $po->delete();
         });
@@ -522,6 +537,9 @@ class ProcurementService
             if (! in_array($po->status, [PurchaseOrderStatus::SentToSupplier, PurchaseOrderStatus::SupplierAccepted], true)) {
                 throw new BusinessException("لا يمكن طلب تعديل على أمر شراء في حالة ({$po->status->value}).");
             }
+            if ($po->deliveries()->where('status', SupplierDeliveryStatus::PendingReceipt)->exists()) {
+                throw new BusinessException('لا يمكن طلب تعديل وأمر الشراء له توريد بانتظار الاستلام.');
+            }
             $po->update([
                 'status' => PurchaseOrderStatus::ChangeRequested,
                 'supplier_change_notes' => $notes,
@@ -539,7 +557,11 @@ class ProcurementService
      */
     public function createSupplierDelivery(PurchaseOrder $po, SupplierUser $user, array $data, ?UploadedFile $invoiceFile = null, ?string $idempotencyKey = null): SupplierDelivery
     {
-        $this->assertOwnsOrder($po->fresh(), $user);
+        $fresh = $po->fresh();
+        if ($fresh === null) {
+            throw new BusinessException('أمر الشراء غير موجود.', [], 404);
+        }
+        $this->assertOwnsOrder($fresh, $user);
 
         return PrivateAttachments::transaction(fn (PrivateAttachments $files) => app(OperationIdempotencyService::class)->run('supplier_delivery', $user, $idempotencyKey,
             ['purchase_order_id' => $po->id, ...$data, 'invoice_hash' => $invoiceFile ? hash_file('sha256', $invoiceFile->getRealPath()) : null],
