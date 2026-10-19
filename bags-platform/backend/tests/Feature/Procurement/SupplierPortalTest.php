@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Procurement;
 
 use App\Enums\PurchaseOrderStatus;
+use App\Exceptions\BusinessException;
 use App\Models\Branch;
 use App\Models\Product;
 use App\Models\ProductVariant;
@@ -15,9 +16,12 @@ use App\Models\Supplier;
 use App\Models\SupplierPayment;
 use App\Models\SupplierUser;
 use App\Models\User;
+use App\Services\ProcurementService;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
@@ -37,6 +41,11 @@ class SupplierPortalTest extends TestCase
     private Branch $branch;
 
     private ProductVariant $variant;
+
+    public function postJson($uri, array $data = [], array $headers = [], $options = 0)
+    {
+        return parent::postJson($uri, $data, ['Idempotency-Key' => (string) Str::uuid(), ...$headers], $options);
+    }
 
     protected function setUp(): void
     {
@@ -79,6 +88,68 @@ class SupplierPortalTest extends TestCase
     private function loginToken(): string
     {
         return $this->login()->assertOk()->json('token');
+    }
+
+    public function test_existing_token_returns_403_after_supplier_is_disabled(): void
+    {
+        $token = $this->loginToken();
+        $this->supplierA->update(['is_active' => false]);
+        Auth::forgetGuards();
+
+        $this->withToken($token)->getJson('/api/v1/supplier/dashboard')->assertForbidden();
+        $this->withToken($token)->getJson('/api/v1/supplier/statement')->assertForbidden();
+    }
+
+    public function test_stale_order_cannot_be_accepted_after_supplier_reassignment(): void
+    {
+        $po = $this->makePo($this->supplierA, PurchaseOrderStatus::SentToSupplier);
+        PurchaseOrder::query()->whereKey($po->id)->update(['supplier_id' => $this->supplierB->id]);
+
+        try {
+            app(ProcurementService::class)->supplierAccept($po, $this->userA);
+            $this->fail('An order reassigned to another supplier must be inaccessible.');
+        } catch (BusinessException $exception) {
+            $this->assertSame(404, $exception->status);
+        }
+
+        $this->assertDatabaseHas('purchase_orders', [
+            'id' => $po->id, 'supplier_id' => $this->supplierB->id, 'status' => 'sent_to_supplier',
+        ]);
+    }
+
+    public function test_delivery_returns_422_if_direct_receipts_already_use_remaining_quantity(): void
+    {
+        $po = $this->makePo($this->supplierA, PurchaseOrderStatus::PartiallyReceived);
+        $po->items->first()->update(['received_qty' => 7]);
+        $token = $this->loginToken();
+
+        $this->withToken($token)->postJson("/api/v1/supplier/purchase-orders/{$po->id}/deliveries", [
+            'delivery_date' => '2026-10-19',
+            'items' => [['purchase_order_item_id' => $po->items->first()->id, 'shipped_qty' => 4]],
+        ])->assertUnprocessable();
+
+        $this->assertDatabaseMissing('supplier_deliveries', ['purchase_order_id' => $po->id]);
+    }
+
+    public function test_order_with_delivery_cannot_be_reassigned_to_another_supplier(): void
+    {
+        $po = $this->makePo($this->supplierA, PurchaseOrderStatus::SupplierAccepted);
+        $token = $this->loginToken();
+        $delivery = $this->withToken($token)->postJson("/api/v1/supplier/purchase-orders/{$po->id}/deliveries", [
+            'delivery_date' => '2026-10-19',
+            'items' => [['purchase_order_item_id' => $po->items->first()->id, 'shipped_qty' => 3]],
+        ])->assertCreated()->json('data.id');
+        $po->update(['status' => PurchaseOrderStatus::ChangeRequested]);
+        $admin = User::factory()->create();
+        $admin->assignRole('Super Admin');
+        Auth::forgetGuards();
+
+        $this->withToken($admin->createToken('admin')->plainTextToken)
+            ->patchJson("/api/v1/admin/purchase-orders/{$po->id}", ['supplier_id' => $this->supplierB->id])
+            ->assertUnprocessable();
+
+        $this->assertDatabaseHas('purchase_orders', ['id' => $po->id, 'supplier_id' => $this->supplierA->id]);
+        $this->assertDatabaseHas('supplier_deliveries', ['id' => $delivery, 'supplier_id' => $this->supplierA->id]);
     }
 
     public function test_login_issues_token_and_rejects_bad_credentials(): void
@@ -207,7 +278,7 @@ class SupplierPortalTest extends TestCase
             ->postJson("/api/v1/admin/supplier-invoices/{$invoice['id']}/post")->assertOk();
         $this->withToken($adminToken)->postJson('/api/v1/admin/supplier-payments', [
             'supplier_id' => $supplier->id,
-            'amount' => 200, 'payment_method' => 'bank_transfer', 'payment_date' => '2026-10-05',
+            'amount' => 200, 'payment_method' => 'bank_transfer', 'reference_no' => 'BANK-200', 'payment_date' => '2026-10-05',
         ])->assertCreated();
 
         $token = $this->login(email: $user->email)->assertOk()->json('token');

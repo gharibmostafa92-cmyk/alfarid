@@ -39,10 +39,13 @@ class CheckoutRequest extends FormRequest
     /** @return array<int, string> */
     private function allowedPaymentMethods(): array
     {
-        $methods = (array) config('store.payment_methods', ['cod']);
+        $methods = array_values(array_filter((array) config('store.payment_methods', ['cod']), fn ($method) => $method !== 'wallet'));
 
         // الدفع الآجل (credit) لعملاء الجملة/التوزيع المعتمدين فقط
         $user = auth('sanctum')->user();
+        if ($user instanceof Customer && $user->status === CustomerStatus::Approved) {
+            $methods[] = 'wallet';
+        }
         if ($user instanceof Customer
             && $user->status === CustomerStatus::Approved
             && in_array($user->type, [CustomerType::Wholesale, CustomerType::Distributor], true)) {

@@ -10,6 +10,7 @@ use App\Enums\ReturnStatus;
 use App\Enums\StockBucket;
 use App\Enums\StockMovementType;
 use App\Exceptions\BusinessException;
+use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\OrderItem;
@@ -18,6 +19,7 @@ use App\Models\ReturnRequestItem;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * خدمة المرتجعات (RMA) — دورة حياة طلب الإرجاع في أربع خطوات:
@@ -48,7 +50,7 @@ class ReturnService
      */
     public function createReturnRequest(Order $order, array $data, ?Customer $customer = null): ReturnRequest
     {
-        $return = DB::transaction(function () use ($order, $data, $customer): ReturnRequest {
+        $return = PrivateAttachments::transaction(function (PrivateAttachments $files) use ($order, $data, $customer): ReturnRequest {
             // قفل صف الطلب: طلبا إرجاع متزامنان لنفس البند لا يتجاوزا سقفه معًا
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
 
@@ -65,6 +67,7 @@ class ReturnService
             // تجميع البنود المكررة لنفس سطر الطلب قبل فحص السقف
             $lines = [];
             foreach ($data['items'] as $line) {
+                DiscreteQuantity::assert($line['requested_qty']);
                 $orderItemId = (int) $line['order_item_id'];
                 $lines[$orderItemId] ??= ['qty' => 0.0, 'reason' => null, 'files' => []];
                 $lines[$orderItemId]['qty'] += (float) $line['requested_qty'];
@@ -83,10 +86,10 @@ class ReturnService
                 // يحجز من سقف البند حتى لا يُرجع أكثر مما اشتراه العميل
                 $previouslyRequested = (float) ReturnRequestItem::query()
                     ->where('order_item_id', $orderItemId)
-                    ->whereHas('returnRequest', fn ($q) => $q->whereNotIn('status', [
-                        ReturnStatus::Rejected->value, ReturnStatus::Cancelled->value,
-                    ]))
-                    ->sum('requested_qty');
+                    ->join('return_requests', 'return_requests.id', '=', 'return_request_items.return_request_id')
+                    ->whereNotIn('return_requests.status', [ReturnStatus::Rejected->value, ReturnStatus::Cancelled->value])
+                    ->selectRaw("COALESCE(SUM(CASE WHEN return_requests.status IN ('received', 'refunded') THEN received_good_qty + received_damaged_qty WHEN return_requests.status = 'approved' THEN approved_qty ELSE requested_qty END), 0) as total")
+                    ->value('total');
                 if (round($previouslyRequested + $line['qty'], 4) > round((float) $orderItem->qty, 4)) {
                     throw new BusinessException("كمية الإرجاع للصنف ({$orderItem->sku_snapshot}) تتجاوز الكمية المشتراة بعد احتساب مرتجعات سابقة.");
                 }
@@ -113,11 +116,10 @@ class ReturnService
                 ]);
             }
 
+            $this->storeAttachments($return, $data['items'], $files);
+
             return $return;
         });
-
-        // صور العيوب تُحفظ بعد إنشاء الطلب (مسارها يحمل رقمه) — بلا أثر مخزني
-        $this->storeAttachments($return, $data['items']);
 
         return $return->fresh(['items']);
     }
@@ -131,11 +133,15 @@ class ReturnService
     public function approve(ReturnRequest $return, User $admin, array $data): ReturnRequest
     {
         return DB::transaction(function () use ($return, $admin, $data): ReturnRequest {
+            Order::query()->lockForUpdate()->findOrFail($return->order_id);
             $return = ReturnRequest::query()->lockForUpdate()->findOrFail($return->id);
             if ($return->status !== ReturnStatus::Pending) {
                 throw new BusinessException('لا يمكن اعتماد طلب مرتجع إلا وهو قيد المراجعة.');
             }
 
+            if (! Branch::query()->whereKey($data['branch_id'])->where('is_active', true)->exists()) {
+                throw new BusinessException('فرع الاستلام غير نشط.');
+            }
             $return->load('items');
             $approved = collect($data['items'] ?? [])->keyBy(fn (array $line): int => (int) $line['id']);
             foreach ($approved->keys() as $itemId) {
@@ -150,6 +156,7 @@ class ReturnService
                 $qty = $approved->has($item->id)
                     ? (float) $approved->get($item->id)['approved_qty']
                     : (float) $item->requested_qty;
+                DiscreteQuantity::assert($qty, true);
                 if ($qty < 0 || round($qty, 4) > round((float) $item->requested_qty, 4)) {
                     throw new BusinessException("الكمية المعتمدة للصنف ({$item->orderItem?->sku_snapshot}) يجب أن تكون بين صفر والمطلوب.");
                 }
@@ -182,6 +189,7 @@ class ReturnService
     public function receive(ReturnRequest $return, User $admin, array $data): ReturnRequest
     {
         return DB::transaction(function () use ($return, $admin, $data): ReturnRequest {
+            Order::query()->lockForUpdate()->findOrFail($return->order_id);
             $return = ReturnRequest::query()->lockForUpdate()->findOrFail($return->id);
             if ($return->status !== ReturnStatus::Approved) {
                 throw new BusinessException('لا يمكن استلام مرتجع إلا بعد الموافقة المبدئية عليه.');
@@ -206,6 +214,8 @@ class ReturnService
             $refundTotal = 0.0;
             foreach ($return->items as $item) {
                 $line = $lines->get($item->id);
+                DiscreteQuantity::assert($line['received_good_qty'], true);
+                DiscreteQuantity::assert($line['received_damaged_qty'], true);
                 $good = (float) $line['received_good_qty'];
                 $damaged = (float) $line['received_damaged_qty'];
                 if (round($good + $damaged, 4) > round((float) $item->approved_qty, 4)) {
@@ -253,11 +263,22 @@ class ReturnService
                     }
                 }
 
+                $previous = ReturnRequestItem::query()->where('order_item_id', $item->order_item_id)
+                    ->where('id', '!=', $item->id)->whereHas('returnRequest', fn ($q) => $q->whereIn('status', [ReturnStatus::Received, ReturnStatus::Refunded]))
+                    ->selectRaw('COALESCE(SUM(received_good_qty + received_damaged_qty), 0) as qty, COALESCE(SUM(refund_amount), 0) as refunded')->first();
+                $orderItem = $item->orderItem;
+                $netCents = (int) round(max(0, (float) $orderItem->unit_price * (float) $orderItem->qty - (float) $orderItem->discount_amount) * 100);
+                $cumulativeQty = (float) $previous->qty + $receivedTotal;
+                $targetCents = $cumulativeQty >= (float) $orderItem->qty
+                    ? $netCents
+                    : min($netCents, (int) round($cumulativeQty * (float) $item->unit_refund_price * 100));
+                $refundAmount = max(0, $targetCents - (int) round((float) $previous->refunded * 100)) / 100;
                 $item->update([
+                    'refund_amount' => $refundAmount,
                     'received_good_qty' => $good,
                     'received_damaged_qty' => $damaged,
                 ]);
-                $refundTotal += $receivedTotal * (float) $item->unit_refund_price;
+                $refundTotal += $refundAmount;
             }
 
             $return->update([
@@ -280,7 +301,8 @@ class ReturnService
      */
     public function refund(ReturnRequest $return, User $admin, array $data): ReturnRequest
     {
-        $return = DB::transaction(function () use ($return, $admin, $data): ReturnRequest {
+        return DB::transaction(function () use ($return, $admin, $data): ReturnRequest {
+            $order = Order::query()->lockForUpdate()->findOrFail($return->order_id);
             $return = ReturnRequest::query()->lockForUpdate()->findOrFail($return->id);
             if ($return->status !== ReturnStatus::Received) {
                 throw new BusinessException('لا يمكن رد مبلغ مرتجع إلا بعد استلامه وفحصه.');
@@ -290,39 +312,61 @@ class ReturnService
             if ($method === null) {
                 throw new BusinessException('حدد طريقة رد المبلغ قبل إتمام الاسترداد.');
             }
+            $reference = $data['refund_reference'] ?? $return->refund_reference;
+            if (in_array($method, [RefundMethod::OriginalPayment->value, RefundMethod::BankTransfer->value], true)
+                && trim((string) $reference) === '') {
+                throw new BusinessException('مرجع التحويل أو بوابة الدفع مطلوب لإتمام الاسترداد.');
+            }
 
             if ($method === RefundMethod::Wallet->value) {
                 if ($return->customer_id === null) {
                     throw new BusinessException('الاسترداد إلى المحفظة يتطلب حساب عميل مسجل؛ اختر طريقة أخرى لطلبات الزوار.');
                 }
-                $customer = Customer::query()->lockForUpdate()->findOrFail($return->customer_id);
-                $customer->increment('wallet_balance', (float) $return->total_refund_amount);
+                app(WalletService::class)->record($return->customer_id, (float) $return->total_refund_amount,
+                    'return_refund', 'return_request', $return->id, $admin->id);
             }
 
             $return->update([
                 'refund_method' => $method,
-                'refund_reference' => $data['refund_reference'] ?? $return->refund_reference,
+                'refund_reference' => $reference,
                 'status' => ReturnStatus::Refunded,
                 'refunded_by' => $admin->id,
                 'refunded_at' => now(),
             ]);
 
-            return $return;
+            if ($this->isOrderFullyReturned($order)) {
+                $refundedCents = (int) round((float) $order->returnRequests()->where('status', ReturnStatus::Refunded)->sum('total_refund_amount') * 100);
+                if ($order->payment_status === 'paid' && $refundedCents >= (int) round((float) $order->grand_total * 100)) {
+                    $order->update(['payment_status' => 'refunded', 'requires_refund' => false]);
+                }
+                $this->orders->changeStatus(
+                    $order,
+                    OrderStatus::Returned,
+                    $admin,
+                    "إرجاع كامل لبنود الطلب عبر طلب المرتجع {$return->return_number}",
+                    null,
+                    false,
+                );
+            }
+
+            return $return->fresh(['items']);
         });
+    }
 
-        $order = $return->order()->firstOrFail();
-        if ($this->isOrderFullyReturned($order)) {
-            $this->orders->changeStatus(
-                $order,
-                OrderStatus::Returned,
-                $admin,
-                "إرجاع كامل لبنود الطلب عبر طلب المرتجع {$return->return_number}",
-                null,
-                false,
-            );
-        }
-
-        return $return->fresh(['items']);
+    public function delete(ReturnRequest $return): void
+    {
+        DB::transaction(function () use ($return): void {
+            $return = ReturnRequest::query()->lockForUpdate()->findOrFail($return->id);
+            if ($return->status !== ReturnStatus::Pending) {
+                throw new BusinessException('يمكن حذف المرتجعات قيد المراجعة فقط؛ استخدم الإلغاء للحالات الأخرى.');
+            }
+            $paths = $return->items()->get()->flatMap(fn ($item) => $item->attachments ?? [])->all();
+            $return->delete();
+            DB::afterCommit(function () use ($paths): void {
+                Storage::disk('local')->delete($paths);
+                Storage::disk('public')->delete($paths);
+            });
+        });
     }
 
     /** رفض طلب قيد المراجعة — بلا أي أثر (لم يتحرك مخزون ولا مال). */
@@ -374,23 +418,26 @@ class ReturnService
             return $this->cancel($return, $data['admin_notes'] ?? null);
         }
 
-        if ($return->status === ReturnStatus::Refunded
-            && array_key_exists('refund_method', $data)) {
-            throw new BusinessException('لا يمكن تغيير طريقة الرد بعد اكتمال الاسترداد.');
-        }
+        return DB::transaction(function () use ($return, $data): ReturnRequest {
+            $return = ReturnRequest::query()->lockForUpdate()->findOrFail($return->id);
+            if (! in_array($return->status, [ReturnStatus::Pending, ReturnStatus::Approved, ReturnStatus::Received], true)
+                && array_key_exists('refund_method', $data)) {
+                throw new BusinessException('لا يمكن تغيير طريقة الرد بعد اكتمال الاسترداد.');
+            }
 
-        $updates = [];
-        if (array_key_exists('admin_notes', $data)) {
-            $updates['admin_notes'] = $data['admin_notes'];
-        }
-        if (array_key_exists('refund_method', $data)) {
-            $updates['refund_method'] = $data['refund_method'];
-        }
-        if ($updates !== []) {
-            $return->update($updates);
-        }
+            $updates = [];
+            if (array_key_exists('admin_notes', $data)) {
+                $updates['admin_notes'] = $data['admin_notes'];
+            }
+            if (array_key_exists('refund_method', $data)) {
+                $updates['refund_method'] = $data['refund_method'];
+            }
+            if ($updates !== []) {
+                $return->update($updates);
+            }
 
-        return $return->fresh(['items']);
+            return $return->fresh(['items']);
+        });
     }
 
     /** نافذة الاسترجاع من الإعدادات (أيام من لحظة انتقال الطلب إلى delivered). */
@@ -404,7 +451,11 @@ class ReturnService
         $deliveredAt = $order->statusHistories()
             ->where('to_status', OrderStatus::Delivered->value)
             ->latest('id')
-            ->value('created_at') ?? $order->updated_at;
+            ->value('created_at');
+
+        if ($deliveredAt === null) {
+            throw new BusinessException('لا يوجد سجل تسليم موثوق لحساب فترة الاسترجاع.');
+        }
 
         if ($deliveredAt !== null && $deliveredAt->copy()->addDays($windowDays)->isPast()) {
             throw new BusinessException("انتهت فترة الاسترجاع المسموحة ({$windowDays} يومًا من التسليم) لهذا الطلب.");
@@ -424,12 +475,12 @@ class ReturnService
     }
 
     /**
-     * حفظ صور العيوب المرفقة ببنود الطلب على القرص العام تحت مجلد الطلب،
+     * حفظ صور العيوب على القرص الخاص داخل معاملة إنشاء المرتجع،
      * وتسجيل مساراتها في attachments البند.
      *
      * @param  list<array{order_item_id: int, attachments?: list<UploadedFile>}>  $rawItems
      */
-    private function storeAttachments(ReturnRequest $return, array $rawItems): void
+    private function storeAttachments(ReturnRequest $return, array $rawItems, PrivateAttachments $files): void
     {
         $filesByOrderItem = [];
         foreach ($rawItems as $line) {
@@ -445,19 +496,19 @@ class ReturnService
 
         $return->load('items');
         foreach ($return->items as $item) {
-            $files = $filesByOrderItem[(int) $item->order_item_id] ?? [];
-            if ($files === []) {
+            $itemFiles = $filesByOrderItem[(int) $item->order_item_id] ?? [];
+            if ($itemFiles === []) {
                 continue;
             }
             $paths = [];
-            foreach ($files as $file) {
-                $paths[] = $file->store("return_requests/{$return->id}", 'public');
+            foreach ($itemFiles as $file) {
+                $paths[] = $files->store($file, "return_requests/{$return->id}");
             }
             $item->update(['attachments' => array_merge($item->attachments ?? [], $paths)]);
         }
     }
 
-    /** هل استُلمت كل بنود الطلب كاملة عبر مرتجعات مستلمة/مُستردة؟ */
+    /** هل اكتمل استلام ورد قيمة كل بنود الطلب عبر المرتجعات؟ */
     private function isOrderFullyReturned(Order $order): bool
     {
         $items = $order->items()->get();
@@ -469,7 +520,7 @@ class ReturnService
             $received = (float) ReturnRequestItem::query()
                 ->where('order_item_id', $orderItem->id)
                 ->whereHas('returnRequest', fn ($q) => $q->whereIn('status', [
-                    ReturnStatus::Received->value, ReturnStatus::Refunded->value,
+                    ReturnStatus::Refunded->value,
                 ]))
                 ->selectRaw('COALESCE(SUM(received_good_qty + received_damaged_qty), 0) as total')
                 ->value('total');

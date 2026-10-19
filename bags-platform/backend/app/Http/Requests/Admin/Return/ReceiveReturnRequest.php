@@ -20,10 +20,10 @@ class ReceiveReturnRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'items' => ['required', 'array', 'min:1'],
+            'items' => ['required', 'array', 'min:1', 'max:50'],
             'items.*.id' => ['required', 'integer'],
-            'items.*.received_good_qty' => ['required', 'numeric', 'min:0'],
-            'items.*.received_damaged_qty' => ['required', 'numeric', 'min:0'],
+            'items.*.received_good_qty' => ['required', 'integer', 'min:0', 'max:99999999'],
+            'items.*.received_damaged_qty' => ['required', 'integer', 'min:0', 'max:99999999'],
         ];
     }
 }

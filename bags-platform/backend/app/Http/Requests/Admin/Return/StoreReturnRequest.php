@@ -25,9 +25,9 @@ class StoreReturnRequest extends FormRequest
             'order_id' => ['required', 'integer', 'exists:orders,id'],
             'reason' => ['required', 'string', 'max:2000'],
             'refund_method' => ['nullable', Rule::in(array_column(RefundMethod::cases(), 'value'))],
-            'items' => ['required', 'array', 'min:1'],
-            'items.*.order_item_id' => ['required', 'integer'],
-            'items.*.requested_qty' => ['required', 'numeric', 'gt:0'],
+            'items' => ['required', 'array', 'min:1', 'max:50'],
+            'items.*.order_item_id' => ['required', 'integer', 'distinct'],
+            'items.*.requested_qty' => ['required', 'integer', 'gt:0', 'max:99999999'],
             'items.*.item_reason' => ['nullable', 'string', 'max:255'],
         ];
     }

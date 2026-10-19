@@ -26,7 +26,9 @@ class SupplierInvoiceController extends Controller implements HasMiddleware
         return [
             new Middleware('can:purchases.view', only: ['index', 'show']),
             new Middleware('can:purchases.create', only: ['store']),
-            new Middleware('can:purchases.update', only: ['update', 'post', 'cancel']),
+            new Middleware('can:purchases.update', only: ['update']),
+            new Middleware('can:supplier_invoices.post', only: ['post']),
+            new Middleware('can:supplier_invoices.cancel', only: ['cancel']),
             new Middleware('can:purchases.delete', only: ['destroy']),
         ];
     }

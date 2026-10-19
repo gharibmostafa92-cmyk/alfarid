@@ -26,7 +26,7 @@ class ProductVariant extends Model implements HasMedia
     ];
 
     protected $casts = [
-        'cost_price' => 'decimal:2', 'last_cost_price' => 'decimal:4', 'retail_price' => 'decimal:2', 'wholesale_price' => 'decimal:2', 'compare_at_price' => 'decimal:2',
+        'cost_price' => 'decimal:4', 'last_cost_price' => 'decimal:4', 'retail_price' => 'decimal:2', 'wholesale_price' => 'decimal:2', 'compare_at_price' => 'decimal:2',
         'weight_kg' => 'decimal:3', 'is_active' => 'boolean',
     ];
 

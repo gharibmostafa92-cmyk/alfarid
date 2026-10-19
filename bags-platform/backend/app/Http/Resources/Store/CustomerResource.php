@@ -27,6 +27,7 @@ class CustomerResource extends JsonResource
             'company_name' => $this->company_name,
             'customer_group_id' => $this->customer_group_id,
             'credit_limit' => $this->credit_limit,
+            'wallet_balance' => $this->wallet_balance,
             'created_at' => $this->created_at,
         ];
     }

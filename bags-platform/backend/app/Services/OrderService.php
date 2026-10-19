@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Enums\CustomerStatus;
 use App\Enums\CustomerType;
 use App\Enums\OrderStatus;
+use App\Enums\ReturnStatus;
 use App\Enums\StockBucket;
 use App\Enums\StockMovementType;
 use App\Exceptions\BusinessException;
@@ -15,7 +16,9 @@ use App\Models\City;
 use App\Models\Coupon;
 use App\Models\CouponUsage;
 use App\Models\Customer;
+use App\Models\CustomerWalletTransaction;
 use App\Models\Order;
+use App\Models\ReturnRequest;
 use App\Models\StockMovement;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
@@ -317,6 +320,14 @@ class OrderService
                 );
             }
 
+            if (($data['payment_method'] ?? 'cod') === 'wallet') {
+                if ($customer === null || $customer->fresh()->status !== CustomerStatus::Approved) {
+                    throw new BusinessException('الدفع بالمحفظة يتطلب حساب عميل نشطًا.');
+                }
+                app(WalletService::class)->record($customer->id, -$grandTotal, 'checkout_payment', 'order', $order->id);
+                $order->update(['payment_status' => 'paid']);
+            }
+
             // أول سجل حالة: إنشاء الطلب
             $order->statusHistories()->create([
                 'from_status' => null,
@@ -375,6 +386,13 @@ class OrderService
 
             $actorId = $this->inventoryActorId($actor);
 
+            if ($to === OrderStatus::Returned && $returnEffects
+                && ReturnRequest::query()->where('order_id', $order->id)->whereNotIn('status', [
+                    ReturnStatus::Rejected->value, ReturnStatus::Cancelled->value,
+                ])->exists()) {
+                throw new BusinessException('للطلب مرتجعات قائمة؛ أكمل الاستلام والاسترداد من إدارة المرتجعات لمنع تكرار المخزون.');
+            }
+
             // آثار المخزون بحسب الانتقال
             $extraNote = null;
             if ($to === OrderStatus::Shipped) {
@@ -405,6 +423,17 @@ class OrderService
             // في مسار RMA الاسترداد اكتمل داخل طلب المرتجع نفسه فلا علم هنا
             if ($to === OrderStatus::Returned && $order->payment_status === 'paid' && $returnEffects) {
                 $order->update(['requires_refund' => true]);
+            }
+
+            if ($order->payment_method === 'wallet' && $order->payment_status === 'paid'
+                && ($to === OrderStatus::Cancelled || ($to === OrderStatus::Returned && $returnEffects))) {
+                $payment = CustomerWalletTransaction::query()->where('reference_type', 'order')->where('reference_id', $order->id)
+                    ->where('type', 'checkout_payment')->first();
+                if ($payment !== null) {
+                    app(WalletService::class)->record($payment->customer_id, -(float) $payment->amount,
+                        'order_reversal', 'order', $order->id, $actorId);
+                    $order->update(['payment_status' => 'refunded', 'requires_refund' => false]);
+                }
             }
 
             $order->update(['status' => $to]);

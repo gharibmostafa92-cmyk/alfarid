@@ -24,6 +24,7 @@ class ReturnRequestItem extends Model
         'received_good_qty',
         'received_damaged_qty',
         'unit_refund_price',
+        'refund_amount',
         'item_reason',
         'attachments',
     ];
@@ -36,6 +37,7 @@ class ReturnRequestItem extends Model
             'received_good_qty' => 'decimal:4',
             'received_damaged_qty' => 'decimal:4',
             'unit_refund_price' => 'decimal:4',
+            'refund_amount' => 'decimal:2',
             'attachments' => 'array',
         ];
     }

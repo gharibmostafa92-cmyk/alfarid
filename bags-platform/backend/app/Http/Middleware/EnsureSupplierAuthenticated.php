@@ -23,7 +23,8 @@ class EnsureSupplierAuthenticated
             ], 401);
         }
 
-        if (! $user instanceof SupplierUser || ! $user->is_active || $user->supplier_id === null) {
+        if (! $user instanceof SupplierUser || ! $user->is_active || $user->supplier_id === null
+            || ! $user->supplier()->where('is_active', true)->exists()) {
             return response()->json([
                 'message' => 'غير مصرح لك بالدخول كمستخدم مورد أو الحساب غير نشط.',
             ], 403);

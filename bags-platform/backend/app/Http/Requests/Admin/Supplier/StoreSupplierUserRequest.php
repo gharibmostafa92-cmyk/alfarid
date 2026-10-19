@@ -24,7 +24,7 @@ class StoreSupplierUserRequest extends FormRequest
             'email' => ['required', 'email', 'max:255', 'unique:supplier_users,email'],
             'phone' => ['nullable', 'string', 'max:30'],
             'password' => ['required', 'string', 'min:8', 'max:255'],
-            'is_active' => ['nullable', 'boolean'],
+            'is_active' => ['sometimes', 'boolean'],
         ];
     }
 }

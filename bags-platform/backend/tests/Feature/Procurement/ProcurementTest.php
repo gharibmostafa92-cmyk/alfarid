@@ -12,9 +12,11 @@ use App\Models\StockLevel;
 use App\Models\StockMovement;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Services\SupplierFinanceService;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
@@ -34,6 +36,11 @@ class ProcurementTest extends TestCase
     private Supplier $supplier;
 
     private ProductVariant $variant;
+
+    public function postJson($uri, array $data = [], array $headers = [], $options = 0)
+    {
+        return parent::postJson($uri, $data, ['Idempotency-Key' => (string) Str::uuid(), ...$headers], $options);
+    }
 
     protected function setUp(): void
     {
@@ -68,6 +75,7 @@ class ProcurementTest extends TestCase
             ]],
         ])->assertCreated();
         $po = $response->json('data');
+        $this->auth()->postJson("/api/v1/admin/purchase-orders/{$po['id']}/approve")->assertOk();
         $this->auth()->postJson("/api/v1/admin/purchase-orders/{$po['id']}/send")->assertOk();
 
         return $po;
@@ -82,6 +90,40 @@ class ProcurementTest extends TestCase
 
         $response->assertJsonPath('data.current_balance', '250.00');
         $this->assertDatabaseHas('suppliers', ['code' => 'SUP-NEW', 'current_balance' => 250]);
+    }
+
+    public function test_opening_balance_update_preserves_posted_transactions_and_statement_balance(): void
+    {
+        $this->freezeTime();
+        $this->supplier->update(['opening_balance' => 100, 'current_balance' => 100]);
+        $invoice = $this->auth()->postJson('/api/v1/admin/supplier-invoices', [
+            'supplier_id' => $this->supplier->id, 'supplier_invoice_no' => 'OPENING-REVIEW',
+            'issue_date' => now()->toDateString(), 'subtotal' => 200,
+        ])->assertCreated()->json('data.id');
+        $this->auth()->postJson("/api/v1/admin/supplier-invoices/{$invoice}/post")->assertOk();
+        $this->auth()->patchJson("/api/v1/admin/suppliers/{$this->supplier->id}", [
+            'code' => $this->supplier->code, 'name' => $this->supplier->name, 'opening_balance' => 150,
+            'current_balance' => 999,
+        ])->assertOk()->assertJsonPath('data.current_balance', '350.00');
+
+        $this->assertDatabaseHas('suppliers', ['id' => $this->supplier->id, 'opening_balance' => 150, 'current_balance' => 350]);
+        $statement = app(SupplierFinanceService::class)->statement($this->supplier->fresh());
+        $this->assertSame(350.0, $statement['closing_balance']);
+    }
+
+    public function test_purchase_order_can_update_delivery_date_without_replacing_items(): void
+    {
+        $po = $this->auth()->postJson('/api/v1/admin/purchase-orders', [
+            'supplier_id' => $this->supplier->id, 'branch_id' => $this->branch->id,
+            'items' => [['product_variant_id' => $this->variant->id, 'ordered_qty' => 5, 'unit_cost' => 20]],
+        ])->assertCreated()->json('data');
+
+        $this->auth()->patchJson("/api/v1/admin/purchase-orders/{$po['id']}", [
+            'expected_delivery_date' => '2026-11-01',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('purchase_orders', ['id' => $po['id'], 'expected_delivery_date' => '2026-11-01']);
+        $this->assertDatabaseHas('purchase_order_items', ['id' => $po['items'][0]['id'], 'ordered_qty' => 5]);
     }
 
     public function test_purchase_request_flow_and_conversion_to_po(): void
@@ -151,7 +193,7 @@ class ProcurementTest extends TestCase
         ])->assertOk()->assertJsonPath('data.status', 'completed');
 
         $variant = $this->variant->fresh();
-        $this->assertSame('115.00', (string) $variant->cost_price);
+        $this->assertSame('115.0000', (string) $variant->cost_price);
         $this->assertSame('130.0000', (string) $variant->last_cost_price);
 
         $level = StockLevel::query()
@@ -228,7 +270,7 @@ class ProcurementTest extends TestCase
         $p1 = $this->auth()->postJson('/api/v1/admin/supplier-payments', [
             'supplier_id' => $this->supplier->id,
             'supplier_invoice_id' => $invoice['id'],
-            'amount' => 500, 'payment_method' => 'bank_transfer', 'payment_date' => '2026-10-05',
+            'amount' => 500, 'payment_method' => 'bank_transfer', 'reference_no' => 'BANK-500', 'payment_date' => '2026-10-05',
         ])->assertCreated()->json('data');
         $this->assertStringStartsWith('SPY-', $p1['payment_number']);
         $this->assertSame('640.00', (string) $this->supplier->fresh()->current_balance);

@@ -20,7 +20,7 @@ final class IdempotencyFingerprint
     {
         if (is_string($value) && is_numeric($value)
             && ($field === 'id' || str_ends_with($field ?? '', '_id')
-                || in_array($field, ['quantity', 'requested_qty', 'counted_qty', 'approved_qty', 'shipped_qty', 'received_qty'], true))) {
+                || in_array($field, ['qty', 'amount', 'received_good_qty', 'received_damaged_qty', 'quantity', 'requested_qty', 'counted_qty', 'approved_qty', 'shipped_qty', 'received_qty'], true))) {
             $value = $value + 0;
         }
 

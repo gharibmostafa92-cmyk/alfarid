@@ -49,6 +49,7 @@ class RolePermissionSeeder extends Seeder
         }
 
         $superAdmin = Role::findOrCreate(StaffRole::SuperAdmin->value, 'staff');
+        $this->call(FinancialPermissionSeeder::class);
         $superAdmin->syncPermissions(
             Permission::query()->where('guard_name', 'staff')->get(),
         );

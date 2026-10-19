@@ -7,7 +7,6 @@ namespace App\Http\Resources\Admin;
 use App\Models\ReturnRequestItem;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Support\Facades\Storage;
 
 /**
  * @mixin ReturnRequestItem
@@ -32,8 +31,8 @@ class ReturnRequestItemResource extends JsonResource
             'unit_refund_price' => $this->unit_refund_price,
             'item_reason' => $this->item_reason,
             'attachments' => array_map(
-                fn (string $path): string => Storage::disk('public')->url($path),
-                $this->attachments ?? [],
+                fn (int $index): string => url('/api/v1/admin/return-items/'.$this->id.'/attachments/'.$index),
+                array_keys($this->attachments ?? []),
             ),
         ];
     }

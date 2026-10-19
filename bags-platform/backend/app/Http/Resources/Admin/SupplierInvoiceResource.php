@@ -38,7 +38,7 @@ class SupplierInvoiceResource extends JsonResource
             'paid_amount' => $this->paid_amount,
             'remaining_amount' => number_format((float) $this->total_amount - (float) $this->paid_amount, 2, '.', ''),
             'status' => $this->status,
-            'attachment_path' => $this->attachment_path,
+            'attachment_url' => $this->attachment_path ? url('/api/v1/admin/supplier-invoices/'.$this->id.'/attachment') : null,
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),
         ];

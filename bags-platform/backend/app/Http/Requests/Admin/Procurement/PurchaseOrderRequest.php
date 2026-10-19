@@ -26,13 +26,13 @@ class PurchaseOrderRequest extends FormRequest
 
         return [
             'supplier_id' => [$isStore ? 'required' : 'sometimes', 'integer', 'exists:suppliers,id'],
-            'branch_id' => ['nullable', 'required_without:purchase_request_id', 'integer', 'exists:branches,id'],
+            'branch_id' => [$isStore ? 'required_without:purchase_request_id' : 'sometimes', 'integer', 'exists:branches,id'],
             'purchase_request_id' => ['nullable', 'integer', 'exists:purchase_requests,id'],
             'expected_delivery_date' => ['nullable', 'date'],
-            'discount_amount' => ['nullable', 'numeric', 'min:0'],
-            'items' => ['nullable', 'required_without:purchase_request_id', 'array', 'min:1'],
+            'discount_amount' => ['sometimes', 'numeric', 'min:0'],
+            'items' => [$isStore ? 'required_without:purchase_request_id' : 'sometimes', 'array', 'min:1', 'max:50'],
             'items.*.product_variant_id' => ['required', 'integer', 'exists:product_variants,id'],
-            'items.*.ordered_qty' => ['required', 'numeric', 'gt:0'],
+            'items.*.ordered_qty' => ['required', 'integer', 'gt:0', 'max:99999999'],
             'items.*.unit_cost' => ['required', 'numeric', 'min:0'],
             'items.*.tax_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
         ];

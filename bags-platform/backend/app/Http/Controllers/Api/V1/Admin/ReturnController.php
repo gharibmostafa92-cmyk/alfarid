@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
-use App\Enums\ReturnStatus;
-use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Return\ApproveReturnRequest;
 use App\Http\Requests\Admin\Return\ReceiveReturnRequest;
@@ -35,7 +33,10 @@ class ReturnController extends Controller implements HasMiddleware
         return [
             new Middleware('can:returns.view', only: ['index', 'show']),
             new Middleware('can:returns.create', only: ['store']),
-            new Middleware('can:returns.update', only: ['update', 'approve', 'receive', 'refund']),
+            new Middleware('can:returns.update', only: ['update']),
+            new Middleware('can:returns.approve', only: ['approve']),
+            new Middleware('can:returns.receive', only: ['receive']),
+            new Middleware('can:returns.refund', only: ['refund']),
             new Middleware('can:returns.delete', only: ['destroy']),
         ];
     }
@@ -89,11 +90,7 @@ class ReturnController extends Controller implements HasMiddleware
 
     public function destroy(ReturnRequest $returnRequest): JsonResponse
     {
-        // مرتجع وصل لمرحلة الاستلام/الرد له آثار مخزون ومال — سجله لا يُحذف
-        if (in_array($returnRequest->status, [ReturnStatus::Received, ReturnStatus::Refunded], true)) {
-            throw new BusinessException('لا يمكن حذف مرتجع تم استلامه أو اكتمل رده؛ أبقِ سجله للتدقيق.');
-        }
-        $returnRequest->delete();
+        $this->returns->delete($returnRequest);
 
         return response()->json(['message' => 'تم حذف طلب المرتجع']);
     }

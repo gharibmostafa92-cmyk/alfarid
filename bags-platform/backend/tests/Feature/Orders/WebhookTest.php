@@ -57,6 +57,16 @@ class WebhookTest extends TestCase
         $this->branch = Branch::factory()->create();
     }
 
+    public function test_gateway_callback_cannot_refund_a_wallet_payment(): void
+    {
+        $order = Order::factory()->create(['payment_method' => 'wallet', 'payment_status' => 'paid', 'status' => OrderStatus::Pending]);
+        $this->postWebhook('/api/v1/webhooks/payment/testpay', [
+            'event_id' => 'wallet-refund-event', 'order_number' => $order->order_number, 'status' => 'refunded',
+        ], self::PAY_SECRET)->assertOk()->assertJsonPath('ignored', true);
+        $this->assertSame('paid', $order->fresh()->payment_status);
+        $this->assertSame('ignored', WebhookLog::query()->sole()->status);
+    }
+
     public function test_payment_success_marks_paid_confirms_and_allocates(): void
     {
         $variant = $this->purchasableVariant(100);

@@ -10,11 +10,13 @@ use App\Enums\StockBucket;
 use App\Enums\StockMovementType;
 use App\Enums\SupplierDeliveryStatus;
 use App\Exceptions\BusinessException;
+use App\Models\Branch;
 use App\Models\ProductVariant;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\PurchaseRequest;
 use App\Models\StockLevel;
+use App\Models\Supplier;
 use App\Models\SupplierDelivery;
 use App\Models\SupplierDeliveryItem;
 use App\Models\SupplierUser;
@@ -113,6 +115,7 @@ class ProcurementService
     private function syncRequestItems(PurchaseRequest $pr, array $items): void
     {
         foreach ($items as $item) {
+            DiscreteQuantity::assert($item['requested_qty']);
             $pr->items()->create([
                 'product_variant_id' => (int) $item['product_variant_id'],
                 'requested_qty' => (float) $item['requested_qty'],
@@ -163,6 +166,10 @@ class ProcurementService
                 throw new BusinessException('حدد فرع/مخزن استلام أمر الشراء.');
             }
 
+            if (! Supplier::query()->whereKey($data['supplier_id'])->where('is_active', true)->exists()
+                || ! Branch::query()->whereKey($branchId)->where('is_active', true)->exists()) {
+                throw new BusinessException('المورد وفرع الاستلام يجب أن يكونا نشطين.');
+            }
             $po = PurchaseOrder::create([
                 'po_number' => $this->settings->generateNextNumber('purchase_order'),
                 'supplier_id' => (int) $data['supplier_id'],
@@ -195,8 +202,23 @@ class ProcurementService
             if ($po->items()->where('received_qty', '>', 0)->exists()) {
                 throw new BusinessException('أمر شراء بدأ استلامه لا تُعدَّل بنوده.');
             }
+            if ($po->deliveries()->exists()
+                && (isset($data['items'])
+                    || (isset($data['supplier_id']) && (int) $data['supplier_id'] !== (int) $po->supplier_id)
+                    || (isset($data['branch_id']) && (int) $data['branch_id'] !== (int) $po->branch_id))) {
+                throw new BusinessException('لا يمكن تغيير المورد أو الفرع أو البنود بعد تسجيل إشعار توريد.');
+            }
+            if (array_intersect(['supplier_id', 'branch_id', 'items', 'discount_amount', 'expected_delivery_date'], array_keys($data))) {
+                $data['approved_by'] = null;
+            }
+            if (isset($data['supplier_id']) && ! Supplier::query()->whereKey($data['supplier_id'])->where('is_active', true)->exists()) {
+                throw new BusinessException('المورد غير نشط.');
+            }
+            if (isset($data['branch_id']) && ! Branch::query()->whereKey($data['branch_id'])->where('is_active', true)->exists()) {
+                throw new BusinessException('فرع الاستلام غير نشط.');
+            }
             $po->update(array_intersect_key($data, array_flip([
-                'supplier_id', 'branch_id', 'expected_delivery_date', 'discount_amount',
+                'supplier_id', 'branch_id', 'expected_delivery_date', 'discount_amount', 'approved_by',
             ])));
             if (isset($data['items'])) {
                 $po->items()->delete();
@@ -213,8 +235,8 @@ class ProcurementService
     {
         return DB::transaction(function () use ($po, $admin): PurchaseOrder {
             $po = $this->lockOrder($po);
-            if ($po->status !== PurchaseOrderStatus::Draft) {
-                throw new BusinessException('لا يمكن اعتماد أمر شراء إلا وهو مسودة.');
+            if (! in_array($po->status, [PurchaseOrderStatus::Draft, PurchaseOrderStatus::ChangeRequested], true)) {
+                throw new BusinessException('لا يمكن اعتماد أمر شراء إلا وهو مسودة أو بانتظار معالجة التعديلات.');
             }
             $po->update(['approved_by' => $admin->id]);
 
@@ -229,10 +251,13 @@ class ProcurementService
             if (! in_array($po->status, [PurchaseOrderStatus::Draft, PurchaseOrderStatus::ChangeRequested], true)) {
                 throw new BusinessException("لا يمكن إرسال أمر شراء في حالة ({$po->status->value}).");
             }
+            if ($po->approved_by === null) {
+                throw new BusinessException('يجب اعتماد أمر الشراء قبل إرساله إلى المورد.');
+            }
             if ($po->items()->count() === 0) {
                 throw new BusinessException('لا يمكن إرسال أمر شراء بلا بنود.');
             }
-            $po->update(['status' => PurchaseOrderStatus::SentToSupplier]);
+            $po->update(['status' => PurchaseOrderStatus::SentToSupplier, 'supplier_change_notes' => null]);
 
             return $po->fresh(['items']);
         });
@@ -252,6 +277,10 @@ class ProcurementService
                 throw new BusinessException("لا يمكن إلغاء أمر شراء في حالة ({$po->status->value}).");
             }
             $po->update(['status' => PurchaseOrderStatus::Cancelled]);
+            $po->deliveries()->where('status', SupplierDeliveryStatus::PendingReceipt)->update(['status' => SupplierDeliveryStatus::Rejected]);
+            if ($po->purchase_request_id !== null) {
+                PurchaseRequest::query()->whereKey($po->purchase_request_id)->where('status', PurchaseRequestStatus::ConvertedToPo)->update(['status' => PurchaseRequestStatus::Approved]);
+            }
 
             return $po->fresh(['items']);
         });
@@ -261,6 +290,7 @@ class ProcurementService
     private function syncOrderItems(PurchaseOrder $po, array $items): void
     {
         foreach ($items as $item) {
+            DiscreteQuantity::assert($item['ordered_qty']);
             $qty = (float) $item['ordered_qty'];
             $cost = (float) $item['unit_cost'];
             $po->items()->create([
@@ -279,11 +309,41 @@ class ProcurementService
         $items = $po->items()->get();
         $subtotal = round((float) $items->sum(fn (PurchaseOrderItem $i): float => (float) $i->line_total), 2);
         $tax = round((float) $items->sum(fn (PurchaseOrderItem $i): float => (float) $i->line_total * (float) $i->tax_rate / 100), 2);
+        if ((float) $po->discount_amount > $subtotal) {
+            throw new BusinessException('خصم أمر الشراء لا يمكن أن يتجاوز مجموع البنود.');
+        }
         $po->update([
             'subtotal' => $subtotal,
             'tax_amount' => $tax,
             'grand_total' => round($subtotal - (float) $po->discount_amount + $tax, 2),
         ]);
+    }
+
+    public function deletePurchaseOrder(PurchaseOrder $po): void
+    {
+        DB::transaction(function () use ($po): void {
+            $po = $this->lockOrder($po);
+            if (! in_array($po->status, [PurchaseOrderStatus::Draft, PurchaseOrderStatus::Cancelled], true)
+                || $po->deliveries()->exists() || $po->items()->where('received_qty', '>', 0)->exists()
+                || $po->invoices()->exists()) {
+                throw new BusinessException('لا يمكن حذف أمر شراء له استلام أو توريدات أو فواتير؛ احتفظ بالمستند للتدقيق.');
+            }
+            $po->delete();
+        });
+    }
+
+    public function closeShort(PurchaseOrder $po): PurchaseOrder
+    {
+        return DB::transaction(function () use ($po): PurchaseOrder {
+            $po = $this->lockOrder($po);
+            if ($po->status !== PurchaseOrderStatus::PartiallyReceived) {
+                throw new BusinessException('إغلاق النقص متاح لأمر مستلم جزئيًا فقط.');
+            }
+            $po->deliveries()->where('status', SupplierDeliveryStatus::PendingReceipt)->update(['status' => SupplierDeliveryStatus::Rejected]);
+            $po->update(['status' => PurchaseOrderStatus::Completed]);
+
+            return $po->fresh(['items']);
+        });
     }
 
     private function lockOrder(PurchaseOrder $po): PurchaseOrder
@@ -302,7 +362,16 @@ class ProcurementService
      *
      * @param  list<array{purchase_order_item_id: int, qty: float|int|string}>  $receivedItems
      */
-    public function receivePurchaseOrder(PurchaseOrder $po, array $receivedItems, ?int $locationId = null, ?int $supplierDeliveryId = null, ?int $performedBy = null): PurchaseOrder
+    public function receivePurchaseOrder(PurchaseOrder $po, array $receivedItems, ?int $locationId = null, ?int $supplierDeliveryId = null, ?int $performedBy = null, ?string $idempotencyKey = null): PurchaseOrder
+    {
+        $actor = User::query()->findOrFail($performedBy ?? auth()->id());
+
+        return app(OperationIdempotencyService::class)->run('purchase_receipt', $actor, $idempotencyKey,
+            ['purchase_order_id' => $po->id, 'items' => $receivedItems, 'location_id' => $locationId, 'supplier_delivery_id' => $supplierDeliveryId],
+            fn () => $this->executePurchaseReceipt($po, $receivedItems, $locationId, $supplierDeliveryId, $actor->id));
+    }
+
+    private function executePurchaseReceipt(PurchaseOrder $po, array $receivedItems, ?int $locationId, ?int $supplierDeliveryId, int $performedBy): PurchaseOrder
     {
         return DB::transaction(function () use ($po, $receivedItems, $locationId, $supplierDeliveryId, $performedBy): PurchaseOrder {
             $po = $this->lockOrder($po);
@@ -314,6 +383,14 @@ class ProcurementService
                 throw new BusinessException("لا يمكن استلام بضاعة لأمر شراء في حالة ({$po->status->value}).");
             }
 
+            if ($supplierDeliveryId === null && $po->deliveries()->where('status', SupplierDeliveryStatus::PendingReceipt)->exists()) {
+                throw new BusinessException('حدد إشعار التوريد المعلق عند الاستلام لمنع احتساب كمياته مرتين.');
+            }
+            $poItems = $po->items()->orderBy('product_variant_id')->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+            usort($receivedItems, fn (array $a, array $b): int => [($poItems->get((int) $a['purchase_order_item_id'])?->product_variant_id ?? 0), (int) $a['purchase_order_item_id']]
+                <=> [($poItems->get((int) $b['purchase_order_item_id'])?->product_variant_id ?? 0), (int) $b['purchase_order_item_id']]);
+            $variants = ProductVariant::query()->whereIn('id', $poItems->pluck('product_variant_id'))->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+            $costFactor = (float) $po->subtotal > 0 ? max(0.0, 1 - (float) $po->discount_amount / (float) $po->subtotal) : 1.0;
             $delivery = null;
             $deliveryItems = collect();
             if ($supplierDeliveryId !== null) {
@@ -327,10 +404,11 @@ class ProcurementService
             }
 
             foreach ($receivedItems as $itemData) {
-                $poItem = $po->items()->where('id', (int) $itemData['purchase_order_item_id'])->lockForUpdate()->first();
+                $poItem = $poItems->get((int) $itemData['purchase_order_item_id']);
                 if ($poItem === null) {
                     throw new BusinessException('أحد بنود الاستلام لا يتبع أمر الشراء هذا.');
                 }
+                DiscreteQuantity::assert($itemData['qty']);
                 $qtyToReceive = (float) $itemData['qty'];
                 if ($qtyToReceive <= 0) {
                     continue;
@@ -354,14 +432,17 @@ class ProcurementService
                 }
 
                 // 1. المتغير مقفولًا لتحديث متوسط التكلفة بأمان
-                $variant = ProductVariant::query()->lockForUpdate()->findOrFail($poItem->product_variant_id);
+                $variant = $variants->get($poItem->product_variant_id);
+                if ($variant === null) {
+                    throw new BusinessException('متغير الصنف غير متاح للاستلام.');
+                }
 
-                // إجمالي الرصيد الفعلي الحالي في كل الفروع (Current Total OnHand)
+                // Includes damaged stock: it remains part of physical on_hand across all branches.
                 $currentTotalOnHand = (float) StockLevel::query()
                     ->where('product_variant_id', $variant->id)
                     ->sum('on_hand');
                 $oldCost = (float) $variant->cost_price;
-                $newUnitCost = (float) $poItem->unit_cost;
+                $newUnitCost = round((float) $poItem->unit_cost * $costFactor, 4);
 
                 // معادلة المتوسط المرجح للتكلفة (WAC)
                 $safeCurrentStock = max(0.0, $currentTotalOnHand);
@@ -418,8 +499,9 @@ class ProcurementService
     {
         $this->assertOwnsOrder($po, $user);
 
-        return DB::transaction(function () use ($po): PurchaseOrder {
+        return DB::transaction(function () use ($po, $user): PurchaseOrder {
             $po = $this->lockOrder($po);
+            $this->assertOwnsOrder($po, $user);
             if ($po->status !== PurchaseOrderStatus::SentToSupplier) {
                 throw new BusinessException("لا يمكن قبول أمر شراء في حالة ({$po->status->value}).");
             }
@@ -434,8 +516,9 @@ class ProcurementService
     {
         $this->assertOwnsOrder($po, $user);
 
-        return DB::transaction(function () use ($po, $notes): PurchaseOrder {
+        return DB::transaction(function () use ($po, $user, $notes): PurchaseOrder {
             $po = $this->lockOrder($po);
+            $this->assertOwnsOrder($po, $user);
             if (! in_array($po->status, [PurchaseOrderStatus::SentToSupplier, PurchaseOrderStatus::SupplierAccepted], true)) {
                 throw new BusinessException("لا يمكن طلب تعديل على أمر شراء في حالة ({$po->status->value}).");
             }
@@ -454,12 +537,22 @@ class ProcurementService
      *
      * @param  array{delivery_date: string, supplier_invoice_no?: string|null, notes?: string|null, items: list<array{purchase_order_item_id: int, shipped_qty: float|int|string}>}  $data
      */
-    public function createSupplierDelivery(PurchaseOrder $po, SupplierUser $user, array $data, ?UploadedFile $invoiceFile = null): SupplierDelivery
+    public function createSupplierDelivery(PurchaseOrder $po, SupplierUser $user, array $data, ?UploadedFile $invoiceFile = null, ?string $idempotencyKey = null): SupplierDelivery
+    {
+        $this->assertOwnsOrder($po->fresh(), $user);
+
+        return PrivateAttachments::transaction(fn (PrivateAttachments $files) => app(OperationIdempotencyService::class)->run('supplier_delivery', $user, $idempotencyKey,
+            ['purchase_order_id' => $po->id, ...$data, 'invoice_hash' => $invoiceFile ? hash_file('sha256', $invoiceFile->getRealPath()) : null],
+            fn () => $this->executeSupplierDelivery($po, $user, $data, $invoiceFile, $files)));
+    }
+
+    private function executeSupplierDelivery(PurchaseOrder $po, SupplierUser $user, array $data, ?UploadedFile $invoiceFile, PrivateAttachments $files): SupplierDelivery
     {
         $this->assertOwnsOrder($po, $user);
 
-        $delivery = DB::transaction(function () use ($po, $user, $data): SupplierDelivery {
+        $delivery = DB::transaction(function () use ($po, $user, $data, $invoiceFile, $files): SupplierDelivery {
             $po = $this->lockOrder($po);
+            $this->assertOwnsOrder($po, $user);
             if (! in_array($po->status, [
                 PurchaseOrderStatus::SentToSupplier,
                 PurchaseOrderStatus::SupplierAccepted,
@@ -471,6 +564,7 @@ class ProcurementService
             // تجميع البنود المكررة قبل فحص سقف الشحن التراكمي
             $lines = [];
             foreach ($data['items'] as $line) {
+                DiscreteQuantity::assert($line['shipped_qty']);
                 $itemId = (int) $line['purchase_order_item_id'];
                 $lines[$itemId] = ($lines[$itemId] ?? 0.0) + (float) $line['shipped_qty'];
             }
@@ -481,11 +575,11 @@ class ProcurementService
             }
             foreach ($lines as $itemId => $shippedQty) {
                 $poItem = $poItems->get($itemId);
-                $alreadyShipped = (float) SupplierDeliveryItem::query()
+                $pendingShipment = (float) SupplierDeliveryItem::query()
                     ->where('purchase_order_item_id', $itemId)
-                    ->whereHas('delivery', fn ($q) => $q->where('status', '!=', SupplierDeliveryStatus::Rejected->value))
-                    ->sum('shipped_qty');
-                if (round($alreadyShipped + $shippedQty, 4) > round((float) $poItem->ordered_qty, 4)) {
+                    ->whereHas('delivery', fn ($q) => $q->where('status', SupplierDeliveryStatus::PendingReceipt->value))
+                    ->selectRaw('COALESCE(SUM(shipped_qty - received_qty), 0) as total')->value('total');
+                if (round((float) $poItem->received_qty + $pendingShipment + $shippedQty, 4) > round((float) $poItem->ordered_qty, 4)) {
                     throw new BusinessException("إجمالي المشحون للصنف ({$poItem->variant?->sku}) يتجاوز الكمية المطلوبة في أمر الشراء.");
                 }
             }
@@ -512,13 +606,12 @@ class ProcurementService
                 $po->update(['status' => PurchaseOrderStatus::SupplierAccepted]);
             }
 
+            if ($invoiceFile !== null) {
+                $delivery->update(['invoice_file_path' => $files->store($invoiceFile, "supplier_deliveries/{$delivery->id}")]);
+            }
+
             return $delivery;
         });
-
-        if ($invoiceFile !== null) {
-            $path = $invoiceFile->store("supplier_deliveries/{$delivery->id}");
-            $delivery->update(['invoice_file_path' => $path]);
-        }
 
         return $delivery->fresh(['items']);
     }

@@ -20,6 +20,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Support\Facades\DB;
 
 /**
  * إدارة الموردين وحسابات موظفيهم (بوابة المورد):
@@ -105,7 +106,15 @@ class SupplierController extends Controller implements HasMiddleware
         if (empty($data['password'])) {
             unset($data['password']);
         }
-        $user->update($data);
+        $user = DB::transaction(function () use ($supplier, $user, $data): SupplierUser {
+            $user = $supplier->users()->lockForUpdate()->findOrFail($user->id);
+            $user->update($data);
+            if (isset($data['password'])) {
+                $user->tokens()->delete();
+            }
+
+            return $user;
+        });
 
         return SupplierUserResource::make($user->fresh());
     }

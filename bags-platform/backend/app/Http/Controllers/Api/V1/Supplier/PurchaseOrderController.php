@@ -72,6 +72,7 @@ class PurchaseOrderController extends Controller
     /** استعلامات البوابة كلها تبدأ من نطاق مورد صاحب التوكن. */
     private function scoped(SupplierUser $user): Builder
     {
-        return PurchaseOrder::query()->where('supplier_id', $user->supplier_id);
+        return PurchaseOrder::query()->where('supplier_id', $user->supplier_id)
+            ->where('status', '!=', 'draft');
     }
 }

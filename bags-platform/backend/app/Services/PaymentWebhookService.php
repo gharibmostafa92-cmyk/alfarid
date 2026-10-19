@@ -117,6 +117,12 @@ class PaymentWebhookService
                 return ['http' => 200, 'body' => ['received' => false, 'message' => 'order not found']];
             }
 
+            if ($order->payment_method === 'wallet') {
+                $log->update(['status' => 'ignored', 'error' => 'Wallet payments are settled internally.']);
+
+                return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
+            }
+
             if ($outcome === 'ignored' || $outcome === 'pending') {
                 $log->update([
                     'status' => 'ignored',

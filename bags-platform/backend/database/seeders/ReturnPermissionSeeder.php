@@ -10,7 +10,7 @@ use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
 
-/** صلاحيات إدارة المرتجعات (المرحلة 9) — الإجراءات approve/receive/refund تحت returns.update. */
+/** صلاحيات إدارة المرتجعات (المرحلة 9) — الاعتماد والاستلام والاسترداد بصلاحيات مستقلة. */
 class ReturnPermissionSeeder extends Seeder
 {
     public function run(): void
@@ -18,7 +18,7 @@ class ReturnPermissionSeeder extends Seeder
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
         $permissions = [
-            'returns.view', 'returns.create', 'returns.update', 'returns.delete',
+            'returns.view', 'returns.create', 'returns.update', 'returns.delete', 'returns.approve', 'returns.receive', 'returns.refund',
         ];
 
         $created = [];

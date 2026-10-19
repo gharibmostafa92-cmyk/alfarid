@@ -27,9 +27,9 @@ class SupplierPaymentController extends Controller implements HasMiddleware
     {
         return [
             new Middleware('can:purchases.view', only: ['index', 'show']),
-            new Middleware('can:purchases.create', only: ['store']),
-            new Middleware('can:purchases.update', only: ['update']),
-            new Middleware('can:purchases.delete', only: ['destroy']),
+            new Middleware('can:supplier_payments.create', only: ['store']),
+            new Middleware('can:supplier_payments.update', only: ['update']),
+            new Middleware('can:supplier_payments.delete', only: ['destroy']),
         ];
     }
 
@@ -53,7 +53,7 @@ class SupplierPaymentController extends Controller implements HasMiddleware
     {
         /** @var User $admin */
         $admin = $request->user();
-        $payment = $this->finance->createPayment($request->validated(), $admin);
+        $payment = $this->finance->createPayment($request->validated(), $admin, $request->header('Idempotency-Key'));
         $payment->load(['invoice:id,invoice_number,supplier_invoice_no']);
 
         return SupplierPaymentResource::make($payment)->response()->setStatusCode(201);
@@ -66,7 +66,7 @@ class SupplierPaymentController extends Controller implements HasMiddleware
 
     public function update(UpdateSupplierPaymentRequest $request, SupplierPayment $supplierPayment): SupplierPaymentResource
     {
-        $supplierPayment->update($request->validated());
+        $supplierPayment = $this->finance->updatePayment($supplierPayment, $request->validated());
 
         return SupplierPaymentResource::make($supplierPayment->fresh(['invoice:id,invoice_number,supplier_invoice_no']));
     }

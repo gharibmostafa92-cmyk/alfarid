@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Api\V1\AttachmentController;
 use App\Http\Controllers\Api\V1\Supplier\AccountController;
 use App\Http\Controllers\Api\V1\Supplier\AuthController;
 use App\Http\Controllers\Api\V1\Supplier\DashboardController;
@@ -19,7 +20,7 @@ Route::post('auth/login', [AuthController::class, 'login'])
     ->name('auth.login');
 
 // بوابة المورد: كل المسارات التالية مقيدة بمورد صاحب التوكن حصرًا
-Route::middleware(['auth:sanctum', 'auth.supplier'])->group(function (): void {
+Route::middleware(['auth:sanctum', 'auth.supplier', 'throttle:120,1'])->group(function (): void {
     Route::post('auth/logout', [AuthController::class, 'logout'])->name('auth.logout');
     Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
@@ -32,5 +33,7 @@ Route::middleware(['auth:sanctum', 'auth.supplier'])->group(function (): void {
     Route::get('deliveries', [DeliveryController::class, 'index'])->name('deliveries.index');
     Route::get('deliveries/{delivery}', [DeliveryController::class, 'show'])->name('deliveries.show');
 
+    Route::get('supplier-invoices/{invoice}/attachment', [AttachmentController::class, 'invoice'])->whereNumber('invoice')->name('supplier-invoices.attachment');
+    Route::get('deliveries/{delivery}/invoice', [AttachmentController::class, 'delivery'])->whereNumber('delivery')->name('deliveries.invoice');
     Route::get('statement', [AccountController::class, 'statement'])->name('statement');
 });

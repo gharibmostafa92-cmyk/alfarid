@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
-use App\Enums\PurchaseOrderStatus;
-use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Procurement\PurchaseOrderRequest;
 use App\Http\Requests\Admin\Procurement\ReceivePurchaseOrderRequest;
@@ -31,7 +29,9 @@ class PurchaseOrderController extends Controller implements HasMiddleware
         return [
             new Middleware('can:purchases.view', only: ['index', 'show']),
             new Middleware('can:purchases.create', only: ['store']),
-            new Middleware('can:purchases.update', only: ['update', 'approve', 'send', 'cancel', 'receive']),
+            new Middleware('can:purchases.update', only: ['update', 'send', 'cancel']),
+            new Middleware('can:purchases.approve', only: ['approve']),
+            new Middleware('can:purchases.receive', only: ['receive', 'closeShort']),
             new Middleware('can:purchases.delete', only: ['destroy']),
         ];
     }
@@ -80,11 +80,7 @@ class PurchaseOrderController extends Controller implements HasMiddleware
 
     public function destroy(PurchaseOrder $purchaseOrder): JsonResponse
     {
-        if (! in_array($purchaseOrder->status, [PurchaseOrderStatus::Draft, PurchaseOrderStatus::Cancelled], true)
-            || $purchaseOrder->items()->where('received_qty', '>', 0)->exists()) {
-            throw new BusinessException('لا يمكن حذف أمر شراء إلا وهو مسودة أو ملغي وبلا أي استلام.');
-        }
-        $purchaseOrder->delete();
+        $this->procurement->deletePurchaseOrder($purchaseOrder);
 
         return response()->json(['message' => 'تم حذف أمر الشراء.']);
     }
@@ -107,6 +103,11 @@ class PurchaseOrderController extends Controller implements HasMiddleware
         return PurchaseOrderResource::make($this->procurement->cancelPurchaseOrder($purchaseOrder));
     }
 
+    public function closeShort(PurchaseOrder $purchaseOrder): PurchaseOrderResource
+    {
+        return PurchaseOrderResource::make($this->procurement->closeShort($purchaseOrder));
+    }
+
     /** استلام بضاعة (كلي/جزئي) — يحدّث متوسط التكلفة ويغذي المخزون. */
     public function receive(ReceivePurchaseOrderRequest $request, PurchaseOrder $purchaseOrder): PurchaseOrderResource
     {
@@ -118,6 +119,7 @@ class PurchaseOrderController extends Controller implements HasMiddleware
             $request->validated('location_id') !== null ? (int) $request->validated('location_id') : null,
             $request->validated('supplier_delivery_id') !== null ? (int) $request->validated('supplier_delivery_id') : null,
             $admin->id,
+            $request->header('Idempotency-Key'),
         );
         $po->load(['supplier:id,code,name', 'branch:id,name', 'items.variant']);
 

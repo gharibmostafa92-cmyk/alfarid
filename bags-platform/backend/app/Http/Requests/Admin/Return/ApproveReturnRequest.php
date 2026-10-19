@@ -22,9 +22,9 @@ class ApproveReturnRequest extends FormRequest
         return [
             'branch_id' => ['required', 'integer', 'exists:branches,id'],
             'admin_notes' => ['nullable', 'string', 'max:2000'],
-            'items' => ['nullable', 'array'],
+            'items' => ['nullable', 'array', 'max:50'],
             'items.*.id' => ['required', 'integer'],
-            'items.*.approved_qty' => ['required', 'numeric', 'min:0'],
+            'items.*.approved_qty' => ['required', 'integer', 'min:0', 'max:99999999'],
         ];
     }
 }

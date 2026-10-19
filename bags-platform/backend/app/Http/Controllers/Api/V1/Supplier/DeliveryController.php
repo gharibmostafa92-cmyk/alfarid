@@ -36,6 +36,7 @@ class DeliveryController extends Controller
             $user,
             $request->safe()->except('invoice_file'),
             $request->file('invoice_file'),
+            $request->header('Idempotency-Key'),
         );
         $delivery->load(['items.variant']);
 

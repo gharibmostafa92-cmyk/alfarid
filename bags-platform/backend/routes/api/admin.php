@@ -33,6 +33,7 @@ use App\Http\Controllers\Api\V1\Admin\SupplierInvoiceController;
 use App\Http\Controllers\Api\V1\Admin\SupplierPaymentController;
 use App\Http\Controllers\Api\V1\Admin\TransferController;
 use App\Http\Controllers\Api\V1\Admin\UserController;
+use App\Http\Controllers\Api\V1\AttachmentController;
 use Illuminate\Support\Facades\Route;
 
 // معرّفات الكتالوج رقمية بس: أي قيمة غير رقمية تبقى 404 بدل ما Postgres يرمي خطأ نوع ويرجع 500
@@ -209,6 +210,9 @@ Route::middleware(['auth:sanctum', 'auth.staff'])
         Route::apiResource('promotions', PromotionController::class);
         Route::apiResource('coupons', CouponController::class);
 
+        Route::get('return-items/{return_item}/attachments/{attachment}', [AttachmentController::class, 'returnFile'])->whereNumber(['return_item', 'attachment'])->name('return-items.attachments.show');
+        Route::get('supplier-invoices/{invoice}/attachment', [AttachmentController::class, 'invoice'])->whereNumber('invoice')->name('supplier-invoices.attachment');
+        Route::get('supplier-deliveries/{delivery}/invoice', [AttachmentController::class, 'delivery'])->whereNumber('delivery')->name('deliveries.invoice');
         // ================== المرحلة 9: المرتجعات ==================
         Route::apiResource('returns', ReturnController::class)->parameters(['returns' => 'return_request']);
         Route::post('returns/{return_request}/approve', [ReturnController::class, 'approve'])->name('returns.approve');
@@ -233,6 +237,7 @@ Route::middleware(['auth:sanctum', 'auth.staff'])
         Route::post('purchase-orders/{purchase_order}/approve', [PurchaseOrderController::class, 'approve'])->name('purchase-orders.approve');
         Route::post('purchase-orders/{purchase_order}/send', [PurchaseOrderController::class, 'send'])->name('purchase-orders.send');
         Route::post('purchase-orders/{purchase_order}/cancel', [PurchaseOrderController::class, 'cancel'])->name('purchase-orders.cancel');
+        Route::post('purchase-orders/{purchase_order}/close-short', [PurchaseOrderController::class, 'closeShort'])->name('purchase-orders.close-short');
         Route::post('purchase-orders/{purchase_order}/receive', [PurchaseOrderController::class, 'receive'])->name('purchase-orders.receive');
 
         Route::apiResource('supplier-invoices', SupplierInvoiceController::class)

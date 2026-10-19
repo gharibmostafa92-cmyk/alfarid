@@ -32,9 +32,16 @@ class SupplierService
     public function update(Supplier $supplier, array $data): Supplier
     {
         // الرصيد الجاري نتيجة دفترية — لا يُعدَّل يدويًا من شاشة المورد
-        unset($data['current_balance']);
-        $supplier->update($data);
+        return DB::transaction(function () use ($supplier, $data): Supplier {
+            $supplier = Supplier::query()->lockForUpdate()->findOrFail($supplier->id);
+            unset($data['current_balance']);
+            if (array_key_exists('opening_balance', $data)) {
+                $data['current_balance'] = round((float) $supplier->current_balance
+                    + (float) $data['opening_balance'] - (float) $supplier->opening_balance, 2);
+            }
+            $supplier->update($data);
 
-        return $supplier->fresh();
+            return $supplier->fresh();
+        });
     }
 }

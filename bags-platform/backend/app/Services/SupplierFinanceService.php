@@ -14,6 +14,7 @@ use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * مالية الموردين — دفتر المورد الدائن:
@@ -31,8 +32,12 @@ class SupplierFinanceService
      */
     public function createInvoice(array $data, ?UploadedFile $attachment = null): SupplierInvoice
     {
-        $invoice = DB::transaction(function () use ($data): SupplierInvoice {
-            $supplier = Supplier::query()->findOrFail((int) $data['supplier_id']);
+        $invoice = PrivateAttachments::transaction(function (PrivateAttachments $files) use ($data, $attachment): SupplierInvoice {
+            $supplier = Supplier::query()->lockForUpdate()->findOrFail((int) $data['supplier_id']);
+            if (! $supplier->is_active) {
+                throw new BusinessException('المورد غير نشط.');
+            }
+            $this->assertInvoiceNumberAvailable($supplier->id, $data['supplier_invoice_no']);
             $poId = $this->assertOrderBelongsToSupplier($data['purchase_order_id'] ?? null, $supplier);
 
             $subtotal = round((float) $data['subtotal'], 2);
@@ -43,7 +48,10 @@ class SupplierFinanceService
                 ? Carbon::parse($data['due_date'])
                 : $issueDate->copy()->addDays((int) $supplier->payment_terms_days);
 
-            return SupplierInvoice::create([
+            if ($dueDate->lt($issueDate)) {
+                throw new BusinessException('تاريخ الاستحقاق يجب ألا يسبق تاريخ الإصدار.');
+            }
+            $invoice = SupplierInvoice::create([
                 'invoice_number' => $this->settings->generateNextNumber('supplier_invoice'),
                 'supplier_invoice_no' => $data['supplier_invoice_no'],
                 'supplier_id' => $supplier->id,
@@ -56,11 +64,12 @@ class SupplierFinanceService
                 'paid_amount' => 0,
                 'status' => SupplierInvoiceStatus::Draft,
             ]);
-        });
+            if ($attachment !== null) {
+                $invoice->update(['attachment_path' => $files->store($attachment, "supplier_invoices/{$invoice->id}")]);
+            }
 
-        if ($attachment !== null) {
-            $invoice->update(['attachment_path' => $attachment->store("supplier_invoices/{$invoice->id}")]);
-        }
+            return $invoice;
+        });
 
         return $invoice->fresh();
     }
@@ -70,8 +79,9 @@ class SupplierFinanceService
      */
     public function updateInvoice(SupplierInvoice $invoice, array $data, ?UploadedFile $attachment = null): SupplierInvoice
     {
-        $invoice = DB::transaction(function () use ($invoice, $data): SupplierInvoice {
-            $invoice = SupplierInvoice::query()->lockForUpdate()->findOrFail($invoice->id);
+        $invoice = PrivateAttachments::transaction(function (PrivateAttachments $files) use ($invoice, $data, $attachment): SupplierInvoice {
+            $supplier = Supplier::query()->lockForUpdate()->findOrFail($invoice->supplier_id);
+            $invoice = SupplierInvoice::query()->where('supplier_id', $supplier->id)->lockForUpdate()->findOrFail($invoice->id);
             if ($invoice->status !== SupplierInvoiceStatus::Draft) {
                 throw new BusinessException('لا يمكن تعديل فاتورة مورد إلا وهي مسودة.');
             }
@@ -81,17 +91,29 @@ class SupplierFinanceService
                     $invoice->supplier()->firstOrFail(),
                 );
             }
+            $this->assertInvoiceNumberAvailable($supplier->id, $data['supplier_invoice_no'] ?? $invoice->supplier_invoice_no, $invoice->id);
+            $issue = Carbon::parse($data['issue_date'] ?? $invoice->issue_date);
+            if (array_key_exists('due_date', $data) && $data['due_date'] === null) {
+                $data['due_date'] = $issue->copy()->addDays((int) $supplier->payment_terms_days)->toDateString();
+            }
+            if (Carbon::parse($data['due_date'] ?? $invoice->due_date)->lt($issue)) {
+                throw new BusinessException('تاريخ الاستحقاق يجب ألا يسبق تاريخ الإصدار.');
+            }
             $invoice->update(array_intersect_key($data, array_flip([
                 'supplier_invoice_no', 'purchase_order_id', 'issue_date', 'due_date', 'subtotal', 'tax_amount',
             ])));
             $invoice->update(['total_amount' => round((float) $invoice->subtotal + (float) $invoice->tax_amount, 2)]);
 
+            if ($attachment !== null) {
+                $oldPath = $invoice->attachment_path;
+                $invoice->update(['attachment_path' => $files->store($attachment, "supplier_invoices/{$invoice->id}")]);
+                if ($oldPath) {
+                    DB::afterCommit(fn () => Storage::disk('local')->delete($oldPath));
+                }
+            }
+
             return $invoice;
         });
-
-        if ($attachment !== null) {
-            $invoice->update(['attachment_path' => $attachment->store("supplier_invoices/{$invoice->id}")]);
-        }
 
         return $invoice->fresh();
     }
@@ -100,11 +122,11 @@ class SupplierFinanceService
     public function postInvoice(SupplierInvoice $invoice): SupplierInvoice
     {
         return DB::transaction(function () use ($invoice): SupplierInvoice {
-            $invoice = SupplierInvoice::query()->lockForUpdate()->findOrFail($invoice->id);
+            $supplier = Supplier::query()->lockForUpdate()->findOrFail($invoice->supplier_id);
+            $invoice = SupplierInvoice::query()->where('supplier_id', $supplier->id)->lockForUpdate()->findOrFail($invoice->id);
             if ($invoice->status !== SupplierInvoiceStatus::Draft) {
                 throw new BusinessException('لا يمكن اعتماد فاتورة إلا وهي مسودة.');
             }
-            $supplier = Supplier::query()->lockForUpdate()->findOrFail($invoice->supplier_id);
             $supplier->increment('current_balance', (float) $invoice->total_amount);
             $invoice->update(['status' => SupplierInvoiceStatus::Posted]);
 
@@ -116,14 +138,14 @@ class SupplierFinanceService
     public function cancelInvoice(SupplierInvoice $invoice): SupplierInvoice
     {
         return DB::transaction(function () use ($invoice): SupplierInvoice {
-            $invoice = SupplierInvoice::query()->lockForUpdate()->findOrFail($invoice->id);
+            $supplier = Supplier::query()->lockForUpdate()->findOrFail($invoice->supplier_id);
+            $invoice = SupplierInvoice::query()->where('supplier_id', $supplier->id)->lockForUpdate()->findOrFail($invoice->id);
             if ($invoice->status === SupplierInvoiceStatus::Draft) {
                 $invoice->update(['status' => SupplierInvoiceStatus::Cancelled]);
 
                 return $invoice->fresh();
             }
             if ($invoice->status === SupplierInvoiceStatus::Posted && (float) $invoice->paid_amount <= 0) {
-                $supplier = Supplier::query()->lockForUpdate()->findOrFail($invoice->supplier_id);
                 $supplier->decrement('current_balance', (float) $invoice->total_amount);
                 $invoice->update(['status' => SupplierInvoiceStatus::Cancelled]);
 
@@ -136,10 +158,18 @@ class SupplierFinanceService
 
     public function deleteInvoice(SupplierInvoice $invoice): void
     {
-        if (! in_array($invoice->status, [SupplierInvoiceStatus::Draft, SupplierInvoiceStatus::Cancelled], true)) {
-            throw new BusinessException('لا يمكن حذف فاتورة معتمدة أو مسددة؛ ألغِها بدلًا من حذفها.');
-        }
-        $invoice->delete();
+        DB::transaction(function () use ($invoice): void {
+            $supplier = Supplier::query()->lockForUpdate()->findOrFail($invoice->supplier_id);
+            $invoice = SupplierInvoice::query()->where('supplier_id', $supplier->id)->lockForUpdate()->findOrFail($invoice->id);
+            if ($invoice->status !== SupplierInvoiceStatus::Draft) {
+                throw new BusinessException('يمكن حذف الفواتير المسودة فقط؛ يحتفظ بالسجلات الأخرى للتدقيق.');
+            }
+            $path = $invoice->attachment_path;
+            $invoice->delete();
+            if ($path) {
+                DB::afterCommit(fn () => Storage::disk('local')->delete($path));
+            }
+        });
     }
 
     /**
@@ -148,12 +178,18 @@ class SupplierFinanceService
      *
      * @param  array{supplier_id: int, supplier_invoice_id?: int|null, amount: float|int|string, payment_method: string, reference_no?: string|null, payment_date: string, notes?: string|null}  $data
      */
-    public function createPayment(array $data, User $creator): SupplierPayment
+    public function createPayment(array $data, User $creator, ?string $idempotencyKey = null): SupplierPayment
     {
-        return DB::transaction(function () use ($data, $creator): SupplierPayment {
+        return app(OperationIdempotencyService::class)->run('supplier_payment', $creator, $idempotencyKey, $data,
+            fn () => $this->executePayment($data, $creator, hash('sha256', $creator->id.':'.$idempotencyKey)));
+    }
+
+    private function executePayment(array $data, User $creator, string $idempotencyKey): SupplierPayment
+    {
+        return DB::transaction(function () use ($data, $creator, $idempotencyKey): SupplierPayment {
             $supplier = Supplier::query()->lockForUpdate()->findOrFail((int) $data['supplier_id']);
             $amount = round((float) $data['amount'], 2);
-            if ($amount <= 0) {
+            if ($amount <= 0 || $amount > 9999999999.99) {
                 throw new BusinessException('مبلغ الدفعة يجب أن يكون أكبر من صفر.');
             }
 
@@ -174,13 +210,15 @@ class SupplierFinanceService
                 }
             }
 
+            $reference = $this->paymentReference($supplier->id, $data['payment_method'], $data['reference_no'] ?? null);
             $payment = SupplierPayment::create([
                 'payment_number' => $this->settings->generateNextNumber('supplier_payment'),
+                'idempotency_key' => $idempotencyKey,
                 'supplier_id' => $supplier->id,
                 'supplier_invoice_id' => $invoice?->id,
                 'amount' => $amount,
                 'payment_method' => $data['payment_method'],
-                'reference_no' => $data['reference_no'] ?? null,
+                'reference_no' => $reference,
                 'payment_date' => $data['payment_date'],
                 'notes' => $data['notes'] ?? null,
                 'created_by' => $creator->id,
@@ -196,12 +234,41 @@ class SupplierFinanceService
         });
     }
 
+    public function updatePayment(SupplierPayment $payment, array $data): SupplierPayment
+    {
+        return DB::transaction(function () use ($payment, $data): SupplierPayment {
+            $supplier = Supplier::query()->lockForUpdate()->findOrFail($payment->supplier_id);
+            $payment = SupplierPayment::query()->where('supplier_id', $supplier->id)->lockForUpdate()->findOrFail($payment->id);
+            $method = $data['payment_method'] ?? $payment->payment_method->value;
+            $reference = array_key_exists('reference_no', $data) ? $data['reference_no'] : $payment->reference_no;
+            $data['reference_no'] = $this->paymentReference($supplier->id, $method, $reference, $payment->id);
+            $payment->update(array_intersect_key($data, array_flip(['payment_method', 'reference_no', 'payment_date', 'notes'])));
+
+            return $payment->fresh();
+        });
+    }
+
+    private function paymentReference(int $supplierId, string $method, ?string $reference, ?int $exceptId = null): ?string
+    {
+        $reference = $reference !== null ? trim($reference) : null;
+        if ($method !== 'cash' && ($reference === null || $reference === '')) {
+            throw new BusinessException('مرجع الدفع مطلوب للدفعات غير النقدية.');
+        }
+        if ($method !== 'cash' && SupplierPayment::query()->where('supplier_id', $supplierId)
+            ->where('payment_method', '!=', 'cash')->when($exceptId, fn ($q) => $q->where('id', '!=', $exceptId))
+            ->whereRaw('lower(btrim(reference_no)) = ?', [mb_strtolower($reference)])->exists()) {
+            throw new BusinessException('مرجع الدفع مسجل سابقًا لهذا المورد.', [], 409);
+        }
+
+        return $reference;
+    }
+
     /** حذف دفعة يعكس أثرها كاملًا: رصيد المورد ومدفوعات فاتورتها. */
     public function deletePayment(SupplierPayment $payment): void
     {
         DB::transaction(function () use ($payment): void {
-            $payment = SupplierPayment::query()->lockForUpdate()->findOrFail($payment->id);
             $supplier = Supplier::query()->lockForUpdate()->findOrFail($payment->supplier_id);
+            $payment = SupplierPayment::query()->where('supplier_id', $supplier->id)->lockForUpdate()->findOrFail($payment->id);
             $supplier->increment('current_balance', (float) $payment->amount);
 
             if ($payment->supplier_invoice_id !== null) {
@@ -231,6 +298,15 @@ class SupplierFinanceService
         }]);
     }
 
+    private function assertInvoiceNumberAvailable(int $supplierId, string $number, ?int $exceptId = null): void
+    {
+        if (SupplierInvoice::query()->where('supplier_id', $supplierId)->where('status', '!=', SupplierInvoiceStatus::Cancelled)
+            ->when($exceptId, fn ($q) => $q->where('id', '!=', $exceptId))
+            ->whereRaw('lower(btrim(supplier_invoice_no)) = ?', [mb_strtolower(trim($number))])->exists()) {
+            throw new BusinessException('رقم فاتورة المورد مسجل سابقًا.', [], 409);
+        }
+    }
+
     private function assertOrderBelongsToSupplier(mixed $poId, Supplier $supplier): ?int
     {
         if ($poId === null || $poId === '') {
@@ -253,8 +329,11 @@ class SupplierFinanceService
      */
     public function statement(Supplier $supplier, ?string $fromDate = null, ?string $toDate = null): array
     {
-        $from = $fromDate !== null ? Carbon::parse($fromDate)->toDateString() : $supplier->created_at->toDateString();
         $to = $toDate !== null ? Carbon::parse($toDate)->toDateString() : now()->toDateString();
+        $from = $fromDate !== null ? Carbon::parse($fromDate)->toDateString() : Carbon::parse($to)->subDays(365)->toDateString();
+        if (Carbon::parse($from)->gt(Carbon::parse($to)) || Carbon::parse($from)->diffInDays(Carbon::parse($to)) > 366) {
+            throw new BusinessException('فترة كشف الحساب يجب ألا تتجاوز 366 يومًا وبترتيب زمني صحيح.');
+        }
         $countedStatuses = [
             SupplierInvoiceStatus::Posted->value,
             SupplierInvoiceStatus::PartiallyPaid->value,

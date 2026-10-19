@@ -27,9 +27,9 @@ class StoreDeliveryRequest extends FormRequest
             'supplier_invoice_no' => ['nullable', 'string', 'max:100'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'invoice_file' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
-            'items' => ['required', 'array', 'min:1'],
+            'items' => ['required', 'array', 'min:1', 'max:50'],
             'items.*.purchase_order_item_id' => ['required', 'integer'],
-            'items.*.shipped_qty' => ['required', 'numeric', 'gt:0'],
+            'items.*.shipped_qty' => ['required', 'integer', 'gt:0', 'max:99999999'],
         ];
     }
 }

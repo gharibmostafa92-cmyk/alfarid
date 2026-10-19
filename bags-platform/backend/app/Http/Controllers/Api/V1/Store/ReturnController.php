@@ -9,8 +9,11 @@ use App\Http\Requests\Store\Return\StoreReturnRequest;
 use App\Http\Resources\Store\ReturnRequestResource;
 use App\Models\Customer;
 use App\Models\Order;
+use App\Models\ReturnRequest;
 use App\Services\ReturnService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 /**
  * مرتجعات العميل المسجل: تقديم طلب إرجاع لطلب مُسلَّم يخصه (مع صور عيوب).
@@ -19,6 +22,20 @@ use Illuminate\Http\JsonResponse;
 class ReturnController extends Controller
 {
     public function __construct(protected ReturnService $returns) {}
+
+    public function index(Request $request): AnonymousResourceCollection
+    {
+        return ReturnRequestResource::collection(ReturnRequest::query()
+            ->where('customer_id', $request->user()->id)->with(['items.orderItem', 'order'])->latest('id')->paginate(20));
+    }
+
+    public function show(Request $request, int $returnRequest): ReturnRequestResource
+    {
+        $return = ReturnRequest::query()->where('customer_id', $request->user()->id)
+            ->with(['items.orderItem', 'order'])->findOrFail($returnRequest);
+
+        return ReturnRequestResource::make($return);
+    }
 
     public function store(StoreReturnRequest $request): JsonResponse
     {

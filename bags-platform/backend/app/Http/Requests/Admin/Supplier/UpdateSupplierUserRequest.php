@@ -27,7 +27,7 @@ class UpdateSupplierUserRequest extends FormRequest
             'email' => ['sometimes', 'email', 'max:255', Rule::unique('supplier_users', 'email')->ignore($userId)],
             'phone' => ['nullable', 'string', 'max:30'],
             'password' => ['nullable', 'string', 'min:8', 'max:255'],
-            'is_active' => ['nullable', 'boolean'],
+            'is_active' => ['sometimes', 'boolean'],
         ];
     }
 }

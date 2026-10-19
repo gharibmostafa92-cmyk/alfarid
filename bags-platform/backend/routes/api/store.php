@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Api\V1\AttachmentController;
 use App\Http\Controllers\Api\V1\Store\AuthController;
 use App\Http\Controllers\Api\V1\Store\CartController;
 use App\Http\Controllers\Api\V1\Store\CatalogController;
@@ -10,6 +11,7 @@ use App\Http\Controllers\Api\V1\Store\HomeController;
 use App\Http\Controllers\Api\V1\Store\OrderController as StoreOrderController;
 use App\Http\Controllers\Api\V1\Store\ProductController;
 use App\Http\Controllers\Api\V1\Store\ReturnController;
+use App\Http\Controllers\Api\V1\Store\WalletController;
 use App\Http\Middleware\ProtectStorefrontCaching;
 use Illuminate\Support\Facades\Route;
 
@@ -65,8 +67,12 @@ Route::get('orders/{number}/track', [StoreOrderController::class, 'track'])
 
 // مسارات حساب العميل المسجل فقط
 Route::middleware(['auth:sanctum', 'auth.customer'])->prefix('account')->name('account.')->group(function (): void {
+    Route::get('wallet', [WalletController::class, 'index'])->name('wallet.index');
     Route::get('orders', [StoreOrderController::class, 'index'])->name('orders.index');
     Route::post('orders/{order}/cancel', [StoreOrderController::class, 'cancel'])->name('orders.cancel');
     // المرحلة 9: تقديم طلب إرجاع لطلب مُسلَّم يخص العميل
-    Route::post('returns', [ReturnController::class, 'store'])->name('returns.store');
+    Route::get('return-items/{return_item}/attachments/{attachment}', [AttachmentController::class, 'returnFile'])->whereNumber(['return_item', 'attachment'])->name('return-items.attachments.show');
+    Route::get('returns', [ReturnController::class, 'index'])->name('returns.index');
+    Route::get('returns/{return_request}', [ReturnController::class, 'show'])->whereNumber('return_request')->name('returns.show');
+    Route::post('returns', [ReturnController::class, 'store'])->middleware('throttle:10,60')->name('returns.store');
 });

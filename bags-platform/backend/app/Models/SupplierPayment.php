@@ -18,6 +18,7 @@ class SupplierPayment extends Model
 
     protected $fillable = [
         'payment_number',
+        'idempotency_key',
         'supplier_id',
         'supplier_invoice_id',
         'amount',

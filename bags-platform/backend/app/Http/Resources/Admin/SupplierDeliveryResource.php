@@ -25,7 +25,7 @@ class SupplierDeliveryResource extends JsonResource
             'supplier_id' => $this->supplier_id,
             'status' => $this->status,
             'delivery_date' => $this->delivery_date?->toDateString(),
-            'invoice_file_path' => $this->invoice_file_path,
+            'invoice_file_url' => $this->invoice_file_path ? url('/api/v1/admin/supplier-deliveries/'.$this->id.'/invoice') : null,
             'supplier_invoice_no' => $this->supplier_invoice_no,
             'notes' => $this->notes,
             'items' => SupplierDeliveryItemResource::collection($this->whenLoaded('items')),

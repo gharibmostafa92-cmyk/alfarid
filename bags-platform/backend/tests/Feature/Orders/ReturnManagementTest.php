@@ -381,4 +381,81 @@ class ReturnManagementTest extends TestCase
         $this->withToken($this->staffToken)->getJson('/api/v1/admin/returns')
             ->assertOk()->assertJsonPath('meta.total', 0);
     }
+
+    public function test_unreceived_quantity_can_be_requested_again_and_order_waits_for_all_refunds(): void
+    {
+        $variant = $this->purchasableVariant(100);
+        $this->giveStock($variant, 10);
+        $customer = Customer::factory()->create();
+        $order = $this->deliveredOrder($customer, $variant, 3);
+        $itemId = $order->items->first()->id;
+        $first = $this->storeCreateReturn($customer, $order, $itemId, 3)->assertCreated()->json('data');
+        $this->adminPost("/api/v1/admin/returns/{$first['id']}/approve", ['branch_id' => $this->branch->id])->assertOk();
+        $this->adminPost("/api/v1/admin/returns/{$first['id']}/receive", [
+            'items' => [['id' => $first['items'][0]['id'], 'received_good_qty' => 1, 'received_damaged_qty' => 0]],
+        ])->assertOk();
+        $second = $this->storeCreateReturn($customer, $order, $itemId, 2)->assertCreated()->json('data');
+        $this->adminPost("/api/v1/admin/returns/{$second['id']}/approve", ['branch_id' => $this->branch->id])->assertOk();
+        $this->adminPost("/api/v1/admin/returns/{$second['id']}/receive", [
+            'items' => [['id' => $second['items'][0]['id'], 'received_good_qty' => 2, 'received_damaged_qty' => 0]],
+        ])->assertOk();
+
+        $this->adminPost("/api/v1/admin/returns/{$first['id']}/refund", ['refund_method' => 'wallet'])->assertOk();
+        $this->assertSame(OrderStatus::Delivered, $order->fresh()->status);
+        $this->adminPost("/api/v1/admin/returns/{$second['id']}/refund", ['refund_method' => 'wallet'])->assertOk();
+
+        $this->assertSame(OrderStatus::Returned, $order->fresh()->status);
+        $this->assertSame('300.00', $customer->fresh()->wallet_balance);
+    }
+
+    public function test_bank_refund_without_reference_returns_422_without_financial_changes(): void
+    {
+        $return = ReturnRequest::factory()->create(['status' => 'received', 'total_refund_amount' => 100]);
+
+        $this->adminPost("/api/v1/admin/returns/{$return->id}/refund", ['refund_method' => 'bank_transfer'])->assertUnprocessable();
+
+        $this->assertDatabaseHas('return_requests', ['id' => $return->id, 'status' => 'received', 'refunded_at' => null]);
+    }
+
+    public function test_manual_order_return_with_received_rma_returns_422_without_double_stock(): void
+    {
+        $variant = $this->purchasableVariant(100);
+        $this->giveStock($variant, 10);
+        $customer = Customer::factory()->create();
+        $order = $this->deliveredOrder($customer, $variant, 2);
+        $return = $this->storeCreateReturn($customer, $order, $order->items->first()->id, 1)->assertCreated()->json('data');
+        $this->adminPost("/api/v1/admin/returns/{$return['id']}/approve", ['branch_id' => $this->branch->id])->assertOk();
+        $this->adminPost("/api/v1/admin/returns/{$return['id']}/receive", [
+            'items' => [['id' => $return['items'][0]['id'], 'received_good_qty' => 1, 'received_damaged_qty' => 0]],
+        ])->assertOk();
+        $movementCount = StockMovement::count();
+        Auth::forgetGuards();
+
+        $this->withToken($this->staffToken)->patchJson("/api/v1/admin/orders/{$order->id}/status", [
+            'status' => 'returned',
+        ])->assertUnprocessable();
+
+        $this->assertSame(OrderStatus::Delivered, $order->fresh()->status);
+        $this->assertSame($movementCount, StockMovement::count());
+        $this->assertSame('1.0000', $this->branchLevel($variant)->on_hand);
+    }
+
+    public function test_refund_rolls_back_wallet_and_return_if_order_completion_fails(): void
+    {
+        $variant = $this->purchasableVariant(100);
+        $this->giveStock($variant, 10);
+        $customer = Customer::factory()->create();
+        $order = $this->deliveredOrder($customer, $variant, 1);
+        $return = $this->storeCreateReturn($customer, $order, $order->items->first()->id, 1)->assertCreated()->json('data');
+        $this->adminPost("/api/v1/admin/returns/{$return['id']}/approve", ['branch_id' => $this->branch->id])->assertOk();
+        $this->adminPost("/api/v1/admin/returns/{$return['id']}/receive", [
+            'items' => [['id' => $return['items'][0]['id'], 'received_good_qty' => 1, 'received_damaged_qty' => 0]],
+        ])->assertOk();
+        $order->update(['status' => OrderStatus::Cancelled]);
+
+        $this->adminPost("/api/v1/admin/returns/{$return['id']}/refund", ['refund_method' => 'wallet'])->assertUnprocessable();
+
+        $this->assertSame('0.00', $customer->fresh()->wallet_balance);
+        $this->assertDatabaseHas('return_requests', ['id' => $return['id'], 'status' => 'received', 'refunded_at' => null]);
+    }
 }
