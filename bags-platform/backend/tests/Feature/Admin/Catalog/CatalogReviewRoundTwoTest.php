@@ -306,9 +306,11 @@ class CatalogReviewRoundTwoTest extends TestCase
     public function test_number_generation_refuses_corrupt_stored_counter(): void
     {
         $this->seed(SettingSeeder::class);
-        Setting::where('key', 'order_next_number')->update(['value' => 'abc']);
+        // منذ H2 تُرقَّم الطلبات بتسلسل PostgreSQL؛ العداد الصفّي ما زال
+        // حاكمًا للفواتير (تسلسل بلا فجوات قانونًا) فالحارس يُختبَر عليها
+        Setting::where('key', 'invoice_next_number')->update(['value' => 'abc']);
         $this->expectException(BusinessException::class);
-        app(SettingService::class)->generateNextNumber('order');
+        app(SettingService::class)->generateNextNumber('invoice');
     }
 
     public function test_variant_update_eager_loads_product_for_weight_fallback(): void

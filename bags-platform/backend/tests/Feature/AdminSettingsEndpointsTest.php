@@ -11,6 +11,7 @@ use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
@@ -97,6 +98,7 @@ class AdminSettingsEndpointsTest extends TestCase
     public function test_number_generation_increments_the_counter_and_applies_padding(): void
     {
         $this->seedSettings();
+        $this->restartDocumentSequences();
         $service = app(SettingService::class);
         $service->getAllGrouped();
         $this->assertTrue(Cache::has('app_settings_static'));
@@ -112,6 +114,7 @@ class AdminSettingsEndpointsTest extends TestCase
     public function test_purchase_order_and_quotation_padding_can_be_configured_and_validated(): void
     {
         $this->seedSettings();
+        $this->restartDocumentSequences();
         $token = $this->staffWithSettingsPermission()->createToken('settings-test')->plainTextToken;
 
         $this->requestWithToken($token, 'PUT', '/api/v1/admin/settings', [
@@ -124,8 +127,9 @@ class AdminSettingsEndpointsTest extends TestCase
         $service = app(SettingService::class);
         $this->assertSame('PO-00001000', $service->generateNextNumber('purchase_order'));
         $this->assertSame('QT-0001000', $service->generateNextNumber('quotation'));
-        $this->assertDatabaseHas('settings', ['key' => 'purchase_order_next_number', 'value' => '1001']);
-        $this->assertDatabaseHas('settings', ['key' => 'quotation_next_number', 'value' => '1001']);
+        // العدّاد المعروض هو قيمة التسلسل التالية لا صف الإعدادات (H2)
+        $this->assertSame(1001, $service->get('purchase_order_next_number'));
+        $this->assertSame(1001, $service->get('quotation_next_number'));
 
         $this->requestWithToken($token, 'PUT', '/api/v1/admin/settings', [
             'purchase_order_padding' => 0,
@@ -151,6 +155,7 @@ class AdminSettingsEndpointsTest extends TestCase
     public function test_settings_update_cannot_decrease_a_numbering_counter(): void
     {
         $this->seedSettings();
+        $this->restartDocumentSequences();
         $service = app(SettingService::class);
         $service->generateNextNumber('order');
         $token = $this->staffWithSettingsPermission()->createToken('settings-test')->plainTextToken;
@@ -166,6 +171,18 @@ class AdminSettingsEndpointsTest extends TestCase
     private function seedSettings(): void
     {
         $this->seed(SettingSeeder::class);
+    }
+
+    /**
+     * منذ H2 تُرقَّم المستندات الداخلية بتسلسلات PostgreSQL لا بصف العداد،
+     * والتسلسل لا يتراجع مع معاملات الاختبار — تُعاد تهيئته لنقطة معروفة
+     * حتى تبقى تأكيدات القيم المطلقة حتمية.
+     */
+    private function restartDocumentSequences(): void
+    {
+        foreach (['order', 'purchase_order', 'quotation'] as $type) {
+            DB::statement("ALTER SEQUENCE document_{$type}_number_seq RESTART WITH 1000");
+        }
     }
 
     private function staffWithSettingsPermission(): User

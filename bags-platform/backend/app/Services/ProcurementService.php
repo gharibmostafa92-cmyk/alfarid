@@ -397,6 +397,11 @@ class ProcurementService
             ], true)) {
                 throw new BusinessException("لا يمكن استلام بضاعة لأمر شراء في حالة ({$po->status->value}).");
             }
+            // إعادة فحص نشاط فرع الاستلام لحظة الاستلام الفعلي (L4): قد يكون
+            // الفرع عُطّل بعد إرسال الأمر، فلا يصح تغذية مخزون فرع ميت.
+            if (! Branch::query()->whereKey($po->branch_id)->where('is_active', true)->exists()) {
+                throw new BusinessException('فرع استلام أمر الشراء غير نشط.');
+            }
 
             if ($supplierDeliveryId === null && $po->deliveries()->where('status', SupplierDeliveryStatus::PendingReceipt)->exists()) {
                 throw new BusinessException('حدد إشعار التوريد المعلق عند الاستلام لمنع احتساب كمياته مرتين.');

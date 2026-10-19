@@ -215,6 +215,17 @@ class ReturnService
                 }
             }
 
+            // تجميعات المرتجعات السابقة (مستلمة/مردودة) لكل بنود الطلب في
+            // استعلام واحد مجمّع بدل استعلام لكل بند داخل الحلقة (L5). بنود
+            // هذا المرتجع نفسه مستبعدة ضمنيًا لأن حالته ما زالت Approved.
+            $previousByOrderItem = ReturnRequestItem::query()
+                ->whereIn('order_item_id', $return->items->pluck('order_item_id')->all())
+                ->whereHas('returnRequest', fn ($q) => $q->whereIn('status', [ReturnStatus::Received, ReturnStatus::Refunded]))
+                ->selectRaw('order_item_id, COALESCE(SUM(received_good_qty + received_damaged_qty), 0) as qty, COALESCE(SUM(refund_amount), 0) as refunded')
+                ->groupBy('order_item_id')
+                ->get()
+                ->keyBy('order_item_id');
+
             $refundTotal = 0.0;
             foreach ($return->items as $item) {
                 $line = $lines->get($item->id);
@@ -265,16 +276,16 @@ class ReturnService
                         ->update(['sales_count' => DB::raw('GREATEST(sales_count - '.(int) round($receivedTotal).', 0)')]);
                 }
 
-                $previous = ReturnRequestItem::query()->where('order_item_id', $item->order_item_id)
-                    ->where('id', '!=', $item->id)->whereHas('returnRequest', fn ($q) => $q->whereIn('status', [ReturnStatus::Received, ReturnStatus::Refunded]))
-                    ->selectRaw('COALESCE(SUM(received_good_qty + received_damaged_qty), 0) as qty, COALESCE(SUM(refund_amount), 0) as refunded')->first();
+                $previous = $previousByOrderItem->get($item->order_item_id);
+                $previousQty = (float) ($previous->qty ?? 0);
+                $previousRefunded = (float) ($previous->refunded ?? 0);
                 $orderItem = $item->orderItem;
                 $netCents = $this->netLineRefundCents($orderItem);
-                $cumulativeQty = (float) $previous->qty + $receivedTotal;
+                $cumulativeQty = $previousQty + $receivedTotal;
                 $targetCents = $cumulativeQty >= (float) $orderItem->qty
                     ? $netCents
                     : min($netCents, (int) round($cumulativeQty * (float) $item->unit_refund_price * 100));
-                $refundAmount = max(0, $targetCents - (int) round((float) $previous->refunded * 100)) / 100;
+                $refundAmount = max(0, $targetCents - (int) round($previousRefunded * 100)) / 100;
                 $item->update([
                     'refund_amount' => $refundAmount,
                     'received_good_qty' => $good,
