@@ -1,0 +1,62 @@
+<?php
+
+declare(strict_types=1);
+
+use App\Http\Controllers\Api\V1\Pos\PosAuthController;
+use App\Http\Controllers\Api\V1\Pos\PosProductController;
+use App\Http\Controllers\Api\V1\Pos\PosSaleController;
+use App\Http\Controllers\Api\V1\Pos\PosShiftController;
+use App\Http\Controllers\Api\V1\Pos\PosStockController;
+use Illuminate\Support\Facades\Route;
+
+// معرّفات رقمية فقط
+Route::pattern('sale',      '[0-9]{1,18}');
+Route::pattern('transfer',  '[0-9]{1,18}');
+Route::pattern('stocktake', '[0-9]{1,18}');
+Route::pattern('held_sale', '[0-9]{1,18}');
+
+// ===================================================================
+//  مصادقة الكاشير (بلا توكن)
+// ===================================================================
+Route::post('auth/login', [PosAuthController::class, 'login'])
+    ->middleware('throttle:pos-login')
+    ->name('auth.login');
+
+// ===================================================================
+//  مسارات تحتاج توكن موظف فقط (لا تحتاج وردية مفتوحة)
+// ===================================================================
+Route::middleware(['auth:sanctum', 'auth.staff'])->group(function (): void {
+    Route::post('auth/logout', [PosAuthController::class, 'logout'])->name('auth.logout');
+
+    // فتح الوردية (لا تحتاج وردية موجودة)
+    Route::post('shifts/open', [PosShiftController::class, 'open'])->name('shifts.open');
+
+    // عرض الوردية الحالية (لا تحتاج وردية مفتوحة — قد تكون null)
+    Route::get('shifts/current', [PosShiftController::class, 'current'])->name('shifts.current');
+
+    // بحث المنتجات (متاح دائمًا للكاشير)
+    Route::get('products/lookup', [PosProductController::class, 'lookup'])->name('products.lookup');
+
+    // الفواتير المعلقة للعرض (لا تحتاج وردية مفتوحة)
+    Route::get('sales/held', [PosSaleController::class, 'held'])->name('sales.held');
+
+    // ===================================================================
+    //  مسارات تحتاج وردية مفتوحة (Active Shift Requirement)
+    // ===================================================================
+    Route::middleware('pos.shift')->group(function (): void {
+        // إغلاق الوردية
+        Route::post('shifts/close', [PosShiftController::class, 'close'])->name('shifts.close');
+
+        // المبيعات
+        Route::post('sales',              [PosSaleController::class, 'store'])->name('sales.store');
+        Route::post('sales/hold',         [PosSaleController::class, 'hold'])->name('sales.hold');
+        Route::post('sales/{sale}/return',   [PosSaleController::class, 'processReturn'])->name('sales.return');
+        Route::post('sales/{sale}/exchange', [PosSaleController::class, 'processExchange'])->name('sales.exchange');
+
+        // المخزون
+        Route::get('stock',                              [PosStockController::class, 'index'])->name('stock.index');
+        Route::post('transfer-requests',                 [PosStockController::class, 'requestTransfer'])->name('transfer-requests.store');
+        Route::post('transfers/{transfer}/receive',      [PosStockController::class, 'receiveTransfer'])->name('transfers.receive');
+        Route::post('stocktakes/{stocktake}/scan',       [PosStockController::class, 'scan'])->name('stocktakes.scan');
+    });
+});

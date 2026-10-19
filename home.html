@@ -228,18 +228,80 @@
       background-color: #2c2c2c;
     }
 
+    /* Hero Section Ambient Portrait Background & Product Image */
+    .hero-wrapper .container {
+      position: relative;
+      z-index: 2;
+    }
+
+    .hero-bg-backdrop {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: 1;
+    }
+
+    .hero-bg-backdrop-img {
+      position: absolute;
+      top: -8%;
+      right: 0;
+      width: 60%;
+      height: 116%;
+      filter: blur(14px) brightness(0.96) saturate(1.25);
+      opacity: 0.75;
+      transform: scale(1.08);
+      transition: transform 0.6s ease;
+    }
+
+    .hero-bg-backdrop-img img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+      display: block;
+    }
+
+    .hero-bg-backdrop-overlay {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(
+        90deg,
+        #dfe5e9 0%,
+        rgba(223, 229, 233, 0.95) 38%,
+        rgba(223, 229, 233, 0.6) 65%,
+        rgba(223, 229, 233, 0.2) 100%
+      );
+    }
+
     .hero-image {
       flex: 1;
       display: flex;
       justify-content: flex-end;
+      align-items: center;
       padding-right: 40px;
+      position: relative;
     }
 
-    .hero-image img {
+    .hero-foreground-img {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      filter: drop-shadow(0 20px 26px rgba(0, 0, 0, 0.2));
+      transition: transform 0.4s ease;
+    }
+
+    .hero-foreground-img img {
       width: 390px;
       height: 410px;
       object-fit: contain;
-      filter: drop-shadow(0 18px 20px rgba(0, 0, 0, 0.12));
+      display: block;
+      transition: transform 0.4s ease;
+    }
+
+    .hero-foreground-img:hover {
+      transform: translateY(-8px) scale(1.02);
     }
 
     /* Slider Dots */
@@ -480,6 +542,26 @@
       .hero-image {
         padding-right: 0;
         margin-top: 30px;
+        justify-content: center;
+      }
+      .hero-foreground-img img {
+        width: 320px;
+        height: auto;
+        max-height: 340px;
+      }
+      .hero-bg-backdrop-img {
+        width: 100%;
+        height: 100%;
+        top: 0;
+        opacity: 0.55;
+      }
+      .hero-bg-backdrop-overlay {
+        background: linear-gradient(
+          180deg,
+          #dfe5e9 0%,
+          rgba(223, 229, 233, 0.94) 45%,
+          rgba(223, 229, 233, 0.5) 100%
+        );
       }
     }
 
@@ -490,6 +572,10 @@
       .product-grid {
         grid-template-columns: 1fr;
       }
+      .hero-foreground-img img {
+        width: 250px;
+        max-height: 280px;
+      }
     }
   </style>
 </head>
@@ -497,6 +583,14 @@
 
   <!-- ================= HERO & NAVBAR ================= -->
   <div class="hero-wrapper">
+    <!-- Ambient Portrait Background covering the hero section -->
+    <div class="hero-bg-backdrop">
+      <div class="hero-bg-backdrop-img">
+        <img src="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=1200&q=85" class="tint-pink" alt="" aria-hidden="true" />
+      </div>
+      <div class="hero-bg-backdrop-overlay"></div>
+    </div>
+
     <div class="container">
       <header>
         <!-- Logo -->
@@ -544,7 +638,9 @@
         </div>
 
         <div class="hero-image">
-          <img src="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=700&q=85" class="tint-pink" alt="Ladies Backpack" />
+          <div class="hero-foreground-img">
+            <img src="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=700&q=85" class="tint-pink" alt="Ladies Backpack" />
+          </div>
         </div>
 
         <!-- Pagination Lines -->

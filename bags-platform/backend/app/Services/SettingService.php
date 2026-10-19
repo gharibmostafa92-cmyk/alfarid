@@ -273,7 +273,10 @@ class SettingService
             'purchase_request' => ['prefix' => 'purchase_request_prefix', 'next' => 'purchase_request_next_number', 'padding' => 'purchase_request_padding'],
             'delivery' => ['prefix' => 'delivery_prefix', 'next' => 'delivery_next_number', 'padding' => 'delivery_padding'],
             'supplier_invoice' => ['prefix' => 'supplier_invoice_prefix', 'next' => 'supplier_invoice_next_number', 'padding' => 'supplier_invoice_padding'],
-            'supplier_payment' => ['prefix' => 'supplier_payment_prefix', 'next' => 'supplier_payment_next_number', 'padding' => 'supplier_payment_padding'],
+            'supplier_payment'    => ['prefix' => 'supplier_payment_prefix',    'next' => 'supplier_payment_next_number',    'padding' => 'supplier_payment_padding'],
+            'shift'               => ['prefix' => 'shift_prefix',               'next' => 'shift_next_number',               'padding' => 'shift_padding'],
+            'expense'             => ['prefix' => 'expense_prefix',             'next' => 'expense_next_number',             'padding' => 'expense_padding'],
+            'treasury_transfer'   => ['prefix' => 'treasury_transfer_prefix',   'next' => 'treasury_transfer_next_number',   'padding' => 'treasury_transfer_padding'],
         ];
     }
 

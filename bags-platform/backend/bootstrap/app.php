@@ -43,16 +43,22 @@ return Application::configure(basePath: dirname(__DIR__))
                 ->prefix('api/v1/webhooks')
                 ->name('webhooks.')
                 ->group(base_path('routes/api/webhooks.php'));
+            // بوابة الـ POS: كاشير الفرع — توكن موظف + وردية مفتوحة لعمليات البيع
+            Route::middleware('api')
+                ->prefix('api/v1/pos')
+                ->name('pos.')
+                ->group(base_path('routes/api/pos.php'));
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
-            'auth.staff' => EnsureStaffAuthenticated::class,
+            'auth.staff'    => EnsureStaffAuthenticated::class,
             'auth.customer' => EnsureCustomerAuthenticated::class,
             'auth.supplier' => EnsureSupplierAuthenticated::class,
             'wholesale.approved' => EnsureWholesaleApproved::class,
-            'role' => RoleMiddleware::class,
-            'permission' => PermissionMiddleware::class,
+            'role'          => RoleMiddleware::class,
+            'permission'    => PermissionMiddleware::class,
+            'pos.shift'     => \App\Http\Middleware\EnsureOpenPosShift::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

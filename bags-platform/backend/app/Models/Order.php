@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\OrderStatus;
+use App\Models\PosShift;
 use Database\Factories\OrderFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -34,6 +35,7 @@ class Order extends Model
         'shipping_address_line',
         'shipping_notes',
         'allocated_branch_id',
+        'pos_shift_id',
         'status',
         'payment_method',
         'payment_status',
@@ -50,21 +52,31 @@ class Order extends Model
         'shipping_cost',
         'tax_amount',
         'grand_total',
+        'cash_amount',
+        'card_amount',
     ];
 
     protected function casts(): array
     {
         return [
-            'status' => OrderStatus::class,
-            'subtotal' => 'decimal:2',
+            'status'          => OrderStatus::class,
+            'subtotal'        => 'decimal:2',
             'discount_amount' => 'decimal:2',
-            'shipping_cost' => 'decimal:2',
-            'cod_fee' => 'decimal:2',
-            'tax_amount' => 'decimal:2',
-            'grand_total' => 'decimal:2',
+            'shipping_cost'   => 'decimal:2',
+            'cod_fee'         => 'decimal:2',
+            'tax_amount'      => 'decimal:2',
+            'grand_total'     => 'decimal:2',
+            'cash_amount'     => 'decimal:2',
+            'card_amount'     => 'decimal:2',
             'requires_refund' => 'boolean',
             'needs_attention' => 'boolean',
         ];
+    }
+
+    /** @return \Illuminate\Database\Eloquent\Relations\BelongsTo<\App\Models\PosShift, $this> */
+    public function posShift(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(PosShift::class);
     }
 
     /** @return HasMany<OrderItem, $this> */

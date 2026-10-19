@@ -255,4 +255,29 @@ Route::middleware(['auth:sanctum', 'auth.staff'])
         Route::put('settings', [SettingController::class, 'update'])
             ->middleware('permission:settings.update|settings.manage')
             ->name('settings.update');
+
+        // ================== المرحلة 11: الخزائن، المصروفات، تحويلات الخزائن، الورديات ==================
+        Route::pattern('treasury', '[0-9]{1,18}');
+        Route::pattern('expense', '[0-9]{1,18}');
+        Route::pattern('treasury_transfer', '[0-9]{1,18}');
+        Route::pattern('shift', '[0-9]{1,18}');
+
+        Route::apiResource('treasuries', \App\Http\Controllers\Api\V1\Admin\TreasuryController::class);
+
+        Route::apiResource('expenses', \App\Http\Controllers\Api\V1\Admin\ExpenseController::class);
+
+        Route::apiResource('treasury-transfers', \App\Http\Controllers\Api\V1\Admin\TreasuryTransferController::class)
+            ->parameters(['treasury-transfers' => 'treasuryTransfer'])
+            ->only(['index', 'store', 'show']);
+        Route::post('treasury-transfers/{treasuryTransfer}/approve', [\App\Http\Controllers\Api\V1\Admin\TreasuryTransferController::class, 'approve'])
+            ->name('treasury-transfers.approve');
+        Route::post('treasury-transfers/{treasuryTransfer}/reject', [\App\Http\Controllers\Api\V1\Admin\TreasuryTransferController::class, 'reject'])
+            ->name('treasury-transfers.reject');
+
+        Route::get('shifts', [\App\Http\Controllers\Api\V1\Admin\PosShiftAdminController::class, 'index'])
+            ->name('shifts.index');
+        Route::get('shifts/{shift}', [\App\Http\Controllers\Api\V1\Admin\PosShiftAdminController::class, 'show'])
+            ->name('shifts.show');
+        Route::post('shifts/{shift}/approve', [\App\Http\Controllers\Api\V1\Admin\PosShiftAdminController::class, 'approve'])
+            ->name('shifts.approve');
     });
