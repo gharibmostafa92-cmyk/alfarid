@@ -371,3 +371,27 @@ Run php artisan media:backfill-path-layouts once for existing uploads. It persis
 
 - المتجر: ‏`POST /api/v1/store/account/returns` ‏(auth:sanctum + auth.customer) — order_id + reason + refund_method اختياري + items (order_item_id/requested_qty/item_reason/attachments صور حتى 5 × 5MB).
 - الأدمن (صلاحيات returns.view/create/update/delete — إجراءات approve/receive/refund تحت returns.update): ‏CRUD ‏`/api/v1/admin/returns` بفلاتر status/order_id/customer_id/search (برقم المرتجع أو رقم الطلب)، و`POST /api/v1/admin/returns/{id}/approve|receive|refund`، وإنشاء يدوي من نفس store لخدمة العملاء.
+
+## المرحلة 10: المشتريات والموردين ومتوسط التكلفة وبوابة المورد
+
+### النموذج والمحاسبة
+
+- الجداول: ‏`suppliers` ‏(code فريد، أجل سداد، رصيد افتتاحي/جاري) — و`supplier_users.supplier_id` بقى Foreign Key فعليًا (nullOnDelete) — `purchase_requests`/`purchase_request_items` ‏(طلبات نواقص الفروع)، `purchase_orders`/`purchase_order_items` ‏(مرقمة PO- من SettingService)، `supplier_deliveries`/`supplier_delivery_items` ‏(إشعارات توريد ASN مرقمة DLV-)، `supplier_invoices` ‏(داخلي SIN- + رقم ورقي) و`supplier_payments` ‏(SPY-). ترقيمات PR-/DLV-/SIN-/SPY- أضيفت لـ SettingService/SettingSeeder (تبدأ 1001، حشو 6).
+- **متوسط التكلفة المرجح (WAC)** عند الاستلام: ‏`NewAvg = (مجموع on_hand في كل الفروع × التكلفة الحالية + المستلم × سعر الشراء) ÷ (المجموع + المستلم)` — يحدّث `product_variants.cost_price` (بدقة عموده decimal(12,2)) و`last_cost_price` (decimal(12,4) جديد) بسعر الشراء الفعلي، ثم حركة `purchase_receipt` عبر InventoryService بمرجع morph ‏`purchase_order` على فرع الاستلام.
+- **دفتر المورد الدائن**: الرصيد الجاري يبدأ من الافتتاحي؛ اعتماد فاتورة (post) يزيده بقيمة الإجمالي، والدفعة تنقصه وتحدّث paid_amount/حالة فاتورتها (posted ← partially_paid ← paid). حذف دفعة أو إلغاء فاتورة معتمدة غير مسددة يعكس الأثر كاملًا. أرقام الفاتورة/الدفعة والترتيب كله محكوم بقفل صف المورد/الفاتورة داخل معاملات.
+
+### إدارة المشتريات — ‏`/api/v1/admin` (صلاحيات suppliers.* وpurchases.*)
+
+- ‏CRUD ‏`/suppliers` ‏(بحث name/code/company + is_active) — الحذف ممنوع 422 عند وجود أوامر/فواتير/دفعات/حسابات. حسابات موظفي المورد: ‏`GET|POST /suppliers/{id}/users` و`PUT|DELETE /suppliers/{id}/users/{user}`.
+- ‏CRUD ‏`/purchase-requests` + إجراءات `POST /{id}/submit|approve|reject` — الدورة draft ← pending ← approved/rejected؛ التعديل والحذف للمسودة فقط.
+- ‏CRUD ‏`/purchase-orders` + `POST /{id}/approve` ‏(ختم approved_by على المسودة) و`/{id}/send` ‏(draft أو change_requested ← sent_to_supplier) و`/{id}/cancel` ‏(قبل أي استلام) و`/{id}/receive` ‏(قلب المرحلة: items [{purchase_order_item_id, qty}] + location_id اختياري + supplier_delivery_id اختياري لمطابقة إشعار توريد وتحديث حالته). إنشاء مربوط بـ purchase_request_id معتمد ينسخ بنوده (بسعر التكلفة الحالية) ويحوّل الطلب لـ converted_to_po. الإجماليات خادمية: line_total = qty × cost، والضريبة من tax_rate لكل بند، والنهائي = subtotal − discount + tax. الاستلام متاح من sent_to_supplier/supplier_accepted/partially_received فقط، والمستلم التراكمي ≤ المطلوب، والحالة تنتهي completed أو partially_received.
+- ‏CRUD ‏`/supplier-invoices` + `POST /{id}/post|cancel` — الإجمالي = subtotal + tax (خادمي)، والاستحقاق الافتراضي = الإصدار + payment_terms_days للمورد عند غياب due_date، ومرفق attachment ‏(pdf/صور ≤ 10MB) على القرص المحلي، والتعديل للمسودة فقط.
+- ‏CRUD ‏`/supplier-payments` — الربط بفاتورة اختياري (نفس المورد، معتمدة/جزئية، وبسقف متبقيها)؛ تعديل الحقول غير المالية فقط، والحذف يعكس الرصيد والفاتورة.
+
+### بوابة المورد — ‏`/api/v1/supplier` ‏(supplier_users + Sanctum)
+
+- ‏`POST /auth/login` ‏(throttle 10/دقيقة): حساب نشط + مورد نشط ← توكن `supplier-token`. ‏`POST /auth/logout`.
+- ‏`GET /dashboard`: عدد الجاهز للموافقة (sent_to_supplier)، وقيد التوريد (supplier_accepted/partially_received)، والرصيد المستحق الحالي، وآخر 5 دفعات.
+- ‏`GET /purchase-orders` و`GET /purchase-orders/{id}` — **مقيدة كلها بـ supplier_id صاحب التوكن** (أمر مورد آخر = 404). ‏`POST /purchase-orders/{id}/accept` ‏(sent ← accepted)، و`POST /purchase-orders/{id}/request-change` ‏(notes إلزامية ← change_requested + supplier_change_notes تنبيهًا لمدير المشتريات؛ تعالجها الإدارة بتعديل المسودة/إعادة الإرسال).
+- ‏`POST /purchase-orders/{id}/deliveries` ‏(ASN): items [{purchase_order_item_id, shipped_qty}] + delivery_date + supplier_invoice_no + invoice_file ‏(pdf/صور ≤ 10MB). سقف الشحن التراكمي لكل بند (عدا المرفوضة) = المطلوب؛ والحالات المسموحة sent/accepted/partially_received — والشحن من sent يعد قبولًا ضمنيًا فيحوّلها accepted. عرضها: ‏`GET /deliveries` و`GET /deliveries/{id}` (بنطاق المورد).
+- ‏`GET /statement?from_date&to_date`: كشف حساب دفتري — رصيد افتتاحي محسوب من كل ما قبل الفترة (افتتاحي المورد + فواتير معتمدة − دفعات)، ثم حركات الفترة (فاتورة = credit، دفعة = debit) بترتيب التاريخ (الفاتورة قبل الدفعة في اليوم نفسه) مع running_balance بعد كل حركة وإجماليات ورصيد ختامي يطابق current_balance عند اكتمال الفترة لليوم.

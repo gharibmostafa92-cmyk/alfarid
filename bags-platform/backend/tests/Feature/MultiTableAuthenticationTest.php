@@ -7,6 +7,7 @@ namespace Tests\Feature;
 use App\Enums\CustomerStatus;
 use App\Enums\CustomerType;
 use App\Models\Customer;
+use App\Models\Supplier;
 use App\Models\SupplierUser;
 use App\Models\User;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
@@ -129,8 +130,11 @@ class MultiTableAuthenticationTest extends TestCase
 
     public function test_returns_403_for_inactive_supplier_users(): void
     {
+        // المرحلة 10: supplier_id بقى Foreign Key حقيقيًا على suppliers — لازم مورد فعلي
+        $supplierId = Supplier::factory()->create()->id;
+
         $supplier = SupplierUser::create([
-            'supplier_id' => 1,
+            'supplier_id' => $supplierId,
             'name' => 'Active supplier user',
             'email' => 'active-supplier@example.test',
             'password' => 'password',
@@ -153,7 +157,7 @@ class MultiTableAuthenticationTest extends TestCase
         $this->requestWithToken($unassignedToken, '/_test-auth/supplier')->assertForbidden();
 
         $inactiveSupplier = SupplierUser::create([
-            'supplier_id' => 1,
+            'supplier_id' => $supplierId,
             'name' => 'Inactive supplier user',
             'email' => 'inactive-supplier@example.test',
             'password' => 'password',
