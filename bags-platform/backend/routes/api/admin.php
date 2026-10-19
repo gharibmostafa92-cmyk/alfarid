@@ -9,10 +9,12 @@ use App\Http\Controllers\Api\V1\Admin\CategoryController;
 use App\Http\Controllers\Api\V1\Admin\CouponController;
 use App\Http\Controllers\Api\V1\Admin\CustomerController;
 use App\Http\Controllers\Api\V1\Admin\CustomerGroupController;
+use App\Http\Controllers\Api\V1\Admin\ExpenseController;
 use App\Http\Controllers\Api\V1\Admin\InventoryController;
 use App\Http\Controllers\Api\V1\Admin\LocationController;
 use App\Http\Controllers\Api\V1\Admin\OrderController;
 use App\Http\Controllers\Api\V1\Admin\PermissionController;
+use App\Http\Controllers\Api\V1\Admin\PosShiftAdminController;
 use App\Http\Controllers\Api\V1\Admin\PriceListController;
 use App\Http\Controllers\Api\V1\Admin\PriceListItemController;
 use App\Http\Controllers\Api\V1\Admin\ProductController;
@@ -21,6 +23,7 @@ use App\Http\Controllers\Api\V1\Admin\ProductVariantController;
 use App\Http\Controllers\Api\V1\Admin\PromotionController;
 use App\Http\Controllers\Api\V1\Admin\PurchaseOrderController;
 use App\Http\Controllers\Api\V1\Admin\PurchaseRequestController;
+use App\Http\Controllers\Api\V1\Admin\QuotationController;
 use App\Http\Controllers\Api\V1\Admin\ReturnController;
 use App\Http\Controllers\Api\V1\Admin\RoleController;
 use App\Http\Controllers\Api\V1\Admin\SettingController;
@@ -32,7 +35,10 @@ use App\Http\Controllers\Api\V1\Admin\SupplierController;
 use App\Http\Controllers\Api\V1\Admin\SupplierInvoiceController;
 use App\Http\Controllers\Api\V1\Admin\SupplierPaymentController;
 use App\Http\Controllers\Api\V1\Admin\TransferController;
+use App\Http\Controllers\Api\V1\Admin\TreasuryController;
+use App\Http\Controllers\Api\V1\Admin\TreasuryTransferController;
 use App\Http\Controllers\Api\V1\Admin\UserController;
+use App\Http\Controllers\Api\V1\Admin\WholesalePaymentNoticeController;
 use App\Http\Controllers\Api\V1\AttachmentController;
 use Illuminate\Support\Facades\Route;
 
@@ -213,6 +219,17 @@ Route::middleware(['auth:sanctum', 'auth.staff'])
         Route::get('return-items/{return_item}/attachments/{attachment}', [AttachmentController::class, 'returnFile'])->whereNumber(['return_item', 'attachment'])->name('return-items.attachments.show');
         Route::get('supplier-invoices/{invoice}/attachment', [AttachmentController::class, 'invoice'])->whereNumber('invoice')->name('supplier-invoices.attachment');
         Route::get('supplier-deliveries/{delivery}/invoice', [AttachmentController::class, 'delivery'])->whereNumber('delivery')->name('deliveries.invoice');
+        // ================== المرحلة 12: بوابة الجملة المتقدمة ==================
+        Route::get('quotations', [QuotationController::class, 'index'])->name('quotations.index');
+        Route::get('quotations/{quotation}', [QuotationController::class, 'show'])->whereNumber('quotation')->name('quotations.show');
+        Route::post('quotations/{quotation}/price', [QuotationController::class, 'price'])->whereNumber('quotation')->name('quotations.price');
+        Route::post('quotations/{quotation}/expire', [QuotationController::class, 'expire'])->whereNumber('quotation')->name('quotations.expire');
+        Route::get('payment-notices', [WholesalePaymentNoticeController::class, 'index'])->name('payment-notices.index');
+        Route::get('payment-notices/{payment_notice}', [WholesalePaymentNoticeController::class, 'show'])->whereNumber('payment_notice')->name('payment-notices.show');
+        Route::post('payment-notices/{payment_notice}/approve', [WholesalePaymentNoticeController::class, 'approve'])->whereNumber('payment_notice')->name('payment-notices.approve');
+        Route::post('payment-notices/{payment_notice}/reject', [WholesalePaymentNoticeController::class, 'reject'])->whereNumber('payment_notice')->name('payment-notices.reject');
+        Route::get('payment-notices/{notice}/receipt', [AttachmentController::class, 'paymentNotice'])->whereNumber('notice')->name('payment-notices.receipt');
+
         // ================== المرحلة 9: المرتجعات ==================
         Route::apiResource('returns', ReturnController::class)->parameters(['returns' => 'return_request']);
         Route::post('returns/{return_request}/approve', [ReturnController::class, 'approve'])->name('returns.approve');
@@ -262,22 +279,22 @@ Route::middleware(['auth:sanctum', 'auth.staff'])
         Route::pattern('treasury_transfer', '[0-9]{1,18}');
         Route::pattern('shift', '[0-9]{1,18}');
 
-        Route::apiResource('treasuries', \App\Http\Controllers\Api\V1\Admin\TreasuryController::class);
+        Route::apiResource('treasuries', TreasuryController::class);
 
-        Route::apiResource('expenses', \App\Http\Controllers\Api\V1\Admin\ExpenseController::class);
+        Route::apiResource('expenses', ExpenseController::class);
 
-        Route::apiResource('treasury-transfers', \App\Http\Controllers\Api\V1\Admin\TreasuryTransferController::class)
+        Route::apiResource('treasury-transfers', TreasuryTransferController::class)
             ->parameters(['treasury-transfers' => 'treasuryTransfer'])
             ->only(['index', 'store', 'show']);
-        Route::post('treasury-transfers/{treasuryTransfer}/approve', [\App\Http\Controllers\Api\V1\Admin\TreasuryTransferController::class, 'approve'])
+        Route::post('treasury-transfers/{treasuryTransfer}/approve', [TreasuryTransferController::class, 'approve'])
             ->name('treasury-transfers.approve');
-        Route::post('treasury-transfers/{treasuryTransfer}/reject', [\App\Http\Controllers\Api\V1\Admin\TreasuryTransferController::class, 'reject'])
+        Route::post('treasury-transfers/{treasuryTransfer}/reject', [TreasuryTransferController::class, 'reject'])
             ->name('treasury-transfers.reject');
 
-        Route::get('shifts', [\App\Http\Controllers\Api\V1\Admin\PosShiftAdminController::class, 'index'])
+        Route::get('shifts', [PosShiftAdminController::class, 'index'])
             ->name('shifts.index');
-        Route::get('shifts/{shift}', [\App\Http\Controllers\Api\V1\Admin\PosShiftAdminController::class, 'show'])
+        Route::get('shifts/{shift}', [PosShiftAdminController::class, 'show'])
             ->name('shifts.show');
-        Route::post('shifts/{shift}/approve', [\App\Http\Controllers\Api\V1\Admin\PosShiftAdminController::class, 'approve'])
+        Route::post('shifts/{shift}/approve', [PosShiftAdminController::class, 'approve'])
             ->name('shifts.approve');
     });

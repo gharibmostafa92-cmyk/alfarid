@@ -11,6 +11,7 @@ use App\Models\SupplierDelivery;
 use App\Models\SupplierInvoice;
 use App\Models\SupplierUser;
 use App\Models\User;
+use App\Models\WholesalePaymentNotice;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -55,6 +56,19 @@ class AttachmentController extends Controller
         }
 
         return $this->download($query->findOrFail($delivery)->invoice_file_path);
+    }
+
+    public function paymentNotice(Request $request, int $notice): StreamedResponse
+    {
+        $actor = $request->user();
+        $query = WholesalePaymentNotice::query();
+        if ($actor instanceof Customer) {
+            $query->where('customer_id', $actor->id);
+        } else {
+            abort_unless($actor instanceof User && $actor->can('payment_notices.view'), 403);
+        }
+
+        return $this->download($query->findOrFail($notice)->receipt_file_path);
     }
 
     private function download(?string $path): StreamedResponse

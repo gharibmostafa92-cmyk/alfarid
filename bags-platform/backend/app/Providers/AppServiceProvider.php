@@ -3,11 +3,15 @@
 namespace App\Providers;
 
 use App\Models\Customer;
+use App\Models\Expense;
 use App\Models\Order;
+use App\Models\PosShift;
 use App\Models\PurchaseOrder;
 use App\Models\ReturnRequest;
 use App\Models\Stocktake;
 use App\Models\StockTransfer;
+use App\Models\TreasuryTransfer;
+use App\Models\WholesalePaymentNotice;
 use App\Services\BranchAccess;
 use App\Services\SettingService;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -81,14 +85,15 @@ class AppServiceProvider extends ServiceProvider
         // إعادة تسمية/نقل الكلاسات لاحقًا لا تكسر أثر التدقيق التاريخي.
         // الصفوف القديمة المخزنة باسم الكلاس الكامل تظل قابلة للقراءة.
         Relation::morphMap([
-            'stock_transfer'     => StockTransfer::class,
-            'stocktake'          => Stocktake::class,
-            'order'              => Order::class,
-            'return_request'     => ReturnRequest::class,
-            'purchase_order'     => PurchaseOrder::class,
-            'pos_shift'          => \App\Models\PosShift::class,
-            'expense'            => \App\Models\Expense::class,
-            'treasury_transfer'  => \App\Models\TreasuryTransfer::class,
+            'stock_transfer' => StockTransfer::class,
+            'stocktake' => Stocktake::class,
+            'order' => Order::class,
+            'return_request' => ReturnRequest::class,
+            'purchase_order' => PurchaseOrder::class,
+            'pos_shift' => PosShift::class,
+            'expense' => Expense::class,
+            'treasury_transfer' => TreasuryTransfer::class,
+            'wholesale_payment_notice' => WholesalePaymentNotice::class,
         ]);
 
         // حد دخول العملاء (متجر/جملة): بالمُعرّف (بريد/هاتف) وبالـ IP معًا
@@ -176,7 +181,7 @@ class AppServiceProvider extends ServiceProvider
 
         // حد تسجيل دخول الكاشير على نقطة البيع
         RateLimiter::for('pos-login', function (Request $request): array {
-            $email    = $request->input('email');
+            $email = $request->input('email');
             $emailKey = hash('sha256', Str::lower(trim(is_string($email) ? $email : '')));
 
             return [

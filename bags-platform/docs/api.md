@@ -404,3 +404,20 @@ Run php artisan media:backfill-path-layouts once for existing uploads. It persis
 - **L5**: تجميعات المرتجعات السابقة في استلام المرتجع تُحسب باستعلام واحد مجمّع (`GROUP BY order_item_id`) بدل استعلام لكل بند.
 - **L6**: فهرس `supplier_payments (supplier_id, payment_date)` لاستعلامات كشف الحساب، بهجرة `CREATE INDEX CONCURRENTLY` خارج المعاملة.
 - تصحيحات اختبارات بأقل تغيير لتوافق سلوك التدقيق نفسه: الاعتماد في اختبارات المشتريات يتم بمدير غير المنشئ (M5)، وطلبات اختبارات التقوية مُسلّمة مدفوعة كما في التدفق الحقيقي (H1)، واختبار الرصيد الافتتاحي يثبّت تجميده بعد الحركات (H4).
+
+## المرحلة 12: بوابة الجملة المتقدمة (B2B) — 12.1 عروض الأسعار وإشعارات السداد
+
+متطلبات تأسيسية: حزمتا `maatwebsite/excel` (^4.0) و`barryvdh/laravel-dompdf` (^3.1) مثبّتتان لمهام التصدير القادمة. قاعدة حماية المرحلة: كل مسارات `/api/v1/wholesale` الجديدة تحت الميدل وير الثلاثي `['auth:sanctum', 'auth.customer', 'wholesale.approved']` — العميل القطاعي أو التاجر قيد المراجعة يُمنع (403)، والزائر 401.
+
+### عروض الأسعار — `/api/v1/wholesale/quotations` (تاجر) + `/api/v1/admin/quotations` (إدارة)
+
+- التاجر: `GET/POST /quotations`، `GET/PUT/DELETE /quotations/{id}` (الحذف والتعديل للمسودة فقط)، و`POST /quotations/{id}/submit|accept|reject`. الإنشاء ببنود [{product_variant_id, qty, requested_target_price?}] — السعر المعروض الابتدائي يُحسب من `PricingService` حسب التاجر والكمية وشرائح الأسعار، ورقم العرض من ترقيم `quotation` ‏(QT-). الإجماليات خادمية: line_total = العرض × الكمية، والنهائي = subtotal − discount + tax.
+- دورة الحياة: draft ← requested (إرسال التاجر) ← priced_by_admin (تسعير الإدارة) ← accepted / rejected، أو expired. القبول بعد تجاوز valid_until يُرفض ويحوّل العرض إلى expired تلقائيًا. الحالة converted_to_order محفوظة بخطوة التحويل لطلب (مهمة لاحقة) مع عمود converted_order_id للتتبع.
+- الإدارة (صلاحيات quotations.view / quotations.price): `GET /quotations` (فلترة بالحالة/العميل) و`GET /quotations/{id}` و`POST /quotations/{id}/price` ‏(بنود [{id, offered_unit_price}] اختيارية + discount_amount + tax_amount + valid_until + admin_notes ← priced_by_admin) و`POST /quotations/{id}/expire`.
+
+### إشعارات السداد البنكي — `/api/v1/wholesale/payment-notices` + `/api/v1/admin/payment-notices`
+
+- التاجر: `POST /payment-notices` ‏(amount, payment_method ‏[bank_transfer|check|deposit], bank_name, reference_number, transfer_date, order_id اختياري, receipt ‏[صورة/pdf ≤ 10MB على القرص الخاص]) و`GET /payment-notices` و`GET /payment-notices/{id}` (نطاق ملكيته فقط، وطلب الغير = 404) و`GET /payment-notices/outstanding` ‏(المديونية الآجلة الحالية + حد الائتمان) و`GET /payment-notices/{id}/receipt` لتنزيل إيصاله.
+- رقم الإشعار من نوع ترقيم جديد `payment_notice` ‏(WPN-001001). إشعار مرتبط بطلب: الطلب يجب أن يكون آجلًا (credit) غير مسدد وغير ملغي لنفس التاجر، ومجموع المعتمد + قيد المراجعة عليه لا يتجاوز إجماليه.
+- المديونية الآجلة = مجموع طلبات الآجل غير المسددة غير الملغاة − مجموع الإشعارات المعتمدة (الحرّة أو المرتبطة بطلب ما زال غير مسدد). عند اعتماد الإدارة (payment_notices.approve): يُرفض أي مبلغ أكبر من المديونية الحالية، وتُسجَّل حركة قبض `customer_receipt` عبر TreasuryService في الخزينة الممرّرة treasury_id أو الافتراضية (أول بنكية نشطة، وإلا أول رئيسية نشطة) بمرجع morph ‏`wholesale_payment_notice`، ويُختم الإشعار بـ treasury_id + treasury_transaction_id + reviewed_by؛ وإذا غطّت الإشعارات المعتمدة الطلب المرتبط بالكامل تحوّل إلى paid وخرج هو وإشعاراته من المعادلة معًا (لا خصم مزدوج). الرفض بـ payment_notices.reject، والمراجعة الثانية على نفس الإشعار مرفوضة 422.
+- الإدارة: `GET /payment-notices` و`GET /payment-notices/{id}` ‏(payment_notices.view) و`POST /payment-notices/{id}/approve|reject` و`GET /payment-notices/{id}/receipt` لتنزيل الإيصال.
