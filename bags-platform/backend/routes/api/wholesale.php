@@ -3,7 +3,12 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\AttachmentController;
+use App\Http\Controllers\Api\V1\Wholesale\DashboardController;
+use App\Http\Controllers\Api\V1\Wholesale\InvoiceController;
+use App\Http\Controllers\Api\V1\Wholesale\OrderController;
 use App\Http\Controllers\Api\V1\Wholesale\PaymentNoticeController;
+use App\Http\Controllers\Api\V1\Wholesale\ProductController;
+use App\Http\Controllers\Api\V1\Wholesale\QuickOrderController;
 use App\Http\Controllers\Api\V1\Wholesale\QuotationController;
 use App\Http\Controllers\Api\V1\Wholesale\RegisterController;
 use Illuminate\Support\Facades\Route;
@@ -21,6 +26,21 @@ Route::prefix('auth')->name('auth.')->group(function (): void {
 // بوابة الجملة المتقدمة (المرحلة 12): الحماية الثلاثية إلزامية — لا يصل أي عميل
 // قطاعي أو تاجر قيد المراجعة إلى أسعار الجملة أو شرائح الكميات أو السداد الآجل.
 Route::middleware(['auth:sanctum', 'auth.customer', 'wholesale.approved'])->group(function (): void {
+    // لوحة التاجر والكتالوج وقائمة الأسعار (المرحلة 12.2)
+    Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    Route::get('products', [ProductController::class, 'index'])->name('products.index');
+    Route::get('price-list/export', [ProductController::class, 'exportPriceList'])->name('price-list.export');
+
+    // الطلب السريع بالأكواد والاستيراد وإعادة الطلب
+    Route::post('quick-order/lookup', [QuickOrderController::class, 'lookup'])->name('quick-order.lookup');
+    Route::post('quick-order/import', [QuickOrderController::class, 'import'])->name('quick-order.import');
+    Route::post('orders/{order}/reorder', [OrderController::class, 'reorder'])->whereNumber('order')->name('orders.reorder');
+
+    // الفواتير وكشف الحساب
+    Route::get('invoices', [InvoiceController::class, 'index'])->name('invoices.index');
+    Route::get('invoices/{order}/pdf', [InvoiceController::class, 'pdf'])->whereNumber('order')->name('invoices.pdf');
+    Route::get('statement', [InvoiceController::class, 'statement'])->name('statement');
+
     // عروض الأسعار
     Route::apiResource('quotations', QuotationController::class)->parameters(['quotations' => 'quotation']);
     Route::post('quotations/{quotation}/submit', [QuotationController::class, 'submit'])->whereNumber('quotation')->name('quotations.submit');

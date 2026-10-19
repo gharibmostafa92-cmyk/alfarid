@@ -11,8 +11,10 @@ use App\Enums\WholesalePaymentNoticeStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
 use App\Models\Order;
+use App\Models\ReturnRequest;
 use App\Models\Treasury;
 use App\Models\WholesalePaymentNotice;
+use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 
@@ -82,6 +84,98 @@ class WholesalePaymentNoticeService
             ->sum('amount');
 
         return round(max(0.0, $debt - $credits), 2);
+    }
+
+    /**
+     * كشف حساب التاجر (المرحلة 12.2): المشتريات الآجلة مدينة (Debit)،
+     * والسدادات المعتمدة ومرتجعاته المستردة دائنة (Credit)، برصيد تراكمي
+     * يبدأ من رصيد افتتاحي محسوب من كل ما قبل الفترة المطلوبة.
+     *
+     * @return array{opening_balance: float, closing_balance: float, entries: list<array<string, mixed>>}
+     */
+    public function statement(Customer $customer, ?string $from = null, ?string $to = null): array
+    {
+        $entries = collect();
+
+        Order::query()
+            ->where('customer_id', $customer->id)
+            ->where('payment_method', 'credit')
+            ->where('status', '!=', OrderStatus::Cancelled->value)
+            ->get(['id', 'order_number', 'grand_total', 'created_at'])
+            ->each(fn (Order $order) => $entries->push([
+                'date' => $order->created_at->copy(),
+                'type' => 'debit',
+                'description' => "طلب آجل {$order->order_number}",
+                'reference' => $order->order_number,
+                'amount' => (float) $order->grand_total,
+            ]));
+
+        WholesalePaymentNotice::query()
+            ->where('customer_id', $customer->id)
+            ->where('status', WholesalePaymentNoticeStatus::Approved->value)
+            ->get(['id', 'notice_number', 'payment_method', 'amount', 'updated_at'])
+            ->each(fn (WholesalePaymentNotice $notice) => $entries->push([
+                'date' => $notice->updated_at->copy(),
+                'type' => 'credit',
+                'description' => "سداد {$notice->notice_number} ({$notice->payment_method->value})",
+                'reference' => $notice->notice_number,
+                'amount' => (float) $notice->amount,
+            ]));
+
+        ReturnRequest::query()
+            ->where('customer_id', $customer->id)
+            ->where('status', 'refunded')
+            ->whereNotNull('refunded_at')
+            ->get(['id', 'return_number', 'total_refund_amount', 'refunded_at'])
+            ->each(fn (ReturnRequest $return) => $entries->push([
+                'date' => $return->refunded_at->copy(),
+                'type' => 'credit',
+                'description' => "مرتجع مسترد {$return->return_number}",
+                'reference' => $return->return_number,
+                'amount' => (float) $return->total_refund_amount,
+            ]));
+
+        // المدين قبل الدائن في اليوم نفسه (اصطلاح كشف حساب المورد)
+        $sorted = $entries->sortBy([
+            fn (array $a, array $b): int => $a['date']->startOfDay() <=> $b['date']->startOfDay(),
+            fn (array $a, array $b): int => ($a['type'] === 'debit' ? 0 : 1) <=> ($b['type'] === 'debit' ? 0 : 1),
+        ])->values();
+
+        $fromDate = $from !== null ? Carbon::parse($from)->startOfDay() : null;
+        $toDate = $to !== null ? Carbon::parse($to)->endOfDay() : null;
+
+        $opening = 0.0;
+        $running = 0.0;
+        $result = [];
+        foreach ($sorted as $entry) {
+            $delta = $entry['type'] === 'debit' ? $entry['amount'] : -$entry['amount'];
+
+            if ($fromDate !== null && $entry['date']->lt($fromDate)) {
+                $opening += $delta;
+                $running = $opening;
+
+                continue;
+            }
+            if ($toDate !== null && $entry['date']->gt($toDate)) {
+                continue;
+            }
+
+            $running += $delta;
+            $result[] = [
+                'date' => $entry['date']->toDateString(),
+                'type' => $entry['type'],
+                'description' => $entry['description'],
+                'reference' => $entry['reference'],
+                'amount' => number_format($entry['amount'], 2, '.', ''),
+                'running_balance' => number_format($running, 2, '.', ''),
+            ];
+        }
+
+        return [
+            'opening_balance' => round($opening, 2),
+            'closing_balance' => round($running, 2),
+            'entries' => $result,
+        ];
     }
 
     public function approve(WholesalePaymentNotice $notice, int $adminId, ?int $treasuryId = null, ?string $adminNotes = null): WholesalePaymentNotice

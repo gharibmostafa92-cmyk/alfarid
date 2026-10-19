@@ -4,11 +4,15 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Enums\OrderStatus;
 use App\Enums\QuotationStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
+use App\Models\Order;
+use App\Models\OrderStatusHistory;
 use App\Models\ProductVariant;
 use App\Models\Quotation;
+use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -22,6 +26,8 @@ class QuotationService
     public function __construct(
         private readonly SettingService $settings,
         private readonly PricingService $pricing,
+        private readonly OrderService $orders,
+        private readonly OrderAllocationService $allocation,
     ) {}
 
     public function create(Customer $customer, array $data): Quotation
@@ -116,6 +122,12 @@ class QuotationService
         });
     }
 
+    /**
+     * قبول التاجر للعرض المسعّر يحوّله تلقائيًا إلى طلب مؤكد (المرحلة 12.2)
+     * بنفس الأسعار المتفق عليها: إنشاء الطلب آجلًا (credit) بأسعار العرض
+     * الثابتة، حجز مخزونه عبر خدمة التوزيع، ثم تأكيده عبر بوابة الحالات —
+     * وأي نقص مخزون يُسقط التحويل كله ويبقى العرض مسعّرًا كما هو.
+     */
     public function accept(Quotation $quotation): Quotation
     {
         if ($quotation->status !== QuotationStatus::PricedByAdmin) {
@@ -128,9 +140,116 @@ class QuotationService
             throw new BusinessException('انتهت صلاحية عرض السعر هذا.');
         }
 
-        $quotation->update(['status' => QuotationStatus::Accepted]);
+        return DB::transaction(function () use ($quotation): Quotation {
+            $quotation->loadMissing(['customer', 'items.variant.product']);
+            $customer = $quotation->customer;
 
-        return $quotation->load('items.variant.product');
+            $order = Order::create([
+                'order_number' => $this->settings->generateNextNumber('order'),
+                'channel' => 'wholesale',
+                'customer_id' => $customer->id,
+                'guest_name' => $customer->name,
+                'guest_phone' => $customer->phone,
+                'guest_phone_normalized' => Customer::normalizePhone((string) $customer->phone),
+                'guest_email' => $customer->email,
+                'status' => OrderStatus::Pending,
+                'payment_method' => 'credit',
+                'payment_status' => 'unpaid',
+                'subtotal' => $quotation->subtotal,
+                'discount_amount' => $quotation->discount_amount,
+                'shipping_cost' => 0,
+                'cod_fee' => 0,
+                'tax_amount' => $quotation->tax_amount,
+                'grand_total' => $quotation->grand_total,
+            ]);
+
+            // خصم وضريبة الترويسة يوزَّعان على البنود بأكبر باقٍ حتى تطابق
+            // حسابات الاسترداد لاحقًا مجموع الترويسة بالقرش.
+            $weights = $quotation->items->map(fn ($item) => (float) $item->line_total)->all();
+            $discountShares = $this->distributeLargestRemainder((float) $quotation->discount_amount, $weights);
+            $taxShares = $this->distributeLargestRemainder((float) $quotation->tax_amount, $weights);
+
+            foreach ($quotation->items->values() as $i => $item) {
+                $order->items()->create([
+                    'product_variant_id' => $item->product_variant_id,
+                    'product_name_snapshot' => $item->variant->product?->name_ar ?? '',
+                    'sku_snapshot' => $item->variant->sku,
+                    'qty' => $item->qty,
+                    'unit_price' => $item->offered_unit_price,
+                    'discount_amount' => $discountShares[$i],
+                    'tax_amount' => $taxShares[$i],
+                    'line_total' => $item->line_total,
+                ]);
+            }
+
+            OrderStatusHistory::create([
+                'order_id' => $order->id,
+                'from_status' => null,
+                'to_status' => OrderStatus::Pending,
+                'changed_by_type' => Customer::class,
+                'changed_by_id' => $customer->id,
+                'notes' => "أُنشئ من عرض السعر {$quotation->quotation_number}",
+            ]);
+
+            $order->load('items');
+            $this->allocation->allocate($order, performedBy: $this->systemActorId());
+
+            $this->orders->changeStatus($order, OrderStatus::Confirmed, $customer, "قبول عرض السعر {$quotation->quotation_number}");
+
+            $quotation->update([
+                'status' => QuotationStatus::ConvertedToOrder,
+                'converted_order_id' => $order->id,
+            ]);
+
+            return $quotation->load(['items.variant.product', 'convertedOrder']);
+        });
+    }
+
+    /** معرّف مستخدم النظام منفّذًا لحركات مخزون العميل (نفس اصطلاح OrderService). */
+    private function systemActorId(): ?int
+    {
+        $id = User::query()
+            ->where('email', (string) config('orders.system_user_email', 'system@alfarid.local'))
+            ->value('id');
+
+        return $id !== null ? (int) $id : null;
+    }
+
+    /**
+     * توزيع مبلغ على بنود بأوزان مالية بطريقة أكبر باقٍ (بالقروش) — مجموع
+     * الحصص يساوي المبلغ بالضبط ولا تقع حصة سالبة.
+     *
+     * @param  list<float>  $weights
+     * @return list<float>
+     */
+    private function distributeLargestRemainder(float $amount, array $weights): array
+    {
+        $count = count($weights);
+        $totalCents = (int) round($amount * 100);
+        $totalWeight = array_sum($weights);
+
+        if ($count === 0 || $totalCents === 0 || $totalWeight <= 0) {
+            return array_fill(0, $count, 0.0);
+        }
+
+        $shares = [];
+        $remainders = [];
+        $allocated = 0;
+        foreach ($weights as $i => $weight) {
+            $exact = $totalCents * $weight / $totalWeight;
+            $floor = (int) floor($exact);
+            $shares[$i] = $floor;
+            $remainders[$i] = $exact - $floor;
+            $allocated += $floor;
+        }
+
+        $order = array_keys($remainders);
+        usort($order, fn (int $a, int $b): int => $remainders[$b] <=> $remainders[$a]);
+        for ($k = 0; $k < $totalCents - $allocated; $k++) {
+            $shares[$order[$k % $count]]++;
+        }
+
+        return array_map(fn (int $cents): float => $cents / 100, $shares);
     }
 
     public function reject(Quotation $quotation): Quotation

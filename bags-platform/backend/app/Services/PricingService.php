@@ -154,6 +154,51 @@ class PricingService
         return $this->formatResponse($channelPrice, $channelSource, $channelListId, $variant, $channel);
     }
 
+    /**
+     * سلم شرائح الكميات الساري لهذا العميل على المتغير: نقاط التحول هي كل
+     * قيم min_qty في القوائم المؤهلة له (خاصة/مجموعة/قناة/قطاعي احتياطي)،
+     * وسعر كل شريحة هو ناتج resolve نفسه عند حدّها الأدنى — فالسلم مطابق
+     * دائمًا لما سيُحصَّل فعليًا عند تلك الكمية.
+     *
+     * @return list<array{min_qty: float, unit_price: float}>
+     */
+    public function tiersFor(ProductVariant $variant, Customer $customer): array
+    {
+        $now = Carbon::now();
+        $channel = $this->channelFor($customer);
+        $eligible = $customer->status === CustomerStatus::Approved;
+        $groupId = $eligible ? $customer->customerGroup()->where('is_active', true)->value('id') : null;
+
+        $breakpoints = $this->eligibleItems($variant, PHP_FLOAT_MAX, null, $now)
+            ->where(function ($q) use ($eligible, $customer, $groupId, $channel): void {
+                $q->where('price_lists.type', $channel->value)
+                    ->orWhere('price_lists.type', PriceListType::Retail->value);
+                if ($eligible) {
+                    $q->orWhere(fn ($q) => $q->where('price_lists.type', PriceListType::CustomerSpecific)
+                        ->where('price_lists.customer_id', $customer->id));
+                }
+                if ($groupId !== null) {
+                    $q->orWhere(fn ($q) => $q->where('price_lists.type', PriceListType::CustomerGroup)
+                        ->where('price_lists.customer_group_id', $groupId));
+                }
+            })
+            ->pluck('price_list_items.min_qty')
+            ->map(fn ($v) => (float) $v)
+            ->unique()
+            ->sort()
+            ->values();
+
+        $points = collect([1.0])->merge($breakpoints)->unique()->sort()->values();
+
+        return $points
+            ->map(fn (float $minQty) => [
+                'min_qty' => $minQty,
+                'unit_price' => $this->resolve($variant, $customer, max(1.0, $minQty))['unit_price'],
+            ])
+            ->values()
+            ->all();
+    }
+
     /** قناة التسعير: الجملة/الموزع للحسابات المعتمدة فقط، وغير ذلك قطاعي. */
     private function channelFor(?Customer $customer): PriceListType
     {

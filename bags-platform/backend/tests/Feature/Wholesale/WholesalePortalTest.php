@@ -6,11 +6,13 @@ namespace Tests\Feature\Wholesale;
 
 use App\Enums\OrderStatus;
 use App\Enums\TreasuryType;
+use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Quotation;
+use App\Models\StockLevel;
 use App\Models\Treasury;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
@@ -105,6 +107,13 @@ class WholesalePortalTest extends TestCase
 
     public function test_quotation_lifecycle_create_submit_price_accept(): void
     {
+        // مخزون يغطي التحويل التلقائي لطلب عند القبول (المرحلة 12.2)
+        StockLevel::create([
+            'branch_id' => Branch::factory()->create()->id,
+            'product_variant_id' => $this->variant->id,
+            'on_hand' => 10,
+        ]);
+
         $id = $this->createQuotation();
         $number = Quotation::findOrFail($id)->quotation_number;
         $this->assertStringStartsWith('QT-', $number);
@@ -125,8 +134,22 @@ class WholesalePortalTest extends TestCase
             ->assertJsonPath('data.subtotal', '180.00')
             ->assertJsonPath('data.grand_total', '170.00');
 
-        $this->asTrader()->postJson("/api/v1/wholesale/quotations/{$id}/accept")
-            ->assertOk()->assertJsonPath('data.status', 'accepted');
+        // القبول يحوّل العرض تلقائيًا إلى طلب مؤكد آجل بنفس الأسعار المتفق عليها
+        $response = $this->asTrader()->postJson("/api/v1/wholesale/quotations/{$id}/accept")
+            ->assertOk()->assertJsonPath('data.status', 'converted_to_order');
+
+        $orderId = $response->json('data.converted_order_id');
+        $this->assertNotNull($orderId);
+        $order = Order::findOrFail($orderId);
+        $this->assertSame('credit', $order->payment_method);
+        $this->assertSame('unpaid', $order->payment_status);
+        $this->assertSame('confirmed', $order->status->value);
+        $this->assertSame('170.00', $order->grand_total);
+        $this->assertSame('90.00', $order->items()->first()->unit_price);
+
+        // الطلب الآجل الجديد يظهر في مديونية التاجر
+        $this->asTrader()->getJson('/api/v1/wholesale/payment-notices/outstanding')
+            ->assertOk()->assertJsonPath('data.outstanding_balance', '170.00');
     }
 
     public function test_quotation_reject_and_expired_accept_guard(): void
