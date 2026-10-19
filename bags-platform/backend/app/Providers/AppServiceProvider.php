@@ -50,6 +50,10 @@ class AppServiceProvider extends ServiceProvider
             ? array_map('trim', explode(',', $proxies)) : []);
         Event::listen(QueueBusy::class,
             fn ($event) => logger()->error('Queue backlog exceeded its configured threshold.', ['connection' => $event->connectionName, 'queue' => $event->queue, 'size' => $event->size]));
+
+        // مستمعو نظام الإشعارات الموحد (المرحلة 13.1) يُكتشفون تلقائيًا من
+        // app/Listeners عبر تلميحات أنواع الأحداث — لا تسجيل صريح هنا حتى
+        // لا تُستدعى المستمعات مرتين.
         RateLimiter::for('customer-registration', fn (Request $request) => [
             Limit::perMinute(config('auth.customer_limits.registration_ip_minute', 20))->by('customer-register-minute:'.$request->ip()),
             Limit::perDay(config('auth.customer_limits.registration_ip_day', 500))->by('customer-register-day:'.$request->ip()),

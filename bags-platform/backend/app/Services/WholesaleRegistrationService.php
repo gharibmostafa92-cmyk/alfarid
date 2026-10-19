@@ -8,6 +8,7 @@ use App\Enums\CustomerDocumentStatus;
 use App\Enums\CustomerDocumentType;
 use App\Enums\CustomerStatus;
 use App\Enums\CustomerType;
+use App\Events\WholesaleApplicationSubmitted;
 use App\Models\Customer;
 use App\Models\CustomerAuditLog;
 use App\Models\CustomerDocument;
@@ -87,6 +88,7 @@ class WholesaleRegistrationService
                 }
 
                 CustomerAuditLog::record($customer, 'self_registered', null, ['channel' => 'wholesale']);
+                WholesaleApplicationSubmitted::dispatch($customer);
 
                 return [
                     'customer' => $customer->load('documents'),

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\AttachmentController;
+use App\Http\Controllers\Api\V1\Shared\NotificationController;
 use App\Http\Controllers\Api\V1\Wholesale\DashboardController;
 use App\Http\Controllers\Api\V1\Wholesale\InvoiceController;
 use App\Http\Controllers\Api\V1\Wholesale\OrderController;
@@ -28,6 +29,9 @@ Route::prefix('auth')->name('auth.')->group(function (): void {
 Route::middleware(['auth:sanctum', 'auth.customer', 'wholesale.approved'])->group(function (): void {
     // لوحة التاجر والكتالوج وقائمة الأسعار (المرحلة 12.2)
     Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
+
+    Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');
+    Route::post('notifications/{id}/read', [NotificationController::class, 'markAsRead'])->name('notifications.read');
     Route::get('products', [ProductController::class, 'index'])->name('products.index');
     Route::get('price-list/export', [ProductController::class, 'exportPriceList'])->name('price-list.export');
 

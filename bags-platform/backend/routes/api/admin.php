@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\Admin\CategoryController;
 use App\Http\Controllers\Api\V1\Admin\CouponController;
 use App\Http\Controllers\Api\V1\Admin\CustomerController;
 use App\Http\Controllers\Api\V1\Admin\CustomerGroupController;
+use App\Http\Controllers\Api\V1\Admin\DashboardController;
 use App\Http\Controllers\Api\V1\Admin\ExpenseController;
 use App\Http\Controllers\Api\V1\Admin\InventoryController;
 use App\Http\Controllers\Api\V1\Admin\LocationController;
@@ -24,6 +25,7 @@ use App\Http\Controllers\Api\V1\Admin\PromotionController;
 use App\Http\Controllers\Api\V1\Admin\PurchaseOrderController;
 use App\Http\Controllers\Api\V1\Admin\PurchaseRequestController;
 use App\Http\Controllers\Api\V1\Admin\QuotationController;
+use App\Http\Controllers\Api\V1\Admin\ReportController;
 use App\Http\Controllers\Api\V1\Admin\ReturnController;
 use App\Http\Controllers\Api\V1\Admin\RoleController;
 use App\Http\Controllers\Api\V1\Admin\SettingController;
@@ -40,6 +42,7 @@ use App\Http\Controllers\Api\V1\Admin\TreasuryTransferController;
 use App\Http\Controllers\Api\V1\Admin\UserController;
 use App\Http\Controllers\Api\V1\Admin\WholesalePaymentNoticeController;
 use App\Http\Controllers\Api\V1\AttachmentController;
+use App\Http\Controllers\Api\V1\Shared\NotificationController;
 use Illuminate\Support\Facades\Route;
 
 // معرّفات الكتالوج رقمية بس: أي قيمة غير رقمية تبقى 404 بدل ما Postgres يرمي خطأ نوع ويرجع 500
@@ -78,6 +81,17 @@ Route::post('auth/login', [AuthController::class, 'login'])
 Route::middleware(['auth:sanctum', 'auth.staff'])
     ->name('admin.')
     ->group(function (): void {
+        Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');
+        Route::get('dashboard', [DashboardController::class, 'index'])->middleware('permission:reports.view')->name('dashboard');
+        Route::prefix('reports')->name('reports.')->middleware('permission:reports.view')->group(function (): void {
+            Route::get('sales', [ReportController::class, 'sales'])->name('sales');
+            Route::get('inventory', [ReportController::class, 'inventory'])->name('inventory');
+            Route::get('profit', [ReportController::class, 'profit'])->name('profit');
+            Route::get('suppliers', [ReportController::class, 'suppliers'])->name('suppliers');
+            Route::get('shifts', [ReportController::class, 'shifts'])->name('shifts');
+        });
+        Route::post('notifications/{id}/read', [NotificationController::class, 'markAsRead'])->name('notifications.read');
+
         Route::get('me', [AuthController::class, 'me'])->name('auth.me');
         Route::post('auth/logout', [AuthController::class, 'logout'])->name('auth.logout');
 

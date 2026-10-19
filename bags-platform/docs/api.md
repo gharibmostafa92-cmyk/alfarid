@@ -433,3 +433,24 @@ Run php artisan media:backfill-path-layouts once for existing uploads. It persis
 - `GET /invoices`: فواتير التاجر = طلباته الآجلة والمسددة (فلترة payment_status) مع pdf_url لكل فاتورة، و`GET /invoices/{order}/pdf` تنزيل فاتورة PDF ‏(قالب pdfs.wholesale_invoice؛ طلب الغير = 404).
 - `GET /statement?from&to`: كشف حساب من WholesalePaymentNoticeService — طلبات آجلة غير ملغاة Debit بتاريخ إنشائها، وإشعارات معتمدة Credit بتاريخ اعتمادها، ومرتجعات مستردة (refunded) Credit بمبلغ total_refund_amount، بترتيب (المدين قبل الدائن في اليوم نفسه) ورصيد تراكمي يبدأ من رصيد افتتاحي محسوب لما قبل الفترة.
 - قبول عرض السعر (من 12.1) أصبح يحوّله تلقائيًا إلى طلب مؤكد: قبول العرض المسعّر ينشئ طلبًا بقناة wholesale وطريقة credit غير مسدد بأسعار العرض الثابتة (خصم/ضريبة الترويسة موزّعان على البنود بأكبر باقٍ)، ويحجز مخزونه عبر OrderAllocationService، ويؤكّده عبر OrderService::changeStatus — نقص المخزون يُسقط التحويل ويبقى العرض مسعّرًا، وحالة العرض النهائية converted_to_order مع converted_order_id.
+
+## المرحلة 13: الإشعارات الموحدة والطوابير والتقارير
+
+### 13.1 الأحداث والإشعارات (كل المستمعين والإشعارات ShouldQueue، والقناة database فقط)
+
+- جدول `notifications` القياسي (`php artisan notifications:table`) بعلاقة polymorphic — يعمل مع users وcustomers وsupplier_users (الثلاثة Notifiable أصلًا). المستمعون يُكتشفون تلقائيًا من app/Listeners.
+- `OrderCreated` (من OrderService::createFromCart ومن تحويل عروض أسعار الجملة) ← OrderConfirmationNotification للعميل + AdminOrderCreatedNotification لطاقم الإدارة (حاملو orders.view ودور Super Admin عبر StaffRecipients).
+- `StockLowDetected` يُطلق من داخل InventoryService::recordMovement عند عبور المتاح حد إعادة الطلب الفعّال نزولًا فقط (حد صف الرصيد وإلا حد المتغير؛ قراءة حد المتغير باستعلام مباشر لأن علاقة variant محمّلة جزئيًا من lockLevels) ← LowStockAlertNotification لمديري المشتريات (purchases.view) ومديري الفرع (مقيدون بالفرع + inventory.view).
+- `TransferPendingApproval` (عند إنشاء التحويلة في TransferService) ← حاملو transfers.approve. و`WholesaleApplicationSubmitted` (داخل WholesaleRegistrationService) ← حاملو customers.approve، و`WholesaleApplicationReviewed` (من اعتماد/رفض CustomerManagementService لغير القطاعي) ← التاجر نفسه بالنتيجة والسبب. و`PurchaseOrderSentToSupplier` (من ProcurementService::sendPurchaseOrder) ← مستخدمو المورد النشطون.
+- متحكم موحد `Shared\NotificationController` في البوابات الخمس بنفس المسارين: `GET .../notifications` (ترقيم 20 + meta.unread_count) و`POST .../notifications/{id}/read` (إشعار الغير = 404): في admin وsupplier وwholesale وpos على جذر البوابة، وفي المتجر داخل مجموعة auth ‏(/store/auth/notifications).
+
+### 13.2 التقارير ولوحة المعلومات (إدارة، بصلاحية reports.view)
+
+قاعدة الأداء مطبقة حرفيًا: كل الأرقام من استعلامات تجميعية (SUM/COUNT/GROUP BY/CASE WHEN) في ReportService — لا جلب سجلات وحساب في PHP — وهجرة فهارس للباقي (supplier_invoices ‏(supplier_id,status) وdue_date، وstock_movements ‏(type,created_at)؛ الطلبات مغطاة أصلًا). «طلبات المبيعات» في كل التقارير = حالات confirmed/processing/shipped/delivered فقط.
+
+- `GET /admin/dashboard`: مبيعات اليوم والشهر مقسمة بالقنوات (store/wholesale/pos)، عدد طلبات اليوم الجديدة، low_stock_count (بالحد الفعّال)، طلبات الجملة المعلّقة، وأفضل 5 منتجات وأفضل 5 فروع مبيعًا هذا الشهر.
+- `GET /admin/reports/sales?from&to&granularity=daily|monthly&group_by=branch|channel|cashier|payment_method`: صفوف فترات بإجمالي/خصومات/ضرائب/شحن/صافٍ + صف totals. الكاشير = مستخدم وردية POS المرتبطة بالطلب.
+- `GET /admin/reports/inventory?dead_days=90`: تقييم كل فرع = ‏Σ(on_hand × cost_price) + الإجمالي، والأصناف الراكدة (رصيد > 0 وآخر حركة أقدم من X يوم أو بلا حركات) بقيمتها المحبوسة.
+- `GET /admin/reports/profit?from&to`: صافي إيراد المبيعات − COGS (من حركات sale في الدفتر: ‏Σ(|qty| × unit_cost المسجل أو cost_price الحالي عند غيابه)) = مجمل الربح، − مصروفات الفترة (حسب expense_date) = صافي الربح.
+- `GET /admin/reports/suppliers`: لكل مورد: الرصيد الحالي، إجمالي المشتريات (فواتير posted/partially_paid/paid)، وأعمار المستحق غير المسدد (غير مستحق/1–30/31–60/61–90/+90 يوم تأخير حسب due_date).
+- `GET /admin/reports/shifts?from&to&only_differences=1`: ورديات POS بأرقامها المسجلة (نقدي/شبكة/مرتجعات/مصروفات/متوقع/فعلي/فرق) مع has_difference وإجماليات، والفلتر يركز على ذوات الفروق.

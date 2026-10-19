@@ -10,6 +10,7 @@ use App\Enums\OrderStatus;
 use App\Enums\ReturnStatus;
 use App\Enums\StockBucket;
 use App\Enums\StockMovementType;
+use App\Events\OrderCreated;
 use App\Exceptions\BusinessException;
 use App\Models\Cart;
 use App\Models\City;
@@ -349,7 +350,10 @@ class OrderService
             }
             $cart->update(['coupon_id' => null]);
 
-            return $order->fresh(['items', 'statusHistories']);
+            $created = $order->fresh(['items', 'statusHistories']);
+            OrderCreated::dispatch($created);
+
+            return $created;
         });
     }
 

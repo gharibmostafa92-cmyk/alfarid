@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Enums\StockBucket;
 use App\Enums\StockMovementType;
 use App\Enums\TransferStatus;
+use App\Events\TransferPendingApproval;
 use App\Exceptions\BusinessException;
 use App\Models\Location;
 use App\Models\StockMovement;
@@ -83,7 +84,10 @@ class TransferService
 
             $this->syncItems($transfer, $data['items']);
 
-            return $transfer->load(['items.variant', 'fromBranch', 'toBranch', 'creator']);
+            $created = $transfer->load(['items.variant', 'fromBranch', 'toBranch', 'creator']);
+            TransferPendingApproval::dispatch($created);
+
+            return $created;
         });
     }
 

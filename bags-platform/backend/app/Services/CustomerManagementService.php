@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Enums\CustomerStatus;
 use App\Enums\CustomerType;
+use App\Events\WholesaleApplicationReviewed;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
 use App\Models\CustomerAuditLog;
@@ -162,6 +163,10 @@ class CustomerManagementService
             ]);
             CustomerAuditLog::record($customer, 'approved', $adminId, ['type' => $customer->type->value, 'credit_limit' => $customer->credit_limit, 'customer_group_id' => $customer->customer_group_id]);
 
+            if ($customer->type !== CustomerType::Retail) {
+                WholesaleApplicationReviewed::dispatch($customer, 'approved');
+            }
+
             return $customer->load(['customerGroup', 'documents']);
         });
     }
@@ -179,6 +184,10 @@ class CustomerManagementService
                 'rejection_reason' => $reason,
             ]);
             CustomerAuditLog::record($customer, 'rejected', $actorId, ['reason' => $reason]);
+
+            if ($customer->type !== CustomerType::Retail) {
+                WholesaleApplicationReviewed::dispatch($customer, 'rejected', $reason);
+            }
 
             return $customer->load(['customerGroup', 'documents']);
         });

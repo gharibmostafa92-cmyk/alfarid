@@ -9,6 +9,7 @@ use App\Enums\PurchaseRequestStatus;
 use App\Enums\StockBucket;
 use App\Enums\StockMovementType;
 use App\Enums\SupplierDeliveryStatus;
+use App\Events\PurchaseOrderSentToSupplier;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;
 use App\Models\ProductVariant;
@@ -266,7 +267,10 @@ class ProcurementService
             }
             $po->update(['status' => PurchaseOrderStatus::SentToSupplier, 'supplier_change_notes' => null]);
 
-            return $po->fresh(['items']);
+            $sent = $po->fresh(['items']);
+            PurchaseOrderSentToSupplier::dispatch($sent);
+
+            return $sent;
         });
     }
 

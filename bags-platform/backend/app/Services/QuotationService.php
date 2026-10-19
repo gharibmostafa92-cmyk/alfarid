@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Enums\OrderStatus;
 use App\Enums\QuotationStatus;
+use App\Events\OrderCreated;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
 use App\Models\Order;
@@ -200,6 +201,8 @@ class QuotationService
                 'status' => QuotationStatus::ConvertedToOrder,
                 'converted_order_id' => $order->id,
             ]);
+
+            OrderCreated::dispatch($order->fresh());
 
             return $quotation->load(['items.variant.product', 'convertedOrder']);
         });

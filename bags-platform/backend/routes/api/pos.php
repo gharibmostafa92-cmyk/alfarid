@@ -7,11 +7,12 @@ use App\Http\Controllers\Api\V1\Pos\PosProductController;
 use App\Http\Controllers\Api\V1\Pos\PosSaleController;
 use App\Http\Controllers\Api\V1\Pos\PosShiftController;
 use App\Http\Controllers\Api\V1\Pos\PosStockController;
+use App\Http\Controllers\Api\V1\Shared\NotificationController;
 use Illuminate\Support\Facades\Route;
 
 // معرّفات رقمية فقط
-Route::pattern('sale',      '[0-9]{1,18}');
-Route::pattern('transfer',  '[0-9]{1,18}');
+Route::pattern('sale', '[0-9]{1,18}');
+Route::pattern('transfer', '[0-9]{1,18}');
 Route::pattern('stocktake', '[0-9]{1,18}');
 Route::pattern('held_sale', '[0-9]{1,18}');
 
@@ -27,6 +28,8 @@ Route::post('auth/login', [PosAuthController::class, 'login'])
 // ===================================================================
 Route::middleware(['auth:sanctum', 'auth.staff'])->group(function (): void {
     Route::post('auth/logout', [PosAuthController::class, 'logout'])->name('auth.logout');
+    Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');
+    Route::post('notifications/{id}/read', [NotificationController::class, 'markAsRead'])->name('notifications.read');
 
     // فتح الوردية (لا تحتاج وردية موجودة)
     Route::post('shifts/open', [PosShiftController::class, 'open'])->name('shifts.open');
@@ -48,15 +51,15 @@ Route::middleware(['auth:sanctum', 'auth.staff'])->group(function (): void {
         Route::post('shifts/close', [PosShiftController::class, 'close'])->name('shifts.close');
 
         // المبيعات
-        Route::post('sales',              [PosSaleController::class, 'store'])->name('sales.store');
-        Route::post('sales/hold',         [PosSaleController::class, 'hold'])->name('sales.hold');
-        Route::post('sales/{sale}/return',   [PosSaleController::class, 'processReturn'])->name('sales.return');
+        Route::post('sales', [PosSaleController::class, 'store'])->name('sales.store');
+        Route::post('sales/hold', [PosSaleController::class, 'hold'])->name('sales.hold');
+        Route::post('sales/{sale}/return', [PosSaleController::class, 'processReturn'])->name('sales.return');
         Route::post('sales/{sale}/exchange', [PosSaleController::class, 'processExchange'])->name('sales.exchange');
 
         // المخزون
-        Route::get('stock',                              [PosStockController::class, 'index'])->name('stock.index');
-        Route::post('transfer-requests',                 [PosStockController::class, 'requestTransfer'])->name('transfer-requests.store');
-        Route::post('transfers/{transfer}/receive',      [PosStockController::class, 'receiveTransfer'])->name('transfers.receive');
-        Route::post('stocktakes/{stocktake}/scan',       [PosStockController::class, 'scan'])->name('stocktakes.scan');
+        Route::get('stock', [PosStockController::class, 'index'])->name('stock.index');
+        Route::post('transfer-requests', [PosStockController::class, 'requestTransfer'])->name('transfer-requests.store');
+        Route::post('transfers/{transfer}/receive', [PosStockController::class, 'receiveTransfer'])->name('transfers.receive');
+        Route::post('stocktakes/{stocktake}/scan', [PosStockController::class, 'scan'])->name('stocktakes.scan');
     });
 });

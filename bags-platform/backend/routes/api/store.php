@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\AttachmentController;
+use App\Http\Controllers\Api\V1\Shared\NotificationController;
 use App\Http\Controllers\Api\V1\Store\AuthController;
 use App\Http\Controllers\Api\V1\Store\CartController;
 use App\Http\Controllers\Api\V1\Store\CatalogController;
@@ -27,6 +28,8 @@ Route::prefix('auth')->name('auth.')->group(function (): void {
 
     Route::middleware(['auth:sanctum', 'auth.customer'])->group(function (): void {
         Route::post('logout', [AuthController::class, 'logout'])->name('logout');
+        Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');
+        Route::post('notifications/{id}/read', [NotificationController::class, 'markAsRead'])->name('notifications.read');
     });
 });
 

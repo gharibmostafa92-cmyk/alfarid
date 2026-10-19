@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Enums\StockBucket;
 use App\Enums\StockMovementType;
+use App\Events\StockLowDetected;
 use App\Exceptions\BusinessException;
 use App\Models\InventoryIdempotencyKey;
 use App\Models\Location;
@@ -143,6 +144,33 @@ class InventoryService
             // 5. تحديث جدول الأرصدة من واقع الحركة
             $stock->{$bucketKey} = $after;
             $stock->save();
+
+            // 6. حدث انخفاض المخزون: فقط عند عبور حد إعادة الطلب الفعّال نزولًا
+            //    (الحد الفعّال = حد صف الرصيد إن وُجد وإلا حد المتغير) حتى لا
+            //    تتكرر التنبيهات مع كل حركة والرصيد تحت الحد أصلًا.
+            // حد المتغير متاح بلا استعلام إضافي: lockLevels يحمّل العلاقة
+            // جزئيًا بالأعمدة id/is_active/deleted_at/reorder_level.
+            $level = (float) $stock->reorder_level;
+            if ($level <= 0) {
+                $level = (float) ($stock->variant?->reorder_level ?? 0);
+            }
+            if ($level > 0) {
+                $effectOnAvailable = match ($bucket) {
+                    StockBucket::OnHand => $units,
+                    StockBucket::Reserved, StockBucket::Damaged => -$units,
+                    default => 0,
+                };
+                $availableBeforeUnits = $availableAfter - $effectOnAvailable;
+                $availableAfterQty = $availableAfter / 10000;
+                if ($availableBeforeUnits / 10000 > $level && $availableAfterQty <= $level) {
+                    StockLowDetected::dispatch(
+                        (int) $stock->product_variant_id,
+                        (int) $stock->branch_id,
+                        $availableAfterQty,
+                        $level,
+                    );
+                }
+            }
 
             return $movement;
         };
@@ -337,7 +365,7 @@ class InventoryService
                 'location_id' => $key['location_id'] ?? null, 'created_at' => $now, 'updated_at' => $now,
             ])->values()->all());
 
-            $levels = StockLevel::query()->with(['variant:id,is_active,deleted_at', 'location:id,is_active'])->where(function ($query) use ($keys): void {
+            $levels = StockLevel::query()->with(['variant:id,is_active,deleted_at,reorder_level', 'location:id,is_active'])->where(function ($query) use ($keys): void {
                 foreach ($keys->groupBy(fn ($key) => $key['branch_id'].':'.($key['location_id'] ?? 0)) as $group) {
                     $identity = $group->first();
                     $query->orWhere(fn ($scope) => $scope->where('branch_id', $identity['branch_id'])

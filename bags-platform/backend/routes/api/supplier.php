@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\AttachmentController;
+use App\Http\Controllers\Api\V1\Shared\NotificationController;
 use App\Http\Controllers\Api\V1\Supplier\AccountController;
 use App\Http\Controllers\Api\V1\Supplier\AuthController;
 use App\Http\Controllers\Api\V1\Supplier\DashboardController;
@@ -23,6 +24,9 @@ Route::post('auth/login', [AuthController::class, 'login'])
 Route::middleware(['auth:sanctum', 'auth.supplier', 'throttle:120,1'])->group(function (): void {
     Route::post('auth/logout', [AuthController::class, 'logout'])->name('auth.logout');
     Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
+
+    Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');
+    Route::post('notifications/{id}/read', [NotificationController::class, 'markAsRead'])->name('notifications.read');
 
     Route::get('purchase-orders', [PurchaseOrderController::class, 'index'])->name('purchase-orders.index');
     Route::get('purchase-orders/{purchase_order}', [PurchaseOrderController::class, 'show'])->name('purchase-orders.show');
