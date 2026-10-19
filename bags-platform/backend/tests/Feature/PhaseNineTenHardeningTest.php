@@ -86,7 +86,9 @@ class PhaseNineTenHardeningTest extends TestCase
 
     private function order(int $qty = 3, float $price = 100, float $discount = 0): Order
     {
-        $order = Order::factory()->create(['customer_id' => Customer::factory()->create()->id, 'status' => OrderStatus::Delivered]);
+        // طلب مُسلّم مدفوع (COD تُسوّى عند التسليم في التدفق الحقيقي) حتى
+        // تكون الردود مشروعة أمام حارس H1 الذي يرفض رد غير المدفوع
+        $order = Order::factory()->create(['customer_id' => Customer::factory()->create()->id, 'status' => OrderStatus::Delivered, 'payment_status' => 'paid']);
         OrderItem::factory()->create(['order_id' => $order->id, 'product_variant_id' => $this->variant->id, 'qty' => $qty, 'unit_price' => $price, 'discount_amount' => $discount]);
         $order->statusHistories()->create(['to_status' => OrderStatus::Delivered, 'created_at' => now()]);
 
@@ -158,6 +160,8 @@ class PhaseNineTenHardeningTest extends TestCase
     public function test_sending_requires_approval_and_edit_invalidates_previous_approval(): void
     {
         $po = $this->po(PurchaseOrderStatus::Draft);
+        // المنشئ شخص آخر حتى لا يصطدم الاعتماد بحظر الاعتماد الذاتي (M5)
+        $po->update(['created_by' => User::factory()->create()->id]);
         $this->api("purchase-orders/{$po->id}/send")->assertUnprocessable();
         $this->api("purchase-orders/{$po->id}/approve")->assertOk();
         Auth::forgetGuards();

@@ -16,6 +16,7 @@ use App\Services\SupplierFinanceService;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -75,7 +76,13 @@ class ProcurementTest extends TestCase
             ]],
         ])->assertCreated();
         $po = $response->json('data');
-        $this->auth()->postJson("/api/v1/admin/purchase-orders/{$po['id']}/approve")->assertOk();
+        // الاعتماد من مدير آخر: الاعتماد الذاتي مرفوض افتراضيًا منذ تقوية M5
+        $approver = User::factory()->create();
+        $approver->assignRole('Super Admin');
+        Auth::forgetGuards();
+        $this->withToken($approver->createToken('approver')->plainTextToken)
+            ->postJson("/api/v1/admin/purchase-orders/{$po['id']}/approve")->assertOk();
+        Auth::forgetGuards();
         $this->auth()->postJson("/api/v1/admin/purchase-orders/{$po['id']}/send")->assertOk();
 
         return $po;
@@ -96,15 +103,23 @@ class ProcurementTest extends TestCase
     {
         $this->freezeTime();
         $this->supplier->update(['opening_balance' => 100, 'current_balance' => 100]);
+
+        // قبل أي حركة: تعديل الافتتاحي مسموح وينعكس على الجاري بنفس الفرق
+        $this->auth()->patchJson("/api/v1/admin/suppliers/{$this->supplier->id}", [
+            'code' => $this->supplier->code, 'name' => $this->supplier->name, 'opening_balance' => 150,
+            'current_balance' => 999,
+        ])->assertOk()->assertJsonPath('data.current_balance', '150.00');
+
         $invoice = $this->auth()->postJson('/api/v1/admin/supplier-invoices', [
             'supplier_id' => $this->supplier->id, 'supplier_invoice_no' => 'OPENING-REVIEW',
             'issue_date' => now()->toDateString(), 'subtotal' => 200,
         ])->assertCreated()->json('data.id');
         $this->auth()->postJson("/api/v1/admin/supplier-invoices/{$invoice}/post")->assertOk();
+
+        // بعد وجود حركات: الافتتاحي يتجمد (H4) حتى لا تتغير الكشوف التاريخية
         $this->auth()->patchJson("/api/v1/admin/suppliers/{$this->supplier->id}", [
-            'code' => $this->supplier->code, 'name' => $this->supplier->name, 'opening_balance' => 150,
-            'current_balance' => 999,
-        ])->assertOk()->assertJsonPath('data.current_balance', '350.00');
+            'code' => $this->supplier->code, 'name' => $this->supplier->name, 'opening_balance' => 500,
+        ])->assertUnprocessable();
 
         $this->assertDatabaseHas('suppliers', ['id' => $this->supplier->id, 'opening_balance' => 150, 'current_balance' => 350]);
         $statement = app(SupplierFinanceService::class)->statement($this->supplier->fresh());

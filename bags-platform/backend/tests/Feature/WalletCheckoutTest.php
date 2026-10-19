@@ -40,6 +40,8 @@ class WalletCheckoutTest extends TestCase
     {
         parent::setUp();
         $this->seed(SettingSeeder::class);
+        // المحفظة طريقة دفع من الإعدادات فقط منذ L3 — تُفعَّل هنا صراحة
+        config(['store.payment_methods' => ['cod', 'wallet']]);
         $this->customer = Customer::factory()->create();
         $this->token = $this->customer->createToken('wallet-review')->plainTextToken;
         $this->city = City::factory()->create(['shipping_cost' => 0]);
