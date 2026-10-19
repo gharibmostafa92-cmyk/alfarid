@@ -51,6 +51,18 @@ class SettingSeeder extends Seeder
         ['group' => 'numbering', 'key' => 'return_prefix', 'value' => 'RET-', 'type' => 'string'],
         ['group' => 'numbering', 'key' => 'return_next_number', 'value' => '1001', 'type' => 'integer'],
         ['group' => 'numbering', 'key' => 'return_padding', 'value' => '6', 'type' => 'integer'],
+        ['group' => 'numbering', 'key' => 'purchase_request_prefix', 'value' => 'PR-', 'type' => 'string'],
+        ['group' => 'numbering', 'key' => 'purchase_request_next_number', 'value' => '1001', 'type' => 'integer'],
+        ['group' => 'numbering', 'key' => 'purchase_request_padding', 'value' => '6', 'type' => 'integer'],
+        ['group' => 'numbering', 'key' => 'delivery_prefix', 'value' => 'DLV-', 'type' => 'string'],
+        ['group' => 'numbering', 'key' => 'delivery_next_number', 'value' => '1001', 'type' => 'integer'],
+        ['group' => 'numbering', 'key' => 'delivery_padding', 'value' => '6', 'type' => 'integer'],
+        ['group' => 'numbering', 'key' => 'supplier_invoice_prefix', 'value' => 'SIN-', 'type' => 'string'],
+        ['group' => 'numbering', 'key' => 'supplier_invoice_next_number', 'value' => '1001', 'type' => 'integer'],
+        ['group' => 'numbering', 'key' => 'supplier_invoice_padding', 'value' => '6', 'type' => 'integer'],
+        ['group' => 'numbering', 'key' => 'supplier_payment_prefix', 'value' => 'SPY-', 'type' => 'string'],
+        ['group' => 'numbering', 'key' => 'supplier_payment_next_number', 'value' => '1001', 'type' => 'integer'],
+        ['group' => 'numbering', 'key' => 'supplier_payment_padding', 'value' => '6', 'type' => 'integer'],
 
         // المرحلة 9: نافذة الاسترجاع المسموحة بالأيام من تاريخ التسليم
         ['group' => 'orders', 'key' => 'return_window_days', 'value' => '14', 'type' => 'integer'],

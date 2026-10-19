@@ -19,6 +19,8 @@ use App\Http\Controllers\Api\V1\Admin\ProductController;
 use App\Http\Controllers\Api\V1\Admin\ProductMediaController;
 use App\Http\Controllers\Api\V1\Admin\ProductVariantController;
 use App\Http\Controllers\Api\V1\Admin\PromotionController;
+use App\Http\Controllers\Api\V1\Admin\PurchaseOrderController;
+use App\Http\Controllers\Api\V1\Admin\PurchaseRequestController;
 use App\Http\Controllers\Api\V1\Admin\ReturnController;
 use App\Http\Controllers\Api\V1\Admin\RoleController;
 use App\Http\Controllers\Api\V1\Admin\SettingController;
@@ -26,6 +28,9 @@ use App\Http\Controllers\Api\V1\Admin\ShippingCompanyController;
 use App\Http\Controllers\Api\V1\Admin\ShippingRateController;
 use App\Http\Controllers\Api\V1\Admin\ShippingZoneController;
 use App\Http\Controllers\Api\V1\Admin\StocktakeController;
+use App\Http\Controllers\Api\V1\Admin\SupplierController;
+use App\Http\Controllers\Api\V1\Admin\SupplierInvoiceController;
+use App\Http\Controllers\Api\V1\Admin\SupplierPaymentController;
 use App\Http\Controllers\Api\V1\Admin\TransferController;
 use App\Http\Controllers\Api\V1\Admin\UserController;
 use Illuminate\Support\Facades\Route;
@@ -50,6 +55,12 @@ Route::pattern('return_request', '[0-9]{1,18}');
 Route::pattern('shipping_company', '[0-9]{1,18}');
 Route::pattern('shipping_zone', '[0-9]{1,18}');
 Route::pattern('shipping_rate', '[0-9]{1,18}');
+Route::pattern('supplier', '[0-9]{1,18}');
+Route::pattern('user', '[0-9]{1,18}');
+Route::pattern('purchase_request', '[0-9]{1,18}');
+Route::pattern('purchase_order', '[0-9]{1,18}');
+Route::pattern('supplier_invoice', '[0-9]{1,18}');
+Route::pattern('supplier_payment', '[0-9]{1,18}');
 
 // Public admin authentication endpoint.
 Route::post('auth/login', [AuthController::class, 'login'])
@@ -203,6 +214,34 @@ Route::middleware(['auth:sanctum', 'auth.staff'])
         Route::post('returns/{return_request}/approve', [ReturnController::class, 'approve'])->name('returns.approve');
         Route::post('returns/{return_request}/receive', [ReturnController::class, 'receive'])->name('returns.receive');
         Route::post('returns/{return_request}/refund', [ReturnController::class, 'refund'])->name('returns.refund');
+
+        // ================== المرحلة 10: المشتريات والموردين ==================
+        Route::apiResource('suppliers', SupplierController::class);
+        Route::get('suppliers/{supplier}/users', [SupplierController::class, 'users'])->name('suppliers.users.index');
+        Route::post('suppliers/{supplier}/users', [SupplierController::class, 'storeUser'])->name('suppliers.users.store');
+        Route::put('suppliers/{supplier}/users/{user}', [SupplierController::class, 'updateUser'])->name('suppliers.users.update');
+        Route::delete('suppliers/{supplier}/users/{user}', [SupplierController::class, 'destroyUser'])->name('suppliers.users.destroy');
+
+        Route::apiResource('purchase-requests', PurchaseRequestController::class)
+            ->parameters(['purchase-requests' => 'purchase_request']);
+        Route::post('purchase-requests/{purchase_request}/submit', [PurchaseRequestController::class, 'submit'])->name('purchase-requests.submit');
+        Route::post('purchase-requests/{purchase_request}/approve', [PurchaseRequestController::class, 'approve'])->name('purchase-requests.approve');
+        Route::post('purchase-requests/{purchase_request}/reject', [PurchaseRequestController::class, 'reject'])->name('purchase-requests.reject');
+
+        Route::apiResource('purchase-orders', PurchaseOrderController::class)
+            ->parameters(['purchase-orders' => 'purchase_order']);
+        Route::post('purchase-orders/{purchase_order}/approve', [PurchaseOrderController::class, 'approve'])->name('purchase-orders.approve');
+        Route::post('purchase-orders/{purchase_order}/send', [PurchaseOrderController::class, 'send'])->name('purchase-orders.send');
+        Route::post('purchase-orders/{purchase_order}/cancel', [PurchaseOrderController::class, 'cancel'])->name('purchase-orders.cancel');
+        Route::post('purchase-orders/{purchase_order}/receive', [PurchaseOrderController::class, 'receive'])->name('purchase-orders.receive');
+
+        Route::apiResource('supplier-invoices', SupplierInvoiceController::class)
+            ->parameters(['supplier-invoices' => 'supplier_invoice']);
+        Route::post('supplier-invoices/{supplier_invoice}/post', [SupplierInvoiceController::class, 'post'])->name('supplier-invoices.post');
+        Route::post('supplier-invoices/{supplier_invoice}/cancel', [SupplierInvoiceController::class, 'cancel'])->name('supplier-invoices.cancel');
+
+        Route::apiResource('supplier-payments', SupplierPaymentController::class)
+            ->parameters(['supplier-payments' => 'supplier_payment']);
 
         Route::get('settings', [SettingController::class, 'index'])
             ->middleware('permission:settings.view|settings.manage')
