@@ -454,3 +454,9 @@ Run php artisan media:backfill-path-layouts once for existing uploads. It persis
 - `GET /admin/reports/profit?from&to`: صافي إيراد المبيعات − COGS (من حركات sale في الدفتر: ‏Σ(|qty| × unit_cost المسجل أو cost_price الحالي عند غيابه)) = مجمل الربح، − مصروفات الفترة (حسب expense_date) = صافي الربح.
 - `GET /admin/reports/suppliers`: لكل مورد: الرصيد الحالي، إجمالي المشتريات (فواتير posted/partially_paid/paid)، وأعمار المستحق غير المسدد (غير مستحق/1–30/31–60/61–90/+90 يوم تأخير حسب due_date).
 - `GET /admin/reports/shifts?from&to&only_differences=1`: ورديات POS بأرقامها المسجلة (نقدي/شبكة/مرتجعات/مصروفات/متوقع/فعلي/فرق) مع has_difference وإجماليات، والفلتر يركز على ذوات الفروق.
+
+### تجميع ملفات الروابط النهائية (pos / wholesale / admin)
+
+- ملف pos.php أُعيد تنظيمه على أقسام (مصادقة، ورديات، منتجات ومبيعات، مخزون وتحويلات وجرد، إشعارات) بجدول مسارات مطابق تمامًا لما قبله (تحقق بـ route:list diff): المتحكمات الفعلية بأسماء PosAuthController/PosShiftController/PosSaleController/PosProductController/PosStockController (طلبات التحويل والاستلام ومسح الجرد طرق في PosStockController)، وحمايات قائمة لم تُمس: throttle على دخول الكاشير، وفصل مسارات الوردية المفتوحة (pos.shift) عن مسارات التوكن فقط، وأنماط المعرّفات الرقمية، وauth/logout.
+- في wholesale.php: إنشاء إشعار السداد `POST payment-notices` انتقل إلى InvoiceController@storePaymentNotice (بنفس StorePaymentNoticeRequest والخدمة والـ Resource — المسار والاسم والسلوك لم يتغيروا)، وبقية إشعارات السداد (قائمة/عرض/مديونية/إيصال) في PaymentNoticeController. وتبقى إضافات موثقة فوق الجدول الأساسي: quotations/{id}/submit، وinvoices/{order}/pdf.
+- في admin.php: إضافات المرحلتين 11 و13 موجودة أصلًا بجدول مطابق (apiResource للخزائن/المصروفات/تحويلات الخزائن، وshifts/{shift}/approve عبر PosShiftAdminController، وdashboard وreports بصلاحية reports.view، والإشعارات) فلم يُعَد فتح الملف.

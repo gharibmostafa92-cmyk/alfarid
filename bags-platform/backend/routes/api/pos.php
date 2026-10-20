@@ -16,50 +16,40 @@ Route::pattern('transfer', '[0-9]{1,18}');
 Route::pattern('stocktake', '[0-9]{1,18}');
 Route::pattern('held_sale', '[0-9]{1,18}');
 
-// ===================================================================
-//  مصادقة الكاشير (بلا توكن)
-// ===================================================================
+// تسجيل دخول الكاشير / موظف الفرع مع اختيار الفرع
 Route::post('auth/login', [PosAuthController::class, 'login'])
     ->middleware('throttle:pos-login')
     ->name('auth.login');
 
-// ===================================================================
-//  مسارات تحتاج توكن موظف فقط (لا تحتاج وردية مفتوحة)
-// ===================================================================
 Route::middleware(['auth:sanctum', 'auth.staff'])->group(function (): void {
     Route::post('auth/logout', [PosAuthController::class, 'logout'])->name('auth.logout');
-    Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');
-    Route::post('notifications/{id}/read', [NotificationController::class, 'markAsRead'])->name('notifications.read');
 
-    // فتح الوردية (لا تحتاج وردية موجودة)
+    // الورديات: الفتح والعرض لا يحتاجان وردية قائمة، والإغلاق داخل مجموعة الوردية بالأسفل
     Route::post('shifts/open', [PosShiftController::class, 'open'])->name('shifts.open');
-
-    // عرض الوردية الحالية (لا تحتاج وردية مفتوحة — قد تكون null)
     Route::get('shifts/current', [PosShiftController::class, 'current'])->name('shifts.current');
 
-    // بحث المنتجات (متاح دائمًا للكاشير)
+    // البحث عن المنتجات والفواتير المعلقة (متاحة للكاشير بلا وردية مفتوحة)
     Route::get('products/lookup', [PosProductController::class, 'lookup'])->name('products.lookup');
-
-    // الفواتير المعلقة للعرض (لا تحتاج وردية مفتوحة)
     Route::get('sales/held', [PosSaleController::class, 'held'])->name('sales.held');
 
-    // ===================================================================
-    //  مسارات تحتاج وردية مفتوحة (Active Shift Requirement)
-    // ===================================================================
+    // ما يلي يحتاج وردية مفتوحة (pos.shift يحقن الوردية الحالية في الطلب)
     Route::middleware('pos.shift')->group(function (): void {
-        // إغلاق الوردية
         Route::post('shifts/close', [PosShiftController::class, 'close'])->name('shifts.close');
 
-        // المبيعات
+        // المبيعات والفواتير المعلقة والمرتجعات والاستبدالات
         Route::post('sales', [PosSaleController::class, 'store'])->name('sales.store');
         Route::post('sales/hold', [PosSaleController::class, 'hold'])->name('sales.hold');
         Route::post('sales/{sale}/return', [PosSaleController::class, 'processReturn'])->name('sales.return');
         Route::post('sales/{sale}/exchange', [PosSaleController::class, 'processExchange'])->name('sales.exchange');
 
-        // المخزون
+        // مخزون الفرع والتحويلات والجرد بالباركود
         Route::get('stock', [PosStockController::class, 'index'])->name('stock.index');
         Route::post('transfer-requests', [PosStockController::class, 'requestTransfer'])->name('transfer-requests.store');
         Route::post('transfers/{transfer}/receive', [PosStockController::class, 'receiveTransfer'])->name('transfers.receive');
         Route::post('stocktakes/{stocktake}/scan', [PosStockController::class, 'scan'])->name('stocktakes.scan');
     });
+
+    // الإشعارات
+    Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');
+    Route::post('notifications/{id}/read', [NotificationController::class, 'markAsRead'])->name('notifications.read');
 });
