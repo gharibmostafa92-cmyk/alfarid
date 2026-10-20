@@ -1,5 +1,16 @@
 // @ts-nocheck
 import React, { useState, useEffect, useRef, useMemo, useCallback, createContext, useContext } from 'react';
+import {
+  DashboardPage,
+  OrdersPage,
+  CustomersPage,
+  InventoryPage,
+  PurchasesPage,
+  TreasuryPage,
+  ReportsPage,
+  CommandPalette,
+  NotificationsPopover,
+} from './PlatformExtensions';
 
 // ===== Product form: Variants & pricing tab, Media tab =====
 const COLOR_PRESETS = [
@@ -1439,7 +1450,7 @@ function LoginPage() {
     if (!pw) er.password = 'كلمة المرور مطلوبة.';
     setErrs(er); if (Object.keys(er).length) return;
     setSt('loading'); await sleep(900);
-    if (pw === '1234' || pw.length >= 6) { toast('أهلًا بعودتك، أحمد'); go('/products'); return; }
+    if (pw === '1234' || pw.length >= 6) { toast('أهلًا بعودتك، أحمد'); go('/dashboard'); return; }
     const n = attempts + 1; setAttempts(n);
     if (n >= 3) { setSt('throttled'); setWait(60); } else setSt('failed');
   };
@@ -1477,18 +1488,31 @@ function LoginPage() {
 }
 
 const NAV = [
+  { g: 'الرئيسية', items: [
+    ['/dashboard', 'fa-solid fa-chart-pie', 'لوحة المعلومات', null],
+  ]},
   { g: 'الكتالوج', items: [
     ['/products', 'fa-solid fa-bag-shopping', 'المنتجات', 'products.view'],
     ['/categories', 'fa-solid fa-sitemap', 'الأقسام', 'categories.view'],
     ['/brands', 'fa-solid fa-copyright', 'البراندات', 'brands.view'],
   ]},
-  { g: 'التشغيل', items: [
-    ['/branches', 'fa-solid fa-store', 'الفروع والمخازن', 'branches.view'],
+  { g: 'المبيعات والعملاء', items: [
+    ['/orders', 'fa-solid fa-receipt', 'الطلبات والمبيعات', 'orders.view'],
+    ['/customers', 'fa-solid fa-users', 'العملاء والجملة', 'customers.view'],
   ]},
-  { g: 'الإدارة', items: [
+  { g: 'التشغيل والمخزون', items: [
+    ['/branches', 'fa-solid fa-store', 'الفروع والمخازن', 'branches.view'],
+    ['/inventory', 'fa-solid fa-boxes-stacked', 'المخزون والتحويلات', 'inventory.view'],
+    ['/purchases', 'fa-solid fa-file-invoice-dollar', 'أوامر الشراء', 'purchases.view'],
+  ]},
+  { g: 'المالية والتقارير', items: [
+    ['/treasury', 'fa-solid fa-vault', 'الخزائن والمالية', 'treasuries.view'],
+    ['/reports', 'fa-solid fa-chart-line', 'التقارير التحليلية', 'reports.view'],
+  ]},
+  { g: 'الإدارة والنظام', items: [
     ['/users', 'fa-solid fa-user-group', 'المستخدمون', 'users.view'],
     ['/roles', 'fa-solid fa-shield-halved', 'الأدوار والصلاحيات', 'roles.manage'],
-    ['/settings', 'fa-solid fa-sliders', 'الإعدادات', 'settings.view'],
+    ['/settings', 'fa-solid fa-sliders', 'الإعدادات العامة', 'settings.view'],
   ]},
   { g: 'مرجع التصميم', items: [
     ['/kit', 'fa-solid fa-swatchbook', 'المكونات المشتركة', null],
@@ -1497,7 +1521,10 @@ const NAV = [
 
 function Layout({ children }) {
   const { route, go, can, sessionExpired, setSessionExpired, tw } = useApp();
+  const [cmdOpen, setCmdOpen] = useState(false);
+  const [notifyOpen, setNotifyOpen] = useState(false);
   const base = '/' + (route.path.split('/')[1] || '');
+
   return (
     <div className="app">
       <aside className="side">
@@ -1522,16 +1549,34 @@ function Layout({ children }) {
           <button className="icon-btn" title="تسجيل الخروج" onClick={() => go('/login')}><i className="fa-solid fa-arrow-right-from-bracket"></i></button>
         </div>
       </aside>
-      <main className="main">
+
+      <main className="main" onClick={() => notifyOpen && setNotifyOpen(false)}>
         <div className="topbar">
-          <span className="branch-chip"><i className="fa-solid fa-store muted"></i>كل الفروع <Badge tone="accent" nodot>امتياز صريح</Badge></span>
+          <span className="branch-chip" style={{ cursor: 'pointer' }} onClick={() => go('/branches')} title="عرض تفاصيل الفروع">
+            <i className="fa-solid fa-store muted"></i>كل الفروع <Badge tone="accent" nodot>امتياز صريح</Badge>
+          </span>
           <div className="sp"></div>
           <span className="muted" style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}><span className="session-dot"></span>جلسة الإدارة</span>
-          <button className="ico-btn" aria-label="بحث"><i className="fa-solid fa-magnifying-glass"></i></button>
-          <button className="ico-btn" aria-label="الإشعارات"><i className="fa-regular fa-bell"></i></button>
+
+          <button className="ico-btn" aria-label="بحث سريع" onClick={() => setCmdOpen(true)} title="بحث سريع (Ctrl + K)">
+            <i className="fa-solid fa-magnifying-glass"></i>
+          </button>
+          <span className="cmd-esc" style={{ fontSize: 10, cursor: 'pointer', padding: '2px 6px' }} onClick={() => setCmdOpen(true)} title="البحث السريع">Ctrl + K</span>
+
+          <div style={{ position: 'relative' }}>
+            <button className="ico-btn" aria-label="الإشعارات" onClick={(e) => { e.stopPropagation(); setNotifyOpen(o => !o); }} title="الإشعارات والتنبيهات">
+              <i className="fa-regular fa-bell"></i>
+              <span style={{ position: 'absolute', top: 5, right: 6, width: 7, height: 7, borderRadius: '50%', background: 'var(--accent)' }}></span>
+            </button>
+            <NotificationsPopover open={notifyOpen} onClose={() => setNotifyOpen(false)} go={go} />
+          </div>
         </div>
+
         {children}
       </main>
+
+      <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} go={go} />
+
       {sessionExpired && (
         <div className="scrim">
           <div className="modal">
@@ -1580,7 +1625,14 @@ function App() {
   if (p[0] === 'login' || !p[0]) page = <LoginPage />;
   else {
     let inner;
-    if (tw.dataState === 'forbidden' && p[0] !== 'kit') inner = <><PageHeader crumbs={[['الرئيسية', '/products'], ['غير مصرح']]} bold="غير مصرح" /><div className="content"><div className="panel"><NoAccessState perm={'products.view'} go={go} /></div></div></>;
+    if (tw.dataState === 'forbidden' && p[0] !== 'kit') inner = <><PageHeader crumbs={[['الرئيسية', '/dashboard'], ['غير مصرح']]} bold="غير مصرح" /><div className="content"><div className="panel"><NoAccessState perm={'products.view'} go={go} /></div></div></>;
+    else if (p[0] === 'dashboard') inner = <DashboardPage />;
+    else if (p[0] === 'orders') inner = <OrdersPage />;
+    else if (p[0] === 'customers') inner = <CustomersPage />;
+    else if (p[0] === 'inventory') inner = <InventoryPage />;
+    else if (p[0] === 'purchases') inner = <PurchasesPage />;
+    else if (p[0] === 'treasury') inner = <TreasuryPage />;
+    else if (p[0] === 'reports') inner = <ReportsPage />;
     else if (p[0] === 'products' && p[1]) inner = <ProductForm id={p[1]} key={p[1]} />;
     else if (p[0] === 'products') inner = <ProductsPage />;
     else if (p[0] === 'categories') inner = <CategoriesPage />;
@@ -1591,7 +1643,7 @@ function App() {
     else if (p[0] === 'roles') inner = can('roles.manage') ? <RolesPage /> : <><PageHeader crumbs={[['الإدارة'], ['الأدوار']]} bold="الأدوار والصلاحيات" /><div className="content"><div className="panel"><NoAccessState perm="roles.manage" go={go} /></div></div></>;
     else if (p[0] === 'settings') inner = <SettingsPage />;
     else if (p[0] === 'kit') inner = <KitPage />;
-    else inner = <div className="content"><EmptyState title="الصفحة غير موجودة" /></div>;
+    else inner = <DashboardPage />;
     page = <Layout>{inner}</Layout>;
   }
   return (
