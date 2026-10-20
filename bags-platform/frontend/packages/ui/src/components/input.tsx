@@ -5,7 +5,7 @@ import { cn } from '../lib/utils';
 
 export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
-  error?: string;
+  error?: string | boolean;
   helperText?: string;
 }
 
@@ -31,7 +31,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
           )}
           {...props}
         />
-        {error ? (
+        {typeof error === 'string' ? (
           <p className="text-xs text-red-600 font-medium">{error}</p>
         ) : helperText ? (
           <p className="text-xs text-zinc-500">{helperText}</p>
