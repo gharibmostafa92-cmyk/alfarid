@@ -1,0 +1,32 @@
+{
+  "name": "@alfarid/config",
+  "version": "1.0.0",
+  "private": true,
+  "main": "tailwind.preset.cjs",
+  "module": "tailwind.preset.mjs",
+  "exports": {
+    ".": {
+      "import": "./tailwind.preset.mjs",
+      "require": "./tailwind.preset.cjs",
+      "default": "./tailwind.preset.cjs"
+    },
+    "./tailwind.preset": {
+      "import": "./tailwind.preset.mjs",
+      "require": "./tailwind.preset.cjs",
+      "default": "./tailwind.preset.cjs"
+    },
+    "./tailwind.preset.js": {
+      "import": "./tailwind.preset.mjs",
+      "require": "./tailwind.preset.cjs",
+      "default": "./tailwind.preset.cjs"
+    },
+    "./tailwind.preset.cjs": "./tailwind.preset.cjs",
+    "./tailwind.preset.mjs": "./tailwind.preset.mjs",
+    "./tsconfig.base.json": "./tsconfig.base.json"
+  },
+  "files": [
+    "tailwind.preset.cjs",
+    "tailwind.preset.mjs",
+    "tsconfig.base.json"
+  ]
+}

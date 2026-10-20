@@ -1,0 +1,47 @@
+export const API_ENDPOINTS = {
+  AUTH: {
+    LOGIN: '/api/v1/auth/login',
+    LOGOUT: '/api/v1/auth/logout',
+    ME: '/api/v1/auth/me',
+  },
+  ADMIN: {
+    DASHBOARD: '/api/v1/admin/dashboard',
+    PRODUCTS: '/api/v1/admin/products',
+    CATEGORIES: '/api/v1/admin/categories',
+    ORDERS: '/api/v1/admin/orders',
+    CUSTOMERS: '/api/v1/admin/customers',
+    INVENTORY: '/api/v1/admin/inventory',
+    SUPPLIERS: '/api/v1/admin/suppliers',
+    REPORTS: '/api/v1/admin/reports',
+    TREASURY: '/api/v1/admin/treasuries',
+    EXPENSES: '/api/v1/admin/expenses',
+  },
+  POS: {
+    AUTH_LOGIN: '/api/v1/pos/auth/login',
+    AUTH_LOGOUT: '/api/v1/pos/auth/logout',
+    SHIFTS_CURRENT: '/api/v1/pos/shifts/current',
+    SHIFTS_OPEN: '/api/v1/pos/shifts/open',
+    SHIFTS_CLOSE: '/api/v1/pos/shifts/close',
+    SALES: '/api/v1/pos/sales',
+    STOCK: '/api/v1/pos/stock',
+  },
+  STORE: {
+    PRODUCTS: '/api/v1/store/products',
+    CATEGORIES: '/api/v1/store/categories',
+    CART: '/api/v1/store/cart',
+    CHECKOUT: '/api/v1/store/checkout',
+    ORDERS: '/api/v1/store/orders',
+  },
+  WHOLESALE: {
+    PRODUCTS: '/api/v1/wholesale/products',
+    QUICK_ORDER: '/api/v1/wholesale/quick-order',
+    QUOTATIONS: '/api/v1/wholesale/quotations',
+    INVOICES: '/api/v1/wholesale/invoices',
+    STATEMENT: '/api/v1/wholesale/statement',
+  },
+  SUPPLIER: {
+    PURCHASE_ORDERS: '/api/v1/supplier/purchase-orders',
+    DELIVERIES: '/api/v1/supplier/deliveries',
+    INVOICES: '/api/v1/supplier/invoices',
+  },
+} as const;
