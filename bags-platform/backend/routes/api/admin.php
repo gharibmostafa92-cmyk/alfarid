@@ -75,7 +75,7 @@ Route::pattern('supplier_payment', '[0-9]{1,18}');
 // Public admin authentication endpoint (legacy — prefer /api/v1/auth/login).
 // M5: تُعطَّل بضبط LEGACY_LOGIN_ENABLED=false حتى لا تتضاعف ميزانية التخمين
 // عبر limiters مستقلة ولا يظهر توكن موظف على دومين الويب.
-if (config('auth.legacy_login_enabled', true)) {
+if (config('auth.legacy_login_enabled', false)) {
     Route::post('auth/login', [AuthController::class, 'login'])
         ->middleware('throttle:admin-login')
         ->name('admin.auth.login');

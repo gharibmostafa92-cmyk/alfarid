@@ -210,23 +210,20 @@ class AppServiceProvider extends ServiceProvider
 
             return [
                 // M6: حد الـ IP قابل للضبط (شبكات CGNAT والفروع المشتركة)، وحد
-                // المعرّف العام مخفف لمنع قفل حسابات الآخرين (lockout DoS) مع
                 // إبقاء حد ضيق لكل (IP + معرّف) ضد التخمين المركّز.
+                // الحدود العامة تحسب الفشل فقط داخل UnifiedAuthService.
                 Limit::perMinute((int) config('auth.unified_login_ip_minute', 120))->by('ip:'.$request->ip()),
                 Limit::perMinute(5)->by('id:'.$id.':'.$request->ip()),
-                Limit::perHour((int) config('auth.unified_login_id_hour', 100))->by('id-hour:'.$id),
             ];
         });
 
-        RateLimiter::for('unified-handoff', fn (Request $request) => Limit::perMinute(20)->by($request->ip()));
+        RateLimiter::for('unified-handoff', fn (Request $request) => Limit::perMinute((int) config('auth.unified_handoff_ip_minute', 60))->by($request->ip()));
 
         // M8: الـ handoff يعتمد على cache مشترك يدعم الأقفال عبر الخوادم.
         // file/array يكسرانه بصمت على عدة nodes — نبّه في الإنتاج مبكرًا.
         if ($this->app->environment('production')
             && ! in_array((string) config('cache.default'), ['redis', 'database', 'memcached', 'dynamodb'], true)) {
-            logger()->error('Staff handoff requires a shared lockable cache store in production.', [
-                'cache_default' => (string) config('cache.default'),
-            ]);
+            throw new \LogicException('Staff handoff requires a shared lockable cache store in production. Use Redis or a shared database cache.');
         }
     }
 }

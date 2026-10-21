@@ -24,6 +24,9 @@ class CustomerAuthService
 {
     public static function dummyHash(): string
     {
+        if (config('hashing.driver', 'bcrypt') === 'bcrypt') {
+            return sprintf('$2y$%02d$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2uheWG/igi.', (int) config('hashing.bcrypt.rounds', 12));
+        }
         static $hashes = [];
         $key = json_encode(config('hashing'));
 
@@ -79,13 +82,9 @@ class CustomerAuthService
                     logger()->info('customer.login_failed', ['identifier_key' => $this->identifierKey($identifier)]);
                 }
             } else {
-                CustomerAuditLog::record($customer, 'login_failed', null, ['identifier_key' => $this->identifierKey($identifier)]);
+                defer(fn () => CustomerAuditLog::record($customer, 'login_failed', null, ['identifier_key' => $this->identifierKey($identifier)]))->always();
             }
             throw new BusinessException('بيانات الدخول غير صحيحة.', [], 401);
-        }
-
-        if (Hash::needsRehash($customer->password)) {
-            $customer->forceFill(['password' => $password])->save();
         }
 
         if ($customer->status === CustomerStatus::Suspended) {
@@ -97,6 +96,9 @@ class CustomerAuthService
             );
         }
 
+        if (Hash::needsRehash($customer->password)) {
+            $customer->forceFill(['password' => $password])->save();
+        }
         CustomerAuditLog::record($customer, 'login_succeeded', null);
 
         return $customer;

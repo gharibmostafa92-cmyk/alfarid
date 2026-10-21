@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react';
-import { authEndpoints, defaultApiClient } from '@alfarid/api-client';
+import { authEndpoints } from '@alfarid/api-client';
 import { useAuthStore } from '../../stores/auth.store';
 import { toStaffUser } from '../../stores/mappers';
+
+const WEB_URL = (import.meta.env.VITE_WEB_URL as string | undefined) ?? 'http://localhost:3000';
 
 export default function AuthCallbackPage() {
   const login = useAuthStore((s) => s.login);
@@ -11,30 +13,42 @@ export default function AuthCallbackPage() {
     if (ran.current) return;
     ran.current = true;
     // M7: الكود يصل في الـ fragment (لا يُرسل للخادم ولا في الـ Referer) —
-    // مع دعم الـ query مؤقتًا لروابط قديمة، ثم مسحه فورًا من الشريط.
+    // يُمسح فورًا من الشريط؛ روابط الـ query القديمة لم تعد مقبولة.
     const fromHash = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('code');
-    const fromQuery = new URLSearchParams(window.location.search).get('code');
-    const code = fromHash ?? fromQuery;
+    const code = fromHash;
     window.history.replaceState(null, '', window.location.pathname);
     if (!code) {
-      window.location.replace(`${import.meta.env.VITE_WEB_URL}/auth/login`);
+      window.location.replace(`${WEB_URL}/auth/login?error=handoff`);
       return;
     }
     authEndpoints
       .exchangeHandoff(code)
-      .then((res) => {
-        // M9: جلسة باك أوفيس سابقة توكنها يبقى صالحًا بعد الاستبدال —
-        // أبطل القديم (best-effort) بعد نجاح الجديد.
+      .then(async (res) => {
+        // H1: أبطل التوكن السابق قبل تفعيل الجديد، وبعميل خام بلا interceptors
+        // حتى لا يستبدل الـ interceptor الـ Authorization الصريح بالتوكن الجديد
+        // فيحذف الخادم التوكن الجديد بدل القديم.
         const prev = localStorage.getItem('backoffice_token');
-        login(res.token, toStaffUser(res.data));
         if (prev && prev !== res.token) {
-          defaultApiClient.post('/api/v1/admin/auth/logout', {}, {
-            headers: { Authorization: `Bearer ${prev}` },
-          }).catch(() => {});
+          const baseURL =
+            (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:8000';
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 10000);
+          try {
+            await fetch(`${baseURL}/api/v1/admin/auth/logout`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${prev}`, 'Content-Type': 'application/json' },
+              signal: ctrl.signal,
+            });
+          } catch {
+            // best-effort: التوكن القديم قد يكون منتهيًا أصلًا
+          } finally {
+            clearTimeout(timer);
+          }
         }
+        login(res.token, toStaffUser(res.data));
         window.location.replace(res.redirect.path);
       })
-      .catch(() => window.location.replace(`${import.meta.env.VITE_WEB_URL}/auth/login?error=handoff`));
+      .catch(() => window.location.replace(`${WEB_URL}/auth/login?error=handoff`));
   }, []);
 
   return <div style={{ padding: 40, textAlign: 'center' }}>جارٍ تسجيل الدخول…</div>;

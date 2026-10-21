@@ -74,6 +74,13 @@ return Application::configure(basePath: dirname(__DIR__))
                 return response()->json(['message' => 'العملية مشغولة بطلب آخر؛ أعد المحاولة بعد لحظات.'], 409);
             }
 
+            // M4: حذف مورد له مستخدمون (restrictOnDelete) يرمي 23503 — رد 409
+            // مفهوم بدل 500 في لوحة الإدارة.
+            if (($request->is('api/*') || $request->expectsJson())
+                && in_array($e->errorInfo[0] ?? $e->getCode(), ['23503'], true)) {
+                return response()->json(['message' => 'لا يمكن الحذف لوجود سجلات مرتبطة؛ عطّل العنصر بدل حذفه.'], 409);
+            }
+
             return null;
         });
         $exceptions->render(function (NotFoundHttpException $e, Request $request) {

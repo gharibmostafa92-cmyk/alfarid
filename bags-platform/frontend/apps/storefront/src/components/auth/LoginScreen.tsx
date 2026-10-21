@@ -20,16 +20,44 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+  const [staffCheckPending, setStaffCheckPending] = useState(initialView === 'login');
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [formError, setFormError] = useState('');
 
   useEffect(() => {
+    setIsReady(true);
     formRef.current?.querySelector('h1')?.focus({ preventScroll: true });
     setErrors({}); setFormError('');
   }, [view]);
 
   const home = useAuthStore((s) => s.home);
   const token = useAuthStore((s) => s.token);
+
+  useEffect(() => {
+    if (view !== 'login' || token) { setStaffCheckPending(false); return; }
+    const office = new URL(process.env.NEXT_PUBLIC_BACKOFFICE_URL ?? 'http://localhost:5173');
+    const nonce = crypto.randomUUID();
+    const frame = document.createElement('iframe');
+    frame.hidden = true;
+    frame.title = 'Session verification';
+    frame.src = new URL(`/auth/session#nonce=${encodeURIComponent(nonce)}`, office).href;
+    setStaffCheckPending(true);
+    const receive = (event: MessageEvent) => {
+      if (event.origin !== office.origin || event.source !== frame.contentWindow
+        || event.data?.type !== 'alfarid:staff-session' || event.data?.nonce !== nonce) return;
+      if (event.data.authenticated === true) window.location.replace(new URL('/dashboard', office).href);
+      else setStaffCheckPending(false);
+    };
+    window.addEventListener('message', receive);
+    document.body.appendChild(frame);
+    const timer = window.setTimeout(() => setStaffCheckPending(false), 5000);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('message', receive);
+      frame.remove();
+    };
+  }, [view, token]);
 
   // لو المستخدم داخل بالفعل، روح لصفحته الرئيسية
   useEffect(() => {
@@ -200,7 +228,7 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
   // Login handler
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSubmitting) return;
+    if (!isReady || staffCheckPending || isSubmitting) return;
     setIsSubmitting(true); setErrors({}); setFormError('');
     try {
       const path = await loginUnified(login, password, params.get('redirect'));
@@ -278,7 +306,7 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
                 )}
 
                 {/* Form */}
-                <form onSubmit={handleSignIn} className="luxury-form">
+                <form method="post" onSubmit={handleSignIn} className="luxury-form">
                   <div>
                     <label className="luxury-field-label" htmlFor="login">
                       {t.loginLabel}
@@ -351,7 +379,7 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
                   <div style={{ paddingTop: '4px' }}>
                     <button
                       type="submit"
-                      disabled={isSubmitting}
+                      disabled={!isReady || staffCheckPending || isSubmitting}
                       className="pill-btn-primary"
                     >
                       {isSubmitting ? (

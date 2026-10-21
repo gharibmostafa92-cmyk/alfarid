@@ -68,8 +68,21 @@ export const useAuthStore = create<AuthState>((set, get) => {
     },
     bootstrap: async () => {
       if (!get().token) return;
+      const token = get().token;
       const u = await authEndpoints.staffMe(); // لو رجع 401 الـ handler هيحوّل لوحده
+      if (get().token !== token) return;
       get().setUser(toStaffUser(u));
     },
   };
 });
+
+// Reload into the latest account instead of keeping stale identity/permissions in memory.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (window.location.pathname === '/auth/session') return;
+    if (event.storageArea === localStorage && (event.key === 'backoffice_token' || event.key === null)
+      && localStorage.getItem('backoffice_token') !== useAuthStore.getState().token) {
+      window.location.reload();
+    }
+  });
+}

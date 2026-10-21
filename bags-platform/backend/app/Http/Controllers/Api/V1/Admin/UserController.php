@@ -145,6 +145,7 @@ class UserController extends Controller
                 return 'insufficient_permissions';
             }
 
+            $emailChanged = isset($userAttributes['email']) && $userAttributes['email'] !== $lockedUser->email;
             $lockedUser->update($userAttributes);
 
             if ($roles !== null) {
@@ -155,7 +156,7 @@ class UserController extends Controller
             $deactivated = array_key_exists('is_active', $userAttributes)
                 && ! (bool) $userAttributes['is_active'];
 
-            if ($passwordChanged || $deactivated) {
+            if ($passwordChanged || $emailChanged || $deactivated) {
                 $lockedUser->tokens()->delete();
             }
 

@@ -7,7 +7,7 @@ import { AccountMenu } from './auth/AccountMenu';
 export function StorefrontShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
-  if (pathname.startsWith('/auth/') || pathname === '/wholesale/register') return <>{children}</>;
+  if (pathname.startsWith('/auth/') || ['/wholesale/register', '/wholesale', '/wholesale/application-status', '/supplier'].includes(pathname)) return <>{children}</>;
 
   return <>
     <header className="border-b border-slate-200 bg-white sticky top-0 z-40 shadow-sm">

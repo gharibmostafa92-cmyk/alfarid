@@ -21,6 +21,7 @@ use App\Services\Auth\StaffHandoffService;
 use App\Services\Auth\UnifiedAuthService;
 use App\Services\CartService;
 use App\Services\CustomerAuthService;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -43,7 +44,7 @@ class UnifiedAuthController extends Controller
         $redirect = $this->destinations->resolve($actor, $data['redirect'] ?? null);
 
         if ($actor instanceof User) {
-            return $this->respond('staff', $redirect, null, $this->handoff->issue($actor, $redirect['path']),
+            return $this->respond('staff', $redirect, null, $this->handoff->issue($actor),
                 ['id' => $actor->id, 'name' => $actor->name], 'active');
         }
 
@@ -73,18 +74,18 @@ class UnifiedAuthController extends Controller
 
     public function exchange(HandoffExchangeRequest $request): JsonResponse
     {
-        // M8: القفل قد يرمي LockTimeoutException تحت التزامن — تُعامل ككود
-        // غير صالح (401) بدل 500.
+        // L3: الكود المستهلك يُعامل كغير صالح (401)، أما أعطال البنية
+        // (قاعدة/كاش) فتُترك لتُرجع 503/500 بدل ابتلاعها في 401 مضلل.
         try {
             $payload = $this->handoff->consume($request->validated()['code']);
-        } catch (\Throwable $exception) {
+        } catch (LockTimeoutException $exception) {
             report($exception);
             $payload = null;
         }
         $user = $payload ? User::query()->find($payload['user_id']) : null;
 
         if (! $user instanceof User || ! $user->is_active) {
-            logger()->info('staff.handoff', ['result' => 'rejected']);
+            logger()->info('staff.handoff', ['ip' => $request->ip(), 'result' => 'rejected']);
 
             return response()->json(['message' => 'رابط الدخول غير صالح أو انتهت صلاحيته.'], 401);
         }
@@ -101,8 +102,10 @@ class UnifiedAuthController extends Controller
             if (! $user->is_active) {
                 throw new BusinessException('غير مصرح لك بالدخول كموظف أو الحساب غير نشط.', [], 401);
             }
+            // M1: SANCTUM_EXPIRATION الفارغ يعني بلا انتهاء زمني — لا تمسح كل التوكنات.
+            $expiry = config('sanctum.expiration');
             $user->tokens()->where(fn ($q) => $q->where('expires_at', '<=', now())
-                ->orWhere('created_at', '<=', now()->subMinutes((int) config('sanctum.expiration', 1440))))->delete();
+                ->when($expiry, fn ($q) => $q->orWhere('created_at', '<=', now()->subMinutes((int) $expiry))))->delete();
             $limit = max(1, (int) config('auth.staff_max_tokens', 20));
             $old = $user->tokens()->orderByDesc('id')->skip($limit - 1)->pluck('id');
             if ($old->isNotEmpty()) {
@@ -112,7 +115,7 @@ class UnifiedAuthController extends Controller
             return $user->createToken('staff-token')->plainTextToken;
         });
 
-        logger()->info('staff.handoff', ['user_id' => $user->id, 'result' => 'success']);
+        logger()->info('staff.handoff', ['user_id' => $user->id, 'ip' => $request->ip(), 'result' => 'success']);
 
         return response()->json([
             'data' => UserResource::make($user)->resolve($request),
@@ -179,8 +182,10 @@ class UnifiedAuthController extends Controller
             if (! $user->is_active || $user->supplier_id === null || $user->supplier?->is_active !== true) {
                 throw new BusinessException('بيانات الدخول غير صحيحة.', [], 401);
             }
+            // M1: SANCTUM_EXPIRATION الفارغ يعني بلا انتهاء زمني — لا تمسح كل التوكنات.
+            $expiry = config('sanctum.expiration');
             $user->tokens()->where(fn ($q) => $q->where('expires_at', '<=', now())
-                ->orWhere('created_at', '<=', now()->subMinutes((int) config('sanctum.expiration', 1440))))->delete();
+                ->when($expiry, fn ($q) => $q->orWhere('created_at', '<=', now()->subMinutes((int) $expiry))))->delete();
             $limit = max(1, (int) config('auth.supplier_max_tokens', 5));
             $old = $user->tokens()->orderByDesc('id')->skip($limit - 1)->pluck('id');
             if ($old->isNotEmpty()) {

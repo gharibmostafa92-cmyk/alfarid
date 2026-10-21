@@ -9,9 +9,11 @@ return [
     'customer_max_tokens' => (int) env('CUSTOMER_MAX_TOKENS', 10),
     'supplier_max_tokens' => (int) env('SUPPLIER_MAX_TOKENS', 5),
     'staff_max_tokens' => (int) env('STAFF_MAX_TOKENS', 20),
-    'legacy_login_enabled' => env('LEGACY_LOGIN_ENABLED', true),
+    'legacy_login_enabled' => env('LEGACY_LOGIN_ENABLED', false),
     'unified_login_ip_minute' => (int) env('UNIFIED_LOGIN_IP_MINUTE', 120),
-    'unified_login_id_hour' => (int) env('UNIFIED_LOGIN_ID_HOUR', 100),
+    'unified_login_failures_hour' => (int) env('UNIFIED_LOGIN_FAILURES_HOUR', 100),
+    'unified_login_failures_day' => (int) env('UNIFIED_LOGIN_FAILURES_DAY', 100),
+    'unified_handoff_ip_minute' => (int) env('UNIFIED_HANDOFF_IP_MINUTE', 60),
     'customer_sms_daily_limit' => (int) env('CUSTOMER_SMS_DAILY_LIMIT', 1000),
     'customer_sms_hourly_limit' => (int) env('CUSTOMER_SMS_HOURLY_LIMIT', 100),
     'customer_limits' => [

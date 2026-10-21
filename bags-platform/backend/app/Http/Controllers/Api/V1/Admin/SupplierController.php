@@ -111,8 +111,9 @@ class SupplierController extends Controller implements HasMiddleware
         }
         $user = DB::transaction(function () use ($supplier, $user, $data): SupplierUser {
             $user = $supplier->users()->lockForUpdate()->findOrFail($user->id);
+            $emailChanged = isset($data['email']) && $data['email'] !== $user->email;
             $user->update($data);
-            if (isset($data['password'])) {
+            if (isset($data['password']) || $emailChanged || (isset($data['is_active']) && ! $data['is_active'])) {
                 $user->tokens()->delete();
             }
 

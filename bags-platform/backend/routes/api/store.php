@@ -23,7 +23,7 @@ Route::prefix('auth')->name('auth.')->group(function (): void {
     Route::post('phone-verification/verify', [AuthController::class, 'verifyPhone'])->middleware('throttle:customer-phone-verify')->name('phone-verification.verify');
     // حد محاولات الدخول (مرحلة 5) محفوظ فوق الشكل المطلوب: حماية من التخمين
     // M5: مسار legacy — يُعطَّل مع LEGACY_LOGIN_ENABLED=false لصالح /auth/login.
-    if (config('auth.legacy_login_enabled', true)) {
+    if (config('auth.legacy_login_enabled', false)) {
         Route::post('login', [AuthController::class, 'login'])->middleware('throttle:customer-login')->name('login');
     }
     Route::post('forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:customer-password-reset')->name('forgot-password');

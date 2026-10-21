@@ -2,6 +2,7 @@
 
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schedule;
 
 Schedule::command('sanctum:prune-expired --hours=24')->dailyAt('03:30')
@@ -9,6 +10,14 @@ Schedule::command('sanctum:prune-expired --hours=24')->dailyAt('03:30')
 Schedule::command('queue:prune-failed --hours=168')->dailyAt('03:45')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping();
 Schedule::command('customers:prune-artifacts')->hourly()->withoutOverlapping();
+Schedule::call(function (): void {
+    if (config('cache.default') === 'database') {
+        DB::connection(config('cache.stores.database.connection'))
+            ->table(config('cache.stores.database.table', 'cache'))->where('expiration', '<', now()->timestamp)->delete();
+        DB::connection(config('cache.stores.database.lock_connection') ?? config('cache.stores.database.connection'))
+            ->table(config('cache.stores.database.lock_table') ?? 'cache_locks')->where('expiration', '<', now()->timestamp)->delete();
+    }
+})->name('cache:prune-expired')->hourly()->withoutOverlapping();
 Schedule::command('queue:monitor '.config('auth.customer_password_reset.connection', 'database').':default --max=100')
     ->everyFiveMinutes()->withoutOverlapping();
 

@@ -41,6 +41,10 @@ export function createApiClient(config: ApiClientConfig = {}): AxiosInstance {
   });
 
   instance.interceptors.request.use((reqConfig: InternalAxiosRequestConfig) => {
+    const existingAuth = reqConfig.headers?.Authorization ?? (reqConfig.headers as Record<string, unknown>)?.['authorization'];
+    if (existingAuth) {
+      return reqConfig;
+    }
     const token = config.getToken ? config.getToken() : activeToken;
     if (token && reqConfig.headers) {
       reqConfig.headers.Authorization = `Bearer ${token}`;
@@ -53,7 +57,11 @@ export function createApiClient(config: ApiClientConfig = {}): AxiosInstance {
     (error) => {
       const isSignInRequest = ['/api/v1/auth/login', '/api/v1/auth/handoff/exchange']
         .some((path) => error.config?.url?.split('?')[0] === path);
-      if (error.response?.status === 401 && !isSignInRequest) {
+      const currentToken = config.getToken ? config.getToken() : activeToken;
+      const requestAuth = error.config?.headers?.Authorization ?? error.config?.headers?.authorization;
+      const staleSession = typeof requestAuth === 'string' && requestAuth.startsWith('Bearer ')
+        && requestAuth !== `Bearer ${currentToken}`;
+      if (error.response?.status === 401 && !isSignInRequest && !staleSession) {
         if (config.onUnauthorized) {
           config.onUnauthorized();
         } else if (unauthorizedHandler) {

@@ -15,16 +15,16 @@ class EmailUniquenessTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
-    public function test_store_registration_rejects_an_email_used_by_staff_without_creating_a_customer(): void
+    public function test_store_registration_does_not_disclose_staff_email_and_leaves_customer_email_unverified(): void
     {
         User::factory()->create(['email' => 'identity@example.test']);
 
         $this->postJson('/api/v1/store/auth/register', [
             'name' => 'New customer', 'phone' => '01088997766',
             'email' => 'IDENTITY@example.test', 'password' => 'customer-pass',
-        ])->assertUnprocessable()->assertJsonPath('errors.email.0', 'هذا البريد مستخدم بحساب آخر في النظام.');
+        ])->assertCreated();
 
-        $this->assertDatabaseMissing('customers', ['phone' => '01088997766']);
+        $this->assertDatabaseHas('customers', ['phone' => '01088997766', 'email_verified_at' => null]);
     }
 
     private function fails(string $ownTable, ?string $value): bool

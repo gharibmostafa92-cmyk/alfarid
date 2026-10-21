@@ -29,7 +29,7 @@ final class LoginDestinationResolver
                     throw new BusinessException('حسابك غير مرتبط بفرع نشط.', [], 403);
                 }
 
-                return ['app' => 'backoffice', 'path' => '/pos', 'destination' => 'pos'];
+                return ['app' => 'backoffice', 'path' => '/dashboard', 'destination' => 'pos'];
             }
 
             return ['app' => 'backoffice', 'path' => '/dashboard', 'destination' => 'admin'];

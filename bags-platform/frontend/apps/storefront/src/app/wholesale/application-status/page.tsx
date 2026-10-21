@@ -1,6 +1,9 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { defaultApiClient } from '@alfarid/api-client';
+import { FinancialDashboard } from '@alfarid/ui';
+import { useAuthStore } from '@/store/auth.store';
+import { logoutWeb } from '@/services/auth.service';
 import { RequireActor } from '@/components/auth/RequireActor';
 
 interface ApplicationStatus {
@@ -38,5 +41,8 @@ function ApplicationStatusContent() {
 }
 
 export default function ApplicationStatusPage() {
-  return <RequireActor allow={['wholesale_pending', 'wholesale']}><ApplicationStatusContent /></RequireActor>;
+  const customerType = useAuthStore((state) => state.user?.type);
+  return <RequireActor allow={['wholesale_pending', 'wholesale']}>
+    {customerType === 'retail' ? <ApplicationStatusContent /> : <FinancialDashboard onLogout={logoutWeb} />}
+  </RequireActor>;
 }

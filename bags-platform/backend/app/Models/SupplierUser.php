@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Models\Concerns\SerializesAccountEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -17,6 +18,7 @@ use Laravel\Sanctum\HasApiTokens;
 class SupplierUser extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable;
+    use SerializesAccountEmail;
 
     /** @return BelongsTo<Supplier, $this> */
     public function supplier(): BelongsTo

@@ -17,7 +17,7 @@ Route::pattern('delivery', '[0-9]{1,18}');
 
 // دخول موظفي المورد (supplier_users) — عام مع حد محاولات (legacy — M5:
 // يُعطَّل مع LEGACY_LOGIN_ENABLED=false لصالح /api/v1/auth/login).
-if (config('auth.legacy_login_enabled', true)) {
+if (config('auth.legacy_login_enabled', false)) {
     Route::post('auth/login', [AuthController::class, 'login'])
         ->middleware('throttle:supplier-login')
         ->name('auth.login');

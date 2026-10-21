@@ -29,6 +29,14 @@ export const useAuthStore = create<WebSession>()(
 );
 
 if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.storageArea !== localStorage || (event.key !== 'alfarid_web_auth' && event.key !== null)) return;
+    let nextToken: string | null = null;
+    try {
+      nextToken = JSON.parse(localStorage.getItem('alfarid_web_auth') ?? 'null')?.state?.token ?? null;
+    } catch { /* Invalid persisted sessions are discarded on reload. */ }
+    if (nextToken !== useAuthStore.getState().token) window.location.reload();
+  });
   setUnauthorizedHandler(() => {
     useAuthStore.getState().clear();
     if (window.location.pathname.startsWith('/auth/') || window.location.pathname === '/wholesale/register') return;

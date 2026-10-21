@@ -234,6 +234,20 @@ class AdminUserEndpointsTest extends TestCase
         $this->requestWithToken($inactiveToken, 'GET', '/api/v1/admin/me')->assertUnauthorized();
     }
 
+    public function test_email_change_revokes_all_target_sessions(): void
+    {
+        $manager = $this->staffWithPermission('users.manage');
+        $managerToken = $manager->createToken('manager')->plainTextToken;
+        $target = User::factory()->create();
+        $targetToken = $target->createToken('old-email-session')->plainTextToken;
+        $this->requestWithToken($managerToken, 'PATCH', "/api/v1/admin/users/{$target->id}", [
+            'email' => 'updated-identity@example.test',
+        ])->assertOk();
+        $this->assertSame('updated-identity@example.test', $target->fresh()->email);
+        $this->assertSame(0, $target->tokens()->count());
+        $this->requestWithToken($targetToken, 'GET', '/api/v1/admin/me')->assertUnauthorized();
+    }
+
     public function test_user_manager_cannot_assign_roles_with_permissions_they_do_not_own(): void
     {
         $role = Role::create(['name' => 'Finance Manager', 'guard_name' => 'staff']);

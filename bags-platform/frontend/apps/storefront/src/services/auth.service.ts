@@ -1,16 +1,25 @@
-import { authEndpoints, defaultApiClient } from '@alfarid/api-client';
+import { authEndpoints, createApiClient, defaultApiClient } from '@alfarid/api-client';
 import { useAuthStore } from '@/store/auth.store';
 
 const CART_KEY = 'cart_session';
 
+async function revokePreviousSession(nextToken?: string | null) {
+  const previous = useAuthStore.getState().token;
+  if (!previous || previous === nextToken) return;
+  try {
+    await createApiClient({ getToken: () => previous, onUnauthorized: () => {} })
+      .post('/api/v1/auth/logout', {}, { timeout: 10000 });
+  } catch { /* The previous session may already have expired. */ }
+}
+
 export async function loginUnified(login: string, password: string, redirect?: string | null) {
   const res = await authEndpoints.login({ login, password, redirect: redirect ?? undefined },
     typeof window !== 'undefined' ? localStorage.getItem(CART_KEY) : null);
+  await revokePreviousSession(res.token);
 
   if (res.redirect.app === 'backoffice') {
     // M9: جلسة عميل/مورد قائمة توكنها يبقى صالحًا 24 ساعة بعد clear المحلي —
     // أبطلها في الخادم أولًا (best-effort) قبل مسح الجلسة المحلية.
-    try { if (useAuthStore.getState().token) await authEndpoints.logout(); } catch { /* best-effort */ }
     useAuthStore.getState().clear();
     // M7: الكود في الـ fragment لا في الـ query — الـ fragment لا يُرسل
     // للخادم ولا يظهر في الـ Referer أو سجلات nginx.
@@ -67,6 +76,7 @@ export async function registerWeb(input: RegistrationInput, wholesale: boolean, 
     } },
   );
   const home = wholesale ? '/wholesale/application-status' : '/';
+  await revokePreviousSession(response.data.token);
   useAuthStore.getState().setSession({
     token: response.data.token, actorType: 'customer',
     destination: wholesale ? 'wholesale_pending' : 'retail', home, user: response.data.data,

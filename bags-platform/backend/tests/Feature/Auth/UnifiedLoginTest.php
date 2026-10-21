@@ -43,7 +43,7 @@ class UnifiedLoginTest extends TestCase
         $staff->syncRoles([$this->staffRole('cashier')]);
 
         $this->postJson('/api/v1/auth/handoff/exchange', ['code' => $code])
-            ->assertOk()->assertJsonPath('redirect.path', '/pos');
+            ->assertOk()->assertJsonPath('redirect.path', '/dashboard');
 
         $this->assertSame(1, $staff->tokens()->count());
     }
@@ -154,7 +154,7 @@ class UnifiedLoginTest extends TestCase
         $this->assertSame(64, mb_strlen((string) $response->json('handoff_code')));
     }
 
-    public function test_cashier_with_branch_goes_to_pos_and_branchless_cashier_is_forbidden(): void
+    public function test_cashier_with_branch_goes_to_dashboard_and_branchless_cashier_is_forbidden(): void
     {
         $branch = Branch::factory()->create();
         $cashier = $this->makeStaff('cashier@example.test', 'secret123', true, $branch->id);
@@ -163,7 +163,7 @@ class UnifiedLoginTest extends TestCase
         $this->login(['login' => 'cashier@example.test', 'password' => 'secret123'])
             ->assertOk()
             ->assertJsonPath('redirect.app', 'backoffice')
-            ->assertJsonPath('redirect.path', '/pos')
+            ->assertJsonPath('redirect.path', '/dashboard')
             ->assertJsonPath('actor.subtype', 'pos');
 
         $branchless = $this->makeStaff('cashier2@example.test', 'secret123');
@@ -305,7 +305,8 @@ class UnifiedLoginTest extends TestCase
     {
         $staff = $this->makeStaff('shared@example.test', 'staff-pass');
         $staff->assignRole($this->staffRole('manager'));
-        Customer::factory()->create(['email' => 'shared@example.test', 'password' => 'customer-pass']);
+        // Existing shared identities remain usable; new writes prevent this legacy state.
+        Customer::withoutEvents(fn () => Customer::factory()->create(['email' => 'shared@example.test', 'password' => 'customer-pass']));
 
         $this->login(['login' => 'shared@example.test', 'password' => 'customer-pass'])
             ->assertOk()

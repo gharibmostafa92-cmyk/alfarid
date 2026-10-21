@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Enums\CustomerStatus;
 use App\Enums\CustomerType;
+use App\Models\Concerns\SerializesAccountEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -38,6 +39,7 @@ use Laravel\Sanctum\HasApiTokens;
 class Customer extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
+    use SerializesAccountEmail;
 
     protected static function booted(): void
     {
