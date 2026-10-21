@@ -13,6 +13,7 @@ dist-ssr/
 
 # Turbo
 .turbo
+test-results/
 
 # Logs
 *.log

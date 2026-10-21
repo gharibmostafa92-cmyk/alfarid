@@ -5,7 +5,7 @@ import { useAuthStore } from '../stores/auth.store';
 
 export function SupplierLayout() {
   const location = useLocation();
-  const { logout } = useAuthStore();
+  const { logoutRemote } = useAuthStore();
 
   const navItems = [
     { label: 'أوامر الشراء (POs)', path: '/supplier', icon: FileText },
@@ -39,7 +39,7 @@ export function SupplierLayout() {
           })}
         </nav>
         <div className="p-4 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
-          <button onClick={logout} className="flex items-center gap-2 hover:text-red-400 transition-colors">
+          <button onClick={() => logoutRemote()} className="flex items-center gap-2 hover:text-red-400 transition-colors">
             <LogOut className="w-4 h-4" />
             <span>تسجيل الخروج</span>
           </button>

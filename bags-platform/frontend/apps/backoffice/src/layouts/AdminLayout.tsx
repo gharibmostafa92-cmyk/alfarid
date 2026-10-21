@@ -28,7 +28,7 @@ interface NavGroup {
 
 export function AdminLayout() {
   const location = useLocation();
-  const { user, logout } = useAuthStore();
+  const { user, logoutRemote } = useAuthStore();
 
   const navGroups: NavGroup[] = [
     {
@@ -137,7 +137,7 @@ export function AdminLayout() {
             </div>
           </div>
           <button
-            onClick={logout}
+            onClick={() => logoutRemote()}
             className="p-1.5 text-zinc-400 hover:text-red-400 hover:bg-zinc-800 rounded-lg transition-colors"
             title="تسجيل الخروج"
           >

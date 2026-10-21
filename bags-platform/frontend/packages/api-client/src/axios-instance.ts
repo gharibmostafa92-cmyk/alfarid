@@ -32,7 +32,7 @@ export function createApiClient(config: ApiClientConfig = {}): AxiosInstance {
   const instance = axios.create({
     baseURL: config.baseURL || envBaseUrl || 'http://localhost:8000',
     timeout: 30000,
-    withCredentials: config.withCredentials ?? true,
+    withCredentials: config.withCredentials ?? false,
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
@@ -51,7 +51,9 @@ export function createApiClient(config: ApiClientConfig = {}): AxiosInstance {
   instance.interceptors.response.use(
     (response) => response,
     (error) => {
-      if (error.response?.status === 401) {
+      const isSignInRequest = ['/api/v1/auth/login', '/api/v1/auth/handoff/exchange']
+        .some((path) => error.config?.url?.split('?')[0] === path);
+      if (error.response?.status === 401 && !isSignInRequest) {
         if (config.onUnauthorized) {
           config.onUnauthorized();
         } else if (unauthorizedHandler) {

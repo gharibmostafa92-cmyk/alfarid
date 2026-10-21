@@ -1,5 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect, useRef, useMemo, useCallback, createContext, useContext } from 'react';
+import { useAuthStore } from './stores/auth.store';
+import PosPage from './pages/pos/PosPage';
 import {
   DashboardPage,
   OrdersPage,
@@ -11,6 +13,7 @@ import {
   CommandPalette,
   NotificationsPopover,
 } from './PlatformExtensions';
+
 
 // ===== Product form: Variants & pricing tab, Media tab =====
 const COLOR_PRESETS = [
@@ -1435,56 +1438,13 @@ function useTwkTypewriter(items, { placeholder, typeMs = 35, eraseMs = 22, pause
 
 Object.assign(window, { TweakSuggestionBar });// ===== Login, layout, router =====
 function LoginPage() {
-  const { go, toast } = useApp();
-  const [email, setEmail] = useState('ahmed@alfarid.eg');
-  const [pw, setPw] = useState('');
-  const [st, setSt] = useState('idle'); // idle | loading | failed | throttled
-  const [errs, setErrs] = useState({});
-  const [attempts, setAttempts] = useState(0);
-  const [wait, setWait] = useState(0);
-  useEffect(() => { if (wait <= 0) return; const t = setTimeout(() => setWait(w => w - 1), 1000); return () => clearTimeout(t); }, [wait]);
-  const submit = async e => {
-    e.preventDefault();
-    const er = {};
-    if (!email) er.email = 'البريد الإلكتروني مطلوب.'; else if (!/^\S+@\S+\.\S+$/.test(email)) er.email = 'صيغة البريد الإلكتروني غير صحيحة.';
-    if (!pw) er.password = 'كلمة المرور مطلوبة.';
-    setErrs(er); if (Object.keys(er).length) return;
-    setSt('loading'); await sleep(900);
-    if (pw === '1234' || pw.length >= 6) { toast('أهلًا بعودتك، أحمد'); go('/dashboard'); return; }
-    const n = attempts + 1; setAttempts(n);
-    if (n >= 3) { setSt('throttled'); setWait(60); } else setSt('failed');
-  };
-  return (
-    <div className="login" data-screen-label="Login">
-      <div className="login-art">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'var(--display)', fontWeight: 700, fontSize: 24, letterSpacing: 4, position: 'relative', zIndex: 1 }}><LogoMark size={26} />ALFARID</div>
-        <div className="ring"></div>
-        <img className="hero" src={IMG.bag1} alt="" />
-        <img className="hero2" src={IMG.wallet} alt="" />
-        <div className="bigtype"><span className="lt">لوحة إدارة</span><span className="bd">الفريد</span></div>
-        <p>إدارة الكتالوج والفروع والمخزون لمتجر الشنط والمحافظ — من مكان واحد.</p>
-      </div>
-      <div className="login-form">
-        <form onSubmit={submit} noValidate>
-          <div>
-            <div className="crumbs" style={{ marginBottom: 14 }}><span className="cur">بوابة الإدارة</span><span className="sep">/</span><span>ADMIN</span></div>
-            <h1>تسجيل الدخول</h1>
-          </div>
-          <p className="lead">استخدم بيانات حسابك الإداري. جلسة الإدارة منفصلة عن بوابة المورد ونقطة البيع.</p>
-          {st === 'failed' && <Alert tone="danger" title="بيانات الدخول غير صحيحة">تأكد من البريد وكلمة المرور. متبقي {3 - attempts} محاولة قبل الإيقاف المؤقت.</Alert>}
-          {st === 'throttled' && <Alert tone="warn" icon="fa-solid fa-hourglass-half" title="محاولات كثيرة">{wait > 0 ? <>تم إيقاف الدخول مؤقتًا. حاول مرة أخرى بعد <b className="num">{wait}</b> ثانية.</> : 'يمكنك المحاولة الآن.'} <span className="mono" style={{ opacity: .6 }}>429</span></Alert>}
-          <Field label="البريد الإلكتروني" req error={errs.email}>
-            <Input ltr type="email" autoComplete="username" value={email} error={errs.email} onChange={e => setEmail(e.target.value)} placeholder="name@alfarid.eg" />
-          </Field>
-          <Field label="كلمة المرور" req error={errs.password} help="اكتب أي كلمة من ٦ أحرف للدخول التجريبي، أو أقل لرؤية حالة الفشل.">
-            <PasswordInput autoComplete="current-password" value={pw} error={errs.password} onChange={e => setPw(e.target.value)} placeholder="••••••••" />
-          </Field>
-          <Btn kind="" size="lg" type="submit" loading={st === 'loading'} disabled={st === 'throttled' && wait > 0}>{st === 'loading' ? 'جاري التحقق…' : 'دخول'}</Btn>
-          <p className="field-help" style={{ textAlign: 'center' }}>نسيت كلمة المرور؟ تواصل مع مدير النظام لإعادة تعيينها.</p>
-        </form>
-      </div>
-    </div>
-  );
+  // الدخول الموحد انتقل لتطبيق الويب — لوحة الأدمن تستقبل handoff عبر /auth/callback فقط
+  useEffect(() => {
+    const webUrl = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_WEB_URL) || 'http://localhost:3000';
+    window.location.replace(`${webUrl}/auth/login`);
+  }, []);
+
+  return null;
 }
 
 const NAV = [
@@ -1521,6 +1481,8 @@ const NAV = [
 
 function Layout({ children }) {
   const { route, go, can, sessionExpired, setSessionExpired, tw } = useApp();
+  const user = useAuthStore((s) => s.user);
+  const logoutRemote = useAuthStore((s) => s.logoutRemote);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [notifyOpen, setNotifyOpen] = useState(false);
   const base = '/' + (route.path.split('/')[1] || '');
@@ -1544,9 +1506,9 @@ function Layout({ children }) {
           })}
         </nav>
         <div className="side-foot">
-          <div className="avatar">أف</div>
-          <div className="who"><b>أحمد الفريد</b><span>مدير النظام</span></div>
-          <button className="icon-btn" title="تسجيل الخروج" onClick={() => go('/login')}><i className="fa-solid fa-arrow-right-from-bracket"></i></button>
+          <div className="avatar">{user?.name?.slice(0, 2)}</div>
+          <div className="who"><b>{user?.name}</b><span>{user?.roles.join('، ')}</span></div>
+          <button className="icon-btn" title="تسجيل الخروج" onClick={logoutRemote}><i className="fa-solid fa-arrow-right-from-bracket"></i></button>
         </div>
       </aside>
 
@@ -1602,6 +1564,8 @@ const TWEAK_DEFAULTS = (typeof window !== 'undefined' && window.ALFARID_TWEAKS) 
 };
 
 function App() {
+  const user = useAuthStore((s) => s.user);
+  const cashierOnly = user?.roles.length === 1 && user.roles[0] === 'cashier';
   const [tw, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const [route, setRoute] = useState(parseHash());
   const [toasts, setToasts] = useState([]);
@@ -1609,23 +1573,26 @@ function App() {
   useEffect(() => { const h = () => setRoute(parseHash()); window.addEventListener('hashchange', h); return () => window.removeEventListener('hashchange', h); }, []);
   useEffect(() => { document.documentElement.style.setProperty('--accent', tw.accent); document.documentElement.style.setProperty('--band', tw.band); }, [tw.accent, tw.band]);
   useEffect(() => { window.scrollTo(0, 0); }, [route.path]);
+  useEffect(() => {
+    if (cashierOnly && route.path !== '/pos') window.location.replace('/pos');
+  }, [cashierOnly, route.path]);
   const go = (path, query) => { location.hash = buildHash(path, query); };
   const setQuery = patch => { const q = { ...route.query, ...patch }; location.hash = buildHash(route.path, q); };
   const toast = (text, tone) => { const id = Math.random(); setToasts(t => [...t, { id, text, tone }]); setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3200); };
   const can = p => {
     if (!p) return true;
-    if (p === 'products.view_cost') return tw.canViewCost;
-    if (p === 'products.publish') return tw.canPublish;
-    if (p === 'roles.manage') return tw.canManageRoles;
-    return true;
+    return !!user?.permissions?.some(permission => permission === '*' || permission === p);
   };
   const ctx = { route, go, setQuery, toast, can, tw, sessionExpired, setSessionExpired, forceState: tw.dataState === 'normal' ? null : tw.dataState };
   const p = route.path.split('/').filter(Boolean);
   let page;
+  if (cashierOnly && route.path !== '/pos') return null;
   if (p[0] === 'login' || !p[0]) page = <LoginPage />;
   else {
     let inner;
     if (tw.dataState === 'forbidden' && p[0] !== 'kit') inner = <><PageHeader crumbs={[['الرئيسية', '/dashboard'], ['غير مصرح']]} bold="غير مصرح" /><div className="content"><div className="panel"><NoAccessState perm={'products.view'} go={go} /></div></div></>;
+    else if (p[0] === 'pos') inner = <PosPage />;
+    else if (NAV.flatMap(g => g.items).find(it => it[0] === '/' + p[0])?.[3] && !can(NAV.flatMap(g => g.items).find(it => it[0] === '/' + p[0])[3])) inner = <NoAccessState go={go} />;
     else if (p[0] === 'dashboard') inner = <DashboardPage />;
     else if (p[0] === 'orders') inner = <OrdersPage />;
     else if (p[0] === 'customers') inner = <CustomersPage />;
@@ -1650,7 +1617,7 @@ function App() {
     <AppCtx.Provider value={ctx}>
       {page}
       <Toasts list={toasts} />
-      <TweaksPanel title="Tweaks">
+      {import.meta.env.DEV && <TweaksPanel title="Tweaks">
         <TweakSection label="الصلاحيات" />
         <TweakToggle label="products.view_cost" value={tw.canViewCost} onChange={v => setTweak('canViewCost', v)} />
         <TweakToggle label="products.publish" value={tw.canPublish} onChange={v => setTweak('canPublish', v)} />
@@ -1663,7 +1630,7 @@ function App() {
         <TweakSection label="الألوان" />
         <TweakColor label="لون مميز" value={tw.accent} options={['#4f7d88', '#8a5a3c', '#3d4a6b', '#111111']} onChange={v => setTweak('accent', v)} />
         <TweakColor label="شريط العنوان" value={tw.band} options={['#dfe5e9', '#ede3de', '#e8e6df', '#f1f1f1']} onChange={v => setTweak('band', v)} />
-      </TweaksPanel>
+      </TweaksPanel>}
     </AppCtx.Provider>
   );
 }
@@ -2807,7 +2774,7 @@ const apiClient = {
 
 // URL state: #/route?page=2&q=...
 const parseHash = () => {
-  const h = location.hash.replace(/^#/, '') || '/login';
+  const h = location.hash.replace(/^#/, '') || (location.pathname === '/' ? '/dashboard' : location.pathname + location.search);
   const [path, qs] = h.split('?');
   return { path, query: Object.fromEntries(new URLSearchParams(qs || '')) };
 };

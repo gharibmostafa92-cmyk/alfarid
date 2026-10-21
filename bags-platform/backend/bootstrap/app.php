@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\EnsureCustomerAuthenticated;
+use App\Http\Middleware\EnsureOpenPosShift;
 use App\Http\Middleware\EnsureStaffAuthenticated;
 use App\Http\Middleware\EnsureSupplierAuthenticated;
 use App\Http\Middleware\EnsureWholesaleApproved;
@@ -48,17 +49,22 @@ return Application::configure(basePath: dirname(__DIR__))
                 ->prefix('api/v1/pos')
                 ->name('pos.')
                 ->group(base_path('routes/api/pos.php'));
+            // الدخول الموحد: users ← supplier_users ← customers + handoff للموظفين
+            Route::middleware('api')
+                ->prefix('api/v1/auth')
+                ->name('unified-auth.')
+                ->group(base_path('routes/api/auth.php'));
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
-            'auth.staff'    => EnsureStaffAuthenticated::class,
+            'auth.staff' => EnsureStaffAuthenticated::class,
             'auth.customer' => EnsureCustomerAuthenticated::class,
             'auth.supplier' => EnsureSupplierAuthenticated::class,
             'wholesale.approved' => EnsureWholesaleApproved::class,
-            'role'          => RoleMiddleware::class,
-            'permission'    => PermissionMiddleware::class,
-            'pos.shift'     => \App\Http\Middleware\EnsureOpenPosShift::class,
+            'role' => RoleMiddleware::class,
+            'permission' => PermissionMiddleware::class,
+            'pos.shift' => EnsureOpenPosShift::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

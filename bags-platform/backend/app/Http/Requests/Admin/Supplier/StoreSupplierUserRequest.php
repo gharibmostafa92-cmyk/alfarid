@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Supplier;
 
+use App\Rules\EmailNotUsedByOtherAccountType;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -29,7 +30,7 @@ class StoreSupplierUserRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'email', 'max:255', Rule::unique('supplier_users', 'email')],
+            'email' => ['required', 'email', 'max:255', Rule::unique('supplier_users', 'email'), new EmailNotUsedByOtherAccountType('supplier_users')],
             'phone' => ['nullable', 'string', 'max:30'],
             'password' => ['required', 'string', 'min:8', 'max:255'],
             'is_active' => ['sometimes', 'boolean'],

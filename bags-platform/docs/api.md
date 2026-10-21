@@ -1,5 +1,66 @@
 # API Notes
 
+## Unified Login (`/api/v1/auth`) — the only login used by frontends
+
+- `POST /api/v1/auth/login` — single entry point for staff, suppliers and
+  customers (email or phone + password, optional `redirect`). Account priority
+  for emails: `users` ← `supplier_users` ← `customers`. Staff get a one-time
+  `handoff_code` (never a token on the web domain); suppliers/customers get a
+  Bearer token directly.
+- `POST /api/v1/auth/handoff/exchange` — backoffice exchanges the one-time
+  `code` for a staff token. `GET /api/v1/auth/me` returns the actor +
+  redirect; `POST /api/v1/auth/logout` deletes the current token.
+- Deprecated (kept for backward compatibility + existing tests, do not use
+  from frontends): `admin/auth/login`, `store/auth/login`,
+  `supplier/auth/login`, `pos/auth/login`. `admin/me` and `admin/auth/logout`
+  remain in use by the backoffice.
+
+### Local unified-login verification
+
+- Staff handoff codes expire after 60 seconds and are consumed under a cache
+  lock, so simultaneous exchanges cannot reuse a code. Exchange rechecks the
+  employee's current roles and branch before issuing a token.
+- Local defaults: storefront `3000`, backoffice `5173`, API `8000`. Copy each
+  application's `.env.example` when setting up a fresh checkout. For alternate
+  storefront ports, set `FRONTEND_URL` on the API and `VITE_WEB_URL` on the
+  backoffice to the same storefront origin.
+- To create local test accounts, set `UNIFIED_DEMO_PASSWORD` (at least 12
+  characters), then run `php artisan db:seed --class=UnifiedLoginDemoSeeder`
+  from `backend`. The seeder is restricted to local/testing environments and
+  does not reset existing accounts. Accounts use
+  `unified-{admin,cashier,supplier,retail,approved,pending,rejected,suspended}@example.test`.
+  Retail phone: `01070000001` / `+201070000001`.
+- `frontend/tests/unified-login.e2e.cjs` exercises actual browser flows using
+  Playwright and an installed Edge browser. Set `UNIFIED_DEMO_PASSWORD` and
+  optionally `E2E_WEB_URL`, `E2E_BACKOFFICE_URL`, `E2E_API_URL`, or
+  `E2E_BROWSER_CHANNEL`, then run `node tests/unified-login.e2e.cjs` from
+  `frontend` with Playwright available to Node. Results and desktop/mobile
+  captures are written to the ignored `test-results/unified-login/` folder.
+- Verification on 2026-10-21: the full backend suite passed 676 tests / 3452
+  assertions; a final authentication regression run passed 44 tests / 136
+  assertions, including the added cross-account registration check. Storefront
+  and backoffice production builds passed. The local database audit found no
+  emails shared between account tables. All 17 browser scenarios passed,
+  including mobile/desktop, role routing, callback replay, logout revocation,
+  wrong-password/suspension/rate-limit errors and staff-token origin isolation.
+  Browser verification used storefront port `3100` because another project
+  already occupied `3000`; the application's default configuration remains `3000`.
+- Sign-in, retail registration, password recovery/reset and wholesale
+  registration now switch forms inside the same white Birkin auth screen.
+  `/auth/register`, `/auth/forgot-password`, `/auth/reset-password` and
+  `/wholesale/register` also open the corresponding form directly without the
+  storefront header. Customer registration uses the existing store/wholesale
+  register endpoints, supports phone-verification proof and multipart business
+  documents, and stores the resulting customer session. OTP and recovery
+  delivery use the existing queue/mail/SMS configuration and require its worker.
+- `frontend/tests/auth-forms.e2e.cjs` covers inline navigation, direct URLs,
+  registration sessions, phone verification, recovery/reset, multipart uploads
+  and validation/rate-limit errors against mocked API responses. It uses the
+  same Playwright/browser setup and origin environment variables as the login
+  suite, without creating accounts or sending messages.
+- `/checkout` is an allowed retail redirect; its checkout UI is outside this
+  authentication task and is not implemented in this storefront yet.
+
 ## Admin Categories (`/api/v1/admin/categories`)
 
 - `GET /categories` — list with pagination (`per_page`, default 15, max 100), filters: `search`, `parent_id` (`root` for top-level), `is_active`. Use `?tree=1` for the full nested tree without pagination.

@@ -7,4 +7,5 @@ namespace App\Enums;
 enum StaffRole: string
 {
     case SuperAdmin = 'Super Admin';
+    case Cashier = 'cashier';
 }

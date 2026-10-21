@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { setAuthToken, setUnauthorizedHandler } from '@alfarid/api-client';
+import { authEndpoints, setAuthToken, setUnauthorizedHandler } from '@alfarid/api-client';
+import { toStaffUser } from './mappers';
 
 export interface StaffUser {
   id: number;
@@ -17,15 +18,19 @@ interface AuthState {
   login: (token: string, user: StaffUser) => void;
   setUser: (user: StaffUser) => void;
   logout: () => void;
+  logoutRemote: () => Promise<void>;
+  bootstrap: () => Promise<void>;
 }
 
-export const useAuthStore = create<AuthState>((set) => {
+const WEB_URL = (import.meta.env.VITE_WEB_URL as string | undefined) ?? 'http://localhost:3000';
+
+export const useAuthStore = create<AuthState>((set, get) => {
   const initialToken = typeof localStorage !== 'undefined' ? localStorage.getItem('backoffice_token') : null;
   if (initialToken) {
     setAuthToken(initialToken);
   }
 
-  // Register 401 handler to redirect on session expiry
+  // Register 401 handler to redirect to the unified web login
   setUnauthorizedHandler(() => {
     if (typeof localStorage !== 'undefined') {
       localStorage.removeItem('backoffice_token');
@@ -33,7 +38,7 @@ export const useAuthStore = create<AuthState>((set) => {
     setAuthToken(null);
     set({ user: null, token: null, isAuthenticated: false });
     if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
-      window.location.href = '/login';
+      window.location.href = `${WEB_URL}/auth/login`;
     }
   });
 
@@ -51,6 +56,20 @@ export const useAuthStore = create<AuthState>((set) => {
       localStorage.removeItem('backoffice_token');
       setAuthToken(null);
       set({ user: null, token: null, isAuthenticated: false });
+    },
+    logoutRemote: async () => {
+      try {
+        await authEndpoints.staffLogout();
+      } catch {
+        // التوكن منتهي أو ملغي — نكمل تسجيل الخروج المحلي على أي حال
+      }
+      get().logout();
+      window.location.href = `${WEB_URL}/auth/login`;
+    },
+    bootstrap: async () => {
+      if (!get().token) return;
+      const u = await authEndpoints.staffMe(); // لو رجع 401 الـ handler هيحوّل لوحده
+      get().setUser(toStaffUser(u));
     },
   };
 });

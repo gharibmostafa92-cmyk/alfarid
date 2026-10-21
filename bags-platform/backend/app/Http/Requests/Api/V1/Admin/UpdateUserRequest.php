@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Api\V1\Admin;
 
+use App\Rules\EmailNotUsedByOtherAccountType;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -36,6 +37,7 @@ class UpdateUserRequest extends FormRequest
                 'email',
                 'max:255',
                 Rule::unique('users', 'email')->ignore($this->route('user')),
+                new EmailNotUsedByOtherAccountType('users'),
             ],
             'phone' => ['sometimes', 'nullable', 'string', 'max:30'],
             'password' => ['sometimes', 'nullable', 'string', 'min:8', 'max:255'],

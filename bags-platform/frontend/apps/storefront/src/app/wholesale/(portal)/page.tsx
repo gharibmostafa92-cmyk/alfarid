@@ -1,12 +1,15 @@
+'use client';
 import { Button, Card, Badge } from '@alfarid/ui';
+import { useAuthStore } from '@/store/auth.store';
 import { formatCurrency } from '@alfarid/utils';
 
 export default function WholesalePortalPage() {
+  const user = useAuthStore((s) => s.user);
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-zinc-900">بوابة عملاء الجملة</h1>
+          <h1 className="text-2xl font-bold text-zinc-900">مرحبًا {String(user?.name ?? '')} في بوابة عملاء الجملة</h1>
           <p className="text-zinc-500 text-sm mt-1">الوصول لأسعار الجملة، طلبات التسعير، وكشف الحساب الموحد</p>
         </div>
         <Badge variant="warning">حساب تاجر جملة معتمد</Badge>

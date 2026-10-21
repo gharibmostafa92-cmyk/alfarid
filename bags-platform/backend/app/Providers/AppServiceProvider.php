@@ -194,5 +194,18 @@ class AppServiceProvider extends ServiceProvider
                 Limit::perMinute(120)->by('pos-login-ip:'.($request->ip() ?? 'unknown')),
             ];
         });
+
+        // حد الدخول الموحد: بالـ IP وبالمعرّف (بريد/هاتف) معًا
+        RateLimiter::for('unified-login', function (Request $request) {
+            $id = hash('sha256', Str::lower(trim((string) $request->input('login'))));
+
+            return [
+                Limit::perMinute(30)->by('ip:'.$request->ip()),
+                Limit::perMinute(5)->by('id:'.$id),
+                Limit::perHour(30)->by('id-hour:'.$id),
+            ];
+        });
+
+        RateLimiter::for('unified-handoff', fn (Request $request) => Limit::perMinute(20)->by($request->ip()));
     }
 }
