@@ -30,6 +30,11 @@ class CustomerAuthService
         return $hashes[$key] ??= Hash::make('not-a-customer-password');
     }
 
+    private function identifierKey(string $identifier): string
+    {
+        return hash_hmac('sha256', $identifier, (string) config('app.key'));
+    }
+
     /** تسجيل متجر قطاعي: نوع retail وحالة approved دائمًا. */
     public function registerRetail(array $data): Customer
     {
@@ -66,8 +71,21 @@ class CustomerAuthService
 
         $validPassword = Hash::check($password, $customer?->password ?? $dummyHash);
         if ($customer === null || ! $validPassword) {
-            CustomerAuditLog::record($customer, 'login_failed', null, ['identifier_key' => hash('sha256', $identifier)]);
+            // M11: لا تكتب صف audit لمعرّف غير موجود (هجمات stuffing تتحول لكتابات
+            // غير محدودة)، واكتفِ بسجل info مع sampling. المعرّف يُحمى بـ HMAC
+            // بمفتاح التطبيق لأن sha256 وحده قابل للعكس على مساحة الهواتف.
+            if ($customer === null) {
+                if (random_int(1, 10) === 1) {
+                    logger()->info('customer.login_failed', ['identifier_key' => $this->identifierKey($identifier)]);
+                }
+            } else {
+                CustomerAuditLog::record($customer, 'login_failed', null, ['identifier_key' => $this->identifierKey($identifier)]);
+            }
             throw new BusinessException('بيانات الدخول غير صحيحة.', [], 401);
+        }
+
+        if (Hash::needsRehash($customer->password)) {
+            $customer->forceFill(['password' => $password])->save();
         }
 
         if ($customer->status === CustomerStatus::Suspended) {

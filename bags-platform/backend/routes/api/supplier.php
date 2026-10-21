@@ -15,10 +15,13 @@ use Illuminate\Support\Facades\Route;
 Route::pattern('purchase_order', '[0-9]{1,18}');
 Route::pattern('delivery', '[0-9]{1,18}');
 
-// دخول موظفي المورد (supplier_users) — عام مع حد محاولات
-Route::post('auth/login', [AuthController::class, 'login'])
-    ->middleware('throttle:supplier-login')
-    ->name('auth.login');
+// دخول موظفي المورد (supplier_users) — عام مع حد محاولات (legacy — M5:
+// يُعطَّل مع LEGACY_LOGIN_ENABLED=false لصالح /api/v1/auth/login).
+if (config('auth.legacy_login_enabled', true)) {
+    Route::post('auth/login', [AuthController::class, 'login'])
+        ->middleware('throttle:supplier-login')
+        ->name('auth.login');
+}
 
 // بوابة المورد: كل المسارات التالية مقيدة بمورد صاحب التوكن حصرًا
 Route::middleware(['auth:sanctum', 'auth.supplier', 'throttle:120,1'])->group(function (): void {

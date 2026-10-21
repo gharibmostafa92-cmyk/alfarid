@@ -72,10 +72,14 @@ Route::pattern('purchase_order', '[0-9]{1,18}');
 Route::pattern('supplier_invoice', '[0-9]{1,18}');
 Route::pattern('supplier_payment', '[0-9]{1,18}');
 
-// Public admin authentication endpoint.
-Route::post('auth/login', [AuthController::class, 'login'])
-    ->middleware('throttle:admin-login')
-    ->name('admin.auth.login');
+// Public admin authentication endpoint (legacy — prefer /api/v1/auth/login).
+// M5: تُعطَّل بضبط LEGACY_LOGIN_ENABLED=false حتى لا تتضاعف ميزانية التخمين
+// عبر limiters مستقلة ولا يظهر توكن موظف على دومين الويب.
+if (config('auth.legacy_login_enabled', true)) {
+    Route::post('auth/login', [AuthController::class, 'login'])
+        ->middleware('throttle:admin-login')
+        ->name('admin.auth.login');
+}
 
 // Staff-only API endpoints: require a Sanctum token and an active staff account.
 Route::middleware(['auth:sanctum', 'auth.staff'])

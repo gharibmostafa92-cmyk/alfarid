@@ -16,10 +16,13 @@ Route::pattern('transfer', '[0-9]{1,18}');
 Route::pattern('stocktake', '[0-9]{1,18}');
 Route::pattern('held_sale', '[0-9]{1,18}');
 
-// تسجيل دخول الكاشير / موظف الفرع مع اختيار الفرع
-Route::post('auth/login', [PosAuthController::class, 'login'])
-    ->middleware('throttle:pos-login')
-    ->name('auth.login');
+// تسجيل دخول الكاشير / موظف الفرع مع اختيار الفرع (legacy — M5: يُعطَّل مع
+// LEGACY_LOGIN_ENABLED=false لصالح /api/v1/auth/login).
+if (config('auth.legacy_login_enabled', true)) {
+    Route::post('auth/login', [PosAuthController::class, 'login'])
+        ->middleware('throttle:pos-login')
+        ->name('auth.login');
+}
 
 Route::middleware(['auth:sanctum', 'auth.staff'])->group(function (): void {
     Route::post('auth/logout', [PosAuthController::class, 'logout'])->name('auth.logout');

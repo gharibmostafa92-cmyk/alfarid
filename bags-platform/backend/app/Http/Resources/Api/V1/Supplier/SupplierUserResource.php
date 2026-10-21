@@ -24,10 +24,12 @@ class SupplierUserResource extends JsonResource
             'email' => $this->email,
             'phone' => $this->phone,
             'supplier_id' => $this->supplier_id,
-            'supplier' => $this->whenLoaded('supplier', fn () => [
+            // M4: المورد قد يكون محذوفًا (supplier_id بلا FK قابل للتنفيذ على
+            // بيانات قديمة) — لا تفترض وجوده.
+            'supplier' => $this->whenLoaded('supplier', fn () => $this->supplier ? [
                 'id' => $this->supplier->id,
                 'name' => $this->supplier->name,
-            ]),
+            ] : null),
         ];
     }
 }

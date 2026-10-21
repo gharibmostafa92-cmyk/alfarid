@@ -23,8 +23,10 @@ final class LoginDestinationResolver
                 throw new BusinessException('حسابك غير مرتبط بأي صلاحية. تواصل مع الإدارة.', [], 403);
             }
             if ($roles->count() === 1 && $roles->first() === StaffRole::Cashier->value) {
-                if ($actor->branch_id === null) {
-                    throw new BusinessException('حسابك غير مرتبط بفرع.', [], 403);
+                // M14: الفرع المحذوف أو الموقوف يُوجَّه للـ POS خطأً — ارفضه هنا
+                // بدل واجهة تعمل جزئيًا.
+                if ($actor->branch_id === null || $actor->branch === null || ! $actor->branch->is_active) {
+                    throw new BusinessException('حسابك غير مرتبط بفرع نشط.', [], 403);
                 }
 
                 return ['app' => 'backoffice', 'path' => '/pos', 'destination' => 'pos'];
@@ -38,6 +40,11 @@ final class LoginDestinationResolver
         }
 
         if ($actor->type === CustomerType::Retail) {
+            // L3: المرفوض (بقرار إداري) كان يُوجَّه لـ '/' المعطلة بالكامل —
+            // وجّهه لصفحة الحالة التي تعرض سبب الرفض (مسموحة للمرفوض).
+            if ($actor->status === CustomerStatus::Rejected) {
+                return ['app' => 'web', 'path' => '/wholesale/application-status', 'destination' => 'wholesale_pending'];
+            }
             $path = $this->safe($requested, '/');
             if ($path !== null && (str_starts_with($path, '/wholesale') || str_starts_with($path, '/supplier') || str_starts_with($path, '/auth'))) {
                 $path = null;

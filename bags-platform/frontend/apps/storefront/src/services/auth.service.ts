@@ -8,8 +8,13 @@ export async function loginUnified(login: string, password: string, redirect?: s
     typeof window !== 'undefined' ? localStorage.getItem(CART_KEY) : null);
 
   if (res.redirect.app === 'backoffice') {
+    // M9: جلسة عميل/مورد قائمة توكنها يبقى صالحًا 24 ساعة بعد clear المحلي —
+    // أبطلها في الخادم أولًا (best-effort) قبل مسح الجلسة المحلية.
+    try { if (useAuthStore.getState().token) await authEndpoints.logout(); } catch { /* best-effort */ }
     useAuthStore.getState().clear();
-    const url = `${process.env.NEXT_PUBLIC_BACKOFFICE_URL ?? 'http://localhost:5173'}/auth/callback?code=${encodeURIComponent(res.handoff_code!)}`;
+    // M7: الكود في الـ fragment لا في الـ query — الـ fragment لا يُرسل
+    // للخادم ولا يظهر في الـ Referer أو سجلات nginx.
+    const url = `${process.env.NEXT_PUBLIC_BACKOFFICE_URL ?? 'http://localhost:5173'}/auth/callback#code=${encodeURIComponent(res.handoff_code!)}`;
     window.location.assign(url);
     return null;
   }
@@ -18,7 +23,9 @@ export async function loginUnified(login: string, password: string, redirect?: s
     token: res.token!, actorType: res.actor.type as 'customer' | 'supplier',
     destination: res.actor.subtype, home: res.redirect.path, user: res.data,
   });
-  if (res.actor.type === 'customer') localStorage.removeItem(CART_KEY);
+  // M10: الدمج قد يفشل في الخادم (cart_merged=false) — أبقِ cart_session
+  // ليُعاد دمجه لاحقًا بدل حذفه مع توكن يتيم جديد.
+  if (res.actor.type === 'customer' && res.cart_merged !== false) localStorage.removeItem(CART_KEY);
   return res.redirect.path;
 }
 

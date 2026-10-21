@@ -1,569 +1,249 @@
-الجزء الأول من المرحلة 1: نظام المصادقة المتعدد والصلاحيات (Multi-Table Auth & RBAC):
+H1 — كشف الحسابات عبر التوقيت (HIGH)
+الموقع: UnifiedAuthService.php الأسطر 25–41.
 
-في هذا الجزء، سيقوم الذكاء الاصطناعي ببناء الجداول الثلاثة للمصادقة، وربطها مع Sanctum، وبناء الـ Middlewares الأربعة التي تفصل بين كل نوع مستخدم.
+المشكلة: Hash::check لا يُنفّذ إلا إذا وُجد صف في الجدول:
 
-المهمة 1.1: إنشاء الـ Enums والجداول الثلاثة (Migrations & Models): اطلب منه إنشاء ملفات الـ Enums لتحديد قيم أنواع العملاء وحالاتهم بدقة، ثم إنشاء وتعديل ملفات الـ Migrations للـ 3 جداول:
+إيميل غير موجود في أي جدول: bcrypt واحد (dummy عند العميل).
+إيميل موظف بباسورد خاطئ: اثنان.
+إيميل موجود عند الموظفين والموردين: ثلاثة.
+بتكلفة bcrypt الافتراضية الفرق حوالي 100–250ms لكل عملية، وهذا يُقاس بسهولة حتى عبر الإنترنت.
 
-جدول users (للموظفين والأدمن والكاشير): يحتوي على (id, name, email, phone, password, branch_id nullable, is_active boolean, timestamps).
-جدول customers (للعملاء): يحتوي على (id, name, email, phone, password, type enum: ['retail', 'wholesale', 'distributor'], status enum: ['pending', 'approved', 'rejected', 'blocked'], tax_number nullable, commercial_register nullable, timestamps).
-جدول supplier_users (لموظفي المورد): يحتوي على (id, supplier_id nullable, name, email, phone, password, is_active boolean, timestamps).
-ملاحظة هامة للـ AI المنفذ: يجب إضافة HasApiTokens (الخاص بـ Sanctum) في الموديلات الثلاثة (User, Customer, SupplierUser)، وإضافة HasRoles (الخاص بـ Spatie) في موديل User مع تحديد protected string $guard_name = 'staff';.
+الشروط: أي مهاجم بدون مصادقة. الـ limiter (30/دقيقة لكل IP) لا يمنع القياس عبر IPs متعددة.
 
-المهمة 1.2: ضبط إعدادات config/auth.php و config/permission.php: اطلب منه تعديل ملف config/auth.php لإضافة الـ Guards والـ Providers للأنواع الثلاثة حتى يتعرف عليها النظام وSpatie Permission بشكل سليم.
+الأثر: حصر إيميلات الموظفين والمديرين (أهداف عالية القيمة)، ثم phishing موجّه أو credential stuffing مركّز. هذا يُفرغ توحيد رسالة الخطأ من قيمته.
 
-Copy// داخل config/auth.php
-'guards' => [
-    'web' => ['driver' => 'session', 'provider' => 'users'],
-    'staff' => ['driver' => 'sanctum', 'provider' => 'users'],
-    'customer' => ['driver' => 'sanctum', 'provider' => 'customers'],
-    'supplier' => ['driver' => 'sanctum', 'provider' => 'supplier_users'],
-],
+الإصلاح: نفّذ Hash::check في كل جدول دائمًا، مع dummy hash لو الصف غير موجود. الكود في §9-1.
 
-'providers' => [
-    'users' => ['driver' => 'eloquent', 'model' => App\Models\User::class],
-    'customers' => ['driver' => 'eloquent', 'model' => App\Models\Customer::class],
-    'supplier_users' => ['driver' => 'eloquent', 'model' => App\Models\SupplierUser::class],
-],
-المهمة 1.3: برمجة الـ Middlewares الأربعة لفحص نوع الـ Token والحالة: بما أن Sanctum يستخدم جدول personal_access_tokens بعلاقة Polymorphic (tokenable_type)، يجب أن يتأكد كل Middleware أن المستخدم مسجل دخول وأن الـ Model الخاص به يطابق الجدول المطلوب. اشرح للـ AI أن يكتب الكود التالي:
-Copy// 1. app/Http/Middleware/EnsureStaffAuthenticated.php
-namespace App\Http\Middleware;
+لماذا يعمل: دخول الإيميل يكلّف دائمًا ثلاث عمليات bcrypt، بغض النظر عن وجود الحساب.
 
-use App\Models\User;
-use Closure;
-use Illuminate\Http\Request;
+المقايضة: CPU أعلى لكل محاولة بالإيميل (حتى 3× bcrypt). بعد تنظيف الإيميلات المكررة بين الجداول يمكن الاكتفاء بفحص واحد لأول حساب موجود، لكن هذا يكسر سلوك «الإيميل المشترك» الذي يختبره test_shared_email_resolves_by_matching_password_with_priority.
 
-class EnsureStaffAuthenticated
-{
-    public function handle(Request $request, Closure $next)
-    {
-        $user = $request->user();
-        if (! $user || ! ($user instanceof User) || ! $user->is_active) {
-            return response()->json(['message' => 'غير مصرح لك بالدخول كموظف أو الحساب غير نشط.'], 403);
-        }
-        return $next($request);
-    }
-}
-Copy// 2. app/Http/Middleware/EnsureCustomerAuthenticated.php
-namespace App\Http\Middleware;
+H2 — تجاوز حد المعرّف في unified-login (HIGH)
+الموقع: AppServiceProvider في RateLimiter::for('unified-login').
 
-use App\Models\Customer;
-use Closure;
-use Illuminate\Http\Request;
+المشكلة: المفتاح محسوب كالتالي:
 
-class EnsureCustomerAuthenticated
-{
-    public function handle(Request $request, Closure $next)
-    {
-        $user = $request->user();
-        if (! $user || ! ($user instanceof Customer) || $user->status === 'blocked') {
-            return response()->json(['message' => 'غير مصرح لك بالدخول كعميل.'], 403);
-        }
-        return $next($request);
-    }
-}
-Copy// 3. app/Http/Middleware/EnsureWholesaleApproved.php
-namespace App\Http\Middleware;
+Copyhash('sha256', Str::lower(trim((string) $request->input('login'))))
+لكن CustomerAuthService::login يطبّع الموبايل عبر Customer::normalizePhone. فالصيغ 01012345678 و+201012345678 و00201012345678 و010 1234 5678 والأرقام العربية ٠١٠... كلها تصل لنفس الحساب، وكل صيغة لها عدّاد مستقل.
 
-use App\Models\Customer;
-use Closure;
-use Illuminate\Http\Request;
+الـ limiter القديم customer-login كان يطبّع الموبايل، ونُسي ذلك هنا.
 
-class EnsureWholesaleApproved
-{
-    public function handle(Request $request, Closure $next)
-    {
-        $user = $request->user();
-        if (
-            ! $user ||
-            ! ($user instanceof Customer) ||
-            ! in_array($user->type, ['wholesale', 'distributor']) ||
-            $user->status !== 'approved'
-        ) {
-            return response()->json(['message' => 'هذا القسم مخصص لتجار الجملة المعتمدين فقط.'], 403);
-        }
-        return $next($request);
-    }
-}
-(وبنفس الطريقة يقوم بإنشاء EnsureSupplierAuthenticated لفحص SupplierUser).
+الأثر: عشرات أضعاف ميزانية التخمين على حساب عميل واحد (5/دقيقة و30/ساعة لكل صيغة)، ويمكن ضربها في عدد الـ IPs.
 
-الجزء الثاني من المرحلة 1: مصادقة الإدارة، الموظفين، الأدوار والصلاحيات:
+الإصلاح: طبّع المعرّف بنفس منطق CustomerAuthService. الكود في §9-2.
 
-في هذا الجزء يقوم الذكاء الاصطناعي بتنفيذ الـ Endpoints الخاصة بتسجيل دخول الإدارة وإدارة الموظفين والأدوار والصلاحيات.
+المقايضة: لا يوجد.
 
-المهمة 2.1: تسجيل الدخول وجلب بيانات الموظف الحالي (AuthController):
+H3 — LOWER(email) بدون index وظيفي، وunique حساس لحالة الأحرف (HIGH)
+الموقع:
 
-الروابط المطلوبة:
-POST /api/v1/admin/auth/login
-GET /api/v1/admin/me
-التفاصيل التنفيذية للـ AI:
-إنشاء AdminLoginRequest للتحقق من email و password.
-إنشاء app/Http/Controllers/Api/V1/Admin/AuthController.php.
-دالة login: تبحث في جدول users فقط، وتتحقق من كلمة المرور ومن أن is_active == true، ثم تنشئ Token عبر $user->createToken('staff-token')->plainTextToken، وترجع بيانات الموظف مع أدواره وصلاحياته والـ Token.
-دالة me: ترجع بيانات الموظف المسجل حالياً مع علاقة الفرع branch والأدوار roles والصلاحيات permissions باستخدام UserResource.
-المهمة 2.2: إدارة الأدوار والصلاحيات (RoleController & PermissionController):
+UnifiedAuthService الأسطر 25 و34.
+CustomerAuthService::login السطر 64.
+EmailNotUsedByOtherAccountType السطر 26.
+migrations: users.email->unique() وcustomers.email->unique() وsupplier_users.email->unique().
+المشكلة الأولى (أداء): على PostgreSQL لا يمكن استخدام index على email في شرط LOWER(email) = ?. النتيجة:
 
-الروابط المطلوبة:
-GET /api/v1/admin/permissions
-CRUD /api/v1/admin/roles
-التفاصيل التنفيذية للـ AI:
-إنشاء RolePermissionSeeder يحتوي على كافة صلاحيات النظام مقسمة بشكل منطقي (مثل: branches.view, branches.create, branches.update, branches.delete, users.manage, settings.manage... إلخ)، وإنشاء دور Super Admin يمتلك كل الصلاحيات.
-إنشاء PermissionController يحتوي على دالة index فقط ترجع قائمة الصلاحيات مجمعة (Grouped by prefix) لتسهيل عرضها في الواجهة الأمامية.
-إنشاء RoleController للقيام بعمليات CRUD كاملة على جدول roles (مع تحديد guard_name = 'staff')، وعند الإنشاء أو التعديل يتم استلام مصفوفة permissions واستخدام $role->syncPermissions($request->permissions).
-المهمة 2.3: إدارة الموظفين (UserController):
+كل دخول بالإيميل يعمل sequential scan على ثلاثة جداول.
+كل تسجيل يعمل scan إضافي لجدولين عبر القاعدة.
+جدول customers هو الأكبر وينمو بلا حد.
 
-الروابط المطلوبة:
-CRUD /api/v1/admin/users
-التفاصيل التنفيذية للـ AI:
-إنشاء StoreUserRequest و UpdateUserRequest (التحقق من الاسم، الإيميل الفريد، الهاتف، كلمة المرور، branch_id، حالة التفعيل is_active، ومصفوفة الأدوار roles).
-إنشاء UserController داخل مجلد Admin:
-index: عرض الموظفين مع الفلترة حسب الفرع أو الدور مع Pagination.
-store: إنشاء موظف جديد، تشفير كلمة المرور، وإسناد الأدوار له عبر $user->syncRoles($request->roles).
-show: عرض تفاصيل موظف واحد مع الفرع والأدوار.
-update: تحديث بيانات الموظف وتحديث أدواره.
-destroy: حذف الموظف (أو تعطيل حسابه، مع منع حذف حساب الـ Super Admin الأساسي أو حذف الموظف لنفسه).
-الجزء الثالث من المرحلة 1: الفروع ومواقع التخزين (Branches & Locations):
+المشكلة الثانية (سلامة البيانات): الـ unique الحالي حساس لحالة الأحرف. User لا يحتوي mutator يحوّل الإيميل لحروف صغيرة، على عكس SupplierUser. أي مسار يكتب في users بدون StoreUserRequest (seeder، tinker، endpoints قديمة، الـ factory) يمكن أن يُنشئ Admin@x.com بجوار admin@x.com. بعدها ->first() يرجع صفًا غير محدد.
 
-في هذا الجزء يقوم الذكاء الاصطناعي ببناء البنية التحتية للمخازن والفروع التي ستعتمد عليها لاحقاً خدمات الجرد (InventoryService) ونقاط البيع (POS).
+الأثر:
 
-المهمة 3.1: إنشاء الجداول والموديلات (Branch & Location):
+latency الدخول ترتفع خطيًا مع حجم البيانات، والـ DB تستهلك CPU تحت هجمات stuffing.
+دخول غير حتمي لو وُجدت تكرارات.
+الإصلاح: expression indexes، الكود في §9-3. قبل التنفيذ شغّل استعلام كشف التكرار المذكور في task.txt.
 
-جدول الفروع branches:
-الحقول: id, name, code (فريد، مثل BR-001), type (enum: ['branch', 'warehouse']), phone, email, address, city, is_active (boolean), timestamps.
-جدول مواقع التخزين locations: (يمثل الأرفف أو المناطق أو المخازن الفرعية داخل الفرع الواحد)
-الحقول: id, branch_id (Foreign Key تابع لـ branches مع cascadeOnDelete), name, code (مثل A-01-02), type (enum: ['shelf', 'zone', 'bin', 'damaged', 'receiving']), is_active (boolean), timestamps.
-إضافة قيد فريد مركب (Unique Constraint) على ['branch_id', 'code'] لضمان عدم تكرار كود الموقع داخل نفس الفرع.
-المهمة 3.2: برمجة المتحكمات والروابط (BranchController & LocationController):
+المقايضة: CREATE INDEX CONCURRENTLY يحتاج migration خارج transaction. لو فيه تكرارات حالية، الـ unique index سيفشل ويجب تنظيفها أولًا.
 
-الروابط المطلوبة:
-CRUD /api/v1/admin/branches
-CRUD /api/v1/admin/branches/{branch}/locations
-التفاصيل التنفيذية للـ AI:
-في BranchController: بناء دوال (index, store, show, update, destroy). عند حذف فرع، يجب التأكد أولاً من عدم وجود موظفين أو حركات مخزنية مرتبطة به.
-في LocationController: استخدام Route Model Binding المتداخل (Scoped Binding) بحيث تكون جميع العمليات مرتبطة بـ {branch} الممرر في الرابط:
-index(Branch $branch): ترجع $branch->locations()->paginate().
-store(StoreLocationRequest $request, Branch $branch): تنشئ الموقع مباشرة عبر $branch->locations()->create($request->validated()).
-show(Branch $branch, Location $location) و update و destroy: تتأكد أن الـ $location يتبع فعلياً للـ $branch باستخدام scopeBindings() في ملف الروابط.
-الجزء الرابع من المرحلة 1: الإعدادات، بيانات الشركة، الضرائب، والترقيم التلقائي (Settings):
+H4 — migration العملاء لا تطابق الكود (HIGH، تحتاج تحقق)
+الموقع: 2026_10_15_014601_create_customers_and_supplier_users_tables.php.
 
-هذا الجزء أساسي جداً لأنه يتحكم في سلوك النظام بالكامل (بيانات الفواتير، نسبة الضريبة، وبادئات الترقيم للطلبات والفواتير).
-
-المهمة 4.1: تصميم جدول الإعدادات وخدمة الإعدادات (Setting & SettingService):
-
-جدول settings:
-بدلاً من عمل أعمدة ثابتة يصعب التعديل عليها مستقبلاً، اطلب من الذكاء الاصطناعي إنشاء جدول بنظام Key-Value مرن يحتوي على: id, group (index: مثل 'company', 'tax', 'numbering'), key (unique), value (text/json nullable), type (string: 'string', 'boolean', 'integer', 'float', 'json'), timestamps.
-إنشاء SettingSeeder بالبيانات الأساسية المطلوبة في المرحلة 1:
-مجموعة الشركة (company): company_name, company_email, company_phone, company_address, company_logo, commercial_register.
-مجموعة الضرائب (tax): tax_enabled (boolean), tax_number (الرقم الضريبي), default_tax_rate (float، مثلاً 14 أو 15), prices_include_tax (boolean).
-مجموعة الترقيم (numbering):
-invoice_prefix (مثلاً INV-), invoice_next_number (1000), invoice_padding (6).
-order_prefix (مثلاً ORD-), order_next_number (1000), order_padding (6).
-purchase_order_prefix (مثلاً PO-), purchase_order_next_number (1000).
-quotation_prefix (مثلاً QT-), quotation_next_number (1000).
-إنشاء app/Services/SettingService.php:
-يحتوي على دالة getAllGrouped() التي تجلب كل الإعدادات وتضعها في الكاش (Cache::rememberForever('app_settings', ...)).
-دالة get($key, $default = null) لقراءة أي إعداد مع تحويل نوعه (type casting).
-دالة updateBatch(array $settings) لتحديث مجموعة إعدادات دفعة واحدة ومسح الكاش (Cache::forget('app_settings')).
-دالة مساعدة إضافية generateNextNumber(string $type) (تستخدم DB::transaction و lockForUpdate لتوليد الرقم التسلسلي التالي مثل ORD-001001 وزيادة العداد بمقدار 1 بأمان دون تضارب).
-المهمة 4.2: برمجة متحكم الإعدادات (SettingController):
-
-الروابط المطلوبة:
-GET /api/v1/admin/settings
-PUT /api/v1/admin/settings
-التفاصيل التنفيذية للـ AI:
-إنشاء UpdateSettingsRequest يتحقق من القيم المرسلة (مثلاً التأكد أن default_tax_rate رقم بين 0 و 100، وأن أرقام البداية في الترقيم أعداد صحيحة موجبة).
-في SettingController:
-دالة index(): تستدعي SettingService::getAllGrouped() وترجع الإعدادات مقسمة حسب الـ group (company, tax, numbering).
-دالة update(UpdateSettingsRequest $request): تمرر البيانات إلى SettingService::updateBatch($request->validated()) وترجع الإعدادات بعد التحديث.
-الجزء الخامس من المرحلة 1: تجميع ملف routes/api/admin.php والاختبار:
-
-في نهاية المرحلة الأولى، اطلب من الذكاء الاصطناعي تجميع كافة الروابط التي برمجها في المهام السابقة داخل ملف routes/api/admin.php بهذا الشكل المنظم:
-
-Copy<?php
-
-use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Api\V1\Admin\AuthController;
-use App\Http\Controllers\Api\V1\Admin\BranchController;
-use App\Http\Controllers\Api\V1\Admin\LocationController;
-use App\Http\Controllers\Api\V1\Admin\UserController;
-use App\Http\Controllers\Api\V1\Admin\RoleController;
-use App\Http\Controllers\Api\V1\Admin\PermissionController;
-use App\Http\Controllers\Api\V1\Admin\SettingController;
-
-// مسارات عامة (بدون تسجيل دخول)
-Route::post('/auth/login', [AuthController::class, 'login'])->name('auth.login');
-
-// مسارات محمية للموظفين فقط (تتطلب Sanctum Token + التأكد أنه من جدول users)
-Route::middleware(['auth:sanctum', 'auth.staff'])->group(function () {
-
-    // بيانات الموظف الحالي
-    Route::get('/me', [AuthController::class, 'me'])->name('auth.me');
-
-    // الفروع ومواقع التخزين (مع تفعيل Scoped Bindings لضمان تبعية الموقع للفرع)
-    Route::apiResource('branches', BranchController::class);
-    Route::scopeBindings()->group(function () {
-        Route::apiResource('branches.locations', LocationController::class);
-    });
-
-    // الموظفين والأدوار والصلاحيات
-    Route::apiResource('users', UserController::class);
-    Route::apiResource('roles', RoleController::class);
-    Route::get('permissions', [PermissionController::class, 'index'])->name('permissions.index');
-
-    // الإعدادات العامة، الضرائب، والترقيم
-    Route::get('settings', [SettingController::class, 'index'])->name('settings.index');
-    Route::put('settings', [SettingController::class, 'update'])->name('settings.update');
-});
-
-
-C1. تغيير الحالة والتوزيع بلا قفل صف، والحالة تُقرأ من نسخة قديمة. CRITICAL
-المكان: في OrderService::changeStatus السطر $from = $order->status; يُقرأ من الموديل الممرَّر، ولا يوجد lockForUpdate. وفي OrderAllocationService::allocate يتم التحقق من allocated_branch_id على الموديل الممرَّر أيضًا.
-شروط حدوثه: أي عمليتين متزامنتين على نفس الطلب. أمثلة واقعية:
-العميل يلغي (من Confirmed إلى Cancelled، فيُفك الحجز) بينما الأدمن ينشئ بوليصة (من Confirmed إلى Shipped، فيُفك الحجز ويُخصم البيع). الاثنان يقرآن Confirmed، والاثنان يُنفَّذان. النتيجة أن الحجز يُفك مرتين، وrصيد reserved يصبح سالبًا أو يُغطي حجوزات طلبات أخرى، والطلب ينتهي بحالة آخر من كتب.
-ويب هوك دفع يصل مرتين في نفس الوقت (يرتبط بـ H4). كل نسخة ترى Pending، والاثنتان تنفذان التأكيد، والاثنتان تجدان allocated_branch_id === null. النتيجة حجز مزدوج للمخزون.
-أدمنان يضغطان "توزيع" في نفس الوقت.
-الأثر: دفتر المخزون يصبح غير متسق مع الواقع: بيع زائد، أو رصيد محجوز وهمي يمنع البيع، وسجل حالات متناقض. هذا فساد بيانات مالي ومخزني لا يُصلح نفسه.
-الإصلاح: داخل الـ transaction، اقرأ الطلب من جديد مع lockForUpdate()، واستخدم النسخة المقفولة في كل خطوة. نفس الشيء في allocate. الكود في القسم 9.
-لماذا يحل المشكلة: القفل يجعل الانتقالات على نفس الطلب متسلسلة. العملية الثانية تنتظر، ثم تقرأ الحالة الجديدة، فترفض الانتقال غير المسموح أو تعامله كعملية مكررة.
-المقابل: انتظار قصير على صف الطلب فقط. التنافس على طلب واحد نادر، فالتكلفة مهملة.
-H1. بوليصة مكررة، وشحن مزدوج قبل الإصلاح. HIGH
-المكان: ShipmentService::createForOrder. ينشئ الشحنة أولًا ثم يستدعي changeStatus، ولا يتحقق من حالة الطلب ولا من وجود شحنة سابقة.
-الشروط: نقرة مزدوجة على "إنشاء بوليصة"، أو إعادة إرسال من شبكة بطيئة.
-قبل إصلاح C1: كلا الطلبين يمر، فيتكرر البيع.
-بعد إصلاح C1: الطلب الثاني يرى أن $from === $to (Shipped)، فيُرجع changeStatus بصمت بنجاح. النتيجة بوليصتان لطلب واحد، ومبلغ COD مكرر عند شركة الشحن.
-الأثر: شحنتان، تحصيل مزدوج محتمل، وعلاقة hasOne تُرجع شحنة عشوائية.
-الإصلاح: اقفل الطلب، وتأكد أن حالته Confirmed أو Processing، وأنه لا توجد شحنة نشطة (غير failed أو returned)، وكل ذلك قبل إنشاء الشحنة. الكود في القسم 9.
-المقابل: إعادة الشحن بعد فشل التسليم تحتاج سياسة صريحة. الشرط "لا توجد شحنة نشطة" يسمح بها.
-H2. سباق في إتمام الشراء: طلبات مكررة من نفس السلة. HIGH
-المكان: OrderService::createFromCart. يستدعي $cart->loadMissing('items') على موديل محمَّل قبل بداية الـ transaction، ولا يقفل السلة.
-الشروط: نقرتان على "إتمام الطلب"، أو إعادة المحاولة بعد انتهاء المهلة (timeout) والطلب الأول ما زال يُعالَج. كلاهما يقرأ نفس البنود، وكلاهما ينشئ طلبًا، وكلاهما يحذف البنود.
-الأثر: طلبان متطابقان، والكوبون يُستهلك مرتين (used_count +2، وسجلا استخدام)، وتجربة سيئة للعميل وتكلفة تشغيلية.
-الإصلاح: في بداية الـ transaction:
-Copy$cart = Cart::query()->whereKey($cart->id)->lockForUpdate()->firstOrFail();
-$cart->load('items');
-الطلب الثاني سينتظر ثم يجد السلة فارغة، فيحصل على "السلة فارغة" (رسالة قيمتها 422 بدل طلب مكرر).
-المقابل: لا يوجد مقابل يُذكر. للحصول على رد مماثل للطلب الأول بدل رسالة خطأ، يمكن لاحقًا إضافة Idempotency-Key، لكنه ليس ضروريًا الآن.
-H3. حدود استخدام الكوبون غير ذرية، وحد العميل يُتجاوز بالشراء كزائر. HIGH
-المكان: Coupon::isRedeemableNow يقارن used_count >= usage_limit، وCouponService::assertRedeemable يعدّ الاستخدامات بـ count()، ثم recordUsage يزيد العداد بـ increment. كل هذا بلا قفل. والسطر if ($customer !== null && ...) يعني أن الزائر لا يُفحص أصلًا.
-الشروط:
-كوبون محدود (مثل أول 100 استخدام) وعليه تزاحم. كل الطلبات المتزامنة تقرأ 99، فيتجاوز الاستخدام الحد.
-أي شخص يشتري كزائر مرات غير محدودة بنفس الكوبون الذي usage_limit_per_customer = 1، وذلك بتغيير cart_token فقط.
-الأثر: خسارة مالية مباشرة، وهذا مسار استغلال معروف في التجارة الإلكترونية.
-الإصلاح:
-في createFromCart: اقرأ الكوبون بـ lockForUpdate() قبل التحقق، فتتسلسل الطلبات التي تستخدم نفس الكوبون.
-للزائر: استخدم رقم الهاتف كهوية. اعدّ الاستخدامات بالانضمام إلى orders.guest_phone بعد توحيد صيغته، واستبعد الطلبات الملغاة. الكود في القسم 9.
-المقابل: الكوبونات الشائعة جدًا ستُنفَّذ طلباتها واحدًا تلو الآخر، والقفل يدوم بطول الـ transaction. هذا مقبول، لأن الـ transaction قصيرة ولا تحتوي على اتصالات خارجية. والهاتف ليس هوية قوية، لكنه أفضل من عدم وجود أي فحص.
-H4. منع تكرار الويب هوك (Idempotency) غير ذري. HIGH
-المكان: PaymentWebhookService::alreadyProcessed وShippingWebhookService::alreadyProcessed. والهجرة نفسها تقول صراحة: "لا قيد فريد".
-الشروط: البوابات ترسل نسخًا متزامنة أو متقاربة جدًا. النسختان لا تريان أي سجل بحالة processed، لأن كلًا منهما ما زال في المعالجة، فتُعالَجان معًا. وإذا لم يوجد event_id لا يحدث أي منع تكرار إطلاقًا.
-الأثر: مع C1 ينتج حجز مزدوج. وحتى بعد إصلاح C1 يمكن أن تُكتب حالة الدفع مرتين وتتكرر السجلات.
-الإصلاح: نفّذ المعالجة كلها داخل DB::transaction تبدأ بـ pg_advisory_xact_lock على المفتاح (provider, event_id)، ثم أعد فحص alreadyProcessed بعد أخذ القفل. وإذا لم يوجد event_id، استخدم بدله sha256(rawBody) كمفتاح.
-المقابل: قفل استشاري (advisory lock) قصير لكل حدث. لا حاجة إلى جدول جديد.
-H5. ويب هوك الدفع لا يتحقق من المبلغ والعملة ولا من منطق الحالة. HIGH
-المكان: PaymentWebhookService::handle وoutcome.
 المشاكل:
-أي حدث موقَّع فيه status: paid ورقم الطلب يجعل الطلب مدفوعًا، دون مقارنة المبلغ بـ grand_total. مع بوابات مثل Paymob، العميل أو التكامل هو من يحدد merchant_order_id عند إنشاء نية الدفع، فدفع جنيه واحد بنفس رقم الطلب يجعل الطلب مدفوعًا.
-حدث failed يصل متأخرًا (بترتيب خاطئ) بعد paid يغيّر payment_status من paid إلى failed.
-حدث paid على طلب ملغي يُسجَّل فقط، دون أي إشارة إلى أن المبلغ يحتاج استردادًا.
-حدث refunded على طلب مشحون لا يفعل أي شيء آخر.
-Paymob يرسل success=false مع pending=true للمعاملات المعلقة، فيتحول الطلب إلى failed خطأً.
-الأثر: بضاعة تُشحن مقابل مبلغ جزئي، وحالات دفع خاطئة، وأموال محصلة على طلبات ملغاة دون أن ينتبه أحد.
-الإصلاح:
-استخرج المبلغ والعملة حسب البوابة، وارفض عدم التطابق بحالة failed وخطأ "amount mismatch" دون تغيير الطلب.
-لا تسمح بالرجوع من paid إلى failed.
-عند paid على طلب ملغي، علّم الطلب بحالة تحتاج استردادًا. الكود في القسم 9.
-ومنطقيًا، كل هذا يجب أن يكون داخل transaction واحدة مع قفل الطلب (يرتبط بـ C1 وH4).
-H6. مفتاح منع التكرار في ويب هوك الشحن، وتراجع حالة الشحنة. HIGH
-المكان: ShippingWebhookService::extractEventId يأخذ القيمة من ['event_id','id','data.id',...]، ثم $shipment->update(['status' => $status]) بلا أي فحص للترتيب.
-الشروط: كثير من شركات الشحن ترسل id أو _id الخاص بالشحنة نفسها، وهو ثابت في كل تحديثات الحالة. أول حدث (picked_up) يُعالَج، وكل ما بعده يُعلَّم duplicate، ومن ضمنها delivered. يضاف إلى ذلك أن حدثًا متأخرًا (in_transit) قد يصل بعد delivered فيُعيد الشحنة إلى الخلف.
-الأثر: الطلبات لا تنتقل إلى Delivered أبدًا، ولا يُثبت تحصيل COD، وتتبع العميل خاطئ.
-الإصلاح:
-لا تستخدم id كمعرّف حدث إلا إذا كان معرّف حدث فعلًا. المفتاح يكون event_id، وإن لم يوجد يكون awb|status|timestamp، وإن لم يوجد يكون sha256(rawBody).
-طبّق ترتيبًا للحالات، فلا تقبل الانتقال من حالة نهائية (delivered، returned) إلى حالة سابقة، ولا التراجع في السلسلة picked_up ← in_transit ← out_for_delivery.
-H7. فهارس المفاتيح الأجنبية ناقصة على PostgreSQL. HIGH (أداء)
-المكان: foreignId()->constrained() في Postgres ينشئ قيد FK فقط بدون فهرس. الأعمدة غير المفهرسة في المسارات الساخنة:
-order_items.order_id: كل تحميل لبنود أي طلب، وكل withCount('items') في قائمة الأدمن.
-orders.customer_id: قائمة طلبات العميل، والإلغاء.
-carts.customer_id: كل طلب سلة لعميل مسجل عبر firstOrCreate.
-shipments.order_id، coupon_usages.order_id، orders.allocated_branch_id، order_items.allocated_branch_id، order_items.product_variant_id.
-cart_items.cart_id مغطى بالفهرس المركب الفريد، وهذا سليم.
-حذف طلب (cascade) يمسح الجداول الفرعية بالكامل أيضًا.
-الأثر: الأداء يتدهور خطيًا مع حجم البيانات. عند مئات الآلاف من البنود، صفحة طلبات واحدة تكلف مسوحات كاملة.
-الإصلاح: هجرة فهارس (القسم 9). على جداول كبيرة في الإنتاج استخدم CREATE INDEX CONCURRENTLY خارج transaction.
-H8. لا يمكن إزالة الكوبون، والكوبون غير الصالح يمنع الشراء. HIGH (وظيفي)
-المكان: في المسارات يوجد POST cart/coupon فقط. وفي createFromCart، استدعاء redeemableById يرمي استثناء، بينما CartService::totals يبتلع الخطأ ويعرض الملخص بدون الكوبون.
-الشروط: الكوبون ينتهي، أو يصل لحده، أو يُعطَّل، أو يُحذف، أو العميل يسجل الدخول فيظهر أنه استخدمه من قبل. الواجهة تعرض السعر بدون الخصم، لكن كل محاولة شراء تفشل برسالة الكوبون، ولا توجد أي وسيلة لإزالته. المخرج الوحيد هو تطبيق كوبون آخر صالح.
-الأثر: خسارة مبيعات مباشرة وصامتة.
-الإصلاح: أضف DELETE cart/coupon. وفي إتمام الشراء أرجع رمز خطأ مميز مثل coupon_invalid حتى تعرض الواجهة زر الإزالة. الكود في القسم 9.
-H9. طرق دفع غير مدعومة مقبولة في المتجر. HIGH
-المكان: CheckoutRequest يحتوي Rule::in(['cod','card','wallet','bank_transfer','credit'])، بينما CheckoutController يُرجع payment_url => null.
-الشروط: زائر أو عميل تجزئة يختار credit (الدفع الآجل على الحساب)، أو card بلا بوابة.
-الأثر: طلب credit لزائر يمر، ثم إذا أكده الأدمن وشحنه يكون cod_amount = 0. النتيجة بضاعة تُسلَّم بلا تحصيل. وطلبات card تبقى pending إلى الأبد.
-الإصلاح: اجعل القائمة من الإعدادات (config('store.payment_methods', ['cod']))، واجعل credit متاحًا فقط للعملاء المعتمدين في قناة الجملة.
-H10. التوزيع يقرأ الرصيد المتاح بلا قفل. HIGH (مشروط بـ InventoryService)
-المكان: reserveItemFromBranch يحسب $take = min($level->available, $remaining) من قراءة غير مقفولة، وcanBranchFulfillFullOrder كذلك.
-الشروط: توزيع طلبين متزامنين على نفس الصنف. إذا كان recordMovement لا يعيد التحقق من available تحت قفل، أو لا يوجد قيد CHECK (available >= 0)، يُحجز نفس الرصيد مرتين.
-الإصلاح: أضف ->lockForUpdate() في استعلام reserveItemFromBranch (والأفضل مع orderBy('id') لتقليل احتمال الـ deadlock). معالج الأخطاء 55P03 و40P01 الموجود سيحوّل أي تعارض إلى 409.
-نتائج متوسطة الخطورة (MEDIUM)
-M1. عدم تطابق طول الحقول، وأخطاء 500 بمدخلات صالحة.
 
-shipping_address_line وshipping_notes: التحقق max:500 والعمود string أي varchar(255).
-UpdateOrderStatusRequest.notes: التحقق max:500 والعمود order_status_histories.notes من نوع varchar(255).
-ShippingCompanyRequest.tracking_url_template: التحقق max:500 والعمود varchar(255).
-أي قيمة بين 256 و500 حرف (والعنوان العربي الطويل ليس نادرًا) تسبب 22001 ثم 500. الإصلاح: اجعل التحقق max:255، أو غيّر الأعمدة إلى string(500).
+status enum ['pending','approved','rejected','blocked']، بينما CustomerStatus فيه Suspended = 'suspended'. على pgsql يُنشئ Laravel الـ enum كـ CHECK constraint، فأي إيقاف لعميل يفشل بخطأ 23514 ويرجع 500. وكل منطق الإيقاف في login وissueToken وEnsureCustomerAuthenticated لا يمكن الوصول إليه.
+phone من نوع nullable وغير unique. لكن الدخول بالهاتف يستخدم where('phone')->first()، والتوثيق يقول إن الهاتف «إلزامي وفريد».
+لا توجد أعمدة deleted_at وemail_verified_at وphone_verified_at وsuspension_reason وcompany_name وapproved_at، وكلها مستخدمة في Customer (SoftDeletes) والـ factory والـ seeder وCustomerAuthService.
+migration بتاريخ 2026_10_15_014600 تضيف phone/branch_id/is_active لجدول users، وmigration بتاريخ 2026_10_14 تنشئ personal_access_tokens. النظام كان يستخدم Sanctum والفروع قبل ذلك، فغالبًا هذه الأعمدة والجداول موجودة أصلًا.
+الأثر: أحد احتمالين:
 
-M2. cart_token لا يُتحقق من صيغته. العمود uuid، وresolveCart ينشئ سلة بالتوكن الذي يرسله العميل كما هو. أي هيدر ليس UUID يسبب 22P02 ثم 500. كذلك العميل هو من يختار توكن سلته. الإصلاح: Str::isUuid($token) ? $token : null، ولا تقبل توكنًا مقترحًا من العميل لسلة جديدة، بل ولّده دائمًا على الخادم.
-
-M3. سلة جديدة مع كل GET، ولا حدود معدل على المسارات العامة. GET cart/items بلا توكن ينشئ صفًا في carts في كل مرة، فالزواحف والبوتات تملأ الجدول. ومسارات cart وcheckout وorders/{number}/track وwebhooks كلها بلا throttle، بينما مجموعة api في Laravel 11 لا تضيف حدًا افتراضيًا. الإصلاح: في القراءة أرجع سلة فارغة غير محفوظة، وأنشئ السلة فقط عند أول إضافة. وأضف limiters مسماة، تمشيًا مع الأسلوب الموجود مثل customer-login.
-
-M4. سجل الويب هوك يُكتب قبل التحقق من التوقيع. أي شخص مجهول يستطيع إرسال حمولات JSON ضخمة إلى webhooks/payment/x لتُخزن في webhook_logs.payload، بلا حد معدل وبلا سياسة احتفاظ. هذا يستنزف التخزين. الإصلاح: تحقق من التوقيع أولًا. وللتوقيع غير الصالح سجّل صفًا مختصرًا بلا payload، أو اكتب في سجل التطبيق. وأضف throttle وحدًا لحجم الجسم، وتنظيفًا دوريًا للسجلات القديمة. المقابل: تخسر حمولة المحاولات المرفوضة لأغراض التحقيق الجنائي.
-
-M5. تتبع الطلب: قابلية التعداد وتسريب الملاحظات الداخلية. رقم الطلب تسلسلي، والهاتف المصري يمكن تخمينه، وطلب واحد يكفي للفحص بلا حد معدل. وTrackOrderResource يعرض notes من السجل التاريخي، وهي تحتوي ملاحظات الأدمن الحرة من updateStatus وملاحظات النظام ("تأكيد تلقائي عبر paymob"). الإصلاح: حد معدل صارم (مثل 10 في الدقيقة لكل IP)، ولا تعرض notes للعامة (أو اعرض فقط ملاحظات public محددة)، ووحّد صيغة الهاتف قبل المقارنة.
-
-M6. سباقات دمج السلة وتكرار سلة العميل.
-
-mergeGuestCart يقرأ سلة الزائر خارج الـ transaction وبلا قفل. الواجهة عادة ترسل عدة طلبات متوازية بعد تسجيل الدخول، وكلها تحمل نفس التوكن، فتتضاعف الكميات.
-firstOrCreate(['customer_id']) بلا قيد فريد على carts.customer_id يُنشئ سلتين للعميل تحت التزامن، فتتوزع البنود عشوائيًا بينهما.
-الإصلاح: قيد فريد على carts.customer_id، وlockForUpdate على سلة الزائر داخل الـ transaction مع إعادة التحقق من وجودها.
-
-M7. معاملات مسار غير رقمية تسبب 500.
-
-في مسارات المتجر، {item} و{order} مكتوبة بنوع int في توقيع المتحكم. القيمة abc تسبب TypeError ثم 500.
-في الأدمن، order وcoupon وpromotion وshipping_company وshipping_zone وshipping_rate ليست ضمن Route::pattern. القيمة غير الرقمية تسبب 22P02 ثم 500، وهو نفس ما يقوله تعليق ملف admin.php نفسه.
-الإصلاح: أضف أنماطًا رقمية لهذه المعاملات.
-
-M8. null صريح يُرسل إلى أعمدة NOT NULL، فيحدث 500.
-
-CouponRequest: الحقول value وusage_limit_per_customer وis_active nullable، لكن الأعمدة NOT NULL. في update لا توجد قيم افتراضية مثل ??=.
-PromotionRequest: الحقول applies_to وis_active وvalue nullable، والأعمدة NOT NULL. والمشكلة تحدث حتى عند الإنشاء إذا أُرسلت القيمة null صراحة.
-الإصلاح: استخدم sometimes|required، أو احذف القيم null قبل الحفظ (مثال في القسم 9).
-
-M9. الحذف: أخطاء FK وفقدان السجل التاريخي.
-
-حذف شركة شحن لها شحنات: shipments.shipping_company_id بلا cascade، فيحدث 23503 ثم 500.
-حذف كوبون: coupon_usages تُحذف بالتتابع (cascade)، فيُمحى سجل الاستخدام لكل عميل، وتبقى carts.coupon_id معلقة بلا FK. ومع H8، يصبح إتمام الشراء مستحيلًا لهذه السلال.
-الإصلاح: امنع الحذف إذا كان هناك استخدام أو شحنات وأرجع 422، واستخدم التعطيل (is_active=false) بدل الحذف. وعند الحذف المسموح، صفّر carts.coupon_id.
-
-M10. أسرار شركات الشحن.
-
-api_credentials من نوع nullable|array. إذا أرسلت شاشة التعديل null، وهذا وارد لأن المورد لا يُرجع إلا has_api_credentials، تُمحى الأسرار. بعدها يتحول التحقق بصمت إلى default_secret، أو يفشل كل ويب هوك.
-سلسلة الرجوع webhook_secret ثم api_key ثم default_secret تعني أن مفتاح الـ API، الذي يعرفه موظفو حساب الشركة، يصبح سر توقيع. والسر الافتراضي مشترك بين كل الشركات.
-الإصلاح: تجاهل api_credentials إذا كانت null عند التعديل، واشترط webhook_secret لكل شركة بلا أي رجوع.
-
-M11. أثر ويب هوك الشحن على الطلب.
-
-payment_status = paid لطلبات COD يُضبط قبل التحقق من أن الطلب في حالة Shipped، وخارج أي transaction. فحدث delivered على طلب ملغي أو مرتجع يثبت تحصيلًا لم يحدث.
-Failed وReturned لا يؤثران على الطلب أبدًا.
-الإصلاح: ضع تحديث الدفع داخل نفس شرط Shipped ونفس الـ transaction. وانقل الطلب إلى Returned عند Returned، مع سياسة إعادة المخزون (M13).
-
-M12. العروض وأسعار الشحن لا تؤثر فعليًا على ما يدفعه العميل.
-
-Promotion غير مستخدم في CartService ولا OrderService ولا CouponService. لم أرَ PricingService، فإن كان يستخدمه فهذه النقطة لا تنطبق. إن لم يكن، فالأدمن ينشئ عروضًا يظنها فعالة وهي لا تفعل شيئًا.
-الشحن الذي يدفعه العميل يأتي من City.shipping_cost، وكذلك shippingOptions. أما shipping_rates (وfree_shipping_threshold وcod_fee) فتُستخدم فقط في تكلفة البوليصة. النتيجة أن cod_fee لا يُحصَّل أبدًا، والحد المجاني لا يصل للعميل.
-rateFor يأخذ first() بلا ترتيب. إذا كانت المدينة في أكثر من منطقة، فالنتيجة غير محددة، وقد يختار منطقة لا سعر لها عند الشركة.
-الإصلاح: وحّد مصدر حساب الشحن، أو وضّح في الواجهة أن العروض "غير مفعلة بعد". وفي rateFor استخدم join مباشر بين shipping_rates وshipping_zone_cities مفلترًا بالشركة.
-
-M13. آثار الإلغاء والإرجاع ناقصة.
-
-إلغاء طلب فيه كوبون لا يعكس used_count ولا يحذف coupon_usage، فيُحرم العميل من كوبونه.
-الانتقال من shipped أو delivered إلى returned لا يعيد المخزون.
-إلغاء طلب paid لا يرفع أي علامة للاسترداد.
-الإصلاح: في changeStatus عند Cancelled: احذف سجل الاستخدام وأنقص العداد. وعند Returned: سجّل حركة مرتجع، أو علّم الطلب لإعادة استلام يدوية حسب سياسة المستودع.
-
-M14. إتمام الشراء لا يعيد التحقق من صلاحية الصنف للبيع. purchasableVariant يُستدعى عند الإضافة فقط. صنف عُطِّل أو منتج أُلغي نشره أو حُذف حذفًا ناعمًا بعد إضافته للسلة ما زال قابلًا للشراء، إلا إذا كان availabilityMap يستبعده، وهذا لم أرَه. والمنتج المحذوف حذفًا ناعمًا يجعل product يساوي null، فيُحفظ product_name_snapshot = ''. الإصلاح: استدعِ فحص purchasableVariant لكل بند داخل createFromCart، بشكل مجمّع.
-
-M15. حسابات مكررة.
-
-present() يستدعي pricedLines ثم totals() يستدعيه مرة ثانية.
-applyCoupon يستدعي totals ثم present، فيُسعَّر كل بند 3 مرات.
-createFromCart يستدعي pricedLines ثم totals، أي مرتين.
-التوزيع: canBranchFulfillFullOrder يكلف عدد الفروع × عدد البنود من الاستعلامات، كلٌّ منها مع whereHas على الموقع.
-الإصلاح: اجعل totals() يقبل $lines المحسوبة مسبقًا. واحسب تغطية الفروع باستعلام واحد مجمّع: GROUP BY branch_id, product_variant_id لكل أصناف الطلب، ثم اختر في الذاكرة.
-
-M16. البحث في الأدمن. like "%term%" على ثلاثة أعمدة يعني مسحًا كاملًا. وwhereDate(created_at) يمنع استخدام الفهرس. ومحارف % و_ في مدخل البحث لا تُهرَّب. الإصلاح: استخدم نطاقًا (created_at >= date 00:00 و< date+1)، وبحثًا بالبادئة لرقم الطلب والهاتف، أو فهرس pg_trgm إن احتجت البحث بالاحتواء.
-
-M17. المال كأرقام float، والتقريب غير متسق. subtotal هو مجموع غير مقرّب لـ base×qty، بينما line_total مقرّب لكل سطر. فقد يختلف subtotal - discount عن مجموع البنود بقرش أو أكثر. كذلك order_items.discount_amount لا يشمل حصة الكوبون، فمجموع خصومات البنود لا يساوي خصم الطلب، وهذه مشكلة في التقارير والمرتجعات الجزئية. الإصلاح: قرّب كل سطر أولًا ثم اجمع. ووزّع خصم الكوبون على البنود بنفس طريقة توزيع الضريبة. ويُفضَّل bcmath أو الحساب بالقروش.
-
-M18. القيمة في CouponRequest بلا حد أعلى للكوبون النسبي. القيمة 150 تعني خصمًا كاملًا للسلة. الإصلاح: Rule::when($this->input('type') === 'percentage', ['max:100']).
-
-M19. فجوات المراقبة والتدقيق.
-
-"دُفع لكن فشل التأكيد" يُكتب في webhook_logs.error فقط، بلا تنبيه ولا ظهور في شاشة الطلب. الطلب يبقى pending ومدفوعًا بصمت.
-inventoryActorId ينسب حركات النظام والعميل إلى أول Super Admin. هذا تزييف لسجل التدقيق، واستعلام إضافي في كل انتقال. وإذا لم يوجد Super Admin، قد يفشل التأكيد التلقائي كله.
-الإصلاح: Log::warning مع إظهار علامة في AdminOrderResource. ومستخدم نظام مخصص (system) معرّفه في الإعدادات.
-
-نتائج منخفضة الخطورة (LOW)
-L1. هيدر cart_token فيه شرطة سفلية، وnginx يُسقط هذه الهيدرات افتراضيًا. وقبول التوكن من query أو body يجعله يظهر في سجلات الوصول. اكتفِ بـ X-Cart-Session.
-L2. addItem يقرأ ثم يكتب، فتحت التزامن تضيع إحدى الزيادات. استخدم increment('qty', $qty) بعد التحقق.
-L3. الأدمن يستطيع وضع الطلب في Shipped عبر updateStatus بلا بوليصة، فلن يصل ويب هوك التسليم أبدًا. اجعل Shipped متاحًا فقط عبر createShipment.
-L4. في trackingUrl، قيمة awb_number المدخلة من الأدمن لا تُرمَّز. استخدم rawurlencode.
-L5. أولوية فرع مدينة العميل تُطابَق بالاسم النصي (city = name_ar)، فأي اختلاف في الكتابة يُبطل الأولوية. الأفضل branches.city_id.
-L6. نوع qty هو numeric بلا حد أعلى. الحد مشروط عمليًا بالمخزون، لكن الدمج لا يفحص المخزون. أضف max معقولًا.
-
-
-F1 — CRITICAL: الطلب المقسّم على فروع لا يُؤكَّد أبدًا
-الموقع: OrderService::changeStatus ما بعد السطر 337، وOrderAllocationService::allocate في السطور 45-48 و85-93.
-ما الخطأ: في الخطوة 3 من التوزيع (كل صنف من فرع) يُضبط allocated_branch_id على البنود فقط ويبقى orders.allocated_branch_id = NULL. ثم عند الانتقال إلى Confirmed:
-Copyif ($to === OrderStatus::Confirmed && $order->allocated_branch_id === null) {
-    $this->allocationService->allocate($order, ...);
-}
-لكن allocate() يرمي «الطلب مُوزّع من قبل» لأن البنود موزعة، فتُلغى معاملة التأكيد كلها.
-متى يحدث: في كل طلب لا يغطيه فرع واحد بالكامل. هذا شائع جدًا مع تعدد الفروع.
-الأثر الفعلي:
-لا يستطيع الأدمن تأكيد الطلب، وcreateForOrder يرفض الشحن لأن الحالة ليست Confirmed أو Processing.
-في الدفع الإلكتروني يُثبَت paid ويفشل التأكيد التلقائي فيصبح الطلب needs_attention، وقد يلغيه orders:expire-pending لاحقًا رغم أن المال قُبض.
-المخزون محجوز طوال هذه المدة.
-نقطة allocate في لوحة الأدمن صارت ميتة عمليًا، لأن كل طلب يُحجز عند إنشائه ولا يوجد مسار لفك التوزيع.
-الإصلاح: اعتبر الطلب موزعًا إذا كان أي بند فيه موزعًا (الكود في القسم 9-A).
-لماذا يحل المشكلة: الحجز صار عند الإنشاء، والتأكيد لا يحتاج إعادة توزيع إلا لطلبات قديمة لم تُحجز.
-المقايضة: لا توجد تقريبًا، فقط استعلام exists إضافي.
-F2 — HIGH: مفتاح منع التكرار غير مربوط بالهوية
-الموقع: OrderService::createFromCart السطور 63-71.
-
-ما الخطأ:
-
-البحث where('idempotency_key', $key) عام على كل الطلبات، ويُرجَع الطلب عبر OrderResource، وهو يحتوي الاسم والهاتف والعنوان والبنود والمبالغ.
-لم يظهر في الهجرات المعروضة أي قيد فريد على العمود [يحتاج تحقق].
-الفحص يتم خارج المعاملة. لو وصل طلبان متزامنان بنفس المفتاح، ينتظر الثاني قفل السلة ثم يجد السلة فارغة فيرجع خطأ 4xx بدل أن يرجع الطلب نفسه.
-متى يحدث: أي عميل يرسل مفتاحًا استخدمه شخص آخر. أمثلة: واجهة تولّد مفتاحًا حتميًا، أو مفتاح محفوظ في localStorage لا يُدوَّر بعد النجاح، أو تسريب من سجلات وسيط. ونفس المستخدم الذي يعيد استخدام مفتاحه سيحصل على طلبه القديم بينما لا تتحول سلته الجديدة إلى طلب، وتقول له الواجهة «تم إنشاء الطلب».
-
-الأثر: كشف بيانات شخصية لطرف آخر (IDOR)، وطلبات «ناجحة» وهمية.
+migrate يفشل في الإنتاج بخطأ relation/column already exists.
+أو قاعدة بيانات جديدة تُبنى بمخطط مختلف عن المتوقع، وتفشل الاستعلامات.
+نجاح الاختبارات يعني غالبًا وجود migrations أخرى غير مرفقة، وهذا بالضبط ما يجب التأكد منه.
 
 الإصلاح:
 
-خزّن المفتاح مُجزّأً (hash) مع هوية صاحبه: معرّف العميل أو توكن سلة الزائر.
-أضف فهرسًا فريدًا جزئيًا على العمود.
-أعد الفحص داخل المعاملة بعد قفل السلة.
-الكود في القسم 9-B.
+شغّل php artisan migrate --pretend على نسخة من مخطط الإنتاج.
+احذف الـ migrations المكررة، أو احمها بـ Schema::hasTable وSchema::hasColumn.
+صحّح الـ CHECK constraint (§9-8).
+أضف unique(phone)، أو partial unique WHERE deleted_at IS NULL لو كان السلوك المطلوب أن الهاتف المحذوف يمكن إعادة استخدامه. لاحظ أن CustomerPhoneVerificationService::send يستخدم withTrashed()، أي أن المحذوف يُعتبر محجوزًا، فالـ unique الكامل أتسق.
+H5 — مورد موقوف يحصل على توكن (HIGH، تحتاج تحقق)
+الموقع: UnifiedAuthService السطر 36.
 
-المقايضة: نفس المفتاح من جهازين لنفس الزائر بتوكني سلة مختلفين لن يُعتبر تكرارًا. هذا هو السلوك الصحيح.
+المشكلة: الشرط يفحص supplierUser->is_active وsupplier_id === null فقط، ولا يفحص suppliers.is_active.
 
-F3 — HIGH: ويب هوك الشحن يبتلع أحداث تغيّر الحالة
-الموقع: ShippingWebhookService::effectiveEventId السطور 198-203.
-ما الخطأ: المعرّف يُؤخذ من event_id أو id أو data.id أو timestamp دون إضافة الحالة. خدمة الدفع عالجت هذه المشكلة نفسها (F-08) بدمج النتيجة في المعرّف، لكن الشحن لم يُعالَج.
-متى يحدث: شركات شحن كثيرة ترسل id على أنه معرّف الشحنة، وهو ثابت عبر كل الأحداث. يصل {id: X, status: in_transit} ثم {id: X, status: delivered}، فيُعلَّم الثاني duplicate لأن الأول processed.
-الأثر: الطلب لا يصبح Delivered أبدًا، ولا تتم تسوية COD، والإيراد غير مُثبت.
-الإصلاح: "$id:$rawStatus" (القسم 9-C).
-المقايضة: إعادة إرسال نفس الحالة تبقى مكررة، وهذا صحيح.
-F4 — HIGH: قفل الكوبون طوال المعاملة + ترتيب أقفال معاكس للإلغاء
-الموقع: createFromCart السطر 109 (lockForUpdate على الكوبون) مقارنة بـ changeStatus في الإلغاء (releaseReservations ثم reverseCouponUsage).
+الشروط: الإدارة توقف شركة مورد بالكامل بدون أن تعطّل كل مستخدميها.
 
-ما الخطأ (أولًا، الأداء): قفل الكوبون يبقى مُمسكًا من السطر 109 حتى الـ commit. خلال هذه المدة: توليد رقم الطلب، وإدراج N بند، والتوزيع، وأقفال صفوف المخزون، وسجل الحالة، وحذف السلة. كل عمليات الشراء بنفس كوبون الحملة تصبح متسلسلة، فتصير الطاقة ≈ 1 ÷ زمن المعاملة، أي حوالي 5 إلى 20 طلبًا في الثانية، ثم تتراكم مهلات الانتظار.
+الأثر: المستخدم يدخل ويرى أوامر الشراء والفواتير والمدفوعات، إلا إذا كان EnsureSupplierAuthenticated (غير مرفق) يفحص الشركة. حتى لو كان يفحصها، الدخول يصدر توكنًا ويحوّل لبوابة تعطي 403 مباشرة.
 
-ما الخطأ (ثانيًا، Deadlock):
+الإصلاح: $supplierUser->supplier?->is_active !== true يُعامل كحساب غير نشط (§9-1)، ونفس الفحص في me() وفي الـ middleware.
 
-الشراء يقفل: الكوبون ← صفوف المخزون.
-الإلغاء يقفل: صفوف المخزون (فك الحجز) ← الكوبون (decrement).
-الترتيبان معاكسان، فيحدث 40P01. يتحول في المتجر إلى 409، لكن في expire-pending يفشل إلغاء الطلب في تلك الدورة.
+M1 — حقل actor.subtype يختلف بين /login و/me (MEDIUM)
+الموقع: UnifiedAuthController::respond السطر 142 مقابل me() السطر 108.
 
-الإصلاح: احسب الخصم بقراءة غير مقفولة، ثم في آخر المعاملة:
+المشكلة:
 
-قفل استشاري على (الكوبون + الهوية) لفحص حد الشخص الواحد.
-UPDATE ... SET used_count = used_count + 1 WHERE used_count < usage_limit مشروط وذرّي.
-الكود في القسم 9-D.
+في login: subtype = $redirect['destination']، والقيم wholesale_pending أو wholesale أو retail.
+في me: subtype = $actor->type->value، والقيم wholesale أو distributor أو retail.
+الأثر: أي فرونت يبني Destination من /me سيعطي عميل جملة لم يُعتمد بعد قيمة wholesale، وتفتح له واجهة البوابة. والموزّع يحصل على distributor، وهي ليست قيمة Destination صالحة. الخطر الحالي محدود لأن الـ storefront لا يستدعي me، لكن M2 يتطلب استدعاءه.
 
-لماذا يحل المشكلة: قفل الصف يُمسك لأجزاء من الثانية فقط قبل الـ commit، والترتيب يصبح «مخزون ثم كوبون» في المسارين.
+الإصلاح: subtype = destination في الحالتين، وأضف customer_type منفصلًا (§9-5).
 
-المقايضة: لو عدّل الأدمن قيمة الكوبون أثناء الشراء قد يُحسب الخصم بالقيمة القديمة. يمكن إعادة قراءة value بعد الـ UPDATE ومقارنتها.
+M2 — الـ storefront لا يعيد التحقق من الجلسة، فالوجهة تبقى قديمة (MEDIUM)
+الموقع: RequireActor.tsx وstore/auth.store.ts (persist في alfarid_web_auth).
 
-F5 — HIGH: حجز المخزون كله بطلبات زوار وهمية
-الموقع: createFromCart (الحجز الفوري)، وconfig/orders.php (pending_cod_expire_hours = 72)، وCouponService (سقف المعلّقات = 20).
-ما الخطأ: زائر بلا أي تحقق من الهاتف ينشئ طلب COD، فيُحجز المخزون فورًا لمدة 72 ساعة. الحد الوحيد هو throttle:checkout، وهو غالبًا لكل IP.
-الأثر:
-مهاجم بعدة عناوين IP يقفل مخزون منتج رائج أو حملة كاملة.
-20 طلبًا وهميًا بكوبون واحد تعطّل الكوبون لكل الزوار 72 ساعة، فالسقف نفسه يصبح أداة هجوم.
-الإصلاح: حد طلبات معلّقة لكل هاتف مُوحَّد ولكل IP عبر RateLimiter المدمج في Laravel، وسقف كمية لكل بند للزوار، ومدة انتهاء أقصر لطلبات الزوار (القسم 9-K).
-المقايضة: قد يُرفض زائر حقيقي يكرر الطلبات، والحد قابل للضبط.
-F6 — HIGH: طلبات credit و bank_transfer لا تُشحن [يحتاج تحقق]
-الموقع: ShipmentService::createForOrder، وهو يرفض أي دفع غير COD حالته ليست paid. وCheckoutRequest::allowedPaymentMethods يضيف credit لعملاء الجملة المعتمدين مهما كان الإعداد.
-ما الخطأ: لا توجد في Admin/OrderController أي نقطة لضبط payment_status، والتعليق «ضبط paid يدويًا مقصود» ليس له مسار فعلي.
-الأثر:
-طلب credit أو bank_transfer لا يخرج أبدًا.
-إذا كان expire-pending يعامل كل ما ليس COD كدفع إلكتروني، فسيُلغى طلب عميل الجملة بعد 30 دقيقة.
+المشكلة: destination وhome يُحفظان لحظة الدخول ولا يتحدثان أبدًا.
+
+السيناريوهات:
+
+عميل جملة pending يُعتمد: يبقى wholesale_pending، وRequireActor allow={['wholesale']} يرجعه لصفحة الحالة، ولا يصل للبوابة إلا بعد logout ثم login.
+عميل يُوقف: يظل يرى هيكل الواجهات (الباك إند يرفض البيانات).
+الإصلاح: استدعِ authEndpoints.me() عند الـ hydration وحدّث الجلسة من redirect.destination (§9-7).
+
+M3 — مدخل login من نوع array يسبب 500 قبل الـ validation (MEDIUM)
+الموقع: unified-login limiter: (string) $request->input('login').
+
+المشكلة: {"login":["x"],"password":"y"} يسبب «Array to string conversion»، وLaravel يحوّل الـ warning إلى ErrorException، فيرجع 500. الـ throttle يعمل قبل الـ FormRequest.
+
+الأثر: استجابة غير متحكم بها، وضجيج في السجلات يمكن استغلاله لإغراق أنظمة التنبيه. الـ limiter القديم customer-login كان يحمي نفسه بـ is_string.
+
+الإصلاح: مدمج في §9-2.
+
+M4 — supplier_id يشير لمورد محذوف يسبب 500 عند الدخول وفي /me (MEDIUM)
+الموقع: migration supplier_users.supplier_id (بدون FK)، وSupplierUserResource الأسطر 27–30.
+
+المشكلة: supplier_id ليس null فيمر الفحص، وload('supplier') يرجع null، ثم $this->supplier->id يسبب «read property on null».
+
 الإصلاح:
-أضف نقطة orders/{order}/payment بصلاحية مستقلة وسجل تدقيق.
-استثنِ credit من الانتهاء، أو اسمح بشحنه مباشرة لأنه دفع آجل بطبيعته.
-F7 — MEDIUM: تجاوز سقف معلّقات الزوار عندما usage_limit_per_customer = 0
-الموقع: CouponService::assertRedeemable السطور 105-107.
-ما الخطأ: return المبكر يحدث قبل فحص pending cap. الكوبون «غير المحدود لكل شخص» هو الأكثر عرضة لاستنزاف حده الكلي، ومع ذلك يفلت من الحماية الوحيدة (F-17).
-الإصلاح: انقل فحص السقف قبل return (القسم 9-E).
-F8 — MEDIUM: خريطة التغطية تُقرأ بلا قفل، فيفشل الشراء تحت التزامن رغم توفر المخزون
-الموقع: OrderAllocationService::branchAvailabilityMap ثم reserveItemFromBranch.
-ما الخطأ: القرار يُبنى على قراءة غير مقفولة. إذا حجز طلب متزامن الرصيد بعد القراءة، فإن remaining > 0 يرمي استثناءً ويُلغى الشراء كله، رغم أن فرعًا آخر قد يغطي الطلب.
-الأثر: وقت الحملات تظهر للمستخدم أخطاء «الكمية غير كافية» لا وجود لها فعليًا.
-الإصلاح: اقفل صفوف stock_levels الخاصة بأصناف الطلب بترتيب (product_variant_id, id) قبل بناء الخريطة (القسم 9-H). هذا متوافق مع ترتيب الأقفال الحالي (F-02).
-المقايضة: يقفل صفوف الصنف في كل الفروع وليس الفرع المختار فقط، فيزيد التنازع قليلًا لكن النتيجة صحيحة.
-F9 — MEDIUM: إمكانية تغيير مسار التنفيذ عبر الويب هوك مع حمولة ضخمة قبل فحص الحجم
-الموقع: PaymentWebhookController وShippingWebhookController.
-ما الخطأ: json_decode($request->getContent()) يُنفَّذ قبل فحص الحد 256KB داخل الخدمة. وكل طلب مجهول، حتى بتوقيع خاطئ، يكتب صفًا في webhook_logs. ولم أرَ throttle على مسارات الويب هوك [يحتاج تحقق].
-الأثر: استهلاك CPU وذاكرة، ونمو كبير في الجدول (كتابة لكل طلب غير موثق).
-الإصلاح:
-افحص الحجم في المتحكم قبل فك JSON.
-أضف throttle لكل IP.
-قيّد معامل {gateway} و{company} بـ Route::where('[a-z0-9_-]{1,50}')، لأن قيمة أطول من 255 حرفًا تُدخل في provider فتنفجر بـ 22001 وتعطي 500 [يحتاج تحقق من ملف المسارات].
-F10 — MEDIUM: Stripe و Moyasar مُعلنان لكنهما لا يعملان
-الموقع: PaymentWebhookService::outcome/amountMatches/extractOrderNumber.
-Stripe: الحالة والمبلغ والـ metadata موجودة في data.object.*، والمسارات المفحوصة هي data.status وdata.amount وmetadata.order_number. النتيجة: كل الأحداث ignored أو «طلب غير موجود». والأخطر أن فحص المبلغ يُتجاوز، لأن المبلغ لا يُعثر عليه فتعود الدالة true.
-Moyasar: العملة SAR والكود يفرض EGP بشكل ثابت، فيُرفض كل دفع على أنه «عدم تطابق مبلغ».
-الإصلاح:
-أضف مسارات لكل driver، مثل data.object.status وdata.object.amount وdata.object.metadata.order_number.
-اجعل العملة من config("webhooks.payment.$gateway.currency").
-في driver يُعرف أنه يرسل المبلغ دائمًا، اجعل غياب المبلغ رفضًا لا قبولًا (require_amount => true).
-F11 — MEDIUM: البحث في لوحة الطلبات لا يستخدم الفهارس فعليًا
-الموقع: Admin/OrderController::index.
-ما الخطأ:
-LIKE 'x%' على PostgreSQL مع collation غير C لا يستخدم فهرس btree العادي.
-guest_phone لا فهرس له أصلًا.
-OR guest_name LIKE '%x%' يفرض مسحًا كاملًا للجدول في كل الأحوال.
-paginate() يُنفّذ COUNT(*) على المجموعة المفلترة.
-الأثر: مسح كامل لجدول الطلبات مع كل بحث. يصبح بطيئًا جدًا بعد مئات الآلاف من الصفوف.
-الإصلاح:
-فهارس text_pattern_ops على order_number وguest_phone.
-فصل المسارات حسب شكل المدخل: أرقام تعني رقم طلب أو هاتف بالبادئة، ونص يعني الاسم.
-pg_trgm للاسم إن احتجته (امتداد مدمج في PostgreSQL وليس تبعية جديدة).
-F12 — MEDIUM: خطر Deadlock في ويب هوك الدفع يحوّل المعالجة إلى 500
-الموقع: PaymentWebhookService (استدعاء changeStatus داخل try/catch Throwable داخل معاملة خارجية).
-ما الخطأ: عند 40P01 في معاملة متداخلة، يرمي Laravel DeadlockException دون الرجوع إلى الـ savepoint. تبقى المعاملة الخارجية في حالة aborted، فيفشل update(['needs_attention'=>true]) داخل catch بـ 25P02.
-الأثر: يرجع 500 وتُلغى المعاملة كلها. البوابة ستعيد المحاولة، لكن يبقى سجل received يتيم، ولا يظهر علم انتباه.
-الإصلاح: في catch افحص $e instanceof DeadlockException وأعد رميه صراحة لتعيد البوابة المحاولة. أو نفّذ التأكيد التلقائي بعد الـ commit عبر DB::afterCommit.
-F13 — MEDIUM: هجرة القيد الفريد على سلة العميل قد تفشل في النشر
-الموقع: 2026_10_18_100002_add_unique_customer_cart.php.
-ما الخطأ: التعليق يقول «تُدمج السلال المكررة قبل تطبيق القيد»، لكن لا يوجد كود يقوم بالدمج. أي تكرار موجود سيُفشل الهجرة أثناء النشر. والفهرس العادي على customer_id (من هجرة hot FK) صار مكررًا بلا فائدة.
-الإصلاح: خطوة دمج وحذف للمكرر داخل نفس الهجرة قبل unique، ثم dropIndex(['customer_id']) للفهرس العادي.
-F14 — MEDIUM: حذف الكوبون يمحو تاريخًا ماليًا بسبب cascade
-الموقع: coupon_usages.coupon_id ->cascadeOnDelete() وCouponController::destroy.
-ما الخطأ: الحماية تطبيقية فقط (exists ثم delete، وهو نمط TOCTOU). لو أُدرج استخدام بين الفحص والحذف، يحذف الـ cascade سجلًا ماليًا.
-الإصلاح: restrictOnDelete() في هجرة جديدة. قاعدة البيانات هي الضامن الأقوى.
-F15 — MEDIUM: السلة بلا حد لعدد البنود
-الموقع: CartService::addItem/pricedLines، وcreateFromCart.
-ما الخطأ: كل بند يعني تسعير PricingService::resolve منفصلًا، وعند الشراء: إدراج وحجز وأقفال لكل بند. يمكن أن يحتوي توكن زائر واحد على آلاف الأصناف.
-الأثر: كل GET للسلة يكلف O(N) استعلامات، وتطول معاملة الشراء وأقفالها.
-الإصلاح: store.max_cart_lines (مثلًا 50) يُفحص عند إضافة صنف جديد (القسم 9-L).
-F16 — MEDIUM: استعلام سقف معلّقات الزوار يكبر مع تاريخ الكوبون وهو تحت القفل
-الموقع: CouponService::assertRedeemable (pendingGuestUsages).
-ما الخطأ: يمسح كل استخدامات الكوبون التي لها هاتف ثم يربطها بالطلبات، وهذا يحدث والكوبون مقفول. كوبون عليه 100 ألف استخدام يجعل كل عملية شراء أبطأ.
-الإصلاح: اعكس الاستعلام من جهة الطلبات: orders WHERE coupon_id=? AND status='pending' AND customer_id IS NULL، مع فهرس (coupon_id, status). حجمه محدود بعدد المعلّقات فقط.
-F17 — LOW: ترتيب الفروع حسب المدينة يضع NULL أولًا
-الموقع: allocate: orderByRaw('city = ? DESC').
-ما الخطأ: في PostgreSQL الترتيب DESC يضع NULLs FIRST، فيتقدم الفرع الذي لا مدينة له على فرع مدينة العميل.
-الإصلاح: CASE WHEN city = ? THEN 0 ELSE 1 END، أو إضافة NULLS LAST.
-F18 — LOW: بوليصة فاشلة يمكن أن تصبح «مُسلَّمة» بعد إصدار بديلة
-الموقع: transitionAllowed: Failed غير نهائية ورتبتها -1، فكل الانتقالات منها مسموحة.
-ما الخطأ: حدث delivered متأخر على البوليصة الفاشلة بينما البديلة نشطة يجعل الطلب Delivered ويُثبت COD قبل أن تُسلَّم الشحنة الفعلية.
-الإصلاح: إذا كانت للطلب بوليصة أحدث نشطة، فسجّل الحدث على البوليصة القديمة دون تغيير حالة الطلب، وارفع needs_attention.
-F19 — LOW: فحوص التوفر عند الإضافة والدمج غير ذرّية
-الموقع: addItem (قراءة ثم upsert تراكمي)، وmergeGuestCart (جمع الكميات دون أي فحص).
-الأثر: السلة قد تحتوي كمية أكبر من المتاح. الشراء يعيد التحقق، فالأثر على تجربة المستخدم فقط.
-F20 — LOW: أكواد الكوبونات تتيح كشف وجودها جزئيًا
-رسائل «الحد الأدنى» و«وصلت لحدك» تختلف عن الرسالة الموحدة، فتكشف أن الكود موجود. الأثر صغير بوجود throttle:coupon.
 
-F21 — LOW: تحديث بيانات اعتماد شركة الشحن يستبدل المصفوفة كلها
-إرسال api_credentials بدون webhook_secret يمحو السر، فتبدأ كل الويب هوكس بالرجوع بـ 403. الحل: دمج المصفوفة الجديدة مع المحفوظة.
+§9-1 يرفض هذا الحساب.
+اجعل الـ resource آمنًا مع null (§9-6).
+أضف foreignId('supplier_id')->constrained()->restrictOnDelete() مع index.
+M5 — مسارات الدخول القديمة ما زالت تعمل (MEDIUM)
+الموقع: التوثيق يقول إن admin/auth/login وpos/auth/login وstore/auth/login وsupplier/auth/login محفوظة للتوافق.
 
-F22 — LOW [يحتاج تحقق]: $company->name_ar في ويب هوك الشحن
-أحد مقتطفات السطر 155 أظهر {$company->name_ar}، وجدول shipping_companies ليس فيه هذا العمود. إذا كان Model::preventAccessingMissingAttributes() مفعّلًا، سيُرمى استثناء ولن يتحول أي طلب إلى Delivered عبر الويب هوك. استخدم name.
+المشكلة:
 
-F23 — INFO
-توليد رقم الطلب: إذا كان generateNextNumber يقفل صف عدّاد، فإن القفل يُمسك حتى commit معاملة الشراء، فتتسلسل كل عمليات الشراء. الأفضل nextval() من sequence [يحتاج تحقق].
-الحسابات بأرقام عشرية: float مع round آمن في هذا النطاق. لكن max($lineTax, 0) وmax($couponShare,0) قد يجعلان مجموع البنود ≠ قيمة الطلب بقرش واحد.
-العروض التلقائية: لا تُستدعى في CartService ولا OrderService. إذا لم يطبقها PricingService، فإن الأدمن ينشئ عروضًا لا تفعل شيئًا [يحتاج تحقق].
-مستخدم النظام: حساب له كلمة مرور ويمكن نظريًا استهدافه بـ «نسيت كلمة المرور». اجعله is_active=false ولا يُستخدم للدخول.
+كل مسار له limiter مستقل. ThrottleRequests يضيف اسم الـ limiter إلى المفتاح قبل الـ md5، فلا تُجمع العدّادات. النتيجة أن ميزانية التخمين على إيميل موظف تتضاعف حوالي 3 مرات (unified + admin + pos)، كل واحد 5/دقيقة و30/ساعة.
+admin/auth/login يُصدر توكن موظف مباشرة لأي origin، وهذا ينقض هدف «توكن الموظف لا يظهر على دومين الويب».
+الإصلاح: عطّلها بـ feature flag (مثلًا config('auth.legacy_login_enabled')، القيمة false في الإنتاج)، أو احذفها بعد نقل الاختبارات. لو كانت ضرورية مؤقتًا، طبّق عليها throttle:unified-login مع قراءة email كبديل لـ login.
+
+M6 — حدود المعدل غير مناسبة للإنتاج (MEDIUM)
+المشكلة الأولى: 30/دقيقة لكل IP أقل من حد customer-login القديم (120). شبكات المحمول في مصر تستخدم CGNAT بكثافة، وفرع فيه عدة كاشيرات بداية الوردية يشترك في IP واحد. النتيجة 429 لمستخدمين شرعيين.
+
+المشكلة الثانية: حد المعرّف (30/ساعة) يمكّن أي شخص من قفل حساب أي مدير لمدة ساعة بـ 30 طلبًا خاطئًا (lockout DoS). والطلبات الناجحة تُحسب أيضًا.
+
+الإصلاح:
+
+اجعل حد الـ IP قابلًا للضبط وبقيمة افتراضية 120.
+أبقِ حد المعرّف، مع إضافة مفتاح مركّب (IP + معرّف) بحد أعلى وتخفيض الحد العام، أو اقبل المقايضة وراقبها.
+المقايضة: أي تخفيف للقفل يزيد ميزانية التخمين قليلًا. الخيار المتوازن: حد المعرّف لكل IP يساوي 5/دقيقة، وحد المعرّف العام يساوي 100/ساعة.
+
+M7 — الـ handoff code في الـ query string وغير مربوط بالعميل (MEDIUM)
+الموقع: auth.service.ts (/auth/callback?code=...) وAuthCallbackPage.tsx.
+
+المشكلة:
+
+الكود يصل لخادم الباك أوفيس (nginx access logs) ولأي أداة analytics أو monitoring تسجّل الـ URL، ويبقى في الـ history حتى الـ replace.
+لا يوجد ربط بالمتصفح الذي بدأ الدخول. من يحصل على الكود خلال 60 ثانية وقبل استهلاكه يحصل على توكن موظف كامل، ربما بصلاحيات مدير.
+الإصلاح الأبسط: انقل الكود إلى الـ fragment (#code=). الـ fragment لا يُرسل للخادم ولا في الـ Referer. ثم امسحه بـ history.replaceState (§9-9).
+
+تحسين اختياري: ربط بنمط PKCE، أي أن الـ storefront يرسل code_challenge مع الدخول والباك أوفيس يرسل الـ verifier. لا أوصي به الآن لأن الـ fragment مع TTL 60 ثانية والاستهلاك لمرة واحدة يغطي معظم الخطر.
+
+M8 — StaffHandoffService::consume قد يرمي LockTimeoutException فيرجع 500 (MEDIUM)
+الموقع: StaffHandoffService الأسطر 28–29.
+
+المشكلة:
+
+block(5, ...) يرمي استثناء لو لم يُحصل على القفل خلال 5 ثوانٍ (طلبان متزامنان بنفس الكود، أو بطء في الـ DB أو Redis).
+الآلية تفترض cache مشتركًا بين الخوادم ويدعم الأقفال. file أو array على عدة nodes يكسر الـ handoff بصمت.
+الاختبارات تعمل على CACHE_STORE=array، فلا تثبت شيئًا عن الأقفال الحقيقية.
+الإصلاح:
+
+التقط الاستثناء وأرجع null، فتكون النتيجة 401 (§9-4).
+عند الإقلاع في الإنتاج تحقق أن الـ store هو redis أو database.
+M9 — توكنات الموظفين بلا حد وبلا تنظيف، وتوكنات يتيمة (MEDIUM)
+الموقع: exchange() السطر 77، وauth.service.ts السطر 11، وAuthCallbackPage.
+
+المشكلة:
+
+كل دخول موظف ينشئ توكنًا جديدًا بلا حد أقصى. العملاء لهم حد 10 والموردون 5، والموظفون بلا حد.
+دخول موظف من storefront فيه جلسة عميل ينفّذ clear() محليًا بدون استدعاء logout، فيبقى توكن العميل صالحًا على الخادم 24 ساعة.
+handoff جديد في باك أوفيس فيه جلسة سابقة يستبدل التوكن بدون إلغاء القديم.
+الأثر: نمو مستمر في personal_access_tokens، وتوكنات صالحة لا يملكها أحد.
+
+الإصلاح:
+
+طبّق نفس الحد على الموظفين داخل transaction (§9-5).
+جدولة sanctum:prune-expired --hours=24.
+في الـ storefront: await authEndpoints.logout().catch(()=>{}) قبل clear() لو وُجد توكن.
+M10 — فشل دمج السلة بعد إصدار التوكن يُفشل الدخول كله (MEDIUM)
+الموقع: UnifiedAuthController::login الأسطر 56–57.
+
+المشكلة: issueToken ينفّذ commit للتوكن، ثم mergeGuestCart في transaction أخرى. لو الدمج فشل (deadlock 40P01 يتحول إلى 409، أو constraint، أو timeout):
+
+المستخدم يرى فشل دخول.
+التوكن موجود ويتيم.
+كل إعادة محاولة تصدر توكنًا جديدًا.
+الإصلاح: الدمج best-effort مع report()، وإرجاع cart_merged حتى لا يحذف الفرونت cart_session إذا فشل الدمج (§9-5).
+
+M11 — تضخم كتابات الـ audit، ومعرّفات قابلة للعكس (MEDIUM)
+الموقع: CustomerAuthService::login السطر 69.
+
+المشكلة:
+
+كل محاولة فاشلة تكتب صفًا، حتى لمعرّفات غير موجودة، وحتى لمحاولات إيميل موظف فشلت ثم انتقلت لمسار العميل. هجوم stuffing موزع يتحول إلى كتابات DB غير محدودة ونمو في جدول بلا retention.
+identifier_key = sha256(phone) بدون مفتاح. مساحة أرقام الموبايل المصرية حوالي 10⁹، فالعكس بالقوة الغاشمة يأخذ دقائق. أي أن السجل يحتوي فعليًا أرقام هواتف وإيميلات بنص قابل للاسترجاع.
+الإصلاح:
+
+استخدم hash_hmac('sha256', $identifier, config('app.key')).
+لا تسجل المحاولات لمعرّفات غير موجودة في الجدول، واكتفِ بـ log بمستوى info مع sampling.
+أضف سياسة retention (prune job).
+M12 — لا توجد مراقبة لدخول الموظفين والموردين (MEDIUM)
+المشكلة: العملاء لهم audit log. الموظفون (الأعلى صلاحية) والموردون ليس لهم أي سجل للنجاح أو الفشل أو استهلاك الـ handoff.
+
+الأثر: لا يمكن اكتشاف brute force على المديرين، ولا التحقيق في دخول مشبوه.
+
+الإصلاح: logger()->info('staff.login', ['user_id'=>..., 'ip'=>...]) عند النجاح والفشل (بعد التحقق من وجود الحساب)، وعند exchange. لا حاجة لجدول جديد.
+
+M13 — التفرد عبر الجداول على مستوى التطبيق فقط (MEDIUM)
+الموقع: EmailNotUsedByOtherAccountType.
+
+المشكلة:
+
+check-then-insert: تسجيل عميل وإنشاء موظف متزامنين بنفس الإيميل كلاهما يمر. لا يوجد قيد DB عبر الجداول.
+القاعدة لا تحمي إلا المسارات التي تستخدمها. تعديل العميل لإيميله من الملف الشخصي، والإنشاء من الإدارة، والاستيراد، ليست ضمن الحزمة (تحتاج تحقق).
+القاعدة تحتسب إيميل عميل غير مُوثَّق. أي شخص يسجل بإيميل موظف مستقبلي فيمنع إنشاء حسابه، والعميل نفسه لا يستطيع الدخول بهذا الإيميل.
+الأثر: النظام يتحمل الإيميل المكرر عبر مطابقة الباسورد، لذا الخطر الأمني محدود. لكن لو تطابق الباسورد في حسابين، الحساب الأدنى أولوية لا يصل إليه صاحبه أبدًا (L4).
+
+الإصلاح:
+
+القيد العابر للجداول غير ممكن بسهولة على PostgreSQL، وجدول identities مركزي تعقيد غير مبرر الآن. اقبل الحالة النادرة مع مراقبة.
+طبّق القاعدة في كل مسار كتابة.
+اجعل الفحص على customers مشروطًا بـ whereNotNull('email_verified_at') إذا قبلت أن العميل غير المُوثَّق لا يحجز الإيميل.
+M14 — كاشير في فرع موقوف أو محذوف يُوجَّه للـ POS (MEDIUM)
+الموقع: LoginDestinationResolver السطر 26، وusers.branch_id بدون FK.
+
+الإصلاح: if ($actor->branch === null || ! $actor->branch->is_active) throw ...، وأضف FK مع index على branch_id.
+
+LOW
+L1: حد توكنات المورد (issueSupplierToken) غير ذري؛ دخولان متزامنان قد يتجاوزان الحد. يُحل بـ §9-5.
+L2: لا يوجد rehash للباسورد عند تغيير تكلفة bcrypt، على عكس Auth::attempt. أضف if (Hash::needsRehash($model->password)) $model->forceFill(['password'=>$password])->save(); بعد النجاح.
+L3: عميل retail حالته rejected (لو غيرتها الإدارة): الوجهة /، لكن EnsureCustomerAuthenticated يرفض كل شيء، فتصبح الواجهة معطلة بلا رسالة واضحة. وجّهه لصفحة حالة، أو امنع rejected للـ retail.
+L4: حسابان مشتركان في الإيميل والباسورد معًا: الأدنى أولوية لا يصل إليه صاحبه أبدًا. عالجه بمنع التكرار مستقبلًا وتنظيف الموجود.
+L5: consume() يرجع path المخزن ولا يُستخدم (الـ exchange يعيد الحساب). احذفه أو استخدمه.
+INFO
+config/sanctum.php ما زال يضم stateful (localhost:3000) وguard => ['web']. لا ضرر حالي لأن statefulApi() غير مفعّل، لكنه مربك. اجعل guard => [].
+StaffRole::SuperAdmin غير مستخدم في الـ resolver.
+تخزين توكنات العملاء والموردين في localStorage يعرضها لأي XSS على الـ storefront. قرار معماري مقبول طالما توكن الموظف معزول، لكن احرص على CSP صارم.

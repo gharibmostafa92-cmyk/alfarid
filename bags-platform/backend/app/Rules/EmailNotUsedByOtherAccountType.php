@@ -26,6 +26,10 @@ final class EmailNotUsedByOtherAccountType implements ValidationRule
             $query = DB::table($table)->whereRaw('LOWER(email) = ?', [$email]);
             if ($table === 'customers') {
                 $query->whereNull('deleted_at');
+                // M13: إيميل عميل غير موثّق لا يحجز الإيميل — أي شخص يسجل به
+                // مستقبلًا يمنع إنشاء حساب الموظف/المورد، والعميل نفسه لا
+                // يستطيع الدخول بهذا الإيميل أصلًا.
+                $query->whereNotNull('email_verified_at');
             }
             if ($query->exists()) {
                 $fail('هذا البريد مستخدم بحساب آخر في النظام.');

@@ -11,6 +11,10 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // H4: قد يوجد الجدول أصلًا (Sanctum كان مستخدمًا قبل هذا التاريخ).
+        if (Schema::hasTable('personal_access_tokens')) {
+            return;
+        }
         Schema::create('personal_access_tokens', function (Blueprint $table) {
             $table->id();
             $table->morphs('tokenable');

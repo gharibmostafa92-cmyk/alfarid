@@ -27,6 +27,11 @@ class User extends Authenticatable
         return $this->belongsTo(Branch::class);
     }
 
+    public function setEmailAttribute(string $email): void
+    {
+        $this->attributes['email'] = mb_strtolower(trim($email));
+    }
+
     /**
      * Get the attributes that should be cast.
      *

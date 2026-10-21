@@ -10,10 +10,18 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // H4: هذه الأعمدة قد توجد أصلًا (النظام كان يستخدم Sanctum والفروع قبل
+        // هذا التاريخ)، فاحمِ الإضافة حتى لا يفشل migrate في الإنتاج.
         Schema::table('users', function (Blueprint $table): void {
-            $table->string('phone')->nullable()->after('email');
-            $table->unsignedBigInteger('branch_id')->nullable()->after('password');
-            $table->boolean('is_active')->default(true)->after('branch_id');
+            if (! Schema::hasColumn('users', 'phone')) {
+                $table->string('phone')->nullable()->after('email');
+            }
+            if (! Schema::hasColumn('users', 'branch_id')) {
+                $table->unsignedBigInteger('branch_id')->nullable()->after('password');
+            }
+            if (! Schema::hasColumn('users', 'is_active')) {
+                $table->boolean('is_active')->default(true)->after('branch_id');
+            }
         });
     }
 

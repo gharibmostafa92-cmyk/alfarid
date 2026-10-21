@@ -10,11 +10,12 @@ export interface LoginRedirect {
 }
 export interface UnifiedLoginResponse {
   message: string;
-  actor: { type: ActorType; subtype: Destination; status: string | null };
+  actor: { type: ActorType; subtype: Destination; status: string | null; customer_type?: string };
   redirect: LoginRedirect;
   token: string | null;
   handoff_code: string | null;
   data: Record<string, unknown>;
+  cart_merged?: boolean | null;
 }
 export interface HandoffExchangeResponse {
   data: StaffUserResource;

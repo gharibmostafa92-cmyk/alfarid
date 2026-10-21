@@ -197,15 +197,36 @@ class AppServiceProvider extends ServiceProvider
 
         // حد الدخول الموحد: بالـ IP وبالمعرّف (بريد/هاتف) معًا
         RateLimiter::for('unified-login', function (Request $request) {
-            $id = hash('sha256', Str::lower(trim((string) $request->input('login'))));
+            // H2: طبّع المعرّف بنفس منطق CustomerAuthService::login، وإلا كانت
+            // كل صيغة هاتف (‎+20/0020/مسافات/أرقام عربية) بعدّاد مستقل.
+            // M3: المدخل قد يكون array فيصل قبل الـ validation — لا تصبه لـ string.
+            $raw = $request->input('login');
+            $normalized = ! is_string($raw) || trim($raw) === ''
+                ? 'invalid'
+                : (str_contains($raw, '@')
+                    ? Str::lower(trim($raw))
+                    : Customer::normalizePhone($raw));
+            $id = hash('sha256', $normalized);
 
             return [
-                Limit::perMinute(30)->by('ip:'.$request->ip()),
-                Limit::perMinute(5)->by('id:'.$id),
-                Limit::perHour(30)->by('id-hour:'.$id),
+                // M6: حد الـ IP قابل للضبط (شبكات CGNAT والفروع المشتركة)، وحد
+                // المعرّف العام مخفف لمنع قفل حسابات الآخرين (lockout DoS) مع
+                // إبقاء حد ضيق لكل (IP + معرّف) ضد التخمين المركّز.
+                Limit::perMinute((int) config('auth.unified_login_ip_minute', 120))->by('ip:'.$request->ip()),
+                Limit::perMinute(5)->by('id:'.$id.':'.$request->ip()),
+                Limit::perHour((int) config('auth.unified_login_id_hour', 100))->by('id-hour:'.$id),
             ];
         });
 
         RateLimiter::for('unified-handoff', fn (Request $request) => Limit::perMinute(20)->by($request->ip()));
+
+        // M8: الـ handoff يعتمد على cache مشترك يدعم الأقفال عبر الخوادم.
+        // file/array يكسرانه بصمت على عدة nodes — نبّه في الإنتاج مبكرًا.
+        if ($this->app->environment('production')
+            && ! in_array((string) config('cache.default'), ['redis', 'database', 'memcached', 'dynamodb'], true)) {
+            logger()->error('Staff handoff requires a shared lockable cache store in production.', [
+                'cache_default' => (string) config('cache.default'),
+            ]);
+        }
     }
 }

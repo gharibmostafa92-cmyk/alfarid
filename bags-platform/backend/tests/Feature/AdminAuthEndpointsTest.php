@@ -96,7 +96,9 @@ class AdminAuthEndpointsTest extends TestCase
             'email' => 'legacy@example.test',
             'password' => 'secret-password',
         ])->assertOk()
-            ->assertJsonPath('data.email', 'LEGACY@EXAMPLE.TEST');
+            // H3: إيميلات الموظفين تُطبَّع لحروف صغيرة عند الكتابة (مثل
+            // الموردين والعملاء) لمنع تكرار Admin@x.com/admin@x.com.
+            ->assertJsonPath('data.email', 'legacy@example.test');
     }
 
     public function test_login_validates_required_email_and_password(): void
