@@ -18,8 +18,9 @@ class StoreBannerResource extends JsonResource
         return [
             'id' => $this->id,
             'title' => $this->title,
-            'image' => str_starts_with($this->image_path, 'https://') || str_starts_with($this->image_path, 'http://')
-                ? $this->image_path : Storage::disk('public')->url($this->image_path),
+            'image' => Storage::disk('r2')->temporaryUrl($this->image_path, now()->addSeconds(
+                max(60, min(604800, (int) config('filesystems.disks.r2.download_url_ttl_seconds', 3600)))
+            )),
             'link_type' => $this->link_type,
             'link_value' => $this->link_value,
             'position' => $this->position,

@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\Media\MediaUrlGenerator;
 use App\Services\Media\TransactionalMediaObserver;
 use App\Services\Media\UuidPathGenerator;
 use Spatie\ImageOptimizer\Optimizers\Avifenc;
@@ -24,7 +25,6 @@ use Spatie\MediaLibrary\ResponsiveImages\TinyPlaceholderGenerator\Blurred;
 use Spatie\MediaLibrary\ResponsiveImages\WidthCalculator\FileSizeOptimizedWidthCalculator;
 use Spatie\MediaLibrary\Support\FileNamer\DefaultFileNamer;
 use Spatie\MediaLibrary\Support\FileRemover\DefaultFileRemover;
-use Spatie\MediaLibrary\Support\UrlGenerator\DefaultUrlGenerator;
 use Spatie\MediaLibraryPro\Models\TemporaryUpload;
 
 return [
@@ -33,18 +33,14 @@ return [
      * The disk on which to store added files and derived images by default. Choose
      * one or more of the disks you've configured in config/filesystems.php.
      */
-    'disk_name' => env('MEDIA_DISK', 'public'),
+    'disk_name' => 'r2',
 
     /*
      * The disk on which to store conversions (thumbnails, etc.) and responsive images
      * when no disk is specified explicitly on the media collection or via
-     * `storingConversionsOnDisk()`. When left null, conversions are stored on the
-     * same disk as the original media — preserving previous behavior.
-     *
-     * This is useful when the originals live on a remote disk (e.g. S3) but the
-     * generated derivatives should stay local for faster access and lower egress.
+     * `storingConversionsOnDisk()`. Originals and derivatives must both use R2.
      */
-    'conversions_disk_name' => env('MEDIA_CONVERSIONS_DISK', null),
+    'conversions_disk_name' => 'r2',
 
     /*
      * The maximum file size of an item in bytes.
@@ -162,7 +158,7 @@ return [
      * When urls to files get generated, this class will be called. Use the default
      * if your files are stored locally above the site root or on s3.
      */
-    'url_generator' => DefaultUrlGenerator::class,
+    'url_generator' => MediaUrlGenerator::class,
 
     /*
      * Moves media on updating to keep path consistent. Enable it only with a custom

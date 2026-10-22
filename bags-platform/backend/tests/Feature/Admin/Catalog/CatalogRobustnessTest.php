@@ -10,7 +10,6 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
@@ -170,7 +169,7 @@ class CatalogRobustnessTest extends TestCase
 
     public function test_oversized_image_dimensions_are_rejected(): void
     {
-        Storage::fake('public');
+        $this->fakeUploads();
         $token = $this->adminToken();
 
         Auth::forgetGuards();
@@ -216,7 +215,7 @@ class CatalogRobustnessTest extends TestCase
 
     public function test_media_urls_use_uuid_paths(): void
     {
-        Storage::fake('public');
+        $this->fakeUploads();
         $token = $this->adminToken();
         $product = Product::factory()->create();
 

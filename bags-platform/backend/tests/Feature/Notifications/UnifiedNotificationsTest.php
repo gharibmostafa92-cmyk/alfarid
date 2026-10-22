@@ -27,7 +27,6 @@ use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class UnifiedNotificationsTest extends TestCase
@@ -41,7 +40,7 @@ class UnifiedNotificationsTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        Storage::fake('local');
+        $this->fakeUploads();
         $this->seed(RolePermissionSeeder::class);
         $this->seed(CustomerPermissionSeeder::class);
         $this->seed(SettingSeeder::class);

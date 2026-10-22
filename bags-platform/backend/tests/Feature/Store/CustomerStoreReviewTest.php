@@ -356,7 +356,7 @@ class CustomerStoreReviewTest extends TestCase
 
     public function test_missing_documents_return_404_and_download_names_are_safe(): void
     {
-        Storage::fake('local');
+        $this->fakeUploads();
         $customer = Customer::factory()->create();
         $document = $customer->documents()->create(['document_type' => 'other', 'file_path' => 'missing.pdf',
             'original_name' => "directory\\bad\"name\r\n.pdf", 'mime_type' => 'application/pdf']);
@@ -364,7 +364,7 @@ class CustomerStoreReviewTest extends TestCase
         $uri = "/api/v1/admin/customers/{$customer->id}/documents/{$document->id}/download";
 
         $this->withToken($token)->getJson($uri)->assertNotFound();
-        Storage::disk('local')->put('missing.pdf', 'document');
+        Storage::disk('r2')->put('missing.pdf', 'document');
         Auth::forgetGuards();
         $response = $this->withToken($token)->get($uri)->assertOk();
         $this->assertStringNotContainsString("\r", $response->headers->get('Content-Disposition'));
@@ -382,18 +382,18 @@ class CustomerStoreReviewTest extends TestCase
         $this->withToken($token)->getJson('/api/v1/admin/customers?search=TAX-123%25')->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $customer->id);
     }
 
-    public function test_local_banner_paths_starting_with_http_are_not_treated_as_absolute_urls(): void
+    public function test_banner_keys_starting_with_http_receive_r2_signed_urls(): void
     {
         Banner::factory()->create(['image_path' => 'http_banners/hero.jpg']);
 
         $response = $this->getJson('/api/v1/store/home')->assertOk();
 
-        $this->assertStringContainsString('/storage/http_banners/hero.jpg', $response->json('data.banners.0.image'));
+        $this->assertSame('https://storage.example.test/http_banners%2Fhero.jpg?signed=1', $response->json('data.banners.0.image'));
     }
 
     public function test_wholesale_uploads_are_staged_before_the_registration_transaction_and_use_safe_mime_names(): void
     {
-        $disk = Storage::fake('local');
+        $disk = $this->fakeUploads();
         $proxy = \Mockery::mock($disk);
         Customer::query()->count();
         $baselineLevel = DB::transactionLevel();
@@ -402,7 +402,7 @@ class CustomerStoreReviewTest extends TestCase
 
             return $disk->putFileAs(...$arguments);
         });
-        Storage::shouldReceive('disk')->with('local')->andReturn($proxy);
+        Storage::shouldReceive('disk')->with('r2')->andReturn($proxy);
 
         $response = $this->postJson('/api/v1/wholesale/auth/register', [
             'name' => 'Wholesale', 'phone' => '01000987654', 'password' => 'password',

@@ -23,7 +23,7 @@ class CatalogConcurrencyTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        Storage::fake('public');
+        $this->fakeUploads();
     }
 
     public function test_concurrent_deletes_cannot_remove_both_remaining_active_variants(): void
@@ -50,7 +50,7 @@ class CatalogConcurrencyTest extends TestCase
         ]);
         $remaining = $product->fresh()->getMedia('images');
         $this->assertCount(1, $remaining);
-        Storage::disk('public')->assertExists($remaining->first()->getPathRelativeToRoot());
+        Storage::disk('r2')->assertExists($remaining->first()->getPathRelativeToRoot());
     }
 
     public function test_concurrent_opposite_reparents_cannot_create_a_cycle(): void
@@ -114,7 +114,7 @@ class CatalogConcurrencyTest extends TestCase
             'APP_ENV' => 'testing', 'DB_CONNECTION' => 'pgsql', 'DB_DATABASE' => $db['database'],
             'DB_HOST' => $db['host'], 'DB_PORT' => (string) $db['port'], 'DB_USERNAME' => $db['username'],
             'DB_PASSWORD' => $db['password'], 'DB_URL' => '', 'CACHE_STORE' => 'array', 'QUEUE_CONNECTION' => 'sync',
-            'CATALOG_START_FILE' => $barrier, 'CATALOG_MEDIA_ROOT' => config('filesystems.disks.public.root'),
+            'CATALOG_START_FILE' => $barrier, 'CATALOG_MEDIA_ROOT' => config('filesystems.disks.r2.root'),
         ];
         $processes = [];
         try {
@@ -123,7 +123,7 @@ class CatalogConcurrencyTest extends TestCase
 require 'vendor/autoload.php';
 $app = require 'bootstrap/app.php';
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
-config(['filesystems.disks.public.root' => getenv('CATALOG_MEDIA_ROOT')]);
+config(['filesystems.disks.r2' => ['driver' => 'local', 'root' => getenv('CATALOG_MEDIA_ROOT'), 'throw' => true]]);
 PHP;
                 $script .= $setup;
                 $script .= <<<'PHP'

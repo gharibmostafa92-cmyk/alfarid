@@ -144,7 +144,7 @@ class PhaseNineTenHardeningTest extends TestCase
 
     public function test_delivery_retry_creates_one_asn_and_one_private_invoice(): void
     {
-        Storage::fake('local');
+        $this->fakeUploads();
         $po = $this->po();
         $user = SupplierUser::factory()->create(['supplier_id' => $this->supplier->id]);
         $data = ['delivery_date' => '2026-10-19', 'items' => [['purchase_order_item_id' => $po->items->first()->id, 'shipped_qty' => 20]]];
@@ -153,7 +153,7 @@ class PhaseNineTenHardeningTest extends TestCase
         $first = $service->createSupplierDelivery($po, $user, $data, $file, 'asn-1');
         $second = $service->createSupplierDelivery($po, $user, $data, $file, 'asn-1');
         $this->assertSame($first->id, $second->id);
-        $this->assertCount(1, Storage::disk('local')->allFiles());
+        $this->assertCount(1, Storage::disk('r2')->allFiles());
         $this->assertDatabaseCount('supplier_deliveries', 1);
     }
 
@@ -239,12 +239,12 @@ class PhaseNineTenHardeningTest extends TestCase
 
     public function test_customer_only_lists_and_downloads_their_own_return_attachments(): void
     {
-        Storage::fake('local');
+        $this->fakeUploads();
         Storage::fake('public');
         $order = $this->order();
         $return = app(ReturnService::class)->createReturnRequest($order, ['reason' => 'عيب', 'items' => [['order_item_id' => $order->items->first()->id, 'requested_qty' => 1, 'attachments' => [UploadedFile::fake()->create('defect.png', 1, 'image/png')]]]]);
         $path = $return->items->first()->attachments[0];
-        Storage::disk('local')->assertExists($path);
+        Storage::disk('r2')->assertExists($path);
         Storage::disk('public')->assertMissing($path);
         Auth::forgetGuards();
         $token = $order->customer->createToken('review')->plainTextToken;
@@ -259,7 +259,7 @@ class PhaseNineTenHardeningTest extends TestCase
 
     public function test_file_and_database_changes_roll_back_together_on_failure(): void
     {
-        Storage::fake('local');
+        $this->fakeUploads();
         try {
             PrivateAttachments::transaction(function (PrivateAttachments $files): void {
                 $files->store(UploadedFile::fake()->create('test.pdf'), 'review');
@@ -269,7 +269,7 @@ class PhaseNineTenHardeningTest extends TestCase
         } catch (\RuntimeException $exception) {
             $this->assertSame('stop', $exception->getMessage());
         }
-        $this->assertSame([], Storage::disk('local')->allFiles());
+        $this->assertSame([], Storage::disk('r2')->allFiles());
         $this->assertDatabaseMissing('suppliers', ['code' => 'ROLLBACK-FILE']);
     }
 
@@ -482,7 +482,7 @@ class PhaseNineTenHardeningTest extends TestCase
 
     public function test_supplier_invoice_and_delivery_downloads_are_scoped_to_supplier(): void
     {
-        Storage::fake('local');
+        $this->fakeUploads();
         $invoice = app(SupplierFinanceService::class)->createInvoice(['supplier_id' => $this->supplier->id, 'supplier_invoice_no' => 'ATTACH-1', 'issue_date' => '2026-10-19', 'subtotal' => 100], UploadedFile::fake()->create('invoice.pdf', 5, 'application/pdf'));
         app(SupplierFinanceService::class)->postInvoice($invoice);
         $po = $this->po();

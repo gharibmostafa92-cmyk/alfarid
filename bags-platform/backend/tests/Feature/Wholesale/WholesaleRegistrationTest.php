@@ -23,7 +23,7 @@ class WholesaleRegistrationTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        Storage::fake('local');
+        $this->fakeUploads();
     }
 
     private function payload(array $overrides = []): array
@@ -65,7 +65,7 @@ class WholesaleRegistrationTest extends TestCase
         $this->assertSame(CustomerDocumentStatus::Pending, $documents[0]->status);
         foreach ($documents as $document) {
             $this->assertStringStartsWith("customer_documents/{$customer->id}/", $document->file_path);
-            Storage::disk('local')->assertExists($document->file_path);
+            Storage::disk('r2')->assertExists($document->file_path);
         }
     }
 

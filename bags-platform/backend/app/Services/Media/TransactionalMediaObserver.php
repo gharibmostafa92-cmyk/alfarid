@@ -12,6 +12,10 @@ class TransactionalMediaObserver extends MediaObserver
 {
     public function creating(Media $media): void
     {
+        if ($media->disk !== 'r2' || ($media->conversions_disk && $media->conversions_disk !== 'r2')) {
+            throw new \LogicException('Uploaded media must be stored on R2.');
+        }
+        $media->conversions_disk = 'r2';
         parent::creating($media);
         $media->setCustomProperty('path_layout', 'uuid');
     }

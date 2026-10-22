@@ -29,7 +29,6 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\Storage;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
@@ -213,7 +212,7 @@ class CustomerAdditionalReviewTest extends TestCase
 
     public function test_document_review_requires_both_permissions_and_download_is_audited(): void
     {
-        $disk = Storage::fake('local');
+        $disk = $this->fakeUploads();
         $customer = Customer::factory()->wholesale()->create();
         $document = $customer->documents()->create(['document_type' => 'national_id', 'file_path' => 'private.pdf', 'original_name' => 'private.pdf', 'mime_type' => 'application/pdf']);
         $disk->put('private.pdf', 'private');
@@ -293,7 +292,7 @@ class CustomerAdditionalReviewTest extends TestCase
 
     public function test_cleanup_prunes_old_orphans_and_keeps_soft_deleted_customer_documents(): void
     {
-        $disk = Storage::fake('local');
+        $disk = $this->fakeUploads();
         $customer = Customer::factory()->create();
         $customer->delete();
         $kept = 'customer_documents/'.$customer->id.'/kept.pdf';
@@ -312,7 +311,7 @@ class CustomerAdditionalReviewTest extends TestCase
 
     public function test_document_type_count_must_match_uploaded_files(): void
     {
-        Storage::fake('local');
+        $this->fakeUploads();
         $this->postJson('/api/v1/wholesale/auth/register', ['name' => 'Company', 'phone' => '01001234567', 'password' => 'password',
             'company_name' => 'Company', 'tax_number' => '123', 'commercial_register' => '456',
             'documents' => [UploadedFile::fake()->create('id.pdf', 10, 'application/pdf')],
@@ -394,7 +393,7 @@ class CustomerAdditionalReviewTest extends TestCase
 
     public function test_document_upload_with_scalar_file_returns_422(): void
     {
-        Storage::fake('local');
+        $this->fakeUploads();
         $this->postJson('/api/v1/wholesale/auth/register', ['name' => 'Company', 'phone' => '01001234567', 'password' => 'password',
             'company_name' => 'Company', 'tax_number' => '123', 'commercial_register' => '456',
             'documents' => UploadedFile::fake()->create('id.pdf', 10, 'application/pdf'),

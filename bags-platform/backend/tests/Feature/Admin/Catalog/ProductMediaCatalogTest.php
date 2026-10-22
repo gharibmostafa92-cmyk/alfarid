@@ -9,7 +9,6 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
@@ -24,7 +23,7 @@ class ProductMediaCatalogTest extends TestCase
 
     public function test_deleting_media_of_another_product_returns_404(): void
     {
-        Storage::fake('public');
+        $this->fakeUploads();
         $staff = $this->staffWithPermissions(self::ALL_PERMISSIONS);
         $token = $staff->createToken('test')->plainTextToken;
 

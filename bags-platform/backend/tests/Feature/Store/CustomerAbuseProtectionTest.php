@@ -27,7 +27,6 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Spatie\Permission\Models\Permission;
@@ -363,7 +362,7 @@ class CustomerAbuseProtectionTest extends TestCase
 
     public function test_cleanup_only_removes_abandoned_staging(): void
     {
-        $disk = Storage::fake('local');
+        $disk = $this->fakeUploads();
         $old = 'customer_documents/pending/'.Str::uuid();
         $fresh = 'customer_documents/pending/'.Str::uuid();
         $disk->put($old.'/old.pdf', 'old');

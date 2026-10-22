@@ -9,7 +9,6 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
@@ -80,7 +79,7 @@ class ProductCatalogTest extends TestCase
 
     public function test_publishing_a_complete_product_sets_status_and_published_at(): void
     {
-        Storage::fake('public');
+        $this->fakeUploads();
         $token = $this->adminToken();
         $productId = $this->createProduct($token, [
             'variants' => [['color_name_en' => 'Red', 'retail_price' => 100]],

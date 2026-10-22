@@ -116,7 +116,7 @@ class SupplierFinanceService
                 $oldPath = $invoice->attachment_path;
                 $invoice->update(['attachment_path' => $files->store($attachment, "supplier_invoices/{$invoice->id}")]);
                 if ($oldPath) {
-                    DB::afterCommit(fn () => Storage::disk('local')->delete($oldPath));
+                    DB::afterCommit(fn () => Storage::disk('r2')->delete($oldPath));
                 }
             }
 
@@ -175,7 +175,7 @@ class SupplierFinanceService
             $path = $invoice->attachment_path;
             $invoice->delete();
             if ($path) {
-                DB::afterCommit(fn () => Storage::disk('local')->delete($path));
+                DB::afterCommit(fn () => Storage::disk('r2')->delete($path));
             }
         });
     }

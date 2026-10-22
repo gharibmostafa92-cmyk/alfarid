@@ -23,7 +23,6 @@ use Database\Seeders\WholesalePortalPermissionSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class WholesalePortalFeaturesTest extends TestCase
@@ -39,7 +38,7 @@ class WholesalePortalFeaturesTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        Storage::fake('local');
+        $this->fakeUploads();
         $this->seed(RolePermissionSeeder::class);
         $this->seed(WholesalePortalPermissionSeeder::class);
         $this->seed(SettingSeeder::class);

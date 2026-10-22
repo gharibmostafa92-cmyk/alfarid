@@ -388,8 +388,7 @@ class ReturnService
             $paths = $return->items()->get()->flatMap(fn ($item) => $item->attachments ?? [])->all();
             $return->delete();
             DB::afterCommit(function () use ($paths): void {
-                Storage::disk('local')->delete($paths);
-                Storage::disk('public')->delete($paths);
+                Storage::disk('r2')->delete($paths);
             });
         });
     }

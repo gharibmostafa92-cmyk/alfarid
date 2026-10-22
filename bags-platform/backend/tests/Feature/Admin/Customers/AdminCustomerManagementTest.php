@@ -68,7 +68,7 @@ class AdminCustomerManagementTest extends TestCase
 
     public function test_admin_crud_and_show_with_documents_and_group(): void
     {
-        Storage::fake('local');
+        $this->fakeUploads();
         $token = $this->staffToken();
         $group = CustomerGroup::create(['name' => 'ذهبي', 'code' => 'gold', 'discount_percentage' => 10]);
 
@@ -81,7 +81,7 @@ class AdminCustomerManagementTest extends TestCase
         $id = $created->json('data.id');
 
         $customer = Customer::findOrFail($id);
-        $path = Storage::disk('local')->putFileAs("customer_documents/{$id}", UploadedFile::fake()->create('reg.pdf', 50, 'application/pdf'), 'reg.pdf');
+        $path = Storage::disk('r2')->putFileAs("customer_documents/{$id}", UploadedFile::fake()->create('reg.pdf', 50, 'application/pdf'), 'reg.pdf');
         $customer->documents()->create([
             'document_type' => 'commercial_register', 'file_path' => $path,
             'original_name' => 'reg.pdf', 'mime_type' => 'application/pdf', 'status' => 'pending',
@@ -101,11 +101,11 @@ class AdminCustomerManagementTest extends TestCase
 
     public function test_document_download_is_scoped_and_protected(): void
     {
-        Storage::fake('local');
+        $this->fakeUploads();
         $token = $this->staffToken();
         $customer = Customer::factory()->wholesale()->create();
         $other = Customer::factory()->wholesale()->create();
-        $path = Storage::disk('local')->putFileAs("customer_documents/{$customer->id}", UploadedFile::fake()->create('secret.pdf', 50, 'application/pdf'), 'secret.pdf');
+        $path = Storage::disk('r2')->putFileAs("customer_documents/{$customer->id}", UploadedFile::fake()->create('secret.pdf', 50, 'application/pdf'), 'secret.pdf');
         $document = $customer->documents()->create([
             'document_type' => 'tax_card', 'file_path' => $path,
             'original_name' => 'secret.pdf', 'mime_type' => 'application/pdf', 'status' => 'pending',

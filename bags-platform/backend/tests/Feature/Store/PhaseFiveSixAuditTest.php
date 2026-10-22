@@ -260,7 +260,7 @@ class PhaseFiveSixAuditTest extends TestCase
 
     public function test_token_failure_rolls_back_wholesale_registration_and_uploaded_files(): void
     {
-        Storage::fake('local');
+        $this->fakeUploads();
         $this->mock(CustomerAuthService::class, function ($mock): void {
             $mock->shouldReceive('issueToken')->once()->andThrow(new \RuntimeException('Token failure'));
         });
@@ -273,14 +273,14 @@ class PhaseFiveSixAuditTest extends TestCase
 
         $this->assertDatabaseMissing('customers', ['phone' => '01000987654']);
         $this->assertDatabaseCount('customer_documents', 0);
-        $this->assertSame([], Storage::disk('local')->allFiles());
+        $this->assertSame([], Storage::disk('r2')->allFiles());
     }
 
     public function test_failed_file_write_does_not_create_customer_or_document_records(): void
     {
         $disk = \Mockery::mock(FilesystemAdapter::class);
         $disk->shouldReceive('putFileAs')->once()->andReturn(false);
-        Storage::shouldReceive('disk')->with('local')->andReturn($disk);
+        Storage::shouldReceive('disk')->with('r2')->andReturn($disk);
 
         $this->postJson('/api/v1/wholesale/auth/register', [
             'name' => 'Wholesale', 'phone' => '01000987654', 'password' => 'password',

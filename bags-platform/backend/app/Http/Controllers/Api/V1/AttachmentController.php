@@ -73,8 +73,8 @@ class AttachmentController extends Controller
 
     private function download(?string $path): StreamedResponse
     {
-        abort_if($path === null || ! Storage::disk('local')->exists($path), 404);
+        abort_if($path === null || ! Storage::disk('r2')->exists($path), 404);
 
-        return Storage::disk('local')->download($path, basename($path), ['X-Content-Type-Options' => 'nosniff', 'Cache-Control' => 'private, no-store']);
+        return Storage::disk('r2')->download($path, basename($path), ['X-Content-Type-Options' => 'nosniff', 'Cache-Control' => 'private, no-store']);
     }
 }

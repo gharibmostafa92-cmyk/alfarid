@@ -16,7 +16,6 @@ use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Storage;
 use Spatie\MediaLibrary\MediaCollections\Exceptions\FileUnacceptableForCollection;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
@@ -28,7 +27,7 @@ class CatalogAuditTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        Storage::fake('public');
+        $this->fakeUploads();
     }
 
     private function signIn(array $permissions): void

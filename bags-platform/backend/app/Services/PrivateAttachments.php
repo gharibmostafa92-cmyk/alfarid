@@ -20,14 +20,14 @@ class PrivateAttachments
         try {
             return DB::transaction(fn () => $callback($files));
         } catch (Throwable $exception) {
-            Storage::disk('local')->delete($files->stored);
+            Storage::disk('r2')->delete($files->stored);
             throw $exception;
         }
     }
 
     public function store(UploadedFile $file, string $directory): string
     {
-        $path = $file->store($directory, 'local');
+        $path = $file->store($directory, 'r2');
         if ($path === false) {
             throw new RuntimeException('تعذر حفظ المرفق؛ لم يتم تسجيل العملية.');
         }

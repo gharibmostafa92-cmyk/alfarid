@@ -33,7 +33,7 @@ class CatalogImprovementReviewTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        Storage::fake('public');
+        $this->fakeUploads();
         $permissions = ['products.create', 'products.view', 'products.update', 'products.publish', 'categories.view', 'categories.update', 'brands.view'];
         foreach ($permissions as $permission) {
             Permission::findOrCreate($permission, 'staff');
@@ -62,7 +62,7 @@ class CatalogImprovementReviewTest extends TestCase
             $this->assertSame('Conversion failed after writing files', $exception->getMessage());
         }
         $this->assertDatabaseCount('media', 0);
-        $this->assertSame([], Storage::disk('public')->allFiles());
+        $this->assertSame([], Storage::disk('r2')->allFiles());
     }
 
     public function test_failed_replacement_keeps_old_brand_and_category_files_and_database_values(): void
@@ -72,7 +72,7 @@ class CatalogImprovementReviewTest extends TestCase
             $record = $model::factory()->create(['name_en' => 'Original']);
             $old = $record->addMedia(UploadedFile::fake()->image('old.jpg'))->toMediaCollection($collection);
             $oldPath = $old->getPathRelativeToRoot();
-            $before = Storage::disk('public')->allFiles();
+            $before = Storage::disk('r2')->allFiles();
             $this->mock(FileManipulator::class)->shouldReceive('createDerivedFiles')->once()->andThrow(new RuntimeException('Disk failure'));
             try {
                 app($service)->update($record, ['name_en' => 'Changed', 'remove_'.$collection => true], UploadedFile::fake()->image('new.jpg'));
@@ -82,8 +82,8 @@ class CatalogImprovementReviewTest extends TestCase
             }
             $this->assertSame('Original', $record->fresh()->name_en);
             $this->assertDatabaseHas('media', ['id' => $old->id]);
-            Storage::disk('public')->assertExists($oldPath);
-            $this->assertSame($before, Storage::disk('public')->allFiles());
+            Storage::disk('r2')->assertExists($oldPath);
+            $this->assertSame($before, Storage::disk('r2')->allFiles());
         }
     }
 
@@ -91,7 +91,7 @@ class CatalogImprovementReviewTest extends TestCase
     {
         $brand = Brand::factory()->create();
         $old = $brand->addMedia(UploadedFile::fake()->image('old.jpg'))->toMediaCollection('logo');
-        $before = Storage::disk('public')->allFiles();
+        $before = Storage::disk('r2')->allFiles();
         try {
             DB::transaction(function () use ($brand): void {
                 app(BrandService::class)->update($brand, [], UploadedFile::fake()->image('new.jpg'));
@@ -100,7 +100,7 @@ class CatalogImprovementReviewTest extends TestCase
         } catch (RuntimeException) {
             $this->assertDatabaseHas('media', ['id' => $old->id]);
         }
-        $this->assertSame($before, Storage::disk('public')->allFiles());
+        $this->assertSame($before, Storage::disk('r2')->allFiles());
         $this->assertDatabaseCount('media', 1);
     }
 
@@ -109,10 +109,10 @@ class CatalogImprovementReviewTest extends TestCase
         $brand = Brand::factory()->create();
         $old = $brand->addMedia(UploadedFile::fake()->image('old.jpg'))->toMediaCollection('logo');
         $updated = app(BrandService::class)->update($brand, [], UploadedFile::fake()->image('new.jpg'));
-        Storage::disk('public')->assertMissing($old->getPathRelativeToRoot());
+        Storage::disk('r2')->assertMissing($old->getPathRelativeToRoot());
         $this->assertDatabaseMissing('media', ['id' => $old->id]);
         $new = $updated->fresh()->getFirstMedia('logo');
-        Storage::disk('public')->assertExists($new->getPathRelativeToRoot());
+        Storage::disk('r2')->assertExists($new->getPathRelativeToRoot());
     }
 
     public function test_deleting_image_inside_rolled_back_transaction_keeps_its_file(): void
@@ -127,14 +127,14 @@ class CatalogImprovementReviewTest extends TestCase
         } catch (RuntimeException) {
             $this->assertDatabaseHas('media', ['id' => $media->id]);
         }
-        Storage::disk('public')->assertExists($media->getPathRelativeToRoot());
+        Storage::disk('r2')->assertExists($media->getPathRelativeToRoot());
     }
 
     public function test_legacy_media_paths_and_conversions_remain_available(): void
     {
-        $media = new Media(['file_name' => 'legacy.jpg', 'disk' => 'public', 'uuid' => 'a9bad36d-413e-466a-8ced-686f6cff8f1d', 'custom_properties' => []]);
+        $media = new Media(['file_name' => 'legacy.jpg', 'disk' => 'r2', 'uuid' => 'a9bad36d-413e-466a-8ced-686f6cff8f1d', 'custom_properties' => []]);
         $media->id = 123;
-        Storage::disk('public')->put('123/legacy.jpg', 'legacy');
+        Storage::disk('r2')->put('123/legacy.jpg', 'legacy');
         $paths = app(UuidPathGenerator::class);
         $this->assertSame('123/', $paths->getPath($media));
         $this->assertSame('123/conversions/', $paths->getPathForConversions($media));
@@ -146,13 +146,13 @@ class CatalogImprovementReviewTest extends TestCase
     {
         $product = Product::factory()->create();
         $media = $product->addMedia(UploadedFile::fake()->image('legacy.jpg'))->toMediaCollection('images');
-        foreach (Storage::disk('public')->allFiles($media->uuid) as $file) {
-            Storage::disk('public')->move($file, $media->id.substr($file, strlen($media->uuid)));
+        foreach (Storage::disk('r2')->allFiles($media->uuid) as $file) {
+            Storage::disk('r2')->move($file, $media->id.substr($file, strlen($media->uuid)));
         }
         DB::table('media')->where('id', $media->id)->update(['custom_properties' => '{}']);
-        Storage::disk('public')->put('unrelated/keep.txt', 'keep');
+        Storage::disk('r2')->put('unrelated/keep.txt', 'keep');
         app(ProductMediaService::class)->delete($product, $media->fresh());
-        $this->assertSame(['unrelated/keep.txt'], Storage::disk('public')->allFiles());
+        $this->assertSame(['unrelated/keep.txt'], Storage::disk('r2')->allFiles());
     }
 
     public function test_nested_color_details_require_the_english_name_on_the_same_item(): void

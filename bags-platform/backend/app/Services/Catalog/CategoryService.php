@@ -161,7 +161,7 @@ class CategoryService
     {
         $all = Category::query()->with('media')->withCount('products')
             ->when($onlyActive, fn ($q) => $q->where('is_active', true))
-            ->orderBy('sort_order')->get();
+            ->orderBy('sort_order')->orderBy('id')->get();
         $grouped = $all->groupBy('parent_id');
         $build = function ($parentId) use (&$build, $grouped) {
             return ($grouped[$parentId ?? ''] ?? collect())->map(function ($cat) use ($build) {

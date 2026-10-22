@@ -109,10 +109,10 @@ class CustomerController extends Controller implements HasMiddleware
     /** تنزيل مستند تحقق من التخزين الخاص (scoped: المستند تابع لهذا العميل حصرًا). */
     public function downloadDocument(Customer $customer, CustomerDocument $document): StreamedResponse
     {
-        abort_unless(Storage::disk('local')->exists($document->file_path), 404, 'المستند غير موجود.');
+        abort_unless(Storage::disk('r2')->exists($document->file_path), 404, 'المستند غير موجود.');
         CustomerAuditLog::record($customer, 'document_downloaded', request()->user()->id, ['document_id' => $document->id]);
 
-        return Storage::disk('local')->download($document->file_path, CustomerDocument::safeName($document->original_name));
+        return Storage::disk('r2')->download($document->file_path, CustomerDocument::safeName($document->original_name));
     }
 
     public function restore(Request $request, Customer $customer): CustomerResource

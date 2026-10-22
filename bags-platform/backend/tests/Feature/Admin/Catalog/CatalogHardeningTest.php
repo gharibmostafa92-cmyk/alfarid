@@ -16,7 +16,6 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use PDOException;
 use RuntimeException;
@@ -125,7 +124,7 @@ class CatalogHardeningTest extends TestCase
 
     public function test_svg_brand_logo_is_rejected(): void
     {
-        Storage::fake('public');
+        $this->fakeUploads();
         $token = $this->adminToken();
 
         Auth::forgetGuards();
@@ -269,7 +268,7 @@ class CatalogHardeningTest extends TestCase
     /** @return array{0: int, 1: int, 2: int} product id, variant id, category id */
     private function publishedProduct(string $token): array
     {
-        Storage::fake('public');
+        $this->fakeUploads();
         $category = Category::factory()->create();
 
         $created = $this->requestWithToken($token, 'POST', '/api/v1/admin/products', [

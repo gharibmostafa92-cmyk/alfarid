@@ -17,12 +17,12 @@ class PruneCustomerArtifacts extends Command
 
     public function handle(): int
     {
-        $disk = Storage::disk('local');
+        $disk = Storage::disk('r2');
         foreach ($disk->directories('customer_documents/pending') as $directory) {
             if (! preg_match('~^customer_documents/pending/[a-f0-9-]{36}$~D', $directory)) {
                 continue;
             }
-            $newest = filemtime($disk->path($directory));
+            $newest = 0;
             foreach ($disk->allFiles($directory) as $file) {
                 $newest = max($newest, $disk->lastModified($file));
             }
@@ -35,7 +35,7 @@ class PruneCustomerArtifacts extends Command
                 || Customer::withTrashed()->whereKey($matches[1])->exists()) {
                 continue;
             }
-            $newest = filemtime($disk->path($directory));
+            $newest = 0;
             foreach ($disk->allFiles($directory) as $file) {
                 $newest = max($newest, $disk->lastModified($file));
             }

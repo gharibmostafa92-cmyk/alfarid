@@ -41,7 +41,7 @@ class WholesaleRegistrationService
         try {
             foreach ($files as $i => $file) {
                 $filename = Str::uuid().'.'.($file->extension() ?: 'bin');
-                $path = Storage::disk('local')->putFileAs($stagingDirectory, $file, $filename);
+                $path = Storage::disk('r2')->putFileAs($stagingDirectory, $file, $filename);
                 if ($path === false) {
                     throw new \RuntimeException('تعذر حفظ مستند العميل.');
                 }
@@ -73,10 +73,10 @@ class WholesaleRegistrationService
                     // تخزين خاص: وثائق الشركات لا تخرج بروابط عامة أبدًا،
                     // والتنزيل لاحقًا عبر نهاية الأدمن المحمية فقط.
                     $path = "customer_documents/{$customer->id}/".$document['filename'];
-                    if (! Storage::disk('local')->move($document['path'], $path)) {
+                    $storedPaths[] = $path;
+                    if (! Storage::disk('r2')->move($document['path'], $path)) {
                         throw new \RuntimeException('تعذر حفظ مستند العميل.');
                     }
-                    $storedPaths[] = $path;
 
                     $customer->documents()->create([
                         'document_type' => $document['document_type'],
@@ -98,16 +98,16 @@ class WholesaleRegistrationService
         } catch (\Throwable $e) {
             // فشل قاعدة البيانات بعد رفع ملفات: نظّفها حتى لا تبقى يتيمة
             foreach ($storedPaths as $path) {
-                Storage::disk('local')->delete($path);
+                Storage::disk('r2')->delete($path);
             }
             if ($storedPaths !== []) {
-                Storage::disk('local')->deleteDirectory($stagingDirectory);
+                Storage::disk('r2')->deleteDirectory($stagingDirectory);
             }
 
             throw $e;
         }
 
-        Storage::disk('local')->deleteDirectory($stagingDirectory);
+        Storage::disk('r2')->deleteDirectory($stagingDirectory);
 
         return $registration;
     }
