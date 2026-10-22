@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { authEndpoints, setAuthToken, setUnauthorizedHandler } from '@alfarid/api-client';
+import { authEndpoints, setAuthToken, setUnauthorizedHandler, resolveServiceUrl } from '@alfarid/api-client';
 import { toStaffUser } from './mappers';
 
 export interface StaffUser {
@@ -22,7 +22,7 @@ interface AuthState {
   bootstrap: () => Promise<void>;
 }
 
-const WEB_URL = (import.meta.env.VITE_WEB_URL as string | undefined) ?? 'http://localhost:3000';
+const WEB_URL = resolveServiceUrl((import.meta.env.VITE_WEB_URL as string | undefined) ?? 'http://localhost:3000');
 
 export const useAuthStore = create<AuthState>((set, get) => {
   const initialToken = typeof localStorage !== 'undefined' ? localStorage.getItem('backoffice_token') : null;

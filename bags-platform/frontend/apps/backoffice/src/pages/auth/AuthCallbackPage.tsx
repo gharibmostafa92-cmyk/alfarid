@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react';
-import { authEndpoints } from '@alfarid/api-client';
+import { authEndpoints, resolveServiceUrl } from '@alfarid/api-client';
 import { useAuthStore } from '../../stores/auth.store';
 import { toStaffUser } from '../../stores/mappers';
 
-const WEB_URL = (import.meta.env.VITE_WEB_URL as string | undefined) ?? 'http://localhost:3000';
+const WEB_URL = resolveServiceUrl((import.meta.env.VITE_WEB_URL as string | undefined) ?? 'http://localhost:3000');
 
 export default function AuthCallbackPage() {
   const login = useAuthStore((s) => s.login);
@@ -30,7 +30,7 @@ export default function AuthCallbackPage() {
         const prev = localStorage.getItem('backoffice_token');
         if (prev && prev !== res.token) {
           const baseURL =
-            (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:8000';
+            resolveServiceUrl((import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:8000');
           const ctrl = new AbortController();
           const timer = setTimeout(() => ctrl.abort(), 10000);
           try {

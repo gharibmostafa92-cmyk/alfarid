@@ -17,6 +17,15 @@
 
 ### Local unified-login verification
 
+- LAN access uses the same machine hostname for the frontend (`3000`),
+  backoffice (`5173`) and API (`8000`) when configured service URLs point to
+  loopback. Explicit remote service URLs remain unchanged. Configure the exact
+  LAN origins on the backend, for example
+  `CORS_ALLOWED_ORIGINS=http://192.168.1.3:3000,http://192.168.1.3:5173`.
+  Use `SERVER_HOST=0.0.0.0` (or `php artisan serve --host=0.0.0.0`) for the
+  local API; Vite listens on the LAN by default. Restart the servers after
+  changing environment settings. Loopback access continues to work.
+
 - Staff handoff codes expire after 60 seconds and are consumed under a cache
   lock, so simultaneous exchanges cannot reuse a code. Exchange rechecks the
   employee's current roles and branch before issuing a token.

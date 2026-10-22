@@ -72,7 +72,7 @@ const output = path.resolve('test-results/vortix-admin');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'Mobile must not scroll horizontally');
     await page.screenshot({ path: path.join(output, 'categories-mobile.png'), fullPage: true, animations: 'disabled' });
     await page.goto(office + '/products');
-    await page.waitForURL(office + '/dashboard');
+    await page.getByRole('heading', { name: 'المنتجات', exact: true }).waitFor();
     await page.locator('#brand-home-btn').waitFor();
     assert.equal(await page.locator('.side-logo').count(), 0, 'Legacy shell must not return');
     treeStatus = 500;

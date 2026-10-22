@@ -1,4 +1,5 @@
 'use client';
+import { resolveServiceUrl } from '@alfarid/api-client';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import '../../styles/luxuryAuth.css';
@@ -6,6 +7,7 @@ import { BIRKIN_IMG_DATA } from '../../assets/birkinHalftone';
 import { useAuthStore } from '@/store/auth.store';
 import { loginUnified } from '@/services/auth.service';
 import { AccountForm, type AuthView } from './AccountForm';
+import { createSessionNonce } from './session-nonce';
 
 export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView = 'login' }) => {
   const [view, setView] = useState<AuthView>(initialView);
@@ -36,8 +38,9 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
 
   useEffect(() => {
     if (view !== 'login' || token) { setStaffCheckPending(false); return; }
-    const office = new URL(process.env.NEXT_PUBLIC_BACKOFFICE_URL ?? 'http://localhost:5173');
-    const nonce = crypto.randomUUID();
+    const office = new URL(resolveServiceUrl(process.env.NEXT_PUBLIC_BACKOFFICE_URL ?? 'http://localhost:5173'));
+    const nonce = createSessionNonce();
+    if (!nonce) { setStaffCheckPending(false); return; }
     const frame = document.createElement('iframe');
     frame.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none;border:0';
     frame.setAttribute('aria-hidden', 'true');

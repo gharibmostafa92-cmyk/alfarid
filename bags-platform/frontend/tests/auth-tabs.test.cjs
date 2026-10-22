@@ -36,7 +36,7 @@ function load(relative, env, api = {}, extra = {}) {
   }).outputText, {
     exports, ...env, URL, URLSearchParams,
     require: name => {
-      if (name === '@alfarid/api-client') return { setAuthToken() {}, setUnauthorizedHandler() {}, ...api };
+      if (name === '@alfarid/api-client') return { setAuthToken() {}, setUnauthorizedHandler() {}, resolveServiceUrl: url => url, ...api };
       if (name === './mappers') return { toStaffUser: user => user };
       if (extra[name]) return extra[name];
       return requireFromApp(name);

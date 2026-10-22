@@ -1,4 +1,4 @@
-import { authEndpoints, createApiClient, defaultApiClient } from '@alfarid/api-client';
+import { authEndpoints, createApiClient, defaultApiClient, resolveServiceUrl } from '@alfarid/api-client';
 import { useAuthStore } from '@/store/auth.store';
 
 const CART_KEY = 'cart_session';
@@ -23,7 +23,7 @@ export async function loginUnified(login: string, password: string, redirect?: s
     useAuthStore.getState().clear();
     // M7: الكود في الـ fragment لا في الـ query — الـ fragment لا يُرسل
     // للخادم ولا يظهر في الـ Referer أو سجلات nginx.
-    const url = `${process.env.NEXT_PUBLIC_BACKOFFICE_URL ?? 'http://localhost:5173'}/auth/callback#code=${encodeURIComponent(res.handoff_code!)}`;
+    const url = `${resolveServiceUrl(process.env.NEXT_PUBLIC_BACKOFFICE_URL ?? 'http://localhost:5173')}/auth/callback#code=${encodeURIComponent(res.handoff_code!)}`;
     window.location.assign(url);
     return null;
   }

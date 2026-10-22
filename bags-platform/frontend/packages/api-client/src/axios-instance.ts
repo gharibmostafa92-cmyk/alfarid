@@ -1,4 +1,5 @@
 import axios, { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
+import { resolveServiceUrl } from './service-url';
 
 declare const process: any;
 
@@ -30,7 +31,7 @@ export function createApiClient(config: ApiClientConfig = {}): AxiosInstance {
     : undefined;
 
   const instance = axios.create({
-    baseURL: config.baseURL || envBaseUrl || 'http://localhost:8000',
+    baseURL: resolveServiceUrl(config.baseURL || envBaseUrl || 'http://localhost:8000'),
     timeout: 30000,
     withCredentials: config.withCredentials ?? false,
     headers: {

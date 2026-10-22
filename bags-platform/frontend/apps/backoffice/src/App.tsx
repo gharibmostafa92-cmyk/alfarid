@@ -1,4 +1,4 @@
-import { defaultApiClient } from '@alfarid/api-client';
+import { defaultApiClient, resolveServiceUrl } from '@alfarid/api-client';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import AuthCallbackPage from './pages/auth/AuthCallbackPage';
 import LoginPage from './pages/auth/LoginPage';
@@ -8,8 +8,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuthStore } from './stores/auth.store';
 import CategoriesMockPage from './pages/admin/categories-mock/CategoriesMockPage';
 import PosPage from './pages/pos/PosPage';
+import CatalogMockPage from './pages/admin/catalog-mock/CatalogMockPage';
 
-defaultApiClient.defaults.baseURL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
+defaultApiClient.defaults.baseURL = resolveServiceUrl(import.meta.env.VITE_API_URL ?? 'http://localhost:8000');
 
 export function App() {
   if (window.location.pathname === '/auth/session') return <SessionProbePage />;
@@ -38,13 +39,21 @@ function AuthenticatedApp() {
   }, []);
   useEffect(() => {
     if (cashierOnly && !['/', '/dashboard', '/pos'].includes(route)) window.location.replace('/dashboard');
-    else if (!['/', '/dashboard', '/categories', '/pos'].includes(route)) window.location.replace('/dashboard');
+    else if (!['/', '/dashboard', '/categories', '/brands', '/pos'].includes(route) && !/^\/products(?:\/(?:new|[0-9]+))?$/.test(route)) window.location.replace('/dashboard');
   }, [cashierOnly, route]);
   if (cashierOnly && !['/', '/dashboard', '/pos'].includes(route)) return null;
   if (route === '/pos') return <PosPage />;
   const categoriesActive = route === '/categories';
+  const catalogActive = route.startsWith('/products') ? 'products' : route === '/brands' ? 'brands' : null;
   return <FinancialDashboard
     onLogout={logoutRemote}
+    catalogActive={catalogActive}
+    catalogPage={catalogActive && <CatalogMockPage key={catalogActive} can={can} page={catalogActive} />}
+    catalogNav={!cashierOnly ? [
+      ...(can('products.view') ? [{ id: 'products', label: 'المنتجات', onOpen: () => { window.location.hash = '/products'; } }] : []),
+      ...(can('brands.view') ? [{ id: 'brands', label: 'البراندات', onOpen: () => { window.location.hash = '/brands'; } }] : []),
+    ] : []}
+    onCloseCatalog={() => { window.location.hash = '/dashboard'; }}
     categoriesActive={categoriesActive}
     categoriesPage={<CategoriesMockPage can={can} embedded />}
     onOpenCategories={!cashierOnly && can('categories.view')
