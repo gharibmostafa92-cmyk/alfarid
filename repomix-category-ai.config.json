@@ -1,0 +1,37 @@
+{
+  "$schema": "https://raw.githubusercontent.com/yamadashy/repomix/main/repomix.schema.json",
+  "output": {
+    "filePath": "repomix-category-ai.xml",
+    "style": "xml",
+    "parsableStyle": true,
+    "showLineNumbers": true,
+    "removeComments": false,
+    "removeEmptyLines": false,
+    "compress": false,
+    "headerText": "Category AI Image Generation Implementation Bundle: Complete collection of frontend Backoffice UI, API client methods, Laravel backend routes, controllers, Category service, Spatie media handling, Gemini AI client, configuration, and feature tests needed to add the 'Generate Category Image using AI' feature."
+  },
+  "include": [
+    "bags-platform/docs/api.md",
+    "bags-platform/frontend/apps/backoffice/src/pages/admin/categories-mock/categories-reference.jsx",
+    "bags-platform/frontend/apps/backoffice/src/pages/admin/categories-mock/categories-reference.css",
+    "bags-platform/frontend/apps/backoffice/src/pages/admin/categories-mock/categories-adapter.js",
+    "bags-platform/frontend/apps/backoffice/src/pages/admin/categories-mock/categories-context.js",
+    "bags-platform/frontend/apps/backoffice/src/pages/admin/categories-mock/CategoriesMockPage.jsx",
+    "bags-platform/frontend/apps/backoffice/src/pages/admin/categories-mock/api-errors.js",
+    "bags-platform/frontend/packages/api-client/src/index.ts",
+    "bags-platform/frontend/packages/api-client/src/axios-instance.ts",
+    "bags-platform/frontend/packages/api-client/src/endpoints/index.ts",
+    "bags-platform/frontend/packages/api-client/src/types/index.ts",
+    "bags-platform/backend/routes/api/admin.php",
+    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/CategoryController.php",
+    "bags-platform/backend/app/Http/Requests/Admin/Category/StoreCategoryRequest.php",
+    "bags-platform/backend/app/Http/Requests/Admin/Category/UpdateCategoryRequest.php",
+    "bags-platform/backend/app/Services/Catalog/CategoryService.php",
+    "bags-platform/backend/app/Services/Ai/GeminiClient.php",
+    "bags-platform/backend/app/Services/Ai/GeminiException.php",
+    "bags-platform/backend/app/Models/Category.php",
+    "bags-platform/backend/config/services.php",
+    "bags-platform/backend/.env.example",
+    "bags-platform/backend/tests/Feature/Admin/Catalog/CategoryCatalogTest.php"
+  ]
+}

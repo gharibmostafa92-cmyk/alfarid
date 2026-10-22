@@ -1,4 +1,5 @@
 import { defaultApiClient as apiClient } from '../axios-instance';
+import type { AdminCategory, CategoryPayload, CategoryReorderItem } from '../types';
 
 export type ActorType = 'staff' | 'supplier' | 'customer';
 export type Destination = 'admin' | 'pos' | 'supplier' | 'wholesale' | 'wholesale_pending' | 'retail';
@@ -96,3 +97,51 @@ export const API_ENDPOINTS = {
     INVOICES: '/api/v1/supplier/invoices',
   },
 } as const;
+
+const MULTIPART = { headers: { 'Content-Type': 'multipart/form-data' } };
+
+function categoryFormData(p: CategoryPayload, spoofPut = false): FormData {
+  const fd = new FormData();
+  if (spoofPut) fd.append('_method', 'PUT');
+  const put = (key: string, v: unknown) => {
+    if (v === undefined) return;                       // مش هيتبعت
+    if (v === null) return fd.append(key, '');         // Laravel يحوّلها null
+    if (typeof v === 'boolean') return fd.append(key, v ? '1' : '0'); // مهم: مش "true"
+    if (v instanceof Blob) return fd.append(key, v);
+    fd.append(key, String(v));
+  };
+  put('parent_id', p.parent_id);
+  put('name_ar', p.name_ar);
+  put('name_en', p.name_en);
+  put('slug', p.slug);
+  put('description_ar', p.description_ar);
+  put('description_en', p.description_en);
+  put('sort_order', p.sort_order);
+  put('is_active', p.is_active);
+  if (p.image) put('image', p.image);
+  if (p.remove_image) put('remove_image', true);
+  return fd;
+}
+
+const CAT = API_ENDPOINTS.ADMIN.CATEGORIES; // '/api/v1/admin/categories'
+
+export const categoriesApi = {
+  tree: (signal?: AbortSignal) =>
+    apiClient.get<{ data: AdminCategory[] }>(CAT, { params: { tree: 1 }, signal }).then((r) => r.data.data),
+  show: (id: number) =>
+    apiClient.get<{ data: AdminCategory }>(`${CAT}/${id}`).then((r) => r.data.data),
+  create: (p: CategoryPayload, onProgress?: (pct: number) => void) =>
+    apiClient.post<{ data: AdminCategory }>(CAT, categoryFormData(p), {
+      ...MULTIPART,
+      onUploadProgress: (e) => onProgress?.(Math.round((e.loaded / (e.total || 1)) * 100)),
+    }).then((r) => r.data.data),
+  update: (id: number, p: CategoryPayload, onProgress?: (pct: number) => void) =>
+    apiClient.post<{ data: AdminCategory }>(`${CAT}/${id}`, categoryFormData(p, true), {
+      ...MULTIPART,
+      onUploadProgress: (e) => onProgress?.(Math.round((e.loaded / (e.total || 1)) * 100)),
+    }).then((r) => r.data.data),
+  remove: (id: number) =>
+    apiClient.delete<{ message: string }>(`${CAT}/${id}`).then((r) => r.data),
+  reorder: (items: CategoryReorderItem[]) =>
+    apiClient.put<{ message: string }>(`${CAT}/reorder`, { items }).then((r) => r.data),
+};

@@ -1,176 +1,445 @@
-C1 — CRITICAL (مشروطة) · تصعيد صلاحيات عند إنشاء أو تعديل الموظفين
-الموقع: StoreUserRequest::authorize() وUpdateUserRequest::authorize() (كلاهما return $this->user() !== null)، وقاعدة roles.* التي تقبل أي role بـ guard_name=staff. ومعها المسارات permission:users.create|users.manage وpermission:users.update|users.manage.
+المرحلة 0: تجهيز البيئة والتأكد إن الـ API شغال
+الهدف: نتأكد إن الـ backend بيرد صح قبل ما نلمس الفرونت.
 
-المشكلة: الـ middleware يتحقق من الإذن بالوصول للـ endpoint فقط. لا يوجد في الكود المرفق أي فحص لما يحق للموظف منحه.
+في backend/.env اتأكد من الآتي:
+APP_URL=http://localhost:8000، لأن image_url بيتبني منه.
+MEDIA_DISK=public.
+شغّل php artisan storage:link.
+شغّل:
+Copyphp artisan migrate
+php artisan db:seed --class=CatalogPermissionSeeder
+php artisan db:seed --class=CatalogSeeder
+في frontend/apps/backoffice/.env لازم يكون VITE_API_URL=http://localhost:8000.
+اتأكد إن الـ CORS (config/cors.php) سامح لـ origin بتاع الـ backoffice.
+اعمل login بيوزر super-admin وجرب بـ curl أو Postman:
+GET /api/v1/admin/categories?tree=1 المفروض يرجع { "data": [ {..., "children": [...]} ] }.
+PUT /api/v1/admin/categories/reorder ببيانات غلط المفروض يرجع 422.
+تمام لما: الـ tree بيرجع بالأقسام اللي اتعملت من الـ seed (Handbags وWallets وLuggage وجواه Cabin/Medium/Large وBackpacks).
 
-الشروط: موظف عنده users.create أو users.update فقط، بدون roles.manage. ويُشترط أن UserController نفسه لا يضيف فحصًا، وهذا ما لم أستطع التحقق منه.
+المرحلة 1: تعديلات صغيرة في الـ Backend
+ترتيب ثابت في الـ tree. في CategoryService::tree() الترتيب حالياً بـ sort_order بس، فلو قسمين ليهم نفس الرقم ترتيبهم هيتغير عشوائي. ضيف orderBy('id') بعده:
+Copy->orderBy('sort_order')->orderBy('id')->get();
+رسائل الـ validation بالعربي. رسايل الـ BusinessException مكتوبة عربي في الكود، لكن رسايل الـ validation العادية (زي required) هتطلع إنجليزي لو الـ locale مش ar. الحل:
+خلي APP_LOCALE=ar في .env.
+انشر ملفات اللغة (php artisan lang:publish) وضيف lang/ar/validation.php فيه ترجمة القواعد المستخدمة: required وstring وmax وinteger وboolean وimage وmimes وdimensions وexists وalpha_dash.
+ضيف في نفس الملف أسماء الحقول بالعربي:
+Copy'attributes' => [
+    'name_ar' => 'الاسم العربي',
+    'name_en' => 'الاسم الإنجليزي',
+    'slug' => 'الرابط',
+    'parent_id' => 'القسم الأب',
+    'sort_order' => 'الترتيب',
+    'image' => 'الصورة',
+    'description_ar' => 'الوصف العربي',
+    'description_en' => 'الوصف الإنجليزي',
+],
+تيستات ناقصة. ضيفها في CategoryCatalogTest.php بنفس أسلوب التيستات الموجودة (staffWithPermissions وrequestWithToken):
+reorder: ينقل قسم لأب تاني ويغيّر sort_order، ويرجع 200، والداتا في الداتابيز تتغير.
+reorder يتخطى 3 مستويات: يرجع 422.
+update بـ POST و_method=PUT multipart فيه صورة: يرجع 200 وimage_url مش null.
+remove_image=1: يرجع image_url = null.
+تعطيل قسم فيه منتج published: يرجع 422.
+يوزر معاه categories.view بس ويعمل reorder: يرجع 403.
+تمام لما: php artisan test --compact كله أخضر.
 
-الأثر: هناك ثلاثة طرق للاستيلاء الكامل على النظام:
+المرحلة 2: طبقة الـ API Client
+2.1 الأنواع: packages/api-client/src/types/index.ts
+ضيف (من غير ما تمسح اللي موجود):
 
-POST /users بـ roles: ["Super Admin"] ثم الدخول بالحساب الجديد.
-PUT /users/{own_id} بـ roles: ["Super Admin"].
-PUT /users/{super_admin_id} بـ email وpassword جديدين، أي سرقة حساب المدير الأعلى.
-الإصلاح: نقل التفويض إلى authorize() (الكود في القسم 9). المبدأ: لا تمنح صلاحية لا تملكها. وحده الـ Super Admin يعدّل Super Admin. لا أحد يعدّل أدوار نفسه أو is_active الخاص به.
+Copyexport interface AdminCategory {
+  id: number;
+  parent_id: number | null;
+  name_ar: string;
+  name_en: string;
+  slug: string;
+  description_ar: string | null;
+  description_en: string | null;
+  sort_order: number;
+  is_active: boolean;
+  image_url: string | null;
+  products_count?: number;      // مباشر فقط (مش شامل الأقسام الفرعية)
+  children?: AdminCategory[];
+  parent?: AdminCategory;
+  created_at: string;
+}
 
-لماذا يحل المشكلة: القيد يصبح على المحتوى المطلوب منحه، لا على الوصول للمسار فقط.
+export interface CategoryPayload {
+  parent_id?: number | null;
+  name_ar?: string;
+  name_en?: string;
+  slug?: string | null;
+  description_ar?: string | null;
+  description_en?: string | null;
+  sort_order?: number;
+  is_active?: boolean;
+  image?: File | null;          // ملف جديد فقط
+  remove_image?: boolean;       // في التعديل فقط
+}
 
-المقايضة: استعلام إضافي لصلاحيات الأدوار المطلوبة، وتكلفته مهملة.
+export interface CategoryReorderItem {
+  id: number;
+  parent_id: number | null;
+  sort_order: number;
+}
+Copy
+2.2 الـ endpoints: packages/api-client/src/endpoints/index.ts
+قبل ما تبدأ: افتح الملف وشوف اسم الـ axios instance اللي authEndpoints بيستخدمه (غالباً apiClient) واستخدم نفسه بالظبط.
 
-مرتبط بها (MEDIUM، مشروطة): تغيير password أو email لموظف لا يلغي توكناته، لأن الـ requests لا تفعل ذلك والـ controller غير مرفق. لو سُرق توكن، فتغيير كلمة المرور لا يطرد المهاجم. الإصلاح: $user->tokens()->delete() داخل نفس الـ transaction عند تغيير password أو email، كما يفعل CustomerAuthService::resetPassword.
+Copyconst MULTIPART = { headers: { 'Content-Type': 'multipart/form-data' } };
 
-H1 — HIGH · AuthCallbackPage تلغي التوكن الجديد
-الموقع: backoffice/src/pages/auth/AuthCallbackPage.tsx مع api-client/src/axios-instance.ts السطور 43–49.
+function categoryFormData(p: CategoryPayload, spoofPut = false): FormData {
+  const fd = new FormData();
+  if (spoofPut) fd.append('_method', 'PUT');
+  const put = (key: string, v: unknown) => {
+    if (v === undefined) return;                       // مش هيتبعت
+    if (v === null) return fd.append(key, '');         // Laravel يحوّلها null
+    if (typeof v === 'boolean') return fd.append(key, v ? '1' : '0'); // مهم: مش "true"
+    if (v instanceof Blob) return fd.append(key, v);
+    fd.append(key, String(v));
+  };
+  put('parent_id', p.parent_id);
+  put('name_ar', p.name_ar);
+  put('name_en', p.name_en);
+  put('slug', p.slug);
+  put('description_ar', p.description_ar);
+  put('description_en', p.description_en);
+  put('sort_order', p.sort_order);
+  put('is_active', p.is_active);
+  if (p.image) put('image', p.image);
+  if (p.remove_image) put('remove_image', true);
+  return fd;
+}
 
-المشكلة: التسلسل الفعلي كالتالي:
+const CAT = API_ENDPOINTS.ADMIN.CATEGORIES; // '/api/v1/admin/categories'
 
-login(res.token, ...) يستدعي setAuthToken(res.token)، فيصبح activeToken هو التوكن الجديد.
-defaultApiClient.post('/api/v1/admin/auth/logout', {}, { headers: { Authorization: 'Bearer ' + prev } }).
-الـ request interceptor يكتب reqConfig.headers.Authorization = Bearer ${activeToken} بلا شرط، فيستبدل الـ header الصريح.
-الخادم يحذف التوكن الجديد. بعدها /dashboard → ProtectedRoute → staffMe → 401 → unauthorizedHandler → طرد إلى صفحة الدخول.
-الشروط: وجود backoffice_token سابق في localStorage مختلف عن الجديد. هذا يحدث عند إعادة الدخول من نفس المتصفح بدون logout صريح، أو عند تبديل الحساب، أو من تبويب ثانٍ.
+export const categoriesApi = {
+  tree: () =>
+    apiClient.get<{ data: AdminCategory[] }>(CAT, { params: { tree: 1 } }).then((r) => r.data.data),
+  show: (id: number) =>
+    apiClient.get<{ data: AdminCategory }>(`${CAT}/${id}`).then((r) => r.data.data),
+  create: (p: CategoryPayload) =>
+    apiClient.post<{ data: AdminCategory }>(CAT, categoryFormData(p), MULTIPART).then((r) => r.data.data),
+  update: (id: number, p: CategoryPayload) =>
+    apiClient.post<{ data: AdminCategory }>(`${CAT}/${id}`, categoryFormData(p, true), MULTIPART).then((r) => r.data.data),
+  remove: (id: number) =>
+    apiClient.delete<{ message: string }>(`${CAT}/${id}`).then((r) => r.data),
+  reorder: (items: CategoryReorderItem[]) =>
+    apiClient.put<{ message: string }>(`${CAT}/reorder`, { items }).then((r) => r.data),
+};
+Copy
+وصدّر categoriesApi والأنواع الجديدة من packages/api-client/src/index.ts.
 
-الأثر: حلقة طرد حتمية في هذه الحالات. والطلب يصل للخادم حتى لو بدأ التنقل (location.replace) لأنه أُرسل قبله. ولو كان التوكن القديم منتهيًا، فالـ 401 الناتج يشغّل unauthorizedHandler الذي يمسح الجديد من localStorage. أي أن الفشل يحدث في الحالتين.
+ليه كده بالظبط؟
 
-الإصلاح: إلغاء التوكن القديم قبل login() وبطلب لا يمر بالـ interceptors، مع جعل الـ interceptor يحترم أي Authorization صريح (القسم 9).
+الـ boolean يتبعت '1'/'0' لأن قاعدة boolean في Laravel مبتقبلش الـ string ‏"true".
+null بيتبعت '' لأن middleware ‏ConvertEmptyStringsToNull بيحوّله null. وده اللي بيخلي parent_id='' معناها "انقله قسم رئيسي".
+التعديل دايماً POST ومعاه _method=PUT، حتى من غير صورة. كده في طريقة واحدة بس للتعديل، وأقل فرصة للغلط.
+المرحلة 3: الـ Adapter (تحويل البيانات بين الشكلين)
+اعمل ملف جديد: pages/admin/categories-mock/categories-adapter.js.
 
-المقايضة: انتظار طلب إضافي قصير قبل التحويل.
+Copyimport { IMG } from './categories.mock';
 
-H2 — HIGH · migration الـ FK تفشل على بيانات الإنتاج
-الموقع: 2026_10_21_000002_restrict_supplier_user_supplier_fk.php.
+// API → شكل الـ UI (نفس أسماء الـ mock عشان الكومبوننتس متتغيرش)
+export function toUiNode(c, rootIndex = 0) {
+  return {
+    id: c.id,
+    parentId: c.parent_id,
+    ar: c.name_ar ?? '',
+    en: c.name_en ?? '',
+    slug: c.slug,
+    desc_ar: c.description_ar ?? '',
+    desc_en: c.description_en ?? '',
+    order: c.sort_order ?? 0,
+    status: c.is_active ? 'active' : 'inactive',
+    products: c.products_count ?? 0,
+    imageUrl: c.image_url,
+    // الـ mock بيستخدم img كـ CSS background → نحافظ على نفس الشكل
+    img: c.image_url
+      ? `url("${c.image_url}") center / cover no-repeat`
+      : (c.parent_id === null ? IMG[rootIndex % IMG.length] : undefined),
+    createdAt: c.created_at,
+    children: (c.children ?? []).map((ch) => toUiNode(ch)),
+  };
+}
 
-المشكلة: الـ migration الأصلية (2026_10_15_014601) أنشأت supplier_id بدون FK. وسبب وجود M4 أصلًا هو صفوف تشير لموردين محذوفين. لكن ADD FOREIGN KEY يتحقق من كل الصفوف الموجودة، ولا يوجد أي تنظيف للـ orphans قبله.
+export const toUiTree = (list) => list.map((c, i) => toUiNode(c, i));
 
-الشروط: صف واحد على الأقل في supplier_users يشير إلى supplier_id غير موجود. هذه بالضبط حالة M4.
+// UI form → payload للـ API
+export function toPayload(v, { isEdit, original } = {}) {
+  const p = {
+    name_ar: v.ar.trim(),
+    name_en: v.en.trim(),
+    parent_id: v.parentId ?? null,
+    slug: v.slug?.trim() ? v.slug.trim().toLowerCase() : null, // فاضي → الباك يولّده
+    description_ar: v.desc_ar?.trim() || null,
+    description_en: v.desc_en?.trim() || null,
+    sort_order: Number(toLatinDigits(v.order ?? 0)) || 0,
+    is_active: v.status === 'active',
+  };
+  if (v.imageFile) p.image = v.imageFile;
+  if (isEdit && v.imageRemoved && !v.imageFile) p.remove_image = true;
+  return p;
+}
 
-الأثر: SQLSTATE[23503] فيفشل الـ deploy. الـ transaction في PostgreSQL تُرجع التغييرات، لكن الـ pipeline تتوقف وكل الـ migrations التالية لا تُطبَّق.
+// تحويل الشجرة لـ items الخاصة بالـ reorder — بنبعت اللي اتغير بس
+export function buildReorderItems(tree, savedTree) {
+  const flat = (nodes, out = new Map(), parentId = null) => {
+    nodes.forEach((n, i) => {
+      out.set(n.id, { id: n.id, parent_id: parentId, sort_order: i });
+      flat(n.children || [], out, n.id);
+    });
+    return out;
+  };
+  const now = flat(tree);
+  const before = flat(savedTree);
+  return [...now.values()].filter((it) => {
+    const b = before.get(it.id);
+    return !b || b.parent_id !== it.parent_id || b.sort_order !== it.sort_order;
+  });
+}
+Copy
+قبل ما تعتمد على شكل img، اتأكد بنفسك إزاي الـ Node بيستخدمه. لو بيعمل style={{ background: n.img }} يبقى الشكل اللي فوق شغال. لو بيستخدمه بطريقة تانية، عدّل الـ adapter مش الكومبوننت.
 
-الإصلاح: فصل الـ orphans وتعطيلهم وإلغاء توكناتهم قبل إضافة القيد (القسم 9).
+المرحلة 4: العربي والإنجليزي
+اعمل pages/admin/categories-mock/i18n-utils.js:
 
-المقايضة: مستخدمو موردين محذوفين يُعطَّلون صراحةً. هذا هو السلوك الصحيح أصلًا، وكان /me يرفضهم بـ 403 على أي حال.
+Copy// أرقام عربية/فارسية → لاتيني (لما المستخدم يكتب ٣ في خانة الترتيب)
+export const toLatinDigits = (s) =>
+  String(s ?? '')
+    .replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d))
+    .replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d));
 
-H3 — HIGH · تضخيم CPU في /api/v1/auth/login
-الموقع: UnifiedAuthService::attempt (bcrypt للـ staff وbcrypt للـ supplier ثم bcrypt للـ customer)، مع unified_login_ip_minute=120.
+// تطبيع للبحث: يشيل التشكيل والتطويل ويوحّد الألف والياء والتاء المربوطة
+export const normalizeSearch = (s) =>
+  String(s ?? '')
+    .toLowerCase()
+    .replace(/[\u064B-\u0652\u0640]/g, '')
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .trim();
 
-المشكلة: كل محاولة بالبريد تكلف 3 bcrypt عمدًا. لو كانت كل عملية 80–250ms، فـ IP واحد عند الحد المسموح (120 في الدقيقة) يستهلك من 29 إلى 90 ثانية CPU في الدقيقة، أي 0.5 إلى 1.5 core. بضعة IPs تكفي لإشباع خوادم التطبيق. والـ endpoint بلا مصادقة، ورُفع حد الـ IP إلى 120 بسبب CGNAT.
+// الاسم المعروض مع fallback لو لغة فاضية
+export const displayName = (n, lang = 'ar') =>
+  (lang === 'ar' ? n.ar || n.en : n.en || n.ar) || '—';
 
-الأثر: DoS رخيص على كل المنصة، لأن نفس الـ workers تخدم المتجر والـ POS.
+// slug تلقائي من الإنجليزي فقط (لو الناتج فاضي → نسيبه null والباك يولّد)
+export const autoSlug = (en) =>
+  String(en ?? '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+القواعد اللي لازم تتطبق:
 
-الإصلاح: bcrypt واحدة ثابتة لكل محاولة بالبريد. نجلب المرشحين من الجداول الثلاثة (3 استعلامات indexed رخيصة)، ثم نفحص مرشحًا واحدًا بالأولوية أو dummy hash. الفحص الإضافي يحدث فقط في حالة البريد المشترك الشاذة المسجَّلة أصلًا (القسم 9).
+الواجهة نفسها عربي RTL زي ما هي. الاسم العربي هو الأساسي في الشجرة، والإنجليزي تحته بـ dir="ltr"، زي الـ mock بالظبط.
+كل input إنجليزي ياخد dir="ltr": الاسم الإنجليزي والـ slug والوصف الإنجليزي. أي نص عربي ياخد dir="rtl". ولما تعرض نص المستخدم ممكن يكون كتبه بأي لغة (زي اسم القسم في عنوان الـ dialog)، لفّه في <bdi> عشان الأقواس «» والأرقام متتلخبطش.
+البحث: عدّل دالة matches الموجودة إنها تستخدم normalizeSearch على ar وen وعلى الـ query. البحث يفضل محلي على الشجرة، ومفيش داعي ننادي ?search= لأن الـ tree كله متحمّل.
+الـ slug: لو الاسم الإنجليزي فيه حروف عربي، autoSlug هيطلع فاضي. وقتها متبعتش slug، والـ backend هيولّد واحد. ومتمنعش الحفظ عشان الـ slug فاضي.
+الوصف: الـ toggle بين "عربي" و"EN" يفضل زي ما هو. الحقلين بيتحفظوا مع بعض، والتبديل بيغيّر الحقل الظاهر بس.
+رسايل الـ backend: اعرض message اللي جاية من السيرفر زي ما هي، لأنها عربي. لو جات فاضية استخدم رسالة عربي ثابتة من الفرونت (المرحلة 6).
+التواريخ والأرقام: لو هتعرض created_at استخدم new Intl.DateTimeFormat('ar-EG', { dateStyle: 'medium' }). وعدد المنتجات يفضل بنفس الشكل الحالي في التصميم.
+المرحلة 5: الصلاحيات
+في CategoriesMockPage.jsx هو أصلاً بياخد can من App.tsx. ابني منه object صلاحيات وحطه في الـ context:
 
-لماذا يحل المشكلة: ثبات الزمن يتطلب عددًا ثابتًا من عمليات bcrypt، وواحد يكفي.
+Copyconst perms = useMemo(() => ({
+  view:   can('categories.view'),
+  create: can('categories.create'),
+  update: can('categories.update'),   // يشمل الترتيب والتفعيل والتعطيل
+  delete: can('categories.delete'),
+}), [can]);
+وفي categories-reference.jsx غيّر كل استخدام لـ user.can('categories.manage') كالتالي:
 
-المقايضة:
+المكان	الصلاحية الجديدة
+زرار "قسم رئيسي" و"إضافة فرعي"	perms.create
+زرار التعديل، وسحب العناصر (draggable)، والـ "نقل إلى"، والتفعيل والتعطيل، والـ StickyBar	perms.update
+زرار الحذف	perms.delete
+الدخول للصفحة (Forbidden)	perms.view
+ولو السيرفر رجّع 403 رغم كده، اعرض toast: "ليس لديك صلاحية لتنفيذ هذا الإجراء".
 
-حالة البريد المشترك بين جدولين تصبح قابلة للتمييز بالتوقيت. هي حالة شاذة يجب تنظيفها (L4)، ومعالجة C3 تمنع نشوءها.
-اختبار test_shared_email_resolves_by_matching_password_with_priority يبقى صالحًا لأن الفحص الإضافي محفوظ لهذه الحالة.
-H4 — HIGH (مشروطة) · migration الـ customers تتعارض مع الكود
-الموقع: 2026_10_15_014601_create_customers_and_supplier_users_tables.php.
+تمام لما: يوزر معاه categories.view بس يشوف الشجرة من غير أي زرار تعديل، ومن غير سحب.
 
-المشكلة: الـ migration المرفقة فيها:
+المرحلة 6: معالجة الأخطاء
+اعمل pages/admin/categories-mock/api-errors.js:
 
-status enum بالقيم ['pending','approved','rejected','blocked']، بلا suspended الموجودة في CustomerStatus.
-email->unique() غير nullable، بينما registerRetail يمرر 'email' => $data['email'] ?? null.
-لا يوجد deleted_at ولا email_verified_at ولا phone_verified_at ولا company_name ولا rejection_reason ولا suspension_reason ولا approved_at.
-unique عادي، وهذا يناقض اختبار test_soft_deleted_customer_email_is_reusable والـ partial index المذكور في التعليقات.
-الشروط: إما أن هذه الـ migration هي التي تُطبَّق فعلًا، فيفشل التسجيل والإيقاف وأي استعلام على deleted_at. وإما أن هناك migration أقدم تنشئ customers، فتفشل هذه بـ relation already exists. نجاح الاختبارات يرجّح وجود migrations أخرى غير مرفقة، لكن هذا الملف متناقض في الحالتين.
+Copyconst FIELD_MAP = {
+  name_ar: 'ar', name_en: 'en', slug: 'slug',
+  description_ar: 'desc_ar', description_en: 'desc_en',
+  sort_order: 'order', parent_id: 'parentId', is_active: 'status', image: 'img',
+};
 
-الإصلاح: تشغيل php artisan migrate:fresh على قاعدة نظيفة ومقارنة \d customers بالنموذج. ثم حذف الجزء المكرر من هذه الـ migration أو تصحيحه، وإضافة اختبار schema (القسم 10).
+const FALLBACK = {
+  0:   'تعذّر الاتصال بالخادم، تأكد من الإنترنت وحاول تاني',
+  403: 'ليس لديك صلاحية لتنفيذ هذا الإجراء',
+  404: 'القسم غير موجود أو تم حذفه',
+  409: 'البيانات اتغيرت من مستخدم تاني، حدّث الصفحة',
+  422: 'البيانات غير صالحة',
+  429: 'محاولات كتير، استنى شوية وحاول تاني',
+  500: 'حصل خطأ في الخادم',
+};
 
-M1 — MEDIUM · (int) config('sanctum.expiration') قد يمسح كل جلسات المستخدم
-الموقع: UnifiedAuthController::exchange السطر 105، وissueSupplierToken السطر 183.
+export function parseApiError(err) {
+  const status = err?.response?.status ?? 0;
+  const data = err?.response?.data ?? {};
+  const fieldErrors = {};
+  Object.entries(data.errors ?? {}).forEach(([k, msgs]) => {
+    const key = FIELD_MAP[k] ?? (k.startsWith('items') ? 'items' : k);
+    fieldErrors[key] = Array.isArray(msgs) ? msgs[0] : String(msgs);
+  });
+  return {
+    status,
+    message: data.message || FALLBACK[status] || FALLBACK[500],
+    fieldErrors,
+    isValidation: status === 422 && Object.keys(fieldErrors).length > 0,
+  };
+}
+Copy
+قاعدة عرض الـ 422:
 
-المشكلة: الافتراضي 1440 في config(..., 1440) يُستخدم فقط إذا كان المفتاح غير موجود. والمفتاح موجود دائمًا في sanctum.php بالقيمة env('SANCTUM_EXPIRATION', 1440). لو ضُبط SANCTUM_EXPIRATION= (فارغ) أو null، تكون النتيجة (int) '' = 0 ثم subMinutes(0) = now()، فيُحذف كل توكن أُنشئ قبل اللحظة الحالية.
+لو fieldErrors فيها مفاتيح موجودة في الفورم: اعرضها تحت الحقول نفسها، بنفس شكل خطأ "الاسم العربي مطلوب" الموجود.
+لو مفيش مفاتيح (BusinessException زي "أقصى عمق 3 مستويات"): اعرض message كـ toast أو في الـ banner بتاع الـ dialog.
+الـ 401 مش محتاج معالجة هنا، لأن الـ interceptor في auth.store.ts بيعمل redirect لوحده.
+المرحلة 7: تحميل البيانات (استبدال الـ mock)
+اعمل hook جديد في categories-reference.jsx أو ملف لوحده:
+Copyfunction useCategoriesTree() {
+  const [phase, setPhase] = useState('loading'); // loading | error | empty | ready
+  const [tree, setTree] = useState([]);
+  const [saved, setSaved] = useState([]);
+  const [error, setError] = useState(null);
 
-الأثر: كل دخول لموظف أو مورد يطرد كل أجهزته الأخرى. هذا يربك نقاط POS متعددة لنفس الحساب. المفارقة أن CustomerAuthService::issueToken يعالج هذه الحالة بـ ->when($expiry, ...)، فالسلوك غير متسق.
+  const load = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setPhase('loading');
+    try {
+      const data = toUiTree(await categoriesApi.tree());
+      setTree(data); setSaved(data); setError(null);
+      setPhase(data.length ? 'ready' : 'empty');
+    } catch (e) {
+      const err = parseApiError(e);
+      setError(err);
+      if (!silent) setPhase('error'); else vtoast(err.message);
+    }
+  }, []);
 
-الإصلاح: نفس نمط CustomerAuthService (القسم 9).
+  useEffect(() => { load(); }, [load]);
+  return { phase, tree, setTree, saved, setSaved, error, reload: load };
+}
+في CategoriesReferencePage بدّل:
+useLoad بالـ hook ده، وخلي retry في ErrorState يندّه reload().
+الـ useState(CATEGORIES) بتاع tree وsaved بالقيم اللي جاية من الـ hook.
+متمسحش categories.mock.js. هنستخدم IMG منه، وهنحتاجه في تيست الـ e2e. بس شيل أي import لـ CATEGORIES من الصفحة.
+في CategoriesMockPage.jsx شيل الـ setTimeout اللي بيعمل screenState. حالة التحميل بقت جاية من الـ hook.
+بعد أي عملية ناجحة نعمل reload({ silent: true }). ده أبسط وأضمن من إننا نعدّل الشجرة محلياً. وخلي الـ state بتاع open وsel زي ما هو (مبني على الـ ids فهيفضل شغال بعد إعادة التحميل). ولو القسم المختار اتحذف، رجّع sel = null.
+تمام لما: الصفحة بتعرض أقسام الـ seed، والـ skeleton بيظهر وقت التحميل، ولو قفلت السيرفر يظهر ErrorState وزرار "إعادة المحاولة" يشتغل.
 
-M2 — MEDIUM · Lockout DoS وميزانية تخمين واسعة لحسابات الموظفين
-الموقع: RateLimiter::for('unified-login')، وconfig('auth.legacy_login_enabled', true) في admin.php وpos.php وsupplier.php وstore.php.
+المرحلة 8: ربط العمليات واحدة واحدة
+ترتيب التنفيذ مهم. اعمل عملية وجرّبها، وبعدين انتقل للي بعدها.
 
-المشكلة:
+8.1 الإنشاء
+في CategoryForm، ولما الفورم يتفتح لإنشاء قسم:
+parentId = الأب اللي اتضغط عليه "إضافة فرعي"، أو null لو اتضغط "قسم رئيسي".
+order = عدد إخوات القسم الحاليين، عشان يتحط في الآخر. مهم: لو سيبته 0 هيطلع أول واحد.
+status = 'active'.
+حوّل save لـ async:
+Copyconst save = async () => {
+  const e = {};
+  if (!v.ar.trim()) e.ar = 'الاسم العربي مطلوب';
+  if (!v.en.trim()) e.en = 'الاسم الإنجليزي مطلوب';
+  if (v.ar.length > 150) e.ar = 'الحد الأقصى 150 حرف';
+  if (v.en.length > 150) e.en = 'الحد الأقصى 150 حرف';
+  if (v.slug && !/^[a-z0-9_-]+$/i.test(v.slug)) e.slug = 'حروف إنجليزي وأرقام و - فقط';
+  setErrs(e);
+  if (Object.keys(e).length) return;
 
-Limit::perHour(100)->by('id-hour:'.$id) مستقل عن الـ IP ويحسب كل الطلبات، لا الفاشلة فقط. مهاجم من 20 IP يقفل أي بريد مدير أو هاتف عميل لمدة ساعة خلال دقيقة واحدة، والضحية تتلقى 429 حتى بكلمة المرور الصحيحة.
-في الاتجاه المعاكس: حساب الموظف يتحمل نحو 2400 محاولة في اليوم على المسار الموحد. وتُضاف ميزانيات مستقلة للمسارات القديمة: 30 في الساعة لـ admin-login و30 لـ pos-login، وكلاهما على نفس جدول users.
-الافتراضي في الكود مفتوح (true)، و.env.example يضبط LEGACY_LOGIN_ENABLED=true. نسيان المتغير في الإنتاج يبقي المسارات القديمة مفعّلة.
-الإصلاح:
-
-تغيير الافتراضي إلى config('auth.legacy_login_enabled', false).
-إزالة حد الساعة على المعرّف من الـ middleware، واستبداله بعدّاد فشل فقط داخل الخدمة. يُفحص قبل bcrypt، ويُزاد عند 401، مع حد يومي للفشل (القسم 9).
-المقايضة: المهاجم ما زال قادرًا على قفل حساب بالفشل المتعمد. لكن المستخدم الشرعي الذي ينجح لم يعد يستهلك الحصة، والحد اليومي يقلص ميزانية التخمين. الحل الجذري للموظفين هو MFA، وهي إضافة معمارية تُقيَّم لاحقًا.
-
-M3 — MEDIUM · تفرد البريد بين الجداول على مستوى التطبيق فقط
-الموقع: EmailNotUsedByOtherAccountType وكل الـ FormRequests التي تستخدمها.
-
-المشكلة: يحدث فحص exists() ثم insert بدون قفل مشترك. طلبان متزامنان (موظف ومستخدم مورد بنفس البريد) يمران معًا. وأيضًا عميل بريده غير مُتحقق لا يمنع إنشاء موظف بنفس البريد. لو تحقق العميل لاحقًا، تنشأ حالة مشتركة لا يمنعها شيء ظاهر في الكود.
-
-الأثر:
-
-الحساب الأدنى أولوية يصبح غير قابل للوصول بالبريد عند تطابق كلمة المرور.
-تتشابك تدفقات الاستعادة.
-السجل auth.shared_email يُكتب فقط لحالة staff مع supplier، ولا يُكتب لحالة staff أو supplier مع customer (L4).
-الإصلاح: الأبسط بدون بنية جديدة هو pg_advisory_xact_lock(hashtext(lower(email))) داخل transaction في كل مسار إنشاء أو تعديل بريد، وأيضًا في التحقق من بريد العميل، ثم إعادة الفحص. الأقوى جدول account_emails(email_ci unique) يُكتب في نفس الـ transaction.
-
-المقايضة: القفل يُسلسل العمليات على نفس البريد فقط، والتكلفة مهملة.
-
-M4 — MEDIUM · restrictOnDelete يحول حذف المورد إلى 500
-الموقع: نفس migration الـ FK، وbootstrap/app.php.
-
-المشكلة: حذف مورد له مستخدمون يرمي QueryException بـ SQLSTATE 23503. الـ handlers الموجودة تعالج 55P03 و40P01 وUniqueConstraintViolationException فقط.
-
-الأثر: 500 بدل رسالة مفهومة في لوحة الإدارة.
-
-الإصلاح: handler لـ 23503 يرجع 409 (القسم 9). والأفضل أن يفحص controller الحذف users()->exists() مسبقًا ويقترح التعطيل بدل الحذف.
-
-M5 — MEDIUM · كشف بريد الموظفين والموردين عبر التسجيل العام
-الموقع: RegisterRequest وWholesaleRegisterRequest، وكلاهما يستخدم EmailNotUsedByOtherAccountType('customers').
-
-المشكلة: Laravel يرجع أخطاء كل الحقول معًا. مهاجم يرسل POST /api/v1/store/auth/register ببريد مستهدف وبيانات أخرى غير صالحة، فيظهر خطأ email المميز إن كان البريد لموظف أو مورد. لا يلزمه OTP، لأن التحقق من الهاتف يُستهلك في الخدمة بعد الـ validation. الحد المتاح له 20 في الدقيقة و500 في اليوم لكل IP.
-
-الأثر: تعداد حسابات الموظفين، وهي أهداف phishing وتخمين، بما يُبطل عمل H1 كله.
-
-الإصلاح:
-
-حذف القاعدة العابرة للجداول من التسجيل العام فقط، لأن بريد العميل غير المُتحقق لا يُستخدم للدخول ولا يمنع غيره (M13 مطبّق فعلًا).
-فرض القاعدة عند التحقق من البريد، حيث يثبت الشخص ملكيته للصندوق، فلا تسريب إضافي.
-المقايضة:
-
-العميل قد يسجّل ببريد مستخدم ثم يُرفض تحققه. هذه تجربة أسوأ قليلًا لكنها آمنة.
-يجب تعديل test_store_registration_rejects_an_email_used_by_staff....
-M6 — MEDIUM · الـ database cache تحمل الـ limiter والـ handoff والأقفال
-الموقع: .env.example يضبط CACHE_STORE=database، والـ limiter يستخدم 3 مفاتيح لكل طلب، منها مفتاح id:{hash}:{ip} بلا حد لعدد القيم الممكنة.
-
-المشكلة: كل محاولة دخول ينتج عنها من 3 إلى 6 كتابات في PostgreSQL قبل الـ validation. ومعرّفات عشوائية تنشئ صفوفًا جديدة في جدول cache. الـ database store لا يحذف المنتهي تلقائيًا إلا عند قراءة نفس المفتاح.
-
-الأثر: تحت الهجوم يتحول الـ limiter نفسه إلى مضخم كتابة على قاعدة البيانات الرئيسية، وجدول cache يتضخم.
-
-الإصلاح: Redis للـ cache والأقفال في الإنتاج. هو مذكور أصلًا في .env.example، وتعليق unified-handoff يشترط مخزنًا مشتركًا قابلًا للقفل. إن بقيت على database، فأضف حذفًا مجدولًا لصفوف cache المنتهية.
-
-M7 — MEDIUM (مشروطة) · customers.phone بدون قيد فريد في القاعدة
-الموقع: task.txt (H4) يذكر أن الهاتف nullable وغير unique. الـ validation تستخدم Rule::unique('customers','phone') الذي لا يستثني المحذوفين soft-deleted.
-
-الأثر:
-
-تسجيلان متزامنان قد ينشئان صفين بنفس الهاتف.
-CustomerAuthService::login يستخدم ->first() بلا ترتيب، فقد يختار أي الصفين، وأحد الحسابين يصبح غير قابل للوصول.
-هاتف عميل محذوف يُحجز للأبد.
-الإصلاح:
-
-CREATE UNIQUE INDEX CONCURRENTLY customers_phone_live_unique ON customers(phone) WHERE deleted_at IS NULL.
-Rule::unique('customers','phone')->whereNull('deleted_at').
-LOW
-L1 · RequireActor يتجاهل 403: الـ catch فارغ. عميل موقوف أو مورد عُطلت شركته يستمر في رؤية واجهة البوابة بجلسة محلية قديمة، بينما كل طلبات API تفشل. الإصلاح: عند 403، clear() ثم التحويل لصفحة الدخول.
-L2 · كود الـ handoff غير مربوط بالمتصفح الذي بدأ الدخول: موظف خبيث يرسل لموظف آخر رابط /auth/callback#code=... بكوده هو (login CSRF)، فيُدخله في حسابه خلال 60 ثانية. الأثر محدود. أبسط تخفيف: إزالة دعم ?code= القديم بعد فترة الانتقال، لأنه يُسجَّل في سجلات الخادم والـ Referer. الربط الكامل يحتاج verifier بنمط PKCE، وهذا غير مبرر الآن.
-L3 · exchange يبتلع كل الاستثناءات: catch (\Throwable) يحول انقطاع القاعدة أو الـ cache إلى "كود غير صالح" (401). والكود يُستهلك قبل إنشاء التوكن، فأي فشل لاحق يحرقه. الإصلاح: التقاط LockTimeoutException فقط، وترك أعطال البنية ترجع 503 أو 500، فهي مُبلغ عنها أصلًا.
-L4 · فجوة رصد البريد المشترك: شرط auth.shared_email يتحقق فقط من $staff !== null && $supplierUser !== null. يجب تسجيل أي تطابق بين جدولين، بما فيها العملاء.
-L5 · إعادة الدخول في المتجر لا تلغي توكن الجلسة السابقة: setSession يكتب فوقه. التوكن اليتيم يبقى صالحًا 24 ساعة، وعدد التوكنات محدود بـ 10. الإصلاح: logout مسبق بنفس نمط فرع الـ backoffice.
-L6 · unified-handoff بحد 20 في الدقيقة لكل IP: فرع خلف NAT واحد في بداية الوردية قد يتلقى 429 عند الـ exchange بعد دخول ناجح. يُفضَّل 60، فالكود من 64 حرفًا ولا يمكن تخمينه أصلًا.
-L7 · rehashIfNeeded يكتب قبل فحص is_active، وموظف غير نشط تطابق كلمة مروره حسابه كعميل لا يصل للعميل بالبريد. حالة نادرة. يُعالَج ضمن إعادة هيكلة H3.
-L8 · كتابة audit عند فشل دخول عميل موجود تضيف بضعة ms، فتبقى قناة timing لتمييز العملاء الموجودين. مع M5 والتسجيل بالهاتف القيمة محدودة. الإصلاح: defer(fn () => CustomerAuditLog::record(...)).
-INFO
-handoff->issue($actor, $redirect['path']) يمرر وسيطًا ثانيًا تتجاهله الدالة issue(User $user). هذا كود ميت مضلل.
-SupplierLayout.tsx في الـ backoffice ما زال يستخدم store الموظفين ورابط /admin، بينما بوابة المورد انتقلت إلى /supplier في المتجر. حذفه يقلل الالتباس.
-التوكنات في localStorage في التطبيقين: أي XSS يعني سرقة توكن صالح 24 ساعة. لا أقترح تغيير المعمارية، لكن CSP صارم على النطاقين ضروري.
-الـ index الجديد users_email_ci_unique يتكرر مع users_email_unique القديم، وحذف القديم يوفر كتابة.
-SET lock_timeout على مستوى الجلسة قد يتسرب مع pgbouncer في وضع transaction pooling. يُفضَّل تشغيل هذه الـ migration على اتصال مباشر.
-الاختبارات تعمل بـ CACHE_STORE=array، فقفل الـ handoff لا يُختبر بين العمليات المتوازية.
+  setBusy(true);
+  try {
+    const payload = toPayload(v, { isEdit });
+    if (isEdit) await categoriesApi.update(v.id, payload);
+    else await categoriesApi.create(payload);
+    vtoast(isEdit ? 'تم تحديث القسم' : 'تم إنشاء القسم');
+    onSaved();          // الأب يعمل reload({silent:true})
+    onClose();
+  } catch (err) {
+    const p = parseApiError(err);
+    if (p.isValidation) setErrs(p.fieldErrors);
+    else vtoast(p.message);
+  } finally {
+    setBusy(false);
+  }
+};
+زرار الحفظ يتقفل (disabled) ويظهر Spinner وقت busy. ولو المستخدم داس ESC أو قفل الـ drawer وقت busy، متقفلش.
+8.2 التعديل
+لما الـ drawer يتفتح للتعديل، املأ الفورم من الـ node بقيمه الحالية (ar وen وslug وdesc_ar وdesc_en وorder وstatus وparentId وimageUrl).
+الـ slug في التعديل: خلي slugTouched = true من الأول، عشان أي تعديل في الاسم الإنجليزي ميغيّرش الـ slug القديم ويبوظ اللينكات. زرار "استخدام التلقائي" يفضل شغال لو المستخدم عايز.
+تغيير الأب من الفورم: الـ SearchSelect بيقفل أصلاً القسم نفسه وأولاده والمستوى الثالث. خليه كده. والـ backend هيتأكد تاني ويرجع 422 لو في مشكلة.
+حساب العمق عند اختيار أب جديد: لو القسم اللي بتعدله عنده أولاد، العمق الحقيقي = عمق الأب الجديد + ارتفاع الـ subtree بتاعه. اقفل أي أب يخلي المجموع أكتر من 3، واكتب الملاحظة "النقل هنا يتجاوز الحد الأقصى".
+8.3 الصورة
+ImageField لما المستخدم يختار ملف:
+اتأكد منه في الفرونت: النوع image/jpeg أو image/png أو image/webp، والحجم ≤ 4MB، والأبعاد ≤ 6000×6000 (اقرأها بـ new Image() وURL.createObjectURL).
+خزّن الملف في v.imageFile، والـ preview في URL.createObjectURL(file).
+اعمل URL.revokeObjectURL لما الملف يتغير أو الكومبوننت يتقفل.
+لما المستخدم يدوس "إزالة الصورة" في التعديل: v.imageRemoved = true وv.imageFile = null.
+الـ progress الحقيقي: ضيف onUploadProgress اختياري في categoriesApi.create/update:
+Copycreate: (p, onProgress?) => apiClient.post(CAT, categoryFormData(p), {
+  ...MULTIPART,
+  onUploadProgress: (e) => onProgress?.(Math.round((e.loaded / (e.total || 1)) * 100)),
+}).then((r) => r.data.data),
+ووصّل الـ percentage للـ spinner الموجود في ImageField بدل المحاكاة.
+8.4 التفعيل والتعطيل
+الزرار بيفتح ConfirmDialog زي ما هو.
+شيل الـ serverError المحسوب محلياً اللي فيه أسماء منتجات. الـ backend مبيرجعش أسماء منتجات، بيرجع رسالة بس. وفي الـ mock المحاكاة كانت بتعتمد على عدد المنتجات، لكن الحقيقة إن الشرط هو منتجات published في القسم أو أي قسم تحته، والفرونت ميعرفش مين published.
+عدّل ConfirmDialog إنه يقبل onConfirm بيرجع Promise:
+يظهر الـ spinner لحد ما الـ Promise يخلص.
+لو نجح يقفل.
+لو فشل يعرض الـ banner الأحمر الموجود بـ { title, body, items }.
+الـ handler:
+CopyonConfirm={async () => {
+  try {
+    await categoriesApi.update(node.id, { is_active: node.status !== 'active' });
+    vtoast(node.status === 'active' ? 'تم تعطيل القسم' : 'تم تفعيل القسم');
+    reload({ silent: true });
+  } catch (e) {
+    const p = parseApiError(e);
+    throw { title: node.status === 'active' ? 'تعذّر تعطيل القسم' : 'تعذّر تفعيل القسم', body: p.message, items: [] };
+  }
+}}
+تفعيل قسم فرعي أبوه معطّل مسموح في الـ backend، لكنه مش هيظهر في المتجر. اعرض ملاحظة صغيرة في الـ dialog: "القسم مش هيظهر في المتجر طول ما القسم الأب معطّل".
+8.5 الحذف
+الفحص المحلي يفضل: لو عنده أولاد أو sumProducts > 0، اعرض الـ banner على طول ومتبعتش request. وده بيوفّر طلب.
+لو الفحص المحلي عدّى، onConfirm يندّه categoriesApi.remove(id). لو فشل، اعرض p.message في الـ banner. الحالة دي ممكن تحصل لأن الـ backend بيحسب كمان الأقسام والمنتجات المحذوفة soft-delete، والفرونت مبيشوفهاش.
+بعد النجاح: toast "تم حذف القسم"، وبعدين sel = null لو كان هو المختار، وreload({ silent: true }).
+8.6 حفظ الترتيب (السحب والـ "نقل إلى")
+السحب والـ "نقل إلى" يفضلوا محليين زي ما هما، ويغيّروا tree بس.
+زرار "حفظ الترتيب" في الـ StickyBar:
+Copyconst saveOrder = async () => {
+  const items = buildReorderItems(tree, saved);
+  if (!items.length) { setSaved(tree); return; }
+  if (items.length > 500) { vtoast('تغييرات كتير مرة واحدة، احفظ على دفعات'); return; }
+  setSavingOrder(true);
+  try {
+    await categoriesApi.reorder(items);
+    vtoast('تم حفظ الترتيب');
+    await reload({ silent: true });
+  } catch (e) {
+    const p = parseApiError(e);
+    vtoast(p.message);        // مثلاً: "أقصى عمق 3 مستويات"
+    // الشجرة المحلية تفضل زي ما هي عشان المستخدم يصلّح أو يلغي
+  } finally {
+    setSavingOrder(false);
+  }
+};
+"إلغاء التغييرات" يفضل setTree(saved) زي ما هو.
+طول ما في ترتيب مش محفوظ (dirty)، اقفل الإنشاء والتعديل والحذف والتفعيل، واعرض tooltip: "احفظ الترتيب أو ألغيه الأول". السبب إن reload بعد أي عملية هيمسح الترتيب المحلي.
+(اختياري، مرحلة لاحقة) إضافة إسقاط "قبل/بعد" أخ معين. ده تغيير في التصميم، فمتعملهوش من غير موافقة. الـ buildReorderItems شغال معاه من غير تعديل.
+المرحلة 9: التيستات
+Backend: التيستات اللي في المرحلة 1 تعدّي.
+E2E (vortix-admin.e2e.cjs): التيست حالياً بيستنى نص "كنب زاوية" من الـ mock، والنص ده مش هيبقى موجود. الحل إنك تعترض الـ API في Playwright وترجّع fixture بشكل الـ backend:
+Copyawait page.route('**/api/v1/admin/categories?tree=1*', (route) =>
+  route.fulfill({ json: { data: [
+    { id: 1, parent_id: null, name_ar: 'غرف المعيشة', name_en: 'Living Room', slug: 'living-room',
+      description_ar: null, description_en: null, sort_order: 0, is_active: true,
+      image_url: null, products_count: 0, created_at: '2026-10-01T00:00:00Z',
+      children: [{ id: 11, parent_id: 1, name_ar: 'كنب زاوية', name_en: 'Corner Sofas',
+        slug: 'corner-sofas', description_ar: null, description_en: null, sort_order: 0,
+        is_active: true, image_url: null, products_count: 17, created_at: '2026-10-01T00:00:00Z', children: [] }] },
+  ] } }));
+كل الـ assertions بتاعة RTL والصلاحيات والـ cashier تفضل زي ما هي.
+تيستات e2e جديدة:
+لو الـ API رجّع 500، يظهر ErrorState، والضغط على إعادة المحاولة يعيد الطلب.
+لو الـ tree فاضي، يظهر EmptyState.
+يوزر معاه categories.view بس ميظهرلوش زرار "قسم رئيسي".

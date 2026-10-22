@@ -20,7 +20,7 @@ export default function SessionProbePage() {
             baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:8000',
             getToken: () => token,
             onUnauthorized: () => {},
-          }).get('/api/v1/admin/auth/me', { timeout: 4000 });
+          }).get('/api/v1/admin/me', { timeout: 4000 });
           authenticated = localStorage.getItem('backoffice_token') === token;
         } catch { /* Expired or unavailable sessions never trigger a redirect. */ }
       }

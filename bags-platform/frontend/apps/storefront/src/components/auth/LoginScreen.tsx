@@ -39,7 +39,9 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
     const office = new URL(process.env.NEXT_PUBLIC_BACKOFFICE_URL ?? 'http://localhost:5173');
     const nonce = crypto.randomUUID();
     const frame = document.createElement('iframe');
-    frame.hidden = true;
+    frame.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none;border:0';
+    frame.setAttribute('aria-hidden', 'true');
+    frame.tabIndex = -1;
     frame.title = 'Session verification';
     frame.src = new URL(`/auth/session#nonce=${encodeURIComponent(nonce)}`, office).href;
     setStaffCheckPending(true);
