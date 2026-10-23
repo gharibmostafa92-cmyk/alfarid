@@ -17,6 +17,8 @@ class ProductResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        $includeGallery = ! ($request->isMethod('GET') && $request->is('api/v1/admin/products'));
+
         return [
             'id' => $this->id,
             'code' => $this->code,
@@ -35,8 +37,8 @@ class ProductResource extends JsonResource
             'brand' => null,
             'supplier_id' => null,
             'main_image' => $this->getFirstMediaUrl('images', 'thumb') ?: null,
-            'images' => MediaResource::collection($this->whenLoaded('media', fn () => $this->getMedia('images'))),
-            'video' => $this->whenLoaded('media', fn () => ($v = $this->getFirstMedia('video')) ? new MediaResource($v) : null),
+            'images' => $this->when($includeGallery, fn () => MediaResource::collection($this->whenLoaded('media', fn () => $this->getMedia('images')))),
+            'video' => $this->when($includeGallery, fn () => $this->whenLoaded('media', fn () => ($v = $this->getFirstMedia('video')) ? new MediaResource($v) : null)),
             'variants_count' => $this->whenCounted('variants'),
             'min_retail_price' => $this->when(isset($this->min_retail_price), $this->min_retail_price),
             'max_retail_price' => $this->when(isset($this->max_retail_price), $this->max_retail_price),

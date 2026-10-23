@@ -29,13 +29,13 @@ test('partial variant errors identify the failed row and stop later writes',asyn
 });
 
 test('image uploads use at most two requests and a retry skips completed files',async()=>{
- let active=0,max=0,attempts=0,failed=true,latest;
- const api={productsApi:{update:async()=>{}},variantsApi:{},productMediaApi:{uploadImages:async(id,files)=>{attempts++;active++;max=Math.max(max,active);await new Promise(resolve=>setTimeout(resolve,5));active--;if(files[0].fail&&failed){failed=false;throw {response:{data:{message:'Upload refused'}}};}return [{id:attempts,url:'https://r2.example/image.png'}];},reorder:async()=>{}}};
+ let active=0,max=0,attempts=0,failed=true,latest;const uploadIds=[];
+ const api={productsApi:{update:async()=>{}},variantsApi:{},productMediaApi:{uploadImages:async(id,files,variantId,onProgress,ids)=>{assert.match(ids[0],/^[0-9a-f-]{36}$/);if(files[0].fail)uploadIds.push(ids[0]);attempts++;active++;max=Math.max(max,active);await new Promise(resolve=>setTimeout(resolve,5));active--;if(files[0].fail&&failed){failed=false;throw {response:{data:{message:'Upload refused'}}};}return [{id:attempts,url:'https://r2.example/image.png'}];},reorder:async()=>{}}};
  const {persistProduct}=load(base+'persist.ts',{'@alfarid/api-client':api,'./mappers':mappers});
  const original={rows:[],media:media()},state={id:5,basic:mappers.blankUiBasic(),rows:[],media:{...media(),general:[{id:'a',file:{fail:true}},{id:'b',file:{}},{id:'c',file:{}}]}};
  await assert.rejects(persistProduct(state,original,false,v=>latest=v));
  assert.equal(max,2);assert.equal(latest.media.general.filter(f=>f.status==='done').length,2);
- await persistProduct(latest,original,false,()=>{});assert.equal(attempts,4);
+ await persistProduct(latest,original,false,()=>{});assert.equal(attempts,4);assert.equal(uploadIds.length,2);assert.equal(uploadIds[0],uploadIds[1]);
 });
 
 test('rejected published image removal rolls the tile back into its position',async()=>{

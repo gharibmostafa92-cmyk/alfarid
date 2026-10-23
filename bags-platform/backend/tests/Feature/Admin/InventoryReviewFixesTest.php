@@ -373,8 +373,8 @@ class InventoryReviewFixesTest extends TestCase
             DB::flushQueryLog();
             app(StocktakeService::class)->approve($stocktake, $this->staff->id);
             $variantQueries = array_filter(DB::getQueryLog(), fn ($query) => str_contains($query['query'], 'from "product_variants"'));
-            // Costs, active-input validation, and response variants are each loaded in a batch.
-            $this->assertCount(3, $variantQueries);
+            // Costs, row locks, active-input validation and response variants are batched.
+            $this->assertCount(4, $variantQueries);
         } finally {
             DB::disableQueryLog();
             DB::flushQueryLog();

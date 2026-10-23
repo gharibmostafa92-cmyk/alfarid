@@ -28,6 +28,12 @@ class CheckIntegrations extends Command
                 return self::FAILURE;
             }
         }
+        if (! config('filesystems.disks.r2_public.bucket') || ! config('filesystems.disks.r2_public.url')
+            || config('filesystems.disks.r2_public.bucket') === config('filesystems.disks.r2.bucket')) {
+            $this->error('Catalog R2 requires a separate public bucket and its public URL.');
+
+            return self::FAILURE;
+        }
         if (! config('services.gemini.api_key') || ! config('services.gemini.model')) {
             $this->error('Gemini configuration is incomplete.');
 

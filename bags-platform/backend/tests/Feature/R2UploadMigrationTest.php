@@ -22,22 +22,26 @@ class R2UploadMigrationTest extends TestCase
     {
         $source = Storage::fake('public');
         $private = Storage::fake('local');
+        $public = Storage::fake('r2_public');
         $media = Category::factory()->create()->addMedia(UploadedFile::fake()->image('old.png'))->toMediaCollection('image');
         $path = $media->getPathRelativeToRoot();
-        $source->put($path, Storage::disk('r2')->get($path));
-        $conversion = dirname($path).'/conversions/old-thumb.webp';
+        $source->put($path, Storage::disk('r2_public')->get($path));
+        // NB: keep clear of real generated names (old-thumb/medium.webp), which
+        // already exist on the target from addMedia above.
+        $conversion = dirname($path).'/conversions/old-custom.webp';
         $private->put($conversion, 'converted-image');
-        Storage::disk('r2')->delete($path);
+        Storage::disk('r2_public')->delete($path);
         DB::table('media')->where('id', $media->id)->update(['disk' => 'public', 'conversions_disk' => 'local']);
 
         $this->artisan('uploads:migrate-to-r2')->assertSuccessful();
 
-        $this->assertSame('r2', $media->fresh()->disk);
-        $this->assertSame('r2', $media->fresh()->conversions_disk);
+        // H5: catalog media migrate to the public bucket with stable public URLs.
+        $this->assertSame('r2_public', $media->fresh()->disk);
+        $this->assertSame('r2_public', $media->fresh()->conversions_disk);
         $this->assertSame($path, $media->fresh()->getPathRelativeToRoot());
-        Storage::disk('r2')->assertExists([$path, $conversion]);
+        $public->assertExists([$path, $conversion]);
         $source->assertExists($path);
-        $this->assertStringContainsString('?signed=1', $media->fresh()->getUrl());
+        $this->assertStringNotContainsString('?signed=1', $media->fresh()->getUrl());
     }
 
     public function test_private_and_orphan_uploads_are_verified_then_removed_without_moving_certificates(): void

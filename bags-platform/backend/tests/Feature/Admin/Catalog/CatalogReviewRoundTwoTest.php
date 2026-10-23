@@ -195,8 +195,11 @@ class CatalogReviewRoundTwoTest extends TestCase
     public function test_prices_with_more_than_two_decimal_places_are_rejected_in_both_write_paths(): void
     {
         $product = Product::factory()->create();
-        $this->postJson("/api/v1/admin/products/{$product->id}/variants", ['retail_price' => '10.999', 'wholesale_price' => '8.999', 'cost_price' => '5.999'])
+        // H4: retail/wholesale stay at 2 decimals, but cost_price accepts 4 to
+        // match the weighted-average receipt precision (numeric(14,4)).
+        $this->postJson("/api/v1/admin/products/{$product->id}/variants", ['retail_price' => '10.999', 'wholesale_price' => '8.999', 'cost_price' => '5.99999'])
             ->assertUnprocessable()->assertJsonValidationErrors(['retail_price', 'wholesale_price', 'cost_price']);
+        $this->postJson("/api/v1/admin/products/{$product->id}/variants", ['cost_price' => '5.9999'])->assertCreated();
         $this->postJson('/api/v1/admin/products', ['category_id' => $product->category_id, 'name_ar' => 'حقيبة', 'name_en' => 'Nested decimals', 'sales_channel' => 'retail', 'variants' => [['retail_price' => '10.999']]])
             ->assertUnprocessable()->assertJsonValidationErrors('variants.0.retail_price');
     }
@@ -244,15 +247,16 @@ class CatalogReviewRoundTwoTest extends TestCase
         $this->getJson($url)->assertOk()->assertJsonCount(0, 'data');
         $this->putJson($url.'/reorder', ['ids' => [$media->id]])->assertNotFound();
         $this->deleteJson($url.'/'.$media->id)->assertNotFound();
-        Storage::disk('r2')->assertExists($media->getPathRelativeToRoot());
+        // H5: variant media live on the public bucket.
+        Storage::disk('r2_public')->assertExists($media->getPathRelativeToRoot());
     }
 
     public function test_media_layout_backfill_is_idempotent_and_urls_do_not_probe_storage_afterwards(): void
     {
         $product = Product::factory()->create();
         $media = $product->addMedia(UploadedFile::fake()->image('legacy.jpg'))->toMediaCollection('images');
-        foreach (Storage::disk('r2')->allFiles($media->uuid) as $file) {
-            Storage::disk('r2')->move($file, $media->id.substr($file, strlen($media->uuid)));
+        foreach (Storage::disk('r2_public')->allFiles($media->uuid) as $file) {
+            Storage::disk('r2_public')->move($file, $media->id.substr($file, strlen($media->uuid)));
         }
         DB::table('media')->where('id', $media->id)->update(['custom_properties' => '{}']);
         $this->artisan('media:backfill-path-layouts')->expectsOutput('Updated 1 media layouts.')->assertSuccessful();
@@ -283,8 +287,16 @@ class CatalogReviewRoundTwoTest extends TestCase
         } catch (\RuntimeException $exception) {
             $this->assertSame('Conversion failure', $exception->getMessage());
         }
-        $this->assertDatabaseCount('media', 0);
-        $this->assertSame([], Storage::disk('r2')->allFiles());
+        // H2: one short transaction per file — the first file stays committed
+        // while the failing file rolls back fully.
+        $this->assertDatabaseCount('media', 1);
+        $kept = Media::firstOrFail();
+        Storage::disk('r2_public')->assertExists($kept->getPathRelativeToRoot());
+        $files = Storage::disk('r2_public')->allFiles();
+        $this->assertNotEmpty($files);
+        foreach ($files as $file) {
+            $this->assertStringStartsWith($kept->uuid.'/', $file);
+        }
     }
 
     public function test_setting_service_rejects_invalid_counter_values_and_rolls_back_other_updates(): void

@@ -8,9 +8,11 @@ use App\Enums\ProductStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\ProductVariant;
 use App\Models\StockLevel;
 use App\Models\User;
 use App\Services\SlugService;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 class ProductService
@@ -19,34 +21,48 @@ class ProductService
 
     public function create(array $data, User $user): Product
     {
-        return DB::transaction(function () use ($data, $user) {
-            CatalogLock::tree(shared: true);
-            $data['brand_id'] = null;
-            $data['supplier_id'] = null;
-            $variants = $data['variants'] ?? [];
-            unset($data['variants']);
-            $data = array_filter($data, fn ($value) => $value !== null);
+        // M1: concurrent creates can generate the same auto slug; retry once with
+        // a fresh slug, and surface explicit-slug conflicts as 409 not 500.
+        $autoSlug = empty($data['slug'] ?? null);
+        for ($attempt = 0; ; $attempt++) {
+            try {
+                return DB::transaction(function () use ($data, $user) {
+                    CatalogLock::tree(shared: true);
+                    $data['brand_id'] = null;
+                    $data['supplier_id'] = null;
+                    $variants = $data['variants'] ?? [];
+                    unset($data['variants']);
+                    $data = array_filter($data, fn ($value) => $value !== null);
 
-            if (($data['status'] ?? 'draft') !== ProductStatus::Draft->value) {
-                throw new BusinessException('يجب إنشاء المنتج كمسودة ثم رفع صوره ونشره', ['status' => ['الحالة المسموحة عند الإنشاء هي draft']]);
+                    if (($data['status'] ?? 'draft') !== ProductStatus::Draft->value) {
+                        throw new BusinessException('يجب إنشاء المنتج كمسودة ثم رفع صوره ونشره', ['status' => ['الحالة المسموحة عند الإنشاء هي draft']]);
+                    }
+
+                    $data['slug'] = $data['slug'] ?? SlugService::make(Product::class, $data['name_en']);
+                    $data['created_by'] = $user->id;
+                    $data['status'] = ProductStatus::Draft->value; // دايمًا يتعمل draft الأول
+
+                    // قفل القسم يمنع حذفه أثناء إنشاء المنتج
+                    $this->lockReference(Category::class, (int) $data['category_id'], 'category_id');
+
+                    $product = Product::create($data);
+                    $product->update(['code' => 'P'.str_pad((string) $product->id, 5, '0', STR_PAD_LEFT)]);
+
+                    foreach ($variants as $v) {
+                        app(VariantService::class)->create($product, $v);
+                    }
+
+                    return $product->fresh(['category.media', 'variants.media', 'media']);
+                });
+            } catch (UniqueConstraintViolationException $e) {
+                if ($autoSlug && $attempt === 0) {
+                    $data['slug'] = SlugService::make(Product::class, $data['name_en']);
+
+                    continue;
+                }
+                throw new BusinessException('المعرف (slug) مستخدم بالفعل؛ اختر قيمة أخرى.', [], 409);
             }
-
-            $data['slug'] = $data['slug'] ?? SlugService::make(Product::class, $data['name_en']);
-            $data['created_by'] = $user->id;
-            $data['status'] = ProductStatus::Draft->value; // دايمًا يتعمل draft الأول
-
-            // قفل القسم يمنع حذفه أثناء إنشاء المنتج
-            $this->lockReference(Category::class, (int) $data['category_id'], 'category_id');
-
-            $product = Product::create($data);
-            $product->update(['code' => 'P'.str_pad((string) $product->id, 5, '0', STR_PAD_LEFT)]);
-
-            foreach ($variants as $v) {
-                app(VariantService::class)->create($product, $v);
-            }
-
-            return $product->fresh(['category.media', 'variants.media', 'media']);
-        });
+        }
     }
 
     public function update(Product $product, array $data, User $user): Product
@@ -119,12 +135,18 @@ class ProductService
         }
     }
 
-    public function delete(Product $product): void
+    public function delete(Product $product, ?User $user = null): void
     {
-        DB::transaction(function () use ($product): void {
+        DB::transaction(function () use ($product, $user): void {
             $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
+            if ($user && $product->status === ProductStatus::Published && ! $user->can('products.publish')) {
+                throw new BusinessException('حذف منتج منشور يتطلب صلاحية النشر.', [], 403);
+            }
+            // H3: lock every variant row (id-ordered) before the balance check so
+            // concurrent receipts serialize here instead of slipping underneath it.
+            $lockedIds = ProductVariant::where('product_id', $product->id)->orderBy('id')->lockForUpdate()->pluck('id');
             // حذف المنتج يحذف متغيراته ناعمًا: أي رصيد على أي منها يُحبس (M-9)
-            if (StockLevel::query()->whereIn('product_variant_id', $product->variants()->pluck('id'))->hasNonZeroBalance()->exists()) {
+            if (StockLevel::query()->whereIn('product_variant_id', $lockedIds)->hasNonZeroBalance()->exists()) {
                 throw new BusinessException('لا يمكن حذف منتج له متغيرات برصيد مخزون؛ صفِّ الأرصدة أولًا.');
             }
             $product->variants()->delete();  // soft

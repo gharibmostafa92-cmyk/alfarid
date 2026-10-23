@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Wholesale;
 
+use App\Enums\SalesChannel;
 use App\Exceptions\BusinessException;
 use App\Exports\WholesalePriceListExport;
 use App\Http\Controllers\Controller;
@@ -43,7 +44,13 @@ class ProductController extends Controller
         $customer = $request->user();
 
         $products = Product::query()
+            // M6: wholesale sees wholesale-channel products only, on active
+            // category paths (mirrors the storefront's publishedQuery guards).
             ->where('status', 'published')
+            ->whereIn('sales_channel', [SalesChannel::Wholesale, SalesChannel::Both])
+            ->whereHas('category', fn ($q) => $q->where('is_active', true)
+                ->whereDoesntHave('parent', fn ($parent) => $parent->where('is_active', false)
+                    ->orWhereHas('parent', fn ($ancestor) => $ancestor->where('is_active', false))))
             ->with(['variants' => fn ($q) => $q->where('is_active', true)])
             ->when($filters['search'] ?? null, function ($q, $v): void {
                 $pattern = SearchTerm::pattern($v);
@@ -59,7 +66,10 @@ class ProductController extends Controller
             ->flatMap(fn (Product $product) => $product->variants->pluck('id'))
             ->all();
 
+        // M6: availability counts active branches only, like the storefront.
         $availability = StockLevel::query()
+            ->join('branches', 'branches.id', '=', 'stock_levels.branch_id')
+            ->where('branches.is_active', true)
             ->whereIn('product_variant_id', $variantIds)
             ->groupBy('product_variant_id')
             ->selectRaw('product_variant_id, SUM(available) AS total_available')

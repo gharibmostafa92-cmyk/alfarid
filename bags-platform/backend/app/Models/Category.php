@@ -12,8 +12,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Spatie\Image\Enums\Fit;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
+use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 class Category extends Model implements HasMedia
 {
@@ -31,7 +33,7 @@ class Category extends Model implements HasMedia
 
     public function children(): HasMany
     {
-        return $this->hasMany(Category::class, 'parent_id')->orderBy('sort_order');
+        return $this->hasMany(Category::class, 'parent_id')->orderBy('sort_order')->orderBy('id');
     }
 
     public function products(): HasMany
@@ -48,8 +50,18 @@ class Category extends Model implements HasMedia
 
     public function registerMediaCollections(): void
     {
-        $this->addMediaCollection('image')->singleFile()
+        $this->addMediaCollection('image')->singleFile()->useDisk('r2_public')->storeConversionsOnDisk('r2_public')
             ->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp']);
+    }
+
+    // L5: category tiles render small thumbs — generate them once instead of
+    // serving up-to-6000px originals in storefront tiles.
+    public function registerMediaConversions(?Media $media = null): void
+    {
+        $this->addMediaConversion('thumb')->fit(Fit::Crop, 300, 300)->format('webp')
+            ->performOnCollections('image');
+        $this->addMediaConversion('medium')->fit(Fit::Contain, 800, 800)->format('webp')
+            ->performOnCollections('image');
     }
 
     // بيرجّع IDs كل الأقسام اللي تحته على أي مستوى — مجموعة visited بتمنع اللف اللانهائي لو فيه دورة في البيانات

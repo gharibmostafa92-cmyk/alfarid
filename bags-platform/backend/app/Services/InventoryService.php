@@ -357,6 +357,14 @@ class InventoryService
         $now = now();
 
         try {
+            // Lock variants before stock rows in every path, including callers
+            // that prelock a batch of balances before recording movements.
+            $variantIds = $keys->pluck('product_variant_id')->unique()->sort()->values();
+            $variants = ProductVariant::withTrashed()->whereIn('id', $variantIds)->orderBy('id')->lockForUpdate()->get();
+            if ($variants->count() !== $variantIds->count()) {
+                throw new BusinessException('أحد المتغيرات لم يعد متاحًا.');
+            }
+
             // الإدخال نفسه قد ينتظر قفلًا: ON CONFLICT ينتظر معاملة أخرى أدخلت
             // نفس المفتاح ولم تعتمد بعد، فيخضع لنفس lock_timeout — لازم يكون
             // جوه الـ try حتى يتحول الانتظار الطويل لـ 409 لا 500 (M-2).

@@ -53,7 +53,7 @@ class ProductController extends Controller implements HasMiddleware
         $perPage = min((int) ($filters['per_page'] ?? 15), 100);
 
         $q = Product::query()
-            ->with(['category.media', 'media'])
+            ->with(['category.media', 'media' => fn ($media) => $media->where('collection_name', 'images')->orderBy('order_column')->orderBy('id')->limit(1)])
             ->withCount('variants')
             ->withMin(['variants as min_retail_price' => fn ($v) => $v->where('is_active', true)], 'retail_price')
             ->withMax(['variants as max_retail_price' => fn ($v) => $v->where('is_active', true)], 'retail_price');
@@ -82,7 +82,9 @@ class ProductController extends Controller implements HasMiddleware
             default => $q->latest()->orderByDesc('id'),
         };
 
-        return ProductResource::collection($q->paginate($perPage)->withQueryString());
+        $paginator = $q->paginate($perPage)->withQueryString();
+
+        return ProductResource::collection($paginator);
     }
 
     public function show(Product $product): ProductResource
@@ -105,9 +107,9 @@ class ProductController extends Controller implements HasMiddleware
         return $this->productResource($product);
     }
 
-    public function destroy(Product $product): JsonResponse
+    public function destroy(Request $request, Product $product): JsonResponse
     {
-        $this->service->delete($product);
+        $this->service->delete($product, $request->user());
 
         return response()->json(['message' => 'تم الحذف']);
     }

@@ -7,6 +7,7 @@ namespace App\Services\Catalog;
 use App\Exceptions\BusinessException;
 use App\Models\Category;
 use App\Services\SlugService;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -15,32 +16,44 @@ class CategoryService
 {
     public function create(array $data, ?UploadedFile $image): Category
     {
-        $category = DB::transaction(function () use ($data, $image) {
-            $this->lockTree();
+        // M1: retry once on auto-slug races; M5: shared tree lock + FOR SHARE on
+        // the parent — creating a leaf must not take the exclusive tree lock.
+        $autoSlug = empty($data['slug'] ?? null);
+        for ($attempt = 0; ; $attempt++) {
+            try {
+                return DB::transaction(function () use ($data, $image) {
+                    CatalogLock::tree(shared: true);
 
-            unset($data['image']);
-            $data = array_filter($data, fn ($value) => $value !== null);
+                    unset($data['image']);
+                    $data = array_filter($data, fn ($value) => $value !== null);
 
-            if (empty($data['slug'])) {
-                $data['slug'] = SlugService::make(Category::class, $data['name_en']);
-            }
+                    if (empty($data['slug'])) {
+                        $data['slug'] = SlugService::make(Category::class, $data['name_en']);
+                    }
 
-            if (! empty($data['parent_id'])) {
-                $parent = Category::findOrFail($data['parent_id']);
-                if ($parent->depth() >= 3) {
-                    throw new BusinessException('أقصى عمق للأقسام 3 مستويات');
+                    if (! empty($data['parent_id'])) {
+                        $parent = Category::whereKey($data['parent_id'])->sharedLock()->firstOrFail();
+                        if ($parent->depth() >= 3) {
+                            throw new BusinessException('أقصى عمق للأقسام 3 مستويات');
+                        }
+                    }
+
+                    $category = Category::create($data);
+                    if ($image) {
+                        $category->addMedia($image)->toMediaCollection('image');
+                    }
+
+                    return $category;
+                });
+            } catch (UniqueConstraintViolationException $e) {
+                if ($autoSlug && $attempt === 0) {
+                    $data['slug'] = SlugService::make(Category::class, $data['name_en']);
+
+                    continue;
                 }
+                throw new BusinessException('المعرف (slug) مستخدم بالفعل؛ اختر قيمة أخرى.', [], 409);
             }
-
-            $category = Category::create($data);
-            if ($image) {
-                $category->addMedia($image)->toMediaCollection('image');
-            }
-
-            return $category;
-        });
-
-        return $category;
+        }
     }
 
     public function update(Category $category, array $data, ?UploadedFile $image): Category
@@ -145,7 +158,10 @@ class CategoryService
                     CategoryHierarchy::assertValid($nodes);
                     CategoryHierarchy::assertPublishedPathsActive($nodes);
                 }
-                foreach ($items as $item) {
+                // M11: apply row updates in id order so concurrent order-only
+                // requests acquire row locks in the same order (no deadlock).
+                $ordered = collect($items)->sortBy('id')->values()->all();
+                foreach ($ordered as $item) {
                     $categories->get($item['id'])->update(['parent_id' => $nodes[$item['id']]['parent_id'], 'sort_order' => $item['sort_order']]);
                 }
 

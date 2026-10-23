@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Tests\Feature\Admin\Catalog;
 
 use App\Enums\ProductStatus;
+use App\Models\Branch;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\User;
+use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -50,7 +52,8 @@ class CatalogConcurrencyTest extends TestCase
         ]);
         $remaining = $product->fresh()->getMedia('images');
         $this->assertCount(1, $remaining);
-        Storage::disk('r2')->assertExists($remaining->first()->getPathRelativeToRoot());
+        // H5: product media live on the public bucket.
+        Storage::disk('r2_public')->assertExists($remaining->first()->getPathRelativeToRoot());
     }
 
     public function test_concurrent_opposite_reparents_cannot_create_a_cycle(): void
@@ -94,6 +97,48 @@ class CatalogConcurrencyTest extends TestCase
         $this->assertSame(2, Product::where('category_id', $category->id)->count());
     }
 
+    public function test_inflight_stock_increase_prevents_product_and_variant_deletion(): void
+    {
+        $this->seed(SettingSeeder::class);
+        $user = User::factory()->create();
+        $branch = Branch::factory()->create();
+        foreach (['product', 'variant'] as $target) {
+            $product = Product::factory()->create();
+            $variant = ProductVariant::factory()->create(['product_id' => $product->id]);
+            $movement = var_export([
+                'product_variant_id' => $variant->id, 'branch_id' => $branch->id,
+                'type' => 'adjustment_in', 'affected_bucket' => 'on_hand', 'quantity' => 2, 'created_by' => $user->id,
+            ], true);
+            $increase = 'Illuminate\Support\Facades\DB::transaction(function () { app(App\Services\InventoryService::class)->recordMovement('.$movement.'); touch(getenv("CATALOG_START_FILE").".left"); usleep(300000); });';
+            $wait = '$deadline = microtime(true) + 5; while (!is_file(getenv("CATALOG_START_FILE").".left")) { if (microtime(true) > $deadline) { throw new RuntimeException("Movement did not acquire lock"); } usleep(10000); }';
+            $delete = $target === 'product'
+                ? 'app(App\Services\Catalog\ProductService::class)->delete($product);'
+                : 'app(App\Services\Catalog\VariantService::class)->delete($variant);';
+            $this->race([
+                ['', $increase],
+                ['$product = App\Models\Product::findOrFail('.$product->id.'); $variant = App\Models\ProductVariant::findOrFail('.$variant->id.');', $wait.$delete],
+            ]);
+            $this->assertNotSoftDeleted($product);
+            $this->assertNotSoftDeleted($variant);
+            $this->assertDatabaseHas('stock_levels', ['product_variant_id' => $variant->id, 'on_hand' => 2]);
+        }
+    }
+
+    public function test_concurrent_auto_slugs_retry_with_a_new_suffix(): void
+    {
+        $category = Category::factory()->create();
+        $user = User::factory()->create();
+        $jobs = [];
+        foreach (['left' => 'right', 'right' => 'left'] as $own => $other) {
+            $setup = '$user = App\Models\User::findOrFail('.$user->id.');';
+            $operation = 'App\Models\Product::creating(function () { $prefix = getenv("CATALOG_START_FILE"); touch($prefix.'.var_export('.'.$own, true).'); $deadline = microtime(true) + 5; while (!is_file($prefix.'.var_export('.'.$other, true).')) { if (microtime(true) > $deadline) { throw new RuntimeException("Concurrent insert not reached"); } usleep(10000); } });';
+            $operation .= 'app(App\Services\Catalog\ProductService::class)->create(["category_id" => '.$category->id.', "name_ar" => "حقيبة", "name_en" => "Same slug", "sales_channel" => "retail"], $user);';
+            $jobs[] = [$setup, $operation];
+        }
+        $this->race($jobs, ['OK', 'OK']);
+        $this->assertEqualsCanonicalizing(['same-slug', 'same-slug-2'], Product::pluck('slug')->all());
+    }
+
     private function completeProduct(): Product
     {
         $product = Product::factory()->published()->create();
@@ -115,6 +160,9 @@ class CatalogConcurrencyTest extends TestCase
             'DB_HOST' => $db['host'], 'DB_PORT' => (string) $db['port'], 'DB_USERNAME' => $db['username'],
             'DB_PASSWORD' => $db['password'], 'DB_URL' => '', 'CACHE_STORE' => 'array', 'QUEUE_CONNECTION' => 'sync',
             'CATALOG_START_FILE' => $barrier, 'CATALOG_MEDIA_ROOT' => config('filesystems.disks.r2.root'),
+            // H5: catalog media (products/categories/brands) live on r2_public;
+            // race subprocesses must redirect that bucket to the local root too.
+            'CATALOG_PUBLIC_MEDIA_ROOT' => config('filesystems.disks.r2_public.root'),
         ];
         $processes = [];
         try {
@@ -124,6 +172,7 @@ require 'vendor/autoload.php';
 $app = require 'bootstrap/app.php';
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 config(['filesystems.disks.r2' => ['driver' => 'local', 'root' => getenv('CATALOG_MEDIA_ROOT'), 'throw' => true]]);
+config(['filesystems.disks.r2_public' => ['driver' => 'local', 'root' => getenv('CATALOG_PUBLIC_MEDIA_ROOT') ?: getenv('CATALOG_MEDIA_ROOT'), 'throw' => true]]);
 PHP;
                 $script .= $setup;
                 $script .= <<<'PHP'

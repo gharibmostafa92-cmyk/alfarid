@@ -38,7 +38,7 @@ class VariantRules
             'color_hex' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
             'size' => ['nullable', 'string', 'max:50'],
             'capacity' => ['nullable', 'string', 'max:50'],
-            'cost_price' => ['nullable', 'numeric', 'decimal:0,2', 'min:0', 'max:9999999'],
+            'cost_price' => ['nullable', 'numeric', 'decimal:0,4', 'min:0', 'max:9999999'],
             'retail_price' => ['nullable', 'numeric', 'decimal:0,2', 'min:0', 'max:9999999'],
             'compare_at_price' => ['nullable', 'numeric', 'decimal:0,2', 'min:0', 'max:9999999999.99'],
             'wholesale_price' => ['nullable', 'numeric', 'decimal:0,2', 'min:0', 'max:9999999'],

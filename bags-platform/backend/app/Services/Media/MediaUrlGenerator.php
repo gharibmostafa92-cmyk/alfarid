@@ -10,9 +10,10 @@ class MediaUrlGenerator extends DefaultUrlGenerator
 {
     public function getUrl(): string
     {
-        if ($this->getDiskName() === 'r2' && ! config('filesystems.disks.r2.url')) {
-            // R2's S3 endpoint is private. The same URL handling covers originals
-            // and generated product thumbnails.
+        // H5: the private disk always yields a temporary URL — even when a public
+        // URL is configured — so enabling public catalog URLs can never leak
+        // private documents. Catalog media lives on r2_public (stable public URLs).
+        if ($this->getDiskName() === 'r2') {
             $ttl = max(60, min(604800, (int) config('filesystems.disks.r2.download_url_ttl_seconds', 3600)));
 
             return $this->getTemporaryUrl(now()->addSeconds($ttl));

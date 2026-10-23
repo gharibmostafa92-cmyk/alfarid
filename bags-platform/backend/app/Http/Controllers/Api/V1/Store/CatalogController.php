@@ -25,10 +25,11 @@ class CatalogController extends Controller
             ->with('media')
             ->withCount('activeProducts')
             ->with([
-                'children' => fn ($q) => $q->where('is_active', true)->with('media')->withCount('activeProducts')->orderBy('sort_order')
-                    ->with(['children' => fn ($q2) => $q2->where('is_active', true)->with('media')->withCount('activeProducts')->orderBy('sort_order')]),
+                // L6: id tie-break keeps sibling order deterministic across pages.
+                'children' => fn ($q) => $q->where('is_active', true)->with('media')->withCount('activeProducts')->orderBy('sort_order')->orderBy('id')
+                    ->with(['children' => fn ($q2) => $q2->where('is_active', true)->with('media')->withCount('activeProducts')->orderBy('sort_order')->orderBy('id')]),
             ])
-            ->orderBy('sort_order')
+            ->orderBy('sort_order')->orderBy('id')
             ->get();
 
         return response()->json(['data' => StoreCategoryResource::collection($roots)->resolve($request)]);

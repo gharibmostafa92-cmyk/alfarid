@@ -7,6 +7,7 @@ namespace App\Services\Catalog;
 use App\Exceptions\BusinessException;
 use App\Models\Brand;
 use App\Services\SlugService;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 
@@ -14,22 +15,35 @@ class BrandService
 {
     public function create(array $data, ?UploadedFile $logo): Brand
     {
-        return DB::transaction(function () use ($data, $logo) {
-            unset($data['logo']);
-            $data = array_filter($data, fn ($value) => $value !== null);
+        // M1: retry once on auto-slug races; explicit conflicts surface as 409.
+        $autoSlug = empty($data['slug'] ?? null);
+        for ($attempt = 0; ; $attempt++) {
+            try {
+                return DB::transaction(function () use ($data, $logo) {
+                    unset($data['logo']);
+                    $data = array_filter($data, fn ($value) => $value !== null);
 
-            if (empty($data['slug'])) {
-                $data['slug'] = SlugService::make(Brand::class, $data['name_en']);
+                    if (empty($data['slug'])) {
+                        $data['slug'] = SlugService::make(Brand::class, $data['name_en']);
+                    }
+
+                    $brand = Brand::create($data);
+
+                    if ($logo) {
+                        $brand->addMedia($logo)->toMediaCollection('logo');
+                    }
+
+                    return $brand;
+                });
+            } catch (UniqueConstraintViolationException $e) {
+                if ($autoSlug && $attempt === 0) {
+                    $data['slug'] = SlugService::make(Brand::class, $data['name_en']);
+
+                    continue;
+                }
+                throw new BusinessException('المعرف (slug) مستخدم بالفعل؛ اختر قيمة أخرى.', [], 409);
             }
-
-            $brand = Brand::create($data);
-
-            if ($logo) {
-                $brand->addMedia($logo)->toMediaCollection('logo');
-            }
-
-            return $brand;
-        });
+        }
     }
 
     public function update(Brand $brand, array $data, ?UploadedFile $logo): Brand

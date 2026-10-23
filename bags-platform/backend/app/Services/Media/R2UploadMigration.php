@@ -9,11 +9,12 @@ use RuntimeException;
 
 class R2UploadMigration
 {
-    public function copy(string $disk, string $path): void
+    public function copy(string $disk, string $path, string $targetDisk = 'r2'): void
     {
         $this->validateSource($disk, $path);
+        $this->validateTarget($targetDisk);
         $hash = $this->hash($disk, $path);
-        $target = Storage::disk('r2');
+        $target = Storage::disk($targetDisk);
         if (! $target->exists($path)) {
             $stream = Storage::disk($disk)->readStream($path);
             try {
@@ -26,15 +27,16 @@ class R2UploadMigration
                 }
             }
         }
-        if (! hash_equals($hash, $this->hash('r2', $path))) {
+        if (! hash_equals($hash, $this->hash($targetDisk, $path))) {
             throw new RuntimeException('R2 content verification failed; source preserved: '.$path);
         }
     }
 
-    public function deleteVerifiedSource(string $disk, string $path): void
+    public function deleteVerifiedSource(string $disk, string $path, string $targetDisk = 'r2'): void
     {
         $this->validateSource($disk, $path);
-        if (! hash_equals($this->hash($disk, $path), $this->hash('r2', $path))) {
+        $this->validateTarget($targetDisk);
+        if (! hash_equals($this->hash($disk, $path), $this->hash($targetDisk, $path))) {
             throw new RuntimeException('Source changed; local copy preserved: '.$path);
         }
         if (! Storage::disk($disk)->delete($path)) {
@@ -42,9 +44,20 @@ class R2UploadMigration
         }
     }
 
+    private function validateTarget(string $targetDisk): void
+    {
+        if (! in_array($targetDisk, ['r2', 'r2_public'], true)) {
+            throw new RuntimeException('Unsupported R2 target.');
+        }
+        if ($targetDisk === 'r2_public' && config('filesystems.disks.r2_public.bucket')
+            && config('filesystems.disks.r2_public.bucket') === config('filesystems.disks.r2.bucket')) {
+            throw new RuntimeException('Catalog media requires a separate public R2 bucket.');
+        }
+    }
+
     private function validateSource(string $disk, string $path): void
     {
-        if (! in_array($disk, ['local', 'public'], true) || str_contains($path, '..') || str_starts_with($path, '/')) {
+        if (! in_array($disk, ['local', 'public', 'r2', 'r2_public'], true) || str_contains($path, '..') || str_starts_with($path, '/')) {
             throw new RuntimeException('Unsupported upload source.');
         }
     }

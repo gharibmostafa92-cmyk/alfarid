@@ -124,6 +124,8 @@ class StoreCatalogService
             }
         }
 
+        // stock_levels_valid_balances enforces available >= 0 in PostgreSQL,
+        // so a positive row is equivalent to a positive sum on the card.
         if (! empty($filters['in_stock'])) {
             $query->whereExists(fn ($sub) => $sub
                 ->select(DB::raw(1))

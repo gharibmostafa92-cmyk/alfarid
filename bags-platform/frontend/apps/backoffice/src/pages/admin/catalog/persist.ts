@@ -105,8 +105,9 @@ export async function persistProduct(state: any, original: any, canViewCost: boo
     const worker = async () => { while (pending.length) {
       const file = pending.shift();
       try {
+        file.clientUploadId ??= crypto.randomUUID();
         file.status='uploading'; onState({ ...next });
-        const saved = await productMediaApi.uploadImages(next.id,[file.file],variantId,pct => { file.progress=pct; onState({ ...next }); });
+        const saved = await productMediaApi.uploadImages(next.id,[file.file],variantId,pct => { file.progress=pct; onState({ ...next }); },[file.clientUploadId]);
         Object.assign(file,{ serverId:saved[0].id,variantId:variantId || undefined,status:'done',url:saved[0].url }); onState({ ...next });
       } catch(e: any) { file.status='failed'; file.message=e?.response?.data?.message || 'تعذّر رفع الملف، أعد المحاولة'; onState({ ...next }); uploadError ??= e; }
     } };

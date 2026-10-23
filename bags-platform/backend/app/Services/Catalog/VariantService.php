@@ -10,6 +10,7 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
 use App\Services\BarcodeGenerator;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 class VariantService
@@ -20,32 +21,43 @@ class VariantService
     {
         $data = array_filter($data, fn ($value) => $value !== null);
 
-        return DB::transaction(function () use ($product, $data) {
-            $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail(); // منع تكرار الترقيم
-            $this->assertUniqueCombination($product, $data);
+        // M1: auto-SKU races retry once; explicit conflicts surface as 409.
+        $autoSku = empty($data['sku']);
+        for ($attempt = 0; ; $attempt++) {
+            try {
+                return DB::transaction(function () use ($product, $data) {
+                    $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail(); // منع تكرار الترقيم
+                    $this->assertUniqueCombination($product, $data);
 
-            if (empty($data['sku'])) {
-                $seq = $product->variants()->withTrashed()->count() + 1;
-                do {
-                    $sku = $product->code.'-'.str_pad((string) $seq, 2, '0', STR_PAD_LEFT);
-                    $seq++;
-                } while (ProductVariant::withTrashed()->where('sku', $sku)->exists());
-                $data['sku'] = $sku;
+                    if (empty($data['sku'])) {
+                        $seq = $product->variants()->withTrashed()->count() + 1;
+                        do {
+                            $sku = $product->code.'-'.str_pad((string) $seq, 2, '0', STR_PAD_LEFT);
+                            $seq++;
+                        } while (ProductVariant::withTrashed()->where('sku', $sku)->exists());
+                        $data['sku'] = $sku;
+                    }
+
+                    $variant = $product->variants()->create($data);
+
+                    if (empty($variant->barcode)) {
+                        $variant->update(['barcode' => BarcodeGenerator::fromId($variant->id)]);
+                    }
+
+                    // متغير جديد على منتج منشور لازم ميكسرش قواعد النشر، وإلا التعديل كله يتلغي
+                    if ($product->status === ProductStatus::Published) {
+                        $this->publishability->assertPublishable($product);
+                    }
+
+                    return $variant;
+                });
+            } catch (UniqueConstraintViolationException $e) {
+                if ($autoSku && $attempt === 0) {
+                    continue;
+                }
+                throw new BusinessException('الـ SKU أو الباركود مستخدم بالفعل؛ اختر قيمة أخرى.', [], 409);
             }
-
-            $variant = $product->variants()->create($data);
-
-            if (empty($variant->barcode)) {
-                $variant->update(['barcode' => BarcodeGenerator::fromId($variant->id)]);
-            }
-
-            // متغير جديد على منتج منشور لازم ميكسرش قواعد النشر، وإلا التعديل كله يتلغي
-            if ($product->status === ProductStatus::Published) {
-                $this->publishability->assertPublishable($product);
-            }
-
-            return $variant;
-        });
+        }
     }
 
     public function update(ProductVariant $variant, array $data): ProductVariant
@@ -82,6 +94,10 @@ class VariantService
     {
         DB::transaction(function () use ($variant): void {
             $product = Product::whereKey($variant->product_id)->lockForUpdate()->firstOrFail();
+            // H3: lock the variant rows (id-ordered) before the balance check so a
+            // concurrent receipt serializes here; in READ COMMITTED the check then
+            // sees its committed movement instead of a phantom zero.
+            ProductVariant::whereKey($variant->id)->orderBy('id')->lockForUpdate()->firstOrFail();
             $variant = $product->variants()->whereKey($variant->id)->firstOrFail();
             $this->assertNotLastActiveOfPublished($variant);
             // متغير له رصيد في أي وعاء لا يُحذف: الحذف الناعم كان يحبس الرصيد

@@ -19,7 +19,7 @@ class StoreBrandResource extends JsonResource
             'name_ar' => $this->name_ar,
             'name_en' => $this->name_en,
             'slug' => $this->slug,
-            'logo' => $this->getFirstMediaUrl('logo') ?: null,
+            'logo' => $this->getFirstMediaUrl('logo', 'thumb') ?: null,
         ];
     }
 }

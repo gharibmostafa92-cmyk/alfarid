@@ -8,6 +8,7 @@ use App\Enums\ProductStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -28,19 +29,69 @@ class ProductMediaService
 
     public function upload(Product $product, array $data, array $files = [], ?UploadedFile $file = null): Collection
     {
-        return DB::transaction(function () use ($product, $data, $files, $file) {
-            $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
-            $owner = ! empty($data['variant_id']) ? $product->variants()->findOrFail($data['variant_id']) : $product;
-            if ($data['collection'] === 'video') {
-                if ($owner instanceof ProductVariant) {
-                    throw new BusinessException('الفيديو للمنتج فقط');
-                }
-
-                return collect([$product->addMedia($file)->toMediaCollection('video')]);
+        // H2: no product row lock here — uploads only append images, so they must
+        // not hold the product lock (and DB connection) while files stream to R2
+        // and conversions render. Delete/reorder keep their own locks.
+        $product = Product::whereKey($product->id)->firstOrFail();
+        $owner = ! empty($data['variant_id']) ? $product->variants()->findOrFail($data['variant_id']) : $product;
+        if ($data['collection'] === 'video') {
+            if ($owner instanceof ProductVariant) {
+                throw new BusinessException('الفيديو للمنتج فقط');
             }
 
-            return collect($files)->map(fn ($image) => $owner->addMedia($image)->toMediaCollection('images'));
-        });
+            return DB::transaction(fn () => collect([$product->addMedia($file)->toMediaCollection('video')]));
+        }
+
+        // H2 + M9: one short transaction per file; a retried client_upload_id
+        // replays the stored row instead of uploading a duplicate.
+        $clientIds = array_values((array) ($data['client_upload_ids'] ?? []));
+
+        return collect(array_values($files))->map(fn ($image, $index) => $this->storeOne($owner, $image, $clientIds[$index] ?? null));
+    }
+
+    private function storeOne(Product|ProductVariant $owner, UploadedFile $image, ?string $clientUploadId): Media
+    {
+        if (is_string($clientUploadId) && $clientUploadId !== '') {
+            $existing = Media::query()
+                ->where('model_type', $owner->getMorphClass())
+                ->where('model_id', $owner->getKey())
+                ->where('custom_properties->client_upload_id', $clientUploadId)
+                ->first();
+            if ($existing) {
+                return $existing;
+            }
+        }
+
+        try {
+            return DB::transaction(function () use ($owner, $image, $clientUploadId) {
+                if (is_string($clientUploadId) && $clientUploadId !== '') {
+                    $existing = Media::query()
+                        ->where('model_type', $owner->getMorphClass())
+                        ->where('model_id', $owner->getKey())
+                        ->where('custom_properties->client_upload_id', $clientUploadId)
+                        ->lockForUpdate()
+                        ->first();
+                    if ($existing) {
+                        return $existing;
+                    }
+
+                    return $owner->addMedia($image)->withCustomProperties(['client_upload_id' => $clientUploadId])->toMediaCollection('images');
+                }
+
+                return $owner->addMedia($image)->toMediaCollection('images');
+            });
+        } catch (UniqueConstraintViolationException $exception) {
+            // Concurrent retry with the same client_upload_id: replay the winner.
+            $existing = Media::query()
+                ->where('model_type', $owner->getMorphClass())
+                ->where('model_id', $owner->getKey())
+                ->where('custom_properties->client_upload_id', $clientUploadId)
+                ->first();
+            if ($clientUploadId && $existing) {
+                return $existing;
+            }
+            throw $exception;
+        }
     }
 
     public function reorder(Product $product, array $ids): void

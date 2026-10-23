@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Media;
 
-use Illuminate\Support\Facades\Storage;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Spatie\MediaLibrary\Support\PathGenerator\PathGenerator;
 
@@ -13,19 +12,17 @@ class UuidPathGenerator implements PathGenerator
 {
     public function getPath(Media $media): string
     {
-        if (! $media->uuid || $media->getCustomProperty('path_layout') === 'id') {
-            return $media->id.'/';
+        // M3: never hit the network here — this runs per URL (original + every
+        // conversion). Legacy rows without a layout live under id/; the
+        // media:backfill-path-layouts command persists the layout separately.
+        if ($media->getCustomProperty('path_layout') === 'uuid' && $media->uuid) {
+            return $media->uuid.'/';
         }
-
         if (! $media->hasCustomProperty('path_layout')) {
-            // Cache on this model instance; the backfill command persists it for future requests.
-            $media->setCustomProperty('path_layout', Storage::disk($media->disk)->exists($media->id.'/'.$media->file_name) ? 'id' : 'uuid');
-            if ($media->getCustomProperty('path_layout') === 'id') {
-                return $media->id.'/';
-            }
+            logger()->warning('Media without path_layout served from legacy id/ path.', ['media_id' => $media->id]);
         }
 
-        return $media->uuid.'/';
+        return $media->id.'/';
     }
 
     public function getPathForConversions(Media $media): string

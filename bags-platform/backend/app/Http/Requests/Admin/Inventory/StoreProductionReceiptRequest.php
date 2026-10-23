@@ -14,6 +14,14 @@ class StoreProductionReceiptRequest extends FormRequest
         return $this->user()->can('inventory.adjust') && $this->user()->can('products.view_cost');
     }
 
+    protected function prepareForValidation(): void
+    {
+        // L3: batch numbers are compared/unique-matched — trim whitespace.
+        if (is_string($batch = $this->input('batch_number'))) {
+            $this->merge(['batch_number' => mb_strtoupper(trim($batch))]);
+        }
+    }
+
     public function rules(): array
     {
         return [

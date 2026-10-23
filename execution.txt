@@ -1,470 +1,164 @@
-H1 — كشف الحسابات عبر التوقيت (HIGH)
-الموقع: UnifiedAuthService.php الأسطر 25–41.
+H1 — مفيش indexes على المفاتيح الأجنبية (HIGH، أداء)
+الموقع: create_product_variants_table.php سطر 16، وcreate_products_table.php سطور 17 و18 و38.
 
-المشكلة: Hash::check لا يُنفّذ إلا إذا وُجد صف في الجدول:
+المشكلة: foreignId()->constrained() في Postgres بيعمل القيد بس، من غير index. الاستعلامات اللي بتتأثر:
 
-إيميل غير موجود في أي جدول: bcrypt واحد (dummy عند العميل).
-إيميل موظف بباسورد خاطئ: اثنان.
-إيميل موجود عند الموظفين والموردين: ثلاثة.
-بتكلفة bcrypt الافتراضية الفرق حوالي 100–250ms لكل عملية، وهذا يُقاس بسهولة حتى عبر الإنترنت.
+$product->variants() في كل حتة.
+withCount('variants') وwithMin وwithMax في Admin\ProductController::index.
+الاستعلام الفرعي المرتبط withStoreAvailability، واللي بيتنفذ مرة لكل منتج في كل صفحة من المتجر.
+withCount('products') وactiveProducts في أقسام المتجر.
+whereIn('category_id', ...).
+الشروط: بتظهر لما عدد المتغيرات يوصل لعشرات الآلاف.
 
-الشروط: أي مهاجم بدون مصادقة. الـ limiter (30/دقيقة لكل IP) لا يمنع القياس عبر IPs متعددة.
+الأثر: صفحة واحدة في المتجر فيها 20 منتج بتعمل حوالي 20 قراءة كاملة لجدول product_variants، بالإضافة لاستعلامات min_price وin_stock. زمن الاستجابة هيزيد بشكل خطي مع حجم البيانات، والـ CPU في قاعدة البيانات هيتشبع تحت الضغط.
 
-الأثر: حصر إيميلات الموظفين والمديرين (أهداف عالية القيمة)، ثم phishing موجّه أو credential stuffing مركّز. هذا يُفرغ توحيد رسالة الخطأ من قيمته.
+الإصلاح: في §9-1. أضف product_variants(product_id, sort_order) وproducts(category_id) وproducts(brand_id). ولو الجداول فيها بيانات، ابنيها بـ CREATE INDEX CONCURRENTLY.
 
-الإصلاح: نفّذ Hash::check في كل جدول دائمًا، مع dummy hash لو الصف غير موجود. الكود في §9-1.
+المقابل: كتابة أبطأ شوية ومساحة تخزين أكبر بقدر بسيط.
 
-لماذا يعمل: دخول الإيميل يكلّف دائمًا ثلاث عمليات bcrypt، بغض النظر عن وجود الحساب.
+H2 — رفع الميديا جوه قفل صف المنتج (HIGH، اعتمادية وتوافر)
+الموقع: ProductMediaService::upload سطر 32، ومعاها Product::registerMediaConversions وProductVariant::registerMediaConversions (->nonQueued())، وUploadProductMediaRequest سطر 35.
 
-المقايضة: CPU أعلى لكل محاولة بالإيميل (حتى 3× bcrypt). بعد تنظيف الإيميلات المكررة بين الجداول يمكن الاكتفاء بفحص واحد لأول حساب موجود، لكن هذا يكسر سلوك «الإيميل المشترك» الذي يختبره test_shared_email_resolves_by_matching_password_with_priority.
+المشكلة: الـ transaction بتعمل lockForUpdate على المنتج، وبعدين لكل صورة (لحد 10):
 
-H2 — تجاوز حد المعرّف في unified-login (HIGH)
-الموقع: AppServiceProvider في RateLimiter::for('unified-login').
+ترفع الأصل على R2.
+تنزله تاني.
+تولد thumb وmedium بشكل متزامن.
+ترفعهم.
+ده كله والقفل والاتصال بقاعدة البيانات مفتوحين. والمسموح صور لحد 6000×6000، يعني 36 مليون بكسل. فك ضغط صورة زي دي في GD بياخد حوالي 144MB لكل مرة تحميل، وكل تحويل بيحمّل الصورة من جديد.
 
-المشكلة: المفتاح محسوب كالتالي:
+الشروط:
 
-Copyhash('sha256', Str::lower(trim((string) $request->input('login'))))
-لكن CustomerAuthService::login يطبّع الموبايل عبر Customer::normalizePhone. فالصيغ 01012345678 و+201012345678 و00201012345678 و010 1234 5678 والأرقام العربية ٠١٠... كلها تصل لنفس الحساب، وكل صيغة لها عدّاد مستقل.
+رفع 10 صور كبيرة.
+صورة PNG مقاسها 6000×6000 وحجمها أقل من 5MB، وده سهل جدًا لأن الصورة الملونة بلون واحد بتنضغط لأحجام صغيرة.
+R2 يبقى بطيء، وحد الـ timeout هو 30 ثانية لكل طلب.
+الأثر:
 
-الـ limiter القديم customer-login كان يطبّع الموبايل، ونُسي ذلك هنا.
+كل عمليات الكتابة على المنتج تتعطل طول فترة الرفع: التعديل والنشر والمتغيرات وحذف الصور.
+عامل PHP يفضل محجوز، واتصال قاعدة بيانات يفضل محجوز.
+لو حصل Fatal بسبب الذاكرة أو max_execution_time، العملية بتموت قبل ما afterRollBack يشتغل. الملفات اللي اترفعت على R2 بتفضل يتيمة، ومفيش أي حاجة بتمسحها.
+الإصلاح (§9-4):
 
-الأثر: عشرات أضعاف ميزانية التخمين على حساب عميل واحد (5/دقيقة و30/ساعة لكل صيغة)، ويمكن ضربها في عدد الـ IPs.
+اشيل lockForUpdate من الرفع. الرفع بيزود صور بس، فمش بيكسر أي شرط من شروط النشر. فحص "آخر صورة" في الحذف بيفضل محمي بقفل في delete.
+خلي كل ملف في transaction قصيرة لوحده.
+قيد عدد البكسلات (25 مليون مثلًا) بدل حد 6000×6000.
+ولو المستخدم بيرفع أكتر من ملف في الطلب، قلل الحد الأقصى من 10 لـ 4. الواجهة أصلًا بتبعت ملف واحد في كل طلب.
+المقابل: order_column ممكن يتكرر في حالة رفع متزامن. ده مقبول لأن الترتيب أصلًا بيكسر التعادل بالـ id، والواجهة بتنادي reorder في آخر الحفظ.
 
-الإصلاح: طبّع المعرّف بنفس منطق CustomerAuthService. الكود في §9-2.
+H3 — سباق الحذف مع حركات المخزون بيحبس الرصيد (HIGH، اتساق البيانات)
+الموقع: VariantService::delete سطور 84–92، وProductService::delete سطور 125–131، مقابل ProductionReceiptService::receive سطر 38.
 
-المقايضة: لا يوجد.
+المشكلة: الاستلام بيقفل صفوف المتغيرات بـ FOR UPDATE. لكن الحذف بيقفل صف المنتج بس، وبعدين يفحص hasNonZeroBalance(). الاتنين بيقفلوا حاجات مختلفة، فمفيش أي تسلسل بينهم. السيناريو في وضع READ COMMITTED:
 
-H3 — LOWER(email) بدون index وظيفي، وunique حساس لحالة الأحرف (HIGH)
+الاستلام يقفل المتغير ويسجل حركة على المخزون، ولسه ما عملش commit.
+الحذف يفحص الرصيد، ويشوف صفر لأن حركة الاستلام لسه ما اتعملهاش commit.
+الحذف يعمل UPDATE product_variants SET deleted_at ويستنى قفل الاستلام.
+الاستلام يعمل commit، والحذف يكمل.
+الأثر: متغير محذوف حذف ناعم وعليه رصيد. ده عيب M-9 نفسه اللي التعليقات في الكود بتقول إنه اتقفل.
+
+الإصلاح (§9-3): اقفل صفوف المتغيرات FOR UPDATE مرتبة بالـ id قبل فحص الرصيد. وفي READ COMMITTED، أي استعلام بعد القفل بيشوف آخر حاجة اتعملها commit. ولازم كل المسارات اللي بتزود الرصيد في InventoryService تقفل صف المتغير هي كمان (تحتاج تأكيد، لأن الملف مش في الحزمة).
+
+المقابل: تعارض بسيط على صفوف المتغيرات، وده مقبول.
+
+H4 — دقة cost_price وعمود compare_at_price (HIGH، تحتاج تأكيد)
 الموقع:
 
-UnifiedAuthService الأسطر 25 و34.
-CustomerAuthService::login السطر 64.
-EmailNotUsedByOtherAccountType السطر 26.
-migrations: users.email->unique() وcustomers.email->unique() وsupplier_users.email->unique().
-المشكلة الأولى (أداء): على PostgreSQL لا يمكن استخدام index على email في شرط LOWER(email) = ?. النتيجة:
+create_product_variants_table.php سطر 24: decimal('cost_price', 12, 2).
+ProductVariant بيعرّف 'cost_price' => 'decimal:4'.
+ProductionReceiptService سطر 64 بيكتب round($average, 4).
+الـ migration الوحيدة اللي بتعدل الجدول بتضيف last_cost_price وبس.
+المشكلة: Postgres بيقرّب للخانتين بصمت. والمتوسط المرجح بيتحسب في كل استلام من القيمة المقرّبة، فالخطأ بيتراكم مع كل استلام. ده بيأثر على تكلفة البضاعة المباعة وتقارير الربح، وكل ده من غير أي خطأ ظاهر.
 
-كل دخول بالإيميل يعمل sequential scan على ثلاثة جداول.
-كل تسجيل يعمل scan إضافي لجدولين عبر القاعدة.
-جدول customers هو الأكبر وينمو بلا حد.
-
-المشكلة الثانية (سلامة البيانات): الـ unique الحالي حساس لحالة الأحرف. User لا يحتوي mutator يحوّل الإيميل لحروف صغيرة، على عكس SupplierUser. أي مسار يكتب في users بدون StoreUserRequest (seeder، tinker، endpoints قديمة، الـ factory) يمكن أن يُنشئ Admin@x.com بجوار admin@x.com. بعدها ->first() يرجع صفًا غير محدد.
-
-الأثر:
-
-latency الدخول ترتفع خطيًا مع حجم البيانات، والـ DB تستهلك CPU تحت هجمات stuffing.
-دخول غير حتمي لو وُجدت تكرارات.
-الإصلاح: expression indexes، الكود في §9-3. قبل التنفيذ شغّل استعلام كشف التكرار المذكور في task.txt.
-
-المقايضة: CREATE INDEX CONCURRENTLY يحتاج migration خارج transaction. لو فيه تكرارات حالية، الـ unique index سيفشل ويجب تنظيفها أولًا.
-
-H4 — migration العملاء لا تطابق الكود (HIGH، تحتاج تحقق)
-الموقع: 2026_10_15_014601_create_customers_and_supplier_users_tables.php.
-
-المشاكل:
-
-status enum ['pending','approved','rejected','blocked']، بينما CustomerStatus فيه Suspended = 'suspended'. على pgsql يُنشئ Laravel الـ enum كـ CHECK constraint، فأي إيقاف لعميل يفشل بخطأ 23514 ويرجع 500. وكل منطق الإيقاف في login وissueToken وEnsureCustomerAuthenticated لا يمكن الوصول إليه.
-phone من نوع nullable وغير unique. لكن الدخول بالهاتف يستخدم where('phone')->first()، والتوثيق يقول إن الهاتف «إلزامي وفريد».
-لا توجد أعمدة deleted_at وemail_verified_at وphone_verified_at وsuspension_reason وcompany_name وapproved_at، وكلها مستخدمة في Customer (SoftDeletes) والـ factory والـ seeder وCustomerAuthService.
-migration بتاريخ 2026_10_15_014600 تضيف phone/branch_id/is_active لجدول users، وmigration بتاريخ 2026_10_14 تنشئ personal_access_tokens. النظام كان يستخدم Sanctum والفروع قبل ذلك، فغالبًا هذه الأعمدة والجداول موجودة أصلًا.
-الأثر: أحد احتمالين:
-
-migrate يفشل في الإنتاج بخطأ relation/column already exists.
-أو قاعدة بيانات جديدة تُبنى بمخطط مختلف عن المتوقع، وتفشل الاستعلامات.
-نجاح الاختبارات يعني غالبًا وجود migrations أخرى غير مرفقة، وهذا بالضبط ما يجب التأكد منه.
+وكمان compare_at_price موجود في $fillable وفي VariantRules، وبيتبعت في كل payload من الواجهة، لكن مش موجود في create_product_variants_table ولا في أي migration في الحزمة. لو مفيش migration تانية بتضيفه، كل إنشاء أو تعديل لمتغير هيرجع 500.
 
 الإصلاح:
 
-شغّل php artisan migrate --pretend على نسخة من مخطط الإنتاج.
-احذف الـ migrations المكررة، أو احمها بـ Schema::hasTable وSchema::hasColumn.
-صحّح الـ CHECK constraint (§9-8).
-أضف unique(phone)، أو partial unique WHERE deleted_at IS NULL لو كان السلوك المطلوب أن الهاتف المحذوف يمكن إعادة استخدامه. لاحظ أن CustomerPhoneVerificationService::send يستخدم withTrashed()، أي أن المحذوف يُعتبر محجوزًا، فالـ unique الكامل أتسق.
-H5 — مورد موقوف يحصل على توكن (HIGH، تحتاج تحقق)
-الموقع: UnifiedAuthService السطر 36.
+ALTER COLUMN cost_price TYPE numeric(14,4) (§9-2).
+اعمل VariantRules.cost_price بـ decimal:0,4 عشان يتسق مع الاستلام.
+راجع وجود migration العمود compare_at_price.
+استخدم bcmath في حساب المتوسط، لأن float بيفقد الدقة لما حاصل الضرب يعدّي 2^53.
+المقابل: تغيير الـ scale بيعيد كتابة الجدول وهو مقفول قفل ACCESS EXCLUSIVE، فلازم تعمله في نافذة صيانة.
 
-المشكلة: الشرط يفحص supplierUser->is_active وsupplier_id === null فقط، ولا يفحص suppliers.is_active.
+H5 — bucket واحد للكتالوج والمستندات الخاصة (HIGH، ويبقى CRITICAL حسب الإعداد)
+الموقع:
 
-الشروط: الإدارة توقف شركة مورد بالكامل بدون أن تعطّل كل مستخدميها.
+filesystems.php سطر 16 (default => r2) وسطر 71 (url => R2_PUBLIC_URL).
+MediaUrlGenerator سطر 13.
+MigrateUploadsToR2 سطور 59–67، ودي بتنقل customer_documents وsupplier_invoices وغيرهم لنفس الـ disk.
+المشكلة: الكود نفسه بيعتبر ضبط R2_PUBLIC_URL طريقة طبيعية عشان صور المنتجات تشتغل بروابط عامة. لكن الإتاحة العامة في R2 بتتحدد على مستوى الـ bucket كله، وده مكتوب صراحة في SKILL.md سطر 36.
 
-الأثر: المستخدم يدخل ويرى أوامر الشراء والفواتير والمدفوعات، إلا إذا كان EnsureSupplierAuthenticated (غير مرفق) يفحص الشركة. حتى لو كان يفحصها، الدخول يصدر توكنًا ويحوّل لبوابة تعطي 403 مباشرة.
+الأثر: أول ما حد من فريق التشغيل يفعّل الرابط العام عشان يحسن أداء الصور، مستندات هوية العملاء وفواتير الموردين تبقى متاحة لأي حد يعرف المسار أو يخمّنه. وده كمان بيفتح مسارات صور المسودات.
 
-الإصلاح: $supplierUser->supplier?->is_active !== true يُعامل كحساب غير نشط (§9-1)، ونفس الفحص في me() وفي الـ middleware.
+الإصلاح: اعمل disk منفصل r2_public لمجموعات الكتالوج بس (Product وProductVariant وCategory وBrand) باستخدام ->useDisk('r2_public')، وعدّل TransactionalMediaObserver::creating عشان يقبل الـ disk ده. وخلي MediaUrlGenerator يرجع رابط مؤقت للـ disk الخاص في كل الأحوال، حتى لو url مضبوط. وده بالظبط اللي SKILL.md سطور 37–39 بيوصي بيه.
 
-M1 — حقل actor.subtype يختلف بين /login و/me (MEDIUM)
-الموقع: UnifiedAuthController::respond السطر 142 مقابل me() السطر 108.
+المقابل: bucket إضافي وmigration بسيطة لصور الكتالوج.
 
-المشكلة:
+MEDIUM
+M1 — تعارض القيود الفريدة في حالة التزامن بيرجع 500.
 
-في login: subtype = $redirect['destination']، والقيم wholesale_pending أو wholesale أو retail.
-في me: subtype = $actor->type->value، والقيم wholesale أو distributor أو retail.
-الأثر: أي فرونت يبني Destination من /me سيعطي عميل جملة لم يُعتمد بعد قيمة wholesale، وتفتح له واجهة البوابة. والموزّع يحصل على distributor، وهي ليست قيمة Destination صالحة. الخطر الحالي محدود لأن الـ storefront لا يستدعي me، لكن M2 يتطلب استدعاءه.
+الموقع: SlugService::make وUniqueCatalogIdentifier، وتوليد الـ SKU في VariantService سطور 28–32، وBrandService::create وCategoryService::create.
+المشكلة: فحص التفرد بيحصل على مستوى التطبيق بس، بعدها بيحصل الإدخال (فحص ثم استخدام). مثال: طلبين في نفس اللحظة لإنشاء منتج بنفس name_en. إنشاء المنتج بياخد قفل مشترك بس، فالطلبين بيولّدوا نفس الـ slug، والقيد الفريد بيرمي UniqueConstraintViolationException.
+الأثر: خطأ 500 بدل 409 أو 422، والواجهة تعرض رسالة عامة.
+الإصلاح: حوّل الاستثناء لـ BusinessException برسالة واضحة. وفي حالة الـ slug المتولد تلقائيًا، اعمل إعادة محاولة واحدة (§9-6).
+M2 — LOWER(column) = ? بيمنع استخدام الـ index.
 
-الإصلاح: subtype = destination في الحالتين، وأضف customer_type منفصلًا (§9-5).
+الموقع: UniqueCatalogIdentifier سطر 20.
+المشكلة: كل فحص بيقرأ الجدول كله. ومع variants.*.sku في إنشاء منتج فيه 100 متغير، ده بيبقى 100 قراءة كاملة لجدول المتغيرات، وفوقهم حوالي 200 استعلام لـ barcode (Rule::unique والـ closure).
+الإصلاح: أعمل index فريد وظيفي CREATE UNIQUE INDEX ... (lower(slug))، ونفس الحاجة لـ sku. كده الاستعلام نفسه يستخدم الـ index، وقاعدة البيانات نفسها تفرض التفرد بغض النظر عن حالة الحروف. وبكده الحماية تبقى على أقوى مستوى.
+M3 — UuidPathGenerator بيعمل طلب شبكة جوه توليد الروابط.
 
-M2 — الـ storefront لا يعيد التحقق من الجلسة، فالوجهة تبقى قديمة (MEDIUM)
-الموقع: RequireActor.tsx وstore/auth.store.ts (persist في alfarid_web_auth).
+الموقع: UuidPathGenerator سطر 22.
+المشكلة: أي ميديا قديمة مفيهاش path_layout بتعمل Storage::exists (طلب HEAD على R2) في كل طلب، ولكل رابط: الأصل وthumb وmedium.
+الأثر: قائمة فيها 100 منتج ممكن تعمل مئات الطلبات على R2. ولأن throw => true، أي عطل في R2 بيرجّع قائمة المنتجات كلها بـ 500.
+الإصلاح: خلي media:backfill-path-layouts خطوة إلزامية في النشر. وبعدها، لما path_layout تكون ناقصة، ارجع لـ id/ على طول من غير ما تعمل طلب شبكة، وسجّل تحذير.
+M4 — روابط موقّعة جديدة في كل طلب، وحجم استجابة القائمة في لوحة التحكم.
 
-المشكلة: destination وhome يُحفظان لحظة الدخول ولا يتحدثان أبدًا.
+الموقع: MediaUrlGenerator وAdmin\ProductResource سطر 38.
+المشكلة: الرابط بيتغير في كل طلب، فالمتصفح والـ CDN مش بيقدروا يعملوا cache. ولو صفحات Next.js (ISR) أو أي cache تاني فضل محتفظ بالـ HTML أكتر من الـ TTL (ساعة)، الصور بتظهر مكسورة. وقائمة لوحة التحكم بترجّع كل صور كل منتج، وكل صورة بـ 3 روابط موقّعة، لحد 100 منتج في الصفحة.
+الإصلاح: حل H5 بيعالج التخزين المؤقت. ورجّع images في show بس، وفي index كفاية main_image.
+M5 — إنشاء قسم بياخد القفل الحصري على الشجرة كلها وقت الرفع على R2.
 
-السيناريوهات:
+الموقع: CategoryService::create سطر 19.
+الأثر: طول رفع الصورة (لحد 30 ثانية)، كل عمليات إنشاء وتعديل ونشر المنتجات بتقف، لأنها كلها بتاخد القفل المشترك.
+الإصلاح: الإنشاء مش محتاج قفل حصري. التحريكات اللي بتغير العمق بتاخد قفل حصري أصلًا، والعقدة الجديدة مفيهاش أبناء. فكفاية قفل مشترك مع FOR SHARE على صف الأب، عشان يتسلسل مع الحذف اللي بيقفل الصف بـ FOR UPDATE (§9-7).
+M6 — كتالوج الجملة بيعرض منتجات القطاعي بس.
 
-عميل جملة pending يُعتمد: يبقى wholesale_pending، وRequireActor allow={['wholesale']} يرجعه لصفحة الحالة، ولا يصل للبوابة إلا بعد logout ثم login.
-عميل يُوقف: يظل يرى هيكل الواجهات (الباك إند يرفض البيانات).
-الإصلاح: استدعِ authEndpoints.me() عند الـ hydration وحدّث الجلسة من redirect.destination (§9-7).
+الموقع: Wholesale\ProductController::index سطر 46.
+المشكلة: الشرط الوحيد هو status = published. مفيش فلتر على sales_channel، ولا فحص إن مسار القسم نشط، والمتاح محسوب من فروع غير نشطة كمان.
+الأثر: منتجات قنواتها قطاعي بس بتتعرض للتجار وبتتسعّر، وكميات المتاح بتختلف عن المتجر.
+الإصلاح: §9-8.
+M7 — migration قيد CHECK على stock_movements بيقفل الجدول.
 
-M3 — مدخل login من نوع array يسبب 500 قبل الـ validation (MEDIUM)
-الموقع: unified-login limiter: (string) $request->input('login').
+الموقع: create_production_receipts_table سطور 14–15.
+المشكلة: ADD CONSTRAINT CHECK بيفحص كل الصفوف وهو ماسك قفل ACCESS EXCLUSIVE، ففي الوقت ده كل البيع والحركات بيقف.
+الإصلاح: ADD CONSTRAINT ... NOT VALID، وبعدها VALIDATE CONSTRAINT، ودي بتاخد قفل أخف بكتير.
+M8 — معاملات المسارات في لوحة التحكم مش متقيدة بأرقام.
 
-المشكلة: {"login":["x"],"password":"y"} يسبب «Array to string conversion»، وLaravel يحوّل الـ warning إلى ErrorException، فيرجع 500. الـ throttle يعمل قبل الـ FormRequest.
+الموقع: routes/api/admin.php سطور 163–179.
+المشكلة: طلب زي /products/abc أو /products/99999999999999999999 بيعمل خطأ Postgres من نوع 22P02 أو 22003، والنتيجة 500. ملف المتجر عالج المشكلة دي (M7)، لكن لوحة التحكم لأ.
+الإصلاح: Route::pattern لـ product وvariant وcategory وbrand وmedia.
+M9 — الرفع مش idempotent، وحد الـ timeout في الواجهة 30 ثانية.
 
-الأثر: استجابة غير متحكم بها، وضجيج في السجلات يمكن استغلاله لإغراق أنظمة التنبيه. الـ limiter القديم customer-login كان يحمي نفسه بـ is_string.
+الموقع: productMediaApi.uploadImages (من غير timeout مخصص) وpersist.ts سطور 105–111.
+المشكلة: لو الرفع والتحويل خدوا أكتر من 30 ثانية، الواجهة بتعتبر الملف فشل، مع إن السيرفر كمّل وعمل commit. إعادة المحاولة بترفع نسخة تانية.
+الإصلاح: ابعت client_upload_id (UUID) لكل ملف، واعمل index فريد جزئي على custom_properties->>'client_upload_id'، واستقبل التعارض على إنه إعادة تشغيل للطلب (§9-5). وزوّد الـ timeout لصور الرفع.
+M10 — MigrateUploadsToR2 هش في التشغيل.
 
-الإصلاح: مدمج في §9-2.
+المشكلة: ملف واحد ناقص بيوقف التشغيل كله (سطر 31)، فالـ migration مش هتخلص أبدًا لحد ما حد يصلح السجل يدويًا. كمان --delete-source بيمسح ملفات local الخاصة، ولو في أي كود لسه بيستخدم Storage::disk('local') بشكل صريح هيقع (تحتاج تأكيد).
+الإصلاح: سجّل الأخطاء وكمّل، وارجع FAILURE في الآخر لو حصلت أخطاء. وقبل الحذف، دوّر على أي Storage::disk('local'|'public') في الكود.
+M11 — Deadlock في ترتيب الأقسام وقت التزامن.
 
-M4 — supplier_id يشير لمورد محذوف يسبب 500 عند الدخول وفي /me (MEDIUM)
-الموقع: migration supplier_users.supplier_id (بدون FK)، وSupplierUserResource الأسطر 27–30.
-
-المشكلة: supplier_id ليس null فيمر الفحص، وload('supplier') يرجع null، ثم $this->supplier->id يسبب «read property on null».
-
-الإصلاح:
-
-§9-1 يرفض هذا الحساب.
-اجعل الـ resource آمنًا مع null (§9-6).
-أضف foreignId('supplier_id')->constrained()->restrictOnDelete() مع index.
-M5 — مسارات الدخول القديمة ما زالت تعمل (MEDIUM)
-الموقع: التوثيق يقول إن admin/auth/login وpos/auth/login وstore/auth/login وsupplier/auth/login محفوظة للتوافق.
-
-المشكلة:
-
-كل مسار له limiter مستقل. ThrottleRequests يضيف اسم الـ limiter إلى المفتاح قبل الـ md5، فلا تُجمع العدّادات. النتيجة أن ميزانية التخمين على إيميل موظف تتضاعف حوالي 3 مرات (unified + admin + pos)، كل واحد 5/دقيقة و30/ساعة.
-admin/auth/login يُصدر توكن موظف مباشرة لأي origin، وهذا ينقض هدف «توكن الموظف لا يظهر على دومين الويب».
-الإصلاح: عطّلها بـ feature flag (مثلًا config('auth.legacy_login_enabled')، القيمة false في الإنتاج)، أو احذفها بعد نقل الاختبارات. لو كانت ضرورية مؤقتًا، طبّق عليها throttle:unified-login مع قراءة email كبديل لـ login.
-
-M6 — حدود المعدل غير مناسبة للإنتاج (MEDIUM)
-المشكلة الأولى: 30/دقيقة لكل IP أقل من حد customer-login القديم (120). شبكات المحمول في مصر تستخدم CGNAT بكثافة، وفرع فيه عدة كاشيرات بداية الوردية يشترك في IP واحد. النتيجة 429 لمستخدمين شرعيين.
-
-المشكلة الثانية: حد المعرّف (30/ساعة) يمكّن أي شخص من قفل حساب أي مدير لمدة ساعة بـ 30 طلبًا خاطئًا (lockout DoS). والطلبات الناجحة تُحسب أيضًا.
-
-الإصلاح:
-
-اجعل حد الـ IP قابلًا للضبط وبقيمة افتراضية 120.
-أبقِ حد المعرّف، مع إضافة مفتاح مركّب (IP + معرّف) بحد أعلى وتخفيض الحد العام، أو اقبل المقايضة وراقبها.
-المقايضة: أي تخفيف للقفل يزيد ميزانية التخمين قليلًا. الخيار المتوازن: حد المعرّف لكل IP يساوي 5/دقيقة، وحد المعرّف العام يساوي 100/ساعة.
-
-M7 — الـ handoff code في الـ query string وغير مربوط بالعميل (MEDIUM)
-الموقع: auth.service.ts (/auth/callback?code=...) وAuthCallbackPage.tsx.
-
-المشكلة:
-
-الكود يصل لخادم الباك أوفيس (nginx access logs) ولأي أداة analytics أو monitoring تسجّل الـ URL، ويبقى في الـ history حتى الـ replace.
-لا يوجد ربط بالمتصفح الذي بدأ الدخول. من يحصل على الكود خلال 60 ثانية وقبل استهلاكه يحصل على توكن موظف كامل، ربما بصلاحيات مدير.
-الإصلاح الأبسط: انقل الكود إلى الـ fragment (#code=). الـ fragment لا يُرسل للخادم ولا في الـ Referer. ثم امسحه بـ history.replaceState (§9-9).
-
-تحسين اختياري: ربط بنمط PKCE، أي أن الـ storefront يرسل code_challenge مع الدخول والباك أوفيس يرسل الـ verifier. لا أوصي به الآن لأن الـ fragment مع TTL 60 ثانية والاستهلاك لمرة واحدة يغطي معظم الخطر.
-
-M8 — StaffHandoffService::consume قد يرمي LockTimeoutException فيرجع 500 (MEDIUM)
-الموقع: StaffHandoffService الأسطر 28–29.
-
-المشكلة:
-
-block(5, ...) يرمي استثناء لو لم يُحصل على القفل خلال 5 ثوانٍ (طلبان متزامنان بنفس الكود، أو بطء في الـ DB أو Redis).
-الآلية تفترض cache مشتركًا بين الخوادم ويدعم الأقفال. file أو array على عدة nodes يكسر الـ handoff بصمت.
-الاختبارات تعمل على CACHE_STORE=array، فلا تثبت شيئًا عن الأقفال الحقيقية.
-الإصلاح:
-
-التقط الاستثناء وأرجع null، فتكون النتيجة 401 (§9-4).
-عند الإقلاع في الإنتاج تحقق أن الـ store هو redis أو database.
-M9 — توكنات الموظفين بلا حد وبلا تنظيف، وتوكنات يتيمة (MEDIUM)
-الموقع: exchange() السطر 77، وauth.service.ts السطر 11، وAuthCallbackPage.
-
-المشكلة:
-
-كل دخول موظف ينشئ توكنًا جديدًا بلا حد أقصى. العملاء لهم حد 10 والموردون 5، والموظفون بلا حد.
-دخول موظف من storefront فيه جلسة عميل ينفّذ clear() محليًا بدون استدعاء logout، فيبقى توكن العميل صالحًا على الخادم 24 ساعة.
-handoff جديد في باك أوفيس فيه جلسة سابقة يستبدل التوكن بدون إلغاء القديم.
-الأثر: نمو مستمر في personal_access_tokens، وتوكنات صالحة لا يملكها أحد.
-
-الإصلاح:
-
-طبّق نفس الحد على الموظفين داخل transaction (§9-5).
-جدولة sanctum:prune-expired --hours=24.
-في الـ storefront: await authEndpoints.logout().catch(()=>{}) قبل clear() لو وُجد توكن.
-M10 — فشل دمج السلة بعد إصدار التوكن يُفشل الدخول كله (MEDIUM)
-الموقع: UnifiedAuthController::login الأسطر 56–57.
-
-المشكلة: issueToken ينفّذ commit للتوكن، ثم mergeGuestCart في transaction أخرى. لو الدمج فشل (deadlock 40P01 يتحول إلى 409، أو constraint، أو timeout):
-
-المستخدم يرى فشل دخول.
-التوكن موجود ويتيم.
-كل إعادة محاولة تصدر توكنًا جديدًا.
-الإصلاح: الدمج best-effort مع report()، وإرجاع cart_merged حتى لا يحذف الفرونت cart_session إذا فشل الدمج (§9-5).
-
-M11 — تضخم كتابات الـ audit، ومعرّفات قابلة للعكس (MEDIUM)
-الموقع: CustomerAuthService::login السطر 69.
-
-المشكلة:
-
-كل محاولة فاشلة تكتب صفًا، حتى لمعرّفات غير موجودة، وحتى لمحاولات إيميل موظف فشلت ثم انتقلت لمسار العميل. هجوم stuffing موزع يتحول إلى كتابات DB غير محدودة ونمو في جدول بلا retention.
-identifier_key = sha256(phone) بدون مفتاح. مساحة أرقام الموبايل المصرية حوالي 10⁹، فالعكس بالقوة الغاشمة يأخذ دقائق. أي أن السجل يحتوي فعليًا أرقام هواتف وإيميلات بنص قابل للاسترجاع.
-الإصلاح:
-
-استخدم hash_hmac('sha256', $identifier, config('app.key')).
-لا تسجل المحاولات لمعرّفات غير موجودة في الجدول، واكتفِ بـ log بمستوى info مع sampling.
-أضف سياسة retention (prune job).
-M12 — لا توجد مراقبة لدخول الموظفين والموردين (MEDIUM)
-المشكلة: العملاء لهم audit log. الموظفون (الأعلى صلاحية) والموردون ليس لهم أي سجل للنجاح أو الفشل أو استهلاك الـ handoff.
-
-الأثر: لا يمكن اكتشاف brute force على المديرين، ولا التحقيق في دخول مشبوه.
-
-الإصلاح: logger()->info('staff.login', ['user_id'=>..., 'ip'=>...]) عند النجاح والفشل (بعد التحقق من وجود الحساب)، وعند exchange. لا حاجة لجدول جديد.
-
-M13 — التفرد عبر الجداول على مستوى التطبيق فقط (MEDIUM)
-الموقع: EmailNotUsedByOtherAccountType.
-
-المشكلة:
-
-check-then-insert: تسجيل عميل وإنشاء موظف متزامنين بنفس الإيميل كلاهما يمر. لا يوجد قيد DB عبر الجداول.
-القاعدة لا تحمي إلا المسارات التي تستخدمها. تعديل العميل لإيميله من الملف الشخصي، والإنشاء من الإدارة، والاستيراد، ليست ضمن الحزمة (تحتاج تحقق).
-القاعدة تحتسب إيميل عميل غير مُوثَّق. أي شخص يسجل بإيميل موظف مستقبلي فيمنع إنشاء حسابه، والعميل نفسه لا يستطيع الدخول بهذا الإيميل.
-الأثر: النظام يتحمل الإيميل المكرر عبر مطابقة الباسورد، لذا الخطر الأمني محدود. لكن لو تطابق الباسورد في حسابين، الحساب الأدنى أولوية لا يصل إليه صاحبه أبدًا (L4).
-
-الإصلاح:
-
-القيد العابر للجداول غير ممكن بسهولة على PostgreSQL، وجدول identities مركزي تعقيد غير مبرر الآن. اقبل الحالة النادرة مع مراقبة.
-طبّق القاعدة في كل مسار كتابة.
-اجعل الفحص على customers مشروطًا بـ whereNotNull('email_verified_at') إذا قبلت أن العميل غير المُوثَّق لا يحجز الإيميل.
-M14 — كاشير في فرع موقوف أو محذوف يُوجَّه للـ POS (MEDIUM)
-الموقع: LoginDestinationResolver السطر 26، وusers.branch_id بدون FK.
-
-الإصلاح: if ($actor->branch === null || ! $actor->branch->is_active) throw ...، وأضف FK مع index على branch_id.
-
+الموقع: CategoryService::reorder سطر 149.
+المشكلة: طلبين ترتيب من غير نقل بياخدوا القفل المشترك سوا، وكل واحد بيحدّث الصفوف بترتيب الطلب بتاعه. Postgres بيكتشف الـ deadlock ويرجّع 500.
+الإصلاح: رتّب items بالـ id قبل التحديث.
 LOW
-L1: حد توكنات المورد (issueSupplierToken) غير ذري؛ دخولان متزامنان قد يتجاوزان الحد. يُحل بـ §9-5.
-L2: لا يوجد rehash للباسورد عند تغيير تكلفة bcrypt، على عكس Auth::attempt. أضف if (Hash::needsRehash($model->password)) $model->forceFill(['password'=>$password])->save(); بعد النجاح.
-L3: عميل retail حالته rejected (لو غيرتها الإدارة): الوجهة /، لكن EnsureCustomerAuthenticated يرفض كل شيء، فتصبح الواجهة معطلة بلا رسالة واضحة. وجّهه لصفحة حالة، أو امنع rejected للـ retail.
-L4: حسابان مشتركان في الإيميل والباسورد معًا: الأدنى أولوية لا يصل إليه صاحبه أبدًا. عالجه بمنع التكرار مستقبلًا وتنظيف الموجود.
-L5: consume() يرجع path المخزن ولا يُستخدم (الـ exchange يعيد الحساب). احذفه أو استخدمه.
+L1: SET LOCAL lock_timeout لما يخلص بيرجّع 500. الأفضل يتحول لـ 409 أو 503 برسالة "أعد المحاولة"، والمفتاح نفسه بيضمن إن إعادة المحاولة آمنة.
+L2: حذف منتج منشور محتاج products.delete بس، فمستخدم من غير products.publish يقدر يلغي النشر فعليًا عن طريق الحذف.
+L3: الـ barcode بيقبل حروف، والقيد الفريد حساس لحالة الحروف، فـ abc وABC بيتسجلوا كاتنين. وحّدهم بـ strtoupper في NormalizesCatalogInput. ونفس الكلام لـ batch_number، اعمله trim كمان.
+L4: فلتر in_stock بيفحص available > 0 لكل صف، بينما البطاقة بتحسب in_stock من المجموع. لو available ممكن يبقى سالب، النتيجتين هيتناقضوا.
+L5: صور الأقسام والعلامات مالهاش أي تحويلات، فصورة لحد 6000×6000 بتتعرض في بلاطات الأقسام في المتجر.
+L6: CatalogController::categories بيرتب الأبناء بـ sort_order من غير ما يكسر التعادل بالـ id، فالترتيب مش ثابت.
 INFO
-config/sanctum.php ما زال يضم stateful (localhost:3000) وguard => ['web']. لا ضرر حالي لأن statefulApi() غير مفعّل، لكنه مربك. اجعل guard => [].
-StaffRole::SuperAdmin غير مستخدم في الـ resolver.
-تخزين توكنات العملاء والموردين في localStorage يعرضها لأي XSS على الـ storefront. قرار معماري مقبول طالما توكن الموظف معزول، لكن احرص على CSP صارم.
-
-
-C1 — CRITICAL (مشروطة) · تصعيد صلاحيات عند إنشاء أو تعديل الموظفين
-الموقع: StoreUserRequest::authorize() وUpdateUserRequest::authorize() (كلاهما return $this->user() !== null)، وقاعدة roles.* التي تقبل أي role بـ guard_name=staff. ومعها المسارات permission:users.create|users.manage وpermission:users.update|users.manage.
-
-المشكلة: الـ middleware يتحقق من الإذن بالوصول للـ endpoint فقط. لا يوجد في الكود المرفق أي فحص لما يحق للموظف منحه.
-
-الشروط: موظف عنده users.create أو users.update فقط، بدون roles.manage. ويُشترط أن UserController نفسه لا يضيف فحصًا، وهذا ما لم أستطع التحقق منه.
-
-الأثر: هناك ثلاثة طرق للاستيلاء الكامل على النظام:
-
-POST /users بـ roles: ["Super Admin"] ثم الدخول بالحساب الجديد.
-PUT /users/{own_id} بـ roles: ["Super Admin"].
-PUT /users/{super_admin_id} بـ email وpassword جديدين، أي سرقة حساب المدير الأعلى.
-الإصلاح: نقل التفويض إلى authorize() (الكود في القسم 9). المبدأ: لا تمنح صلاحية لا تملكها. وحده الـ Super Admin يعدّل Super Admin. لا أحد يعدّل أدوار نفسه أو is_active الخاص به.
-
-لماذا يحل المشكلة: القيد يصبح على المحتوى المطلوب منحه، لا على الوصول للمسار فقط.
-
-المقايضة: استعلام إضافي لصلاحيات الأدوار المطلوبة، وتكلفته مهملة.
-
-مرتبط بها (MEDIUM، مشروطة): تغيير password أو email لموظف لا يلغي توكناته، لأن الـ requests لا تفعل ذلك والـ controller غير مرفق. لو سُرق توكن، فتغيير كلمة المرور لا يطرد المهاجم. الإصلاح: $user->tokens()->delete() داخل نفس الـ transaction عند تغيير password أو email، كما يفعل CustomerAuthService::resetPassword.
-
-H1 — HIGH · AuthCallbackPage تلغي التوكن الجديد
-الموقع: backoffice/src/pages/auth/AuthCallbackPage.tsx مع api-client/src/axios-instance.ts السطور 43–49.
-
-المشكلة: التسلسل الفعلي كالتالي:
-
-login(res.token, ...) يستدعي setAuthToken(res.token)، فيصبح activeToken هو التوكن الجديد.
-defaultApiClient.post('/api/v1/admin/auth/logout', {}, { headers: { Authorization: 'Bearer ' + prev } }).
-الـ request interceptor يكتب reqConfig.headers.Authorization = Bearer ${activeToken} بلا شرط، فيستبدل الـ header الصريح.
-الخادم يحذف التوكن الجديد. بعدها /dashboard → ProtectedRoute → staffMe → 401 → unauthorizedHandler → طرد إلى صفحة الدخول.
-الشروط: وجود backoffice_token سابق في localStorage مختلف عن الجديد. هذا يحدث عند إعادة الدخول من نفس المتصفح بدون logout صريح، أو عند تبديل الحساب، أو من تبويب ثانٍ.
-
-الأثر: حلقة طرد حتمية في هذه الحالات. والطلب يصل للخادم حتى لو بدأ التنقل (location.replace) لأنه أُرسل قبله. ولو كان التوكن القديم منتهيًا، فالـ 401 الناتج يشغّل unauthorizedHandler الذي يمسح الجديد من localStorage. أي أن الفشل يحدث في الحالتين.
-
-الإصلاح: إلغاء التوكن القديم قبل login() وبطلب لا يمر بالـ interceptors، مع جعل الـ interceptor يحترم أي Authorization صريح (القسم 9).
-
-المقايضة: انتظار طلب إضافي قصير قبل التحويل.
-
-H2 — HIGH · migration الـ FK تفشل على بيانات الإنتاج
-الموقع: 2026_10_21_000002_restrict_supplier_user_supplier_fk.php.
-
-المشكلة: الـ migration الأصلية (2026_10_15_014601) أنشأت supplier_id بدون FK. وسبب وجود M4 أصلًا هو صفوف تشير لموردين محذوفين. لكن ADD FOREIGN KEY يتحقق من كل الصفوف الموجودة، ولا يوجد أي تنظيف للـ orphans قبله.
-
-الشروط: صف واحد على الأقل في supplier_users يشير إلى supplier_id غير موجود. هذه بالضبط حالة M4.
-
-الأثر: SQLSTATE[23503] فيفشل الـ deploy. الـ transaction في PostgreSQL تُرجع التغييرات، لكن الـ pipeline تتوقف وكل الـ migrations التالية لا تُطبَّق.
-
-الإصلاح: فصل الـ orphans وتعطيلهم وإلغاء توكناتهم قبل إضافة القيد (القسم 9).
-
-المقايضة: مستخدمو موردين محذوفين يُعطَّلون صراحةً. هذا هو السلوك الصحيح أصلًا، وكان /me يرفضهم بـ 403 على أي حال.
-
-H3 — HIGH · تضخيم CPU في /api/v1/auth/login
-الموقع: UnifiedAuthService::attempt (bcrypt للـ staff وbcrypt للـ supplier ثم bcrypt للـ customer)، مع unified_login_ip_minute=120.
-
-المشكلة: كل محاولة بالبريد تكلف 3 bcrypt عمدًا. لو كانت كل عملية 80–250ms، فـ IP واحد عند الحد المسموح (120 في الدقيقة) يستهلك من 29 إلى 90 ثانية CPU في الدقيقة، أي 0.5 إلى 1.5 core. بضعة IPs تكفي لإشباع خوادم التطبيق. والـ endpoint بلا مصادقة، ورُفع حد الـ IP إلى 120 بسبب CGNAT.
-
-الأثر: DoS رخيص على كل المنصة، لأن نفس الـ workers تخدم المتجر والـ POS.
-
-الإصلاح: bcrypt واحدة ثابتة لكل محاولة بالبريد. نجلب المرشحين من الجداول الثلاثة (3 استعلامات indexed رخيصة)، ثم نفحص مرشحًا واحدًا بالأولوية أو dummy hash. الفحص الإضافي يحدث فقط في حالة البريد المشترك الشاذة المسجَّلة أصلًا (القسم 9).
-
-لماذا يحل المشكلة: ثبات الزمن يتطلب عددًا ثابتًا من عمليات bcrypt، وواحد يكفي.
-
-المقايضة:
-
-حالة البريد المشترك بين جدولين تصبح قابلة للتمييز بالتوقيت. هي حالة شاذة يجب تنظيفها (L4)، ومعالجة C3 تمنع نشوءها.
-اختبار test_shared_email_resolves_by_matching_password_with_priority يبقى صالحًا لأن الفحص الإضافي محفوظ لهذه الحالة.
-H4 — HIGH (مشروطة) · migration الـ customers تتعارض مع الكود
-الموقع: 2026_10_15_014601_create_customers_and_supplier_users_tables.php.
-
-المشكلة: الـ migration المرفقة فيها:
-
-status enum بالقيم ['pending','approved','rejected','blocked']، بلا suspended الموجودة في CustomerStatus.
-email->unique() غير nullable، بينما registerRetail يمرر 'email' => $data['email'] ?? null.
-لا يوجد deleted_at ولا email_verified_at ولا phone_verified_at ولا company_name ولا rejection_reason ولا suspension_reason ولا approved_at.
-unique عادي، وهذا يناقض اختبار test_soft_deleted_customer_email_is_reusable والـ partial index المذكور في التعليقات.
-الشروط: إما أن هذه الـ migration هي التي تُطبَّق فعلًا، فيفشل التسجيل والإيقاف وأي استعلام على deleted_at. وإما أن هناك migration أقدم تنشئ customers، فتفشل هذه بـ relation already exists. نجاح الاختبارات يرجّح وجود migrations أخرى غير مرفقة، لكن هذا الملف متناقض في الحالتين.
-
-الإصلاح: تشغيل php artisan migrate:fresh على قاعدة نظيفة ومقارنة \d customers بالنموذج. ثم حذف الجزء المكرر من هذه الـ migration أو تصحيحه، وإضافة اختبار schema (القسم 10).
-
-M1 — MEDIUM · (int) config('sanctum.expiration') قد يمسح كل جلسات المستخدم
-الموقع: UnifiedAuthController::exchange السطر 105، وissueSupplierToken السطر 183.
-
-المشكلة: الافتراضي 1440 في config(..., 1440) يُستخدم فقط إذا كان المفتاح غير موجود. والمفتاح موجود دائمًا في sanctum.php بالقيمة env('SANCTUM_EXPIRATION', 1440). لو ضُبط SANCTUM_EXPIRATION= (فارغ) أو null، تكون النتيجة (int) '' = 0 ثم subMinutes(0) = now()، فيُحذف كل توكن أُنشئ قبل اللحظة الحالية.
-
-الأثر: كل دخول لموظف أو مورد يطرد كل أجهزته الأخرى. هذا يربك نقاط POS متعددة لنفس الحساب. المفارقة أن CustomerAuthService::issueToken يعالج هذه الحالة بـ ->when($expiry, ...)، فالسلوك غير متسق.
-
-الإصلاح: نفس نمط CustomerAuthService (القسم 9).
-
-M2 — MEDIUM · Lockout DoS وميزانية تخمين واسعة لحسابات الموظفين
-الموقع: RateLimiter::for('unified-login')، وconfig('auth.legacy_login_enabled', true) في admin.php وpos.php وsupplier.php وstore.php.
-
-المشكلة:
-
-Limit::perHour(100)->by('id-hour:'.$id) مستقل عن الـ IP ويحسب كل الطلبات، لا الفاشلة فقط. مهاجم من 20 IP يقفل أي بريد مدير أو هاتف عميل لمدة ساعة خلال دقيقة واحدة، والضحية تتلقى 429 حتى بكلمة المرور الصحيحة.
-في الاتجاه المعاكس: حساب الموظف يتحمل نحو 2400 محاولة في اليوم على المسار الموحد. وتُضاف ميزانيات مستقلة للمسارات القديمة: 30 في الساعة لـ admin-login و30 لـ pos-login، وكلاهما على نفس جدول users.
-الافتراضي في الكود مفتوح (true)، و.env.example يضبط LEGACY_LOGIN_ENABLED=true. نسيان المتغير في الإنتاج يبقي المسارات القديمة مفعّلة.
-الإصلاح:
-
-تغيير الافتراضي إلى config('auth.legacy_login_enabled', false).
-إزالة حد الساعة على المعرّف من الـ middleware، واستبداله بعدّاد فشل فقط داخل الخدمة. يُفحص قبل bcrypt، ويُزاد عند 401، مع حد يومي للفشل (القسم 9).
-المقايضة: المهاجم ما زال قادرًا على قفل حساب بالفشل المتعمد. لكن المستخدم الشرعي الذي ينجح لم يعد يستهلك الحصة، والحد اليومي يقلص ميزانية التخمين. الحل الجذري للموظفين هو MFA، وهي إضافة معمارية تُقيَّم لاحقًا.
-
-M3 — MEDIUM · تفرد البريد بين الجداول على مستوى التطبيق فقط
-الموقع: EmailNotUsedByOtherAccountType وكل الـ FormRequests التي تستخدمها.
-
-المشكلة: يحدث فحص exists() ثم insert بدون قفل مشترك. طلبان متزامنان (موظف ومستخدم مورد بنفس البريد) يمران معًا. وأيضًا عميل بريده غير مُتحقق لا يمنع إنشاء موظف بنفس البريد. لو تحقق العميل لاحقًا، تنشأ حالة مشتركة لا يمنعها شيء ظاهر في الكود.
-
-الأثر:
-
-الحساب الأدنى أولوية يصبح غير قابل للوصول بالبريد عند تطابق كلمة المرور.
-تتشابك تدفقات الاستعادة.
-السجل auth.shared_email يُكتب فقط لحالة staff مع supplier، ولا يُكتب لحالة staff أو supplier مع customer (L4).
-الإصلاح: الأبسط بدون بنية جديدة هو pg_advisory_xact_lock(hashtext(lower(email))) داخل transaction في كل مسار إنشاء أو تعديل بريد، وأيضًا في التحقق من بريد العميل، ثم إعادة الفحص. الأقوى جدول account_emails(email_ci unique) يُكتب في نفس الـ transaction.
-
-المقايضة: القفل يُسلسل العمليات على نفس البريد فقط، والتكلفة مهملة.
-
-M4 — MEDIUM · restrictOnDelete يحول حذف المورد إلى 500
-الموقع: نفس migration الـ FK، وbootstrap/app.php.
-
-المشكلة: حذف مورد له مستخدمون يرمي QueryException بـ SQLSTATE 23503. الـ handlers الموجودة تعالج 55P03 و40P01 وUniqueConstraintViolationException فقط.
-
-الأثر: 500 بدل رسالة مفهومة في لوحة الإدارة.
-
-الإصلاح: handler لـ 23503 يرجع 409 (القسم 9). والأفضل أن يفحص controller الحذف users()->exists() مسبقًا ويقترح التعطيل بدل الحذف.
-
-M5 — MEDIUM · كشف بريد الموظفين والموردين عبر التسجيل العام
-الموقع: RegisterRequest وWholesaleRegisterRequest، وكلاهما يستخدم EmailNotUsedByOtherAccountType('customers').
-
-المشكلة: Laravel يرجع أخطاء كل الحقول معًا. مهاجم يرسل POST /api/v1/store/auth/register ببريد مستهدف وبيانات أخرى غير صالحة، فيظهر خطأ email المميز إن كان البريد لموظف أو مورد. لا يلزمه OTP، لأن التحقق من الهاتف يُستهلك في الخدمة بعد الـ validation. الحد المتاح له 20 في الدقيقة و500 في اليوم لكل IP.
-
-الأثر: تعداد حسابات الموظفين، وهي أهداف phishing وتخمين، بما يُبطل عمل H1 كله.
-
-الإصلاح:
-
-حذف القاعدة العابرة للجداول من التسجيل العام فقط، لأن بريد العميل غير المُتحقق لا يُستخدم للدخول ولا يمنع غيره (M13 مطبّق فعلًا).
-فرض القاعدة عند التحقق من البريد، حيث يثبت الشخص ملكيته للصندوق، فلا تسريب إضافي.
-المقايضة:
-
-العميل قد يسجّل ببريد مستخدم ثم يُرفض تحققه. هذه تجربة أسوأ قليلًا لكنها آمنة.
-يجب تعديل test_store_registration_rejects_an_email_used_by_staff....
-M6 — MEDIUM · الـ database cache تحمل الـ limiter والـ handoff والأقفال
-الموقع: .env.example يضبط CACHE_STORE=database، والـ limiter يستخدم 3 مفاتيح لكل طلب، منها مفتاح id:{hash}:{ip} بلا حد لعدد القيم الممكنة.
-
-المشكلة: كل محاولة دخول ينتج عنها من 3 إلى 6 كتابات في PostgreSQL قبل الـ validation. ومعرّفات عشوائية تنشئ صفوفًا جديدة في جدول cache. الـ database store لا يحذف المنتهي تلقائيًا إلا عند قراءة نفس المفتاح.
-
-الأثر: تحت الهجوم يتحول الـ limiter نفسه إلى مضخم كتابة على قاعدة البيانات الرئيسية، وجدول cache يتضخم.
-
-الإصلاح: Redis للـ cache والأقفال في الإنتاج. هو مذكور أصلًا في .env.example، وتعليق unified-handoff يشترط مخزنًا مشتركًا قابلًا للقفل. إن بقيت على database، فأضف حذفًا مجدولًا لصفوف cache المنتهية.
-
-M7 — MEDIUM (مشروطة) · customers.phone بدون قيد فريد في القاعدة
-الموقع: task.txt (H4) يذكر أن الهاتف nullable وغير unique. الـ validation تستخدم Rule::unique('customers','phone') الذي لا يستثني المحذوفين soft-deleted.
-
-الأثر:
-
-تسجيلان متزامنان قد ينشئان صفين بنفس الهاتف.
-CustomerAuthService::login يستخدم ->first() بلا ترتيب، فقد يختار أي الصفين، وأحد الحسابين يصبح غير قابل للوصول.
-هاتف عميل محذوف يُحجز للأبد.
-الإصلاح:
-
-CREATE UNIQUE INDEX CONCURRENTLY customers_phone_live_unique ON customers(phone) WHERE deleted_at IS NULL.
-Rule::unique('customers','phone')->whereNull('deleted_at').
-LOW
-L1 · RequireActor يتجاهل 403: الـ catch فارغ. عميل موقوف أو مورد عُطلت شركته يستمر في رؤية واجهة البوابة بجلسة محلية قديمة، بينما كل طلبات API تفشل. الإصلاح: عند 403، clear() ثم التحويل لصفحة الدخول.
-L2 · كود الـ handoff غير مربوط بالمتصفح الذي بدأ الدخول: موظف خبيث يرسل لموظف آخر رابط /auth/callback#code=... بكوده هو (login CSRF)، فيُدخله في حسابه خلال 60 ثانية. الأثر محدود. أبسط تخفيف: إزالة دعم ?code= القديم بعد فترة الانتقال، لأنه يُسجَّل في سجلات الخادم والـ Referer. الربط الكامل يحتاج verifier بنمط PKCE، وهذا غير مبرر الآن.
-L3 · exchange يبتلع كل الاستثناءات: catch (\Throwable) يحول انقطاع القاعدة أو الـ cache إلى "كود غير صالح" (401). والكود يُستهلك قبل إنشاء التوكن، فأي فشل لاحق يحرقه. الإصلاح: التقاط LockTimeoutException فقط، وترك أعطال البنية ترجع 503 أو 500، فهي مُبلغ عنها أصلًا.
-L4 · فجوة رصد البريد المشترك: شرط auth.shared_email يتحقق فقط من $staff !== null && $supplierUser !== null. يجب تسجيل أي تطابق بين جدولين، بما فيها العملاء.
-L5 · إعادة الدخول في المتجر لا تلغي توكن الجلسة السابقة: setSession يكتب فوقه. التوكن اليتيم يبقى صالحًا 24 ساعة، وعدد التوكنات محدود بـ 10. الإصلاح: logout مسبق بنفس نمط فرع الـ backoffice.
-L6 · unified-handoff بحد 20 في الدقيقة لكل IP: فرع خلف NAT واحد في بداية الوردية قد يتلقى 429 عند الـ exchange بعد دخول ناجح. يُفضَّل 60، فالكود من 64 حرفًا ولا يمكن تخمينه أصلًا.
-L7 · rehashIfNeeded يكتب قبل فحص is_active، وموظف غير نشط تطابق كلمة مروره حسابه كعميل لا يصل للعميل بالبريد. حالة نادرة. يُعالَج ضمن إعادة هيكلة H3.
-L8 · كتابة audit عند فشل دخول عميل موجود تضيف بضعة ms، فتبقى قناة timing لتمييز العملاء الموجودين. مع M5 والتسجيل بالهاتف القيمة محدودة. الإصلاح: defer(fn () => CustomerAuditLog::record(...)).
-INFO
-handoff->issue($actor, $redirect['path']) يمرر وسيطًا ثانيًا تتجاهله الدالة issue(User $user). هذا كود ميت مضلل.
-SupplierLayout.tsx في الـ backoffice ما زال يستخدم store الموظفين ورابط /admin، بينما بوابة المورد انتقلت إلى /supplier في المتجر. حذفه يقلل الالتباس.
-التوكنات في localStorage في التطبيقين: أي XSS يعني سرقة توكن صالح 24 ساعة. لا أقترح تغيير المعمارية، لكن CSP صارم على النطاقين ضروري.
-الـ index الجديد users_email_ci_unique يتكرر مع users_email_unique القديم، وحذف القديم يوفر كتابة.
-SET lock_timeout على مستوى الجلسة قد يتسرب مع pgbouncer في وضع transaction pooling. يُفضَّل تشغيل هذه الـ migration على اتصال مباشر.
-الاختبارات تعمل بـ CACHE_STORE=array، فقفل الـ handoff لا يُختبر بين العمليات المتوازية.
-
-============================================================
-مراجعة التنفيذ الفعلي — 22 أكتوبر 2026 (توقيت القاهرة)
-============================================================
-الملف يضم جولتين من المراجعة بأرقام متكررة وبعض المقترحات المتعارضة.
-الحالة أدناه ناتجة عن قراءة الكود وتشغيل الاختبارات، وليست افتراضًا بأن الملاحظات نُفذت سابقًا.
-
-إصلاحات اكتملت أو تم استكمالها:
-- الدخول بالبريد: عملية bcrypt واحدة للحالة العادية وللمعرّف غير الموجود؛ dummy hash ثابت بتكلفة الإعداد الحالي، دون توليد hash إضافي لكل طلب مجهول. فحص إضافي فقط للبريد المشترك القديم، مع رصد HMAC بدل تسجيل البريد كنص.
-- تطبيع الهاتف وحماية المدخلات غير النصية موجودان. حدود الساعة واليوم أصبحت للفشل فقط داخل UnifiedAuthService، مع بقاء حدود IP و(IP + المعرّف) قبل فحص كلمة المرور.
-- مسارات الدخول القديمة معطلة افتراضيًا في config وجميع ملفات routes و.env.example. اختبارات التوافق تفعلها صراحة في phpunit.xml؛ ويوجد اختبار مستقل يثبت اختفاء المسارات عند تعطيلها.
-- نشاط شركة المورد يُفحص في login وme والـ middleware. الحسابات اليتيمة تُعطل ويُفصل supplier_id وتُلغى توكناتها قبل إضافة FK، مع اختبار لترحيل يحتوي على صف يتيم فعليًا.
-- subtype موحد بين login وme، وcustomer_type منفصل. المتجر ينتظر me قبل عرض البوابة أو التحويل، ويحدث الوجهة الحالية، ويمسح الجلسة عند 401/403، ويتيح إعادة المحاولة عند تعذر الشبكة.
-- إلغاء جلسة لوحة الإدارة السابقة يتم بطلب مستقل قبل تفعيل الجديدة. Authorization الصريح يُحترم، ورد 401 المتأخر من جلسة قديمة لا يمسح الجلسة الجديدة. المتجر يلغي توكنه السابق أيضًا عند إعادة الدخول أو التسجيل.
-- handoff في fragment فقط؛ أزيل قبول query القديم، ويُمسح الرابط فورًا. حد exchange أصبح 60/دقيقة وقابلًا للضبط. أعطال البنية لم تعد تتحول جميعها إلى 401.
-- حدود توكنات الموظفين والموردين داخل transactions مع أقفال صفوف. SANCTUM_EXPIRATION الفارغ لا يمسح الجلسات القائمة. تغيير بريد الموظف أو مستخدم المورد يلغي توكناته، كما يحدث عند تغيير كلمة المرور أو التعطيل.
-- فشل دمج السلة لا يلغي نجاح الدخول؛ cart_merged يحدد هل يجوز حذف مفتاح سلة الزائر.
-- لا تُنشأ سجلات audit في القاعدة لمعرّف عميل غير موجود. المفاتيح HMAC، وفشل العميل الموجود يُسجل عبر defer. تنظيف دوري لسجلات المصادقة الأقدم من 90 يومًا مع الاحتفاظ بسجلات الأعمال.
-- تسجيل نجاح/فشل الموظفين والموردين وتبادل handoff مع IP. منع الكتابة لإعادة تجزئة كلمة مرور الحساب غير النشط؛ ولا يحجب موظف قديم غير نشط حساب عميل نشطًا يشترك معه في البريد وكلمة المرور.
-- إزالة فحص البريد العابر للجداول من التسجيل العام حتى لا يكشف حسابات الموظفين والموردين. العميل غير الموثق لا يحجز البريد.
-- حفظ بريد المستخدمين والموردين وتوثيق بريد العملاء يعيد فحص التفرد تحت pg_advisory_xact_lock داخل transaction تغطي الحفظ. هذا يغطي مسارات Eloquent الحالية؛ SQL المباشر وعمليات الحفظ التي تعطل أحداث النموذج ليست بديلًا عن هذا المسار.
-- تنظيف مجدول لصفوف database cache وأقفاله المنتهية، مع الاحتفاظ بالمفاتيح والأقفال الحية. الإنتاج يرفض cache محليًا غير مناسب للـ handoff.
-- قيد FK عند الحذف له استجابة 409، وفحص وجود مستخدمي المورد قبل الحذف موجود بالفعل.
-- حُذف الوسيط غير المستخدم في issue() وحُذف SupplierLayout القديم غير المستخدم.
-
-بنود اتضح أنها مكتملة أصلًا:
-- C1: UserController يمنع منح صلاحيات لا يملكها المنفذ، وتعديل حساب أعلى صلاحية، وتعديل الأدوار/التفعيل للحساب نفسه. اختبارات هذه الحدود موجودة ونجحت؛ لم يكن غياب المنطق في FormRequest دليلًا على غيابه من التطبيق.
-- H4: ترحيلات 2026_10_16 تستكمل أعمدة العملاء والحذف الناعم وتوثيق البريد/الهاتف، وتستبدل blocked بـ suspended وتجعل البريد اختياريًا. بناء قاعدة الاختبار من البداية يطبق سلسلة الترحيلات كاملة.
-- الهاتف إلزامي وفريد بقيد كامل في القاعدة. حجز هاتف العميل المحذوف متسق مع CustomerPhoneVerificationService::send الذي يستخدم withTrashed؛ لم يُستبدل بقيد partial متعارض مع هذا السلوك.
-- فهارس LOWER(email) موجودة، وكذلك FK الفرع والتحقق من نشاطه، وsanctum.guard فارغ، وجدولة حذف التوكنات المنتهية موجودة.
-
-التحقق النهائي:
-- 81 اختبارًا مستهدفًا للمصادقة وإدارة الموظفين وعزل أنواع الحسابات نجحت، وتشمل 3 اختبارات تزامن بعمليات PHP مستقلة: إنشاء موظف/مورد بالبريد نفسه، توثيق عميل/إنشاء موظف بالبريد نفسه، وتبادل handoff على database cache مشترك. النتيجة في سباقات البريد صاحب واحد فقط، وفي handoff توكن واحد فقط.
-- 4 اختبارات Node لحماية تبديل الجلسة وAuthorization وردود 401 نجحت.
-- بناء الإنتاج للمتجر ولوحة الإدارة نجح؛ فحوصات TypeScript وESLint للملفات المعدلة نجحت، وPint نجح.
-- الاختبار الموسع الكامل نجح: 703 اختبارات و3539 assertion دون فشل (php artisan test --compact، قرابة 353 ثانية). أُجري هذا التشغيل منفردًا بعد انتهاء جميع التعديلات البرمجية. التشغيل السابق تداخل مع تشغيل آخر على قاعدة الاختبار نفسها، ولذلك لا يُستخدم كدليل نجاح أو فشل للكود.
-- git diff --check نجح. التعديلات موجودة محليًا للمراجعة؛ لم تُنشأ commit أو عملية نشر.
-
-متطلبات نشر/اقتراحات معمارية منفصلة عن الإصلاحات المحلية:
-- تفعيل scheduler فعليًا واستخدام Redis مشترك أو database cache مشتركة، وضبط LEGACY_LOGIN_ENABLED=false صراحة في إعدادات الإنتاج الموجودة مسبقًا ثم إعادة بناء config/route cache. تغيير القيمة الافتراضية لا يلغي قيمة true صريحة في بيئة منشورة.
-- لا توجد نسخة من مخطط الإنتاج أو إعدادات خوادمه في هذه الجلسة؛ لم تُشغّل ترحيلات مغيرة للبيانات عليه. فهارس CONCURRENTLY تحتاج اتصال PostgreSQL مباشرًا عند استخدام PgBouncer transaction pooling، وفحص التكرارات قبل النشر.
-- CSP صارم للنطاقين يحتاج ضبط استضافة الواجهتين ومصادر السكربتات الفعلية؛ لم يُدّع تفعيله على خادم غير متاح. MFA وPKCE ونقل التوكنات من localStorage تغييرات معمارية اختيارية وردت في المراجعة، وليست جزءًا مطبقًا من هذا الإصلاح.
-- إزالة فهارس البريد الحساسة لحالة الأحرف القديمة تحسين كتابة اختياري؛ فهارس LOWER الفريدة المطلوبة للأمان والأداء موجودة. أُبقيت القيود القديمة لتجنب تغيير DDL إضافي دون حاجة وظيفية.
+'visibility' => 'private' على disk الـ R2 مخالف لتوصية SKILL.md سطر 40. اتأكد بـ integrations:check --live، أو شيله.
+CatalogLock مش بيعمل أي حاجة على غير pgsql. يعني لو الاختبارات شغالة على SQLite، مفيش أي اختبار بيغطي منطق الأقفال.
+idempotencyKey() لازم يرفض أي مفتاح أطول من 128 حرف، وإلا الإدخال هيقع بـ 500 (تحتاج تأكيد).

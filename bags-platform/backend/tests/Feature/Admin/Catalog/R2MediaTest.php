@@ -20,10 +20,14 @@ class R2MediaTest extends TestCase
         $disk->buildTemporaryUrlsUsing(fn ($path, $expiration, $options) => 'https://storage.example.test/'.rawurlencode($path).'?signed=1');
         config(['media-library.disk_name' => 'r2', 'filesystems.disks.r2.url' => null]);
         $category = Category::factory()->create();
+        // H5: catalog collections live on the public bucket with stable public
+        // URLs; private documents stay on `r2` with signed URLs.
+        $public = Storage::fake('r2_public');
         $media = $category->addMedia(UploadedFile::fake()->image('category.png'))->toMediaCollection('image');
-        $this->assertSame('r2', $media->disk);
-        $disk->assertExists($media->getPathRelativeToRoot());
-        $this->assertStringContainsString('?signed=1', $category->getFirstMediaUrl('image'));
+        $this->assertSame('r2_public', $media->disk);
+        $this->assertSame('r2_public', $media->conversions_disk);
+        $public->assertExists($media->getPathRelativeToRoot());
+        $this->assertStringNotContainsString('?signed=1', $category->getFirstMediaUrl('image'));
     }
 
     public function test_explicit_local_media_uploads_are_rejected(): void
@@ -39,6 +43,7 @@ class R2MediaTest extends TestCase
     {
         config(['filesystems.disks.r2.key' => 'secret-access-key', 'filesystems.disks.r2.secret' => 'secret-value',
             'filesystems.disks.r2.bucket' => 'test-bucket', 'filesystems.disks.r2.endpoint' => 'https://r2.example.test',
+            'filesystems.disks.r2_public.bucket' => 'catalog-bucket', 'filesystems.disks.r2_public.url' => 'https://catalog.example.test/alfarid',
             'filesystems.disks.r2.root' => 'alfarid', 'services.gemini.api_key' => 'secret-gemini-key', 'services.gemini.model' => 'test-model']);
         $this->artisan('integrations:check')->expectsOutput('R2 and Gemini are configured. Use --live to verify the services.')->assertSuccessful();
     }

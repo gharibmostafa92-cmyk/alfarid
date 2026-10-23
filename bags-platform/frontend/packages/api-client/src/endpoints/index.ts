@@ -214,12 +214,15 @@ export const variantsApi = {
 
 export const productMediaApi = {
   list: (productId: number) => apiClient.get<{ data: AdminMedia[] }>(`${PR}/${productId}/media`).then(r => r.data.data),
-  uploadImages: (productId: number, files: File[], variantId?: number | null, onProgress?: (n: number) => void) => {
+  uploadImages: (productId: number, files: File[], variantId?: number | null, onProgress?: (n: number) => void, clientUploadIds?: string[]) => {
     const fd = new FormData();
     fd.append('collection', 'images');
     if (variantId) fd.append('variant_id', String(variantId));
-    files.forEach(f => fd.append('files[]', f));   // max 10 في الطلب الواحد
-    return apiClient.post<{ data: AdminMedia[] }>(`${PR}/${productId}/media`, fd, { ...MULTIPART, onUploadProgress: progress(onProgress) }).then(r => r.data.data);
+    files.forEach((f, index) => {
+      fd.append('files[]', f); // max 4 per request
+      fd.append('client_upload_ids[]', clientUploadIds?.[index] ?? crypto.randomUUID());
+    });
+    return apiClient.post<{ data: AdminMedia[] }>(`${PR}/${productId}/media`, fd, { ...MULTIPART, timeout: 180000, onUploadProgress: progress(onProgress) }).then(r => r.data.data);
   },
   uploadVideo: (productId: number, file: File, onProgress?: (n: number) => void) => {
     const fd = new FormData();

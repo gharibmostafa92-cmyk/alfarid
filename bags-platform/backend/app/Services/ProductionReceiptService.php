@@ -58,10 +58,16 @@ class ProductionReceiptService
                 foreach ($sortedItems as $item) {
                     $variant = $variants->get($item['product_variant_id']);
                     $quantity = (int) $item['quantity'];
-                    $unitCost = round((float) $item['unit_cost'], 4);
-                    $onHand = max(0, (float) StockLevel::where('product_variant_id', $variant->id)->sum('on_hand'));
-                    $average = (($onHand * (float) $variant->cost_price) + ($quantity * $unitCost)) / ($onHand + $quantity);
-                    $variant->update(['cost_price' => round($average, 4), 'last_cost_price' => $unitCost]);
+                    $unitCost = bcadd((string) $item['unit_cost'], '0', 4);
+                    // H4: bcmath weighted average — float loses precision once
+                    // on_hand * cost crosses 2^53, silently biasing landed cost.
+                    $onHandStr = (string) StockLevel::where('product_variant_id', $variant->id)->sum('on_hand');
+                    $onHandStr = bccomp($onHandStr, '0', 4) < 0 ? '0' : $onHandStr;
+                    $costStr = (string) $variant->cost_price;
+                    $unitStr = $unitCost;
+                    $total = bcadd(bcmul($onHandStr, $costStr, 8), bcmul((string) $quantity, $unitStr, 8), 8);
+                    $average = bcadd(bcdiv($total, bcadd($onHandStr, (string) $quantity, 4), 5), '0.00005', 4);
+                    $variant->update(['cost_price' => $average, 'last_cost_price' => $unitCost]);
                     $this->inventory->recordMovement([
                         'product_variant_id' => $variant->id,
                         'branch_id' => (int) $data['branch_id'],
@@ -81,7 +87,7 @@ class ProductionReceiptService
             if ($existing) {
                 return $this->replay($existing, $hash);
             }
-            if (ProductionReceipt::where('batch_number', $data['batch_number'])->exists()) {
+            if (ProductionReceipt::whereRaw('LOWER(batch_number) = ?', [mb_strtolower($data['batch_number'])])->exists()) {
                 throw new BusinessException('رقم دفعة الإنتاج مسجل بالفعل؛ راجع سجل الاستلام.', [], 409);
             }
             throw $exception;

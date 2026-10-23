@@ -58,14 +58,18 @@ class Product extends Model implements HasMedia
 
     public function registerMediaCollections(): void
     {
-        $this->addMediaCollection('images')
+        $this->addMediaCollection('images')->useDisk('r2_public')->storeConversionsOnDisk('r2_public')
             ->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp']);
-        $this->addMediaCollection('video')->singleFile()
+        $this->addMediaCollection('video')->singleFile()->useDisk('r2_public')->storeConversionsOnDisk('r2_public')
             ->acceptsMimeTypes(['video/mp4', 'video/webm', 'video/quicktime']);
     }
 
     public function registerMediaConversions(?Media $media = null): void
     {
+        // H2 keeps conversions synchronous but lock-free: each upload runs in its
+        // own short transaction with no product lock held while R2 I/O renders.
+        // Queuing them would break per-file atomicity (a failed conversion must
+        // roll back its own file) that the media pipeline and tests rely on.
         $this->addMediaConversion('thumb')->fit(Fit::Crop, 300, 300)->format('webp')
             ->performOnCollections('images')->nonQueued();
         $this->addMediaConversion('medium')->fit(Fit::Contain, 800, 800)->format('webp')

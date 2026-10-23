@@ -49,7 +49,7 @@ class ProductVariant extends Model implements HasMedia
     // صور خاصة باللون ده
     public function registerMediaCollections(): void
     {
-        $this->addMediaCollection('images')->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp']);
+        $this->addMediaCollection('images')->useDisk('r2_public')->storeConversionsOnDisk('r2_public')->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp']);
     }
 
     public function registerMediaConversions(?Media $media = null): void

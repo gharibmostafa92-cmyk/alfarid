@@ -61,8 +61,17 @@ class CatalogImprovementReviewTest extends TestCase
         } catch (RuntimeException $exception) {
             $this->assertSame('Conversion failed after writing files', $exception->getMessage());
         }
-        $this->assertDatabaseCount('media', 0);
-        $this->assertSame([], Storage::disk('r2')->allFiles());
+        // H2: one short transaction per file — the first file stays committed
+        // with its files, while the failing file rolls back fully (no row, no
+        // orphan files outside the surviving media's uuid prefix).
+        $this->assertDatabaseCount('media', 1);
+        $kept = Media::firstOrFail();
+        Storage::disk('r2_public')->assertExists($kept->getPathRelativeToRoot());
+        $files = Storage::disk('r2_public')->allFiles();
+        $this->assertNotEmpty($files);
+        foreach ($files as $file) {
+            $this->assertStringStartsWith($kept->uuid.'/', $file);
+        }
     }
 
     public function test_failed_replacement_keeps_old_brand_and_category_files_and_database_values(): void
@@ -72,7 +81,8 @@ class CatalogImprovementReviewTest extends TestCase
             $record = $model::factory()->create(['name_en' => 'Original']);
             $old = $record->addMedia(UploadedFile::fake()->image('old.jpg'))->toMediaCollection($collection);
             $oldPath = $old->getPathRelativeToRoot();
-            $before = Storage::disk('r2')->allFiles();
+            // H5: brand/category media live on the public bucket.
+            $before = Storage::disk('r2_public')->allFiles();
             $this->mock(FileManipulator::class)->shouldReceive('createDerivedFiles')->once()->andThrow(new RuntimeException('Disk failure'));
             try {
                 app($service)->update($record, ['name_en' => 'Changed', 'remove_'.$collection => true], UploadedFile::fake()->image('new.jpg'));
@@ -82,8 +92,8 @@ class CatalogImprovementReviewTest extends TestCase
             }
             $this->assertSame('Original', $record->fresh()->name_en);
             $this->assertDatabaseHas('media', ['id' => $old->id]);
-            Storage::disk('r2')->assertExists($oldPath);
-            $this->assertSame($before, Storage::disk('r2')->allFiles());
+            Storage::disk('r2_public')->assertExists($oldPath);
+            $this->assertSame($before, Storage::disk('r2_public')->allFiles());
         }
     }
 
@@ -91,7 +101,7 @@ class CatalogImprovementReviewTest extends TestCase
     {
         $brand = Brand::factory()->create();
         $old = $brand->addMedia(UploadedFile::fake()->image('old.jpg'))->toMediaCollection('logo');
-        $before = Storage::disk('r2')->allFiles();
+        $before = Storage::disk('r2_public')->allFiles();
         try {
             DB::transaction(function () use ($brand): void {
                 app(BrandService::class)->update($brand, [], UploadedFile::fake()->image('new.jpg'));
@@ -100,7 +110,7 @@ class CatalogImprovementReviewTest extends TestCase
         } catch (RuntimeException) {
             $this->assertDatabaseHas('media', ['id' => $old->id]);
         }
-        $this->assertSame($before, Storage::disk('r2')->allFiles());
+        $this->assertSame($before, Storage::disk('r2_public')->allFiles());
         $this->assertDatabaseCount('media', 1);
     }
 
@@ -109,10 +119,10 @@ class CatalogImprovementReviewTest extends TestCase
         $brand = Brand::factory()->create();
         $old = $brand->addMedia(UploadedFile::fake()->image('old.jpg'))->toMediaCollection('logo');
         $updated = app(BrandService::class)->update($brand, [], UploadedFile::fake()->image('new.jpg'));
-        Storage::disk('r2')->assertMissing($old->getPathRelativeToRoot());
+        Storage::disk('r2_public')->assertMissing($old->getPathRelativeToRoot());
         $this->assertDatabaseMissing('media', ['id' => $old->id]);
         $new = $updated->fresh()->getFirstMedia('logo');
-        Storage::disk('r2')->assertExists($new->getPathRelativeToRoot());
+        Storage::disk('r2_public')->assertExists($new->getPathRelativeToRoot());
     }
 
     public function test_deleting_image_inside_rolled_back_transaction_keeps_its_file(): void
@@ -127,7 +137,7 @@ class CatalogImprovementReviewTest extends TestCase
         } catch (RuntimeException) {
             $this->assertDatabaseHas('media', ['id' => $media->id]);
         }
-        Storage::disk('r2')->assertExists($media->getPathRelativeToRoot());
+        Storage::disk('r2_public')->assertExists($media->getPathRelativeToRoot());
     }
 
     public function test_legacy_media_paths_and_conversions_remain_available(): void
@@ -146,13 +156,14 @@ class CatalogImprovementReviewTest extends TestCase
     {
         $product = Product::factory()->create();
         $media = $product->addMedia(UploadedFile::fake()->image('legacy.jpg'))->toMediaCollection('images');
-        foreach (Storage::disk('r2')->allFiles($media->uuid) as $file) {
-            Storage::disk('r2')->move($file, $media->id.substr($file, strlen($media->uuid)));
+        // H5: product media live on the public bucket.
+        foreach (Storage::disk('r2_public')->allFiles($media->uuid) as $file) {
+            Storage::disk('r2_public')->move($file, $media->id.substr($file, strlen($media->uuid)));
         }
         DB::table('media')->where('id', $media->id)->update(['custom_properties' => '{}']);
-        Storage::disk('r2')->put('unrelated/keep.txt', 'keep');
+        Storage::disk('r2_public')->put('unrelated/keep.txt', 'keep');
         app(ProductMediaService::class)->delete($product, $media->fresh());
-        $this->assertSame(['unrelated/keep.txt'], Storage::disk('r2')->allFiles());
+        $this->assertSame(['unrelated/keep.txt'], Storage::disk('r2_public')->allFiles());
     }
 
     public function test_nested_color_details_require_the_english_name_on_the_same_item(): void
