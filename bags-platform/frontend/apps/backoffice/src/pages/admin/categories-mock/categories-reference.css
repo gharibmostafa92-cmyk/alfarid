@@ -34,7 +34,7 @@
   --shadow-pop: 0 18px 50px -12px rgba(24, 21, 28, 0.22), 0 2px 6px rgba(24,21,28,.05);
   --hatched-track: repeating-linear-gradient(-60deg, rgba(24,21,28,.14) 0, rgba(24,21,28,.14) 1.5px, transparent 1.5px, transparent 5px);
 }
-.theme-dark {
+:host([data-theme="dark"]), .theme-dark {
   --bg-canvas: #100d13;
   --bg-card: #17141a;
   --bg-subcard: #1c1920;

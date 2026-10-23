@@ -6,6 +6,7 @@ namespace App\Enums;
 
 enum StockMovementType: string
 {
+    case ProductionReceipt = 'production_receipt';
     case PurchaseReceipt = 'purchase_receipt';
     case Sale = 'sale';
     case SaleReturn = 'sale_return';

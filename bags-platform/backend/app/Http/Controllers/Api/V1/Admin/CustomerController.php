@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Enums\CustomerDocumentStatus;
+use App\Enums\CustomerDocumentType;
 use App\Enums\CustomerStatus;
 use App\Enums\CustomerType;
+use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Customer\ApproveCustomerRequest;
 use App\Http\Requests\Admin\Customer\RejectCustomerRequest;
@@ -23,6 +25,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -36,7 +39,8 @@ class CustomerController extends Controller implements HasMiddleware
     {
         return [
             new Middleware('can:customers.view', only: ['index', 'show']),
-            new Middleware('can:customers.documents.view', only: ['downloadDocument', 'reviewDocument']),
+            new Middleware('can:customers.documents.view', only: ['downloadDocument', 'reviewDocument', 'storeDocument']),
+            new Middleware('can:customers.update', only: ['storeDocument']),
             new Middleware('can:customers.create', only: ['store']),
             new Middleware('can:customers.update', only: ['update']),
             new Middleware('can:customers.delete', only: ['destroy', 'restore']),
@@ -48,6 +52,7 @@ class CustomerController extends Controller implements HasMiddleware
     {
         $filters = $request->validate([
             'type' => ['nullable', Rule::in(array_column(CustomerType::cases(), 'value'))],
+            'business_only' => ['nullable', 'boolean'],
             'status' => ['nullable', Rule::in(array_column(CustomerStatus::cases(), 'value'))],
             'customer_group_id' => ['nullable', 'integer', 'min:1'],
             'search' => ['nullable', 'string', 'max:255'],
@@ -128,5 +133,36 @@ class CustomerController extends Controller implements HasMiddleware
         $document = $this->customers->reviewDocument($customer, $document, $data['status'], $request->user()->id);
 
         return response()->json(['data' => ['id' => $document->id, 'status' => $document->status]]);
+    }
+
+    public function storeDocument(Request $request, Customer $customer): JsonResponse
+    {
+        $request->validate(['document' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120']]);
+        $file = $request->file('document');
+        $path = $file->store('customer_documents/'.$customer->id, 'r2');
+        if ($path === false) {
+            throw new \RuntimeException('تعذر حفظ مستند التاجر.');
+        }
+        try {
+            $document = DB::transaction(function () use ($request, $customer, $file, $path) {
+                $customer = Customer::whereKey($customer->id)->lockForUpdate()->firstOrFail();
+                if ($customer->type === CustomerType::Retail || $customer->documents()->count() >= 5) {
+                    throw new BusinessException('رفع المستندات متاح للتجار والموزعين بحد أقصى 5 مستندات.');
+                }
+                $document = $customer->documents()->create([
+                    'document_type' => CustomerDocumentType::Other,
+                    'file_path' => $path, 'original_name' => CustomerDocument::safeName($file->getClientOriginalName()),
+                    'mime_type' => $file->getMimeType(), 'status' => CustomerDocumentStatus::Pending,
+                ]);
+                CustomerAuditLog::record($customer, 'document_uploaded', $request->user()->id, ['document_id' => $document->id]);
+
+                return $document;
+            });
+        } catch (\Throwable $exception) {
+            Storage::disk('r2')->delete($path);
+            throw $exception;
+        }
+
+        return response()->json(['data' => ['id' => $document->id, 'status' => $document->status]], 201);
     }
 }

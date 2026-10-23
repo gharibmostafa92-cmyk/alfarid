@@ -43,8 +43,7 @@ class Category extends Model implements HasMedia
     public function activeProducts(): HasMany
     {
         return $this->hasMany(Product::class)->where('status', ProductStatus::Published)
-            ->whereIn('sales_channel', [SalesChannel::Retail, SalesChannel::Both])
-            ->where(fn ($q) => $q->whereNull('brand_id')->orWhereHas('brand', fn ($brand) => $brand->where('is_active', true)));
+            ->whereIn('sales_channel', [SalesChannel::Retail, SalesChannel::Both]);
     }
 
     public function registerMediaCollections(): void

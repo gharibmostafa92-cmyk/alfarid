@@ -34,9 +34,7 @@ class StoreProductCardResource extends JsonResource
             'name_en' => $this->name_en,
             'slug' => $this->slug,
             'image' => $this->getFirstMediaUrl('images', 'thumb') ?: ($this->getFirstMediaUrl('images') ?: null),
-            'brand' => $this->whenLoaded('brand', fn () => $this->brand ? [
-                'id' => $this->brand->id, 'name_ar' => $this->brand->name_ar, 'name_en' => $this->brand->name_en, 'slug' => $this->brand->slug,
-            ] : null),
+            'brand' => null,
             'category' => $this->whenLoaded('category', fn () => $this->category ? [
                 'id' => $this->category->id, 'name_ar' => $this->category->name_ar, 'name_en' => $this->category->name_en, 'slug' => $this->category->slug,
             ] : null),

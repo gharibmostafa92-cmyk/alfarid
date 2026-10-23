@@ -57,7 +57,7 @@ final class UnifiedAuthService
             // بالأولوية (staff ثم supplier ثم customer) أو dummy hash عند غياب
             // الجميع. الفحص الإضافي يحدث فقط في حالة البريد المشترك الشاذة.
             $staff = User::query()->whereRaw('LOWER(email) = ?', [$email])->first();
-            $supplierUser = SupplierUser::query()->whereRaw('LOWER(email) = ?', [$email])->first();
+            $supplierUser = null; // Supplier accounts are historical; dealers use Customer accounts.
             $customer = Customer::query()
                 ->whereNotNull('email_verified_at')
                 ->whereRaw('LOWER(email) = ?', [$email])

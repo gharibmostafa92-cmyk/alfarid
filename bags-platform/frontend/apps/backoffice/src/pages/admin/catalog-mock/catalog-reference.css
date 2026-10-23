@@ -33,7 +33,7 @@
   --shadow-pop: 0 18px 50px -12px rgba(24, 21, 28, 0.22), 0 2px 6px rgba(24,21,28,.05);
   --hatched-track: repeating-linear-gradient(-60deg, rgba(24,21,28,.14) 0, rgba(24,21,28,.14) 1.5px, transparent 1.5px, transparent 5px);
 }
-.theme-dark {
+:host([data-theme="dark"]), .theme-dark {
   --bg-canvas: #100d13;
   --bg-card: #17141a;
   --bg-subcard: #1c1920;
@@ -202,5 +202,6 @@ textarea.v-input { height: auto; padding: 11px 14px; line-height: 1.6; resize: v
 
 .focus-ring:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-light); }
 .text-pretty { text-wrap: pretty; }
+select option { background: var(--bg-card); color: var(--text-primary); }
 kbd { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 10.5px; padding: 1px 6px; border-radius: 6px; background: var(--bg-card); border: 1px solid var(--border-field); border-bottom-width: 2px; color: var(--text-secondary); }
 .catalog-surface {min-height:100%;font-family:"Plus Jakarta Sans","Readex Pro",sans-serif;background:var(--bg-canvas);color:var(--text-primary);}

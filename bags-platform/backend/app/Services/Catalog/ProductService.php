@@ -6,7 +6,6 @@ namespace App\Services\Catalog;
 
 use App\Enums\ProductStatus;
 use App\Exceptions\BusinessException;
-use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\StockLevel;
@@ -22,6 +21,8 @@ class ProductService
     {
         return DB::transaction(function () use ($data, $user) {
             CatalogLock::tree(shared: true);
+            $data['brand_id'] = null;
+            $data['supplier_id'] = null;
             $variants = $data['variants'] ?? [];
             unset($data['variants']);
             $data = array_filter($data, fn ($value) => $value !== null);
@@ -34,11 +35,8 @@ class ProductService
             $data['created_by'] = $user->id;
             $data['status'] = ProductStatus::Draft->value; // دايمًا يتعمل draft الأول
 
-            // قفل صفوف القسم والبراند بيمنع حذفهم في نفس لحظة إنشاء المنتج عليهم
+            // قفل القسم يمنع حذفه أثناء إنشاء المنتج
             $this->lockReference(Category::class, (int) $data['category_id'], 'category_id');
-            if (! empty($data['brand_id'])) {
-                $this->lockReference(Brand::class, (int) $data['brand_id'], 'brand_id');
-            }
 
             $product = Product::create($data);
             $product->update(['code' => 'P'.str_pad((string) $product->id, 5, '0', STR_PAD_LEFT)]);
@@ -47,7 +45,7 @@ class ProductService
                 app(VariantService::class)->create($product, $v);
             }
 
-            return $product->fresh(['category.media', 'brand.media', 'variants.media', 'media']);
+            return $product->fresh(['category.media', 'variants.media', 'media']);
         });
     }
 
@@ -58,6 +56,7 @@ class ProductService
             // قفل صف المنتج طول التعديل عشان فحص النشر ميعديش مع تعديل متزامن
             $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
 
+            unset($data['brand_id'], $data['supplier_id']);
             $newStatus = isset($data['status']) ? ProductStatus::from($data['status']) : null;
             unset($data['status']);
 
@@ -65,9 +64,6 @@ class ProductService
                 $data['slug'] = SlugService::make(Product::class, $data['name_en'] ?? $product->name_en, $product->id);
             }
             $this->lockReference(Category::class, (int) ($data['category_id'] ?? $product->category_id), 'category_id');
-            if (! empty($data['brand_id'])) {
-                $this->lockReference(Brand::class, (int) $data['brand_id'], 'brand_id');
-            }
 
             if (array_key_exists('is_featured', $data) && $data['is_featured'] === null) {
                 unset($data['is_featured']);
@@ -82,7 +78,7 @@ class ProductService
                 $this->assertPublishable($product);
             }
 
-            return $product->fresh(['category.media', 'brand.media', 'variants.media', 'media']);
+            return $product->fresh(['category.media', 'variants.media', 'media']);
         });
     }
 

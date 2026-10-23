@@ -1,3 +1,4 @@
+import { hasPermission } from '@alfarid/utils';
 import { defaultApiClient, resolveServiceUrl } from '@alfarid/api-client';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import AuthCallbackPage from './pages/auth/AuthCallbackPage';
@@ -26,7 +27,7 @@ function AuthenticatedApp() {
     || window.location.pathname;
   const [route, setRoute] = useState(readRoute);
   const can = useCallback((permission: string) =>
-    !!user?.permissions.some((granted) => granted === '*' || granted === permission), [user]);
+    hasPermission(user?.permissions, permission), [user]);
   const cashierOnly = user?.roles.length === 1 && user.roles[0] === 'cashier';
   useEffect(() => {
     const changed = () => setRoute(readRoute());
@@ -39,19 +40,20 @@ function AuthenticatedApp() {
   }, []);
   useEffect(() => {
     if (cashierOnly && !['/', '/dashboard', '/pos'].includes(route)) window.location.replace('/dashboard');
-    else if (!['/', '/dashboard', '/categories', '/brands', '/pos'].includes(route) && !/^\/products(?:\/(?:new|[0-9]+))?$/.test(route)) window.location.replace('/dashboard');
+    else if (!['/', '/dashboard', '/categories', '/dealers', '/production', '/pos'].includes(route) && !/^\/products(?:\/(?:new|[0-9]+))?$/.test(route)) window.location.replace('/dashboard');
   }, [cashierOnly, route]);
   if (cashierOnly && !['/', '/dashboard', '/pos'].includes(route)) return null;
   if (route === '/pos') return <PosPage />;
   const categoriesActive = route === '/categories';
-  const catalogActive = route.startsWith('/products') ? 'products' : route === '/brands' ? 'brands' : null;
+  const catalogActive = route.startsWith('/products') ? 'products' : route === '/dealers' ? 'dealers' : route === '/production' ? 'production' : null;
   return <FinancialDashboard
     onLogout={logoutRemote}
     catalogActive={catalogActive}
     catalogPage={catalogActive && <CatalogMockPage key={catalogActive} can={can} page={catalogActive} />}
     catalogNav={!cashierOnly ? [
       ...(can('products.view') ? [{ id: 'products', label: 'المنتجات', onOpen: () => { window.location.hash = '/products'; } }] : []),
-      ...(can('brands.view') ? [{ id: 'brands', label: 'البراندات', onOpen: () => { window.location.hash = '/brands'; } }] : []),
+      ...(can('customers.view') ? [{ id: 'dealers', label: 'التجار والموزعون', onOpen: () => { window.location.hash = '/dealers'; } }] : []),
+      ...(can('inventory.view') ? [{ id: 'production', label: 'استلام الإنتاج', onOpen: () => { window.location.hash = '/production'; } }] : []),
     ] : []}
     onCloseCatalog={() => { window.location.hash = '/dashboard'; }}
     categoriesActive={categoriesActive}

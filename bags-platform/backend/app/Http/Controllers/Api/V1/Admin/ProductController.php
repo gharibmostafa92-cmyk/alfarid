@@ -41,7 +41,7 @@ class ProductController extends Controller implements HasMiddleware
         $filters = $request->validate([
             'search' => ['nullable', 'string', 'max:100'],
             'category_id' => ['nullable', 'integer', Rule::exists('categories', 'id')->whereNull('deleted_at')],
-            'brand_id' => ['nullable', 'integer', Rule::exists('brands', 'id')->whereNull('deleted_at')],
+            'brand_id' => ['prohibited'],
             'status' => ['nullable', Rule::enum(ProductStatus::class)],
             'sales_channel' => ['nullable', Rule::enum(SalesChannel::class)],
             'is_featured' => ['nullable', 'boolean'],
@@ -53,7 +53,7 @@ class ProductController extends Controller implements HasMiddleware
         $perPage = min((int) ($filters['per_page'] ?? 15), 100);
 
         $q = Product::query()
-            ->with(['category.media', 'brand.media', 'media'])
+            ->with(['category.media', 'media'])
             ->withCount('variants')
             ->withMin(['variants as min_retail_price' => fn ($v) => $v->where('is_active', true)], 'retail_price')
             ->withMax(['variants as max_retail_price' => fn ($v) => $v->where('is_active', true)], 'retail_price');
@@ -71,8 +71,7 @@ class ProductController extends Controller implements HasMiddleware
             $ids = ! empty($filters['include_children']) ? [$cat->id, ...$cat->descendantIds()] : [$cat->id];
             $q->whereIn('category_id', $ids);
         }
-        $q->when($filters['brand_id'] ?? null, fn ($x, $v) => $x->where('brand_id', $v))
-            ->when($filters['status'] ?? null, fn ($x, $v) => $x->where('status', $v))
+        $q->when($filters['status'] ?? null, fn ($x, $v) => $x->where('status', $v))
             ->when($filters['sales_channel'] ?? null, fn ($x, $v) => $x->where('sales_channel', $v))
             ->when(isset($filters['is_featured']), fn ($x) => $x->where('is_featured', filter_var($filters['is_featured'], FILTER_VALIDATE_BOOLEAN)));
 
@@ -88,7 +87,7 @@ class ProductController extends Controller implements HasMiddleware
 
     public function show(Product $product): ProductResource
     {
-        $product->load(['category.media', 'brand.media', 'variants.media', 'media']);
+        $product->load(['category.media', 'variants.media', 'media']);
 
         return ProductResource::make($product);
     }

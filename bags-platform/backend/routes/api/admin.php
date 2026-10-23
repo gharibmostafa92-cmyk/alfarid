@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\V1\Admin\PosShiftAdminController;
 use App\Http\Controllers\Api\V1\Admin\PriceListController;
 use App\Http\Controllers\Api\V1\Admin\PriceListItemController;
 use App\Http\Controllers\Api\V1\Admin\ProductController;
+use App\Http\Controllers\Api\V1\Admin\ProductionReceiptController;
 use App\Http\Controllers\Api\V1\Admin\ProductMediaController;
 use App\Http\Controllers\Api\V1\Admin\ProductVariantController;
 use App\Http\Controllers\Api\V1\Admin\PromotionController;
@@ -173,6 +174,9 @@ Route::middleware(['auth:sanctum', 'auth.staff'])
         Route::delete('products/{product}/media/{media}', [ProductMediaController::class, 'destroy'])->name('products.media.destroy');
 
         // ================== المرحلة 3: المخزون ==================
+        Route::get('production-receipts/options', [ProductionReceiptController::class, 'options']);
+        Route::get('production-receipts', [ProductionReceiptController::class, 'index']);
+        Route::post('production-receipts', [ProductionReceiptController::class, 'store']);
         Route::prefix('inventory')->name('inventory.')->group(function () {
             Route::get('/', [InventoryController::class, 'index'])->name('index');
             Route::get('/movements', [InventoryController::class, 'movements'])->name('movements');
@@ -204,6 +208,7 @@ Route::middleware(['auth:sanctum', 'auth.staff'])
 
         // ================== المرحلة 5: العملاء ==================
         Route::apiResource('customers', CustomerController::class);
+        Route::post('customers/{customer}/documents', [CustomerController::class, 'storeDocument'])->name('customers.documents.store');
         Route::post('customers/{customer}/restore', [CustomerController::class, 'restore'])->withTrashed()->name('customers.restore');
         Route::post('customers/{customer}/approve', [CustomerController::class, 'approve'])->name('customers.approve');
         Route::post('customers/{customer}/reject', [CustomerController::class, 'reject'])->name('customers.reject');

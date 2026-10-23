@@ -27,6 +27,7 @@ class CustomerManagementService
         return Customer::query()
             ->with('customerGroup')
             ->when(($filters['trashed'] ?? null) === 'only', fn ($q) => $q->onlyTrashed())
+            ->when($filters['business_only'] ?? false, fn ($q) => $q->whereIn('type', ['wholesale', 'distributor']))
             ->when($filters['type'] ?? null, fn ($q, $v) => $q->where('type', $v))
             ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
             ->when($filters['customer_group_id'] ?? null, fn ($q, $v) => $q->where('customer_group_id', $v))

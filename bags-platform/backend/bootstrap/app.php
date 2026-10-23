@@ -5,6 +5,7 @@ use App\Http\Middleware\EnsureOpenPosShift;
 use App\Http\Middleware\EnsureStaffAuthenticated;
 use App\Http\Middleware\EnsureSupplierAuthenticated;
 use App\Http\Middleware\EnsureWholesaleApproved;
+use App\Http\Middleware\ManufacturingBusiness;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -57,6 +58,7 @@ return Application::configure(basePath: dirname(__DIR__))
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->api(prepend: [ManufacturingBusiness::class]);
         $middleware->alias([
             'auth.staff' => EnsureStaffAuthenticated::class,
             'auth.customer' => EnsureCustomerAuthenticated::class,

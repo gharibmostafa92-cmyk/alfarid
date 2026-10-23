@@ -9,7 +9,6 @@ use App\Enums\ProductStatus;
 use App\Enums\SalesChannel;
 use App\Exceptions\BusinessException;
 use App\Models\Banner;
-use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Customer;
 use App\Models\Product;
@@ -80,9 +79,8 @@ class StoreCatalogService
             ->whereHas('category', fn ($q) => $q->where('is_active', true)
                 ->whereDoesntHave('parent', fn ($parent) => $parent->where('is_active', false)
                     ->orWhereHas('parent', fn ($ancestor) => $ancestor->where('is_active', false))))
-            ->where(fn ($q) => $q->whereNull('brand_id')->orWhereHas('brand', fn ($brand) => $brand->where('is_active', true)))
             ->with([
-                'brand', 'category', 'media',
+                'category', 'media',
                 'variants' => fn ($q) => $this->pricing->withStorePrice($q->getQuery(), $this->customer())
                     ->where('is_active', true)->orderBy('sort_order')->orderBy('id'),
             ]);
@@ -106,15 +104,6 @@ class StoreCatalogService
             } else {
                 $query->whereRaw('1 = 0'); // قسم غير موجود = نتيجة فارغة لا خطأ
             }
-        }
-
-        if (! empty($filters['brand'])) {
-            $values = (array) $filters['brand'];
-            $numericIds = array_map('intval', array_filter($values, fn ($v) => ctype_digit((string) $v)));
-            $brandIds = Brand::query()->where('is_active', true)
-                ->where(fn ($q) => $q->whereIn('id', $numericIds)->orWhereIn('slug', $values))
-                ->pluck('id')->all();
-            $query->whereIn('products.brand_id', $brandIds ?: [0]);
         }
 
         if (! empty($filters['color'])) {
@@ -290,7 +279,7 @@ class StoreCatalogService
     }
 
     /**
-     * منتجات مشابهة: نفس القسم الفرعي أولًا ثم نفس العلامة، والمتوفر أولًا.
+     * منتجات مشابهة: نفس القسم الفرعي، والمتوفر أولًا.
      *
      * @return Collection<int, Product>
      */
@@ -300,9 +289,6 @@ class StoreCatalogService
             ->where('products.id', '!=', $product->id)
             ->where(function ($q) use ($product): void {
                 $q->where('products.category_id', $product->category_id);
-                if ($product->brand_id !== null) {
-                    $q->orWhere('products.brand_id', $product->brand_id);
-                }
             })
             ->reorder()
             ->orderByRaw('CASE WHEN products.category_id = ? THEN 0 ELSE 1 END', [$product->category_id])

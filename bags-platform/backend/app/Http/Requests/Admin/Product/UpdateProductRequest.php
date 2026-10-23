@@ -34,8 +34,8 @@ class UpdateProductRequest extends FormRequest
     {
         return [
             'category_id' => ['sometimes', 'required', 'integer', Rule::exists('categories', 'id')->whereNull('deleted_at')],
-            'brand_id' => ['sometimes', 'nullable', 'integer', Rule::exists('brands', 'id')->whereNull('deleted_at')],
-            'supplier_id' => ['sometimes', 'nullable', 'integer', 'min:1'],
+            'brand_id' => ['prohibited'],
+            'supplier_id' => ['prohibited'],
             'name_ar' => ['sometimes', 'required', 'string', 'max:255'],
             'name_en' => ['sometimes', 'required', 'string', 'max:255'],
             'slug' => ['sometimes', 'nullable', 'alpha_dash:ascii', 'max:255', new UniqueCatalogIdentifier('products', 'slug', $this->route('product')->id)],

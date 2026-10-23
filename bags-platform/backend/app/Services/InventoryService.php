@@ -395,7 +395,7 @@ class InventoryService
     private function assertValidMovementSemantics(StockMovementType $type, StockBucket $bucket, int $units): void
     {
         [$allowed, $positive] = match ($type) {
-            StockMovementType::PurchaseReceipt, StockMovementType::SaleReturn,
+            StockMovementType::ProductionReceipt, StockMovementType::PurchaseReceipt, StockMovementType::SaleReturn,
             StockMovementType::AdjustmentIn, StockMovementType::StocktakeGain, StockMovementType::TransferIn => [[StockBucket::OnHand], true],
             StockMovementType::Sale, StockMovementType::AdjustmentOut,
             StockMovementType::StocktakeLoss, StockMovementType::TransferOut,

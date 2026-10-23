@@ -77,3 +77,7 @@ export function createApiClient(config: ApiClientConfig = {}): AxiosInstance {
 }
 
 export const defaultApiClient = createApiClient();
+
+// Re-exported so apps without a direct axios dependency (e.g. backoffice useApi) can
+// distinguish request cancellation from real failures.
+export { isCancel as isAxiosCancel } from 'axios';

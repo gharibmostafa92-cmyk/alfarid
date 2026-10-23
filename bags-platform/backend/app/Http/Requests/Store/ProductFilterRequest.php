@@ -21,8 +21,7 @@ class ProductFilterRequest extends FormRequest
     {
         return [
             'category' => ['nullable', 'string', 'max:255'],
-            'brand' => ['nullable', 'array', 'max:50'],
-            'brand.*' => ['string', 'max:255'],
+            'brand' => ['prohibited'],
             'color' => ['nullable', 'string', 'max:100'],
             'price_min' => ['nullable', 'numeric', 'min:0'],
             'price_max' => ['nullable', 'numeric', 'min:0', ...($this->filled('price_min') ? ['gte:price_min'] : [])],
