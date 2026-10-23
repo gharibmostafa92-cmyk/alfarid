@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -31,6 +32,21 @@ class StockLevel extends Model
     public function getAvailableAttribute(): float
     {
         return round((float) $this->on_hand - (float) $this->reserved - (float) $this->damaged, 4);
+    }
+
+    /**
+     * نطاق للأرصدة غير الصفرية في أي وعاء مخزني (فعلي، محجوز، تالف، قيد النقل).
+     *
+     * @param  Builder<StockLevel>  $query
+     * @return Builder<StockLevel>
+     */
+    public function scopeHasNonZeroBalance(Builder $query): Builder
+    {
+        return $query->where(fn (Builder $q) => $q
+            ->where('on_hand', '<>', 0)
+            ->orWhere('reserved', '<>', 0)
+            ->orWhere('damaged', '<>', 0)
+            ->orWhere('in_transit', '<>', 0));
     }
 
     public function variant(): BelongsTo

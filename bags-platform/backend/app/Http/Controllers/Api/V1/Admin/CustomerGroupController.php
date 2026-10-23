@@ -47,7 +47,7 @@ class CustomerGroupController extends Controller implements HasMiddleware
         app(BranchAccess::class)->assertCentralAccess($request->user());
         $group = $this->groups->create($request->validated());
 
-        return (new CustomerGroupResource($group))
+        return CustomerGroupResource::make($group)
             ->additional(['message' => 'تم إنشاء مجموعة العملاء بنجاح'])
             ->response()
             ->setStatusCode(201);
@@ -55,14 +55,14 @@ class CustomerGroupController extends Controller implements HasMiddleware
 
     public function show(CustomerGroup $customerGroup): CustomerGroupResource
     {
-        return new CustomerGroupResource($customerGroup->loadCount('customers'));
+        return CustomerGroupResource::make($customerGroup->loadCount('customers'));
     }
 
     public function update(UpdateCustomerGroupRequest $request, CustomerGroup $customerGroup): CustomerGroupResource
     {
         app(BranchAccess::class)->assertCentralAccess($request->user());
 
-        return new CustomerGroupResource($this->groups->update($customerGroup, $request->validated()));
+        return CustomerGroupResource::make($this->groups->update($customerGroup, $request->validated()));
     }
 
     public function destroy(Request $request, CustomerGroup $customerGroup): JsonResponse

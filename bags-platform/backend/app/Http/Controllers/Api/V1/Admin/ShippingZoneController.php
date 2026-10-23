@@ -12,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Support\Facades\DB;
 
 /** إدارة مناطق الشحن ومدنها. */
 class ShippingZoneController extends Controller implements HasMiddleware
@@ -36,26 +37,32 @@ class ShippingZoneController extends Controller implements HasMiddleware
     public function store(ShippingZoneRequest $request): JsonResponse
     {
         $data = $request->validated();
-        $zone = ShippingZone::create($data);
-        $zone->cities()->sync($data['city_ids'] ?? []);
+        $zone = DB::transaction(function () use ($data): ShippingZone {
+            $zone = ShippingZone::create($data);
+            $zone->cities()->sync($data['city_ids'] ?? []);
 
-        return ShippingZoneResource::make($zone->load('cities'))->response()->setStatusCode(201);
+            return $zone;
+        });
+
+        return $this->zoneResource($zone)->response()->setStatusCode(201);
     }
 
     public function show(ShippingZone $shippingZone): ShippingZoneResource
     {
-        return ShippingZoneResource::make($shippingZone->load('cities'));
+        return $this->zoneResource($shippingZone);
     }
 
     public function update(ShippingZoneRequest $request, ShippingZone $shippingZone): ShippingZoneResource
     {
         $data = $request->validated();
-        $shippingZone->update($data);
-        if (array_key_exists('city_ids', $data)) {
-            $shippingZone->cities()->sync($data['city_ids'] ?? []);
-        }
+        DB::transaction(function () use ($shippingZone, $data): void {
+            $shippingZone->update($data);
+            if (array_key_exists('city_ids', $data)) {
+                $shippingZone->cities()->sync($data['city_ids'] ?? []);
+            }
+        });
 
-        return ShippingZoneResource::make($shippingZone->load('cities'));
+        return $this->zoneResource($shippingZone);
     }
 
     public function destroy(ShippingZone $shippingZone): JsonResponse
@@ -63,5 +70,10 @@ class ShippingZoneController extends Controller implements HasMiddleware
         $shippingZone->delete();
 
         return response()->json(['message' => 'تم حذف منطقة الشحن']);
+    }
+
+    private function zoneResource(ShippingZone $zone): ShippingZoneResource
+    {
+        return ShippingZoneResource::make($zone->loadMissing('cities'));
     }
 }

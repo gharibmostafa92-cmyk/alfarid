@@ -1,13 +1,12 @@
 import React, { useRef, useState } from 'react';
 import { defaultApiClient as api } from '@alfarid/api-client';
+import { formatCurrency, formatDate, CustomerStatusLabelsAr as statuses, CustomerTypeLabelsAr as types } from '@alfarid/utils';
 import { useApi } from './useApi';
 import { normalizeError } from './errors';
 import { useApp, useQueryState, PageHeader, DataTable, SearchBox, FilterMenu, EmptyState, Drawer, Field, Input, SectionCard, Banner, SearchSelect, ErrorState, Spinner, Badge, vtoast, ConfirmDialog } from '../catalog-mock/catalog-reference';
 
 const base = '/api/v1/admin';
 const get = (path, params, signal) => api.get(base + path, { params, signal }).then(r => r.data);
-const statuses = { pending: 'قيد المراجعة', approved: 'معتمد', rejected: 'مرفوض', suspended: 'موقوف' };
-const types = { wholesale: 'تاجر جملة', distributor: 'موزع' };
 
 export function DealersPage() {
   const { user: { can } } = useApp();
@@ -48,7 +47,7 @@ export function DealersPage() {
         { key: 'phone', label: 'التليفون', render: r => <span dir="ltr">{r.phone}</span> },
         { key: 'type', label: 'النوع', render: r => types[r.type] },
         { key: 'status', label: 'الحالة', render: r => <Badge tone={r.status === 'approved' ? 'green' : 'amber'}>{statuses[r.status]}</Badge> },
-        { key: 'credit', label: 'حد البيع الآجل', render: r => Number(r.credit_limit).toLocaleString('ar-EG') + ' ج.م' },
+        { key: 'credit', label: 'حد البيع الآجل', render: r => formatCurrency(r.credit_limit) },
         { key: 'actions', label: '', render: r => <button className="btn btn-soft" onClick={() => open(r)}>فتح الحساب</button> },
       ]} />
     <Drawer open={!!draft} onClose={() => { if (!busy) setDraft(null); }} title={draft?.id ? 'حساب التاجر' : 'إضافة تاجر'} width={620} footer={<><button className="btn btn-soft" disabled={busy} onClick={() => setDraft(null)}>إغلاق</button>{(!draft?.id || can('customers.update')) && <button className="btn btn-ink" disabled={busy} onClick={save}>{busy ? 'جارٍ الحفظ…' : 'حفظ البيانات'}</button>}</>}>
@@ -140,7 +139,7 @@ export function ProductionPage() {
             <button type="button" className="btn btn-soft" aria-label={'إزالة ' + item.label} onClick={() => setItems(items.filter(i => i !== item))}>إزالة</button>
           </div>)}
           <Field label="ملاحظات الاستلام"><Input aria-label="ملاحظات الاستلام" maxLength={1000} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} /></Field>
-          <div className="flex flex-wrap gap-4 items-center justify-between"><span className="t-2 text-sm">إجمالي تكلفة الدفعة: {items.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.unit_cost) || 0), 0).toLocaleString('ar-EG', { maximumFractionDigits: 2 })} ج.م</span><button className="btn btn-ink" type="submit" disabled={!form.branch_id || !items.length || busy}>{busy ? 'جارٍ الاستلام…' : 'تأكيد استلام الإنتاج'}</button></div>
+          <div className="flex flex-wrap gap-4 items-center justify-between"><span className="t-2 text-sm">إجمالي تكلفة الدفعة: {formatCurrency(items.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.unit_cost) || 0), 0))}</span><button className="btn btn-ink" type="submit" disabled={!form.branch_id || !items.length || busy}>{busy ? 'جارٍ الاستلام…' : 'تأكيد استلام الإنتاج'}</button></div>
         </fieldset>
       </form>
     </SectionCard>}
@@ -150,8 +149,8 @@ export function ProductionPage() {
         { key: 'batch', label: 'دفعة الإنتاج', render: r => r.batch_number },
         { key: 'branch', label: 'الفرع', render: r => branches.find(b => b.id === r.branch_id)?.name || r.branch_id },
         { key: 'quantity', label: 'إجمالي القطع', render: r => r.items.reduce((sum, i) => sum + Number(i.quantity), 0) },
-        ...(can('products.view_cost') ? [{ key: 'cost', label: 'تكلفة التصنيع', render: r => r.items.reduce((sum, i) => sum + Number(i.quantity) * Number(i.unit_cost), 0).toLocaleString('ar-EG', { maximumFractionDigits: 2 }) + ' ج.م' }] : []),
-        { key: 'date', label: 'تاريخ الاستلام', render: r => new Date(r.created_at).toLocaleString('ar-EG', { timeZone: 'Africa/Cairo' }) },
+        ...(can('products.view_cost') ? [{ key: 'cost', label: 'تكلفة التصنيع', render: r => formatCurrency(r.items.reduce((sum, i) => sum + Number(i.quantity) * Number(i.unit_cost), 0)) }] : []),
+        { key: 'date', label: 'تاريخ الاستلام', render: r => formatDate(r.created_at, { includeTime: true }) },
         { key: 'notes', label: 'ملاحظات', render: r => r.notes || '—' },
         { key: 'details', label: '', render: r => <button className="btn btn-soft" onClick={() => setSelectedReceipt(r)}>تفاصيل الدفعة</button> },
       ]} />
@@ -159,7 +158,7 @@ export function ProductionPage() {
       <div className="space-y-4">{selectedReceipt?.items.map(item => <div key={item.product_variant_id} className="v-border-b py-3 space-y-2">
         <div className="font-semibold t-1">{item.label || 'صنف رقم ' + item.product_variant_id}</div>
         <div className="t-2 text-sm">الكمية: {item.quantity} قطعة</div>
-        {can('products.view_cost') && <div className="t-2 text-sm">تكلفة تصنيع الوحدة: {item.unit_cost} ج.م</div>}
+        {can('products.view_cost') && <div className="t-2 text-sm">تكلفة تصنيع الوحدة: {formatCurrency(item.unit_cost)}</div>}
       </div>)}<p className="t-2 text-sm">{selectedReceipt?.notes}</p></div>
     </Drawer>
   </div>;

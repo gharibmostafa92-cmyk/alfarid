@@ -1,3 +1,5 @@
+export * from './inventory';
+
 import { defaultApiClient as apiClient } from '../axios-instance';
 import type { AdminBrand, AdminCategory, AdminMedia, AdminProduct, AdminVariant, BrandPayload, CategoryPayload, CategoryReorderItem, ProductPayload, ProductStatus, ResourceCollection, SalesChannel, VariantPayload } from '../types';
 

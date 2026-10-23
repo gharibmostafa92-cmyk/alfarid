@@ -86,10 +86,7 @@ class VariantService
             $this->assertNotLastActiveOfPublished($variant);
             // متغير له رصيد في أي وعاء لا يُحذف: الحذف الناعم كان يحبس الرصيد
             // لأن فحوص وجود المتغير تستبعد المحذوف (M-9). صفِّ الرصيد أولًا.
-            if (StockLevel::query()->where('product_variant_id', $variant->id)
-                ->where(fn ($q) => $q->where('on_hand', '<>', 0)->orWhere('reserved', '<>', 0)
-                    ->orWhere('damaged', '<>', 0)->orWhere('in_transit', '<>', 0))
-                ->exists()) {
+            if (StockLevel::query()->where('product_variant_id', $variant->id)->hasNonZeroBalance()->exists()) {
                 throw new BusinessException('لا يمكن حذف متغير له رصيد مخزون؛ صفِّ رصيده أولًا أو عطّله بدلًا من حذفه.');
             }
             $variant->delete();

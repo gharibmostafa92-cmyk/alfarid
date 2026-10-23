@@ -55,4 +55,14 @@ class TransferItemsQtyRequest extends FormRequest
 
         return $map;
     }
+
+    public function expectedVersion(): ?int
+    {
+        return $this->filled('expected_version') ? (int) $this->validated('expected_version') : null;
+    }
+
+    public function expectedUpdatedAt(): ?string
+    {
+        return $this->validated('expected_updated_at');
+    }
 }

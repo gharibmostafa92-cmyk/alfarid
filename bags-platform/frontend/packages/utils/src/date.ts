@@ -5,6 +5,24 @@ export interface FormatDateOptions {
   timeStyle?: 'full' | 'long' | 'medium' | 'short';
 }
 
+const dateTimeFormatterCache = new Map<string, Intl.DateTimeFormat>();
+
+function getDateTimeFormatter(locale: string, dateStyle: string, timeStyle?: string): Intl.DateTimeFormat {
+  const key = `${locale}_${dateStyle}_${timeStyle ?? 'none'}`;
+  let formatter = dateTimeFormatterCache.get(key);
+  if (!formatter) {
+    const opts: Intl.DateTimeFormatOptions = {
+      dateStyle: dateStyle as Intl.DateTimeFormatOptions['dateStyle'],
+    };
+    if (timeStyle) {
+      opts.timeStyle = timeStyle as Intl.DateTimeFormatOptions['timeStyle'];
+    }
+    formatter = new Intl.DateTimeFormat(locale, opts);
+    dateTimeFormatterCache.set(key, formatter);
+  }
+  return formatter;
+}
+
 export function formatDate(
   dateInput: string | number | Date | null | undefined,
   options: FormatDateOptions = {}
@@ -22,10 +40,7 @@ export function formatDate(
   } = options;
 
   try {
-    if (includeTime) {
-      return new Intl.DateTimeFormat(locale, { dateStyle, timeStyle }).format(date);
-    }
-    return new Intl.DateTimeFormat(locale, { dateStyle }).format(date);
+    return getDateTimeFormatter(locale, dateStyle, includeTime ? timeStyle : undefined).format(date);
   } catch {
     return date.toISOString().split('T')[0];
   }

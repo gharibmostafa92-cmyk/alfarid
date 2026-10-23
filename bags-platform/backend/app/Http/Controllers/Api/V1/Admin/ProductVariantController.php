@@ -12,6 +12,7 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Services\Catalog\VariantService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
@@ -36,37 +37,23 @@ class ProductVariantController extends Controller implements HasMiddleware
 
     public function store(StoreVariantRequest $request, Product $product): JsonResponse
     {
-        $data = $request->validated();
-        if (! $request->user()->can('products.view_cost')) {
-            unset($data['cost_price']);
-        }
-
+        $data = $this->filterCostPrice($request->validated(), $request);
         $variant = $this->service->create($product, $data);
-        $variant->load('media');
-        $variant->setRelation('product', $product);
 
-        return VariantResource::make($variant)->response()->setStatusCode(201);
+        return $this->variantResource($variant, $product)->response()->setStatusCode(201);
     }
 
     public function show(Product $product, ProductVariant $variant): VariantResource
     {
-        $variant->load('media');
-        $variant->setRelation('product', $product);
-
-        return VariantResource::make($variant);
+        return $this->variantResource($variant, $product);
     }
 
     public function update(UpdateVariantRequest $request, Product $product, ProductVariant $variant): VariantResource
     {
-        $data = $request->validated();
-        if (! $request->user()->can('products.view_cost')) {
-            unset($data['cost_price']);
-        }
-
+        $data = $this->filterCostPrice($request->validated(), $request);
         $variant = $this->service->update($variant, $data);
-        $variant->load('media')->setRelation('product', $product);
 
-        return VariantResource::make($variant);
+        return $this->variantResource($variant, $product);
     }
 
     public function destroy(Product $product, ProductVariant $variant): JsonResponse
@@ -74,5 +61,26 @@ class ProductVariantController extends Controller implements HasMiddleware
         $this->service->delete($variant);
 
         return response()->json(['message' => 'تم الحذف']);
+    }
+
+    private function variantResource(ProductVariant $variant, Product $product): VariantResource
+    {
+        $variant->loadMissing('media');
+        $variant->setRelation('product', $product);
+
+        return VariantResource::make($variant);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function filterCostPrice(array $data, Request $request): array
+    {
+        if (! $request->user()->can('products.view_cost')) {
+            unset($data['cost_price']);
+        }
+
+        return $data;
     }
 }

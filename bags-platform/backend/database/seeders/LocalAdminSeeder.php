@@ -28,13 +28,30 @@ class LocalAdminSeeder extends Seeder
                 if (! $existing->hasRole(StaffRole::SuperAdmin->value)) {
                     throw new \LogicException('The admin email is already in use by another staff account.');
                 }
+            }
 
-                $this->command?->info('Admin already exists; password and account were left unchanged.');
+            // The base seeder only defines generic CRUD permissions. A local
+            // admin also needs the module permissions used by the real screens.
+            // Run these on retries too, without changing existing credentials.
+            $this->call([
+                RolePermissionSeeder::class,
+                CatalogPermissionSeeder::class,
+                InventoryPermissionSeeder::class,
+                PricingPermissionSeeder::class,
+                CustomerPermissionSeeder::class,
+                OrderPermissionSeeder::class,
+                ReturnPermissionSeeder::class,
+                ShippingPermissionSeeder::class,
+                PromotionPermissionSeeder::class,
+                WholesalePortalPermissionSeeder::class,
+            ]);
+
+            if ($existing !== null) {
+                $this->command?->info('Admin permissions refreshed; password and account were left unchanged.');
 
                 return;
             }
 
-            $this->call(RolePermissionSeeder::class);
             $admin = User::query()->create([
                 'name' => 'مدير النظام',
                 'email' => 'admin@alfarid.local',

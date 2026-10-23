@@ -37,19 +37,19 @@ class ShippingRateController extends Controller implements HasMiddleware
     {
         $rate = ShippingRate::create($request->validated());
 
-        return ShippingRateResource::make($rate->load(['company', 'zone']))->response()->setStatusCode(201);
+        return $this->rateResource($rate)->response()->setStatusCode(201);
     }
 
     public function show(ShippingRate $shippingRate): ShippingRateResource
     {
-        return ShippingRateResource::make($shippingRate->load(['company', 'zone']));
+        return $this->rateResource($shippingRate);
     }
 
     public function update(ShippingRateRequest $request, ShippingRate $shippingRate): ShippingRateResource
     {
         $shippingRate->update($request->validated());
 
-        return ShippingRateResource::make($shippingRate->load(['company', 'zone']));
+        return $this->rateResource($shippingRate);
     }
 
     public function destroy(ShippingRate $shippingRate): JsonResponse
@@ -57,5 +57,10 @@ class ShippingRateController extends Controller implements HasMiddleware
         $shippingRate->delete();
 
         return response()->json(['message' => 'تم حذف سعر الشحن']);
+    }
+
+    private function rateResource(ShippingRate $rate): ShippingRateResource
+    {
+        return ShippingRateResource::make($rate->loadMissing(['company', 'zone']));
     }
 }

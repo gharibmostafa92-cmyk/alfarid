@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Enums\CustomerDocumentStatus;
+use App\Enums\CustomerDocumentType;
 use App\Enums\CustomerStatus;
 use App\Enums\CustomerType;
 use App\Events\WholesaleApplicationReviewed;
@@ -12,6 +14,7 @@ use App\Models\Customer;
 use App\Models\CustomerAuditLog;
 use App\Models\CustomerDocument;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -31,10 +34,7 @@ class CustomerManagementService
             ->when($filters['type'] ?? null, fn ($q, $v) => $q->where('type', $v))
             ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
             ->when($filters['customer_group_id'] ?? null, fn ($q, $v) => $q->where('customer_group_id', $v))
-            ->when($filters['search'] ?? null, function ($q, $v): void {
-                $term = '%'.SearchTerm::escape($v).'%';
-                $q->whereLike('search_text', $term, caseSensitive: false);
-            })
+            ->when($filters['search'] ?? null, fn ($q, $v) => $q->whereLike('search_text', SearchTerm::pattern($v), caseSensitive: false))
             ->orderByDesc('id')
             ->paginate($filters['per_page'] ?? 15)->withQueryString();
     }
@@ -235,6 +235,28 @@ class CustomerManagementService
             $document = $customer->documents()->whereKey($document->id)->lockForUpdate()->firstOrFail();
             $document->forceFill(['status' => $status, 'reviewed_by' => $actorId, 'reviewed_at' => now()])->save();
             CustomerAuditLog::record($customer, 'document_reviewed', $actorId, ['document_id' => $document->id, 'status' => $status]);
+
+            return $document;
+        });
+    }
+
+    public function uploadDocument(Customer $customer, UploadedFile $file, int $actorId): CustomerDocument
+    {
+        return PrivateAttachments::transaction(function (PrivateAttachments $files) use ($customer, $file, $actorId): CustomerDocument {
+            $customer = Customer::whereKey($customer->id)->lockForUpdate()->firstOrFail();
+            if ($customer->type === CustomerType::Retail || $customer->documents()->count() >= 5) {
+                throw new BusinessException('رفع المستندات متاح للتجار والموزعين بحد أقصى 5 مستندات.');
+            }
+
+            $path = $files->store($file, 'customer_documents/'.$customer->id);
+            $document = $customer->documents()->create([
+                'document_type' => CustomerDocumentType::Other,
+                'file_path' => $path,
+                'original_name' => CustomerDocument::safeName($file->getClientOriginalName()),
+                'mime_type' => $file->getMimeType(),
+                'status' => CustomerDocumentStatus::Pending,
+            ]);
+            CustomerAuditLog::record($customer, 'document_uploaded', $actorId, ['document_id' => $document->id]);
 
             return $document;
         });

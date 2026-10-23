@@ -14,6 +14,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Support\Facades\DB;
 
 /** إدارة كوبونات الخصم. */
 class CouponController extends Controller implements HasMiddleware
@@ -61,9 +62,12 @@ class CouponController extends Controller implements HasMiddleware
         if ($coupon->usages()->exists()) {
             throw new BusinessException('لا يمكن حذف كوبون له استخدامات مسجلة؛ عطّله بدلًا من حذفه.');
         }
-        // فكّ ارتباط السلال المعلقة حتى لا يتعطل إتمام شرائها (M9)
-        Cart::query()->where('coupon_id', $coupon->id)->update(['coupon_id' => null]);
-        $coupon->delete();
+
+        DB::transaction(function () use ($coupon): void {
+            // فكّ ارتباط السلال المعلقة حتى لا يتعطل إتمام شرائها (M9)
+            Cart::query()->where('coupon_id', $coupon->id)->update(['coupon_id' => null]);
+            $coupon->delete();
+        });
 
         return response()->json(['message' => 'تم حذف الكوبون']);
     }

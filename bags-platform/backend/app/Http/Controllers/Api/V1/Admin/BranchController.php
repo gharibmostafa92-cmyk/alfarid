@@ -37,20 +37,24 @@ class BranchController extends Controller
     public function store(StoreBranchRequest $request): JsonResponse
     {
         $branch = Branch::query()->create($request->validated());
-        $branch->loadCount(['locations', 'users']);
 
-        return BranchResource::make($branch)->response()->setStatusCode(201);
+        return $this->branchResource($branch)->response()->setStatusCode(201);
     }
 
     public function show(Branch $branch): BranchResource
     {
-        return BranchResource::make($branch->loadCount(['locations', 'users']));
+        return $this->branchResource($branch);
     }
 
     public function update(UpdateBranchRequest $request, Branch $branch): BranchResource
     {
         $branch->update($request->validated());
 
+        return $this->branchResource($branch);
+    }
+
+    private function branchResource(Branch $branch): BranchResource
+    {
         return BranchResource::make($branch->loadCount(['locations', 'users']));
     }
 

@@ -19,8 +19,8 @@ class TreasuryTransferController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('can:treasury_transfers.view',    only: ['index', 'show']),
-            new Middleware('can:treasury_transfers.create',  only: ['store']),
+            new Middleware('can:treasury_transfers.view', only: ['index', 'show']),
+            new Middleware('can:treasury_transfers.create', only: ['store']),
             new Middleware('can:treasury_transfers.approve', only: ['approve', 'reject']),
         ];
     }
@@ -31,9 +31,9 @@ class TreasuryTransferController extends Controller implements HasMiddleware
     {
         $filters = $request->validate([
             'from_treasury_id' => ['nullable', 'integer', 'min:1'],
-            'to_treasury_id'   => ['nullable', 'integer', 'min:1'],
-            'status'           => ['nullable', Rule::in(array_column(TreasuryTransferStatus::cases(), 'value'))],
-            'per_page'         => ['nullable', 'integer', 'min:1', 'max:100'],
+            'to_treasury_id' => ['nullable', 'integer', 'min:1'],
+            'status' => ['nullable', Rule::in(array_column(TreasuryTransferStatus::cases(), 'value'))],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
         $transfers = TreasuryTransfer::query()
@@ -51,16 +51,16 @@ class TreasuryTransferController extends Controller implements HasMiddleware
     {
         $data = $request->validate([
             'from_treasury_id' => ['required', 'integer', 'min:1', 'exists:treasuries,id'],
-            'to_treasury_id'   => ['required', 'integer', 'min:1', 'exists:treasuries,id', 'different:from_treasury_id'],
-            'amount'           => ['required', 'numeric', 'min:0.01', 'max:99999999'],
-            'notes'            => ['nullable', 'string', 'max:500'],
+            'to_treasury_id' => ['required', 'integer', 'min:1', 'exists:treasuries,id', 'different:from_treasury_id'],
+            'amount' => ['required', 'numeric', 'min:0.01', 'max:99999999'],
+            'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
-        $transfer = $this->treasury->createTransfer($data, $request->user()->id);
+        $transfer = $this->treasury->createTransfer($data, (int) $request->user()->id);
 
         return response()->json([
             'message' => 'تم إنشاء طلب التحويل بنجاح وهو في انتظار الاعتماد.',
-            'data'    => $transfer->load(['fromTreasury', 'toTreasury', 'creator']),
+            'data' => $transfer->load(['fromTreasury', 'toTreasury', 'creator']),
         ], 201);
     }
 
@@ -76,11 +76,11 @@ class TreasuryTransferController extends Controller implements HasMiddleware
      */
     public function approve(Request $request, TreasuryTransfer $treasuryTransfer): JsonResponse
     {
-        $transfer = $this->treasury->approveTransfer($treasuryTransfer, $request->user()->id);
+        $transfer = $this->treasury->approveTransfer($treasuryTransfer, (int) $request->user()->id);
 
         return response()->json([
             'message' => 'تم اعتماد تحويل الخزينة وتم تحديث أرصدة الخزائن.',
-            'data'    => $transfer->load(['fromTreasury', 'toTreasury', 'approver']),
+            'data' => $transfer->load(['fromTreasury', 'toTreasury', 'approver']),
         ]);
     }
 
@@ -89,11 +89,11 @@ class TreasuryTransferController extends Controller implements HasMiddleware
      */
     public function reject(Request $request, TreasuryTransfer $treasuryTransfer): JsonResponse
     {
-        $transfer = $this->treasury->rejectTransfer($treasuryTransfer, $request->user()->id);
+        $transfer = $this->treasury->rejectTransfer($treasuryTransfer, (int) $request->user()->id);
 
         return response()->json([
             'message' => 'تم رفض تحويل الخزينة.',
-            'data'    => $transfer,
+            'data' => $transfer,
         ]);
     }
 }

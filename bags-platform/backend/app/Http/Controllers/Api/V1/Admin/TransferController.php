@@ -85,21 +85,39 @@ class TransferController extends Controller implements HasMiddleware
 
     public function approve(ApproveTransferRequest $request, StockTransfer $transfer): StockTransferResource
     {
-        $transfer = $this->transfers->approve($transfer, $request->quantitiesByItemId(), $request->user()->id, $request->validated('expected_updated_at'), $request->filled('expected_version') ? (int) $request->validated('expected_version') : null);
+        $transfer = $this->transfers->approve(
+            $transfer,
+            $request->quantitiesByItemId(),
+            (int) $request->user()->id,
+            $request->expectedUpdatedAt(),
+            $request->expectedVersion(),
+        );
 
         return (new StockTransferResource($transfer))->additional(['message' => 'تم اعتماد التحويل وحجز الكميات']);
     }
 
     public function ship(ShipTransferRequest $request, StockTransfer $transfer): StockTransferResource
     {
-        $transfer = $this->transfers->ship($transfer, $request->quantitiesByItemId(), $request->user()->id, $request->validated('expected_updated_at'), $request->filled('expected_version') ? (int) $request->validated('expected_version') : null);
+        $transfer = $this->transfers->ship(
+            $transfer,
+            $request->quantitiesByItemId(),
+            (int) $request->user()->id,
+            $request->expectedUpdatedAt(),
+            $request->expectedVersion(),
+        );
 
         return (new StockTransferResource($transfer))->additional(['message' => 'تم شحن التحويل بنجاح']);
     }
 
     public function receive(ReceiveTransferRequest $request, StockTransfer $transfer): StockTransferResource
     {
-        $transfer = $this->transfers->receive($transfer, $request->quantitiesByItemId(), $request->user()->id, $request->validated('expected_updated_at'), $request->filled('expected_version') ? (int) $request->validated('expected_version') : null);
+        $transfer = $this->transfers->receive(
+            $transfer,
+            $request->quantitiesByItemId(),
+            (int) $request->user()->id,
+            $request->expectedUpdatedAt(),
+            $request->expectedVersion(),
+        );
 
         return (new StockTransferResource($transfer))->additional(['message' => 'تم استلام التحويل بنجاح']);
     }

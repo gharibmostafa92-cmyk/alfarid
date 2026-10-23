@@ -5,11 +5,12 @@ import AuthCallbackPage from './pages/auth/AuthCallbackPage';
 import LoginPage from './pages/auth/LoginPage';
 import SessionProbePage from './pages/auth/SessionProbePage';
 import { FinancialDashboard } from '@alfarid/ui';
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { useAuthStore } from './stores/auth.store';
 import CategoriesMockPage from './pages/admin/categories-mock/CategoriesMockPage';
 import PosPage from './pages/pos/PosPage';
 import CatalogMockPage from './pages/admin/catalog-mock/CatalogMockPage';
+const InventoryPage = lazy(() => import('./pages/admin/inventory-mock/InventoryPage'));
 
 defaultApiClient.defaults.baseURL = resolveServiceUrl(import.meta.env.VITE_API_URL ?? 'http://localhost:8000');
 
@@ -30,7 +31,8 @@ function AuthenticatedApp() {
     hasPermission(user?.permissions, permission), [user]);
   const cashierOnly = user?.roles.length === 1 && user.roles[0] === 'cashier';
   useEffect(() => {
-    const changed = () => setRoute(readRoute());
+    // Stocktake navigation guards may synchronously restore the accepted hash.
+    const changed = () => queueMicrotask(() => setRoute(readRoute()));
     window.addEventListener('hashchange', changed);
     window.addEventListener('popstate', changed);
     return () => {
@@ -40,17 +42,19 @@ function AuthenticatedApp() {
   }, []);
   useEffect(() => {
     if (cashierOnly && !['/', '/dashboard', '/pos'].includes(route)) window.location.replace('/dashboard');
-    else if (!['/', '/dashboard', '/categories', '/dealers', '/production', '/pos'].includes(route) && !/^\/products(?:\/(?:new|[0-9]+))?$/.test(route)) window.location.replace('/dashboard');
+    else if (!['/', '/dashboard', '/categories', '/dealers', '/production', '/pos'].includes(route) && !/^\/products(?:\/(?:new|[0-9]+))?$/.test(route) && !/^\/inventory(?:\/[a-z-]+)?$/.test(route)) window.location.replace('/dashboard');
   }, [cashierOnly, route]);
   if (cashierOnly && !['/', '/dashboard', '/pos'].includes(route)) return null;
   if (route === '/pos') return <PosPage />;
   const categoriesActive = route === '/categories';
-  const catalogActive = route.startsWith('/products') ? 'products' : route === '/dealers' ? 'dealers' : route === '/production' ? 'production' : null;
+  const inventoryActive = route === '/inventory' || route.startsWith('/inventory/');
+  const catalogActive = inventoryActive ? 'inventory' : route.startsWith('/products') ? 'products' : route === '/dealers' ? 'dealers' : route === '/production' ? 'production' : null;
   return <FinancialDashboard
     onLogout={logoutRemote}
     catalogActive={catalogActive}
-    catalogPage={catalogActive && <CatalogMockPage key={catalogActive} can={can} page={catalogActive} />}
+    catalogPage={inventoryActive ? (can('inventory.view') ? <Suspense fallback={<div dir="rtl" className="p-6">جارٍ تحميل المخزون…</div>}><InventoryPage can={can}/></Suspense> : <div dir="rtl" className="p-6">ليس لديك صلاحية عرض المخزون.</div>) : catalogActive && <CatalogMockPage key={catalogActive} can={can} page={catalogActive} />}
     catalogNav={!cashierOnly ? [
+      ...(can('inventory.view') ? [{ id: 'inventory', label: 'المخزون', onOpen: () => { window.location.hash = '/inventory/stock'; } }] : []),
       ...(can('products.view') ? [{ id: 'products', label: 'المنتجات', onOpen: () => { window.location.hash = '/products'; } }] : []),
       ...(can('customers.view') ? [{ id: 'dealers', label: 'التجار والموزعون', onOpen: () => { window.location.hash = '/dealers'; } }] : []),
       ...(can('inventory.view') ? [{ id: 'production', label: 'استلام الإنتاج', onOpen: () => { window.location.hash = '/production'; } }] : []),

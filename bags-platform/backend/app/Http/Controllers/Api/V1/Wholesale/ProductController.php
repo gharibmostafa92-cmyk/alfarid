@@ -12,6 +12,7 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
 use App\Services\PricingService;
+use App\Services\SearchTerm;
 use App\Services\SettingService;
 use App\Services\WholesalePriceListService;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -44,11 +45,13 @@ class ProductController extends Controller
         $products = Product::query()
             ->where('status', 'published')
             ->with(['variants' => fn ($q) => $q->where('is_active', true)])
-            ->when($filters['search'] ?? null, fn ($q, $v) => $q->where(function ($q) use ($v): void {
-                $q->where('name_ar', 'like', "%{$v}%")
-                    ->orWhere('name_en', 'like', "%{$v}%")
-                    ->orWhereHas('variants', fn ($q) => $q->where('sku', 'like', "%{$v}%"));
-            }))
+            ->when($filters['search'] ?? null, function ($q, $v): void {
+                $pattern = SearchTerm::pattern($v);
+                $q->where(fn ($sub) => $sub
+                    ->whereLike('name_ar', $pattern, caseSensitive: false)
+                    ->orWhereLike('name_en', $pattern, caseSensitive: false)
+                    ->orWhereHas('variants', fn ($qv) => $qv->whereLike('sku', $pattern, caseSensitive: false)));
+            })
             ->latest('id')
             ->paginate($filters['per_page'] ?? 15);
 

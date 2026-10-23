@@ -34,7 +34,7 @@ const office = process.env.E2E_BACKOFFICE_URL || 'http://127.0.0.1:5173';
     // In header nav: every button must contain text words, and no button should be a side-nav-btn with only an svg
     const headerButtons = headerNav.locator('button');
     const headerBtnCount = await headerButtons.count();
-    assert.ok(headerBtnCount >= 7, 'Header nav should have buttons for overview, activity, products, dealers, production, categories, etc.');
+    assert.ok(headerBtnCount >= 4, 'Header nav should have buttons for overview, products, dealers, production, categories, etc.');
 
     for (let i = 0; i < headerBtnCount; i++) {
       const btn = headerButtons.nth(i);

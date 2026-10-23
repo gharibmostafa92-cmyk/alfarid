@@ -87,29 +87,22 @@ class ProductController extends Controller implements HasMiddleware
 
     public function show(Product $product): ProductResource
     {
-        $product->load(['category.media', 'variants.media', 'media']);
-
-        return ProductResource::make($product);
+        return $this->productResource($product);
     }
 
     public function store(StoreProductRequest $request): JsonResponse
     {
-        $data = $request->validated();
-        if (! $request->user()->can('products.view_cost')) {
-            foreach ($data['variants'] ?? [] as $index => $variant) {
-                unset($data['variants'][$index]['cost_price']);
-            }
-        }
+        $data = $this->filterCostPrices($request->validated(), $request);
         $product = $this->service->create($data, $request->user());
 
-        return ProductResource::make($product)->response()->setStatusCode(201);
+        return $this->productResource($product)->response()->setStatusCode(201);
     }
 
     public function update(UpdateProductRequest $request, Product $product): ProductResource
     {
         $product = $this->service->update($product, $request->validated(), $request->user());
 
-        return ProductResource::make($product);
+        return $this->productResource($product);
     }
 
     public function destroy(Product $product): JsonResponse
@@ -117,5 +110,27 @@ class ProductController extends Controller implements HasMiddleware
         $this->service->delete($product);
 
         return response()->json(['message' => 'تم الحذف']);
+    }
+
+    private function productResource(Product $product): ProductResource
+    {
+        $product->loadMissing(['category.media', 'variants.media', 'media']);
+
+        return ProductResource::make($product);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function filterCostPrices(array $data, Request $request): array
+    {
+        if (! $request->user()->can('products.view_cost')) {
+            foreach ($data['variants'] ?? [] as $index => $variant) {
+                unset($data['variants'][$index]['cost_price']);
+            }
+        }
+
+        return $data;
     }
 }

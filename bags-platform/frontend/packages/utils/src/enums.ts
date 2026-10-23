@@ -61,3 +61,38 @@ export const QuotationStatusLabelsAr: Record<QuotationStatus, string> = {
   [QuotationStatus.Rejected]: 'مرفوض',
   [QuotationStatus.Converted]: 'تم التحويل لطلب',
 };
+
+export enum CustomerStatus {
+  Pending = 'pending',
+  Approved = 'approved',
+  Rejected = 'rejected',
+  Suspended = 'suspended',
+}
+
+export const CustomerStatusLabelsAr: Record<CustomerStatus, string> = {
+  [CustomerStatus.Pending]: 'قيد المراجعة',
+  [CustomerStatus.Approved]: 'معتمد',
+  [CustomerStatus.Rejected]: 'مرفوض',
+  [CustomerStatus.Suspended]: 'موقوف',
+};
+
+export enum CustomerType {
+  Retail = 'retail',
+  Wholesale = 'wholesale',
+  Distributor = 'distributor',
+}
+
+export const CustomerTypeLabelsAr: Record<CustomerType, string> = {
+  [CustomerType.Retail]: 'عميل قطاعي',
+  [CustomerType.Wholesale]: 'تاجر جملة',
+  [CustomerType.Distributor]: 'موزع',
+};
+
+export function getStatusLabel<T extends string>(
+  labels: Record<T, string>,
+  key: T | string | null | undefined,
+  fallback = '-'
+): string {
+  if (!key) return fallback;
+  return (labels as Record<string, string>)[key] ?? key;
+}

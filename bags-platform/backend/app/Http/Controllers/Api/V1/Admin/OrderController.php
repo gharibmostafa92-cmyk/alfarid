@@ -108,9 +108,7 @@ class OrderController extends Controller implements HasMiddleware
 
     public function show(Order $order): AdminOrderResource
     {
-        return AdminOrderResource::make(
-            $order->load(['items', 'statusHistories', 'customer', 'city', 'allocatedBranch'])
-        );
+        return $this->orderResource($order);
     }
 
     public function updateStatus(UpdateOrderStatusRequest $request, Order $order): AdminOrderResource
@@ -128,9 +126,7 @@ class OrderController extends Controller implements HasMiddleware
             $request->validated()['notes'] ?? null,
         );
 
-        return AdminOrderResource::make(
-            $order->load(['items', 'statusHistories', 'customer', 'city', 'allocatedBranch'])
-        );
+        return $this->orderResource($order);
     }
 
     /**
@@ -182,9 +178,7 @@ class OrderController extends Controller implements HasMiddleware
             return $order;
         });
 
-        return AdminOrderResource::make(
-            $order->load(['items', 'statusHistories', 'customer', 'city', 'allocatedBranch'])
-        );
+        return $this->orderResource($order);
     }
 
     /** إنشاء بوليصة شحن للطلب وتحويله إلى SHIPPED عبر OrderService. */
@@ -212,9 +206,7 @@ class OrderController extends Controller implements HasMiddleware
             (int) $request->user()->id,
         );
 
-        return AdminOrderResource::make(
-            $order->load(['items', 'statusHistories', 'customer', 'city', 'allocatedBranch'])
-        );
+        return $this->orderResource($order);
     }
 
     /** فك توزيع الطلب (M5) — عكس allocate، يُحرّر الحجوزات ويعيد الطلب غير موزّع. */
@@ -226,6 +218,11 @@ class OrderController extends Controller implements HasMiddleware
 
         $order = $this->allocation->deallocate($order, (int) $request->user()->id);
 
+        return $this->orderResource($order);
+    }
+
+    private function orderResource(Order $order): AdminOrderResource
+    {
         return AdminOrderResource::make(
             $order->load(['items', 'statusHistories', 'customer', 'city', 'allocatedBranch'])
         );

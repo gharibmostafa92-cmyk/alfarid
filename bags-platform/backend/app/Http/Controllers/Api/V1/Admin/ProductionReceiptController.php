@@ -14,12 +14,20 @@ use App\Services\ProductionReceiptService;
 use App\Services\SearchTerm;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Controllers\HasMiddleware;
+use Illuminate\Routing\Controllers\Middleware;
 
-class ProductionReceiptController extends Controller
+class ProductionReceiptController extends Controller implements HasMiddleware
 {
+    public static function middleware(): array
+    {
+        return [
+            new Middleware('can:inventory.view', only: ['options', 'index']),
+        ];
+    }
+
     public function options(Request $request): JsonResponse
     {
-        abort_unless($request->user()->can('inventory.view'), 403);
         $filters = $request->validate(['search' => ['nullable', 'string', 'max:100']]);
         $branch = app(BranchAccess::class)->restrictedBranch($request->user());
         $branches = Branch::where('is_active', true)->when($branch, fn ($q) => $q->whereKey($branch))
@@ -40,7 +48,6 @@ class ProductionReceiptController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $request->user()->can('inventory.view') || abort(403);
         $filters = $request->validate(['per_page' => ['nullable', 'integer', 'min:1', 'max:100']]);
         $branch = app(BranchAccess::class)->restrictedBranch($request->user());
         $receipts = ProductionReceipt::query()->when($branch, fn ($q) => $q->where('branch_id', $branch))

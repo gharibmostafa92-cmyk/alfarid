@@ -47,7 +47,7 @@ class TreasuryService
                 throw new BusinessException('الخزينة غير نشطة.');
             }
 
-            $amount       = (float) $data['amount'];
+            $amount = (float) $data['amount'];
             $balanceAfter = (float) $treasury->current_balance + $amount;
 
             // منع الرصيد السالب على أدراج نقطة البيع والخزائن الرئيسية
@@ -56,16 +56,16 @@ class TreasuryService
             }
 
             $transaction = TreasuryTransaction::create([
-                'treasury_id'    => $treasury->id,
-                'shift_id'       => $data['shift_id'] ?? null,
-                'type'           => $data['type'],
-                'amount'         => $amount,
-                'balance_after'  => $balanceAfter,
+                'treasury_id' => $treasury->id,
+                'shift_id' => $data['shift_id'] ?? null,
+                'type' => $data['type'],
+                'amount' => $amount,
+                'balance_after' => $balanceAfter,
                 'reference_type' => $data['reference_type'] ?? null,
-                'reference_id'   => $data['reference_id'] ?? null,
-                'created_by'     => $data['created_by'],
-                'notes'          => $data['notes'] ?? null,
-                'created_at'     => now(),
+                'reference_id' => $data['reference_id'] ?? null,
+                'created_by' => $data['created_by'],
+                'notes' => $data['notes'] ?? null,
+                'created_at' => now(),
             ]);
 
             $treasury->current_balance = $balanceAfter;
@@ -87,28 +87,28 @@ class TreasuryService
         return DB::transaction(function () use ($transfer, $approverId): TreasuryTransfer {
             // خصم من المصدر
             $this->record([
-                'treasury_id'    => $transfer->from_treasury_id,
-                'type'           => TreasuryTransactionType::TransferOut,
-                'amount'         => -abs((float) $transfer->amount),
+                'treasury_id' => $transfer->from_treasury_id,
+                'type' => TreasuryTransactionType::TransferOut,
+                'amount' => -abs((float) $transfer->amount),
                 'reference_type' => TreasuryTransfer::class,
-                'reference_id'   => $transfer->id,
-                'created_by'     => $approverId,
-                'notes'          => "تحويل #{$transfer->transfer_number} صادر",
+                'reference_id' => $transfer->id,
+                'created_by' => $approverId,
+                'notes' => "تحويل #{$transfer->transfer_number} صادر",
             ]);
 
             // إضافة إلى الوجهة
             $this->record([
-                'treasury_id'    => $transfer->to_treasury_id,
-                'type'           => TreasuryTransactionType::TransferIn,
-                'amount'         => abs((float) $transfer->amount),
+                'treasury_id' => $transfer->to_treasury_id,
+                'type' => TreasuryTransactionType::TransferIn,
+                'amount' => abs((float) $transfer->amount),
                 'reference_type' => TreasuryTransfer::class,
-                'reference_id'   => $transfer->id,
-                'created_by'     => $approverId,
-                'notes'          => "تحويل #{$transfer->transfer_number} وارد",
+                'reference_id' => $transfer->id,
+                'created_by' => $approverId,
+                'notes' => "تحويل #{$transfer->transfer_number} وارد",
             ]);
 
             $transfer->update([
-                'status'      => TreasuryTransferStatus::Approved,
+                'status' => TreasuryTransferStatus::Approved,
                 'approved_by' => $approverId,
             ]);
 
@@ -121,51 +121,53 @@ class TreasuryService
      */
     public function settleShiftToMainSafe(PosShift $shift, int $approverId): void
     {
-        // الخزنة الرئيسية للفرع
-        $mainSafe = Treasury::query()
-            ->where('branch_id', $shift->branch_id)
-            ->where('type', 'main_safe')
-            ->where('is_active', true)
-            ->first();
+        DB::transaction(function () use ($shift, $approverId): void {
+            // الخزنة الرئيسية للفرع
+            $mainSafe = Treasury::query()
+                ->where('branch_id', $shift->branch_id)
+                ->where('type', 'main_safe')
+                ->where('is_active', true)
+                ->first();
 
-        if ($mainSafe === null) {
-            // لا خزنة رئيسية — لا ترحيل
-            return;
-        }
+            if ($mainSafe === null) {
+                // لا خزنة رئيسية — لا ترحيل
+                return;
+            }
 
-        // الرصيد الفعلي الحالي في الدرج
-        $drawer = Treasury::query()->lockForUpdate()->findOrFail($shift->treasury_id);
-        $drawerBalance = (float) $drawer->current_balance;
+            // الرصيد الفعلي الحالي في الدرج
+            $drawer = Treasury::query()->lockForUpdate()->findOrFail($shift->treasury_id);
+            $drawerBalance = (float) $drawer->current_balance;
 
-        // المبلغ المطلوب ترحيله هو المبلغ الفعلي المعدود، ولكن لا يتجاوز رصيد الدرج المتاح
-        $requestedAmount = (float) ($shift->actual_closing_cash ?? $shift->expected_closing_cash);
-        $amount = min($drawerBalance, $requestedAmount);
+            // المبلغ المطلوب ترحيله هو المبلغ الفعلي المعدود، ولكن لا يتجاوز رصيد الدرج المتاح
+            $requestedAmount = (float) ($shift->actual_closing_cash ?? $shift->expected_closing_cash);
+            $amount = min($drawerBalance, $requestedAmount);
 
-        if ($amount <= 0) {
-            return;
-        }
+            if ($amount <= 0) {
+                return;
+            }
 
-        // خصم من درج الكاشير
-        $this->record([
-            'treasury_id'    => $shift->treasury_id,
-            'type'           => TreasuryTransactionType::TransferOut,
-            'amount'         => -$amount,
-            'reference_type' => PosShift::class,
-            'reference_id'   => $shift->id,
-            'created_by'     => $approverId,
-            'notes'          => "ترحيل إغلاق وردية #{$shift->shift_number}",
-        ]);
+            // خصم من درج الكاشير
+            $this->record([
+                'treasury_id' => $shift->treasury_id,
+                'type' => TreasuryTransactionType::TransferOut,
+                'amount' => -$amount,
+                'reference_type' => PosShift::class,
+                'reference_id' => $shift->id,
+                'created_by' => $approverId,
+                'notes' => "ترحيل إغلاق وردية #{$shift->shift_number}",
+            ]);
 
-        // إضافة للخزنة الرئيسية
-        $this->record([
-            'treasury_id'    => $mainSafe->id,
-            'type'           => TreasuryTransactionType::TransferIn,
-            'amount'         => $amount,
-            'reference_type' => PosShift::class,
-            'reference_id'   => $shift->id,
-            'created_by'     => $approverId,
-            'notes'          => "ترحيل إغلاق وردية #{$shift->shift_number}",
-        ]);
+            // إضافة للخزنة الرئيسية
+            $this->record([
+                'treasury_id' => $mainSafe->id,
+                'type' => TreasuryTransactionType::TransferIn,
+                'amount' => $amount,
+                'reference_type' => PosShift::class,
+                'reference_id' => $shift->id,
+                'created_by' => $approverId,
+                'notes' => "ترحيل إغلاق وردية #{$shift->shift_number}",
+            ]);
+        });
     }
 
     /**
@@ -180,13 +182,13 @@ class TreasuryService
         $number = $this->settings->generateNextNumber('treasury_transfer');
 
         return TreasuryTransfer::create([
-            'transfer_number'  => $number,
+            'transfer_number' => $number,
             'from_treasury_id' => $data['from_treasury_id'],
-            'to_treasury_id'   => $data['to_treasury_id'],
-            'amount'           => $data['amount'],
-            'status'           => TreasuryTransferStatus::Pending,
-            'created_by'       => $userId,
-            'notes'            => $data['notes'] ?? null,
+            'to_treasury_id' => $data['to_treasury_id'],
+            'amount' => $data['amount'],
+            'status' => TreasuryTransferStatus::Pending,
+            'created_by' => $userId,
+            'notes' => $data['notes'] ?? null,
         ]);
     }
 
@@ -200,7 +202,7 @@ class TreasuryService
         }
 
         $transfer->update([
-            'status'      => TreasuryTransferStatus::Rejected,
+            'status' => TreasuryTransferStatus::Rejected,
             'approved_by' => $approverId,
         ]);
 

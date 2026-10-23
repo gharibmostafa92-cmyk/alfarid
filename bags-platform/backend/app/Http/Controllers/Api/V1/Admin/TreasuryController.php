@@ -18,7 +18,7 @@ class TreasuryController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('can:treasuries.view',   only: ['index', 'show']),
+            new Middleware('can:treasuries.view', only: ['index', 'show']),
             new Middleware('can:treasuries.create', only: ['store']),
             new Middleware('can:treasuries.update', only: ['update']),
             new Middleware('can:treasuries.delete', only: ['destroy']),
@@ -29,9 +29,9 @@ class TreasuryController extends Controller implements HasMiddleware
     {
         $filters = $request->validate([
             'branch_id' => ['nullable', 'integer', 'min:1'],
-            'type'      => ['nullable', Rule::in(array_column(TreasuryType::cases(), 'value'))],
+            'type' => ['nullable', Rule::in(array_column(TreasuryType::cases(), 'value'))],
             'is_active' => ['nullable', 'boolean'],
-            'per_page'  => ['nullable', 'integer', 'min:1', 'max:100'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
         $treasuries = Treasury::query()
@@ -49,10 +49,10 @@ class TreasuryController extends Controller implements HasMiddleware
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'name'      => ['required', 'string', 'max:191'],
-            'code'      => ['required', 'string', 'max:50', 'unique:treasuries,code'],
+            'name' => ['required', 'string', 'max:191'],
+            'code' => ['required', 'string', 'max:50', 'unique:treasuries,code'],
             'branch_id' => ['nullable', 'integer', 'min:1', 'exists:branches,id'],
-            'type'      => ['required', Rule::in(array_column(TreasuryType::cases(), 'value'))],
+            'type' => ['required', Rule::in(array_column(TreasuryType::cases(), 'value'))],
             'is_active' => ['nullable', 'boolean'],
         ]);
 
@@ -60,22 +60,22 @@ class TreasuryController extends Controller implements HasMiddleware
 
         return response()->json([
             'message' => 'تم إنشاء الخزينة بنجاح.',
-            'data'    => $treasury->load('branch'),
+            'data' => $this->treasuryData($treasury),
         ], 201);
     }
 
     public function show(Treasury $treasury): JsonResponse
     {
-        return response()->json(['data' => $treasury->load('branch')]);
+        return response()->json(['data' => $this->treasuryData($treasury)]);
     }
 
     public function update(Request $request, Treasury $treasury): JsonResponse
     {
         $data = $request->validate([
-            'name'      => ['sometimes', 'string', 'max:191'],
-            'code'      => ['sometimes', 'string', 'max:50', Rule::unique('treasuries', 'code')->ignore($treasury->id)],
+            'name' => ['sometimes', 'string', 'max:191'],
+            'code' => ['sometimes', 'string', 'max:50', Rule::unique('treasuries', 'code')->ignore($treasury->id)],
             'branch_id' => ['nullable', 'integer', 'min:1', 'exists:branches,id'],
-            'type'      => ['sometimes', Rule::in(array_column(TreasuryType::cases(), 'value'))],
+            'type' => ['sometimes', Rule::in(array_column(TreasuryType::cases(), 'value'))],
             'is_active' => ['nullable', 'boolean'],
         ]);
 
@@ -83,7 +83,7 @@ class TreasuryController extends Controller implements HasMiddleware
 
         return response()->json([
             'message' => 'تم تحديث الخزينة بنجاح.',
-            'data'    => $treasury->load('branch'),
+            'data' => $this->treasuryData($treasury),
         ]);
     }
 
@@ -96,5 +96,10 @@ class TreasuryController extends Controller implements HasMiddleware
         $treasury->delete();
 
         return response()->json(['message' => 'تم حذف الخزينة.']);
+    }
+
+    private function treasuryData(Treasury $treasury): Treasury
+    {
+        return $treasury->loadMissing('branch');
     }
 }

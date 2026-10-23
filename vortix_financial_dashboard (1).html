@@ -332,11 +332,6 @@
         <!-- Center: Main Navigation Pill -->
         <nav aria-label="Primary Navigation" class="v-pill-surface rounded-full p-1.5 hidden md:flex items-center gap-1 shadow-xs">
           <button type="button" data-nav="overview" class="top-nav-btn px-5 py-2 rounded-full text-[13px] font-medium transition-colors duration-150">Overview</button>
-          <button type="button" data-nav="activity" class="top-nav-btn px-5 py-2 rounded-full text-[13px] font-medium transition-colors duration-150">Activity</button>
-          <button type="button" data-nav="manage" class="top-nav-btn px-5 py-2 rounded-full text-[13px] font-medium transition-colors duration-150">Manage</button>
-          <button type="button" data-nav="program" class="top-nav-btn px-5 py-2 rounded-full text-[13px] font-medium transition-colors duration-150">Program</button>
-          <button type="button" data-nav="account" class="top-nav-btn px-5 py-2 rounded-full text-[13px] font-medium transition-colors duration-150">Account</button>
-          <button type="button" data-nav="reports" class="top-nav-btn px-5 py-2 rounded-full text-[13px] font-medium transition-colors duration-150">Reports</button>
         </nav>
 
         <!-- Right: Utility Icons Pill + Profile Pill -->
@@ -422,13 +417,6 @@
                 <rect x="14" y="14" width="7" height="7" rx="1.5"></rect>
               </svg>
             </button>
-            <!-- Icon 2: Activity / Calendar -->
-            <button type="button" data-side="activity" title="Activity" class="side-nav-btn w-8 h-8 rounded-full flex items-center justify-center">
-              <svg class="w-[16px] h-[16px]" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
-                <rect x="3" y="4" width="18" height="17" rx="2.5"></rect>
-                <path stroke-linecap="round" d="M16 2v4M8 2v4M3 10h18"></path>
-              </svg>
-            </button>
             <!-- Icon 3: Messages (Envelope) -->
             <button type="button" data-side="messages" title="Messages" class="side-nav-btn w-8 h-8 rounded-full flex items-center justify-center">
               <svg class="w-[16px] h-[16px]" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
@@ -436,39 +424,7 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 7l9 6 9-6"></path>
               </svg>
             </button>
-            <!-- Icon 4: Manage Cards / Invoices -->
-            <button type="button" data-side="manage" title="Manage Cards" class="side-nav-btn w-8 h-8 rounded-full flex items-center justify-center">
-              <svg class="w-[16px] h-[16px]" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
-                <rect x="4" y="3" width="16" height="18" rx="2.5"></rect>
-                <path stroke-linecap="round" d="M8 8h8M8 12h8M8 16h5"></path>
-              </svg>
-            </button>
-            <!-- Icon 5: Account / Team -->
-            <button type="button" data-side="account" title="Account & Team" class="side-nav-btn w-8 h-8 rounded-full flex items-center justify-center">
-              <svg class="w-[16px] h-[16px]" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
-                <circle cx="9" cy="8" r="3.5"></circle>
-                <path stroke-linecap="round" d="M3 19c0-3.3 2.7-6 6-6s6 2.7 6 6"></path>
-                <circle cx="17" cy="9" r="2.5"></circle>
-                <path stroke-linecap="round" d="M16 13.5c2.5.4 4.5 2.5 4.5 5.5"></path>
-              </svg>
-            </button>
-            <!-- Icon 6: Rewards Program (Cube / Hexagon Perk) -->
-            <button type="button" data-side="program" title="Rewards Program" class="side-nav-btn w-8 h-8 rounded-full flex items-center justify-center">
-              <svg class="w-[16px] h-[16px]" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"></path>
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 12l8-4.5M12 12v9M12 12L4 7.5"></path>
-              </svg>
-            </button>
-            <!-- Icon 7: Reports / Settings (Gear) -->
-            <button type="button" data-side="reports" title="Reports & Settings" class="side-nav-btn w-8 h-8 rounded-full flex items-center justify-center">
-              <svg class="w-[16px] h-[16px]" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
-                <circle cx="12" cy="12" r="3"></circle>
-                <path stroke-linecap="round" stroke-linejoin="round" d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"></path>
-              </svg>
-            </button>
-          </div>
-
-          <!-- 3. Bottom Utility Pill (Info & Logout) -->
+            <!-- 3. Bottom Utility Pill (Info & Logout) -->
           <div class="v-pill-surface rounded-full p-1.5 flex flex-col items-center gap-1.5 shadow-xs w-[44px] mt-10">
             <button type="button" id="side-info-btn" title="System Status" class="w-8 h-8 rounded-full flex items-center justify-center hover:opacity-75 transition" style="color: var(--text-secondary);">
               <svg class="w-[16px] h-[16px]" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
@@ -739,7 +695,6 @@
                 <!-- Subtle bottom card hint matching video layout -->
                 <div class="v-subcard mt-5 px-3.5 py-2.5 flex items-center justify-between text-[11.5px]">
                   <span style="color: var(--text-secondary);">Automatic limit reset in 9 days</span>
-                  <button type="button" data-goto-manage="true" class="font-semibold text-[#e0491f] hover:underline">Adjust →</button>
                 </div>
               </div>
 
@@ -782,356 +737,6 @@
                     <tbody id="recent-activities-tbody" class="text-[12.5px] v-divide"></tbody>
                   </table>
                 </div>
-              </div>
-
-            </div>
-          </section>
-
-          <!-- ========================================================= -->
-          <!-- VIEW 2: MANAGE (Cards & Card Controls)                    -->
-          <!-- ========================================================= -->
-          <section id="view-manage" class="view-section hidden space-y-5">
-            <!-- Header Row -->
-            <div class="flex flex-wrap items-end justify-between gap-4 pt-1 stagger-item stagger-1">
-              <div>
-                <h1 class="font-display text-[36px] sm:text-[40px] font-medium tracking-[-0.025em] leading-tight" style="color: var(--text-primary);">Manage</h1>
-                <p class="text-[13.5px] mt-1" style="color: var(--text-secondary);">Freeze cards, fine-tune limits and decide which wallets stay switched on.</p>
-              </div>
-              <button type="button" id="btn-new-card" class="px-5 py-2.5 rounded-full text-[13px] font-medium flex items-center gap-2 shadow-xs hover:opacity-90 transition" style="background: var(--pill-active-bg); color: var(--pill-active-text);">
-                <span class="text-base leading-none">+</span>
-                <span>New card</span>
-              </button>
-            </div>
-
-            <!-- Two-Column Grid: Your cards (6 cols) + Card controls (6 cols) -->
-            <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
-
-              <!-- Left Column: Your cards -->
-              <div class="lg:col-span-6 v-card p-6 flex flex-col justify-between stagger-item stagger-2">
-                <div>
-                  <div class="flex items-center justify-between mb-4">
-                    <h2 class="font-display text-[17px] font-semibold" style="color: var(--text-primary);">Your cards</h2>
-                    <span id="cards-count-label" class="text-[12px]" style="color: var(--text-muted);">2 cards</span>
-                  </div>
-
-                  <!-- Grey Stage Box containing 3D Credit Card -->
-                  <div class="v-subcard p-7 flex flex-col items-center justify-center">
-                    <div id="credit-card-3d" class="card-3d-perspective w-full max-w-[330px] h-[202px] cursor-pointer">
-                      <div id="credit-card-inner" class="card-3d-inner">
-                        <!-- Card Front -->
-                        <div id="credit-card-front" class="card-3d-face p-6 flex flex-col justify-between text-white shadow-xl" style="background: linear-gradient(145deg, #221f26 0%, #151318 100%);">
-                          <div class="absolute inset-0 pointer-events-none opacity-[0.04] flex items-center justify-center">
-                            <div class="w-24 h-24 border-8 border-white rounded-xl rotate-12"></div>
-                          </div>
-
-                          <!-- Card Top Row -->
-                          <div class="relative z-10 flex items-center justify-between">
-                            <div class="flex items-center gap-2">
-                              <svg class="w-4 h-4 text-white/75" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" d="M8.5 14.5A4 4 0 018.5 9.5M11.5 17a7.5 7.5 0 000-10M14.5 19.5a11 11 0 000-15"/>
-                              </svg>
-                              <span id="card-status-pill" class="px-3 py-0.5 rounded-full text-[11px] font-semibold bg-white text-[#18151c]">Active</span>
-                            </div>
-                            <div class="flex items-center">
-                              <span class="w-6 h-6 rounded-full bg-[#eb001b] inline-block"></span>
-                              <span class="w-6 h-6 rounded-full bg-[#f79e1b] -ml-2.5 inline-block mix-blend-screen"></span>
-                            </div>
-                          </div>
-
-                          <!-- Card Bottom Row -->
-                          <div class="relative z-10 flex items-end justify-between">
-                            <div>
-                              <div class="text-[10px] text-white/50 font-medium">Card Number</div>
-                              <div id="card-number-display" class="font-mono text-[15px] font-semibold tracking-wider mt-1">•••• •••• 6782</div>
-                            </div>
-                            <div class="flex items-end gap-5">
-                              <div>
-                                <div class="text-[9.5px] text-white/50 uppercase">EXP</div>
-                                <div id="card-exp-display" class="text-[13px] font-semibold mt-0.5">09/29</div>
-                              </div>
-                              <div>
-                                <div class="text-[9.5px] text-white/50 uppercase">CVV</div>
-                                <div id="card-cvv-display" class="text-[13px] font-semibold mt-0.5">611</div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        <!-- Card Back -->
-                        <div class="card-3d-face card-3d-back flex flex-col justify-between text-white shadow-xl" style="background: linear-gradient(145deg, #1f1c24 0%, #121015 100%);">
-                          <div class="w-full h-10 bg-black/80 mt-5"></div>
-                          <div class="px-6">
-                            <div class="text-[9.5px] text-white/50 uppercase mb-1">Authorized Signature &amp; Security Code</div>
-                            <div class="h-8 rounded bg-white/15 flex items-center justify-between px-3">
-                              <span class="text-[11px] tracking-widest italic text-white/75">Code XR Studio</span>
-                              <span id="card-back-cvv" class="text-xs font-mono font-bold bg-white text-black px-2 py-0.5 rounded">611</span>
-                            </div>
-                          </div>
-                          <div class="px-6 pb-4 flex items-center justify-between text-[10px] text-white/50">
-                            <span>Vortix Commercial World Elite</span>
-                            <span>Tap to flip back</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    <p class="text-[11px] mt-3.5" style="color: var(--text-muted);">Tap the card to flip it</p>
-                  </div>
-
-                  <!-- Card Switcher Pills Row -->
-                  <div class="flex items-center gap-2.5 mt-4">
-                    <button type="button" data-card-idx="0" class="card-select-pill px-3.5 py-1.5 rounded-full text-[12px] font-semibold flex items-center gap-2 border transition" style="border-color: var(--text-primary); background: var(--bg-card); color: var(--text-primary);">
-                      <span class="w-4 h-3 rounded-[3px] bg-[#18151c] inline-block"></span>
-                      <span>•• 6782</span>
-                    </button>
-                    <button type="button" data-card-idx="1" class="card-select-pill px-3.5 py-1.5 rounded-full text-[12px] font-medium flex items-center gap-2 border border-transparent v-subcard transition" style="color: var(--text-secondary);">
-                      <span class="w-4 h-3 rounded-[3px] bg-[#e0491f] inline-block"></span>
-                      <span>•• 4356</span>
-                    </button>
-                    <button type="button" id="btn-inline-add-card" title="Add virtual card" class="w-7 h-7 rounded-full v-subcard flex items-center justify-center text-sm font-semibold hover:opacity-80 transition" style="color: var(--text-secondary);">+</button>
-                  </div>
-                </div>
-
-                <!-- 4 Quick Action Tiles -->
-                <div class="grid grid-cols-4 gap-2.5 mt-4">
-                  <button type="button" id="card-act-freeze" class="v-subcard py-3.5 px-2 rounded-2xl flex flex-col items-center justify-center gap-1.5 hover:opacity-85 transition">
-                    <svg class="w-4 h-4" style="color: var(--text-secondary);" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" d="M12 2v20M4.93 4.93l14.14 14.14M2 12h20M4.93 19.07L19.07 4.93"/>
-                    </svg>
-                    <span id="freeze-btn-label" class="text-[11.5px] font-medium" style="color: var(--text-primary);">Freeze</span>
-                  </button>
-
-                  <button type="button" id="card-act-show" class="v-subcard py-3.5 px-2 rounded-2xl flex flex-col items-center justify-center gap-1.5 hover:opacity-85 transition">
-                    <svg class="w-4 h-4" style="color: var(--text-secondary);" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/>
-                      <circle cx="12" cy="12" r="3"/>
-                    </svg>
-                    <span id="show-btn-label" class="text-[11.5px] font-medium" style="color: var(--text-primary);">Show number</span>
-                  </button>
-
-                  <button type="button" id="card-act-copy" class="v-subcard py-3.5 px-2 rounded-2xl flex flex-col items-center justify-center gap-1.5 hover:opacity-85 transition">
-                    <svg class="w-4 h-4" style="color: var(--text-secondary);" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
-                      <rect x="9" y="9" width="11" height="11" rx="2"/>
-                      <path stroke-linecap="round" d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
-                    </svg>
-                    <span id="copy-btn-label" class="text-[11.5px] font-medium" style="color: var(--text-primary);">Copy number</span>
-                  </button>
-
-                  <button type="button" id="card-act-flip" class="v-subcard py-3.5 px-2 rounded-2xl flex flex-col items-center justify-center gap-1.5 hover:opacity-85 transition">
-                    <svg class="w-4 h-4" style="color: var(--text-secondary);" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h5M20 20v-5h-5"/>
-                      <path stroke-linecap="round" d="M20.49 9A9 9 0 005.64 5.64L4 9m16 6l-1.64 3.36A9 9 0 013.51 15"/>
-                    </svg>
-                    <span class="text-[11.5px] font-medium" style="color: var(--text-primary);">Flip card</span>
-                  </button>
-                </div>
-              </div>
-
-              <!-- Right Column: Card controls -->
-              <div class="lg:col-span-6 v-card p-6 flex flex-col justify-between stagger-item stagger-3">
-                <div>
-                  <div class="flex items-center justify-between mb-4">
-                    <h2 class="font-display text-[17px] font-semibold" style="color: var(--text-primary);">Card controls</h2>
-                    <span id="controls-status-badge" class="v-badge-green px-2.5 py-0.5 rounded-full text-[11px] font-semibold">Active</span>
-                  </div>
-
-                  <!-- 4 Control Toggle Rows -->
-                  <div class="v-divide">
-                    <!-- Row 1: Online payments -->
-                    <div class="py-3.5 flex items-center justify-between gap-3">
-                      <div class="flex items-center gap-3.5">
-                        <div class="w-9 h-9 rounded-xl v-subcard flex items-center justify-center shrink-0" style="color: var(--text-secondary);">
-                          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
-                            <circle cx="12" cy="12" r="9"/>
-                            <path d="M3.6 9h16.8M3.6 15h16.8M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/>
-                          </svg>
-                        </div>
-                        <div>
-                          <div class="text-[13px] font-semibold" style="color: var(--text-primary);">Online payments</div>
-                          <div class="text-[11.5px]" style="color: var(--text-muted);">Shops, subscriptions and in-app purchases</div>
-                        </div>
-                      </div>
-                      <button type="button" data-control="online" class="control-toggle w-11 h-6 rounded-full p-0.5 transition-colors duration-200 flex items-center justify-end" style="background: #e0491f;">
-                        <span class="w-5 h-5 rounded-full bg-white shadow-xs"></span>
-                      </button>
-                    </div>
-
-                    <!-- Row 2: Contactless -->
-                    <div class="py-3.5 flex items-center justify-between gap-3">
-                      <div class="flex items-center gap-3.5">
-                        <div class="w-9 h-9 rounded-xl v-subcard flex items-center justify-center shrink-0" style="color: var(--text-secondary);">
-                          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" d="M8.5 14.5A4 4 0 018.5 9.5M11.5 17a7.5 7.5 0 000-10M14.5 19.5a11 11 0 000-15"/>
-                          </svg>
-                        </div>
-                        <div>
-                          <div class="text-[13px] font-semibold" style="color: var(--text-primary);">Contactless</div>
-                          <div class="text-[11.5px]" style="color: var(--text-muted);">Tap to pay up to $250 per payment</div>
-                        </div>
-                      </div>
-                      <button type="button" data-control="contactless" class="control-toggle w-11 h-6 rounded-full p-0.5 transition-colors duration-200 flex items-center justify-end" style="background: #e0491f;">
-                        <span class="w-5 h-5 rounded-full bg-white shadow-xs"></span>
-                      </button>
-                    </div>
-
-                    <!-- Row 3: ATM withdrawals -->
-                    <div class="py-3.5 flex items-center justify-between gap-3">
-                      <div class="flex items-center gap-3.5">
-                        <div class="w-9 h-9 rounded-xl v-subcard flex items-center justify-center shrink-0" style="color: var(--text-secondary);">
-                          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
-                            <rect x="3" y="4" width="18" height="16" rx="2"/>
-                            <path stroke-linecap="round" d="M7 8h10M9 14h6"/>
-                          </svg>
-                        </div>
-                        <div>
-                          <div class="text-[13px] font-semibold" style="color: var(--text-primary);">ATM withdrawals</div>
-                          <div class="text-[11.5px]" style="color: var(--text-muted);">Up to $1,000 per day</div>
-                        </div>
-                      </div>
-                      <button type="button" data-control="atm" class="control-toggle w-11 h-6 rounded-full p-0.5 transition-colors duration-200 flex items-center justify-end" style="background: #e0491f;">
-                        <span class="w-5 h-5 rounded-full bg-white shadow-xs"></span>
-                      </button>
-                    </div>
-
-                    <!-- Row 4: Use abroad -->
-                    <div class="py-3.5 flex items-center justify-between gap-3">
-                      <div class="flex items-center gap-3.5">
-                        <div class="w-9 h-9 rounded-xl v-subcard flex items-center justify-center shrink-0" style="color: var(--text-secondary);">
-                          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
-                          </svg>
-                        </div>
-                        <div>
-                          <div class="text-[13px] font-semibold" style="color: var(--text-primary);">Use abroad</div>
-                          <div class="text-[11.5px]" style="color: var(--text-muted);">Payments outside Bangladesh</div>
-                        </div>
-                      </div>
-                      <button type="button" data-control="abroad" class="control-toggle w-11 h-6 rounded-full p-0.5 transition-colors duration-200 flex items-center justify-start" style="background: var(--toggle-off-bg);">
-                        <span class="w-5 h-5 rounded-full bg-white shadow-xs"></span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Bottom Subcard: Monthly spending limit slider + hatched progress bar -->
-                <div class="v-subcard p-4 mt-4">
-                  <div class="flex items-center justify-between mb-3">
-                    <span class="text-[12.5px] font-medium" style="color: var(--text-secondary);">Monthly spending limit</span>
-                    <span id="manage-limit-display" class="font-display text-[17px] font-bold" style="color: var(--text-primary);">$5,500.00</span>
-                  </div>
-
-                  <input id="manage-limit-slider" type="range" min="500" max="20000" step="100" value="5500" class="v-slider" style="background: linear-gradient(to right, #e0491f 25.6%, rgba(150,145,160,0.25) 25.6%);" />
-                  <div class="flex items-center justify-between text-[10.5px] mt-1.5" style="color: var(--text-muted);">
-                    <span>$500</span>
-                    <span>$20,000</span>
-                  </div>
-
-                  <div class="mt-3.5 h-3 w-full rounded-full overflow-hidden flex items-center gap-1">
-                    <div id="manage-spent-bar" class="h-full rounded-full bg-[#e0491f] transition-all duration-300" style="width: 22%;"></div>
-                    <div class="h-full flex-1 rounded-r-full spending-hatched-track"></div>
-                  </div>
-                  <div class="mt-2 text-[11.5px]">
-                    <span class="font-bold" style="color: var(--text-primary);">$1,210.38</span>
-                    <span id="manage-spent-pct" class="ml-1" style="color: var(--text-muted);">spent · 22%</span>
-                  </div>
-                </div>
-              </div>
-
-            </div>
-          </section>
-
-          <!-- ========================================================= -->
-          <!-- VIEW 3: PROGRAM (Rewards Program)                         -->
-          <!-- ========================================================= -->
-          <section id="view-program" class="view-section hidden space-y-5">
-            <!-- Page Title -->
-            <div class="stagger-item stagger-1 pt-1">
-              <h1 class="font-display text-[36px] sm:text-[40px] font-medium tracking-[-0.025em] leading-tight" style="color: var(--text-primary);">Rewards Program</h1>
-              <p class="text-[13.5px] mt-1" style="color: var(--text-secondary);">Earn points on every purchase and unlock better perks as you climb tiers.</p>
-            </div>
-
-            <!-- Top Row: Orange Points Card (7 cols) + Tier Benefits (5 cols) -->
-            <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
-
-              <!-- Top-Left: Gold Member Points Card -->
-              <div class="lg:col-span-7 v-orange-card rounded-[22px] p-6 sm:p-7 flex flex-col justify-between shadow-xs stagger-item stagger-2">
-                <div class="flex items-center justify-between">
-                  <span class="px-3.5 py-1 rounded-full text-[12px] font-medium bg-white/20 text-white backdrop-blur-xs flex items-center gap-1.5">
-                    <span>☆</span>
-                    <span id="current-tier-pill-label">Gold member</span>
-                  </span>
-                  <span class="text-[12px] text-white/85">Member since March 2021</span>
-                </div>
-
-                <div class="my-6">
-                  <div class="flex items-baseline gap-2.5">
-                    <span id="program-points-counter" class="font-display text-[46px] sm:text-[52px] font-semibold tracking-tight leading-none">12,480</span>
-                    <span class="text-[16px] text-white/85 font-medium">points</span>
-                  </div>
-
-                  <div class="mt-5 h-3 w-full rounded-full overflow-hidden flex items-center gap-1">
-                    <div id="program-points-bar" class="h-full bg-white rounded-full transition-all duration-500" style="width: 49%;"></div>
-                    <div class="h-full flex-1 rewards-hatched-track"></div>
-                  </div>
-                  <div class="flex items-center justify-between text-[12px] text-white/85 mt-2">
-                    <span id="tier-progress-left">Gold</span>
-                    <span id="tier-progress-right">7,520 pts to Platinum</span>
-                  </div>
-                </div>
-
-                <div class="flex items-center gap-4">
-                  <button type="button" id="btn-redeem-points" class="px-5 py-2.5 rounded-full bg-white text-[#18151c] text-[13px] font-semibold flex items-center gap-2 shadow-xs hover:bg-white/95 transition">
-                    <svg class="w-4 h-4 text-[#18151c]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                      <rect x="3" y="8" width="18" height="13" rx="2"/>
-                      <path d="M12 8v13M3 12h18M12 8c-2-3-6-3-6 0s6 0 6 0zm0 0c2-3 6-3 6 0s-6 0-6 0z"/>
-                    </svg>
-                    <span>Redeem points</span>
-                  </button>
-                  <span id="rewards-cash-equiv" class="text-[12.5px] text-white/90 font-medium">≈ $125 in rewards</span>
-                </div>
-              </div>
-
-              <!-- Top-Right: Tier benefits -->
-              <div class="lg:col-span-5 v-card p-6 flex flex-col justify-between stagger-item stagger-3">
-                <div>
-                  <h2 class="font-display text-[17px] font-semibold" style="color: var(--text-primary);">Tier benefits</h2>
-
-                  <!-- Segmented Switcher: Silver | Gold | Platinum -->
-                  <div class="v-subcard inline-flex p-1 rounded-full mt-3.5 mb-4">
-                    <button type="button" data-tier="Silver" class="tier-tab-btn px-4 py-1.5 rounded-full text-[12px] font-medium">Silver</button>
-                    <button type="button" data-tier="Gold" class="tier-tab-btn px-4 py-1.5 rounded-full text-[12px] font-semibold shadow-xs" style="background: var(--seg-active-bg); color: var(--text-primary);">Gold</button>
-                    <button type="button" data-tier="Platinum" class="tier-tab-btn px-4 py-1.5 rounded-full text-[12px] font-medium">Platinum</button>
-                  </div>
-
-                  <!-- Benefits Checklist -->
-                  <ul id="tier-benefits-list" class="space-y-3 text-[13px]"></ul>
-                </div>
-
-                <div id="tier-status-note" class="text-[11.5px] mt-4" style="color: var(--text-muted);">This is your current tier.</div>
-              </div>
-
-            </div>
-
-            <!-- Bottom Row: Offers for you (7 cols) + Points history (5 cols) -->
-            <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
-
-              <!-- Bottom-Left: Offers for you -->
-              <div class="lg:col-span-7 v-card p-6 stagger-item stagger-4">
-                <div class="flex items-start justify-between gap-3 mb-4">
-                  <div>
-                    <h3 class="font-display text-[17px] font-semibold" style="color: var(--text-primary);">Offers for you</h3>
-                    <p class="text-[12px] mt-0.5" style="color: var(--text-muted);">Activate an offer and it applies to your next eligible payment.</p>
-                  </div>
-                  <span id="active-offers-badge" class="px-3 py-1 rounded-full text-[11px] font-semibold" style="background: var(--accent-orange-light); color: var(--accent-orange);">2 active</span>
-                </div>
-
-                <!-- 3 Offer Cards -->
-                <div id="offers-grid" class="grid grid-cols-1 sm:grid-cols-3 gap-3.5"></div>
-              </div>
-
-              <!-- Bottom-Right: Points history -->
-              <div class="lg:col-span-5 v-card p-6 stagger-item stagger-5">
-                <h3 class="font-display text-[17px] font-semibold mb-3.5" style="color: var(--text-primary);">Points history</h3>
-                <div id="points-history-list" class="v-divide"></div>
               </div>
 
             </div>
@@ -1219,125 +824,7 @@
             </div>
           </section>
 
-          <!-- ========================================================= -->
-          <!-- VIEW 5: ACTIVITY                                          -->
-          <!-- ========================================================= -->
-          <section id="view-activity" class="view-section hidden space-y-5">
-            <div class="stagger-item stagger-1 pt-1 flex flex-wrap items-end justify-between gap-4">
-              <div>
-                <h1 class="font-display text-[36px] sm:text-[40px] font-medium tracking-[-0.025em] leading-tight" style="color: var(--text-primary);">Activity</h1>
-                <p class="text-[13.5px] mt-1" style="color: var(--text-secondary);">Track every incoming settlement, card payment, and recurring subscription in real time.</p>
-              </div>
-              <button type="button" id="btn-export-csv" class="px-5 py-2.5 rounded-full text-[13px] font-medium shadow-xs hover:opacity-90 transition" style="background: var(--pill-active-bg); color: var(--pill-active-text);">Export CSV</button>
-            </div>
-
-            <div class="v-card p-6 stagger-item stagger-2">
-              <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-                <div class="flex items-center gap-2">
-                  <button type="button" data-act-tab="all" class="act-status-pill px-4 py-1.5 rounded-full text-[12px] font-semibold" style="background: var(--pill-active-bg); color: var(--pill-active-text);">All (6)</button>
-                  <button type="button" data-act-tab="Completed" class="act-status-pill v-subcard px-4 py-1.5 rounded-full text-[12px] font-medium" style="color: var(--text-secondary);">Completed</button>
-                  <button type="button" data-act-tab="Pending" class="act-status-pill v-subcard px-4 py-1.5 rounded-full text-[12px] font-medium" style="color: var(--text-secondary);">Pending</button>
-                </div>
-                <span class="text-[12px]" style="color: var(--text-muted);">Showing April 2026 ledger</span>
-              </div>
-              <div class="overflow-x-auto">
-                <table class="w-full text-left border-collapse">
-                  <thead>
-                    <tr class="v-subcard text-[11.5px] font-medium" style="color: var(--text-secondary);">
-                      <th class="py-2.5 px-4 rounded-l-xl">Order ID</th>
-                      <th class="py-2.5 px-4">Activity</th>
-                      <th class="py-2.5 px-4">Category</th>
-                      <th class="py-2.5 px-4">Price</th>
-                      <th class="py-2.5 px-4">Status</th>
-                      <th class="py-2.5 px-4 rounded-r-xl">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody id="full-activity-tbody" class="text-[13px] v-divide"></tbody>
-                </table>
-              </div>
-            </div>
-          </section>
-
-          <!-- ========================================================= -->
-          <!-- VIEW 6: ACCOUNT                                           -->
-          <!-- ========================================================= -->
-          <section id="view-account" class="view-section hidden space-y-5">
-            <div class="stagger-item stagger-1 pt-1">
-              <h1 class="font-display text-[36px] sm:text-[40px] font-medium tracking-[-0.025em] leading-tight" style="color: var(--text-primary);">Account</h1>
-              <p class="text-[13.5px] mt-1" style="color: var(--text-secondary);">Manage your Code XR studio profile, settlement bank details, and security preferences.</p>
-            </div>
-            <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 stagger-item stagger-2">
-              <div class="lg:col-span-6 v-card p-6 space-y-4">
-                <h2 class="font-display text-[17px] font-semibold" style="color: var(--text-primary);">Studio Profile</h2>
-                <div class="space-y-3">
-                  <div>
-                    <label class="text-[11.5px] font-medium" style="color: var(--text-secondary);">Display Name</label>
-                    <input id="acc-name-input" type="text" value="Code XR" class="v-subcard w-full px-4 py-2.5 rounded-xl text-[13px] mt-1 outline-none" style="color: var(--text-primary);" />
-                  </div>
-                  <div>
-                    <label class="text-[11.5px] font-medium" style="color: var(--text-secondary);">Primary Email</label>
-                    <input id="acc-email-input" type="email" value="hello@codexr.studio" class="v-subcard w-full px-4 py-2.5 rounded-xl text-[13px] mt-1 outline-none" style="color: var(--text-primary);" />
-                  </div>
-                  <button type="button" id="btn-save-account" class="px-5 py-2.5 rounded-full text-[13px] font-medium mt-2" style="background: var(--pill-active-bg); color: var(--pill-active-text);">Save changes</button>
-                </div>
-              </div>
-              <div class="lg:col-span-6 v-card p-6 space-y-4">
-                <h2 class="font-display text-[17px] font-semibold" style="color: var(--text-primary);">Security &amp; Verification</h2>
-                <div class="v-subcard p-4 flex items-center justify-between">
-                  <div>
-                    <div class="text-[13px] font-semibold" style="color: var(--text-primary);">Two-Factor Authentication</div>
-                    <div class="text-[11.5px]" style="color: var(--text-muted);">Protected via Authenticator App</div>
-                  </div>
-                  <span class="v-badge-green px-3 py-1 rounded-full text-[11px] font-semibold">Enabled</span>
-                </div>
-                <div class="v-subcard p-4 flex items-center justify-between">
-                  <div>
-                    <div class="text-[13px] font-semibold" style="color: var(--text-primary);">KYB Business Verification</div>
-                    <div class="text-[11.5px]" style="color: var(--text-muted);">Code XR Studio LLC · Verified March 2021</div>
-                  </div>
-                  <span class="v-badge-green px-3 py-1 rounded-full text-[11px] font-semibold">Verified</span>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <!-- ========================================================= -->
-          <!-- VIEW 7: REPORTS                                           -->
-          <!-- ========================================================= -->
-          <section id="view-reports" class="view-section hidden space-y-5">
-            <div class="stagger-item stagger-1 pt-1">
-              <h1 class="font-display text-[36px] sm:text-[40px] font-medium tracking-[-0.025em] leading-tight" style="color: var(--text-primary);">Reports</h1>
-              <p class="text-[13.5px] mt-1" style="color: var(--text-secondary);">Download audited monthly statements, tax documents, and FX settlement breakdowns.</p>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-5 stagger-item stagger-2">
-              <div class="v-card p-6 flex flex-col justify-between">
-                <div>
-                  <span class="px-2.5 py-1 rounded-full text-[11px] font-semibold" style="background: var(--accent-orange-light); color: var(--accent-orange);">Q1 2026</span>
-                  <h3 class="font-display text-[16px] font-semibold mt-3" style="color: var(--text-primary);">Consolidated Balance Statement</h3>
-                  <p class="text-[12px] mt-1" style="color: var(--text-muted);">Includes USD, EUR, and GBP multi-currency ledgers.</p>
-                </div>
-                <button type="button" data-report="Q1-2026-Statement.pdf" class="report-dl-btn v-subcard mt-5 py-2.5 rounded-full text-[12.5px] font-semibold hover:opacity-85 transition" style="color: var(--text-primary);">Download PDF</button>
-              </div>
-              <div class="v-card p-6 flex flex-col justify-between">
-                <div>
-                  <span class="px-2.5 py-1 rounded-full text-[11px] font-semibold" style="background: var(--accent-orange-light); color: var(--accent-orange);">April 2026</span>
-                  <h3 class="font-display text-[16px] font-semibold mt-3" style="color: var(--text-primary);">Profit &amp; Loss Audit</h3>
-                  <p class="text-[12px] mt-1" style="color: var(--text-muted);">Monthly breakdown of gross revenue, card spend, and FX fees.</p>
-                </div>
-                <button type="button" data-report="April-2026-PnL.pdf" class="report-dl-btn v-subcard mt-5 py-2.5 rounded-full text-[12.5px] font-semibold hover:opacity-85 transition" style="color: var(--text-primary);">Download PDF</button>
-              </div>
-              <div class="v-card p-6 flex flex-col justify-between">
-                <div>
-                  <span class="px-2.5 py-1 rounded-full text-[11px] font-semibold" style="background: var(--accent-orange-light); color: var(--accent-orange);">Tax Year 2025</span>
-                  <h3 class="font-display text-[16px] font-semibold mt-3" style="color: var(--text-primary);">Annual Rewards &amp; Cashback Summary</h3>
-                  <p class="text-[12px] mt-1" style="color: var(--text-muted);">Summary of 12,480 Gold tier points and redemptions.</p>
-                </div>
-                <button type="button" data-report="Tax-2025-Summary.pdf" class="report-dl-btn v-subcard mt-5 py-2.5 rounded-full text-[12.5px] font-semibold hover:opacity-85 transition" style="color: var(--text-primary);">Download PDF</button>
-              </div>
-            </div>
-          </section>
-
-        </main>
+          </main>
       </div>
     </div>
   </div>
@@ -2118,7 +1605,7 @@
       });
 
       // Adjust spending limit shortcut
-      document.querySelector('[data-goto-manage]').addEventListener('click', () => switchView('manage'));
+      document.querySelector('[data-goto-manage]')?.addEventListener('click', () => switchView('manage'));
 
       // Recent Activities search & filter
       document.getElementById('activity-search-input').addEventListener('input', renderActivitiesTable);
@@ -2355,8 +1842,8 @@
         });
       });
 
-      document.getElementById('btn-export-csv').addEventListener('click', () => showToast('Exported April 2026 ledger CSV'));
-      document.getElementById('btn-save-account').addEventListener('click', () => showToast('Studio profile settings saved'));
+      document.getElementById('btn-export-csv')?.addEventListener('click', () => showToast('Exported April 2026 ledger CSV'));
+      document.getElementById('btn-save-account')?.addEventListener('click', () => showToast('Studio profile settings saved'));
       document.querySelectorAll('#app-viewport .report-dl-btn').forEach(btn => {
         btn.addEventListener('click', () => showToast(`Downloaded ${btn.getAttribute('data-report')}`));
       });
@@ -2372,7 +1859,7 @@
       });
       document.getElementById('top-notif-btn').addEventListener('click', () => showToast('2 new reward offers available'));
       document.getElementById('top-help-btn').addEventListener('click', () => switchView('messages'));
-      document.getElementById('profile-pill-btn').addEventListener('click', () => switchView('account'));
+      document.getElementById('profile-pill-btn').addEventListener('click', () => showToast('Code XR · hello@codexr.studio'));
       document.getElementById('side-info-btn').addEventListener('click', () => showToast('Vortix v2.4 · All systems operational'));
       document.getElementById('side-logout-btn').addEventListener('click', () => showToast('Session locked · Code XR Studio'));
       document.getElementById('chat-call-btn').addEventListener('click', () => showToast('Starting priority voice call...'));

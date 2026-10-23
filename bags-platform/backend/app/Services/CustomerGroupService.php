@@ -17,8 +17,8 @@ class CustomerGroupService
         return CustomerGroup::query()
             ->withCount('customers')
             ->when($filters['search'] ?? null, fn ($q, $v) => $q->where(fn ($search) => $search
-                ->whereLike('name', '%'.SearchTerm::escape($v).'%', caseSensitive: false)
-                ->orWhereLike('code', '%'.SearchTerm::escape($v).'%', caseSensitive: false)))
+                ->whereLike('name', SearchTerm::pattern($v), caseSensitive: false)
+                ->orWhereLike('code', SearchTerm::pattern($v), caseSensitive: false)))
             ->when(array_key_exists('is_active', $filters) && $filters['is_active'] !== null, fn ($q) => $q->where('is_active', $filters['is_active']))
             ->orderBy('name')
             ->orderBy('id')

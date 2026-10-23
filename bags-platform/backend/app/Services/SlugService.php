@@ -15,7 +15,7 @@ class SlugService
         $base = rtrim(Str::substr($base, 0, 240), '-');
 
         // استعلام واحد لكل اللاحقات، ثم اختيار أول لاحقة متاحة في الذاكرة.
-        $like = strtr($base, ['\\' => '\\\\', '%' => '\\%', '_' => '\\_']).'-%';
+        $like = SearchTerm::escape($base).'-%';
         $query = $modelClass::withTrashed();
         $existing = $query
             ->when($query->getModel()->getConnection()->getDriverName() === 'pgsql',

@@ -36,20 +36,27 @@ class ProductionReceiptService
                 }
                 $variants = ProductVariant::whereIn('id', array_column($data['items'], 'product_variant_id'))
                     ->with('product:id,name_ar')->orderBy('id')->lockForUpdate()->get()->keyBy('id');
-                $items = array_map(function (array $item) use ($variants): array {
-                    $variant = $variants->get($item['product_variant_id']);
 
-                    return [...$item, 'label' => ($variant?->product?->name_ar ?? '').' / '.($variant?->sku ?? '')];
-                }, $data['items']);
-                $receipt = ProductionReceipt::create([
-                    ...$data, 'items' => $items, 'created_by' => $userId, 'idempotency_key' => $key, 'request_hash' => $hash,
-                ]);
+                $sortedItems = collect($data['items'])->sortBy('product_variant_id')->values()->all();
+                $itemsWithLabels = [];
 
-                foreach (collect($data['items'])->sortBy('product_variant_id') as $item) {
+                foreach ($sortedItems as $item) {
                     $variant = $variants->get($item['product_variant_id']);
                     if (! $variant || ! $variant->is_active || ! $variant->product) {
                         throw new BusinessException('أحد أصناف الإنتاج غير متاح.');
                     }
+                    $itemsWithLabels[] = [
+                        ...$item,
+                        'label' => $variant->product->name_ar.' / '.$variant->sku,
+                    ];
+                }
+
+                $receipt = ProductionReceipt::create([
+                    ...$data, 'items' => $itemsWithLabels, 'created_by' => $userId, 'idempotency_key' => $key, 'request_hash' => $hash,
+                ]);
+
+                foreach ($sortedItems as $item) {
+                    $variant = $variants->get($item['product_variant_id']);
                     $quantity = (int) $item['quantity'];
                     $unitCost = round((float) $item['unit_cost'], 4);
                     $onHand = max(0, (float) StockLevel::where('product_variant_id', $variant->id)->sum('on_hand'));

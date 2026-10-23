@@ -38,7 +38,7 @@ class PriceListService
             ->when($filters['customer_group_id'] ?? null, fn ($q, $v) => $q->where('customer_group_id', $v))
             ->when($filters['branch_id'] ?? null, fn ($q, $v) => $q->where('branch_id', $v))
             ->when(array_key_exists('is_active', $filters) && $filters['is_active'] !== null, fn ($q) => $q->where('is_active', $filters['is_active']))
-            ->when($filters['search'] ?? null, fn ($q, $v) => $q->whereLike('name', '%'.SearchTerm::escape($v).'%', caseSensitive: false))
+            ->when($filters['search'] ?? null, fn ($q, $v) => $q->whereLike('name', SearchTerm::pattern($v), caseSensitive: false))
             ->orderByDesc('priority')
             ->orderByDesc('id')
             ->paginate($filters['per_page'] ?? 15);
