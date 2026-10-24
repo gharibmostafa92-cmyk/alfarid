@@ -9,6 +9,8 @@ use App\Models\Order;
 use App\Models\PosHeldSale;
 use App\Models\PosShift;
 use App\Services\PosService;
+use App\Services\OperationIdempotencyService;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -50,7 +52,10 @@ class PosSaleController extends Controller
             }
         }
 
-        $order = $this->pos->createSale($shift, $data);
+        $order = app(OperationIdempotencyService::class)->run(
+            'pos_sale', $request->user('staff'), $this->requiredIdempotencyKey($request),
+            ['shift_id' => $shift->id, ...$data], fn () => $this->pos->createSale($shift, $data),
+        );
 
         return response()->json([
             'message' => 'تم تسجيل البيع بنجاح.',
@@ -140,6 +145,9 @@ class PosSaleController extends Controller
             'exchange_items.*.product_variant_id'          => ['required', 'integer', 'min:1'],
             'exchange_items.*.qty'                         => ['required', 'integer', 'min:1'],
             'exchange_items.*.unit_price'                  => ['nullable', 'numeric', 'min:0'],
+            'exchange_items.*.discount_amount'             => ['nullable', 'numeric', 'min:0'],
+            'cash_amount'                                  => ['nullable', 'numeric', 'min:0'],
+            'card_amount'                                  => ['nullable', 'numeric', 'min:0'],
         ]);
 
         /** @var PosShift $shift */
@@ -147,12 +155,23 @@ class PosSaleController extends Controller
 
         $sale->load('items');
 
-        $result = $this->pos->processReturn(
-            $shift,
-            $sale,
-            $data['returned_items'],
-            $data['exchange_items'],
-        );
+        // C2: الاستبدال = مرتجع مستقل ثم بيع مستقل بمبالغه الخاصة.
+        $exchangePayload = [
+            'items' => $data['exchange_items'],
+            'customer_id' => $sale->customer_id,
+        ];
+        if (array_key_exists('cash_amount', $data)) {
+            $exchangePayload['cash_amount'] = $data['cash_amount'];
+        }
+        if (array_key_exists('card_amount', $data)) {
+            $exchangePayload['card_amount'] = $data['card_amount'];
+        }
+        $result = DB::transaction(function () use ($shift, $sale, $data, $exchangePayload): array {
+            $result = $this->pos->processReturn($shift, $sale, $data['returned_items']);
+            $exchangeOrder = $this->pos->createSale($shift, $exchangePayload);
+            $result['exchange_order_id'] = $exchangeOrder->id;
+            return $result;
+        }, 3);
 
         return response()->json([
             'message' => 'تم تسجيل الاستبدال بنجاح.',

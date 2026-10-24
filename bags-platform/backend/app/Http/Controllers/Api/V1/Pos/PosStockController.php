@@ -5,14 +5,14 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Pos;
 
 use App\Enums\StocktakeStatus;
-use App\Enums\TransferStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Admin\StockLevelResource;
-use App\Models\Stocktake;
-use App\Models\StocktakeItem;
+use App\Models\ProductVariant;
 use App\Models\StockLevel;
+use App\Models\Stocktake;
 use App\Models\StockTransfer;
 use App\Models\User;
+use App\Services\BranchAccess;
 use App\Services\StocktakeService;
 use App\Services\TransferService;
 use Illuminate\Http\JsonResponse;
@@ -21,11 +21,10 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Validation\Rule;
 
 /**
- * عمليات المخزون من شاشة الـ POS:
- * - عرض أرصدة الفرع
- * - طلب تحويل بضاعة
- * - تأكيد استلام تحويلة
- * - مسح الباركود في جلسة الجرد
+ * عمليات المخزون من شاشة الـ POS — واجهة رقيقة تفوّض إلى الخدمات.
+ *
+ * H4: لا منطق مخزني هنا — البحث والتحويل والاستلام والمسح كلها عبر
+ * TransferService وStocktakeService بنفس القواعد والصلاحيات.
  */
 class PosStockController extends Controller
 {
@@ -41,9 +40,9 @@ class PosStockController extends Controller
     {
         $filters = $request->validate([
             'product_variant_id' => ['nullable', 'integer', 'min:1'],
-            'q'                  => ['nullable', 'string', 'max:100'],
-            'low_stock'          => ['nullable', 'boolean'],
-            'per_page'           => ['nullable', 'integer', 'min:1', 'max:100'],
+            'q' => ['nullable', 'string', 'max:100'],
+            'low_stock' => ['nullable', 'boolean'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
         /** @var User $user */
@@ -53,11 +52,16 @@ class PosStockController extends Controller
             ->where('branch_id', $user->branch_id)
             ->with(['variant.product', 'location'])
             ->when($filters['product_variant_id'] ?? null, fn ($q, $v) => $q->where('product_variant_id', $v))
-            ->when($filters['q'] ?? null, fn ($q, $v) => $q->whereHas('variant', fn ($vq) =>
-                $vq->where('sku', $v)
+            ->when($filters['q'] ?? null, function ($q, $v): void {
+                // H4: البحث في العمودين الفعليين (name_ar/name_en) مع تهريب
+                // محارف LIKE حتى لا تُفسد % و _ الاستعلام.
+                $like = '%'.addcslashes($v, '\\%_').'%';
+                $q->whereHas('variant', fn ($vq) => $vq->where('sku', $v)
                     ->orWhere('barcode', $v)
-                    ->orWhereHas('product', fn ($pq) => $pq->whereRaw('LOWER(name) LIKE ?', ['%'.mb_strtolower($v).'%']))
-            ))
+                    ->orWhereHas('product', fn ($pq) => $pq
+                        ->where('name_ar', 'LIKE', $like)
+                        ->orWhere('name_en', 'LIKE', $like)));
+            })
             ->when($filters['low_stock'] ?? null, fn ($q) => $q
                 ->join('product_variants', 'product_variants.id', '=', 'stock_levels.product_variant_id')
                 ->whereRaw('stock_levels.available <= COALESCE(NULLIF(stock_levels.reorder_level, 0), product_variants.reorder_level, 0)')
@@ -77,23 +81,36 @@ class PosStockController extends Controller
     {
         /** @var User $user */
         $user = $request->user('staff');
+        abort_unless($user->can('transfers.create'), 403);
 
         $data = $request->validate([
-            'from_branch_id' => ['required', 'integer', 'min:1', 'different:to_branch_id'],
-            'items'          => ['required', 'array', 'min:1', 'max:100'],
-            'items.*.product_variant_id' => ['required', 'integer', 'min:1'],
-            'items.*.requested_qty'      => ['required', 'numeric', 'min:0.0001'],
-            'notes'          => ['nullable', 'string', 'max:500'],
+            // H4: to_branch_id يُعرف من فرع الكاشير قبل التحقق، فيعمل
+            // different ويُرفض التساوي مع CHECK واضح لا 500.
+            'from_branch_id' => ['required', 'integer', 'min:1',
+                Rule::exists('branches', 'id')->where('is_active', true),
+                Rule::notIn([$user->branch_id]),
+            ],
+            'items' => ['required', 'array', 'min:1', 'max:100'],
+            'items.*.product_variant_id' => ['required', 'integer', 'min:1', 'distinct', Rule::exists('product_variants', 'id')],
+            'items.*.from_location_id' => ['nullable', 'integer', 'min:1',
+                Rule::exists('locations', 'id')->where('branch_id', (int) $request->input('from_branch_id')),
+            ],
+            'items.*.to_location_id' => ['nullable', 'integer', 'min:1',
+                Rule::exists('locations', 'id')->where('branch_id', (int) $user->branch_id),
+            ],
+            'items.*.requested_qty' => ['required', 'numeric', 'decimal:0,4', 'gt:0', 'max:99999999.9999'],
+            'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
         $data['to_branch_id'] = $user->branch_id;
 
-        $transfer = $this->transfers->create($data, $user->id);
+        // H4: TransferService::create يقبل منشئًا في فرع الوجهة.
+        $transfer = $this->transfers->create($data, $user->id, $this->requiredIdempotencyKey($request));
 
         return response()->json([
-            'message'         => 'تم إرسال طلب التحويل بنجاح وهو في انتظار الاعتماد.',
+            'message' => 'تم إرسال طلب التحويل بنجاح وهو في انتظار الاعتماد.',
             'transfer_number' => $transfer->transfer_number,
-            'id'              => $transfer->id,
+            'id' => $transfer->id,
         ], 201);
     }
 
@@ -104,6 +121,7 @@ class PosStockController extends Controller
     {
         /** @var User $user */
         $user = $request->user('staff');
+        abort_unless($user->can('transfers.receive'), 403);
 
         // التحقق أن الفرع المستقبل هو فرع الكاشير
         if ((int) $transfer->to_branch_id !== (int) $user->branch_id) {
@@ -111,51 +129,62 @@ class PosStockController extends Controller
         }
 
         $data = $request->validate([
-            'items'                  => ['required', 'array', 'min:1'],
-            'items.*.id'             => ['required', 'integer', 'min:1'],
-            'items.*.received_qty'   => ['required', 'numeric', 'min:0'],
-            'items.*.to_location_id' => ['nullable', 'integer', 'min:1'],
+            'items' => ['required', 'array', 'min:1', 'max:500'],
+            'items.*.id' => ['required', 'integer', 'min:1', 'distinct',
+                Rule::exists('stock_transfer_items', 'id')->where('stock_transfer_id', $transfer->id),
+            ],
+            'items.*.received_qty' => ['required', 'numeric', 'decimal:0,4', 'min:0', 'max:99999999.9999'],
         ]);
 
-        $transfer = $this->transfers->receive($transfer, $data, $user->id);
+        // H4: الخدمة تتوقع [item_id => qty] لا قائمة — التحويل هنا لا في الخدمة.
+        $quantities = [];
+        foreach ($data['items'] as $item) {
+            $quantities[(int) $item['id']] = (float) $item['received_qty'];
+        }
+
+        $transfer = $this->transfers->receive($transfer, $quantities, $user->id);
 
         return response()->json([
             'message' => 'تم تأكيد استلام التحويلة بنجاح وتم رفع المخزون.',
-            'id'      => $transfer->id,
-            'status'  => $transfer->status->value,
+            'id' => $transfer->id,
+            'status' => $transfer->status->value,
         ]);
     }
 
     /**
      * POST /pos/stocktakes/{stocktake}/scan — مسح باركود في جلسة جرد مفتوحة.
      *
-     * يزيد counted_qty بمقدار 1 (أو بالكمية الممررة) للعنصر الموافق للباركود.
-     * إذا لم يوجد العنصر في الجلسة يُنشئه.
+     * H4: تفويض كامل إلى StocktakeService::upsertSomeItems — اللقطة
+     * (system_qty/snapshot_movement_id) تُؤخذ من نطاق الجلسة (فرعها وموقعها)
+     * داخل الخدمة، فلا لقطة خاطئة ولا عنصر "قديم اللقطة" أبدًا.
      */
     public function scan(Request $request, Stocktake $stocktake): JsonResponse
     {
         /** @var User $user */
         $user = $request->user('staff');
+        abort_unless($user->can('stocktakes.update'), 403);
 
         // التحقق أن جلسة الجرد تتبع الفرع الحالي
         if ((int) $stocktake->branch_id !== (int) $user->branch_id) {
             return response()->json(['message' => 'جلسة الجرد لا تتبع فرعك.'], 403);
         }
+        app(BranchAccess::class)->assertBranch($user->id, $stocktake->branch_id);
 
-        if ($stocktake->status !== StocktakeStatus::Open) {
+        if (! in_array($stocktake->status, [StocktakeStatus::Draft, StocktakeStatus::InProgress], true)) {
             return response()->json(['message' => 'جلسة الجرد ليست مفتوحة.'], 422);
         }
 
         $data = $request->validate([
             'barcode' => ['required', 'string', 'max:100'],
-            'qty'     => ['nullable', 'numeric', 'min:0.0001', 'max:99999'],
+            'qty' => ['nullable', 'numeric', 'decimal:0,4', 'min:0.0001', 'max:99999'],
         ]);
 
         $qty = (float) ($data['qty'] ?? 1);
 
         // البحث عن المتغير بالباركود
-        $variant = \App\Models\ProductVariant::query()
+        $variant = ProductVariant::query()
             ->where('barcode', $data['barcode'])
+            ->where('is_active', true)
             ->first();
 
         if ($variant === null) {
@@ -165,36 +194,20 @@ class PosStockController extends Controller
             ], 404);
         }
 
-        // الحصول على الرصيد الفعلي للتوثيق
-        $stock = StockLevel::query()
-            ->where('product_variant_id', $variant->id)
-            ->where('branch_id', $stocktake->branch_id)
-            ->first();
+        $stocktake = $this->stocktakes->incrementItemCount($stocktake, $variant->id, $qty, $user->id);
 
-        // upsert عنصر الجرد
-        $item = StocktakeItem::query()
-            ->where('stocktake_id', $stocktake->id)
-            ->where('product_variant_id', $variant->id)
-            ->first();
+        $item = $stocktake->items->firstWhere('product_variant_id', $variant->id);
 
-        if ($item === null) {
-            $item = StocktakeItem::create([
-                'stocktake_id'       => $stocktake->id,
-                'product_variant_id' => $variant->id,
-                'system_qty'         => (float) ($stock?->on_hand ?? 0),
-                'counted_qty'        => $qty,
-            ]);
-        } else {
-            $item->increment('counted_qty', $qty);
-            $item->refresh();
+        $response = [
+            'message' => 'تم تسجيل المسح بنجاح.',
+            'product_variant_id' => $variant->id,
+            'sku' => $variant->sku,
+            'counted_qty' => $item?->counted_qty,
+        ];
+        if ($user->can('stocktakes.approve')) {
+            $response['system_qty'] = $item?->system_qty;
         }
 
-        return response()->json([
-            'message'            => 'تم تسجيل المسح بنجاح.',
-            'product_variant_id' => $variant->id,
-            'sku'                => $variant->sku,
-            'counted_qty'        => $item->counted_qty,
-            'system_qty'         => $item->system_qty,
-        ]);
+        return response()->json($response);
     }
 }

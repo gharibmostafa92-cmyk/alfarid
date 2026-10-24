@@ -11,6 +11,9 @@ use App\Models\PosShift;
 use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
 use App\Models\TreasuryTransfer;
+use App\Models\User;
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -47,11 +50,11 @@ class TreasuryService
                 throw new BusinessException('الخزينة غير نشطة.');
             }
 
-            $amount = (float) $data['amount'];
-            $balanceAfter = (float) $treasury->current_balance + $amount;
+            $amount = BigDecimal::of((string) $data['amount'])->toScale(2, RoundingMode::HalfUp);
+            $balanceAfter = BigDecimal::of((string) $treasury->current_balance)->plus($amount)->toScale(2);
 
             // منع الرصيد السالب على أدراج نقطة البيع والخزائن الرئيسية
-            if ($balanceAfter < 0 && in_array($treasury->type->value, ['main_safe', 'pos_drawer'], true)) {
+            if ($balanceAfter->isNegative() && $treasury->type->value !== 'bank_account') {
                 throw new BusinessException('رصيد الخزينة غير كافٍ لإتمام العملية.');
             }
 
@@ -59,8 +62,8 @@ class TreasuryService
                 'treasury_id' => $treasury->id,
                 'shift_id' => $data['shift_id'] ?? null,
                 'type' => $data['type'],
-                'amount' => $amount,
-                'balance_after' => $balanceAfter,
+                'amount' => (string) $amount,
+                'balance_after' => (string) $balanceAfter,
                 'reference_type' => $data['reference_type'] ?? null,
                 'reference_id' => $data['reference_id'] ?? null,
                 'created_by' => $data['created_by'],
@@ -68,7 +71,7 @@ class TreasuryService
                 'created_at' => now(),
             ]);
 
-            $treasury->current_balance = $balanceAfter;
+            $treasury->current_balance = (string) $balanceAfter;
             $treasury->save();
 
             return $transaction;
@@ -80,11 +83,15 @@ class TreasuryService
      */
     public function approveTransfer(TreasuryTransfer $transfer, int $approverId): TreasuryTransfer
     {
-        if ($transfer->status !== TreasuryTransferStatus::Pending) {
-            throw new BusinessException('يمكن اعتماد التحويلات المعلقة فقط.');
-        }
-
         return DB::transaction(function () use ($transfer, $approverId): TreasuryTransfer {
+            $transfer = TreasuryTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
+            if ($transfer->status !== TreasuryTransferStatus::Pending) {
+                throw new BusinessException('يمكن اعتماد التحويلات المعلقة فقط.');
+            }
+            if ((int) $transfer->created_by === $approverId) {
+                throw new BusinessException('يجب أن يعتمد تحويل الخزينة موظف آخر غير منشئه.');
+            }
+            $this->lockTreasuries([$transfer->from_treasury_id, $transfer->to_treasury_id], $approverId);
             // خصم من المصدر
             $this->record([
                 'treasury_id' => $transfer->from_treasury_id,
@@ -113,7 +120,7 @@ class TreasuryService
             ]);
 
             return $transfer->fresh();
-        });
+        }, 3);
     }
 
     /**
@@ -130,17 +137,24 @@ class TreasuryService
                 ->first();
 
             if ($mainSafe === null) {
-                // لا خزنة رئيسية — لا ترحيل
-                return;
+                throw new BusinessException('يلزم وجود خزنة رئيسية نشطة لاعتماد الوردية وتسوية رصيد الدرج.');
             }
 
             // الرصيد الفعلي الحالي في الدرج
-            $drawer = Treasury::query()->lockForUpdate()->findOrFail($shift->treasury_id);
-            $drawerBalance = (float) $drawer->current_balance;
-
-            // المبلغ المطلوب ترحيله هو المبلغ الفعلي المعدود، ولكن لا يتجاوز رصيد الدرج المتاح
-            $requestedAmount = (float) ($shift->actual_closing_cash ?? $shift->expected_closing_cash);
-            $amount = min($drawerBalance, $requestedAmount);
+            $locked = $this->lockTreasuries([$shift->treasury_id, $mainSafe->id]);
+            $drawer = $locked->get($shift->treasury_id);
+            $amount = (float) $shift->actual_closing_cash;
+            $difference = BigDecimal::of((string) $shift->actual_closing_cash)
+                ->minus((string) $drawer->current_balance)->toScale(2);
+            if (! $difference->isZero()) {
+                $this->record([
+                    'treasury_id' => $drawer->id, 'shift_id' => $shift->id,
+                    'type' => $difference->isNegative() ? TreasuryTransactionType::CashShortage : TreasuryTransactionType::CashOverage,
+                    'amount' => (string) $difference, 'reference_type' => PosShift::class,
+                    'reference_id' => $shift->id, 'created_by' => $approverId,
+                    'notes' => 'تسوية فرق النقدية للوردية '.$shift->shift_number,
+                ]);
+            }
 
             if ($amount <= 0) {
                 return;
@@ -175,6 +189,9 @@ class TreasuryService
      */
     public function createTransfer(array $data, int $userId): TreasuryTransfer
     {
+        foreach (Treasury::query()->whereIn('id', [$data['from_treasury_id'], $data['to_treasury_id']])->get() as $treasury) {
+            app(BranchAccess::class)->assertTreasury($userId, $treasury);
+        }
         if ($data['from_treasury_id'] === $data['to_treasury_id']) {
             throw new BusinessException('لا يمكن التحويل من خزينة إلى نفسها.');
         }
@@ -197,15 +214,25 @@ class TreasuryService
      */
     public function rejectTransfer(TreasuryTransfer $transfer, int $approverId): TreasuryTransfer
     {
-        if ($transfer->status !== TreasuryTransferStatus::Pending) {
-            throw new BusinessException('يمكن رفض التحويلات المعلقة فقط.');
+        return DB::transaction(function () use ($transfer, $approverId): TreasuryTransfer {
+            $transfer = TreasuryTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
+            if ($transfer->status !== TreasuryTransferStatus::Pending) {
+                throw new BusinessException('يمكن رفض التحويلات المعلقة فقط.');
+            }
+            $this->lockTreasuries([$transfer->from_treasury_id, $transfer->to_treasury_id], $approverId);
+            $transfer->update(['status' => TreasuryTransferStatus::Rejected, 'approved_by' => $approverId]);
+
+            return $transfer->fresh();
+        }, 3);
+    }
+
+    public function lockTreasuries(array $ids, ?int $userId = null): \Illuminate\Support\Collection
+    {
+        $treasuries = Treasury::query()->whereIn('id', $ids)->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+        if ($userId !== null) {
+            foreach ($treasuries as $treasury) app(BranchAccess::class)->assertTreasury($userId, $treasury);
         }
 
-        $transfer->update([
-            'status' => TreasuryTransferStatus::Rejected,
-            'approved_by' => $approverId,
-        ]);
-
-        return $transfer->fresh();
+        return $treasuries;
     }
 }

@@ -31,6 +31,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
@@ -443,11 +444,16 @@ class SecurityReviewRound5Test extends TestCase
         return $staff;
     }
 
-    private function requestWithToken(string $token, string $method, string $uri, array $data = []): TestResponse
+    private function requestWithToken(string $token, string $method, string $uri, array $data = [], array $headers = []): TestResponse
     {
         Auth::forgetGuards();
 
-        return $this->withToken($token)->json($method, $uri, $data);
+        // M2: مفتاح عدم تكرار جديد لكل طلب — إلا إذا حدده الاختبار (إعادة تشغيل).
+        if (! isset($headers['Idempotency-Key']) && ! isset($this->defaultHeaders['Idempotency-Key'])) {
+            $headers['Idempotency-Key'] = (string) Str::uuid();
+        }
+
+        return $this->withToken($token)->json($method, $uri, $data, $headers);
     }
 
     private function movement(ProductVariant $variant, Branch $branch, float $qty, StockMovementType $type = StockMovementType::AdjustmentIn): void

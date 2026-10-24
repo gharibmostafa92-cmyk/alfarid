@@ -4,26 +4,25 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
-use App\Enums\PosShiftStatus;
+use App\Enums\ProductStatus;
 use App\Enums\StockBucket;
 use App\Enums\StockMovementType;
-use App\Enums\TreasuryTransactionType;
 use App\Enums\TreasuryType;
 use App\Models\Branch;
 use App\Models\Brand;
 use App\Models\Category;
-use App\Models\Order;
-use App\Models\PosShift;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
+use App\Models\StockTransfer;
 use App\Models\Treasury;
-use App\Models\TreasuryTransaction;
 use App\Models\User;
 use App\Services\InventoryService;
-use App\Services\PosService;
-use App\Services\TreasuryService;
+use App\Services\StocktakeService;
+use App\Services\TransferService;
+use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
@@ -33,83 +32,87 @@ class PosEndpointsTest extends TestCase
     use LazilyRefreshDatabase;
 
     private Branch $branch;
+
     private User $cashier;
+
     private Treasury $posDrawer;
+
     private Treasury $mainSafe;
+
     private ProductVariant $variant;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        $this->seed(\Database\Seeders\SettingSeeder::class);
+        $this->seed(SettingSeeder::class);
 
         $this->branch = Branch::create([
-            'name'      => 'Cairo Branch',
-            'code'      => 'BR-CAIRO',
-            'type'      => 'branch',
+            'name' => 'Cairo Branch',
+            'code' => 'BR-CAIRO',
+            'type' => 'branch',
             'is_active' => true,
         ]);
 
         $this->cashier = User::create([
-            'name'      => 'Cashier Ahmed',
-            'email'     => 'cashier@example.com',
-            'phone'     => '+201011112222',
-            'password'  => Hash::make('secret123'),
+            'name' => 'Cashier Ahmed',
+            'email' => 'cashier@example.com',
+            'phone' => '+201011112222',
+            'password' => Hash::make('secret123'),
             'branch_id' => $this->branch->id,
             'is_active' => true,
         ]);
 
         $this->posDrawer = Treasury::create([
-            'name'            => 'Ahmed Drawer',
-            'code'            => 'DRW-01',
-            'branch_id'       => $this->branch->id,
-            'type'            => TreasuryType::PosDrawer,
+            'name' => 'Ahmed Drawer',
+            'code' => 'DRW-01',
+            'branch_id' => $this->branch->id,
+            'type' => TreasuryType::PosDrawer,
             'current_balance' => 0,
-            'is_active'       => true,
+            'is_active' => true,
         ]);
 
         $this->mainSafe = Treasury::create([
-            'name'            => 'Cairo Main Safe',
-            'code'            => 'SAFE-CAIRO',
-            'branch_id'       => $this->branch->id,
-            'type'            => TreasuryType::MainSafe,
+            'name' => 'Cairo Main Safe',
+            'code' => 'SAFE-CAIRO',
+            'branch_id' => $this->branch->id,
+            'type' => TreasuryType::MainSafe,
             'current_balance' => 1000,
-            'is_active'       => true,
+            'is_active' => true,
         ]);
 
         $brand = Brand::create(['name_ar' => 'براند أ', 'name_en' => 'Brand A', 'slug' => 'brand-a', 'is_active' => true]);
         $cat = Category::create(['name_ar' => 'شنط', 'name_en' => 'Bags', 'slug' => 'bags', 'is_active' => true]);
         $prod = Product::create([
-            'code'         => 'PRD-001',
-            'name_ar'      => 'شنطة جلد',
-            'name_en'      => 'Leather Bag',
-            'slug'         => 'leather-bag',
-            'status'       => \App\Enums\ProductStatus::Published,
-            'brand_id'     => $brand->id,
-            'category_id'  => $cat->id,
-            'is_active'    => true,
+            'code' => 'PRD-001',
+            'name_ar' => 'شنطة جلد',
+            'name_en' => 'Leather Bag',
+            'slug' => 'leather-bag',
+            'status' => ProductStatus::Published,
+            'brand_id' => $brand->id,
+            'category_id' => $cat->id,
+            'is_active' => true,
             'published_at' => now(),
         ]);
 
         $this->variant = ProductVariant::create([
-            'product_id'    => $prod->id,
-            'sku'           => 'BAG-001-RED',
-            'barcode'       => '6221234567890',
+            'product_id' => $prod->id,
+            'sku' => 'BAG-001-RED',
+            'barcode' => '6221234567890',
             'color_name_ar' => 'أحمر',
-            'retail_price'  => 150.00,
-            'cost_price'    => 80.00,
-            'is_active'     => true,
+            'retail_price' => 150.00,
+            'cost_price' => 80.00,
+            'is_active' => true,
         ]);
 
         // ضخ رصيد مخزون أولي في الفرع
         app(InventoryService::class)->recordMovement([
             'product_variant_id' => $this->variant->id,
-            'branch_id'          => $this->branch->id,
-            'type'               => StockMovementType::AdjustmentIn,
-            'affected_bucket'    => StockBucket::OnHand,
-            'quantity'           => 50,
-            'created_by'         => $this->cashier->id,
+            'branch_id' => $this->branch->id,
+            'type' => StockMovementType::AdjustmentIn,
+            'affected_bucket' => StockBucket::OnHand,
+            'quantity' => 50,
+            'created_by' => $this->cashier->id,
         ]);
     }
 
@@ -117,15 +120,15 @@ class PosEndpointsTest extends TestCase
     {
         // فرع غير مطابق
         $otherBranch = Branch::create([
-            'name'      => 'Alex Branch',
-            'code'      => 'BR-ALEX',
-            'type'      => 'branch',
+            'name' => 'Alex Branch',
+            'code' => 'BR-ALEX',
+            'type' => 'branch',
             'is_active' => true,
         ]);
 
         $res = $this->postJson('/api/v1/pos/auth/login', [
-            'email'     => 'cashier@example.com',
-            'password'  => 'secret123',
+            'email' => 'cashier@example.com',
+            'password' => 'secret123',
             'branch_id' => $otherBranch->id,
         ]);
 
@@ -133,8 +136,8 @@ class PosEndpointsTest extends TestCase
 
         // فرع صحيح
         $resValid = $this->postJson('/api/v1/pos/auth/login', [
-            'email'     => 'cashier@example.com',
-            'password'  => 'secret123',
+            'email' => 'cashier@example.com',
+            'password' => 'secret123',
             'branch_id' => $this->branch->id,
         ]);
 
@@ -163,7 +166,7 @@ class PosEndpointsTest extends TestCase
 
         // 1. فتح الوردية
         $openRes = $this->withToken($token)->postJson('/api/v1/pos/shifts/open', [
-            'treasury_id'  => $this->posDrawer->id,
+            'treasury_id' => $this->posDrawer->id,
             'opening_cash' => 200.00,
         ]);
 
@@ -186,8 +189,8 @@ class PosEndpointsTest extends TestCase
                 ['product_variant_id' => $this->variant->id, 'qty' => 2],
             ],
             'payment_method' => 'mixed',
-            'cash_amount'    => 100.00,
-            'card_amount'    => 200.00,
+            'cash_amount' => 100.00,
+            'card_amount' => 200.00,
         ]);
 
         $saleRes->assertStatus(201)
@@ -215,7 +218,7 @@ class PosEndpointsTest extends TestCase
         // إذا الكاشير عَدّ 320 -> يوجد زيادة +20
         $closeRes = $this->withToken($token)->postJson('/api/v1/pos/shifts/close', [
             'actual_closing_cash' => 320.00,
-            'notes'               => 'جرد سليم مع زيادة 20',
+            'notes' => 'جرد سليم مع زيادة 20',
         ]);
 
         $closeRes->assertOk()
@@ -225,9 +228,9 @@ class PosEndpointsTest extends TestCase
             ->assertJsonPath('data.cash_difference', '20.00');
 
         $admin = User::create([
-            'name'      => 'Finance Manager',
-            'email'     => 'admin@example.com',
-            'password'  => Hash::make('secret123'),
+            'name' => 'Finance Manager',
+            'email' => 'admin@example.com',
+            'password' => Hash::make('secret123'),
             'branch_id' => $this->branch->id,
             'is_active' => true,
         ]);
@@ -235,13 +238,14 @@ class PosEndpointsTest extends TestCase
         $admin->givePermissionTo($permission);
         $adminToken = $admin->createToken('admin')->plainTextToken;
 
-        \Illuminate\Support\Facades\Auth::forgetGuards();
+        Auth::forgetGuards();
 
         $shiftId = $closeRes->json('data.id');
         $approveRes = $this->withToken($adminToken)->postJson("/api/v1/admin/shifts/{$shiftId}/approve");
 
-        // تم ترحيل رصيد الدرج المتاح 300 إلى الخزنة الرئيسية
-        $this->assertEquals(1300.00, (float) $this->mainSafe->fresh()->current_balance);
+        // 1000 - 200 عهدة + 320 نقدية فعلية (تشمل زيادة مسجلة 20).
+        $approveRes->assertOk();
+        $this->assertEquals(1120.00, (float) $this->mainSafe->fresh()->current_balance);
         $this->assertEquals(0.00, (float) $this->posDrawer->fresh()->current_balance);
     }
 
@@ -251,7 +255,7 @@ class PosEndpointsTest extends TestCase
 
         // فتح وردية جديدة
         $this->withToken($token)->postJson('/api/v1/pos/shifts/open', [
-            'treasury_id'  => $this->posDrawer->id,
+            'treasury_id' => $this->posDrawer->id,
             'opening_cash' => 500.00,
         ])->assertCreated();
 
@@ -274,8 +278,8 @@ class PosEndpointsTest extends TestCase
                 ['product_variant_id' => $this->variant->id, 'qty' => 2],
             ],
             'payment_method' => 'cash',
-            'cash_amount'    => 300.00,
-            'card_amount'    => 0,
+            'cash_amount' => 300.00,
+            'card_amount' => 0,
         ]);
         $saleRes->assertCreated();
         $saleId = $saleRes->json('data.id');
@@ -296,5 +300,96 @@ class PosEndpointsTest extends TestCase
             ->whereNull('location_id')
             ->first();
         $this->assertEquals(49.00, (float) $stock->on_hand);
+    }
+
+    public function test_pos_stock_search_transfer_request_receive_and_scan(): void
+    {
+        // H4: واجهة POS الرقيقة — بحث سليم، طلب تحويل من فرع الوجهة،
+        // استلام بالشكل الصحيح، ومسح باركود بلقطة من نطاق الجلسة.
+        foreach (['transfers.create', 'transfers.receive', 'stocktakes.update'] as $name) {
+            $this->cashier->givePermissionTo(Permission::findOrCreate($name, 'staff'));
+        }
+        $hq = User::create([
+            'name' => 'HQ Manager', 'email' => 'hq@example.com', 'phone' => '+201099988877',
+            'password' => Hash::make('secret123'), 'branch_id' => null, 'is_active' => true,
+        ]);
+        foreach (['inventory.all_branches', 'transfers.approve', 'transfers.ship', 'stocktakes.create'] as $name) {
+            $hq->givePermissionTo(Permission::findOrCreate($name, 'staff'));
+        }
+
+        $fromBranch = Branch::create(['name' => 'Alex Branch', 'code' => 'BR-ALEX', 'type' => 'branch', 'is_active' => true]);
+        app(InventoryService::class)->recordMovement([
+            'product_variant_id' => $this->variant->id, 'branch_id' => $fromBranch->id,
+            'type' => StockMovementType::AdjustmentIn, 'affected_bucket' => StockBucket::OnHand,
+            'quantity' => 10, 'created_by' => $hq->id,
+        ]);
+
+        $token = $this->cashier->createToken('pos', ['pos'])->plainTextToken;
+        $this->withToken($token)->postJson('/api/v1/pos/shifts/open', [
+            'treasury_id' => $this->posDrawer->id, 'opening_cash' => 100.00,
+        ])->assertCreated();
+
+        // 1. البحث بالاسم العربي (الأعمدة الفعلية) وبمحارف LIKE لا تكسر الاستعلام.
+        $search = $this->withToken($token)->getJson('/api/v1/pos/stock?q='.urlencode('جلد'));
+        $search->assertOk();
+        $this->assertNotEmpty($search->json('data'));
+        $this->withToken($token)->getJson('/api/v1/pos/stock?q='.urlencode('100% قطن_'))->assertOk();
+
+        // 2. طلب تحويل من فرع الوجهة — ورفض التساوي مع الفرع الحالي.
+        $this->withToken($token)->postJson('/api/v1/pos/transfer-requests', [
+            'from_branch_id' => $this->branch->id,
+            'items' => [['product_variant_id' => $this->variant->id, 'requested_qty' => 1]],
+        ])->assertUnprocessable();
+
+        $reqRes = $this->withToken($token)->withHeader('Idempotency-Key', 'pos-stock-transfer')->postJson('/api/v1/pos/transfer-requests', [
+            'from_branch_id' => $fromBranch->id,
+            'items' => [['product_variant_id' => $this->variant->id, 'requested_qty' => 3]],
+        ]);
+        $reqRes->assertCreated();
+        $transferId = $reqRes->json('id');
+        $this->assertSame($this->branch->id, StockTransfer::findOrFail($transferId)->to_branch_id);
+
+        // 3. اعتماد وشحن مركزيان ثم استلام من الكاشير بالشكل الصحيح.
+        app(TransferService::class)->approve(
+            StockTransfer::findOrFail($transferId), [], $hq->id);
+        app(TransferService::class)->ship(
+            StockTransfer::findOrFail($transferId), [], $hq->id);
+        $itemId = StockTransfer::findOrFail($transferId)->items->first()->id;
+
+        $recRes = $this->withToken($token)->postJson("/api/v1/pos/transfers/{$transferId}/receive", [
+            'items' => [['id' => $itemId, 'received_qty' => 2]],
+        ]);
+        $recRes->assertOk()->assertJsonPath('status', 'received');
+        // الرصيد الافتتاحي 50 + المستلم 2.
+        $this->assertEquals(52.00, (float) StockLevel::query()
+            ->where('product_variant_id', $this->variant->id)
+            ->where('branch_id', $this->branch->id)->firstOrFail()->on_hand);
+
+        // 4. مسح باركود في جلسة الجرد — اللقطة من نطاق الجلسة لا من أول صف.
+        $stocktake = app(StocktakeService::class)->create([
+            'branch_id' => $this->branch->id, 'items' => [],
+        ], $hq->id);
+
+        $scan = $this->withToken($token)->postJson("/api/v1/pos/stocktakes/{$stocktake->id}/scan", [
+            'barcode' => '6221234567890',
+        ]);
+        $scan->assertOk()
+            ->assertJsonPath('product_variant_id', $this->variant->id)
+            ->assertJsonPath('counted_qty', '1.0000')
+            ->assertJsonMissingPath('system_qty');
+
+        $this->assertSame('52.0000', $stocktake->items()->firstOrFail()->system_qty);
+
+        $scan2 = $this->withToken($token)->postJson("/api/v1/pos/stocktakes/{$stocktake->id}/scan", [
+            'barcode' => '6221234567890', 'qty' => 2,
+        ]);
+        $scan2->assertOk()->assertJsonPath('counted_qty', '3.0000');
+    }
+    public function json($method, $uri, array $data = [], array $headers = [], $options = 0)
+    {
+        if (strtoupper($method) === 'POST' && str_ends_with($uri, '/pos/sales') && ! isset($headers['Idempotency-Key']) && ! isset($this->defaultHeaders['Idempotency-Key'])) {
+            $headers['Idempotency-Key'] = (string) \Illuminate\Support\Str::uuid();
+        }
+        return parent::json($method, $uri, $data, $headers, $options);
     }
 }

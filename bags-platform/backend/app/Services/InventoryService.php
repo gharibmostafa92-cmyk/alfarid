@@ -75,7 +75,15 @@ class InventoryService
                 ]])->first();
             }
 
-            if ($bucket === StockBucket::OnHand && $units > 0) {
+            // H3: فحص النشاط للإدخال الجديد فقط (بضاعة تدخل المخزون أول مرة)،
+            // لا للنقل/المرتجع/الجرد — البضاعة موجودة فعلًا فيجب تسجيلها أينما
+            // كانت، وتصفية رصيد المعطّل متاحة بعمليات الإخراج (M5).
+            $isNewInbound = in_array($type, [
+                StockMovementType::AdjustmentIn,
+                StockMovementType::ProductionReceipt,
+                StockMovementType::PurchaseReceipt,
+            ], true);
+            if ($isNewInbound && $bucket === StockBucket::OnHand && $units > 0) {
                 $variant = $stock->variant;
                 if ($variant === null || $variant->trashed() || ! $variant->is_active
                     || ($stock->location_id !== null && ! $stock->location?->is_active)) {
@@ -225,7 +233,10 @@ class InventoryService
         } catch (UniqueConstraintViolationException $e) {
             // الالتقاط خاص بقيد مفتاح عدم التكرار وحده: أي انتهاك فريد آخر داخل
             // المعاملة خطأ حقيقي يجب أن يظهر، لا أن يُقنَّع كتعارض مفتاح (L-2).
-            if (! str_contains($e->getMessage(), 'inventory_idempotency_keys_user_id_key_unique')) {
+            // L4: اسم القيد من رسالة السائق (errorInfo) لا من نص الاستثناء العام.
+            $driverMessage = (string) ($e->errorInfo[2] ?? $e->getMessage());
+            if (! str_contains($driverMessage, 'inventory_idempotency_keys_user_id_key_unique')
+                && ! str_contains($e->getMessage(), 'inventory_idempotency_keys_user_id_key_unique')) {
                 throw $e;
             }
 
@@ -348,19 +359,24 @@ class InventoryService
         }
         // انتظار محدود للأقفال داخل هذه المعاملة فقط؛ التنافس الطويل يتحول لرفض
         // واضح (409) بدل تعليق الطلب حتى مهلة PHP-FPM.
-        DB::statement("SET LOCAL lock_timeout = '5s'");
         $keys = collect($keys)->unique(fn ($key) => $this->levelKey($key))
             ->sortBy(fn ($key) => [(int) $key['branch_id'], (int) ($key['location_id'] ?? 0), (int) $key['product_variant_id']]);
         if ($keys->isEmpty()) {
             return collect();
         }
         $now = now();
+        $previousTimeout = DB::selectOne("SELECT current_setting('lock_timeout') AS value")->value;
+        DB::statement("SET LOCAL lock_timeout = '5s'");
 
         try {
             // Lock variants before stock rows in every path, including callers
             // that prelock a batch of balances before recording movements.
+            // H1: shared (FOR SHARE) lock — movements only need to block
+            // concurrent variant edits (which take FOR UPDATE), while shared
+            // locks don't block each other, so branches run in parallel.
+            // The real serialization stays on stock_levels (FOR UPDATE below).
             $variantIds = $keys->pluck('product_variant_id')->unique()->sort()->values();
-            $variants = ProductVariant::withTrashed()->whereIn('id', $variantIds)->orderBy('id')->lockForUpdate()->get();
+            $variants = ProductVariant::withTrashed()->whereIn('id', $variantIds)->orderBy('id')->sharedLock()->get();
             if ($variants->count() !== $variantIds->count()) {
                 throw new BusinessException('أحد المتغيرات لم يعد متاحًا.');
             }
@@ -368,10 +384,13 @@ class InventoryService
             // الإدخال نفسه قد ينتظر قفلًا: ON CONFLICT ينتظر معاملة أخرى أدخلت
             // نفس المفتاح ولم تعتمد بعد، فيخضع لنفس lock_timeout — لازم يكون
             // جوه الـ try حتى يتحول الانتظار الطويل لـ 409 لا 500 (M-2).
-            DB::table('stock_levels')->insertOrIgnore($keys->map(fn ($key) => [
+            $rows = $keys->map(fn ($key) => [
                 'product_variant_id' => $key['product_variant_id'], 'branch_id' => $key['branch_id'],
                 'location_id' => $key['location_id'] ?? null, 'created_at' => $now, 'updated_at' => $now,
-            ])->values()->all());
+            ])->values();
+            foreach ($rows->chunk(1000) as $chunk) {
+                DB::table('stock_levels')->insertOrIgnore($chunk->all());
+            }
 
             $levels = StockLevel::query()->with(['variant:id,is_active,deleted_at,reorder_level', 'location:id,is_active'])->where(function ($query) use ($keys): void {
                 foreach ($keys->groupBy(fn ($key) => $key['branch_id'].':'.($key['location_id'] ?? 0)) as $group) {
@@ -383,14 +402,21 @@ class InventoryService
             })->orderBy('branch_id')->orderByRaw('location_id ASC NULLS FIRST')->orderBy('product_variant_id')
                 ->lockForUpdate()->get()->keyBy(fn ($stock) => $this->levelKey($stock->getAttributes()));
         } catch (QueryException $e) {
-            // 55P03 = lock_timeout، و40P01 = deadlock — كلاهما ازدحام مؤقت
-            // على الأقفال، فيُرجع 409 قابلًا لإعادة المحاولة لا 500 (M-2).
-            if (in_array($e->errorInfo[0] ?? $e->getCode(), ['55P03', '40P01'], true)) {
+            // Keep deadlocks as database exceptions so the outer transaction
+            // can retry them. The API exception handler returns 409 if exhausted.
+            if (($e->errorInfo[0] ?? $e->getCode()) === '55P03') {
                 throw new BusinessException('المخزون مشغول بعملية أخرى الآن؛ أعد المحاولة بعد لحظات.', [], 409);
             }
 
             throw $e;
+        } catch (\Throwable $e) {
+            DB::selectOne("SELECT set_config('lock_timeout', ?, true)", [$previousTimeout]);
+            throw $e;
         }
+
+        // Restore the caller's transaction-local setting, not the session default.
+        // Failed PostgreSQL transactions must roll back before further SQL.
+        DB::selectOne("SELECT set_config('lock_timeout', ?, true)", [$previousTimeout]);
 
         return $levels;
     }
@@ -400,8 +426,20 @@ class InventoryService
         return $key['branch_id'].':'.($key['location_id'] ?? 0).':'.$key['product_variant_id'];
     }
 
+    public function receivingLocation(int $branchId, ?int $locationId = null): ?int
+    {
+        $query = Location::query()->where('branch_id', $branchId)->where('is_active', true);
+        if ($locationId !== null) {
+            if (! $query->whereKey($locationId)->exists()) throw new BusinessException('موقع الاستلام غير نشط أو لا يتبع الفرع.');
+            return $locationId;
+        }
+        $id = $query->orderByRaw("CASE WHEN type = 'receiving' THEN 0 ELSE 1 END")->orderBy('id')->value('id');
+        return $id === null ? null : (int) $id;
+    }
+
     private function assertValidMovementSemantics(StockMovementType $type, StockBucket $bucket, int $units): void
     {
+        // L4: فرع default حتى لا ينفجر نوع جديد بـ UnhandledMatchError (500).
         [$allowed, $positive] = match ($type) {
             StockMovementType::ProductionReceipt, StockMovementType::PurchaseReceipt, StockMovementType::SaleReturn,
             StockMovementType::AdjustmentIn, StockMovementType::StocktakeGain, StockMovementType::TransferIn => [[StockBucket::OnHand], true],
@@ -414,6 +452,7 @@ class InventoryService
             StockMovementType::ReleaseReserve => [[StockBucket::Reserved], false],
             StockMovementType::TransferInTransit => [[StockBucket::InTransit], true],
             StockMovementType::TransferTransitRelease, StockMovementType::TransferShortage => [[StockBucket::InTransit], false],
+            default => throw new BusinessException('نوع حركة مخزنية غير مدعوم: '.$type->value),
         };
         if (! in_array($bucket, $allowed, true) || ($units > 0) !== $positive) {
             throw new BusinessException('نوع الحركة لا يطابق وعاء المخزون أو اتجاه الكمية.');

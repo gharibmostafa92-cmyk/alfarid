@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\V1\Admin;
 use App\Enums\TreasuryTransferStatus;
 use App\Http\Controllers\Controller;
 use App\Models\TreasuryTransfer;
+use App\Services\BranchAccess;
 use App\Services\TreasuryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -36,7 +37,8 @@ class TreasuryTransferController extends Controller implements HasMiddleware
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
-        $transfers = TreasuryTransfer::query()
+        $branch = app(BranchAccess::class)->restrictedBranch($request->user());
+        $transfers = TreasuryTransfer::query()->when($branch !== null, fn ($q) => $q->whereHas('fromTreasury', fn ($q) => $q->where('branch_id', $branch))->whereHas('toTreasury', fn ($q) => $q->where('branch_id', $branch)))
             ->with(['fromTreasury', 'toTreasury', 'creator', 'approver'])
             ->when($filters['from_treasury_id'] ?? null, fn ($q, $v) => $q->where('from_treasury_id', $v))
             ->when($filters['to_treasury_id'] ?? null, fn ($q, $v) => $q->where('to_treasury_id', $v))
@@ -64,8 +66,9 @@ class TreasuryTransferController extends Controller implements HasMiddleware
         ], 201);
     }
 
-    public function show(TreasuryTransfer $treasuryTransfer): JsonResponse
+    public function show(Request $request, TreasuryTransfer $treasuryTransfer): JsonResponse
     {
+        foreach ([$treasuryTransfer->fromTreasury, $treasuryTransfer->toTreasury] as $treasury) app(BranchAccess::class)->assertTreasury($request->user()->id, $treasury);
         return response()->json([
             'data' => $treasuryTransfer->load(['fromTreasury', 'toTreasury', 'creator', 'approver']),
         ]);

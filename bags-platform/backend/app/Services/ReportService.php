@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Services;
 
 use Illuminate\Support\Facades\DB;
+use Carbon\CarbonImmutable;
+use Illuminate\Validation\ValidationException;
 
 /**
  * خدمة التقارير ولوحة معلومات الإدارة (المرحلة 13.2).
@@ -21,15 +23,15 @@ class ReportService
     private const SALES_STATUSES = ['confirmed', 'processing', 'shipped', 'delivered'];
 
     /** @return array<string, mixed> */
-    public function dashboard(): array
+    public function dashboard(?int $branchId = null): array
     {
-        $today = now()->toDateString();
-        $monthStart = now()->startOfMonth()->toDateTimeString();
+        $businessNow = CarbonImmutable::now(config('app.business_timezone', 'Africa/Cairo'));
+        [$todayStart, $todayEnd] = $this->periodBounds($businessNow->toDateString(), $businessNow->toDateString());
+        $monthStart = $businessNow->startOfMonth()->utc()->toDateTimeString();
 
-        $salesByChannel = function (callable $scope): array {
-            $rows = DB::table('orders')
+        $salesByChannel = function (callable $scope) use ($branchId): array {
+            $rows = $this->salesEntries($branchId)
                 ->selectRaw('channel, SUM(grand_total) AS total, COUNT(*) AS orders_count')
-                ->whereIn('status', self::SALES_STATUSES)
                 ->tap($scope)
                 ->groupBy('channel')
                 ->get();
@@ -44,23 +46,24 @@ class ReportService
             return ['total' => $total, 'by_channel' => $byChannel];
         };
 
-        $todaySales = $salesByChannel(fn ($q) => $q->whereDate('created_at', $today));
+        $todaySales = $salesByChannel(fn ($q) => $q->where('created_at', '>=', $todayStart)->where('created_at', '<', $todayEnd));
         $monthSales = $salesByChannel(fn ($q) => $q->where('created_at', '>=', $monthStart));
 
-        $newOrdersCount = (int) DB::table('orders')->whereDate('created_at', $today)->count();
+        $newOrdersCount = (int) DB::table('orders')->whereNull('return_of_order_id')->when($branchId !== null, fn ($q) => $q->where('allocated_branch_id', $branchId))
+            ->where('created_at', '>=', $todayStart)->where('created_at', '<', $todayEnd)->count();
 
-        $lowStockCount = (int) DB::table('stock_levels as sl')
+        $lowStockCount = (int) DB::table('stock_levels as sl')->when($branchId !== null, fn ($q) => $q->where('sl.branch_id', $branchId))
             ->join('product_variants as pv', 'pv.id', '=', 'sl.product_variant_id')
             ->whereRaw('COALESCE(NULLIF(sl.reorder_level, 0), pv.reorder_level, 0) > 0')
             ->whereRaw('sl.available <= COALESCE(NULLIF(sl.reorder_level, 0), pv.reorder_level, 0)')
             ->count();
 
-        $pendingWholesale = (int) DB::table('customers')
+        $pendingWholesale = $branchId !== null ? 0 : (int) DB::table('customers')
             ->whereIn('type', ['wholesale', 'distributor'])
             ->where('status', 'pending')
             ->count();
 
-        $topProducts = DB::table('order_items as oi')
+        $topProducts = DB::table('order_items as oi')->when($branchId !== null, fn ($q) => $q->where('oi.allocated_branch_id', $branchId))
             ->join('orders as o', 'o.id', '=', 'oi.order_id')
             ->leftJoin('product_variants as pv', 'pv.id', '=', 'oi.product_variant_id')
             ->leftJoin('products as p', 'p.id', '=', 'pv.product_id')
@@ -79,10 +82,9 @@ class ReportService
                 'revenue' => (float) $row->revenue,
             ])->all();
 
-        $topBranches = DB::table('orders as o')
+        $topBranches = $this->salesEntries($branchId, 'o')
             ->leftJoin('branches as b', 'b.id', '=', 'o.allocated_branch_id')
             ->selectRaw('o.allocated_branch_id, b.name AS branch_name, COUNT(*) AS orders_count, SUM(o.grand_total) AS revenue')
-            ->whereIn('o.status', self::SALES_STATUSES)
             ->where('o.created_at', '>=', $monthStart)
             ->whereNotNull('o.allocated_branch_id')
             ->groupBy('o.allocated_branch_id', 'b.name')
@@ -119,15 +121,18 @@ class ReportService
      *
      * @return array{rows: list<array<string, mixed>>, totals: array<string, mixed>}
      */
-    public function salesReport(string $from, string $to, string $granularity = 'daily', ?string $groupBy = null): array
+    public function salesReport(string $from, string $to, string $granularity = 'daily', ?string $groupBy = null, ?int $branchId = null): array
     {
-        $periodExpr = $granularity === 'monthly'
-            ? "DATE_TRUNC('month', o.created_at)::date"
-            : 'DATE(o.created_at)';
 
-        $query = DB::table('orders as o')
-            ->whereIn('o.status', self::SALES_STATUSES)
-            ->whereBetween('o.created_at', [$from.' 00:00:00', $to.' 23:59:59']);
+        [$periodStart, $periodEnd] = $this->periodBounds($from, $to);
+        $zone = str_replace("'", "''", (string) config('app.business_timezone', 'Africa/Cairo'));
+        $localCreated = "timezone('{$zone}', o.created_at AT TIME ZONE 'UTC')";
+        $periodExpr = $granularity === 'monthly'
+            ? "DATE_TRUNC('month', {$localCreated})::date"
+            : "DATE({$localCreated})";
+
+        $query = $this->salesEntries($branchId, 'o')
+            ->where('o.created_at', '>=', $periodStart)->where('o.created_at', '<', $periodEnd);
 
         $selects = [
             "{$periodExpr} AS period",
@@ -178,9 +183,8 @@ class ReportService
                 'net_sales' => (float) $row->net_sales,
             ])->all();
 
-        $totals = DB::table('orders')
-            ->whereIn('status', self::SALES_STATUSES)
-            ->whereBetween('created_at', [$from.' 00:00:00', $to.' 23:59:59'])
+        $totals = $this->salesEntries($branchId)
+            ->where('created_at', '>=', $periodStart)->where('created_at', '<', $periodEnd)
             ->selectRaw('COUNT(*) AS orders_count, COALESCE(SUM(subtotal), 0) AS gross_sales, COALESCE(SUM(discount_amount), 0) AS discounts, COALESCE(SUM(tax_amount), 0) AS tax, COALESCE(SUM(shipping_cost), 0) AS shipping, COALESCE(SUM(grand_total), 0) AS net_sales')
             ->first();
 
@@ -203,9 +207,9 @@ class ReportService
      *
      * @return array{valuation: list<array<string, mixed>>, total_value: float, dead_stock: list<array<string, mixed>>}
      */
-    public function inventoryReport(int $deadDays = 90): array
+    public function inventoryReport(int $deadDays = 90, ?int $branchId = null): array
     {
-        $valuation = DB::table('stock_levels as sl')
+        $valuation = DB::table('stock_levels as sl')->when($branchId !== null, fn ($q) => $q->where('sl.branch_id', $branchId))
             ->join('product_variants as pv', 'pv.id', '=', 'sl.product_variant_id')
             ->leftJoin('branches as b', 'b.id', '=', 'sl.branch_id')
             ->selectRaw('sl.branch_id, b.name AS branch_name, COUNT(DISTINCT sl.product_variant_id) AS variants_count, COALESCE(SUM(sl.on_hand), 0) AS total_qty, COALESCE(SUM(sl.on_hand * COALESCE(pv.cost_price, 0)), 0) AS total_value')
@@ -220,16 +224,16 @@ class ReportService
                 'total_value' => (float) $row->total_value,
             ])->all();
 
-        $totalValue = (float) (DB::table('stock_levels as sl')
+        $totalValue = (float) (DB::table('stock_levels as sl')->when($branchId !== null, fn ($q) => $q->where('sl.branch_id', $branchId))
             ->join('product_variants as pv', 'pv.id', '=', 'sl.product_variant_id')
             ->selectRaw('COALESCE(SUM(sl.on_hand * COALESCE(pv.cost_price, 0)), 0) AS v')
             ->first()?->v ?? 0);
 
-        $deadStock = DB::table('stock_levels as sl')
+        $deadStock = DB::table('stock_levels as sl')->when($branchId !== null, fn ($q) => $q->where('sl.branch_id', $branchId))
             ->join('product_variants as pv', 'pv.id', '=', 'sl.product_variant_id')
             ->leftJoin('products as p', 'p.id', '=', 'pv.product_id')
             ->leftJoinSub(
-                DB::table('stock_movements')
+                DB::table('stock_movements')->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
                     ->selectRaw('product_variant_id, MAX(created_at) AS last_movement_at')
                     ->groupBy('product_variant_id'),
                 'lm',
@@ -268,21 +272,22 @@ class ReportService
      *
      * @return array<string, float>
      */
-    public function profitReport(string $from, string $to): array
+    public function profitReport(string $from, string $to, ?int $branchId = null): array
     {
-        $revenue = (float) DB::table('orders')
-            ->whereIn('status', self::SALES_STATUSES)
-            ->whereBetween('created_at', [$from.' 00:00:00', $to.' 23:59:59'])
+
+        [$periodStart, $periodEnd] = $this->periodBounds($from, $to);
+        $revenue = (float) $this->salesEntries($branchId)
+            ->where('created_at', '>=', $periodStart)->where('created_at', '<', $periodEnd)
             ->sum('grand_total');
 
-        $cogs = (float) (DB::table('stock_movements as sm')
+        $cogs = (float) (DB::table('stock_movements as sm')->when($branchId !== null, fn ($q) => $q->where('sm.branch_id', $branchId))
             ->join('product_variants as pv', 'pv.id', '=', 'sm.product_variant_id')
-            ->where('sm.type', 'sale')
-            ->whereBetween('sm.created_at', [$from.' 00:00:00', $to.' 23:59:59'])
-            ->selectRaw('COALESCE(SUM(ABS(sm.quantity) * COALESCE(sm.unit_cost, pv.cost_price, 0)), 0) AS c')
+            ->whereIn('sm.type', ['sale', 'sale_return'])
+            ->where('sm.created_at', '>=', $periodStart)->where('sm.created_at', '<', $periodEnd)
+            ->selectRaw('COALESCE(SUM(-sm.quantity * COALESCE(sm.unit_cost, pv.cost_price, 0)), 0) AS c')
             ->first()?->c ?? 0);
 
-        $expenses = (float) DB::table('expenses')
+        $expenses = (float) DB::table('expenses')->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
             ->whereBetween('expense_date', [$from, $to])
             ->sum('amount');
 
@@ -345,12 +350,14 @@ class ReportService
      *
      * @return array{rows: list<array<string, mixed>>, totals: array<string, mixed>}
      */
-    public function shiftsReport(string $from, string $to, bool $onlyDifferences = false): array
+    public function shiftsReport(string $from, string $to, bool $onlyDifferences = false, ?int $branchId = null): array
     {
-        $base = fn () => DB::table('pos_shifts as ps')
+
+        [$periodStart, $periodEnd] = $this->periodBounds($from, $to);
+        $base = fn () => DB::table('pos_shifts as ps')->when($branchId !== null, fn ($q) => $q->where('ps.branch_id', $branchId))
             ->leftJoin('users as u', 'u.id', '=', 'ps.user_id')
             ->leftJoin('branches as b', 'b.id', '=', 'ps.branch_id')
-            ->whereBetween('ps.opened_at', [$from.' 00:00:00', $to.' 23:59:59'])
+            ->where('ps.opened_at', '>=', $periodStart)->where('ps.opened_at', '<', $periodEnd)
             ->when($onlyDifferences, fn ($q) => $q->whereNotNull('ps.cash_difference')->where('ps.cash_difference', '!=', 0));
 
         $rows = $base()
@@ -391,5 +398,34 @@ class ReportService
                 'shifts_with_difference' => (int) $totals->shifts_with_difference,
             ],
         ];
+    }
+    /** Sales and their reversals stay in the period when each event actually occurred. */
+    private function salesEntries(?int $branchId, string $alias = 'entries'): \Illuminate\Database\Query\Builder
+    {
+        $columns = 'o.id, o.channel, o.allocated_branch_id, o.pos_shift_id, o.payment_method, o.created_at, o.subtotal, o.discount_amount, o.tax_amount, o.shipping_cost, o.grand_total';
+        $sales = DB::table('orders as o')->whereNull('o.return_of_order_id')
+            ->whereIn('o.status', [...self::SALES_STATUSES, 'returned'])->selectRaw($columns);
+        $posReturns = DB::table('orders as o')->whereNotNull('o.return_of_order_id')
+            ->selectRaw('o.id, o.channel, o.allocated_branch_id, o.pos_shift_id, o.payment_method, o.created_at, -o.subtotal, -o.discount_amount, -o.tax_amount, -o.shipping_cost, -o.grand_total');
+        $rmaReturns = DB::table('return_requests as r')->join('orders as o', 'o.id', '=', 'r.order_id')
+            ->whereIn('r.status', ['received', 'refunded'])->whereNotNull('r.received_at')
+            ->selectRaw('o.id, o.channel, r.branch_id AS allocated_branch_id, o.pos_shift_id, o.payment_method, r.received_at AS created_at, -r.total_refund_amount AS subtotal, 0 AS discount_amount, 0 AS tax_amount, 0 AS shipping_cost, -r.total_refund_amount AS grand_total');
+        $manualReturns = DB::table('orders as o')->where('o.status', 'returned')->whereNull('o.return_of_order_id')
+            ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('return_requests as r')->whereColumn('r.order_id', 'o.id')->whereIn('r.status', ['received', 'refunded']))
+            ->selectRaw('o.id, o.channel, o.allocated_branch_id, o.pos_shift_id, o.payment_method, o.updated_at AS created_at, -o.subtotal, -o.discount_amount, -o.tax_amount, -o.shipping_cost, -o.grand_total');
+
+        return DB::query()->fromSub($sales->unionAll($posReturns)->unionAll($rmaReturns)->unionAll($manualReturns), $alias)
+            ->when($branchId !== null, fn ($q) => $q->where($alias.'.allocated_branch_id', $branchId));
+    }
+
+    private function periodBounds(string $from, string $to): array
+    {
+        $zone = config('app.business_timezone', 'Africa/Cairo');
+        $start = CarbonImmutable::parse($from, $zone)->startOfDay();
+        $end = CarbonImmutable::parse($to, $zone)->startOfDay();
+        if ($end->lessThan($start) || $start->diffInDays($end) > 365) {
+            throw ValidationException::withMessages(['to' => 'فترة التقرير يجب ألا تتجاوز 366 يومًا.']);
+        }
+        return [$start->utc()->toDateTimeString(), $end->addDay()->utc()->toDateTimeString()];
     }
 }

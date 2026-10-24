@@ -182,7 +182,9 @@ class AdminReportsTest extends TestCase
             'paid_amount' => 0,
         ]);
 
-        $row = collect($this->asAdmin()->getJson('/api/v1/admin/reports/suppliers')->assertOk()->json('data'))
+        // Procurement HTTP endpoints are retired; keep testing the retained report math directly.
+        $this->asAdmin()->getJson('/api/v1/admin/reports/suppliers')->assertGone();
+        $row = collect(app(\App\Services\ReportService::class)->suppliersReport())
             ->firstWhere('supplier_id', $supplier->id);
         $this->assertSame(600.0, (float) $row['current_balance']);
         $this->assertSame(1000.0, (float) $row['total_purchases']);

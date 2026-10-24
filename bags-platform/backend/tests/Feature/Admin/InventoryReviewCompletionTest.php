@@ -27,6 +27,7 @@ use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
@@ -78,26 +79,25 @@ class InventoryReviewCompletionTest extends TestCase
         ])->assertOk();
     }
 
-    public function test_stocktake_gain_on_inactive_variant_fails_but_drawdown_is_allowed(): void
+    public function test_stocktake_gain_on_inactive_variant_is_recorded(): void
     {
+        // H3: الفائض بضاعة موجودة فعلًا فيُسجَّل ولو عُطّل الصنف — المنع
+        // القديم كان يحبس الجرد كاملًا بسبب صنف واحد.
         $branch = Branch::factory()->create();
         $variant = ProductVariant::factory()->create();
         $this->movement($variant, $branch, 5);
         $stocktake = $this->stocktake($variant, $branch, 7);
         $variant->update(['is_active' => false]);
-        $this->api('POST', "stocktakes/{$stocktake->id}/approve")->assertUnprocessable();
-        $this->assertSame('draft', $stocktake->fresh()->status->value);
-        $this->assertSame('5.0000', StockLevel::firstOrFail()->on_hand);
-        $this->assertDatabaseCount('stock_movements', 1);
-        app(StocktakeService::class)->update($stocktake, ['items' => [
-            ['product_variant_id' => $variant->id, 'counted_qty' => 0],
-        ]], $this->staff->id);
         $this->api('POST', "stocktakes/{$stocktake->id}/approve")->assertOk();
-        $this->assertSame('0.0000', StockLevel::firstOrFail()->on_hand);
+        $this->assertSame('approved', $stocktake->fresh()->status->value);
+        $this->assertSame('7.0000', StockLevel::firstOrFail()->on_hand);
+        $this->assertDatabaseCount('stock_movements', 2);
     }
 
-    public function test_transfer_receipt_into_inactive_location_rolls_back_transit_release(): void
+    public function test_transfer_receipt_into_inactive_location_succeeds(): void
     {
+        // H3: البضاعة خرجت فعلًا من المصدر فيجب استلامها أينما كانت —
+        // الرفض القديم كان يعلق التحويل في Shipped بلا مخرج إلا الشطب الوهمي.
         $from = Branch::factory()->create();
         $to = Branch::factory()->create();
         $location = Location::factory()->create(['branch_id' => $to->id]);
@@ -109,15 +109,12 @@ class InventoryReviewCompletionTest extends TestCase
         ], $this->staff->id);
         app(TransferService::class)->approve($transfer, [], $this->staff->id);
         app(TransferService::class)->ship($transfer, [], $this->staff->id);
-        $before = StockMovement::count();
         $location->update(['is_active' => false]);
-        $this->api('POST', "transfers/{$transfer->id}/receive")->assertUnprocessable();
-        $this->assertSame($before, StockMovement::count());
-        $destination = StockLevel::where('branch_id', $to->id)->firstOrFail();
-        $this->assertSame('2.0000', $destination->in_transit);
-        $this->assertSame('0.0000', $destination->on_hand);
-        $location->update(['is_active' => true]);
         $this->api('POST', "transfers/{$transfer->id}/receive")->assertOk();
+        $this->assertSame('received', $transfer->fresh()->status->value);
+        $destination = StockLevel::where('branch_id', $to->id)->firstOrFail();
+        $this->assertSame('0.0000', $destination->in_transit);
+        $this->assertSame('2.0000', $destination->on_hand);
     }
 
     public function test_apply_difference_policy_rejects_second_overlapping_stocktake(): void
@@ -307,11 +304,16 @@ class InventoryReviewCompletionTest extends TestCase
         ]);
     }
 
-    private function api(string $method, string $path, array $data = [], ?User $staff = null): TestResponse
+    private function api(string $method, string $path, array $data = [], ?User $staff = null, array $headers = []): TestResponse
     {
         Auth::forgetGuards();
 
+        // M2: مفتاح عدم تكرار جديد لكل طلب — إلا إذا حدده الاختبار (إعادة تشغيل).
+        if (! isset($headers['Idempotency-Key']) && ! isset($this->defaultHeaders['Idempotency-Key'])) {
+            $headers['Idempotency-Key'] = (string) Str::uuid();
+        }
+
         return $this->withToken(($staff ?? $this->staff)->createToken('completion')->plainTextToken)
-            ->json($method, '/api/v1/admin/'.$path, $data);
+            ->json($method, '/api/v1/admin/'.$path, $data, $headers);
     }
 }

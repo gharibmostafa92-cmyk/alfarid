@@ -47,11 +47,11 @@ class InventoryController extends Controller implements HasMiddleware
         ]);
 
         $levels = StockLevel::query()
-            ->when(app(BranchAccess::class)->restrictedBranch($request->user()), fn ($q, $branch) => $q->where('branch_id', $branch))
+            ->when(app(BranchAccess::class)->restrictedBranch($request->user()), fn ($q, $branch) => $q->where('stock_levels.branch_id', $branch))
             ->with(['variant.product', 'branch', 'location'])
-            ->when($filters['branch_id'] ?? null, fn ($q, $v) => $q->where('branch_id', $v))
-            ->when($filters['location_id'] ?? null, fn ($q, $v) => $q->where('location_id', $v))
-            ->when($filters['product_variant_id'] ?? null, fn ($q, $v) => $q->where('product_variant_id', $v))
+            ->when($filters['branch_id'] ?? null, fn ($q, $v) => $q->where('stock_levels.branch_id', $v))
+            ->when($filters['location_id'] ?? null, fn ($q, $v) => $q->where('stock_levels.location_id', $v))
+            ->when($filters['product_variant_id'] ?? null, fn ($q, $v) => $q->where('stock_levels.product_variant_id', $v))
             ->when($filters['product_id'] ?? null, fn ($q, $v) => $q->whereHas('variant', fn ($vq) => $vq->where('product_id', $v)))
             // حد إعادة الطلب الفعّال: مستوى الصف إن ضُبط (> 0)، وإلا مستوى المتغير نفسه
             ->when($filters['low_stock'] ?? null, fn ($q) => $q
@@ -61,9 +61,9 @@ class InventoryController extends Controller implements HasMiddleware
                 // lockLevels كأثر جانبي كانت تملأ الفلتر وهميًا (L-4).
                 ->whereRaw('COALESCE(NULLIF(stock_levels.reorder_level, 0), product_variants.reorder_level, 0) > 0')
                 ->select('stock_levels.*'))
-            ->orderBy('branch_id')
-            ->orderBy('product_variant_id')
-            ->orderBy('id')
+            ->orderBy('stock_levels.branch_id')
+            ->orderBy('stock_levels.product_variant_id')
+            ->orderBy('stock_levels.id')
             ->paginate($filters['per_page'] ?? 15);
 
         return StockLevelResource::collection($levels);
@@ -106,7 +106,7 @@ class InventoryController extends Controller implements HasMiddleware
     /** تسوية يدوية: كل العناصر في transaction واحدة عبر InventoryService فقط. */
     public function adjustments(StoreAdjustmentRequest $request): JsonResponse
     {
-        $movements = $this->inventory->applyAdjustments($request->validated(), $request->user()->id, $this->idempotencyKey($request));
+        $movements = $this->inventory->applyAdjustments($request->validated(), $request->user()->id, $this->requiredIdempotencyKey($request));
 
         return response()->json([
             'message' => 'تم تنفيذ التسوية بنجاح',

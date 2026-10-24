@@ -391,6 +391,10 @@ class OrderService
 
             $actorId = $this->inventoryActorId($actor);
 
+            if ($to === OrderStatus::Returned && $returnEffects && $order->channel === 'pos') {
+                throw new BusinessException('استخدم مرتجع POS لتسوية المخزون والنقدية معًا.');
+            }
+
             if ($to === OrderStatus::Returned && $returnEffects
                 && ReturnRequest::query()->where('order_id', $order->id)->whereNotIn('status', [
                     ReturnStatus::Rejected->value, ReturnStatus::Cancelled->value,
@@ -549,37 +553,47 @@ class OrderService
     }
 
     /**
-     * الشحن: لكل حركة حجز — فك الحجز من reserved وخصم فعلي sale من on_hand
-     * على نفس صف الرصيد، وزيادة عدّاد مبيعات المنتج.
+     * الشحن: الحجز القائم الصافي لكل (متغير، فرع، موقع) — فك الحجز من reserved
+     * وخصم فعلي sale من on_hand على نفس صف الرصيد (C3).
+     * التجميع من الدفتر نفسه يجعل تكرار الشحن/الفك آمنًا: لا يُفك أي حجز مرتين.
      */
     private function shipOrder(Order $order, ?int $actorId): void
     {
-        $reservations = $this->reserveMovements($order);
-        if ($reservations->isEmpty()) {
+        $net = $this->netReservations($order);
+        if ($net->isEmpty()) {
             throw new BusinessException('لا توجد حجوزات مخزون لهذا الطلب؛ لا يمكن الشحن قبل التأكيد والتوزيع.');
         }
 
-        foreach ($reservations as $movement) {
+        $levels = $this->inventoryService->lockLevels($net->map(fn (array $row): array => [
+            'product_variant_id' => $row['product_variant_id'],
+            'branch_id' => $row['branch_id'],
+            'location_id' => $row['location_id'],
+        ])->all());
+
+        $costs = \App\Models\ProductVariant::withTrashed()->whereIn('id', $net->pluck('product_variant_id'))->pluck('cost_price', 'id');
+        foreach ($net as $row) {
             $base = [
-                'product_variant_id' => $movement->product_variant_id,
-                'branch_id' => $movement->branch_id,
-                'location_id' => $movement->location_id,
+                'product_variant_id' => $row['product_variant_id'],
+                'branch_id' => $row['branch_id'],
+                'location_id' => $row['location_id'],
                 'reference_type' => Order::class,
                 'reference_id' => $order->id,
                 'created_by' => $actorId,
             ];
+            $level = $levels->get($this->inventoryService->levelKey($row));
             $this->inventoryService->recordMovement([...$base,
                 'type' => StockMovementType::ReleaseReserve,
                 'affected_bucket' => StockBucket::Reserved,
-                'quantity' => -1 * (float) $movement->quantity,
+                'quantity' => -1 * (float) $row['net_qty'],
                 'notes' => "فك حجز عند شحن الطلب {$order->order_number}",
-            ]);
+            ], $level);
             $this->inventoryService->recordMovement([...$base,
                 'type' => StockMovementType::Sale,
+                'unit_cost' => $costs[$row['product_variant_id']] ?? null,
                 'affected_bucket' => StockBucket::OnHand,
-                'quantity' => -1 * (float) $movement->quantity,
+                'quantity' => -1 * (float) $row['net_qty'],
                 'notes' => "بيع عند شحن الطلب {$order->order_number}",
-            ]);
+            ], $level);
         }
 
         foreach ($order->items as $item) {
@@ -587,55 +601,86 @@ class OrderService
         }
     }
 
-    /** إلغاء طلب مُحجوز: فك كل حجوزاته فتعود الكميات متاحة للبيع. */
+    /** إلغاء طلب مُحجوز: فك الحجز القائم الصافي فقط فتعود الكميات متاحة للبيع (C3). */
     private function releaseReservations(Order $order, ?int $actorId, string $reason): void
     {
-        foreach ($this->reserveMovements($order) as $movement) {
+        $net = $this->netReservations($order);
+        if ($net->isEmpty()) {
+            return;
+        }
+
+        $levels = $this->inventoryService->lockLevels($net->map(fn (array $row): array => [
+            'product_variant_id' => $row['product_variant_id'],
+            'branch_id' => $row['branch_id'],
+            'location_id' => $row['location_id'],
+        ])->all());
+
+        foreach ($net as $row) {
             $this->inventoryService->recordMovement([
-                'product_variant_id' => $movement->product_variant_id,
-                'branch_id' => $movement->branch_id,
-                'location_id' => $movement->location_id,
+                'product_variant_id' => $row['product_variant_id'],
+                'branch_id' => $row['branch_id'],
+                'location_id' => $row['location_id'],
                 'type' => StockMovementType::ReleaseReserve,
                 'affected_bucket' => StockBucket::Reserved,
-                'quantity' => -1 * (float) $movement->quantity,
+                'quantity' => -1 * (float) $row['net_qty'],
                 'reference_type' => Order::class,
                 'reference_id' => $order->id,
                 'created_by' => $actorId,
                 'notes' => "{$reason} {$order->order_number}",
-            ]);
+            ], $levels->get($this->inventoryService->levelKey($row)));
         }
     }
 
     /**
-     * إعادة بضاعة طلب مشحون/مُسلَّم إلى المخزون: لكل حركة بيع حركة
-     * sale_return معاكسة على نفس الرصيد، وتنقيص عدّاد المبيعات (M13).
-     * ترجع false إذا لم توجد حركات بيع (يحتاج استلامًا يدويًا).
+     * إعادة بضاعة طلب مشحون/مُسلَّم إلى المخزون: صافي البيع القائم
+     * (المبيع ناقص sale_return المرتبط بالطلب) لكل مفتاح (C3/H7).
+     * ترجع false إذا لم يوجد صافي بيع (يحتاج استلامًا يدويًا).
      */
     private function returnSalesToStock(Order $order, ?int $actorId): bool
     {
-        $sales = StockMovement::query()
-            ->where('reference_type', $order->getMorphClass())
+        $net = StockMovement::query()
+            ->whereIn('reference_type', array_unique([$order->getMorphClass(), Order::class]))
             ->where('reference_id', $order->id)
-            ->where('type', StockMovementType::Sale)
-            ->orderBy('id')
-            ->get();
-        if ($sales->isEmpty()) {
+            ->whereIn('type', [StockMovementType::Sale->value, StockMovementType::SaleReturn->value])
+            ->groupBy('product_variant_id', 'branch_id', 'location_id')
+            ->selectRaw('product_variant_id, branch_id, location_id, SUM(quantity) AS net_qty, MAX(unit_cost) FILTER (WHERE type = \'sale\') AS sale_unit_cost')
+            ->get()
+            // Sale سالبة وSaleReturn موجبة: الصافي السالب هو البيع القائم.
+            ->map(fn ($row): array => [
+                'product_variant_id' => (int) $row->product_variant_id,
+                'branch_id' => (int) $row->branch_id,
+                'location_id' => $row->location_id === null ? null : (int) $row->location_id,
+                'net_qty' => (float) $row->net_qty,
+                'sale_unit_cost' => $row->sale_unit_cost,
+            ])
+            ->filter(fn (array $row): bool => $row['net_qty'] < -1e-9)
+            ->sortBy(fn (array $row): string => $row['branch_id'].':'.$row['location_id'].':'.$row['product_variant_id'])
+            ->values();
+
+        if ($net->isEmpty()) {
             return false;
         }
 
-        foreach ($sales as $movement) {
+        $levels = $this->inventoryService->lockLevels($net->map(fn (array $row): array => [
+            'product_variant_id' => $row['product_variant_id'],
+            'branch_id' => $row['branch_id'],
+            'location_id' => $row['location_id'],
+        ])->all());
+
+        foreach ($net as $row) {
             $this->inventoryService->recordMovement([
-                'product_variant_id' => $movement->product_variant_id,
-                'branch_id' => $movement->branch_id,
-                'location_id' => $movement->location_id,
+                'product_variant_id' => $row['product_variant_id'],
+                'branch_id' => $row['branch_id'],
+                'location_id' => $row['location_id'],
                 'type' => StockMovementType::SaleReturn,
                 'affected_bucket' => StockBucket::OnHand,
-                'quantity' => -1 * (float) $movement->quantity,
+                'quantity' => -1 * (float) $row['net_qty'],
+                'unit_cost' => $row['sale_unit_cost'],
                 'reference_type' => Order::class,
                 'reference_id' => $order->id,
                 'created_by' => $actorId,
                 'notes' => "مرتجع مبيعات للطلب {$order->order_number}",
-            ]);
+            ], $levels->get($this->inventoryService->levelKey($row)));
         }
 
         foreach ($order->items as $item) {
@@ -646,6 +691,33 @@ class OrderService
         }
 
         return true;
+    }
+
+    /**
+     * الحجز القائم الصافي لكل (متغير، فرع، موقع): مجموع Reserve ناقص ما فُك
+     * بـ ReleaseReserve لنفس الطلب (C3). الصفوف تُقفل مرتبة عبر lockLevels
+     * قبل التنفيذ في المستدعي.
+     *
+     * @return Collection<int, array{product_variant_id: int, branch_id: int, location_id: int|null, net_qty: float}>
+     */
+    private function netReservations(Order $order): Collection
+    {
+        return StockMovement::query()
+            ->whereIn('reference_type', array_unique([$order->getMorphClass(), Order::class]))
+            ->where('reference_id', $order->id)
+            ->whereIn('type', [StockMovementType::Reserve->value, StockMovementType::ReleaseReserve->value])
+            ->groupBy('product_variant_id', 'branch_id', 'location_id')
+            ->selectRaw('product_variant_id, branch_id, location_id, SUM(quantity) AS net_qty')
+            ->get()
+            ->map(fn ($row): array => [
+                'product_variant_id' => (int) $row->product_variant_id,
+                'branch_id' => (int) $row->branch_id,
+                'location_id' => $row->location_id === null ? null : (int) $row->location_id,
+                'net_qty' => (float) $row->net_qty,
+            ])
+            ->filter(fn (array $row): bool => $row['net_qty'] > 1e-9)
+            ->sortBy(fn (array $row): string => $row['branch_id'].':'.$row['location_id'].':'.$row['product_variant_id'])
+            ->values();
     }
 
     /** عكس تسجيل استخدام الكوبون عند إلغاء الطلب: حذف السجل وإنقاص العدّاد (M13). */
@@ -661,7 +733,7 @@ class OrderService
     private function reserveMovements(Order $order): Collection
     {
         return StockMovement::query()
-            ->where('reference_type', $order->getMorphClass())
+            ->whereIn('reference_type', array_unique([$order->getMorphClass(), Order::class]))
             ->where('reference_id', $order->id)
             ->where('type', StockMovementType::Reserve)
             ->orderBy('id')

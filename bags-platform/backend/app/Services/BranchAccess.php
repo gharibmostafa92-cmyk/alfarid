@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Enums\StaffRole;
 use App\Models\User;
+use App\Models\Treasury;
 use Illuminate\Auth\Access\AuthorizationException;
 
 /**
@@ -47,6 +48,15 @@ class BranchAccess
     {
         if ($this->restrictedBranch($user) !== null) {
             throw new AuthorizationException('تعديل مجموعات العملاء والأسعار العامة يتطلب صلاحية الوصول لكل الفروع.');
+        }
+    }
+
+    public function assertTreasury(int $userId, Treasury $treasury): void
+    {
+        if ($treasury->branch_id === null) {
+            $this->assertCentralAccess(User::findOrFail($userId));
+        } else {
+            $this->assertBranch($userId, (int) $treasury->branch_id);
         }
     }
 }

@@ -47,7 +47,10 @@ trait HandlesIdempotentCreation
                 return $model;
             });
         } catch (UniqueConstraintViolationException $e) {
-            if (! str_contains($e->getMessage(), 'inventory_idempotency_keys_user_id_key_unique')) {
+            // L4: اسم القيد من رسالة السائق (errorInfo) لا من نص الاستثناء العام.
+            $driverMessage = (string) ($e->errorInfo[2] ?? $e->getMessage());
+            if (! str_contains($driverMessage, 'inventory_idempotency_keys_user_id_key_unique')
+                && ! str_contains($e->getMessage(), 'inventory_idempotency_keys_user_id_key_unique')) {
                 throw $e;
             }
 
@@ -59,7 +62,15 @@ trait HandlesIdempotentCreation
             }
 
             $model = $modelClass::query()->with($relations)->findOrFail((int) ($record->response[0] ?? 0));
-            app(BranchAccess::class)->assertBranch($userId, (int) ($model->getAttribute('branch_id') ?? $model->getAttribute('from_branch_id')));
+            // H4: إعادة التشغيل يقبل أي نطاق للنموذج (تحويل: مرسل أو وجهة).
+            $branches = [];
+            foreach (['branch_id', 'from_branch_id', 'to_branch_id'] as $attribute) {
+                $value = $model->getAttribute($attribute);
+                if ($value !== null) {
+                    $branches[] = (int) $value;
+                }
+            }
+            app(BranchAccess::class)->assertBranch($userId, ...$branches);
 
             return $model;
         }

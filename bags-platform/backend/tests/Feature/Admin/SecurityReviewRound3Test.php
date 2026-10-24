@@ -26,6 +26,7 @@ use Database\Seeders\PricingPermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
@@ -300,6 +301,11 @@ class SecurityReviewRound3Test extends TestCase
     private function requestWithToken(string $token, string $method, string $uri, array $data = [], array $headers = []): TestResponse
     {
         Auth::forgetGuards();
+
+        // M2: مفتاح عدم تكرار جديد لكل طلب — إلا إذا حدده الاختبار (إعادة تشغيل).
+        if (! isset($headers['Idempotency-Key']) && ! isset($this->defaultHeaders['Idempotency-Key'])) {
+            $headers['Idempotency-Key'] = (string) Str::uuid();
+        }
 
         return $this->withToken($token)->withHeaders($headers)->json($method, $uri, $data);
     }

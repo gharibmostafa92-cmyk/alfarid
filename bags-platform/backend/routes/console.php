@@ -24,7 +24,10 @@ Schedule::call(function (): void {
 Schedule::command('queue:monitor '.config('auth.customer_password_reset.connection', 'database').':default --max=100')
     ->everyFiveMinutes()->withoutOverlapping();
 
-Schedule::command('inventory:reconcile')->dailyAt('02:00')
+Schedule::command('inventory:reconcile --incremental --limit=1000')->everyFifteenMinutes()
+    ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping()
+    ->onFailure(fn () => logger()->error('Incremental inventory reconciliation failed.'));
+Schedule::command('inventory:reconcile')->weeklyOn(0, '02:00')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping()
     ->onFailure(fn () => logger()->error('Scheduled inventory reconciliation failed.'));
 Schedule::command('orders:expire-pending')->everyFifteenMinutes()

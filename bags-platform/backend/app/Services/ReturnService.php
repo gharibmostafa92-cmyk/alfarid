@@ -17,6 +17,7 @@ use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\ReturnRequest;
 use App\Models\ReturnRequestItem;
+use App\Models\StockMovement;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -61,6 +62,9 @@ class ReturnService
 
             if ($order->status !== OrderStatus::Delivered) {
                 throw new BusinessException('لا يمكن إنشاء طلب إرجاع إلا لطلب تم تسليمه فعليًا.');
+            }
+            if ($order->channel === 'pos') {
+                throw new BusinessException('مرتجعات نقطة البيع تُنفَّذ من مسار POS لمنع تكرار الرد بين مسارين.');
             }
 
             $this->assertWithinReturnWindow($order);
@@ -134,7 +138,7 @@ class ReturnService
     public function approve(ReturnRequest $return, User $admin, array $data): ReturnRequest
     {
         return DB::transaction(function () use ($return, $admin, $data): ReturnRequest {
-            Order::query()->lockForUpdate()->findOrFail($return->order_id);
+            $order = Order::query()->lockForUpdate()->findOrFail($return->order_id);
             $return = ReturnRequest::query()->lockForUpdate()->findOrFail($return->id);
             if ($return->status !== ReturnStatus::Pending) {
                 throw new BusinessException('لا يمكن اعتماد طلب مرتجع إلا وهو قيد المراجعة.');
@@ -190,7 +194,7 @@ class ReturnService
     public function receive(ReturnRequest $return, User $admin, array $data): ReturnRequest
     {
         return DB::transaction(function () use ($return, $admin, $data): ReturnRequest {
-            Order::query()->lockForUpdate()->findOrFail($return->order_id);
+            $order = Order::query()->lockForUpdate()->findOrFail($return->order_id);
             $return = ReturnRequest::query()->lockForUpdate()->findOrFail($return->id);
             if ($return->status !== ReturnStatus::Approved) {
                 throw new BusinessException('لا يمكن استلام مرتجع إلا بعد الموافقة المبدئية عليه.');
@@ -226,6 +230,15 @@ class ReturnService
                 ->get()
                 ->keyBy('order_item_id');
 
+            $locationId = $this->inventory->receivingLocation((int) $return->branch_id);
+            $levels = $this->inventory->lockLevels($return->items->map(fn ($item) => [
+                'product_variant_id' => $item->product_variant_id,
+                'branch_id' => (int) $return->branch_id, 'location_id' => $locationId,
+            ])->all());
+            $costs = StockMovement::query()->whereIn('reference_type', array_unique([$order->getMorphClass(), Order::class]))
+                ->where('reference_id', $order->id)->where('type', StockMovementType::Sale)
+                ->whereNotNull('unit_cost')->pluck('unit_cost', 'product_variant_id');
+
             $refundTotal = 0.0;
             foreach ($return->items as $item) {
                 $line = $lines->get($item->id);
@@ -240,18 +253,20 @@ class ReturnService
                 $base = [
                     'product_variant_id' => $item->product_variant_id,
                     'branch_id' => (int) $return->branch_id,
-                    'location_id' => null,
+                    'location_id' => $locationId,
+                    'unit_cost' => $costs->get($item->product_variant_id),
                     'reference_type' => ReturnRequest::class,
                     'reference_id' => $return->id,
                     'created_by' => $admin->id,
                 ];
+                $level = $levels->get($this->inventory->levelKey($base));
                 if ($good > 0) {
                     $this->inventory->recordMovement([...$base,
                         'type' => StockMovementType::SaleReturn,
                         'affected_bucket' => StockBucket::OnHand,
                         'quantity' => $good,
                         'notes' => "مرتجع سليم — طلب {$return->return_number}",
-                    ]);
+                    ], $level);
                 }
                 if ($damaged > 0) {
                     // القطعة التالفة عادت فيزيائيًا للمخزن فتدخل on_hand أولًا،
@@ -261,13 +276,13 @@ class ReturnService
                         'affected_bucket' => StockBucket::OnHand,
                         'quantity' => $damaged,
                         'notes' => "مرتجع تالف (عودة فيزيائية) — طلب {$return->return_number}",
-                    ]);
+                    ], $level);
                     $this->inventory->recordMovement([...$base,
                         'type' => StockMovementType::Damage,
                         'affected_bucket' => StockBucket::Damaged,
                         'quantity' => $damaged,
                         'notes' => "مرتجع تالف بعد الفحص — طلب {$return->return_number}",
-                    ]);
+                    ], $level);
                 }
 
                 $receivedTotal = $good + $damaged;

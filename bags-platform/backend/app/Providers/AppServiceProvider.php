@@ -134,9 +134,14 @@ class AppServiceProvider extends ServiceProvider
             $phone = $request->input('recipient_phone');
             $phoneKey = hash('sha256', is_string($phone) && trim($phone) !== ''
                 ? Customer::normalizePhone($phone) : 'guest');
+            $packedIp = inet_pton((string) $request->ip());
+            // One IPv6 /64 shares the quota, so rotating host addresses cannot bypass it.
+            $networkKey = hash('sha256', $packedIp === false ? (string) $request->ip()
+                : (strlen($packedIp) === 16 ? substr($packedIp, 0, 8) : $packedIp));
 
             return [
                 Limit::perMinute(10)->by('checkout-ip:'.$request->ip()),
+                Limit::perDay((int) config('inventory.checkout_daily_network_limit', 100))->by('checkout-network-day:'.$networkKey),
                 Limit::perMinute(5)->by('checkout-phone:'.$phoneKey),
                 Limit::perDay(20)->by('checkout-phone-day:'.$phoneKey),
             ];

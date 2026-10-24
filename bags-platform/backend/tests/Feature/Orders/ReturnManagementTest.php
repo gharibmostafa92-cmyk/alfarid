@@ -43,6 +43,7 @@ class ReturnManagementTest extends TestCase
     private string $staffToken;
 
     private Branch $branch;
+    private Location $receiving;
 
     protected function setUp(): void
     {
@@ -54,6 +55,7 @@ class ReturnManagementTest extends TestCase
         $this->staff->assignRole('Super Admin');
         $this->staffToken = $this->staff->createToken('admin-token')->plainTextToken;
         $this->branch = Branch::factory()->create();
+        $this->receiving = Location::factory()->create(['branch_id' => $this->branch->id, 'type' => 'receiving']);
     }
 
     private function purchasableVariant(float $price = 100): ProductVariant
@@ -133,7 +135,7 @@ class ReturnManagementTest extends TestCase
     {
         return StockLevel::query()
             ->where('branch_id', $this->branch->id)
-            ->whereNull('location_id')
+            ->where('location_id', $this->receiving->id)
             ->where('product_variant_id', $variant->id)
             ->first();
     }

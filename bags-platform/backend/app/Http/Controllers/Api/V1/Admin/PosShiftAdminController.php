@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Models\PosShift;
 use App\Models\User;
 use App\Services\PosService;
+use App\Services\BranchAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
@@ -44,7 +45,8 @@ class PosShiftAdminController extends Controller implements HasMiddleware
             'per_page'  => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
-        $shifts = PosShift::query()
+        $branch = app(BranchAccess::class)->restrictedBranch($request->user());
+        $shifts = PosShift::query()->when($branch !== null, fn ($q) => $q->where('branch_id', $branch))
             ->with(['cashier', 'treasury', 'branch', 'approver'])
             ->when($filters['branch_id'] ?? null, fn ($q, $v) => $q->where('branch_id', $v))
             ->when($filters['user_id'] ?? null, fn ($q, $v) => $q->where('user_id', $v))
@@ -60,8 +62,9 @@ class PosShiftAdminController extends Controller implements HasMiddleware
     /**
      * GET /admin/shifts/{id}
      */
-    public function show(PosShift $shift): JsonResponse
+    public function show(Request $request, PosShift $shift): JsonResponse
     {
+        app(BranchAccess::class)->assertBranch($request->user()->id, $shift->branch_id);
         return response()->json([
             'data' => $shift->load(['cashier', 'treasury', 'branch', 'approver', 'expenses']),
         ]);

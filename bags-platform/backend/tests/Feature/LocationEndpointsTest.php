@@ -167,6 +167,7 @@ class LocationEndpointsTest extends TestCase
         $permission = Permission::findOrCreate($permissionName, 'staff');
         $staff = User::factory()->create();
         $staff->givePermissionTo($permission);
+        $staff->givePermissionTo(Permission::findOrCreate('inventory.all_branches', 'staff'));
 
         return $staff;
     }

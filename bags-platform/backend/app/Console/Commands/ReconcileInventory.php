@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\Log;
  */
 class ReconcileInventory extends Command
 {
-    protected $signature = 'inventory:reconcile {--branch_id= : قصر الفحص على فرع واحد}';
+    protected $signature = 'inventory:reconcile {--branch_id= : قصر الفحص على فرع واحد} {--incremental : فحص المفاتيح المتغيرة فقط} {--limit=1000 : أقصى عدد مفاتيح في الدفعة التراكمية}';
 
     protected $description = 'مطابقة أرصدة المخزون مع دفتر الحركات وكشف أي كتابة مباشرة';
 
@@ -31,9 +31,15 @@ class ReconcileInventory extends Command
             return self::INVALID;
         }
 
+        $incremental = (bool) $this->option('incremental');
+        $limit = filter_var($this->option('limit'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 10000]]);
+        if ($limit === false) {
+            $this->error('limit يجب أن يكون بين 1 و10000.');
+            return self::INVALID;
+        }
         // One SQL statement sees one committed snapshot, even while sales continue.
         // Window functions also catch broken chains and movements without a stock row.
-        $result = DB::selectOne(<<<'SQL'
+        $sql = <<<'SQL'
 WITH levels AS (
     SELECT * FROM stock_levels WHERE (?::bigint IS NULL OR branch_id = ?::bigint)
 ), ledger AS (
@@ -71,7 +77,27 @@ WITH levels AS (
 )
 SELECT (SELECT COUNT(*) FROM levels) AS checked, (SELECT COUNT(*) FROM problems) AS problem_count,
     COALESCE((SELECT json_agg(p) FROM (SELECT * FROM problems ORDER BY branch_id, product_variant_id, id LIMIT 100) p), '[]'::json) AS samples
-SQL, [$branch, $branch, $branch, $branch]);
+SQL;
+        if ($incremental) {
+            // Revision comparison survives concurrent commits. A simple MAX(id) cursor
+            // would skip a lower sequence ID committed after the reconciliation snapshot.
+            $matches = fn (string $alias): string => "EXISTS (SELECT 1 FROM chosen c WHERE c.branch_id = {$alias}.branch_id AND c.product_variant_id = {$alias}.product_variant_id AND c.location_id IS NOT DISTINCT FROM {$alias}.location_id)";
+            $sql = str_replace('WITH levels AS (', "WITH chosen AS MATERIALIZED (SELECT * FROM inventory_reconcile_work WHERE (?::bigint IS NULL OR branch_id = ?::bigint) ORDER BY key LIMIT {$limit}), levels AS (", $sql);
+            $sql = str_replace('SELECT * FROM stock_levels WHERE', 'SELECT * FROM stock_levels WHERE '.$matches('stock_levels').' AND', $sql);
+            $sql = str_replace('FROM stock_movements WHERE', 'FROM stock_movements WHERE '.$matches('stock_movements').' AND', $sql);
+            $sql = str_replace("\nSELECT (SELECT COUNT(*) FROM levels)", <<<'SQL'
+, cleaned AS (
+    DELETE FROM inventory_reconcile_work w USING chosen c
+    WHERE w.key = c.key AND w.revision = c.revision
+        AND NOT EXISTS (SELECT 1 FROM problems p WHERE p.branch_id = c.branch_id
+            AND p.product_variant_id = c.product_variant_id AND p.location_id IS NOT DISTINCT FROM c.location_id)
+    RETURNING w.key
+)
+SELECT (SELECT COUNT(*) FROM levels)
+SQL, $sql);
+        }
+        $bindings = array_fill(0, $incremental ? 6 : 4, $branch);
+        $result = DB::selectOne($sql, $bindings);
 
         if ((int) $result->problem_count > 0) {
             $samples = json_decode($result->samples, true, flags: JSON_THROW_ON_ERROR);

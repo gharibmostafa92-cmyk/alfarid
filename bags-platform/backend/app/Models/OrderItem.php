@@ -21,6 +21,7 @@ class OrderItem extends Model
         'sku_snapshot',
         'allocated_branch_id',
         'qty',
+        'returned_qty',
         'unit_price',
         'discount_amount',
         'tax_amount',
@@ -31,6 +32,7 @@ class OrderItem extends Model
     {
         return [
             'qty' => 'decimal:4',
+            'returned_qty' => 'decimal:4',
             'unit_price' => 'decimal:2',
             'discount_amount' => 'decimal:2',
             'tax_amount' => 'decimal:2',

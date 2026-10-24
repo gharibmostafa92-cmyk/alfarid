@@ -9,6 +9,7 @@ use App\Enums\StockMovementType;
 use App\Enums\StocktakeStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Location;
+use App\Models\StockLevel;
 use App\Models\StockMovement;
 use App\Models\Stocktake;
 use App\Services\Concerns\HandlesIdempotentCreation;
@@ -69,6 +70,9 @@ class StocktakeService
     {
         return DB::transaction(function () use ($data, $userId): Stocktake {
             app(BranchAccess::class)->assertBranch($userId, (int) $data['branch_id']);
+            // M5: فرع يستخدم المواقع لا يُجرد إجماليًا — الفرق يُطبَّق على صف
+            // بلا موقع فقط فيُضاعف الرصيد وهميًا.
+            $this->assertScopedLocation((int) $data['branch_id'], $data['location_id'] ?? null);
             $stocktake = Stocktake::query()->create([
                 'stocktake_number' => $this->settings->generateNextNumber('stocktake'),
                 'branch_id' => $data['branch_id'],
@@ -96,6 +100,9 @@ class StocktakeService
             $locationId = array_key_exists('location_id', $data) ? $data['location_id'] : $stocktake->location_id;
             if ($locationId !== null && ! Location::query()->whereKey($locationId)->where('branch_id', $branchId)->exists()) {
                 throw new BusinessException('موقع الجرد لا يتبع الفرع المحدد.');
+            }
+            if ($locationId === null && ($data['status'] ?? null) !== StocktakeStatus::Cancelled->value) {
+                $this->assertScopedLocation((int) $branchId, null);
             }
             $scopeChanged = (int) $branchId !== $stocktake->branch_id || ($locationId === null ? null : (int) $locationId) !== $stocktake->location_id;
             if ($scopeChanged
@@ -149,6 +156,9 @@ class StocktakeService
             if (! in_array($stocktake->status, [StocktakeStatus::Draft, StocktakeStatus::InProgress], true)) {
                 throw new BusinessException('لا يمكن اعتماد جرد بحالة '.$stocktake->status->value.'.');
             }
+
+            $this->assertScopedLocation((int) $stocktake->branch_id, $stocktake->location_id);
+            $this->assertItemLimit($stocktake->items->count());
 
             $uncounted = $stocktake->items->filter(fn ($item) => $item->counted_qty === null);
 
@@ -256,6 +266,24 @@ class StocktakeService
         });
     }
 
+    /**
+     * M5: الجرد بلا موقع مرفوض إذا كان للفرع مواقع نشطة لها أرصدة —
+     * العدّ الإجمالي يُسجَّل فائضًا وهميًا على الصف بلا موقع.
+     */
+    private function assertScopedLocation(int $branchId, mixed $locationId): void
+    {
+        if ($locationId !== null) {
+            return;
+        }
+
+        $hasLocatedStock = StockLevel::query()->where('branch_id', $branchId)
+            ->whereNotNull('location_id')->hasNonZeroBalance()->exists();
+
+        if ($hasLocatedStock) {
+            throw new BusinessException('هذا الفرع يستخدم المواقع وله أرصدة عليها؛ حدد موقع الجرد بدل العدّ الإجمالي للفرع.');
+        }
+    }
+
     private function assertEditable(Stocktake $stocktake): void
     {
         if (in_array($stocktake->status, [StocktakeStatus::Approved, StocktakeStatus::Cancelled], true)) {
@@ -270,6 +298,7 @@ class StocktakeService
      */
     private function syncItems(Stocktake $stocktake, array $items): void
     {
+        $this->assertItemLimit(count($items));
         $levels = $this->snapshotLevels($stocktake, $items);
         $snapshotMovementId = (int) StockMovement::query()->max('id');
         foreach ($items as $item) {
@@ -305,6 +334,33 @@ class StocktakeService
         });
     }
 
+    /** Add a barcode scan while holding the session lock to avoid lost counts. */
+    public function incrementItemCount(Stocktake $stocktake, int $variantId, float $quantity, int $userId): Stocktake
+    {
+        return DB::transaction(function () use ($stocktake, $variantId, $quantity, $userId): Stocktake {
+            $stocktake = Stocktake::query()->lockForUpdate()->findOrFail($stocktake->id);
+            $this->assertEditable($stocktake);
+            app(BranchAccess::class)->assertBranch($userId, $stocktake->branch_id);
+
+            $existing = $stocktake->items()->where('product_variant_id', $variantId)->first();
+            $counted = (float) ($existing?->counted_qty ?? 0);
+            $total = round($counted + $quantity, 4);
+            if (! is_finite($quantity) || $quantity <= 0 || $total > 99999999.9999) {
+                throw new BusinessException('كمية العد تتجاوز النطاق المسموح.');
+            }
+            if ($existing !== null && $existing->counted_qty !== null) {
+                // A scan extends the same count; only an explicit recount may
+                // refresh its original stock/ledger snapshot.
+                $existing->update(['counted_qty' => $total]);
+            } else {
+                $this->upsertItems($stocktake, [['product_variant_id' => $variantId, 'counted_qty' => $total]], deleteAbsent: false);
+            }
+            $stocktake->touch();
+
+            return $stocktake->load(['items.variant', 'branch', 'location', 'creator']);
+        });
+    }
+
     /**
      * تحديث عناصر جرد قائم بدون كسر ربط اللقطة بلحظة العد:
      * - عنصر جديد يُنشأ بلقطة الآن.
@@ -317,6 +373,13 @@ class StocktakeService
     private function upsertItems(Stocktake $stocktake, array $items, bool $deleteAbsent = true): void
     {
         $existing = $stocktake->items()->get()->keyBy('product_variant_id');
+
+        // M3: سقف كلي للجلسة يُفحص داخل القفل — الجلسة الأكبر تُقسّم حسب الموقع.
+        $payloadIds = collect($items)->map(fn ($item) => (int) $item['product_variant_id'])->unique()->values()->all();
+        $totalItems = $deleteAbsent
+            ? count($payloadIds)
+            : $existing->count() + count(array_diff($payloadIds, $existing->keys()->map(fn ($id) => (int) $id)->all()));
+        $this->assertItemLimit($totalItems);
         $levels = $this->snapshotLevels($stocktake, $items);
         $snapshotMovementId = (int) StockMovement::query()->max('id');
 
@@ -372,5 +435,13 @@ class StocktakeService
             'branch_id' => $stocktake->branch_id, 'location_id' => $stocktake->location_id,
             'product_variant_id' => $item['product_variant_id'],
         ], $items))->keyBy('product_variant_id');
+    }
+
+    private function assertItemLimit(int $count): void
+    {
+        $maxItems = max(1, (int) config('inventory.stocktake_max_items', 2000));
+        if ($count > $maxItems) {
+            throw new BusinessException("تجاوزت الجلسة الحد الأقصى للبنود ({$maxItems})؛ قسّم الجرد إلى جلسات حسب الموقع.");
+        }
     }
 }

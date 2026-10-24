@@ -4,18 +4,20 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
+use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Admin\StoreBranchRequest;
 use App\Http\Requests\Api\V1\Admin\UpdateBranchRequest;
 use App\Http\Resources\Api\V1\Admin\BranchResource;
 use App\Models\Branch;
+use App\Models\StockLevel;
+use App\Services\BranchAccess;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 
 class BranchController extends Controller
 {
@@ -36,6 +38,8 @@ class BranchController extends Controller
 
     public function store(StoreBranchRequest $request): JsonResponse
     {
+        // M4: الفروع كيانات مركزية — إنشاؤها ليس لموظف فرع مقيّد.
+        app(BranchAccess::class)->assertCentralAccess($request->user());
         $branch = Branch::query()->create($request->validated());
 
         return $this->branchResource($branch)->response()->setStatusCode(201);
@@ -48,7 +52,18 @@ class BranchController extends Controller
 
     public function update(UpdateBranchRequest $request, Branch $branch): BranchResource
     {
-        $branch->update($request->validated());
+        app(BranchAccess::class)->assertCentralAccess($request->user());
+        DB::transaction(function () use ($request, $branch): void {
+            $locked = Branch::query()->lockForUpdate()->findOrFail($branch->id);
+            if ($request->validated('is_active') === false && (
+                StockLevel::query()->where('branch_id', $locked->id)->where('in_transit', '>', 0)->exists()
+                || \App\Models\StockTransfer::query()->where('to_branch_id', $locked->id)->where('status', 'shipped')->exists()
+            )) {
+                throw new BusinessException('لا يمكن تعطيل الفرع قبل استلام التحويلات المشحونة إليه.');
+            }
+            $locked->update($request->validated());
+        });
+        $branch->refresh();
 
         return $this->branchResource($branch);
     }
@@ -58,20 +73,40 @@ class BranchController extends Controller
         return BranchResource::make($branch->loadCount(['locations', 'users']));
     }
 
-    public function destroy(Branch $branch): JsonResponse|Response
+    public function destroy(Request $request, Branch $branch): JsonResponse|Response
     {
-        $inventoryTables = $this->inventoryMovementTables();
+        app(BranchAccess::class)->assertCentralAccess($request->user());
 
         try {
-            $deleted = DB::transaction(function () use ($branch, $inventoryTables): bool {
+            $deleted = DB::transaction(function () use ($branch): bool {
                 $lockedBranch = Branch::query()
                     ->whereKey($branch->getKey())
                     ->lockForUpdate()
                     ->firstOrFail();
 
-                if ($lockedBranch->users()->exists() || $this->hasInventoryMovements($lockedBranch, $inventoryTables)) {
+                if ($lockedBranch->users()->exists()) {
                     return false;
                 }
+
+                // L3: ضمان الـ FK يكفي للدفتر — بلا مسح Schema في كل طلب.
+                // كل حركات التطبيق تحمل branch_id، وحركات المواقع تُمسك
+                // أيضًا بضمان FK عند حذف الموقع تباعًا.
+                $hasMovements = DB::table('stock_movements')
+                    ->where('branch_id', $lockedBranch->getKey())
+                    ->exists();
+                if ($hasMovements) {
+                    return false;
+                }
+
+                // L3: الصفرية تُنظَّف (حذف الفرع يحذف مواقعه تباعًا)، وغير
+                // الصفرية تُرفض برسالة مفهومة بدل 409 مبهم.
+                $hasBalances = StockLevel::query()->where('branch_id', $lockedBranch->getKey())
+                    ->hasNonZeroBalance()
+                    ->exists();
+                if ($hasBalances) {
+                    throw new BusinessException('لا يمكن حذف الفرع وفيه أرصدة (متاح/محجوز/تالف/في الطريق)؛ صفّرها أولًا.');
+                }
+                StockLevel::query()->where('branch_id', $lockedBranch->getKey())->delete();
 
                 $lockedBranch->delete();
 
@@ -90,56 +125,6 @@ class BranchController extends Controller
         }
 
         return response()->noContent();
-    }
-
-    /**
-     * @return array<string, list<string>>
-     */
-    private function inventoryMovementTables(): array
-    {
-        $tables = [];
-
-        foreach (['inventory_movements', 'stock_movements', 'inventory_transactions', 'stock_transactions'] as $table) {
-            if (! Schema::hasTable($table)) {
-                continue;
-            }
-
-            $columns = [];
-
-            foreach (['branch_id', 'location_id'] as $column) {
-                if (Schema::hasColumn($table, $column)) {
-                    $columns[] = $column;
-                }
-            }
-
-            if ($columns !== []) {
-                $tables[$table] = $columns;
-            }
-        }
-
-        return $tables;
-    }
-
-    /**
-     * @param  array<string, list<string>>  $tables
-     */
-    private function hasInventoryMovements(Branch $branch, array $tables): bool
-    {
-        foreach ($tables as $table => $columns) {
-            if (in_array('branch_id', $columns, true) && DB::table($table)->where('branch_id', $branch->getKey())->exists()) {
-                return true;
-            }
-
-            if (in_array('location_id', $columns, true)) {
-                $locationIds = $branch->locations()->select('locations.id');
-
-                if (DB::table($table)->whereIn('location_id', $locationIds)->exists()) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
     }
 
     private function isIntegrityConstraintViolation(QueryException $exception): bool

@@ -18,8 +18,14 @@ final class IdempotencyFingerprint
 
     private static function canonicalize(mixed $value, ?string $field = null): mixed
     {
+        // L2: تكلفة الوحدة بدقة الحقل (4 خانات) لا خانتين — طلبان بنفس
+        // المفتاح يختلفان في الثالثة/الرابعة حمولتان مختلفتان (409) لا إعادة.
+        if (is_numeric($value) && $field === 'unit_cost') {
+            return (int) round(((float) $value) * 10000);
+        }
+
         if (is_numeric($value) && in_array($field, [
-            'amount', 'subtotal', 'tax_amount', 'unit_cost', 'unit_price', 'line_total',
+            'amount', 'subtotal', 'tax_amount', 'unit_price', 'line_total',
             'grand_total', 'discount_amount', 'total', 'total_amount', 'paid_amount',
             'expected_total',
         ], true)) {

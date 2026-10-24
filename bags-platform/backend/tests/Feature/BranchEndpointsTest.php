@@ -181,6 +181,8 @@ class BranchEndpointsTest extends TestCase
         $permission = Permission::findOrCreate($permissionName, 'staff');
         $staff = User::factory()->create();
         $staff->givePermissionTo($permission);
+        // M4: إدارة الفروع مركزية — تتطلب النطاق الكلي بلا فرع مقيّد.
+        $staff->givePermissionTo(Permission::findOrCreate('inventory.all_branches', 'staff'));
 
         return $staff;
     }

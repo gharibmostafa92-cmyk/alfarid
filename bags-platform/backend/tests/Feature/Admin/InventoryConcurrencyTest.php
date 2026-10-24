@@ -103,6 +103,30 @@ class InventoryConcurrencyTest extends TestCase
         }
     }
 
+    public function test_same_variant_movements_in_different_branches_can_run_in_parallel(): void
+    {
+        $variant = ProductVariant::factory()->create();
+        $jobs = [];
+        foreach (['left' => 'right', 'right' => 'left'] as $own => $other) {
+            $data = $this->data($variant, Branch::factory()->create());
+            $hook = 'App\Models\StockMovement::creating(function () { $prefix = getenv("INVENTORY_START_FILE"); touch($prefix.'.var_export('.'.$own, true).'); $deadline = microtime(true) + 4; while (!is_file($prefix.'.var_export('.'.$other, true).')) { if (microtime(true) > $deadline) { throw new RuntimeException("Variant lock serialized separate branches"); } usleep(10000); } });';
+            $jobs[] = $hook.'app(App\Services\InventoryService::class)->recordMovement('.var_export($data, true).');';
+        }
+        $this->race($jobs);
+        $this->assertSame(2, StockMovement::count());
+    }
+
+    public function test_concurrent_scans_do_not_lose_incremented_counts(): void
+    {
+        $branch = Branch::factory()->create();
+        $variant = ProductVariant::factory()->create();
+        $count = app(StocktakeService::class)->create(['branch_id' => $branch->id], $this->staff->id);
+        $operation = 'app(App\Services\StocktakeService::class)->incrementItemCount(App\Models\Stocktake::findOrFail('.$count->id.'), '.$variant->id.', 1, '.$this->staff->id.');';
+        $this->race([$operation, $operation]);
+        $this->assertSame('2.0000', $count->items()->firstOrFail()->counted_qty);
+        $this->assertSame(1, $count->items()->count());
+    }
+
     public function test_concurrent_stocktakes_cannot_double_apply_the_same_difference(): void
     {
         $branch = Branch::factory()->create();
@@ -269,5 +293,67 @@ PHP;
                 }
             }
         }
+    }
+
+    public function test_concurrent_shift_opening_cannot_duplicate_the_user_or_drawer(): void
+    {
+        $branch = Branch::factory()->create();
+        $drawer = \App\Models\Treasury::create(['name' => 'Drawer', 'code' => 'RACE-DRAWER', 'branch_id' => $branch->id, 'type' => 'pos_drawer', 'is_active' => true]);
+        $operation = 'app(App\Services\PosService::class)->openShift(App\Models\User::findOrFail('.$this->staff->id.'), '.$branch->id.', '.$drawer->id.', 0);';
+        $this->race([$operation, $operation], ['OK', 'REJECTED']);
+        $this->assertDatabaseCount('pos_shifts', 1);
+    }
+
+    public function test_competing_transfer_approval_and_rejection_cannot_disagree_with_balances(): void
+    {
+        $branch = Branch::factory()->create();
+        $creator = User::factory()->create(['branch_id' => $branch->id]);
+        $from = \App\Models\Treasury::create(['name' => 'From', 'code' => 'FROM', 'branch_id' => $branch->id, 'type' => 'main_safe', 'current_balance' => 100, 'is_active' => true]);
+        $to = \App\Models\Treasury::create(['name' => 'To', 'code' => 'TO', 'branch_id' => $branch->id, 'type' => 'main_safe', 'current_balance' => 0, 'is_active' => true]);
+        $transfer = app(\App\Services\TreasuryService::class)->createTransfer(['from_treasury_id' => $from->id, 'to_treasury_id' => $to->id, 'amount' => 30], $creator->id);
+        $jobs = [];
+        foreach (['approveTransfer', 'rejectTransfer'] as $method) {
+            $jobs[] = 'app(App\Services\TreasuryService::class)->'.$method.'(App\Models\TreasuryTransfer::findOrFail('.$transfer->id.'), '.$this->staff->id.');';
+        }
+        $this->race($jobs, ['OK', 'REJECTED']);
+        $approved = $transfer->fresh()->status->value === 'approved';
+        $this->assertSame($approved ? '70.00' : '100.00', $from->fresh()->current_balance);
+        $this->assertSame($approved ? '30.00' : '0.00', $to->fresh()->current_balance);
+        $this->assertDatabaseCount('treasury_transactions', $approved ? 2 : 0);
+    }
+
+    public function test_concurrent_shift_approval_settles_cash_once(): void
+    {
+        $branch = Branch::factory()->create();
+        $safe = \App\Models\Treasury::create(['name' => 'Safe', 'code' => 'SAFE', 'branch_id' => $branch->id, 'type' => 'main_safe', 'current_balance' => 1000, 'is_active' => true]);
+        $drawer = \App\Models\Treasury::create(['name' => 'Drawer', 'code' => 'DRAWER', 'branch_id' => $branch->id, 'type' => 'pos_drawer', 'is_active' => true]);
+        $shift = app(\App\Services\PosService::class)->openShift($this->staff, $branch->id, $drawer->id, 200);
+        app(\App\Services\PosService::class)->closeShift($shift, 180, null);
+        $job = 'app(App\Services\PosService::class)->approveShift(App\Models\PosShift::findOrFail('.$shift->id.'), App\Models\User::findOrFail('.$this->staff->id.'));';
+        $this->race([$job, $job], ['OK', 'REJECTED']);
+        $this->assertSame('980.00', $safe->fresh()->current_balance);
+        $this->assertSame('0.00', $drawer->fresh()->current_balance);
+        $this->assertSame(1, \App\Models\TreasuryTransaction::where('type', 'cash_shortage')->count());
+    }
+
+    public function test_incremental_reconciliation_does_not_lose_an_uncommitted_movement(): void
+    {
+        $variant = ProductVariant::factory()->create();
+        $branch = Branch::factory()->create();
+        $data = var_export($this->data($variant, $branch), true);
+        app(InventoryService::class)->recordMovement($this->data($variant, $branch));
+        $writer = 'Illuminate\Support\Facades\DB::transaction(function () { app(App\Services\InventoryService::class)->recordMovement('.$data.'); touch(getenv("INVENTORY_START_FILE").".left"); usleep(1500000); });';
+        $reader = <<<'PHP'
+$deadline = microtime(true) + 8;
+while (!is_file(getenv('INVENTORY_START_FILE').'.left')) {
+    if (microtime(true) > $deadline) throw new RuntimeException('Writer did not start');
+    usleep(10000);
+}
+if (Illuminate\Support\Facades\Artisan::call('inventory:reconcile', ['--incremental' => true]) !== 0) throw new RuntimeException('Snapshot mismatch');
+PHP;
+        $this->race([$writer, $reader]);
+        $this->assertDatabaseCount('inventory_reconcile_work', 1);
+        $this->artisan('inventory:reconcile --incremental')->assertSuccessful();
+        $this->assertDatabaseCount('inventory_reconcile_work', 0);
     }
 }

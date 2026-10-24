@@ -7,6 +7,10 @@ namespace App\Http\Controllers\Api\V1\Admin;
 use App\Enums\TreasuryType;
 use App\Http\Controllers\Controller;
 use App\Models\Treasury;
+use App\Models\PosShift;
+use App\Services\BranchAccess;
+use App\Exceptions\BusinessException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
@@ -34,7 +38,8 @@ class TreasuryController extends Controller implements HasMiddleware
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
-        $treasuries = Treasury::query()
+        $branch = app(BranchAccess::class)->restrictedBranch($request->user());
+        $treasuries = Treasury::query()->when($branch !== null, fn ($q) => $q->where('branch_id', $branch))
             ->with('branch')
             ->when($filters['branch_id'] ?? null, fn ($q, $v) => $q->where('branch_id', $v))
             ->when($filters['type'] ?? null, fn ($q, $v) => $q->where('type', $v))
@@ -56,6 +61,7 @@ class TreasuryController extends Controller implements HasMiddleware
             'is_active' => ['nullable', 'boolean'],
         ]);
 
+        $this->assertBranch($request, $data['branch_id'] ?? null);
         $treasury = Treasury::create($data + ['current_balance' => 0]);
 
         return response()->json([
@@ -64,8 +70,9 @@ class TreasuryController extends Controller implements HasMiddleware
         ], 201);
     }
 
-    public function show(Treasury $treasury): JsonResponse
+    public function show(Request $request, Treasury $treasury): JsonResponse
     {
+        app(BranchAccess::class)->assertTreasury($request->user()->id, $treasury);
         return response()->json(['data' => $this->treasuryData($treasury)]);
     }
 
@@ -79,7 +86,17 @@ class TreasuryController extends Controller implements HasMiddleware
             'is_active' => ['nullable', 'boolean'],
         ]);
 
-        $treasury->update($data);
+        app(BranchAccess::class)->assertTreasury($request->user()->id, $treasury);
+        if (array_key_exists('branch_id', $data)) $this->assertBranch($request, $data['branch_id']);
+        DB::transaction(function () use ($treasury, $data): void {
+            $locked = Treasury::query()->lockForUpdate()->findOrFail($treasury->id);
+            if (isset($data['type']) && $data['type'] !== $locked->type->value) throw new BusinessException('نوع الخزينة غير قابل للتغيير.');
+            $unsettled = PosShift::query()->where('treasury_id', $locked->id)->whereIn('status', ['open','closed_pending_approval'])->exists();
+            if (($unsettled || (float) $locked->current_balance !== 0.0 || DB::table('treasury_transactions')->where('treasury_id', $locked->id)->exists()) && array_key_exists('branch_id', $data) && $data['branch_id'] != $locked->branch_id) throw new BusinessException('لا يمكن نقل خزينة لها رصيد أو سجل حركات إلى فرع آخر.');
+            if ($unsettled && array_key_exists('is_active', $data) && ! $data['is_active']) throw new BusinessException('لا يمكن تعطيل درج له وردية لم تُسوَّ.');
+            $locked->update($data);
+        });
+        $treasury->refresh();
 
         return response()->json([
             'message' => 'تم تحديث الخزينة بنجاح.',
@@ -87,15 +104,25 @@ class TreasuryController extends Controller implements HasMiddleware
         ]);
     }
 
-    public function destroy(Treasury $treasury): JsonResponse
+    public function destroy(Request $request, Treasury $treasury): JsonResponse
     {
-        if ((float) $treasury->current_balance !== 0.0) {
-            return response()->json(['message' => 'لا يمكن حذف خزينة برصيد غير صفري.'], 422);
-        }
-
-        $treasury->delete();
+        app(BranchAccess::class)->assertTreasury($request->user()->id, $treasury);
+        DB::transaction(function () use ($treasury): void {
+            $locked = Treasury::query()->lockForUpdate()->findOrFail($treasury->id);
+            if ((float) $locked->current_balance !== 0.0 || DB::table('treasury_transactions')->where('treasury_id', $locked->id)->exists()
+                || PosShift::query()->where('treasury_id', $locked->id)->exists()) {
+                throw new BusinessException('لا يمكن حذف خزينة لها رصيد أو سجل حركات أو ورديات.');
+            }
+            $locked->delete();
+        });
 
         return response()->json(['message' => 'تم حذف الخزينة.']);
+    }
+
+    private function assertBranch(Request $request, ?int $branchId): void
+    {
+        if ($branchId === null) app(BranchAccess::class)->assertCentralAccess($request->user());
+        else app(BranchAccess::class)->assertBranch($request->user()->id, $branchId);
     }
 
     private function treasuryData(Treasury $treasury): Treasury

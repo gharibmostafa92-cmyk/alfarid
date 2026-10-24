@@ -65,7 +65,10 @@ class ProductionReceiptService
                     // the average is computed on a frozen balance even if a
                     // concurrent movement path ever skips the variant lock.
                     $lockedLevelIds = StockLevel::where('product_variant_id', $variant->id)->orderBy('id')->lockForUpdate()->pluck('id');
-                    $onHandStr = (string) StockLevel::whereIn('id', $lockedLevelIds)->sum('on_hand');
+                    // In-transit goods are still owned inventory. Excluding them
+                    // would change the average merely because a transfer shipped.
+                    $onHandStr = (string) StockLevel::whereIn('id', $lockedLevelIds)
+                        ->sum(DB::raw('on_hand + in_transit'));
                     $onHandStr = bccomp($onHandStr, '0', 4) < 0 ? '0' : $onHandStr;
                     $costStr = (string) $variant->cost_price;
                     $unitStr = $unitCost;

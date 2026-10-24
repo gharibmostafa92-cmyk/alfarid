@@ -4,24 +4,28 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
+use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Admin\StoreLocationRequest;
 use App\Http\Requests\Api\V1\Admin\UpdateLocationRequest;
 use App\Http\Resources\Api\V1\Admin\LocationResource;
 use App\Models\Branch;
 use App\Models\Location;
+use App\Models\StockLevel;
+use App\Services\BranchAccess;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 
 class LocationController extends Controller
 {
     public function index(Request $request, Branch $branch): AnonymousResourceCollection
     {
+        // M4: موظف الفرع A لا يعطّل مواقع الفرع B (كان يعلّق تحويلاتها مع H3).
+        app(BranchAccess::class)->assertBranch($request->user()->id, $branch->id);
         $validated = $request->validate([
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
         ]);
@@ -36,13 +40,15 @@ class LocationController extends Controller
 
     public function store(StoreLocationRequest $request, Branch $branch): JsonResponse
     {
+        app(BranchAccess::class)->assertBranch($request->user()->id, $branch->id);
         $location = $branch->locations()->create($request->validated());
 
         return LocationResource::make($location)->response()->setStatusCode(201);
     }
 
-    public function show(Branch $branch, Location $location): LocationResource
+    public function show(Request $request, Branch $branch, Location $location): LocationResource
     {
+        app(BranchAccess::class)->assertBranch($request->user()->id, $branch->id);
         $this->ensureLocationBelongsToBranch($branch, $location);
 
         return LocationResource::make($location);
@@ -50,28 +56,40 @@ class LocationController extends Controller
 
     public function update(UpdateLocationRequest $request, Branch $branch, Location $location): LocationResource
     {
+        app(BranchAccess::class)->assertBranch($request->user()->id, $branch->id);
         $this->ensureLocationBelongsToBranch($branch, $location);
         $location->update($request->validated());
 
         return LocationResource::make($location);
     }
 
-    public function destroy(Branch $branch, Location $location): JsonResponse|Response
+    public function destroy(Request $request, Branch $branch, Location $location): JsonResponse|Response
     {
+        app(BranchAccess::class)->assertBranch($request->user()->id, $branch->id);
         $this->ensureLocationBelongsToBranch($branch, $location);
-        $inventoryTables = $this->inventoryMovementTables();
 
         try {
-            $deleted = DB::transaction(function () use ($branch, $location, $inventoryTables): bool {
+            $deleted = DB::transaction(function () use ($branch, $location): bool {
                 $lockedLocation = Location::query()
                     ->whereKey($location->getKey())
                     ->lockForUpdate()
                     ->firstOrFail();
                 $this->ensureLocationBelongsToBranch($branch, $lockedLocation);
 
-                if ($this->hasInventoryMovements($lockedLocation, $inventoryTables)) {
+                // L3: ضمان الـ FK يكفي للدفتر — بلا مسح Schema في كل طلب.
+                if (DB::table('stock_movements')->where('location_id', $lockedLocation->getKey())->exists()) {
                     return false;
                 }
+
+                // L3: صفوف الرصيد الصفرية (أثر جانبي لـ lockLevels) تُنظَّف بدل
+                // منع الحذف الدائم؛ وغير الصفرية تُرفض برسالة مفهومة.
+                $hasBalances = StockLevel::query()->where('location_id', $lockedLocation->getKey())
+                    ->hasNonZeroBalance()
+                    ->exists();
+                if ($hasBalances) {
+                    throw new BusinessException('لا يمكن حذف الموقع وفيه أرصدة (متاح/محجوز/تالف/في الطريق)؛ صفّرها أولًا.');
+                }
+                StockLevel::query()->where('location_id', $lockedLocation->getKey())->delete();
 
                 $lockedLocation->delete();
 
@@ -90,38 +108,6 @@ class LocationController extends Controller
         }
 
         return response()->noContent();
-    }
-
-    /**
-     * @return list<string>
-     */
-    private function inventoryMovementTables(): array
-    {
-        $tables = [];
-
-        foreach (['inventory_movements', 'stock_movements', 'inventory_transactions', 'stock_transactions'] as $table) {
-            if (! Schema::hasTable($table) || ! Schema::hasColumn($table, 'location_id')) {
-                continue;
-            }
-
-            $tables[] = $table;
-        }
-
-        return $tables;
-    }
-
-    /**
-     * @param  list<string>  $tables
-     */
-    private function hasInventoryMovements(Location $location, array $tables): bool
-    {
-        foreach ($tables as $table) {
-            if (DB::table($table)->where('location_id', $location->getKey())->exists()) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private function isIntegrityConstraintViolation(QueryException $exception): bool

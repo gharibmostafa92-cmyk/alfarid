@@ -52,7 +52,7 @@ class ProductionReceiptController extends Controller implements HasMiddleware
         $branch = app(BranchAccess::class)->restrictedBranch($request->user());
         $receipts = ProductionReceipt::query()->when($branch, fn ($q) => $q->where('branch_id', $branch))
             ->orderByDesc('id')->paginate($filters['per_page'] ?? 15);
-        if (! $request->user()->can('products.view_cost')) {
+        if (! \App\Services\CostAccess::canView($request->user())) {
             $receipts->getCollection()->each(function ($receipt): void {
                 $receipt->items = array_map(function ($item) {
                     unset($item['unit_cost']);

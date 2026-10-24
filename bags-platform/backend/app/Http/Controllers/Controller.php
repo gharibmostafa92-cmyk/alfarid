@@ -24,4 +24,20 @@ abstract class Controller
 
         return $key;
     }
+
+    /**
+     * M2: مفتاح عدم التكرار إلزامي في العمليات المالية-المخزنية (تسوية،
+     * تحويل، جرد) — إعادة المحاولة بعد timeout بلا مفتاح كانت تكرر الحركة
+     * وتفسد الأرصدة بصمت.
+     */
+    protected function requiredIdempotencyKey(Request $request): string
+    {
+        $key = $this->idempotencyKey($request);
+
+        if ($key === null) {
+            throw new BusinessException('ترويسة Idempotency-Key مطلوبة لهذه العملية؛ أعد الإرسال بنفس المفتاح عند إعادة المحاولة.');
+        }
+
+        return $key;
+    }
 }

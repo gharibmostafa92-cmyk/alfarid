@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 return [
+    'checkout_daily_network_limit' => (int) env('CHECKOUT_DAILY_NETWORK_LIMIT', 100),
     /*
     |--------------------------------------------------------------------------
     | سياسة اعتماد الجرد عند تغيّر الرصيد بعد العد
@@ -16,4 +17,16 @@ return [
     |
     */
     'stocktake_stale_policy' => env('STOCKTAKE_STALE_POLICY', 'reject'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | الحد الأقصى لبنود جلسة الجرد الواحدة
+    |--------------------------------------------------------------------------
+    |
+    | M3: بلا سقف كانت الجلسة الكبيرة تتجاوز حد معاملات PostgreSQL
+    | (65535) وتمسك آلاف الأقفال في معاملة واحدة فتشل المبيعات.
+    |
+    */
+    'stocktake_max_items' => (int) env('STOCKTAKE_MAX_ITEMS', 2000),
+    'pos_max_discount_percent' => (float) env('POS_MAX_DISCOUNT_PERCENT', 100),
 ];

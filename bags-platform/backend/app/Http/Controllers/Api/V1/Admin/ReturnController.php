@@ -15,6 +15,7 @@ use App\Models\Order;
 use App\Models\ReturnRequest;
 use App\Models\User;
 use App\Services\ReturnService;
+use App\Services\BranchAccess;
 use App\Services\SearchTerm;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -46,7 +47,8 @@ class ReturnController extends Controller implements HasMiddleware
     public function index(Request $request): AnonymousResourceCollection
     {
         $search = trim((string) $request->query('search', ''));
-        $returns = ReturnRequest::query()
+        $branch = app(BranchAccess::class)->restrictedBranch($request->user());
+        $returns = ReturnRequest::query()->when($branch !== null, fn ($q) => $q->where(fn ($q) => $q->where('branch_id', $branch)->orWhere(fn ($q) => $q->whereNull('branch_id')->whereHas('order', fn ($q) => $q->where('allocated_branch_id', $branch)))))
             ->with(['order:id,order_number', 'customer:id,name', 'items.orderItem'])
             ->when($request->query('status'), fn ($q, $status) => $q->where('status', $status))
             ->when($request->query('order_id'), fn ($q, $orderId) => $q->where('order_id', (int) $orderId))

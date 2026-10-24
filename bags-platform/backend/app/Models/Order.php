@@ -36,6 +36,7 @@ class Order extends Model
         'shipping_notes',
         'allocated_branch_id',
         'pos_shift_id',
+        'return_of_order_id',
         'status',
         'payment_method',
         'payment_status',

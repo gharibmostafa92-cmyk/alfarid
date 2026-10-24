@@ -16,6 +16,7 @@ use App\Services\InventoryService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use LogicException;
 use Spatie\Permission\Models\Permission;
@@ -406,10 +407,15 @@ class InventorySystemTest extends TestCase
         return $staff;
     }
 
-    private function requestWithToken(string $token, string $method, string $uri, array $payload = []): TestResponse
+    private function requestWithToken(string $token, string $method, string $uri, array $payload = [], array $headers = []): TestResponse
     {
         Auth::forgetGuards();
 
-        return $this->withToken($token)->json($method, $uri, $payload);
+        // M2: مفتاح عدم تكرار جديد لكل طلب — إلا إذا حدده الاختبار (إعادة تشغيل).
+        if (! isset($headers['Idempotency-Key']) && ! isset($this->defaultHeaders['Idempotency-Key'])) {
+            $headers['Idempotency-Key'] = (string) Str::uuid();
+        }
+
+        return $this->withToken($token)->json($method, $uri, $payload, $headers);
     }
 }

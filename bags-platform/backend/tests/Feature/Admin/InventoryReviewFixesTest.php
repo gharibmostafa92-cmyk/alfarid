@@ -32,6 +32,7 @@ use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -369,7 +370,8 @@ class InventoryReviewFixesTest extends TestCase
         try {
             $stocktake = app(StocktakeService::class)->create(['branch_id' => $branch->id, 'items' => $items], $this->staff->id);
             $snapshotQueries = array_filter(DB::getQueryLog(), fn ($query) => str_starts_with($query['query'], 'select') && str_contains($query['query'], 'from "stock_levels"'));
-            $this->assertCount(1, $snapshotQueries);
+            // One scope-safety check and one batched snapshot, regardless of item count.
+            $this->assertCount(2, $snapshotQueries);
             DB::flushQueryLog();
             app(StocktakeService::class)->approve($stocktake, $this->staff->id);
             $variantQueries = array_filter(DB::getQueryLog(), fn ($query) => str_contains($query['query'], 'from "product_variants"'));
@@ -434,10 +436,15 @@ class InventoryReviewFixesTest extends TestCase
         ], $staff);
     }
 
-    private function api(string $method, string $path, array $data = [], ?User $staff = null): TestResponse
+    private function api(string $method, string $path, array $data = [], ?User $staff = null, array $headers = []): TestResponse
     {
         Auth::forgetGuards();
 
-        return $this->withToken(($staff ?? $this->staff)->createToken('review')->plainTextToken)->json($method, '/api/v1/admin/'.$path, $data);
+        // M2: مفتاح عدم تكرار جديد لكل طلب — إلا إذا حدده الاختبار (إعادة تشغيل).
+        if (! isset($headers['Idempotency-Key']) && ! isset($this->defaultHeaders['Idempotency-Key'])) {
+            $headers['Idempotency-Key'] = (string) Str::uuid();
+        }
+
+        return $this->withToken(($staff ?? $this->staff)->createToken('review')->plainTextToken)->json($method, '/api/v1/admin/'.$path, $data, $headers);
     }
 }

@@ -20,7 +20,7 @@ class StoreProductionReceiptRequest extends FormRequest
 
     public function authorize(): bool
     {
-        return $this->user()->can('inventory.adjust') && $this->user()->can('products.view_cost');
+        return $this->user()->can('inventory.adjust') && \App\Services\CostAccess::canView($this->user());
     }
 
     protected function prepareForValidation(): void

@@ -77,7 +77,7 @@ class ProductVariantController extends Controller implements HasMiddleware
      */
     private function filterCostPrice(array $data, Request $request): array
     {
-        if (! $request->user()->can('products.view_cost')) {
+        if (! \App\Services\CostAccess::canView($request->user())) {
             unset($data['cost_price']);
         }
 

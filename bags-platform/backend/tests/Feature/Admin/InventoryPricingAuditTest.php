@@ -25,6 +25,7 @@ use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
@@ -270,10 +271,15 @@ class InventoryPricingAuditTest extends TestCase
         ]);
     }
 
-    private function api(string $method, string $path, array $data = []): TestResponse
+    private function api(string $method, string $path, array $data = [], array $headers = []): TestResponse
     {
         Auth::forgetGuards();
 
-        return $this->withToken($this->token)->json($method, '/api/v1/admin/'.$path, $data);
+        // M2: مفتاح عدم تكرار جديد لكل طلب — إلا إذا حدده الاختبار (إعادة تشغيل).
+        if (! isset($headers['Idempotency-Key']) && ! isset($this->defaultHeaders['Idempotency-Key'])) {
+            $headers['Idempotency-Key'] = (string) Str::uuid();
+        }
+
+        return $this->withToken($this->token)->json($method, '/api/v1/admin/'.$path, $data, $headers);
     }
 }

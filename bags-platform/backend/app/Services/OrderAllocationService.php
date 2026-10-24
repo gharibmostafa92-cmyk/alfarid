@@ -48,12 +48,6 @@ class OrderAllocationService
                 throw new BusinessException('الطلب مُوزّع على الفروع من قبل؛ ألغِ التوزيع الحالي أولًا قبل إعادة التوزيع.');
             }
 
-            // قفل صفوف الأرصدة المرشّحة بترتيب ثابت قبل حساب التغطية (F8):
-            // متزامنان لا يقرآن «متاح» نفسه ثم يحجزان أكثر من الرصيد. القفل
-            // المجمّع على (branch_id, product_variant_id) غير ممكن، فتُقفل
-            // الصفوف الخام كلها بترتيب المنتج ثم المعرّف لمنع الجمود
-            $this->lockStockRows($order);
-
             // 1. فرع مُجبر يدويًا
             if ($forcedBranchId !== null) {
                 $branch = Branch::query()->where('is_active', true)->find($forcedBranchId);
@@ -82,26 +76,48 @@ class OrderAllocationService
                 ->orderBy('id')
                 ->get();
 
+            $candidateAttempts = 0;
             foreach ($branches as $branch) {
                 if ($this->canBranchFulfillFullOrder($order, $branch->id, $coverage)) {
-                    $this->reserveItemsFromBranch($order, $branch->id, $performedBy);
-                    $order->update(['allocated_branch_id' => $branch->id]);
-
-                    return $order->fresh(['items']);
+                    if (++$candidateAttempts > 3) break;
+                    try {
+                        return DB::transaction(function () use ($order, $branch, $performedBy): Order {
+                            $this->reserveItemsFromBranch($order, $branch->id, $performedBy);
+                            $order->update(['allocated_branch_id' => $branch->id]);
+                            return $order->fresh(['items']);
+                        });
+                    } catch (BusinessException $e) {
+                        if ($e->errorCode !== 'insufficient_stock') throw $e;
+                        $order->load('items');
+                    }
                 }
             }
 
-            // 3. كل صنف من الفرع الأعلى رصيدًا متاحًا له
-            foreach ($order->items as $item) {
-                $branchId = $this->bestBranchForItem($item, $coverage);
-                if ($branchId === null) {
-                    throw new BusinessException("الرصيد المتاح غير كافٍ للصنف ({$item->sku_snapshot}) في أي فرع.");
+            // A bounded retry recalculates coverage after a competing checkout.
+            for ($attempt = 0; $attempt < 3; $attempt++) {
+                $coverage = $this->branchAvailabilityMap($order);
+                $plan = [];
+                foreach ($order->items as $item) {
+                    $branchId = $this->bestBranchForItem($item, $coverage);
+                    if ($branchId === null) throw new BusinessException("الرصيد المتاح للصنف [{$item->sku_snapshot}] غير كافٍ لإتمام الطلب.");
+                    $plan[(int) $item->product_variant_id] = $branchId;
                 }
-                $this->reserveItemFromBranch($order, $item, $branchId, $performedBy);
-                $item->update(['allocated_branch_id' => $branchId]);
+                try {
+                    return DB::transaction(function () use ($order, $plan, $performedBy): Order {
+                        $levels = $this->lockPlannedLevels($plan);
+                        foreach ($order->items as $item) {
+                            $branchId = $plan[(int) $item->product_variant_id];
+                            $this->reserveItemFromBranch($order, $item, $branchId, $performedBy, $levels);
+                            $item->update(['allocated_branch_id' => $branchId]);
+                        }
+                        return $order->fresh(['items']);
+                    });
+                } catch (BusinessException $e) {
+                    if ($e->errorCode !== 'insufficient_stock' || $attempt === 2) throw $e;
+                    $order->load('items');
+                }
             }
-
-            return $order->fresh(['items']);
+            throw new BusinessException('تغير المخزون أثناء الحجز؛ أعد المحاولة.', [], 409);
         });
     }
 
@@ -126,29 +142,44 @@ class OrderAllocationService
                 throw new BusinessException('الطلب غير موزّع على أي فرع؛ لا شيء لفكه.');
             }
 
-            // حركات الحجز تُقفل بترتيب ثابت ثم يُعكس كل منها بإفراج مقابل
-            $reservations = StockMovement::query()
-                ->where('reference_type', $order->getMorphClass())
+            // C3: الحجز القائم الصافي لكل مفتاح — لا يُفك أي حجز مرتين
+            // مهما تكرر allocate/deallocate.
+            $net = StockMovement::query()
+                ->whereIn('reference_type', array_unique([$order->getMorphClass(), Order::class]))
                 ->where('reference_id', $order->id)
-                ->where('type', StockMovementType::Reserve->value)
-                ->orderBy('product_variant_id')
-                ->orderBy('id')
-                ->lockForUpdate()
-                ->get();
+                ->whereIn('type', [StockMovementType::Reserve->value, StockMovementType::ReleaseReserve->value])
+                ->groupBy('product_variant_id', 'branch_id', 'location_id')
+                ->selectRaw('product_variant_id, branch_id, location_id, SUM(quantity) AS net_qty')
+                ->get()
+                ->map(fn ($row): array => [
+                    'product_variant_id' => (int) $row->product_variant_id,
+                    'branch_id' => (int) $row->branch_id,
+                    'location_id' => $row->location_id === null ? null : (int) $row->location_id,
+                    'net_qty' => (float) $row->net_qty,
+                ])
+                ->filter(fn (array $row): bool => $row['net_qty'] > 1e-9)
+                ->sortBy(fn (array $row): string => $row['branch_id'].':'.$row['location_id'].':'.$row['product_variant_id'])
+                ->values();
 
-            foreach ($reservations as $movement) {
+            $levels = $this->inventoryService->lockLevels($net->map(fn (array $row): array => [
+                'product_variant_id' => $row['product_variant_id'],
+                'branch_id' => $row['branch_id'],
+                'location_id' => $row['location_id'],
+            ])->all());
+
+            foreach ($net as $row) {
                 $this->inventoryService->recordMovement([
-                    'product_variant_id' => (int) $movement->product_variant_id,
-                    'branch_id' => (int) $movement->branch_id,
-                    'location_id' => $movement->location_id,
+                    'product_variant_id' => (int) $row['product_variant_id'],
+                    'branch_id' => (int) $row['branch_id'],
+                    'location_id' => $row['location_id'],
                     'type' => StockMovementType::ReleaseReserve,
                     'affected_bucket' => StockBucket::Reserved,
-                    'quantity' => -1 * (float) $movement->quantity,
+                    'quantity' => -1 * (float) $row['net_qty'],
                     'reference_type' => Order::class,
                     'reference_id' => $order->id,
                     'created_by' => $performedBy,
                     'notes' => "فك يدوي لتوزيع الطلب رقم {$order->order_number}",
-                ]);
+                ], $levels->get($this->inventoryService->levelKey($row)));
             }
 
             $order->items()->update(['allocated_branch_id' => null]);
@@ -165,22 +196,16 @@ class OrderAllocationService
             || $order->items->contains(fn (OrderItem $item): bool => $item->allocated_branch_id !== null);
     }
 
-    /** قفل صفوف أرصدة أصناف الطلب بترتيب ثابت (منتج ثم معرّف) — F8. */
-    private function lockStockRows(Order $order): void
+    /** Lock only the branch/variant pairs selected by the coverage plan. */
+    private function lockPlannedLevels(array $plan): \Illuminate\Support\Collection
     {
-        $variantIds = $order->items
-            ->map(fn (OrderItem $item): int => (int) $item->product_variant_id)
-            ->unique()->sort()->values()->all();
-        if ($variantIds === []) {
-            return;
-        }
-
-        StockLevel::query()
-            ->whereIn('product_variant_id', $variantIds)
-            ->orderBy('product_variant_id')
-            ->orderBy('id')
-            ->lockForUpdate()
-            ->get();
+        if ($plan === []) return collect();
+        $rows = StockLevel::query()->where(function ($query) use ($plan): void {
+            foreach ($plan as $variantId => $branchId) {
+                $query->orWhere(fn ($q) => $q->where('product_variant_id', $variantId)->where('branch_id', $branchId));
+            }
+        })->where(fn ($q) => $q->whereNull('location_id')->orWhereHas('location', fn ($q) => $q->where('is_active', true)))->get();
+        return $this->inventoryService->lockLevels($rows->map->getAttributes()->all());
     }
 
     /**
@@ -243,8 +268,9 @@ class OrderAllocationService
 
     private function reserveItemsFromBranch(Order $order, int $branchId, ?int $performedBy): void
     {
+        $levels = $this->lockPlannedLevels($order->items->mapWithKeys(fn ($item) => [(int) $item->product_variant_id => $branchId])->all());
         foreach ($order->items as $item) {
-            $this->reserveItemFromBranch($order, $item, $branchId, $performedBy);
+            $this->reserveItemFromBranch($order, $item, $branchId, $performedBy, $levels);
             $item->update(['allocated_branch_id' => $branchId]);
         }
     }
@@ -252,39 +278,23 @@ class OrderAllocationService
     /**
      * حجز كمية الصنف من فرع واحد، موزعة على مواقعه الأعلى متاحًا عند الحاجة.
      */
-    private function reserveItemFromBranch(Order $order, OrderItem $item, int $branchId, ?int $performedBy): void
+    private function reserveItemFromBranch(Order $order, OrderItem $item, int $branchId, ?int $performedBy, \Illuminate\Support\Collection $levels): void
     {
-        $remaining = (float) $item->qty;
-        // قفل صفوف الأرصدة بترتيب ثابت (id) حتى لا يُحجز نفس الرصيد مرتين (H10)
-        $levels = $this->usableLevels((int) $item->product_variant_id, $branchId)
-            ->where('available', '>', 0)
-            ->orderBy('id')
-            ->lockForUpdate()
-            ->get();
-
-        foreach ($levels as $level) {
-            if ($remaining <= 0) {
-                break;
-            }
-            $take = min((float) $level->available, $remaining);
+        $remaining = (int) round((float) $item->qty * 10000);
+        foreach ($levels->where('product_variant_id', $item->product_variant_id)->where('branch_id', $branchId)->sortByDesc('available') as $level) {
+            $take = min((int) round($level->available * 10000), $remaining);
+            if ($take <= 0) continue;
             $this->inventoryService->recordMovement([
-                'product_variant_id' => (int) $item->product_variant_id,
-                'branch_id' => $branchId,
-                'location_id' => $level->location_id,
-                'type' => StockMovementType::Reserve,
-                'affected_bucket' => StockBucket::Reserved,
-                'quantity' => $take,
-                'reference_type' => Order::class,
-                'reference_id' => $order->id,
-                'created_by' => $performedBy,
-                'notes' => "حجز للطلب رقم {$order->order_number}",
-            ]);
+                'product_variant_id' => (int) $item->product_variant_id, 'branch_id' => $branchId,
+                'location_id' => $level->location_id, 'type' => StockMovementType::Reserve,
+                'affected_bucket' => StockBucket::Reserved, 'quantity' => $take / 10000,
+                'reference_type' => Order::class, 'reference_id' => $order->id,
+                'created_by' => $performedBy, 'notes' => 'حجز للطلب '.$order->order_number,
+            ], $level);
             $remaining -= $take;
+            if ($remaining === 0) break;
         }
-
-        if ($remaining > 0) {
-            throw new BusinessException("الفرع المحدد لا يمتلك كمية كافية من الصنف ({$item->sku_snapshot}).");
-        }
+        if ($remaining > 0) throw new BusinessException('الرصيد المتاح تغير أثناء الحجز.', errorCode: 'insufficient_stock');
     }
 
     /**

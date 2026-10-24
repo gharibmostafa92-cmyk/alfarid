@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Services\ReportService;
+use App\Services\BranchAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -21,8 +22,8 @@ class ReportController extends Controller
     private function period(Request $request): array
     {
         $validated = $request->validate([
-            'from' => ['nullable', 'date'],
-            'to' => ['nullable', 'date', 'after_or_equal:from'],
+            'from' => ['nullable', 'date_format:Y-m-d'],
+            'to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:from'],
         ]);
 
         return [
@@ -44,6 +45,7 @@ class ReportController extends Controller
             $to,
             $request->input('granularity', 'daily'),
             $request->input('group_by'),
+            app(BranchAccess::class)->restrictedBranch($request->user()),
         )]);
     }
 
@@ -51,18 +53,19 @@ class ReportController extends Controller
     {
         $request->validate(['dead_days' => ['nullable', 'integer', 'min:1', 'max:3650']]);
 
-        return response()->json(['data' => $this->reports->inventoryReport((int) $request->input('dead_days', 90))]);
+        return response()->json(['data' => $this->reports->inventoryReport((int) $request->input('dead_days', 90), app(BranchAccess::class)->restrictedBranch($request->user()))]);
     }
 
     public function profit(Request $request): JsonResponse
     {
         [$from, $to] = $this->period($request);
 
-        return response()->json(['data' => $this->reports->profitReport($from, $to)]);
+        return response()->json(['data' => $this->reports->profitReport($from, $to, app(BranchAccess::class)->restrictedBranch($request->user()))]);
     }
 
-    public function suppliers(): JsonResponse
+    public function suppliers(Request $request): JsonResponse
     {
+        app(BranchAccess::class)->assertCentralAccess($request->user());
         return response()->json(['data' => $this->reports->suppliersReport()]);
     }
 
@@ -75,6 +78,7 @@ class ReportController extends Controller
             $from,
             $to,
             $request->boolean('only_differences'),
+            app(BranchAccess::class)->restrictedBranch($request->user()),
         )]);
     }
 }

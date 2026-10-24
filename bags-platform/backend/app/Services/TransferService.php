@@ -9,12 +9,15 @@ use App\Enums\StockMovementType;
 use App\Enums\TransferStatus;
 use App\Events\TransferPendingApproval;
 use App\Exceptions\BusinessException;
+use App\Models\Branch;
 use App\Models\Location;
+use App\Models\ProductVariant;
 use App\Models\StockMovement;
 use App\Models\StockTransfer;
 use App\Models\StockTransferItem;
 use App\Services\Concerns\HandlesIdempotentCreation;
 use Carbon\Carbon;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -55,7 +58,9 @@ class TransferService
 
     public function create(array $data, int $userId, ?string $idempotencyKey = null): StockTransfer
     {
-        app(BranchAccess::class)->assertBranch($userId, (int) $data['from_branch_id']);
+        // H4: طلب التحويل قد ينشأ من فرع الوجهة (كاشير POS يطلب بضاعة)،
+        // فيُقبل نطاق أي من الفرعين.
+        $this->assertCreateAccess($userId, (int) $data['from_branch_id'], (int) $data['to_branch_id']);
 
         /** @var StockTransfer */
         return $this->createIdempotently(
@@ -72,7 +77,7 @@ class TransferService
     private function doCreate(array $data, int $userId): StockTransfer
     {
         return DB::transaction(function () use ($data, $userId): StockTransfer {
-            app(BranchAccess::class)->assertBranch($userId, (int) $data['from_branch_id']);
+            $this->assertCreateAccess($userId, (int) $data['from_branch_id'], (int) $data['to_branch_id']);
             $transfer = StockTransfer::query()->create([
                 'transfer_number' => $this->settings->generateNextNumber('transfer'),
                 'from_branch_id' => $data['from_branch_id'],
@@ -137,6 +142,8 @@ class TransferService
             app(BranchAccess::class)->assertBranch($userId, $transfer->from_branch_id);
             $this->assertPayloadMatchesLockedItems($transfer, $itemsPayload, $expectedUpdatedAt, $expectedVersion);
             $this->assertStatus($transfer, TransferStatus::Draft, 'الاعتماد');
+            // H3: فشل مبكر قبل خروج البضاعة — لا اعتماد لوجهة لا يمكن استلامها.
+            $this->assertReceivableDestination($transfer);
             if ($transfer->items->sum(fn ($item) => (float) ($itemsPayload[$item->id] ?? $item->requested_qty)) <= 0) {
                 throw new BusinessException('يجب اعتماد كمية موجبة واحدة على الأقل؛ يمكن إلغاء التحويل بدلًا من اعتماده بصفر.');
             }
@@ -195,6 +202,8 @@ class TransferService
             }
             $this->assertPayloadMatchesLockedItems($transfer, $itemsPayload, $expectedUpdatedAt, $expectedVersion);
             $this->assertStatus($transfer, TransferStatus::Approved, 'الشحن');
+            // H3: الوجهة قد تُعطّل بين الاعتماد والشحن — لا شحن بلا وجهة تستلم.
+            $this->assertReceivableDestination($transfer);
             if ($transfer->items->sum(fn ($item) => (float) ($itemsPayload[$item->id] ?? $item->approved_qty)) <= 0) {
                 throw new BusinessException('يجب شحن كمية موجبة واحدة على الأقل؛ يمكن إلغاء التحويل لفك الحجز.');
             }
@@ -296,6 +305,11 @@ class TransferService
             $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
             $transfer->load('items.variant');
             app(BranchAccess::class)->assertBranch($userId, $transfer->to_branch_id);
+            // L5: الاستلام يتحقق من نشاط الفرع المستلم كما يتحقق الإنشاء.
+            $toBranch = Branch::query()->find($transfer->to_branch_id);
+            if ($toBranch === null || ! $toBranch->is_active) {
+                throw new BusinessException('الفرع المستلم غير نشط؛ لا يمكن الاستلام إليه.');
+            }
             if ($transfer->status === TransferStatus::Received) {
                 return $this->replayCompletedStage($transfer, $itemsPayload, 'received_qty');
             }
@@ -476,10 +490,52 @@ class TransferService
         return $transfer->load(['fromBranch', 'toBranch']);
     }
 
+    /**
+     * H4: منشئ التحويل قد يكون في الفرع المرسل (مخزني) أو في فرع الوجهة
+     * (كاشير يطلب بضاعة) — يُقبل أي النطاقين، ويُرفض من لا ينتمي لواحد منهما.
+     */
+    private function assertCreateAccess(int $userId, int $fromBranchId, int $toBranchId): void
+    {
+        try {
+            app(BranchAccess::class)->assertBranch($userId, $fromBranchId);
+        } catch (AuthorizationException) {
+            app(BranchAccess::class)->assertBranch($userId, $toBranchId);
+        }
+    }
+
     private function assertStatus(StockTransfer $transfer, TransferStatus $expected, string $action): void
     {
         if ($transfer->status !== $expected) {
             throw new BusinessException("لا يمكن تنفيذ {$action} على تحويل بحالة {$transfer->status->value}.");
+        }
+    }
+
+    /**
+     * H3: فشل مبكر على الوجهة قبل خروج البضاعة من المصدر حتى لا تعلق في
+     * in_transit. الفرع الوجهة يجب أن يكون نشطًا، ومواقع الاستلام تابعة له،
+     * والأصناف غير معطّلة. الأرشفة وحدها لا تحبس تحويلًا قائمًا، والاستلام
+     * بعد الشحن يظل ممكنًا حتى لو عُطّل المتغير أو موقعه وهو في الطريق.
+     */
+    private function assertReceivableDestination(StockTransfer $transfer): void
+    {
+        $toBranch = Branch::query()->sharedLock()->find($transfer->to_branch_id);
+        if ($toBranch === null || ! $toBranch->is_active) {
+            throw new BusinessException('الفرع الوجهة غير نشط؛ لا يمكن اعتماد أو شحن التحويل إليه.');
+        }
+
+        $variantIds = $transfer->items->map(fn ($item) => (int) $item->product_variant_id)->unique()->values()->all();
+        $existingVariantIds = ProductVariant::withTrashed()->whereIn('id', $variantIds)
+            ->where('is_active', true)->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $missing = array_diff($variantIds, $existingVariantIds);
+        if ($missing !== []) {
+            throw new BusinessException('أحد أصناف التحويل غير نشط أو لم يعد موجودًا؛ راجع البنود قبل المتابعة.');
+        }
+
+        foreach ($transfer->items as $item) {
+            if ($item->to_location_id !== null && ! Location::query()->whereKey($item->to_location_id)
+                ->where('branch_id', $transfer->to_branch_id)->where('is_active', true)->exists()) {
+                throw new BusinessException('موقع الاستلام غير نشط أو لا يتبع الفرع الوجهة.');
+            }
         }
     }
 

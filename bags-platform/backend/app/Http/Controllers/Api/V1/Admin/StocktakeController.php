@@ -50,7 +50,7 @@ class StocktakeController extends Controller implements HasMiddleware
 
     public function store(StoreStocktakeRequest $request): JsonResponse
     {
-        $stocktake = $this->stocktakes->create($request->validated(), $request->user()->id, $this->idempotencyKey($request));
+        $stocktake = $this->stocktakes->create($request->validated(), $request->user()->id, $this->requiredIdempotencyKey($request));
 
         return (new StocktakeResource($stocktake))
             ->additional(['message' => 'تم إنشاء جلسة الجرد بنجاح'])
