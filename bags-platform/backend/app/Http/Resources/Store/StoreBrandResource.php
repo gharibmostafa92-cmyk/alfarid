@@ -14,12 +14,16 @@ class StoreBrandResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        // F6: conversions render on the queue — a thumb URL emitted before the
+        // worker finishes is a broken CDN link. Fall back to the original.
+        $logo = $this->getFirstMedia('logo');
+
         return [
             'id' => $this->id,
             'name_ar' => $this->name_ar,
             'name_en' => $this->name_en,
             'slug' => $this->slug,
-            'logo' => $this->getFirstMediaUrl('logo', 'thumb') ?: null,
+            'logo' => $logo && $logo->hasGeneratedConversion('thumb') ? $logo->getUrl('thumb') : ($logo?->getUrl() ?: null),
         ];
     }
 }

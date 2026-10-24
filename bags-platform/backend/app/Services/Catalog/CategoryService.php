@@ -21,7 +21,7 @@ class CategoryService
         $autoSlug = empty($data['slug'] ?? null);
         for ($attempt = 0; ; $attempt++) {
             try {
-                return DB::transaction(function () use ($data, $image) {
+                $category = DB::transaction(function () use ($data) {
                     CatalogLock::tree(shared: true);
 
                     unset($data['image']);
@@ -38,13 +38,17 @@ class CategoryService
                         }
                     }
 
-                    $category = Category::create($data);
-                    if ($image) {
-                        $category->addMedia($image)->toMediaCollection('image');
-                    }
-
-                    return $category;
+                    return Category::create($data);
                 });
+
+                // F2: the R2 upload (and any sync conversion) runs outside the
+                // tree lock, in its own short transaction — network I/O must
+                // not hold an advisory lock that serializes all catalog writes.
+                if ($image) {
+                    $this->attachImage($category, $image);
+                }
+
+                return $category;
             } catch (UniqueConstraintViolationException $e) {
                 if ($autoSlug && $attempt === 0) {
                     $data['slug'] = SlugService::make(Category::class, $data['name_en']);
@@ -69,8 +73,8 @@ class CategoryService
                 unset($data[$field]);
             }
         }
-        $apply = function (bool $exclusive) use ($category, $data, $image, $removeImage): ?Category {
-            return DB::transaction(function () use ($category, $data, $image, $removeImage, $exclusive) {
+        $apply = function (bool $exclusive) use ($category, $data): ?Category {
+            return DB::transaction(function () use ($category, $data, $exclusive) {
                 CatalogLock::tree(shared: ! $exclusive);
                 $category = Category::whereKey($category->id)->lockForUpdate()->firstOrFail();
                 $parentChanged = array_key_exists('parent_id', $data) && $data['parent_id'] !== $category->parent_id;
@@ -96,19 +100,41 @@ class CategoryService
 
                 $category->update($data);
 
-                if ($removeImage) {
-                    $category->clearMediaCollection('image');
-                }
-
-                if ($image) {
-                    $category->addMedia($image)->toMediaCollection('image');
-                }
-
                 return $category;
             });
         };
 
-        return $apply(false) ?? $apply(true);
+        // F8: a concurrent update can win the slug between validation and the
+        // write — surface it as 409, not 500.
+        try {
+            $updated = $apply(false) ?? $apply(true);
+        } catch (UniqueConstraintViolationException $e) {
+            throw new BusinessException('المعرف (slug) مستخدم بالفعل؛ اختر قيمة أخرى.', [], 409);
+        }
+
+        // F2: image changes run outside the tree lock (see create()).
+        if ($image) {
+            $this->attachImage($updated, $image);
+        } elseif ($removeImage) {
+            DB::transaction(fn () => $updated->clearMediaCollection('image'));
+        }
+
+        return $updated;
+    }
+
+    /**
+     * F2: attach the image in its own short transaction with no tree lock.
+     * The image is optional, so a failed upload keeps the saved row and
+     * reports a clear message instead of rolling back the data.
+     */
+    private function attachImage(Category $category, UploadedFile $image): void
+    {
+        try {
+            DB::transaction(fn () => $category->addMedia($image)->toMediaCollection('image'));
+        } catch (\Throwable $e) {
+            report($e);
+            throw new BusinessException('تم حفظ القسم لكن فشل رفع الصورة؛ أعد رفعها من صفحة التعديل.', ['category_id' => [$category->id]], 422, 'category_image_failed');
+        }
     }
 
     public function delete(Category $category): void
@@ -117,11 +143,11 @@ class CategoryService
             $this->lockTree();
             $locked = Category::whereKey($category->id)->lockForUpdate()->firstOrFail();
 
-            if ($locked->children()->withTrashed()->exists()) {
+            if ($locked->children()->exists()) {
                 throw new BusinessException('لا يمكن حذف قسم يحتوي على أقسام فرعية');
             }
 
-            if ($locked->products()->withTrashed()->exists()) {
+            if ($locked->products()->exists()) {
                 throw new BusinessException('لا يمكن حذف قسم مرتبط بمنتجات');
             }
 
@@ -175,7 +201,7 @@ class CategoryService
 
     public function tree(bool $onlyActive = false): Collection
     {
-        $all = Category::query()->with('media')->withCount('products')
+        $all = Category::query()->with('media')->withCount(['products', 'products as all_products_count' => fn ($q) => $q->withTrashed()])
             ->when($onlyActive, fn ($q) => $q->where('is_active', true))
             ->orderBy('sort_order')->orderBy('id')->get();
         $grouped = $all->groupBy('parent_id');

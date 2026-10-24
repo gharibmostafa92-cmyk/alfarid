@@ -43,7 +43,9 @@ class BrandController extends Controller implements HasMiddleware
 
         $brands = Brand::query()
             ->with('media')
-            ->withCount('products')
+            // F16: also expose the trashed-inclusive count so the UI can
+            // explain why delete fails on a "0 products" row.
+            ->withCount(['products', 'products as all_products_count' => fn ($q) => $q->withTrashed()])
             ->when(isset($filters['search']) && $filters['search'] !== '', function ($query) use ($filters): void {
                 $pattern = SearchTerm::pattern($filters['search']);
                 $query->where(fn ($q) => $q->whereLike('name_ar', $pattern, caseSensitive: false)
@@ -60,7 +62,7 @@ class BrandController extends Controller implements HasMiddleware
 
     public function show(Brand $brand): BrandResource
     {
-        $brand->load('media')->loadCount('products');
+        $brand->load('media')->loadCount(['products', 'products as all_products_count' => fn ($q) => $q->withTrashed()]);
 
         return BrandResource::make($brand);
     }
@@ -68,7 +70,7 @@ class BrandController extends Controller implements HasMiddleware
     public function store(StoreBrandRequest $request): JsonResponse
     {
         $brand = $this->service->create($request->validated(), $request->file('logo'));
-        $brand->load('media')->loadCount('products');
+        $brand->load('media')->loadCount(['products', 'products as all_products_count' => fn ($q) => $q->withTrashed()]);
 
         return BrandResource::make($brand)->response()->setStatusCode(201);
     }
@@ -77,7 +79,7 @@ class BrandController extends Controller implements HasMiddleware
     public function update(UpdateBrandRequest $request, Brand $brand): BrandResource
     {
         $brand = $this->service->update($brand, $request->validated(), $request->file('logo'));
-        $brand->load('media')->loadCount('products');
+        $brand->load('media')->loadCount(['products', 'products as all_products_count' => fn ($q) => $q->withTrashed()]);
 
         return BrandResource::make($brand);
     }

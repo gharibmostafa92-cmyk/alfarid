@@ -35,8 +35,10 @@ class WholesaleQuickOrderService
     {
         $variants = $this->findVariants($lines);
         $availability = $this->availabilityFor($variants->pluck('id')->all());
+        // F17: one context for the whole lookup, not one group query per line.
+        $ctx = $this->pricing->contextFor($customer, $variants->pluck('id')->unique()->all());
 
-        return collect($lines)->map(function (array $line) use ($customer, $variants, $availability): array {
+        return collect($lines)->map(function (array $line) use ($customer, $variants, $availability, $ctx): array {
             $code = (string) ($line['sku'] ?? $line['barcode'] ?? '');
             $variant = $variants->get($code);
             $qty = (float) $line['qty'];
@@ -49,7 +51,7 @@ class WholesaleQuickOrderService
             }
 
             $available = $availability[$variant->id] ?? 0.0;
-            $unitPrice = $this->pricing->resolve($variant, $customer, $qty)['unit_price'];
+            $unitPrice = $this->pricing->resolve($variant, $customer, $qty, null, $ctx)['unit_price'];
 
             return [
                 'code' => $code,
@@ -61,7 +63,7 @@ class WholesaleQuickOrderService
                 'qty' => $qty,
                 'unit_price' => $unitPrice,
                 'line_total' => round($unitPrice * $qty, 2),
-                'tier_prices' => $this->pricing->tiersFor($variant, $customer),
+                'tier_prices' => $this->pricing->tiersFor($variant, $customer, $ctx),
                 'available_qty' => $available,
                 'in_stock' => $available >= $qty,
             ];
@@ -95,6 +97,9 @@ class WholesaleQuickOrderService
         $cart = $this->carts->resolveCart($customer, null);
         $inCart = $cart->items()->pluck('qty', 'product_variant_id')->map(fn ($q) => (float) $q)->all();
 
+        // F17: one context for the whole import, not one group query per line.
+        $ctx = $this->pricing->contextFor($customer, $variants->pluck('id')->unique()->all());
+
         $added = [];
         $skipped = [];
         foreach ($lines as $line) {
@@ -119,7 +124,7 @@ class WholesaleQuickOrderService
                 'sku' => $variant->sku,
                 'product_variant_id' => $variant->id,
                 'qty' => $line['qty'],
-                'unit_price' => $this->pricing->resolve($variant, $customer, $inCart[$variant->id])['unit_price'],
+                'unit_price' => $this->pricing->resolve($variant, $customer, $inCart[$variant->id], null, $ctx)['unit_price'],
             ];
         }
 
@@ -161,6 +166,7 @@ class WholesaleQuickOrderService
             ->whereIn('id', collect($rows)->pluck('variant_id')->all())
             ->get()->keyBy('id');
         $availability = $this->availabilityFor($variants->pluck('id')->all());
+        $ctx = $this->pricing->contextFor($customer, $variants->pluck('id')->all());
 
         $added = [];
         $skipped = [];
@@ -186,7 +192,7 @@ class WholesaleQuickOrderService
                 'sku' => $variant->sku,
                 'product_variant_id' => $variant->id,
                 'qty' => $row['qty'],
-                'unit_price' => $this->pricing->resolve($variant, $customer, $inCart[$variant->id])['unit_price'],
+                'unit_price' => $this->pricing->resolve($variant, $customer, $inCart[$variant->id], null, $ctx)['unit_price'],
             ];
         }
 

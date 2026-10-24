@@ -12,6 +12,7 @@ use App\Http\Requests\Admin\Product\UpdateProductRequest;
 use App\Http\Resources\Admin\ProductResource;
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\ProductVariant;
 use App\Services\Catalog\ProductService;
 use App\Services\SearchTerm;
 use Illuminate\Http\JsonResponse;
@@ -61,10 +62,16 @@ class ProductController extends Controller implements HasMiddleware
         if (isset($filters['search']) && $filters['search'] !== '') {
             $s = $filters['search'];
             $pattern = SearchTerm::pattern($s);
+            // F15: SKUs/barcodes/codes are stored uppercased — match
+            // case-insensitively so a lowercase search still finds them.
+            // LOWER() comparisons stay index-backed via the lower(sku) /
+            // lower(barcode) functional unique indexes.
+            $u = strtoupper($s);
             $q->where(fn ($w) => $w->whereLike('name_ar', $pattern, caseSensitive: false)
                 ->orWhereLike('name_en', $pattern, caseSensitive: false)
-                ->orWhere('code', $s)
-                ->orWhereHas('variants', fn ($v) => $v->where('sku', $s)->orWhere('barcode', $s)));
+                ->orWhere('code', $u)
+                ->orWhereIn('products.id', ProductVariant::query()->select('product_id')
+                    ->where(fn ($v) => $v->whereRaw('LOWER(sku) = LOWER(?)', [$s])->orWhereRaw('LOWER(barcode) = LOWER(?)', [$s]))));
         }
         if (! empty($filters['category_id'])) {
             $cat = Category::findOrFail($filters['category_id']);

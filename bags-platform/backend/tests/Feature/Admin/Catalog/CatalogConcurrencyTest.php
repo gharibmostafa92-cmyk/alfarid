@@ -148,6 +148,47 @@ class CatalogConcurrencyTest extends TestCase
         return $product;
     }
 
+    public function test_concurrent_create_key_retries_return_one_product(): void
+    {
+        $category = Category::factory()->create();
+        $user = User::factory()->create();
+        $jobs = [];
+        foreach (['left' => 'right', 'right' => 'left'] as $own => $other) {
+            $operation = 'App\Models\Product::creating(function () { $prefix = getenv("CATALOG_START_FILE"); touch($prefix.'.var_export('.'.$own, true).'); $deadline = microtime(true) + 5; while (!is_file($prefix.'.var_export('.'.$other, true).')) { if (microtime(true) > $deadline) { throw new RuntimeException("Concurrent create not reached"); } usleep(10000); } });';
+            $operation .= 'app(App\Services\Catalog\ProductService::class)->create(["category_id" => '.$category->id.', "name_ar" => "حقيبة", "name_en" => "Same request", "sales_channel" => "retail", "create_key" => "11111111-2222-4333-8444-555555555555"], App\Models\User::findOrFail('.$user->id.'));';
+            $jobs[] = ['', $operation];
+        }
+        $this->race($jobs, ['OK', 'OK']);
+        $this->assertDatabaseCount('products', 1);
+    }
+
+    public function test_concurrent_image_retry_leaves_one_media_and_one_set_of_files(): void
+    {
+        $product = Product::factory()->create();
+        $jobs = [];
+        foreach (['left' => 'right', 'right' => 'left'] as $own => $other) {
+            $operation = 'Spatie\MediaLibrary\MediaCollections\Models\Media::creating(function () { $prefix = getenv("CATALOG_START_FILE"); touch($prefix.'.var_export('.'.$own, true).'); $deadline = microtime(true) + 5; while (!is_file($prefix.'.var_export('.'.$other, true).')) { if (microtime(true) > $deadline) { throw new RuntimeException("Concurrent upload not reached"); } usleep(10000); } });';
+            $operation .= 'app(App\Services\Catalog\ProductMediaService::class)->upload(App\Models\Product::findOrFail('.$product->id.'), ["collection" => "images", "client_upload_ids" => ["aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"]], [Illuminate\Http\UploadedFile::fake()->image("photo.jpg")]);';
+            $jobs[] = ['', $operation];
+        }
+        $this->race($jobs, ['OK', 'OK']);
+        $this->assertDatabaseCount('media', 1);
+        $this->assertCount(3, Storage::disk('r2_public')->allFiles());
+    }
+
+    public function test_concurrent_video_replacements_leave_one_video_and_one_file(): void
+    {
+        $product = Product::factory()->create();
+        $jobs = [];
+        foreach (['first', 'second'] as $name) {
+            $operation = 'app(App\Services\Catalog\ProductMediaService::class)->upload(App\Models\Product::findOrFail('.$product->id.'), ["collection" => "video"], [], Illuminate\Http\UploadedFile::fake()->createWithContent("'.$name.'.mp4", hex2bin("00000018667479706d703432000000006d70343269736f6d")));';
+            $jobs[] = ['', $operation];
+        }
+        $this->race($jobs, ['OK', 'OK']);
+        $this->assertSame(1, $product->fresh()->getMedia('video')->count());
+        $this->assertCount(1, Storage::disk('r2_public')->allFiles());
+    }
+
     /** Both processes read their models before either starts the mutation. */
     private function race(array $jobs, array $expected = ['OK', 'REJECTED']): void
     {
@@ -159,10 +200,10 @@ class CatalogConcurrencyTest extends TestCase
             'APP_ENV' => 'testing', 'DB_CONNECTION' => 'pgsql', 'DB_DATABASE' => $db['database'],
             'DB_HOST' => $db['host'], 'DB_PORT' => (string) $db['port'], 'DB_USERNAME' => $db['username'],
             'DB_PASSWORD' => $db['password'], 'DB_URL' => '', 'CACHE_STORE' => 'array', 'QUEUE_CONNECTION' => 'sync',
-            'CATALOG_START_FILE' => $barrier, 'CATALOG_MEDIA_ROOT' => config('filesystems.disks.r2.root'),
+            'CATALOG_START_FILE' => $barrier, 'CATALOG_MEDIA_ROOT' => Storage::disk('r2')->path(''),
             // H5: catalog media (products/categories/brands) live on r2_public;
             // race subprocesses must redirect that bucket to the local root too.
-            'CATALOG_PUBLIC_MEDIA_ROOT' => config('filesystems.disks.r2_public.root'),
+            'CATALOG_PUBLIC_MEDIA_ROOT' => Storage::disk('r2_public')->path(''),
         ];
         $processes = [];
         try {

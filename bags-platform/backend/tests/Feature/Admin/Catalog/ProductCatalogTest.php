@@ -115,7 +115,7 @@ class ProductCatalogTest extends TestCase
         $this->assertArrayNotHasKey('cost_price', $response->json('data.variants.0'));
 
         $adminResponse = $this->requestWithToken($token, 'GET', "/api/v1/admin/products/{$productId}");
-        $this->assertSame('500.00', (string) $adminResponse->json('data.variants.0.cost_price'));
+        $this->assertSame('500.0000', (string) $adminResponse->json('data.variants.0.cost_price'));
     }
 
     public function test_search_by_barcode_finds_the_right_product(): void

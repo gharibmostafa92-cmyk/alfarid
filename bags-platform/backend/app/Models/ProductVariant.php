@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Models\Concerns\TracksEditVersion;
 use Database\Factories\ProductVariantFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -18,7 +19,7 @@ use Spatie\MediaLibrary\MediaCollections\Models\Media;
 class ProductVariant extends Model implements HasMedia
 {
     /** @use HasFactory<ProductVariantFactory> */
-    use HasFactory, InteractsWithMedia, SoftDeletes;
+    use HasFactory, InteractsWithMedia, SoftDeletes, TracksEditVersion;
 
     protected $fillable = [
         'product_id', 'sku', 'barcode', 'color_name_ar', 'color_name_en', 'color_hex', 'size', 'capacity',

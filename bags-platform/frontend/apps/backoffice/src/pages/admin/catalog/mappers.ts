@@ -18,6 +18,7 @@ import type {
 export interface UiColor { ar: string; en: string; hex: string }
 
 export interface UiVariantRow {
+  lock_version?: number;
   _id: string;
   serverId?: number;                    // ضيفه علشان تعرف ده update ولا create
   color: UiColor | null;
@@ -52,6 +53,8 @@ export interface UiMediaItem {
 }
 
 export interface UiProductState {
+  lock_version?: number;
+  updated_at?: string;
   status: ProductStatus | null; code: string | null;
   basic: UiBasic;
   mode: 'single' | 'matrix';
@@ -122,6 +125,7 @@ export function brandToPayload(u: UiBrandForm): BrandPayload {
 // ---------- المنتج: قراءة ----------
 
 interface ApiVariantLike {
+  lock_version?: number;
   id: number; sku: string; barcode: string | null;
   color_name_ar?: string | null; color_name_en?: string | null; color_hex?: string | null;
   color?: { name_ar?: string | null; name_en?: string | null; hex?: string | null } | null;
@@ -152,6 +156,7 @@ export function productFromApi(
     return {
       _id: `srv-${v.id}`,
       serverId: v.id,
+      lock_version: v.lock_version,
       color: colorEn || colorAr || colorHex
         ? { ar: colorAr ?? '', en: colorEn ?? '', hex: colorHex ?? '' }
         : null,
@@ -214,6 +219,7 @@ export function productFromApi(
 
   return {
     status: product.status, code: product.code,
+    lock_version: product.lock_version, updated_at: product.updated_at,
     basic: {
       ar: product.name_ar, en: product.name_en,
       category: product.category?.id ?? null,

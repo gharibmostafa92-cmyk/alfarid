@@ -16,13 +16,48 @@ export async function persistProduct(state: any, original: any, canViewCost: boo
     }
   };
   if (!next.id) {
-    const created = await productsApi.create({ ...productToPayload(next.basic), variants: next.rows.map((r: any,i: number) => payload(r,i,true)) });
-    next = { ...next, id: created.id, code: created.code, status: created.status, rows: next.rows.map((r: any,i: number) => ({ ...r, serverId: created.variants?.[i]?.id, sku: created.variants?.[i]?.sku, barcode: created.variants?.[i]?.barcode })) };
+    next.createKey ??= crypto.randomUUID();
+    onState(next);
+    let created;
+    try {
+      created = await productsApi.create({ ...productToPayload(next.basic), create_key: next.createKey, variants: next.rows.map((r: any,i: number) => payload(r,i,true)) });
+    } catch (error: any) {
+      const existingId = Number(error?.response?.data?.errors?.product_id?.[0]);
+      if (error?.response?.status === 409 && Number.isSafeInteger(existingId) && existingId > 0) {
+        error.catalogProductId = existingId;
+        history.replaceState(null, '', '#/products/' + existingId);
+      }
+      throw error;
+    }
+    next = { ...next, id: created.id, code: created.code, status: created.status, lock_version: created.lock_version, updated_at: created.updated_at, rows: next.rows.map((r: any,i: number) => ({ ...r, serverId: created.variants?.[i]?.id, sku: created.variants?.[i]?.sku, barcode: created.variants?.[i]?.barcode, lock_version: created.variants?.[i]?.lock_version })) };
     history.replaceState(null, '', '#/products/' + created.id);
     onState(next);
   } else {
     const createdThisRun = new Set<number>();
-    await productsApi.update(next.id, productToPayload(next.basic));
+    const expectedVersion = next.lock_version ?? original?.lock_version;
+    const expectedTime = next.updated_at ?? original?.updated_at;
+    if (expectedVersion === undefined && expectedTime) {
+      throw Object.assign(new Error('أعد تحميل المنتج للحصول على رقم الإصدار قبل الحفظ.'), { catalogProductId: next.id });
+    }
+    let updated;
+    try {
+      updated = await productsApi.update(next.id, { ...productToPayload(next.basic),
+        ...(expectedVersion !== undefined ? { expected_version: expectedVersion } : {}) });
+    } catch (error: any) {
+      if (error?.response?.status === 409) error.catalogProductId = next.id;
+      throw error;
+    }
+    if (updated) Object.assign(next, { lock_version: updated.lock_version, updated_at: updated.updated_at });
+    onState({ ...next });
+    const updateRow = async (row: any, changes: any) => {
+      const old = original.rows?.find((item: any) => item.serverId === row.serverId);
+      const version = row.lock_version ?? old?.lock_version;
+      const saved = await variantRequest(row, () => variantsApi.update(next.id, row.serverId, {
+        ...changes, ...(version !== undefined ? { expected_version: version } : {}),
+      }));
+      if (saved) Object.assign(row, { lock_version: saved.lock_version });
+      onState({ ...next });
+    };
     const removed = (original.rows || []).filter((r: any) => r.serverId && !next.rows.some((n: any) => n.serverId === r.serverId));
     const key = (r: any) => [r.color?.en,r.size,r.capacity].map(v => (v || '').trim().toLowerCase()).join('|');
     const conflicting = removed.filter((r: any) => next.rows.some((n: any) => n.serverId !== r.serverId && key(n) === key(r)));
@@ -32,15 +67,15 @@ export async function persistProduct(state: any, original: any, canViewCost: boo
       if (row.serverId) continue;
       const saved = await variantRequest(row, () => variantsApi.create(next.id,payload(row,i,true)));
       createdThisRun.add(saved.id);
-      Object.assign(row,{ serverId:saved.id,sku:saved.sku,barcode:saved.barcode }); onState({ ...next });
+      Object.assign(row,{ serverId:saved.id,sku:saved.sku,barcode:saved.barcode,lock_version:saved.lock_version }); onState({ ...next });
     }
     for (const [i,row] of next.rows.entries()) {
       if (createdThisRun.has(row.serverId)) continue;
       const old = original.rows?.find((r: any) => r.serverId === row.serverId);
-      if (!old) { await variantRequest(row, () => variantsApi.update(next.id,row.serverId,payload(row,i,false))); continue; }
+      if (!old) { await updateRow(row,payload(row,i,false)); continue; }
       const before = payload(old,original.rows.indexOf(old),false), after = payload(row,i,false);
       const diff = Object.fromEntries(Object.entries(after).filter(([k,v]) => JSON.stringify(v) !== JSON.stringify((before as any)[k])));
-      if (Object.keys(diff).length) await variantRequest(row, () => variantsApi.update(next.id,row.serverId,diff));
+      if (Object.keys(diff).length) await updateRow(row,diff);
     }
     for (const row of removed.filter((r: any) => !conflicting.includes(r))) await variantRequest(row, () => removeIfPresent(() => variantsApi.remove(next.id,row.serverId)));
   }
@@ -84,8 +119,11 @@ export async function persistProduct(state: any, original: any, canViewCost: boo
     }
   }
   const all = (media: any) => [...media.general,...Object.values(media.byVariant).flat(),...(media.video ? [media.video] : [])];
-  for (const old of all(original.media || { general:[],byVariant:{} }) as any[]) {
-    if (old.serverId && !all(next.media).some((f: any) => f.serverId === old.serverId)) {
+  // F10: collect deletions now but run them after uploads (see the
+  // runPendingRemovals call below) — deleting first rejects replacing the
+  // last image of a published product and forces an unnecessary unpublish.
+  const pendingRemovals = (all(original.media || { general:[],byVariant:{} }) as any[]).filter((old: any) => old.serverId && !all(next.media).some((f: any) => f.serverId === old.serverId));
+  const runPendingRemovals = async () => { for (const old of pendingRemovals) {
       try { await removeIfPresent(() => productMediaApi.remove(next.id,old.serverId)); }
       catch (e) {
         // Roll back only the rejected removal; retain successful uploads for retry.
@@ -94,8 +132,7 @@ export async function persistProduct(state: any, original: any, canViewCost: boo
         else for (const [color,items] of Object.entries(original.media.byVariant) as [string,any[]][]) if (items.includes(old)) next.media.byVariant[color] = [...(next.media.byVariant[color] || []),old];
         onState({ ...next }); throw e;
       }
-    }
-  }
+    } };
   const groups: [string,any[]][] = [['',next.media.general],...Object.entries(next.media.byVariant) as [string,any[]][]];
   for (const [color,files] of groups) {
     // Color images belong to the first saved variant of that color, by display order.
@@ -121,6 +158,8 @@ export async function persistProduct(state: any, original: any, canViewCost: boo
       Object.assign(next.media.video,{serverId:saved[0].id,status:'done',url:saved[0].url}); onState({ ...next });
     } catch(e: any){next.media.video.status='failed';next.media.video.message=e?.response?.data?.message || 'تعذّر رفع الفيديو';onState({ ...next });throw e;}
   }
+  // F10: uploads first, deletions second, reorder last.
+  await runPendingRemovals();
   if (next.media.general.length) await productMediaApi.reorder(next.id,next.media.general.map((f: any) => f.serverId));
   return next;
 }

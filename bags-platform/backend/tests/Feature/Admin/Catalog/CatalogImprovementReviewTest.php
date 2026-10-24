@@ -74,7 +74,7 @@ class CatalogImprovementReviewTest extends TestCase
         }
     }
 
-    public function test_failed_replacement_keeps_old_brand_and_category_files_and_database_values(): void
+    public function test_failed_replacement_keeps_old_files_while_data_change_persists(): void
     {
         foreach ([BrandService::class => [Brand::class, 'logo'], CategoryService::class => [Category::class, 'image']] as $service => [$model, $collection]) {
             $this->app->forgetInstance(FileManipulator::class);
@@ -87,10 +87,13 @@ class CatalogImprovementReviewTest extends TestCase
             try {
                 app($service)->update($record, ['name_en' => 'Changed', 'remove_'.$collection => true], UploadedFile::fake()->image('new.jpg'));
                 $this->fail('Expected upload failure');
-            } catch (RuntimeException $exception) {
-                $this->assertSame('Disk failure', $exception->getMessage());
+            } catch (BusinessException $exception) {
+                $this->assertSame(422, $exception->status);
             }
-            $this->assertSame('Original', $record->fresh()->name_en);
+            // F2: the data write is no longer atomic with the upload — the
+            // rename persists, while the media change (clear + add) is fully
+            // rolled back, leaving the old file untouched and no orphans.
+            $this->assertSame('Changed', $record->fresh()->name_en);
             $this->assertDatabaseHas('media', ['id' => $old->id]);
             Storage::disk('r2_public')->assertExists($oldPath);
             $this->assertSame($before, Storage::disk('r2_public')->allFiles());
@@ -227,9 +230,10 @@ class CatalogImprovementReviewTest extends TestCase
         $zeroBrand = Brand::factory()->create(['name_ar' => 'صفر', 'name_en' => 'Brand 0']);
         $zeroProduct = Product::factory()->create(['category_id' => $category->id, 'brand_id' => $brand->id, 'name_ar' => 'صفر', 'name_en' => 'Product 0']);
         Product::factory()->create(['category_id' => $category->id, 'brand_id' => $brand->id, 'name_ar' => 'واحد', 'name_en' => 'Product 1']);
-        foreach (['categories' => $zeroCategory->id, 'brands' => $zeroBrand->id, 'products' => $zeroProduct->id] as $resource => $id) {
+        foreach (['categories' => $zeroCategory->id, 'products' => $zeroProduct->id] as $resource => $id) {
             $this->getJson('/api/v1/admin/'.$resource.'?search=0')->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $id);
         }
+        $this->getJson('/api/v1/admin/brands?search=0')->assertStatus(410);
     }
 
     public function test_out_of_range_route_ids_return_404(): void

@@ -63,6 +63,39 @@ test('color upload uses a saved ID when the create response omitted local varian
  assert.equal(uploaded,27);assert.equal(saved.rows[0].serverId,27);
 });
 
+test('create sends a stable idempotency key across retries',async()=>{
+ const keys=[];let attempts=0,latest;
+ const api={productsApi:{create:async payload=>{keys.push(payload.create_key);attempts++;if(attempts===1)throw{response:{status:0}};return{id:7,code:'P00007',status:'draft',variants:[]};}},variantsApi:{},productMediaApi:{reorder:async()=>{}}};
+ const {persistProduct}=load(base+'persist.ts',{'@alfarid/api-client':api,'./mappers':mappers});
+ const state={basic:mappers.blankUiBasic(),rows:[],media:media()};
+ await assert.rejects(persistProduct(state,{rows:[],media:media()},false,v=>latest=v));
+ assert.match(keys[0],/^[0-9a-f-]{36}$/);
+ const saved=await persistProduct(latest,{rows:[],media:media()},false,()=>{});
+ assert.equal(keys.length,2);assert.equal(keys[0],keys[1]);assert.equal(saved.id,7);
+});
+
+test('uploads run before deletions so replacing the last image succeeds',async()=>{
+ const calls=[];const old={id:'srv-9',serverId:9,status:'done'};
+ const api={productsApi:{update:async()=>{}},variantsApi:{},productMediaApi:{
+  uploadImages:async()=>{calls.push('upload');return[{id:10,url:'https://r2.example/new.png'}];},
+  remove:async()=>{calls.push('remove');},reorder:async()=>{calls.push('reorder');}}};
+ const {persistProduct}=load(base+'persist.ts',{'@alfarid/api-client':api,'./mappers':mappers});
+ await persistProduct({id:5,basic:mappers.blankUiBasic(),rows:[],media:{...media(),general:[{id:'n',file:{}}]}},{rows:[],media:{...media(),general:[old]}},false,()=>{});
+ assert.deepEqual(calls,['upload','remove','reorder']);
+});
+
+test('timestamp-only copies require a reload and versioned copies send expected_version',async()=>{
+ let sent;
+ const api={productsApi:{update:async(id,payload)=>{sent=payload;}},variantsApi:{},productMediaApi:{}};
+ const {persistProduct}=load(base+'persist.ts',{'@alfarid/api-client':api,'./mappers':mappers});
+ await assert.rejects(persistProduct({id:5,basic:mappers.blankUiBasic(),rows:[],media:media()},{rows:[],media:media(),updated_at:'2026-10-23T10:31:00.000000Z'},false,()=>{}), /رقم الإصدار/);
+ assert.equal(sent,undefined);
+ await persistProduct({id:5,basic:mappers.blankUiBasic(),rows:[],media:media()},{rows:[],media:media(),lock_version:3},false,()=>{});
+ assert.equal(sent.expected_version,3);
+ await persistProduct({id:5,basic:mappers.blankUiBasic(),rows:[],media:media()},{rows:[],media:media()},false,()=>{});
+ assert.ok(!('expected_updated_at' in sent));
+});
+
 test('a genuinely missing color preserves pending files and blocks media deletions/uploads',async()=>{
  const row={...mappers.emptyUiRow(),serverId:12,color:null},file={id:'pending',file:{name:'olive.png'}};let latest;const calls=[];
  const api={productsApi:{update:async()=>{}},variantsApi:{list:async()=>[{id:12,color:{name_en:'Charcoal'}}]},productMediaApi:{remove:async()=>calls.push('remove'),uploadImages:async()=>calls.push('upload')}};
@@ -70,4 +103,26 @@ test('a genuinely missing color preserves pending files and blocks media deletio
  const state={id:5,basic:mappers.blankUiBasic(),rows:[row],media:{...media(),byVariant:{Olive:[file]}}};
  await assert.rejects(persistProduct(state,{rows:[row],media:{...media(),general:[{id:'old',serverId:3}]}},false,v=>latest=v),/Olive/);
  assert.deepEqual(calls,[]);assert.equal(latest.media.byVariant.Olive[0].file.name,'olive.png');assert.equal(file.status,'failed');
+});
+
+test('retry after a partial save uses returned product and variant versions',async()=>{
+ const productVersions=[],variantVersions=[];let latest,uploads=0;
+ const old={...mappers.emptyUiRow(),serverId:12,retail:'10',lock_version:3};
+ const original={id:5,lock_version:4,basic:mappers.blankUiBasic(),rows:[old],media:media()};
+ const state={...original,rows:[{...old,retail:'20'}],media:{...media(),general:[{id:'pending',file:{}}]}};
+ const api={productsApi:{update:async(id,p)=>{productVersions.push(p.expected_version);return {lock_version:p.expected_version+1,updated_at:'2026-10-24T10:00:00Z'};}},
+  variantsApi:{update:async(id,variantId,p)=>{variantVersions.push(p.expected_version);return {lock_version:p.expected_version+1};}},
+  productMediaApi:{uploadImages:async()=>{if(++uploads===1)throw Error('Network');return [{id:9,url:'/saved.jpg'}];},reorder:async()=>{}}};
+ const {persistProduct}=load(base+'persist.ts',{'@alfarid/api-client':api,'./mappers':mappers});
+ await assert.rejects(persistProduct(state,original,false,v=>latest=v));
+ assert.equal(latest.lock_version,5);assert.equal(latest.rows[0].lock_version,4);
+ await persistProduct(latest,original,false,()=>{});
+ assert.deepEqual(productVersions,[4,5]);assert.deepEqual(variantVersions,[3,4]);
+});
+
+test('a stale basic save identifies the product for the existing reload flow',async()=>{
+ const failure={response:{status:409,data:{message:'Reload product'}}};
+ const api={productsApi:{update:async()=>{throw failure;}},variantsApi:{},productMediaApi:{}};
+ const {persistProduct}=load(base+'persist.ts',{'@alfarid/api-client':api,'./mappers':mappers});
+ await assert.rejects(persistProduct({id:5,lock_version:2,basic:mappers.blankUiBasic(),rows:[],media:media()},{rows:[],media:media()},false,()=>{}),error=>error.catalogProductId===5);
 });

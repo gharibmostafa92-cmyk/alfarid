@@ -21,6 +21,7 @@ class ProductResource extends JsonResource
 
         return [
             'id' => $this->id,
+            'lock_version' => (int) $this->lock_version,
             'code' => $this->code,
             'name_ar' => $this->name_ar, 'name_en' => $this->name_en, 'slug' => $this->slug,
             'description_ar' => $this->description_ar, 'description_en' => $this->description_en,
@@ -36,7 +37,9 @@ class ProductResource extends JsonResource
             'category' => new CategoryResource($this->whenLoaded('category')),
             'brand' => null,
             'supplier_id' => null,
-            'main_image' => $this->getFirstMediaUrl('images', 'thumb') ?: null,
+            // F6: conversions render on the queue — fall back to the original
+            // until the thumb exists instead of emitting a broken CDN link.
+            'main_image' => ($media = $this->getFirstMedia('images')) && $media->hasGeneratedConversion('thumb') ? $media->getUrl('thumb') : ($media?->getUrl() ?: null),
             'images' => $this->when($includeGallery, fn () => MediaResource::collection($this->whenLoaded('media', fn () => $this->getMedia('images')))),
             'video' => $this->when($includeGallery, fn () => $this->whenLoaded('media', fn () => ($v = $this->getFirstMedia('video')) ? new MediaResource($v) : null)),
             'variants_count' => $this->whenCounted('variants'),

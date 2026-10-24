@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests\Admin\Brand;
 
 use App\Http\Requests\Admin\Concerns\NormalizesCatalogInput;
+use App\Rules\MaxImagePixels;
 use App\Rules\UniqueCatalogIdentifier;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -38,7 +39,7 @@ class StoreBrandRequest extends FormRequest
             'sort_order' => ['nullable', 'integer', 'min:0', 'max:2147483647'],
             'is_active' => ['nullable', 'boolean'],
             // من غير SVG: بيتنفذ كسكريبت على نفس الـ origin (Stored XSS)
-            'logo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096', 'dimensions:max_width=6000,max_height=6000'],
+            'logo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'extensions:jpg,jpeg,png,webp', 'max:4096', new MaxImagePixels],
         ];
     }
 }

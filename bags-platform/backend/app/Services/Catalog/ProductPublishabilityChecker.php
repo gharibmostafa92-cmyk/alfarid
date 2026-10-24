@@ -30,7 +30,7 @@ class ProductPublishabilityChecker
         if ($product->sales_channel->allowsWholesale() && $active->contains(fn ($v) => ! $v->wholesale_price || $v->wholesale_price <= 0)) {
             $errors[] = 'كل المتغيرات النشطة لازم يكون لها سعر جملة';
         }
-        if ($product->getMedia('images')->isEmpty()) {
+        if (! $this->hasImages($product)) {
             $errors[] = 'يجب رفع صورة واحدة على الأقل';
         }
         if (! CategoryHierarchy::activePath($product->category)) {
@@ -40,5 +40,12 @@ class ProductPublishabilityChecker
         if ($errors) {
             throw new BusinessException('لا يمكن نشر المنتج', ['status' => $errors]);
         }
+    }
+
+    public function hasImages(Product $product): bool
+    {
+        return $product->media()->where('collection_name', 'images')->exists()
+            || $product->variants()->where('is_active', true)
+                ->whereHas('media', fn ($query) => $query->where('collection_name', 'images'))->exists();
     }
 }

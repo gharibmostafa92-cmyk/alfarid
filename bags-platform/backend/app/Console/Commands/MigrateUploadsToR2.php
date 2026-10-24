@@ -26,44 +26,57 @@ class MigrateUploadsToR2 extends Command
     {
         $count = 0;
         $failures = [];
+        $catalogPrefixes = [];
         Media::query()
-            ->chunkById(100, function ($items) use ($migration, &$count, &$failures): void {
+            ->chunkById(100, function ($items) use ($migration, &$count, &$failures, &$catalogPrefixes): void {
                 foreach ($items as $item) {
+                    if ($this->targetDiskFor($item) === 'r2_public') {
+                        $catalogPrefixes[$item->id] = true;
+                        if ($item->uuid) {
+                            $catalogPrefixes[$item->uuid] = true;
+                        }
+                    }
                     try {
                         DB::transaction(function () use ($item, $migration, &$count): void {
                             $media = Media::query()->lockForUpdate()->findOrFail($item->id);
                             $target = $this->targetDiskFor($media);
-                            if ($media->disk === $target && ($media->conversions_disk ?: $media->disk) === $target) {
+                            $base = app(UuidPathGenerator::class)->getPath($media);
+                            $rekey = $target === 'r2_public' && $base !== $media->uuid.'/';
+                            if ($media->disk === $target && ($media->conversions_disk ?: $media->disk) === $target && ! $rekey) {
                                 return;
                             }
-                            $base = app(UuidPathGenerator::class)->getPath($media);
+                            if ($rekey && ! $media->uuid) {
+                                throw new \RuntimeException('Catalog media requires a UUID: '.$media->id);
+                            }
+                            $targetBase = $rekey ? $media->uuid.'/' : $base;
                             if (! Storage::disk($media->disk)->exists($base.$media->file_name)) {
                                 // M10: a single missing original must not abort the run;
                                 // record it and continue with the next row.
                                 throw new \RuntimeException('Missing media original; record unchanged: '.$media->id);
                             }
-                            $sources = [];
+                            $sources = $media->getCustomProperty('r2_migration_sources', []);
                             foreach (array_unique([$media->disk, $media->conversions_disk ?: $media->disk]) as $disk) {
-                                if ($disk === $target) {
+                                if ($disk === $target && ! $rekey) {
                                     continue;
                                 }
                                 foreach (Storage::disk($disk)->allFiles(rtrim($base, '/')) as $path) {
-                                    $migration->copy($disk, $path, $target);
-                                    $sources[] = [$disk, $path, $target];
+                                    $targetPath = $targetBase.substr($path, strlen($base));
+                                    $migration->copy($disk, $path, $target, $targetPath);
+                                    $sources[] = [$disk, $path, $target, $targetPath];
                                 }
                             }
                             $media->disk = $target;
                             $media->conversions_disk = $target;
-                            $media->save();
-                            if ($this->option('delete-source')) {
-                                DB::afterCommit(function () use ($sources, $migration): void {
-                                    foreach ($sources as [$disk, $path, $target]) {
-                                        $migration->deleteVerifiedSource($disk, $path, $target);
-                                    }
-                                });
+                            if ($rekey) {
+                                $media->setCustomProperty('path_layout', 'uuid');
                             }
+                            $media->setCustomProperty('r2_migration_sources', $sources);
+                            $media->save();
                             $count++;
                         });
+                        if ($this->option('delete-source')) {
+                            $this->deleteSources($item->id, $migration);
+                        }
                     } catch (Throwable $e) {
                         $failures[] = $item->id.': '.$e->getMessage();
                         $this->error('Skipped media '.$item->id.': '.$e->getMessage());
@@ -85,6 +98,9 @@ class MigrateUploadsToR2 extends Command
             }
             foreach ($paths as $path) {
                 if (basename($path) === '.gitignore') {
+                    continue;
+                }
+                if ($disk === 'public' && isset($catalogPrefixes[explode('/', $path, 2)[0]])) {
                     continue;
                 }
                 try {
@@ -119,5 +135,21 @@ class MigrateUploadsToR2 extends Command
         return in_array($media->model_type, [Product::class, ProductVariant::class, Category::class, Brand::class], true)
             ? 'r2_public'
             : 'r2';
+    }
+
+    private function deleteSources(int $id, R2UploadMigration $migration): void
+    {
+        // The manifest survives the metadata commit, so failed cleanup can be retried.
+        DB::transaction(function () use ($id, $migration): void {
+            $media = Media::query()->lockForUpdate()->findOrFail($id);
+            if (! $media->hasCustomProperty('r2_migration_sources')) {
+                return;
+            }
+            foreach ($media->getCustomProperty('r2_migration_sources', []) as $source) {
+                $migration->deleteVerifiedSource(...$source);
+            }
+            $media->forgetCustomProperty('r2_migration_sources');
+            $media->save();
+        });
     }
 }

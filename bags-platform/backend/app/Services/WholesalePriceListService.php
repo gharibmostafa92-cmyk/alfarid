@@ -37,12 +37,15 @@ class WholesalePriceListService
             ->map(fn ($v) => (float) $v)
             ->all();
 
-        return $variants->map(function (ProductVariant $variant) use ($customer, $availability): array {
+        // F17: one context for the whole export, not one group lookup per row.
+        $ctx = $this->pricing->contextFor($customer, $variants->pluck('id')->all());
+
+        return $variants->map(function (ProductVariant $variant) use ($customer, $availability, $ctx): array {
             try {
-                $resolved = $this->pricing->resolve($variant, $customer, 1);
+                $resolved = $this->pricing->resolve($variant, $customer, 1, null, $ctx);
                 $price = $resolved['unit_price'];
                 $base = $resolved['base_price'];
-                $tiers = $this->pricing->tiersFor($variant, $customer);
+                $tiers = $this->pricing->tiersFor($variant, $customer, $ctx);
             } catch (BusinessException) {
                 // متغير غير مُسعَّر: يظهر في القائمة بلا سعر بدل إسقاط التصدير كله
                 $price = null;

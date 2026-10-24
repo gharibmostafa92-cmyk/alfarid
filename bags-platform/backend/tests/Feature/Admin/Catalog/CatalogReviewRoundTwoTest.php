@@ -13,6 +13,7 @@ use App\Models\ProductVariant;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\BarcodeGenerator;
+use App\Services\Catalog\BrandService;
 use App\Services\Catalog\CategoryService;
 use App\Services\Catalog\ProductService;
 use App\Services\Catalog\VariantService;
@@ -171,14 +172,14 @@ class CatalogReviewRoundTwoTest extends TestCase
 
     public function test_body_reference_race_returns_422_without_model_class_names(): void
     {
-        $brand = Brand::factory()->create();
-        $brand->delete();
+        $category = Category::factory()->create();
+        $category->delete();
         try {
-            app(ProductService::class)->create(['category_id' => Category::factory()->create()->id, 'brand_id' => $brand->id, 'name_ar' => 'حقيبة', 'name_en' => 'Stale brand', 'sales_channel' => 'retail'], User::factory()->create());
+            app(ProductService::class)->create(['category_id' => $category->id, 'name_ar' => 'حقيبة', 'name_en' => 'Stale category', 'sales_channel' => 'retail'], User::factory()->create());
             $this->fail('Expected a reference validation failure');
         } catch (BusinessException $exception) {
             $this->assertSame(422, $exception->status);
-            $this->assertArrayHasKey('brand_id', $exception->errors);
+            $this->assertArrayHasKey('category_id', $exception->errors);
         }
         config(['app.debug' => false]);
         $response = $this->getJson('/api/v1/admin/products/999999')->assertNotFound();
@@ -217,7 +218,7 @@ class CatalogReviewRoundTwoTest extends TestCase
 
     public function test_unicode_identifiers_are_rejected(): void
     {
-        $this->postJson('/api/v1/admin/brands', ['name_ar' => 'براند', 'name_en' => 'Unicode', 'slug' => 'براند'])->assertUnprocessable()->assertJsonValidationErrors('slug');
+        $this->postJson('/api/v1/admin/categories', ['name_ar' => 'قسم', 'name_en' => 'Unicode', 'slug' => 'قسم'])->assertUnprocessable()->assertJsonValidationErrors('slug');
         $product = Product::factory()->create();
         $this->postJson("/api/v1/admin/products/{$product->id}/variants", ['sku' => 'متغير'])->assertUnprocessable()->assertJsonValidationErrors('sku');
     }
@@ -230,25 +231,28 @@ class CatalogReviewRoundTwoTest extends TestCase
         $this->assertSame('leather-3', SlugService::make(Category::class, 'Leather'));
     }
 
-    public function test_soft_deleted_products_still_prevent_category_and_brand_deletion(): void
+    public function test_soft_deleted_products_allow_category_and_brand_soft_deletion(): void
     {
-        $product = Product::factory()->create();
+        $brand = Brand::factory()->create();
+        $product = Product::factory()->create(['brand_id' => $brand->id]);
         $product->delete();
-        $this->deleteJson("/api/v1/admin/categories/{$product->category_id}")->assertUnprocessable();
-        $this->deleteJson("/api/v1/admin/brands/{$product->brand_id}")->assertUnprocessable();
+        $this->deleteJson("/api/v1/admin/categories/{$product->category_id}")->assertOk();
+        app(BrandService::class)->delete($brand);
+        $this->assertSoftDeleted('categories', ['id' => $product->category_id]);
+        $this->assertSoftDeleted('brands', ['id' => $brand->id]);
+        $this->assertSoftDeleted('products', ['id' => $product->id]);
     }
 
-    public function test_deleted_variant_media_is_hidden_and_cannot_be_reordered_or_deleted(): void
+    public function test_deleted_variant_media_can_be_found_reordered_and_deleted(): void
     {
         $variant = ProductVariant::factory()->create();
         $media = $variant->addMedia(UploadedFile::fake()->image('variant.jpg'))->toMediaCollection('images');
         $variant->delete();
         $url = "/api/v1/admin/products/{$variant->product_id}/media";
-        $this->getJson($url)->assertOk()->assertJsonCount(0, 'data');
-        $this->putJson($url.'/reorder', ['ids' => [$media->id]])->assertNotFound();
-        $this->deleteJson($url.'/'.$media->id)->assertNotFound();
-        // H5: variant media live on the public bucket.
-        Storage::disk('r2_public')->assertExists($media->getPathRelativeToRoot());
+        $this->getJson($url)->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $media->id);
+        $this->putJson($url.'/reorder', ['ids' => [$media->id]])->assertOk();
+        $this->deleteJson($url.'/'.$media->id)->assertOk();
+        $this->assertDatabaseMissing('media', ['id' => $media->id]);
     }
 
     public function test_media_layout_backfill_is_idempotent_and_urls_do_not_probe_storage_afterwards(): void

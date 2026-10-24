@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Admin\Catalog;
 
+use App\Http\Requests\Admin\Brand\StoreBrandRequest;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductVariant;
@@ -16,6 +17,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Testing\TestResponse;
 use PDOException;
 use RuntimeException;
@@ -127,13 +129,12 @@ class CatalogHardeningTest extends TestCase
         $this->fakeUploads();
         $token = $this->adminToken();
 
-        Auth::forgetGuards();
-        $this->withToken($token)->post('/api/v1/admin/brands', [
-            'name_ar' => 'براند',
-            'name_en' => 'Svg Brand',
+        $rules = (new StoreBrandRequest)->rules();
+        $validator = Validator::make([
             'logo' => UploadedFile::fake()->create('logo.svg', 4, 'image/svg+xml'),
-        ])->assertUnprocessable()
-            ->assertJsonValidationErrors(['logo']);
+        ], ['logo' => $rules['logo']]);
+        $this->assertTrue($validator->fails());
+        $this->assertArrayHasKey('logo', $validator->errors()->toArray());
     }
 
     // ---------- H4: حماية من الدورات في شجرة الأقسام ----------

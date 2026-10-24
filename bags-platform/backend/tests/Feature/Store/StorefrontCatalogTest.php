@@ -91,9 +91,7 @@ class StorefrontCatalogTest extends TestCase
         $this->assertSame(1, $categories->json('data.0.children.0.products_count'));
 
         // مصانع المنتجات تنشئ علامات إضافية — نتحقق من الحضور/الغياب لا العدد الكلي
-        $brandIds = collect($this->getJson('/api/v1/store/brands')->assertOk()->json('data'))->pluck('id');
-        $this->assertContains($activeBrand->id, $brandIds);
-        $this->assertNotContains($inactiveBrand->id, $brandIds);
+        $this->getJson('/api/v1/store/brands')->assertStatus(410);
         $cities = $this->getJson('/api/v1/store/cities')->assertOk()->assertJsonCount(1, 'data');
         $this->assertSame('60.00', $cities->json('data.0.shipping_cost'));
     }
@@ -116,7 +114,8 @@ class StorefrontCatalogTest extends TestCase
         $this->assertEqualsCanonicalizing([$p1->id, $p2->id], collect($byCat->json('data'))->pluck('id')->all());
 
         // علامات متعددة + لون + مدى سعر
-        $filtered = $this->getJson('/api/v1/store/products?brand[]='.$brandX->slug.'&brand[]='.$brandY->id.'&color=black&price_min=100&price_max=1000')->assertOk();
+        $this->getJson('/api/v1/store/products?brand[]='.$brandX->slug)->assertUnprocessable()->assertJsonValidationErrors('brand');
+        $filtered = $this->getJson('/api/v1/store/products?color=black&price_min=100&price_max=1000')->assertOk();
         $this->assertSame([$p1->id], collect($filtered->json('data'))->pluck('id')->all());
 
         // المتوفر فقط
@@ -181,7 +180,7 @@ class StorefrontCatalogTest extends TestCase
         $this->getJson('/api/v1/store/products/no-such-slug')->assertNotFound();
     }
 
-    public function test_similar_prioritizes_same_category_then_brand_and_excludes_self(): void
+    public function test_similar_uses_same_category_without_retired_brand_fallback_and_excludes_self(): void
     {
         $catA = Category::factory()->create();
         $catB = Category::factory()->create();
@@ -195,7 +194,8 @@ class StorefrontCatalogTest extends TestCase
 
         $response = $this->getJson("/api/v1/store/products/{$base->slug}/similar")->assertOk();
         $ids = collect($response->json('data'))->pluck('id')->all();
-        $this->assertSame([$sameCat->id, $sameBrand->id], $ids);
+        $this->assertSame([$sameCat->id], $ids);
+        $this->assertNotContains($sameBrand->id, $ids);
         $this->assertNotContains($unrelated->id, $ids);
         $this->assertNotContains($base->id, $ids);
     }

@@ -10,6 +10,9 @@ Schedule::command('sanctum:prune-expired --hours=24')->dailyAt('03:30')
 Schedule::command('queue:prune-failed --hours=168')->dailyAt('03:45')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping();
 Schedule::command('customers:prune-artifacts')->hourly()->withoutOverlapping();
+Schedule::command('media:prune-orphans --disk=r2_public --older-than=60')->dailyAt('04:30')
+    ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping()
+    ->onFailure(fn () => logger()->error('Scheduled orphan media cleanup failed.'));
 Schedule::call(function (): void {
     if (config('cache.default') === 'database') {
         DB::connection(config('cache.stores.database.connection'))

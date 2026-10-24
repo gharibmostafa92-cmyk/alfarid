@@ -9,16 +9,18 @@ use RuntimeException;
 
 class R2UploadMigration
 {
-    public function copy(string $disk, string $path, string $targetDisk = 'r2'): void
+    public function copy(string $disk, string $path, string $targetDisk = 'r2', ?string $targetPath = null): void
     {
+        $targetPath ??= $path;
         $this->validateSource($disk, $path);
+        $this->validateSource($targetDisk, $targetPath);
         $this->validateTarget($targetDisk);
         $hash = $this->hash($disk, $path);
         $target = Storage::disk($targetDisk);
-        if (! $target->exists($path)) {
+        if (! $target->exists($targetPath)) {
             $stream = Storage::disk($disk)->readStream($path);
             try {
-                if (! $target->put($path, $stream)) {
+                if (! $target->put($targetPath, $stream)) {
                     throw new RuntimeException('R2 upload failed: '.$path);
                 }
             } finally {
@@ -27,16 +29,24 @@ class R2UploadMigration
                 }
             }
         }
-        if (! hash_equals($hash, $this->hash($targetDisk, $path))) {
+        if (! hash_equals($hash, $this->hash($targetDisk, $targetPath))) {
             throw new RuntimeException('R2 content verification failed; source preserved: '.$path);
         }
     }
 
-    public function deleteVerifiedSource(string $disk, string $path, string $targetDisk = 'r2'): void
+    public function deleteVerifiedSource(string $disk, string $path, string $targetDisk = 'r2', ?string $targetPath = null): void
     {
+        $targetPath ??= $path;
         $this->validateSource($disk, $path);
+        $this->validateSource($targetDisk, $targetPath);
         $this->validateTarget($targetDisk);
-        if (! hash_equals($this->hash($disk, $path), $this->hash($targetDisk, $path))) {
+        if ($disk === $targetDisk && $path === $targetPath) {
+            throw new RuntimeException('Cannot delete the active target.');
+        }
+        if (! Storage::disk($disk)->exists($path)) {
+            return;
+        }
+        if (! hash_equals($this->hash($disk, $path), $this->hash($targetDisk, $targetPath))) {
             throw new RuntimeException('Source changed; local copy preserved: '.$path);
         }
         if (! Storage::disk($disk)->delete($path)) {

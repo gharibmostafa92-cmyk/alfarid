@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Admin\Catalog;
 
 use App\Enums\ProductStatus;
+use App\Exceptions\BusinessException;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Product;
@@ -16,7 +17,6 @@ use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
-use Spatie\MediaLibrary\MediaCollections\Exceptions\FileUnacceptableForCollection;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
@@ -108,28 +108,39 @@ class CatalogAuditTest extends TestCase
         $this->assertDatabaseHas('product_variants', ['id' => $id, 'cost_price' => 0]);
     }
 
-    public function test_create_with_invalid_media_rolls_back_category_and_brand(): void
+    public function test_create_with_invalid_media_keeps_row_and_reports_clearly(): void
     {
+        // F2: network I/O runs outside the tree/row lock, so the data write is
+        // no longer atomic with the upload — a failed upload keeps the saved
+        // row (imageless) and reports a clear message instead of rolling back.
         foreach ([CategoryService::class => Category::class, BrandService::class => Brand::class] as $service => $model) {
             try {
                 app($service)->create(['name_ar' => 'اختبار', 'name_en' => 'Rollback'], UploadedFile::fake()->create('bad.txt', 1, 'text/plain'));
                 $this->fail('Invalid media must fail.');
-            } catch (FileUnacceptableForCollection) {
-                $this->assertSame(0, $model::where('name_en', 'Rollback')->count());
+            } catch (BusinessException $e) {
+                $this->assertSame(422, $e->status);
+                $field = $model === Category::class ? 'category_id' : 'brand_id';
+                $this->assertSame([$model::where('name_en', 'Rollback')->firstOrFail()->id], $e->errors[$field]);
             }
+            $record = $model::where('name_en', 'Rollback')->firstOrFail();
+            $this->assertSame(0, $record->media()->count());
         }
     }
 
-    public function test_update_with_invalid_media_rolls_back_category_and_brand_changes(): void
+    public function test_update_with_invalid_media_keeps_data_changes_and_no_media(): void
     {
+        // F2: same trade-off as create — the data change persists, the image
+        // change is fully rolled back, and the caller gets a clear message.
         foreach ([CategoryService::class => Category::class, BrandService::class => Brand::class] as $service => $model) {
             $record = $model::factory()->create(['name_en' => 'Original']);
             try {
                 app($service)->update($record, ['name_en' => 'Changed'], UploadedFile::fake()->create('bad.txt', 1, 'text/plain'));
                 $this->fail('Invalid media must fail.');
-            } catch (FileUnacceptableForCollection) {
-                $this->assertSame('Original', $record->fresh()->name_en);
+            } catch (BusinessException $e) {
+                $this->assertSame(422, $e->status);
             }
+            $this->assertSame('Changed', $record->fresh()->name_en);
+            $this->assertSame(0, $record->fresh()->media()->count());
         }
     }
 
@@ -169,11 +180,13 @@ class CatalogAuditTest extends TestCase
     {
         $this->signIn(['brands.create', 'brands.delete']);
         $logo = UploadedFile::fake()->image('logo.png');
-        $response = $this->post('/api/v1/admin/brands', ['name_ar' => 'براند', 'name_en' => 'Brand', 'logo' => $logo])->assertCreated();
-        $this->assertNotEmpty($response->json('data.logo_url'));
-        $brandId = $response->json('data.id');
-        Product::factory()->create(['brand_id' => $brandId]);
-        $this->deleteJson("/api/v1/admin/brands/{$brandId}")->assertUnprocessable();
+        $service = app(BrandService::class);
+        $brand = $service->create(['name_ar' => 'براند', 'name_en' => 'Brand'], $logo);
+        $this->assertNotEmpty($brand->getFirstMediaUrl('logo'));
+        Product::factory()->create(['brand_id' => $brand->id]);
+        $this->getJson('/api/v1/admin/brands')->assertStatus(410);
+        $this->expectException(BusinessException::class);
+        $service->delete($brand);
     }
 
     public function test_last_active_variant_of_published_product_is_protected(): void
@@ -250,7 +263,7 @@ class CatalogAuditTest extends TestCase
     public function test_non_positive_pagination_is_rejected_and_upper_limit_is_clamped(): void
     {
         $this->signIn(['categories.view', 'brands.view', 'products.view']);
-        foreach (['categories', 'brands', 'products'] as $resource) {
+        foreach (['categories', 'products'] as $resource) {
             $this->getJson("/api/v1/admin/{$resource}?per_page=-1")->assertUnprocessable()->assertJsonValidationErrors('per_page');
             $this->getJson("/api/v1/admin/{$resource}?per_page=101")->assertOk()->assertJsonPath('meta.per_page', 100);
         }

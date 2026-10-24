@@ -4,11 +4,20 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Inventory;
 
+use App\Http\Requests\Admin\Concerns\BulkVariantExists;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 class StoreProductionReceiptRequest extends FormRequest
 {
+    use BulkVariantExists;
+
+    public function withValidator(Validator $validator): void
+    {
+        $this->addBulkVariantExistsCheck($validator, activeOnly: true);
+    }
+
     public function authorize(): bool
     {
         return $this->user()->can('inventory.adjust') && $this->user()->can('products.view_cost');
@@ -31,7 +40,7 @@ class StoreProductionReceiptRequest extends FormRequest
             'notes' => ['nullable', 'string', 'max:1000'],
             'items' => ['required', 'array', 'min:1', 'max:50'],
             'items.*' => ['array:product_variant_id,quantity,unit_cost'],
-            'items.*.product_variant_id' => ['required', 'integer', 'distinct', Rule::exists('product_variants', 'id')->whereNull('deleted_at')->where('is_active', true)],
+            'items.*.product_variant_id' => ['required', 'integer', 'distinct'],
             'items.*.quantity' => ['required', 'integer', 'min:1', 'max:99999999'],
             'items.*.unit_cost' => ['required', 'numeric', 'decimal:0,4', 'min:0', 'max:99999999.9999'],
         ];

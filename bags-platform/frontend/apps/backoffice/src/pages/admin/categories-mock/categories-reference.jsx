@@ -351,7 +351,7 @@ function PageHeader({ crumbs = [], title, subtitle, actions, badge }) {
   );
 }
 
-function ImageField({ value, onFile, onRemove, onChecking, progress, error, disabled, rules = ['JPG · PNG · WebP', 'حتى 4MB', 'حتى 6000×6000', 'SVG غير مقبول'], shape = 'square', label = 'رفع صورة' }) {
+function ImageField({ value, onFile, onRemove, onChecking, progress, error, disabled, rules = ['JPG · PNG · WebP', 'حتى 4MB', 'حتى 16 ميجابكسل', 'SVG غير مقبول'], shape = 'square', label = 'رفع صورة' }) {
   const inputRef = useRef(null);
   const pendingUrl = useRef(null);
   const selection = useRef(0);
@@ -382,9 +382,9 @@ function ImageField({ value, onFile, onRemove, onChecking, progress, error, disa
       if (current !== selection.current) return;
       pendingUrl.current = null;
       onChecking?.(false);
-      if (img.naturalWidth > 6000 || img.naturalHeight > 6000) {
+      if (img.naturalWidth * img.naturalHeight > 16000000) {
         URL.revokeObjectURL(url);
-        setLocalErr('الأبعاد أكبر من 6000×6000');
+        setLocalErr('الصورة تتجاوز 16 ميجابكسل');
         return;
       }
       setLocalErr(null);
@@ -693,8 +693,8 @@ export function CategoriesReferencePage() {
 const FORM_KEYS = ['ar', 'en', 'slug', 'desc_ar', 'desc_en', 'order', 'parentId', 'status', 'img'];
 
 function CategoryForm({ open, value, tree, onClose, onSaved }) {
-  const isEdit = value && value.id;
   const [v, setV] = useState({});
+  const isEdit = Boolean(v.id);
   const [slugTouched, setSlugTouched] = useState(false);
   const [errs, setErrs] = useState({});
   const [lang, setLang] = useState('ar');
@@ -713,7 +713,7 @@ function CategoryForm({ open, value, tree, onClose, onSaved }) {
     setErrs({});
     setLang('ar');
     if (previewUrlRef.current) { URL.revokeObjectURL(previewUrlRef.current); previewUrlRef.current = null; }
-    if (isEdit) {
+    if (value && value.id) {
       const found = findNode(tree, value.id);
       setV({
         id: value.id,
@@ -777,6 +777,12 @@ function CategoryForm({ open, value, tree, onClose, onSaved }) {
       onSaved && onSaved();
       onClose();
     } catch (err) {
+      const savedId = Number(err?.response?.data?.errors?.category_id?.[0]);
+      if (err?.response?.data?.code === 'category_image_failed' && Number.isSafeInteger(savedId) && savedId > 0) {
+        setV(current => ({ ...current, id: savedId, slug: slugVal }));
+        setSlugTouched(true);
+        onSaved && onSaved();
+      }
       const p = parseApiError(err);
       if (p.isValidation) {
         const formErrs = Object.fromEntries(Object.entries(p.fieldErrors).filter(([k]) => FORM_KEYS.includes(k)));

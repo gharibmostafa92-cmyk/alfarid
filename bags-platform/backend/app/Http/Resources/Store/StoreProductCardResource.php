@@ -33,7 +33,9 @@ class StoreProductCardResource extends JsonResource
             'name_ar' => $this->name_ar,
             'name_en' => $this->name_en,
             'slug' => $this->slug,
-            'image' => $this->getFirstMediaUrl('images', 'thumb') ?: ($this->getFirstMediaUrl('images') ?: null),
+            // F6: conversions render on the queue — fall back to the original
+            // until the thumb exists instead of emitting a broken CDN link.
+            'image' => ($media = $this->resource->catalogImages()->first()) && $media->hasGeneratedConversion('thumb') ? $media->getUrl('thumb') : ($media?->getUrl() ?: null),
             'brand' => null,
             'category' => $this->whenLoaded('category', fn () => $this->category ? [
                 'id' => $this->category->id, 'name_ar' => $this->category->name_ar, 'name_en' => $this->category->name_en, 'slug' => $this->category->slug,

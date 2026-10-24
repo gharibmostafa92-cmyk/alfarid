@@ -14,3 +14,9 @@ test('variant combinations, SKU casing and manual system barcodes are validated'
  const errors=context.validateVariants(rows,'retail','matrix',false);
  assert.ok(errors.two.dup);assert.ok(errors.two.sku);assert.ok(errors.two.barcode);
 });
+
+test('four decimal costs round trip while selling prices remain two decimals',()=>{
+ assert.equal(Object.keys(context.validateVariants([row({cost:'1.2345'})],'retail','single',false)).length,0);
+ assert.ok(context.validateVariants([row({cost:'1.23456'})],'retail','single',false).one.cost);
+ assert.ok(context.validateVariants([row({retail:'1.2345'})],'retail','single',false).one.retail);
+});

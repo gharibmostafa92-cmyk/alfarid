@@ -27,6 +27,8 @@ class BrandResource extends JsonResource
             'is_active' => $this->is_active,
             'logo_url' => $this->getFirstMediaUrl('logo') ?: null,
             'products_count' => $this->whenCounted('products'),
+            // Historical total, including soft-deleted products.
+            'all_products_count' => $this->whenCounted('all_products_count'),
             'created_at' => $this->created_at,
         ];
     }

@@ -52,7 +52,7 @@ class CatalogRobustnessTest extends TestCase
 
         $this->requestWithToken($token, 'GET', '/api/v1/admin/products?search[]=x')->assertUnprocessable();
         $this->requestWithToken($token, 'GET', '/api/v1/admin/products?category_id[]=1&category_id[]=2')->assertUnprocessable();
-        $this->requestWithToken($token, 'GET', '/api/v1/admin/brands?search[]=x')->assertUnprocessable();
+        $this->requestWithToken($token, 'GET', '/api/v1/admin/brands?search[]=x')->assertStatus(410);
         $this->requestWithToken($token, 'GET', '/api/v1/admin/categories?search[]=x')->assertUnprocessable();
     }
 
@@ -173,10 +173,13 @@ class CatalogRobustnessTest extends TestCase
         $token = $this->adminToken();
 
         Auth::forgetGuards();
+        // F7: the guard is a total pixel budget (25M), not an edge cap — a
+        // 6001x40 strip is harmless and now passes, while a 6000x5000
+        // (30M pixels) decompression bomb is still rejected.
         $this->withToken($token)->post('/api/v1/admin/categories', [
             'name_ar' => 'قسم',
             'name_en' => 'Huge Image Category',
-            'image' => UploadedFile::fake()->image('huge.jpg', 6001, 40),
+            'image' => UploadedFile::fake()->image('huge.jpg', 6000, 5000),
         ])->assertUnprocessable()
             ->assertJsonValidationErrors(['image']);
     }

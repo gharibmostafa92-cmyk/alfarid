@@ -50,7 +50,10 @@ class CategoryController extends Controller implements HasMiddleware
 
         $categories = Category::query()
             ->with(['parent.media', 'media'])
-            ->withCount('products')
+            // F16: products_count excludes soft-deleted rows while delete()
+            // checks withTrashed() — also expose the trashed-inclusive count
+            // so the UI can explain "0 live, N deleted" instead of confusing 409s.
+            ->withCount(['products', 'products as all_products_count' => fn ($q) => $q->withTrashed()])
             ->when(isset($filters['search']) && $filters['search'] !== '', function ($query) use ($filters): void {
                 $pattern = SearchTerm::pattern($filters['search']);
                 $query->where(fn ($q) => $q->whereLike('name_ar', $pattern, caseSensitive: false)
@@ -74,7 +77,7 @@ class CategoryController extends Controller implements HasMiddleware
 
     public function show(Category $category): CategoryResource
     {
-        $category->load('parent.media', 'children.media', 'media')->loadCount('products');
+        $category->load('parent.media', 'children.media', 'media')->loadCount(['products', 'products as all_products_count' => fn ($q) => $q->withTrashed()]);
 
         return CategoryResource::make($category);
     }
@@ -82,7 +85,7 @@ class CategoryController extends Controller implements HasMiddleware
     public function store(StoreCategoryRequest $request): JsonResponse
     {
         $category = $this->service->create($request->validated(), $request->file('image'));
-        $category->load('parent.media', 'media')->loadCount('products');
+        $category->load('parent.media', 'media')->loadCount(['products', 'products as all_products_count' => fn ($q) => $q->withTrashed()]);
 
         return CategoryResource::make($category)->response()->setStatusCode(201);
     }
@@ -91,7 +94,7 @@ class CategoryController extends Controller implements HasMiddleware
     public function update(UpdateCategoryRequest $request, Category $category): CategoryResource
     {
         $category = $this->service->update($category, $request->validated(), $request->file('image'));
-        $category->load('parent.media', 'media')->loadCount('products');
+        $category->load('parent.media', 'media')->loadCount(['products', 'products as all_products_count' => fn ($q) => $q->withTrashed()]);
 
         return CategoryResource::make($category);
     }

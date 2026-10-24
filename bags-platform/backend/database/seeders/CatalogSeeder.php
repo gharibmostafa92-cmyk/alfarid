@@ -12,7 +12,6 @@ use App\Models\User;
 use App\Services\Catalog\ProductService;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
 
 /**
  * بيانات كتالوج تجريبية: أقسام وبراندات ومنتجات مسودة (من غير صور، فمبتتنشرش).
@@ -21,6 +20,9 @@ class CatalogSeeder extends Seeder
 {
     public function run(): void
     {
+        if (app()->isProduction()) {
+            throw new \RuntimeException('Catalog demo data cannot be seeded in production.');
+        }
         DB::transaction(function (): void {
             $categories = $this->seedCategories();
             $brands = $this->seedBrands();
@@ -89,11 +91,10 @@ class CatalogSeeder extends Seeder
             return; // البيانات التجريبية بتتزرع مرة واحدة بس
         }
 
-        $author = User::query()->first() ?? User::factory()->create([
-            'name' => 'Catalog Demo',
-            'email' => 'catalog-demo@alfarid.test',
-            'password' => Hash::make('password'),
-        ]);
+        $author = User::query()->first();
+        if (! $author) {
+            throw new \RuntimeException('Create a staff user before seeding the demo catalog.');
+        }
 
         $service = app(ProductService::class);
         foreach ($this->catalog($categories, $brands) as $data) {

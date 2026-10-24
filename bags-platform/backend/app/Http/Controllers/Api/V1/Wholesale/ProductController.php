@@ -77,16 +77,20 @@ class ProductController extends Controller
             ->map(fn ($v) => (float) $v)
             ->all();
 
+        // F17: customer price-list context is identical for every variant on
+        // this page — load it once instead of per variant.
+        $pricingCtx = $this->pricing->contextFor($customer, $variantIds);
+
         $data = $products->getCollection()->map(fn (Product $product) => [
             'id' => $product->id,
             'name' => $product->name_ar,
             'name_en' => $product->name_en,
-            'variants' => $product->variants->map(function (ProductVariant $variant) use ($customer, $availability): array {
+            'variants' => $product->variants->map(function (ProductVariant $variant) use ($customer, $availability, $pricingCtx): array {
                 try {
-                    $resolved = $this->pricing->resolve($variant, $customer, 1);
+                    $resolved = $this->pricing->resolve($variant, $customer, 1, null, $pricingCtx);
                     $price = $resolved['unit_price'];
                     $base = $resolved['base_price'];
-                    $tiers = $this->pricing->tiersFor($variant, $customer);
+                    $tiers = $this->pricing->tiersFor($variant, $customer, $pricingCtx);
                 } catch (BusinessException) {
                     $price = null;
                     $base = $variant->retail_price !== null ? (float) $variant->retail_price : null;

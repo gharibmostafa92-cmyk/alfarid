@@ -82,7 +82,7 @@ class StoreCatalogService
             ->with([
                 'category', 'media',
                 'variants' => fn ($q) => $this->pricing->withStorePrice($q->getQuery(), $this->customer())
-                    ->where('is_active', true)->orderBy('sort_order')->orderBy('id'),
+                    ->where('is_active', true)->with('media')->orderBy('sort_order')->orderBy('id'),
             ]);
 
         return $this->withStoreAvailability($query);

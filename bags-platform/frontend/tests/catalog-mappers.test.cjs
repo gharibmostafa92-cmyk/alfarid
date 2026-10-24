@@ -8,7 +8,9 @@ vm.runInNewContext(ts.transpileModule(fs.readFileSync('apps/backoffice/src/pages
 const {productFromApi,productToPayload,variantToPayload,emptyUiRow,blankUiBasic}=exportsMap;
 test('product dimensions and descriptions round trip without exposing hidden cost',()=>{
  const product={id:1,name_ar:'حقيبة',name_en:'Bag',slug:'bag',status:'draft',sales_channel:'both',dimensions:{length_cm:'12',width_cm:'3',height_cm:'20'},category:{id:4},brand:null,supplier_id:null,variants:[{id:7,sku:'P00001-01',barcode:'2000000000008',color:{name_ar:'أزرق',name_en:'Blue',hex:'#0000FF'},size:'Large',capacity:null,retail_price:'10',wholesale_price:'8',cost_price:'4',sort_order:0,is_active:true}],description_ar:'وصف',description_en:'Description'};
+ product.lock_version=4;product.updated_at='2026-10-24T10:00:00Z';product.variants[0].lock_version=7;
  const state=productFromApi(product,[],{canViewCost:false});
+ assert.equal(state.lock_version,4);assert.equal(state.updated_at,product.updated_at);assert.equal(state.rows[0].lock_version,7);
  const payload=productToPayload(state.basic);
  assert.equal(payload.length_cm,'12');assert.equal(payload.description_ar,'وصف');assert.equal(payload.category_id,4);
  assert.equal(state.rows[0].serverId,7);assert.equal(state.rows[0].cost,'');assert.equal(state.axes.colors[0].en,'Blue');

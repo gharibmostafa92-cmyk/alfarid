@@ -35,6 +35,40 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class PricingService
 {
+    /**
+     * F17: preload the per-customer pricing context once per listing and pass
+     * it down — resolve()/tiersFor() otherwise re-query the customer group on
+     * every variant (15 products x variants x calls per page).
+     *
+     * @return array{channel: PriceListType, eligible: bool, group: object|null}
+     */
+    public function contextFor(?Customer $customer, ?array $variantIds = null): array
+    {
+        $eligible = $customer !== null && $customer->status === CustomerStatus::Approved;
+        $group = $eligible ? $customer->customerGroup()->where('is_active', true)->first() : null;
+
+        $channel = $this->channelFor($customer);
+        $context = ['channel' => $channel, 'eligible' => $eligible, 'group' => $group];
+        if ($variantIds !== null) {
+            $context['items'] = $this->eligibleItems(null, PHP_FLOAT_MAX, null, Carbon::now(), $variantIds)
+                ->where(function ($q) use ($channel, $eligible, $customer, $group): void {
+                    $q->whereIn('price_lists.type', array_unique([$channel->value, PriceListType::Retail->value]));
+                    if ($eligible) {
+                        $q->orWhere(fn ($owner) => $owner->where('price_lists.type', PriceListType::CustomerSpecific)
+                            ->where('price_lists.customer_id', $customer->id));
+                    }
+                    if ($group !== null) {
+                        $q->orWhere(fn ($owner) => $owner->where('price_lists.type', PriceListType::CustomerGroup)
+                            ->where('price_lists.customer_group_id', $group->id));
+                    }
+                })
+                ->addSelect('price_lists.type as pricing_type', 'price_lists.branch_id as pricing_branch_id', 'price_lists.priority as pricing_priority')
+                ->get()->groupBy('product_variant_id');
+        }
+
+        return $context;
+    }
+
     /** Resolve storefront prices in SQL using the same owner, tier and priority rules as resolve(). */
     public function withStorePrice(Builder $variants, ?Customer $customer): Builder
     {
@@ -72,22 +106,39 @@ class PricingService
         ?Customer $customer = null,
         float $qty = 1,
         ?int $branchId = null,
+        ?array $ctx = null,
     ): array {
         if (! is_finite($qty) || $qty <= 0) {
             throw new BusinessException('كمية التسعير يجب أن تكون موجبة.');
         }
         $now = Carbon::now();
 
+        // F17: reuse the preloaded per-customer context when the caller passes
+        // it (wholesale listing); otherwise load it for this single call.
+        $ctx ??= $this->contextFor($customer);
         $baseQuery = $this->eligibleItems($variant, $qty, $branchId, $now);
-        $channel = $this->channelFor($customer);
-        $eligibleCustomer = $customer !== null && $customer->status === CustomerStatus::Approved;
+        $channel = $ctx['channel'];
+        $eligibleCustomer = $ctx['eligible'];
+        $pick = function (PriceListType $type, ?string $ownerField = null, ?int $ownerId = null) use ($ctx, $variant, $qty, $baseQuery, $branchId): ?PriceListItem {
+            if (isset($ctx['items']) && $branchId === null) {
+                return ($ctx['items'][$variant->id] ?? collect())
+                    ->filter(fn ($item) => $item->pricing_type === $type->value && (float) $item->min_qty <= $qty)
+                    ->sort(function ($a, $b): int {
+                        return (($a->pricing_branch_id === null) <=> ($b->pricing_branch_id === null))
+                            ?: ((float) $b->min_qty <=> (float) $a->min_qty)
+                            ?: ((int) $b->pricing_priority <=> (int) $a->pricing_priority)
+                            ?: BigDecimal::of($a->price)->compareTo(BigDecimal::of($b->price))
+                            ?: ((int) $a->id <=> (int) $b->id);
+                    })->first();
+            }
+
+            return $this->ordered((clone $baseQuery)->where('price_lists.type', $type)
+                ->when($ownerField !== null, fn ($q) => $q->where('price_lists.'.$ownerField, $ownerId)))->first();
+        };
 
         // الأولوية 1: سعر خاص بالعميل
         if ($eligibleCustomer) {
-            $item = $this->ordered((clone $baseQuery)
-                ->where('price_lists.type', PriceListType::CustomerSpecific)
-                ->where('price_lists.customer_id', $customer->id)
-            )->first();
+            $item = $pick(PriceListType::CustomerSpecific, 'customer_id', $customer->id);
 
             if ($item !== null) {
                 return $this->formatResponse($item->price, PriceListType::CustomerSpecific->value, (int) $item->price_list_id, $variant, $channel);
@@ -95,12 +146,9 @@ class PricingService
         }
 
         // الأولوية 2: سعر مجموعة العميل
-        $group = $eligibleCustomer ? $customer->customerGroup()->where('is_active', true)->first() : null;
+        $group = $ctx['group'];
         if ($group !== null) {
-            $item = $this->ordered((clone $baseQuery)
-                ->where('price_lists.type', PriceListType::CustomerGroup)
-                ->where('price_lists.customer_group_id', $group->id)
-            )->first();
+            $item = $pick(PriceListType::CustomerGroup, 'customer_group_id', $group->id);
 
             if ($item !== null) {
                 return $this->formatResponse($item->price, PriceListType::CustomerGroup->value, (int) $item->price_list_id, $variant, $channel);
@@ -108,16 +156,12 @@ class PricingService
         }
 
         // الأولوية 3: قائمة نوع العميل (أو القطاعي افتراضيًا)
-        $item = $this->ordered((clone $baseQuery)
-            ->where('price_lists.type', $channel)
-        )->first();
+        $item = $pick($channel);
 
         // قناة جملة/موزع بلا عنصر في قائمتها ترجع لقوائم القطاعي النشطة قبل
         // السعر الأساسي — وإلا دفع عميل الجملة أكثر من عميل التجزئة (M-1).
         if ($item === null && $channel !== PriceListType::Retail) {
-            $item = $this->ordered((clone $baseQuery)
-                ->where('price_lists.type', PriceListType::Retail)
-            )->first();
+            $item = $pick(PriceListType::Retail);
 
             if ($item !== null) {
                 $channel = PriceListType::Retail;
@@ -162,38 +206,42 @@ class PricingService
      *
      * @return list<array{min_qty: float, unit_price: float}>
      */
-    public function tiersFor(ProductVariant $variant, Customer $customer): array
+    public function tiersFor(ProductVariant $variant, Customer $customer, ?array $ctx = null): array
     {
         $now = Carbon::now();
-        $channel = $this->channelFor($customer);
-        $eligible = $customer->status === CustomerStatus::Approved;
-        $groupId = $eligible ? $customer->customerGroup()->where('is_active', true)->value('id') : null;
+        // F17: reuse the preloaded per-customer context when available.
+        $ctx ??= $this->contextFor($customer);
+        $channel = $ctx['channel'];
+        $eligible = $ctx['eligible'];
+        $groupId = $ctx['group']?->id;
 
-        $breakpoints = $this->eligibleItems($variant, PHP_FLOAT_MAX, null, $now)
-            ->where(function ($q) use ($eligible, $customer, $groupId, $channel): void {
-                $q->where('price_lists.type', $channel->value)
-                    ->orWhere('price_lists.type', PriceListType::Retail->value);
-                if ($eligible) {
-                    $q->orWhere(fn ($q) => $q->where('price_lists.type', PriceListType::CustomerSpecific)
-                        ->where('price_lists.customer_id', $customer->id));
-                }
-                if ($groupId !== null) {
-                    $q->orWhere(fn ($q) => $q->where('price_lists.type', PriceListType::CustomerGroup)
-                        ->where('price_lists.customer_group_id', $groupId));
-                }
-            })
-            ->pluck('price_list_items.min_qty')
-            ->map(fn ($v) => (float) $v)
-            ->unique()
-            ->sort()
-            ->values();
+        $breakpoints = isset($ctx['items'])
+            ? ($ctx['items'][$variant->id] ?? collect())->pluck('min_qty')->map(fn ($v) => (float) $v)
+            : $this->eligibleItems($variant, PHP_FLOAT_MAX, null, $now)
+                ->where(function ($q) use ($eligible, $customer, $groupId, $channel): void {
+                    $q->where('price_lists.type', $channel->value)
+                        ->orWhere('price_lists.type', PriceListType::Retail->value);
+                    if ($eligible) {
+                        $q->orWhere(fn ($q) => $q->where('price_lists.type', PriceListType::CustomerSpecific)
+                            ->where('price_lists.customer_id', $customer->id));
+                    }
+                    if ($groupId !== null) {
+                        $q->orWhere(fn ($q) => $q->where('price_lists.type', PriceListType::CustomerGroup)
+                            ->where('price_lists.customer_group_id', $groupId));
+                    }
+                })
+                ->pluck('price_list_items.min_qty')
+                ->map(fn ($v) => (float) $v)
+                ->unique()
+                ->sort()
+                ->values();
 
         $points = collect([1.0])->merge($breakpoints)->unique()->sort()->values();
 
         return $points
             ->map(fn (float $minQty) => [
                 'min_qty' => $minQty,
-                'unit_price' => $this->resolve($variant, $customer, max(1.0, $minQty))['unit_price'],
+                'unit_price' => $this->resolve($variant, $customer, max(1.0, $minQty), null, $ctx)['unit_price'],
             ])
             ->values()
             ->all();
@@ -222,7 +270,7 @@ class PricingService
     }
 
     /** كل عناصر التسعير السارية لهذا المتغير والكمية والفرع والوقت. */
-    private function eligibleItems(?ProductVariant $variant, float $qty, ?int $branchId, Carbon $now): Builder
+    private function eligibleItems(?ProductVariant $variant, float $qty, ?int $branchId, Carbon $now, ?array $variantIds = null): Builder
     {
         return PriceListItem::query()
             ->select('price_list_items.*')
@@ -230,7 +278,9 @@ class PricingService
             ->where('price_lists.is_active', true)
             ->when($variant !== null,
                 fn ($q) => $q->where('price_list_items.product_variant_id', $variant->id),
-                fn ($q) => $q->whereColumn('price_list_items.product_variant_id', 'product_variants.id'))
+                fn ($q) => $variantIds !== null
+                    ? $q->whereIn('price_list_items.product_variant_id', $variantIds)
+                    : $q->whereColumn('price_list_items.product_variant_id', 'product_variants.id'))
             ->where('price_list_items.min_qty', '<=', $qty)
             ->where(fn ($q) => $q->whereNull('price_lists.starts_at')->orWhere('price_lists.starts_at', '<=', $now))
             ->where(fn ($q) => $q->whereNull('price_lists.ends_at')->orWhere('price_lists.ends_at', '>=', $now))
@@ -251,7 +301,7 @@ class PricingService
             ->orderByRaw('price_lists.branch_id IS NULL ASC')
             ->orderByDesc('price_list_items.min_qty')
             ->orderByDesc('price_lists.priority')
-            ->orderBy('price_list_items.price');
+            ->orderBy('price_list_items.price')->orderBy('price_list_items.id');
     }
 
     /**

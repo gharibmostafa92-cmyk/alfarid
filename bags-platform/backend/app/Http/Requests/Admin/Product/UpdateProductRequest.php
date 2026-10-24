@@ -53,6 +53,9 @@ class UpdateProductRequest extends FormRequest
             'status' => ['sometimes', 'nullable', Rule::enum(ProductStatus::class)],
             'sales_channel' => ['sometimes', 'required', Rule::enum(SalesChannel::class)],
             'is_featured' => ['sometimes', 'nullable', 'boolean'],
+            // Timestamp-only locking cannot detect edits in the same second.
+            'expected_updated_at' => ['sometimes', 'nullable', 'date'],
+            'expected_version' => ['required_with:expected_updated_at', 'integer', 'min:0'],
         ];
     }
 }

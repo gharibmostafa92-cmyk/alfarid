@@ -37,10 +37,11 @@ class StoreProductResource extends JsonResource
             'material_en' => $this->material_en,
             'warranty_months' => $this->warranty_months,
             'country_of_origin' => $this->country_of_origin,
-            'images' => $this->getMedia('images')->map(fn ($media) => [
+            'images' => $this->resource->catalogImages()->map(fn ($media) => [
                 'id' => $media->id,
                 'url' => $media->getUrl(),
-                'thumb' => $media->getUrl('thumb'),
+                // F6: fall back to the original until the queued conversion exists.
+                'thumb' => $media->hasGeneratedConversion('thumb') ? $media->getUrl('thumb') : $media->getUrl(),
             ])->all(),
             'variants' => $this->variants->map(function ($variant) use ($pricing, $customer) {
                 $resolved = null;
@@ -59,6 +60,11 @@ class StoreProductResource extends JsonResource
                     'color_hex' => $variant->color_hex,
                     'size' => $variant->size,
                     'capacity' => $variant->capacity,
+                    'images' => $variant->getMedia('images')->map(fn ($media) => [
+                        'id' => $media->id,
+                        'url' => $media->getUrl(),
+                        'thumb' => $media->hasGeneratedConversion('thumb') ? $media->getUrl('thumb') : $media->getUrl(),
+                    ])->values()->all(),
                     'price' => $resolved !== null ? (float) $resolved['unit_price'] : null,
                     'old_price' => $resolved !== null && max((float) $variant->compare_at_price, (float) $resolved['base_price']) > (float) $resolved['unit_price']
                         && (int) round((1 - $resolved['unit_price'] / max((float) $variant->compare_at_price, (float) $resolved['base_price'])) * 100) >= 1

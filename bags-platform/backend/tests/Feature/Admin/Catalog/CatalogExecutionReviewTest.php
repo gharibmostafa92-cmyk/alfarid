@@ -5,11 +5,14 @@ declare(strict_types=1);
 namespace Tests\Feature\Admin\Catalog;
 
 use App\Enums\ProductStatus;
+use App\Exceptions\BusinessException;
+use App\Http\Resources\Store\StoreCategoryResource;
 use App\Models\Branch;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\User;
+use App\Services\Catalog\CategoryService;
 use App\Services\Catalog\ProductMediaService;
 use App\Services\InventoryService;
 use App\Services\ProductionReceiptService;
@@ -134,6 +137,77 @@ class CatalogExecutionReviewTest extends TestCase
         config(['filesystems.disks.r2.bucket' => 'private', 'filesystems.disks.r2_public.bucket' => 'private']);
         $this->expectException(\LogicException::class);
         Category::factory()->create()->addMedia(UploadedFile::fake()->image('category.jpg'))->toMediaCollection('image');
+    }
+
+    public function test_product_create_replays_on_same_create_key(): void
+    {
+        $this->signIn(['products.create']);
+        $payload = [
+            'category_id' => Category::factory()->create()->id,
+            'name_ar' => 'حقيبة', 'name_en' => 'Idempotent bag', 'sales_channel' => 'retail',
+            'create_key' => '11111111-2222-4333-8444-555555555555',
+        ];
+        $first = $this->postJson('/api/v1/admin/products', $payload)->assertCreated();
+        $second = $this->postJson('/api/v1/admin/products', $payload)->assertCreated();
+        $this->assertSame($first->json('data.id'), $second->json('data.id'));
+        $this->assertSame(1, Product::where('create_key', $payload['create_key'])->count());
+    }
+
+    public function test_product_update_requires_version_with_legacy_timestamp(): void
+    {
+        $this->signIn(['products.update']);
+        $product = Product::factory()->create();
+        $this->putJson('/api/v1/admin/products/'.$product->id, ['name_en' => 'Changed', 'expected_updated_at' => '2000-01-01T00:00:00Z'])
+            ->assertUnprocessable()->assertJsonValidationErrors('expected_version');
+        $this->putJson('/api/v1/admin/products/'.$product->id, ['name_en' => 'Changed', 'expected_version' => 0, 'expected_updated_at' => $product->fresh()->updated_at->toJSON()])
+            ->assertOk()->assertJsonPath('data.name_en', 'Changed');
+    }
+
+    public function test_category_update_slug_conflict_returns_409(): void
+    {
+        $this->signIn(['categories.update']);
+        $service = app(CategoryService::class);
+        $service->create(['name_ar' => 'أ', 'name_en' => 'Alpha cat', 'slug' => 'alpha-cat'], null);
+        $other = $service->create(['name_ar' => 'ب', 'name_en' => 'Beta cat'], null);
+        try {
+            $service->update($other, ['slug' => 'alpha-cat'], null);
+            $this->fail('Expected a 409 BusinessException for the racing slug.');
+        } catch (BusinessException $e) {
+            $this->assertSame(409, $e->status);
+        }
+    }
+
+    public function test_admin_search_matches_lowercase_sku_and_barcode(): void
+    {
+        $this->signIn(['products.view']);
+        $product = Product::factory()->create();
+        $variant = ProductVariant::factory()->create(['product_id' => $product->id, 'sku' => 'TST-9000', 'barcode' => 'BAR-abc-001']);
+        $this->getJson('/api/v1/admin/products?search=tst-9000')->assertOk()->assertJsonPath('data.0.id', $product->id);
+        $this->getJson('/api/v1/admin/products?search=bar-abc-001')->assertOk()->assertJsonPath('data.0.id', $product->id);
+    }
+
+    public function test_store_category_image_falls_back_to_original_without_thumb(): void
+    {
+        $category = app(CategoryService::class)->create(
+            ['name_ar' => 'قسم', 'name_en' => 'Fallback cat'],
+            UploadedFile::fake()->image('cat.jpg')
+        );
+        $media = $category->getFirstMedia('image');
+        $this->assertNotNull($media);
+        $media->markAsConversionNotGenerated('thumb');
+        $rendered = StoreCategoryResource::make($category->fresh())->resolve(request());
+        $this->assertSame($media->getUrl(), $rendered['image']);
+    }
+
+    public function test_category_counts_include_trashed_products(): void
+    {
+        $this->signIn(['categories.view']);
+        $category = Category::factory()->create();
+        $product = Product::factory()->create(['category_id' => $category->id]);
+        $product->delete();
+        $this->getJson('/api/v1/admin/categories')->assertOk()
+            ->assertJsonPath('data.0.products_count', 0)
+            ->assertJsonPath('data.0.all_products_count', 1);
     }
 
     private function signIn(array $permissions): void

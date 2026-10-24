@@ -7,10 +7,13 @@ namespace App\Http\Requests\Admin\Product;
 use App\Enums\SalesChannel;
 use App\Http\Requests\Admin\Concerns\LimitsArrayInput;
 use App\Http\Requests\Admin\Variant\VariantRules;
+use App\Models\Product;
 use App\Rules\UniqueCatalogIdentifier;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Unique;
 
 class StoreProductRequest extends FormRequest
 {
@@ -50,6 +53,9 @@ class StoreProductRequest extends FormRequest
             'warranty_details' => ['nullable', 'string', 'max:255'],
             'country_of_origin' => ['nullable', 'string', 'max:100'],
             'status' => ['nullable', Rule::in(['draft'])],
+            // F9: idempotency key for product creation — one UUID per creation
+            // session, reused across retries so a lost response cannot duplicate.
+            'create_key' => ['nullable', 'uuid'],
             'sales_channel' => ['required', Rule::enum(SalesChannel::class)],
             'is_featured' => ['nullable', 'boolean'],
             // اختياري: متغيرات مع الإنشاء
@@ -62,6 +68,20 @@ class StoreProductRequest extends FormRequest
                 $rule[] = 'distinct';
             }
             $rules["variants.*.$field"] = $rule;
+        }
+
+        // A replay with an explicit slug/SKU now legitimately collides with
+        // its own saved rows. The service verifies the request fingerprint
+        // and returns the saved product before any write.
+        $key = $this->input('create_key');
+        if (is_string($key) && Str::isUuid($key)
+            && Product::withTrashed()->where('created_by', $this->user()->id)->where('create_key', $key)->exists()) {
+            foreach ($rules as $field => $rule) {
+                if (is_array($rule)) {
+                    $rules[$field] = array_values(array_filter($rule, fn ($item) => ! $item instanceof UniqueCatalogIdentifier
+                        && ! $item instanceof Unique));
+                }
+            }
         }
 
         return $rules;

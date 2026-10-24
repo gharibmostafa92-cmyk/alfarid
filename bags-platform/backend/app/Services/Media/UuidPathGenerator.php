@@ -18,9 +18,6 @@ class UuidPathGenerator implements PathGenerator
         if ($media->getCustomProperty('path_layout') === 'uuid' && $media->uuid) {
             return $media->uuid.'/';
         }
-        if (! $media->hasCustomProperty('path_layout')) {
-            logger()->warning('Media without path_layout served from legacy id/ path.', ['media_id' => $media->id]);
-        }
 
         return $media->id.'/';
     }

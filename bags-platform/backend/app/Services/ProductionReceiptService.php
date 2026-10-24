@@ -61,7 +61,11 @@ class ProductionReceiptService
                     $unitCost = bcadd((string) $item['unit_cost'], '0', 4);
                     // H4: bcmath weighted average — float loses precision once
                     // on_hand * cost crosses 2^53, silently biasing landed cost.
-                    $onHandStr = (string) StockLevel::where('product_variant_id', $variant->id)->sum('on_hand');
+                    // F12: lock this variant's stock_levels rows before summing so
+                    // the average is computed on a frozen balance even if a
+                    // concurrent movement path ever skips the variant lock.
+                    $lockedLevelIds = StockLevel::where('product_variant_id', $variant->id)->orderBy('id')->lockForUpdate()->pluck('id');
+                    $onHandStr = (string) StockLevel::whereIn('id', $lockedLevelIds)->sum('on_hand');
                     $onHandStr = bccomp($onHandStr, '0', 4) < 0 ? '0' : $onHandStr;
                     $costStr = (string) $variant->cost_price;
                     $unitStr = $unitCost;

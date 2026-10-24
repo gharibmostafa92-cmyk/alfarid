@@ -35,6 +35,12 @@ class CatalogController extends Controller
         return response()->json(['data' => StoreCategoryResource::collection($roots)->resolve($request)]);
     }
 
+    /**
+     * F19: brands are a legacy surface — products no longer accept a brand_id
+     * (prohibited in admin requests, forced to null in the service) and the
+     * storefront never filters by brand. This endpoint is retained read-only
+     * for old clients; do not build new features on it.
+     */
     public function brands(Request $request): JsonResponse
     {
         $brands = Brand::query()

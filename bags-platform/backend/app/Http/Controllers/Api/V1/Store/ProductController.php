@@ -46,7 +46,9 @@ class ProductController extends Controller
     {
         $product = $this->catalog->publishedQuery()
             ->withoutEagerLoads()
-            ->select(['products.id', 'products.category_id', 'products.brand_id'])
+            // F19: similar() only matches on category_id — brand links are
+            // legacy (brand_id is always null), so don't select the column.
+            ->select(['products.id', 'products.category_id'])
             ->where('products.slug', $slug)
             ->firstOrFail();
 

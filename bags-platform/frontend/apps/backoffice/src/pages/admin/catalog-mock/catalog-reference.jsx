@@ -255,7 +255,8 @@ function ProductForm({ id, initial }) {
   const activeRows = p.rows.filter((r) => r.status === 'active');
   const needRetail = B.channel !== 'wholesale', needWh = B.channel !== 'retail';
   const missingPrice = activeRows.filter((r) => (needRetail && !(Number(r.retail)>0)) || (needWh && !(Number(r.wholesale)>0)));
-  const imgCount = p.media.general.length;
+  const activeColors = new Set(activeRows.map(r => (r.color?.en || '').trim().toLowerCase()));
+  const imgCount = p.media.general.length + Object.entries(p.media.byVariant).filter(([color]) => activeColors.has(color.trim().toLowerCase())).reduce((count, [, files]) => count + files.length, 0);
   const ready = [
     { k: 'cat', ok: !!catNode && !inactiveAncestor, label: 'القسم وكل الأقسام الأب نشطين', detail: !catNode ? 'لم يتم اختيار قسم' : inactiveAncestor ? `القسم «${inactiveAncestor.ar}» غير نشط` : catNode.path.join(' › '), tab: 'basic' },
     { k: 'var', ok: activeRows.length > 0, label: 'متغير نشط واحد على الأقل', detail: `${activeRows.length} متغير نشط من ${p.rows.length}`, tab: 'variants' },
@@ -312,7 +313,7 @@ function ProductForm({ id, initial }) {
     try {
       let next = await persistProduct(p, JSON.parse(saved), canCost, value => {setP({...value});},()=>{saveCompleted=true;mark('save','done');mark('upload','run');});
       mark('save','done');mark('upload','done');
-      if(publish){mark('publish','run'); const published=await productsApi.update(next.id,{status:'published'});next={...next,status:published.status,publishedAt:published.published_at};mark('publish','done'); }
+      if(publish){mark('publish','run'); const published=await productsApi.update(next.id,{status:'published',...(next.lock_version !== undefined ? {expected_version:next.lock_version} : {})});next={...next,status:published.status,publishedAt:published.published_at,lock_version:published.lock_version,updated_at:published.updated_at};mark('publish','done'); }
       setP(next);setSaved(JSON.stringify(next));setFlow(f=>({...f,done:'ok',code:next.code}));
     } catch(e) {
       const error=normalizeError(e);if(!saveCompleted)setFlow(null);else setFlow(f=>({...f,done:error.summary.length?'blocked':'upload_fail',reasons:error.summary.length?error.summary:[error.message],steps:f.steps.map(step=>({...step,state:step.state==='run'?'fail':step.state==='wait'?'skip':step.state}))}));
@@ -495,7 +496,7 @@ function MediaTab({media,setMedia,axes,mode,saved,onRetry}) {
    const pending=[];
    for(const file of files){
      if(!((video?['video/mp4','video/webm','video/quicktime']:['image/jpeg','image/png','image/webp']).includes(file.type)) || file.size>(video?50:5)*1024*1024){setError('صيغة أو حجم غير مسموح: الصور حتى 5MB والفيديو حتى 50MB');return;}
-     if(!video){try{const bitmap=await createImageBitmap(file);const valid=bitmap.width<=6000&&bitmap.height<=6000;bitmap.close();if(!valid)throw Error();}catch{setError('صورة غير صالحة أو أبعادها أكبر من 6000×6000');return;}}
+     if(!video){try{const bitmap=await createImageBitmap(file);const valid=bitmap.width*bitmap.height<=16000000;bitmap.close();if(!valid)throw Error();}catch{setError('صورة غير صالحة أو تتجاوز 16 ميجابكسل');return;}}
      pending.push({id:'pending-'+Math.random(),file,name:file.name,size:(file.size/1048576).toFixed(2)+'MB',status:'queued'});
    }
    setError('');
@@ -527,8 +528,8 @@ function MediaTab({media,setMedia,axes,mode,saved,onRetry}) {
               </button>
             )}
           </div>
-          {media.general.length === 0 && <div className="mt-3"><DropZone title="اسحب صور المنتج هنا" rules={['JPG · PNG · WebP', 'حتى 5MB للصورة', 'حتى 6000×6000', 'صورتان بالتوازي']} onPick={() => addFiles(3)} onFiles={files=>pick(files)} /></div>}
-          {media.general.length > 0 && <div className="flex flex-wrap gap-1.5 mt-4">{['JPG · PNG · WebP', 'حتى 5MB للصورة', 'حتى 6000×6000', 'صورتان بالتوازي'].map((r) => <span key={r} className="text-[10.5px] font-medium px-2 py-0.5 rounded-full v-well">{r}</span>)}{queued > 0 && <Badge tone="amber" className="ms-auto">{queued} بانتظار الحفظ</Badge>}</div>}
+          {media.general.length === 0 && <div className="mt-3"><DropZone title="اسحب صور المنتج هنا" rules={['JPG · PNG · WebP', 'حتى 5MB للصورة', 'حتى 16 ميجابكسل', 'صورتان بالتوازي']} onPick={() => addFiles(3)} onFiles={files=>pick(files)} /></div>}
+          {media.general.length > 0 && <div className="flex flex-wrap gap-1.5 mt-4">{['JPG · PNG · WebP', 'حتى 5MB للصورة', 'حتى 16 ميجابكسل', 'صورتان بالتوازي'].map((r) => <span key={r} className="text-[10.5px] font-medium px-2 py-0.5 rounded-full v-well">{r}</span>)}{queued > 0 && <Badge tone="amber" className="ms-auto">{queued} بانتظار الحفظ</Badge>}</div>}
         </SectionCard>
 
         {mode === 'matrix' && axes.colors.length > 0 && (
@@ -1320,7 +1321,7 @@ const PRESET_COLORS = [
   { ar: 'تيراكوتا', en: 'Terracotta', hex: '#c65f3c' }, { ar: 'أبيض عاجي', en: 'Ivory', hex: '#f3ede2' },
 ];
 const vKey = (c, s, cap) => [(c && c.en || '').trim().toLowerCase(), (s || '').trim().toLowerCase(), (cap || '').trim().toLowerCase()].join('|');
-const priceOk = (x) => x === '' || x == null || /^\d+(\.\d{1,2})?$/.test(String(x));
+const priceOk = (x, decimals = 2) => x === '' || x == null || new RegExp(`^\\d+(\\.\\d{1,${decimals}})?$`).test(String(x));
 
 function emptyVariant(c, s, cap, i) {
   return { _id: Math.random().toString(36).slice(2), color: c || null, size: s || '', capacity: cap || '', sku: '', barcode: '', retail: '', wholesale: '', cost: '', compare: '', weight: '', reorder: '', order: i + 1, status: 'active',  };
@@ -1331,7 +1332,7 @@ function validateVariants(rows, channel, mode, requirePrices = true) {
   rows.forEach((r, i) => {
     const e = {};
     if (r.color && (r.color.ar || r.color.hex) && !r.color.en) e.color_en = 'الاسم الإنجليزي للون مطلوب';
-    ['retail', 'wholesale', 'cost', 'compare'].forEach((k) => { if (!priceOk(r[k]) || Number(r[k])>9999999) e[k] = 'منزلتين عشريتين بحد أقصى'; });
+    ['retail', 'wholesale', 'cost', 'compare'].forEach((k) => { const decimals=k==='cost'?4:2; if (!priceOk(r[k],decimals) || Number(r[k])>9999999) e[k] = k==='cost'?'أربع خانات عشرية بحد أقصى':'منزلتين عشريتين بحد أقصى'; });
     if (requirePrices && r.status === 'active') {
       if ((channel === 'retail' || channel === 'both') && !r.retail) e.retail = 'سعر التجزئة مطلوب';
       if ((channel === 'wholesale' || channel === 'both') && !r.wholesale) e.wholesale = 'سعر الجملة مطلوب';
@@ -1442,7 +1443,7 @@ function VariantsTab({ channel, mode, setMode, axes, setAxes, rows, setRows, err
     vtoast(`تم نسخ ${src[k]} ${sel.length ? 'للصفوف المحددة' : 'لكل الصفوف'}`);
   };
   const applyBulk = () => {
-    if (!bulk.value || !priceOk(bulk.value)) { vtoast('أدخل سعر صالح (منزلتين عشريتين)', 'error'); return; }
+    if (!bulk.value || !priceOk(bulk.value,bulk.field==='cost'?4:2)) { vtoast(bulk.field==='cost'?'أدخل تكلفة صالحة (أربع خانات عشرية)':'أدخل سعر صالح (منزلتين عشريتين)', 'error'); return; }
     setRows(rows.map((r) => sel.includes(r._id) ? { ...r, [bulk.field]: bulk.value } : r));
     vtoast(`تم تطبيق السعر على ${sel.length} صف`);
   };

@@ -15,9 +15,12 @@ use Illuminate\Validation\Validator;
  */
 trait BulkVariantExists
 {
-    protected function addBulkVariantExistsCheck(Validator $validator): void
+    protected function addBulkVariantExistsCheck(Validator $validator, bool $activeOnly = false): void
     {
-        $validator->after(function (Validator $v): void {
+        $validator->after(function (Validator $v) use ($activeOnly): void {
+            if ($v->errors()->isNotEmpty()) {
+                return;
+            }
             $items = $this->input('items', []);
             if (! is_array($items) || $items === []) {
                 return;
@@ -37,7 +40,13 @@ trait BulkVariantExists
             // withTrashed: متغير محذوف ناعمًا وله رصيد لا يجب أن يُحبس رصيده —
             // عمليات الإخراج (تسوية/جرد/تحويل) تظل ممكنة عليه لتصفيته (M-9)،
             // والإدخال عليه محظور في InventoryService لأنه يعامل كمعطّل.
-            $found = ProductVariant::query()->withTrashed()->whereIn('id', $ids)->pluck('id')->map(fn ($id) => (int) $id)->all();
+            $query = ProductVariant::query()->whereIn('id', $ids);
+            if ($activeOnly) {
+                $query->where('is_active', true)->whereHas('product');
+            } else {
+                $query->withTrashed();
+            }
+            $found = $query->pluck('id')->map(fn ($id) => (int) $id)->all();
             $missing = $ids->diff($found);
 
             if ($missing->isEmpty()) {

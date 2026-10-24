@@ -18,7 +18,7 @@ class ProductMediaService
 {
     public function index(Product $product): Collection
     {
-        $variantIds = $product->variants()->pluck('id');
+        $variantIds = $product->variants()->withTrashed()->pluck('id');
         $media = Media::query()
             ->where(fn ($q) => $q->where(['model_type' => Product::class, 'model_id' => $product->id])
                 ->orWhere(fn ($w) => $w->where('model_type', ProductVariant::class)->whereIn('model_id', $variantIds)))
@@ -39,7 +39,11 @@ class ProductMediaService
                 throw new BusinessException('الفيديو للمنتج فقط');
             }
 
-            return DB::transaction(fn () => collect([$product->addMedia($file)->toMediaCollection('video')]));
+            return DB::transaction(function () use ($product, $file) {
+                $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
+
+                return collect([$product->addMedia($file)->toMediaCollection('video')]);
+            });
         }
 
         // H2 + M9: one short transaction per file; a retried client_upload_id
@@ -109,17 +113,17 @@ class ProductMediaService
             $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
             $media = Media::whereKey($media->id)->firstOrFail();
             $this->assertMediaBelongs($product, [$media->id]);
+            $media->delete();
             if ($product->status === ProductStatus::Published && $media->collection_name === 'images'
-                && $media->model_type === Product::class && $product->getMedia('images')->count() <= 1) {
+                && ! app(ProductPublishabilityChecker::class)->hasImages($product)) {
                 throw new BusinessException('لا يمكن حذف آخر صورة لمنتج منشور');
             }
-            $media->delete();
         });
     }
 
     private function assertMediaBelongs(Product $product, array $ids): void
     {
-        $variantIds = $product->variants()->pluck('id')->all();
+        $variantIds = $product->variants()->withTrashed()->pluck('id')->all();
         $count = Media::whereIn('id', $ids)->where(fn ($q) => $q
             ->where(fn ($w) => $w->where('model_type', Product::class)->where('model_id', $product->id))
             ->orWhere(fn ($w) => $w->where('model_type', ProductVariant::class)->whereIn('model_id', $variantIds))

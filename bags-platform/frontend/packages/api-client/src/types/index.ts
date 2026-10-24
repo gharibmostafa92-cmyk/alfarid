@@ -98,6 +98,7 @@ export interface AdminMedia {
 }
 
 export interface AdminVariant {
+  lock_version?: number;
   id: number; sku: string; barcode: string | null;
   color: { name_ar: string | null; name_en: string | null; hex: string | null };
   color_name_ar?: string | null; color_name_en?: string | null; color_hex?: string | null;
@@ -110,6 +111,7 @@ export interface AdminVariant {
 }
 
 export interface AdminProduct {
+  lock_version?: number;
   id: number; code: string; name_ar: string; name_en: string; slug: string;
   description_ar: string | null; description_en: string | null;
   material_ar: string | null; material_en: string | null;
@@ -133,7 +135,10 @@ export interface BrandPayload {
 }
 
 export interface ProductPayload {
+  expected_version?: number;
+  expected_updated_at?: string;
   category_id?: number; brand_id?: number | null; supplier_id?: number | null;
+  create_key?: string; // F9: idempotency key for product creation
   name_ar?: string; name_en?: string; slug?: string | null;
   description_ar?: string | null; description_en?: string | null;
   material_ar?: string | null; material_en?: string | null;
@@ -143,6 +148,7 @@ export interface ProductPayload {
 }
 
 export interface VariantPayload {
+  expected_version?: number;
   sku?: string; barcode?: string | null;
   color_name_ar?: string | null; color_name_en?: string | null; color_hex?: string | null;
   size?: string | null; capacity?: string | null;

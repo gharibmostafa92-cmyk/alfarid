@@ -43,6 +43,8 @@ class UpdateVariantRequest extends FormRequest
             $rules[$field] = $rule;
         }
 
+        $rules['expected_version'] = ['sometimes', 'integer', 'min:0'];
+
         return $rules;
     }
 

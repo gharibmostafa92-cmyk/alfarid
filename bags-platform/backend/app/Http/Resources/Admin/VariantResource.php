@@ -19,13 +19,14 @@ class VariantResource extends JsonResource
     {
         return [
             'id' => $this->id,
+            'lock_version' => (int) $this->lock_version,
             'product_id' => $this->product_id,
             'sku' => $this->sku,
             'barcode' => $this->barcode,
             'color' => ['name_ar' => $this->color_name_ar, 'name_en' => $this->color_name_en, 'hex' => $this->color_hex],
             'size' => $this->size,
             'capacity' => $this->capacity,
-            'cost_price' => $this->when($request->user()?->can('products.view_cost'), number_format((float) $this->cost_price, 2, '.', '')),
+            'cost_price' => $this->when($request->user()?->can('products.view_cost'), $this->cost_price),
             'retail_price' => $this->retail_price,
             'compare_at_price' => $this->compare_at_price,
             'wholesale_price' => $this->wholesale_price,

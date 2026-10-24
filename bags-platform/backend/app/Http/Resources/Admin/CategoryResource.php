@@ -28,6 +28,8 @@ class CategoryResource extends JsonResource
             'is_active' => $this->is_active,
             'image_url' => $this->getFirstMediaUrl('image') ?: null,
             'products_count' => $this->whenCounted('products'),
+            // Historical total, including soft-deleted products.
+            'all_products_count' => $this->whenCounted('all_products_count'),
             'parent' => new CategoryResource($this->whenLoaded('parent')),
             'children' => CategoryResource::collection($this->whenLoaded('children')),
             'created_at' => $this->created_at,

@@ -170,7 +170,10 @@ Route::middleware(['auth:sanctum', 'auth.staff'])
 
         Route::put('products/{product}/media/reorder', [ProductMediaController::class, 'reorder'])->name('products.media.reorder');
         Route::get('products/{product}/media', [ProductMediaController::class, 'index'])->name('products.media.index');
-        Route::post('products/{product}/media', [ProductMediaController::class, 'store'])->name('products.media.store');
+        // F18: each image spawns two GD conversions in-request and the UI
+        // fires two uploads in parallel — throttle the admin upload path so
+        // one account cannot saturate every PHP worker.
+        Route::post('products/{product}/media', [ProductMediaController::class, 'store'])->middleware('throttle:30,1')->name('products.media.store');
         Route::delete('products/{product}/media/{media}', [ProductMediaController::class, 'destroy'])->name('products.media.destroy');
 
         // ================== المرحلة 3: المخزون ==================

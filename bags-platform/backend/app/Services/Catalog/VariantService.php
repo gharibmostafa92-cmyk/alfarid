@@ -62,32 +62,43 @@ class VariantService
 
     public function update(ProductVariant $variant, array $data): ProductVariant
     {
+        $expectedVersion = $data['expected_version'] ?? null;
+        unset($data['expected_version']);
         foreach (['cost_price', 'reorder_level', 'sort_order', 'is_active'] as $field) {
             if (array_key_exists($field, $data) && $data[$field] === null) {
                 unset($data[$field]);
             }
         }
 
-        return DB::transaction(function () use ($variant, $data) {
-            $product = Product::whereKey($variant->product_id)->lockForUpdate()->firstOrFail();
-            $variant = $product->variants()->whereKey($variant->id)->firstOrFail();
-            $this->assertUniqueCombination($product, array_merge($variant->only(['color_name_en', 'size', 'capacity']), $data), $variant->id);
+        // F8: a concurrent update can win the SKU/barcode between validation
+        // and the write — surface it as 409, not 500.
+        try {
+            return DB::transaction(function () use ($variant, $data, $expectedVersion) {
+                $product = Product::whereKey($variant->product_id)->lockForUpdate()->firstOrFail();
+                $variant = $product->variants()->whereKey($variant->id)->lockForUpdate()->firstOrFail();
+                if ($expectedVersion !== null && (int) $expectedVersion !== (int) $variant->lock_version) {
+                    throw new BusinessException('المتغير تعدّل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
+                }
+                $this->assertUniqueCombination($product, array_merge($variant->only(['color_name_en', 'size', 'capacity']), $data), $variant->id);
 
-            if (array_key_exists('is_active', $data) && ! $data['is_active']) {
-                $this->assertNotLastActiveOfPublished($variant);
-            }
-            if (array_key_exists('barcode', $data) && blank($data['barcode'])) {
-                $data['barcode'] = BarcodeGenerator::fromId($variant->id);
-            }
-            $variant->update($data);
+                if (array_key_exists('is_active', $data) && ! $data['is_active']) {
+                    $this->assertNotLastActiveOfPublished($variant);
+                }
+                if (array_key_exists('barcode', $data) && blank($data['barcode'])) {
+                    $data['barcode'] = BarcodeGenerator::fromId($variant->id);
+                }
+                $variant->update($data);
 
-            // أي تعديل على متغير منتج منشور بيعيد فحص قواعد النشر جوه نفس الـ transaction
-            if ($product->status === ProductStatus::Published) {
-                $this->publishability->assertPublishable($product);
-            }
+                // أي تعديل على متغير منتج منشور بيعيد فحص قواعد النشر جوه نفس الـ transaction
+                if ($product->status === ProductStatus::Published) {
+                    $this->publishability->assertPublishable($product);
+                }
 
-            return $variant->fresh(['media', 'product']);
-        });
+                return $variant->fresh(['media', 'product']);
+            });
+        } catch (UniqueConstraintViolationException $e) {
+            throw new BusinessException('الـ SKU أو الباركود مستخدم بالفعل؛ اختر قيمة أخرى.', [], 409);
+        }
     }
 
     public function delete(ProductVariant $variant): void

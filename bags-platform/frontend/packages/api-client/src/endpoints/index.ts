@@ -200,7 +200,7 @@ export const productsApi = {
     apiClient.get<ResourceCollection<AdminProduct>>(PR, { params, signal }).then(r => r.data),
   show: (id: number, signal?: AbortSignal) => apiClient.get<{ data: AdminProduct }>(`${PR}/${id}`, { signal }).then(r => r.data.data),
   create: (p: ProductPayload & { variants?: VariantPayload[] }) => apiClient.post<{ data: AdminProduct }>(PR, p).then(r => r.data.data),
-  update: (id: number, p: Partial<ProductPayload> & { status?: ProductStatus }) =>
+  update: (id: number, p: Partial<ProductPayload> & { status?: ProductStatus; expected_updated_at?: string }) =>
     apiClient.put<{ data: AdminProduct }>(`${PR}/${id}`, p).then(r => r.data.data),
   remove: (id: number) => apiClient.delete<{ message: string }>(`${PR}/${id}`).then(r => r.data),
 };
