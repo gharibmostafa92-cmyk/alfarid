@@ -9,6 +9,7 @@ Schedule::command('sanctum:prune-expired --hours=24')->dailyAt('03:30')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping();
 Schedule::command('queue:prune-failed --hours=168')->dailyAt('03:45')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping();
+Schedule::command('staff:prune-audit-logs')->dailyAt('04:45')->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping();
 Schedule::command('customers:prune-artifacts')->hourly()->withoutOverlapping();
 Schedule::command('media:prune-orphans --disk=r2_public --older-than=60')->dailyAt('04:30')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping()

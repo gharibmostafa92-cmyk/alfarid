@@ -70,7 +70,7 @@ class StoreHardeningReviewTest extends TestCase
     private function giveStock(ProductVariant $variant, float $qty): void
     {
         $location = Location::factory()->create(['branch_id' => $this->branch->id]);
-        StockLevel::query()->create([
+        StockLevel::query()->forceCreate([
             'branch_id' => $this->branch->id, 'location_id' => $location->id,
             'product_variant_id' => $variant->id, 'on_hand' => $qty, 'reserved' => 0,
         ]);

@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Exceptions\BusinessException;
+use App\Http\Requests\Api\V1\Admin\UpdateSettingsRequest;
 use App\Models\Setting;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 use JsonException;
 
@@ -16,12 +19,34 @@ class SettingService
     /** @var array<string, array{0: string, 1: int}> بادئة وحشو الترقيم لكل نوع — يُقرآن مرة واحدة لكل طلب (M11). */
     private array $numberingConfig = [];
 
+    private ?array $transactionSnapshot = null;
+
+    private bool $uncommittedSettings = false;
+
+    public function resetReadSnapshot(bool $transactionBoundary = false): void
+    {
+        $this->transactionSnapshot = null;
+        if ($transactionBoundary) {
+            $this->uncommittedSettings = false;
+        }
+    }
+
+    /** @var list<string> */
+    public array $warnings = [];
+
     private const CACHE_KEY = 'app_settings_static';
+
+    private const CACHE_VERSION_KEY = 'app_settings_static_version';
 
     private const CACHE_TTL_SECONDS = 3600;
 
     /** @var list<string> */
     private const NUMBERING_COUNTER_KEYS = [
+        'shift_next_number',
+        'expense_next_number',
+        'treasury_transfer_next_number',
+        'payment_notice_next_number',
+        'pos_invoice_next_number',
         'invoice_next_number',
         'order_next_number',
         'purchase_order_next_number',
@@ -58,20 +83,7 @@ class SettingService
      */
     public function getAllGrouped(): array
     {
-        $grouped = Cache::remember(self::CACHE_KEY, self::CACHE_TTL_SECONDS, function (): array {
-            return Setting::query()
-                ->whereNotIn('key', self::NUMBERING_COUNTER_KEYS)
-                ->orderBy('group')
-                ->orderBy('key')
-                ->get()
-                ->groupBy('group')
-                ->map(fn ($settings): array => $settings
-                    ->mapWithKeys(fn (Setting $setting): array => [
-                        $setting->key => $this->castValue($setting->value, $setting->type),
-                    ])
-                    ->all())
-                ->all();
-        });
+        $grouped = $this->staticSettings();
 
         $counters = Setting::query()
             ->whereIn('key', self::NUMBERING_COUNTER_KEYS)
@@ -99,9 +111,60 @@ class SettingService
         return $grouped;
     }
 
+    private function staticSettings(): array
+    {
+        $read = function (): array {
+            return Setting::query()
+                ->whereNotIn('key', self::NUMBERING_COUNTER_KEYS)
+                ->orderBy('group')
+                ->orderBy('key')
+                ->get()
+                ->groupBy('group')
+                ->map(fn ($settings): array => $settings
+                    ->mapWithKeys(fn (Setting $setting): array => [
+                        $setting->key => $this->castValue($setting->value, $setting->type),
+                    ])
+                    ->all())
+                ->all();
+        };
+
+        $inTransaction = DB::transactionLevel() > 0;
+        if ($inTransaction && $this->transactionSnapshot !== null) {
+            return $this->transactionSnapshot;
+        }
+        if ($inTransaction && $this->uncommittedSettings) {
+            return $this->transactionSnapshot = $read();
+        }
+        $version = Cache::get(self::CACHE_VERSION_KEY);
+        if (! is_string($version)) {
+            Cache::add(self::CACHE_VERSION_KEY, (string) Str::uuid());
+            $version = Cache::get(self::CACHE_VERSION_KEY);
+        }
+
+        $key = self::CACHE_KEY.':'.$version;
+        if ($inTransaction) {
+            // Reuse committed cache values, but never publish an uncommitted cache miss.
+            return $this->transactionSnapshot = Cache::get($key) ?? $read();
+        }
+
+        return Cache::remember($key, self::CACHE_TTL_SECONDS, $read);
+    }
+
     public function get(string $key, mixed $default = null): mixed
     {
-        foreach ($this->getAllGrouped() as $settings) {
+        if (in_array($key, self::NUMBERING_COUNTER_KEYS, true)) {
+            if ($key === 'movement_next_number') {
+                return $this->nextMovementNumber();
+            }
+            $type = array_search($key, self::SEQUENCE_TYPES, true);
+            if (is_string($type)) {
+                return $this->nextDocumentNumber($type);
+            }
+            $setting = Setting::query()->where('key', $key)->first();
+
+            return $setting ? $this->castValue($setting->value, $setting->type) : $default;
+        }
+        foreach ($this->staticSettings() as $settings) {
             if (array_key_exists($key, $settings)) {
                 return $settings[$key];
             }
@@ -117,9 +180,12 @@ class SettingService
      *
      * @throws JsonException
      */
-    public function updateBatch(array $settings): void
+    public function updateBatch(array $settings, ?array $expected = null): void
     {
-        DB::transaction(function () use ($settings): void {
+        $this->warnings = [];
+        DB::transaction(function () use ($settings, $expected): void {
+            $this->uncommittedSettings = true;
+            $this->resetReadSnapshot();
             $movementSequenceTarget = null;
             /** @var array<string, int> $documentSequenceTargets */
             $documentSequenceTargets = [];
@@ -136,12 +202,27 @@ class SettingService
                 throw new InvalidArgumentException('Settings are not initialized: '.implode(', ', $missingKeys));
             }
 
+            $before = [];
+            $after = [];
             foreach ($settings as $key => $value) {
                 /** @var Setting $setting */
                 $setting = $lockedSettings->get($key);
+                $current = $this->castValue($setting->value, $setting->type);
+                if (in_array($key, self::NUMBERING_COUNTER_KEYS, true)) {
+                    $current = $this->get($key);
+                }
+                if ($expected !== null && (! array_key_exists($key, $expected)
+                    || $this->comparisonValue($current, $setting->type) !== $this->comparisonValue($expected[$key], $setting->type))) {
+                    abort(409, 'تم تغيير إعداد أو عداد منذ فتح الصفحة؛ أعد تحميل الإعدادات قبل الحفظ.');
+                }
+                $before[$key] = $current;
 
                 if (in_array($key, self::NUMBERING_COUNTER_KEYS, true)) {
-                    $value = max($this->counterValue($setting->value), $this->counterValue($value));
+                    $requested = $this->counterValue($value);
+                    if ($requested > 999999999) {
+                        throw ValidationException::withMessages([$key => 'الحد الأقصى للعداد هو 999999999.']);
+                    }
+                    $value = max($this->counterValue($setting->value), $requested);
                     if ($key === 'movement_next_number') {
                         $value = max($value, $this->nextMovementNumber());
                         $movementSequenceTarget = $value;
@@ -151,14 +232,20 @@ class SettingService
                         $value = max($value, $this->nextDocumentNumber($sequenceType));
                         $documentSequenceTargets[$sequenceType] = $value;
                     }
+                    if ($requested < $value) {
+                        throw ValidationException::withMessages([$key => 'لا يمكن خفض عداد الترقيم عن قيمته الحالية.']);
+                    }
                 }
 
                 $setting->value = $value === null && str_ends_with($key, '_prefix')
                     ? ''
                     : $this->serializeValue($value, $setting->type);
                 $setting->save();
+                $after[$key] = $this->castValue($setting->value, $setting->type);
             }
 
+            StaffAdministration::audit(request()->user('staff'), 'settings.updated', 'settings', null, array_keys($settings),
+                ['settings' => $this->auditableSettings($before)], ['settings' => $this->auditableSettings($after)]);
             DB::afterCommit(fn () => $this->clearCache());
 
             if ($movementSequenceTarget !== null) {
@@ -167,13 +254,13 @@ class SettingService
                 // معاملة الإعدادات (L-9). الدالة تقفل الترقيم لمدة الاستعلام
                 // نفسه وتنسّق رفع الحد الأدنى مع كل تخصيص جديد لمنع إعادة رقم.
                 DB::afterCommit(function () use ($movementSequenceTarget): void {
-                    DB::selectOne('SELECT inventory_movement_number(?) AS number', [$movementSequenceTarget]);
+                    $this->synchronizeSequence(fn () => DB::selectOne('SELECT inventory_movement_number(?) AS number', [$movementSequenceTarget]));
                 });
             }
             if ($documentSequenceTargets !== []) {
                 DB::afterCommit(function () use ($documentSequenceTargets): void {
                     foreach ($documentSequenceTargets as $type => $minimum) {
-                        DB::selectOne('SELECT document_next_number(?, ?) AS number', [$type, $minimum]);
+                        $this->synchronizeSequence(fn () => DB::selectOne('SELECT document_next_number(?, ?) AS number', [$type, $minimum]));
                     }
                 });
             }
@@ -251,10 +338,35 @@ class SettingService
         })();
     }
 
+    private function synchronizeSequence(callable $sync): void
+    {
+        try {
+            $sync();
+        } catch (\Throwable $exception) {
+            report($exception);
+            $this->warnings[] = 'تم حفظ الإعدادات، لكن تعذرت مزامنة أحد عدادات الترقيم؛ أعد حفظ العداد للمحاولة مرة أخرى.';
+        }
+    }
+
     public function clearCache(): void
     {
-        Cache::forget(self::CACHE_KEY);
+        Cache::forever(self::CACHE_VERSION_KEY, (string) Str::uuid());
+        Cache::forget(self::CACHE_KEY); // Retire the cache key used before versioning.
         $this->numberingConfig = [];
+        $this->resetReadSnapshot();
+    }
+
+    private function comparisonValue(mixed $value, string $type): ?string
+    {
+        return $type === 'string' ? (string) ($value ?? '') : $this->serializeValue($value, $type);
+    }
+
+    private function auditableSettings(array $settings): array
+    {
+        // Only the public administrative settings schema is safe to audit as values.
+        $allowed = array_keys((new UpdateSettingsRequest)->rules());
+
+        return array_intersect_key($settings, array_flip($allowed));
     }
 
     /**

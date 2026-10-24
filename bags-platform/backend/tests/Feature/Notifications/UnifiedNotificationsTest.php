@@ -72,7 +72,7 @@ class UnifiedNotificationsTest extends TestCase
         $product = Product::factory()->create(['status' => 'published']);
         $variant = $product->variants()->first() ?? ProductVariant::factory()->create(['product_id' => $product->id]);
         $variant->update(['retail_price' => 100, 'is_active' => true]);
-        StockLevel::create(['branch_id' => Branch::factory()->create()->id, 'product_variant_id' => $variant->id, 'on_hand' => 10]);
+        StockLevel::forceCreate(['branch_id' => Branch::factory()->create()->id, 'product_variant_id' => $variant->id, 'on_hand' => 10]);
 
         Auth::forgetGuards();
         $this->withToken($token)->postJson('/api/v1/store/cart/items', ['product_variant_id' => $variant->id, 'qty' => 1])->assertOk();
@@ -105,7 +105,7 @@ class UnifiedNotificationsTest extends TestCase
         $purchasing->givePermissionTo('purchases.view');
         $branch = Branch::factory()->create();
         $variant = ProductVariant::factory()->create(['reorder_level' => 5]);
-        StockLevel::create(['branch_id' => $branch->id, 'product_variant_id' => $variant->id, 'on_hand' => 10]);
+        StockLevel::forceCreate(['branch_id' => $branch->id, 'product_variant_id' => $variant->id, 'on_hand' => 10]);
 
         $inventory = app(InventoryService::class);
         $move = fn (float $qty) => $inventory->recordMovement([

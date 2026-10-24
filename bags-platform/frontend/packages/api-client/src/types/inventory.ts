@@ -59,7 +59,7 @@ export interface StockTransfer {
 }
 export interface StocktakeItem {
   id: number; product_variant_id: number; sku: string | null;
-  system_qty: string; counted_qty: string | null; difference: string | null;
+  system_qty?: string; counted_qty: string | null; difference?: string | null;
 }
 export interface Stocktake {
   id: number; stocktake_number: string;

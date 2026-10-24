@@ -160,6 +160,11 @@ const response = (route, data, status = 200, headers = {}) => route.fulfill({
         return response(route, { token: 'wholesale-test-token', data: { id: 125, name: 'Wholesale Form Test', status: 'pending' } }, 201);
       });
       await page.route(api + '/api/v1/wholesale/auth/application-status', route => response(route, { data: { status: 'pending', rejection_reason: null } }));
+      await page.route(api + '/api/v1/auth/me', route => response(route, {
+        actor: { type: 'customer', subtype: 'wholesale_pending' },
+        redirect: { destination: 'wholesale_pending', path: '/wholesale/application-status' },
+        data: { id: 125, name: 'Wholesale Form Test', type: 'retail', status: 'pending' },
+      }));
       await open(page); await choose(page, 'تسجيل كتاجر جملة'); await basicDetails(page);
       await choose(page, 'التالي: بيانات النشاط');
       await page.locator('input[name=company_name]').fill('Test Business');

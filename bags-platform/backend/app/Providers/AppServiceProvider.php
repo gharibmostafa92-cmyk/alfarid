@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Enums\StaffRole;
 use App\Models\Customer;
 use App\Models\Expense;
 use App\Models\Order;
@@ -11,18 +12,25 @@ use App\Models\ReturnRequest;
 use App\Models\Stocktake;
 use App\Models\StockTransfer;
 use App\Models\TreasuryTransfer;
+use App\Models\User;
 use App\Models\WholesalePaymentNotice;
 use App\Services\BranchAccess;
 use App\Services\SettingService;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Database\Events\TransactionBeginning;
+use Illuminate\Database\Events\TransactionCommitted;
+use Illuminate\Database\Events\TransactionRolledBack;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
+use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Queue\Events\QueueBusy;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
+use Spatie\Permission\PermissionRegistrar;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -42,6 +50,21 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Event::listen(TransactionBeginning::class, function ($event): void {
+            if ($event->connection->transactionLevel() === 1) {
+                app(SettingService::class)->resetReadSnapshot(true);
+            }
+        });
+        Event::listen(TransactionCommitted::class, function ($event): void {
+            if ($event->connection->transactionLevel() === 0) {
+                app(SettingService::class)->resetReadSnapshot(true);
+            }
+        });
+        Event::listen(TransactionRolledBack::class, fn ($event) => app(SettingService::class)->resetReadSnapshot($event->connection->transactionLevel() === 0));
+        Event::listen(JobProcessing::class, fn () => app(PermissionRegistrar::class)->clearPermissionsCollection());
+        Gate::before(fn ($user) => $user instanceof User
+            && $user->is_active && ! $user->is_system
+            && $user->hasRole(StaffRole::SuperAdmin->value, 'staff') ? true : null);
         $proxies = config('app.trusted_proxies');
         if ($this->app->environment('production') && (! is_string($proxies) || trim($proxies) === '' || preg_match('/(?:^|,)\s*\*{1,2}\s*(?:,|$)/', $proxies))) {
             throw new \LogicException('Set TRUSTED_PROXIES to explicit proxy IPs/CIDRs, or none for direct access. Wildcards are not allowed in production.');

@@ -13,6 +13,7 @@ use App\Models\OrderItem;
 use App\Models\StockLevel;
 use App\Models\StockMovement;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -79,15 +80,20 @@ class OrderAllocationService
             $candidateAttempts = 0;
             foreach ($branches as $branch) {
                 if ($this->canBranchFulfillFullOrder($order, $branch->id, $coverage)) {
-                    if (++$candidateAttempts > 3) break;
+                    if (++$candidateAttempts > 3) {
+                        break;
+                    }
                     try {
                         return DB::transaction(function () use ($order, $branch, $performedBy): Order {
                             $this->reserveItemsFromBranch($order, $branch->id, $performedBy);
                             $order->update(['allocated_branch_id' => $branch->id]);
+
                             return $order->fresh(['items']);
                         });
                     } catch (BusinessException $e) {
-                        if ($e->errorCode !== 'insufficient_stock') throw $e;
+                        if ($e->errorCode !== 'insufficient_stock') {
+                            throw $e;
+                        }
                         $order->load('items');
                     }
                 }
@@ -99,7 +105,9 @@ class OrderAllocationService
                 $plan = [];
                 foreach ($order->items as $item) {
                     $branchId = $this->bestBranchForItem($item, $coverage);
-                    if ($branchId === null) throw new BusinessException("الرصيد المتاح للصنف [{$item->sku_snapshot}] غير كافٍ لإتمام الطلب.");
+                    if ($branchId === null) {
+                        throw new BusinessException("الرصيد المتاح للصنف [{$item->sku_snapshot}] غير كافٍ لإتمام الطلب.");
+                    }
                     $plan[(int) $item->product_variant_id] = $branchId;
                 }
                 try {
@@ -110,10 +118,13 @@ class OrderAllocationService
                             $this->reserveItemFromBranch($order, $item, $branchId, $performedBy, $levels);
                             $item->update(['allocated_branch_id' => $branchId]);
                         }
+
                         return $order->fresh(['items']);
                     });
                 } catch (BusinessException $e) {
-                    if ($e->errorCode !== 'insufficient_stock' || $attempt === 2) throw $e;
+                    if ($e->errorCode !== 'insufficient_stock' || $attempt === 2) {
+                        throw $e;
+                    }
                     $order->load('items');
                 }
             }
@@ -197,14 +208,17 @@ class OrderAllocationService
     }
 
     /** Lock only the branch/variant pairs selected by the coverage plan. */
-    private function lockPlannedLevels(array $plan): \Illuminate\Support\Collection
+    private function lockPlannedLevels(array $plan): Collection
     {
-        if ($plan === []) return collect();
+        if ($plan === []) {
+            return collect();
+        }
         $rows = StockLevel::query()->where(function ($query) use ($plan): void {
             foreach ($plan as $variantId => $branchId) {
                 $query->orWhere(fn ($q) => $q->where('product_variant_id', $variantId)->where('branch_id', $branchId));
             }
         })->where(fn ($q) => $q->whereNull('location_id')->orWhereHas('location', fn ($q) => $q->where('is_active', true)))->get();
+
         return $this->inventoryService->lockLevels($rows->map->getAttributes()->all());
     }
 
@@ -278,12 +292,14 @@ class OrderAllocationService
     /**
      * حجز كمية الصنف من فرع واحد، موزعة على مواقعه الأعلى متاحًا عند الحاجة.
      */
-    private function reserveItemFromBranch(Order $order, OrderItem $item, int $branchId, ?int $performedBy, \Illuminate\Support\Collection $levels): void
+    private function reserveItemFromBranch(Order $order, OrderItem $item, int $branchId, ?int $performedBy, Collection $levels): void
     {
         $remaining = (int) round((float) $item->qty * 10000);
         foreach ($levels->where('product_variant_id', $item->product_variant_id)->where('branch_id', $branchId)->sortByDesc('available') as $level) {
             $take = min((int) round($level->available * 10000), $remaining);
-            if ($take <= 0) continue;
+            if ($take <= 0) {
+                continue;
+            }
             $this->inventoryService->recordMovement([
                 'product_variant_id' => (int) $item->product_variant_id, 'branch_id' => $branchId,
                 'location_id' => $level->location_id, 'type' => StockMovementType::Reserve,
@@ -292,9 +308,13 @@ class OrderAllocationService
                 'created_by' => $performedBy, 'notes' => 'حجز للطلب '.$order->order_number,
             ], $level);
             $remaining -= $take;
-            if ($remaining === 0) break;
+            if ($remaining === 0) {
+                break;
+            }
         }
-        if ($remaining > 0) throw new BusinessException('الرصيد المتاح تغير أثناء الحجز.', errorCode: 'insufficient_stock');
+        if ($remaining > 0) {
+            throw new BusinessException('الرصيد المتاح تغير أثناء الحجز.', errorCode: 'insufficient_stock');
+        }
     }
 
     /**

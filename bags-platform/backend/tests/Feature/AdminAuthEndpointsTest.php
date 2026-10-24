@@ -86,12 +86,13 @@ class AdminAuthEndpointsTest extends TestCase
             'password' => 'wrong-password',
         ])->assertUnauthorized();
 
-        User::factory()->create([
+        $legacy = User::factory()->create([
             'email' => 'LEGACY@EXAMPLE.TEST',
             'password' => 'secret-password',
             'is_active' => true,
         ]);
 
+        $legacy->assignRole(Role::findOrCreate('Manager', 'staff'));
         $this->postJson('/api/v1/admin/auth/login', [
             'email' => 'legacy@example.test',
             'password' => 'secret-password',

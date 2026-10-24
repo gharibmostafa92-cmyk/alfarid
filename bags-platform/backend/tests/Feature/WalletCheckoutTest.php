@@ -48,7 +48,7 @@ class WalletCheckoutTest extends TestCase
         $product = Product::factory()->create(['status' => 'published']);
         $this->variant = $product->variants()->first() ?? ProductVariant::factory()->create(['product_id' => $product->id]);
         $this->variant->update(['retail_price' => 100, 'is_active' => true]);
-        StockLevel::create(['branch_id' => Branch::factory()->create()->id, 'product_variant_id' => $this->variant->id, 'on_hand' => 10]);
+        StockLevel::forceCreate(['branch_id' => Branch::factory()->create()->id, 'product_variant_id' => $this->variant->id, 'on_hand' => 10]);
     }
 
     private function fund(float $amount): void

@@ -126,16 +126,6 @@ export const dashboardStyles = `:host{all:initial;display:block;min-height:100vh
   --tw-content: '';
 }
 
-/*
-1. Use a consistent sensible line-height in all browsers.
-2. Prevent adjustments of font size after orientation changes in iOS.
-3. Use a more readable tab size.
-4. Use the user's configured \`sans\` font-family by default.
-5. Use the user's configured \`sans\` font-feature-settings by default.
-6. Use the user's configured \`sans\` font-variation-settings by default.
-7. Disable tap highlights on iOS
-*/
-
 html,
 :host {
   line-height: 1.5; /* 1 */
@@ -148,21 +138,10 @@ html,
   -webkit-tap-highlight-color: transparent; /* 7 */
 }
 
-/*
-1. Remove the margin in all browsers.
-2. Inherit line-height from \`html\` so users can set them as a class directly on the \`html\` element.
-*/
-
 body {
   margin: 0; /* 1 */
   line-height: inherit; /* 2 */
 }
-
-/*
-1. Add the correct height in Firefox.
-2. Correct the inheritance of border color in Firefox. (https://bugzilla.mozilla.org/show_bug.cgi?id=190655)
-3. Ensure horizontal rules are visible by default.
-*/
 
 hr {
   height: 0; /* 1 */
@@ -170,17 +149,9 @@ hr {
   border-top-width: 1px; /* 3 */
 }
 
-/*
-Add the correct text decoration in Chrome, Edge, and Safari.
-*/
-
 abbr:where([title]) {
   text-decoration: underline dotted;
 }
-
-/*
-Remove the default font size and weight for headings.
-*/
 
 h1,
 h2,
@@ -192,30 +163,15 @@ h6 {
   font-weight: inherit;
 }
 
-/*
-Reset links to optimize for opt-in styling instead of opt-out.
-*/
-
 a {
   color: inherit;
   text-decoration: inherit;
 }
 
-/*
-Add the correct font weight in Edge and Safari.
-*/
-
 b,
 strong {
   font-weight: bolder;
 }
-
-/*
-1. Use the user's configured \`mono\` font-family by default.
-2. Use the user's configured \`mono\` font-feature-settings by default.
-3. Use the user's configured \`mono\` font-variation-settings by default.
-4. Correct the odd \`em\` font sizing in all browsers.
-*/
 
 code,
 kbd,
@@ -227,17 +183,9 @@ pre {
   font-size: 1em; /* 4 */
 }
 
-/*
-Add the correct font size in all browsers.
-*/
-
 small {
   font-size: 80%;
 }
-
-/*
-Prevent \`sub\` and \`sup\` elements from affecting the line height in all browsers.
-*/
 
 sub,
 sup {
@@ -255,23 +203,11 @@ sup {
   top: -0.5em;
 }
 
-/*
-1. Remove text indentation from table contents in Chrome and Safari. (https://bugs.chromium.org/p/chromium/issues/detail?id=999088, https://bugs.webkit.org/show_bug.cgi?id=201297)
-2. Correct table border color inheritance in all Chrome and Safari. (https://bugs.chromium.org/p/chromium/issues/detail?id=935729, https://bugs.webkit.org/show_bug.cgi?id=195016)
-3. Remove gaps between table borders by default.
-*/
-
 table {
   text-indent: 0; /* 1 */
   border-color: inherit; /* 2 */
   border-collapse: collapse; /* 3 */
 }
-
-/*
-1. Change the font styles in all browsers.
-2. Remove the margin in Firefox and Safari.
-3. Remove default padding in all browsers.
-*/
 
 button,
 input,
@@ -290,19 +226,10 @@ textarea {
   padding: 0; /* 3 */
 }
 
-/*
-Remove the inheritance of text transform in Edge and Firefox.
-*/
-
 button,
 select {
   text-transform: none;
 }
-
-/*
-1. Correct the inability to style clickable types in iOS and Safari.
-2. Remove default button styles.
-*/
 
 button,
 input:where([type='button']),
@@ -313,78 +240,40 @@ input:where([type='submit']) {
   background-image: none; /* 2 */
 }
 
-/*
-Use the modern Firefox focus style for all focusable elements.
-*/
-
 :-moz-focusring {
   outline: auto;
 }
-
-/*
-Remove the additional \`:invalid\` styles in Firefox. (https://github.com/mozilla/gecko-dev/blob/2f9eacd9d3d995c937b4251a5557d95d494c9be1/layout/style/res/forms.css#L728-L737)
-*/
 
 :-moz-ui-invalid {
   box-shadow: none;
 }
 
-/*
-Add the correct vertical alignment in Chrome and Firefox.
-*/
-
 progress {
   vertical-align: baseline;
 }
-
-/*
-Correct the cursor style of increment and decrement buttons in Safari.
-*/
 
 ::-webkit-inner-spin-button,
 ::-webkit-outer-spin-button {
   height: auto;
 }
 
-/*
-1. Correct the odd appearance in Chrome and Safari.
-2. Correct the outline style in Safari.
-*/
-
 [type='search'] {
   -webkit-appearance: textfield; /* 1 */
   outline-offset: -2px; /* 2 */
 }
 
-/*
-Remove the inner padding in Chrome and Safari on macOS.
-*/
-
 ::-webkit-search-decoration {
   -webkit-appearance: none;
 }
-
-/*
-1. Correct the inability to style clickable types in iOS and Safari.
-2. Change font properties to \`inherit\` in Safari.
-*/
 
 ::-webkit-file-upload-button {
   -webkit-appearance: button; /* 1 */
   font: inherit; /* 2 */
 }
 
-/*
-Add the correct display in Chrome and Safari.
-*/
-
 summary {
   display: list-item;
 }
-
-/*
-Removes the default spacing and border for appropriate elements.
-*/
 
 blockquote,
 dl,
@@ -419,25 +308,13 @@ menu {
   padding: 0;
 }
 
-/*
-Reset default styling for dialogs.
-*/
 dialog {
   padding: 0;
 }
 
-/*
-Prevent resizing textareas horizontally by default.
-*/
-
 textarea {
   resize: vertical;
 }
-
-/*
-1. Reset the default placeholder opacity in Firefox. (https://github.com/tailwindlabs/tailwindcss/issues/3300)
-2. Set the default placeholder color to the user's configured gray 400 color.
-*/
 
 input::placeholder,
 textarea::placeholder {
@@ -445,27 +322,14 @@ textarea::placeholder {
   color: #9ca3af; /* 2 */
 }
 
-/*
-Set the default cursor for buttons.
-*/
-
 button,
 [role="button"] {
   cursor: pointer;
 }
 
-/*
-Make sure disabled buttons don't get the pointer cursor.
-*/
 :disabled {
   cursor: default;
 }
-
-/*
-1. Make replaced elements \`display: block\` by default. (https://github.com/mozdevs/cssremedy/issues/14)
-2. Add \`vertical-align: middle\` to align replaced elements more sensibly by default. (https://github.com/jensimmons/cssremedy/issues/14#issuecomment-634934210)
-   This can trigger a poorly considered lint error in some tools but is included by design.
-*/
 
 img,
 svg,
@@ -479,17 +343,12 @@ object {
   vertical-align: middle; /* 2 */
 }
 
-/*
-Constrain images and videos to the parent width and preserve their intrinsic aspect ratio. (https://github.com/mozdevs/cssremedy/issues/14)
-*/
-
 img,
 video {
   max-width: 100%;
   height: auto;
 }
 
-/* Make elements with the HTML hidden attribute stay hidden by default */
 [hidden]:where(:not([hidden="until-found"])) {
   display: none;
 }
@@ -504,8 +363,8 @@ video {
       --offer-icon-bg: #ffffff;
       --offer-active-bg: #fff9f7;
       --text-primary: #18151c;
-      --text-secondary: #78737e;
-      --text-muted: #9b96a2;
+      --text-secondary: #5c5663;
+      --text-muted: #706a78;
       --border-subtle: rgba(24, 21, 28, 0.06);
       --divider-color: rgba(24, 21, 28, 0.06);
       --pill-active-bg: #18151c;
@@ -539,8 +398,8 @@ video {
       --offer-icon-bg: #252129;
       --offer-active-bg: #1e1618;
       --text-primary: #f5f3f7;
-      --text-secondary: #96919d;
-      --text-muted: #6e6975;
+      --text-secondary: #b0abb8;
+      --text-muted: #8e8896;
       --border-subtle: rgba(255, 255, 255, 0.07);
       --divider-color: rgba(255, 255, 255, 0.06);
       --pill-active-bg: #f5f3f7;
@@ -1864,4 +1723,200 @@ video {
   .lg\\:pr-4 {
     padding-right: 1rem;
   }
-}`;
+}
+/* ==================== MOBILE-FIRST & ONE-HANDED UX ENHANCEMENTS ==================== */
+:host button:focus-visible,
+:host input:focus-visible,
+:host [role="button"]:focus-visible {
+  outline: 2px solid var(--accent-orange);
+  outline-offset: 2px;
+}
+
+.v-touch-icon-btn {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  transition: background-color 150ms ease, opacity 150ms ease, transform 100ms ease;
+}
+.v-touch-icon-btn:active {
+  transform: scale(0.95);
+}
+
+.v-action-cta {
+  min-height: 48px;
+  transition: transform 100ms ease, opacity 150ms ease, background-color 150ms ease;
+}
+.v-action-cta:active {
+  transform: scale(0.98);
+}
+
+.v-side-group {
+  width: 48px;
+}
+.v-aside-nav .side-nav-btn,
+.v-aside-nav .theme-btn-light,
+.v-aside-nav .theme-btn-dark,
+.v-aside-nav #side-info-btn,
+.v-aside-nav #side-logout-btn {
+  width: 38px;
+  height: 38px;
+  transition: background-color 150ms ease, color 150ms ease, transform 100ms ease;
+}
+.v-aside-nav button:active {
+  transform: scale(0.95);
+}
+
+/* P&L Bar touch & focus tooltip visibility */
+.v-pnl-col[data-selected="true"] .v-pnl-tooltip,
+.v-pnl-col:focus-visible .v-pnl-tooltip {
+  opacity: 1 !important;
+}
+
+/* Bottom sheet handle hidden on desktop, shown on mobile */
+.v-sheet-handle {
+  display: none;
+}
+
+/* Responsive Wallets Grid for narrow mobile viewports */
+@media (max-width: 480px) {
+  .v-wallets-grid {
+    grid-template-columns: repeat(1, minmax(0, 1fr)) !important;
+    gap: 0.625rem !important;
+  }
+  .v-wallets-grid .wallet-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem !important;
+    min-height: 54px;
+  }
+  .v-wallets-grid .wallet-card > div {
+    margin: 0 !important;
+  }
+}
+
+/* One-Handed Mobile Layout & Sticky Bottom Navigation (< 768px) */
+@media (max-width: 767px) {
+  .v-shell-container {
+    padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  .v-shell-header {
+    gap: 0.5rem !important;
+    margin-bottom: 1rem !important;
+  }
+
+  .v-shell-layout {
+    flex-direction: column !important;
+    gap: 1rem !important;
+  }
+
+  .v-aside-nav { display: none !important; }
+  .v-mobile-nav {
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: 45;
+    display: grid;
+    gap: 4px;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+    background: var(--bg-card);
+    border-top: 1px solid var(--border-subtle);
+    box-shadow: 0 -6px 24px rgba(0, 0, 0, .08);
+  }
+  .v-mobile-nav button {
+    min-width: 0;
+    min-height: 56px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    border-radius: 12px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+  .v-mobile-nav button[aria-current="page"],
+  .v-mobile-nav button[aria-expanded="true"] {
+    background: var(--pill-active-bg);
+    color: var(--pill-active-text);
+  }
+  .v-shell-header #top-help-btn { display: none; }
+  .v-shell-header #profile-pill-btn { gap: 0; padding-inline: 6px !important; }
+  .v-shell-header #profile-pill-btn > svg { display: none; }
+
+  #v-toast {
+    bottom: calc(82px + env(safe-area-inset-bottom, 0px)) !important;
+    right: 16px !important;
+    left: 16px !important;
+    display: flex;
+    justify-content: center;
+  }
+}
+
+/* Mobile Bottom Sheet for Modals (< 640px) */
+@media (max-width: 639px) {
+  #v-modal-backdrop {
+    align-items: flex-end !important;
+    padding: 0 !important;
+  }
+
+  .v-modal-card {
+    max-width: 100% !important;
+    width: 100% !important;
+    border-radius: 24px 24px 0 0 !important;
+    padding: 16px 20px calc(24px + env(safe-area-inset-bottom, 10px)) !important;
+  }
+
+  .v-sheet-handle {
+    display: block;
+    width: 42px;
+    height: 4px;
+    border-radius: 999px;
+    background-color: var(--toggle-off-bg);
+    margin: 0 auto 14px;
+  }
+}
+
+.v-mobile-nav { display: none; }
+@media (max-width: 767px) { .v-mobile-nav { display: grid; } }
+.v-modal-card {
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.v-modal-card input { font-size: 16px; }
+.v-mobile-menu nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.v-mobile-menu nav button {
+  display: flex; align-items: center; gap: 10px; text-align: start;
+  min-height: 48px; padding: 10px 12px; border-radius: 12px;
+  color: var(--text-primary); background: var(--bg-subcard); font-size: 14px;
+}
+.v-mobile-menu nav button svg { flex-shrink: 0; }
+.v-mobile-menu nav button[aria-current="page"] { background: var(--pill-active-bg); color: var(--pill-active-text); }
+.v-mobile-menu-tools { margin-top: 16px; padding-top: 8px; border-top: 1px solid var(--border-subtle); }
+.v-mobile-menu-tools button {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; min-height: 48px; padding: 10px 4px; font-size: 14px; color: var(--text-primary);
+}
+.v-mobile-menu-tools button span { color: var(--text-secondary); font-size: 12px; }
+@media (max-width: 639px) { .v-modal-card { max-height: calc(100dvh - 16px); } }
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .stagger-item {
+    animation: none !important;
+  }
+  *, ::before, ::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+`;

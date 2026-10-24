@@ -44,6 +44,7 @@ use App\Http\Controllers\Api\V1\Admin\UserController;
 use App\Http\Controllers\Api\V1\Admin\WholesalePaymentNoticeController;
 use App\Http\Controllers\Api\V1\AttachmentController;
 use App\Http\Controllers\Api\V1\Shared\NotificationController;
+use App\Http\Middleware\AuditStaffAdministration;
 use Illuminate\Support\Facades\Route;
 
 // معرّفات الكتالوج رقمية بس: أي قيمة غير رقمية تبقى 404 بدل ما Postgres يرمي خطأ نوع ويرجع 500
@@ -67,6 +68,9 @@ Route::pattern('shipping_company', '[0-9]{1,18}');
 Route::pattern('shipping_zone', '[0-9]{1,18}');
 Route::pattern('shipping_rate', '[0-9]{1,18}');
 Route::pattern('supplier', '[0-9]{1,18}');
+Route::pattern('role', '[0-9]{1,18}');
+Route::pattern('branch', '[0-9]{1,18}');
+Route::pattern('location', '[0-9]{1,18}');
 Route::pattern('user', '[0-9]{1,18}');
 Route::pattern('purchase_request', '[0-9]{1,18}');
 Route::pattern('purchase_order', '[0-9]{1,18}');
@@ -83,7 +87,7 @@ if (config('auth.legacy_login_enabled', false)) {
 }
 
 // Staff-only API endpoints: require a Sanctum token and an active staff account.
-Route::middleware(['auth:sanctum', 'auth.staff'])
+Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class])
     ->name('admin.')
     ->group(function (): void {
         Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');

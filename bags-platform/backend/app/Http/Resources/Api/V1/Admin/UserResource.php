@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Api\V1\Admin;
 
+use App\Enums\StaffRole;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Spatie\Permission\Models\Permission;
 
 class UserResource extends JsonResource
 {
@@ -16,6 +18,7 @@ class UserResource extends JsonResource
     {
         return [
             'id' => $this->id,
+            'version' => (int) $this->lock_version,
             'name' => $this->name,
             'email' => $this->email,
             'phone' => $this->phone,
@@ -35,7 +38,9 @@ class UserResource extends JsonResource
                 $this->relationLoaded('roles')
                     && $this->relationLoaded('permissions')
                     && $this->roles->every(fn ($role): bool => $role->relationLoaded('permissions')),
-                fn () => $this->getAllPermissions()->pluck('name')->unique()->values(),
+                fn () => $this->hasRole(StaffRole::SuperAdmin->value, 'staff')
+                    ? Permission::query()->where('guard_name', 'staff')->orderBy('name')->pluck('name')
+                    : $this->getAllPermissions()->pluck('name')->unique()->values(),
             ),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,

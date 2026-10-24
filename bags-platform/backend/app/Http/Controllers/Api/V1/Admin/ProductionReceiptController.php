@@ -10,6 +10,7 @@ use App\Models\Branch;
 use App\Models\ProductionReceipt;
 use App\Models\ProductVariant;
 use App\Services\BranchAccess;
+use App\Services\CostAccess;
 use App\Services\ProductionReceiptService;
 use App\Services\SearchTerm;
 use Illuminate\Http\JsonResponse;
@@ -52,7 +53,7 @@ class ProductionReceiptController extends Controller implements HasMiddleware
         $branch = app(BranchAccess::class)->restrictedBranch($request->user());
         $receipts = ProductionReceipt::query()->when($branch, fn ($q) => $q->where('branch_id', $branch))
             ->orderByDesc('id')->paginate($filters['per_page'] ?? 15);
-        if (! \App\Services\CostAccess::canView($request->user())) {
+        if (! CostAccess::canView($request->user())) {
             $receipts->getCollection()->each(function ($receipt): void {
                 $receipt->items = array_map(function ($item) {
                     unset($item['unit_cost']);

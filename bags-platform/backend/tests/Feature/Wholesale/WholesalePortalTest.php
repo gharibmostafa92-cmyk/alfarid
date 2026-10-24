@@ -107,7 +107,7 @@ class WholesalePortalTest extends TestCase
     public function test_quotation_lifecycle_create_submit_price_accept(): void
     {
         // مخزون يغطي التحويل التلقائي لطلب عند القبول (المرحلة 12.2)
-        StockLevel::create([
+        StockLevel::forceCreate([
             'branch_id' => Branch::factory()->create()->id,
             'product_variant_id' => $this->variant->id,
             'on_hand' => 10,

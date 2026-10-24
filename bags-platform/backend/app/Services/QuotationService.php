@@ -212,7 +212,7 @@ class QuotationService
     private function systemActorId(): ?int
     {
         $id = User::query()
-            ->where('email', (string) config('orders.system_user_email', 'system@alfarid.local'))
+            ->where('is_system', true)
             ->value('id');
 
         return $id !== null ? (int) $id : null;

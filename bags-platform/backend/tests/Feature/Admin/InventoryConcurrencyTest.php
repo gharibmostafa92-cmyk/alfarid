@@ -5,15 +5,20 @@ declare(strict_types=1);
 namespace Tests\Feature\Admin;
 
 use App\Models\Branch;
+use App\Models\Order;
 use App\Models\PriceList;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
 use App\Models\StockMovement;
+use App\Models\Treasury;
+use App\Models\TreasuryTransaction;
 use App\Models\User;
 use App\Services\InventoryService;
+use App\Services\PosService;
 use App\Services\SettingService;
 use App\Services\StocktakeService;
 use App\Services\TransferService;
+use App\Services\TreasuryService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Spatie\Permission\Models\Permission;
@@ -298,7 +303,7 @@ PHP;
     public function test_concurrent_shift_opening_cannot_duplicate_the_user_or_drawer(): void
     {
         $branch = Branch::factory()->create();
-        $drawer = \App\Models\Treasury::create(['name' => 'Drawer', 'code' => 'RACE-DRAWER', 'branch_id' => $branch->id, 'type' => 'pos_drawer', 'is_active' => true]);
+        $drawer = Treasury::create(['name' => 'Drawer', 'code' => 'RACE-DRAWER', 'branch_id' => $branch->id, 'type' => 'pos_drawer', 'is_active' => true]);
         $operation = 'app(App\Services\PosService::class)->openShift(App\Models\User::findOrFail('.$this->staff->id.'), '.$branch->id.', '.$drawer->id.', 0);';
         $this->race([$operation, $operation], ['OK', 'REJECTED']);
         $this->assertDatabaseCount('pos_shifts', 1);
@@ -308,9 +313,9 @@ PHP;
     {
         $branch = Branch::factory()->create();
         $creator = User::factory()->create(['branch_id' => $branch->id]);
-        $from = \App\Models\Treasury::create(['name' => 'From', 'code' => 'FROM', 'branch_id' => $branch->id, 'type' => 'main_safe', 'current_balance' => 100, 'is_active' => true]);
-        $to = \App\Models\Treasury::create(['name' => 'To', 'code' => 'TO', 'branch_id' => $branch->id, 'type' => 'main_safe', 'current_balance' => 0, 'is_active' => true]);
-        $transfer = app(\App\Services\TreasuryService::class)->createTransfer(['from_treasury_id' => $from->id, 'to_treasury_id' => $to->id, 'amount' => 30], $creator->id);
+        $from = Treasury::create(['name' => 'From', 'code' => 'FROM', 'branch_id' => $branch->id, 'type' => 'main_safe', 'current_balance' => 100, 'is_active' => true]);
+        $to = Treasury::create(['name' => 'To', 'code' => 'TO', 'branch_id' => $branch->id, 'type' => 'main_safe', 'current_balance' => 0, 'is_active' => true]);
+        $transfer = app(TreasuryService::class)->createTransfer(['from_treasury_id' => $from->id, 'to_treasury_id' => $to->id, 'amount' => 30], $creator->id);
         $jobs = [];
         foreach (['approveTransfer', 'rejectTransfer'] as $method) {
             $jobs[] = 'app(App\Services\TreasuryService::class)->'.$method.'(App\Models\TreasuryTransfer::findOrFail('.$transfer->id.'), '.$this->staff->id.');';
@@ -325,15 +330,15 @@ PHP;
     public function test_concurrent_shift_approval_settles_cash_once(): void
     {
         $branch = Branch::factory()->create();
-        $safe = \App\Models\Treasury::create(['name' => 'Safe', 'code' => 'SAFE', 'branch_id' => $branch->id, 'type' => 'main_safe', 'current_balance' => 1000, 'is_active' => true]);
-        $drawer = \App\Models\Treasury::create(['name' => 'Drawer', 'code' => 'DRAWER', 'branch_id' => $branch->id, 'type' => 'pos_drawer', 'is_active' => true]);
-        $shift = app(\App\Services\PosService::class)->openShift($this->staff, $branch->id, $drawer->id, 200);
-        app(\App\Services\PosService::class)->closeShift($shift, 180, null);
+        $safe = Treasury::create(['name' => 'Safe', 'code' => 'SAFE', 'branch_id' => $branch->id, 'type' => 'main_safe', 'current_balance' => 1000, 'is_active' => true]);
+        $drawer = Treasury::create(['name' => 'Drawer', 'code' => 'DRAWER', 'branch_id' => $branch->id, 'type' => 'pos_drawer', 'is_active' => true]);
+        $shift = app(PosService::class)->openShift($this->staff, $branch->id, $drawer->id, 200);
+        app(PosService::class)->closeShift($shift, 180, null);
         $job = 'app(App\Services\PosService::class)->approveShift(App\Models\PosShift::findOrFail('.$shift->id.'), App\Models\User::findOrFail('.$this->staff->id.'));';
         $this->race([$job, $job], ['OK', 'REJECTED']);
         $this->assertSame('980.00', $safe->fresh()->current_balance);
         $this->assertSame('0.00', $drawer->fresh()->current_balance);
-        $this->assertSame(1, \App\Models\TreasuryTransaction::where('type', 'cash_shortage')->count());
+        $this->assertSame(1, TreasuryTransaction::where('type', 'cash_shortage')->count());
     }
 
     public function test_incremental_reconciliation_does_not_lose_an_uncommitted_movement(): void
@@ -355,5 +360,21 @@ PHP;
         $this->assertDatabaseCount('inventory_reconcile_work', 1);
         $this->artisan('inventory:reconcile --incremental')->assertSuccessful();
         $this->assertDatabaseCount('inventory_reconcile_work', 0);
+    }
+
+    public function test_allocations_of_the_same_variant_in_different_branches_do_not_serialize(): void
+    {
+        $variant = ProductVariant::factory()->create();
+        $jobs = [];
+        foreach (['left' => 'right', 'right' => 'left'] as $own => $other) {
+            $branch = Branch::factory()->create();
+            app(InventoryService::class)->recordMovement([...$this->data($variant, $branch), 'quantity' => 10]);
+            $order = Order::factory()->create();
+            $order->items()->create(['product_variant_id' => $variant->id, 'product_name_snapshot' => 'Bag', 'sku_snapshot' => $variant->sku, 'qty' => 1, 'unit_price' => 10, 'line_total' => 10]);
+            $hook = 'App\Models\StockMovement::creating(function () { $prefix = getenv("INVENTORY_START_FILE"); touch($prefix.'.var_export('.'.$own, true).'); $deadline = microtime(true) + 5; while (!is_file($prefix.'.var_export('.'.$other, true).')) { if (microtime(true) > $deadline) throw new RuntimeException("Allocation locked another branch"); usleep(10000); } });';
+            $jobs[] = $hook.'app(App\Services\OrderAllocationService::class)->allocate(App\Models\Order::findOrFail('.$order->id.'), '.$branch->id.', '.$this->staff->id.');';
+        }
+        $this->race($jobs);
+        $this->assertSame(['1.0000', '1.0000'], StockLevel::orderBy('branch_id')->pluck('reserved')->all());
     }
 }

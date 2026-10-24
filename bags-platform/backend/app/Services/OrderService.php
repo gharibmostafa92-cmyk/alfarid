@@ -20,6 +20,7 @@ use App\Models\Customer;
 use App\Models\CustomerWalletTransaction;
 use App\Models\Order;
 use App\Models\Product;
+use App\Models\ProductVariant;
 use App\Models\ReturnRequest;
 use App\Models\StockMovement;
 use App\Models\User;
@@ -570,7 +571,7 @@ class OrderService
             'location_id' => $row['location_id'],
         ])->all());
 
-        $costs = \App\Models\ProductVariant::withTrashed()->whereIn('id', $net->pluck('product_variant_id'))->pluck('cost_price', 'id');
+        $costs = ProductVariant::withTrashed()->whereIn('id', $net->pluck('product_variant_id'))->pluck('cost_price', 'id');
         foreach ($net as $row) {
             $base = [
                 'product_variant_id' => $row['product_variant_id'],
@@ -760,7 +761,7 @@ class OrderService
         if (! $this->systemActorResolved) {
             $this->systemActorResolved = true;
             $systemId = User::query()
-                ->where('email', (string) config('orders.system_user_email', 'system@alfarid.local'))
+                ->where('is_system', true)
                 ->value('id');
             $this->systemActorId = $systemId !== null ? (int) $systemId : null;
         }
@@ -768,12 +769,6 @@ class OrderService
             return $this->systemActorId;
         }
 
-        // رجوع احتياطي إن لم تُزرع هجرة مستخدم النظام بعد
-        $adminId = User::query()
-            ->whereHas('roles', fn ($q) => $q->where('name', 'Super Admin'))
-            ->orderBy('id')
-            ->value('id');
-
-        return $adminId !== null ? (int) $adminId : (auth()->user() instanceof User ? (int) auth()->id() : null);
+        throw new \LogicException('The System audit identity is missing; run the system-user migration before processing automated order effects.');
     }
 }

@@ -5,16 +5,16 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Enums\TreasuryType;
-use App\Http\Controllers\Controller;
-use App\Models\Treasury;
-use App\Models\PosShift;
-use App\Services\BranchAccess;
 use App\Exceptions\BusinessException;
-use Illuminate\Support\Facades\DB;
+use App\Http\Controllers\Controller;
+use App\Models\PosShift;
+use App\Models\Treasury;
+use App\Services\BranchAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class TreasuryController extends Controller implements HasMiddleware
@@ -73,6 +73,7 @@ class TreasuryController extends Controller implements HasMiddleware
     public function show(Request $request, Treasury $treasury): JsonResponse
     {
         app(BranchAccess::class)->assertTreasury($request->user()->id, $treasury);
+
         return response()->json(['data' => $this->treasuryData($treasury)]);
     }
 
@@ -87,13 +88,21 @@ class TreasuryController extends Controller implements HasMiddleware
         ]);
 
         app(BranchAccess::class)->assertTreasury($request->user()->id, $treasury);
-        if (array_key_exists('branch_id', $data)) $this->assertBranch($request, $data['branch_id']);
+        if (array_key_exists('branch_id', $data)) {
+            $this->assertBranch($request, $data['branch_id']);
+        }
         DB::transaction(function () use ($treasury, $data): void {
             $locked = Treasury::query()->lockForUpdate()->findOrFail($treasury->id);
-            if (isset($data['type']) && $data['type'] !== $locked->type->value) throw new BusinessException('نوع الخزينة غير قابل للتغيير.');
-            $unsettled = PosShift::query()->where('treasury_id', $locked->id)->whereIn('status', ['open','closed_pending_approval'])->exists();
-            if (($unsettled || (float) $locked->current_balance !== 0.0 || DB::table('treasury_transactions')->where('treasury_id', $locked->id)->exists()) && array_key_exists('branch_id', $data) && $data['branch_id'] != $locked->branch_id) throw new BusinessException('لا يمكن نقل خزينة لها رصيد أو سجل حركات إلى فرع آخر.');
-            if ($unsettled && array_key_exists('is_active', $data) && ! $data['is_active']) throw new BusinessException('لا يمكن تعطيل درج له وردية لم تُسوَّ.');
+            if (isset($data['type']) && $data['type'] !== $locked->type->value) {
+                throw new BusinessException('نوع الخزينة غير قابل للتغيير.');
+            }
+            $unsettled = PosShift::query()->where('treasury_id', $locked->id)->whereIn('status', ['open', 'closed_pending_approval'])->exists();
+            if (($unsettled || (float) $locked->current_balance !== 0.0 || DB::table('treasury_transactions')->where('treasury_id', $locked->id)->exists()) && array_key_exists('branch_id', $data) && $data['branch_id'] != $locked->branch_id) {
+                throw new BusinessException('لا يمكن نقل خزينة لها رصيد أو سجل حركات إلى فرع آخر.');
+            }
+            if ($unsettled && array_key_exists('is_active', $data) && ! $data['is_active']) {
+                throw new BusinessException('لا يمكن تعطيل درج له وردية لم تُسوَّ.');
+            }
             $locked->update($data);
         });
         $treasury->refresh();
@@ -121,8 +130,11 @@ class TreasuryController extends Controller implements HasMiddleware
 
     private function assertBranch(Request $request, ?int $branchId): void
     {
-        if ($branchId === null) app(BranchAccess::class)->assertCentralAccess($request->user());
-        else app(BranchAccess::class)->assertBranch($request->user()->id, $branchId);
+        if ($branchId === null) {
+            app(BranchAccess::class)->assertCentralAccess($request->user());
+        } else {
+            app(BranchAccess::class)->assertBranch($request->user()->id, $branchId);
+        }
     }
 
     private function treasuryData(Treasury $treasury): Treasury

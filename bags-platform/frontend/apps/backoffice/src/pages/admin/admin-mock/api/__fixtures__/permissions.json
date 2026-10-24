@@ -1,0 +1,720 @@
+{
+    "data": {
+        "branches": [
+            {
+                "id": 4,
+                "name": "branches.create"
+            },
+            {
+                "id": 6,
+                "name": "branches.delete"
+            },
+            {
+                "id": 7,
+                "name": "branches.manage"
+            },
+            {
+                "id": 5,
+                "name": "branches.update"
+            },
+            {
+                "id": 3,
+                "name": "branches.view"
+            }
+        ],
+        "brands": [
+            {
+                "id": 122,
+                "name": "brands.create"
+            },
+            {
+                "id": 124,
+                "name": "brands.delete"
+            },
+            {
+                "id": 123,
+                "name": "brands.update"
+            },
+            {
+                "id": 121,
+                "name": "brands.view"
+            }
+        ],
+        "categories": [
+            {
+                "id": 40,
+                "name": "categories.create"
+            },
+            {
+                "id": 42,
+                "name": "categories.delete"
+            },
+            {
+                "id": 43,
+                "name": "categories.manage"
+            },
+            {
+                "id": 41,
+                "name": "categories.update"
+            },
+            {
+                "id": 39,
+                "name": "categories.view"
+            }
+        ],
+        "coupons": [
+            {
+                "id": 155,
+                "name": "coupons.create"
+            },
+            {
+                "id": 157,
+                "name": "coupons.delete"
+            },
+            {
+                "id": 156,
+                "name": "coupons.update"
+            },
+            {
+                "id": 154,
+                "name": "coupons.view"
+            }
+        ],
+        "customer_groups": [
+            {
+                "id": 137,
+                "name": "customer_groups.create"
+            },
+            {
+                "id": 139,
+                "name": "customer_groups.delete"
+            },
+            {
+                "id": 138,
+                "name": "customer_groups.update"
+            },
+            {
+                "id": 136,
+                "name": "customer_groups.view"
+            }
+        ],
+        "customers": [
+            {
+                "id": 146,
+                "name": "customers.approve"
+            },
+            {
+                "id": 25,
+                "name": "customers.create"
+            },
+            {
+                "id": 27,
+                "name": "customers.delete"
+            },
+            {
+                "id": 147,
+                "name": "customers.documents.view"
+            },
+            {
+                "id": 28,
+                "name": "customers.manage"
+            },
+            {
+                "id": 26,
+                "name": "customers.update"
+            },
+            {
+                "id": 24,
+                "name": "customers.view"
+            }
+        ],
+        "inventory": [
+            {
+                "id": 127,
+                "name": "inventory.adjust"
+            },
+            {
+                "id": 1,
+                "name": "inventory.all_branches"
+            },
+            {
+                "id": 45,
+                "name": "inventory.create"
+            },
+            {
+                "id": 47,
+                "name": "inventory.delete"
+            },
+            {
+                "id": 48,
+                "name": "inventory.manage"
+            },
+            {
+                "id": 46,
+                "name": "inventory.update"
+            },
+            {
+                "id": 44,
+                "name": "inventory.view"
+            },
+            {
+                "id": 2,
+                "name": "inventory.view_cost"
+            }
+        ],
+        "locations": [
+            {
+                "id": 9,
+                "name": "locations.create"
+            },
+            {
+                "id": 11,
+                "name": "locations.delete"
+            },
+            {
+                "id": 12,
+                "name": "locations.manage"
+            },
+            {
+                "id": 10,
+                "name": "locations.update"
+            },
+            {
+                "id": 8,
+                "name": "locations.view"
+            }
+        ],
+        "notifications": [
+            {
+                "id": 92,
+                "name": "notifications.create"
+            },
+            {
+                "id": 94,
+                "name": "notifications.delete"
+            },
+            {
+                "id": 95,
+                "name": "notifications.manage"
+            },
+            {
+                "id": 93,
+                "name": "notifications.update"
+            },
+            {
+                "id": 91,
+                "name": "notifications.view"
+            }
+        ],
+        "orders": [
+            {
+                "id": 148,
+                "name": "orders.allocate"
+            },
+            {
+                "id": 55,
+                "name": "orders.create"
+            },
+            {
+                "id": 57,
+                "name": "orders.delete"
+            },
+            {
+                "id": 58,
+                "name": "orders.manage"
+            },
+            {
+                "id": 149,
+                "name": "orders.payment"
+            },
+            {
+                "id": 56,
+                "name": "orders.update"
+            },
+            {
+                "id": 54,
+                "name": "orders.view"
+            }
+        ],
+        "payment_notices": [
+            {
+                "id": 161,
+                "name": "payment_notices.approve"
+            },
+            {
+                "id": 162,
+                "name": "payment_notices.reject"
+            },
+            {
+                "id": 160,
+                "name": "payment_notices.view"
+            }
+        ],
+        "payments": [
+            {
+                "id": 75,
+                "name": "payments.create"
+            },
+            {
+                "id": 77,
+                "name": "payments.delete"
+            },
+            {
+                "id": 78,
+                "name": "payments.manage"
+            },
+            {
+                "id": 76,
+                "name": "payments.update"
+            },
+            {
+                "id": 74,
+                "name": "payments.view"
+            }
+        ],
+        "permissions": [
+            {
+                "id": 23,
+                "name": "permissions.view"
+            }
+        ],
+        "pos": [
+            {
+                "id": 104,
+                "name": "pos.access"
+            },
+            {
+                "id": 109,
+                "name": "pos.discount"
+            },
+            {
+                "id": 108,
+                "name": "pos.override_price"
+            },
+            {
+                "id": 106,
+                "name": "pos.sales.create"
+            },
+            {
+                "id": 107,
+                "name": "pos.sales.refund"
+            },
+            {
+                "id": 105,
+                "name": "pos.sales.view"
+            }
+        ],
+        "price_lists": [
+            {
+                "id": 141,
+                "name": "price_lists.create"
+            },
+            {
+                "id": 143,
+                "name": "price_lists.delete"
+            },
+            {
+                "id": 145,
+                "name": "price_lists.export"
+            },
+            {
+                "id": 144,
+                "name": "price_lists.import"
+            },
+            {
+                "id": 142,
+                "name": "price_lists.update"
+            },
+            {
+                "id": 140,
+                "name": "price_lists.view"
+            }
+        ],
+        "pricing": [
+            {
+                "id": 97,
+                "name": "pricing.create"
+            },
+            {
+                "id": 99,
+                "name": "pricing.delete"
+            },
+            {
+                "id": 100,
+                "name": "pricing.manage"
+            },
+            {
+                "id": 98,
+                "name": "pricing.update"
+            },
+            {
+                "id": 96,
+                "name": "pricing.view"
+            }
+        ],
+        "products": [
+            {
+                "id": 35,
+                "name": "products.create"
+            },
+            {
+                "id": 37,
+                "name": "products.delete"
+            },
+            {
+                "id": 38,
+                "name": "products.manage"
+            },
+            {
+                "id": 126,
+                "name": "products.publish"
+            },
+            {
+                "id": 36,
+                "name": "products.update"
+            },
+            {
+                "id": 34,
+                "name": "products.view"
+            },
+            {
+                "id": 125,
+                "name": "products.view_cost"
+            }
+        ],
+        "promotions": [
+            {
+                "id": 151,
+                "name": "promotions.create"
+            },
+            {
+                "id": 153,
+                "name": "promotions.delete"
+            },
+            {
+                "id": 152,
+                "name": "promotions.update"
+            },
+            {
+                "id": 150,
+                "name": "promotions.view"
+            }
+        ],
+        "purchase_requests": [
+            {
+                "id": 112,
+                "name": "purchase_requests.approve"
+            }
+        ],
+        "purchases": [
+            {
+                "id": 110,
+                "name": "purchases.approve"
+            },
+            {
+                "id": 65,
+                "name": "purchases.create"
+            },
+            {
+                "id": 67,
+                "name": "purchases.delete"
+            },
+            {
+                "id": 68,
+                "name": "purchases.manage"
+            },
+            {
+                "id": 111,
+                "name": "purchases.receive"
+            },
+            {
+                "id": 66,
+                "name": "purchases.update"
+            },
+            {
+                "id": 64,
+                "name": "purchases.view"
+            }
+        ],
+        "quotations": [
+            {
+                "id": 159,
+                "name": "quotations.price"
+            },
+            {
+                "id": 158,
+                "name": "quotations.view"
+            }
+        ],
+        "reports": [
+            {
+                "id": 90,
+                "name": "reports.export"
+            },
+            {
+                "id": 89,
+                "name": "reports.view"
+            }
+        ],
+        "returns": [
+            {
+                "id": 118,
+                "name": "returns.approve"
+            },
+            {
+                "id": 70,
+                "name": "returns.create"
+            },
+            {
+                "id": 72,
+                "name": "returns.delete"
+            },
+            {
+                "id": 73,
+                "name": "returns.manage"
+            },
+            {
+                "id": 119,
+                "name": "returns.receive"
+            },
+            {
+                "id": 120,
+                "name": "returns.refund"
+            },
+            {
+                "id": 71,
+                "name": "returns.update"
+            },
+            {
+                "id": 69,
+                "name": "returns.view"
+            }
+        ],
+        "roles": [
+            {
+                "id": 19,
+                "name": "roles.create"
+            },
+            {
+                "id": 21,
+                "name": "roles.delete"
+            },
+            {
+                "id": 22,
+                "name": "roles.manage"
+            },
+            {
+                "id": 20,
+                "name": "roles.update"
+            },
+            {
+                "id": 18,
+                "name": "roles.view"
+            }
+        ],
+        "sales": [
+            {
+                "id": 60,
+                "name": "sales.create"
+            },
+            {
+                "id": 62,
+                "name": "sales.delete"
+            },
+            {
+                "id": 63,
+                "name": "sales.manage"
+            },
+            {
+                "id": 61,
+                "name": "sales.update"
+            },
+            {
+                "id": 59,
+                "name": "sales.view"
+            }
+        ],
+        "settings": [
+            {
+                "id": 103,
+                "name": "settings.manage"
+            },
+            {
+                "id": 102,
+                "name": "settings.update"
+            },
+            {
+                "id": 101,
+                "name": "settings.view"
+            }
+        ],
+        "shipping": [
+            {
+                "id": 80,
+                "name": "shipping.create"
+            },
+            {
+                "id": 82,
+                "name": "shipping.delete"
+            },
+            {
+                "id": 83,
+                "name": "shipping.manage"
+            },
+            {
+                "id": 81,
+                "name": "shipping.update"
+            },
+            {
+                "id": 79,
+                "name": "shipping.view"
+            }
+        ],
+        "stocktakes": [
+            {
+                "id": 135,
+                "name": "stocktakes.approve"
+            },
+            {
+                "id": 132,
+                "name": "stocktakes.create"
+            },
+            {
+                "id": 134,
+                "name": "stocktakes.delete"
+            },
+            {
+                "id": 133,
+                "name": "stocktakes.update"
+            },
+            {
+                "id": 131,
+                "name": "stocktakes.view"
+            }
+        ],
+        "supplier_invoices": [
+            {
+                "id": 117,
+                "name": "supplier_invoices.cancel"
+            },
+            {
+                "id": 116,
+                "name": "supplier_invoices.post"
+            }
+        ],
+        "supplier_payments": [
+            {
+                "id": 113,
+                "name": "supplier_payments.create"
+            },
+            {
+                "id": 115,
+                "name": "supplier_payments.delete"
+            },
+            {
+                "id": 114,
+                "name": "supplier_payments.update"
+            }
+        ],
+        "suppliers": [
+            {
+                "id": 30,
+                "name": "suppliers.create"
+            },
+            {
+                "id": 32,
+                "name": "suppliers.delete"
+            },
+            {
+                "id": 33,
+                "name": "suppliers.manage"
+            },
+            {
+                "id": 31,
+                "name": "suppliers.update"
+            },
+            {
+                "id": 29,
+                "name": "suppliers.view"
+            }
+        ],
+        "transfers": [
+            {
+                "id": 128,
+                "name": "transfers.approve"
+            },
+            {
+                "id": 85,
+                "name": "transfers.create"
+            },
+            {
+                "id": 87,
+                "name": "transfers.delete"
+            },
+            {
+                "id": 88,
+                "name": "transfers.manage"
+            },
+            {
+                "id": 130,
+                "name": "transfers.receive"
+            },
+            {
+                "id": 129,
+                "name": "transfers.ship"
+            },
+            {
+                "id": 86,
+                "name": "transfers.update"
+            },
+            {
+                "id": 84,
+                "name": "transfers.view"
+            }
+        ],
+        "users": [
+            {
+                "id": 14,
+                "name": "users.create"
+            },
+            {
+                "id": 16,
+                "name": "users.delete"
+            },
+            {
+                "id": 17,
+                "name": "users.manage"
+            },
+            {
+                "id": 15,
+                "name": "users.update"
+            },
+            {
+                "id": 13,
+                "name": "users.view"
+            }
+        ],
+        "warehouses": [
+            {
+                "id": 50,
+                "name": "warehouses.create"
+            },
+            {
+                "id": 52,
+                "name": "warehouses.delete"
+            },
+            {
+                "id": 53,
+                "name": "warehouses.manage"
+            },
+            {
+                "id": 51,
+                "name": "warehouses.update"
+            },
+            {
+                "id": 49,
+                "name": "warehouses.view"
+            }
+        ]
+    }
+}

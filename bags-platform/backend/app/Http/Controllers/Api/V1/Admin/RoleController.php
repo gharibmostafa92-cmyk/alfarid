@@ -10,6 +10,8 @@ use App\Http\Requests\Api\V1\Admin\StoreRoleRequest;
 use App\Http\Requests\Api\V1\Admin\UpdateRoleRequest;
 use App\Http\Resources\Api\V1\Admin\RoleResource;
 use App\Models\User;
+use App\Services\BranchAccess;
+use App\Services\StaffAdministration;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -28,6 +30,7 @@ class RoleController extends Controller
         $roles = Role::query()
             ->where('guard_name', 'staff')
             ->with('permissions')
+            ->withCount('users')
             ->orderBy('id')
             ->paginate($validated['per_page'] ?? 15)
             ->withQueryString();
@@ -41,9 +44,9 @@ class RoleController extends Controller
         $permissions = $validated['permissions'] ?? [];
         $currentUser = $request->user('staff');
 
-        if ($validated['name'] === StaffRole::SuperAdmin->value) {
+        if (StaffRole::isReserved($validated['name'])) {
             return response()->json([
-                'message' => 'لا يمكن إنشاء دور Super Admin من هذه الواجهة.',
+                'message' => 'هذا الاسم محجوز لدور أساسي في النظام.',
             ], 403);
         }
 
@@ -53,14 +56,20 @@ class RoleController extends Controller
             ], 403);
         }
 
-        $role = DB::transaction(function () use ($validated, $permissions): Role {
+        $role = DB::transaction(function () use ($validated, $permissions, $currentUser): Role {
+            StaffAdministration::lock();
+            StaffAdministration::authorize($currentUser, ['roles.create', 'roles.manage']);
+            app(BranchAccess::class)->assertCentralAccess($currentUser);
+            abort_unless($this->mayGrantPermissions($currentUser, $permissions), 403);
+            StaffAdministration::clearPermissionCacheAfterCommit();
             $role = Role::create([
                 'name' => $validated['name'],
                 'guard_name' => 'staff',
             ]);
             $role->syncPermissions($permissions);
+            StaffAdministration::audit($currentUser, 'role.created', 'role', $role->id, array_keys($validated), after: StaffAdministration::roleState($role));
 
-            return $role->load('permissions');
+            return $role->load('permissions')->loadCount('users');
         });
 
         return RoleResource::make($role)->response()->setStatusCode(201);
@@ -70,7 +79,7 @@ class RoleController extends Controller
     {
         $this->ensureStaffRole($role);
 
-        return RoleResource::make($role->load('permissions'));
+        return RoleResource::make($role->load('permissions')->loadCount('users'));
     }
 
     public function update(UpdateRoleRequest $request, Role $role): RoleResource|JsonResponse
@@ -79,9 +88,9 @@ class RoleController extends Controller
         $permissions = $validated['permissions'] ?? null;
         $currentUser = $request->user('staff');
 
-        if (array_key_exists('name', $validated) && $validated['name'] === StaffRole::SuperAdmin->value) {
+        if (array_key_exists('name', $validated) && StaffRole::isReserved($validated['name'])) {
             return response()->json([
-                'message' => 'لا يمكن تسمية دور آخر باسم Super Admin.',
+                'message' => 'هذا الاسم محجوز لدور أساسي في النظام.',
             ], 403);
         }
 
@@ -91,13 +100,23 @@ class RoleController extends Controller
             ], 403);
         }
 
-        $failure = DB::transaction(function () use ($role, $validated, $permissions): ?string {
+        $failure = DB::transaction(function () use ($role, $validated, $permissions, $currentUser): ?string {
+            StaffAdministration::lock();
+            StaffAdministration::authorize($currentUser, ['roles.update', 'roles.manage']);
+            app(BranchAccess::class)->assertCentralAccess($currentUser);
             $lockedRole = Role::query()->whereKey($role->getKey())->lockForUpdate()->firstOrFail();
             $this->ensureStaffRole($lockedRole);
+            StaffAdministration::assertVersion($lockedRole, isset($validated['expected_version']) ? (int) $validated['expected_version'] : null);
+            $before = StaffAdministration::roleState($lockedRole);
 
-            if ($lockedRole->name === StaffRole::SuperAdmin->value) {
+            if (($lockedRole->name === StaffRole::SuperAdmin->value || (StaffRole::isReserved($lockedRole->name) && array_key_exists('name', $validated)))) {
                 return 'protected';
             }
+
+            abort_unless($this->mayGrantPermissions($currentUser, array_unique(array_merge(
+                $lockedRole->permissions()->pluck('name')->all(), $permissions ?? []
+            ))), 403);
+            StaffAdministration::clearPermissionCacheAfterCommit();
 
             if (array_key_exists('name', $validated)) {
                 $lockedRole->name = $validated['name'];
@@ -107,43 +126,52 @@ class RoleController extends Controller
             if ($permissions !== null) {
                 $lockedRole->syncPermissions($permissions);
             }
+            StaffAdministration::advanceVersion($lockedRole);
+            StaffAdministration::audit($currentUser, 'role.updated', 'role', $lockedRole->id, array_keys($validated), $before, StaffAdministration::roleState($lockedRole));
 
             return null;
         });
 
         if ($failure !== null) {
             return response()->json([
-                'message' => 'لا يمكن تعديل دور Super Admin الأساسي.',
+                'message' => 'لا يمكن تعديل اسم دور أساسي أو تغيير دور Super Admin.',
             ], 403);
         }
 
-        return RoleResource::make($role->refresh()->load('permissions'));
+        return RoleResource::make($role->refresh()->load('permissions')->loadCount('users'));
     }
 
-    public function destroy(Role $role): JsonResponse|Response
+    public function destroy(Request $request, Role $role): JsonResponse|Response
     {
         $this->ensureStaffRole($role);
 
-        $result = DB::transaction(function () use ($role): string {
+        $result = DB::transaction(function () use ($role, $request): string {
+            StaffAdministration::lock();
+            StaffAdministration::authorize($request->user('staff'), ['roles.delete', 'roles.manage']);
+            app(BranchAccess::class)->assertCentralAccess($request->user('staff'));
             $lockedRole = Role::query()->whereKey($role->getKey())->lockForUpdate()->firstOrFail();
             $this->ensureStaffRole($lockedRole);
 
-            if ($lockedRole->name === StaffRole::SuperAdmin->value) {
+            if (StaffRole::isReserved($lockedRole->name)) {
                 return 'protected';
             }
+
+            abort_unless($this->mayGrantPermissions($request->user('staff'), $lockedRole->permissions()->pluck('name')->all()), 403);
 
             if ($lockedRole->users()->exists()) {
                 return 'in_use';
             }
 
+            StaffAdministration::audit($request->user('staff'), 'role.deleted', 'role', $lockedRole->id, ['name', 'permissions'], before: StaffAdministration::roleState($lockedRole));
             $lockedRole->delete();
+            StaffAdministration::clearPermissionCacheAfterCommit();
 
             return 'deleted';
         });
 
         if ($result === 'protected') {
             return response()->json([
-                'message' => 'لا يمكن حذف دور Super Admin الأساسي.',
+                'message' => 'لا يمكن حذف دور أساسي في النظام.',
             ], 403);
         }
 
@@ -161,6 +189,8 @@ class RoleController extends Controller
         if (! $user instanceof User) {
             return false;
         }
+
+        $user->unsetRelation('roles')->unsetRelation('permissions');
 
         return $user->hasRole(StaffRole::SuperAdmin->value, 'staff')
             || $user->hasAllPermissions($permissions);

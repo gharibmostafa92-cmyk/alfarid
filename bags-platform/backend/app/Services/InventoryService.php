@@ -430,10 +430,14 @@ class InventoryService
     {
         $query = Location::query()->where('branch_id', $branchId)->where('is_active', true);
         if ($locationId !== null) {
-            if (! $query->whereKey($locationId)->exists()) throw new BusinessException('موقع الاستلام غير نشط أو لا يتبع الفرع.');
+            if (! $query->whereKey($locationId)->exists()) {
+                throw new BusinessException('موقع الاستلام غير نشط أو لا يتبع الفرع.');
+            }
+
             return $locationId;
         }
         $id = $query->orderByRaw("CASE WHEN type = 'receiving' THEN 0 ELSE 1 END")->orderBy('id')->value('id');
+
         return $id === null ? null : (int) $id;
     }
 

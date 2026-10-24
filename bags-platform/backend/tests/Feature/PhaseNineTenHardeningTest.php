@@ -313,7 +313,7 @@ class PhaseNineTenHardeningTest extends TestCase
         $po = $this->po();
         $po->update(['discount_amount' => 2600]);
         $otherBranch = Branch::factory()->create();
-        StockLevel::create(['branch_id' => $otherBranch->id, 'product_variant_id' => $this->variant->id, 'on_hand' => 100, 'damaged' => 20]);
+        StockLevel::forceCreate(['branch_id' => $otherBranch->id, 'product_variant_id' => $this->variant->id, 'on_hand' => 100, 'damaged' => 20]);
         $this->api("purchase-orders/{$po->id}/receive", ['items' => [['purchase_order_item_id' => $po->items->first()->id, 'qty' => 100]]], 'discount-cost')->assertOk();
         $this->assertSame('102.0000', $this->variant->fresh()->cost_price);
         $this->assertSame('104.0000', $this->variant->fresh()->last_cost_price);
@@ -410,7 +410,7 @@ class PhaseNineTenHardeningTest extends TestCase
     {
         $po = $this->po();
         $po->update(['discount_amount' => 1690]);
-        StockLevel::create(['branch_id' => $this->branch->id, 'product_variant_id' => $this->variant->id, 'on_hand' => 2]);
+        StockLevel::forceCreate(['branch_id' => $this->branch->id, 'product_variant_id' => $this->variant->id, 'on_hand' => 2]);
         $this->api("purchase-orders/{$po->id}/receive", ['items' => [['purchase_order_item_id' => $po->items->first()->id, 'qty' => 1]]], 'precise-cost')->assertOk();
         $this->assertSame('104.3667', $this->variant->fresh()->cost_price);
     }

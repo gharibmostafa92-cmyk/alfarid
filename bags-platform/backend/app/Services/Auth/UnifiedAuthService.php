@@ -23,29 +23,42 @@ final class UnifiedAuthService
     {
         $identifier = str_contains($login, '@') ? mb_strtolower(trim($login)) : Customer::normalizePhone($login);
         $key = 'unified-login:failures:'.hash_hmac('sha256', $identifier, (string) config('app.key'));
-        $limits = [
-            'hour' => [max(1, (int) config('auth.unified_login_failures_hour', 100)), 3600],
-            'day' => [max(1, (int) config('auth.unified_login_failures_day', 100)), 86400],
-        ];
-        foreach ($limits as $window => [$limit]) {
-            if (RateLimiter::tooManyAttempts($key.':'.$window, $limit)) {
-                throw new TooManyRequestsHttpException(RateLimiter::availableIn($key.':'.$window), 'محاولات دخول كثيرة؛ حاول لاحقًا.');
-            }
+        $ipKey = 'unified-login:ip-failures:'.hash_hmac('sha256', (string) request()->ip(), (string) config('app.key'));
+        $pairKey = $key.':ip:'.hash('sha256', (string) request()->ip()).':hour';
+        $dayKey = $key.':day';
+        $staff = str_contains($identifier, '@') ? User::query()->whereRaw('LOWER(email) = ?', [$identifier])->first() : null;
+        $dayLimit = max(1, (int) config('auth.unified_login_failures_day', 1000));
+        $pairLimit = max(1, (int) config('auth.unified_login_failures_hour', 10));
+        $ipLimit = max(1, (int) config('auth.unified_login_ip_failures_hour', 1000));
+        if (RateLimiter::tooManyAttempts($pairKey, $pairLimit)) {
+            throw new TooManyRequestsHttpException(RateLimiter::availableIn($pairKey), 'محاولات دخول كثيرة؛ حاول لاحقًا.');
         }
-
+        $broadLimitReached = RateLimiter::tooManyAttempts($ipKey, $ipLimit)
+            || RateLimiter::tooManyAttempts($dayKey, $dayLimit);
         try {
-            return $this->resolve($identifier, $password);
+            $actor = $this->resolve($identifier, $password, $staff);
         } catch (BusinessException $exception) {
             if ($exception->status === 401) {
-                foreach ($limits as $window => [$limit, $seconds]) {
-                    RateLimiter::hit($key.':'.$window, $seconds);
+                RateLimiter::hit($pairKey, 3600);
+                if (RateLimiter::hit($ipKey, 3600) === $ipLimit) {
+                    app(AuthenticationAlerts::class)->report('ip_failures', $staff?->id);
+                }
+                if (RateLimiter::hit($dayKey, 86400) === $dayLimit) {
+                    app(AuthenticationAlerts::class)->report('identifier_failures', $staff?->id);
+                }
+                // Broad quotas must not lock out valid credentials behind NAT or CGNAT.
+                if ($broadLimitReached) {
+                    throw new TooManyRequestsHttpException(60, 'محاولات دخول كثيرة؛ حاول لاحقًا.');
                 }
             }
             throw $exception;
         }
+        RateLimiter::clear($pairKey);
+
+        return $actor;
     }
 
-    private function resolve(string $login, string $password): User|SupplierUser|Customer
+    private function resolve(string $login, string $password, ?User $staff = null): User|SupplierUser|Customer
     {
         $login = trim($login);
 
@@ -56,7 +69,6 @@ final class UnifiedAuthService
             // الجداول الثلاثة (استعلامات indexed رخيصة)، ثم نفحص مرشحًا واحدًا
             // بالأولوية (staff ثم supplier ثم customer) أو dummy hash عند غياب
             // الجميع. الفحص الإضافي يحدث فقط في حالة البريد المشترك الشاذة.
-            $staff = User::query()->whereRaw('LOWER(email) = ?', [$email])->first();
             $supplierUser = null; // Supplier accounts are historical; dealers use Customer accounts.
             $customer = Customer::query()
                 ->whereNotNull('email_verified_at')
@@ -81,7 +93,7 @@ final class UnifiedAuthService
                 if (! Hash::check($password, $candidate->password)) {
                     continue;
                 }
-                if ($candidate instanceof User && ! $candidate->is_active) {
+                if ($candidate instanceof User && (! $candidate->is_active || $candidate->is_system)) {
                     logger()->info('staff.login', ['user_id' => $candidate->id, 'ip' => request()->ip(), 'result' => 'inactive']);
 
                     continue;
@@ -157,7 +169,14 @@ final class UnifiedAuthService
     private function rehashIfNeeded(User|SupplierUser $model, string $password): void
     {
         if (Hash::needsRehash($model->password)) {
-            $model->forceFill(['password' => $password])->save();
+            $original = $model->password;
+            $replacement = Hash::make($password);
+            // A rehash must never overwrite an administrator's concurrent password reset.
+            if ($model->newQuery()->whereKey($model->id)->where('password', $original)->update(['password' => $replacement]) !== 1) {
+                throw new BusinessException('بيانات الدخول غير صحيحة.', [], 401);
+            }
+            // Keep the exact credential snapshot just verified; a later reset invalidates its handoff.
+            $model->forceFill(['password' => $replacement])->syncOriginalAttribute('password');
         }
     }
 }

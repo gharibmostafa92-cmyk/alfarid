@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Admin;
 
+use App\Services\CostAccess;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -39,7 +40,7 @@ class StockMovementResource extends JsonResource
             'balance_before' => $this->balance_before,
             'balance_after' => $this->balance_after,
             // تكلفة الشراء معلومة تجارية حساسة: لا تظهر إلا بصلاحية صريحة
-            'unit_cost' => $this->when(\App\Services\CostAccess::canView($request->user()), $this->unit_cost),
+            'unit_cost' => $this->when(CostAccess::canView($request->user()), $this->unit_cost),
             'reference_type' => $this->reference_type,
             'reference_id' => $this->reference_id,
             'created_by' => $this->created_by,

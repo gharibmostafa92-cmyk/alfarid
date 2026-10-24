@@ -125,7 +125,7 @@ return [
      * this will refresh permissions on every TickTerminated, TaskTerminated and RequestTerminated
      * NOTE: This should not be needed in most cases, but an Octane/Vapor combination benefited from it.
      */
-    'register_octane_reset_listener' => false,
+    'register_octane_reset_listener' => true,
 
     /*
      * Events will fire when a role or permission is assigned/unassigned:
@@ -196,17 +196,18 @@ return [
     'cache' => [
 
         /*
-         * By default all permissions are cached for 24 hours to speed up performance.
+         * Keep stale grants bounded if an after-commit cache invalidation fails.
          * When permissions or roles are updated the cache is flushed automatically.
          */
 
-        'expiration_time' => DateInterval::createFromDateString('24 hours'),
+        'expiration_time' => DateInterval::createFromDateString('5 minutes'),
 
         /*
          * The cache key used to store all permissions.
          */
 
-        'key' => 'spatie.permission.cache',
+        // Do not reuse entries created with the previous 24-hour TTL during deployment.
+        'key' => 'spatie.permission.cache.v2',
 
         /*
          * You may optionally indicate a specific cache driver to use for permission and

@@ -16,12 +16,17 @@ final class StaffHandoffService
     public function issue(User $user): string
     {
         $code = Str::random(64);
-        Cache::put($this->key($code), ['user_id' => $user->id], now()->addSeconds(self::TTL_SECONDS));
+        Cache::put($this->key($code), ['user_id' => $user->id, 'credentials' => self::credentialFingerprint($user)], now()->addSeconds(self::TTL_SECONDS));
 
         return $code;
     }
 
-    /** @return array{user_id:int}|null */
+    public static function credentialFingerprint(User $user): string
+    {
+        return hash_hmac('sha256', json_encode([$user->id, $user->email, $user->password], JSON_THROW_ON_ERROR), (string) config('app.key'));
+    }
+
+    /** @return array{user_id:int, credentials:string}|null */
     public function consume(string $code): ?array
     {
         // Cache::pull alone is a read followed by delete on database/Redis stores.

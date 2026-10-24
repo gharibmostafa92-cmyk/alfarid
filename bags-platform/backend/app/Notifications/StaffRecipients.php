@@ -17,11 +17,13 @@ final class StaffRecipients
     public static function withAnyPermission(array $permissions): Collection
     {
         return User::query()
-            ->where('is_active', true)
+            ->where('is_active', true)->where('is_system', false)
             ->where(function ($query) use ($permissions): void {
-                $query->whereHas('roles', fn ($role) => $role->where('name', 'Super Admin'));
+                $query->whereHas('roles', fn ($role) => $role->where('name', 'Super Admin')->where('guard_name', 'staff'));
                 foreach ($permissions as $permission) {
-                    $query->orWhereHas('permissions', fn ($perm) => $perm->where('name', $permission));
+                    $query->orWhereHas('permissions', fn ($perm) => $perm->where('name', $permission)->where('guard_name', 'staff'))
+                        ->orWhereHas('roles', fn ($role) => $role->where('guard_name', 'staff')
+                            ->whereHas('permissions', fn ($perm) => $perm->where('name', $permission)->where('guard_name', 'staff')));
                 }
             })
             ->get();
@@ -32,10 +34,13 @@ final class StaffRecipients
     {
         return User::query()
             ->where('is_active', true)
+            ->where('is_system', false)
             ->where('branch_id', $branchId)
             ->where(function ($query): void {
-                $query->whereHas('roles', fn ($role) => $role->where('name', 'Super Admin'))
-                    ->orWhereHas('permissions', fn ($perm) => $perm->where('name', 'inventory.view'));
+                $query->whereHas('roles', fn ($role) => $role->where('name', 'Super Admin')->where('guard_name', 'staff'))
+                    ->orWhereHas('permissions', fn ($perm) => $perm->where('name', 'inventory.view')->where('guard_name', 'staff'))
+                    ->orWhereHas('roles', fn ($role) => $role->where('guard_name', 'staff')
+                        ->whereHas('permissions', fn ($perm) => $perm->where('name', 'inventory.view')->where('guard_name', 'staff')));
             })
             ->get();
     }

@@ -222,8 +222,35 @@
 .luxury-file-input { display: block; width: 100%; min-width: 0; border: 1px dashed #a3a3a3; border-radius: 12px; padding: 14px; color: #525252; font-size: 12px; }
 .luxury-file-input::file-selector-button { margin-inline-end: 12px; border: 0; border-radius: 999px; padding: 8px 12px; background: #171717; color: #fff; font: inherit; cursor: pointer; }
 .luxury-file-list { padding-inline-start: 18px; margin-top: 10px; font-size: 12px; color: #525252; overflow-wrap: anywhere; }
+.luxury-req-mark { margin-inline-start: 4px; color: #525252; }
+.luxury-stepper { display: flex; gap: 8px; margin: 0 0 24px; }
+.luxury-step-pill {
+  flex: 1; min-width: 0; min-height: 44px; padding: 10px 12px;
+  border: 1px solid #d4d4d4; border-radius: 12px; background: #fff;
+  color: #525252; font: inherit; font-size: 13px; line-height: 1.6;
+}
+.luxury-step-pill[data-active="true"] { border-color: #171717; background: #171717; color: #fff; }
+.luxury-step-pill:disabled:not([data-active="true"]) { color: #737373; background: #fafafa; }
+.luxury-inline-action-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.luxury-countdown-badge { color: #525252; font-size: 13px; font-variant-numeric: tabular-nums; }
+.luxury-verified-badge { color: #166534; font-weight: 600; }
+.luxury-verified-badge::before { content: '✓'; margin-inline-end: 6px; }
+.luxury-file-list { list-style: none; padding: 0; }
+.luxury-file-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #e5e5e5; }
+.luxury-file-list li > span { min-width: 0; overflow-wrap: anywhere; }
+.luxury-file-remove { flex-shrink: 0; min-width: 44px; min-height: 44px; border: 0; background: transparent; color: #b91c1c; cursor: pointer; font-size: 16px; }
+.luxury-file-picker { position: relative; display: flex; align-items: center; justify-content: center; min-height: 52px; border: 1px dashed #a3a3a3; border-radius: 12px; background: #fafafa; color: #262626; font-size: 14px; }
+.luxury-file-picker .luxury-file-input { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; opacity: 0; cursor: pointer; }
+.luxury-file-picker:focus-within { outline: 2px solid #171717; outline-offset: 4px; }
+.luxury-eye-btn { width: 44px; }
+.luxury-inline-action { min-height: 44px; }
+.luxury-title:focus { outline: none; }
 .luxury-right-col { position: sticky; top: 0; }
 @media (max-width: 767px) {
+  .luxury-left-col { padding-inline: 20px; }
+  .luxury-form-wrap { padding-block: 40px; }
+  .luxury-title { font-size: 28px; }
+  .luxury-bottom-switch { gap: 8px 12px; }
   .luxury-right-col { position: static; }
   .luxury-phone-verification { grid-template-columns: minmax(0, 1fr); }
 }

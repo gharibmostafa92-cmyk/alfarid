@@ -14,6 +14,7 @@ use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Services\Catalog\ProductService;
+use App\Services\CostAccess;
 use App\Services\SearchTerm;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -134,7 +135,7 @@ class ProductController extends Controller implements HasMiddleware
      */
     private function filterCostPrices(array $data, Request $request): array
     {
-        if (! \App\Services\CostAccess::canView($request->user())) {
+        if (! CostAccess::canView($request->user())) {
             foreach ($data['variants'] ?? [] as $index => $variant) {
                 unset($data['variants'][$index]['cost_price']);
             }

@@ -4,14 +4,37 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Enums\OrderStatus;
 use App\Enums\StockBucket;
 use App\Enums\StockMovementType;
 use App\Exceptions\BusinessException;
-use App\Models\{Branch, Location, Order, PosShift, ProductVariant, StockLevel, Treasury, User};
-use App\Services\{InventoryService, PosService, ReportService, StocktakeService, TreasuryService};
+use App\Models\Branch;
+use App\Models\Location;
+use App\Models\Order;
+use App\Models\PosShift;
+use App\Models\ProductVariant;
+use App\Models\PurchaseOrder;
+use App\Models\PurchaseOrderItem;
+use App\Models\StockLevel;
+use App\Models\Treasury;
+use App\Models\User;
+use App\Services\CostAccess;
+use App\Services\InventoryService;
+use App\Services\OrderService;
+use App\Services\PosService;
+use App\Services\ProcurementService;
+use App\Services\ReportService;
+use App\Services\ReturnService;
+use App\Services\StocktakeService;
+use App\Services\TreasuryService;
+use Carbon\CarbonImmutable;
 use Database\Seeders\SettingSeeder;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
-use Illuminate\Support\Facades\{Auth, DB, RateLimiter};
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
@@ -21,10 +44,15 @@ class CExecutionReviewTest extends TestCase
     use LazilyRefreshDatabase;
 
     private Branch $branch;
+
     private User $cashier;
+
     private Treasury $safe;
+
     private Treasury $drawer;
+
     private PosShift $shift;
+
     private ProductVariant $variant;
 
     protected function setUp(): void
@@ -57,13 +85,29 @@ class CExecutionReviewTest extends TestCase
 
     private function permit(string ...$permissions): void
     {
-        foreach ($permissions as $permission) $this->cashier->givePermissionTo(Permission::findOrCreate($permission, 'staff'));
+        foreach ($permissions as $permission) {
+            $this->cashier->givePermissionTo(Permission::findOrCreate($permission, 'staff'));
+        }
     }
 
     private function posApi(): static
     {
         Auth::forgetGuards();
+
         return $this->withToken($this->cashier->createToken('pos', ['pos'])->plainTextToken);
+    }
+
+    public function test_pos_sales_use_sequence_numbers_without_locking_a_gapless_settings_counter(): void
+    {
+        $this->stock();
+        DB::enableQueryLog();
+        DB::flushQueryLog();
+        $sale = app(PosService::class)->createSale($this->shift, $this->payload());
+        $queries = collect(DB::getQueryLog());
+        DB::disableQueryLog();
+        $this->assertNotEmpty($sale->order_number);
+        $this->assertTrue($queries->contains(fn ($query) => str_contains($query['query'], 'document_next_number') && in_array('order', $query['bindings'], true)));
+        $this->assertFalse($queries->contains(fn ($query) => str_contains($query['query'], '"settings"') && str_contains(strtolower($query['query']), 'for update')));
     }
 
     public function test_opening_float_and_shortage_conserve_cash_and_approval_is_once_only(): void
@@ -145,7 +189,7 @@ class CExecutionReviewTest extends TestCase
     {
         $this->stock();
         $this->posApi()->postJson('/api/v1/pos/sales', $this->payload())->assertUnprocessable();
-        $this->expectException(\Illuminate\Auth\Access\AuthorizationException::class);
+        $this->expectException(AuthorizationException::class);
         app(PosService::class)->createSale($this->shift, $this->payload(1, ['discount_amount' => 1]));
     }
 
@@ -168,6 +212,17 @@ class CExecutionReviewTest extends TestCase
         $this->assertSame(7.0, app(ReportService::class)->salesReport('2026-10-24', '2026-10-24', branchId: $this->branch->id)['totals']['net_sales']);
         $this->expectException(ValidationException::class);
         app(ReportService::class)->profitReport('2000-01-01', '2026-10-24');
+    }
+
+    public function test_default_report_dates_follow_the_business_day_near_midnight(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-10-23 22:30:00', 'UTC'));
+        $this->permit('reports.view');
+        Order::factory()->create(['allocated_branch_id' => $this->branch->id, 'status' => 'delivered', 'grand_total' => 7]);
+        Auth::forgetGuards();
+        $this->withToken($this->cashier->createToken('admin')->plainTextToken)
+            ->getJson('/api/v1/admin/reports/sales')->assertOk()->assertJsonPath('data.totals.net_sales', 7);
+        $this->travelBack();
     }
 
     public function test_transfer_requires_another_approver_and_stale_approval_cannot_repeat(): void
@@ -223,7 +278,7 @@ class CExecutionReviewTest extends TestCase
         $limiter = RateLimiter::limiter('checkout');
         $keys = [];
         foreach (['2001:db8:1:2::1', '2001:db8:1:2::ffff'] as $ip) {
-            $request = \Illuminate\Http\Request::create('/api/v1/orders', 'POST', ['recipient_phone' => '01012345678'], server: ['REMOTE_ADDR' => $ip]);
+            $request = Request::create('/api/v1/orders', 'POST', ['recipient_phone' => '01012345678'], server: ['REMOTE_ADDR' => $ip]);
             $limits = $limiter($request);
             $keys[] = $limits[1]->key;
         }
@@ -260,18 +315,78 @@ class CExecutionReviewTest extends TestCase
             'type' => StockMovementType::TransferInTransit, 'affected_bucket' => StockBucket::InTransit,
             'quantity' => 1, 'created_by' => $this->cashier->id,
         ]);
+        $this->permit('inventory.all_branches');
+        Auth::forgetGuards();
         $this->patchJson('/api/v1/admin/branches/'.$this->branch->id, ['is_active' => false])->assertUnprocessable();
         $this->assertTrue($this->branch->fresh()->is_active);
     }
 
     public function test_cost_visibility_uses_both_existing_permission_names_consistently(): void
     {
-        $this->assertFalse(\App\Services\CostAccess::canView($this->cashier));
+        $this->assertFalse(CostAccess::canView($this->cashier));
         $this->permit('inventory.view_cost');
-        $this->assertTrue(\App\Services\CostAccess::canView($this->cashier));
+        $this->assertTrue(CostAccess::canView($this->cashier));
         $this->cashier->revokePermissionTo('inventory.view_cost');
         $this->permit('products.view_cost');
-        $this->assertTrue(\App\Services\CostAccess::canView($this->cashier));
-        $this->assertFalse(\App\Services\CostAccess::canView(null));
+        $this->assertTrue(CostAccess::canView($this->cashier));
+        $this->assertFalse(CostAccess::canView(null));
+    }
+
+    public function test_pos_returns_cannot_be_repeated_through_rma_or_manual_order_status(): void
+    {
+        $this->stock();
+        $sale = app(PosService::class)->createSale($this->shift, $this->payload());
+        try {
+            app(ReturnService::class)->createReturnRequest($sale, ['reason' => 'Return', 'items' => [['order_item_id' => $sale->items->first()->id, 'requested_qty' => 1]]]);
+            $this->fail('POS must use a single return path.');
+        } catch (BusinessException) {
+            $this->assertDatabaseCount('return_requests', 0);
+        }
+        $this->expectException(BusinessException::class);
+        app(OrderService::class)->changeStatus($sale, OrderStatus::Returned, $this->cashier);
+    }
+
+    public function test_stock_balances_cannot_be_mass_assigned(): void
+    {
+        $level = new StockLevel;
+        foreach (['on_hand', 'reserved', 'damaged', 'in_transit'] as $bucket) {
+            $this->assertFalse($level->isFillable($bucket));
+        }
+    }
+
+    public function test_retained_procurement_cost_math_includes_owned_in_transit_stock(): void
+    {
+        $this->stock(10);
+        foreach ([[StockMovementType::TransferOut, StockBucket::OnHand, -6], [StockMovementType::TransferInTransit, StockBucket::InTransit, 6]] as [$type, $bucket, $qty]) {
+            app(InventoryService::class)->recordMovement([
+                'product_variant_id' => $this->variant->id, 'branch_id' => $this->branch->id,
+                'type' => $type, 'affected_bucket' => $bucket, 'quantity' => $qty, 'created_by' => $this->cashier->id,
+            ]);
+        }
+        $po = PurchaseOrder::factory()->create(['branch_id' => $this->branch->id, 'created_by' => $this->cashier->id, 'status' => 'sent_to_supplier', 'subtotal' => 80, 'discount_amount' => 0]);
+        $item = PurchaseOrderItem::factory()->create(['purchase_order_id' => $po->id, 'product_variant_id' => $this->variant->id, 'ordered_qty' => 10, 'unit_cost' => 8]);
+        app(ProcurementService::class)->receivePurchaseOrder($po, [['purchase_order_item_id' => $item->id, 'qty' => 10]], performedBy: $this->cashier->id, idempotencyKey: 'retained-procurement-cost');
+        $this->assertSame('6.0000', $this->variant->fresh()->cost_price);
+        $this->assertSame('8.0000', $this->variant->fresh()->last_cost_price);
+        $this->getJson('/api/v1/admin/purchase-orders')->assertGone();
+    }
+
+    public function test_unlinked_legacy_refunds_require_reconciliation_before_more_cash_is_paid(): void
+    {
+        $this->stock();
+        $sale = app(PosService::class)->createSale($this->shift, $this->payload(3));
+        app(InventoryService::class)->recordMovement([
+            'product_variant_id' => $this->variant->id, 'branch_id' => $this->branch->id,
+            'type' => StockMovementType::SaleReturn, 'affected_bucket' => StockBucket::OnHand,
+            'quantity' => 1, 'reference_type' => Order::class, 'reference_id' => $sale->id, 'created_by' => $this->cashier->id,
+        ]);
+        try {
+            app(PosService::class)->processReturn($this->shift, $sale, [['product_variant_id' => $this->variant->id, 'qty' => 1]]);
+            $this->fail('Unknown historical cash/card refunds must not be guessed.');
+        } catch (BusinessException $exception) {
+            $this->assertSame(409, $exception->status);
+            $this->assertSame('230.00', $this->drawer->fresh()->current_balance);
+            $this->assertSame(0, Order::whereNotNull('return_of_order_id')->count());
+        }
     }
 }

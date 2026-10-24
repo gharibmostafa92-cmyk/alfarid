@@ -70,7 +70,7 @@ class OrderEffectsReviewTest extends TestCase
     {
         $location = Location::factory()->create(['branch_id' => $this->branch->id]);
 
-        return StockLevel::query()->create([
+        return StockLevel::query()->forceCreate([
             'branch_id' => $this->branch->id, 'location_id' => $location->id,
             'product_variant_id' => $variant->id, 'on_hand' => $qty, 'reserved' => 0,
         ]);

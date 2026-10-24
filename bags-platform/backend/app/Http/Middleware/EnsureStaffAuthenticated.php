@@ -23,7 +23,7 @@ class EnsureStaffAuthenticated
             ], 401);
         }
 
-        if (! $user instanceof User || ! $user->is_active) {
+        if (! $user instanceof User || ! $user->is_active || $user->is_system) {
             return response()->json([
                 'message' => 'غير مصرح لك بالدخول كموظف أو الحساب غير نشط.',
             ], 403);

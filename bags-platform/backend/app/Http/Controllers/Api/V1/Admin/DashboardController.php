@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Services\ReportService;
 use App\Services\BranchAccess;
-use Illuminate\Http\Request;
+use App\Services\ReportService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 /** لوحة معلومات الإدارة: مؤشرات اليوم والشهر من ReportService. */
 class DashboardController extends Controller

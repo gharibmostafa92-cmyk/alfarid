@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests\Admin\Inventory;
 
 use App\Http\Requests\Admin\Concerns\BulkVariantExists;
+use App\Services\CostAccess;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -20,7 +21,7 @@ class StoreProductionReceiptRequest extends FormRequest
 
     public function authorize(): bool
     {
-        return $this->user()->can('inventory.adjust') && \App\Services\CostAccess::canView($this->user());
+        return $this->user()->can('inventory.adjust') && CostAccess::canView($this->user());
     }
 
     protected function prepareForValidation(): void

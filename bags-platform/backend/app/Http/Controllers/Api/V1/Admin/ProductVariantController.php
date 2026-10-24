@@ -11,6 +11,7 @@ use App\Http\Resources\Admin\VariantResource;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Services\Catalog\VariantService;
+use App\Services\CostAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -77,7 +78,7 @@ class ProductVariantController extends Controller implements HasMiddleware
      */
     private function filterCostPrice(array $data, Request $request): array
     {
-        if (! \App\Services\CostAccess::canView($request->user())) {
+        if (! CostAccess::canView($request->user())) {
             unset($data['cost_price']);
         }
 

@@ -11,16 +11,25 @@ return new class extends Migration
 
     public function up(): void
     {
+        foreach (['pos_shifts_one_open_user', 'pos_shifts_one_unsettled_drawer'] as $index) {
+            $existing = DB::selectOne('SELECT i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid WHERE c.relname = ?', [$index]);
+            if ($existing !== null && ! $existing->indisvalid) {
+                DB::statement('DROP INDEX CONCURRENTLY '.$index);
+            }
+        }
         DB::statement("CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS pos_shifts_one_open_user ON pos_shifts (user_id) WHERE status = 'open'");
         DB::statement("CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS pos_shifts_one_unsettled_drawer ON pos_shifts (treasury_id) WHERE status IN ('open','closed_pending_approval')");
-        DB::statement("ALTER TABLE treasuries ADD CONSTRAINT treasuries_nonnegative_cash CHECK (type = 'bank_account' OR current_balance >= 0) NOT VALID");
-        DB::statement('ALTER TABLE treasuries VALIDATE CONSTRAINT treasuries_nonnegative_cash');
-        DB::statement('ALTER TABLE treasury_transactions DROP CONSTRAINT IF EXISTS treasury_transactions_type_check');
-        DB::statement('ALTER TABLE treasury_transactions ADD CONSTRAINT treasury_transactions_type_check CHECK (type IN ('.self::LEGACY_TYPES.", 'cash_shortage','cash_overage'))");
-        DB::statement('ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_payment_status_check');
-        DB::statement("ALTER TABLE orders ADD CONSTRAINT orders_payment_status_check CHECK (payment_status IN ('unpaid','paid','failed','refunded','partially_refunded','refund_pending'))");
-        DB::statement("ALTER TABLE treasury_transfers ADD CONSTRAINT treasury_transfers_separate_approver CHECK (status <> 'approved' OR approved_by <> created_by) NOT VALID");
-        DB::unprepared(<<<'SQL'
+        DB::transaction(function (): void {
+            DB::statement('ALTER TABLE treasuries DROP CONSTRAINT IF EXISTS treasuries_nonnegative_cash');
+            DB::statement("ALTER TABLE treasuries ADD CONSTRAINT treasuries_nonnegative_cash CHECK (type = 'bank_account' OR current_balance >= 0) NOT VALID");
+            DB::statement('ALTER TABLE treasuries VALIDATE CONSTRAINT treasuries_nonnegative_cash');
+            DB::statement('ALTER TABLE treasury_transactions DROP CONSTRAINT IF EXISTS treasury_transactions_type_check');
+            DB::statement('ALTER TABLE treasury_transactions ADD CONSTRAINT treasury_transactions_type_check CHECK (type IN ('.self::LEGACY_TYPES.", 'cash_shortage','cash_overage'))");
+            DB::statement('ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_payment_status_check');
+            DB::statement("ALTER TABLE orders ADD CONSTRAINT orders_payment_status_check CHECK (payment_status IN ('unpaid','paid','failed','refunded','partially_refunded','refund_pending'))");
+            DB::statement('ALTER TABLE treasury_transfers DROP CONSTRAINT IF EXISTS treasury_transfers_separate_approver');
+            DB::statement("ALTER TABLE treasury_transfers ADD CONSTRAINT treasury_transfers_separate_approver CHECK (status <> 'approved' OR approved_by <> created_by) NOT VALID");
+            DB::unprepared(<<<'SQL'
 CREATE OR REPLACE FUNCTION prevent_treasury_type_change() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     IF NEW.type IS DISTINCT FROM OLD.type THEN
@@ -28,9 +37,11 @@ BEGIN
     END IF;
     RETURN NEW;
 END; $$;
+DROP TRIGGER IF EXISTS treasuries_immutable_type ON treasuries;
 CREATE TRIGGER treasuries_immutable_type BEFORE UPDATE OF type ON treasuries
 FOR EACH ROW EXECUTE FUNCTION prevent_treasury_type_change();
 SQL);
+        });
         // The reconciliation index also serves the equality predicates of stale-count checks.
         DB::statement('DROP INDEX CONCURRENTLY IF EXISTS stock_movements_stale_check_index');
         DB::statement('DROP INDEX CONCURRENTLY IF EXISTS stock_movements_branch_id_index');

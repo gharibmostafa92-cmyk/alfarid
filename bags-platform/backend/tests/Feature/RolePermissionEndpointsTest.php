@@ -16,11 +16,40 @@ use Illuminate\Testing\TestResponse;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
+use Tests\Concerns\StaffAdministrationRequests;
 use Tests\TestCase;
 
 class RolePermissionEndpointsTest extends TestCase
 {
     use LazilyRefreshDatabase;
+    use StaffAdministrationRequests;
+
+    public function test_role_resources_include_system_flag_and_user_count(): void
+    {
+        $role = Role::create(['name' => StaffRole::SuperAdmin->value, 'guard_name' => 'staff']);
+        $admin = $this->staffWithPermission('roles.view');
+        $admin->assignRole($role);
+        $token = $admin->createToken('test')->plainTextToken;
+
+        $this->requestWithToken($token, 'GET', '/api/v1/admin/roles')
+            ->assertOk()
+            ->assertJsonPath('data.0.users_count', 1)
+            ->assertJsonPath('data.0.is_system', true);
+        $this->requestWithToken($token, 'GET', "/api/v1/admin/roles/{$role->id}")
+            ->assertOk()
+            ->assertJsonPath('data.users_count', 1)
+            ->assertJsonPath('data.is_system', true);
+    }
+
+    public function test_regular_role_resources_count_assigned_users(): void
+    {
+        $role = Role::create(['name' => 'Warehouse supervisor', 'guard_name' => 'staff']);
+        User::factory()->count(2)->create()->each(fn (User $user) => $user->assignRole($role));
+        $admin = $this->staffWithPermission('roles.view');
+        $token = $admin->createToken('test')->plainTextToken;
+        $this->requestWithToken($token, 'GET', "/api/v1/admin/roles/{$role->id}")
+            ->assertOk()->assertJsonPath('data.users_count', 2)->assertJsonPath('data.is_system', false);
+    }
 
     public function test_roles_index_forbids_staff_without_role_permissions(): void
     {
@@ -195,6 +224,7 @@ class RolePermissionEndpointsTest extends TestCase
     private function staffWithPermissions(array $permissionNames): User
     {
         $staff = User::factory()->create();
+        $staff->givePermissionTo(Permission::findOrCreate('inventory.all_branches', 'staff'));
         foreach ($permissionNames as $permissionName) {
             $staff->givePermissionTo(Permission::findOrCreate($permissionName, 'staff'));
         }
@@ -209,6 +239,6 @@ class RolePermissionEndpointsTest extends TestCase
     {
         Auth::forgetGuards();
 
-        return $this->withToken($token)->json($method, $uri, $payload);
+        return $this->withToken($token)->json($method, $uri, $this->expectedStaffState($method, $uri, $payload));
     }
 }

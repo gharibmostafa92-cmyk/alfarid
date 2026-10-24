@@ -25,6 +25,6 @@ class PermissionController extends Controller
                 'name' => $permission->name,
             ])->values());
 
-        return response()->json(['data' => $groups]);
+        return response()->json(['data' => (object) $groups->all()]);
     }
 }

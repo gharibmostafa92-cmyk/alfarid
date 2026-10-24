@@ -670,10 +670,11 @@ function CountDetail({ go, params }) {
     const v = vals[it.product_variant_id];
     const a = countedOf(v);
     const changed = a !== (it.counted_qty == null ? null : Number(it.counted_qty));
-    const diff = changed ? (a === null ? null : +((a - Number(it.system_qty)).toFixed(4))) : (it.difference == null ? null : Number(it.difference));
+    const diff = it.system_qty == null ? null : changed ? (a === null ? null : +((a - Number(it.system_qty)).toFixed(4))) : (it.difference == null ? null : Number(it.difference));
     return { ...it, a, diff, isStale: stale.itemIds.includes(it.id) || stale.variantIds.includes(it.product_variant_id) };
   });
   const counted = rows.filter(r => r.a !== null).length;
+  const bookVisible = rows.some(r => r.system_qty != null);
   const shown = rows.filter(r => filter === 'all' || (filter === 'uncounted' && r.a === null) || (filter === 'diff' && r.diff) || (filter === 'match' && r.diff === 0) || (filter === 'stale' && r.isStale));
   const diffs = rows.filter(r => r.diff);
   const editable = c && !['approved', 'cancelled'].includes(c.status) && canEdit;
@@ -768,15 +769,15 @@ function CountDetail({ go, params }) {
         {c && (<>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 stagger-item stagger-2">
           <KPI hot label="تم العدّ" icon="clipboard" value={`${counted}/${rows.length}`} sub={counted < rows.length ? `${rows.length - counted} بند لم يُعدّ بعد` : 'اكتمل العدّ'} />
-          <KPI label="مطابق" icon="check" value={rows.filter(r => r.diff === 0).length} />
-          <KPI label="بفروق" icon="alert" value={diffs.length} />
-          <KPI label="صافي الفرق" icon="sliders" value={(() => { const n = diffs.reduce((a, r) => a + r.diff, 0); return (n > 0 ? '+' : '') + formatQty(n); })()} sub="بالوحدات" />
+          <KPI label="مطابق" icon="check" value={bookVisible ? rows.filter(r => r.diff === 0).length : '—'} />
+          <KPI label="بفروق" icon="alert" value={bookVisible ? diffs.length : '—'} />
+          <KPI label="صافي الفرق" icon="sliders" value={bookVisible ? (() => { const n = diffs.reduce((a, r) => a + r.diff, 0); return (n > 0 ? '+' : '') + formatQty(n); })() : '—'} sub={bookVisible ? 'بالوحدات' : 'مخفي أثناء العدّ'} />
         </div>
 
         <Card stagger={3}>
           <CardHead title="جدول العدّ" right={
             <div className="seg">
-              {[['all', 'الكل'], ['uncounted', 'لم يُعدّ'], ['diff', 'بفروق'], ['match', 'مطابق'], ...(stale.itemIds.length || stale.variantIds.length ? [['stale', 'يحتاج إعادة عدّ']] : [])].map(([k, l]) => <button key={k} className={filter === k ? 'on' : ''} onClick={() => setFilter(k)}>{l}</button>)}
+              {[['all', 'الكل'], ['uncounted', 'لم يُعدّ'], ['diff', 'بفروق'], ['match', 'مطابق'], ...(stale.itemIds.length || stale.variantIds.length ? [['stale', 'يحتاج إعادة عدّ']] : [])].map(([k, l]) => <button key={k} disabled={!bookVisible && ['diff', 'match'].includes(k)} className={filter === k ? 'on' : ''} onClick={() => setFilter(k)}>{l}</button>)}
             </div>} />
           {counted < rows.length && c.status !== 'approved' && <div className="mb-3"><InlineAlert kind="amber" icon="info" title="الحقل الفارغ ≠ صفر">الخانة الفارغة المظللة تعني «لم يتم العدّ». إذا كان الصنف غير موجود فعليًا اكتب 0 أو اضغط «صفر».</InlineAlert></div>}
           {stale.itemIds.length + stale.variantIds.length > 0 && <div className="mb-3"><InlineAlert kind="red" icon="alert" title="أصناف تحتاج إعادة عدّ">تغيّر رصيدها بعد عدّها. عدّها من جديد ثم اضغط «إعادة العدّ» على البند.</InlineAlert></div>}
@@ -788,7 +789,7 @@ function CountDetail({ go, params }) {
                   <tr key={r.product_variant_id} className={r.isStale ? 'ring-1 ring-inset' : ''} style={r.isStale ? { background: 'var(--badge-red-bg)' } : {}}>
                     <td><Sku>{r.sku || `#${r.product_variant_id}`}</Sku></td>
                     <td><div className="font-medium c-primary truncate">{variantDisplayName(variantCache, r.product_variant_id, r.sku)}</div></td>
-                    <td className="t-num num c-secondary">{formatQty(r.system_qty)}</td>
+                    <td className="t-num num c-secondary">{r.system_qty == null ? '—' : formatQty(r.system_qty)}</td>
                     <td className="t-num">
                       {editable ? (
                         <div className="flex items-center gap-1.5 justify-end">
@@ -804,7 +805,7 @@ function CountDetail({ go, params }) {
                     <td className="t-num num font-bold" style={{ color: r.diff === null ? 'var(--text-muted)' : r.diff > 0 ? 'var(--badge-green-text)' : r.diff < 0 ? 'var(--badge-red-text)' : 'var(--text-secondary)' }}>
                       {r.diff === null ? '—' : r.diff === 0 ? '0' : (r.diff > 0 ? '+' : '−') + formatQty(Math.abs(r.diff))}
                     </td>
-                    <td>{r.isStale ? <Badge cls="b-red">تحتاج إعادة عدّ</Badge> : r.a === null ? <Badge cls="b-gray">لم يُعدّ</Badge> : r.a === 0 ? <Badge cls={r.diff ? 'b-red' : 'b-green'}>صفر فعلي</Badge> : r.diff === 0 ? <Badge cls="b-green">مطابق</Badge> : <Badge cls={r.diff > 0 ? 'b-blue' : 'b-red'}>{r.diff > 0 ? 'زيادة' : 'عجز'}</Badge>}</td>
+                    <td>{r.isStale ? <Badge cls="b-red">تحتاج إعادة عدّ</Badge> : r.a === null ? <Badge cls="b-gray">لم يُعدّ</Badge> : r.diff === null ? <Badge cls="b-gray">تم العدّ</Badge> : r.a === 0 ? <Badge cls={r.diff ? 'b-red' : 'b-green'}>صفر فعلي</Badge> : r.diff === 0 ? <Badge cls="b-green">مطابق</Badge> : <Badge cls={r.diff > 0 ? 'b-blue' : 'b-red'}>{r.diff > 0 ? 'زيادة' : 'عجز'}</Badge>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1945,8 +1946,8 @@ export function useBranchesWithLocations(branchId) {
 function useRestrictedBranch() {
   const user = useAuthStore(s => s.user);
   const perms = user?.permissions;
-  const elevated = hasPermission(perms, '*') || hasPermission(perms, 'inventory.all_branches')
-    || (user?.roles || []).some(r => /super[\s_-]?admin/i.test(String(r)));
+  const elevated = hasPermission(perms, 'inventory.all_branches')
+    || (user?.roles || []).includes('Super Admin');
   const branchId = user?.branch_id ?? null;
   if (branchId == null || elevated) return { branchId: null, locked: false };
   return { branchId: Number(branchId), locked: true };

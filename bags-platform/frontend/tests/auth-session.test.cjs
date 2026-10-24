@@ -5,14 +5,23 @@ const path = require('node:path');
 const Module = require('node:module');
 const ts = require('typescript');
 
-const filename = path.resolve(__dirname, '../packages/api-client/src/axios-instance.ts');
-const compiled = new Module(filename, module);
-compiled.filename = filename;
-compiled.paths = Module._nodeModulePaths(path.dirname(filename));
-compiled._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, esModuleInterop: true },
-}).outputText, filename);
-const { createApiClient, setAuthToken, setUnauthorizedHandler } = compiled.exports;
+function loadTypeScript(filename) {
+  const compiled = new Module(filename, module);
+  compiled.filename = filename;
+  compiled.paths = Module._nodeModulePaths(path.dirname(filename));
+  compiled.require = name => {
+    const sibling = path.resolve(path.dirname(filename), name + '.ts');
+    if (name.startsWith('.') && fs.existsSync(sibling)) return loadTypeScript(sibling);
+    return Module.prototype.require.call(compiled, name);
+  };
+  compiled._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, esModuleInterop: true },
+  }).outputText, filename);
+  return compiled.exports;
+}
+const { createApiClient, setAuthToken, setUnauthorizedHandler } = loadTypeScript(
+  path.resolve(__dirname, '../packages/api-client/src/axios-instance.ts'),
+);
 
 afterEach(() => { setAuthToken(null); setUnauthorizedHandler(null); });
 

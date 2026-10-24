@@ -38,7 +38,7 @@ class StorefrontCatalogTest extends TestCase
     {
         $branch = Branch::factory()->create(['is_active' => $branchActive]);
         $location = Location::factory()->create(['branch_id' => $branch->id]);
-        StockLevel::create([
+        StockLevel::forceCreate([
             'product_variant_id' => $variant->id, 'branch_id' => $branch->id, 'location_id' => $location->id,
             'on_hand' => $qty, 'reserved' => 0, 'damaged' => 0,
         ]);

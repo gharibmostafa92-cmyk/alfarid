@@ -68,7 +68,10 @@ class TreasuryTransferController extends Controller implements HasMiddleware
 
     public function show(Request $request, TreasuryTransfer $treasuryTransfer): JsonResponse
     {
-        foreach ([$treasuryTransfer->fromTreasury, $treasuryTransfer->toTreasury] as $treasury) app(BranchAccess::class)->assertTreasury($request->user()->id, $treasury);
+        foreach ([$treasuryTransfer->fromTreasury, $treasuryTransfer->toTreasury] as $treasury) {
+            app(BranchAccess::class)->assertTreasury($request->user()->id, $treasury);
+        }
+
         return response()->json([
             'data' => $treasuryTransfer->load(['fromTreasury', 'toTreasury', 'creator', 'approver']),
         ]);

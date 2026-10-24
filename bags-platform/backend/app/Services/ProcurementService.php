@@ -414,7 +414,11 @@ class ProcurementService
             usort($receivedItems, fn (array $a, array $b): int => [($poItems->get((int) $a['purchase_order_item_id'])?->product_variant_id ?? 0), (int) $a['purchase_order_item_id']]
                 <=> [($poItems->get((int) $b['purchase_order_item_id'])?->product_variant_id ?? 0), (int) $b['purchase_order_item_id']]);
             $variants = ProductVariant::query()->whereIn('id', $poItems->pluck('product_variant_id'))->orderBy('id')->lockForUpdate()->get()->keyBy('id');
-            $costFactor = (float) $po->subtotal > 0 ? max(0.0, 1 - (float) $po->discount_amount / (float) $po->subtotal) : 1.0;
+            $costFactor = bccomp((string) $po->subtotal, '0', 2) > 0
+                ? bcsub('1', bcdiv((string) $po->discount_amount, (string) $po->subtotal, 12), 12) : '1';
+            if (bccomp($costFactor, '0', 12) < 0) {
+                $costFactor = '0';
+            }
             $delivery = null;
             $deliveryItems = collect();
             if ($supplierDeliveryId !== null) {
@@ -461,21 +465,20 @@ class ProcurementService
                     throw new BusinessException('متغير الصنف غير متاح للاستلام.');
                 }
 
-                // Includes damaged stock: it remains part of physical on_hand across all branches.
-                $currentTotalOnHand = (float) StockLevel::query()
+                // Owned inventory includes damaged and in-transit units in every branch.
+                $currentTotalOnHand = (string) StockLevel::query()
                     ->where('product_variant_id', $variant->id)
-                    ->sum('on_hand');
-                $oldCost = (float) $variant->cost_price;
-                $newUnitCost = round((float) $poItem->unit_cost * $costFactor, 4);
+                    ->sum(DB::raw('on_hand + in_transit'));
+                $oldCost = (string) $variant->cost_price;
+                $newUnitCost = bcadd(bcmul((string) $poItem->unit_cost, $costFactor, 5), '0.00005', 4);
 
                 // معادلة المتوسط المرجح للتكلفة (WAC)
-                $safeCurrentStock = max(0.0, $currentTotalOnHand);
-                $newAverageCost = ($safeCurrentStock + $qtyToReceive) > 0
-                    ? (($safeCurrentStock * $oldCost) + ($qtyToReceive * $newUnitCost)) / ($safeCurrentStock + $qtyToReceive)
-                    : $newUnitCost;
+                $safeCurrentStock = bccomp($currentTotalOnHand, '0', 4) < 0 ? '0' : $currentTotalOnHand;
+                $totalCost = bcadd(bcmul($safeCurrentStock, $oldCost, 8), bcmul((string) $qtyToReceive, $newUnitCost, 8), 8);
+                $newAverageCost = bcadd(bcdiv($totalCost, bcadd($safeCurrentStock, (string) $qtyToReceive, 4), 5), '0.00005', 4);
 
                 $variant->update([
-                    'cost_price' => round($newAverageCost, 4),
+                    'cost_price' => $newAverageCost,
                     'last_cost_price' => $newUnitCost,
                 ]);
 

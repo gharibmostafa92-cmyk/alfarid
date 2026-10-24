@@ -51,5 +51,25 @@ export default function AuthCallbackPage() {
       .catch(() => window.location.replace(`${WEB_URL}/auth/login?error=handoff`));
   }, []);
 
-  return <div style={{ padding: 40, textAlign: 'center' }}>جارٍ تسجيل الدخول…</div>;
+  return (
+    <div
+      role="status"
+      dir="rtl"
+      style={{
+        boxSizing: 'border-box',
+        minHeight: '100svh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '24px',
+        backgroundColor: '#f2eff3',
+        color: '#18151c',
+        textAlign: 'center',
+        fontSize: '15px',
+        fontWeight: 500,
+      }}
+    >
+      جارٍ تسجيل الدخول…
+    </div>
+  );
 }

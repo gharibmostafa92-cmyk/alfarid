@@ -94,7 +94,7 @@ class PhaseFiveSixAuditTest extends TestCase
         $branch = Branch::factory()->create();
         $location = Location::factory()->create(['branch_id' => $branch->id]);
         foreach ([$inactive, $deleted] as $variant) {
-            StockLevel::create(['product_variant_id' => $variant->id, 'branch_id' => $branch->id,
+            StockLevel::forceCreate(['product_variant_id' => $variant->id, 'branch_id' => $branch->id,
                 'location_id' => $location->id, 'on_hand' => 9]);
         }
         $deleted->delete();
@@ -110,7 +110,7 @@ class PhaseFiveSixAuditTest extends TestCase
         foreach ([true, true, false] as $active) {
             $branch = Branch::factory()->create(['is_active' => $active]);
             $location = Location::factory()->create(['branch_id' => $branch->id]);
-            StockLevel::create(['product_variant_id' => $product->variants->first()->id,
+            StockLevel::forceCreate(['product_variant_id' => $product->variants->first()->id,
                 'branch_id' => $branch->id, 'location_id' => $location->id,
                 'on_hand' => 10, 'reserved' => 3, 'damaged' => 2]);
         }

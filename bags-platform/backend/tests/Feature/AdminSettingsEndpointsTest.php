@@ -13,11 +13,13 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Models\Permission;
+use Tests\Concerns\StaffAdministrationRequests;
 use Tests\TestCase;
 
 class AdminSettingsEndpointsTest extends TestCase
 {
     use LazilyRefreshDatabase;
+    use StaffAdministrationRequests;
 
     public function test_admin_can_read_grouped_settings_with_typed_values(): void
     {
@@ -101,10 +103,10 @@ class AdminSettingsEndpointsTest extends TestCase
         $this->restartDocumentSequences();
         $service = app(SettingService::class);
         $service->getAllGrouped();
-        $this->assertTrue(Cache::has('app_settings_static'));
+        $this->assertFalse(Cache::has('app_settings_static')); // An open transaction never publishes shared cache.
 
         $this->assertSame('ORD-001000', $service->generateNextNumber('order'));
-        $this->assertTrue(Cache::has('app_settings_static'));
+        $this->assertFalse(Cache::has('app_settings_static'));
         $this->assertSame('ORD-001001', $service->generateNextNumber('order'));
         $this->assertSame(1002, $service->get('order_next_number'));
         $this->assertSame('PO-001000', $service->generateNextNumber('purchase_order'));
@@ -162,10 +164,9 @@ class AdminSettingsEndpointsTest extends TestCase
 
         $this->requestWithToken($token, 'PUT', '/api/v1/admin/settings', [
             'order_next_number' => 1000,
-        ])->assertOk()
-            ->assertJsonPath('data.numbering.order_next_number', 1001);
+        ])->assertUnprocessable()->assertJsonValidationErrors('order_next_number');
 
-        $this->assertDatabaseHas('settings', ['key' => 'order_next_number', 'value' => '1001']);
+        $this->assertDatabaseHas('settings', ['key' => 'order_next_number', 'value' => '1000']);
     }
 
     private function seedSettings(): void
@@ -190,6 +191,7 @@ class AdminSettingsEndpointsTest extends TestCase
         $permission = Permission::findOrCreate('settings.manage', 'staff');
         $staff = User::factory()->create();
         $staff->givePermissionTo($permission);
+        $staff->givePermissionTo(Permission::findOrCreate('inventory.all_branches', 'staff'));
 
         return $staff;
     }
@@ -199,6 +201,6 @@ class AdminSettingsEndpointsTest extends TestCase
     {
         Auth::forgetGuards();
 
-        return $this->withToken($token)->json($method, $uri, $payload);
+        return $this->withToken($token)->json($method, $uri, $this->expectedStaffState($method, $uri, $payload));
     }
 }

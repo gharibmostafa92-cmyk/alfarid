@@ -1,4 +1,0 @@
-<?php
-require __DIR__.'/vendor/autoload.php';$app=require __DIR__.'/bootstrap/app.php';$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
-$config=config('database.connections.pgsql');$config['database']='postgres';$config['url']=null;config(['database.connections.c_review_admin'=>$config]);$db=Illuminate\Support\Facades\DB::connection('c_review_admin');$name='alfarid_c_review_1024';if(!$db->select('SELECT 1 FROM pg_database WHERE datname = ?',[$name]))$db->statement('CREATE DATABASE '.$name);
-$xml=str_replace('value="alfarid_testing"','value="'.$name.'"',file_get_contents(__DIR__.'/phpunit.xml'));$xml=str_replace('<php>','<php><server name="TEST_TOKEN" value="c-review-1024" force="true"/>',$xml);file_put_contents(__DIR__.'/.c-review-phpunit.xml',$xml);echo "Isolated review database ready.\n";

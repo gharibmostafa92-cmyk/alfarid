@@ -1,0 +1,76 @@
+{
+    "data": [
+        {
+            "id": 2,
+            "name": "مدير النظام",
+            "email": "admin@alfarid.local",
+            "phone": null,
+            "branch_id": null,
+            "branch": null,
+            "is_active": true,
+            "roles": [
+                {
+                    "id": 1,
+                    "name": "Super Admin"
+                }
+            ],
+            "created_at": "2026-10-24T19:55:05.000000Z",
+            "updated_at": "2026-10-24T19:55:05.000000Z"
+        },
+        {
+            "id": 3,
+            "name": "موظف الاختبارات",
+            "email": "staff@example.test",
+            "phone": null,
+            "branch_id": 1,
+            "branch": {
+                "id": 1,
+                "name": "فرع الاختبارات"
+            },
+            "is_active": true,
+            "roles": [
+                {
+                    "id": 2,
+                    "name": "مشرف الاختبارات"
+                }
+            ],
+            "created_at": "2026-10-24T19:55:05.000000Z",
+            "updated_at": "2026-10-24T19:55:05.000000Z"
+        }
+    ],
+    "links": {
+        "first": "http://localhost:8000/api/v1/admin/users?per_page=8&page=1",
+        "last": "http://localhost:8000/api/v1/admin/users?per_page=8&page=1",
+        "prev": null,
+        "next": null
+    },
+    "meta": {
+        "current_page": 1,
+        "from": 1,
+        "last_page": 1,
+        "links": [
+            {
+                "url": null,
+                "label": "&laquo; Previous",
+                "page": null,
+                "active": false
+            },
+            {
+                "url": "http://localhost:8000/api/v1/admin/users?per_page=8&page=1",
+                "label": "1",
+                "page": 1,
+                "active": true
+            },
+            {
+                "url": null,
+                "label": "Next &raquo;",
+                "page": null,
+                "active": false
+            }
+        ],
+        "path": "http://localhost:8000/api/v1/admin/users",
+        "per_page": 8,
+        "to": 2,
+        "total": 2
+    }
+}

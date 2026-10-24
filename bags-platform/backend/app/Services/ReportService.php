@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\DB;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Query\Builder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -31,7 +32,7 @@ class ReportService
 
         $salesByChannel = function (callable $scope) use ($branchId): array {
             $rows = $this->salesEntries($branchId)
-                ->selectRaw('channel, SUM(grand_total) AS total, COUNT(*) AS orders_count')
+                ->selectRaw('channel, SUM(grand_total) AS total, COALESCE(SUM(sale_count), 0) AS orders_count')
                 ->tap($scope)
                 ->groupBy('channel')
                 ->get();
@@ -84,7 +85,7 @@ class ReportService
 
         $topBranches = $this->salesEntries($branchId, 'o')
             ->leftJoin('branches as b', 'b.id', '=', 'o.allocated_branch_id')
-            ->selectRaw('o.allocated_branch_id, b.name AS branch_name, COUNT(*) AS orders_count, SUM(o.grand_total) AS revenue')
+            ->selectRaw('o.allocated_branch_id, b.name AS branch_name, COALESCE(SUM(sale_count), 0) AS orders_count, SUM(o.grand_total) AS revenue')
             ->where('o.created_at', '>=', $monthStart)
             ->whereNotNull('o.allocated_branch_id')
             ->groupBy('o.allocated_branch_id', 'b.name')
@@ -136,7 +137,7 @@ class ReportService
 
         $selects = [
             "{$periodExpr} AS period",
-            'COUNT(*) AS orders_count',
+            'COALESCE(SUM(sale_count), 0) AS orders_count',
             'COALESCE(SUM(o.subtotal), 0) AS gross_sales',
             'COALESCE(SUM(o.discount_amount), 0) AS discounts',
             'COALESCE(SUM(o.tax_amount), 0) AS tax',
@@ -185,7 +186,7 @@ class ReportService
 
         $totals = $this->salesEntries($branchId)
             ->where('created_at', '>=', $periodStart)->where('created_at', '<', $periodEnd)
-            ->selectRaw('COUNT(*) AS orders_count, COALESCE(SUM(subtotal), 0) AS gross_sales, COALESCE(SUM(discount_amount), 0) AS discounts, COALESCE(SUM(tax_amount), 0) AS tax, COALESCE(SUM(shipping_cost), 0) AS shipping, COALESCE(SUM(grand_total), 0) AS net_sales')
+            ->selectRaw('COALESCE(SUM(sale_count), 0) AS orders_count, COALESCE(SUM(subtotal), 0) AS gross_sales, COALESCE(SUM(discount_amount), 0) AS discounts, COALESCE(SUM(tax_amount), 0) AS tax, COALESCE(SUM(shipping_cost), 0) AS shipping, COALESCE(SUM(grand_total), 0) AS net_sales')
             ->first();
 
         return [
@@ -399,20 +400,21 @@ class ReportService
             ],
         ];
     }
+
     /** Sales and their reversals stay in the period when each event actually occurred. */
-    private function salesEntries(?int $branchId, string $alias = 'entries'): \Illuminate\Database\Query\Builder
+    private function salesEntries(?int $branchId, string $alias = 'entries'): Builder
     {
-        $columns = 'o.id, o.channel, o.allocated_branch_id, o.pos_shift_id, o.payment_method, o.created_at, o.subtotal, o.discount_amount, o.tax_amount, o.shipping_cost, o.grand_total';
+        $columns = 'o.id, o.channel, o.allocated_branch_id, o.pos_shift_id, o.payment_method, o.created_at, o.subtotal, o.discount_amount, o.tax_amount, o.shipping_cost, o.grand_total, 1 AS sale_count';
         $sales = DB::table('orders as o')->whereNull('o.return_of_order_id')
             ->whereIn('o.status', [...self::SALES_STATUSES, 'returned'])->selectRaw($columns);
         $posReturns = DB::table('orders as o')->whereNotNull('o.return_of_order_id')
-            ->selectRaw('o.id, o.channel, o.allocated_branch_id, o.pos_shift_id, o.payment_method, o.created_at, -o.subtotal, -o.discount_amount, -o.tax_amount, -o.shipping_cost, -o.grand_total');
+            ->selectRaw('o.id, o.channel, o.allocated_branch_id, o.pos_shift_id, o.payment_method, o.created_at, -o.subtotal, -o.discount_amount, -o.tax_amount, -o.shipping_cost, -o.grand_total, 0 AS sale_count');
         $rmaReturns = DB::table('return_requests as r')->join('orders as o', 'o.id', '=', 'r.order_id')
             ->whereIn('r.status', ['received', 'refunded'])->whereNotNull('r.received_at')
-            ->selectRaw('o.id, o.channel, r.branch_id AS allocated_branch_id, o.pos_shift_id, o.payment_method, r.received_at AS created_at, -r.total_refund_amount AS subtotal, 0 AS discount_amount, 0 AS tax_amount, 0 AS shipping_cost, -r.total_refund_amount AS grand_total');
+            ->selectRaw('o.id, o.channel, r.branch_id AS allocated_branch_id, o.pos_shift_id, o.payment_method, r.received_at AS created_at, -r.total_refund_amount AS subtotal, 0 AS discount_amount, 0 AS tax_amount, 0 AS shipping_cost, -r.total_refund_amount AS grand_total, 0 AS sale_count');
         $manualReturns = DB::table('orders as o')->where('o.status', 'returned')->whereNull('o.return_of_order_id')
             ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('return_requests as r')->whereColumn('r.order_id', 'o.id')->whereIn('r.status', ['received', 'refunded']))
-            ->selectRaw('o.id, o.channel, o.allocated_branch_id, o.pos_shift_id, o.payment_method, o.updated_at AS created_at, -o.subtotal, -o.discount_amount, -o.tax_amount, -o.shipping_cost, -o.grand_total');
+            ->selectRaw('o.id, o.channel, o.allocated_branch_id, o.pos_shift_id, o.payment_method, o.updated_at AS created_at, -o.subtotal, -o.discount_amount, -o.tax_amount, -o.shipping_cost, -o.grand_total, 0 AS sale_count');
 
         return DB::query()->fromSub($sales->unionAll($posReturns)->unionAll($rmaReturns)->unionAll($manualReturns), $alias)
             ->when($branchId !== null, fn ($q) => $q->where($alias.'.allocated_branch_id', $branchId));
@@ -426,6 +428,7 @@ class ReportService
         if ($end->lessThan($start) || $start->diffInDays($end) > 365) {
             throw ValidationException::withMessages(['to' => 'فترة التقرير يجب ألا تتجاوز 366 يومًا.']);
         }
+
         return [$start->utc()->toDateTimeString(), $end->addDay()->utc()->toDateTimeString()];
     }
 }

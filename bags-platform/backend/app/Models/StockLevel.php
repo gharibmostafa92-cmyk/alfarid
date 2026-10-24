@@ -16,7 +16,7 @@ class StockLevel extends Model
 {
     protected $fillable = [
         'product_variant_id', 'branch_id', 'location_id',
-        'on_hand', 'reserved', 'damaged', 'in_transit', 'reorder_level',
+        'reorder_level',
     ];
 
     protected $casts = [

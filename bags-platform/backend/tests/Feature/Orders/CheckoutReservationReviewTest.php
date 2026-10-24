@@ -65,10 +65,10 @@ class CheckoutReservationReviewTest extends TestCase
     private function giveStock(int $variantId, float $qty): void
     {
         $location = $this->branch->locations()->firstOrFail();
-        StockLevel::updateOrCreate(
+        StockLevel::unguarded(fn () => StockLevel::updateOrCreate(
             ['branch_id' => $this->branch->id, 'location_id' => $location->id, 'product_variant_id' => $variantId],
             ['on_hand' => $qty],
-        );
+        ));
     }
 
     // ---------- F-01: الحجز عند الشراء ----------

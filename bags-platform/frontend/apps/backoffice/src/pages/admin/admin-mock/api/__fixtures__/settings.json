@@ -1,0 +1,77 @@
+{
+    "data": {
+        "company": {
+            "commercial_register": null,
+            "company_address": null,
+            "company_email": null,
+            "company_logo": null,
+            "company_name": "Alfarid",
+            "company_phone": null
+        },
+        "numbering": {
+            "delivery_next_number": 1001,
+            "delivery_padding": 6,
+            "delivery_prefix": "DLV-",
+            "expense_next_number": 1001,
+            "expense_padding": 6,
+            "expense_prefix": "EXP-",
+            "invoice_next_number": 1000,
+            "invoice_padding": 6,
+            "invoice_prefix": "INV-",
+            "movement_next_number": 1000,
+            "movement_padding": 6,
+            "movement_prefix": "MOV-",
+            "order_next_number": 1000,
+            "order_padding": 6,
+            "order_prefix": "ORD-",
+            "payment_notice_next_number": 1001,
+            "payment_notice_padding": 6,
+            "payment_notice_prefix": "WPN-",
+            "pos_invoice_next_number": 1001,
+            "pos_invoice_padding": 7,
+            "pos_invoice_prefix": "POS-",
+            "purchase_order_next_number": 1000,
+            "purchase_order_padding": 6,
+            "purchase_order_prefix": "PO-",
+            "purchase_request_next_number": 1001,
+            "purchase_request_padding": 6,
+            "purchase_request_prefix": "PR-",
+            "quotation_next_number": 1000,
+            "quotation_padding": 6,
+            "quotation_prefix": "QT-",
+            "return_next_number": 1001,
+            "return_padding": 6,
+            "return_prefix": "RET-",
+            "shift_next_number": 1001,
+            "shift_padding": 6,
+            "shift_prefix": "SH-",
+            "stocktake_next_number": 1000,
+            "stocktake_padding": 6,
+            "stocktake_prefix": "STK-",
+            "supplier_invoice_next_number": 1001,
+            "supplier_invoice_padding": 6,
+            "supplier_invoice_prefix": "SIN-",
+            "supplier_payment_next_number": 1001,
+            "supplier_payment_padding": 6,
+            "supplier_payment_prefix": "SPY-",
+            "transfer_next_number": 1000,
+            "transfer_padding": 6,
+            "transfer_prefix": "TRF-",
+            "treasury_transfer_next_number": 1001,
+            "treasury_transfer_padding": 6,
+            "treasury_transfer_prefix": "TRT-"
+        },
+        "orders": {
+            "return_window_days": 14
+        },
+        "purchases": {
+            "allow_self_approve_purchases": false
+        },
+        "tax": {
+            "default_tax_rate": 14,
+            "prices_include_tax": false,
+            "tax_enabled": false,
+            "tax_number": null
+        }
+    }
+}

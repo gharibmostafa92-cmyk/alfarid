@@ -63,10 +63,10 @@ class OrderIntegrityReviewTest extends TestCase
 
     private function giveStock(ProductVariant $variant, float $qty): StockLevel
     {
-        return StockLevel::updateOrCreate(
+        return StockLevel::unguarded(fn () => StockLevel::updateOrCreate(
             ['branch_id' => $this->branch->id, 'location_id' => $this->branch->locations()->firstOrFail()->id, 'product_variant_id' => $variant->id],
             ['on_hand' => $qty],
-        );
+        ));
     }
 
     private function guestCheckout(ProductVariant $variant, int $qty, ?string $idempotencyKey = null, ?string $couponCode = null, string $phone = '01012345678'): TestResponse

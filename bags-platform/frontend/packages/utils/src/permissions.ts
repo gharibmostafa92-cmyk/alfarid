@@ -1,6 +1,6 @@
 /**
  * Check if the staff user has a specific permission.
- * Supports exact permission matches and wildcard matches (e.g. '*' or 'orders.*').
+ * Matches the staff guard's exact permission names (wildcards are disabled).
  */
 export function hasPermission(
   userPermissions: string[] | null | undefined,
@@ -10,16 +10,7 @@ export function hasPermission(
     return false;
   }
 
-  if (userPermissions.includes('*') || userPermissions.includes('super_admin')) {
-    return true;
-  }
-
   if (userPermissions.includes(requiredPermission)) {
-    return true;
-  }
-
-  const [module] = requiredPermission.split('.');
-  if (module && userPermissions.includes(`${module}.*`)) {
     return true;
   }
 

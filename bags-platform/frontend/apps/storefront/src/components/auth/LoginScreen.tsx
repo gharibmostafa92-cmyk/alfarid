@@ -30,17 +30,24 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
   useEffect(() => {
     setIsReady(true);
     formRef.current?.querySelector('h1')?.focus({ preventScroll: true });
-    setErrors({}); setFormError('');
+    setErrors({});
+    setFormError('');
   }, [view]);
 
   const home = useAuthStore((s) => s.home);
   const token = useAuthStore((s) => s.token);
 
   useEffect(() => {
-    if (view !== 'login' || token) { setStaffCheckPending(false); return; }
+    if (view !== 'login' || token) {
+      setStaffCheckPending(false);
+      return;
+    }
     const office = new URL(resolveServiceUrl(process.env.NEXT_PUBLIC_BACKOFFICE_URL ?? 'http://localhost:5173'));
     const nonce = createSessionNonce();
-    if (!nonce) { setStaffCheckPending(false); return; }
+    if (!nonce) {
+      setStaffCheckPending(false);
+      return;
+    }
     const frame = document.createElement('iframe');
     frame.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none;border:0';
     frame.setAttribute('aria-hidden', 'true');
@@ -49,8 +56,13 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
     frame.src = new URL(`/auth/session#nonce=${encodeURIComponent(nonce)}`, office).href;
     setStaffCheckPending(true);
     const receive = (event: MessageEvent) => {
-      if (event.origin !== office.origin || event.source !== frame.contentWindow
-        || event.data?.type !== 'alfarid:staff-session' || event.data?.nonce !== nonce) return;
+      if (
+        event.origin !== office.origin ||
+        event.source !== frame.contentWindow ||
+        event.data?.type !== 'alfarid:staff-session' ||
+        event.data?.nonce !== nonce
+      )
+        return;
       if (event.data.authenticated === true) window.location.replace(new URL('/dashboard', office).href);
       else setStaffCheckPending(false);
     };
@@ -78,7 +90,6 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
   const W = 560;
   const H = 640;
 
-
   // Translations
   const t = {
     en: {
@@ -93,7 +104,6 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
       forgotPassword: 'Forgot Password?',
       signInBtn: 'Sign In',
       createAccount: 'Create an Account',
-
     },
     ar: {
       signInTitle: 'تسجيل الدخول',
@@ -107,7 +117,6 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
       forgotPassword: 'نسيت كلمة المرور؟',
       signInBtn: 'تسجيل الدخول',
       createAccount: 'إنشاء حساب جديد',
-
     },
   }[lang];
 
@@ -179,7 +188,6 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
         }
       }
     }
-
   }, []);
 
   useEffect(() => {
@@ -209,11 +217,14 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
       renderCanvasRef.current();
     };
 
-    return () => { bImg.onload = null; };
+    return () => {
+      bImg.onload = null;
+    };
   }, []);
 
   // Pointer tracking
   const handlePointerMove = (clientX: number, clientY: number) => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || !window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -234,7 +245,9 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isReady || staffCheckPending || isSubmitting) return;
-    setIsSubmitting(true); setErrors({}); setFormError('');
+    setIsSubmitting(true);
+    setErrors({});
+    setFormError('');
     try {
       const path = await loginUnified(login, password, params.get('redirect'));
       if (path) router.replace(path);
@@ -269,6 +282,8 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
                 type="button"
                 className="luxury-brand-btn"
                 title="Alfarid — Luxury Handbags"
+                disabled={!isReady || isSubmitting}
+                onClick={() => setView('login')}
               >
                 <svg
                   width="22"
@@ -276,6 +291,7 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
                   viewBox="0 0 24 24"
                   fill="none"
                   xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden="true"
                 >
                   <polygon points="4,10 10,4 10,13 4,19" fill="#09090b" />
                   <polygon points="11,11 17,5 17,14 11,20" fill="#09090b" />
@@ -289,136 +305,195 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
                 type="button"
                 onClick={() => setLang(lang === 'en' ? 'ar' : 'en')}
                 className="luxury-lang-btn"
+                disabled={!isReady || isSubmitting}
+                lang={lang === 'en' ? 'ar' : 'en'}
               >
                 {lang === 'en' ? 'العربية' : 'English'}
               </button>
             </div>
 
             {/* SIGN IN FORM */}
-              <div className="luxury-form-wrap" ref={formRef}>
-                {view === 'login' ? <>
-                <h1 className="luxury-title" tabIndex={-1}>
-                  {t.signInTitle}
-                </h1>
-                <p className="luxury-sub">
-                  {t.signInSub}
-                </p>
-
-                {params.get('error') === 'handoff' && (
-                  <p className="luxury-form-error" role="alert">
-                    {t.handoffExpired}
+            <div className="luxury-form-wrap" ref={formRef}>
+              {view === 'login' ? (
+                <>
+                  <h1 className="luxury-title" tabIndex={-1}>
+                    {t.signInTitle}
+                  </h1>
+                  <p className="luxury-sub">
+                    {t.signInSub}
                   </p>
-                )}
 
-                {/* Form */}
-                <form method="post" onSubmit={handleSignIn} className="luxury-form">
-                  <div>
-                    <label className="luxury-field-label" htmlFor="login">
-                      {t.loginLabel}
-                    </label>
-                    <input
-                      id="login"
-                      name="login"
-                      type="text"
-                      inputMode="email"
-                      autoComplete="username"
-                      required
-                      value={login}
-                      onChange={(e) => setLogin(e.target.value)}
-                      placeholder={t.loginPlaceholder}
-                      className="pill-input"
-                      dir="ltr"
-                    />
-                    {errors.login?.[0] && (
-                      <p className="luxury-field-error" role="alert">{errors.login[0]}</p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="luxury-field-label" htmlFor="password">
-                      {t.passwordLabel}
-                    </label>
-                    <div className="luxury-pwd-wrap">
-                      <input
-                        id="password"
-                        name="password"
-                        type={showPassword ? 'text' : 'password'}
-                        autoComplete="current-password"
-                        required
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder={t.passwordPlaceholder}
-                        className="pill-input pr-pwd"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="luxury-eye-btn"
-                        aria-label={lang === 'ar' ? (showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور') : (showPassword ? 'Hide password' : 'Show password')}
-                        aria-pressed={showPassword}
-                      >
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                          <circle cx="12" cy="12" r="3" />
-                        </svg>
-                      </button>
-                    </div>
-                    {errors.password?.[0] && (
-                      <p className="luxury-field-error" role="alert">{errors.password[0]}</p>
-                    )}
-                  </div>
-
-                  {formError && (
-                    <p className="luxury-form-error" role="alert">{formError}</p>
+                  {params.get('error') === 'handoff' && (
+                    <p className="luxury-form-error" role="alert">
+                      {t.handoffExpired}
+                    </p>
                   )}
 
-                  <div style={{ paddingTop: '4px' }}>
-                    <button
-                      type="submit"
-                      disabled={!isReady || staffCheckPending || isSubmitting}
-                      className="pill-btn-primary"
-                    >
-                      {isSubmitting ? (
-                        <span>{lang === 'ar' ? 'جاري التحقق...' : 'Signing in...'}</span>
-                      ) : (
-                        <span>{t.signInBtn}</span>
+                  {/* Form */}
+                  <form method="post" onSubmit={handleSignIn} className="luxury-form">
+                    <div>
+                      <label className="luxury-field-label" htmlFor="login">
+                        {t.loginLabel}
+                        <span className="luxury-req-mark" aria-hidden="true">*</span>
+                      </label>
+                      <input
+                        id="login"
+                        name="login"
+                        type="text"
+                        inputMode="email"
+                        autoComplete="username"
+                        enterKeyHint="next"
+                        required
+                        value={login}
+                        onChange={(e) => setLogin(e.target.value)}
+                        placeholder={t.loginPlaceholder}
+                        className="pill-input"
+                        dir="ltr"
+                        aria-invalid={!!errors.login?.[0]}
+                        aria-describedby={errors.login?.[0] ? 'login-error' : undefined}
+                      />
+                      {errors.login?.[0] && (
+                        <p id="login-error" className="luxury-field-error" role="alert">
+                          {errors.login[0]}
+                        </p>
                       )}
+                    </div>
+
+                    <div>
+                      <label className="luxury-field-label" htmlFor="password">
+                        {t.passwordLabel}
+                        <span className="luxury-req-mark" aria-hidden="true">*</span>
+                      </label>
+                      <div className="luxury-pwd-wrap">
+                        <input
+                          id="password"
+                          name="password"
+                          type={showPassword ? 'text' : 'password'}
+                          autoComplete="current-password"
+                          enterKeyHint="done"
+                          required
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          placeholder={t.passwordPlaceholder}
+                          className="pill-input pr-pwd"
+                          aria-invalid={!!errors.password?.[0]}
+                          aria-describedby={errors.password?.[0] ? 'password-error' : undefined}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="luxury-eye-btn"
+                          aria-label={
+                            lang === 'ar'
+                              ? showPassword
+                                ? 'إخفاء كلمة المرور'
+                                : 'إظهار كلمة المرور'
+                              : showPassword
+                                ? 'Hide password'
+                                : 'Show password'
+                          }
+                          aria-pressed={showPassword}
+                        >
+                          <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.8"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            {showPassword ? (
+                              <>
+                                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                                <line x1="1" y1="1" x2="23" y2="23" />
+                              </>
+                            ) : (
+                              <>
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                <circle cx="12" cy="12" r="3" />
+                              </>
+                            )}
+                          </svg>
+                        </button>
+                      </div>
+                      {errors.password?.[0] && (
+                        <p id="password-error" className="luxury-field-error" role="alert">
+                          {errors.password[0]}
+                        </p>
+                      )}
+                    </div>
+
+                    {formError && (
+                      <p className="luxury-form-error" role="alert">
+                        {formError}
+                      </p>
+                    )}
+
+                    <div style={{ paddingTop: '4px' }}>
+                      <button
+                        type="submit"
+                        disabled={!isReady || staffCheckPending || isSubmitting}
+                        className="pill-btn-primary"
+                      >
+                        {isSubmitting ? (
+                          <span>{lang === 'ar' ? 'جاري التحقق...' : 'Signing in...'}</span>
+                        ) : (
+                          <span>{t.signInBtn}</span>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+
+                  {/* Bottom links in Thumb Reach Zone */}
+                  <div className="luxury-bottom-switch">
+                    <button
+                      type="button"
+                      disabled={!isReady || isSubmitting}
+                      onClick={() => setView('forgot-password')}
+                      className="luxury-switch-link"
+                    >
+                      {t.forgotPassword}
+                    </button>
+                    <span className="luxury-link-sep">·</span>
+                    <button
+                      type="button"
+                      disabled={!isReady || isSubmitting}
+                      onClick={() => setView('register')}
+                      className="luxury-switch-link"
+                    >
+                      {t.createAccount}
+                    </button>
+                    <span className="luxury-link-sep">·</span>
+                    <button
+                      type="button"
+                      disabled={!isReady || isSubmitting}
+                      onClick={() => setView('wholesale-register')}
+                      className="luxury-switch-link"
+                    >
+                      {t.wholesaleRegister}
                     </button>
                   </div>
-                </form>
-
-                {/* Bottom links */}
-                <div className="luxury-bottom-switch">
-                  <button type="button" disabled={isSubmitting} onClick={() => setView('forgot-password')} className="luxury-switch-link">
-                    {t.forgotPassword}
-                  </button>
-                  <span className="luxury-link-sep">·</span>
-                  <button type="button" disabled={isSubmitting} onClick={() => setView('register')} className="luxury-switch-link">
-                    {t.createAccount}
-                  </button>
-                  <span className="luxury-link-sep">·</span>
-                  <button type="button" disabled={isSubmitting} onClick={() => setView('wholesale-register')} className="luxury-switch-link">
-                    {t.wholesaleRegister}
-                  </button>
-                </div>
-                </> : <AccountForm key={view} view={view} lang={lang} onChangeView={setView}
+                </>
+              ) : (
+                <AccountForm
+                  key={view}
+                  view={view}
+                  lang={lang}
+                  onChangeView={setView}
                   initialIdentifier={params.get('email') ?? params.get('phone') ?? login}
-                  initialToken={params.get('token') ?? ''} />}
-              </div>
-
+                  initialToken={params.get('token') ?? ''}
+                />
+              )}
+            </div>
           </section>
 
           {/* ================= RIGHT COLUMN: LUXURY HANDBAG HALFTONE ARTWORK ================= */}
-          <section className="luxury-right-col" aria-label={lang === 'ar' ? 'حقيبة بيركن بتقنية الهالفتون' : 'Birkin Halftone artwork'}>
+          <section
+            className="luxury-right-col"
+            aria-label={lang === 'ar' ? 'حقيبة بيركن بتقنية الهالفتون' : 'Birkin Halftone artwork'}
+          >
             <canvas
               ref={canvasRef}
               width={W}
@@ -432,11 +507,9 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
                 }
               }}
             />
-
           </section>
         </div>
       </main>
-
     </div>
   );
 };

@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Enums\StaffRole;
-use App\Models\User;
 use App\Models\Treasury;
+use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
 
 /**
@@ -47,7 +47,7 @@ class BranchAccess
     public function assertCentralAccess(?User $user): void
     {
         if ($this->restrictedBranch($user) !== null) {
-            throw new AuthorizationException('تعديل مجموعات العملاء والأسعار العامة يتطلب صلاحية الوصول لكل الفروع.');
+            throw new AuthorizationException('هذه العملية المركزية تتطلب صلاحية الوصول لكل الفروع.');
         }
     }
 

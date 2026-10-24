@@ -141,6 +141,8 @@ tmp/
 *.temp
 .turbo/
 .cache/
+bags-platform/backend/.c-review-*
+bags-platform/frontend/.c-review-*
 
 # ------------------------------------------
 # Local Infrastructure Overrides

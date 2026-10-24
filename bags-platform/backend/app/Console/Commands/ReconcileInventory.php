@@ -10,8 +10,8 @@ use Illuminate\Support\Facades\Log;
 
 /**
  * مطابقة دورية بين الدفتر والأرصدة (M-8): القاعدة تضمن صحة كل حركة على حدة،
- * لكن أي كتابة مباشرة على stock_levels (والـ fillable يسمح بها) لا يكشفها
- * شيء آخر. الفحص يتحقق لكل وعاء من أمرين:
+ * والكتابة المباشرة التي تتجاوز حماية الموديل تحتاج مطابقة مستقلة.
+ * الفحص يتحقق لكل وعاء من أمرين:
  * 1. رصيد stock_levels يساوي آخر balance_after في الدفتر لنفس الوعاء.
  * 2. تسلسل الدفتر متصل: balance_before لكل حركة يساوي balance_after لسابقتها.
  * يُشغَّل دوريًا (جدولة ليلية) ويُرجع كود فشل عند وجود أي فرق للتنبيه.
@@ -35,6 +35,7 @@ class ReconcileInventory extends Command
         $limit = filter_var($this->option('limit'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 10000]]);
         if ($limit === false) {
             $this->error('limit يجب أن يكون بين 1 و10000.');
+
             return self::INVALID;
         }
         // One SQL statement sees one committed snapshot, even while sales continue.

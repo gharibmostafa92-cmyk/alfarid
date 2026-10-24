@@ -19,6 +19,58 @@ class AuthConcurrencyTest extends TestCase
 {
     use DatabaseMigrations;
 
+    public function test_concurrent_super_admin_retirements_leave_one_active_administrator(): void
+    {
+        $role = Role::create(['name' => 'Super Admin', 'guard_name' => 'staff']);
+        $a = User::factory()->create()->assignRole($role);
+        $b = User::factory()->create()->assignRole($role);
+        $this->race([
+            $this->staffRequest($a->createToken('race')->plainTextToken, 'DELETE', '/users/'.$b->id, [], 200, [401, 403]),
+            $this->staffRequest($b->createToken('race')->plainTextToken, 'DELETE', '/users/'.$a->id, [], 200, [401, 403]),
+        ]);
+        $this->assertSame(1, User::query()->where('is_active', true)->whereHas('roles', fn ($query) => $query->whereKey($role->id))->count());
+    }
+
+    public function test_role_assignment_and_deletion_cannot_silently_leave_a_created_user_without_the_requested_role(): void
+    {
+        $adminRole = Role::create(['name' => 'Super Admin', 'guard_name' => 'staff']);
+        $admin = User::factory()->create()->assignRole($adminRole);
+        $token = $admin->createToken('race')->plainTextToken;
+        $role = Role::create(['name' => 'Concurrent operator', 'guard_name' => 'staff']);
+        $this->race([
+            $this->staffRequest($token, 'POST', '/users', [
+                'name' => 'Concurrent user', 'email' => 'role-race@example.test', 'password' => 'Race-password12',
+                'roles' => [$role->name],
+            ], 201, [422]),
+            $this->staffRequest($token, 'DELETE', '/roles/'.$role->id, [], 204, [409]),
+        ]);
+        $user = User::query()->where('email', 'role-race@example.test')->first();
+        if ($user !== null) {
+            $this->assertTrue($user->hasRole($role->name, 'staff'));
+            $this->assertDatabaseHas('roles', ['id' => $role->id]);
+        } else {
+            $this->assertDatabaseMissing('roles', ['id' => $role->id]);
+        }
+    }
+
+    private function staffRequest(string $token, string $method, string $path, array $body, int $success, array $rejections): string
+    {
+        if ($method === 'DELETE' && preg_match('~^/users/([0-9]+)$~', $path, $target)) {
+            $body['expected_version'] = (int) User::findOrFail($target[1])->lock_version;
+        }
+        $arguments = var_export(['/api/v1/admin'.$path, $method, $body, [], [], [
+            'HTTP_ACCEPT' => 'application/json', 'HTTP_AUTHORIZATION' => 'Bearer '.$token,
+        ]], true);
+        $statuses = var_export($rejections, true);
+
+        return '$kernel = $app->make(Illuminate\\Contracts\\Http\\Kernel::class);'
+            .'$response = $kernel->handle(Illuminate\\Http\\Request::create(...'.$arguments.'));'
+            .'$status = $response->getStatusCode();'
+            .'if ($status === '.$success.') { echo "OK"; }'
+            .'elseif (in_array($status, '.$statuses.', true)) { echo "REJECTED"; }'
+            .'else { throw new RuntimeException($response->getContent()); }';
+    }
+
     public function test_concurrent_staff_and_supplier_creation_claim_the_email_only_once(): void
     {
         $supplier = Supplier::factory()->create();

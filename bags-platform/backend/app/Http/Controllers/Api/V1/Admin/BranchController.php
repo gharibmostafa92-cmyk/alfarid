@@ -11,6 +11,7 @@ use App\Http\Requests\Api\V1\Admin\UpdateBranchRequest;
 use App\Http\Resources\Api\V1\Admin\BranchResource;
 use App\Models\Branch;
 use App\Models\StockLevel;
+use App\Models\StockTransfer;
 use App\Services\BranchAccess;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
@@ -55,9 +56,9 @@ class BranchController extends Controller
         app(BranchAccess::class)->assertCentralAccess($request->user());
         DB::transaction(function () use ($request, $branch): void {
             $locked = Branch::query()->lockForUpdate()->findOrFail($branch->id);
-            if ($request->validated('is_active') === false && (
+            if (array_key_exists('is_active', $request->validated()) && ! $request->boolean('is_active') && (
                 StockLevel::query()->where('branch_id', $locked->id)->where('in_transit', '>', 0)->exists()
-                || \App\Models\StockTransfer::query()->where('to_branch_id', $locked->id)->where('status', 'shipped')->exists()
+                || StockTransfer::query()->where('to_branch_id', $locked->id)->where('status', 'shipped')->exists()
             )) {
                 throw new BusinessException('لا يمكن تعطيل الفرع قبل استلام التحويلات المشحونة إليه.');
             }

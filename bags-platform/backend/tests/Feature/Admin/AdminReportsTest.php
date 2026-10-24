@@ -16,6 +16,7 @@ use App\Models\Supplier;
 use App\Models\SupplierInvoice;
 use App\Models\Treasury;
 use App\Models\User;
+use App\Services\ReportService;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
@@ -68,7 +69,7 @@ class AdminReportsTest extends TestCase
         Customer::factory()->create(['type' => 'wholesale', 'status' => 'pending']);
 
         $variant = ProductVariant::factory()->create(['reorder_level' => 5]);
-        StockLevel::create(['branch_id' => $branch->id, 'product_variant_id' => $variant->id, 'on_hand' => 3]);
+        StockLevel::forceCreate(['branch_id' => $branch->id, 'product_variant_id' => $variant->id, 'on_hand' => 3]);
 
         $response = $this->asAdmin()->getJson('/api/v1/admin/dashboard')->assertOk();
         $response->assertJsonPath('data.today.sales_total', 1800)
@@ -102,10 +103,10 @@ class AdminReportsTest extends TestCase
         $branch = Branch::factory()->create();
         $product = Product::factory()->create();
         $dead = ProductVariant::factory()->create(['product_id' => $product->id, 'cost_price' => 50]);
-        StockLevel::create(['branch_id' => $branch->id, 'product_variant_id' => $dead->id, 'on_hand' => 10]);
+        StockLevel::forceCreate(['branch_id' => $branch->id, 'product_variant_id' => $dead->id, 'on_hand' => 10]);
 
         $moving = ProductVariant::factory()->create(['product_id' => $product->id, 'cost_price' => 20]);
-        StockLevel::create(['branch_id' => $branch->id, 'product_variant_id' => $moving->id, 'on_hand' => 5]);
+        StockLevel::forceCreate(['branch_id' => $branch->id, 'product_variant_id' => $moving->id, 'on_hand' => 5]);
         StockMovement::create([
             'reference_number' => 'MOV-TEST-1',
             'product_variant_id' => $moving->id,
@@ -184,7 +185,7 @@ class AdminReportsTest extends TestCase
 
         // Procurement HTTP endpoints are retired; keep testing the retained report math directly.
         $this->asAdmin()->getJson('/api/v1/admin/reports/suppliers')->assertGone();
-        $row = collect(app(\App\Services\ReportService::class)->suppliersReport())
+        $row = collect(app(ReportService::class)->suppliersReport())
             ->firstWhere('supplier_id', $supplier->id);
         $this->assertSame(600.0, (float) $row['current_balance']);
         $this->assertSame(1000.0, (float) $row['total_purchases']);

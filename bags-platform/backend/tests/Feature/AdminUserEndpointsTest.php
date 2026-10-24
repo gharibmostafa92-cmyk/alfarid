@@ -13,11 +13,50 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Testing\TestResponse;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
+use Tests\Concerns\StaffAdministrationRequests;
 use Tests\TestCase;
 
 class AdminUserEndpointsTest extends TestCase
 {
     use LazilyRefreshDatabase;
+    use StaffAdministrationRequests;
+
+    public function test_user_index_searches_name_email_and_phone(): void
+    {
+        $admin = $this->staffWithPermission('users.view');
+        $token = $admin->createToken('test')->plainTextToken;
+        $user = User::factory()->create(['name' => 'Unique Search Name', 'email' => 'unique-search@example.test', 'phone' => '01012345678']);
+        foreach (['SEARCH NAME', 'UNIQUE-SEARCH@', '01012345'] as $term) {
+            $this->requestWithToken($token, 'GET', '/api/v1/admin/users?search='.urlencode($term))
+                ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $user->id);
+        }
+    }
+
+    public function test_user_index_filters_inactive_and_excludes_system_account(): void
+    {
+        $admin = $this->staffWithPermission('users.view');
+        $token = $admin->createToken('test')->plainTextToken;
+        $user = User::factory()->create(['is_active' => false]);
+        User::query()->updateOrCreate(
+            ['email' => config('orders.system_user_email', 'system@alfarid.local')],
+            ['name' => 'System', 'password' => Hash::make('test-password'), 'is_active' => false],
+        );
+        $this->requestWithToken($token, 'GET', '/api/v1/admin/users?is_active=0')
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $user->id);
+    }
+
+    public function test_empty_branch_filter_returns_only_users_without_branch(): void
+    {
+        $admin = $this->staffWithPermission('users.view');
+        $admin->update(['branch_id' => null]);
+        $token = $admin->createToken('test')->plainTextToken;
+        $user = User::factory()->create(['branch_id' => null]);
+        User::factory()->create(['branch_id' => Branch::factory()->create()->id]);
+        $this->requestWithToken($token, 'GET', '/api/v1/admin/users?branch_id=')
+            ->assertOk()->assertJsonCount(2, 'data')
+            ->assertJsonPath('data.0.id', $admin->id)
+            ->assertJsonPath('data.1.id', $user->id);
+    }
 
     public function test_user_index_forbids_an_authenticated_staff_member_without_permission(): void
     {
@@ -38,7 +77,7 @@ class AdminUserEndpointsTest extends TestCase
             'name' => 'New Cashier',
             'email' => '  CASHIER@Example.Test  ',
             'phone' => '+201001234567',
-            'password' => 'long-password',
+            'password' => 'long-password12',
             'branch_id' => $branch->id,
             'roles' => ['Cashier'],
         ]);
@@ -50,7 +89,7 @@ class AdminUserEndpointsTest extends TestCase
 
         $userId = $created->json('data.id');
         $user = User::findOrFail($userId);
-        $this->assertTrue(Hash::check('long-password', $user->password));
+        $this->assertTrue(Hash::check('long-password12', $user->password));
         $this->assertTrue($user->hasRole($cashierRole, 'staff'));
 
         $this->requestWithToken($token, 'PATCH', "/api/v1/admin/users/{$userId}", [
@@ -101,7 +140,7 @@ class AdminUserEndpointsTest extends TestCase
         $this->requestWithToken($token, 'POST', '/api/v1/admin/users', [
             'name' => 'Invalid User',
             'email' => ' EXISTING@Example.Test ',
-            'password' => 'long-password',
+            'password' => 'long-password12',
             'branch_id' => 999,
             'roles' => ['missing-role'],
         ])->assertUnprocessable()
@@ -153,7 +192,7 @@ class AdminUserEndpointsTest extends TestCase
 
         $this->requestWithToken($adminToken, 'PATCH', "/api/v1/admin/users/{$superAdmin->id}", [
             'email' => 'new-root@example.test',
-            'password' => 'replacement-password',
+            'password' => 'replacement-password12',
         ])->assertForbidden();
 
         $superAdminActor = User::factory()->create();
@@ -162,12 +201,12 @@ class AdminUserEndpointsTest extends TestCase
 
         $this->requestWithToken($superAdminToken, 'PATCH', "/api/v1/admin/users/{$superAdmin->id}", [
             'is_active' => false,
-        ])->assertForbidden();
+        ])->assertOk();
         $this->requestWithToken($superAdminToken, 'PATCH', "/api/v1/admin/users/{$superAdmin->id}", [
             'roles' => [],
-        ])->assertForbidden();
+        ])->assertOk();
 
-        $this->assertTrue($superAdmin->refresh()->is_active);
+        $this->assertFalse($superAdmin->refresh()->is_active);
         $this->assertNotSame('new-root@example.test', $superAdmin->email);
         $this->assertTrue(Hash::check('password', $superAdmin->password));
     }
@@ -182,7 +221,7 @@ class AdminUserEndpointsTest extends TestCase
         $this->requestWithToken($managerToken, 'POST', '/api/v1/admin/users', [
             'name' => 'Unauthorized Root',
             'email' => 'unauthorized-root@example.test',
-            'password' => 'long-password',
+            'password' => 'long-password12',
             'roles' => [StaffRole::SuperAdmin->value],
         ])->assertForbidden();
 
@@ -211,7 +250,7 @@ class AdminUserEndpointsTest extends TestCase
         $passwordTarget = User::factory()->create();
         $passwordToken = $passwordTarget->createToken('stolen-password-session')->plainTextToken;
         $this->requestWithToken($managerToken, 'PATCH', "/api/v1/admin/users/{$passwordTarget->id}", [
-            'password' => 'new-password-for-user',
+            'password' => 'new-password-for-user12',
         ])->assertOk();
 
         $this->assertDatabaseMissing('personal_access_tokens', [
@@ -259,7 +298,7 @@ class AdminUserEndpointsTest extends TestCase
         $this->requestWithToken($token, 'POST', '/api/v1/admin/users', [
             'name' => 'Unauthorized Finance Manager',
             'email' => 'unauthorized-finance@example.test',
-            'password' => 'long-password',
+            'password' => 'long-password12',
             'roles' => ['Finance Manager'],
         ])->assertForbidden();
         $this->requestWithToken($token, 'PATCH', "/api/v1/admin/users/{$target->id}", [
@@ -280,7 +319,7 @@ class AdminUserEndpointsTest extends TestCase
 
         $this->requestWithToken($token, 'PATCH', "/api/v1/admin/users/{$target->id}", [
             'email' => 'takeover@example.test',
-            'password' => 'replacement-password',
+            'password' => 'replacement-password12',
         ])->assertForbidden();
         $this->requestWithToken($token, 'DELETE', "/api/v1/admin/users/{$target->id}")
             ->assertForbidden();
@@ -313,7 +352,7 @@ class AdminUserEndpointsTest extends TestCase
         $this->requestWithToken($superToken, 'POST', '/api/v1/admin/users', [
             'name' => 'Authorized Finance Manager',
             'email' => 'authorized-finance@example.test',
-            'password' => 'long-password',
+            'password' => 'long-password12',
             'roles' => ['Finance Manager'],
         ])->assertCreated();
         $this->assertTrue(User::where('email', 'authorized-finance@example.test')->firstOrFail()->hasRole($role, 'staff'));
@@ -324,6 +363,7 @@ class AdminUserEndpointsTest extends TestCase
         $permission = Permission::findOrCreate($permissionName, 'staff');
         $staff = User::factory()->create();
         $staff->givePermissionTo($permission);
+        $staff->givePermissionTo(Permission::findOrCreate('inventory.all_branches', 'staff'));
 
         return $staff;
     }
@@ -335,6 +375,6 @@ class AdminUserEndpointsTest extends TestCase
     {
         Auth::forgetGuards();
 
-        return $this->withToken($token)->json($method, $uri, $payload);
+        return $this->withToken($token)->json($method, $uri, $this->expectedStaffState($method, $uri, $payload));
     }
 }

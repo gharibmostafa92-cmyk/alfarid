@@ -11,9 +11,9 @@ use App\Models\PosShift;
 use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
 use App\Models\TreasuryTransfer;
-use App\Models\User;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -226,11 +226,13 @@ class TreasuryService
         }, 3);
     }
 
-    public function lockTreasuries(array $ids, ?int $userId = null): \Illuminate\Support\Collection
+    public function lockTreasuries(array $ids, ?int $userId = null): Collection
     {
         $treasuries = Treasury::query()->whereIn('id', $ids)->orderBy('id')->lockForUpdate()->get()->keyBy('id');
         if ($userId !== null) {
-            foreach ($treasuries as $treasury) app(BranchAccess::class)->assertTreasury($userId, $treasury);
+            foreach ($treasuries as $treasury) {
+                app(BranchAccess::class)->assertTreasury($userId, $treasury);
+            }
         }
 
         return $treasuries;

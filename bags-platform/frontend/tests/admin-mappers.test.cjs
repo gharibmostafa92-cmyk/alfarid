@@ -1,0 +1,50 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const ts = require('typescript');
+const base = path.join(__dirname, '../apps/backoffice/src/pages/admin/admin-mock/api');
+function load(name) {
+  const output = ts.transpileModule(fs.readFileSync(path.join(base, name + '.ts'), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const module = { exports: {} };
+  new Function('exports', 'module', output)(module.exports, module);
+  return module.exports;
+}
+const { toAdminSettings, settingsPatch, toAdminUser, toAdminRole, roleIdsToNames, buildRolePatch, settingsExpected } = load('mappers');
+const { buildPermissionGroups, permLabel } = load('permission-catalog');
+const fixture = require(path.join(base, '__fixtures__/settings.json'));
+const settings = toAdminSettings(fixture.data);
+assert.equal(Object.keys(settings.numbering).length, 12);
+assert.equal(typeof settings.tax.default_tax_rate, 'number');
+assert.deepEqual(settingsPatch(settings, structuredClone(settings)), {});
+const changed = structuredClone(settings);
+changed.numbering.invoice.padding = 8;
+assert.deepEqual(settingsPatch(changed, settings), { invoice_padding: 8 });
+changed.numbering.invoice.prefix = '';
+const baseline = structuredClone(settings);
+baseline.numbering.invoice.prefix = 'INV-';
+assert.equal(settingsPatch(changed, baseline).invoice_prefix, '');
+changed.numbering.unsupported_document = { prefix: 'X', padding: 8, next_number: 10 };
+assert.equal(Object.keys(settingsPatch(changed, settings)).some(k => k.startsWith('unsupported')), false);
+assert.deepEqual(toAdminSettings({ arbitrary: Object.assign({}, ...Object.values(fixture.data)) }), settings);
+assert.equal(toAdminSettings({tax:{tax_enabled:'0', prices_include_tax:0}}).tax.tax_enabled, false);
+const groups = buildPermissionGroups({users:[{name:'users.view'},{name:'users.view'}], unknown:[{name:'mystery.execute'}]});
+assert.equal(groups.flatMap(g => g.perms).filter(p => p[0] === 'users.view').length, 1);
+assert.equal(groups.find(g => g.module === 'other').label, 'صلاحيات أخرى');
+const user = require(path.join(base,'__fixtures__/users.json')).data[0];
+assert.deepEqual(toAdminUser(user, user.id).roles, user.roles.map(r => r.id));
+assert.equal(toAdminUser(user, user.id).me, true);
+assert.equal(toAdminRole({id:1,name:'Super Admin'}).system, true);
+assert.deepEqual(roleIdsToNames([9], [{id:9,name:'مشرف',perms:[]}]), ['مشرف']);
+assert.deepEqual(buildRolePatch({name:'مشرف',perms:['users.view']},{name:'مشرف',perms:['users.view']}), {});
+assert.deepEqual(buildRolePatch({name:' جديد ',perms:[]},{name:'قديم',perms:['users.view']}), {name:'جديد',permissions:[]});
+const permissions = require(path.join(base,'__fixtures__/permissions.json')).data;
+const unknownLabels = Object.values(permissions).flat().map(p => p.name).filter(p => permLabel(p) === p);
+assert.deepEqual(unknownLabels, [], 'Every server permission needs an Arabic label');
+assert.deepEqual(buildRolePatch({name:'مشرف',perms:['users.update']},{name:'مشرف',perms:['users.view'],version:17}), {expected_version:17,permissions:['users.update']});
+assert.equal(toAdminRole({id:2,name:'cashier',is_builtin:true,version:3}).builtin,true);
+assert.equal(toAdminUser({...user,version:4}).version,4);
+assert.deepEqual(settingsExpected({company_name:'New company'},settings), {company_name:settings.company.company_name});
+assert.deepEqual(settingsExpected({invoice_next_number:9999},settings), {invoice_next_number:settings.numbering.invoice.next_number});
+process.stdout.write('Admin mapper and permission contract tests passed.\n');

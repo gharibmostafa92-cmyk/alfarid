@@ -80,7 +80,7 @@ return Application::configure(basePath: dirname(__DIR__))
             // مفهوم بدل 500 في لوحة الإدارة.
             if (($request->is('api/*') || $request->expectsJson())
                 && in_array($e->errorInfo[0] ?? $e->getCode(), ['23503'], true)) {
-                return response()->json(['message' => 'لا يمكن الحذف لوجود سجلات مرتبطة؛ عطّل العنصر بدل حذفه.'], 409);
+                return response()->json(['message' => 'تعذر تنفيذ العملية لوجود سجلات مرتبطة أو لتغيّر السجل المرجعي؛ حدّث البيانات وأعد المحاولة.'], 409);
             }
 
             return null;

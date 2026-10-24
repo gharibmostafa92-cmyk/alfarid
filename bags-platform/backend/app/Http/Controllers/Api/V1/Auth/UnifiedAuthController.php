@@ -18,6 +18,7 @@ use App\Models\SupplierUser;
 use App\Models\User;
 use App\Services\Auth\LoginDestinationResolver;
 use App\Services\Auth\StaffHandoffService;
+use App\Services\Auth\StaffTokenService;
 use App\Services\Auth\UnifiedAuthService;
 use App\Services\CartService;
 use App\Services\CustomerAuthService;
@@ -84,7 +85,7 @@ class UnifiedAuthController extends Controller
         }
         $user = $payload ? User::query()->find($payload['user_id']) : null;
 
-        if (! $user instanceof User || ! $user->is_active) {
+        if (! $user instanceof User || ! $user->is_active || $user->is_system || ! is_string($payload['credentials'] ?? null)) {
             logger()->info('staff.handoff', ['ip' => $request->ip(), 'result' => 'rejected']);
 
             return response()->json(['message' => 'رابط الدخول غير صالح أو انتهت صلاحيته.'], 401);
@@ -95,25 +96,7 @@ class UnifiedAuthController extends Controller
         $user->load(['branch', 'roles.permissions', 'permissions']);
         $redirect = $this->destinations->resolve($user);
 
-        // M9: حد لتوكنات الموظفين (مثل العملاء والموردين) داخل transaction،
-        // مع تنظيف المنتهية أولًا حتى لا يُحرم النشطون.
-        $token = DB::transaction(function () use ($user): string {
-            $user = User::query()->lockForUpdate()->findOrFail($user->id);
-            if (! $user->is_active) {
-                throw new BusinessException('غير مصرح لك بالدخول كموظف أو الحساب غير نشط.', [], 401);
-            }
-            // M1: SANCTUM_EXPIRATION الفارغ يعني بلا انتهاء زمني — لا تمسح كل التوكنات.
-            $expiry = config('sanctum.expiration');
-            $user->tokens()->where(fn ($q) => $q->where('expires_at', '<=', now())
-                ->when($expiry, fn ($q) => $q->orWhere('created_at', '<=', now()->subMinutes((int) $expiry))))->delete();
-            $limit = max(1, (int) config('auth.staff_max_tokens', 20));
-            $old = $user->tokens()->orderByDesc('id')->skip($limit - 1)->pluck('id');
-            if ($old->isNotEmpty()) {
-                $user->tokens()->whereIn('id', $old)->delete();
-            }
-
-            return $user->createToken('staff-token')->plainTextToken;
-        });
+        $token = app(StaffTokenService::class)->issue($user, $payload['credentials']);
 
         logger()->info('staff.handoff', ['user_id' => $user->id, 'ip' => $request->ip(), 'result' => 'success']);
 
@@ -129,7 +112,7 @@ class UnifiedAuthController extends Controller
         $actor = $request->user('sanctum');
 
         if ($actor instanceof User) {
-            abort_unless($actor->is_active, 403);
+            abort_unless($actor->is_active && ! $actor->is_system, 403);
             $actor->load(['branch', 'roles.permissions', 'permissions']);
             $redirect = $this->destinations->resolve($actor);
 

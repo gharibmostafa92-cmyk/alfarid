@@ -8,8 +8,8 @@ use App\Enums\PosShiftStatus;
 use App\Http\Controllers\Controller;
 use App\Models\PosShift;
 use App\Models\User;
-use App\Services\PosService;
 use App\Services\BranchAccess;
+use App\Services\PosService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
@@ -24,7 +24,7 @@ class PosShiftAdminController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('can:pos_shifts.view',    only: ['index', 'show']),
+            new Middleware('can:pos_shifts.view', only: ['index', 'show']),
             new Middleware('can:pos_shifts.approve', only: ['approve']),
         ];
     }
@@ -38,11 +38,11 @@ class PosShiftAdminController extends Controller implements HasMiddleware
     {
         $filters = $request->validate([
             'branch_id' => ['nullable', 'integer', 'min:1'],
-            'user_id'   => ['nullable', 'integer', 'min:1'],
-            'status'    => ['nullable', Rule::in(array_column(PosShiftStatus::cases(), 'value'))],
+            'user_id' => ['nullable', 'integer', 'min:1'],
+            'status' => ['nullable', Rule::in(array_column(PosShiftStatus::cases(), 'value'))],
             'from_date' => ['nullable', 'date_format:Y-m-d'],
-            'to_date'   => ['nullable', 'date_format:Y-m-d'],
-            'per_page'  => ['nullable', 'integer', 'min:1', 'max:100'],
+            'to_date' => ['nullable', 'date_format:Y-m-d'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
         $branch = app(BranchAccess::class)->restrictedBranch($request->user());
@@ -65,6 +65,7 @@ class PosShiftAdminController extends Controller implements HasMiddleware
     public function show(Request $request, PosShift $shift): JsonResponse
     {
         app(BranchAccess::class)->assertBranch($request->user()->id, $shift->branch_id);
+
         return response()->json([
             'data' => $shift->load(['cashier', 'treasury', 'branch', 'approver', 'expenses']),
         ]);
@@ -82,7 +83,7 @@ class PosShiftAdminController extends Controller implements HasMiddleware
 
         return response()->json([
             'message' => 'تم اعتماد الوردية وترحيل النقدية للخزنة الرئيسية.',
-            'data'    => $shift->load(['cashier', 'treasury', 'branch', 'approver']),
+            'data' => $shift->load(['cashier', 'treasury', 'branch', 'approver']),
         ]);
     }
 }

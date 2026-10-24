@@ -23,6 +23,7 @@ class DatabaseSeeder extends Seeder
         $this->call(RolePermissionSeeder::class);
         $this->call(CatalogPermissionSeeder::class);
         $this->call(InventoryPermissionSeeder::class);
+        $this->call(FinancialPermissionSeeder::class);
         $this->call(PricingPermissionSeeder::class);
         $this->call(CustomerPermissionSeeder::class);
         $this->call(OrderPermissionSeeder::class);

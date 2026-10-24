@@ -244,7 +244,7 @@ class InventoryExecutionReviewTest extends TestCase
         }
         $branch = Branch::factory()->create();
         $empty = Location::factory()->create(['branch_id' => $branch->id]);
-        StockLevel::create([
+        StockLevel::forceCreate([
             'product_variant_id' => ProductVariant::factory()->create()->id,
             'branch_id' => $branch->id, 'location_id' => $empty->id,
         ]);
@@ -313,7 +313,7 @@ class InventoryExecutionReviewTest extends TestCase
         $branch = Branch::factory()->create();
         $location = Location::factory()->create(['branch_id' => $branch->id]);
         $variant = ProductVariant::factory()->create();
-        StockLevel::create(['product_variant_id' => $variant->id, 'branch_id' => $branch->id, 'location_id' => $location->id]);
+        StockLevel::forceCreate(['product_variant_id' => $variant->id, 'branch_id' => $branch->id, 'location_id' => $location->id]);
 
         $count = app(StocktakeService::class)->create(['branch_id' => $branch->id], $this->staff->id);
         $this->assertNull($count->location_id);

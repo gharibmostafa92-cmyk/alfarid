@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Services\ReportService;
 use App\Services\BranchAccess;
+use App\Services\ReportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -26,9 +26,11 @@ class ReportController extends Controller
             'to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:from'],
         ]);
 
+        $businessNow = now(config('app.business_timezone', 'Africa/Cairo'));
+
         return [
-            $validated['from'] ?? now()->startOfMonth()->toDateString(),
-            $validated['to'] ?? now()->toDateString(),
+            $validated['from'] ?? $businessNow->copy()->startOfMonth()->toDateString(),
+            $validated['to'] ?? $businessNow->toDateString(),
         ];
     }
 
@@ -66,6 +68,7 @@ class ReportController extends Controller
     public function suppliers(Request $request): JsonResponse
     {
         app(BranchAccess::class)->assertCentralAccess($request->user());
+
         return response()->json(['data' => $this->reports->suppliersReport()]);
     }
 

@@ -196,7 +196,7 @@ class ProcurementTest extends TestCase
     public function test_receive_updates_weighted_average_cost_and_stock(): void
     {
         // رصيد حالي 10 بتكلفة 100، واستلام 10 بسعر شراء 130 ⇒ المتوسط 115
-        StockLevel::create([
+        StockLevel::forceCreate([
             'product_variant_id' => $this->variant->id, 'branch_id' => $this->branch->id,
             'location_id' => null, 'on_hand' => 10, 'reserved' => 0, 'damaged' => 0, 'in_transit' => 0,
         ]);

@@ -54,7 +54,7 @@ class WholesalePortalFeaturesTest extends TestCase
         $this->variant = $product->variants()->first() ?? ProductVariant::factory()->create(['product_id' => $product->id]);
         $this->variant->update(['retail_price' => 100, 'is_active' => true, 'barcode' => '6220001']);
 
-        StockLevel::create([
+        StockLevel::forceCreate([
             'branch_id' => Branch::factory()->create()->id,
             'product_variant_id' => $this->variant->id,
             'on_hand' => 100,

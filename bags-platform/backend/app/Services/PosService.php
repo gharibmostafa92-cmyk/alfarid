@@ -24,6 +24,7 @@ use App\Models\Treasury;
 use App\Models\User;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -55,7 +56,9 @@ class PosService
         return DB::transaction(function () use ($user, $branchId, $treasuryId, $openingCash): PosShift {
             app(BranchAccess::class)->assertBranch($user->id, $branchId);
             User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
-            if (! is_finite($openingCash) || $openingCash < 0) throw new BusinessException('العهدة النقدية غير صالحة.');
+            if (! is_finite($openingCash) || $openingCash < 0) {
+                throw new BusinessException('العهدة النقدية غير صالحة.');
+            }
             // التحقق من عدم وجود وردية مفتوحة لنفس الكاشير
             $existingUserShift = PosShift::query()
                 ->where('user_id', $user->id)
@@ -104,17 +107,17 @@ class PosService
             $shiftNumber = $this->settings->generateNextNumber('shift');
 
             $shift = PosShift::create([
-                'shift_number'          => $shiftNumber,
-                'user_id'               => $user->id,
-                'branch_id'             => $branchId,
-                'treasury_id'           => $treasuryId,
-                'status'                => PosShiftStatus::Open,
-                'opened_at'             => now(),
-                'opening_cash'          => $openingCash,
-                'cash_sales_total'      => 0,
-                'card_sales_total'      => 0,
-                'cash_returns_total'    => 0,
-                'cash_expenses_total'   => 0,
+                'shift_number' => $shiftNumber,
+                'user_id' => $user->id,
+                'branch_id' => $branchId,
+                'treasury_id' => $treasuryId,
+                'status' => PosShiftStatus::Open,
+                'opened_at' => now(),
+                'opening_cash' => $openingCash,
+                'cash_sales_total' => 0,
+                'card_sales_total' => 0,
+                'cash_returns_total' => 0,
+                'cash_expenses_total' => 0,
                 'expected_closing_cash' => $openingCash,
             ]);
 
@@ -127,15 +130,15 @@ class PosService
                     'created_by' => $user->id, 'notes' => 'تمويل عهدة الوردية '.$shiftNumber,
                 ]);
                 $this->treasury->record([
-                'treasury_id'    => $treasury->id,
-                'shift_id'       => $shift->id,
-                'type'           => TreasuryTransactionType::OpeningBalance,
-                'amount'         => $openingCash,
-                'reference_type' => PosShift::class,
-                'reference_id'   => $shift->id,
-                'created_by'     => $user->id,
-                'notes'          => "رصيد فتح وردية #{$shiftNumber}",
-            ]);
+                    'treasury_id' => $treasury->id,
+                    'shift_id' => $shift->id,
+                    'type' => TreasuryTransactionType::OpeningBalance,
+                    'amount' => $openingCash,
+                    'reference_type' => PosShift::class,
+                    'reference_id' => $shift->id,
+                    'created_by' => $user->id,
+                    'notes' => "رصيد فتح وردية #{$shiftNumber}",
+                ]);
             }
 
             return $shift;
@@ -156,7 +159,9 @@ class PosService
 
         return DB::transaction(function () use ($shift, $actualCash, $notes): PosShift {
             $shift = $this->lockOpenShift($shift);
-            if (! is_finite($actualCash) || $actualCash < 0) throw new BusinessException('النقدية الفعلية غير صالحة.');
+            if (! is_finite($actualCash) || $actualCash < 0) {
+                throw new BusinessException('النقدية الفعلية غير صالحة.');
+            }
             // إعادة حساب مجاميع الوردية من بيانات الطلبات الفعلية
             $salesStats = Order::query()
                 ->where('pos_shift_id', $shift->id)
@@ -187,16 +192,16 @@ class PosService
             $cashDifference = $actualCash - $expectedClosingCash;
 
             $shift->update([
-                'status'                => PosShiftStatus::ClosedPendingApproval,
-                'closed_at'             => now(),
-                'cash_sales_total'      => $cashSales,
-                'card_sales_total'      => $cardSales,
-                'cash_returns_total'    => $cashReturns,
-                'cash_expenses_total'   => $cashExpenses,
+                'status' => PosShiftStatus::ClosedPendingApproval,
+                'closed_at' => now(),
+                'cash_sales_total' => $cashSales,
+                'card_sales_total' => $cardSales,
+                'cash_returns_total' => $cashReturns,
+                'cash_expenses_total' => $cashExpenses,
                 'expected_closing_cash' => $expectedClosingCash,
-                'actual_closing_cash'   => $actualCash,
-                'cash_difference'       => $cashDifference,
-                'notes'                 => $notes,
+                'actual_closing_cash' => $actualCash,
+                'cash_difference' => $cashDifference,
+                'notes' => $notes,
             ]);
 
             return $shift->fresh();
@@ -219,7 +224,7 @@ class PosService
                 throw new BusinessException('الوردية ليست في انتظار الاعتماد.');
             }
             $shift->update([
-                'status'      => PosShiftStatus::Approved,
+                'status' => PosShiftStatus::Approved,
                 'approved_at' => now(),
                 'approved_by' => $approver->id,
             ]);
@@ -258,22 +263,22 @@ class PosService
             $shift = $this->lockOpenShift($shift);
             $actor = User::findOrFail($shift->user_id);
             if (! empty($payload['override_price']) && ! $actor->can('pos.override_price')) {
-                throw new \Illuminate\Auth\Access\AuthorizationException('لا تملك صلاحية تجاوز سعر البيع.');
+                throw new AuthorizationException('لا تملك صلاحية تجاوز سعر البيع.');
             }
             if (collect($payload['items'])->contains(fn ($item) => (float) ($item['discount_amount'] ?? 0) > 0) && ! $actor->can('pos.discount')) {
-                throw new \Illuminate\Auth\Access\AuthorizationException('لا تملك صلاحية تطبيق خصم يدوي.');
+                throw new AuthorizationException('لا تملك صلاحية تطبيق خصم يدوي.');
             }
             $stockRows = StockLevel::query()->where('branch_id', $shift->branch_id)
                 ->whereIn('product_variant_id', array_column($payload['items'], 'product_variant_id'))
                 ->where(fn ($q) => $q->whereNull('location_id')->orWhereHas('location', fn ($q) => $q->where('is_active', true)))
                 ->get(['branch_id', 'location_id', 'product_variant_id']);
             $levels = $this->inventory->lockLevels($stockRows->map->getAttributes()->all());
-            $customer    = isset($payload['customer_id'])
+            $customer = isset($payload['customer_id'])
                 ? Customer::find($payload['customer_id'])
                 : null;
 
             $overridePrice = (bool) ($payload['override_price'] ?? false);
-            $items         = $this->resolveItems($shift, $payload['items'], $customer, $overridePrice);
+            $items = $this->resolveItems($shift, $payload['items'], $customer, $overridePrice);
 
             // C1: subtotal إجمالي قبل الخصم، والإجمالي هو مجموع line_total (الصافي).
             // line_total محسوب في resolveItems كـ round(unit*qty - discount).
@@ -305,80 +310,84 @@ class PosService
 
             // إنشاء الطلب بحالة delivered مباشرة (POS = تسليم فوري)
             $order = Order::create([
-                'order_number'        => $orderNumber,
-                'channel'             => 'pos',
-                'customer_id'         => $customer?->id,
+                'order_number' => $orderNumber,
+                'channel' => 'pos',
+                'customer_id' => $customer?->id,
                 'allocated_branch_id' => $shift->branch_id,
-                'pos_shift_id'        => $shift->id,
-                'status'              => OrderStatus::Delivered,
-                'payment_method'      => $payload['payment_method'] ?? 'mixed',
-                'payment_status'      => 'paid',
-                'subtotal'            => $subtotal,
-                'discount_amount'     => $discountTotal,
-                'shipping_cost'       => 0,
-                'tax_amount'          => 0,
-                'grand_total'         => $grandTotal,
-                'cash_amount'         => $cashAmount,
-                'card_amount'         => $cardAmount,
+                'pos_shift_id' => $shift->id,
+                'status' => OrderStatus::Delivered,
+                'payment_method' => $payload['payment_method'] ?? 'mixed',
+                'payment_status' => 'paid',
+                'subtotal' => $subtotal,
+                'discount_amount' => $discountTotal,
+                'shipping_cost' => 0,
+                'tax_amount' => 0,
+                'grand_total' => $grandTotal,
+                'cash_amount' => $cashAmount,
+                'card_amount' => $cardAmount,
             ]);
 
             // إنشاء عناصر الطلب وخصم المخزون فوراً
             foreach ($items as $item) {
                 OrderItem::create([
-                    'order_id'               => $order->id,
-                    'product_variant_id'     => $item['product_variant_id'],
-                    'product_name_snapshot'  => $item['product_name_snapshot'],
-                    'sku_snapshot'           => $item['sku_snapshot'],
-                    'allocated_branch_id'    => $shift->branch_id,
-                    'qty'                    => $item['qty'],
-                    'unit_price'             => $item['unit_price'],
-                    'discount_amount'        => $item['discount_amount'],
-                    'line_total'             => $item['line_total'],
+                    'order_id' => $order->id,
+                    'product_variant_id' => $item['product_variant_id'],
+                    'product_name_snapshot' => $item['product_name_snapshot'],
+                    'sku_snapshot' => $item['sku_snapshot'],
+                    'allocated_branch_id' => $shift->branch_id,
+                    'qty' => $item['qty'],
+                    'unit_price' => $item['unit_price'],
+                    'discount_amount' => $item['discount_amount'],
+                    'line_total' => $item['line_total'],
                 ]);
 
                 $remaining = (int) round((float) $item['qty'] * 10000);
                 foreach ($levels->where('product_variant_id', $item['product_variant_id']) as $level) {
                     $take = min($remaining, (int) round($level->available * 10000));
-                    if ($take <= 0) continue;
+                    if ($take <= 0) {
+                        continue;
+                    }
                     $this->inventory->recordMovement([
-                    'product_variant_id' => $item['product_variant_id'],
-                    'branch_id'          => $shift->branch_id,
-                    'location_id' => $level->location_id,
-                    'type'               => StockMovementType::Sale,
-                    'affected_bucket'    => StockBucket::OnHand,
-                    'quantity' => -$take / 10000,
-                    'unit_cost' => $item['unit_cost'],
-                    'reference_type'     => Order::class,
-                    'reference_id'       => $order->id,
-                    'created_by'         => $shift->user_id,
-                    'notes'              => "بيع POS #{$orderNumber}",
+                        'product_variant_id' => $item['product_variant_id'],
+                        'branch_id' => $shift->branch_id,
+                        'location_id' => $level->location_id,
+                        'type' => StockMovementType::Sale,
+                        'affected_bucket' => StockBucket::OnHand,
+                        'quantity' => -$take / 10000,
+                        'unit_cost' => $item['unit_cost'],
+                        'reference_type' => Order::class,
+                        'reference_id' => $order->id,
+                        'created_by' => $shift->user_id,
+                        'notes' => "بيع POS #{$orderNumber}",
                     ], $level);
                     $remaining -= $take;
                 }
-                if ($remaining > 0) throw new BusinessException('الرصيد المتاح تغير؛ أعد مراجعة الكميات.');
+                if ($remaining > 0) {
+                    throw new BusinessException('الرصيد المتاح تغير؛ أعد مراجعة الكميات.');
+                }
             }
 
             // تسجيل تاريخ الحالة
             OrderStatusHistory::create([
-                'order_id'        => $order->id,
-                'from_status'     => null,
-                'to_status'       => OrderStatus::Delivered,
+                'order_id' => $order->id,
+                'from_status' => null,
+                'to_status' => OrderStatus::Delivered,
                 'changed_by_type' => User::class,
-                'changed_by_id'   => $shift->user_id,
-                'notes'           => 'بيع POS مباشر',
+                'changed_by_id' => $shift->user_id,
+                'notes' => 'بيع POS مباشر',
             ]);
 
             // تسجيل المقبوضة النقدية في الخزينة
             if ($cashAmount > 0) {
                 $this->treasury->record([
-                    'treasury_id'    => $shift->treasury_id,
-                    'shift_id'       => $shift->id,
-                    'type'           => TreasuryTransactionType::PosSale,
-                    'amount'         => $cashAmount,
+                    'treasury_id' => $shift->treasury_id,
+                    'shift_id' => $shift->id,
+                    'type' => TreasuryTransactionType::PosSale,
+                    'amount' => $cashAmount,
                     'reference_type' => Order::class,
-                    'reference_id'   => $order->id,
-                    'created_by'     => $shift->user_id,
-                    'notes'          => "مبيعات نقدية POS #{$orderNumber}",
+                    'reference_id' => $order->id,
+                    'created_by' => $shift->user_id,
+                    'notes' => "مبيعات نقدية POS #{$orderNumber}",
                 ]);
             }
 
@@ -391,7 +400,7 @@ class PosService
      * يُعيد البضاعة إلى on_hand ويرد النقدية من الدرج إن كانت مدفوعة نقداً.
      *
      * @param  array<array{product_variant_id: int, qty: int, return_to?: string}>  $returnedItems
-     * @param  array<array{product_variant_id: int, qty: int}>  $exchangeItems (للاستبدال)
+     * @param  array<array{product_variant_id: int, qty: int}>  $exchangeItems  (للاستبدال)
      */
     public function processReturn(
         PosShift $shift,
@@ -434,7 +443,7 @@ class PosService
                 throw new BusinessException('الاستبدال يتم كعملية بيع مستقلة بعد المرتجع، وليس ضمن نفس الطلب.');
             }
 
-            $returnValue   = 0.0;
+            $returnValue = 0.0;
             $returnOrderId = null;
 
             // ===== معالجة الأصناف المرتجعة =====
@@ -458,6 +467,22 @@ class PosService
                     $grouped[$vid]['qty'] += $qty;
                 }
 
+                $previousQuantities = StockMovement::query()
+                    ->whereIn('reference_type', array_unique([$originalOrder->getMorphClass(), Order::class]))
+                    ->where('reference_id', $originalOrder->id)->where('type', StockMovementType::SaleReturn)
+                    ->selectRaw('product_variant_id, SUM(quantity) AS qty')->groupBy('product_variant_id')->pluck('qty', 'product_variant_id');
+                $previousRefunds = DB::table('order_items as ri')->join('orders as ro', 'ro.id', '=', 'ri.order_id')
+                    ->where('ro.return_of_order_id', $originalOrder->id)
+                    ->selectRaw('ri.product_variant_id, SUM(ri.qty) AS qty, SUM(ri.line_total) AS amount')
+                    ->groupBy('ri.product_variant_id')->get()->keyBy('product_variant_id');
+                foreach ($previousQuantities as $variantId => $quantity) {
+                    if ((float) $quantity > (float) ($previousRefunds->get($variantId)?->qty ?? 0) + 0.00001) {
+                        // Legacy unlinked refunds have no reliable cash/card attribution.
+                        // Never guess their payment split or pay the same quantity twice.
+                        throw new BusinessException('للفاتورة مرتجعات تاريخية غير مرتبطة؛ راجع ربط مستندات الرد بالأصل قبل رد مبلغ جديد.', [], 409);
+                    }
+                }
+
                 $lines = [];
                 foreach ($grouped as $variantId => $g) {
                     // C2: كل سطور الطلب الأصلي لنفس المتغير (وليس firstWhere فقط).
@@ -471,12 +496,7 @@ class PosService
                     $netUnit = $soldQty > 0 ? $soldNet / $soldQty : 0.0;
 
                     // C2: الكميات المرتجعة سابقًا من دفتر الحركات (مصدر الحقيقة قبل مايجريشن returned_qty).
-                    $alreadyReturned = (float) StockMovement::query()
-                        ->whereIn('reference_type', array_unique([$originalOrder->getMorphClass(), Order::class]))
-                        ->where('reference_id', $originalOrder->id)
-                        ->where('type', StockMovementType::SaleReturn)
-                        ->where('product_variant_id', $variantId)
-                        ->sum('quantity');
+                    $alreadyReturned = (float) $previousQuantities->get($variantId, 0);
 
                     $remaining = $soldQty - $alreadyReturned;
                     if ($g['qty'] > $remaining + 1e-9) {
@@ -484,9 +504,7 @@ class PosService
                     }
 
                     // C2: الرد بالسعر الصافي (line_total/qty) لا بسعر الوحدة قبل الخصم.
-                    $previousRefund = OrderItem::query()->where('product_variant_id', $variantId)
-                        ->whereHas('order', fn ($q) => $q->withTrashed()->where('return_of_order_id', $originalOrder->id))
-                        ->sum('line_total');
+                    $previousRefund = $previousRefunds->get($variantId)?->amount ?? 0;
                     $targetCents = (int) round(($alreadyReturned + $g['qty']) * $this->minor($soldNet) / $soldQty);
                     $lineRefund = max(0, min($this->minor($soldNet), $targetCents) - $this->minor($previousRefund)) / 100;
                     $returnValue = round($returnValue + $lineRefund, 2);
@@ -508,9 +526,9 @@ class PosService
 
                 // C2: سقف الرد النقدي = النقد المدفوع في الأصل ناقص ما رُد سابقًا.
                 $previousCashRefunded = 0.0;
-                    $previousCashRefunded = (float) Order::withTrashed()
-                        ->where('return_of_order_id', $originalOrder->id)
-                        ->sum('cash_amount');
+                $previousCashRefunded = (float) Order::withTrashed()
+                    ->where('return_of_order_id', $originalOrder->id)
+                    ->sum('cash_amount');
                 $maxCashRefund = round((float) $originalOrder->cash_amount - $previousCashRefunded, 2);
                 $cashRefund = min($returnValue, max(0.0, $maxCashRefund));
 
@@ -522,15 +540,15 @@ class PosService
                 foreach ($lines as $variantId => $line) {
                     $base = [
                         'product_variant_id' => $variantId,
-                        'branch_id'          => $shift->branch_id,
+                        'branch_id' => $shift->branch_id,
                         'location_id' => $locationId,
-                        'type'               => StockMovementType::SaleReturn,
-                        'affected_bucket'    => StockBucket::OnHand,
-                        'quantity'           => $line['qty'],
-                        'reference_type'     => Order::class,
-                        'reference_id'       => $originalOrder->id,
-                        'created_by'         => $shift->user_id,
-                        'notes'              => "مرتجع POS من #{$originalOrder->order_number}",
+                        'type' => StockMovementType::SaleReturn,
+                        'affected_bucket' => StockBucket::OnHand,
+                        'quantity' => $line['qty'],
+                        'reference_type' => Order::class,
+                        'reference_id' => $originalOrder->id,
+                        'created_by' => $shift->user_id,
+                        'notes' => "مرتجع POS من #{$originalOrder->order_number}",
                     ];
                     $level = $levels->get($this->inventory->levelKey($base));
                     $saleCost = StockMovement::query()->whereIn('reference_type', array_unique([$originalOrder->getMorphClass(), Order::class]))
@@ -543,22 +561,22 @@ class PosService
 
                 // إنشاء طلب مرتجع مرتبط بالأصل
                 $returnOrderNumber = $this->settings->generateNextNumber('order');
-                $returnAttrs       = [
-                    'order_number'        => $returnOrderNumber,
-                    'channel'             => 'pos',
-                    'customer_id'         => $originalOrder->customer_id,
+                $returnAttrs = [
+                    'order_number' => $returnOrderNumber,
+                    'channel' => 'pos',
+                    'customer_id' => $originalOrder->customer_id,
                     'allocated_branch_id' => $shift->branch_id,
-                    'pos_shift_id'        => $shift->id,
-                    'status'              => OrderStatus::Returned,
-                    'payment_method'      => $originalOrder->payment_method,
-                    'payment_status'      => 'refunded',
-                    'subtotal'            => $returnValue,
-                    'discount_amount'     => 0,
-                    'shipping_cost'       => 0,
-                    'tax_amount'          => 0,
-                    'grand_total'         => $returnValue,
-                    'cash_amount'         => $cashRefund,
-                    'card_amount'         => round($returnValue - $cashRefund, 2),
+                    'pos_shift_id' => $shift->id,
+                    'status' => OrderStatus::Returned,
+                    'payment_method' => $originalOrder->payment_method,
+                    'payment_status' => 'refunded',
+                    'subtotal' => $returnValue,
+                    'discount_amount' => 0,
+                    'shipping_cost' => 0,
+                    'tax_amount' => 0,
+                    'grand_total' => $returnValue,
+                    'cash_amount' => $cashRefund,
+                    'card_amount' => round($returnValue - $cashRefund, 2),
                 ];
                 $returnAttrs['return_of_order_id'] = $originalOrder->id;
                 $returnAttrs['requires_refund'] = $returnAttrs['card_amount'] > 0;
@@ -567,15 +585,15 @@ class PosService
 
                 foreach ($lines as $variantId => $line) {
                     OrderItem::create([
-                        'order_id'              => $returnOrder->id,
-                        'product_variant_id'    => $variantId,
+                        'order_id' => $returnOrder->id,
+                        'product_variant_id' => $variantId,
                         'product_name_snapshot' => $line['product_name_snapshot'],
-                        'sku_snapshot'          => $line['sku_snapshot'],
-                        'allocated_branch_id'   => $shift->branch_id,
-                        'qty'                   => $line['qty'],
-                        'unit_price'            => round($line['net_unit'], 2),
-                        'discount_amount'       => 0,
-                        'line_total'            => $line['line_refund'],
+                        'sku_snapshot' => $line['sku_snapshot'],
+                        'allocated_branch_id' => $shift->branch_id,
+                        'qty' => $line['qty'],
+                        'unit_price' => round($line['net_unit'], 2),
+                        'discount_amount' => 0,
+                        'line_total' => $line['line_refund'],
                     ]);
                 }
 
@@ -593,25 +611,25 @@ class PosService
                 }
 
                 OrderStatusHistory::create([
-                    'order_id'        => $returnOrder->id,
-                    'from_status'     => null,
-                    'to_status'       => OrderStatus::Returned,
+                    'order_id' => $returnOrder->id,
+                    'from_status' => null,
+                    'to_status' => OrderStatus::Returned,
                     'changed_by_type' => User::class,
-                    'changed_by_id'   => $shift->user_id,
-                    'notes'           => "مرتجع من #{$originalOrder->order_number}",
+                    'changed_by_id' => $shift->user_id,
+                    'notes' => "مرتجع من #{$originalOrder->order_number}",
                 ]);
 
                 // رد النقدية للعميل من الدرج (مكبوتة بسقف النقد المدفوع)
                 if ($cashRefund > 0) {
                     $this->treasury->record([
-                        'treasury_id'    => $shift->treasury_id,
-                        'shift_id'       => $shift->id,
-                        'type'           => TreasuryTransactionType::PosReturn,
-                        'amount'         => -$cashRefund,
+                        'treasury_id' => $shift->treasury_id,
+                        'shift_id' => $shift->id,
+                        'type' => TreasuryTransactionType::PosReturn,
+                        'amount' => -$cashRefund,
                         'reference_type' => Order::class,
-                        'reference_id'   => $returnOrder->id,
-                        'created_by'     => $shift->user_id,
-                        'notes'          => "رد مرتجع #{$returnOrderNumber}",
+                        'reference_id' => $returnOrder->id,
+                        'created_by' => $shift->user_id,
+                        'notes' => "رد مرتجع #{$returnOrderNumber}",
                     ]);
                 }
 
@@ -619,9 +637,9 @@ class PosService
             }
 
             return [
-                'return_order_id'   => $returnOrderId,
+                'return_order_id' => $returnOrderId,
                 'exchange_order_id' => null,
-                'refund_amount'     => $returnValue,
+                'refund_amount' => $returnValue,
             ];
         });
     }
@@ -634,12 +652,12 @@ class PosService
     {
         return PosHeldSale::create([
             'hold_reference' => 'HOLD-'.strtoupper(Str::random(8)),
-            'branch_id'      => $shift->branch_id,
-            'user_id'        => $shift->user_id,
-            'customer_id'    => $payload['customer_id'] ?? null,
-            'items_payload'  => $payload['items'],
-            'notes'          => $payload['notes'] ?? null,
-            'created_at'     => now(),
+            'branch_id' => $shift->branch_id,
+            'user_id' => $shift->user_id,
+            'customer_id' => $payload['customer_id'] ?? null,
+            'items_payload' => $payload['items'],
+            'notes' => $payload['notes'] ?? null,
+            'created_at' => now(),
         ]);
     }
 
@@ -682,16 +700,16 @@ class PosService
             }
 
             $result[] = [
-                'id'                => $variant->id,
-                'sku'               => $variant->sku,
-                'barcode'           => $variant->barcode,
-                'product_name'      => $variant->product->name_ar ?? $variant->product->name_en,
-                'variant_name'      => $variant->color_name_ar ?? $variant->color_name_en,
+                'id' => $variant->id,
+                'sku' => $variant->sku,
+                'barcode' => $variant->barcode,
+                'product_name' => $variant->product->name_ar ?? $variant->product->name_en,
+                'variant_name' => $variant->color_name_ar ?? $variant->color_name_en,
                 'on_hand' => (float) $stock->sum('on_hand'),
                 'available' => (float) $stock->sum('available'),
-                'unit_price'        => $priceData['unit_price'],
-                'price_source'      => $priceData['source'],
-                'price_list_id'     => $priceData['price_list_id'],
+                'unit_price' => $priceData['unit_price'],
+                'price_source' => $priceData['source'],
+                'price_list_id' => $priceData['price_list_id'],
             ];
         }
 
@@ -753,7 +771,7 @@ class PosService
                 throw new BusinessException("سعر الصنف [{$variant->sku}] لا يمكن أن يكون سالبًا.");
             }
 
-            $discount  = (float) ($item['discount_amount'] ?? 0);
+            $discount = (float) ($item['discount_amount'] ?? 0);
             $maxDiscount = (float) config('inventory.pos_max_discount_percent', 100);
             if ($discount > round($unitPrice * (float) $item['qty'] * $maxDiscount / 100, 2)) {
                 throw new BusinessException('الخصم يتجاوز النسبة القصوى المسموحة.');
@@ -768,13 +786,13 @@ class PosService
             }
 
             return [
-                'product_variant_id'    => $variant->id,
+                'product_variant_id' => $variant->id,
                 'product_name_snapshot' => $variant->product->name_ar ?? $variant->product->name_en ?? 'POS Item',
-                'sku_snapshot'          => $variant->sku,
-                'qty'                   => $item['qty'],
-                'unit_price'            => $unitPrice,
-                'discount_amount'       => $discount,
-                'line_total'            => $lineTotal,
+                'sku_snapshot' => $variant->sku,
+                'qty' => $item['qty'],
+                'unit_price' => $unitPrice,
+                'discount_amount' => $discount,
+                'line_total' => $lineTotal,
                 'unit_cost' => $variant->cost_price,
             ];
         });
@@ -795,27 +813,27 @@ class PosService
 
             $expense = Expense::create([
                 'expense_number' => $expenseNumber,
-                'branch_id'      => $shift->branch_id,
-                'treasury_id'    => $shift->treasury_id,
-                'shift_id'       => $shift->id,
-                'category'       => $data['category'],
-                'amount'         => $data['amount'],
-                'expense_date'   => $data['expense_date'] ?? today(),
-                'attachment_path'=> $data['attachment_path'] ?? null,
-                'notes'          => $data['notes'] ?? null,
-                'created_by'     => $userId,
+                'branch_id' => $shift->branch_id,
+                'treasury_id' => $shift->treasury_id,
+                'shift_id' => $shift->id,
+                'category' => $data['category'],
+                'amount' => $data['amount'],
+                'expense_date' => $data['expense_date'] ?? today(),
+                'attachment_path' => $data['attachment_path'] ?? null,
+                'notes' => $data['notes'] ?? null,
+                'created_by' => $userId,
             ]);
 
             // خصم من الخزينة
             $this->treasury->record([
-                'treasury_id'    => $shift->treasury_id,
-                'shift_id'       => $shift->id,
-                'type'           => TreasuryTransactionType::Expense,
-                'amount'         => -(float) $data['amount'],
+                'treasury_id' => $shift->treasury_id,
+                'shift_id' => $shift->id,
+                'type' => TreasuryTransactionType::Expense,
+                'amount' => -(float) $data['amount'],
                 'reference_type' => Expense::class,
-                'reference_id'   => $expense->id,
-                'created_by'     => $userId,
-                'notes'          => "مصروف: {$data['category']} #{$expenseNumber}",
+                'reference_id' => $expense->id,
+                'created_by' => $userId,
+                'notes' => "مصروف: {$data['category']} #{$expenseNumber}",
             ]);
 
             return $expense;
@@ -825,7 +843,9 @@ class PosService
     private function lockOpenShift(PosShift $shift): PosShift
     {
         $shift = PosShift::query()->lockForUpdate()->findOrFail($shift->id);
-        if ($shift->status !== PosShiftStatus::Open) throw new BusinessException('الوردية غير مفتوحة.');
+        if ($shift->status !== PosShiftStatus::Open) {
+            throw new BusinessException('الوردية غير مفتوحة.');
+        }
 
         return $shift;
     }

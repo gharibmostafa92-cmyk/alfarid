@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Api\V1\Admin;
 
+use App\Models\User;
 use App\Rules\EmailNotUsedByOtherAccountType;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Password;
 
 class UpdateUserRequest extends FormRequest
 {
@@ -19,8 +21,15 @@ class UpdateUserRequest extends FormRequest
         }
     }
 
+    public function messages(): array
+    {
+        return ['email.unique' => 'هذا البريد مستخدم بحساب آخر في النظام.'];
+    }
+
     public function authorize(): bool
     {
+        abort_if($this->route('user') instanceof User && $this->route('user')->is_system, 404);
+
         return $this->user() !== null;
     }
 
@@ -30,6 +39,7 @@ class UpdateUserRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'expected_version' => ['required', 'integer', 'min:0'],
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'email' => [
                 'sometimes',
@@ -40,7 +50,8 @@ class UpdateUserRequest extends FormRequest
                 new EmailNotUsedByOtherAccountType('users'),
             ],
             'phone' => ['sometimes', 'nullable', 'string', 'max:30'],
-            'password' => ['sometimes', 'nullable', 'string', 'min:8', 'max:255'],
+            'current_password' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'password' => ['sometimes', 'nullable', 'string', Password::min(12)->letters()->numbers(), 'max:255'],
             'branch_id' => ['sometimes', 'nullable', 'integer', Rule::exists('branches', 'id')],
             'is_active' => ['sometimes', 'boolean'],
             'roles' => ['sometimes', 'array'],

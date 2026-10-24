@@ -18,7 +18,7 @@ CREATE TABLE inventory_reconcile_work (
     revision bigint NOT NULL DEFAULT 1
 );
 CREATE INDEX inventory_reconcile_work_branch_index ON inventory_reconcile_work (branch_id, key);
-CREATE FUNCTION mark_inventory_reconciliation_work() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION mark_inventory_reconciliation_work() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE row_data record;
 BEGIN
     IF TG_OP IN ('UPDATE', 'DELETE') THEN
