@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Media;
 
+use App\Models\Product;
 use Spatie\MediaLibrary\MediaCollections\Filesystem;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Spatie\MediaLibrary\MediaCollections\Models\Observers\MediaObserver;
@@ -12,10 +13,15 @@ class TransactionalMediaObserver extends MediaObserver
 {
     public function creating(Media $media): void
     {
+        $localDemo = app()->environment(['local', 'testing'])
+            && $media->getCustomProperty('storefront_demo') === true
+            && $media->model instanceof Product
+            && $media->disk === 'public'
+            && in_array($media->conversions_disk, ['', 'public'], true);
         // H5: catalog collections (Product/Variant/Category/Brand) use the public
         // bucket; everything else stays on the private bucket.
-        if (! in_array($media->disk, ['r2', 'r2_public'], true)
-            || ($media->conversions_disk && ! in_array($media->conversions_disk, ['r2', 'r2_public'], true))) {
+        if (! $localDemo && (! in_array($media->disk, ['r2', 'r2_public'], true)
+            || ($media->conversions_disk && ! in_array($media->conversions_disk, ['r2', 'r2_public'], true)))) {
             throw new \LogicException('Uploaded media must be stored on R2.');
         }
         $media->conversions_disk = $media->conversions_disk ?: $media->disk;

@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Store;
 
+use App\Enums\BannerLinkType;
+use App\Support\BannerImage;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Support\Facades\Storage;
 
 class StoreBannerResource extends JsonResource
 {
@@ -18,12 +19,18 @@ class StoreBannerResource extends JsonResource
         return [
             'id' => $this->id,
             'title' => $this->title,
-            'image' => Storage::disk('r2')->temporaryUrl($this->image_path, now()->addSeconds(
-                max(60, min(604800, (int) config('filesystems.disks.r2.download_url_ttl_seconds', 3600)))
-            )),
+            'image' => BannerImage::url($this->image_path),
+            'position' => $this->position,
             'link_type' => $this->link_type,
             'link_value' => $this->link_value,
-            'position' => $this->position,
+            'href' => $this->resolved_href ?? $this->getAttribute('resolved_href'),
+            'is_external' => $this->link_type === BannerLinkType::External,
+            'kicker' => $this->kicker ?? null,
+            'headline' => $this->headline ?? null,
+            'headline_bold' => $this->headline_bold ?? null,
+            'description' => $this->description ?? null,
+            'cta_label' => $this->cta_label ?? null,
+            'bg_color' => $this->bg_color ?? null,
         ];
     }
 }

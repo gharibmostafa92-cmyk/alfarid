@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\Admin\AuthController;
+use App\Http\Controllers\Api\V1\Admin\BannerController;
 use App\Http\Controllers\Api\V1\Admin\BranchController;
 use App\Http\Controllers\Api\V1\Admin\BrandController;
 use App\Http\Controllers\Api\V1\Admin\CategoryController;
@@ -72,6 +73,7 @@ Route::pattern('role', '[0-9]{1,18}');
 Route::pattern('branch', '[0-9]{1,18}');
 Route::pattern('location', '[0-9]{1,18}');
 Route::pattern('user', '[0-9]{1,18}');
+Route::pattern('banner', '[0-9]{1,18}');
 Route::pattern('purchase_request', '[0-9]{1,18}');
 Route::pattern('purchase_order', '[0-9]{1,18}');
 Route::pattern('supplier_invoice', '[0-9]{1,18}');
@@ -295,6 +297,18 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
         Route::apiResource('supplier-payments', SupplierPaymentController::class)
             ->parameters(['supplier-payments' => 'supplier_payment']);
         Route::post('supplier-payments/{supplier_payment}/allocate', [SupplierPaymentController::class, 'allocate'])->name('supplier-payments.allocate');
+
+        Route::middleware('permission:store.manage|settings.view')->group(function (): void {
+            Route::get('banners', [BannerController::class, 'index'])->name('banners.index');
+            Route::get('banners/{banner}', [BannerController::class, 'show'])->name('banners.show');
+        });
+        Route::middleware('permission:store.manage')->group(function (): void {
+            Route::put('banners/reorder', [BannerController::class, 'reorder'])->name('banners.reorder');
+            Route::post('banners', [BannerController::class, 'store'])->middleware('throttle:30,1')->name('banners.store');
+            Route::post('banners/{banner}', [BannerController::class, 'update'])->middleware('throttle:30,1')->name('banners.update');
+            Route::patch('banners/{banner}/toggle', [BannerController::class, 'toggle'])->name('banners.toggle');
+            Route::delete('banners/{banner}', [BannerController::class, 'destroy'])->name('banners.destroy');
+        });
 
         Route::get('settings', [SettingController::class, 'index'])
             ->middleware('permission:settings.view|settings.manage')

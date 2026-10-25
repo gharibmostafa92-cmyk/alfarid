@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\Store\StoreBannerResource;
 use App\Http\Resources\Store\StoreProductCardResource;
 use App\Models\Banner;
+use App\Services\BannerLinkResolver;
 use App\Services\StoreCatalogService;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
@@ -39,12 +40,18 @@ class HomeController extends Controller
         $cards = collect($cards)->keyBy('id');
         $section = fn (array $sectionIds) => collect($sectionIds)->map(fn ($id) => $cards->get($id))->filter()->values();
 
+        $banners = $this->inOrder(Banner::query()
+            ->where('is_active', true)
+            ->where(fn ($q) => $q->whereNull('starts_at')->orWhere('starts_at', '<=', now()))
+            ->where(fn ($q) => $q->whereNull('ends_at')->orWhere('ends_at', '>=', now())), $ids['banner_ids']);
+        $banners = app(BannerLinkResolver::class)->attach($banners);
+        $bannersPayload = collect(StoreBannerResource::collection($banners)->resolve($request))
+            ->filter(fn (array $b) => $b['image'] !== null)
+            ->values();
+
         return response()->json([
             'data' => [
-                'banners' => StoreBannerResource::collection($this->inOrder(Banner::query()
-                    ->where('is_active', true)
-                    ->where(fn ($q) => $q->whereNull('starts_at')->orWhere('starts_at', '<=', now()))
-                    ->where(fn ($q) => $q->whereNull('ends_at')->orWhere('ends_at', '>=', now())), $ids['banner_ids']))->resolve($request),
+                'banners' => $bannersPayload,
                 'latest_products' => $section($ids['latest_ids']),
                 'best_sellers' => $section($ids['best_seller_ids']),
                 'discounted_products' => $section($ids['discounted_ids'])->filter(fn ($card) => $card['price'] !== null && $card['discount_percentage'] !== null)->values(),

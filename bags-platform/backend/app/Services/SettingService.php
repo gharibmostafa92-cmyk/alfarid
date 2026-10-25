@@ -173,6 +173,20 @@ class SettingService
         return $default;
     }
 
+    /** @return array{name: string, logo: ?string, email: ?string, phone: ?string, address: ?string} */
+    public function publicBranding(): array
+    {
+        $company = $this->staticSettings()['company'] ?? [];
+
+        return [
+            'name' => trim((string) ($company['company_name'] ?? '')) ?: 'Alfarid',
+            'logo' => $company['company_logo'] ?? null,
+            'email' => $company['company_email'] ?? null,
+            'phone' => $company['company_phone'] ?? null,
+            'address' => $company['company_address'] ?? null,
+        ];
+    }
+
     /**
      * Update a flat key/value map atomically and invalidate the cached settings after commit.
      *

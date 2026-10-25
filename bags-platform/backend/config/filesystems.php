@@ -15,6 +15,8 @@ return [
 
     'default' => env('FILESYSTEM_DISK', 'r2'),
 
+    'banners_disk' => env('BANNERS_DISK', 'r2'),
+
     /*
     |--------------------------------------------------------------------------
     | Filesystem Disks

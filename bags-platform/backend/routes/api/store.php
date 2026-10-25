@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Http\Controllers\Api\V1\AttachmentController;
 use App\Http\Controllers\Api\V1\Shared\NotificationController;
 use App\Http\Controllers\Api\V1\Store\AuthController;
+use App\Http\Controllers\Api\V1\Store\BrandingController;
 use App\Http\Controllers\Api\V1\Store\CartController;
 use App\Http\Controllers\Api\V1\Store\CatalogController;
 use App\Http\Controllers\Api\V1\Store\CheckoutController;
@@ -38,6 +39,7 @@ Route::prefix('auth')->name('auth.')->group(function (): void {
 
 // مسارات تصفح المتجر (متاحة للزوار والعملاء المسجلين)
 Route::middleware(['throttle:store-catalog', ProtectStorefrontCaching::class])->group(function (): void {
+    Route::get('branding', [BrandingController::class, 'show'])->name('branding');
     Route::get('home', [HomeController::class, 'index'])->name('home');
     Route::get('categories', [CatalogController::class, 'categories'])->name('categories');
     Route::get('brands', [CatalogController::class, 'brands'])->name('brands');
