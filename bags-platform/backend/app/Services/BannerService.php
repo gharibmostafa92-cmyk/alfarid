@@ -6,8 +6,8 @@ namespace App\Services;
 
 use App\Models\Banner;
 use App\Support\BannerImage;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -20,40 +20,51 @@ final class BannerService
         try {
             return DB::transaction(fn () => Banner::create([...$this->normalize($data), 'image_path' => $path]));
         } catch (\Throwable $e) {
-            Storage::disk(BannerImage::disk())->delete($path);
+            $this->deleteIfUnreferenced($path);
             throw $e;
         }
     }
 
     public function update(Banner $banner, array $data, ?UploadedFile $image): Banner
     {
-        $old = null;
-        if ($image) {
-            $data['image_path'] = $this->storeImage($image);
-            $old = $banner->image_path;
-        }
+        $newPath = $image ? $this->storeImage($image) : null;
         try {
-            DB::transaction(fn () => $banner->update($this->normalize($data)));
+            return DB::transaction(function () use ($banner, $data, $newPath): Banner {
+                $current = Banner::query()->lockForUpdate()->findOrFail($banner->id);
+                $oldPath = $current->image_path;
+                $current->update($this->normalize($newPath ? [...$data, 'image_path' => $newPath] : $data));
+                if ($newPath && $oldPath !== $newPath) {
+                    DB::afterCommit(fn () => $this->deleteIfUnreferenced($oldPath));
+                }
+
+                return $current->refresh();
+            });
         } catch (\Throwable $e) {
-            if ($image) {
-                Storage::disk(BannerImage::disk())->delete($data['image_path']);
+            if ($newPath) {
+                $this->deleteIfUnreferenced($newPath);
             }
             throw $e;
         }
-        if ($old) {
-            Storage::disk(BannerImage::disk())->delete($old);
-        }
-
-        return $banner->refresh();
     }
 
     public function delete(Banner $banner): void
     {
-        $path = $banner->image_path;
-        $banner->delete();
-        if ($path) {
-            Storage::disk(BannerImage::disk())->delete($path);
-        }
+        DB::transaction(function () use ($banner): void {
+            $current = Banner::query()->lockForUpdate()->findOrFail($banner->id);
+            $path = $current->image_path;
+            $current->delete();
+            DB::afterCommit(fn () => $this->deleteIfUnreferenced($path));
+        });
+    }
+
+    public function setActive(Banner $banner, ?bool $active): Banner
+    {
+        return DB::transaction(function () use ($banner, $active): Banner {
+            $current = Banner::query()->lockForUpdate()->findOrFail($banner->id);
+            $current->update(['is_active' => $active ?? ! $current->is_active]);
+
+            return $current;
+        });
     }
 
     /** @param list<int> $ids */
@@ -64,26 +75,40 @@ final class BannerService
                 Banner::where('id', $id)->where('position', $position)->update(['sort_order' => $i + 1]);
             }
         });
-        Cache::forget('store_home_data');
-        Cache::forget('illuminate:cache:flexible:created:store_home_data');
     }
 
-    private function normalize(array $d): array
+    private function deleteIfUnreferenced(?string $path): void
     {
-        unset($d['image']);
-        if (in_array($d['link_type'] ?? 'none', ['none'], true)) {
-            $d['link_value'] = null;
+        if ($path && ! Banner::query()->where('image_path', $path)->exists()) {
+            try {
+                Storage::disk(BannerImage::disk())->delete($path);
+            } catch (\Throwable $error) {
+                report($error);
+            }
         }
-        if (isset($d['link_value'])) {
-            $d['link_value'] = trim((string) $d['link_value']);
+    }
+
+    private function normalize(array $data): array
+    {
+        unset($data['image']);
+        if (($data['link_type'] ?? 'none') === 'none') {
+            $data['link_value'] = null;
         }
-        foreach (['kicker', 'headline', 'headline_bold', 'description', 'cta_label', 'bg_color', 'starts_at', 'ends_at'] as $k) {
-            if (array_key_exists($k, $d) && $d[$k] === '') {
-                $d[$k] = null;
+        if (isset($data['link_value'])) {
+            $data['link_value'] = trim((string) $data['link_value']);
+        }
+        foreach (['kicker', 'headline', 'headline_bold', 'description', 'cta_label', 'bg_color', 'starts_at', 'ends_at'] as $key) {
+            if (array_key_exists($key, $data) && $data[$key] === '') {
+                $data[$key] = null;
+            }
+        }
+        foreach (['starts_at', 'ends_at'] as $key) {
+            if (! empty($data[$key])) {
+                $data[$key] = CarbonImmutable::parse($data[$key])->setTimezone(config('app.timezone'))->format('Y-m-d H:i:s');
             }
         }
 
-        return $d;
+        return $data;
     }
 
     private function storeImage(UploadedFile $file): string

@@ -41,6 +41,7 @@ class StoreProductCardResource extends JsonResource
                 'id' => $this->category->id, 'name_ar' => $this->category->name_ar, 'name_en' => $this->category->name_en, 'slug' => $this->category->slug,
             ] : null),
             'price' => $display['price'] ?? null,
+            'default_variant_id' => $display['variant_id'] ?? null,
             'old_price' => $display !== null && $display['compare_at'] !== null && $display['compare_at'] > $display['price']
                 ? $display['compare_at'] : null,
             'discount_percentage' => $display['discount_percentage'] ?? null,

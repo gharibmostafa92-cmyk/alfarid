@@ -12,6 +12,8 @@ use App\Models\Cart;
 use App\Models\CartItem;
 use App\Models\Customer;
 use App\Models\ProductVariant;
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -97,7 +99,7 @@ class CartService
                 return;
             }
 
-            $account = $this->accountCart($customer);
+            $account = Cart::query()->lockForUpdate()->findOrFail($this->accountCart($customer)->id);
             // الدمج يحترم سقوف السلة (M2): بغير ذلك بضع سلال زائر بحد البنود
             // تُنتج سلة حساب بمئات البنود فتُلغي حماية F15
             $maxLines = (int) config('store.max_cart_lines', 50);
@@ -156,6 +158,9 @@ class CartService
         return DB::transaction(function () use ($cart, $customer, $variantId, $qty): Cart {
             // قفل صف السلة (F19): إضافتان متزامنتان تتسلسلان فلا تُحسب
             // الكمية على قراءة قديمة ولا يُتجاوز سقف البنود
+            if (! $cart->exists) {
+                $cart = $customer !== null ? $this->accountCart($customer) : Cart::create([]);
+            }
             $cart = Cart::query()->lockForUpdate()->findOrFail($cart->id);
 
             $variant = $this->purchasableVariant($variantId);
@@ -194,13 +199,13 @@ class CartService
         });
     }
 
-    public function updateItemQty(Cart $cart, ?Customer $customer, int $variantId, float $qty): Cart
+    public function updateItemQty(Cart $cart, ?Customer $customer, int $variantId, float $qty, ?int $itemId = null): Cart
     {
         if ($qty <= 0) {
             return $this->removeItem($cart, $variantId);
         }
 
-        return DB::transaction(function () use ($cart, $customer, $variantId, $qty): Cart {
+        return DB::transaction(function () use ($cart, $customer, $variantId, $qty, $itemId): Cart {
             // قفل صف السلة (F19) بنفس منطق addItem
             $cart = Cart::query()->lockForUpdate()->findOrFail($cart->id);
             $variant = $this->purchasableVariant($variantId);
@@ -208,19 +213,9 @@ class CartService
             $this->assertAvailable($variantId, $qty);
             $this->assertPriced($variant, $customer, $qty);
 
-            // UPSERT ذرّي بنفس منطق addItem — updateOrCreate كان يصطدم
-            // بقيد التفرد تحت التزامن (F-09)، وهنا القيمة مطلقة لا تراكمية
-            CartItem::query()->upsert(
-                [[
-                    'cart_id' => $cart->id,
-                    'product_variant_id' => $variantId,
-                    'qty' => $qty,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]],
-                ['cart_id', 'product_variant_id'],
-                ['qty' => $qty, 'updated_at' => now()],
-            );
+            $item = $cart->items()->where('product_variant_id', $variantId)
+                ->when($itemId !== null, fn ($query) => $query->whereKey($itemId))->firstOrFail();
+            $item->update(['qty' => $qty]);
 
             return $cart->fresh('items');
         });
@@ -228,9 +223,22 @@ class CartService
 
     public function removeItem(Cart $cart, int $variantId): Cart
     {
-        $cart->items()->where('product_variant_id', $variantId)->delete();
+        return DB::transaction(function () use ($cart, $variantId): Cart {
+            $cart = Cart::query()->lockForUpdate()->findOrFail($cart->id);
+            $cart->items()->where('product_variant_id', $variantId)->delete();
 
-        return $cart->fresh('items');
+            return $cart->fresh('items');
+        });
+    }
+
+    public function clearItems(Cart $cart): Cart
+    {
+        return DB::transaction(function () use ($cart): Cart {
+            $cart = Cart::query()->lockForUpdate()->findOrFail($cart->id);
+            $cart->items()->delete();
+
+            return $cart->fresh('items');
+        });
     }
 
     /**
@@ -243,12 +251,16 @@ class CartService
     public function pricedLines(Cart $cart, ?Customer $customer): array
     {
         $cart->loadMissing('items.variant.product');
+        $context = $this->pricing->contextFor($customer, $cart->items->pluck('product_variant_id')->all());
         $lines = [];
         foreach ($cart->items as $item) {
             $variant = $item->variant;
+            if ($variant === null) {
+                continue;
+            }
             $qty = (float) $item->qty;
             try {
-                $resolved = $this->pricing->resolve($variant, $customer, $qty);
+                $resolved = $this->pricing->resolve($variant, $customer, $qty, ctx: $context);
                 $unit = (float) $resolved['unit_price'];
                 $base = (float) $resolved['base_price'];
                 $lines[] = [
@@ -257,8 +269,8 @@ class CartService
                     'qty' => $qty,
                     'unit_price' => $unit,
                     'base_price' => $base,
-                    'line_discount' => round(($base - $unit) * $qty, 2),
-                    'line_total' => round($unit * $qty, 2),
+                    'line_discount' => BigDecimal::of((string) $base)->minus((string) $unit)->multipliedBy((string) $qty)->toScale(2, RoundingMode::HalfUp)->toFloat(),
+                    'line_total' => BigDecimal::of((string) $unit)->multipliedBy((string) $qty)->toScale(2, RoundingMode::HalfUp)->toFloat(),
                 ];
             } catch (BusinessException) {
                 $lines[] = [
@@ -288,16 +300,18 @@ class CartService
     public function totals(Cart $cart, ?Customer $customer, ?array $lines = null): array
     {
         $lines ??= $this->pricedLines($cart, $customer);
-        $subtotal = 0.0;
-        $itemsTotal = 0.0;
+        $subtotalDecimal = BigDecimal::zero();
+        $itemsDecimal = BigDecimal::zero();
         foreach ($lines as $line) {
             if ($line['unit_price'] === null) {
                 continue;
             }
             // كل سطر يُقرَّب أولًا ثم تُجمع القيم المقرّبة (M17)
-            $subtotal += round((float) $line['base_price'] * $line['qty'], 2);
-            $itemsTotal += $line['line_total'];
+            $subtotalDecimal = $subtotalDecimal->plus(BigDecimal::of((string) $line['base_price'])->multipliedBy((string) $line['qty'])->toScale(2, RoundingMode::HalfUp));
+            $itemsDecimal = $itemsDecimal->plus((string) $line['line_total']);
         }
+        $subtotal = $subtotalDecimal->toFloat();
+        $itemsTotal = $itemsDecimal->toFloat();
 
         // الخصم السعري = الفرق بين الإجماليين المقرّبين، لا مجموع فروق
         // السطور المقرّبة (F-26) حتى لا يظهر فرق قرش بين العرض والمحصّل.
@@ -307,7 +321,7 @@ class CartService
             $subtotal = $itemsTotal;
             $pricingDiscount = 0.0;
         } else {
-            $pricingDiscount = round($subtotal - $itemsTotal, 2);
+            $pricingDiscount = $subtotalDecimal->minus($itemsDecimal)->toScale(2, RoundingMode::HalfUp)->toFloat();
         }
 
         $couponDiscount = 0.0;
@@ -327,7 +341,7 @@ class CartService
             'pricing_discount' => round($pricingDiscount, 2),
             'items_total' => round($itemsTotal, 2),
             'coupon_discount' => $couponDiscount,
-            'total' => round($itemsTotal - $couponDiscount, 2),
+            'total' => $itemsDecimal->minus((string) $couponDiscount)->toScale(2, RoundingMode::HalfUp)->toFloat(),
             'coupon_code' => $couponCode,
         ];
     }

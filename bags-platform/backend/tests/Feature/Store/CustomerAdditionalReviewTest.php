@@ -241,11 +241,11 @@ class CustomerAdditionalReviewTest extends TestCase
         $this->freezeTime();
         $this->getJson('/api/v1/store/home')->assertOk();
         $this->travel(301)->seconds();
-        $lock = Cache::lock('illuminate:cache:flexible:lock:store_home_data', 120);
+        $lock = Cache::lock('illuminate:cache:flexible:lock:store_home_data:v2', 120);
         $this->assertTrue($lock->get());
         try {
             $this->getJson('/api/v1/store/home')->assertOk();
-            $this->assertNotNull(Cache::get('store_home_data'));
+            $this->assertNotNull(Cache::get('store_home_data:v2'));
         } finally {
             $lock->release();
         }

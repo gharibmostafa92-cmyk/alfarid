@@ -1,0 +1,127 @@
+/* Sophie Luxury Bag Collection Stylesheet */
+
+/* Color tint filters for product photos */
+.tint-pink {
+  filter: sepia(0.25) saturate(1.4) hue-rotate(315deg) brightness(1.03);
+}
+
+.tint-black {
+  filter: grayscale(1) brightness(0.35) contrast(1.4);
+}
+
+.tint-beige {
+  filter: sepia(0.35) saturate(0.85) brightness(1.02);
+}
+
+.tint-blue {
+  filter: sepia(0.2) saturate(1.2) hue-rotate(165deg) brightness(1.02);
+}
+
+.tint-cream {
+  filter: sepia(0.18) saturate(0.6) brightness(1.08);
+}
+
+/* Hero Section Backdrop and Ambient Lighting */
+.hero-wrapper {
+  background-color: #dfe5e9;
+  position: relative;
+  overflow: hidden;
+}
+
+.hero-bg-backdrop {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.hero-bg-backdrop-img {
+  position: absolute;
+  top: -8%;
+  right: 0;
+  width: 60%;
+  height: 116%;
+  filter: blur(14px) brightness(0.96) saturate(1.25);
+  opacity: 0.75;
+  transform: scale(1.08);
+  transition: transform 0.6s ease;
+}
+
+.hero-bg-backdrop-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    #dfe5e9 0%,
+    rgba(223, 229, 233, 0.95) 38%,
+    rgba(223, 229, 233, 0.6) 65%,
+    rgba(223, 229, 233, 0.2) 100%
+  );
+}
+
+.hero-foreground-img {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 20px 26px rgba(0, 0, 0, 0.2));
+  transition: transform 0.4s ease;
+}
+
+.hero-foreground-img:hover {
+  transform: translateY(-8px) scale(1.02);
+}
+
+/* Footer Skyline */
+.footer-skyline {
+  display: block;
+  width: 100%;
+  line-height: 0;
+  overflow: hidden;
+  background-color: #ffffff;
+}
+
+.footer-skyline svg {
+  display: block;
+  width: 100%;
+  height: 78px;
+}
+
+@media (max-width: 992px) {
+  .hero-bg-backdrop-img {
+    width: 100%;
+    height: 100%;
+    top: 0;
+    opacity: 0.55;
+  }
+  .hero-bg-backdrop-overlay {
+    background: linear-gradient(
+      180deg,
+      #dfe5e9 0%,
+      rgba(223, 229, 233, 0.94) 45%,
+      rgba(223, 229, 233, 0.5) 100%
+    );
+  }
+}
+
+@media (max-width: 576px) {
+  .footer-skyline svg {
+    height: 46px;
+  }
+}
+
+/* Reserve the same space for loading, banner and fallback modes. */
+.hero-wrapper .sophie-hero-content { min-height: 740px; }
+@media (min-width: 640px) { .hero-wrapper .sophie-hero-content { min-height: 780px; } }
+@media (min-width: 1024px) { .hero-wrapper .sophie-hero-content { min-height: 475px; } }
+.sophie-skeleton { background: linear-gradient(90deg, #eceef1 0%, #f6f7f8 50%, #eceef1 100%); background-size: 200% 100%; animation: sophieShimmer 1.4s ease-in-out infinite; }
+@keyframes sophieShimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.hero-banner-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: right center; animation: heroFade .6s ease; }
+.hero-banner-overlay { position: absolute; inset: 0; background: linear-gradient(90deg, #dfe5e9 0%, rgba(223,229,233,.88) 32%, rgba(223,229,233,0) 62%); }
+@media (max-width: 1023px) { .hero-banner-overlay { background: linear-gradient(0deg, #dfe5e9 0%, rgba(223,229,233,.9) 45%, rgba(223,229,233,.15) 100%); } }
+@keyframes heroFade { from { opacity: 0; } to { opacity: 1; } }
+.sophie-pop-in { animation: sophiePop .35s cubic-bezier(.2,.8,.2,1); }
+@keyframes sophiePop { from { opacity: 0; transform: translateY(12px) scale(.97); } to { opacity: 1; transform: none; } }
+.hero-wrapper :focus-visible, .products-section :focus-visible, .sophie-pop-in :focus-visible { outline: 2px solid #4f7d88; outline-offset: 4px; }
+@media (prefers-reduced-motion: reduce) { .sophie-skeleton, .hero-banner-img, .sophie-pop-in { animation: none; } }

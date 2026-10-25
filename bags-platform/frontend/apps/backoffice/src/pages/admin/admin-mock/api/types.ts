@@ -57,3 +57,16 @@ export interface CreateUserBody {
 export type UpdateUserBody = Partial<Omit<CreateUserBody, 'password'>> & { password?: string; current_password?: string; expected_version?: number };
 
 export interface RoleBody { expected_version?: number; name?: string; permissions?: string[] }
+
+export type ApiBannerPosition = 'main_slider' | 'middle_banner' | 'popup';
+export interface ApiBanner {
+  id: number; title: string; image_url: string | null;
+  position: ApiBannerPosition;
+  link_type: 'product' | 'category' | 'brand' | 'external' | 'none';
+  link_value: string | null; link_label: string | null;
+  sort_order: number; starts_at: string | null; ends_at: string | null;
+  is_active: boolean; status: 'live' | 'scheduled' | 'expired' | 'disabled';
+  kicker: string | null; headline: string | null; headline_bold: string | null;
+  description: string | null; cta_label: string | null; bg_color: string | null;
+  updated_at?: string | null;
+}

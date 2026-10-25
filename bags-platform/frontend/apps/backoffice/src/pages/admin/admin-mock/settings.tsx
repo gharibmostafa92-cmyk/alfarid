@@ -18,6 +18,8 @@ import { DOC_TYPES, AdminSettings } from './data';
 import { useSettingsQuery, runMutation, useQueryError, useMe } from './hooks';
 import { adminApi } from './api/endpoints';
 import { settingsPatch, settingsExpected, toAdminSettings } from './api/mappers';
+import { StoreManagementTab } from './store-management';
+import { useBranding } from '@alfarid/ui/branding';
 
 export const SETTINGS_TABS = [
   { key: 'company', label: 'بيانات الشركة', icon: 'building', desc: 'الهوية وترويسة المستندات' },
@@ -25,6 +27,7 @@ export const SETTINGS_TABS = [
   { key: 'numbering', label: 'ترقيم المستندات', icon: 'hash', desc: '12 نوعاً من الوثائق' },
   { key: 'orders', label: 'سياسة الإرجاع', icon: 'undo', desc: 'مهلة إرجاع المنتجات' },
   { key: 'purchases', label: 'دورة المشتريات', icon: 'truck', desc: 'الاعتماد والرقابة الثنائية' },
+  { key: 'store', label: 'إدارة المتجر', icon: 'storefront', desc: 'السلايدر، البانرات والنوافذ المنبثقة' },
 ];
 
 const clone = <T,>(o: T): T => JSON.parse(JSON.stringify(o));
@@ -53,18 +56,25 @@ function SectionCard({ title, subtitle, children, className = '', aside }: Secti
   );
 }
 
-export function SettingsScreen({ onNavigate, can }: { onNavigate?: (page: 'users' | 'roles' | 'settings') => void; can: (p: string) => boolean }) {
+export function SettingsScreen({ onNavigate, can, initialTab }: { onNavigate?: (page: 'users' | 'roles' | 'settings') => void; can: (p: string) => boolean; initialTab?: string }) {
+  const { refreshBranding } = useBranding();
   const query = useSettingsQuery();
   useQueryError(query.error);
   const [server, setServer] = useState<AdminSettings | null>(null);
   const [s, setS] = useState<AdminSettings | null>(null);
-  const [tab, setTab] = useState('company');
+  const [tab, setTab] = useState(() => (initialTab === 'store' || initialTab === 'banners') ? 'store' : (initialTab || 'company'));
   const [saving, setSaving] = useState(false);
   const [conflict, setConflict] = useState<string | false>(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string,string[]>>({});
   const { centralAccess } = useMe();
   const editable = centralAccess && ( can('settings.update') || can('settings.manage'));
   const loading = query.loading && !server;
+
+  useEffect(() => {
+    if (initialTab) {
+      setTab(initialTab === 'banners' ? 'store' : initialTab);
+    }
+  }, [initialTab]);
   useEffect(() => { if (query.data) { setServer(clone(query.data)); setS(clone(query.data)); setFieldErrors({}); } }, [query.data]);
   const set = (group: keyof AdminSettings, key: string, val: any) =>
     setS(p => p && editable ? ({ ...p, [group]: { ...(p[group] as any), [key]: val } }) : p);
@@ -109,13 +119,14 @@ export function SettingsScreen({ onNavigate, can }: { onNavigate?: (page: 'users
       return;
     }
     const fresh = toAdminSettings(result.data.data);
+    void refreshBranding();
     setServer(clone(fresh)); setS(clone(fresh)); setConflict(false);
     if (result.data.warnings?.length) result.data.warnings.forEach(message => toast(message, 'warn'));
     else toast('تم حفظ الإعدادات بنجاح');
   };
   const reload = () => { setConflict(false); query.reload(); };
-  if (query.error && !server) return <EmptyState icon="lock" title={query.error.message} action={<GhostButton onClick={query.reload}>إعادة المحاولة</GhostButton>} />;
-  if (!s || !server) return <SettingsSkeleton />;
+  if (query.error && !server && tab !== 'store') return <EmptyState icon="lock" title={query.error.message} action={<GhostButton onClick={query.reload}>إعادة المحاولة</GhostButton>} />;
+  if ((!s || !server) && tab !== 'store') return <SettingsSkeleton />;
 
   return (
     <section className="space-y-5 pb-20" data-screen-label="03 Settings">
@@ -167,7 +178,9 @@ export function SettingsScreen({ onNavigate, can }: { onNavigate?: (page: 'users
         </nav>
 
         <div className="lg:col-span-9 stagger-item stagger-3" key={tab}>
-          {loading ? <SettingsSkeleton /> : (
+          {tab === 'store' ? (
+            <StoreManagementTab can={can} />
+          ) : (!s || !server || loading) ? <SettingsSkeleton /> : (
             <fieldset disabled={!editable || saving} className="v-tab-in space-y-5">
               {tab === 'company' && <CompanyTab errors={fieldErrors} v={s.company} set={(k, val) => set('company', k, val)} />}
               {tab === 'tax' && <TaxTab errors={fieldErrors} v={s.tax} set={(k, val) => set('tax', k, val)} />}
@@ -215,7 +228,7 @@ function CompanyTab({ errors, v, set }: { errors: Record<string,string[]>; v: Ad
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-4">
-        <Field label="اسم الشركة" required className="md:col-span-2" error={errors.company_name?.[0] || (!v.company_name.trim() ? 'اسم الشركة مطلوب' : null)}>
+        <Field label="اسم الموقع والشركة" hint="يظهر في المتجر، لوحة الإدارة، صفحات الدخول وعناوين الصفحات والمستندات." required className="md:col-span-2" error={errors.company_name?.[0] || (!v.company_name.trim() ? 'اسم الموقع والشركة مطلوب' : null)}>
           <TextInput value={v.company_name} onChange={x => set('company_name', x)} icon="building" placeholder="الاسم التجاري للمنشأة" error={!v.company_name.trim()} />
         </Field>
         <Field error={errors.company_email?.[0]} label="البريد الإلكتروني للشركة"><TextInput value={v.company_email} onChange={x => set('company_email', x)} icon="mail" dir="ltr" /></Field>

@@ -13,7 +13,6 @@ use App\Services\StoreCatalogService;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 
 /**
@@ -28,11 +27,11 @@ class HomeController extends Controller
     public function index(Request $request): JsonResponse
     {
         try {
-            $load = fn () => Cache::flexible('store_home_data', [300, 1800],
+            $load = fn () => Cache::flexible(StoreCatalogService::HOME_CACHE_KEY, [300, 1800],
                 fn () => $this->catalog->homeSectionIds(), ['seconds' => 120]);
-            $ids = Cache::has('store_home_data') ? $load() : Cache::lock('store_home_data:build', 120)->block(3, $load);
+            $ids = Cache::has(StoreCatalogService::HOME_CACHE_KEY) ? $load() : Cache::lock(StoreCatalogService::HOME_CACHE_KEY.':build', 120)->block(3, $load);
         } catch (LockTimeoutException) {
-            return response()->json(['message' => 'الصفحة قيد التحديث؛ أعد المحاولة بعد لحظات.'], 503, ['Retry-After' => '2']);
+            $ids = Cache::get(StoreCatalogService::HOME_CACHE_KEY) ?? ['latest_ids' => [], 'best_seller_ids' => [], 'discounted_ids' => []];
         }
         $allIds = array_unique([...$ids['latest_ids'], ...$ids['best_seller_ids'], ...$ids['discounted_ids']]);
         $cards = StoreProductCardResource::collection($this->catalog->publishedQuery()
@@ -40,10 +39,11 @@ class HomeController extends Controller
         $cards = collect($cards)->keyBy('id');
         $section = fn (array $sectionIds) => collect($sectionIds)->map(fn ($id) => $cards->get($id))->filter()->values();
 
-        $banners = $this->inOrder(Banner::query()
+        $banners = Banner::query()
             ->where('is_active', true)
             ->where(fn ($q) => $q->whereNull('starts_at')->orWhere('starts_at', '<=', now()))
-            ->where(fn ($q) => $q->whereNull('ends_at')->orWhere('ends_at', '>=', now())), $ids['banner_ids']);
+            ->where(fn ($q) => $q->whereNull('ends_at')->orWhere('ends_at', '>=', now()))
+            ->orderBy('sort_order')->orderBy('id')->get();
         $banners = app(BannerLinkResolver::class)->attach($banners);
         $bannersPayload = collect(StoreBannerResource::collection($banners)->resolve($request))
             ->filter(fn (array $b) => $b['image'] !== null)
@@ -57,16 +57,5 @@ class HomeController extends Controller
                 'discounted_products' => $section($ids['discounted_ids'])->filter(fn ($card) => $card['price'] !== null && $card['discount_percentage'] !== null)->values(),
             ],
         ]);
-    }
-
-    /** @param list<int> $ids */
-    private function inOrder($query, array $ids): Collection
-    {
-        if ($ids === []) {
-            return collect();
-        }
-        $positions = array_flip($ids);
-
-        return $query->whereIn('id', $ids)->get()->sortBy(fn ($m) => $positions[$m->id] ?? PHP_INT_MAX)->values();
     }
 }

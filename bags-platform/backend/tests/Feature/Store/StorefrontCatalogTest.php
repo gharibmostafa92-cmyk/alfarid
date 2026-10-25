@@ -67,7 +67,7 @@ class StorefrontCatalogTest extends TestCase
         $this->product();
         $again = $this->getJson('/api/v1/store/home')->assertOk();
         $this->assertSame(3, collect($again->json('data.latest_products'))->count());
-        Cache::forget('store_home_data');
+        Cache::forget('store_home_data:v2');
         $fresh = $this->getJson('/api/v1/store/home')->assertOk();
         $this->assertSame(4, collect($fresh->json('data.latest_products'))->count());
     }

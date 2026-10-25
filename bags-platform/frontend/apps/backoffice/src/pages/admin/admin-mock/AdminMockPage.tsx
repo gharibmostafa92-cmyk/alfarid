@@ -7,15 +7,18 @@ import { RolesScreen } from './roles';
 import { SettingsScreen } from './settings';
 import { ToastHost, Icon, EmptyState } from './ui';
 import styles from './admin-reference.css?inline';
+import { useBranding } from '@alfarid/ui/branding';
 
 export interface AdminMockPageProps {
   page: 'users' | 'roles' | 'settings';
   can?: (perm: string) => boolean;
   darkMode?: boolean;
   theme?: string;
+  initialTab?: string;
 }
 
-export default function AdminMockPage({ page, can, darkMode, theme }: AdminMockPageProps) {
+export default function AdminMockPage({ page, can, darkMode, theme, initialTab }: AdminMockPageProps) {
+  const { branding } = useBranding();
   const host = useRef<HTMLDivElement>(null);
   const [root, setRoot] = useState<ShadowRoot | null>(null);
 
@@ -27,7 +30,7 @@ export default function AdminMockPage({ page, can, darkMode, theme }: AdminMockP
   const usersTotal = useApi(signal => visible('users') ? adminApi.countUsers({}, signal) : Promise.resolve(undefined), [usersTick, visible('users')]);
   useQueryError(rolesQ.error); useQueryError(usersTotal.error);
   useEffect(() => { ['alfarid_mock_users','alfarid_mock_roles','alfarid_mock_settings'].forEach(key => localStorage.removeItem(key)); }, []);
-  // Parse URL query parameters if present (e.g. ?role=3 or ?roleId=2)
+  // Parse URL query parameters if present (e.g. ?role=3 or ?roleId=2 or ?tab=store)
   const queryParams = useMemo(() => {
     const raw = window.location.hash.includes('?')
       ? window.location.hash.split('?')[1]
@@ -35,11 +38,13 @@ export default function AdminMockPage({ page, can, darkMode, theme }: AdminMockP
     const sp = new URLSearchParams(raw);
     const roleParam = sp.get('role') || sp.get('roleId');
     const roleIdParam = sp.get('roleId') || sp.get('role');
+    const tabParam = sp.get('tab');
     return {
       role: roleParam ? (isNaN(Number(roleParam)) ? 'all' : Number(roleParam)) : 'all',
       roleId: roleIdParam && !isNaN(Number(roleIdParam)) ? Number(roleIdParam) : undefined,
+      tab: tabParam || initialTab || undefined,
     };
-  }, [page, window.location.hash]);
+  }, [page, window.location.hash, initialTab]);
 
   const [detectedDark, setDetectedDark] = useState(() => {
     if (typeof darkMode === 'boolean') return darkMode;
@@ -174,7 +179,7 @@ export default function AdminMockPage({ page, can, darkMode, theme }: AdminMockP
                 <div className="flex items-center gap-2 text-[12px]" style={{ color: 'var(--text-muted)' }}>
                   <span>لوحة الإدارة والتحكم</span>
                   <span>•</span>
-                  <span>شركة الفريد</span>
+                  <span dir="auto">{branding.name}</span>
                 </div>
               </div>
 
@@ -204,7 +209,7 @@ export default function AdminMockPage({ page, can, darkMode, theme }: AdminMockP
               )}
 
               {visible(page) && page === 'settings' && (
-                <SettingsScreen can={canFn} onNavigate={handleNavigate} />
+                <SettingsScreen can={canFn} onNavigate={handleNavigate} initialTab={queryParams.tab} />
               )}
 
               <ToastHost />

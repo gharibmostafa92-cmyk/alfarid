@@ -18,6 +18,7 @@ use App\Models\User;
 use App\Services\Catalog\ProductPublishabilityChecker;
 use App\Services\Catalog\ProductService;
 use App\Services\InventoryService;
+use App\Services\StoreCatalogService;
 use App\Support\BannerImage;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Cache;
@@ -92,8 +93,7 @@ class StorefrontDemoSeeder extends Seeder
             }
             $this->seedBanners($categories);
         });
-        Cache::forget('store_home_data');
-        Cache::forget('illuminate:cache:flexible:created:store_home_data');
+        Cache::forget(StoreCatalogService::HOME_CACHE_KEY);
         $this->command?->info('Storefront demo ready: 8 products, 3 slides, 2 promo banners and 1 popup.');
     }
 
@@ -121,7 +121,7 @@ class StorefrontDemoSeeder extends Seeder
                 'photo' => 'weekend-bag', 'category' => 'handbags'],
         ];
         foreach ($rows as $row) {
-            $path = 'banners/storefront-demo/'.$row['photo'].'.jpg';
+            $path = 'banners/storefront-demo/'.sha1($row['title']).'.jpg';
             if (! Storage::disk('public')->exists($path)) {
                 Storage::disk('public')->put($path, file_get_contents($this->source($row['photo'])));
             }

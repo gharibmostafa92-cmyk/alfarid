@@ -62,10 +62,11 @@ class BannerController extends Controller
         return new AdminBannerResource($banner);
     }
 
-    public function toggle(Banner $banner): AdminBannerResource
+    public function toggle(Request $request, Banner $banner): AdminBannerResource
     {
-        $banner->update(['is_active' => ! $banner->is_active]);
-        $this->attachLinkLabels(collect([$banner->refresh()]));
+        $data = $request->validate(['is_active' => ['sometimes', 'required', 'boolean']]);
+        $banner = $this->service->setActive($banner, array_key_exists('is_active', $data) ? (bool) $data['is_active'] : null);
+        $this->attachLinkLabels(collect([$banner]));
 
         return new AdminBannerResource($banner);
     }
@@ -74,8 +75,8 @@ class BannerController extends Controller
     {
         $data = $request->validate([
             'position' => ['required', Rule::enum(BannerPosition::class)],
-            'ids' => ['required', 'array'],
-            'ids.*' => ['integer'],
+            'ids' => ['required', 'array', 'max:500'],
+            'ids.*' => ['integer', 'distinct'],
         ]);
         $this->service->reorder($data['position'], $data['ids']);
 

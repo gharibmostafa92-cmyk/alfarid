@@ -81,6 +81,7 @@ class AppServiceProvider extends ServiceProvider
             Limit::perMinute(config('auth.customer_limits.registration_ip_minute', 20))->by('customer-register-minute:'.$request->ip()),
             Limit::perDay(config('auth.customer_limits.registration_ip_day', 500))->by('customer-register-day:'.$request->ip()),
         ]);
+        RateLimiter::for('store-branding', fn (Request $request) => Limit::perMinute(1200)->by('store-branding:'.$request->ip()));
         RateLimiter::for('store-catalog', fn (Request $request) => [
             Limit::perMinute(config('auth.customer_limits.catalog_ip_minute', 600))->by('store-catalog:'.$request->ip()),
             ...($request->hasAny(['price_min', 'price_max']) || in_array($request->input('sort'), ['price_asc', 'price_desc'], true)

@@ -8,7 +8,6 @@ use App\Enums\CustomerStatus;
 use App\Enums\ProductStatus;
 use App\Enums\SalesChannel;
 use App\Exceptions\BusinessException;
-use App\Models\Banner;
 use App\Models\Category;
 use App\Models\Customer;
 use App\Models\Product;
@@ -26,6 +25,8 @@ use Illuminate\Support\Facades\DB;
  */
 class StoreCatalogService
 {
+    public const HOME_CACHE_KEY = 'store_home_data:v2';
+
     public function __construct(private readonly PricingService $pricing) {}
 
     // ------------------------------------------------------------------ متاح
@@ -239,11 +240,6 @@ class StoreCatalogService
     /** معرّفات أقسام الصفحة الرئيسية (تُخزَّن مؤقتًا في المتحكم — الأسعار لا تُخزَّن أبدًا). */
     public function homeSectionIds(): array
     {
-        $bannerIds = Banner::query()
-            ->where('is_active', true)
-            ->orderBy('sort_order')->orderBy('id')
-            ->pluck('id')->all();
-
         $latest = $this->publishedQuery()->reorder()->orderByDesc('products.created_at')->orderByDesc('products.id')->limit(12)->pluck('products.id')->all();
         $best = $this->publishedQuery()->reorder()->orderByDesc('products.sales_count')->orderByDesc('products.id')->limit(12)->pluck('products.id')->all();
 
@@ -271,7 +267,6 @@ class StoreCatalogService
             ->limit(12)->pluck('products.id')->all();
 
         return [
-            'banner_ids' => $bannerIds,
             'latest_ids' => $latest,
             'best_seller_ids' => $best,
             'discounted_ids' => $discounted,

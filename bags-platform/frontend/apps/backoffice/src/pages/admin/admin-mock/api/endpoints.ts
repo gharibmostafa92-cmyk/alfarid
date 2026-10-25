@@ -1,5 +1,5 @@
 import { defaultApiClient as api } from '@alfarid/api-client';
-import type { ApiBranch, ApiPermissionGroups, ApiRole, ApiSettingsGrouped, ApiUser,
+import type { ApiBanner, ApiBranch, ApiPermissionGroups, ApiRole, ApiSettingsGrouped, ApiUser,
   CreateUserBody, Paginated, RoleBody, UpdateUserBody, UserListParams } from './types';
 
 const BASE = '/api/v1/admin';
@@ -69,4 +69,34 @@ export const adminApi = {
     api.get<{ data: ApiSettingsGrouped }>(`${BASE}/settings`, { signal }).then(r => r.data.data),
   updateSettings: (patch: Record<string, unknown>) =>
     api.put<{ data: ApiSettingsGrouped; warnings?: string[] }>(`${BASE}/settings`, patch).then(r => r.data),
+
+  // Banners
+  listBanners: (signal?: AbortSignal) =>
+    api.get<{ data: ApiBanner[] }>(`${BASE}/banners`, { signal }).then(r => r.data.data),
+  createBanner: (fd: FormData, onProgress?: (p: number) => void) =>
+    api.post<{ data: ApiBanner }>(`${BASE}/banners`, fd, {
+      headers: { 'Content-Type': undefined },
+      onUploadProgress: (e: { loaded: number; total?: number }) => onProgress?.(e.total ? (e.loaded / e.total) * 100 : 0),
+    }).then(r => r.data.data),
+  updateBanner: (id: number, fd: FormData, onProgress?: (p: number) => void) =>
+    api.post<{ data: ApiBanner }>(`${BASE}/banners/${id}`, fd, {
+      headers: { 'Content-Type': undefined },
+      onUploadProgress: (e: { loaded: number; total?: number }) => onProgress?.(e.total ? (e.loaded / e.total) * 100 : 0),
+    }).then(r => r.data.data),
+  toggleBanner: (id: number, isActive: boolean) =>
+    api.patch<{ data: ApiBanner }>(`${BASE}/banners/${id}/toggle`, { is_active: isActive }).then(r => r.data.data),
+  deleteBanner: (id: number) => api.delete(`${BASE}/banners/${id}`),
+  reorderBanners: (position: string, ids: number[]) =>
+    api.put(`${BASE}/banners/reorder`, { position, ids }),
+  listBannerCategories: (signal?: AbortSignal) =>
+    api.get<{ data: Array<{ id: number; name_ar: string; name_en: string | null; children?: Array<{ id: number; name_ar: string; name_en: string | null; children?: unknown[] }> }> }>(`${BASE}/categories`, { params: { tree: 1 }, signal }).then(r => r.data.data),
+  searchBannerProducts: (search: string, signal?: AbortSignal) =>
+    api.get<{ data: Array<{ id: number; name_ar: string; name_en: string | null }> }>(`${BASE}/products`, { params: { search, status: 'published', per_page: 20 }, signal }).then(r => r.data.data),
 };
+
+// Standalone exports matching the banner API surface.
+export const listBanners = adminApi.listBanners;
+export const createBanner = adminApi.createBanner;
+export const updateBanner = adminApi.updateBanner;
+export const toggleBanner = adminApi.toggleBanner;
+export const deleteBanner = adminApi.deleteBanner;

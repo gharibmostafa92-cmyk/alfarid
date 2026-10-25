@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent, type InputHTMLAttributes } from 'react';
 import { useRouter } from 'next/navigation';
+import { useBranding } from '@alfarid/ui/branding';
 import { registerWeb, requestPasswordReset, resetWebPassword, sendPhoneVerification, verifyPhone } from '@/services/auth.service';
 
 export type AuthView = 'login' | 'register' | 'wholesale-register' | 'forgot-password' | 'reset-password';
@@ -98,6 +99,7 @@ export function AccountForm({
   initialToken?: string;
 }) {
   const router = useRouter();
+  const { branding } = useBranding();
   const ar = lang === 'ar';
   const wholesale = view === 'wholesale-register';
   const recovery = view === 'forgot-password' || view === 'reset-password';
@@ -162,7 +164,7 @@ export function AccountForm({
       ? businessStep
         ? text('بيانات شركتك ومستنداتها لمراجعة طلب الجملة.', 'Your business details and documents for application review.')
         : text('ابدأ ببياناتك، ثم أكمل بيانات نشاطك التجاري.', 'Start with your details, then tell us about your business.')
-      : text('أنشئ حسابك في الفريد وتابع طلباتك بسهولة.', 'Create your Alfarid account and keep track of your orders.');
+      : text(`أنشئ حسابك في ${branding.name} وتابع طلباتك بسهولة.`, `Create your ${branding.name} account and keep track of your orders.`);
 
   function handleError(err: unknown) {
     const response = (err as { response?: { status?: number; data?: { message?: string; errors?: Errors }; headers?: Record<string, string> } }).response;

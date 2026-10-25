@@ -4,9 +4,12 @@ namespace Tests\Feature\Admin;
 
 use App\Enums\ProductStatus;
 use App\Models\Banner;
+use App\Models\Category;
 use App\Models\Product;
 use App\Models\User;
+use App\Services\BannerLinkResolver;
 use App\Services\BannerService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
@@ -59,6 +62,21 @@ class BannerEndpointsTest extends TestCase
     public function test_home_returns_empty_banners(): void
     {
         $this->getJson('/api/v1/store/home')->assertOk()->assertJsonPath('data.banners', []);
+    }
+
+    public function test_legacy_unsafe_external_banner_link_is_not_exposed(): void
+    {
+        $banner = Banner::factory()->create(['link_type' => 'external', 'link_value' => 'javascript:alert(document.cookie)']);
+        $resolved = app(BannerLinkResolver::class)->attach(collect([$banner]));
+        $this->assertNull($resolved->first()->getAttribute('resolved_href'));
+    }
+
+    public function test_https_banner_link_accepts_the_full_validated_length(): void
+    {
+        $url = 'https://example.com/?q='.str_repeat('a', 1500);
+        $token = $this->staff(['store.manage']);
+        $this->admin($token)->post('/api/v1/admin/banners', $this->payload(['link_type' => 'external', 'link_value' => $url]))->assertCreated();
+        $this->assertDatabaseHas('banners', ['link_value' => $url]);
     }
 
     public function test_home_hides_scheduled_expired_and_disabled_banners(): void
@@ -183,5 +201,111 @@ class BannerEndpointsTest extends TestCase
         $this->assertTrue($failed);
         $this->assertDatabaseHas('banners', ['id' => $banner->id, 'image_path' => 'banners/original.jpg']);
         $this->assertSame(['banners/original.jpg'], Storage::disk('public')->allFiles('banners'));
+    }
+
+    public function test_activation_and_sort_edits_are_visible_with_a_warm_product_cache(): void
+    {
+        $token = $this->staff(['store.manage']);
+        $first = Banner::factory()->create(['sort_order' => 1]);
+        $second = Banner::factory()->create(['is_active' => false, 'sort_order' => 2]);
+        $this->getJson('/api/v1/store/home')->assertOk()->assertJsonCount(1, 'data.banners');
+
+        $this->admin($token)->patchJson("/api/v1/admin/banners/{$second->id}/toggle", ['is_active' => true])->assertOk();
+        $this->admin($token)->patchJson("/api/v1/admin/banners/{$second->id}/toggle", ['is_active' => true])->assertOk()->assertJsonPath('data.is_active', true);
+        app(BannerService::class)->update($second, ['sort_order' => 0], null);
+
+        $this->getJson('/api/v1/store/home')->assertOk()->assertJsonPath('data.banners.0.id', $second->id)->assertJsonPath('data.banners.1.id', $first->id);
+    }
+
+    public function test_shared_images_survive_until_the_last_banner_reference_is_removed(): void
+    {
+        $one = Banner::factory()->create(['image_path' => 'banners/shared.jpg']);
+        $two = Banner::factory()->create(['image_path' => 'banners/shared.jpg']);
+        Storage::disk('public')->put('banners/shared.jpg', 'image');
+        $service = app(BannerService::class);
+
+        $service->update($one, [], UploadedFile::fake()->image('replacement.jpg', 1200, 600));
+        Storage::disk('public')->assertExists('banners/shared.jpg');
+        $service->delete($two);
+
+        Storage::disk('public')->assertMissing('banners/shared.jpg');
+        Storage::disk('public')->assertExists($one->fresh()->image_path);
+    }
+
+    public function test_stale_model_updates_remove_the_actually_replaced_image(): void
+    {
+        $banner = Banner::factory()->create(['image_path' => 'banners/initial.jpg']);
+        Storage::disk('public')->put($banner->image_path, 'original');
+        $stale = $banner->fresh();
+        $service = app(BannerService::class);
+        $firstUpdate = $service->update($banner, [], UploadedFile::fake()->image('first.jpg', 1200, 600));
+
+        $lastUpdate = $service->update($stale, [], UploadedFile::fake()->image('last.jpg', 1200, 600));
+
+        Storage::disk('public')->assertMissing($firstUpdate->image_path);
+        $this->assertSame([$lastUpdate->image_path], Storage::disk('public')->allFiles('banners'));
+    }
+
+    public function test_update_of_a_deleted_banner_removes_the_new_upload(): void
+    {
+        $banner = Banner::factory()->create();
+        $banner->delete();
+        try {
+            app(BannerService::class)->update($banner, [], UploadedFile::fake()->image('orphan.jpg', 1200, 600));
+            $this->fail('Updating a deleted banner must fail.');
+        } catch (ModelNotFoundException) {
+            Storage::disk('public')->assertDirectoryEmpty('banners');
+        }
+    }
+
+    public function test_schedule_keeps_the_requested_instant_in_a_non_utc_application(): void
+    {
+        config(['app.timezone' => 'Africa/Cairo']);
+        $previousTimezone = date_default_timezone_get();
+        date_default_timezone_set('Africa/Cairo');
+        try {
+            $banner = Banner::factory()->create();
+            $saved = app(BannerService::class)->update($banner, [
+                'starts_at' => '2026-01-10T08:00:00Z', 'ends_at' => '2026-01-10T10:00:00Z',
+            ], null);
+
+            $this->assertSame('2026-01-10 10:00:00', $saved->getRawOriginal('starts_at'));
+            $this->assertSame('2026-01-10T08:00:00+00:00', $saved->starts_at->utc()->toIso8601String());
+        } finally {
+            date_default_timezone_set($previousTimezone);
+        }
+    }
+
+    public function test_reorder_rejects_duplicate_and_excessive_identifiers(): void
+    {
+        $token = $this->staff(['store.manage']);
+        $this->admin($token)->putJson('/api/v1/admin/banners/reorder', ['position' => 'main_slider', 'ids' => [1, 1]])
+            ->assertUnprocessable()->assertJsonValidationErrors('ids.0');
+        $this->admin($token)->putJson('/api/v1/admin/banners/reorder', ['position' => 'main_slider', 'ids' => range(1, 501)])
+            ->assertUnprocessable()->assertJsonValidationErrors('ids');
+    }
+
+    public function test_links_encode_arabic_slugs_and_reject_soft_deleted_targets(): void
+    {
+        $category = Category::factory()->create(['slug' => 'حقائب-يد']);
+        Banner::factory()->create(['link_type' => 'category', 'link_value' => (string) $category->id]);
+        $this->getJson('/api/v1/store/home')->assertOk()->assertJsonPath('data.banners.0.href', '/shop?category='.rawurlencode('حقائب-يد'));
+        $deleted = Product::factory()->create();
+        $deleted->delete();
+        $token = $this->staff(['store.manage']);
+
+        $this->admin($token)->post('/api/v1/admin/banners', $this->payload(['link_type' => 'product', 'link_value' => $deleted->id]))
+            ->assertUnprocessable()->assertJsonValidationErrors('link_value');
+    }
+
+    public function test_oversized_dimensions_and_new_legacy_brand_links_are_rejected(): void
+    {
+        $token = $this->staff(['store.manage']);
+        $this->admin($token)->post('/api/v1/admin/banners', $this->payload(['image' => UploadedFile::fake()->image('wide.png', 4001, 300)]))
+            ->assertUnprocessable()->assertJsonValidationErrors('image');
+        $banner = Banner::factory()->create(['link_type' => 'none']);
+
+        $this->admin($token)->post("/api/v1/admin/banners/{$banner->id}", $this->payload(['link_type' => 'brand', 'link_value' => 999]))
+            ->assertUnprocessable()->assertJsonValidationErrors('link_type');
     }
 }

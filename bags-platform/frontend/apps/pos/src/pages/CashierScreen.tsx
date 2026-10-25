@@ -2,10 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { usePosCartStore } from '../stores/pos-cart.store';
 import { usePosShiftStore } from '../stores/pos-shift.store';
 import { Button, Input, Modal, Badge } from '@alfarid/ui';
+import { useBranding } from '@alfarid/ui/branding';
 import { formatCurrency } from '@alfarid/utils';
 import { Barcode, Trash2, Plus, Minus, CreditCard, Banknote, ShoppingCart, Clock } from 'lucide-react';
 
 export function CashierScreen() {
+  const { branding } = useBranding();
   const { currentShift } = usePosShiftStore();
   const { items, addItem, updateQuantity, removeItem, clearCart, total, subtotal } = usePosCartStore();
   const [barcodeInput, setBarcodeInput] = useState('');
@@ -50,7 +52,7 @@ export function CashierScreen() {
         {/* Top Shift Status Bar */}
         <div className="h-14 bg-white rounded-xl shadow-sm px-4 flex items-center justify-between mb-4 border border-zinc-200">
           <div className="flex items-center gap-4">
-            <span className="font-bold text-zinc-800 text-lg">الفريد POS</span>
+            <span dir="auto" className="font-bold text-zinc-800 text-lg truncate">{branding.name} POS</span>
             <span className="text-zinc-400">|</span>
             <span className="text-sm text-zinc-600 font-medium">{currentShift?.branchName}</span>
             <Badge variant="success">الوردية #{currentShift?.id} مفتوحة</Badge>

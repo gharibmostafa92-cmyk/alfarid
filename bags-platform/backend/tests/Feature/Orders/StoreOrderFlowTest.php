@@ -7,6 +7,8 @@ namespace Tests\Feature\Orders;
 use App\Enums\StockBucket;
 use App\Enums\StockMovementType;
 use App\Models\Branch;
+use App\Models\Cart;
+use App\Models\CartItem;
 use App\Models\City;
 use App\Models\Coupon;
 use App\Models\Customer;
@@ -17,11 +19,14 @@ use App\Models\ProductVariant;
 use App\Models\Setting;
 use App\Models\StockLevel;
 use App\Models\User;
+use App\Services\CartService;
 use App\Services\InventoryService;
 use App\Services\OrderService;
 use Database\Seeders\SettingSeeder;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -264,6 +269,86 @@ class StoreOrderFlowTest extends TestCase
     }
 
     // ---------- helpers ----------
+
+    public function test_failed_writes_without_a_session_do_not_persist_empty_carts(): void
+    {
+        $draft = ProductVariant::factory()->create(['retail_price' => 100]);
+        $this->postJson('/api/v1/store/cart/items', ['product_variant_id' => $draft->id, 'qty' => 1])->assertUnprocessable();
+        $this->putJson('/api/v1/store/cart/items/123', ['qty' => 1])->assertNotFound();
+        $this->deleteJson('/api/v1/store/cart/items/123')->assertNotFound();
+        $this->deleteJson('/api/v1/store/cart/coupon')->assertNotFound();
+        $this->postJson('/api/v1/store/cart/coupon', ['code' => 'INVALID'])->assertNotFound();
+        $this->assertDatabaseCount('carts', 0);
+    }
+
+    public function test_clear_removes_all_lines_without_touching_another_guest_cart(): void
+    {
+        $variant = $this->purchasableVariant(100);
+        $otherVariant = $this->purchasableVariant(200);
+        $this->giveStock($variant, 10);
+        $this->giveStock($otherVariant, 10);
+        $first = $this->postJson('/api/v1/store/cart/items', ['product_variant_id' => $variant->id, 'qty' => 1])->assertOk()->json('data');
+        $second = $this->postJson('/api/v1/store/cart/items', ['product_variant_id' => $otherVariant->id, 'qty' => 1])->assertOk()->json('data');
+        $this->withHeaders(['X-Cart-Session' => $first['cart_token']])->postJson('/api/v1/store/cart/items', ['product_variant_id' => $otherVariant->id, 'qty' => 2])->assertOk();
+        $this->deleteJson('/api/v1/store/cart/items')->assertOk()->assertJsonPath('data.items', [])->assertJsonPath('data.totals.total', 0);
+        $this->assertDatabaseMissing('cart_items', ['cart_id' => $first['id']]);
+        $this->assertDatabaseHas('cart_items', ['cart_id' => $second['id'], 'qty' => 1]);
+        $this->deleteJson('/api/v1/store/cart/items')->assertOk()->assertJsonPath('data.items', []);
+    }
+
+    public function test_soft_deleted_variant_does_not_break_the_remaining_cart(): void
+    {
+        $deleted = $this->purchasableVariant(100);
+        $live = $this->purchasableVariant(200);
+        $cart = Cart::factory()->create();
+        CartItem::factory()->create(['cart_id' => $cart->id, 'product_variant_id' => $deleted->id]);
+        $item = CartItem::factory()->create(['cart_id' => $cart->id, 'product_variant_id' => $live->id]);
+        // Bypass model events to exercise historical orphaned rows as well.
+        DB::table('product_variants')->where('id', $deleted->id)->update(['deleted_at' => now()]);
+        $this->withHeaders(['X-Cart-Session' => $cart->cart_token])->getJson('/api/v1/store/cart/items')
+            ->assertOk()->assertJsonCount(1, 'data.items')->assertJsonPath('data.items.0.id', $item->id);
+        $live->delete();
+        $this->assertDatabaseMissing('cart_items', ['id' => $item->id]);
+        $this->deleteJson('/api/v1/store/cart/items')->assertOk()->assertJsonPath('data.items', []);
+    }
+
+    public function test_pricing_queries_stay_bounded_as_cart_lines_grow(): void
+    {
+        $customer = Customer::factory()->create();
+        $cart = Cart::factory()->create(['customer_id' => $customer->id]);
+        foreach (range(1, 20) as $index) {
+            $variant = $this->purchasableVariant(12.35);
+            CartItem::factory()->create(['cart_id' => $cart->id, 'product_variant_id' => $variant->id, 'qty' => 3]);
+        }
+        DB::enableQueryLog();
+        DB::flushQueryLog();
+        try {
+            $result = app(CartService::class)->present($cart, $customer);
+            $queries = DB::getQueryLog();
+        } finally {
+            DB::disableQueryLog();
+        }
+        $this->assertCount(20, $result['items']);
+        $this->assertSame(741.0, $result['totals']['total']);
+        $priceQueries = array_filter($queries, fn ($query) => str_contains($query['query'], 'from "price_list_items"'));
+        $this->assertCount(1, $priceQueries);
+        $this->assertLessThanOrEqual(8, count($queries));
+    }
+
+    public function test_updating_a_removed_item_does_not_reinsert_it(): void
+    {
+        $variant = $this->purchasableVariant(100);
+        $this->giveStock($variant, 10);
+        $cart = Cart::factory()->create();
+        $item = CartItem::factory()->create(['cart_id' => $cart->id, 'product_variant_id' => $variant->id]);
+        $item->delete();
+        try {
+            app(CartService::class)->updateItemQty($cart, null, $variant->id, 2, $item->id);
+            $this->fail('Updating a deleted line must return not found.');
+        } catch (ModelNotFoundException) {
+            $this->assertDatabaseMissing('cart_items', ['cart_id' => $cart->id]);
+        }
+    }
 
     private function purchasableVariant(float $price): ProductVariant
     {

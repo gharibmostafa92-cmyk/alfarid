@@ -37,7 +37,7 @@ class CartController extends Controller
 
     public function store(AddCartItemRequest $request): JsonResponse
     {
-        [$customer, $cart] = $this->currentCart($request);
+        [$customer, $cart] = $this->currentCart($request, create: false);
         $cart = $this->carts->addItem($cart, $customer, (int) $request->validated()['product_variant_id'], (float) $request->validated()['qty']);
 
         return response()->json(['data' => $this->carts->present($cart, $customer)]);
@@ -47,7 +47,7 @@ class CartController extends Controller
     {
         [$customer, $cart] = $this->currentCart($request);
         $cartItem = $cart->items()->findOrFail($item);
-        $cart = $this->carts->updateItemQty($cart, $customer, (int) $cartItem->product_variant_id, (float) $request->validated()['qty']);
+        $cart = $this->carts->updateItemQty($cart, $customer, (int) $cartItem->product_variant_id, (float) $request->validated()['qty'], $cartItem->id);
 
         return response()->json(['data' => $this->carts->present($cart, $customer)]);
     }
@@ -69,6 +69,14 @@ class CartController extends Controller
         return response()->json(['data' => $this->carts->present($cart->refresh(), $customer)]);
     }
 
+    public function clear(Request $request): JsonResponse
+    {
+        [$customer, $cart] = $this->currentCart($request);
+        $cart = $this->carts->clearItems($cart);
+
+        return response()->json(['data' => $this->carts->present($cart, $customer)]);
+    }
+
     public function applyCoupon(ApplyCouponRequest $request): JsonResponse
     {
         [$customer, $cart] = $this->currentCart($request);
@@ -82,7 +90,7 @@ class CartController extends Controller
     }
 
     /** @return array{0: ?Customer, 1: Cart} */
-    private function currentCart(Request $request, bool $create = true): array
+    private function currentCart(Request $request, bool $create = false): array
     {
         $user = auth('sanctum')->user();
         // عميل موقوف/مرفوض بتوكن صالح يُعامل كزائر (F-20): لا تُربط سلاته
@@ -92,6 +100,9 @@ class CartController extends Controller
                 ? $user
                 : null;
         $cart = $this->carts->resolveCart($customer, $request->header('X-Cart-Session'), $create);
+        if (! $cart->exists && ! $request->isMethod('GET') && $request->route()?->getActionMethod() !== 'store') {
+            abort(404);
+        }
 
         return [$customer, $cart];
     }

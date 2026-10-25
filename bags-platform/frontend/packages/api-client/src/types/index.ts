@@ -147,6 +147,68 @@ export interface ProductPayload {
   country_of_origin?: string | null; sales_channel?: SalesChannel; is_featured?: boolean;
 }
 
+export type StoreBannerPosition = 'main_slider' | 'middle_banner' | 'popup';
+export interface PublicBranding {
+  name: string;
+  logo: string | null;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+}
+
+export interface StoreCart {
+  id: number | null;
+  cart_token: string | null;
+  customer_id: number | null;
+  items: Array<{
+    id: number; product_variant_id: number; product_id: number; product_name: string | null; sku: string;
+    qty: number; unit_price: number | null; line_total: number; available: number; priced: boolean;
+  }>;
+  totals: { subtotal: number; pricing_discount: number; items_total: number; coupon_discount: number; total: number; coupon_code: string | null };
+}
+export type StoreBannerLinkType = 'product' | 'category' | 'brand' | 'external' | 'none';
+
+export interface StoreBanner {
+  id: number;
+  title: string;
+  image: string;
+  position: StoreBannerPosition;
+  link_type: StoreBannerLinkType;
+  link_value: string | null;
+  href: string | null;
+  is_external: boolean;
+  kicker: string | null;
+  headline: string | null;
+  headline_bold: string | null;
+  description: string | null;
+  cta_label: string | null;
+  bg_color: string | null;
+}
+
+export interface StoreProductCard {
+  id: number;
+  name_ar: string;
+  name_en: string | null;
+  slug: string;
+  image: string | null;
+  brand: null;
+  category?: { id: number; name_ar: string; name_en: string | null; slug: string } | null;
+  price: number | string | null;
+  default_variant_id?: number | null;
+  old_price: number | string | null;
+  discount_percentage: number | null;
+  is_featured: boolean;
+  sales_count: number;
+  in_stock: boolean;
+}
+
+export interface StoreHomeData {
+  banners: StoreBanner[];
+  latest_products: StoreProductCard[];
+  best_sellers: StoreProductCard[];
+  discounted_products: StoreProductCard[];
+}
+
 export interface VariantPayload {
   expected_version?: number;
   sku?: string; barcode?: string | null;

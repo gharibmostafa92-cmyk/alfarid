@@ -49,6 +49,11 @@ class BannerSeeder extends Seeder
             if (! $row['image_path']) {
                 continue;
             }
+            $source = $row['image_path'];
+            $row['image_path'] = 'banners/seed/'.sha1($row['title'].$row['position']->value).'.'.pathinfo($source, PATHINFO_EXTENSION);
+            if (! $disk->exists($row['image_path'])) {
+                $disk->copy($source, $row['image_path']);
+            }
             Banner::updateOrCreate(
                 ['title' => $row['title'], 'position' => $row['position']],
                 [...$row, 'link_type' => BannerLinkType::None, 'link_value' => null, 'is_active' => true],

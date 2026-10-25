@@ -1,14 +1,18 @@
+@import '../styles/sophie.css';
+@import '../styles/categories.css';
+@import '../styles/design-showcase.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
 
 :root {
   --font-cairo: 'Cairo', sans-serif;
 }
 
 body {
-  font-family: var(--font-cairo), sans-serif;
-  background-color: #f8fafc;
-  color: #0f172a;
-  direction: rtl;
+  font-family: 'Poppins', var(--font-cairo), sans-serif;
+  background-color: #ffffff;
+  color: #111111;
 }

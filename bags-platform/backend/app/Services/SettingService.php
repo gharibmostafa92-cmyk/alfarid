@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Exceptions\BusinessException;
 use App\Http\Requests\Api\V1\Admin\UpdateSettingsRequest;
 use App\Models\Setting;
+use Brick\Math\BigDecimal;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -176,7 +177,9 @@ class SettingService
     /** @return array{name: string, logo: ?string, email: ?string, phone: ?string, address: ?string} */
     public function publicBranding(): array
     {
-        $company = $this->staticSettings()['company'] ?? [];
+        $company = Setting::query()->where('group', 'company')
+            ->whereIn('key', ['company_name', 'company_logo', 'company_email', 'company_phone', 'company_address'])
+            ->pluck('value', 'key')->all();
 
         return [
             'name' => trim((string) ($company['company_name'] ?? '')) ?: 'Alfarid',
@@ -372,6 +375,10 @@ class SettingService
 
     private function comparisonValue(mixed $value, string $type): ?string
     {
+        if ($type === 'float' && $value !== null && is_numeric($value)) {
+            return (string) BigDecimal::of((string) $value)->strippedOfTrailingZeros();
+        }
+
         return $type === 'string' ? (string) ($value ?? '') : $this->serializeValue($value, $type);
     }
 

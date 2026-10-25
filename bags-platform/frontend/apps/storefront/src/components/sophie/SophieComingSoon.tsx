@@ -1,0 +1,17 @@
+import { SophieBagPlaceholder } from './SophieBagPlaceholder';
+
+export function SophieComingSoon() {
+  return (
+    <section className="py-20">
+      <div className="max-w-[1140px] mx-auto px-5">
+        <div className="bg-[#f3f4f6] py-16 px-6 text-center">
+          <SophieBagPlaceholder />
+          <p className="font-['Oswald'] text-[13px] tracking-[0.6px] uppercase text-[#555] mt-6">NEW COLLECTION</p>
+          <h2 className="font-['Oswald'] text-[28px] font-semibold uppercase text-[#111] mt-1">Coming Soon</h2>
+          <p className="font-['Poppins'] text-[12px] text-[#555] mt-2">Our new pieces are being prepared. Join the newsletter to be the first to know.</p>
+          <a href="#footer-newsletter" className="inline-block mt-7 bg-black text-white font-['Oswald'] text-[11px] tracking-[0.8px] uppercase px-7 py-2.5 hover:bg-[#2c2c2c]">Notify me</a>
+        </div>
+      </div>
+    </section>
+  );
+}

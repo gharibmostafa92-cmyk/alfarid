@@ -31,6 +31,13 @@ class ProductVariant extends Model implements HasMedia
         'weight_kg' => 'decimal:3', 'is_active' => 'boolean',
     ];
 
+    protected static function booted(): void
+    {
+        static::deleted(function (self $variant): void {
+            CartItem::query()->where('product_variant_id', $variant->id)->delete();
+        });
+    }
+
     public function stockLevels(): HasMany
     {
         return $this->hasMany(StockLevel::class);

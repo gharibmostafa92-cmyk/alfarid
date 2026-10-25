@@ -6,7 +6,6 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Admin\UpdateSettingsRequest;
-use App\Services\BranchAccess;
 use App\Services\SettingService;
 use Illuminate\Http\JsonResponse;
 use InvalidArgumentException;
@@ -25,7 +24,6 @@ class SettingController extends Controller
 
     public function update(UpdateSettingsRequest $request): JsonResponse
     {
-        app(BranchAccess::class)->assertCentralAccess($request->user('staff'));
         try {
             $validated = $request->validated();
             $expected = $validated['expected'];

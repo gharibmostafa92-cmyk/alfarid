@@ -42,19 +42,21 @@ function AuthenticatedApp() {
     };
   }, []);
   useEffect(() => {
+    const isStore = ['/store', '/banners', '/settings/store', '/settings/banners'].includes(route);
     if (cashierOnly && !['/', '/dashboard', '/pos'].includes(route)) window.location.replace('/dashboard');
-    else if (!['/', '/dashboard', '/categories', '/dealers', '/production', '/pos', '/users', '/roles', '/settings'].includes(route) && !/^\/products(?:\/(?:new|[0-9]+))?$/.test(route) && !/^\/inventory(?:\/[a-z-]+)?$/.test(route)) window.location.replace('/dashboard');
+    else if (!['/', '/dashboard', '/categories', '/dealers', '/production', '/pos', '/users', '/roles', '/settings'].includes(route) && !isStore && !/^\/products(?:\/(?:new|[0-9]+))?$/.test(route) && !/^\/inventory(?:\/[a-z-]+)?$/.test(route)) window.location.replace('/dashboard');
   }, [cashierOnly, route]);
   if (cashierOnly && !['/', '/dashboard', '/pos'].includes(route)) return null;
   if (route === '/pos') return <PosPage />;
   const categoriesActive = route === '/categories';
   const inventoryActive = route === '/inventory' || route.startsWith('/inventory/');
-  const adminActive = route === '/users' ? 'users' : route === '/roles' ? 'roles' : route === '/settings' ? 'settings' : null;
+  const isStoreRoute = route === '/store' || route === '/banners' || route === '/settings/store' || route === '/settings/banners';
+  const adminActive = route === '/users' ? 'users' : route === '/roles' ? 'roles' : (route === '/settings' || isStoreRoute) ? 'settings' : null;
   const catalogActive = inventoryActive ? 'inventory' : route.startsWith('/products') ? 'products' : route === '/dealers' ? 'dealers' : route === '/production' ? 'production' : adminActive;
   return <FinancialDashboard
     onLogout={logoutRemote}
     catalogActive={catalogActive}
-    catalogPage={inventoryActive ? (can('inventory.view') ? <Suspense fallback={<div dir="rtl" className="p-6">جارٍ تحميل المخزون…</div>}><InventoryPage can={can}/></Suspense> : <div dir="rtl" className="p-6">ليس لديك صلاحية عرض المخزون.</div>) : adminActive ? <AdminMockPage key={adminActive} page={adminActive} can={can} /> : catalogActive && <CatalogMockPage key={catalogActive} can={can} page={catalogActive} />}
+    catalogPage={inventoryActive ? (can('inventory.view') ? <Suspense fallback={<div dir="rtl" className="p-6">جارٍ تحميل المخزون…</div>}><InventoryPage can={can}/></Suspense> : <div dir="rtl" className="p-6">ليس لديك صلاحية عرض المخزون.</div>) : adminActive ? <AdminMockPage key={adminActive} page={adminActive} can={can} initialTab={isStoreRoute ? 'store' : undefined} /> : catalogActive && <CatalogMockPage key={catalogActive} can={can} page={catalogActive} />}
     catalogNav={!cashierOnly ? [
       ...(can('inventory.view') ? [{ id: 'inventory', label: 'المخزون', onOpen: () => { window.location.hash = '/inventory/stock'; } }] : []),
       ...(can('products.view') ? [{ id: 'products', label: 'المنتجات', onOpen: () => { window.location.hash = '/products'; } }] : []),

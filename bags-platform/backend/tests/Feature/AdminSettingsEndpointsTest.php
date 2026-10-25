@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Models\Branch;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\SettingService;
@@ -169,9 +170,33 @@ class AdminSettingsEndpointsTest extends TestCase
         $this->assertDatabaseHas('settings', ['key' => 'order_next_number', 'value' => '1000']);
     }
 
+    public function test_non_central_staff_is_forbidden_before_settings_validation(): void
+    {
+        $branch = Branch::factory()->create();
+        $staff = User::factory()->create(['branch_id' => $branch->id]);
+        $staff->givePermissionTo(Permission::findOrCreate('settings.manage', 'staff'));
+        $token = $staff->createToken('restricted-settings')->plainTextToken;
+        Auth::forgetGuards();
+
+        $this->withToken($token)->putJson('/api/v1/admin/settings', ['default_tax_rate' => 'invalid'])
+            ->assertForbidden()->assertJsonMissingPath('errors.default_tax_rate');
+    }
+
     private function seedSettings(): void
     {
         $this->seed(SettingSeeder::class);
+    }
+
+    public function test_equivalent_decimal_expected_values_do_not_cause_a_conflict(): void
+    {
+        $this->seedSettings();
+        Setting::query()->where('key', 'default_tax_rate')->update(['value' => '14.50']);
+        $token = $this->staffWithSettingsPermission()->createToken('decimal-setting')->plainTextToken;
+        Auth::forgetGuards();
+        $this->withToken($token)->putJson('/api/v1/admin/settings', [
+            'default_tax_rate' => '15.00', 'expected' => ['default_tax_rate' => '14.5'],
+        ])->assertOk()->assertJsonPath('data.tax.default_tax_rate', 15);
+        $this->assertDatabaseHas('settings', ['key' => 'default_tax_rate', 'value' => '15.00']);
     }
 
     /**

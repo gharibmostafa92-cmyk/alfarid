@@ -6,6 +6,7 @@ namespace App\Http\Requests\Api\V1\Admin;
 
 use App\Enums\BannerLinkType;
 use App\Enums\BannerPosition;
+use App\Models\Banner;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -24,17 +25,22 @@ class UpdateBannerRequest extends FormRequest
     public function rules(): array
     {
         $type = $this->input('link_type');
+        $banner = $this->route('banner');
+        $linkRule = Rule::enum(BannerLinkType::class);
+        if (! $banner instanceof Banner || $banner->link_type !== BannerLinkType::Brand) {
+            $linkRule->except([BannerLinkType::Brand]);
+        }
 
         return [
             'title' => ['required', 'string', 'max:120'],
             'image' => [$this->isCreate() ? 'required' : 'sometimes', 'file', 'image',
-                'mimes:png,jpg,jpeg,webp', 'max:5120', 'dimensions:min_width=600,min_height=300'],
+                'mimes:png,jpg,jpeg,webp', 'max:5120', 'dimensions:min_width=600,min_height=300,max_width=4000,max_height=4000'],
             'position' => ['required', Rule::enum(BannerPosition::class)],
-            'link_type' => ['required', Rule::enum(BannerLinkType::class)],
+            'link_type' => ['required', $linkRule],
             'link_value' => match ($type) {
-                'product' => ['required', 'integer', Rule::exists('products', 'id')],
-                'category' => ['required', 'integer', Rule::exists('categories', 'id')],
-                'brand' => ['required', 'integer'],
+                'product' => ['required', 'integer', Rule::exists('products', 'id')->withoutTrashed()],
+                'category' => ['required', 'integer', Rule::exists('categories', 'id')->withoutTrashed()],
+                'brand' => ['required', 'integer', Rule::exists('brands', 'id')->withoutTrashed()],
                 'external' => ['required', 'url:https', 'max:2048'],
                 default => ['nullable'],
             },

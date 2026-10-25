@@ -27,6 +27,8 @@
   --badge-amber-text: #b45309;
   --badge-blue-bg: #e0e7ff;
   --badge-blue-text: #4338ca;
+  --badge-gray-bg: rgba(24, 21, 28, 0.06);
+  --badge-gray-text: #5f5a66;
   --icon-well-bg: rgba(24, 21, 28, 0.05);
   --toggle-off-bg: rgba(24, 21, 28, 0.12);
   --checkbox-border: rgba(24, 21, 28, 0.22);
@@ -61,6 +63,8 @@
   --badge-amber-text: #fbbf24;
   --badge-blue-bg: rgba(49, 46, 129, 0.5);
   --badge-blue-text: #a5b4fc;
+  --badge-gray-bg: rgba(255, 255, 255, 0.07);
+  --badge-gray-text: #b4afbb;
   --icon-well-bg: rgba(255, 255, 255, 0.06);
   --toggle-off-bg: rgba(255, 255, 255, 0.15);
   --checkbox-border: rgba(255, 255, 255, 0.25);
@@ -546,3 +550,55 @@
   background: var(--skeleton);
   animation: vSkeletonPulse 1.4s ease-in-out infinite;
 }
+
+/* Store management & Banners shared utilities */
+.c-primary { color: var(--text-primary); }
+.c-secondary { color: var(--text-secondary); }
+.c-muted { color: var(--text-muted); }
+.c-orange { color: var(--accent-orange); }
+
+.b-green { background: var(--badge-green-bg); color: var(--badge-green-text); }
+.b-red { background: var(--badge-red-bg); color: var(--badge-red-text); }
+.b-amber { background: var(--badge-amber-bg); color: var(--badge-amber-text); }
+.b-blue { background: var(--badge-blue-bg); color: var(--badge-blue-text); }
+.b-gray { background: var(--badge-gray-bg); color: var(--badge-gray-text); }
+.b-orange { background: var(--accent-orange-light); color: var(--accent-orange); }
+.b-dark { background: var(--pill-active-bg); color: var(--pill-active-text); }
+
+.badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.badge .dot { width: 6px; height: 6px; border-radius: 99px; background: currentColor; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 999px; font-size: 13px; font-weight: 500; padding: 9px 18px; transition: opacity .15s, background .15s, transform .1s; white-space: nowrap; cursor: pointer; }
+.btn:active { transform: scale(.98); }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn-dark { background: var(--pill-active-bg); color: var(--pill-active-text); }
+.btn-dark:hover:not(:disabled) { opacity: .9; }
+.btn-soft { background: var(--bg-subcard); color: var(--text-primary); }
+.btn-soft:hover:not(:disabled) { background: var(--bg-subcard-hover); }
+.btn-orange { background: var(--accent-orange); color: #fff; }
+.btn-orange:hover:not(:disabled) { opacity: .92; }
+.btn-danger { background: var(--badge-red-bg); color: var(--badge-red-text); }
+.btn-sm { padding: 6px 13px; font-size: 12px; }
+
+.icon-btn { width: 30px; height: 30px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-secondary); transition: background .15s, color .15s; }
+.icon-btn:hover:not(:disabled) { background: var(--bg-subcard-hover); color: var(--text-primary); }
+.icon-btn:disabled { opacity: .3; cursor: not-allowed; }
+
+.field-label { font-size: 11.5px; font-weight: 500; color: var(--text-secondary); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+.inp { width: 100%; background: var(--bg-subcard); border: 1px solid transparent; border-radius: 12px; padding: 9px 12px; font-size: 13px; color: var(--text-primary); outline: none; transition: border-color .15s, background .15s; font-family: inherit; }
+.inp::placeholder { color: var(--text-muted); }
+.inp:focus { border-color: var(--accent-orange); background: var(--bg-card); }
+.inp.err { border-color: var(--badge-red-text); }
+.inp-sm { padding: 6px 10px; font-size: 12.5px; border-radius: 10px; }
+
+.seg { display: inline-flex; background: var(--bg-subcard); border-radius: 999px; padding: 3px; gap: 2px; }
+.seg button { padding: 6px 14px; border-radius: 999px; font-size: 12px; font-weight: 500; color: var(--text-secondary); transition: all .15s; }
+.seg button.on { background: var(--seg-active-bg); color: var(--text-primary); box-shadow: 0 1px 2px rgba(0,0,0,.06); font-weight: 600; }
+
+.v-border-b { border-bottom: 1px solid var(--divider-color); }
+.hatched { background: var(--hatched-track); }
+.bar-hatched-orange { background: repeating-linear-gradient(-45deg, #e0491f 0, #e0491f 2.5px, #f37c59 2.5px, #f37c59 5px); }
+.sk { background: var(--skeleton); border-radius: 6px; animation: vSkeletonPulse 1.4s ease-in-out infinite; }
+.fade-in { animation: vFadeIn 0.25s ease-out; }
+@keyframes vFadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+

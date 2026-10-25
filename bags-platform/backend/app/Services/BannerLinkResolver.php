@@ -28,9 +28,10 @@ final class BannerLinkResolver
 
         return $banners->each(function ($b) use ($productSlugs, $categorySlugs): void {
             $href = match ($b->link_type) {
-                BannerLinkType::Product => ($s = $productSlugs->get((int) $b->link_value)) ? "/products/{$s}" : null,
-                BannerLinkType::Category => ($s = $categorySlugs->get((int) $b->link_value)) ? "/shop?category={$s}" : null,
-                BannerLinkType::External => $b->link_value ?: null,
+                BannerLinkType::Product => ($s = $productSlugs->get((int) $b->link_value)) ? '/products/'.rawurlencode($s) : null,
+                BannerLinkType::Category => ($s = $categorySlugs->get((int) $b->link_value)) ? '/shop?category='.rawurlencode($s) : null,
+                BannerLinkType::External => filter_var($b->link_value, FILTER_VALIDATE_URL)
+                    && strtolower((string) parse_url($b->link_value, PHP_URL_SCHEME)) === 'https' ? $b->link_value : null,
                 default => null,
             };
             $b->setAttribute('resolved_href', $href);

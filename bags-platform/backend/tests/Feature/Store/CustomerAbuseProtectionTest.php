@@ -447,15 +447,15 @@ class CustomerAbuseProtectionTest extends TestCase
         $this->assertDatabaseHas('customers', ['id' => $second->id, 'phone' => '+201001234567']);
     }
 
-    public function test_home_uses_cached_data_during_lock_and_returns_retryable_error_on_cold_contention(): void
+    public function test_home_keeps_banners_available_during_cold_cache_contention(): void
     {
         $this->getJson('/api/v1/store/home')->assertOk();
-        $lock = Cache::lock('store_home_data:build', 15);
+        $lock = Cache::lock('store_home_data:v2:build', 15);
         $this->assertTrue($lock->get());
         try {
             $this->getJson('/api/v1/store/home')->assertOk();
-            Cache::forget('store_home_data');
-            $this->getJson('/api/v1/store/home')->assertServiceUnavailable()->assertHeader('Retry-After', '2');
+            Cache::forget('store_home_data:v2');
+            $this->getJson('/api/v1/store/home')->assertOk()->assertJsonPath('data.latest_products', []);
         } finally {
             $lock->release();
         }

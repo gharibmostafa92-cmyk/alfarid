@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Api\V1\Admin;
 
+use App\Services\BranchAccess;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
@@ -12,7 +13,12 @@ class UpdateSettingsRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user() !== null;
+        if ($this->user('staff') === null) {
+            return false;
+        }
+        app(BranchAccess::class)->assertCentralAccess($this->user('staff'));
+
+        return true;
     }
 
     /** @return array<string, mixed> */

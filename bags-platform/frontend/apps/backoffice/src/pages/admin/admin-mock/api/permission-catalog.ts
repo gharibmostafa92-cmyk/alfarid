@@ -33,6 +33,7 @@ const RESOURCE: Record<string, string> = {
   purchases: 'المشتريات', purchase_requests: 'طلبات الشراء', suppliers: 'الموردين',
   supplier_invoices: 'فواتير الموردين', supplier_payments: 'مدفوعات الموردين',
   returns: 'المرتجعات', shipping: 'الشحن', promotions: 'العروض', coupons: 'الكوبونات',
+  store: 'إدارة المتجر',
   branches: 'الفروع', locations: 'المواقع', payments: 'المدفوعات', payment_notices: 'إشعارات الدفع',
   reports: 'التقارير', notifications: 'الإشعارات', pos: 'نقطة البيع',
 };

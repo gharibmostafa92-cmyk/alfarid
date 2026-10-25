@@ -1,190 +1,343 @@
-// ===== Shared UI primitives (Vortix visual language, RTL) =====
-const { useState, useEffect, useRef, useMemo, useCallback } = React;
+// ============ Shared Vortix UI primitives (RTL) ============
+const { useState, useEffect, useRef, useMemo, useContext, createContext, Fragment } = React;
 
-const ICON_PATHS = {
-  search: <><circle cx="11" cy="11" r="7"/><path strokeLinecap="round" d="M20 20l-3.5-3.5"/></>,
-  plus: <path strokeLinecap="round" d="M12 5v14M5 12h14"/>,
-  users: <><circle cx="9" cy="8" r="3.5"/><path strokeLinecap="round" d="M2.5 20c.6-3.6 3.3-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><path strokeLinecap="round" d="M16 4.6a3.5 3.5 0 010 6.8M18 14.8c1.9.7 3.2 2.4 3.5 5.2"/></>,
-  userCheck: <><circle cx="9" cy="8" r="3.5"/><path strokeLinecap="round" d="M2.5 20c.6-3.6 3.3-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><path strokeLinecap="round" strokeLinejoin="round" d="M16 11l2 2 4-4"/></>,
-  userOff: <><circle cx="9" cy="8" r="3.5"/><path strokeLinecap="round" d="M2.5 20c.6-3.6 3.3-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><path strokeLinecap="round" d="M17 9l4 4M21 9l-4 4"/></>,
-  shield: <path strokeLinecap="round" strokeLinejoin="round" d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6L12 3z"/>,
-  shieldCheck: <><path strokeLinecap="round" strokeLinejoin="round" d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6L12 3z"/><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4"/></>,
-  settings: <><circle cx="12" cy="12" r="3"/><path strokeLinecap="round" strokeLinejoin="round" d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></>,
-  chevDown: <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/>,
-  chevLeft: <path strokeLinecap="round" strokeLinejoin="round" d="M15 18l-6-6 6-6"/>,
-  chevRight: <path strokeLinecap="round" strokeLinejoin="round" d="M9 18l6-6-6-6"/>,
-  close: <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18"/>,
-  check: <path strokeLinecap="round" strokeLinejoin="round" d="M5 12.5l4.5 4.5L19 7.5"/>,
-  edit: <><path strokeLinecap="round" strokeLinejoin="round" d="M4 20h4L19 9a2.8 2.8 0 00-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></>,
-  power: <><path strokeLinecap="round" d="M12 3v8"/><path strokeLinecap="round" d="M6.3 6.8a8 8 0 1011.4 0"/></>,
-  more: <><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></>,
-  eye: <><path strokeLinecap="round" strokeLinejoin="round" d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></>,
-  eyeOff: <><path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18M10.6 5.1A10 10 0 0112 5c6.4 0 10 7 10 7a17 17 0 01-3.2 4.1M6.6 6.6A17 17 0 002 12s3.6 7 10 7a9.6 9.6 0 005.4-1.6M9.9 9.9a3 3 0 004.2 4.2"/></>,
-  building: <><rect x="4" y="3" width="16" height="18" rx="2"/><path strokeLinecap="round" d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2"/></>,
-  globe: <><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3z"/></>,
-  lock: <><rect x="5" y="11" width="14" height="10" rx="2.5"/><path strokeLinecap="round" d="M8 11V8a4 4 0 018 0v3"/></>,
-  alert: <><path strokeLinecap="round" strokeLinejoin="round" d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/><path strokeLinecap="round" d="M12 9v4M12 17h.01"/></>,
-  info: <><circle cx="12" cy="12" r="9"/><path strokeLinecap="round" d="M12 8h.01M12 11v5"/></>,
-  refresh: <><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v6h6"/><path strokeLinecap="round" strokeLinejoin="round" d="M20 20v-6h-6"/><path strokeLinecap="round" d="M20 10a8 8 0 00-14.3-3.7L4 10M4 14a8 8 0 0014.3 3.7L20 14"/></>,
-  undo: <><path strokeLinecap="round" strokeLinejoin="round" d="M9 14L4 9l5-5"/><path strokeLinecap="round" d="M4 9h10.5a5.5 5.5 0 010 11H11"/></>,
-  trash: <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 002 2h8a2 2 0 002-2l1-12M9 7V4h6v3"/>,
-  box: <><path strokeLinejoin="round" d="M3 7.5L12 3l9 4.5v9L12 21l-9-4.5v-9z"/><path strokeLinejoin="round" d="M3 7.5L12 12l9-4.5M12 12v9"/></>,
-  tag: <><path strokeLinejoin="round" d="M3 12V4a1 1 0 011-1h8l9 9-9 9-9-9z"/><circle cx="7.5" cy="7.5" r="1.5"/></>,
-  cart: <><path strokeLinecap="round" strokeLinejoin="round" d="M3 4h2l2.4 11.2a2 2 0 002 1.6h7.7a2 2 0 002-1.5L21 8H6"/><circle cx="10" cy="20.5" r="1"/><circle cx="17" cy="20.5" r="1"/></>,
-  pos: <><rect x="4" y="3" width="16" height="11" rx="2"/><path strokeLinecap="round" d="M8 7h8M4 18h16M7 21h10"/></>,
-  truck: <><path strokeLinejoin="round" d="M2 6h12v10H2zM14 9h4l4 4v3h-8z"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></>,
-  pin: <><path strokeLinejoin="round" d="M12 21s-7-6.2-7-11.5a7 7 0 0114 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></>,
-  wallet: <><rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M3 10h18"/><path strokeLinecap="round" d="M16 14.5h2"/></>,
-  sliders: <><path strokeLinecap="round" d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></>,
-  percent: <><path strokeLinecap="round" d="M19 5L5 19"/><circle cx="7" cy="7" r="2.5"/><circle cx="17" cy="17" r="2.5"/></>,
-  hash: <path strokeLinecap="round" d="M5 9h15M4 15h15M10 3L8 21M16 3l-2 18"/>,
-  doc: <><path strokeLinejoin="round" d="M6 3h8l5 5v13H6z"/><path strokeLinejoin="round" d="M14 3v5h5M9 13h6M9 17h6"/></>,
-  calendar: <><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path strokeLinecap="round" d="M3.5 10h17M8 3v4M16 3v4"/></>,
-  ban: <><circle cx="12" cy="12" r="9"/><path strokeLinecap="round" d="M5.6 5.6l12.8 12.8"/></>,
-  infinity: <path strokeLinecap="round" strokeLinejoin="round" d="M12 12c-2-2.7-3.6-4-5.5-4a4 4 0 000 8c1.9 0 3.5-1.3 5.5-4zm0 0c2 2.7 3.6 4 5.5 4a4 4 0 000-8c-1.9 0-3.5 1.3-5.5 4z"/>,
-  image: <><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="2"/><path strokeLinecap="round" strokeLinejoin="round" d="M21 16l-5-5-9 9"/></>,
-  link: <><path strokeLinecap="round" d="M10 14a4 4 0 005.7 0l3.5-3.5a4 4 0 00-5.7-5.7L12 6.3"/><path strokeLinecap="round" d="M14 10a4 4 0 00-5.7 0l-3.5 3.5a4 4 0 005.7 5.7L12 17.7"/></>,
-  mail: <><rect x="3" y="5" width="18" height="14" rx="2.5"/><path strokeLinecap="round" strokeLinejoin="round" d="M3 7l9 6 9-6"/></>,
-  phone: <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h2.6a1 1 0 01.95.68l1.1 3.3a1 1 0 01-.27 1.02l-1.5 1.5a12 12 0 005.6 5.6l1.5-1.5a1 1 0 011.02-.27l3.3 1.1a1 1 0 01.68.95V19a2 2 0 01-2 2h-1C9.82 21 3 14.18 3 6V5z"/>,
-  key: <><circle cx="8" cy="15" r="4"/><path strokeLinecap="round" strokeLinejoin="round" d="M11 12l9-9M17 6l3 3M14 9l2 2"/></>,
-  grid: <><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></>,
-  sun: <><circle cx="12" cy="12" r="4"/><path strokeLinecap="round" d="M12 3v2m0 14v2M3 12h2m14 0h2m-2.6-6.4l-1.4 1.4M7 17l-1.4 1.4m0-12.8L7 7m10 10l1.4 1.4"/></>,
-  moon: <path strokeLinecap="round" strokeLinejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>,
-  bell: <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 00-5-5.9V4a1 1 0 10-2 0v1.1A6 6 0 006 11v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>,
-  help: <><circle cx="12" cy="12" r="9"/><path strokeLinecap="round" strokeLinejoin="round" d="M9.5 9a2.5 2.5 0 015 0c0 1.5-2.5 2-2.5 3.5m0 3h.01"/></>,
-  logout: <path strokeLinecap="round" strokeLinejoin="round" d="M15 21h4a2 2 0 002-2V5a2 2 0 00-2-2h-4M8 17l-5-5 5-5M3 12h12"/>,
-  filter: <path strokeLinecap="round" d="M4 6h16M7 12h10M10 18h4"/>,
-  dual: <><circle cx="8" cy="8" r="3"/><circle cx="16" cy="8" r="3"/><path strokeLinecap="round" d="M2.5 19c.5-3 2.7-4.5 5.5-4.5M21.5 19c-.5-3-2.7-4.5-5.5-4.5M10 18l2 2 3.5-3.5"/></>,
+const InvCtx = createContext(null);
+const useInv = () => useContext(InvCtx);
+const useCan = () => { const { role } = useInv(); return p => INV_ROLES[role].perms.includes(p); };
+
+// Simulated fetch lifecycle: loading → (live | empty | error) per demo tweak
+function useLoad(dep) {
+  const { demoState, reloadKey } = useInv();
+  const [phase, setPhase] = useState('loading');
+  useEffect(() => {
+    setPhase('loading');
+    if (demoState === 'loading') return;
+    const t = setTimeout(() => setPhase(demoState === 'live' ? 'ready' : demoState), 550);
+    return () => clearTimeout(t);
+  }, [demoState, reloadKey, dep]);
+  return phase;
+}
+
+// ---------- Icons (stroke, 1.9 like Vortix) ----------
+const IP = {
+  plus: 'M12 5v14M5 12h14',
+  edit: 'M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4',
+  trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
+  search: 'M11 4a7 7 0 100 14 7 7 0 000-14zM20 20l-3.5-3.5',
+  filter: 'M4 6h16M7 12h10M10 18h4',
+  x: 'M6 6l12 12M18 6L6 18',
+  check: 'M5 12l5 5L20 7',
+  chevL: 'M15 18l-6-6 6-6',
+  chevR: 'M9 6l6 6-6 6',
+  chevD: 'M19 9l-7 7-7-7',
+  pin: 'M12 21s-7-6.2-7-11.5A7 7 0 0119 9.5C19 14.8 12 21 12 21zM12 7a2.5 2.5 0 100 5 2.5 2.5 0 000-5z',
+  store: 'M4 10h16v10H4zM3 10l2-6h14l2 6M9 20v-5h6v5',
+  warehouse: 'M3 21V9l9-5 9 5v12M7 21v-8h10v8M7 17h10',
+  box: 'M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zM12 12l8-4.5M12 12v9M12 12L4 7.5',
+  layers: 'M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5M3 17.5l9 5 9-5',
+  sliders: 'M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4',
+  history: 'M3 12a9 9 0 109-9 9 9 0 00-6.4 2.6L3 8M3 3v5h5M12 7v5l3 2',
+  swap: 'M7 4L3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7',
+  clipboard: 'M9 4h6v3H9zM7 5H5v16h14V5h-2M9 12l2 2 4-4',
+  factory: 'M3 21V10l6 4V10l6 4V6h6v15H3zM7 17h2M12 17h2M17 17h2',
+  alert: 'M12 9v4M12 17h.01M10.3 3.9L2 18a2 2 0 001.7 3h16.6a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z',
+  refresh: 'M4 4v6h6M20 20v-6h-6M5.6 15a7 7 0 0011.8 2.4L20 14M4 10l2.6-3.4A7 7 0 0118.4 9',
+  lock: 'M6 11h12v10H6zM8 11V7a4 4 0 018 0v4',
+  eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 9a3 3 0 100 6 3 3 0 000-6z',
+  more: 'M12 6h.01M12 12h.01M12 18h.01',
+  truck: 'M3 6h11v10H3zM14 10h4l3 3v3h-7M7 19a2 2 0 100-4 2 2 0 000 4zM17 19a2 2 0 100-4 2 2 0 000 4z',
+  inbox: 'M3 13l3-8h12l3 8v6H3v-6zM3 13h5l1 3h6l1-3h5',
+  barcode: 'M4 6v12M7 6v12M10 6v12M14 6v12M17 6v12M20 6v12',
+  power: 'M12 3v8M6.3 7a8 8 0 1011.4 0',
+  arrowL: 'M19 12H5M11 6l-6 6 6 6',
+  sun: 'M12 8a4 4 0 100 8 4 4 0 000-8zM12 3v2m0 14v2M3 12h2m14 0h2m-2.6-6.4l-1.4 1.4M7 17l-1.4 1.4m0-12.8L7 7m10 10l1.4 1.4',
+  moon: 'M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z',
+  bell: 'M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 00-5-5.9V4a1 1 0 10-2 0v1.1A6 6 0 006 11v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9',
+  help: 'M12 3a9 9 0 100 18 9 9 0 000-18zM9.5 9a2.5 2.5 0 015 0c0 1.5-2.5 2-2.5 3.5m0 3h.01',
+  logout: 'M15 21h4a2 2 0 002-2V5a2 2 0 00-2-2h-4M8 17l-5-5 5-5M3 12h12',
+  info: 'M12 3a9 9 0 100 18 9 9 0 000-18zM12 8h.01M12 11v5',
+  image: 'M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4M15.5 9.5h.01',
+  upload: 'M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3',
+  link: 'M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1',
+  calendar: 'M4 5h16v16H4zM16 3v4M8 3v4M4 10h16',
+  tag: 'M3 12V4h8l10 10-8 8L3 12zM7.5 7.5h.01',
+  grid: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
+  external: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5',
+  slash: 'M5 19L19 5M12 3a9 9 0 100 18 9 9 0 000-18z',
+  slides: 'M7 6h10v12H7zM3 8v8M21 8v8',
+  popup: 'M4 4h16v16H4zM8 8h8v8H8z',
+  mid: 'M4 4h16v4H4zM4 10h16v5H4zM4 17h16v3H4z',
+  storefront: 'M3 9l1.5-5h15L21 9M3 9v11h18V9M3 9a3 3 0 006 0 3 3 0 006 0 3 3 0 006 0M10 20v-5h4v5',
 };
-
-function Icon({ name, className = 'w-4 h-4', strokeWidth = 1.9, style }) {
+function Icon({ n, s = 16, w = 1.9, className = '', style }) {
   return (
-    <svg className={className} style={style} fill="none" stroke="currentColor" strokeWidth={strokeWidth} viewBox="0 0 24 24">
-      {ICON_PATHS[name]}
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" className={className} style={style}>
+      <path d={IP[n]} />
     </svg>
   );
 }
 
-function Toggle({ on, onChange, disabled, size = 'md' }) {
-  const w = size === 'sm' ? 'w-9 h-5' : 'w-11 h-6';
-  const k = size === 'sm' ? 'w-4 h-4' : 'w-5 h-5';
+// ---------- Layout ----------
+function PageHead({ title, sub, actions, back }) {
   return (
-    <button type="button" role="switch" aria-checked={on} disabled={disabled}
-      onClick={() => !disabled && onChange(!on)}
-      className={`${w} rounded-full p-0.5 transition-colors duration-200 flex items-center shrink-0 ${disabled ? 'opacity-45 cursor-not-allowed' : ''}`}
-      style={{ background: on ? 'var(--accent-orange)' : 'var(--toggle-off-bg)', justifyContent: on ? 'flex-start' : 'flex-end' }}>
-      <span className={`${k} rounded-full bg-white shadow-sm block`} />
-    </button>
-  );
-}
-
-function Badge({ tone = 'neutral', children, className = '', dot }) {
-  const tones = {
-    green: 'v-badge-green', red: 'v-badge-red',
-    orange: 'v-badge-orange', neutral: 'v-badge-neutral', dark: 'v-badge-dark', outline: 'v-badge-outline',
-  };
-  return (
-    <span className={`${tones[tone]} inline-flex items-center gap-1.5 px-2.5 py-[3px] rounded-full text-[11px] font-semibold whitespace-nowrap ${className}`}>
-      {dot && <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'currentColor' }} />}
-      {children}
-    </span>
-  );
-}
-
-const AVATAR_TONES = [
-  ['#fde8e1', '#c2410c'], ['#e8e4f7', '#5b4bb7'], ['#dcf3ea', '#11795a'], ['#fbeccc', '#a1620a'],
-  ['#e2eefb', '#2d6aa8'], ['#f7e1ec', '#b03a72'],
-];
-function Avatar({ name, id = 0, size = 36, ring }) {
-  const parts = name.trim().split(/\s+/);
-  const initials = (parts[0]?.[0] || '') + (parts[1]?.[0] || '');
-  const [bg, fg] = AVATAR_TONES[id % AVATAR_TONES.length];
-  return (
-    <div className="rounded-full flex items-center justify-center font-semibold shrink-0 avatar-chip"
-      style={{ width: size, height: size, background: bg, color: fg, fontSize: size * 0.36, boxShadow: ring ? '0 0 0 2px var(--bg-card), 0 0 0 3.5px var(--accent-orange)' : undefined }}>
-      {initials}
+    <div className="flex flex-wrap items-end justify-between gap-4 pt-1 stagger-item stagger-1">
+      <div>
+        {back && (
+          <button onClick={back.onClick} className="flex items-center gap-1.5 text-[12px] font-medium c-secondary hover:c-primary mb-2">
+            <Icon n="chevR" s={14} /> {back.label}
+          </button>
+        )}
+        <h1 className="font-display text-[34px] sm:text-[38px] font-medium tracking-[-0.02em] leading-tight c-primary">{title}</h1>
+        {sub && <p className="text-[13.5px] mt-1 c-secondary">{sub}</p>}
+      </div>
+      {actions && <div className="flex items-center gap-2.5 flex-wrap">{actions}</div>}
     </div>
   );
 }
 
-// Field wrapper
-function Field({ label, hint, error, required, children, className = '', aside }) {
+function Card({ children, className = '', pad = 'p-5', stagger = 2 }) {
+  return <div className={`v-card ${pad} stagger-item stagger-${stagger} ${className}`}>{children}</div>;
+}
+
+function CardHead({ title, meta, right }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <div className="flex items-center gap-2.5">
+        <h3 className="font-display text-[17px] font-semibold c-primary">{title}</h3>
+        {meta && <span className="text-[11.5px] c-muted">| &nbsp;{meta}</span>}
+      </div>
+      {right && <div className="flex items-center gap-2.5 flex-wrap">{right}</div>}
+    </div>
+  );
+}
+
+function Badge({ cls = 'b-gray', dot, children }) {
+  return <span className={`badge ${cls}`}>{dot && <span className="dot" />}{children}</span>;
+}
+const ActiveBadge = ({ on }) => <Badge cls={on ? 'b-green' : 'b-gray'} dot>{on ? 'نشط' : 'غير نشط'}</Badge>;
+
+function SearchPill({ value, onChange, placeholder = 'بحث', w = 'w-40' }) {
+  return (
+    <div className="v-subcard px-3 py-1.5 rounded-full flex items-center gap-2">
+      <Icon n="search" s={14} className="c-muted" />
+      <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className={`bg-transparent text-[12px] outline-none ${w} c-primary`} />
+    </div>
+  );
+}
+
+function Field({ label, req, hint, error, children, className = '' }) {
   return (
     <label className={`block ${className}`}>
-      <div className="flex items-center justify-between mb-1.5">
-        <span className="text-[12.5px] font-semibold" style={{ color: 'var(--text-primary)' }}>
-          {label}{required && <span style={{ color: 'var(--accent-orange)' }}> *</span>}
-        </span>
-        {aside}
-      </div>
+      <span className="field-label">{label}{req && <span className="c-orange">*</span>}</span>
       {children}
-      {error ? <div className="text-[11.5px] mt-1.5 font-medium" style={{ color: 'var(--badge-red-text)' }}>{error}</div>
-        : hint ? <div className="text-[11.5px] mt-1.5" style={{ color: 'var(--text-muted)' }}>{hint}</div> : null}
+      {error ? <span className="block text-[11px] mt-1" style={{ color: 'var(--badge-red-text)' }}>{error}</span>
+        : hint ? <span className="block text-[11px] mt-1 c-muted">{hint}</span> : null}
     </label>
   );
 }
 
-function TextInput({ value, onChange, placeholder, icon, dir, type = 'text', disabled, error, suffix, className = '', ...rest }) {
+function Sel({ value, onChange, options, placeholder, className = '', small, disabled }) {
   return (
-    <div className={`v-input flex items-center gap-2 px-3.5 h-11 ${error ? 'is-error' : ''} ${disabled ? 'is-disabled' : ''} ${className}`}>
-      {icon && <Icon name={icon} className="w-4 h-4 shrink-0" style={{ color: 'var(--text-muted)' }} />}
-      <input type={type} value={value ?? ''} disabled={disabled} dir={dir} placeholder={placeholder}
-        onChange={e => onChange(e.target.value)}
-        className="bg-transparent outline-none w-full text-[13px] h-full" style={{ color: 'var(--text-primary)' }} {...rest} />
-      {suffix}
+    <select disabled={disabled} value={value ?? ''} onChange={e => onChange(e.target.value || null)} className={`inp ${small ? 'inp-sm' : ''} ${className}`}>
+      {placeholder !== undefined && <option value="">{placeholder}</option>}
+      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  );
+}
+const branchOpts = (filter) => INV_BRANCHES.filter(b => !filter || filter(b)).map(b => ({ value: b.id, label: `${b.name} · ${b.type === 'warehouse' ? 'مخزن' : 'فرع'}` }));
+const locOpts = (branchId) => INV_LOCATIONS.filter(l => l.branchId === branchId && l.active).map(l => ({ value: l.id, label: `${l.name} (${l.code})` }));
+
+function Toggle({ on, onChange, disabled }) {
+  return <button type="button" disabled={disabled} onClick={() => onChange(!on)} className={`vtoggle ${on ? 'on' : ''} ${disabled ? 'opacity-40' : ''}`} />;
+}
+
+// Permission-gated button: hidden or locked with tooltip
+function Can({ perm, children, mode = 'hide' }) {
+  const can = useCan();
+  if (can(perm)) return children;
+  if (mode === 'hide') return null;
+  return (
+    <span title="لا تملك الصلاحية" className="inline-flex items-center gap-1.5 text-[11.5px] c-muted px-3 py-1.5 rounded-full v-subcard">
+      <Icon n="lock" s={12} /> {mode}
+    </span>
+  );
+}
+
+// ---------- States ----------
+function SkeletonRows({ cols = 6, rows = 6 }) {
+  return (
+    <div className="space-y-0">
+      <div className="v-subcard h-9 rounded-xl mb-1" />
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-4 px-3 py-3.5 v-border-b">
+          {Array.from({ length: cols }).map((_, j) => (
+            <div key={j} className="sk h-3" style={{ flex: j === 0 ? 2 : 1, opacity: 1 - i * 0.1 }} />
+          ))}
+        </div>
+      ))}
     </div>
   );
 }
 
-// Close on outside click
-function useOutside(ref, cb, active) {
-  useEffect(() => {
-    if (!active) return;
-    const h = e => { if (ref.current && !ref.current.contains(e.target)) cb(); };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, [active]);
+function EmptyState({ icon = 'inbox', title, sub, action }) {
+  return (
+    <div className="v-subcard py-14 px-6 flex flex-col items-center text-center fade-in">
+      <div className="w-14 h-14 rounded-full flex items-center justify-center mb-4 relative" style={{ background: 'var(--bg-card)' }}>
+        <div className="absolute inset-0 rounded-full hatched opacity-60" />
+        <Icon n={icon} s={22} className="c-secondary relative" />
+      </div>
+      <div className="font-display text-[15px] font-semibold c-primary">{title}</div>
+      {sub && <div className="text-[12.5px] c-secondary mt-1 max-w-sm" style={{ textWrap: 'pretty' }}>{sub}</div>}
+      {action && <div className="mt-5">{action}</div>}
+    </div>
+  );
 }
 
-// Searchable select (single) — options: [{value,label,icon?,meta?}]
-function Select({ value, onChange, options, placeholder = 'اختر', searchable, icon, compact, renderValue, width }) {
+function ErrorState({ msg = 'تعذّر الاتصال بالخادم. تحقّق من الاتصال وحاول مرة أخرى.', code = 'HTTP 503' }) {
+  const { reload } = useInv();
+  return (
+    <div className="py-12 px-6 flex flex-col items-center text-center rounded-2xl fade-in" style={{ background: 'var(--badge-red-bg)' }}>
+      <div className="w-12 h-12 rounded-full flex items-center justify-center mb-3" style={{ background: 'var(--bg-card)', color: 'var(--badge-red-text)' }}>
+        <Icon n="alert" s={20} />
+      </div>
+      <div className="font-display text-[15px] font-semibold" style={{ color: 'var(--badge-red-text)' }}>حدث خطأ أثناء تحميل البيانات</div>
+      <div className="text-[12.5px] c-secondary mt-1 max-w-md">{msg}</div>
+      <div className="mono text-[10.5px] c-muted mt-2">{code}</div>
+      <button onClick={reload} className="btn btn-dark btn-sm mt-4"><Icon n="refresh" s={13} /> إعادة المحاولة</button>
+    </div>
+  );
+}
+
+// Wrap list content with phase handling
+function Phase({ phase, cols, rows, empty, children }) {
+  if (phase === 'loading') return <SkeletonRows cols={cols} rows={rows} />;
+  if (phase === 'error') return <ErrorState />;
+  if (phase === 'empty') return empty;
+  return children;
+}
+
+function InlineAlert({ kind = 'red', icon = 'alert', title, children, onClose }) {
+  const map = { red: ['--badge-red-bg', '--badge-red-text'], amber: ['--badge-amber-bg', '--badge-amber-text'], blue: ['--badge-blue-bg', '--badge-blue-text'], green: ['--badge-green-bg', '--badge-green-text'] }[kind];
+  return (
+    <div className="rounded-2xl px-4 py-3 flex items-start gap-3 fade-in" style={{ background: `var(${map[0]})` }}>
+      <span style={{ color: `var(${map[1]})` }} className="mt-0.5"><Icon n={icon} s={16} /></span>
+      <div className="flex-1 text-[12.5px]">
+        {title && <div className="font-semibold" style={{ color: `var(${map[1]})` }}>{title}</div>}
+        <div className="c-primary opacity-80 mt-0.5">{children}</div>
+      </div>
+      {onClose && <button onClick={onClose} className="c-secondary"><Icon n="x" s={14} /></button>}
+    </div>
+  );
+}
+
+// ---------- Modal ----------
+function Modal({ open, onClose, title, sub, children, footer, width = 'max-w-lg' }) {
+  useEffect(() => {
+    if (!open) return;
+    const h = e => e.key === 'Escape' && onClose && onClose();
+    window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h);
+  }, [open]);
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 fade-in" style={{ background: 'rgba(0,0,0,.4)', backdropFilter: 'blur(4px)' }} onMouseDown={e => e.target === e.currentTarget && onClose && onClose()}>
+      <div className={`v-card ${width} w-full shadow-2xl modal-in flex flex-col max-h-[92vh]`}>
+        <div className="flex items-start justify-between gap-4 p-6 pb-4">
+          <div>
+            <h3 className="font-display text-[18px] font-semibold c-primary">{title}</h3>
+            {sub && <p className="text-[12px] c-secondary mt-0.5">{sub}</p>}
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-full v-subcard flex items-center justify-center c-secondary shrink-0"><Icon n="x" s={14} /></button>
+        </div>
+        <div className="px-6 pb-2 overflow-y-auto flex-1">{children}</div>
+        {footer && <div className="p-6 pt-4 flex items-center justify-start gap-2.5 flex-row-reverse">{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+function ConfirmDialog({ open, onClose, onConfirm, title, body, confirmLabel = 'تأكيد', danger, busy, error }) {
+  return (
+    <Modal open={open} onClose={onClose} title={title} width="max-w-md"
+      footer={<>
+        <button className={`btn ${danger ? 'btn-orange' : 'btn-dark'}`} onClick={onConfirm} disabled={busy}>
+          {busy ? <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" /> : null}
+          {confirmLabel}
+        </button>
+        <button className="btn btn-soft" onClick={onClose}>تراجع</button>
+      </>}>
+      <div className="text-[13px] c-secondary leading-relaxed" style={{ textWrap: 'pretty' }}>{body}</div>
+      {error && <div className="mt-4"><InlineAlert kind="red" title="رفض الخادم العملية">{error}</InlineAlert></div>}
+    </Modal>
+  );
+}
+
+// ---------- Toast ----------
+function Toast({ toast }) {
+  return (
+    <div className={`fixed bottom-6 left-6 z-[60] pointer-events-none transition-all duration-300 ${toast ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}`}>
+      <div className="px-4 py-2.5 rounded-full shadow-lg text-xs font-medium flex items-center gap-2" style={{ background: 'var(--pill-active-bg)', color: 'var(--pill-active-text)' }}>
+        <span className="w-2 h-2 rounded-full bg-[#e0491f]" />
+        <span>{toast?.text}</span>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Variant picker: product → variant/SKU (never stops at product) ----------
+function VariantPicker({ value, onChange, placeholder = 'ابحث بالاسم أو SKU أو الباركود', small, exclude = [], allowClear }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
-  const ref = useRef(null);
-  useOutside(ref, () => setOpen(false), open);
-  const cur = options.find(o => o.value === value);
-  const list = options.filter(o => !q || o.label.includes(q));
+  const ref = useRef();
+  useEffect(() => {
+    const h = e => ref.current && !ref.current.contains(e.target) && setOpen(false);
+    document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h);
+  }, []);
+  const v = value ? invVariant(value) : null;
+  const ql = q.trim().toLowerCase();
+  const groups = INV_PRODUCTS.map(p => ({
+    ...p,
+    variants: p.variants.filter(x => !exclude.includes(x.id) && (!ql || p.name.includes(q) || x.sku.toLowerCase().includes(ql) || x.barcode.includes(ql) || x.attrs.includes(q))),
+  })).filter(p => p.variants.length);
+
   return (
-    <div ref={ref} className="relative" style={{ width }}>
-      <button type="button" onClick={() => setOpen(!open)}
-        className={compact ? 'v-subcard rounded-full px-3.5 h-9 flex items-center gap-2 text-[12.5px] font-medium w-full hover:opacity-90 transition'
-          : `v-input flex items-center gap-2 px-3.5 h-11 w-full text-[13px] ${open ? 'is-focus' : ''}`}
-        style={{ color: 'var(--text-primary)' }}>
-        {icon && <Icon name={icon} className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--text-muted)' }} />}
-        <span className="truncate flex-1 text-start" style={{ color: cur ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-          {renderValue ? renderValue(cur) : cur ? cur.label : placeholder}
+    <div ref={ref} className="relative">
+      <button type="button" onClick={() => setOpen(o => !o)} className={`inp ${small ? 'inp-sm' : ''} flex items-center justify-between gap-2 text-right`}>
+        {v ? (
+          <span className="flex items-center gap-2 min-w-0">
+            <span className="truncate c-primary">{v.productName}</span>
+            <span className="text-[11px] c-muted shrink-0">{v.attrs}</span>
+            <span className="mono text-[10.5px] px-1.5 py-0.5 rounded-md shrink-0" style={{ background: 'var(--icon-well-bg)' }}>{v.sku}</span>
+          </span>
+        ) : <span className="c-muted truncate">{placeholder}</span>}
+        <span className="flex items-center gap-1 shrink-0">
+          {allowClear && v && <span onClick={e => { e.stopPropagation(); onChange(null); }} className="c-muted hover:c-primary"><Icon n="x" s={12} /></span>}
+          <Icon n="chevD" s={13} className="c-muted" />
         </span>
-        <Icon name="chevDown" className={`w-3.5 h-3.5 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} style={{ color: 'var(--text-muted)' }} />
       </button>
       {open && (
-        <div className="v-pop absolute z-40 mt-1.5 w-full min-w-[220px] p-1.5 start-0">
-          {searchable && (
-            <div className="v-subcard rounded-full px-3 h-9 flex items-center gap-2 mb-1.5">
-              <Icon name="search" className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
-              <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="بحث..." className="bg-transparent outline-none text-[12.5px] w-full" style={{ color: 'var(--text-primary)' }} />
-            </div>
-          )}
-          <div className="max-h-[240px] overflow-y-auto">
-            {list.length === 0 && <div className="text-[12px] px-3 py-3 text-center" style={{ color: 'var(--text-muted)' }}>لا توجد نتائج</div>}
-            {list.map(o => (
-              <button type="button" key={String(o.value)} disabled={o.disabled}
-                onClick={() => { onChange(o.value); setOpen(false); setQ(''); }}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[12.5px] text-start transition v-option ${o.value === value ? 'is-active' : ''} ${o.disabled ? 'opacity-40 cursor-not-allowed' : ''}`}>
-                {o.icon && <Icon name={o.icon} className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--text-muted)' }} />}
-                <span className="flex-1 truncate">{o.label}</span>
-                {o.meta && <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>{o.meta}</span>}
-                {o.value === value && <Icon name="check" className="w-3.5 h-3.5" style={{ color: 'var(--accent-orange)' }} strokeWidth={2.4} />}
-              </button>
+        <div className="absolute z-40 mt-1.5 w-full min-w-[320px] v-card shadow-2xl p-2 modal-in" style={{ borderRadius: 16 }}>
+          <div className="v-subcard px-3 py-2 rounded-xl flex items-center gap-2 mb-1.5">
+            <Icon n="search" s={14} className="c-muted" />
+            <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="اسم المنتج، SKU، باركود…" className="bg-transparent text-[12.5px] outline-none flex-1 c-primary" />
+            <Icon n="barcode" s={14} className="c-muted" />
+          </div>
+          <div className="max-h-[260px] overflow-y-auto">
+            {groups.length === 0 && <div className="text-center text-[12px] c-muted py-6">لا توجد نتائج مطابقة</div>}
+            {groups.map(p => (
+              <div key={p.id} className="mb-1">
+                <div className="text-[11px] font-semibold c-secondary px-2.5 pt-2 pb-1 flex items-center gap-1.5"><Icon n="box" s={12} /> {p.name} <span className="c-muted font-normal">· {p.variants.length} متغير</span></div>
+                {p.variants.map(x => (
+                  <button type="button" key={x.id} onClick={() => { onChange(x.id); setOpen(false); setQ(''); }}
+                    className={`w-full flex items-center justify-between gap-3 px-2.5 py-2 rounded-xl text-right hover:bg-[var(--bg-subcard)] ${value === x.id ? 'bg-[var(--bg-subcard)]' : ''}`}>
+                    <span className="text-[12.5px] c-primary pr-4">{x.attrs}</span>
+                    <span className="flex items-center gap-2">
+                      <span className="mono text-[10.5px] c-muted">{x.barcode}</span>
+                      <span className="mono text-[11px] font-semibold c-primary">{x.sku}</span>
+                      {value === x.id && <Icon n="check" s={13} className="c-orange" />}
+                    </span>
+                  </button>
+                ))}
+              </div>
             ))}
           </div>
         </div>
@@ -193,269 +346,46 @@ function Select({ value, onChange, options, placeholder = 'اختر', searchable
   );
 }
 
-// Multi-select chips
-function MultiSelect({ values, onChange, options, placeholder = 'اختر', disabled }) {
-  const [open, setOpen] = useState(false);
-  const [q, setQ] = useState('');
-  const ref = useRef(null);
-  useOutside(ref, () => setOpen(false), open);
-  const toggle = v => onChange(values.includes(v) ? values.filter(x => x !== v) : [...values, v]);
-  const list = options.filter(o => !q || o.label.includes(q));
+function VariantCell({ id, showBarcode }) {
+  const v = invVariant(id);
   return (
-    <div ref={ref} className="relative">
-      <div onClick={() => !disabled && setOpen(true)}
-        className={`v-input flex flex-wrap items-center gap-1.5 px-2 py-1.5 min-h-[44px] cursor-text ${open ? 'is-focus' : ''} ${disabled ? 'is-disabled' : ''}`}>
-        {values.map(v => {
-          const o = options.find(x => x.value === v); if (!o) return null;
-          return (
-            <span key={v} className="v-chip inline-flex items-center gap-1 ps-2.5 pe-1 h-7 rounded-full text-[12px] font-semibold">
-              {o.system && <Icon name="shieldCheck" className="w-3 h-3" style={{ color: 'var(--accent-orange)' }} />}
-              {o.label}
-              {!disabled && (
-                <button type="button" onClick={e => { e.stopPropagation(); toggle(v); }} className="w-5 h-5 rounded-full flex items-center justify-center hover:opacity-70">
-                  <Icon name="close" className="w-3 h-3" strokeWidth={2.4} />
-                </button>
-              )}
-            </span>
-          );
-        })}
-        <input value={q} disabled={disabled} onChange={e => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)}
-          placeholder={values.length ? '' : placeholder}
-          className="bg-transparent outline-none text-[13px] flex-1 min-w-[80px] px-1.5 h-7" style={{ color: 'var(--text-primary)' }} />
+    <div className="min-w-0">
+      <div className="font-medium c-primary truncate">{v.productName}</div>
+      <div className="text-[11px] c-muted mt-0.5 flex items-center gap-1.5">{v.attrs}{showBarcode && <><span>·</span><span className="mono">{v.barcode}</span></>}</div>
+    </div>
+  );
+}
+const Sku = ({ id, children }) => <span className="mono text-[11.5px] font-semibold px-2 py-0.5 rounded-md c-primary" style={{ background: 'var(--icon-well-bg)' }}>{children || invVariant(id).sku}</span>;
+
+function NumInput({ value, onChange, decimals = 4, integer, small, placeholder = '0', className = '', err }) {
+  return (
+    <input inputMode="decimal" value={value ?? ''} placeholder={placeholder}
+      onChange={e => {
+        let s = e.target.value.replace(/[^\d.]/g, '');
+        if (integer) s = s.replace(/\./g, '');
+        const parts = s.split('.');
+        if (parts.length > 2) s = parts[0] + '.' + parts.slice(1).join('');
+        if (parts[1] && parts[1].length > decimals) s = parts[0] + '.' + parts[1].slice(0, decimals);
+        onChange(s);
+      }}
+      className={`inp ${small ? 'inp-sm' : ''} num text-left ${err ? 'err' : ''} ${className}`} />
+  );
+}
+
+function KPI({ label, value, icon, hot, sub }) {
+  return (
+    <div className={`${hot ? 'v-orange-card' : 'v-subcard'} rounded-[18px] p-4 flex flex-col justify-between min-h-[112px]`}>
+      <div className="flex items-center justify-between">
+        <span className={`text-[12.5px] font-medium ${hot ? 'text-white/90' : 'c-secondary'}`}>{label}</span>
+        <span className={`w-7 h-7 rounded-full flex items-center justify-center ${hot ? 'bg-white/15 text-white' : 'v-icon-well'}`}><Icon n={icon} s={14} w={2} /></span>
       </div>
-      {open && !disabled && (
-        <div className="v-pop absolute z-40 mt-1.5 w-full p-1.5 max-h-[260px] overflow-y-auto">
-          {list.map(o => {
-            const on = values.includes(o.value);
-            return (
-              <button type="button" key={o.value} disabled={o.disabled} onClick={() => toggle(o.value)}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[12.5px] text-start v-option ${o.disabled ? 'opacity-40 cursor-not-allowed' : ''}`}>
-                <Checkbox checked={on} />
-                <span className="flex-1">{o.label}</span>
-                {o.system && <Badge tone="orange">نظام</Badge>}
-                {o.note && <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>{o.note}</span>}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      <div className={`font-display text-[28px] font-bold tracking-tight mt-2 num text-right ${hot ? '' : 'c-primary'}`}>{value}</div>
+      {sub && <div className={`text-[11px] ${hot ? 'text-white/80' : 'c-muted'}`}>{sub}</div>}
     </div>
   );
 }
-
-function Checkbox({ checked, indeterminate, onChange, disabled, size = 18 }) {
-  const on = checked || indeterminate;
-  return (
-    <span role="checkbox" aria-checked={indeterminate ? 'mixed' : !!checked}
-      onClick={e => { if (onChange && !disabled) { e.stopPropagation(); onChange(!checked); } }}
-      className={`inline-flex items-center justify-center shrink-0 transition-all duration-150 ${disabled ? 'opacity-50' : 'cursor-pointer'}`}
-      style={{ width: size, height: size, borderRadius: 6, background: on ? 'var(--accent-orange)' : 'transparent', border: on ? '1.5px solid var(--accent-orange)' : '1.5px solid var(--checkbox-border)' }}>
-      {checked && !indeterminate && <Icon name="check" className="w-3 h-3 text-white" strokeWidth={3} />}
-      {indeterminate && <span className="w-2 h-[2px] rounded bg-white" />}
-    </span>
-  );
-}
-
-// Segmented control
-function Segmented({ value, onChange, options, size = 'md' }) {
-  return (
-    <div className="v-subcard inline-flex p-1 rounded-full">
-      {options.map(o => {
-        const active = o.value === value;
-        return (
-          <button type="button" key={String(o.value)} onClick={() => onChange(o.value)}
-            className={`${size === 'sm' ? 'px-3 py-1 text-[11.5px]' : 'px-3.5 py-1.5 text-[12px]'} rounded-full font-semibold transition-all ${active ? 'shadow-xs' : ''}`}
-            style={{ background: active ? 'var(--seg-active-bg)' : 'transparent', color: active ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
-            {o.label}{o.count != null && <span className="ms-1.5 opacity-60 font-medium">{o.count}</span>}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function PrimaryButton({ children, onClick, icon, className = '', disabled, type = 'button', loading }) {
-  return (
-    <button type={type} onClick={onClick} disabled={disabled || loading}
-      className={`h-10 px-5 rounded-full text-[13px] font-semibold flex items-center justify-center gap-2 transition hover:opacity-90 disabled:opacity-50 ${className}`}
-      style={{ background: 'var(--pill-active-bg)', color: 'var(--pill-active-text)' }}>
-      {loading ? <span className="v-spinner" /> : icon && <Icon name={icon} className="w-4 h-4" strokeWidth={2.2} />}
-      <span>{children}</span>
-    </button>
-  );
-}
-function AccentButton({ children, onClick, icon, className = '', disabled, loading }) {
-  return (
-    <button type="button" onClick={onClick} disabled={disabled || loading}
-      className={`h-10 px-5 rounded-full text-[13px] font-semibold flex items-center justify-center gap-2 transition hover:brightness-105 disabled:opacity-50 text-white v-accent-btn ${className}`}>
-      {loading ? <span className="v-spinner is-light" /> : icon && <Icon name={icon} className="w-4 h-4" strokeWidth={2.2} />}
-      <span>{children}</span>
-    </button>
-  );
-}
-function GhostButton({ children, onClick, icon, className = '', disabled }) {
-  return (
-    <button type="button" onClick={onClick} disabled={disabled}
-      className={`v-subcard h-10 px-4 rounded-full text-[13px] font-semibold flex items-center justify-center gap-2 transition hover:opacity-85 disabled:opacity-50 ${className}`}
-      style={{ color: 'var(--text-primary)' }}>
-      {icon && <Icon name={icon} className="w-4 h-4" />}
-      <span>{children}</span>
-    </button>
-  );
-}
-function IconButton({ icon, onClick, title, tone, className = '' }) {
-  return (
-    <button type="button" title={title} onClick={onClick}
-      className={`w-8 h-8 rounded-full v-subcard flex items-center justify-center hover:opacity-80 transition ${className}`}
-      style={{ color: tone === 'danger' ? 'var(--badge-red-text)' : 'var(--text-secondary)' }}>
-      <Icon name={icon} className="w-3.5 h-3.5" strokeWidth={2} />
-    </button>
-  );
-}
-
-function PageHeader({ title, subtitle, action }) {
-  return (
-    <div className="stagger-item stagger-1 pt-1 flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <h1 className="font-display text-[34px] sm:text-[38px] font-semibold tracking-[-0.01em] leading-tight" style={{ color: 'var(--text-primary)' }}>{title}</h1>
-        <p className="text-[13.5px] mt-1" style={{ color: 'var(--text-secondary)' }}>{subtitle}</p>
-      </div>
-      {action}
-    </div>
-  );
-}
-
-// Sticky save bar — slides up when dirty
-function StickyBar({ show, onSave, onReset, saving, message = 'لديك تغييرات غير محفوظة', count }) {
-  return (
-    <div className={`fixed bottom-6 inset-x-0 z-40 flex justify-center pointer-events-none transition-all duration-300 ${show ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'}`}>
-      <div className={`v-sticky-bar rounded-full ps-5 pe-1.5 py-1.5 flex items-center gap-4 ${show ? 'pointer-events-auto' : ''}`}>
-        <span className="w-2 h-2 rounded-full bg-[var(--accent-orange)] v-pulse" />
-        <span className="text-[13px] font-medium whitespace-nowrap">{message}{count ? <span className="opacity-60"> · {count} تعديل</span> : null}</span>
-        <div className="flex items-center gap-1.5">
-          <button type="button" onClick={onReset} className="h-9 px-4 rounded-full text-[12.5px] font-semibold flex items-center gap-1.5 hover:bg-white/10 transition v-sticky-ghost">
-            <Icon name="undo" className="w-3.5 h-3.5" /> تراجع
-          </button>
-          <button type="button" onClick={onSave} disabled={saving} className="h-9 px-5 rounded-full text-[12.5px] font-semibold flex items-center gap-2 text-white v-accent-btn">
-            {saving ? <span className="v-spinner is-light" /> : <Icon name="check" className="w-3.5 h-3.5" strokeWidth={2.6} />}
-            حفظ التغييرات
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Skeleton({ className = '', style }) {
-  return <div className={`v-skeleton ${className}`} style={style} />;
-}
-
-function EmptyState({ icon = 'search', title, text, action }) {
-  return (
-    <div className="flex flex-col items-center justify-center text-center py-14 px-6">
-      <div className="relative mb-4">
-        <div className="w-16 h-16 rounded-[20px] v-subcard flex items-center justify-center" style={{ color: 'var(--text-muted)' }}>
-          <Icon name={icon} className="w-7 h-7" strokeWidth={1.6} />
-        </div>
-        <span className="absolute -bottom-1 -start-1 w-6 h-6 rounded-full flex items-center justify-center text-white v-accent-btn" style={{ boxShadow: '0 0 0 3px var(--bg-card)' }}>
-          <Icon name="close" className="w-3 h-3" strokeWidth={3} />
-        </span>
-      </div>
-      <div className="font-display text-[15px] font-semibold" style={{ color: 'var(--text-primary)' }}>{title}</div>
-      <div className="text-[12.5px] mt-1 max-w-[320px]" style={{ color: 'var(--text-secondary)' }}>{text}</div>
-      {action && <div className="mt-4">{action}</div>}
-    </div>
-  );
-}
-
-function Notice({ tone = 'info', icon, title, children, action, className = '' }) {
-  const map = { warn: 'v-notice-warn', info: 'v-notice-info', danger: 'v-notice-danger' };
-  return (
-    <div className={`${map[tone]} rounded-2xl px-4 py-3 flex items-start gap-3 ${className}`}>
-      <Icon name={icon || (tone === 'info' ? 'info' : 'alert')} className="w-4 h-4 mt-0.5 shrink-0" strokeWidth={2} />
-      <div className="flex-1 text-[12.5px] leading-relaxed">
-        {title && <div className="font-semibold mb-0.5">{title}</div>}
-        <div className="opacity-90">{children}</div>
-      </div>
-      {action}
-    </div>
-  );
-}
-
-// Toast
-const toastBus = { fn: null };
-function toast(text, tone = 'ok') { toastBus.fn && toastBus.fn({ text, tone, id: Date.now() }); }
-function ToastHost() {
-  const [t, setT] = useState(null);
-  useEffect(() => { toastBus.fn = v => { setT(v); setTimeout(() => setT(c => (c && c.id === v.id ? null : c)), 2600); }; }, []);
-  return (
-    <div className={`fixed top-6 inset-x-0 z-[70] flex justify-center pointer-events-none transition-all duration-300 ${t ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}`}>
-      <div className="px-4 py-2.5 rounded-full shadow-lg text-[12.5px] font-medium flex items-center gap-2" style={{ background: 'var(--pill-active-bg)', color: 'var(--pill-active-text)' }}>
-        <span className="w-2 h-2 rounded-full" style={{ background: t?.tone === 'err' ? '#fb7185' : t?.tone === 'warn' ? '#f59e0b' : '#34d399' }} />
-        <span>{t?.text}</span>
-      </div>
-    </div>
-  );
-}
-
-// Modal / Drawer
-function Drawer({ open, onClose, children, width = 520 }) {
-  useEffect(() => {
-    if (!open) return;
-    const h = e => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h);
-  }, [open]);
-  return (
-    <div className={`fixed inset-0 z-50 ${open ? '' : 'pointer-events-none'}`}>
-      <div onClick={onClose} className={`absolute inset-0 v-scrim transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0'}`} />
-      <div className={`absolute top-3 bottom-3 start-3 v-card v-drawer flex flex-col transition-transform duration-[420ms] ${open ? 'translate-x-0' : 'translate-x-[calc(100%+24px)]'}`}
-        style={{ width: `min(${width}px, calc(100vw - 24px))`, transitionTimingFunction: 'cubic-bezier(0.22,1,0.36,1)' }}>
-        {children}
-      </div>
-    </div>
-  );
-}
-function Modal({ open, onClose, children, width = 420 }) {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div onClick={onClose} className="absolute inset-0 v-scrim v-fade" />
-      <div className="relative v-card p-6 v-pop-in" style={{ width: `min(${width}px, 100%)` }}>{children}</div>
-    </div>
-  );
-}
-
-// Dropdown actions menu
-function ActionMenu({ items }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-  useOutside(ref, () => setOpen(false), open);
-  return (
-    <div ref={ref} className="relative inline-block">
-      <IconButton icon="more" onClick={() => setOpen(!open)} title="الإجراءات" />
-      {open && (
-        <div className="v-pop absolute z-30 mt-1.5 end-0 w-[200px] p-1.5">
-          {items.map((it, i) => it.divider ? <div key={i} className="my-1 h-px" style={{ background: 'var(--divider-color)' }} /> : (
-            <button type="button" key={i} disabled={it.disabled} title={it.title}
-              onClick={() => { setOpen(false); it.onClick(); }}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[12.5px] text-start v-option ${it.disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
-              style={{ color: it.danger ? 'var(--badge-red-text)' : 'var(--text-primary)' }}>
-              <Icon name={it.icon} className="w-3.5 h-3.5" />
-              <span className="flex-1">{it.label}</span>
-              {it.disabled && <Icon name="lock" className="w-3 h-3 opacity-70" />}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-const fmtDate = d => new Date(d).toLocaleDateString('ar-EG-u-nu-latn', { day: 'numeric', month: 'short', year: 'numeric' });
-const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 Object.assign(window, {
-  Icon, Toggle, Badge, Avatar, Field, TextInput, Select, MultiSelect, Checkbox, Segmented,
-  PrimaryButton, AccentButton, GhostButton, IconButton, PageHeader, StickyBar, Skeleton, EmptyState,
-  Notice, toast, ToastHost, Drawer, Modal, ActionMenu, fmtDate, sleep, useOutside,
+  InvCtx, useInv, useCan, useLoad, Icon, PageHead, Card, CardHead, Badge, ActiveBadge, SearchPill, Field, Sel, branchOpts, locOpts,
+  Toggle, Can, SkeletonRows, EmptyState, ErrorState, Phase, InlineAlert, Modal, ConfirmDialog, Toast, VariantPicker, VariantCell, Sku, NumInput, KPI,
 });

@@ -66,4 +66,12 @@ class StoreBrandingTest extends TestCase
 
         $this->getJson('/api/v1/store/branding')->assertOk()->assertJsonPath('data.name', 'Alfarid');
     }
+
+    public function test_invalid_private_json_cannot_break_public_branding(): void
+    {
+        $this->seed(SettingSeeder::class);
+        Setting::query()->create(['group' => 'private', 'key' => 'broken_json', 'value' => '{invalid', 'type' => 'json']);
+
+        $this->getJson('/api/v1/store/branding')->assertOk()->assertJsonPath('data.name', 'Alfarid');
+    }
 }

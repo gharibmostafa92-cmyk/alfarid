@@ -56,6 +56,13 @@ export const ICON_PATHS: Record<string, ReactNode> = {
   logout: <path strokeLinecap="round" strokeLinejoin="round" d="M15 21h4a2 2 0 002-2V5a2 2 0 00-2-2h-4M8 17l-5-5 5-5M3 12h12"/>,
   filter: <path strokeLinecap="round" d="M4 6h16M7 12h10M10 18h4"/>,
   dual: <><circle cx="8" cy="8" r="3"/><circle cx="16" cy="8" r="3"/><path strokeLinecap="round" d="M2.5 19c.5-3 2.7-4.5 5.5-4.5M21.5 19c-.5-3-2.7-4.5-5.5-4.5M10 18l2 2 3.5-3.5"/></>,
+  storefront: <><path strokeLinecap="round" strokeLinejoin="round" d="M3 9l1.5-5h15L21 9M3 9v11h18V9M3 9a3 3 0 006 0 3 3 0 006 0 3 3 0 006 0M10 20v-5h4v5"/></>,
+  slides: <><rect x="7" y="6" width="10" height="12" rx="1.5"/><path strokeLinecap="round" d="M3 8v8M21 8v8"/></>,
+  mid: <><path strokeLinecap="round" strokeLinejoin="round" d="M4 4h16v4H4zM4 10h16v5H4zM4 17h16v3H4z"/></>,
+  popup: <><rect x="4" y="4" width="16" height="16" rx="2.5"/><rect x="8" y="8" width="8" height="8" rx="1.5"/></>,
+  slash: <><circle cx="12" cy="12" r="9"/><path strokeLinecap="round" d="M5 19L19 5"/></>,
+  external: <><path strokeLinecap="round" strokeLinejoin="round" d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5"/></>,
+  upload: <><path strokeLinecap="round" strokeLinejoin="round" d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></>,
 };
 
 export function Icon({ name, className = 'w-4 h-4', strokeWidth = 1.9, style }: { name: string; className?: string; strokeWidth?: number; style?: CSSProperties }) {

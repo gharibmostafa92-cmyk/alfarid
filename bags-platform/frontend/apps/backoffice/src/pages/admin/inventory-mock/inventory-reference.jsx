@@ -16,6 +16,7 @@ const INV_NAV = [
   { id: 'transfers', label: 'التحويلات',       icon: 'swap',      match: ['transfers', 'transfer', 'transfer-edit'] },
   { id: 'counts',    label: 'الجرد',           icon: 'clipboard', match: ['counts', 'count'] },
   { id: 'production',label: 'استلام الإنتاج',  icon: 'factory',   match: ['production'] },
+  { id: 'banners',   label: 'إدارة المتجر',    icon: 'storefront',match: ['banners'] },
 ];
 
 
@@ -2016,6 +2017,7 @@ const IP = {
   help: 'M12 3a9 9 0 100 18 9 9 0 000-18zM9.5 9a2.5 2.5 0 015 0c0 1.5-2.5 2-2.5 3.5m0 3h.01',
   logout: 'M15 21h4a2 2 0 002-2V5a2 2 0 00-2-2h-4M8 17l-5-5 5-5M3 12h12',
   info: 'M12 3a9 9 0 100 18 9 9 0 000-18zM12 8h.01M12 11v5',
+  storefront: 'M3 9l1.5-5h15L21 9M3 9v11h18V9M3 9a3 3 0 006 0 3 3 0 006 0 3 3 0 006 0M10 20v-5h4v5',
 };
 function Icon({ n, s = 16, w = 1.9, className = '', style }) {
   return (
@@ -2367,7 +2369,7 @@ export function InventoryReference({can,isDark}) {
  return <InvCtx.Provider value={{toast,can,go,reloadKey,reload:()=>setReloadKey(k=>k+1),variantCache:variantCache.current,locationCache:locationCache.current,branchesQuery,reloadBranches}}>
   <div className={'inventory-surface '+(isDark?'theme-dark':'theme-light')} dir="rtl" lang="ar">
    <nav aria-label="شاشات المخزون" className="flex gap-2 overflow-x-auto pb-2 mb-5">
-    {INV_NAV.map(item=><button key={item.id} type="button" onClick={()=>go(item.id)} className={'btn shrink-0 '+(item.match.includes(nav.route)?'btn-dark':'btn-soft')}><Icon n={item.icon} s={15}/>{item.label}</button>)}
+    {INV_NAV.map(item=><button key={item.id} type="button" onClick={() => { if (item.id === 'banners') { window.location.hash = '/settings?tab=store'; return; } go(item.id); }} className={'btn shrink-0 '+(item.match.includes(nav.route)?'btn-dark':'btn-soft')}><Icon n={item.icon} s={15}/>{item.label}</button>)}
    </nav>
    <main data-inventory-screen={nav.route}><Screen key={nav.route+JSON.stringify(nav.params)} go={go} params={nav.params}/></main>
    <Toast toast={toastMsg}/>

@@ -1,7 +1,27 @@
 export * from './inventory';
 
-import { defaultApiClient as apiClient } from '../axios-instance';
-import type { AdminBrand, AdminCategory, AdminMedia, AdminProduct, AdminVariant, BrandPayload, CategoryPayload, CategoryReorderItem, ProductPayload, ProductStatus, ResourceCollection, SalesChannel, VariantPayload } from '../types';
+import { createApiClient, defaultApiClient as apiClient } from '../axios-instance';
+import type { PublicBranding, StoreCart } from '../types';
+
+const publicApiClient = createApiClient({ getToken: () => null, onUnauthorized: () => {} });
+
+export const brandingEndpoints = {
+  get: (signal?: AbortSignal) => publicApiClient.get<{ data: PublicBranding }>('/api/v1/store/branding', {
+    baseURL: apiClient.defaults.baseURL,
+    signal,
+    timeout: 5000,
+  }).then((response) => response.data.data),
+};
+
+const cartHeaders = (session: string | null) => session ? { 'X-Cart-Session': session } : {};
+export const cartEndpoints = {
+  clear: (session: string | null) => apiClient.delete<{ data: StoreCart }>('/api/v1/store/cart/items', { headers: cartHeaders(session) }).then(response => response.data.data),
+  get: (session: string | null) => apiClient.get<{ data: StoreCart }>('/api/v1/store/cart/items', { headers: cartHeaders(session) }).then(response => response.data.data),
+  add: (variantId: number, qty: number, session: string | null) => apiClient.post<{ data: StoreCart }>('/api/v1/store/cart/items', { product_variant_id: variantId, qty }, { headers: cartHeaders(session) }).then(response => response.data.data),
+  update: (id: number, qty: number, session: string | null) => apiClient.put<{ data: StoreCart }>(`/api/v1/store/cart/items/${id}`, { qty }, { headers: cartHeaders(session) }).then(response => response.data.data),
+  remove: (id: number, session: string | null) => apiClient.delete<{ data: StoreCart }>(`/api/v1/store/cart/items/${id}`, { headers: cartHeaders(session) }).then(response => response.data.data),
+};
+import type { AdminBrand, AdminCategory, AdminMedia, AdminProduct, AdminVariant, BrandPayload, CategoryPayload, CategoryReorderItem, ProductPayload, ProductStatus, ResourceCollection, SalesChannel, StoreHomeData, VariantPayload } from '../types';
 
 export type ActorType = 'staff' | 'supplier' | 'customer';
 export type Destination = 'admin' | 'pos' | 'supplier' | 'wholesale' | 'wholesale_pending' | 'retail';
@@ -80,6 +100,7 @@ export const API_ENDPOINTS = {
     STOCK: '/api/v1/pos/stock',
   },
   STORE: {
+    HOME: '/api/v1/store/home',
     PRODUCTS: '/api/v1/store/products',
     CATEGORIES: '/api/v1/store/categories',
     CART: '/api/v1/store/cart',
@@ -99,6 +120,11 @@ export const API_ENDPOINTS = {
     INVOICES: '/api/v1/supplier/invoices',
   },
 } as const;
+
+export const storeEndpoints = {
+  home: () =>
+    apiClient.get<{ data: StoreHomeData }>(API_ENDPOINTS.STORE.HOME).then((r) => r.data.data),
+};
 
 const MULTIPART = { headers: { 'Content-Type': 'multipart/form-data' } };
 

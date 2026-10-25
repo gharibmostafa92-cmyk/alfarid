@@ -37,9 +37,10 @@ Route::prefix('auth')->name('auth.')->group(function (): void {
     });
 });
 
+Route::get('branding', [BrandingController::class, 'show'])->middleware('throttle:store-branding')->name('branding');
+
 // مسارات تصفح المتجر (متاحة للزوار والعملاء المسجلين)
 Route::middleware(['throttle:store-catalog', ProtectStorefrontCaching::class])->group(function (): void {
-    Route::get('branding', [BrandingController::class, 'show'])->name('branding');
     Route::get('home', [HomeController::class, 'index'])->name('home');
     Route::get('categories', [CatalogController::class, 'categories'])->name('categories');
     Route::get('brands', [CatalogController::class, 'brands'])->name('brands');
@@ -58,6 +59,7 @@ Route::pattern('order', '[0-9]{1,18}');
 Route::middleware('throttle:cart')->prefix('cart')->name('cart.')->group(function (): void {
     Route::get('items', [CartController::class, 'index'])->name('items.index');
     Route::post('items', [CartController::class, 'store'])->name('items.store');
+    Route::delete('items', [CartController::class, 'clear'])->name('items.clear');
     Route::put('items/{item}', [CartController::class, 'update'])->name('items.update');
     Route::delete('items/{item}', [CartController::class, 'destroy'])->name('items.destroy');
     Route::post('coupon', [CartController::class, 'applyCoupon'])->middleware('throttle:coupon')->name('coupon.apply');

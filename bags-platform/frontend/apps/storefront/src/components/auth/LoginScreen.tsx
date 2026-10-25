@@ -1,5 +1,6 @@
 'use client';
 import { resolveServiceUrl } from '@alfarid/api-client';
+import { useBranding, BrandLogo } from '@alfarid/ui/branding';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import '../../styles/luxuryAuth.css';
@@ -10,6 +11,7 @@ import { AccountForm, type AuthView } from './AccountForm';
 import { createSessionNonce } from './session-nonce';
 
 export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView = 'login' }) => {
+  const { branding } = useBranding();
   const [view, setView] = useState<AuthView>(initialView);
   const formRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -94,7 +96,7 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
   const t = {
     en: {
       signInTitle: 'Sign In',
-      signInSub: 'Sign in to your Alfarid account',
+      signInSub: `Sign in to your ${branding.name} account`,
       loginLabel: 'Email or mobile number',
       loginPlaceholder: 'Enter your email or mobile number',
       wholesaleRegister: 'Register as a wholesale trader',
@@ -107,7 +109,7 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
     },
     ar: {
       signInTitle: 'تسجيل الدخول',
-      signInSub: 'سجّل الدخول إلى حسابك في الفريد',
+      signInSub: `سجّل الدخول إلى حسابك في ${branding.name}`,
       loginLabel: 'البريد الإلكتروني أو رقم الموبايل',
       loginPlaceholder: 'أدخل بريدك الإلكتروني أو رقم موبايلك',
       wholesaleRegister: 'تسجيل كتاجر جملة',
@@ -281,11 +283,11 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
               <button
                 type="button"
                 className="luxury-brand-btn"
-                title="Alfarid — Luxury Handbags"
+                title={branding.name}
                 disabled={!isReady || isSubmitting}
                 onClick={() => setView('login')}
               >
-                <svg
+                <BrandLogo className="w-[22px] h-[22px]" fallback={<svg
                   width="22"
                   height="22"
                   viewBox="0 0 24 24"
@@ -295,9 +297,9 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
                 >
                   <polygon points="4,10 10,4 10,13 4,19" fill="#09090b" />
                   <polygon points="11,11 17,5 17,14 11,20" fill="#09090b" />
-                </svg>
+                </svg>} />
                 <span className="luxury-brand-tag">
-                  ALFARID · Atelier
+                  {branding.name}
                 </span>
               </button>
 

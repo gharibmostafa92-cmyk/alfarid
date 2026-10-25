@@ -5,4 +5,6 @@ export * from './components/data-table';
 export * from './components/input';
 export * from './components/modal';
 export * from './lib/utils';
+export * from './lib/brand-identity';
+export * from './components/branding-provider';
 export { FinancialDashboard } from './financial-dashboard/FinancialDashboard';

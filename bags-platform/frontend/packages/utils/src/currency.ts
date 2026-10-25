@@ -22,6 +22,9 @@ function getFormatter(locale: string, currency: string, minDigits: number, maxDi
   return formatter;
 }
 
+const egp = new Intl.NumberFormat('en-EG', { style: 'currency', currency: 'EGP', minimumFractionDigits: 0, maximumFractionDigits: 2 });
+export const formatStorePrice = (v: number) => egp.format(v);
+
 export function formatCurrency(
   amount: number | string | null | undefined,
   options: FormatCurrencyOptions = {}
