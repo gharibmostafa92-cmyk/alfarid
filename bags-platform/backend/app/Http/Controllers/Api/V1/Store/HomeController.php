@@ -29,9 +29,11 @@ class HomeController extends Controller
         try {
             $load = fn () => Cache::flexible(StoreCatalogService::HOME_CACHE_KEY, [300, 1800],
                 fn () => $this->catalog->homeSectionIds(), ['seconds' => 120]);
-            $ids = Cache::has(StoreCatalogService::HOME_CACHE_KEY) ? $load() : Cache::lock(StoreCatalogService::HOME_CACHE_KEY.':build', 120)->block(3, $load);
+            // F10: انتظار ثانية على البداية الباردة، وعند انتهاء المهلة
+            // نحسب مباشرة (3 استعلامات LIMIT 12) بدل صفحة فارغة لكل الزوار.
+            $ids = Cache::has(StoreCatalogService::HOME_CACHE_KEY) ? $load() : Cache::lock(StoreCatalogService::HOME_CACHE_KEY.':build', 120)->block(1, $load);
         } catch (LockTimeoutException) {
-            $ids = Cache::get(StoreCatalogService::HOME_CACHE_KEY) ?? ['latest_ids' => [], 'best_seller_ids' => [], 'discounted_ids' => []];
+            $ids = Cache::get(StoreCatalogService::HOME_CACHE_KEY) ?? $this->catalog->homeSectionIds();
         }
         $allIds = array_unique([...$ids['latest_ids'], ...$ids['best_seller_ids'], ...$ids['discounted_ids']]);
         $cards = StoreProductCardResource::collection($this->catalog->publishedQuery()

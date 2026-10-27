@@ -1,0 +1,3388 @@
+[
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/auth/logout",
+    "name": "admin.auth.logout",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\AuthController@logout",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/banners",
+    "name": "admin.banners.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\BannerController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:store.manage|settings.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/banners",
+    "name": "admin.banners.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\BannerController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:store.manage",
+      "Illuminate\\Routing\\Middleware\\ThrottleRequests:30,1"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT",
+    "uri": "api/v1/admin/banners/reorder",
+    "name": "admin.banners.reorder",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\BannerController@reorder",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:store.manage"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/banners/{banner}",
+    "name": "admin.banners.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\BannerController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:store.manage|settings.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/banners/{banner}",
+    "name": "admin.banners.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\BannerController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:store.manage",
+      "Illuminate\\Routing\\Middleware\\ThrottleRequests:30,1"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/banners/{banner}",
+    "name": "admin.banners.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\BannerController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:store.manage"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PATCH",
+    "uri": "api/v1/admin/banners/{banner}/toggle",
+    "name": "admin.banners.toggle",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\BannerController@toggle",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:store.manage"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/branches",
+    "name": "admin.branches.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\BranchController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:branches.view|branches.manage"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/branches",
+    "name": "admin.branches.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\BranchController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:branches.create|branches.manage"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/branches/{branch}",
+    "name": "admin.branches.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\BranchController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:branches.view|branches.manage"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/branches/{branch}",
+    "name": "admin.branches.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\BranchController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:branches.update|branches.manage"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/branches/{branch}",
+    "name": "admin.branches.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\BranchController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:branches.delete|branches.manage"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/branches/{branch}/locations",
+    "name": "admin.branches.locations.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\LocationController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:locations.view|locations.manage"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/branches/{branch}/locations",
+    "name": "admin.branches.locations.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\LocationController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:locations.create|locations.manage"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/branches/{branch}/locations/{location}",
+    "name": "admin.branches.locations.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\LocationController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:locations.view|locations.manage"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/branches/{branch}/locations/{location}",
+    "name": "admin.branches.locations.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\LocationController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:locations.update|locations.manage"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/branches/{branch}/locations/{location}",
+    "name": "admin.branches.locations.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\LocationController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:locations.delete|locations.manage"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/brands",
+    "name": "admin.brands.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\BrandController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:brands.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/brands",
+    "name": "admin.brands.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\BrandController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:brands.create"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/brands/{brand}",
+    "name": "admin.brands.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\BrandController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:brands.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/brands/{brand}",
+    "name": "admin.brands.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\BrandController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:brands.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/brands/{brand}",
+    "name": "admin.brands.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\BrandController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:brands.delete"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/categories",
+    "name": "admin.categories.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CategoryController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:categories.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/categories",
+    "name": "admin.categories.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CategoryController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:categories.create"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT",
+    "uri": "api/v1/admin/categories/reorder",
+    "name": "admin.categories.reorder",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CategoryController@reorder",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:categories.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/categories/{category}",
+    "name": "admin.categories.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CategoryController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:categories.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/categories/{category}",
+    "name": "admin.categories.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CategoryController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:categories.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/categories/{category}",
+    "name": "admin.categories.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CategoryController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:categories.delete"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/coupons",
+    "name": "admin.coupons.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CouponController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:coupons.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/coupons",
+    "name": "admin.coupons.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CouponController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:coupons.create"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/coupons/{coupon}",
+    "name": "admin.coupons.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CouponController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:coupons.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/coupons/{coupon}",
+    "name": "admin.coupons.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CouponController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:coupons.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/coupons/{coupon}",
+    "name": "admin.coupons.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CouponController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:coupons.delete"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/customer-groups",
+    "name": "admin.customer-groups.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CustomerGroupController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:customer_groups.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/customer-groups",
+    "name": "admin.customer-groups.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CustomerGroupController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:customer_groups.create"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/customer-groups/{customer_group}",
+    "name": "admin.customer-groups.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CustomerGroupController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:customer_groups.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/customer-groups/{customer_group}",
+    "name": "admin.customer-groups.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CustomerGroupController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:customer_groups.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/customer-groups/{customer_group}",
+    "name": "admin.customer-groups.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CustomerGroupController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:customer_groups.delete"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/customers",
+    "name": "admin.customers.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CustomerController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:customers.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/customers",
+    "name": "admin.customers.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CustomerController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:customers.create"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/customers/{customer}",
+    "name": "admin.customers.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CustomerController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:customers.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/customers/{customer}",
+    "name": "admin.customers.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CustomerController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:customers.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/customers/{customer}",
+    "name": "admin.customers.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CustomerController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:customers.delete"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/customers/{customer}/approve",
+    "name": "admin.customers.approve",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CustomerController@approve",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:customers.approve"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/customers/{customer}/documents",
+    "name": "admin.customers.documents.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CustomerController@storeDocument",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:customers.documents.view",
+      "Illuminate\\Auth\\Middleware\\Authorize:customers.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PATCH",
+    "uri": "api/v1/admin/customers/{customer}/documents/{document}",
+    "name": "admin.customers.documents.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CustomerController@reviewDocument",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:customers.documents.view",
+      "Illuminate\\Auth\\Middleware\\Authorize:customers.approve"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/customers/{customer}/documents/{document}/download",
+    "name": "admin.customers.documents.download",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CustomerController@downloadDocument",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:customers.documents.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/customers/{customer}/reject",
+    "name": "admin.customers.reject",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CustomerController@reject",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:customers.approve"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/customers/{customer}/restore",
+    "name": "admin.customers.restore",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CustomerController@restore",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:customers.delete"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/customers/{customer}/suspend",
+    "name": "admin.customers.suspend",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\CustomerController@suspend",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:customers.approve"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/dashboard",
+    "name": "admin.dashboard",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\DashboardController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:reports.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/expenses",
+    "name": "admin.expenses.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ExpenseController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:expenses.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/expenses",
+    "name": "admin.expenses.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ExpenseController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:expenses.create"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/expenses/{expense}",
+    "name": "admin.expenses.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ExpenseController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:expenses.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/expenses/{expense}",
+    "name": "admin.expenses.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ExpenseController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:expenses.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/expenses/{expense}",
+    "name": "admin.expenses.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ExpenseController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:expenses.delete"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/inventory",
+    "name": "admin.inventory.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\InventoryController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:inventory.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/inventory/adjustments",
+    "name": "admin.inventory.adjustments",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\InventoryController@adjustments",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:inventory.adjust"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/inventory/movements",
+    "name": "admin.inventory.movements",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\InventoryController@movements",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:inventory.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/me",
+    "name": "admin.auth.me",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\AuthController@me",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/notifications",
+    "name": "admin.notifications.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Shared\\NotificationController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/notifications/{id}/read",
+    "name": "admin.notifications.read",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Shared\\NotificationController@markAsRead",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/orders",
+    "name": "admin.orders.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\OrderController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:orders.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/orders/{order}",
+    "name": "admin.orders.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\OrderController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:orders.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/orders/{order}/allocate",
+    "name": "admin.orders.allocate",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\OrderController@allocate",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:orders.allocate"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/orders/{order}/deallocate",
+    "name": "admin.orders.deallocate",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\OrderController@deallocate",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:orders.allocate"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/orders/{order}/payment",
+    "name": "admin.orders.update-payment",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\OrderController@updatePayment",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:orders.payment"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/orders/{order}/shipment",
+    "name": "admin.orders.shipment",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\OrderController@createShipment",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:orders.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PATCH",
+    "uri": "api/v1/admin/orders/{order}/status",
+    "name": "admin.orders.update-status",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\OrderController@updateStatus",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:orders.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/payment-notices",
+    "name": "admin.payment-notices.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\WholesalePaymentNoticeController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:payment_notices.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/payment-notices/{notice}/receipt",
+    "name": "admin.payment-notices.receipt",
+    "action": "App\\Http\\Controllers\\Api\\V1\\AttachmentController@paymentNotice",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/payment-notices/{payment_notice}",
+    "name": "admin.payment-notices.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\WholesalePaymentNoticeController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:payment_notices.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/payment-notices/{payment_notice}/approve",
+    "name": "admin.payment-notices.approve",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\WholesalePaymentNoticeController@approve",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:payment_notices.approve"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/payment-notices/{payment_notice}/reject",
+    "name": "admin.payment-notices.reject",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\WholesalePaymentNoticeController@reject",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:payment_notices.reject"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/permissions",
+    "name": "admin.permissions.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PermissionController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:permissions.view|roles.manage"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/price-lists",
+    "name": "admin.price-lists.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PriceListController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:price_lists.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/price-lists",
+    "name": "admin.price-lists.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PriceListController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:price_lists.create"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/price-lists/{price_list}",
+    "name": "admin.price-lists.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PriceListController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:price_lists.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/price-lists/{price_list}",
+    "name": "admin.price-lists.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PriceListController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:price_lists.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/price-lists/{price_list}",
+    "name": "admin.price-lists.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PriceListController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:price_lists.delete"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/price-lists/{price_list}/export",
+    "name": "admin.price-lists.export",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PriceListController@export",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:price_lists.export"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/price-lists/{price_list}/import",
+    "name": "admin.price-lists.import",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PriceListController@import",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:price_lists.import"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/price-lists/{price_list}/items",
+    "name": "admin.price-lists.items.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PriceListItemController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:price_lists.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/price-lists/{price_list}/items",
+    "name": "admin.price-lists.items.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PriceListItemController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:price_lists.create"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/price-lists/{price_list}/items/{item}",
+    "name": "admin.price-lists.items.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PriceListItemController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:price_lists.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/price-lists/{price_list}/items/{item}",
+    "name": "admin.price-lists.items.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PriceListItemController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:price_lists.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/price-lists/{price_list}/items/{item}",
+    "name": "admin.price-lists.items.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PriceListItemController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:price_lists.delete"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/production-receipts",
+    "name": "admin.",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ProductionReceiptController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:inventory.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/production-receipts",
+    "name": "admin.",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ProductionReceiptController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/production-receipts/options",
+    "name": "admin.",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ProductionReceiptController@options",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:inventory.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/products",
+    "name": "admin.products.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ProductController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:products.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/products",
+    "name": "admin.products.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ProductController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:products.create"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/products/{product:}/variants",
+    "name": "admin.products.variants.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ProductVariantController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:products.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/products/{product:}/variants",
+    "name": "admin.products.variants.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ProductVariantController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:products.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/products/{product:}/variants/{variant:}",
+    "name": "admin.products.variants.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ProductVariantController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:products.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/products/{product:}/variants/{variant:}",
+    "name": "admin.products.variants.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ProductVariantController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:products.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/products/{product:}/variants/{variant:}",
+    "name": "admin.products.variants.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ProductVariantController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:products.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/products/{product}",
+    "name": "admin.products.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ProductController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:products.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/products/{product}",
+    "name": "admin.products.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ProductController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:products.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/products/{product}",
+    "name": "admin.products.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ProductController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:products.delete"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/products/{product}/media",
+    "name": "admin.products.media.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ProductMediaController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:products.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/products/{product}/media",
+    "name": "admin.products.media.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ProductMediaController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Routing\\Middleware\\ThrottleRequests:30,1",
+      "Illuminate\\Auth\\Middleware\\Authorize:products.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT",
+    "uri": "api/v1/admin/products/{product}/media/reorder",
+    "name": "admin.products.media.reorder",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ProductMediaController@reorder",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:products.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/products/{product}/media/{media}",
+    "name": "admin.products.media.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ProductMediaController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:products.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/promotions",
+    "name": "admin.promotions.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PromotionController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:promotions.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/promotions",
+    "name": "admin.promotions.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PromotionController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:promotions.create"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/promotions/{promotion}",
+    "name": "admin.promotions.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PromotionController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:promotions.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/promotions/{promotion}",
+    "name": "admin.promotions.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PromotionController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:promotions.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/promotions/{promotion}",
+    "name": "admin.promotions.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PromotionController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:promotions.delete"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/purchase-orders",
+    "name": "admin.purchase-orders.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PurchaseOrderController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:purchases.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/purchase-orders",
+    "name": "admin.purchase-orders.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PurchaseOrderController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:purchases.create"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/purchase-orders/{purchase_order}",
+    "name": "admin.purchase-orders.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PurchaseOrderController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:purchases.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/purchase-orders/{purchase_order}",
+    "name": "admin.purchase-orders.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PurchaseOrderController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:purchases.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/purchase-orders/{purchase_order}",
+    "name": "admin.purchase-orders.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PurchaseOrderController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:purchases.delete"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/purchase-orders/{purchase_order}/approve",
+    "name": "admin.purchase-orders.approve",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PurchaseOrderController@approve",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:purchases.approve"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/purchase-orders/{purchase_order}/cancel",
+    "name": "admin.purchase-orders.cancel",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PurchaseOrderController@cancel",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:purchases.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/purchase-orders/{purchase_order}/close-short",
+    "name": "admin.purchase-orders.close-short",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PurchaseOrderController@closeShort",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:purchases.receive"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/purchase-orders/{purchase_order}/receive",
+    "name": "admin.purchase-orders.receive",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PurchaseOrderController@receive",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:purchases.receive"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/purchase-orders/{purchase_order}/send",
+    "name": "admin.purchase-orders.send",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PurchaseOrderController@send",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:purchases.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/purchase-requests",
+    "name": "admin.purchase-requests.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PurchaseRequestController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:purchases.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/purchase-requests",
+    "name": "admin.purchase-requests.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PurchaseRequestController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:purchases.create"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/purchase-requests/{purchase_request}",
+    "name": "admin.purchase-requests.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PurchaseRequestController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:purchases.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/purchase-requests/{purchase_request}",
+    "name": "admin.purchase-requests.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PurchaseRequestController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:purchases.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/purchase-requests/{purchase_request}",
+    "name": "admin.purchase-requests.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PurchaseRequestController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:purchases.delete"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/purchase-requests/{purchase_request}/approve",
+    "name": "admin.purchase-requests.approve",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PurchaseRequestController@approve",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:purchase_requests.approve"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/purchase-requests/{purchase_request}/reject",
+    "name": "admin.purchase-requests.reject",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PurchaseRequestController@reject",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:purchase_requests.approve"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/purchase-requests/{purchase_request}/submit",
+    "name": "admin.purchase-requests.submit",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PurchaseRequestController@submit",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:purchases.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/quotations",
+    "name": "admin.quotations.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\QuotationController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:quotations.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/quotations/{quotation}",
+    "name": "admin.quotations.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\QuotationController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:quotations.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/quotations/{quotation}/expire",
+    "name": "admin.quotations.expire",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\QuotationController@expire",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:quotations.price"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/quotations/{quotation}/price",
+    "name": "admin.quotations.price",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\QuotationController@price",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:quotations.price"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/reports/inventory",
+    "name": "admin.reports.inventory",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ReportController@inventory",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:reports.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/reports/profit",
+    "name": "admin.reports.profit",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ReportController@profit",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:reports.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/reports/sales",
+    "name": "admin.reports.sales",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ReportController@sales",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:reports.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/reports/shifts",
+    "name": "admin.reports.shifts",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ReportController@shifts",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:reports.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/reports/suppliers",
+    "name": "admin.reports.suppliers",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ReportController@suppliers",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:reports.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/return-items/{return_item}/attachments/{attachment}",
+    "name": "admin.return-items.attachments.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\AttachmentController@returnFile",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/returns",
+    "name": "admin.returns.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ReturnController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:returns.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/returns",
+    "name": "admin.returns.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ReturnController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:returns.create"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/returns/{return_request}",
+    "name": "admin.returns.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ReturnController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:returns.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/returns/{return_request}",
+    "name": "admin.returns.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ReturnController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:returns.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/returns/{return_request}",
+    "name": "admin.returns.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ReturnController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:returns.delete"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/returns/{return_request}/approve",
+    "name": "admin.returns.approve",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ReturnController@approve",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:returns.approve"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/returns/{return_request}/receive",
+    "name": "admin.returns.receive",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ReturnController@receive",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:returns.receive"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/returns/{return_request}/refund",
+    "name": "admin.returns.refund",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ReturnController@refund",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:returns.refund"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/roles",
+    "name": "admin.roles.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\RoleController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:roles.view|roles.manage"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/roles",
+    "name": "admin.roles.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\RoleController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:roles.create|roles.manage"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/roles/{role}",
+    "name": "admin.roles.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\RoleController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:roles.view|roles.manage"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/roles/{role}",
+    "name": "admin.roles.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\RoleController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:roles.update|roles.manage"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/roles/{role}",
+    "name": "admin.roles.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\RoleController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:roles.delete|roles.manage"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/settings",
+    "name": "admin.settings.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\SettingController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:settings.view|settings.manage"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT",
+    "uri": "api/v1/admin/settings",
+    "name": "admin.settings.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\SettingController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:settings.update|settings.manage"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/shifts",
+    "name": "admin.shifts.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PosShiftAdminController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:pos_shifts.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/shifts/{shift}",
+    "name": "admin.shifts.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PosShiftAdminController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:pos_shifts.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/shifts/{shift}/approve",
+    "name": "admin.shifts.approve",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\PosShiftAdminController@approve",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:pos_shifts.approve"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/shipping-companies",
+    "name": "admin.shipping-companies.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ShippingCompanyController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:shipping.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/shipping-companies",
+    "name": "admin.shipping-companies.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ShippingCompanyController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:shipping.create"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/shipping-companies/{shipping_company}",
+    "name": "admin.shipping-companies.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ShippingCompanyController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:shipping.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/shipping-companies/{shipping_company}",
+    "name": "admin.shipping-companies.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ShippingCompanyController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:shipping.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/shipping-companies/{shipping_company}",
+    "name": "admin.shipping-companies.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ShippingCompanyController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:shipping.delete"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/shipping-rates",
+    "name": "admin.shipping-rates.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ShippingRateController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:shipping.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/shipping-rates",
+    "name": "admin.shipping-rates.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ShippingRateController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:shipping.create"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/shipping-rates/{shipping_rate}",
+    "name": "admin.shipping-rates.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ShippingRateController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:shipping.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/shipping-rates/{shipping_rate}",
+    "name": "admin.shipping-rates.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ShippingRateController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:shipping.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/shipping-rates/{shipping_rate}",
+    "name": "admin.shipping-rates.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ShippingRateController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:shipping.delete"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/shipping-zones",
+    "name": "admin.shipping-zones.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ShippingZoneController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:shipping.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/shipping-zones",
+    "name": "admin.shipping-zones.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ShippingZoneController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:shipping.create"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/shipping-zones/{shipping_zone}",
+    "name": "admin.shipping-zones.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ShippingZoneController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:shipping.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/shipping-zones/{shipping_zone}",
+    "name": "admin.shipping-zones.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ShippingZoneController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:shipping.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/shipping-zones/{shipping_zone}",
+    "name": "admin.shipping-zones.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\ShippingZoneController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:shipping.delete"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/stocktakes",
+    "name": "admin.stocktakes.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\StocktakeController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:stocktakes.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/stocktakes",
+    "name": "admin.stocktakes.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\StocktakeController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:stocktakes.create"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/stocktakes/{stocktake}",
+    "name": "admin.stocktakes.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\StocktakeController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:stocktakes.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/stocktakes/{stocktake}",
+    "name": "admin.stocktakes.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\StocktakeController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:stocktakes.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/stocktakes/{stocktake}",
+    "name": "admin.stocktakes.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\StocktakeController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:stocktakes.delete"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/stocktakes/{stocktake}/approve",
+    "name": "admin.stocktakes.approve",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\StocktakeController@approve",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:stocktakes.approve"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PATCH",
+    "uri": "api/v1/admin/stocktakes/{stocktake}/items",
+    "name": "admin.stocktakes.items.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\StocktakeController@updateItems",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:stocktakes.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/supplier-deliveries/{delivery}/invoice",
+    "name": "admin.deliveries.invoice",
+    "action": "App\\Http\\Controllers\\Api\\V1\\AttachmentController@delivery",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/supplier-invoices",
+    "name": "admin.supplier-invoices.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\SupplierInvoiceController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:purchases.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/supplier-invoices",
+    "name": "admin.supplier-invoices.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\SupplierInvoiceController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:purchases.create"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/supplier-invoices/{invoice}/attachment",
+    "name": "admin.supplier-invoices.attachment",
+    "action": "App\\Http\\Controllers\\Api\\V1\\AttachmentController@invoice",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/supplier-invoices/{supplier_invoice}",
+    "name": "admin.supplier-invoices.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\SupplierInvoiceController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:purchases.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/supplier-invoices/{supplier_invoice}",
+    "name": "admin.supplier-invoices.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\SupplierInvoiceController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:purchases.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/supplier-invoices/{supplier_invoice}",
+    "name": "admin.supplier-invoices.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\SupplierInvoiceController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:purchases.delete"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/supplier-invoices/{supplier_invoice}/cancel",
+    "name": "admin.supplier-invoices.cancel",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\SupplierInvoiceController@cancel",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:supplier_invoices.cancel"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/supplier-invoices/{supplier_invoice}/post",
+    "name": "admin.supplier-invoices.post",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\SupplierInvoiceController@post",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:supplier_invoices.post"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/supplier-payments",
+    "name": "admin.supplier-payments.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\SupplierPaymentController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:purchases.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/supplier-payments",
+    "name": "admin.supplier-payments.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\SupplierPaymentController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:supplier_payments.create"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/supplier-payments/{supplier_payment}",
+    "name": "admin.supplier-payments.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\SupplierPaymentController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:purchases.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/supplier-payments/{supplier_payment}",
+    "name": "admin.supplier-payments.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\SupplierPaymentController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:supplier_payments.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/supplier-payments/{supplier_payment}",
+    "name": "admin.supplier-payments.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\SupplierPaymentController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:supplier_payments.delete"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/supplier-payments/{supplier_payment}/allocate",
+    "name": "admin.supplier-payments.allocate",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\SupplierPaymentController@allocate",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:supplier_payments.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/suppliers",
+    "name": "admin.suppliers.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\SupplierController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:suppliers.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/suppliers",
+    "name": "admin.suppliers.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\SupplierController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:suppliers.create"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/suppliers/{supplier}",
+    "name": "admin.suppliers.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\SupplierController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:suppliers.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/suppliers/{supplier}",
+    "name": "admin.suppliers.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\SupplierController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:suppliers.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/suppliers/{supplier}",
+    "name": "admin.suppliers.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\SupplierController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:suppliers.delete"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/suppliers/{supplier}/users",
+    "name": "admin.suppliers.users.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\SupplierController@users",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:suppliers.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/suppliers/{supplier}/users",
+    "name": "admin.suppliers.users.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\SupplierController@storeUser",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:suppliers.create"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT",
+    "uri": "api/v1/admin/suppliers/{supplier}/users/{user}",
+    "name": "admin.suppliers.users.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\SupplierController@updateUser",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:suppliers.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/suppliers/{supplier}/users/{user}",
+    "name": "admin.suppliers.users.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\SupplierController@destroyUser",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:suppliers.delete"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/transfers",
+    "name": "admin.transfers.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\TransferController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:transfers.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/transfers",
+    "name": "admin.transfers.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\TransferController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:transfers.create"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/transfers/{transfer}",
+    "name": "admin.transfers.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\TransferController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:transfers.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/transfers/{transfer}",
+    "name": "admin.transfers.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\TransferController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:transfers.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/transfers/{transfer}",
+    "name": "admin.transfers.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\TransferController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:transfers.delete"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/transfers/{transfer}/approve",
+    "name": "admin.transfers.approve",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\TransferController@approve",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:transfers.approve"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/transfers/{transfer}/cancel",
+    "name": "admin.transfers.cancel",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\TransferController@cancel",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:transfers.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/transfers/{transfer}/receive",
+    "name": "admin.transfers.receive",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\TransferController@receive",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:transfers.receive"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/transfers/{transfer}/ship",
+    "name": "admin.transfers.ship",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\TransferController@ship",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:transfers.ship"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/treasuries",
+    "name": "admin.treasuries.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\TreasuryController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:treasuries.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/treasuries",
+    "name": "admin.treasuries.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\TreasuryController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:treasuries.create"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/treasuries/{treasury}",
+    "name": "admin.treasuries.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\TreasuryController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:treasuries.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/treasuries/{treasury}",
+    "name": "admin.treasuries.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\TreasuryController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:treasuries.update"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/treasuries/{treasury}",
+    "name": "admin.treasuries.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\TreasuryController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:treasuries.delete"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/treasury-transfers",
+    "name": "admin.treasury-transfers.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\TreasuryTransferController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:treasury_transfers.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/treasury-transfers",
+    "name": "admin.treasury-transfers.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\TreasuryTransferController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:treasury_transfers.create"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/treasury-transfers/{treasuryTransfer}",
+    "name": "admin.treasury-transfers.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\TreasuryTransferController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:treasury_transfers.view"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/treasury-transfers/{treasuryTransfer}/approve",
+    "name": "admin.treasury-transfers.approve",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\TreasuryTransferController@approve",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:treasury_transfers.approve"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/treasury-transfers/{treasuryTransfer}/reject",
+    "name": "admin.treasury-transfers.reject",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\TreasuryTransferController@reject",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Illuminate\\Auth\\Middleware\\Authorize:treasury_transfers.approve"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/users",
+    "name": "admin.users.index",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\UserController@index",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:users.view|users.manage"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "POST",
+    "uri": "api/v1/admin/users",
+    "name": "admin.users.store",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\UserController@store",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:users.create|users.manage"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "GET|HEAD",
+    "uri": "api/v1/admin/users/{user}",
+    "name": "admin.users.show",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\UserController@show",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:users.view|users.manage"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "PUT|PATCH",
+    "uri": "api/v1/admin/users/{user}",
+    "name": "admin.users.update",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\UserController@update",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:users.update|users.manage"
+    ],
+    "path": null
+  },
+  {
+    "domain": null,
+    "method": "DELETE",
+    "uri": "api/v1/admin/users/{user}",
+    "name": "admin.users.destroy",
+    "action": "App\\Http\\Controllers\\Api\\V1\\Admin\\UserController@destroy",
+    "middleware": [
+      "api",
+      "Illuminate\\Auth\\Middleware\\Authenticate:sanctum",
+      "App\\Http\\Middleware\\EnsureStaffAuthenticated",
+      "App\\Http\\Middleware\\AuditStaffAdministration",
+      "Spatie\\Permission\\Middleware\\PermissionMiddleware:users.delete|users.manage"
+    ],
+    "path": null
+  }
+]

@@ -1,6 +1,7 @@
 @import '../styles/sophie.css';
 @import '../styles/categories.css';
 @import '../styles/design-showcase.css';
+@import '../styles/product-experience.css';
 
 @tailwind base;
 @tailwind components;

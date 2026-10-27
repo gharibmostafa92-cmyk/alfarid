@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
 import { CategoriesContent } from '@/components/categories/CategoriesContent';
 
 export const metadata: Metadata = {
@@ -7,5 +8,5 @@ export const metadata: Metadata = {
 };
 
 export default function CategoriesPage() {
-  return <CategoriesContent />;
+  return <Suspense fallback={null}><CategoriesContent /></Suspense>;
 }

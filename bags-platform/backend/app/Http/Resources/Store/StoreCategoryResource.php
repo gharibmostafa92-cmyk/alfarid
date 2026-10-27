@@ -24,6 +24,8 @@ class StoreCategoryResource extends JsonResource
             'name_ar' => $this->name_ar,
             'name_en' => $this->name_en,
             'slug' => $this->slug,
+            'description_en' => $this->description_en,
+            'description_ar' => $this->description_ar,
             'image' => $image && $image->hasGeneratedConversion('thumb') ? $image->getUrl('thumb') : ($image?->getUrl() ?: null),
             'direct_products_count' => $this->whenCounted('activeProducts'),
             'products_count' => (int) $this->active_products_count + array_sum(array_column($children, 'products_count')),

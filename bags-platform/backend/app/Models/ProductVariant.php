@@ -58,11 +58,13 @@ class ProductVariant extends Model implements HasMedia
     public function registerMediaCollections(): void
     {
         $this->addMediaCollection('images')->useDisk('r2_public')->storeConversionsOnDisk('r2_public')->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp']);
+        $this->addMediaCollection('images_staging')->useDisk('r2_public')->storeConversionsOnDisk('r2_public')->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp']);
     }
 
     public function registerMediaConversions(?Media $media = null): void
     {
-        $this->addMediaConversion('thumb')->fit(Fit::Crop, 300, 300)->format('webp')->nonQueued();
-        $this->addMediaConversion('medium')->fit(Fit::Contain, 800, 800)->format('webp')->nonQueued();
+        // F3: queued like Product — no synchronous conversion inside locks.
+        $this->addMediaConversion('thumb')->fit(Fit::Crop, 300, 300)->format('webp')->performOnCollections('images')->queued();
+        $this->addMediaConversion('medium')->fit(Fit::Contain, 800, 800)->format('webp')->performOnCollections('images')->queued();
     }
 }

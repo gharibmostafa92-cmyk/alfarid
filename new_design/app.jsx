@@ -1,148 +1,127 @@
-// ============ App shell (Vortix header + floating pill sidebar, RTL) ============
-
-const INV_NAV = [
-  { id: 'branches',  label: 'الفروع والمخازن', icon: 'store',     match: ['branches', 'locations'] },
-  { id: 'stock',     label: 'الأرصدة',         icon: 'box',       match: ['stock'] },
-  { id: 'adjust',    label: 'التسوية',         icon: 'sliders',   match: ['adjust'] },
-  { id: 'moves',     label: 'الحركات',         icon: 'history',   match: ['moves'] },
-  { id: 'transfers', label: 'التحويلات',       icon: 'swap',      match: ['transfers', 'transfer', 'transfer-edit'] },
-  { id: 'counts',    label: 'الجرد',           icon: 'clipboard', match: ['counts', 'count'] },
-  { id: 'production',label: 'استلام الإنتاج',  icon: 'factory',   match: ['production'] },
-  { id: 'banners',   label: 'إدارة المتجر',    icon: 'storefront',match: ['banners'] },
+/* ============ App shell ============ */
+const NAV_GROUPS = [
+  { key: 'sales', label: 'المبيعات', items: [
+    { m: 'orders', label: 'الطلبات', icon: 'orders' },
+    { m: 'returns', label: 'المرتجعات', icon: 'returns' },
+    { m: 'wholesale', label: 'الجملة', icon: 'quote' },
+    { m: 'shipping', label: 'الشحن', icon: 'truck' },
+  ] },
+  { key: 'catalog', label: 'التسعير والعروض', items: [
+    { m: 'pricing', label: 'التسعير ومجموعات العملاء', icon: 'tag' },
+    { m: 'promos', label: 'العروض والكوبونات', icon: 'ticket' },
+    { m: 'brands', label: 'البراندات', icon: 'star' },
+  ] },
+  { key: 'supply', label: 'المشتريات', items: [
+    { m: 'suppliers', label: 'الموردون', icon: 'factory' },
+    { m: 'purchasing', label: 'المشتريات', icon: 'cart' },
+  ] },
+  { key: 'finance', label: 'المالية', items: [
+    { m: 'finance', label: 'المالية', icon: 'vault' },
+    { m: 'shifts', label: 'مراجعة الورديات', icon: 'clock' },
+    { m: 'reports', label: 'التقارير', icon: 'chart' },
+  ] },
 ];
+const groupOf = m => NAV_GROUPS.find(g => g.items.some(i => i.m === m))?.key;
 
-function InvHeader({ route, go, theme, role }) {
-  return (
+function App() {
+  const [route, setRoute] = useState(() => { try { return JSON.parse(localStorage.getItem('vx-route')) || { m: 'orders' }; } catch { return { m: 'orders' }; } });
+  const [dark, setDark] = useState(() => localStorage.getItem('vx-dark') === '1');
+  const [notifs, setNotifs] = useState(NOTIFS);
+  const [drawer, setDrawer] = useState(false);
+  const [k, setK] = useState(0);
+
+  useEffect(() => { localStorage.setItem('vx-route', JSON.stringify(route)); }, [route]);
+  useEffect(() => { document.documentElement.classList.toggle('dark', dark); localStorage.setItem('vx-dark', dark ? '1' : '0'); }, [dark]);
+
+  const go = r => { setRoute(r); setK(x => x + 1); window.scrollTo({ top: 0 }); };
+  const markRead = id => setNotifs(ns => ns.map(n => n.id === id ? { ...n, read_at: 'now' } : n));
+  const unread = notifs.filter(n => !n.read_at).length;
+
+  const switchTheme = (toDark, e) => {
+    const target = toDark === dark ? !dark : toDark;
+    if (!document.startViewTransition) { setDark(target); return; }
+    const r = e.currentTarget.getBoundingClientRect();
+    const x = r.left + r.width / 2, y = r.top + r.height / 2;
+    const rad = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
+    const t = document.startViewTransition(() => { ReactDOM.flushSync(() => setDark(target)); });
+    t.ready.then(() => document.documentElement.animate({ clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${rad}px at ${x}px ${y}px)`] },
+      { duration: 660, easing: 'cubic-bezier(.45,0,.2,1)', pseudoElement: '::view-transition-new(root)' }));
+  };
+
+  const page = (() => {
+    const { m, id, sub } = route;
+    switch (m) {
+      case 'orders': return id ? <OrderDetail id={id} go={go} /> : <OrdersList go={go} />;
+      case 'returns': return id ? <ReturnDetail id={id} go={go} /> : <ReturnsList go={go} />;
+      case 'shipping': return <ShippingPage />;
+      case 'pricing': return id ? <PriceListDetail id={id} go={go} /> : <PricingPage go={go} />;
+      case 'promos': return <PromosPage />;
+      case 'suppliers': return id ? <SupplierDetail id={id} go={go} /> : <SuppliersList go={go} />;
+      case 'purchasing': return <PurchasingPage sub={sub} />;
+      case 'finance': return <FinancePage sub={sub} />;
+      case 'shifts': return <ShiftsPage />;
+      case 'wholesale': return <WholesalePage sub={sub} />;
+      case 'reports': return <ReportsPage />;
+      case 'brands': return <BrandsPage />;
+      case 'notifications': return <NotificationsPage items={notifs} onRead={markRead} go={go} />;
+      default: return <OrdersList go={go} />;
+    }
+  })();
+  const curGroup = groupOf(route.m);
+
+  return <div className="max-w-[1400px] mx-auto px-4 sm:px-7 pt-5 pb-10">
+    {/* header */}
     <header className="flex items-center justify-between gap-4 mb-6">
-      <button onClick={() => go('stock')} className="v-pill-surface rounded-full p-1.5 pl-5 flex items-center gap-2.5 shadow-xs hover:opacity-95 transition">
-        <div className="w-9 h-9 rounded-full flex items-center justify-center shadow-inner" style={{ background: 'radial-gradient(circle at 30% 25%, #ff8a65 0%, #e0491f 75%)' }}>
-          <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 5l7 14 7-14" /></svg>
+      <button className="v-pill p-1.5 ps-1.5 pe-5 flex items-center gap-2.5" onClick={() => go({ m: 'orders' })}>
+        <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'radial-gradient(circle at 30% 25%, #ff8a65 0%, #e0491f 75%)' }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 5l7 14 7-14" /></svg>
         </div>
-        <span className="font-display font-bold text-[15px] tracking-tight c-primary" style={{ fontFamily: 'Plus Jakarta Sans' }}>Vortix</span>
-        <span className="text-[11px] c-muted hidden sm:inline">| المخزون</span>
+        <span className="font-display font-bold text-[15px] tx1" style={{ fontFamily: 'Plus Jakarta Sans' }}>Vortix</span>
+        <span className="text-[11px] tx3 hidden sm:inline">· الإدارة</span>
       </button>
-
-      <nav className="v-pill-surface rounded-full p-1.5 hidden xl:flex items-center gap-1 shadow-xs">
-        {INV_NAV.map(n => {
-          const on = n.match.includes(route);
-          return (
-            <button key={n.id} onClick={() => go(n.id === 'branches' ? 'branches' : n.id)}
-              className={`px-3.5 py-2 rounded-full text-[12.5px] transition-colors duration-150 ${on ? 'font-semibold shadow-xs' : 'font-medium'}`}
-              style={{ background: on ? 'var(--pill-active-bg)' : 'transparent', color: on ? 'var(--pill-active-text)' : 'var(--text-secondary)' }}>{n.label}</button>
-          );
-        })}
+      <nav className="v-pill p-1.5 hidden lg:flex items-center gap-1">
+        {NAV_GROUPS.map(g => <button key={g.key} onClick={() => go({ m: g.items[0].m })} className="px-5 py-2 rounded-full text-[13px] font-medium transition"
+          style={curGroup === g.key ? { background: 'var(--pill-active-bg)', color: 'var(--pill-active-text)', fontWeight: 600 } : { color: 'var(--text-secondary)' }}>{g.label}</button>)}
       </nav>
-
       <div className="flex items-center gap-3">
-        <div className="v-pill-surface rounded-full px-4 py-2.5 flex items-center gap-4 shadow-xs c-primary">
-          <Icon n="search" s={17} w={2} />
-          <span className="relative"><Icon n="bell" s={17} w={2} /><span className="absolute -top-0.5 -left-0.5 w-2 h-2 rounded-full bg-[#e0491f]" style={{ boxShadow: '0 0 0 2px var(--bg-card)' }} /></span>
-          <Icon n="help" s={17} w={2} />
+        <div className="v-pill px-4 py-2.5 flex items-center gap-4">
+          <button className="tx1 hover:opacity-70" title="بحث"><Icon name="search" size={17} sw={2} /></button>
+          <button className="tx1 hover:opacity-70 relative" title="الإشعارات" onClick={() => setDrawer(true)}>
+            <Icon name="bell" size={17} sw={2} />
+            {unread > 0 && <span className="absolute -top-2 -end-2.5 min-w-[17px] h-[17px] px-1 rounded-full text-[9.5px] font-bold text-white flex items-center justify-center num" style={{ background: 'var(--accent)', boxShadow: '0 0 0 2px var(--bg-card)' }}>{unread}</span>}
+          </button>
+          <button className="tx1 hover:opacity-70" title="المساعدة"><Icon name="help" size={17} sw={2} /></button>
         </div>
-        <div className="v-pill-surface rounded-full p-1.5 pl-4 flex items-center gap-2.5 shadow-xs">
-          <div className="w-9 h-9 rounded-full overflow-hidden flex items-center justify-center bg-[#f4e3d7] shrink-0">
-            <svg viewBox="0 0 64 64" className="w-full h-full">
-              <rect width="64" height="64" fill="#f3dfd1" /><path d="M12 64c2-11 10-16 20-16s18 5 20 16H12z" fill="#18151c" /><path d="M27 48l5 8 5-8z" fill="#fff" />
-              <circle cx="32" cy="28" r="11" fill="#e0b193" /><path d="M21 26c0-8 5-13 11-13s11 5 11 13c-2-3-5-4-11-4s-9 1-11 4z" fill="#231c18" />
-              <path d="M22.5 30c.5 6 4.5 10 9.5 10s9-4 9.5-10c-2.5 1.5-5.5 2.5-9.5 2.5s-7-1-9.5-2.5z" fill="#231c18" />
-            </svg>
-          </div>
-          <div className="leading-tight hidden sm:block">
-            <div className="text-[13px] font-semibold c-primary">أحمد سمير</div>
-            <div className="text-[11px] c-secondary">{INV_ROLES[role].label}</div>
-          </div>
-        </div>
+        <button className="v-pill p-1.5 pe-4 flex items-center gap-2.5 text-start">
+          <Avatar name="أحمد ناصر" tone={1} size={36} />
+          <div className="leading-tight hidden sm:block"><div className="text-[13px] font-semibold tx1">أحمد ناصر</div><div className="text-[11px] tx2">مدير العمليات</div></div>
+          <Icon name="chevD" size={14} className="tx2 ms-1" />
+        </button>
       </div>
     </header>
-  );
-}
 
-function InvSidebar({ route, go, theme, setTheme }) {
-  return (
-    <aside className="flex flex-col items-center gap-4 shrink-0 pt-1 sticky top-5">
-      <div className="v-pill-surface rounded-full p-1.5 flex flex-col items-center gap-1.5 shadow-xs w-[44px]">
-        {[['light', 'sun'], ['dark', 'moon']].map(([k, ic]) => (
-          <button key={k} onClick={() => setTheme(k)} className="w-8 h-8 rounded-full flex items-center justify-center"
-            style={{ background: theme === k ? 'var(--theme-active-circle)' : 'transparent', color: theme === k ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
-            <Icon n={ic} s={16} />
-          </button>
-        ))}
-      </div>
-      <div className="v-pill-surface rounded-full p-1.5 flex flex-col items-center gap-2 shadow-xs w-[44px] mt-4">
-        {INV_NAV.map(n => {
-          const on = n.match.includes(route);
-          return (
-            <button key={n.id} title={n.label} onClick={() => go(n.id)} className="w-8 h-8 rounded-full flex items-center justify-center transition-colors"
-              style={{ background: on ? 'var(--pill-active-bg)' : 'transparent', color: on ? 'var(--pill-active-text)' : 'var(--text-secondary)' }}>
-              <Icon n={n.icon} s={16} />
-            </button>
-          );
-        })}
-      </div>
-      <div className="v-pill-surface rounded-full p-1.5 flex flex-col items-center gap-1.5 shadow-xs w-[44px] mt-10">
-        <button className="w-8 h-8 rounded-full flex items-center justify-center c-secondary"><Icon n="info" s={16} /></button>
-        <button className="w-8 h-8 rounded-full flex items-center justify-center c-secondary"><Icon n="logout" s={16} /></button>
-      </div>
-    </aside>
-  );
-}
-
-function InvApp() {
-  const [t, setTweak] = useTweaks(window.INV_TWEAK_DEFAULTS);
-  const [nav, setNav] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('vortix-inv-route')) || { route: 'stock', params: {} }; } catch { return { route: 'stock', params: {} }; }
-  });
-  const [db, setDb] = useState(() => ({ branches: INV_BRANCHES, locations: INV_LOCATIONS, transfers: INV_TRANSFERS, counts: INV_COUNTS, production: INV_PRODUCTION }));
-  const [toastMsg, setToastMsg] = useState(null);
-  const [reloadKey, setReloadKey] = useState(0);
-  const tRef = useRef();
-
-  const go = (route, params = {}) => { setNav({ route, params }); window.scrollTo({ top: 0, behavior: 'smooth' }); };
-  useEffect(() => { localStorage.setItem('vortix-inv-route', JSON.stringify(nav)); }, [nav]);
-  const toast = text => { setToastMsg({ text }); clearTimeout(tRef.current); tRef.current = setTimeout(() => setToastMsg(null), 2400); };
-
-  const ctx = { db, setDb, toast, role: t.role, demoState: t.demoState, reloadKey, reload: () => { setReloadKey(k => k + 1); if (t.demoState === 'error') setTweak('demoState', 'live'); } };
-
-  const screens = {
-    branches: BranchesScreen, locations: LocationsScreen, stock: StockScreen, adjust: AdjustScreen, moves: MovesScreen,
-    transfers: TransfersScreen, transfer: TransferDetail, 'transfer-edit': TransferEdit, counts: CountsScreen, count: CountDetail, production: ProductionScreen, banners: BannersScreen,
-  };
-  const Screen = screens[nav.route] || StockScreen;
-  const screenKey = nav.route + JSON.stringify(nav.params);
-  const label = (INV_NAV.find(n => n.match.includes(nav.route)) || {}).label;
-
-  return (
-    <InvCtx.Provider value={ctx}>
-      <div id="app-viewport" className={t.theme === 'dark' ? 'theme-dark' : 'theme-light'}>
-        <div className="max-w-[1440px] mx-auto px-4 sm:px-7 pt-5 pb-10">
-          <InvHeader route={nav.route} go={go} theme={t.theme} role={t.role} />
-          <div className="flex gap-6 items-start">
-            <InvSidebar route={nav.route} go={go} theme={t.theme} setTheme={v => setTweak('theme', v)} />
-            <main className="flex-1 min-w-0" data-screen-label={label}>
-              <Screen key={screenKey} go={go} params={nav.params} />
-            </main>
-          </div>
+    <div className="flex gap-6 items-start">
+      {/* sidebar */}
+      <aside className="flex flex-col items-center gap-3 shrink-0 pt-1 sticky top-5">
+        <div className="v-pill p-1.5 flex flex-col items-center gap-1.5 w-[44px]">
+          <button onClick={e => switchTheme(false, e)} className="w-8 h-8 rounded-full flex items-center justify-center side-btn" style={!dark ? { background: 'var(--theme-active-circle)', color: 'var(--text-primary)' } : { color: 'var(--text-secondary)' }}><Icon name="sun" size={17} /><span className="tip">الوضع الفاتح</span></button>
+          <button onClick={e => switchTheme(true, e)} className="w-8 h-8 rounded-full flex items-center justify-center side-btn" style={dark ? { background: 'var(--theme-active-circle)', color: 'var(--text-primary)' } : { color: 'var(--text-secondary)' }}><Icon name="moon" size={16} /><span className="tip">الوضع الداكن</span></button>
         </div>
-        <Toast toast={toastMsg} />
-      </div>
+        {NAV_GROUPS.map(g => <div key={g.key} className="v-pill p-1.5 flex flex-col items-center gap-1.5 w-[44px]">
+          {g.items.map(it => { const on = route.m === it.m; return <button key={it.m} onClick={() => go({ m: it.m })} className="side-btn w-8 h-8 rounded-full flex items-center justify-center transition"
+            style={on ? { background: 'var(--pill-active-bg)', color: 'var(--pill-active-text)' } : { color: 'var(--text-secondary)' }}><Icon name={it.icon} size={16} /><span className="tip">{it.label}</span></button>; })}
+        </div>)}
+        <div className="v-pill p-1.5 flex flex-col items-center gap-1.5 w-[44px] mt-2">
+          <button onClick={() => go({ m: 'notifications' })} className="side-btn w-8 h-8 rounded-full flex items-center justify-center relative" style={route.m === 'notifications' ? { background: 'var(--pill-active-bg)', color: 'var(--pill-active-text)' } : { color: 'var(--text-secondary)' }}>
+            <Icon name="bell" size={16} />{unread > 0 && <span className="absolute top-1 end-1 w-1.5 h-1.5 rounded-full" style={{ background: 'var(--accent)' }}></span>}<span className="tip">كل الإشعارات</span></button>
+          <button className="side-btn w-8 h-8 rounded-full flex items-center justify-center tx2"><Icon name="logout" size={16} style={{ transform: 'scaleX(-1)' }} /><span className="tip">تسجيل الخروج</span></button>
+        </div>
+      </aside>
 
-      <div dir="ltr">
-      <TweaksPanel title="Tweaks">
-        <TweakSection label="الصلاحية">
-          <TweakRadio label="الدور" value={t.role} onChange={v => setTweak('role', v)}
-            options={[{ value: 'admin', label: 'مدير' }, { value: 'storekeeper', label: 'أمين مخزن' }, { value: 'viewer', label: 'عرض فقط' }]} />
-        </TweakSection>
-        <TweakSection label="حالة البيانات">
-          <TweakSelect label="محاكاة الاستجابة" value={t.demoState} onChange={v => setTweak('demoState', v)}
-            options={[{ value: 'live', label: 'بيانات فعلية' }, { value: 'loading', label: 'تحميل' }, { value: 'empty', label: 'فارغ' }, { value: 'error', label: 'خطأ من السيرفر' }]} />
-        </TweakSection>
-        <TweakSection label="المظهر">
-          <TweakRadio label="الوضع" value={t.theme} onChange={v => setTweak('theme', v)} options={[{ value: 'light', label: 'فاتح' }, { value: 'dark', label: 'داكن' }]} />
-        </TweakSection>
-      </TweaksPanel>
-      </div>
-    </InvCtx.Provider>
-  );
+      <main className="flex-1 min-w-0" key={k} data-screen-label={route.m + (route.id ? ' detail' : '')}>{page}</main>
+    </div>
+    <NotifDrawer open={drawer} onClose={() => setDrawer(false)} items={notifs} onRead={markRead} go={go} />
+  </div>;
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<InvApp />);
+ReactDOM.createRoot(document.getElementById('root')).render(<ToastHost><App /></ToastHost>);

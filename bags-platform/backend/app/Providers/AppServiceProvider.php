@@ -3,19 +3,28 @@
 namespace App\Providers;
 
 use App\Enums\StaffRole;
+use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\Expense;
+use App\Models\Location;
 use App\Models\Order;
 use App\Models\PosShift;
+use App\Models\PriceList;
+use App\Models\PriceListItem;
+use App\Models\ProductVariant;
 use App\Models\PurchaseOrder;
 use App\Models\ReturnRequest;
+use App\Models\StockLevel;
 use App\Models\Stocktake;
 use App\Models\StockTransfer;
 use App\Models\TreasuryTransfer;
 use App\Models\User;
 use App\Models\WholesalePaymentNotice;
+use App\Observers\CatalogRetailPriceObserver;
 use App\Services\BranchAccess;
+use App\Services\PricingService;
 use App\Services\SettingService;
+use App\Services\StoreCatalogService;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Events\TransactionBeginning;
@@ -43,6 +52,8 @@ class AppServiceProvider extends ServiceProvider
         // تتسرب صلاحيات مستخدم لطلب آخر تحت Octane (L-6).
         $this->app->scoped(BranchAccess::class);
         $this->app->scoped(SettingService::class);
+        $this->app->scoped(StoreCatalogService::class);
+        $this->app->scoped(PricingService::class);
     }
 
     /**
@@ -50,6 +61,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        foreach ([ProductVariant::class, PriceListItem::class, PriceList::class,
+            StockLevel::class, Branch::class, Location::class] as $model) {
+            $model::observe(CatalogRetailPriceObserver::class);
+        }
         Event::listen(TransactionBeginning::class, function ($event): void {
             if ($event->connection->transactionLevel() === 1) {
                 app(SettingService::class)->resetReadSnapshot(true);
@@ -69,6 +84,17 @@ class AppServiceProvider extends ServiceProvider
         if ($this->app->environment('production') && (! is_string($proxies) || trim($proxies) === '' || preg_match('/(?:^|,)\s*\*{1,2}\s*(?:,|$)/', $proxies))) {
             throw new \LogicException('Set TRUSTED_PROXIES to explicit proxy IPs/CIDRs, or none for direct access. Wildcards are not allowed in production.');
         }
+        // F17: إعدادات افتراضية خطرة في الإنتاج — روابط ورموز الاستعادة
+        // تُكتب في السجل مع mailer=log (استيلاء على الحسابات)، وsslmode=prefer
+        // يسمح بالرجوع لاتصال غير مشفر. فشل مبكر كحراسة TRUSTED_PROXIES.
+        if ($this->app->environment('production') && config('mail.default') === 'log') {
+            throw new \LogicException('Set MAIL_MAILER to a real mailer in production. The log mailer writes password-reset links and OTP codes to the log file.');
+        }
+        $sslmode = config('database.connections.pgsql.sslmode');
+        if ($this->app->environment('production') && config('database.default') === 'pgsql'
+            && in_array($sslmode, ['prefer', 'allow', 'disable'], true)) {
+            throw new \LogicException("Set DB_SSLMODE=require (or stricter) in production. '{$sslmode}' allows a plaintext database connection.");
+        }
         TrustProxies::at(is_string($proxies) && trim($proxies) !== '' && $proxies !== 'none'
             ? array_map('trim', explode(',', $proxies)) : []);
         Event::listen(QueueBusy::class,
@@ -82,12 +108,23 @@ class AppServiceProvider extends ServiceProvider
             Limit::perDay(config('auth.customer_limits.registration_ip_day', 500))->by('customer-register-day:'.$request->ip()),
         ]);
         RateLimiter::for('store-branding', fn (Request $request) => Limit::perMinute(1200)->by('store-branding:'.$request->ip()));
-        RateLimiter::for('store-catalog', fn (Request $request) => [
-            Limit::perMinute(config('auth.customer_limits.catalog_ip_minute', 600))->by('store-catalog:'.$request->ip()),
-            ...($request->hasAny(['price_min', 'price_max']) || in_array($request->input('sort'), ['price_asc', 'price_desc'], true)
-                ? [Limit::perMinute(config('auth.customer_limits.price_ip_minute', 20))->by('store-price-query:'.$request->ip()),
-                    Limit::perMinute(config('auth.customer_limits.price_global_minute', 200))->by('store-price-query:global')] : []),
-        ]);
+        // H2: filters + search ride the expensive price limiter. H3: no shared
+        // global bucket — one global counter turns cheap traffic into a
+        // store-wide 429 on the whole product list. Per-IP ceilings plus the
+        // facets cache (H2) reduce load without a store-wide denial bucket.
+        RateLimiter::for('store-catalog', function (Request $request) {
+            $customer = auth('sanctum')->user();
+            $identity = $customer instanceof Customer ? 'customer:'.$customer->id : $request->ip();
+            $expensive = $request->hasAny(['price_min', 'price_max', 'search'])
+                || in_array($request->input('sort'), ['price_asc', 'price_desc'], true)
+                || ($request->route() !== null && $request->route()->getName() === 'store.catalog.filters');
+
+            return [
+                Limit::perMinute(config('auth.customer_limits.catalog_ip_minute', 600))->by('store-catalog:'.$identity),
+                ...($expensive
+                    ? [Limit::perMinute(config('auth.customer_limits.price_ip_minute', 60))->by('store-price-query:'.$identity)] : []),
+            ];
+        });
         $identifierKey = function (Request $request): string {
             $email = $request->input('email');
             $phone = $request->input('phone');
@@ -104,10 +141,16 @@ class AppServiceProvider extends ServiceProvider
             Limit::perMinute(config('auth.customer_limits.phone_ip_minute', 20))->by('phone-send-ip:'.$request->ip()),
             Limit::perDay(config('auth.customer_limits.phone_ip_day', 500))->by('phone-send-day:'.$request->ip()),
             Limit::perMinute(1)->by('phone-send-id:'.$phoneKey($request)),
+            // F16: سقف يومي لكل رقم — بلا سقف يمكن إرسال 1440 رسالة يوميًا
+            // لضحية واحدة (إزعاج وتكلفة SMS pumping).
+            Limit::perDay(config('auth.customer_limits.phone_id_day', 5))->by('phone-send-id-day:'.$phoneKey($request)),
         ]);
         RateLimiter::for('customer-phone-verify', fn (Request $request) => [
             Limit::perMinute(config('auth.customer_limits.phone_verify_ip_minute', 120))->by('phone-verify-ip:'.$request->ip()),
             Limit::perMinute(5)->by('phone-verify-id:'.$phoneKey($request)),
+            // F16: سقف يومي لكل رقم — الرمز 6 أرقام ويُبطل بعد 5 محاولات
+            // (CustomerPhoneVerificationService)، والسقف اليومي طبقة إضافية.
+            Limit::perDay(config('auth.customer_limits.phone_verify_id_day', 20))->by('phone-verify-id-day:'.$phoneKey($request)),
         ]);
         // أسماء قصيرة ثابتة لمراجع الدفتر (stock_movements.reference_type):
         // إعادة تسمية/نقل الكلاسات لاحقًا لا تكسر أثر التدقيق التاريخي.
@@ -139,9 +182,22 @@ class AppServiceProvider extends ServiceProvider
         });
 
         // حدود مسارات السلة وإتمام الشراء وتتبع الطلب والويب هوك (M3/M5)
-        RateLimiter::for('cart', fn (Request $request) => [
-            Limit::perMinute(60)->by('cart-ip:'.$request->ip()),
-        ]);
+        // H4: behind CGNAT one IPv4 hides thousands of shoppers, so logged-in
+        // customers are keyed by customer_id and the IP minute ceiling is
+        // generous — abuse is handled by account/phone limits, not the NAT.
+        RateLimiter::for('cart', function (Request $request) {
+            $customer = auth('sanctum')->user();
+            if ($customer instanceof Customer) {
+                return [Limit::perMinute(120)->by('cart-customer:'.$customer->id)];
+            }
+
+            // F2/F15: حد الزائر مخفّض وقابل للضبط — كل POST بلا جلسة قد
+            // ينشئ سلة جديدة، و600/دقيقة لكل IP تضخّم carts/cart_items.
+            return [
+                Limit::perMinute(config('auth.customer_limits.cart_guest_ip_minute', 120))->by('cart-ip:'.$request->ip()),
+                Limit::perDay(config('auth.customer_limits.cart_guest_ip_day', 2000))->by('cart-ip-day:'.$request->ip()),
+            ];
+        });
         // تخمين أكواد الكوبونات (F-24): حد ضيق خاص لكل IP وأيضًا لكل
         // توكن/جلسة سلة، بدل الاعتماد على حد السلة العام فقط
         RateLimiter::for('coupon', function (Request $request): array {
@@ -154,21 +210,42 @@ class AppServiceProvider extends ServiceProvider
         });
         // إتمام الشراء: بالـ IP وأيضًا بالهاتف المُوحَّد (F5) — الزائر بلا
         // تحقق من الهاتف لا يراكم طلبات وهمية يحبس بها مخزونًا برقم واحد
+        // H4: logged-in customers are keyed by customer_id; the daily network
+        // quota only applies to an IPv6 /64 (one IPv4 may hide a whole CGNAT
+        // cell, so it must not carry a daily budget). H5: no 'guest' phone
+        // bucket — requests without a phone get no phone key at all, and the
+        // daily phone counter lives in OrderService after successful
+        // validation instead of the middleware.
         RateLimiter::for('checkout', function (Request $request): array {
+            $customer = auth('sanctum')->user();
+            $customer = $customer instanceof Customer ? $customer : null;
             $phone = $request->input('recipient_phone');
-            $phoneKey = hash('sha256', is_string($phone) && trim($phone) !== ''
-                ? Customer::normalizePhone($phone) : 'guest');
-            $packedIp = inet_pton((string) $request->ip());
-            // One IPv6 /64 shares the quota, so rotating host addresses cannot bypass it.
-            $networkKey = hash('sha256', $packedIp === false ? (string) $request->ip()
-                : (strlen($packedIp) === 16 ? substr($packedIp, 0, 8) : $packedIp));
+            $normalized = is_string($phone) && trim($phone) !== ''
+                ? Customer::normalizePhone($phone) : null;
 
-            return [
-                Limit::perMinute(10)->by('checkout-ip:'.$request->ip()),
-                Limit::perDay((int) config('inventory.checkout_daily_network_limit', 100))->by('checkout-network-day:'.$networkKey),
-                Limit::perMinute(5)->by('checkout-phone:'.$phoneKey),
-                Limit::perDay(20)->by('checkout-phone-day:'.$phoneKey),
-            ];
+            $limits = [];
+
+            if ($customer !== null) {
+                $limits[] = Limit::perMinute(30)->by('checkout-customer:'.$customer->id);
+                $limits[] = Limit::perDay(100)->by('checkout-customer-day:'.$customer->id);
+            } else {
+                // F2: حد الزائر مخفّض وقابل للضبط، مع سقف يومي لكل IP
+                // (IPv4 مشمول — لا /64 وحده) وسقف يومي لكل هاتف.
+                $limits[] = Limit::perMinute(config('auth.customer_limits.checkout_guest_ip_minute', 30))->by('checkout-ip:'.$request->ip());
+                $limits[] = Limit::perDay(config('auth.customer_limits.checkout_guest_ip_day', 200))->by('checkout-ip-day:'.$request->ip());
+                $packedIp = inet_pton((string) $request->ip());
+                if ($packedIp !== false && strlen($packedIp) === 16) {
+                    $networkKey = hash('sha256', substr($packedIp, 0, 8));
+                    $limits[] = Limit::perDay((int) config('inventory.checkout_daily_network_limit', 100))->by('checkout-network-day:'.$networkKey);
+                }
+            }
+
+            if ($customer === null && $normalized !== null && preg_match('/\d/', $normalized) === 1) {
+                $phoneKey = hash('sha256', $normalized);
+                $limits[] = Limit::perMinute(5)->by('checkout-phone:'.$phoneKey);
+            }
+
+            return $limits;
         });
         RateLimiter::for('order-tracking', fn (Request $request) => [
             Limit::perMinute(10)->by('order-tracking-ip:'.$request->ip()),

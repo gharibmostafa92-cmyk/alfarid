@@ -1,0 +1,13 @@
+{
+  "tests": 945,
+  "passed": 884,
+  "failures": 60,
+  "errors": 1,
+  "scope": "Initial complete backend test suite",
+  "examples": [
+    "Supplier/procurement routes returning 410",
+    "Legacy brand filters rejected as prohibited",
+    "Inventory sequence counter cannot be lowered"
+  ],
+  "phase_tests": "Verified separately with storefront catalog and seeder suites"
+}

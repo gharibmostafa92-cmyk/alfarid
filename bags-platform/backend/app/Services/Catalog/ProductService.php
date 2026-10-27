@@ -78,12 +78,22 @@ class ProductService
                         return $this->replayCreation($winner, $requestHash);
                     }
                 }
-                if ($autoSlug && $attempt === 0) {
+                // L3: only a slug collision deserves a slug retry/message. A
+                // SKU/barcode clash must surface as-is instead of looping on a
+                // fresh slug and then blaming the slug.
+                $driverMessage = (string) ($e->errorInfo[2] ?? $e->getMessage());
+                $isSlugConflict = str_contains($driverMessage, 'products_slug_lower_unique')
+                    || str_contains($driverMessage, '(slug)');
+                if ($autoSlug && $attempt === 0 && $isSlugConflict) {
                     $data['slug'] = SlugService::make(Product::class, $data['name_en']);
 
                     continue;
                 }
-                throw new BusinessException('المعرف (slug) مستخدم بالفعل؛ اختر قيمة أخرى.', [], 409);
+                if ($isSlugConflict) {
+                    throw new BusinessException('المعرف (slug) مستخدم بالفعل؛ اختر قيمة أخرى.', [], 409);
+                }
+
+                throw $e;
             }
         }
     }
@@ -134,7 +144,14 @@ class ProductService
                 return $product->fresh(['category.media', 'variants.media', 'media']);
             });
         } catch (UniqueConstraintViolationException $e) {
-            throw new BusinessException('المعرف (slug) مستخدم بالفعل؛ اختر قيمة أخرى.', [], 409);
+            // L3: same rule as create() — only blame the slug on a slug
+            // constraint; anything else is a real conflict, not a 409 guess.
+            $driverMessage = (string) ($e->errorInfo[2] ?? $e->getMessage());
+            if (str_contains($driverMessage, 'products_slug_lower_unique') || str_contains($driverMessage, '(slug)')) {
+                throw new BusinessException('المعرف (slug) مستخدم بالفعل؛ اختر قيمة أخرى.', [], 409);
+            }
+
+            throw $e;
         }
     }
 

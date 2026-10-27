@@ -406,6 +406,16 @@
   pointer-events: none;
 }
 
+.design-slot-shimmer {
+  width: 420px;
+  height: 320px;
+  background: linear-gradient(90deg,#f0f1f3 25%,#e6e8eb 37%,#f0f1f3 63%);
+  background-size: 400% 100%;
+  animation: skShimmer 1.2s ease infinite;
+  pointer-events: none;
+}
+@keyframes skShimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+
 /* Drop shadow underneath bag */
 .design-bag-shadow {
   width: 250px;
@@ -954,6 +964,63 @@
 }
 
 @media (max-width: 768px) {
+  .design-details-header-bar {
+    padding: 20px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 24px;
+  }
+  .design-details-title-group .sku-row {
+    flex-wrap: wrap;
+  }
+  .design-details-title-group h1 {
+    font-size: 32px;
+    overflow-wrap: anywhere;
+  }
+  .design-sku-code {
+    font-size: 20px;
+    overflow-wrap: anywhere;
+  }
+  .design-details-actions {
+    align-items: flex-start;
+    min-width: 0;
+  }
+  .design-swatches-and-size {
+    flex-wrap: wrap;
+  }
+  .design-cart-row {
+    width: 100%;
+  }
+  .design-cart-row .design-btn-pill {
+    flex: 1;
+    justify-content: center;
+    padding-inline: 20px;
+  }
+  .design-wishlist-circle {
+    flex-shrink: 0;
+  }
+  .design-details-body {
+    padding: 30px 20px 60px;
+    min-width: 0;
+  }
+  .design-details-gallery,
+  .design-details-description {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .design-variant-stage {
+    width: 100%;
+  }
+  .design-variant-bag img {
+    width: min(420px, 75vw);
+  }
+  .design-brand-title {
+    font-size: 36px;
+    overflow-wrap: anywhere;
+  }
+  .design-carousel-info {
+    padding-inline: 20px;
+  }
   .design-header {
     padding: 0 20px;
   }

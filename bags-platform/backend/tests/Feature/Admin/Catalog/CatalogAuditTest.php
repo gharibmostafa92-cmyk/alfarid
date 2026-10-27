@@ -83,7 +83,7 @@ class CatalogAuditTest extends TestCase
     {
         $this->signIn(['products.update']);
         $product = Product::factory()->create();
-        $this->putJson("/api/v1/admin/products/{$product->id}", ['slug' => null, 'name_en' => 'New Bag'])
+        $this->putJson("/api/v1/admin/products/{$product->id}", ['slug' => null, 'name_en' => 'New Bag', 'expected_version' => 0])
             ->assertOk()->assertJsonPath('data.slug', 'new-bag');
     }
 
@@ -245,7 +245,7 @@ class CatalogAuditTest extends TestCase
     {
         $this->signIn(['products.update']);
         $product = Product::factory()->create(['name_en' => 'Original']);
-        $this->putJson("/api/v1/admin/products/{$product->id}", ['status' => 'published', 'name_en' => 'Changed'])
+        $this->putJson("/api/v1/admin/products/{$product->id}", ['status' => 'published', 'name_en' => 'Changed', 'expected_version' => 0])
             ->assertForbidden();
         $this->assertSame('Original', $product->fresh()->name_en);
         $this->assertSame(ProductStatus::Draft, $product->fresh()->status);

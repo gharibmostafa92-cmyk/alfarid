@@ -26,20 +26,27 @@ final class UnifiedAuthService
         $ipKey = 'unified-login:ip-failures:'.hash_hmac('sha256', (string) request()->ip(), (string) config('app.key'));
         $pairKey = $key.':ip:'.hash('sha256', (string) request()->ip()).':hour';
         $dayKey = $key.':day';
+        $hourKey = $key.':hour';
         $staff = str_contains($identifier, '@') ? User::query()->whereRaw('LOWER(email) = ?', [$identifier])->first() : null;
-        $dayLimit = max(1, (int) config('auth.unified_login_failures_day', 1000));
+        $dayLimit = max(1, (int) config('auth.unified_login_failures_day', 100));
+        $hourLimit = max(1, (int) config('auth.unified_login_identifier_failures_hour', 30));
         $pairLimit = max(1, (int) config('auth.unified_login_failures_hour', 10));
         $ipLimit = max(1, (int) config('auth.unified_login_ip_failures_hour', 1000));
         if (RateLimiter::tooManyAttempts($pairKey, $pairLimit)) {
             throw new TooManyRequestsHttpException(RateLimiter::availableIn($pairKey), 'محاولات دخول كثيرة؛ حاول لاحقًا.');
         }
-        $broadLimitReached = RateLimiter::tooManyAttempts($ipKey, $ipLimit)
-            || RateLimiter::tooManyAttempts($dayKey, $dayLimit);
+        foreach ([$hourKey => $hourLimit, $dayKey => $dayLimit] as $identityKey => $limit) {
+            if (RateLimiter::tooManyAttempts($identityKey, $limit)) {
+                throw new TooManyRequestsHttpException(RateLimiter::availableIn($identityKey), 'محاولات دخول كثيرة؛ حاول لاحقًا.');
+            }
+        }
+        $broadLimitReached = RateLimiter::tooManyAttempts($ipKey, $ipLimit);
         try {
             $actor = $this->resolve($identifier, $password, $staff);
         } catch (BusinessException $exception) {
             if ($exception->status === 401) {
                 RateLimiter::hit($pairKey, 3600);
+                RateLimiter::hit($hourKey, 3600);
                 if (RateLimiter::hit($ipKey, 3600) === $ipLimit) {
                     app(AuthenticationAlerts::class)->report('ip_failures', $staff?->id);
                 }

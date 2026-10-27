@@ -1215,6 +1215,9 @@
   .catalog-layout {
     flex-direction: column;
   }
+  .catalog-main {
+    width: 100%;
+  }
   .filter-sidebar {
     width: 100%;
     max-width: 100%;
@@ -1254,3 +1257,9 @@
     justify-content: space-between;
   }
 }
+
+.product-card.skeleton .product-img-box,
+.product-card.skeleton .sk-line { background: linear-gradient(90deg,#f0f1f3 25%,#e6e8eb 37%,#f0f1f3 63%); background-size: 400% 100%; animation: skShimmer 1.2s ease infinite; }
+.product-card.skeleton .sk-line { height: 12px; margin: 8px auto; width: 70%; }
+@keyframes skShimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+.btn-load-more { margin: 36px auto 0; display: flex; }

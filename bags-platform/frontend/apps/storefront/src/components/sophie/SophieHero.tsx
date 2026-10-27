@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { HeroSlide } from '@/lib/hero-slides';
 import { FALLBACK_SLIDE } from '@/lib/hero-slides';
-import { SophieHeader } from './SophieHeader';
 import { SophieBagPlaceholder } from './SophieBagPlaceholder';
 import { useBranding } from '@alfarid/ui/branding';
+import { StoreImage } from '../StoreImage';
+import { storeImageUrl } from '@/lib/store-image';
 
 export function SophieHero({ slides, isLoading = false }: { slides: HeroSlide[]; isLoading?: boolean }) {
   const { branding } = useBranding();
@@ -32,7 +33,7 @@ export function SophieHero({ slides, isLoading = false }: { slides: HeroSlide[];
   useEffect(() => {
     if (isLoading) return;
     const next = list[(activeIndex + 1) % list.length];
-    if (next.kind === 'banner') { const image = new Image(); image.src = next.image; }
+    if (next.kind === 'banner') { const image = new Image(); image.src = storeImageUrl(next.image); }
   }, [activeIndex, list, isLoading]);
 
   const fallback = slide.kind === 'fallback';
@@ -60,18 +61,17 @@ export function SophieHero({ slides, isLoading = false }: { slides: HeroSlide[];
       }}>
       {!isLoading && fallback && !fallbackFailed && (
         <div className="hero-bg-backdrop" aria-hidden="true">
-          <div className="hero-bg-backdrop-img"><img src={slide.imgUrl} className={`${slide.tintClass} w-full h-full object-cover object-center`} alt="" onError={() => setFallbackFailed(true)} /></div>
+          <div className="hero-bg-backdrop-img"><StoreImage src={slide.imgUrl} className={`${slide.tintClass} w-full h-full object-cover object-center`} alt="" onError={() => setFallbackFailed(true)} /></div>
           <div className="hero-bg-backdrop-overlay" />
         </div>
       )}
       {!isLoading && !fallback && (
         <div className="absolute inset-0" aria-hidden="true">
-          <img key={`${slide.id}:${slide.image}`} src={slide.image} fetchPriority="high" alt="" className="hero-banner-img" onError={() => setFailed((current) => new Set(current).add(`${slide.id}:${slide.image}`))} />
+          <StoreImage key={`${slide.id}:${slide.image}`} src={slide.image} fetchPriority="high" alt="" className="hero-banner-img" onError={() => setFailed((current) => new Set(current).add(`${slide.id}:${slide.image}`))} />
           {hasText && <div className="hero-banner-overlay" />}
         </div>
       )}
       <div className="max-w-[1140px] mx-auto px-5 relative z-10">
-        <SophieHeader />
         <section className="sophie-hero-content flex flex-col lg:flex-row items-center justify-between min-h-[450px] pt-2 pb-14 relative" aria-label="Featured collection" aria-busy={isLoading}>
           {isLoading ? (
             <>
@@ -97,7 +97,7 @@ export function SophieHero({ slides, isLoading = false }: { slides: HeroSlide[];
               {!hasText && href && !fallback && <a href={href} {...external} aria-label={slide.alt} className="absolute inset-0 z-[5]" />}
               {fallback && <div className="flex-1 flex justify-center lg:justify-end items-center lg:pr-10 relative mt-8 lg:mt-0">
                 <div className="hero-foreground-img w-[290px] sm:w-[350px] lg:w-[390px] h-[330px] sm:h-[370px] lg:h-[410px]">
-                  {fallbackFailed ? <SophieBagPlaceholder /> : <img src={slide.imgUrl} className={`${slide.tintClass} w-full h-full object-contain block`} alt={`${slide.lightTitle} ${slide.boldTitle}`} onError={() => setFallbackFailed(true)} />}
+                  {fallbackFailed ? <SophieBagPlaceholder /> : <StoreImage src={slide.imgUrl} className={`${slide.tintClass} w-full h-full object-contain block`} alt={`${slide.lightTitle} ${slide.boldTitle}`} onError={() => setFallbackFailed(true)} />}
                 </div>
               </div>}
             </>

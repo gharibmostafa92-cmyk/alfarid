@@ -10,6 +10,7 @@ use App\Http\Resources\Store\StoreProductCardResource;
 use App\Http\Resources\Store\StoreProductResource;
 use App\Services\StoreCatalogService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 /** تصفح منتجات المتجر: قائمة بفلاتر، وصفحة منتج بالـ slug، ومنتجات مشابهة. كله عام. */
@@ -25,7 +26,7 @@ class ProductController extends Controller
             ? fn () => $this->catalog->applyFilters($this->catalog->publishedQuery(), [...$filters, 'sort' => 'newest'])
                 ->reorder()->count('products.id') : null;
         $products = $this->catalog->applyFilters($this->catalog->publishedQuery(), $request->validated())
-            ->paginate(20, total: $total)->withQueryString();
+            ->paginate((int) ($filters['per_page'] ?? 20), total: $total)->withQueryString();
 
         return StoreProductCardResource::collection($products);
     }
@@ -37,9 +38,21 @@ class ProductController extends Controller
             ->firstOrFail();
 
         $resource = new StoreProductResource($product);
-        $resource->availability = $this->catalog->availabilityMap($product->variants->pluck('id')->all());
 
         return $resource;
+    }
+
+    public function showcase(Request $request): JsonResponse
+    {
+        $ids = $this->catalog->showcaseIds();
+        $loaded = $this->catalog->publishedQuery()->whereIn('products.id', $ids)->get()->keyBy('id');
+        $products = collect($ids)->map(fn ($id) => $loaded->get($id))->filter()->values();
+
+        return response()->json(['data' => $products->map(function ($p) use ($request) {
+            $resource = new StoreProductResource($p);
+
+            return $resource->resolve($request);
+        })->values()]);
     }
 
     public function similar(string $slug): JsonResponse

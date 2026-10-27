@@ -167,7 +167,9 @@ class CatalogConcurrencyTest extends TestCase
         $product = Product::factory()->create();
         $jobs = [];
         foreach (['left' => 'right', 'right' => 'left'] as $own => $other) {
-            $operation = 'Spatie\MediaLibrary\MediaCollections\Models\Media::creating(function () { $prefix = getenv("CATALOG_START_FILE"); touch($prefix.'.var_export('.'.$own, true).'); $deadline = microtime(true) + 5; while (!is_file($prefix.'.var_export('.'.$other, true).')) { if (microtime(true) > $deadline) { throw new RuntimeException("Concurrent upload not reached"); } usleep(10000); } });';
+            // The shared cache lock prevents the second request reaching
+            // Media::creating. Pause the winner while the retry waits on it.
+            $operation = 'Spatie\MediaLibrary\MediaCollections\Models\Media::creating(function () { usleep(250000); });';
             $operation .= 'app(App\Services\Catalog\ProductMediaService::class)->upload(App\Models\Product::findOrFail('.$product->id.'), ["collection" => "images", "client_upload_ids" => ["aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"]], [Illuminate\Http\UploadedFile::fake()->image("photo.jpg")]);';
             $jobs[] = ['', $operation];
         }
@@ -199,7 +201,7 @@ class CatalogConcurrencyTest extends TestCase
         $environment = [
             'APP_ENV' => 'testing', 'DB_CONNECTION' => 'pgsql', 'DB_DATABASE' => $db['database'],
             'DB_HOST' => $db['host'], 'DB_PORT' => (string) $db['port'], 'DB_USERNAME' => $db['username'],
-            'DB_PASSWORD' => $db['password'], 'DB_URL' => '', 'CACHE_STORE' => 'array', 'QUEUE_CONNECTION' => 'sync',
+            'DB_PASSWORD' => $db['password'], 'DB_URL' => '', 'CACHE_STORE' => 'file', 'QUEUE_CONNECTION' => 'sync',
             'CATALOG_START_FILE' => $barrier, 'CATALOG_MEDIA_ROOT' => Storage::disk('r2')->path(''),
             // H5: catalog media (products/categories/brands) live on r2_public;
             // race subprocesses must redirect that bucket to the local root too.

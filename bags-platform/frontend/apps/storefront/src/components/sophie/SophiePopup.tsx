@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { StoreBanner } from '@alfarid/api-client';
+import { StoreImage } from '../StoreImage';
+import { storeImageUrl } from '@/lib/store-image';
 
 export function SophiePopup({ banner }: { banner: StoreBanner }) {
   const [open, setOpen] = useState(false);
@@ -25,7 +27,7 @@ export function SophiePopup({ banner }: { banner: StoreBanner }) {
     const show = () => { if (alive && loaded && elapsed && !dismissed.current) setOpen(true); };
     image.onload = () => { loaded = true; show(); };
     image.onerror = () => { if (alive) setFailed(true); };
-    image.src = banner.image;
+    image.src = storeImageUrl(banner.image);
     const timer = setTimeout(() => { elapsed = true; show(); }, 2500);
     return () => { alive = false; clearTimeout(timer); image.onload = null; image.onerror = null; };
   }, [banner.image, sessionKey]);
@@ -51,7 +53,7 @@ export function SophiePopup({ banner }: { banner: StoreBanner }) {
   }, [open, failed, close]);
 
   if (!open || failed) return null;
-  const image = <img src={banner.image} alt={banner.title} className="w-full h-full object-cover" onError={() => { setFailed(true); setOpen(false); }} />;
+  const image = <StoreImage src={banner.image} alt={banner.title} className="w-full h-full object-cover" onError={() => { setFailed(true); setOpen(false); }} />;
   return <div className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-[2px] flex items-center justify-center" onClick={(event) => { if (event.target === event.currentTarget) close(); }}>
     <div ref={dialog} role="dialog" aria-modal="true" aria-label={banner.title} className="sophie-pop-in w-[88vw] max-w-[380px] aspect-[4/5] bg-white overflow-hidden relative max-h-[90dvh]">
       <button onClick={close} aria-label="Close offer" className="absolute z-10 right-3 top-3 rounded-full bg-white w-8 h-8 flex items-center justify-center text-black">

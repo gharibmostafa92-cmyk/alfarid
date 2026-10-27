@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
 import { DesignShowcaseContent } from '@/components/design/DesignShowcaseContent';
 
 export const metadata: Metadata = {
@@ -7,5 +8,5 @@ export const metadata: Metadata = {
 };
 
 export default function ShowcasePage() {
-  return <DesignShowcaseContent />;
+  return <Suspense fallback={null}><DesignShowcaseContent /></Suspense>;
 }

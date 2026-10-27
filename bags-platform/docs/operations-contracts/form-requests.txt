@@ -1,0 +1,1576 @@
+﻿=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\PriceQuotationRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+class PriceQuotationRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /** @return array<string, mixed> */
+    public function rules(): array
+    {
+        return [
+            'items' => ['sometimes', 'array', 'max:100'],
+            'items.*.id' => ['required_with:items', 'integer', 'min:1'],
+            'items.*.offered_unit_price' => ['required_with:items', 'numeric', 'min:0', 'max:9999999999.99'],
+            'discount_amount' => ['nullable', 'numeric', 'min:0', 'max:999999999999.99'],
+            'tax_amount' => ['nullable', 'numeric', 'min:0', 'max:999999999999.99'],
+            'valid_until' => ['nullable', 'date', 'after_or_equal:today'],
+            'admin_notes' => ['nullable', 'string', 'max:2000'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\ReviewPaymentNoticeRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+class ReviewPaymentNoticeRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /** @return array<string, mixed> */
+    public function rules(): array
+    {
+        return [
+            'treasury_id' => ['nullable', 'integer', 'exists:treasuries,id'],
+            'admin_notes' => ['nullable', 'string', 'max:2000'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Category\ReorderCategoriesRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Category;
+
+use App\Http\Requests\Admin\Concerns\LimitsArrayInput;
+use App\Models\Category;
+use Illuminate\Contracts\Validation\ValidationRule;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Validator;
+
+class ReorderCategoriesRequest extends FormRequest
+{
+    use LimitsArrayInput;
+
+    protected function arrayLimits(): array
+    {
+        return ['items' => 500];
+    }
+
+    public function authorize(): bool
+    {
+        return $this->user() !== null;
+    }
+
+    /**
+     * @return array<string, array<mixed>|string|ValidationRule>
+     */
+    public function rules(): array
+    {
+        return [
+            'items' => ['required', 'array', 'min:1', 'max:500'],
+            'items.*.id' => ['required', 'integer', 'min:1', 'distinct'],
+            'items.*.parent_id' => ['present', 'nullable', 'integer', 'min:1'],
+            'items.*.sort_order' => ['required', 'integer', 'min:0', 'max:2147483647'],
+        ];
+    }
+
+    public function after(): array
+    {
+        return [function (Validator $validator): void {
+            if ($validator->errors()->isNotEmpty()) {
+                return;
+            }
+            $items = $this->input('items');
+            $ids = array_values(array_unique(array_filter(array_merge(array_column($items, 'id'), array_column($items, 'parent_id')), fn ($id) => $id !== null)));
+            $available = array_fill_keys(Category::query()->whereIn('id', $ids)->pluck('id')->all(), true);
+            foreach ($items as $index => $item) {
+                foreach (['id', 'parent_id'] as $field) {
+                    if ($item[$field] !== null && ! isset($available[$item[$field]])) {
+                        $validator->errors()->add("items.{$index}.{$field}", 'Ø§Ù„Ù‚Ø³Ù… Ø§Ù„Ù…Ø­Ø¯Ø¯ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯ Ø£Ùˆ Ù…Ø­Ø°ÙˆÙ');
+                    }
+                }
+            }
+        }];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Order\AllocateOrderRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Order;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+class AllocateOrderRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /** @return array<string, mixed> */
+    public function rules(): array
+    {
+        return [
+            'branch_id' => ['nullable', 'integer', 'exists:branches,id'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Order\CreateShipmentRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Order;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+class CreateShipmentRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /** @return array<string, mixed> */
+    public function rules(): array
+    {
+        return [
+            'shipping_company_id' => ['required', 'integer', 'exists:shipping_companies,id'],
+            // Ø§Ø®ØªÙŠØ§Ø±ÙŠ: Ø¨Ø¯ÙˆÙ†Ù‡ ÙŠÙÙˆÙ„Ù‘Ø¯ Ø±Ù‚Ù… Ø¨ÙˆÙ„ÙŠØµØ© Ø¯Ø§Ø®Ù„ÙŠ
+            'awb_number' => ['nullable', 'string', 'max:100', 'unique:shipments,awb_number'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Order\UpdateOrderPaymentRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Order;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+class UpdateOrderPaymentRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /** @return array<string, mixed> */
+    public function rules(): array
+    {
+        return [
+            'payment_status' => ['required', Rule::in(['unpaid', 'paid', 'failed', 'refunded'])],
+            'notes' => ['nullable', 'string', 'max:500'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Order\UpdateOrderStatusRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Order;
+
+use App\Enums\OrderStatus;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+class UpdateOrderStatusRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /** @return array<string, mixed> */
+    public function rules(): array
+    {
+        return [
+            'status' => ['required', Rule::in(array_column(OrderStatus::cases(), 'value'))],
+            'notes' => ['nullable', 'string', 'max:500'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Pricing\ImportPriceListItemsRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Pricing;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+class ImportPriceListItemsRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            'file' => ['required', 'file', 'mimes:csv,txt', 'max:10240'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Pricing\StoreCustomerGroupRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Pricing;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+class StoreCustomerGroupRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            'name' => ['required', 'string', 'max:255'],
+            'code' => ['required', 'string', 'max:64', 'alpha_dash', Rule::unique('customer_groups', 'code')],
+            'description' => ['nullable', 'string', 'max:2000'],
+            'discount_percentage' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'is_active' => ['nullable', 'boolean'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Pricing\StorePriceListItemRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Pricing;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+class StorePriceListItemRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            'product_variant_id' => ['required', 'bail', 'integer', 'min:1', Rule::exists('product_variants', 'id')->whereNull('deleted_at')->where('is_active', true)],
+            'min_qty' => ['nullable', 'numeric', 'decimal:0,4', 'gt:0', 'max:99999999.9999'],
+            'price' => ['required', 'numeric', 'decimal:0,4', 'min:0', 'max:99999999.9999'],
+            'starts_at' => ['nullable', 'date'],
+            'ends_at' => ['nullable', 'date'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Pricing\StorePriceListRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Pricing;
+
+use App\Enums\PriceListType;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+class StorePriceListRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            'name' => ['required', 'string', 'max:255'],
+            'type' => ['required', Rule::in(array_column(PriceListType::cases(), 'value'))],
+            'customer_id' => [
+                'required_if:type,'.PriceListType::CustomerSpecific->value,
+                'prohibited_unless:type,'.PriceListType::CustomerSpecific->value,
+                'nullable', 'bail', 'integer', 'min:1', Rule::exists('customers', 'id'),
+            ],
+            'customer_group_id' => [
+                'required_if:type,'.PriceListType::CustomerGroup->value,
+                'prohibited_unless:type,'.PriceListType::CustomerGroup->value,
+                'nullable', 'bail', 'integer', 'min:1', Rule::exists('customer_groups', 'id'),
+            ],
+            'branch_id' => ['nullable', 'bail', 'integer', 'min:1', Rule::exists('branches', 'id')->where('is_active', true)],
+            'currency' => ['nullable', 'string', 'size:3', Rule::in(['EGP'])], // Ø¹Ù…Ù„Ø© ÙˆØ§Ø­Ø¯Ø© Ù…Ø¯Ø¹ÙˆÙ…Ø© Ø­Ø§Ù„ÙŠÙ‹Ø§ (M9)
+            'starts_at' => ['nullable', 'date'],
+            'ends_at' => ['nullable', 'date'],
+            'priority' => ['nullable', 'bail', 'integer', 'min:-10000', 'max:10000'],
+            'is_active' => ['nullable', 'boolean'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Pricing\UpdateCustomerGroupRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Pricing;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+class UpdateCustomerGroupRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            'name' => ['sometimes', 'string', 'max:255'],
+            'code' => [
+                'sometimes', 'string', 'max:64', 'alpha_dash',
+                Rule::unique('customer_groups', 'code')->ignore($this->route('customer_group')?->id),
+            ],
+            'description' => ['sometimes', 'nullable', 'string', 'max:2000'],
+            'discount_percentage' => ['sometimes', 'numeric', 'min:0', 'max:100'],
+            'is_active' => ['sometimes', 'boolean'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Pricing\UpdatePriceListItemRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Pricing;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+class UpdatePriceListItemRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            'product_variant_id' => ['sometimes', 'bail', 'integer', 'min:1', Rule::exists('product_variants', 'id')->whereNull('deleted_at')->where('is_active', true)],
+            'min_qty' => ['sometimes', 'numeric', 'decimal:0,4', 'gt:0', 'max:99999999.9999'],
+            'price' => ['sometimes', 'numeric', 'decimal:0,4', 'min:0', 'max:99999999.9999'],
+            'starts_at' => ['sometimes', 'nullable', 'date'],
+            'ends_at' => ['sometimes', 'nullable', 'date'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Pricing\UpdatePriceListRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Pricing;
+
+use App\Enums\PriceListType;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+class UpdatePriceListRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * Ø§Ù„Ø±Ø¨Ø· Ø¨ÙŠÙ† Ø§Ù„Ù†ÙˆØ¹ ÙˆØ§Ù„Ø¹Ù…ÙŠÙ„/Ø§Ù„Ù…Ø¬Ù…ÙˆØ¹Ø© Ø¨ÙŠØªØ­Ù‚Ù‚ ÙÙŠ PriceListService Ø¹Ù„Ù‰ Ø§Ù„Ø­Ø§Ù„Ø© Ø§Ù„Ù†Ù‡Ø§Ø¦ÙŠØ©
+     * Ø¨Ø¹Ø¯ Ø§Ù„Ø¯Ù…Ø¬ (Ø¹Ø´Ø§Ù† ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„Ø§Ø³Ù… Ø¨Ø³ Ø¹Ù„Ù‰ Ù‚Ø§Ø¦Ù…Ø© Ø®Ø§ØµØ© Ø¨Ø¹Ù…ÙŠÙ„ Ù…ÙŠØ¨Ù‚Ø§Ø´ Ù…Ø·Ø§Ù„Ø¨ Ø¨Ø¥Ø¹Ø§Ø¯Ø© Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø¹Ù…ÙŠÙ„).
+     *
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            'name' => ['sometimes', 'string', 'max:255'],
+            'type' => ['sometimes', Rule::in(array_column(PriceListType::cases(), 'value'))],
+            'customer_id' => ['sometimes', 'nullable', 'bail', 'integer', 'min:1', Rule::exists('customers', 'id')],
+            'customer_group_id' => ['sometimes', 'nullable', 'bail', 'integer', 'min:1', Rule::exists('customer_groups', 'id')],
+            'branch_id' => ['sometimes', 'nullable', 'bail', 'integer', 'min:1', Rule::exists('branches', 'id')->where('is_active', true)],
+            'currency' => ['sometimes', 'string', 'size:3', Rule::in(['EGP'])], // Ø¹Ù…Ù„Ø© ÙˆØ§Ø­Ø¯Ø© Ù…Ø¯Ø¹ÙˆÙ…Ø© Ø­Ø§Ù„ÙŠÙ‹Ø§ (M9)
+            'starts_at' => ['sometimes', 'nullable', 'date'],
+            'ends_at' => ['sometimes', 'nullable', 'date'],
+            'priority' => ['sometimes', 'bail', 'integer', 'min:-10000', 'max:10000'],
+            'is_active' => ['sometimes', 'boolean'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Procurement\PurchaseOrderRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Procurement;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+/**
+ * Ø¥Ù†Ø´Ø§Ø¡/ØªØ¹Ø¯ÙŠÙ„ Ø£Ù…Ø± Ø´Ø±Ø§Ø¡: Ø¨Ù†ÙˆØ¯ ØµØ±ÙŠØ­Ø©ØŒ Ø£Ùˆ Ø±Ø¨Ø· Ø¨Ø·Ù„Ø¨ Ø¯Ø§Ø®Ù„ÙŠ Ù…Ø¹ØªÙ…Ø¯ ØªÙÙ†Ø³Ø® Ø¨Ù†ÙˆØ¯Ù‡
+ * (Ø¹Ù†Ø¯Ù‡Ø§ branch_id ÙˆØ§Ù„Ø¨Ù†ÙˆØ¯ Ø§Ø®ØªÙŠØ§Ø±ÙŠØ© ÙˆØªÙØ³ØªÙƒÙ…Ù„ Ù…Ù† Ø§Ù„Ø·Ù„Ø¨).
+ */
+class PurchaseOrderRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        $isStore = $this->isMethod('POST');
+
+        return [
+            'supplier_id' => [$isStore ? 'required' : 'sometimes', 'integer', 'exists:suppliers,id'],
+            'branch_id' => [$isStore ? 'required_without:purchase_request_id' : 'sometimes', 'integer', 'exists:branches,id'],
+            'purchase_request_id' => ['nullable', 'integer', 'exists:purchase_requests,id'],
+            'expected_delivery_date' => ['nullable', 'date'],
+            'discount_amount' => ['sometimes', 'numeric', 'min:0'],
+            'items' => [$isStore ? 'required_without:purchase_request_id' : 'sometimes', 'array', 'min:1', 'max:50'],
+            'items.*.product_variant_id' => ['required', 'integer', 'exists:product_variants,id'],
+            'items.*.ordered_qty' => ['required', 'integer', 'gt:0', 'max:99999999'],
+            'items.*.unit_cost' => ['required', 'numeric', 'min:0', 'max:99999999.9999'],
+            'items.*.tax_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Procurement\PurchaseRequestRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Procurement;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+/** Ø¥Ù†Ø´Ø§Ø¡/ØªØ¹Ø¯ÙŠÙ„ Ø·Ù„Ø¨ Ø´Ø±Ø§Ø¡ Ø¯Ø§Ø®Ù„ÙŠ (Ù…Ø³ÙˆØ¯Ø©) Ø¨Ø¨Ù†ÙˆØ¯ Ø£ØµÙ†Ø§Ù ÙˆÙƒÙ…ÙŠØ§Øª Ù…Ø·Ù„ÙˆØ¨Ø©. */
+class PurchaseRequestRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            'branch_id' => ['required', 'integer', 'exists:branches,id'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+            'items' => ['required', 'array', 'min:1', 'max:50'],
+            'items.*.product_variant_id' => ['required', 'integer', 'exists:product_variants,id'],
+            'items.*.requested_qty' => ['required', 'integer', 'gt:0', 'max:99999999'],
+            'items.*.notes' => ['nullable', 'string', 'max:255'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Procurement\ReceivePurchaseOrderRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Procurement;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+/** Ø§Ø³ØªÙ„Ø§Ù… Ø¨Ø¶Ø§Ø¹Ø© Ø£Ù…Ø± Ø´Ø±Ø§Ø¡: ÙƒÙ…ÙŠØ§Øª Ù„ÙƒÙ„ Ø¨Ù†Ø¯ + Ù…ÙˆÙ‚Ø¹ Ø§Ø®ØªÙŠØ§Ø±ÙŠ + Ø¥Ø´Ø¹Ø§Ø± ØªÙˆØ±ÙŠØ¯ Ø§Ø®ØªÙŠØ§Ø±ÙŠ Ù„Ù„Ù…Ø·Ø§Ø¨Ù‚Ø©. */
+class ReceivePurchaseOrderRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            'location_id' => ['nullable', 'integer', 'exists:locations,id'],
+            'supplier_delivery_id' => ['nullable', 'integer', 'exists:supplier_deliveries,id'],
+            'items' => ['required', 'array', 'min:1', 'max:50'],
+            'items.*.purchase_order_item_id' => ['required', 'integer'],
+            'items.*.qty' => ['required', 'integer', 'gt:0', 'max:99999999'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Procurement\SupplierInvoiceRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Procurement;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+/**
+ * Ø¥Ù†Ø´Ø§Ø¡/ØªØ¹Ø¯ÙŠÙ„ ÙØ§ØªÙˆØ±Ø© Ù…ÙˆØ±Ø¯ (Ù…Ø³ÙˆØ¯Ø©): Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ ÙŠÙØ­Ø³Ø¨ Ø®Ø§Ø¯Ù…ÙŠÙ‹Ø§ (subtotal + tax)ØŒ
+ * ÙˆØ§Ù„Ø§Ø³ØªØ­Ù‚Ø§Ù‚ Ø§Ù„Ø§ÙØªØ±Ø§Ø¶ÙŠ Ù…Ù† Ø£Ø¬Ù„ Ø³Ø¯Ø§Ø¯ Ø§Ù„Ù…ÙˆØ±Ø¯ Ø¹Ù†Ø¯ ØºÙŠØ§Ø¨Ù‡.
+ */
+class SupplierInvoiceRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        $isStore = $this->isMethod('POST');
+
+        return [
+            'supplier_id' => [$isStore ? 'required' : 'prohibited', 'integer', 'exists:suppliers,id'],
+            'supplier_invoice_no' => [$isStore ? 'required' : 'sometimes', 'string', 'max:100'],
+            'purchase_order_id' => ['nullable', 'integer', 'exists:purchase_orders,id'],
+            'issue_date' => [$isStore ? 'required' : 'sometimes', 'date'],
+            'due_date' => ['nullable', 'date'],
+            'subtotal' => [$isStore ? 'required' : 'sometimes', 'numeric', 'min:0', 'max:9999999999.99'],
+            'tax_amount' => ['sometimes', 'numeric', 'min:0', 'max:9999999999.99'],
+            'attachment' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Procurement\SupplierPaymentRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Procurement;
+
+use App\Enums\SupplierPaymentMethod;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+/** ØªØ³Ø¬ÙŠÙ„ Ø¯ÙØ¹Ø© Ù„Ù…ÙˆØ±Ø¯ â€” Ø¢Ø«Ø§Ø±Ù‡Ø§ Ø¹Ù„Ù‰ Ø§Ù„Ø±ØµÙŠØ¯ ÙˆØ§Ù„ÙØ§ØªÙˆØ±Ø© ÙÙŠ SupplierFinanceService. */
+class SupplierPaymentRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            'supplier_id' => ['required', 'integer', 'exists:suppliers,id'],
+            'supplier_invoice_id' => ['nullable', 'integer', 'exists:supplier_invoices,id'],
+            'amount' => ['required', 'numeric', 'gt:0', 'max:9999999999.99'],
+            'payment_method' => ['required', Rule::in(array_column(SupplierPaymentMethod::cases(), 'value'))],
+            'reference_no' => ['required_unless:payment_method,cash', 'nullable', 'string', 'max:100'],
+            'payment_date' => ['required', 'date'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Procurement\UpdateSupplierPaymentRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Procurement;
+
+use App\Enums\SupplierPaymentMethod;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+/** ØªØ¹Ø¯ÙŠÙ„ Ø¯ÙØ¹Ø©: Ø§Ù„Ø­Ù‚ÙˆÙ„ ØºÙŠØ± Ø§Ù„Ù…Ø§Ù„ÙŠØ© ÙÙ‚Ø· â€” Ø§Ù„Ù…Ø¨Ù„Øº ÙˆØ§Ù„Ø±Ø¨Ø· ÙŠÙØµØ­ÙŽÙ‘Ø­Ø§Ù† Ø¨Ø­Ø°Ù ÙˆØ¥Ø¹Ø§Ø¯Ø© Ø¥Ù†Ø´Ø§Ø¡. */
+class UpdateSupplierPaymentRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            'payment_method' => ['sometimes', Rule::in(array_column(SupplierPaymentMethod::cases(), 'value'))],
+            'reference_no' => ['nullable', 'string', 'max:100'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Product\ReorderProductMediaRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Product;
+
+use App\Http\Requests\Admin\Concerns\LimitsArrayInput;
+use Illuminate\Contracts\Validation\ValidationRule;
+use Illuminate\Foundation\Http\FormRequest;
+
+class ReorderProductMediaRequest extends FormRequest
+{
+    use LimitsArrayInput;
+
+    protected function arrayLimits(): array
+    {
+        return ['ids' => 200];
+    }
+
+    public function authorize(): bool
+    {
+        return $this->user() !== null;
+    }
+
+    /**
+     * @return array<string, array<mixed>|string|ValidationRule>
+     */
+    public function rules(): array
+    {
+        return [
+            'ids' => ['required', 'array', 'min:1', 'max:200'],
+            'ids.*' => ['integer', 'distinct'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Promotion\CouponRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Promotion;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
+
+class CouponRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /** @return array<string, mixed> */
+    public function rules(): array
+    {
+        $coupon = $this->route('coupon');
+
+        return [
+            'code' => ['required', 'string', 'max:50', Rule::unique('coupons', 'code')->ignore($coupon)],
+            'type' => ['required', Rule::in(['percentage', 'fixed', 'free_shipping'])],
+            // ÙƒÙˆØ¨ÙˆÙ† Ù†Ø³Ø¨ÙŠ ÙÙˆÙ‚ 100% ÙŠØ¹Ù†ÙŠ Ø®ØµÙ…Ù‹Ø§ ÙƒØ§Ù…Ù„Ù‹Ø§ ÙˆØ£ÙƒØ«Ø± â€” Ù…Ù…Ù†ÙˆØ¹ (M18)
+            'value' => ['nullable', 'numeric', 'min:0', Rule::when($this->input('type') === 'percentage', ['max:100'])],
+            'max_discount_amount' => ['nullable', 'numeric', 'min:0'],
+            'min_order_amount' => ['nullable', 'numeric', 'min:0'],
+            'usage_limit' => ['nullable', 'integer', 'min:1'],
+            'usage_limit_per_customer' => ['nullable', 'integer', 'min:0'],
+            'starts_at' => ['nullable', 'date'],
+            'ends_at' => ['nullable', 'date', 'after_or_equal:starts_at'],
+            'is_active' => ['nullable', 'boolean'],
+        ];
+    }
+
+    /**
+     * (M1) ÙØ­Øµ Ø§Ù„Ù‚ÙŠÙ…Ø© Â«Ø§Ù„ÙØ¹Ù‘Ø§Ù„Ø©Â» Ø¨Ø¹Ø¯ Ø§Ù„Ø¯Ù…Ø¬ Ù…Ø¹ Ø§Ù„ÙƒÙˆØ¨ÙˆÙ† Ø§Ù„Ø­Ø§Ù„ÙŠ: Ù‚Ø§Ø¹Ø¯Ø© max:100
+     * Ø£Ø¹Ù„Ø§Ù‡ ØªØ¹ØªÙ…Ø¯ Ø¹Ù„Ù‰ Ø§Ù„Ù†ÙˆØ¹ Ø§Ù„Ù…ÙØ±Ø³Ù„ØŒ ÙØ·Ù„Ø¨ ØªØ¹Ø¯ÙŠÙ„ ÙŠØºÙŠÙ‘Ø± Ø§Ù„Ù†ÙˆØ¹ Ø¥Ù„Ù‰ percentage
+     * Ø¯ÙˆÙ† Ø¥Ø±Ø³Ø§Ù„ value ÙƒØ§Ù† ÙŠØªØ±Ùƒ Ù‚ÙŠÙ…Ø© Ù‚Ø¯ÙŠÙ…Ø© (>100) ØªÙ…Ø±Ù‘ Ø¯ÙˆÙ† ÙØ­Øµ.
+     *
+     * @return list<callable(Validator): void>
+     */
+    public function after(): array
+    {
+        return [function (Validator $validator): void {
+            if ($validator->errors()->isNotEmpty()) {
+                return;
+            }
+
+            $coupon = $this->route('coupon');
+            $type = $this->input('type');
+            // Ù‚ÙŠÙ…Ø© ØºÙŠØ± Ø±Ù‚Ù…ÙŠØ© (Ø¨Ù…Ø§ ÙÙŠÙ‡Ø§ null Ø§Ù„ØµØ±ÙŠØ­) ØªØ¹Ù†ÙŠ Â«Ø£Ø¨Ù‚Ù Ø§Ù„Ø­Ø§Ù„ÙŠØ©Â» ÙÙŠ
+            // Ù…Ø³Ø§Ø± Ø§Ù„ØªØ¹Ø¯ÙŠÙ„ â€” ÙØ§Ù„ÙØ­Øµ Ø¹Ù„Ù‰ Ø§Ù„Ù‚ÙŠÙ…Ø© Ø§Ù„ÙØ¹Ù„ÙŠØ© Ù„Ø§ Ø§Ù„Ù…ÙØ±Ø³Ù„Ø©
+            $submitted = $this->input('value');
+            $effective = is_numeric($submitted) ? (float) $submitted : (float) ($coupon?->value ?? 0);
+
+            if ($type === 'percentage' && $effective > 100) {
+                $validator->errors()->add('value', 'Ù†Ø³Ø¨Ø© Ø§Ù„ÙƒÙˆØ¨ÙˆÙ† Ù„Ø§ ØªØªØ¬Ø§ÙˆØ² 100%.');
+            }
+        }];
+    }
+
+    protected function prepareForValidation(): void
+    {
+        if (is_string($this->input('code'))) {
+            $this->merge(['code' => strtoupper(trim($this->input('code')))]);
+        }
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Promotion\PromotionRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Promotion;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+class PromotionRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /** @return array<string, mixed> */
+    public function rules(): array
+    {
+        return [
+            'name' => ['required', 'string', 'max:255'],
+            'type' => ['required', Rule::in(['percentage_discount', 'fixed_discount', 'buy_x_get_y', 'free_shipping'])],
+            // Ø§Ù„Ù†Ø³Ø¨Ø© Ù„Ø§ ØªØªØ¬Ø§ÙˆØ² 100% (F-19) â€” ÙŠÙÙØ­Øµ ÙÙ‚Ø· Ù„Ù„Ù†ÙˆØ¹ Ø§Ù„Ù†Ø³Ø¨ÙŠ
+            'value' => ['nullable', 'numeric', 'min:0',
+                Rule::when($this->input('type') === 'percentage_discount', ['max:100']),
+            ],
+            'min_order_amount' => ['nullable', 'numeric', 'min:0'],
+            'applies_to' => ['nullable', Rule::in(['all', 'categories', 'brands', 'variants'])],
+            'target_ids' => ['nullable', 'array'],
+            'target_ids.*' => ['integer'],
+            'starts_at' => ['nullable', 'date'],
+            'ends_at' => ['nullable', 'date', 'after_or_equal:starts_at'],
+            'is_active' => ['nullable', 'boolean'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Return\ApproveReturnRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Return;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+/** Ø§Ù„Ù…ÙˆØ§ÙÙ‚Ø© Ø§Ù„Ù…Ø¨Ø¯Ø¦ÙŠØ© Ø¹Ù„Ù‰ Ù…Ø±ØªØ¬Ø¹: ÙØ±Ø¹ Ø§Ù„Ø§Ø³ØªÙ„Ø§Ù… + ÙƒÙ…ÙŠØ§Øª Ù…Ø¹ØªÙ…Ø¯Ø© Ø§Ø®ØªÙŠØ§Ø±ÙŠØ© Ù„ÙƒÙ„ Ø¨Ù†Ø¯ (Ø§Ù„Ø§ÙØªØ±Ø§Ø¶ÙŠ: ÙƒØ§Ù…Ù„ Ø§Ù„Ù…Ø·Ù„ÙˆØ¨). */
+class ApproveReturnRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            'branch_id' => ['required', 'integer', 'exists:branches,id'],
+            'admin_notes' => ['nullable', 'string', 'max:2000'],
+            'items' => ['nullable', 'array', 'max:50'],
+            'items.*.id' => ['required', 'integer'],
+            'items.*.approved_qty' => ['required', 'integer', 'min:0', 'max:99999999'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Return\ReceiveReturnRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Return;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+/** Ø§Ø³ØªÙ„Ø§Ù… ÙˆÙØ­Øµ Ù…Ø±ØªØ¬Ø¹: Ù„ÙƒÙ„ Ø¨Ù†Ø¯ ÙƒÙ…ÙŠØ© Ø³Ù„ÙŠÙ…Ø© ÙˆÙƒÙ…ÙŠØ© ØªØ§Ù„ÙØ© (Ù…Ø¬Ù…ÙˆØ¹Ù‡Ù…Ø§ â‰¤ Ø§Ù„Ù…Ø¹ØªÙ…Ø¯). */
+class ReceiveReturnRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            'items' => ['required', 'array', 'min:1', 'max:50'],
+            'items.*.id' => ['required', 'integer'],
+            'items.*.received_good_qty' => ['required', 'integer', 'min:0', 'max:99999999'],
+            'items.*.received_damaged_qty' => ['required', 'integer', 'min:0', 'max:99999999'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Return\RefundReturnRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Return;
+
+use App\Enums\RefundMethod;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+/** Ø¥ØªÙ…Ø§Ù… Ø§Ù„Ø§Ø³ØªØ±Ø¯Ø§Ø¯ Ø§Ù„Ù…Ø§Ù„ÙŠ Ù„Ù…Ø±ØªØ¬Ø¹ Ù…Ø³ØªÙ„Ù…: Ø·Ø±ÙŠÙ‚Ø© Ø§Ù„Ø±Ø¯ (Ø¥Ù† Ù„Ù… ØªÙØ­Ø¯Ø¯ Ø¹Ù†Ø¯ Ø§Ù„Ø¥Ù†Ø´Ø§Ø¡) ÙˆÙ…Ø±Ø¬Ø¹ Ø§Ù„Ø¹Ù…Ù„ÙŠØ©. */
+class RefundReturnRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            'refund_method' => ['nullable', Rule::in(array_column(RefundMethod::cases(), 'value'))],
+            'refund_reference' => ['nullable', 'string', 'max:191'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Return\StoreReturnRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Return;
+
+use App\Enums\RefundMethod;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+/** Ø¥Ù†Ø´Ø§Ø¡ Ù…Ø±ØªØ¬Ø¹ ÙŠØ¯ÙˆÙŠ Ù…Ù† Ø®Ø¯Ù…Ø© Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡ Ù„Ø·Ù„Ø¨ Ù…ÙØ³Ù„ÙŽÙ‘Ù… (Ø¹Ù…ÙŠÙ„ Ù…Ø³Ø¬Ù„ Ø£Ùˆ Ø²Ø§Ø¦Ø±). */
+class StoreReturnRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            'order_id' => ['required', 'integer', 'exists:orders,id'],
+            'reason' => ['required', 'string', 'max:2000'],
+            'refund_method' => ['nullable', Rule::in(array_column(RefundMethod::cases(), 'value'))],
+            'items' => ['required', 'array', 'min:1', 'max:50'],
+            'items.*.order_item_id' => ['required', 'integer', 'distinct'],
+            'items.*.requested_qty' => ['required', 'integer', 'gt:0', 'max:99999999'],
+            'items.*.item_reason' => ['nullable', 'string', 'max:255'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Return\UpdateReturnRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Return;
+
+use App\Enums\RefundMethod;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+/** ØªØ¹Ø¯ÙŠÙ„ Ø¥Ø¯Ø§Ø±ÙŠ Ø¹Ù„Ù‰ Ù…Ø±ØªØ¬Ø¹: Ù…Ù„Ø§Ø­Ø¸Ø§Øª/Ø·Ø±ÙŠÙ‚Ø© Ø±Ø¯ØŒ Ø£Ùˆ Ø¥ØºÙ„Ø§Ù‚Ù‡ Ø¨Ø±ÙØ¶/Ø¥Ù„ØºØ§Ø¡ (Ø¨Ù‚ÙŠØ© Ø§Ù„Ø§Ù†ØªÙ‚Ø§Ù„Ø§Øª Ù…Ù† Ù†Ù‚Ø§Ø· Ø§Ù„Ø¥Ø¬Ø±Ø§Ø¡Ø§Øª). */
+class UpdateReturnRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            'admin_notes' => ['nullable', 'string', 'max:2000'],
+            'refund_method' => ['nullable', Rule::in(array_column(RefundMethod::cases(), 'value'))],
+            'status' => ['nullable', Rule::in(['rejected', 'cancelled'])],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Shipping\ShippingCompanyRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Shipping;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+class ShippingCompanyRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /** @return array<string, mixed> */
+    public function rules(): array
+    {
+        $company = $this->route('shipping_company');
+
+        return [
+            'name' => ['required', 'string', 'max:255'],
+            'code' => ['required', 'string', 'max:50', Rule::unique('shipping_companies', 'code')->ignore($company)],
+            'api_credentials' => ['nullable', 'array'],
+            // Ù‚Ø§Ù„Ø¨ Ø±Ø§Ø¨Ø· ØªØªØ¨Ø¹ Ø¢Ù…Ù† (F-25): https ÙÙ‚Ø· (ÙŠÙ…Ù†Ø¹ javascript: ÙˆÙ†Ø­ÙˆÙ‡
+            // ÙƒÙ€ XSS Ù…Ø®Ø²Ù‘Ù†) ÙˆÙŠØ¬Ø¨ Ø£Ù† ÙŠØ­ÙˆÙŠ Ø§Ù„Ø¹Ù†ØµØ± Ø§Ù„Ù†Ø§Ø¦Ø¨ {awb}. Ù„Ø§ Ù†Ø³ØªØ®Ø¯Ù… Ù‚Ø§Ø¹Ø¯Ø©
+            // url Ù„Ø£Ù†Ù‡Ø§ ØªØ±ÙØ¶ Ø§Ù„Ø£Ù‚ÙˆØ§Ø³ Ø§Ù„Ù…Ø¹Ù‚ÙˆÙØ© ÙÙŠ Ø§Ù„Ù‚Ø§Ù„Ø¨ Ù†ÙØ³Ù‡
+            'tracking_url_template' => ['nullable', 'string', 'max:500', 'starts_with:https://', 'regex:/\{awb\}/'],
+            'is_active' => ['nullable', 'boolean'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Shipping\ShippingRateRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Shipping;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+class ShippingRateRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /** @return array<string, mixed> */
+    public function rules(): array
+    {
+        $rate = $this->route('shipping_rate');
+
+        return [
+            'shipping_company_id' => ['required', 'integer', 'exists:shipping_companies,id'],
+            'shipping_zone_id' => [
+                'required', 'integer', 'exists:shipping_zones,id',
+                Rule::unique('shipping_rates', 'shipping_zone_id')
+                    ->where('shipping_company_id', $this->input('shipping_company_id'))
+                    ->ignore($rate),
+            ],
+            'base_cost' => ['required', 'numeric', 'min:0'],
+            'free_shipping_threshold' => ['nullable', 'numeric', 'min:0'],
+            'cod_fee' => ['nullable', 'numeric', 'min:0'],
+            'estimated_days_min' => ['required', 'integer', 'min:0'],
+            'estimated_days_max' => ['required', 'integer', 'gte:estimated_days_min'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Shipping\ShippingZoneRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Shipping;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+class ShippingZoneRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /** @return array<string, mixed> */
+    public function rules(): array
+    {
+        return [
+            'name' => ['required', 'string', 'max:255'],
+            'is_active' => ['nullable', 'boolean'],
+            'city_ids' => ['nullable', 'array'],
+            'city_ids.*' => ['integer', 'exists:cities,id'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Supplier\StoreSupplierUserRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Supplier;
+
+use App\Rules\EmailNotUsedByOtherAccountType;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+/** Ø¥Ù†Ø´Ø§Ø¡ Ø­Ø³Ø§Ø¨ Ù…ÙˆØ¸Ù Ù…ÙˆØ±Ø¯ (Ø¨ÙˆØ§Ø¨Ø© Ø§Ù„Ù…ÙˆØ±Ø¯) Ù…Ù† Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ù…ÙˆØ±Ø¯. */
+class StoreSupplierUserRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function prepareForValidation(): void
+    {
+        if (is_string($this->email)) {
+            $this->merge(['email' => mb_strtolower(trim($this->email))]);
+        }
+    }
+
+    public function rules(): array
+    {
+        return [
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255', Rule::unique('supplier_users', 'email'), new EmailNotUsedByOtherAccountType('supplier_users')],
+            'phone' => ['nullable', 'string', 'max:30'],
+            'password' => ['required', 'string', 'min:8', 'max:255'],
+            'is_active' => ['sometimes', 'boolean'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Supplier\SupplierRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Supplier;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+/** Ø¥Ù†Ø´Ø§Ø¡/ØªØ¹Ø¯ÙŠÙ„ Ù…ÙˆØ±Ø¯ â€” Ø§Ù„Ø±ØµÙŠØ¯ Ø§Ù„Ø¬Ø§Ø±ÙŠ Ù„Ø§ ÙŠØ¯Ø®Ù„ Ù…Ù† Ù‡Ù†Ø§ Ø¥Ø·Ù„Ø§Ù‚Ù‹Ø§ (ØªØ­Ø¯Ø¯Ù‡ Ø­Ø±ÙƒØ§Øª Ø§Ù„Ù…Ø§Ù„ÙŠØ©). */
+class SupplierRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        $supplierId = $this->route('supplier')?->id ?? $this->route('supplier');
+
+        return [
+            'code' => ['required', 'string', 'max:50', Rule::unique('suppliers', 'code')->ignore($supplierId)],
+            'name' => ['required', 'string', 'max:255'],
+            'company_name' => ['nullable', 'string', 'max:255'],
+            'email' => ['nullable', 'email', 'max:255'],
+            'phone' => ['nullable', 'string', 'max:30'],
+            'tax_number' => ['nullable', 'string', 'max:50'],
+            'commercial_register' => ['nullable', 'string', 'max:50'],
+            'address' => ['nullable', 'string', 'max:500'],
+            'payment_terms_days' => ['sometimes', 'integer', 'min:0', 'max:365'],
+            'opening_balance' => ['sometimes', 'numeric', 'min:-9999999999.99', 'max:9999999999.99'],
+            'is_active' => ['sometimes', 'boolean'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Admin\Supplier\UpdateSupplierUserRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Supplier;
+
+use App\Rules\EmailNotUsedByOtherAccountType;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+/** ØªØ¹Ø¯ÙŠÙ„ Ø­Ø³Ø§Ø¨ Ù…ÙˆØ¸Ù Ù…ÙˆØ±Ø¯ (Ø¨ÙŠØ§Ù†Ø§Øª/ØªÙØ¹ÙŠÙ„/ÙƒÙ„Ù…Ø© Ù…Ø±ÙˆØ± Ø§Ø®ØªÙŠØ§Ø±ÙŠØ©). */
+class UpdateSupplierUserRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function prepareForValidation(): void
+    {
+        if (is_string($this->email)) {
+            $this->merge(['email' => mb_strtolower(trim($this->email))]);
+        }
+    }
+
+    public function rules(): array
+    {
+        $userId = $this->route('user')?->id ?? $this->route('user');
+
+        return [
+            'name' => ['sometimes', 'string', 'max:255'],
+            'email' => ['sometimes', 'email', 'max:255', Rule::unique('supplier_users', 'email')->ignore($userId), new EmailNotUsedByOtherAccountType('supplier_users')],
+            'phone' => ['nullable', 'string', 'max:30'],
+            'password' => ['nullable', 'string', 'min:8', 'max:255'],
+            'is_active' => ['sometimes', 'boolean'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Store\Cart\ApplyCouponRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Store\Cart;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+class ApplyCouponRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /** @return array<string, mixed> */
+    public function rules(): array
+    {
+        return [
+            'code' => ['required', 'string', 'max:50'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Store\Checkout\ShippingOptionsRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Store\Checkout;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+class ShippingOptionsRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /** @return array<string, mixed> */
+    public function rules(): array
+    {
+        return [
+            'city_id' => ['required', 'integer', 'exists:cities,id'],
+            // Ù„Ø§ subtotal ÙˆÙ„Ø§ ÙˆØ²Ù† Ù…Ù† Ø§Ù„Ø¹Ù…ÙŠÙ„ (F-29): Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ ÙŠÙØ­Ø³Ø¨ Ù…Ù† Ø§Ù„Ø³Ù„Ø©
+            // Ø¹Ù„Ù‰ Ø§Ù„Ø®Ø§Ø¯Ù…ØŒ ÙˆØ·Ø±ÙŠÙ‚Ø© Ø§Ù„Ø¯ÙØ¹ ØªØ­Ø¯Ø¯ Ø±Ø³ÙˆÙ… COD Ø§Ù„Ù…Ø¹Ø±ÙˆØ¶Ø©
+            'payment_method' => ['nullable', Rule::in(['cod', 'card', 'wallet', 'bank_transfer', 'credit'])],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Store\Return\StoreReturnRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Store\Return;
+
+use App\Enums\RefundMethod;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
+
+/** ØªÙ‚Ø¯ÙŠÙ… Ø·Ù„Ø¨ Ø¥Ø±Ø¬Ø§Ø¹ Ù…Ù† Ø­Ø³Ø§Ø¨ Ø§Ù„Ø¹Ù…ÙŠÙ„ â€” Ù…Ø¹ ØµÙˆØ± Ø¹ÙŠÙˆØ¨ Ø§Ø®ØªÙŠØ§Ø±ÙŠØ© Ù„ÙƒÙ„ Ø¨Ù†Ø¯. */
+class StoreReturnRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            'order_id' => ['required', 'integer'],
+            'reason' => ['required', 'string', 'max:2000'],
+            'refund_method' => ['nullable', Rule::in(array_column(RefundMethod::cases(), 'value'))],
+            'items' => ['required', 'array', 'min:1', 'max:50'],
+            'items.*.order_item_id' => ['required', 'integer', 'distinct'],
+            'items.*.requested_qty' => ['required', 'integer', 'gt:0', 'max:99999999'],
+            'items.*.item_reason' => ['nullable', 'string', 'max:255'],
+            'items.*.attachments' => ['nullable', 'array', 'max:5'],
+            'items.*.attachments.*' => ['file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+        ];
+    }
+
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator): void {
+            $files = 0;
+            $kilobytes = 0;
+            foreach (array_keys($this->input('items', []) ?? []) as $index) {
+                $itemFiles = $this->file("items.{$index}.attachments");
+                $itemFiles = is_array($itemFiles) ? $itemFiles : ($itemFiles !== null ? [$itemFiles] : []);
+                foreach ($itemFiles as $file) {
+                    if (! is_object($file) || ! method_exists($file, 'getSize')) {
+                        continue;
+                    }
+                    $files++;
+                    $kilobytes += (int) ceil($file->getSize() / 1024);
+                }
+            }
+            if ($files > 10) {
+                $validator->errors()->add('items', 'Ø§Ù„Ø­Ø¯ Ø§Ù„Ø£Ù‚ØµÙ‰ Ù„Ù…Ø±ÙÙ‚Ø§Øª Ø·Ù„Ø¨ Ø§Ù„Ø¥Ø±Ø¬Ø§Ø¹ 10 Ù…Ù„ÙØ§Øª.');
+            }
+            if ($kilobytes > 25600) {
+                $validator->errors()->add('items', 'Ø§Ù„Ø­Ø¬Ù… Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ù„Ù…Ø±ÙÙ‚Ø§Øª Ø·Ù„Ø¨ Ø§Ù„Ø¥Ø±Ø¬Ø§Ø¹ ÙŠØ¬Ø¨ Ø£Ù„Ø§ ÙŠØªØ¬Ø§ÙˆØ² 25 Ù…ÙŠØºØ§Ø¨Ø§ÙŠØª.');
+            }
+        });
+    }
+
+    /**
+     * Ø§Ù„Ø­Ù…ÙˆÙ„Ø© Ø§Ù„Ø¬Ø§Ù‡Ø²Ø© Ù„Ù„Ø®Ø¯Ù…Ø©: Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…ØªØ­Ù‚Ù‚ Ù…Ù†Ù‡Ø§ + Ù…Ù„ÙØ§Øª ÙƒÙ„ Ø¨Ù†Ø¯.
+     *
+     * @return array<string, mixed>
+     */
+    public function payload(): array
+    {
+        $data = $this->validated();
+        foreach (array_keys($data['items'] ?? []) as $i) {
+            $files = $this->file("items.{$i}.attachments");
+            $data['items'][$i]['attachments'] = is_array($files) ? $files : ($files !== null ? [$files] : []);
+        }
+
+        return $data;
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Supplier\Account\StatementRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Supplier\Account;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+/** ÙƒØ´Ù Ø­Ø³Ø§Ø¨ Ø§Ù„Ù…ÙˆØ±Ø¯: ÙØªØ±Ø© Ø§Ø®ØªÙŠØ§Ø±ÙŠØ© (Ø§ÙØªØ±Ø§Ø¶ÙŠÙ‹Ø§ Ù…Ù† Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ù…ÙˆØ±Ø¯ Ø­ØªÙ‰ Ø§Ù„ÙŠÙˆÙ…). */
+class StatementRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            'from_date' => ['nullable', 'date'],
+            'to_date' => ['nullable', 'date', 'after_or_equal:from_date'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Supplier\Auth\LoginRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Supplier\Auth;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+/** Ø¯Ø®ÙˆÙ„ Ø¨ÙˆØ§Ø¨Ø© Ø§Ù„Ù…ÙˆØ±Ø¯ (supplier_users). */
+class LoginRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function prepareForValidation(): void
+    {
+        if (is_string($this->email)) {
+            $this->merge(['email' => mb_strtolower(trim($this->email))]);
+        }
+    }
+
+    public function rules(): array
+    {
+        return [
+            'email' => ['required', 'email', 'max:255'],
+            'password' => ['required', 'string', 'max:255'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Supplier\Delivery\StoreDeliveryRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Supplier\Delivery;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+/**
+ * Ø¥Ø´Ø¹Ø§Ø± ØªÙˆØ±ÙŠØ¯ (ASN) Ù…Ù† Ø¨ÙˆØ§Ø¨Ø© Ø§Ù„Ù…ÙˆØ±Ø¯: ÙƒÙ…ÙŠØ§Øª Ù…Ø´Ø­ÙˆÙ†Ø© ÙØ¹Ù„ÙŠÙ‹Ø§ Ù„ÙƒÙ„ Ø¨Ù†Ø¯
+ * + ÙØ§ØªÙˆØ±Ø© Ù…Ø¨Ø¯Ø¦ÙŠØ© Ù…Ø±ÙÙˆØ¹Ø© (PDF/ØµÙˆØ±Ø©) ÙˆØ±Ù‚Ù…Ù‡Ø§ Ø§Ù„ÙˆØ±Ù‚ÙŠ Ø§Ø®ØªÙŠØ§Ø±ÙŠÙ‹Ø§.
+ */
+class StoreDeliveryRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            'delivery_date' => ['required', 'date'],
+            'supplier_invoice_no' => ['nullable', 'string', 'max:100'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+            'invoice_file' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
+            'items' => ['required', 'array', 'min:1', 'max:50'],
+            'items.*.purchase_order_item_id' => ['required', 'integer'],
+            'items.*.shipped_qty' => ['required', 'integer', 'gt:0', 'max:99999999'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Supplier\PurchaseOrder\RequestChangeRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Supplier\PurchaseOrder;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+/** Ø·Ù„Ø¨ Ø§Ù„Ù…ÙˆØ±Ø¯ ØªØ¹Ø¯ÙŠÙ„ Ø£Ù…Ø± Ø´Ø±Ø§Ø¡: Ù…Ù„Ø§Ø­Ø¸Ø§Øª Ø§Ù„ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„Ù…Ù‚ØªØ±Ø­ Ø¥Ù„Ø²Ø§Ù…ÙŠØ© Ù„ÙŠØ¹Ø§Ù„Ø¬Ù‡Ø§ Ù…Ø¯ÙŠØ± Ø§Ù„Ù…Ø´ØªØ±ÙŠØ§Øª. */
+class RequestChangeRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            'notes' => ['required', 'string', 'max:2000'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Wholesale\StorePaymentNoticeRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Wholesale;
+
+use App\Enums\WholesalePaymentMethod;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+class StorePaymentNoticeRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /** @return array<string, mixed> */
+    public function rules(): array
+    {
+        return [
+            'order_id' => ['nullable', 'integer', 'min:1'],
+            'amount' => ['required', 'numeric', 'gt:0', 'max:9999999999.99'],
+            'payment_method' => ['required', Rule::in(array_column(WholesalePaymentMethod::cases(), 'value'))],
+            'bank_name' => ['required', 'string', 'max:255'],
+            'reference_number' => ['required', 'string', 'max:255'],
+            'transfer_date' => ['required', 'date', 'before_or_equal:today'],
+            'receipt' => ['required', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:10240'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Wholesale\StoreQuotationRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Wholesale;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+class StoreQuotationRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /** @return array<string, mixed> */
+    public function rules(): array
+    {
+        return [
+            'customer_notes' => ['nullable', 'string', 'max:2000'],
+            'items' => ['required', 'array', 'min:1', 'max:100'],
+            'items.*.product_variant_id' => ['required', 'integer', 'min:1'],
+            'items.*.qty' => ['required', 'numeric', 'gt:0', 'max:1000000'],
+            'items.*.requested_target_price' => ['nullable', 'numeric', 'gt:0', 'max:9999999999.99'],
+        ];
+    }
+}
+
+=== D:\programming\programming\projects\alfarid\bags-platform\backend\app\Http\Requests\Wholesale\UpdateQuotationRequest.php ===
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Wholesale;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+class UpdateQuotationRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /** @return array<string, mixed> */
+    public function rules(): array
+    {
+        return [
+            'customer_notes' => ['nullable', 'string', 'max:2000'],
+            'items' => ['sometimes', 'array', 'min:1', 'max:100'],
+            'items.*.product_variant_id' => ['required_with:items', 'integer', 'min:1'],
+            'items.*.qty' => ['required_with:items', 'numeric', 'gt:0', 'max:1000000'],
+            'items.*.requested_target_price' => ['nullable', 'numeric', 'gt:0', 'max:9999999999.99'],
+        ];
+    }
+}
+

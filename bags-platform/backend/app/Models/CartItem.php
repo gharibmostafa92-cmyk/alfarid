@@ -36,6 +36,8 @@ class CartItem extends Model
     /** @return BelongsTo<ProductVariant, $this> */
     public function variant(): BelongsTo
     {
-        return $this->belongsTo(ProductVariant::class, 'product_variant_id');
+        // L1: soft-deleted variants stay visible as unavailable lines instead of
+        // vanishing ghost rows that still count toward max_cart_lines.
+        return $this->belongsTo(ProductVariant::class, 'product_variant_id')->withTrashed();
     }
 }

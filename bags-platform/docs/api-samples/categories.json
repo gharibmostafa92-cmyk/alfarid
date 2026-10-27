@@ -1,0 +1,16 @@
+{
+    "data": [
+        {
+            "id": 36,
+            "name_ar": "قسم 0109",
+            "name_en": "Aut Reiciendis",
+            "slug": "aut-reiciendis",
+            "description_en": "Mollitia et minus sint commodi ea in excepturi incidunt.",
+            "description_ar": "Inventore ea corporis nihil.",
+            "image": null,
+            "direct_products_count": 1,
+            "products_count": 1,
+            "children": []
+        }
+    ]
+}

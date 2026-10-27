@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Product;
 
+use App\Enums\Occasion;
 use App\Enums\SalesChannel;
 use App\Http\Requests\Admin\Concerns\LimitsArrayInput;
 use App\Http\Requests\Admin\Variant\VariantRules;
@@ -58,6 +59,10 @@ class StoreProductRequest extends FormRequest
             'create_key' => ['nullable', 'uuid'],
             'sales_channel' => ['required', Rule::enum(SalesChannel::class)],
             'is_featured' => ['nullable', 'boolean'],
+            'occasions' => ['sometimes', 'nullable', 'array', 'max:4'],
+            'occasions.*' => ['string', 'distinct', Rule::enum(Occasion::class)],
+            'badge_en' => ['sometimes', 'nullable', 'string', 'max:30'],
+            'badge_ar' => ['sometimes', 'nullable', 'string', 'max:30'],
             // اختياري: متغيرات مع الإنشاء
             'variants' => ['nullable', 'array', 'max:100'],
             'variants.*' => ['array:'.implode(',', array_keys(VariantRules::base()))],

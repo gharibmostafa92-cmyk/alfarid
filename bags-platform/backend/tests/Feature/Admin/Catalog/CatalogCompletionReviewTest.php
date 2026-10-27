@@ -159,7 +159,7 @@ class CatalogCompletionReviewTest extends TestCase
                     $this->assertSame($expected[$variant->id]['prices'][$index], $pricing->resolve($variant, $customer, $qty, null, $context));
                 }
             }
-            $this->assertCount(2, DB::getQueryLog(), 'Expected one group query and one batched price query.');
+            $this->assertCount(1, DB::getQueryLog(), 'The loaded group is reused; only the batched price query is needed.');
         } finally {
             DB::disableQueryLog();
             DB::flushQueryLog();

@@ -1,7 +1,6 @@
 import { authEndpoints, createApiClient, defaultApiClient, resolveServiceUrl } from '@alfarid/api-client';
 import { useAuthStore } from '@/store/auth.store';
-
-const CART_KEY = 'cart_session';
+import { getCartSession, restoreGuestCartSession, clearGuestCartSession } from '@/stores/cart-store';
 
 async function revokePreviousSession(nextToken?: string | null) {
   const previous = useAuthStore.getState().token;
@@ -13,8 +12,8 @@ async function revokePreviousSession(nextToken?: string | null) {
 }
 
 export async function loginUnified(login: string, password: string, redirect?: string | null) {
-  const res = await authEndpoints.login({ login, password, redirect: redirect ?? undefined },
-    typeof window !== 'undefined' ? localStorage.getItem(CART_KEY) : null);
+  const guestSession = getCartSession();
+  const res = await authEndpoints.login({ login, password, redirect: redirect ?? undefined }, guestSession);
   await revokePreviousSession(res.token);
 
   if (res.redirect.app === 'backoffice') {
@@ -34,12 +33,16 @@ export async function loginUnified(login: string, password: string, redirect?: s
   });
   // M10: الدمج قد يفشل في الخادم (cart_merged=false) — أبقِ cart_session
   // ليُعاد دمجه لاحقًا بدل حذفه مع توكن يتيم جديد.
-  if (res.actor.type === 'customer' && res.cart_merged !== false) localStorage.removeItem(CART_KEY);
+  if (res.actor.type === 'customer') {
+    if (res.cart_merged === false && guestSession) restoreGuestCartSession(guestSession);
+    else clearGuestCartSession();
+  }
   return res.redirect.path;
 }
 
-export async function logoutWeb() {
-  try { await authEndpoints.logout(); } finally { useAuthStore.getState().clear(); window.location.href = '/auth/login'; }
+export async function logoutWeb(next = '/auth/login') {
+  try { await authEndpoints.logout(); } catch { /* Clear local credentials even when the server is unreachable. */ }
+  finally { useAuthStore.getState().clear(); window.location.href = next; }
 }
 
 export interface RegistrationInput {
@@ -67,7 +70,7 @@ export async function registerWeb(input: RegistrationInput, wholesale: boolean, 
     });
     documents.forEach((file) => (body as FormData).append('documents[]', file));
   }
-  const session = localStorage.getItem(CART_KEY);
+  const session = getCartSession();
   const response = await defaultApiClient.post<RegistrationResponse>(
     wholesale ? '/api/v1/wholesale/auth/register' : '/api/v1/store/auth/register', body,
     { headers: {
@@ -75,13 +78,13 @@ export async function registerWeb(input: RegistrationInput, wholesale: boolean, 
       ...(!wholesale && session ? { 'X-Cart-Session': session } : {}),
     } },
   );
-  const home = wholesale ? '/wholesale/application-status' : '/';
+  const home = wholesale ? '/wholesale/application-status' : '/shop';
   await revokePreviousSession(response.data.token);
   useAuthStore.getState().setSession({
     token: response.data.token, actorType: 'customer',
     destination: wholesale ? 'wholesale_pending' : 'retail', home, user: response.data.data,
   });
-  if (!wholesale) localStorage.removeItem(CART_KEY);
+  if (!wholesale) clearGuestCartSession();
   return home;
 }
 

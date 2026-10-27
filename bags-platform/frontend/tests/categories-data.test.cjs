@@ -69,7 +69,7 @@ test('API resource conversion keeps direct product counts separate from the chil
 test('API client serializes nullable values, false and method-spoofed multipart updates correctly', async () => {
   let sent;
   const client = { post: async (url, data, options) => { sent = { url, data, options }; return { data: { data: { id: 7 } } }; } };
-  const { categoriesApi } = load(path.resolve('packages/api-client/src/endpoints/index.ts'), { '../axios-instance': { defaultApiClient: client } });
+  const { categoriesApi } = load(path.resolve('packages/api-client/src/endpoints/index.ts'), { './inventory': {}, './operations': {}, '../axios-instance': { defaultApiClient: client, createApiClient: () => client } });
   await categoriesApi.update(7, { parent_id: null, is_active: false, remove_image: true });
   assert.equal(sent.url, '/api/v1/admin/categories/7');
   assert.equal(sent.data.get('_method'), 'PUT');

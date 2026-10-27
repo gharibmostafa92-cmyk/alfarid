@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Product;
 
+use App\Enums\Occasion;
 use App\Enums\ProductStatus;
 use App\Enums\SalesChannel;
 use App\Http\Requests\Admin\Concerns\NormalizesCatalogInput;
@@ -53,9 +54,14 @@ class UpdateProductRequest extends FormRequest
             'status' => ['sometimes', 'nullable', Rule::enum(ProductStatus::class)],
             'sales_channel' => ['sometimes', 'required', Rule::enum(SalesChannel::class)],
             'is_featured' => ['sometimes', 'nullable', 'boolean'],
-            // Timestamp-only locking cannot detect edits in the same second.
+            'occasions' => ['sometimes', 'nullable', 'array', 'max:4'],
+            'occasions.*' => ['string', 'distinct', Rule::enum(Occasion::class)],
+            'badge_en' => ['sometimes', 'nullable', 'string', 'max:30'],
+            'badge_ar' => ['sometimes', 'nullable', 'string', 'max:30'],
+            // M8: optimistic locking is mandatory — silent last-write-wins on a
+            // published product loses prices and descriptions.
             'expected_updated_at' => ['sometimes', 'nullable', 'date'],
-            'expected_version' => ['required_with:expected_updated_at', 'integer', 'min:0'],
+            'expected_version' => ['required', 'integer', 'min:0'],
         ];
     }
 }

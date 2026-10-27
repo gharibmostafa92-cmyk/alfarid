@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\TransferStatus;
-use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -21,9 +20,7 @@ class StockTransfer extends Model
                 return;
             }
             $transfer->version = (int) $transfer->getRawOriginal('version') + 1;
-            $previous = Carbon::parse($transfer->getRawOriginal('updated_at'));
-            $current = now()->startOfSecond();
-            $transfer->updated_at = $current->greaterThan($previous) ? $current : $previous->addSecond();
+            $transfer->updated_at = now();
         });
     }
 

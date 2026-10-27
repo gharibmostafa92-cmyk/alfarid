@@ -24,7 +24,9 @@ function loadTypeScript(relativePath, dependencies = {}) {
   return compiled.exports;
 }
 
-const { cardToSophie, mapCards } = loadTypeScript('apps/storefront/src/lib/sophie-mappers.ts');
+const { cardToSophie, mapCards } = loadTypeScript('apps/storefront/src/lib/sophie-mappers.ts', {
+  '@alfarid/utils': loadTypeScript('packages/utils/src/currency.ts'),
+});
 const { fromApi, toFormData, isoToLocalInput, localInputToIso } = loadTypeScript('apps/backoffice/src/pages/admin/admin-mock/banner-mappers.ts');
 const card = (overrides = {}) => ({
   id: 1, slug: 'leather-bag', name_en: '  Leather Bag  ', name_ar: 'حقيبة', image: null,
@@ -45,7 +47,7 @@ test('real product cards preserve photos, prices, routes and Arabic names withou
   assert.equal(mapped.name, 'Leather Bag');
   assert.equal(mapped.price, 1250.5);
   assert.equal(mapped.oldPrice, 1500);
-  assert.equal(mapped.href, '/products/leather-bag');
+  assert.equal(mapped.href, '/shop?product=leather-bag');
   assert.equal(mapped.imgUrl, '/bags/real.jpg');
   assert.equal(mapped.tintClass, undefined);
   const arabic = cardToSophie(card({ name_en: ' ', old_price: '1200' }), 'new');

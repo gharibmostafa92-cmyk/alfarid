@@ -59,7 +59,8 @@ class UnifiedLoginTest extends TestCase
         $customer = Customer::factory()->create(['password' => 'cust-pass']);
 
         $this->login(['login' => $customer->phone, 'password' => 'cust-pass', 'redirect' => $redirect])
-            ->assertOk()->assertJsonPath('redirect.path', '/');
+            // Retail home is config('store.retail_home', '/shop'): unsafe redirects fall back there.
+            ->assertOk()->assertJsonPath('redirect.path', '/shop');
     }
 
     #[TestWith(['/supplier-other'])]
@@ -246,11 +247,11 @@ class UnifiedLoginTest extends TestCase
             ->assertOk()
             ->assertJsonPath('actor.type', 'customer')
             ->assertJsonPath('actor.subtype', 'retail')
-            ->assertJsonPath('redirect.path', '/');
+            ->assertJsonPath('redirect.path', '/shop');
 
         $this->login(['login' => 'RETAIL@example.test', 'password' => 'cust-pass'])
             ->assertOk()
-            ->assertJsonPath('redirect.path', '/');
+            ->assertJsonPath('redirect.path', '/shop');
 
         $this->login(['login' => $customer->phone, 'password' => 'cust-pass', 'redirect' => '/checkout'])
             ->assertOk()
@@ -258,7 +259,7 @@ class UnifiedLoginTest extends TestCase
 
         $this->login(['login' => $customer->phone, 'password' => 'cust-pass', 'redirect' => '//evil.com'])
             ->assertOk()
-            ->assertJsonPath('redirect.path', '/');
+            ->assertJsonPath('redirect.path', '/shop');
     }
 
     public function test_wholesale_routing_by_approval_status_and_suspended_is_forbidden(): void

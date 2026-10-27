@@ -1,0 +1,634 @@
+TAP version 13
+# Admin query serialization, pagination and AbortSignal tests passed.
+# Subtest: tests\\admin-endpoints.test.cjs
+ok 1 - tests\\admin-endpoints.test.cjs
+  ---
+  duration_ms: 615.0402
+  ...
+# Admin mapper and permission contract tests passed.
+# Subtest: tests\\admin-mappers.test.cjs
+ok 2 - tests\\admin-mappers.test.cjs
+  ---
+  duration_ms: 699.3487
+  ...
+# Subtest: an explicit logout token is preserved when a new session is active
+ok 3 - an explicit logout token is preserved when a new session is active
+  ---
+  duration_ms: 7.4725
+  ...
+# Subtest: a delayed 401 from an old session cannot clear a newer session
+ok 4 - a delayed 401 from an old session cannot clear a newer session
+  ---
+  duration_ms: 3.2318
+  ...
+# Subtest: a 401 for the current token clears the current session
+ok 5 - a 401 for the current token clears the current session
+  ---
+  duration_ms: 2.6917
+  ...
+# Subtest: a failed sign-in does not clear an existing session
+ok 6 - a failed sign-in does not clear an existing session
+  ---
+  duration_ms: 3.6584
+  ...
+# Subtest: staff tabs reload on account replacement and logout, not unrelated storage writes
+ok 7 - staff tabs reload on account replacement and logout, not unrelated storage writes
+  ---
+  duration_ms: 282.5634
+  ...
+# Subtest: a delayed staff identity response cannot overwrite a newly selected account
+ok 8 - a delayed staff identity response cannot overwrite a newly selected account
+  ---
+  duration_ms: 32.8914
+  ...
+# Subtest: web tabs reload only when the persisted session changes
+not ok 9 - web tabs reload only when the persisted session changes
+  ---
+  duration_ms: 82.8711
+  location: 'D:\\programming\\programming\\projects\\alfarid\\bags-platform\\frontend\\tests\\auth-tabs.test.cjs:73:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Cannot find module '@/stores/cart-store'
+    Require stack:
+    - D:\programming\programming\projects\alfarid\bags-platform\frontend\apps\storefront\src\store\auth.store.ts
+  code: 'MODULE_NOT_FOUND'
+  stack: |-
+    Function._resolveFilename (node:internal/modules/cjs/loader:1249:15)
+    Function._load (node:internal/modules/cjs/loader:1075:27)
+    TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    wrapModuleLoad (node:internal/modules/cjs/loader:219:24)
+    Module.require (node:internal/modules/cjs/loader:1340:12)
+    require (node:internal/modules/helpers:138:16)
+    require (D:\programming\programming\projects\alfarid\bags-platform\frontend\tests\auth-tabs.test.cjs:42:14)
+    D:\programming\programming\projects\alfarid\bags-platform\frontend\apps\storefront\src\store\auth.store.ts:19:20
+    Script.runInContext (node:vm:149:12)
+    Script.runInNewContext (node:vm:154:17)
+  ...
+# Subtest: session discovery validates staff on the server and never sends the token to the other origin
+ok 10 - session discovery validates staff on the server and never sends the token to the other origin
+  ---
+  duration_ms: 51.3299
+  ...
+# Subtest: an expired staff session does not redirect the login page
+ok 11 - an expired staff session does not redirect the login page
+  ---
+  duration_ms: 20.6898
+  ...
+# Subtest: discovery ignores a successful response after the session was removed
+ok 12 - discovery ignores a successful response after the session was removed
+  ---
+  duration_ms: 45.9693
+  ...
+# Subtest: discovery on a top-level page does not expose session status
+ok 13 - discovery on a top-level page does not expose session status
+  ---
+  duration_ms: 48.1035
+  ...
+# Server branding unavailable; using the default identity. Offline
+# Server branding unavailable; using the default identity. Branding API returned undefined
+# Server branding unavailable; using the default identity. Cannot read properties of null (reading 'name')
+# Subtest: server metadata caches public identity for one minute with an invalidation tag
+ok 14 - server metadata caches public identity for one minute with an invalidation tag
+  ---
+  duration_ms: 3.6156
+  ...
+# Subtest: server branding supports an internal API address independent of the browser address
+ok 15 - server branding supports an internal API address independent of the browser address
+  ---
+  duration_ms: 0.8758
+  ...
+# Subtest: unavailable or malformed branding falls back to Alfarid without breaking server rendering
+ok 16 - unavailable or malformed branding falls back to Alfarid without breaking server rendering
+  ---
+  duration_ms: 2.0141
+  ...
+# Subtest: product dimensions and descriptions round trip without exposing hidden cost
+ok 17 - product dimensions and descriptions round trip without exposing hidden cost
+  ---
+  duration_ms: 3.901
+  ...
+# Subtest: new variants leave system identifiers to the server and send empty numeric values as null
+ok 18 - new variants leave system identifiers to the server and send empty numeric values as null
+  ---
+  duration_ms: 0.7975
+  ...
+# Subtest: variant images are grouped by the actual nested API color
+ok 19 - variant images are grouped by the actual nested API color
+  ---
+  duration_ms: 1.479
+  ...
+# Subtest: create uses server identifiers before uploading files and never invents a SKU
+ok 20 - create uses server identifiers before uploading files and never invents a SKU
+  ---
+  duration_ms: 169.7577
+  ...
+# Subtest: existing product saves basic fields separately and creates replacements before removing old variants
+ok 21 - existing product saves basic fields separately and creates replacements before removing old variants
+  ---
+  duration_ms: 76.8936
+  ...
+# Subtest: partial variant errors identify the failed row and stop later writes
+ok 22 - partial variant errors identify the failed row and stop later writes
+  ---
+  duration_ms: 62.8057
+  ...
+# Subtest: image uploads use at most two requests and a retry skips completed files
+ok 23 - image uploads use at most two requests and a retry skips completed files
+  ---
+  duration_ms: 136.8652
+  ...
+# Subtest: rejected published image removal rolls the tile back into its position
+ok 24 - rejected published image removal rolls the tile back into its position
+  ---
+  duration_ms: 86.3651
+  ...
+# Subtest: color uploads resolve an already saved variant even if local color data is stale
+ok 25 - color uploads resolve an already saved variant even if local color data is stale
+  ---
+  duration_ms: 48.3108
+  ...
+# Subtest: color upload uses a saved ID when the create response omitted local variant IDs
+ok 26 - color upload uses a saved ID when the create response omitted local variant IDs
+  ---
+  duration_ms: 82.6901
+  ...
+# Subtest: create sends a stable idempotency key across retries
+ok 27 - create sends a stable idempotency key across retries
+  ---
+  duration_ms: 103.5197
+  ...
+# Subtest: uploads run before deletions so replacing the last image succeeds
+ok 28 - uploads run before deletions so replacing the last image succeeds
+  ---
+  duration_ms: 40.8106
+  ...
+# Subtest: timestamp-only copies require a reload and versioned copies send expected_version
+ok 29 - timestamp-only copies require a reload and versioned copies send expected_version
+  ---
+  duration_ms: 109.2746
+  ...
+# Subtest: a genuinely missing color preserves pending files and blocks media deletions/uploads
+ok 30 - a genuinely missing color preserves pending files and blocks media deletions/uploads
+  ---
+  duration_ms: 29.2064
+  ...
+# Subtest: retry after a partial save uses returned product and variant versions
+ok 31 - retry after a partial save uses returned product and variant versions
+  ---
+  duration_ms: 43.4906
+  ...
+# Subtest: a stale basic save identifies the product for the existing reload flow
+ok 32 - a stale basic save identifies the product for the existing reload flow
+  ---
+  duration_ms: 92.1921
+  ...
+# Subtest: draft permits missing prices but still rejects invalid decimal prices
+ok 33 - draft permits missing prices but still rejects invalid decimal prices
+  ---
+  duration_ms: 14.2018
+  ...
+# Subtest: variant combinations, SKU casing and manual system barcodes are validated
+ok 34 - variant combinations, SKU casing and manual system barcodes are validated
+  ---
+  duration_ms: 0.9301
+  ...
+# Subtest: four decimal costs round trip while selling prices remain two decimals
+ok 35 - four decimal costs round trip while selling prices remain two decimals
+  ---
+  duration_ms: 0.5901
+  ...
+# Subtest: moving into a group with sparse sort values preserves the intended visual order
+ok 36 - moving into a group with sparse sort values preserves the intended visual order
+  ---
+  duration_ms: 2.7632
+  ...
+# Subtest: reordering siblings sends the changed positions and excludes unrelated groups
+ok 37 - reordering siblings sends the changed positions and excludes unrelated groups
+  ---
+  duration_ms: 0.5955
+  ...
+# Subtest: Arabic and Persian order digits, Arabic search variants and bilingual descriptions survive conversion
+ok 38 - Arabic and Persian order digits, Arabic search variants and bilingual descriptions survive conversion
+  ---
+  duration_ms: 0.8423
+  ...
+# Subtest: API resource conversion keeps direct product counts separate from the child counts
+ok 39 - API resource conversion keeps direct product counts separate from the child counts
+  ---
+  duration_ms: 0.4509
+  ...
+# Subtest: API client serializes nullable values, false and method-spoofed multipart updates correctly
+ok 40 - API client serializes nullable values, false and method-spoofed multipart updates correctly
+  ---
+  duration_ms: 202.4764
+  ...
+# Subtest: variant choices traverse all product pages and fetch real nested variant IDs
+ok 41 - variant choices traverse all product pages and fetch real nested variant IDs
+  ---
+  duration_ms: 217.2398
+  ...
+# Subtest: price list item search loads every page instead of sending unsupported search filter
+ok 42 - price list item search loads every page instead of sending unsupported search filter
+  ---
+  duration_ms: 54.8
+  ...
+# Subtest: commerce reuses the established brands API instead of publishing a second implementation
+ok 43 - commerce reuses the established brands API instead of publishing a second implementation
+  ---
+  duration_ms: 91.9283
+  ...
+# Subtest: editing a price list keeps its branch, customer and group relationships
+ok 44 - editing a price list keeps its branch, customer and group relationships
+  ---
+  duration_ms: 693.9508
+  ...
+# Subtest: editing a scoped promotion sends selected backend IDs instead of clearing its targets
+ok 45 - editing a scoped promotion sends selected backend IDs instead of clearing its targets
+  ---
+  duration_ms: 403.0997
+  ...
+# Subtest: unlimited per-customer coupon use remains zero on save
+ok 46 - unlimited per-customer coupon use remains zero on save
+  ---
+  duration_ms: 287.7565
+  ...
+# Subtest: editing a brand preserves both descriptions and uses the existing multipart update method
+ok 47 - editing a brand preserves both descriptions and uses the existing multipart update method
+  ---
+  duration_ms: 185.924
+  ...
+# Subtest: a rejected used-coupon deletion keeps the editor and confirmation open
+ok 48 - a rejected used-coupon deletion keeps the editor and confirmation open
+  ---
+  duration_ms: 178.4392
+  ...
+# Subtest: raw Laravel pagination retains the page and total
+ok 49 - raw Laravel pagination retains the page and total
+  ---
+  duration_ms: 3.333
+  ...
+# Subtest: an empty unpaginated list still has a usable page size
+ok 50 - an empty unpaginated list still has a usable page size
+  ---
+  duration_ms: 0.3309
+  ...
+# Subtest: Cairo calendar dates are ISO regardless of locale separator conventions
+ok 51 - Cairo calendar dates are ISO regardless of locale separator conventions
+  ---
+  duration_ms: 250.7366
+  ...
+# Subtest: report periods reject impossible dates, missing boundaries, reversed and over 366 inclusive days
+ok 52 - report periods reject impossible dates, missing boundaries, reversed and over 366 inclusive days
+  ---
+  duration_ms: 32.6796
+  ...
+# Subtest: reports preserve rows/totals, encode booleans and notifications retain UUID/meta
+ok 53 - reports preserve rows/totals, encode booleans and notifications retain UUID/meta
+  ---
+  duration_ms: 125.0824
+  ...
+# Subtest: quotation pricing posts actual offered prices and expiry to the admin quotation contract
+ok 54 - quotation pricing posts actual offered prices and expiry to the admin quotation contract
+  ---
+  duration_ms: 204.1541
+  ...
+# Subtest: payment notices preserve treasury and rejection notes and use protected receipt route
+ok 55 - payment notices preserve treasury and rejection notes and use protected receipt route
+  ---
+  duration_ms: 99.084
+  ...
+# Subtest: finance views use server balances, cashier relations and actual shift cash fields
+ok 56 - finance views use server balances, cashier relations and actual shift cash fields
+  ---
+  duration_ms: 739.5809
+  ...
+# Subtest: wholesale views use real customer, grand total, converted order and receipt fields
+ok 57 - wholesale views use real customer, grand total, converted order and receipt fields
+  ---
+  duration_ms: 324.2254
+  ...
+# Subtest: shift filters preserve dates and serialize booleans using the shared contract cleaner
+ok 58 - shift filters preserve dates and serialize booleans using the shared contract cleaner
+  ---
+  duration_ms: 38.771
+  ...
+# Subtest: mock mode never makes network requests even without a fixture
+ok 59 - mock mode never makes network requests even without a fixture
+  ---
+  duration_ms: 255.0017
+  ...
+# Subtest: an aborted late response cannot overwrite the next filter result
+ok 60 - an aborted late response cannot overwrite the next filter result
+  ---
+  duration_ms: 119.0844
+  ...
+# Subtest: 403 clears prior rows and does not fall back to demonstrations
+ok 61 - 403 clears prior rows and does not fall back to demonstrations
+  ---
+  duration_ms: 92.9807
+  ...
+# Subtest: fallback is explicitly flagged only for network/server failures
+ok 62 - fallback is explicitly flagged only for network/server failures
+  ---
+  duration_ms: 37.0547
+  ...
+# Subtest: mutations reject double clicks synchronously and retain 422 field errors
+ok 63 - mutations reject double clicks synchronously and retain 422 field errors
+  ---
+  duration_ms: 22.8747
+  ...
+# Subtest: notification polling stops while hidden and resumes while visible
+ok 64 - notification polling stops while hidden and resumes while visible
+  ---
+  duration_ms: 70.3564
+  ...
+# Subtest: notification reads keep UUIDs, reject duplicate clicks and roll back failures
+ok 65 - notification reads keep UUIDs, reject duplicate clicks and roll back failures
+  ---
+  duration_ms: 102.6082
+  ...
+# Subtest: procurement preserves receipt item ids and retry keys
+ok 66 - procurement preserves receipt item ids and retry keys
+  ---
+  duration_ms: 370.7734
+  ...
+# Subtest: supplier payment allocation sends one invoice and void uses DELETE body
+ok 67 - supplier payment allocation sends one invoice and void uses DELETE body
+  ---
+  duration_ms: 117.8435
+  ...
+# Subtest: supplier invoice update uses multipart method spoofing and preserves attachment
+ok 68 - supplier invoice update uses multipart method spoofing and preserves attachment
+  ---
+  duration_ms: 200.5806
+  ...
+# Subtest: LAN browsers reach the API, storefront and backoffice on the serving machine
+ok 69 - LAN browsers reach the API, storefront and backoffice on the serving machine
+  ---
+  duration_ms: 7.6088
+  ...
+# Subtest: explicit remote services, URL paths, and same-origin relative URLs are preserved
+ok 70 - explicit remote services, URL paths, and same-origin relative URLs are preserved
+  ---
+  duration_ms: 2.8306
+  ...
+# Subtest: localhost, production hosts, and server rendering keep configured addresses
+ok 71 - localhost, production hosts, and server rendering keep configured addresses
+  ---
+  duration_ms: 5.2015
+  ...
+# Subtest: uses the browser UUID implementation when available
+ok 72 - uses the browser UUID implementation when available
+  ---
+  duration_ms: 1.3426
+  ...
+# Subtest: missing randomUUID uses 128 bits from secure random values
+ok 73 - missing randomUUID uses 128 bits from secure random values
+  ---
+  duration_ms: 1.6727
+  ...
+# Subtest: missing or failing secure randomness skips discovery without throwing
+ok 74 - missing or failing secure randomness skips discovery without throwing
+  ---
+  duration_ms: 0.2794
+  ...
+# Staff permissions match the server without wildcard aliases.
+# Subtest: tests\\staff-permissions.test.cjs
+ok 17 - tests\\staff-permissions.test.cjs
+  ---
+  duration_ms: 1011.7593
+  ...
+# Subtest: add sends only variant/quantity/session and trusts the server total
+not ok 76 - add sends only variant/quantity/session and trusts the server total
+  ---
+  duration_ms: 20.4177
+  location: 'D:\\programming\\programming\\projects\\alfarid\\bags-platform\\frontend\\tests\\store-cart.test.cjs:29:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Cannot find module '@/lib/viewer-key'
+    Require stack:
+    - D:\programming\programming\projects\alfarid\bags-platform\frontend\apps\storefront\src\stores\cart-store.ts
+  code: 'MODULE_NOT_FOUND'
+  stack: |-
+    Function._resolveFilename (node:internal/modules/cjs/loader:1249:15)
+    Function._load (node:internal/modules/cjs/loader:1075:27)
+    TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    wrapModuleLoad (node:internal/modules/cjs/loader:219:24)
+    Module.require (node:internal/modules/cjs/loader:1340:12)
+    require (node:internal/modules/helpers:138:16)
+    D:\programming\programming\projects\alfarid\bags-platform\frontend\tests\store-cart.test.cjs:23:126
+    eval (eval at load (D:\programming\programming\projects\alfarid\bags-platform\frontend\tests\store-cart.test.cjs:21:3), <anonymous>:12:22)
+    load (D:\programming\programming\projects\alfarid\bags-platform\frontend\tests\store-cart.test.cjs:21:82)
+    TestContext.<anonymous> (D:\programming\programming\projects\alfarid\bags-platform\frontend\tests\store-cart.test.cjs:31:17)
+  ...
+# Subtest: reload restores server cart using the stored guest token
+not ok 77 - reload restores server cart using the stored guest token
+  ---
+  duration_ms: 2.4612
+  location: 'D:\\programming\\programming\\projects\\alfarid\\bags-platform\\frontend\\tests\\store-cart.test.cjs:40:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Cannot find module '@/lib/viewer-key'
+    Require stack:
+    - D:\programming\programming\projects\alfarid\bags-platform\frontend\apps\storefront\src\stores\cart-store.ts
+  code: 'MODULE_NOT_FOUND'
+  stack: |-
+    Function._resolveFilename (node:internal/modules/cjs/loader:1249:15)
+    Function._load (node:internal/modules/cjs/loader:1075:27)
+    TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    wrapModuleLoad (node:internal/modules/cjs/loader:219:24)
+    Module.require (node:internal/modules/cjs/loader:1340:12)
+    require (node:internal/modules/helpers:138:16)
+    D:\programming\programming\projects\alfarid\bags-platform\frontend\tests\store-cart.test.cjs:23:126
+    eval (eval at load (D:\programming\programming\projects\alfarid\bags-platform\frontend\tests\store-cart.test.cjs:21:3), <anonymous>:12:22)
+    load (D:\programming\programming\projects\alfarid\bags-platform\frontend\tests\store-cart.test.cjs:21:82)
+    TestContext.<anonymous> (D:\programming\programming\projects\alfarid\bags-platform\frontend\tests\store-cart.test.cjs:43:17)
+  ...
+# Subtest: clearing uses one bulk request and keeps the current cart on failure
+not ok 78 - clearing uses one bulk request and keeps the current cart on failure
+  ---
+  duration_ms: 2.3533
+  location: 'D:\\programming\\programming\\projects\\alfarid\\bags-platform\\frontend\\tests\\store-cart.test.cjs:50:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Cannot find module '@/lib/viewer-key'
+    Require stack:
+    - D:\programming\programming\projects\alfarid\bags-platform\frontend\apps\storefront\src\stores\cart-store.ts
+  code: 'MODULE_NOT_FOUND'
+  stack: |-
+    Function._resolveFilename (node:internal/modules/cjs/loader:1249:15)
+    Function._load (node:internal/modules/cjs/loader:1075:27)
+    TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    wrapModuleLoad (node:internal/modules/cjs/loader:219:24)
+    Module.require (node:internal/modules/cjs/loader:1340:12)
+    require (node:internal/modules/helpers:138:16)
+    D:\programming\programming\projects\alfarid\bags-platform\frontend\tests\store-cart.test.cjs:23:126
+    eval (eval at load (D:\programming\programming\projects\alfarid\bags-platform\frontend\tests\store-cart.test.cjs:21:3), <anonymous>:12:22)
+    load (D:\programming\programming\projects\alfarid\bags-platform\frontend\tests\store-cart.test.cjs:21:82)
+    TestContext.<anonymous> (D:\programming\programming\projects\alfarid\bags-platform\frontend\tests\store-cart.test.cjs:52:17)
+  ...
+# Subtest: queued additions share the server-issued guest session and errors retain the last valid cart
+not ok 79 - queued additions share the server-issued guest session and errors retain the last valid cart
+  ---
+  duration_ms: 6.558
+  location: 'D:\\programming\\programming\\projects\\alfarid\\bags-platform\\frontend\\tests\\store-cart.test.cjs:65:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Cannot find module '@/lib/viewer-key'
+    Require stack:
+    - D:\programming\programming\projects\alfarid\bags-platform\frontend\apps\storefront\src\stores\cart-store.ts
+  code: 'MODULE_NOT_FOUND'
+  stack: |-
+    Function._resolveFilename (node:internal/modules/cjs/loader:1249:15)
+    Function._load (node:internal/modules/cjs/loader:1075:27)
+    TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    wrapModuleLoad (node:internal/modules/cjs/loader:219:24)
+    Module.require (node:internal/modules/cjs/loader:1340:12)
+    require (node:internal/modules/helpers:138:16)
+    D:\programming\programming\projects\alfarid\bags-platform\frontend\tests\store-cart.test.cjs:23:126
+    eval (eval at load (D:\programming\programming\projects\alfarid\bags-platform\frontend\tests\store-cart.test.cjs:21:3), <anonymous>:12:22)
+    load (D:\programming\programming\projects\alfarid\bags-platform\frontend\tests\store-cart.test.cjs:21:82)
+    TestContext.<anonymous> (D:\programming\programming\projects\alfarid\bags-platform\frontend\tests\store-cart.test.cjs:67:17)
+  ...
+# Subtest: a delayed old-session response cannot populate the next account cart
+not ok 80 - a delayed old-session response cannot populate the next account cart
+  ---
+  duration_ms: 3.0929
+  location: 'D:\\programming\\programming\\projects\\alfarid\\bags-platform\\frontend\\tests\\store-cart.test.cjs:81:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Cannot find module '@/lib/viewer-key'
+    Require stack:
+    - D:\programming\programming\projects\alfarid\bags-platform\frontend\apps\storefront\src\stores\cart-store.ts
+  code: 'MODULE_NOT_FOUND'
+  stack: |-
+    Function._resolveFilename (node:internal/modules/cjs/loader:1249:15)
+    Function._load (node:internal/modules/cjs/loader:1075:27)
+    TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    wrapModuleLoad (node:internal/modules/cjs/loader:219:24)
+    Module.require (node:internal/modules/cjs/loader:1340:12)
+    require (node:internal/modules/helpers:138:16)
+    D:\programming\programming\projects\alfarid\bags-platform\frontend\tests\store-cart.test.cjs:23:126
+    eval (eval at load (D:\programming\programming\projects\alfarid\bags-platform\frontend\tests\store-cart.test.cjs:21:3), <anonymous>:12:22)
+    load (D:\programming\programming\projects\alfarid\bags-platform\frontend\tests\store-cart.test.cjs:21:82)
+    TestContext.<anonymous> (D:\programming\programming\projects\alfarid\bags-platform\frontend\tests\store-cart.test.cjs:84:17)
+  ...
+# Subtest: products with no usable price are omitted while a zero price remains valid
+ok 81 - products with no usable price are omitted while a zero price remains valid
+  ---
+  duration_ms: 4.088
+  ...
+# Subtest: real product cards preserve photos, prices, routes and Arabic names without demo tints
+ok 82 - real product cards preserve photos, prices, routes and Arabic names without demo tints
+  ---
+  duration_ms: 0.4333
+  ...
+# Subtest: sold out takes precedence over sale and new badges
+ok 83 - sold out takes precedence over sale and new badges
+  ---
+  duration_ms: 3.6565
+  ...
+# Subtest: admin banner round trip preserves placement, optional copy, target and uploaded file
+ok 84 - admin banner round trip preserves placement, optional copy, target and uploaded file
+  ---
+  duration_ms: 34.7073
+  ...
+# Subtest: banner schedule inputs round trip Cairo local time without shifting the instant
+ok 85 - banner schedule inputs round trip Cairo local time without shifting the instant
+  ---
+  duration_ms: 2.3739
+  ...
+# Subtest: banner create and update preserve multipart file data through the actual HTTP client
+ok 86 - banner create and update preserve multipart file data through the actual HTTP client
+  ---
+  duration_ms: 245.868
+  ...
+# Subtest: product stage asks for missing options instead of selecting the first variant
+ok 87 - product stage asks for missing options instead of selecting the first variant
+  ---
+  duration_ms: 2.5365
+  ...
+# Subtest: products without sizes still require a color when multiple colors exist
+ok 88 - products without sizes still require a color when multiple colors exist
+  ---
+  duration_ms: 0.3964
+  ...
+# Subtest: all filters round trip through a product link and API parameters preserve array and boolean contracts
+ok 89 - all filters round trip through a product link and API parameters preserve array and boolean contracts
+  ---
+  duration_ms: 1.4196
+  ...
+# Subtest: reset filters produce a clean URL and legacy sort links still parse
+ok 90 - reset filters produce a clean URL and legacy sort links still parse
+  ---
+  duration_ms: 0.5051
+  ...
+# Subtest: cards show real EGP prices and truthful badge precedence, including zero and unavailable prices
+ok 91 - cards show real EGP prices and truthful badge precedence, including zero and unavailable prices
+  ---
+  duration_ms: 4.5538
+  ...
+# Subtest: details preserve distinct Arabic color variants, sizes, variant photos and null prices
+ok 92 - details preserve distinct Arabic color variants, sizes, variant photos and null prices
+  ---
+  duration_ms: 1.1258
+  ...
+# Subtest: category lookup finds nested categories and their full breadcrumb path
+ok 93 - category lookup finds nested categories and their full breadcrumb path
+  ---
+  duration_ms: 0.4009
+  ...
+# Subtest: idempotent cart deletes reload the empty cart after a 204 response
+ok 94 - idempotent cart deletes reload the empty cart after a 204 response
+  ---
+  duration_ms: 86.9903
+  ...
+# Subtest: production CSP excludes local HTTP images while development previews retain them
+ok 95 - production CSP excludes local HTTP images while development previews retain them
+  ---
+  duration_ms: 45.1935
+  ...
+# Subtest: viewer identities are opaque and never reused across account switches
+ok 96 - viewer identities are opaque and never reused across account switches
+  ---
+  duration_ms: 5.2259
+  ...
+# Subtest: clearing a guest cart session clears both persistent and in-memory fallback
+ok 97 - clearing a guest cart session clears both persistent and in-memory fallback
+  ---
+  duration_ms: 51.2674
+  ...
+# Subtest: retail return paths cannot escape the site or override restricted destinations
+ok 98 - retail return paths cannot escape the site or override restricted destinations
+  ---
+  duration_ms: 88.8012
+  ...
+# Subtest: checkout endpoints unwrap real Laravel resource envelopes and preserve retry headers
+ok 99 - checkout endpoints unwrap real Laravel resource envelopes and preserve retry headers
+  ---
+  duration_ms: 138.2333
+  ...
+# Subtest: root categories with direct products remain navigable without fabricated subcategories
+ok 100 - root categories with direct products remain navigable without fabricated subcategories
+  ---
+  duration_ms: 45.412
+  ...
+# Subtest: a failed login cart merge preserves the original guest session after auth resets cart identity
+ok 101 - a failed login cart merge preserves the original guest session after auth resets cart identity
+  ---
+  duration_ms: 33.8873
+  ...
+# Subtest: public API images use a same-origin path across surfaces without proxying unrelated URLs
+ok 102 - public API images use a same-origin path across surfaces without proxying unrelated URLs
+  ---
+  duration_ms: 9.928
+  ...
+1..102
+# tests 102
+# suites 0
+# pass 96
+# fail 6
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2863.2591

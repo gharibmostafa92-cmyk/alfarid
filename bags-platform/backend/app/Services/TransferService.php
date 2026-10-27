@@ -453,6 +453,9 @@ class TransferService
      */
     private function assertPayloadMatchesLockedItems(StockTransfer $transfer, array $itemsPayload, ?string $expectedUpdatedAt, ?int $expectedVersion = null): void
     {
+        if ($expectedUpdatedAt !== null && $expectedVersion === null) {
+            throw new BusinessException('أعد تحميل التحويل لإرسال رقم الإصدار قبل التنفيذ.', [], 409);
+        }
         if ($expectedVersion !== null && $expectedVersion !== $transfer->version) {
             throw new BusinessException('تم تعديل التحويل؛ أعد تحميله وراجع الكميات.', ['current_version' => $transfer->version], 409);
         }

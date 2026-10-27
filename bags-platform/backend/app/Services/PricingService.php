@@ -9,6 +9,7 @@ use App\Enums\CustomerType;
 use App\Enums\PriceListType;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
+use App\Models\PriceList;
 use App\Models\PriceListItem;
 use App\Models\ProductVariant;
 use Brick\Math\BigDecimal;
@@ -24,17 +25,39 @@ use Illuminate\Database\Eloquent\Builder;
  * 2. سعر مجموعة العميل (customer_group)
  * 3. قائمة النوع (wholesale/distributor للمعتمدين فقط، وإلا retail)؛ وقناة
  *    جملة/موزع بلا عنصر مطابق ترجع لقوائم retail النشطة قبل السعر الأساسي.
- * 4. السعر الأساسي للمتغير (base_price، المتوافق مع retail_price من المرحلة 2).
+ * 4. سعر الجملة لقناتي الجملة/الموزع، ثم سعر التجزئة إذا لم يوجد سعر جملة.
  *
  * خصم مجموعة العميل (discount_percentage) لا يصنع مستوى مستقلًا: يُطبق فوق ناتج
  * المستويين 3/4 (سعر القناة)، ولا يُخصم من سعر خاص بالعميل أو سعر قائمة المجموعة.
- * متغير بلا retail_price ولا قائمة مطابقة = غير مُسعَّر، ويرمي BusinessException.
+ * متغير بلا سعر أساسي للقناة ولا قائمة مطابقة = غير مُسعَّر.
  *
  * داخل كل مستوى: القائمة المخصصة للفرع أولًا، ثم أعلى شريحة كمية محققة،
  * ثم أولوية القائمة، ثم السعر الأقل.
  */
 class PricingService
 {
+    private array $catalogContexts = [];
+
+    public function catalogContext(?Customer $customer): array
+    {
+        if ($customer === null || $customer->status !== CustomerStatus::Approved) {
+            return ['key' => 'retail', 'public_retail' => true];
+        }
+
+        return $this->catalogContexts[$customer->id] ??= $this->resolveCatalogContext($customer);
+    }
+
+    private function resolveCatalogContext(Customer $customer): array
+    {
+        $customer->loadMissing('customerGroup');
+        $group = $customer->customerGroup?->is_active ? $customer->customerGroup : null;
+        $specific = PriceList::query()->where('type', PriceListType::CustomerSpecific)->where('customer_id', $customer->id)->exists();
+        $channel = $this->channelFor($customer);
+        $public = $channel === PriceListType::Retail && $group === null && ! $specific;
+
+        return ['key' => $public ? 'retail' : $channel->value.':group:'.($group?->id ?? 'none').($specific ? ':customer:'.$customer->id : ''), 'public_retail' => $public];
+    }
+
     /**
      * F17: preload the per-customer pricing context once per listing and pass
      * it down — resolve()/tiersFor() otherwise re-query the customer group on
@@ -45,7 +68,10 @@ class PricingService
     public function contextFor(?Customer $customer, ?array $variantIds = null): array
     {
         $eligible = $customer !== null && $customer->status === CustomerStatus::Approved;
-        $group = $eligible ? $customer->customerGroup()->where('is_active', true)->first() : null;
+        if ($eligible) {
+            $customer->loadMissing('customerGroup');
+        }
+        $group = $eligible && $customer->customerGroup?->is_active ? $customer->customerGroup : null;
 
         $channel = $this->channelFor($customer);
         $context = ['channel' => $channel, 'eligible' => $eligible, 'group' => $group];
@@ -94,8 +120,19 @@ class PricingService
             ->orderByRaw("CASE WHEN price_lists.type = 'customer_specific' THEN 0 WHEN price_lists.type = 'customer_group' THEN 1 WHEN price_lists.type = ? THEN 2 ELSE 3 END", [$channel->value]);
         $items = $this->ordered($items)->limit(1);
 
+        // M6: mirror basePrice() in SQL — the wholesale channel falls back to
+        // wholesale_price first, then retail_price.
+        $fallback = in_array($channel, [PriceListType::Wholesale, PriceListType::Distributor], true)
+            ? 'COALESCE(product_variants.wholesale_price, product_variants.retail_price)'
+            : 'product_variants.retail_price';
+
+        // resolve() switches the basis to retail when a wholesale customer
+        // falls back to a retail list. Preserve that effective channel in SQL.
+        $baseItems = (clone $items)->select([])->selectRaw("COALESCE(CASE WHEN price_lists.type = 'retail' THEN product_variants.retail_price ELSE ".$fallback." END, price_list_items.price * CASE WHEN price_lists.type IN ('customer_specific', 'customer_group') THEN 1::numeric ELSE ?::numeric END)", [$factor]);
+
         return $variants->select('product_variants.*')
-            ->selectRaw('ROUND(COALESCE(('.$items->toSql().'), product_variants.retail_price * ?)::numeric, 2) AS store_price', [...$items->getBindings(), $factor]);
+            ->selectRaw('ROUND(COALESCE(('.$items->toSql().'), '.$fallback.' * ?)::numeric, 2) AS store_price', [...$items->getBindings(), $factor])
+            ->selectRaw('ROUND(COALESCE(('.$baseItems->toSql().'), '.$fallback.')::numeric, 2) AS store_base_price', $baseItems->getBindings());
     }
 
     /**
@@ -172,12 +209,12 @@ class PricingService
             $channelPrice = (string) $item->price;
             $channelListId = (int) $item->price_list_id;
             $channelSource = $channel->value;
-        } elseif ($variant->retail_price === null) {
-            // الأولوية 4 مستحيلة: لا قائمة مطابقة ولا سعر قطاعي — الصنف غير مُسعَّر
-            // ولا يجوز أن يخرج بسعر صفر ليُباع مجانًا.
+        } elseif ($this->basePrice($variant, $channel) === null) {
+            // الأولوية 4 مستحيلة: لا قائمة مطابقة ولا سعر أساسي للقناة —
+            // الصنف غير مُسعَّر ولا يجوز أن يخرج بسعر صفر ليُباع مجانًا.
             throw new BusinessException('الصنف غير مُسعَّر: لا توجد قائمة أسعار مطابقة ولا سعر قطاعي للمتغير.');
         } else {
-            // الأولوية 4: السعر الأساسي الموحد؛ أسعار الجملة والموزعين تأتي من القوائم.
+            // الأولوية 4: السعر الأساسي للقناة بعد استنفاد القوائم المطابقة.
             $channelPrice = $this->basePrice($variant, $channel);
             $channelListId = null;
             $channelSource = 'base_price';
@@ -261,7 +298,20 @@ class PricingService
 
     private function basePrice(ProductVariant $variant, PriceListType $channel): ?string
     {
+        // M6: wholesale_price is the wholesale-channel fallback. Retail stays
+        // on retail_price; wholesale/distributor prefer wholesale_price and
+        // fall back to retail_price when it is missing.
+        if (in_array($channel, [PriceListType::Wholesale, PriceListType::Distributor], true)
+            && $variant->wholesale_price !== null) {
+            return (string) $variant->wholesale_price;
+        }
+
         return $variant->retail_price === null ? null : $variant->base_price;
+    }
+
+    public function basePriceForCustomer(ProductVariant $variant, ?Customer $customer): ?string
+    {
+        return $this->basePrice($variant, $this->channelFor($customer));
     }
 
     private function discountFactor(string $percentage): string

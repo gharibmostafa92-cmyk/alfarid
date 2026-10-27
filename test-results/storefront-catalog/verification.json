@@ -1,0 +1,36 @@
+{
+  "phase": "Storefront catalog integration",
+  "backend": {
+    "assertions": 186,
+    "passed": 26
+  },
+  "frontend_unit": {
+    "passed": 11
+  },
+  "typecheck": "passed",
+  "lint": "passed, 6 existing img-element warnings",
+  "production_build": "passed",
+  "browser": [
+    "Desktop mocked API scenarios passed",
+    "Mobile mocked API scenarios passed",
+    "Desktop live backend scenarios passed",
+    "Mobile live backend scenarios passed"
+  ],
+  "seeder": "Applied twice successfully on development database; variants include demo photos",
+  "price_ranges": [
+    2,
+    7,
+    3
+  ],
+  "decisions": [
+    "Under EGP 800 contains products 5 and 7; product 4 costs EGP 890",
+    "Vogue Camel has Medium only, matching manual QA scenario 10"
+  ],
+  "project_suite": {
+    "passed": 884,
+    "note": "Project-wide suite is not green; includes retired supplier/brand endpoints and an inventory counter test",
+    "errors": 1,
+    "failures": 60,
+    "tests": 945
+  }
+}

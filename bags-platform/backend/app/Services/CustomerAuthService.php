@@ -211,7 +211,7 @@ class CustomerAuthService
                 $customer->tokens()->whereIn('id', $old)->delete();
             }
 
-            $token = $customer->createToken($name);
+            $token = $customer->createToken($name, ['*'], now()->addMinutes(max(1, (int) config('auth.customer_token_minutes', 1440))));
             CustomerAuditLog::record($customer, 'token_issued', null, ['token_id' => $token->accessToken->id, 'channel' => $name]);
 
             return $token->plainTextToken;

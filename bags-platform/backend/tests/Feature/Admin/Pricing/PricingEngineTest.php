@@ -35,7 +35,7 @@ class PricingEngineTest extends TestCase
 
     // ---------- PricingService: شجرة الأولويات ----------
 
-    public function test_fallback_to_variant_base_price_for_every_channel(): void
+    public function test_fallback_uses_the_variant_base_price_for_the_customer_channel(): void
     {
         $variant = $this->variant(100, 80);
         $service = app(PricingService::class);
@@ -47,8 +47,8 @@ class PricingEngineTest extends TestCase
 
         $wholesale = $this->customer(CustomerType::Wholesale, CustomerStatus::Approved);
         $resolved = $service->resolve($variant, $wholesale);
-        $this->assertSame(100.0, $resolved['unit_price']);
-        $this->assertSame(100.0, $resolved['base_price']);
+        $this->assertSame(80.0, $resolved['unit_price']);
+        $this->assertSame(80.0, $resolved['base_price']);
     }
 
     public function test_retail_list_and_quantity_tiers(): void

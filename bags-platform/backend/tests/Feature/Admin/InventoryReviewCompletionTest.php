@@ -60,7 +60,7 @@ class InventoryReviewCompletionTest extends TestCase
             'items' => [['product_variant_id' => $variant->id, 'requested_qty' => 4]],
         ])->assertOk()->json('data');
         $this->assertGreaterThan($created['version'], $updated['version']);
-        $this->assertNotSame($created['updated_at'], $updated['updated_at']);
+        $this->assertSame($created['updated_at'], $updated['updated_at']);
         $this->api('POST', "transfers/{$created['id']}/approve", ['expected_version' => $created['version']])->assertConflict();
         $this->api('POST', "transfers/{$created['id']}/approve", ['expected_updated_at' => $created['updated_at']])->assertConflict();
         $this->assertSame('0.0000', StockLevel::where('branch_id', $from->id)->firstOrFail()->reserved);
@@ -76,6 +76,7 @@ class InventoryReviewCompletionTest extends TestCase
         $transfer = $this->transfer($variant, $from);
         $this->api('POST', "transfers/{$transfer->id}/approve", [
             'expected_updated_at' => Carbon::parse($transfer->updated_at)->setTimezone('Africa/Cairo')->toIso8601String(),
+            'expected_version' => $transfer->version,
         ])->assertOk();
     }
 

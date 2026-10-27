@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { formatStorePrice } from '@alfarid/utils';
 import { useCartStore } from '@/stores/cart-store';
 import { SophieBagPlaceholder } from './SophieBagPlaceholder';
+import { StoreImage } from '../StoreImage';
 
 export interface SophieProduct {
   id: number;
@@ -37,7 +38,7 @@ export function SophieProductCard({ product }: { product: SophieProduct }) {
   const [addFailed, setAddFailed] = useState(false);
   const [failedImage, setFailedImage] = useState<string | null>(null);
   const image = product.imgUrl && failedImage !== product.imgUrl ? (
-    <img src={product.imgUrl} alt={product.name} onError={() => setFailedImage(product.imgUrl)}
+    <StoreImage src={product.imgUrl} alt={product.name} onError={() => setFailedImage(product.imgUrl)}
       className={`${product.tintClass || ''} max-w-[175px] max-h-[200px] object-contain transition-transform duration-300 group-hover:scale-105 ${product.inStock === false ? 'opacity-60' : ''}`} loading="lazy" />
   ) : <SophieBagPlaceholder />;
 

@@ -91,7 +91,7 @@ class CatalogReviewRoundTwoTest extends TestCase
         $product = $this->completeProduct(['status' => ProductStatus::Published]);
         $this->signIn(['products.update']);
         foreach (['draft', 'archived'] as $status) {
-            $this->patchJson("/api/v1/admin/products/{$product->id}", ['status' => $status, 'name_en' => 'Should rollback'])->assertForbidden();
+            $this->patchJson("/api/v1/admin/products/{$product->id}", ['status' => $status, 'name_en' => 'Should rollback', 'expected_version' => $product->fresh()->lock_version])->assertForbidden();
             $this->assertSame(ProductStatus::Published, $product->fresh()->status);
             $this->assertNotSame('Should rollback', $product->fresh()->name_en);
         }
@@ -100,9 +100,9 @@ class CatalogReviewRoundTwoTest extends TestCase
     public function test_publisher_can_unpublish_and_editor_can_archive_a_draft(): void
     {
         $product = $this->completeProduct(['status' => ProductStatus::Published]);
-        $this->patchJson("/api/v1/admin/products/{$product->id}", ['status' => 'draft'])->assertOk();
+        $this->patchJson("/api/v1/admin/products/{$product->id}", ['status' => 'draft', 'expected_version' => $product->fresh()->lock_version])->assertOk();
         $this->signIn(['products.update']);
-        $this->patchJson("/api/v1/admin/products/{$product->id}", ['status' => 'archived'])->assertOk();
+        $this->patchJson("/api/v1/admin/products/{$product->id}", ['status' => 'archived', 'expected_version' => $product->fresh()->lock_version])->assertOk();
     }
 
     public function test_publishing_under_an_inactive_ancestor_is_rejected(): void
@@ -110,7 +110,7 @@ class CatalogReviewRoundTwoTest extends TestCase
         $parent = Category::factory()->create(['is_active' => false]);
         $child = Category::factory()->create(['parent_id' => $parent->id]);
         $product = $this->completeProduct(['category_id' => $child->id]);
-        $this->patchJson("/api/v1/admin/products/{$product->id}", ['status' => 'published'])->assertUnprocessable()->assertJsonValidationErrors('status');
+        $this->patchJson("/api/v1/admin/products/{$product->id}", ['status' => 'published', 'expected_version' => $product->fresh()->lock_version])->assertUnprocessable()->assertJsonValidationErrors('status');
         $this->assertSame(ProductStatus::Draft, $product->fresh()->status);
     }
 
@@ -278,9 +278,9 @@ class CatalogReviewRoundTwoTest extends TestCase
         $product = Product::factory()->create();
         $real = app(FileManipulator::class);
         $count = 0;
-        $this->mock(FileManipulator::class)->shouldReceive('createDerivedFiles')->twice()->andReturnUsing(function (Media $media) use ($real, &$count): void {
+        $this->mock(FileManipulator::class)->shouldReceive('createDerivedFiles')->times(3)->andReturnUsing(function (Media $media) use ($real, &$count): void {
             $real->createDerivedFiles($media);
-            if (++$count === 2) {
+            if ($media->collection_name === 'images_staging' && ++$count === 2) {
                 throw new \RuntimeException('Conversion failure');
             }
         });

@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { setAuthToken, setUnauthorizedHandler } from '@alfarid/api-client';
 import type { ActorType, Destination } from '@/types/auth';
+import { resetCartIdentity } from '@/stores/cart-store';
 
 interface WebSession {
   token: string | null;
@@ -18,8 +19,8 @@ export const useAuthStore = create<WebSession>()(
   persist(
     (set) => ({
       token: null, actorType: null, destination: null, home: null, user: null,
-      setSession: (s) => { setAuthToken(s.token); set({ ...s }); },
-      clear: () => { setAuthToken(null); set({ token: null, actorType: null, destination: null, home: null, user: null }); },
+      setSession: (s) => { setAuthToken(s.token); resetCartIdentity(); set({ ...s }); },
+      clear: () => { setAuthToken(null); resetCartIdentity(); set({ token: null, actorType: null, destination: null, home: null, user: null }); },
     }),
     {
       name: 'alfarid_web_auth',

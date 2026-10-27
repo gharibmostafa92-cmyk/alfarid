@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Admin\Catalog;
 
 use App\Models\Category;
+use App\Models\Product;
 use App\Models\User;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -53,6 +54,7 @@ class ProductCatalogTest extends TestCase
 
         $response = $this->requestWithToken($token, 'PUT', "/api/v1/admin/products/{$productId}", [
             'status' => 'published',
+            'expected_version' => Product::find($productId)->lock_version,
         ]);
 
         $response->assertUnprocessable();
@@ -70,6 +72,7 @@ class ProductCatalogTest extends TestCase
 
         $response = $this->requestWithToken($token, 'PUT', "/api/v1/admin/products/{$productId}", [
             'status' => 'published',
+            'expected_version' => Product::find($productId)->lock_version,
         ]);
 
         $response->assertUnprocessable();
@@ -93,6 +96,7 @@ class ProductCatalogTest extends TestCase
 
         $this->requestWithToken($token, 'PUT', "/api/v1/admin/products/{$productId}", [
             'status' => 'published',
+            'expected_version' => Product::find($productId)->lock_version,
         ])->assertOk()
             ->assertJsonPath('data.status', 'published')
             ->assertJsonPath('data.published_at', fn ($value) => ! empty($value));

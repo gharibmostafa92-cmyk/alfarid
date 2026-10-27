@@ -62,7 +62,7 @@ class CustomerAdditionalReviewTest extends TestCase
     {
         $group = CustomerGroup::create(['name' => 'Review', 'code' => 'review', 'discount_percentage' => '12.50']);
         $customer = Customer::factory()->wholesale()->create(['status' => 'approved', 'customer_group_id' => $group->id]);
-        $variant = ProductVariant::factory()->create(['retail_price' => null]);
+        $variant = ProductVariant::factory()->create(['retail_price' => null, 'wholesale_price' => null]);
         $list = PriceList::create(['name' => 'Review', 'type' => $type,
             'customer_id' => $type === 'customer_specific' ? $customer->id : null,
             'customer_group_id' => $type === 'customer_group' ? $group->id : null]);
@@ -251,14 +251,14 @@ class CustomerAdditionalReviewTest extends TestCase
         }
     }
 
-    public function test_price_queries_have_global_limit_across_ips(): void
+    public function test_price_queries_do_not_share_a_global_limit_across_ips(): void
     {
         config(['auth.customer_limits.price_global_minute' => 2]);
         for ($i = 1; $i <= 2; $i++) {
             $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.'.$i])->getJson('/api/v1/store/products?sort=price_asc')->assertOk();
         }
 
-        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.3'])->getJson('/api/v1/store/products?sort=price_asc')->assertTooManyRequests();
+        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.3'])->getJson('/api/v1/store/products?sort=price_asc')->assertOk();
     }
 
     public function test_price_sort_count_omits_lateral_query_and_keeps_page_totals(): void

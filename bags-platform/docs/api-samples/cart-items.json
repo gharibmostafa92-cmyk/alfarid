@@ -1,0 +1,37 @@
+{
+    "data": {
+        "id": 17,
+        "cart_token": "5305af70-6c8a-4dc1-9482-73ea50d65cbf",
+        "customer_id": null,
+        "items": [
+            {
+                "id": 37,
+                "product_variant_id": 36,
+                "product_id": 36,
+                "product_name": "منتج 6376",
+                "product_slug": "rerum-placeat-aliquid",
+                "product_name_en": "Rerum Placeat Aliquid",
+                "image": null,
+                "color": "Gray",
+                "size": "M",
+                "sku": "SKU-569017",
+                "qty": 2,
+                "unit_price": 200,
+                "base_price": 200,
+                "line_discount": 0,
+                "line_total": 400,
+                "available": 10,
+                "max_qty": 10,
+                "priced": true
+            }
+        ],
+        "totals": {
+            "subtotal": 400,
+            "pricing_discount": 0,
+            "items_total": 400,
+            "coupon_discount": 0,
+            "total": 400,
+            "coupon_code": "SHIPFREE"
+        }
+    }
+}

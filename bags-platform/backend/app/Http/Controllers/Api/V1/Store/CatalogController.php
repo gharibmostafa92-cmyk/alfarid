@@ -5,18 +5,27 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Store;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Store\ProductFilterRequest;
 use App\Http\Resources\Store\StoreBrandResource;
 use App\Http\Resources\Store\StoreCategoryResource;
 use App\Http\Resources\Store\StoreCityResource;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\City;
+use App\Services\StoreCatalogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /** قوائم التصفح الثابتة: أقسام (شجرة بعدّادات منتجات منشورة) وعلامات ومدن الشحن. */
 class CatalogController extends Controller
 {
+    public function __construct(private readonly StoreCatalogService $catalog) {}
+
+    public function filters(ProductFilterRequest $request): JsonResponse
+    {
+        return response()->json(['data' => $this->catalog->facets($request->validated())]);
+    }
+
     public function categories(Request $request): JsonResponse
     {
         $roots = Category::query()

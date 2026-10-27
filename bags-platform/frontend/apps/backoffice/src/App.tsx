@@ -11,6 +11,7 @@ import CategoriesMockPage from './pages/admin/categories-mock/CategoriesMockPage
 import PosPage from './pages/pos/PosPage';
 import CatalogMockPage from './pages/admin/catalog-mock/CatalogMockPage';
 import AdminMockPage from './pages/admin/admin-mock/AdminMockPage';
+import OperationsMockPage from './pages/admin/operations-mock/OperationsMockPage';
 const InventoryPage = lazy(() => import('./pages/admin/inventory-mock/InventoryPage'));
 
 defaultApiClient.defaults.baseURL = resolveServiceUrl(import.meta.env.VITE_API_URL ?? 'http://localhost:8000');
@@ -31,6 +32,7 @@ function AuthenticatedApp() {
   const can = useCallback((permission: string) =>
     hasPermission(user?.permissions, permission), [user]);
   const cashierOnly = user?.roles.length === 1 && user.roles[0] === 'cashier';
+
   useEffect(() => {
     // Stocktake navigation guards may synchronously restore the accepted hash.
     const changed = () => queueMicrotask(() => setRoute(readRoute()));
@@ -41,32 +43,95 @@ function AuthenticatedApp() {
       window.removeEventListener('popstate', changed);
     };
   }, []);
+
+  const opMatch = route.match(/^\/(orders|returns|wholesale|shipping|pricing|promos|brands|suppliers|purchasing|finance|shifts|reports|notifications)(?:\/([^/?#]+))?$/);
+  const isOperation = Boolean(opMatch);
+  const operationsActive = opMatch ? opMatch[1] : null;
+  const operationsId = opMatch ? opMatch[2] : undefined;
+  const operationsSub = (() => {
+    const raw = window.location.hash.includes('?') ? window.location.hash.split('?')[1] : window.location.search.replace(/^\?/, '');
+    return new URLSearchParams(raw).get('sub') || undefined;
+  })();
+
   useEffect(() => {
     const isStore = ['/store', '/banners', '/settings/store', '/settings/banners'].includes(route);
-    if (cashierOnly && !['/', '/dashboard', '/pos'].includes(route)) window.location.replace('/dashboard');
-    else if (!['/', '/dashboard', '/categories', '/dealers', '/production', '/pos', '/users', '/roles', '/settings'].includes(route) && !isStore && !/^\/products(?:\/(?:new|[0-9]+))?$/.test(route) && !/^\/inventory(?:\/[a-z-]+)?$/.test(route)) window.location.replace('/dashboard');
-  }, [cashierOnly, route]);
+    if (cashierOnly && !['/', '/dashboard', '/pos'].includes(route)) {
+      window.location.replace('/dashboard');
+    } else if (
+      !['/', '/dashboard', '/categories', '/dealers', '/production', '/pos', '/users', '/roles', '/settings'].includes(route) &&
+      !isStore &&
+      !isOperation &&
+      !/^\/products(?:\/(?:new|[0-9]+))?$/.test(route) &&
+      !/^\/inventory(?:\/[a-z-]+)?$/.test(route)
+    ) {
+      window.location.replace('/dashboard');
+    }
+  }, [cashierOnly, route, isOperation]);
+
   if (cashierOnly && !['/', '/dashboard', '/pos'].includes(route)) return null;
   if (route === '/pos') return <PosPage />;
+
   const categoriesActive = route === '/categories';
   const inventoryActive = route === '/inventory' || route.startsWith('/inventory/');
   const isStoreRoute = route === '/store' || route === '/banners' || route === '/settings/store' || route === '/settings/banners';
   const adminActive = route === '/users' ? 'users' : route === '/roles' ? 'roles' : (route === '/settings' || isStoreRoute) ? 'settings' : null;
-  const catalogActive = inventoryActive ? 'inventory' : route.startsWith('/products') ? 'products' : route === '/dealers' ? 'dealers' : route === '/production' ? 'production' : adminActive;
+  const catalogActive = isOperation
+    ? operationsActive
+    : inventoryActive
+    ? 'inventory'
+    : route.startsWith('/products')
+    ? 'products'
+    : route === '/dealers'
+    ? 'dealers'
+    : route === '/production'
+    ? 'production'
+    : adminActive;
+
   return <FinancialDashboard
     onLogout={logoutRemote}
     catalogActive={catalogActive}
-    catalogPage={inventoryActive ? (can('inventory.view') ? <Suspense fallback={<div dir="rtl" className="p-6">جارٍ تحميل المخزون…</div>}><InventoryPage can={can}/></Suspense> : <div dir="rtl" className="p-6">ليس لديك صلاحية عرض المخزون.</div>) : adminActive ? <AdminMockPage key={adminActive} page={adminActive} can={can} initialTab={isStoreRoute ? 'store' : undefined} /> : catalogActive && <CatalogMockPage key={catalogActive} can={can} page={catalogActive} />}
+    catalogPage={
+      isOperation && operationsActive ? (
+        <OperationsMockPage
+          key={`${operationsActive}-${operationsId || ''}-${operationsSub || ''}`}
+          page={operationsActive}
+          id={operationsId}
+          sub={operationsSub}
+          can={can}
+        />
+      ) : inventoryActive ? (
+        can('inventory.view') ? (
+          <Suspense fallback={<div dir="rtl" className="p-6">جارٍ تحميل المخزون…</div>}>
+            <InventoryPage can={can}/>
+          </Suspense>
+        ) : (
+          <div dir="rtl" className="p-6">ليس لديك صلاحية عرض المخزون.</div>
+        )
+      ) : adminActive ? (
+        <AdminMockPage
+          key={adminActive}
+          page={adminActive}
+          can={can}
+          initialTab={isStoreRoute ? 'store' : undefined}
+        />
+      ) : (
+        catalogActive && <CatalogMockPage key={catalogActive} can={can} page={catalogActive} />
+      )
+    }
     catalogNav={!cashierOnly ? [
+      { id: 'orders', label: 'الطلبات', onOpen: () => { window.location.hash = '/orders'; } },
       ...(can('inventory.view') ? [{ id: 'inventory', label: 'المخزون', onOpen: () => { window.location.hash = '/inventory/stock'; } }] : []),
       ...(can('products.view') ? [{ id: 'products', label: 'المنتجات', onOpen: () => { window.location.hash = '/products'; } }] : []),
       ...(can('customers.view') ? [{ id: 'dealers', label: 'التجار والموزعون', onOpen: () => { window.location.hash = '/dealers'; } }] : []),
       ...(can('inventory.view') ? [{ id: 'production', label: 'استلام الإنتاج', onOpen: () => { window.location.hash = '/production'; } }] : []),
+      { id: 'finance', label: 'المالية', onOpen: () => { window.location.hash = '/finance'; } },
+      { id: 'reports', label: 'التقارير', onOpen: () => { window.location.hash = '/reports'; } },
       ...((can('users.view') || can('users.manage')) ? [{ id: 'users', label: 'المستخدمون', onOpen: () => { window.location.hash = '/users'; } }] : []),
       ...((can('roles.view') || can('roles.manage')) ? [{ id: 'roles', label: 'الأدوار', onOpen: () => { window.location.hash = '/roles'; } }] : []),
       ...((can('settings.view') || can('settings.manage')) ? [{ id: 'settings', label: 'الإعدادات', onOpen: () => { window.location.hash = '/settings'; } }] : []),
     ] : []}
     onCloseCatalog={() => { window.location.hash = '/dashboard'; }}
+    onOpenNotifications={() => { window.location.hash = '/notifications'; }}
     categoriesActive={categoriesActive}
     categoriesPage={<CategoriesMockPage can={can} embedded />}
     onOpenCategories={!cashierOnly && can('categories.view')

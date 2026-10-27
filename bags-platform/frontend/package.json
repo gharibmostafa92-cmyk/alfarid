@@ -10,6 +10,9 @@
     "dev:pos": "turbo dev --filter=@alfarid/pos",
     "build": "turbo build",
     "lint": "turbo lint",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test:operations": "node --test tests/operations-core.test.cjs tests/operations-hooks.test.cjs tests/operations-commerce.test.cjs tests/operations-finance.test.cjs tests/operations-suppliers.test.cjs",
+    "test:operations:e2e": "node tests/operations.e2e.cjs",
     "generate:types": "pnpm --filter @alfarid/api-client generate:types"
   },
   "devDependencies": {

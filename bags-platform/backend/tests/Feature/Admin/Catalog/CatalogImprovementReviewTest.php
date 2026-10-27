@@ -48,10 +48,10 @@ class CatalogImprovementReviewTest extends TestCase
         $product = Product::factory()->create();
         $real = app(FileManipulator::class);
         $calls = 0;
-        $this->mock(FileManipulator::class)->shouldReceive('createDerivedFiles')->twice()
+        $this->mock(FileManipulator::class)->shouldReceive('createDerivedFiles')->times(3)
             ->andReturnUsing(function (Media $media) use ($real, &$calls): void {
                 $real->createDerivedFiles($media);
-                if (++$calls === 2) {
+                if ($media->collection_name === 'images_staging' && ++$calls === 2) {
                     throw new RuntimeException('Conversion failed after writing files');
                 }
             });

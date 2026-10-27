@@ -153,16 +153,14 @@ class InventoryService
             $stock->{$bucketKey} = $after;
             $stock->save();
 
-            // 6. حدث انخفاض المخزون: فقط عند عبور حد إعادة الطلب الفعّال نزولًا
-            //    (الحد الفعّال = حد صف الرصيد إن وُجد وإلا حد المتغير) حتى لا
-            //    تتكرر التنبيهات مع كل حركة والرصيد تحت الحد أصلًا.
-            // حد المتغير متاح بلا استعلام إضافي: lockLevels يحمّل العلاقة
-            // جزئيًا بالأعمدة id/is_active/deleted_at/reorder_level.
-            $level = (float) $stock->reorder_level;
-            if ($level <= 0) {
-                $level = (float) ($stock->variant?->reorder_level ?? 0);
-            }
-            if ($level > 0) {
+            // 6. حدث انخفاض المخزون.
+            //    M1: حد الصف (> 0) معناه محلي — يُقارن بمتاح هذا الصف كما قبل.
+            //    أما حد المتغير فعتبة على مستوى الفرع: يُقارن بإجمالي متاح
+            //    المتغير في الفرع قبل الحركة وبعدها، وإلا ضاعت إنذارات
+            //    (إجمالي الفرع يعبر الحد دون أن يعبره أي صف) وكثرت كاذبة
+            //    (رف واحد ينخفض والفرع ممتلئ).
+            $rowLevel = (float) $stock->reorder_level;
+            if ($rowLevel > 0) {
                 $effectOnAvailable = match ($bucket) {
                     StockBucket::OnHand => $units,
                     StockBucket::Reserved, StockBucket::Damaged => -$units,
@@ -170,12 +168,37 @@ class InventoryService
                 };
                 $availableBeforeUnits = $availableAfter - $effectOnAvailable;
                 $availableAfterQty = $availableAfter / 10000;
-                if ($availableBeforeUnits / 10000 > $level && $availableAfterQty <= $level) {
+                if ($availableBeforeUnits / 10000 > $rowLevel && $availableAfterQty <= $rowLevel) {
                     StockLowDetected::dispatch(
                         (int) $stock->product_variant_id,
                         (int) $stock->branch_id,
                         $availableAfterQty,
-                        $level,
+                        $rowLevel,
+                    );
+                }
+            }
+            $variantLevel = (float) ($stock->variant?->reorder_level ?? 0);
+            if ($variantLevel > 0) {
+                $effectOnAvailable = match ($bucket) {
+                    StockBucket::OnHand => $units,
+                    StockBucket::Reserved, StockBucket::Damaged => -$units,
+                    default => 0,
+                };
+                // إجمالي الفرع بعد الحفظ مباشرة (الصف محفوظ أعلاه داخل
+                // نفس المعاملة فيرى المجموع المحدّث) — استعلام SUM مفهرس
+                // واحد لكل حركة ذات حد فقط.
+                $branchTotal = (float) (StockLevel::query()
+                    ->where('product_variant_id', $stock->product_variant_id)
+                    ->where('branch_id', $stock->branch_id)
+                    ->selectRaw('COALESCE(SUM(on_hand - reserved - damaged), 0) AS total')
+                    ->value('total') ?? 0);
+                $branchBefore = $branchTotal - ($effectOnAvailable / 10000);
+                if ($branchBefore > $variantLevel && $branchTotal <= $variantLevel) {
+                    StockLowDetected::dispatch(
+                        (int) $stock->product_variant_id,
+                        (int) $stock->branch_id,
+                        $branchTotal,
+                        $variantLevel,
                     );
                 }
             }
@@ -379,6 +402,36 @@ class InventoryService
             $variants = ProductVariant::withTrashed()->whereIn('id', $variantIds)->orderBy('id')->sharedLock()->get();
             if ($variants->count() !== $variantIds->count()) {
                 throw new BusinessException('أحد المتغيرات لم يعد متاحًا.');
+            }
+
+            // Aggregate threshold checks must see earlier movements at other
+            // locations in this branch. Lock only pairs with a branch threshold.
+            $thresholdIds = $variants->filter(fn ($variant) => (float) $variant->reorder_level > 0)->modelKeys();
+            $pairs = $keys->filter(fn ($key) => in_array((int) $key['product_variant_id'], $thresholdIds, true))
+                ->unique(fn ($key) => $key['branch_id'].':'.$key['product_variant_id'])
+                ->sortBy(fn ($key) => [(int) $key['branch_id'], (int) $key['product_variant_id']]);
+            foreach ($pairs as $key) {
+                DB::statement('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [
+                    'stock-threshold:'.$key['branch_id'].':'.$key['product_variant_id'],
+                ]);
+            }
+
+            // M2: batch location→branch ownership check inside the lock path,
+            // so executeAdjustments cannot plant (branch A, location of branch
+            // B) rows through the prelocked path. The composite FK migration
+            // enforces the same invariant at the database level.
+            $locationIds = $keys->pluck('location_id')->filter(fn ($id) => $id !== null)->unique()->values();
+            if ($locationIds->isNotEmpty()) {
+                $branchByLocation = Location::query()->whereIn('id', $locationIds->all())->pluck('branch_id', 'id');
+                foreach ($keys as $key) {
+                    if (($key['location_id'] ?? null) === null) {
+                        continue;
+                    }
+                    $actual = $branchByLocation->get($key['location_id']);
+                    if ($actual === null || (int) $actual !== (int) $key['branch_id']) {
+                        throw new BusinessException('الموقع لا يتبع الفرع المحدد.');
+                    }
+                }
             }
 
             // الإدخال نفسه قد ينتظر قفلًا: ON CONFLICT ينتظر معاملة أخرى أدخلت

@@ -42,12 +42,25 @@ class StoreProductCardResource extends JsonResource
             ] : null),
             'price' => $display['price'] ?? null,
             'default_variant_id' => $display['variant_id'] ?? null,
+            'variant_count' => $this->variants->count(),
             'old_price' => $display !== null && $display['compare_at'] !== null && $display['compare_at'] > $display['price']
                 ? $display['compare_at'] : null,
             'discount_percentage' => $display['discount_percentage'] ?? null,
             'is_featured' => (bool) $this->is_featured,
-            'sales_count' => (int) $this->sales_count,
+            // F19: لا نكشف أرقام المبيعات الدقيقة للعامة — الواجهة لا
+            // تستخدمها (toCardVM يتجاهلها).
             'in_stock' => $available > 0,
+            'is_new' => $this->published_at !== null
+                && $this->published_at->gte(now()->subDays((int) config('storefront.new_days', 30))),
+            'badge_en' => $this->badge_en,
+            'badge_ar' => $this->badge_ar,
+            'colors' => $this->relationLoaded('variants')
+                ? $this->variants
+                    ->filter(fn ($v) => filled($v->color_name_en) || filled($v->color_hex))
+                    ->unique(fn ($v) => mb_strtolower((string) $v->color_name_en).'|'.$v->color_hex)
+                    ->map(fn ($v) => ['name_en' => $v->color_name_en, 'name_ar' => $v->color_name_ar, 'hex' => $v->color_hex])
+                    ->values()->all()
+                : [],
         ];
     }
 }

@@ -1,0 +1,3389 @@
+<!DOCTYPE html>
+<html lang="en" id="top">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sophie - Bag Collection &amp; Checkout</title>
+  <!-- Google Fonts: Oswald (Condensed) & Poppins -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@300;400;500;600;700&family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: 'Poppins', sans-serif;
+      color: #111111;
+      background-color: #ffffff;
+      -webkit-font-smoothing: antialiased;
+      opacity: 1;
+      transition: opacity 0.22s ease-in-out;
+      animation: pageFadeIn 0.35s ease-out;
+      overflow-x: hidden;
+    }
+
+    body.page-fade-out {
+      opacity: 0;
+    }
+
+    @keyframes pageFadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(3px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    a {
+      text-decoration: none;
+      color: inherit;
+    }
+
+    ul {
+      list-style: none;
+    }
+
+    .container {
+      max-width: 1140px;
+      margin: 0 auto;
+      padding: 0 20px;
+    }
+
+    /* ================= SHARED TOP HEADER BAR ================= */
+    .top-nav-shell {
+      background-color: #dfe5e9;
+      position: sticky;
+      top: 0;
+      z-index: 200;
+      transition: background-color 0.25s ease, box-shadow 0.25s ease;
+    }
+
+    body.checkout-mode .top-nav-shell {
+      background-color: #f3f5f7;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 22px 0;
+      position: relative;
+      z-index: 100;
+    }
+
+    /* Logo */
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: 'Poppins', sans-serif;
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      color: #000;
+      cursor: pointer;
+    }
+
+    .logo svg {
+      width: 24px;
+      height: 24px;
+    }
+
+    /* Navigation */
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 30px;
+      font-family: 'Oswald', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .nav-links > li {
+      position: static;
+    }
+
+    .nav-links > li > a {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      color: #111;
+      padding: 8px 0;
+      position: relative;
+      transition: color 0.2s ease;
+    }
+
+    .nav-links > li > a::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      bottom: 0;
+      width: 0;
+      height: 2.5px;
+      background-color: #159a8c;
+      border-radius: 2px;
+      transition: width 0.25s ease;
+    }
+
+    .nav-links > li > a.active,
+    .nav-links > li > a:hover,
+    .nav-links > li.mega-open > a {
+      color: #159a8c;
+    }
+
+    .nav-links > li > a.active::after,
+    .nav-links > li > a:hover::after,
+    .nav-links > li.mega-open > a::after {
+      width: 100%;
+    }
+
+    .nav-links > li > a.nav-offers {
+      color: #e4584b;
+    }
+
+    .nav-links > li > a.nav-offers:hover,
+    .nav-links > li.mega-open > a.nav-offers {
+      color: #c93b2e;
+    }
+
+    .nav-links > li > a.nav-offers::after {
+      background-color: #e4584b;
+    }
+
+    .nav-links > li > a i {
+      font-size: 9px;
+      margin-top: 1px;
+      transition: transform 0.25s ease;
+    }
+
+    .nav-links > li.mega-open > a i {
+      transform: rotate(180deg);
+    }
+
+    /* ================= HEADER RIGHT ICONS & PROFILE DROPDOWN ================= */
+    .header-icons {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      font-size: 15px;
+      color: #000;
+      position: relative;
+    }
+
+    .header-icons > a {
+      display: flex;
+      align-items: center;
+      position: relative;
+      transition: color 0.2s ease;
+    }
+
+    .header-icons > a:hover {
+      color: #159a8c;
+    }
+
+    /* Profile Trigger & Dropdown (Replacing Settings Icon - Screenshot 1) */
+    .profile-menu-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .profile-avatar-btn {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      padding: 2px;
+      background: #ffffff;
+      border: 2px solid #f59e0b;
+      box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .profile-avatar-btn:hover,
+    .profile-menu-wrap.is-open .profile-avatar-btn {
+      transform: scale(1.05);
+      box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.28);
+    }
+
+    .profile-avatar-inner {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #f97316 0%, #fb923c 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .profile-avatar-inner img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    /* Profile Dropdown Card (Screenshot 1 Exact Design) */
+    .profile-dropdown-card {
+      position: absolute;
+      top: calc(100% + 14px);
+      right: -8px;
+      width: 248px;
+      background-color: #ffffff;
+      border-radius: 22px;
+      border: 1px solid #eef0f3;
+      box-shadow: 0 22px 50px rgba(15, 23, 42, 0.13), 0 4px 14px rgba(15, 23, 42, 0.05);
+      padding: 18px 14px 16px;
+      z-index: 160;
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(8px) scale(0.98);
+      pointer-events: none;
+      transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+                  transform 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+                  visibility 0.22s;
+    }
+
+    .profile-menu-wrap.is-open .profile-dropdown-card {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(0) scale(1);
+      pointer-events: auto;
+    }
+
+    /* Diagonal 25% OFF Ribbon on Top-Right Corner */
+    .profile-ribbon-wrap {
+      position: absolute;
+      top: -4px;
+      right: -4px;
+      width: 84px;
+      height: 84px;
+      overflow: hidden;
+      pointer-events: auto;
+      z-index: 5;
+    }
+
+    .profile-ribbon {
+      position: absolute;
+      top: 16px;
+      right: -24px;
+      width: 112px;
+      padding: 4px 0;
+      background: linear-gradient(135deg, #ffe0c8 0%, #ffc099 100%);
+      color: #d96320;
+      font-family: 'Poppins', sans-serif;
+      font-size: 11px;
+      font-weight: 600;
+      text-align: center;
+      transform: rotate(42deg);
+      box-shadow: 0 3px 8px rgba(217, 99, 32, 0.18);
+      border: 1px solid rgba(245, 148, 92, 0.45);
+      cursor: pointer;
+      letter-spacing: 0.2px;
+      transition: filter 0.2s ease;
+    }
+
+    .profile-ribbon:hover {
+      filter: brightness(0.97);
+    }
+
+    .profile-menu-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .profile-menu-item {
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      width: 100%;
+      padding: 11px 14px;
+      border-radius: 12px;
+      border: none;
+      background: transparent;
+      font-family: 'Poppins', sans-serif;
+      font-size: 13.5px;
+      font-weight: 500;
+      color: #18181b;
+      text-align: left;
+      cursor: pointer;
+      transition: background-color 0.18s ease, color 0.18s ease, transform 0.15s ease;
+    }
+
+    .profile-menu-item i,
+    .profile-menu-item svg {
+      width: 18px;
+      font-size: 15px;
+      color: #52525b;
+      text-align: center;
+      flex-shrink: 0;
+      transition: color 0.18s ease;
+    }
+
+    .profile-menu-item:hover {
+      background-color: #f4f4f5;
+      color: #000000;
+    }
+
+    .profile-menu-item.highlighted {
+      background-color: #f3f4f6;
+      font-weight: 600;
+    }
+
+    .profile-menu-item.highlighted i {
+      color: #18181b;
+    }
+
+    .profile-menu-item. highlighted:hover {
+      background-color: #e5e7eb;
+    }
+
+    .profile-menu-divider {
+      height: 1px;
+      background-color: #e5e7eb;
+      margin: 8px 10px;
+    }
+
+    .profile-menu-item.sign-out {
+      color: #9ca3af;
+      font-weight: 500;
+    }
+
+    .profile-menu-item.sign-out i {
+      color: #9ca3af;
+    }
+
+    .profile-menu-item.sign-out:hover {
+      background-color: #fef2f2;
+      color: #ef4444;
+    }
+
+    .profile-menu-item.sign-out:hover i {
+      color: #ef4444;
+    }
+
+    .cart-icon-wrap {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+    }
+
+    .cart-badge {
+      background-color: #000;
+      color: #fff;
+      font-family: 'Poppins', sans-serif;
+      font-size: 10px;
+      font-weight: 600;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.25s ease, background-color 0.25s ease;
+    }
+
+    .cart-badge.bump {
+      transform: scale(1.3);
+      background-color: #159a8c;
+    }
+
+    /* ================= LONGACRES-INSPIRED MEGA DROPDOWN ================= */
+    .mega-dropdown-wrapper {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      z-index: 120;
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(10px);
+      pointer-events: none;
+      transition: opacity 0.26s cubic-bezier(0.16, 1, 0.3, 1),
+                  transform 0.26s cubic-bezier(0.16, 1, 0.3, 1),
+                  visibility 0.26s;
+    }
+
+    .mega-dropdown-wrapper.is-open {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+
+    .mega-dropdown-card {
+      background-color: #ffffff;
+      border-radius: 4px;
+      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.14), 0 4px 16px rgba(15, 23, 42, 0.05);
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      overflow: hidden;
+    }
+
+    .mega-dept-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 42px;
+      border-bottom: 1px solid #f1f5f9;
+      background-color: #ffffff;
+    }
+
+    .mega-dept-tabs {
+      display: flex;
+      align-items: center;
+      gap: 36px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .mega-dept-tabs::-webkit-scrollbar {
+      display: none;
+    }
+
+    .mega-dept-tab {
+      background: none;
+      border: none;
+      font-family: 'Poppins', sans-serif;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: #334155;
+      padding: 18px 0 15px;
+      cursor: pointer;
+      position: relative;
+      white-space: nowrap;
+      transition: color 0.2s ease;
+    }
+
+    .mega-dept-tab::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      bottom: 0;
+      width: 0;
+      height: 3px;
+      background-color: #159a8c;
+      border-radius: 3px 3px 0 0;
+      transition: width 0.25s ease;
+    }
+
+    .mega-dept-tab:hover,
+    .mega-dept-tab.active {
+      color: #0f172a;
+    }
+
+    .mega-dept-tab.active::after {
+      width: 100%;
+    }
+
+    .mega-dept-tab.offers-tab {
+      color: #e46054;
+    }
+
+    .mega-dept-tab.offers-tab.active,
+    .mega-dept-tab.offers-tab:hover {
+      color: #d64538;
+    }
+
+    .mega-dept-tab.offers-tab::after {
+      background-color: #e46054;
+    }
+
+    .mega-close-btn {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      color: #64748b;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      flex-shrink: 0;
+    }
+
+    .mega-close-btn:hover {
+      background: #f1f5f9;
+      color: #0f172a;
+      transform: scale(1.05);
+    }
+
+    .mega-body {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr) 275px;
+      gap: 32px;
+      padding: 34px 42px 38px;
+      background-color: #ffffff;
+      align-items: start;
+    }
+
+    .mega-col {
+      display: flex;
+      flex-direction: column;
+      gap: 26px;
+    }
+
+    .mega-group-title {
+      font-family: 'Poppins', sans-serif;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: #27303f;
+      margin-bottom: 8px;
+      letter-spacing: -0.1px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .mega-group-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .mega-link {
+      font-family: 'Poppins', sans-serif;
+      font-size: 13px;
+      font-weight: 400;
+      color: #64748b;
+      line-height: 1.5;
+      transition: color 0.18s ease, transform 0.18s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .mega-link:hover {
+      color: #159a8c;
+      transform: translateX(3px);
+    }
+
+    .mega-link-tag {
+      font-size: 9.5px;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 3px;
+      background-color: #e6f6f4;
+      color: #159a8c;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .mega-link-tag.hot {
+      background-color: #fef2f2;
+      color: #ef4444;
+    }
+
+    .mega-spotlight {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .mega-spotlight-img-wrap {
+      position: relative;
+      background-color: #f4f6f8;
+      border-radius: 4px;
+      height: 205px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      overflow: hidden;
+      margin-bottom: 14px;
+    }
+
+    .mega-spotlight-img-wrap img {
+      max-width: 165px;
+      max-height: 170px;
+      object-fit: contain;
+      mix-blend-mode: multiply;
+      transition: transform 0.35s ease;
+    }
+
+    .mega-spotlight:hover .mega-spotlight-img-wrap img {
+      transform: scale(1.06);
+    }
+
+    .mega-special-badge {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      background-color: #f0544f;
+      color: #ffffff;
+      font-family: 'Poppins', sans-serif;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      z-index: 2;
+      box-shadow: 0 2px 6px rgba(240, 84, 79, 0.28);
+    }
+
+    .mega-spotlight-title {
+      font-family: 'Poppins', sans-serif;
+      font-size: 14px;
+      font-weight: 400;
+      color: #475569;
+      margin-bottom: 4px;
+    }
+
+    .mega-spotlight-price {
+      font-family: 'Poppins', sans-serif;
+      font-size: 15.5px;
+      font-weight: 700;
+      color: #1e293b;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .mega-spotlight-price .old-price {
+      font-size: 13px;
+      font-weight: 400;
+      color: #94a3b8;
+      text-decoration: line-through;
+    }
+
+    .mega-add-cart-btn {
+      width: 100%;
+      background-color: #159a8c;
+      color: #ffffff;
+      border: none;
+      border-radius: 999px;
+      padding: 12px 20px;
+      font-family: 'Poppins', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      cursor: pointer;
+      transition: background-color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+      box-shadow: 0 6px 16px rgba(21, 154, 140, 0.22);
+    }
+
+    .mega-add-cart-btn:hover {
+      background-color: #118276;
+      transform: translateY(-1px);
+      box-shadow: 0 8px 20px rgba(21, 154, 140, 0.3);
+    }
+
+    .mega-footer {
+      background-color: #f8fafc;
+      border-top: 1px solid #f1f5f9;
+      padding: 12px 42px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #64748b;
+    }
+
+    .mega-footer-perks {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+
+    .mega-footer-perks span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .mega-footer-perks i {
+      color: #159a8c;
+    }
+
+    .mega-footer-cta {
+      font-weight: 600;
+      color: #159a8c;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: gap 0.2s ease;
+    }
+
+    .mega-footer-cta:hover {
+      gap: 8px;
+    }
+
+    /* ================= HERO SECTION ================= */
+    .hero-wrapper {
+      background-color: #dfe5e9;
+      position: relative;
+    }
+
+    .hero-section {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 450px;
+      padding: 15px 0 55px;
+      position: relative;
+    }
+
+    .hero-text {
+      max-width: 430px;
+      z-index: 2;
+    }
+
+    .hero-subtitle {
+      font-family: 'Oswald', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: #111;
+      margin-bottom: 10px;
+    }
+
+    .hero-title {
+      font-family: 'Oswald', sans-serif;
+      text-transform: uppercase;
+      line-height: 1.02;
+      margin-bottom: 18px;
+    }
+
+    .hero-title .light-text {
+      display: block;
+      font-size: 54px;
+      font-weight: 300;
+      letter-spacing: 1px;
+    }
+
+    .hero-title .bold-text {
+      display: block;
+      font-size: 58px;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+
+    .hero-desc {
+      font-size: 13.5px;
+      line-height: 1.6;
+      color: #333;
+      margin-bottom: 28px;
+    }
+
+    .btn-black {
+      display: inline-block;
+      background-color: #000000;
+      color: #ffffff;
+      font-family: 'Oswald', sans-serif;
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      padding: 12px 38px;
+      transition: background-color 0.2s ease;
+      border: none;
+      cursor: pointer;
+    }
+
+    .btn-black:hover {
+      background-color: #2c2c2c;
+    }
+
+    .hero-wrapper .container {
+      position: relative;
+      z-index: 2;
+    }
+
+    .hero-bg-backdrop {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: 1;
+    }
+
+    .hero-bg-backdrop-img {
+      position: absolute;
+      top: -8%;
+      right: 0;
+      width: 60%;
+      height: 116%;
+      filter: blur(14px) brightness(0.96) saturate(1.25);
+      opacity: 0.75;
+      transform: scale(1.08);
+      transition: transform 0.6s ease;
+    }
+
+    .hero-bg-backdrop-img img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+      display: block;
+    }
+
+    .hero-bg-backdrop-overlay {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(
+        90deg,
+        #dfe5e9 0%,
+        rgba(223, 229, 233, 0.95) 38%,
+        rgba(223, 229, 233, 0.6) 65%,
+        rgba(223, 229, 233, 0.2) 100%
+      );
+    }
+
+    .hero-image {
+      flex: 1;
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      padding-right: 40px;
+      position: relative;
+    }
+
+    .hero-foreground-img {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      filter: drop-shadow(0 20px 26px rgba(0, 0, 0, 0.2));
+      transition: transform 0.4s ease;
+    }
+
+    .hero-foreground-img img {
+      width: 390px;
+      height: 410px;
+      object-fit: contain;
+      display: block;
+      transition: transform 0.4s ease;
+    }
+
+    .hero-foreground-img:hover {
+      transform: translateY(-8px) scale(1.02);
+    }
+
+    .slider-dots {
+      position: absolute;
+      bottom: 22px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 6px;
+    }
+
+    .slider-dots span {
+      display: block;
+      width: 22px;
+      height: 2px;
+      background-color: #ffffff;
+      cursor: pointer;
+    }
+
+    .slider-dots span.active {
+      background-color: #111111;
+    }
+
+    /* ================= ACTIVE FILTER PILL ================= */
+    .active-filter-bar {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .active-filter-bar.visible {
+      display: flex;
+    }
+
+    .filter-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background-color: #e6f6f4;
+      color: #0f766e;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 5px 14px;
+      border-radius: 999px;
+    }
+
+    .filter-pill button {
+      background: none;
+      border: none;
+      color: #0f766e;
+      cursor: pointer;
+      font-size: 12px;
+      display: inline-flex;
+      align-items: center;
+    }
+
+    /* ================= SECTIONS COMMON ================= */
+    .products-section {
+      padding: 65px 0 40px;
+    }
+
+    .section-header {
+      text-align: center;
+      margin-bottom: 42px;
+    }
+
+    .section-title {
+      font-family: 'Oswald', sans-serif;
+      font-size: 28px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+      color: #111;
+    }
+
+    .section-subtitle {
+      font-size: 12px;
+      color: #555;
+      font-weight: 400;
+    }
+
+    /* ================= PRODUCT GRID ================= */
+    .product-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 28px;
+    }
+
+    .product-card {
+      text-align: center;
+      cursor: pointer;
+    }
+
+    .product-img-box {
+      background-color: #f3f4f6;
+      position: relative;
+      height: 260px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 25px;
+      margin-bottom: 14px;
+      overflow: hidden;
+    }
+
+    .product-img-box img {
+      max-width: 175px;
+      max-height: 200px;
+      object-fit: contain;
+      mix-blend-mode: multiply;
+      transition: transform 0.3s ease;
+    }
+
+    .product-card:hover .product-img-box img {
+      transform: scale(1.04);
+    }
+
+    .badge {
+      position: absolute;
+      top: 0;
+      left: 0;
+      background-color: #4f7d86;
+      color: #ffffff;
+      font-family: 'Oswald', sans-serif;
+      font-size: 10px;
+      font-weight: 500;
+      text-transform: uppercase;
+      padding: 4px 9px;
+      letter-spacing: 0.5px;
+    }
+
+    .product-name {
+      font-family: 'Oswald', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      color: #222;
+      margin-bottom: 5px;
+      letter-spacing: 0.2px;
+    }
+
+    .product-price {
+      font-family: 'Oswald', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      color: #111;
+    }
+
+    .product-price .old-price {
+      color: #b0b0b0;
+      text-decoration: line-through;
+      font-weight: 400;
+      margin-right: 4px;
+    }
+
+    .view-more-wrap {
+      text-align: center;
+      margin-top: 34px;
+    }
+
+    .btn-view-more {
+      display: inline-block;
+      background-color: #000;
+      color: #fff;
+      font-family: 'Oswald', sans-serif;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      padding: 10px 26px;
+    }
+
+    /* ================= PROMO BANNERS ================= */
+    .banners-section {
+      padding: 25px 0 10px;
+    }
+
+    .banners-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+    }
+
+    .promo-banner {
+      height: 235px;
+      display: flex;
+      align-items: center;
+      position: relative;
+      overflow: hidden;
+      padding: 20px 40px;
+    }
+
+    .promo-banner.left-banner {
+      background-color: #dfe6ec;
+    }
+
+    .promo-banner.right-banner {
+      background-color: #ede3de;
+    }
+
+    .banner-img {
+      flex: 0 0 48%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .banner-img img {
+      max-height: 225px;
+      width: auto;
+      object-fit: contain;
+      mix-blend-mode: multiply;
+    }
+
+    .banner-content {
+      flex: 1;
+      padding-left: 15px;
+    }
+
+    .banner-tag {
+      font-family: 'Oswald', sans-serif;
+      font-size: 13px;
+      font-weight: 400;
+      text-transform: uppercase;
+      color: #222;
+      letter-spacing: 0.5px;
+      margin-bottom: 2px;
+    }
+
+    .banner-heading {
+      font-family: 'Poppins', sans-serif;
+      font-size: 27px;
+      font-weight: 700;
+      color: #000;
+      line-height: 1.15;
+      margin-bottom: 10px;
+    }
+
+    .banner-link {
+      font-size: 12px;
+      font-weight: 400;
+      color: #222;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .banner-link i {
+      font-size: 9px;
+    }
+
+    /* ================= CHECKOUT PAGE VIEW (Screenshot 2 Style + Sophie Theme) ================= */
+    .page-view {
+      display: block;
+      animation: pageFadeIn 0.3s ease-out;
+    }
+
+    .page-view.hidden {
+      display: none;
+    }
+
+    .checkout-wrapper {
+      background-color: #f3f5f7;
+      padding: 42px 0 90px;
+      min-height: 75vh;
+    }
+
+    .checkout-top-bar {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      margin-bottom: 42px;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .checkout-giant-title {
+      font-family: 'Oswald', sans-serif;
+      font-size: 64px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: #111111;
+      line-height: 1;
+    }
+
+    .back-to-shop-btn {
+      background: none;
+      border: 1px solid #cbd5e1;
+      padding: 8px 18px;
+      border-radius: 999px;
+      font-family: 'Poppins', sans-serif;
+      font-size: 12px;
+      font-weight: 500;
+      color: #334155;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+    }
+
+    .back-to-shop-btn:hover {
+      background-color: #111111;
+      color: #ffffff;
+      border-color: #111111;
+    }
+
+    .checkout-grid {
+      display: grid;
+      grid-template-columns: 1.22fr 0.95fr;
+      gap: 76px;
+      align-items: start;
+    }
+
+    /* Checkout Left Column: Forms */
+    .checkout-block {
+      margin-bottom: 44px;
+    }
+
+    .checkout-block-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      margin-bottom: 24px;
+    }
+
+    .checkout-section-heading {
+      font-family: 'Poppins', sans-serif;
+      font-size: 20px;
+      font-weight: 500;
+      color: #111111;
+      letter-spacing: -0.3px;
+    }
+
+    .checkout-login-prompt {
+      font-size: 11.5px;
+      color: #94a3b8;
+    }
+
+    .checkout-login-prompt button {
+      background: none;
+      border: none;
+      color: #111111;
+      font-weight: 600;
+      text-decoration: underline;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: inherit;
+    }
+
+    .checkout-subheading {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #1e293b;
+      margin-bottom: 16px;
+    }
+
+    .checkout-fields-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      column-gap: 28px;
+      row-gap: 20px;
+      margin-bottom: 28px;
+    }
+
+    .line-input-wrap {
+      position: relative;
+    }
+
+    .line-input {
+      width: 100%;
+      background: transparent;
+      border: none;
+      border-bottom: 1px solid #cbd5e1;
+      padding: 10px 0;
+      font-family: 'Poppins', sans-serif;
+      font-size: 12.5px;
+      color: #111111;
+      outline: none;
+      transition: border-color 0.2s ease;
+    }
+
+    .line-input::placeholder {
+      color: #94a3b8;
+    }
+
+    .line-input:focus {
+      border-bottom-color: #159a8c;
+    }
+
+    .checkout-checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11.5px;
+      color: #64748b;
+      margin-top: 6px;
+      cursor: pointer;
+    }
+
+    .checkout-checkbox-row input[type="checkbox"] {
+      accent-color: #111111;
+      width: 14px;
+      height: 14px;
+      cursor: pointer;
+    }
+
+    .checkout-checkbox-row span a {
+      text-decoration: underline;
+      color: #475569;
+    }
+
+    /* Delivery & Payment Radio Rows */
+    .radio-list {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .radio-option-row {
+      border-bottom: 1px solid #cbd5e1;
+      padding: 14px 0;
+    }
+
+    .radio-option-label {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      cursor: pointer;
+      width: 100%;
+    }
+
+    .radio-left {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .radio-left input[type="radio"] {
+      accent-color: #111111;
+      margin-top: 3px;
+      cursor: pointer;
+    }
+
+    .radio-title {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #111111;
+      display: block;
+    }
+
+    .radio-desc {
+      font-size: 11px;
+      color: #94a3b8;
+      display: block;
+      margin-top: 2px;
+    }
+
+    .radio-price {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #111111;
+    }
+
+    .payment-brands {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 18px;
+    }
+
+    .cc-fields-panel {
+      padding: 18px 0 8px;
+    }
+
+    .cc-fields-panel.hidden {
+      display: none;
+    }
+
+    .btn-place-order {
+      width: 100%;
+      background-color: #1a1a1a;
+      color: #ffffff;
+      border: none;
+      padding: 16px 24px;
+      font-family: 'Oswald', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      cursor: pointer;
+      margin-top: 24px;
+      transition: background-color 0.2s ease, transform 0.15s ease;
+    }
+
+    .btn-place-order:hover {
+      background-color: #159a8c;
+      transform: translateY(-1px);
+    }
+
+    /* Checkout Right Column: Shopping Bag Summary */
+    .bag-summary-panel {
+      position: sticky;
+      top: 100px;
+    }
+
+    .bag-items-list {
+      display: flex;
+      flex-direction: column;
+      margin-top: 20px;
+    }
+
+    .bag-item-row {
+      display: grid;
+      grid-template-columns: 88px 1fr auto;
+      gap: 18px;
+      padding: 18px 0;
+      border-bottom: 1px solid #cbd5e1;
+      align-items: start;
+    }
+
+    .bag-item-row:first-child {
+      padding-top: 0;
+    }
+
+    .bag-item-thumb {
+      width: 88px;
+      height: 104px;
+      background-color: #e4e9ed;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px;
+      border-radius: 2px;
+    }
+
+    .bag-item-thumb img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      mix-blend-mode: multiply;
+    }
+
+    .bag-item-info {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .bag-item-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #111111;
+    }
+
+    .bag-item-meta {
+      display: grid;
+      grid-template-columns: 64px 1fr;
+      row-gap: 3px;
+      font-size: 11px;
+    }
+
+    .bag-item-meta .meta-label {
+      color: #94a3b8;
+    }
+
+    .bag-item-meta .meta-val {
+      color: #1e293b;
+      font-weight: 600;
+    }
+
+    .qty-stepper {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .qty-btn {
+      width: 18px;
+      height: 18px;
+      border-radius: 3px;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+      color: #111111;
+      font-size: 11px;
+      line-height: 1;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .qty-btn:hover {
+      background: #111111;
+      color: #ffffff;
+      border-color: #111111;
+    }
+
+    .bag-item-right {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      justify-content: space-between;
+      height: 100%;
+    }
+
+    .bag-item-price {
+      font-size: 13px;
+      font-weight: 600;
+      color: #111111;
+    }
+
+    .bag-remove-btn {
+      background: none;
+      border: none;
+      color: #94a3b8;
+      font-size: 11px;
+      cursor: pointer;
+      margin-top: 28px;
+      transition: color 0.18s ease;
+    }
+
+    .bag-remove-btn:hover {
+      color: #ef4444;
+    }
+
+    /* Promocode Row */
+    .promo-row {
+      display: grid;
+      grid-template-columns: 1fr 150px;
+      gap: 14px;
+      align-items: end;
+      margin: 22px 0 26px;
+    }
+
+    .btn-apply-promo {
+      background-color: #dfe5e9;
+      color: #334155;
+      border: none;
+      padding: 11px 16px;
+      font-family: 'Oswald', sans-serif;
+      font-size: 11.5px;
+      font-weight: 500;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+
+    .btn-apply-promo:hover {
+      background-color: #111111;
+      color: #ffffff;
+    }
+
+    /* Summary Totals */
+    .bag-totals-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid #cbd5e1;
+      font-size: 12px;
+      color: #334155;
+    }
+
+    .bag-totals-row strong {
+      color: #111111;
+      font-weight: 600;
+    }
+
+    .bag-grand-total {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      padding-top: 18px;
+      font-size: 18px;
+      font-weight: 600;
+      color: #111111;
+    }
+
+    .bag-grand-total .total-amount {
+      font-family: 'Poppins', sans-serif;
+      font-size: 22px;
+      font-weight: 700;
+    }
+
+    /* ================= ARCHITECTURAL DARK FOOTER (Screenshot 2 Style) ================= */
+    .luxury-footer {
+      background-color: #0d0d0d;
+      color: #ffffff;
+      padding: 64px 0 42px;
+    }
+
+    .footer-top-grid {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 40px;
+      align-items: start;
+      margin-bottom: 64px;
+    }
+
+    .footer-touch-title {
+      font-family: 'Oswald', sans-serif;
+      font-size: 22px;
+      font-weight: 500;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      line-height: 1.2;
+      margin-bottom: 12px;
+    }
+
+    .footer-touch-sub {
+      font-size: 11.5px;
+      color: #9ca3af;
+      line-height: 1.6;
+    }
+
+    .footer-statement {
+      font-family: 'Oswald', sans-serif;
+      font-size: 62px;
+      font-weight: 700;
+      line-height: 0.96;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      text-align: right;
+      color: #ffffff;
+    }
+
+    .footer-bottom-grid {
+      display: grid;
+      grid-template-columns: 1.3fr 1fr 1fr 1.4fr;
+      gap: 32px;
+      padding-top: 28px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      font-size: 11.5px;
+    }
+
+    .footer-col-title {
+      font-family: 'Oswald', sans-serif;
+      font-size: 12.5px;
+      font-weight: 600;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: #ffffff;
+      margin-bottom: 14px;
+    }
+
+    .footer-links {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      color: #9ca3af;
+    }
+
+    .footer-links a:hover {
+      color: #ffffff;
+    }
+
+    .footer-newsletter-box {
+      display: flex;
+      align-items: center;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+      padding-bottom: 6px;
+      margin-bottom: 18px;
+    }
+
+    .footer-newsletter-box input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: #ffffff;
+      font-family: 'Poppins', sans-serif;
+      font-size: 11.5px;
+      outline: none;
+    }
+
+    .footer-newsletter-box button {
+      background: none;
+      border: none;
+      color: #ffffff;
+      cursor: pointer;
+      font-size: 12px;
+      padding: 2px 6px;
+    }
+
+    .footer-pay-icons {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-size: 18px;
+      color: #9ca3af;
+    }
+
+    /* Color Filters to Match Exact Backpack Shades */
+    .tint-pink { filter: sepia(0.25) saturate(1.4) hue-rotate(315deg) brightness(1.03); }
+    .tint-black { filter: grayscale(1) brightness(0.35) contrast(1.4); }
+    .tint-beige { filter: sepia(0.35) saturate(0.85) brightness(1.02); }
+    .tint-blue { filter: sepia(0.2) saturate(1.2) hue-rotate(165deg) brightness(1.02); }
+    .tint-cream { filter: sepia(0.18) saturate(0.6) brightness(1.08); }
+
+    /* Toast Notification */
+    .toast-notice {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background-color: #0f172a;
+      color: #ffffff;
+      padding: 12px 20px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22);
+      z-index: 999;
+      opacity: 0;
+      transform: translateY(15px);
+      pointer-events: none;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+    }
+
+    .toast-notice.show {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+
+    .toast-notice i {
+      color: #159a8c;
+    }
+
+    .toast-checkout-btn {
+      background-color: #159a8c;
+      color: #ffffff;
+      border: none;
+      border-radius: 999px;
+      padding: 4px 12px;
+      font-family: 'Poppins', sans-serif;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    /* Order Confirmation Modal */
+    .order-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.55);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 500;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.25s ease, visibility 0.25s ease;
+      padding: 20px;
+    }
+
+    .order-modal-backdrop.open {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .order-modal-card {
+      background: #ffffff;
+      max-width: 440px;
+      width: 100%;
+      border-radius: 16px;
+      padding: 36px 32px;
+      text-align: center;
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.22);
+    }
+
+    .order-modal-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: #e6f6f4;
+      color: #159a8c;
+      font-size: 24px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 16px;
+    }
+
+    .order-modal-title {
+      font-family: 'Oswald', sans-serif;
+      font-size: 26px;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .order-modal-desc {
+      font-size: 13px;
+      color: #64748b;
+      line-height: 1.6;
+      margin-bottom: 24px;
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 992px) {
+      .mega-body {
+        grid-template-columns: repeat(2, 1fr);
+        padding: 24px;
+      }
+      .mega-dept-bar,
+      .mega-footer {
+        padding-left: 24px;
+        padding-right: 24px;
+      }
+      .product-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .banners-grid,
+      .checkout-grid,
+      .footer-top-grid {
+        grid-template-columns: 1fr;
+        gap: 40px;
+      }
+      .footer-statement {
+        text-align: left;
+        font-size: 42px;
+      }
+      .footer-bottom-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .hero-section {
+        flex-direction: column;
+        text-align: center;
+        padding: 30px 0 60px;
+      }
+      .hero-image {
+        padding-right: 0;
+        margin-top: 30px;
+        justify-content: center;
+      }
+      .hero-foreground-img img {
+        width: 320px;
+        height: auto;
+        max-height: 340px;
+      }
+      .hero-bg-backdrop-img {
+        width: 100%;
+        height: 100%;
+        top: 0;
+        opacity: 0.55;
+      }
+      .hero-bg-backdrop-overlay {
+        background: linear-gradient(
+          180deg,
+          #dfe5e9 0%,
+          rgba(223, 229, 233, 0.94) 45%,
+          rgba(223, 229, 233, 0.5) 100%
+        );
+      }
+    }
+
+    @media (max-width: 576px) {
+      .nav-links {
+        gap: 12px;
+        font-size: 11px;
+      }
+      .mega-body,
+      .product-grid,
+      .checkout-fields-grid,
+      .footer-bottom-grid {
+        grid-template-columns: 1fr;
+      }
+      .checkout-giant-title {
+        font-size: 44px;
+      }
+      .hero-foreground-img img {
+        width: 250px;
+        max-height: 280px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ================= SHARED STICKY HEADER (WITH MEGA MENU & PROFILE DROPDOWN) ================= -->
+  <div class="top-nav-shell">
+    <div class="container">
+      <header id="site-header">
+        <!-- Logo -->
+        <a href="#top" class="logo" id="logo-home-link">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="2,12 20,3 14,21 10,14 2,12" fill="#000" />
+            <line x1="20" y1="3" x2="10" y2="14" stroke="#fff" stroke-width="1.5" />
+          </svg>
+          Sophie
+        </a>
+
+        <!-- Navigation Links -->
+        <ul class="nav-links" id="main-nav">
+          <li><a href="#top" id="nav-home-link" class="active">HOME</a></li>
+          <li class="has-mega" data-dept="handbags">
+            <a href="#most-viewed" class="mega-trigger">SHOP <i class="fa-solid fa-chevron-down"></i></a>
+          </li>
+          <li class="has-mega" data-dept="backpacks">
+            <a href="#most-viewed" class="mega-trigger">CATEGORIES <i class="fa-solid fa-chevron-down"></i></a>
+          </li>
+          <li><a href="#promo-banners" id="nav-showcase-link">3D SHOWCASE</a></li>
+          <li class="has-mega" data-dept="offers">
+            <a href="#most-viewed" class="mega-trigger nav-offers">OFFERS <i class="fa-solid fa-chevron-down"></i></a>
+          </li>
+          <li><a href="#checkout-view" id="nav-checkout-link">CHECKOUT</a></li>
+        </ul>
+
+        <!-- Right Icons: Profile Dropdown (in place of Settings), Search, Cart -->
+        <div class="header-icons">
+          <!-- Profile Dropdown (Replaces Settings Icon - Matches Screenshot 1) -->
+          <div class="profile-menu-wrap is-open" id="profile-menu-wrap">
+            <button type="button" class="profile-avatar-btn" id="profile-trigger-btn" aria-label="User Profile Menu" title="Account &amp; Settings">
+              <span class="profile-avatar-inner">
+                <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80" alt="Sophie Member Avatar" />
+              </span>
+            </button>
+
+            <!-- Dropdown Card -->
+            <div class="profile-dropdown-card" id="profile-dropdown" role="menu" aria-label="Profile Menu">
+              <!-- Diagonal 25% off Ribbon -->
+              <div class="profile-ribbon-wrap">
+                <button type="button" class="profile-ribbon" id="profile-ribbon-btn" title="Click to apply 25% off promo code!">
+                  25% off
+                </button>
+              </div>
+
+              <div class="profile-menu-list">
+                <button type="button" class="profile-menu-item" data-profile-action="profile">
+                  <i class="fa-regular fa-user"></i>
+                  <span>Profile</span>
+                </button>
+
+                <button type="button" class="profile-menu-item highlighted" data-profile-action="subscription">
+                  <i class="fa-solid fa-crown"></i>
+                  <span>Subscription</span>
+                </button>
+
+                <button type="button" class="profile-menu-item" data-profile-action="community">
+                  <i class="fa-regular fa-images"></i>
+                  <span>Community</span>
+                </button>
+
+                <button type="button" class="profile-menu-item" data-profile-action="settings">
+                  <i class="fa-solid fa-sliders"></i>
+                  <span>Settings</span>
+                </button>
+
+                <div class="profile-menu-divider"></div>
+
+                <button type="button" class="profile-menu-item" data-profile-action="updates">
+                  <i class="fa-solid fa-cube"></i>
+                  <span>Updates</span>
+                </button>
+
+                <button type="button" class="profile-menu-item sign-out" data-profile-action="signout">
+                  <i class="fa-solid fa-arrow-right-from-bracket"></i>
+                  <span>Sign out</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Search Icon -->
+          <a href="#most-viewed" data-action="search" aria-label="Search"><i class="fa-solid fa-magnifying-glass"></i></a>
+
+          <!-- Cart Icon (Opens Checkout View) -->
+          <a href="#checkout-view" class="cart-icon-wrap" id="header-cart-btn" data-action="cart" aria-label="Cart">
+            <i class="fa-solid fa-cart-shopping"></i>
+            <span class="cart-badge" id="cart-badge">3</span>
+          </a>
+        </div>
+
+        <!-- ================= MEGA DROPDOWN MENU ================= -->
+        <div class="mega-dropdown-wrapper" id="mega-dropdown" role="region" aria-label="Bag Store Mega Menu">
+          <div class="mega-dropdown-card">
+            <div class="mega-dept-bar">
+              <div class="mega-dept-tabs" role="tablist">
+                <button type="button" class="mega-dept-tab active" data-dept-tab="handbags">Handbags &amp; Totes</button>
+                <button type="button" class="mega-dept-tab" data-dept-tab="backpacks">Backpacks</button>
+                <button type="button" class="mega-dept-tab" data-dept-tab="crossbody">Crossbody &amp; Clutches</button>
+                <button type="button" class="mega-dept-tab" data-dept-tab="travel">Travel &amp; Business</button>
+                <button type="button" class="mega-dept-tab" data-dept-tab="accessories">Leather &amp; Accessories</button>
+                <button type="button" class="mega-dept-tab offers-tab" data-dept-tab="offers">Offers</button>
+              </div>
+              <button type="button" class="mega-close-btn" id="mega-close-btn" aria-label="Close menu" title="Close menu">
+                <i class="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+
+            <div class="mega-body" id="mega-body-content">
+              <!-- Column 1 -->
+              <div class="mega-col" id="mega-col-1">
+                <div class="mega-group">
+                  <h4 class="mega-group-title">Tote &amp; Shopper Bags</h4>
+                  <ul class="mega-group-list">
+                    <li><a href="#most-viewed" class="mega-link" data-category="Saffiano Leather Totes">Saffiano Leather Totes</a></li>
+                    <li><a href="#most-viewed" class="mega-link" data-category="Canvas &amp; Work Shoppers">Canvas &amp; Work Shoppers</a></li>
+                  </ul>
+                </div>
+                <div class="mega-group">
+                  <h4 class="mega-group-title">Shoulder &amp; Hobo Bags</h4>
+                  <ul class="mega-group-list">
+                    <li><a href="#most-viewed" class="mega-link" data-category="Structured Shoulder Bags">Structured Shoulder Bags</a></li>
+                    <li><a href="#most-viewed" class="mega-link" data-category="Slouchy Hobo &amp; Bucket Bags">Slouchy Hobo &amp; Bucket Bags</a></li>
+                  </ul>
+                </div>
+                <div class="mega-group">
+                  <h4 class="mega-group-title">Mini &amp; Micro Bags</h4>
+                  <ul class="mega-group-list">
+                    <li><a href="#most-viewed" class="mega-link" data-category="All Mini Bags">All Mini Bags</a></li>
+                    <li><a href="#most-viewed" class="mega-link" data-category="Shop by Color Variations">Shop by Color Variations</a></li>
+                  </ul>
+                </div>
+                <div class="mega-group">
+                  <h4 class="mega-group-title">Evening Clutches</h4>
+                  <ul class="mega-group-list">
+                    <li><a href="#most-viewed" class="mega-link" data-category="Satin &amp; Metallic Clutches">Satin &amp; Metallic Clutches</a></li>
+                  </ul>
+                </div>
+              </div>
+
+              <!-- Column 2 -->
+              <div class="mega-col" id="mega-col-2">
+                <div class="mega-group">
+                  <h4 class="mega-group-title">Ladies Backpacks</h4>
+                  <ul class="mega-group-list">
+                    <li><a href="#most-viewed" class="mega-link" data-category="Vogue City &amp; Mini Backpacks">Vogue City &amp; Mini Backpacks <span class="mega-link-tag">New</span></a></li>
+                  </ul>
+                </div>
+                <div class="mega-group">
+                  <h4 class="mega-group-title">Crossbody Bags</h4>
+                  <ul class="mega-group-list">
+                    <li><a href="#most-viewed" class="mega-link" data-category="Quilted Chain Crossbody">Quilted Chain Crossbody</a></li>
+                  </ul>
+                </div>
+                <div class="mega-group">
+                  <h4 class="mega-group-title">Laptop &amp; Work Bags</h4>
+                  <ul class="mega-group-list">
+                    <li><a href="#most-viewed" class="mega-link" data-category="15-Inch Padded Laptop Bags">15" Padded Laptop Bags</a></li>
+                    <li><a href="#most-viewed" class="mega-link" data-category="Anti-Theft Commuter Packs">Anti-Theft Commuter Packs</a></li>
+                    <li><a href="#most-viewed" class="mega-link" data-category="Convertible Backpack Totes">Convertible Backpack Totes</a></li>
+                    <li><a href="#most-viewed" class="mega-link" data-category="Gift Sets &amp; Organizer Bundles">Gift Sets &amp; Organizer Bundles</a></li>
+                    <li><a href="#most-viewed" class="mega-link" data-category="Leather Care &amp; Protection">Leather Care &amp; Protection</a></li>
+                  </ul>
+                </div>
+              </div>
+
+              <!-- Column 3 -->
+              <div class="mega-col" id="mega-col-3">
+                <div class="mega-group">
+                  <h4 class="mega-group-title">Travel &amp; Weekenders</h4>
+                  <ul class="mega-group-list">
+                    <li><a href="#most-viewed" class="mega-link" data-category="Cabin Duffles &amp; Holdalls">Cabin Duffles &amp; Holdalls</a></li>
+                  </ul>
+                </div>
+                <div class="mega-group">
+                  <h4 class="mega-group-title">Signature Editions</h4>
+                  <ul class="mega-group-list">
+                    <li><a href="#most-viewed" class="mega-link" data-category="Special Offer Handbags">Special Offer Handbags <span class="mega-link-tag hot">Sale</span></a></li>
+                    <li><a href="#most-viewed" class="mega-link" data-category="Special Offer of the Month">Special Offer of the Month</a></li>
+                  </ul>
+                </div>
+                <div class="mega-group">
+                  <h4 class="mega-group-title">Wallets &amp; Purses</h4>
+                  <ul class="mega-group-list">
+                    <li><a href="#most-viewed" class="mega-link" data-category="Continental Leather Wallets">Continental Leather Wallets</a></li>
+                  </ul>
+                </div>
+                <div class="mega-group">
+                  <h4 class="mega-group-title">Bag Accessories</h4>
+                  <ul class="mega-group-list">
+                    <li><a href="#most-viewed" class="mega-link" data-category="Embroidered Guitar Straps">Embroidered Guitar Straps</a></li>
+                    <li><a href="#most-viewed" class="mega-link" data-category="Bag Charms &amp; Silk Twillies">Bag Charms &amp; Silk Twillies</a></li>
+                  </ul>
+                </div>
+              </div>
+
+              <!-- Column 4: Featured Special Offer Product -->
+              <div class="mega-spotlight" id="mega-spotlight-card">
+                <div class="mega-spotlight-img-wrap">
+                  <span class="mega-special-badge" id="spotlight-badge">SPECIAL OFFER</span>
+                  <img id="spotlight-img" src="https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=500&q=85" class="tint-pink" alt="Saffiano Leather Tote Bag" />
+                </div>
+                <h5 class="mega-spotlight-title" id="spotlight-title">Saffiano Leather Tote Bag</h5>
+                <div class="mega-spotlight-price">
+                  <span id="spotlight-price">£64.99</span>
+                  <span class="old-price" id="spotlight-old-price">£89.00</span>
+                </div>
+                <button type="button" class="mega-add-cart-btn" id="mega-add-cart-btn" data-product="Saffiano Leather Tote Bag" data-price="64.99">
+                  <i class="fa-solid fa-cart-shopping"></i> Add to cart
+                </button>
+              </div>
+            </div>
+
+            <div class="mega-footer">
+              <div class="mega-footer-perks">
+                <span><i class="fa-solid fa-truck-fast"></i> Free UK Delivery over £50</span>
+                <span><i class="fa-solid fa-shield-heart"></i> 2-Year Leather Warranty</span>
+                <span><i class="fa-solid fa-rotate-left"></i> 30-Day Easy Returns</span>
+              </div>
+              <a href="#checkout-view" class="mega-footer-cta" id="mega-goto-checkout">
+                Proceed to Checkout <i class="fa-solid fa-arrow-right"></i>
+              </a>
+            </div>
+          </div>
+        </div>
+      </header>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- VIEW 1: HOME PAGE VIEW                                                -->
+  <!-- ===================================================================== -->
+  <main id="home-view" class="page-view">
+    <div class="hero-wrapper">
+      <!-- Ambient Portrait Background covering the hero section -->
+      <div class="hero-bg-backdrop">
+        <div class="hero-bg-backdrop-img">
+          <img src="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=1200&q=85" class="tint-pink" alt="" aria-hidden="true" />
+        </div>
+        <div class="hero-bg-backdrop-overlay"></div>
+      </div>
+
+      <div class="container">
+        <!-- Hero Banner -->
+        <section class="hero-section">
+          <div class="hero-text">
+            <p class="hero-subtitle">BAG COLLECTION</p>
+            <h1 class="hero-title">
+              <span class="light-text">LADIES</span>
+              <span class="bold-text">BACKPACK</span>
+            </h1>
+            <p class="hero-desc">
+              The perfect blend of style and function. Designed for everyday adventures.
+            </p>
+            <a href="#most-viewed" class="btn-black">SHOP NOW</a>
+          </div>
+
+          <div class="hero-image">
+            <div class="hero-foreground-img">
+              <img src="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=700&q=85" class="tint-pink" alt="Ladies Backpack" />
+            </div>
+          </div>
+
+          <!-- Pagination Lines -->
+          <div class="slider-dots">
+            <span></span>
+            <span class="active"></span>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- ================= MOST VIEWED PRODUCTS ================= -->
+    <section class="products-section" id="most-viewed">
+      <div class="container">
+        <div class="section-header">
+          <h2 class="section-title" id="catalog-heading">MOST VIEWED PRODUCTS</h2>
+          <p class="section-subtitle">Handcrafted leather bags, backpacks, and travel companions for every occasion.</p>
+          <div class="active-filter-bar" id="active-filter-bar">
+            <span class="filter-pill">
+              Showing: <strong id="active-filter-name">All Bags</strong>
+              <button type="button" id="clear-filter-btn" aria-label="Clear filter"><i class="fa-solid fa-xmark"></i></button>
+            </span>
+          </div>
+        </div>
+
+        <div class="product-grid">
+          <!-- Product 1 -->
+          <div class="product-card" data-product="Vogue Elegance Women's Backpack" data-price="85.00" data-color="Blush Pink" data-img="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=500&q=80" data-tint="tint-pink">
+            <div class="product-img-box">
+              <span class="badge">NEW</span>
+              <img src="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=500&q=80" class="tint-pink" alt="Vogue Elegance Women's Backpack" />
+            </div>
+            <h3 class="product-name">Vogue Elegance Women's Backpack</h3>
+            <p class="product-price">£85.00</p>
+          </div>
+
+          <!-- Product 2 -->
+          <div class="product-card" data-product="Urban Chic Laptop Backpack" data-price="79.99" data-color="Onyx Black" data-img="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=500&q=80" data-tint="tint-black">
+            <div class="product-img-box">
+              <span class="badge">NEW</span>
+              <img src="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=500&q=80" class="tint-black" alt="Urban Chic Laptop Backpack" />
+            </div>
+            <h3 class="product-name">Urban Chic Laptop Backpack</h3>
+            <p class="product-price">£79.99</p>
+          </div>
+
+          <!-- Product 3 -->
+          <div class="product-card" data-product="Travel Lite Anti-Theft Backpack" data-price="80.00" data-color="Sand Beige" data-img="https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=500&q=80" data-tint="tint-beige">
+            <div class="product-img-box">
+              <span class="badge">-20%</span>
+              <img src="https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=500&q=80" class="tint-beige" alt="Travel Lite Anti-Theft Backpack" />
+            </div>
+            <h3 class="product-name">Travel Lite Anti-Theft Backpack</h3>
+            <p class="product-price"><span class="old-price">£100.00</span> £80.00</p>
+          </div>
+
+          <!-- Product 4 -->
+          <div class="product-card" data-product="Classic Fashion Backpack" data-price="100.00" data-color="Rose Quartz" data-img="https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=500&q=80" data-tint="tint-pink">
+            <div class="product-img-box">
+              <span class="badge">NEW</span>
+              <img src="https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=500&q=80" class="tint-pink" alt="Classic Fashion Backpack" />
+            </div>
+            <h3 class="product-name">Classic Fashion Backpack</h3>
+            <p class="product-price">£100.00</p>
+          </div>
+        </div>
+
+        <div class="view-more-wrap">
+          <a href="#new-arrivals" class="btn-view-more">VIEW MORE</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= PROMOTIONAL BANNERS ================= -->
+    <section class="banners-section" id="promo-banners">
+      <div class="container">
+        <div class="banners-grid">
+          <!-- Left Banner -->
+          <div class="promo-banner left-banner">
+            <div class="banner-img">
+              <img src="https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=500&q=80" alt="New Collection Backpack" />
+            </div>
+            <div class="banner-content">
+              <p class="banner-tag">NEW COLLECTION</p>
+              <h3 class="banner-heading">Backpack</h3>
+              <a href="#most-viewed" class="banner-link" data-category="Backpacks">View collection <i class="fa-solid fa-chevron-right"></i></a>
+            </div>
+          </div>
+
+          <!-- Right Banner -->
+          <div class="promo-banner right-banner">
+            <div class="banner-img">
+              <img src="https://images.unsplash.com/photo-1590874103328-eac38a683ce7?auto=format&fit=crop&w=500&q=80" alt="Bag Accessories" />
+            </div>
+            <div class="banner-content">
+              <p class="banner-tag">BAG ACCESSORIES</p>
+              <h3 class="banner-heading">Accessories</h3>
+              <a href="#most-viewed" class="banner-link" data-category="Bag Accessories">View collection <i class="fa-solid fa-chevron-right"></i></a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= NEW ARRIVALS ================= -->
+    <section class="products-section" id="new-arrivals" style="padding-bottom: 80px;">
+      <div class="container">
+        <div class="section-header">
+          <h2 class="section-title">NEW ARRIVALS</h2>
+          <p class="section-subtitle">Explore our latest seasonal arrivals crafted for daily commute and weekend escapes.</p>
+        </div>
+
+        <div class="product-grid">
+          <!-- Product 5 -->
+          <div class="product-card" data-product="Daily Commute Backpack" data-price="100.00" data-color="Slate Blue" data-img="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=500&q=80" data-tint="tint-blue">
+            <div class="product-img-box">
+              <span class="badge">NEW</span>
+              <img src="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=500&q=80" class="tint-blue" alt="Daily Commute Backpack" />
+            </div>
+            <h3 class="product-name">Daily Commute Backpack</h3>
+            <p class="product-price">£100.00</p>
+          </div>
+
+          <!-- Product 6 -->
+          <div class="product-card" data-product="Minimalist Daypack" data-price="90.00" data-color="Warm Cream" data-img="https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=500&q=80" data-tint="tint-cream">
+            <div class="product-img-box">
+              <span class="badge">NEW</span>
+              <img src="https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=500&q=80" class="tint-cream" alt="Minimalist Daypack" />
+            </div>
+            <h3 class="product-name">Minimalist Daypack</h3>
+            <p class="product-price">£90.00</p>
+          </div>
+
+          <!-- Product 7 -->
+          <div class="product-card" data-product="Student Laptop Backpack" data-price="110.00" data-color="Blush Pink" data-img="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=500&q=80" data-tint="tint-pink">
+            <div class="product-img-box">
+              <span class="badge">NEW</span>
+              <img src="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=500&q=80" class="tint-pink" alt="Student Laptop Backpack" />
+            </div>
+            <h3 class="product-name">Student Laptop Backpack</h3>
+            <p class="product-price">£110.00</p>
+          </div>
+
+          <!-- Product 8 -->
+          <div class="product-card" data-product="Outdoor Travel Backpack" data-price="120.00" data-color="Carbon Black" data-img="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=500&q=80" data-tint="tint-black">
+            <div class="product-img-box">
+              <span class="badge">NEW</span>
+              <img src="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=500&q=80" class="tint-black" alt="Outdoor Travel Backpack" />
+            </div>
+            <h3 class="product-name">Outdoor Travel Backpack</h3>
+            <p class="product-price">£120.00</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===================================================================== -->
+  <!-- VIEW 2: CHECKOUT PAGE VIEW (Matches Screenshot 2 + Sophie Aesthetic)  -->
+  <!-- ===================================================================== -->
+  <section id="checkout-view" class="page-view hidden" aria-label="Checkout">
+    <div class="checkout-wrapper">
+      <div class="container">
+        <div class="checkout-top-bar">
+          <h1 class="checkout-giant-title">CHECKOUT</h1>
+          <button type="button" class="back-to-shop-btn" id="back-to-shop-btn">
+            <i class="fa-solid fa-arrow-left"></i> Continue Shopping
+          </button>
+        </div>
+
+        <form id="checkout-form" class="checkout-grid" novalidate>
+          <!-- LEFT COLUMN: Information, Delivery, Payment -->
+          <div class="checkout-left-col">
+            <!-- Information Block -->
+            <div class="checkout-block">
+              <div class="checkout-block-header">
+                <h2 class="checkout-section-heading">Information</h2>
+                <p class="checkout-login-prompt">
+                  Already have an account? <button type="button" id="checkout-login-btn">Log in</button>
+                </p>
+              </div>
+
+              <h3 class="checkout-subheading">Personal Information</h3>
+              <div class="checkout-fields-grid">
+                <div class="line-input-wrap">
+                  <input type="text" class="line-input" id="chk-fname" placeholder="First name" value="Sophie" required />
+                </div>
+                <div class="line-input-wrap">
+                  <input type="text" class="line-input" id="chk-lname" placeholder="Last name" value="Laurent" required />
+                </div>
+                <div class="line-input-wrap">
+                  <input type="tel" class="line-input" id="chk-phone" placeholder="Phone number" value="+44 20 7946 0921" required />
+                </div>
+                <div class="line-input-wrap">
+                  <input type="email" class="line-input" id="chk-email" placeholder="Email" value="sophie@bagcollection.co.uk" required />
+                </div>
+              </div>
+
+              <h3 class="checkout-subheading">Shipping Information</h3>
+              <div class="checkout-fields-grid" style="margin-bottom: 14px;">
+                <div class="line-input-wrap">
+                  <input type="text" class="line-input" id="chk-country" placeholder="Country / Region" value="United Kingdom" required />
+                </div>
+                <div class="line-input-wrap">
+                  <input type="text" class="line-input" id="chk-city" placeholder="City" value="London" required />
+                </div>
+                <div class="line-input-wrap">
+                  <input type="text" class="line-input" id="chk-address" placeholder="Address" value="24 Bond Street, Mayfair" required />
+                </div>
+                <div class="line-input-wrap">
+                  <input type="text" class="line-input" id="chk-zip" placeholder="Zip / Postal code" value="W1S 1BS" required />
+                </div>
+              </div>
+
+              <label class="checkout-checkbox-row">
+                <input type="checkbox" checked />
+                <span>I agree to <a href="#checkout-view" data-policy="privacy">data processing</a></span>
+              </label>
+            </div>
+
+            <!-- Delivery Block -->
+            <div class="checkout-block">
+              <div class="checkout-block-header">
+                <h2 class="checkout-section-heading">Delivery</h2>
+              </div>
+
+              <div class="radio-list">
+                <div class="radio-option-row">
+                  <label class="radio-option-label">
+                    <span class="radio-left">
+                      <input type="radio" name="delivery_method" value="0" checked />
+                      <span>
+                        <span class="radio-title">Standard Delivery</span>
+                        <span class="radio-desc">Delivery within 3-7 days</span>
+                      </span>
+                    </span>
+                    <span class="radio-price">Free</span>
+                  </label>
+                </div>
+
+                <div class="radio-option-row">
+                  <label class="radio-option-label">
+                    <span class="radio-left">
+                      <input type="radio" name="delivery_method" value="15" />
+                      <span>
+                        <span class="radio-title">Express Shipping</span>
+                        <span class="radio-desc">Delivery within 1-3 days</span>
+                      </span>
+                    </span>
+                    <span class="radio-price">£15.00</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Payment Block -->
+            <div class="checkout-block" style="margin-bottom: 0;">
+              <div class="checkout-block-header">
+                <h2 class="checkout-section-heading">Payment</h2>
+              </div>
+
+              <div class="radio-list">
+                <!-- Credit Card Option -->
+                <div class="radio-option-row">
+                  <label class="radio-option-label">
+                    <span class="radio-left">
+                      <input type="radio" name="payment_method" value="card" checked />
+                      <span class="radio-title">Credit card</span>
+                    </span>
+                    <span class="payment-brands">
+                      <i class="fa-brands fa-cc-visa" style="color: #1a1f71;"></i>
+                      <i class="fa-brands fa-cc-mastercard" style="color: #eb001b;"></i>
+                    </span>
+                  </label>
+
+                  <div class="cc-fields-panel" id="cc-fields-panel">
+                    <div class="checkout-fields-grid" style="margin-bottom: 10px;">
+                      <div class="line-input-wrap">
+                        <input type="text" class="line-input" placeholder="Card number" value="4532 •••• •••• 8894" />
+                      </div>
+                      <div class="line-input-wrap">
+                        <input type="text" class="line-input" placeholder="Cardholder name" value="SOPHIE LAURENT" />
+                      </div>
+                      <div class="line-input-wrap">
+                        <input type="text" class="line-input" placeholder="Expiration date (MM/YY)" value="09/28" />
+                      </div>
+                      <div class="line-input-wrap">
+                        <input type="password" class="line-input" placeholder="CVV" value="842" maxlength="4" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- PayPal Option -->
+                <div class="radio-option-row">
+                  <label class="radio-option-label">
+                    <span class="radio-left">
+                      <input type="radio" name="payment_method" value="paypal" />
+                      <span class="radio-title">PayPal</span>
+                    </span>
+                    <span class="payment-brands">
+                      <i class="fa-brands fa-cc-paypal" style="color: #003087;"></i>
+                    </span>
+                  </label>
+                </div>
+
+                <!-- Apple Pay Option -->
+                <div class="radio-option-row">
+                  <label class="radio-option-label">
+                    <span class="radio-left">
+                      <input type="radio" name="payment_method" value="applepay" />
+                      <span class="radio-title">Apple Pay</span>
+                    </span>
+                    <span class="payment-brands">
+                      <i class="fa-brands fa-apple-pay" style="color: #111111; font-size: 22px;"></i>
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              <label class="checkout-checkbox-row" style="margin-top: 16px;">
+                <input type="checkbox" checked />
+                <span>I agree to <a href="#checkout-view" data-policy="terms">data processing</a></span>
+              </label>
+
+              <button type="submit" class="btn-place-order" id="pay-place-order-btn">
+                PAY AND PLACE ORDER
+              </button>
+            </div>
+          </div>
+
+          <!-- RIGHT COLUMN: Shopping Bag Summary -->
+          <div class="bag-summary-panel">
+            <h2 class="checkout-section-heading" id="shopping-bag-heading">Shopping Bag (3)</h2>
+
+            <div class="bag-items-list" id="bag-items-container">
+              <!-- Populated dynamically via JS -->
+            </div>
+
+            <!-- Promocode Input -->
+            <div class="promo-row">
+              <div class="line-input-wrap">
+                <input type="text" class="line-input" id="promo-code-input" placeholder="Promocode (Try SOPHIE25)" />
+              </div>
+              <button type="button" class="btn-apply-promo" id="apply-promo-btn">APPLY</button>
+            </div>
+
+            <!-- Summary Totals -->
+            <div class="bag-totals-row">
+              <span>Shipping</span>
+              <strong id="summary-shipping">Free</strong>
+            </div>
+
+            <div class="bag-totals-row">
+              <span>Discount</span>
+              <strong id="summary-discount">£0.00</strong>
+            </div>
+
+            <div class="bag-grand-total">
+              <span>Total:</span>
+              <span class="total-amount" id="summary-total">£229.99</span>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= UNIFIED ARCHITECTURAL FOOTER ================= -->
+  <footer class="luxury-footer">
+    <div class="container">
+      <div class="footer-top-grid">
+        <div>
+          <h3 class="footer-touch-title">GET IN TOUCH<br />WITH SOPHIE</h3>
+          <p class="footer-touch-sub">
+            Contact us and our leather specialists will be happy to answer all your questions.
+          </p>
+        </div>
+        <div class="footer-statement">
+          CREATE YOUR<br />OWN UNIQUE<br />LOOK
+        </div>
+      </div>
+
+      <div class="footer-bottom-grid">
+        <div>
+          <h4 class="footer-col-title">SOPHIE</h4>
+          <div class="footer-links">
+            <a href="#top" data-footer-nav="home">Terms &amp; Conditions</a>
+            <a href="#top" data-footer-nav="home">Privacy Policy</a>
+            <p style="margin-top: 14px; font-size: 10.5px; color: #6b7280;">© 2026 Sophie Bag Collection. All rights reserved.</p>
+          </div>
+        </div>
+
+        <div>
+          <h4 class="footer-col-title">NAVIGATION</h4>
+          <div class="footer-links">
+            <a href="#top" data-footer-nav="home">HOME</a>
+            <a href="#most-viewed" data-footer-nav="shop">HANDCRAFTED BAGS</a>
+            <a href="#most-viewed" data-footer-nav="shop">BACKPACKS</a>
+            <a href="#checkout-view" data-footer-nav="checkout">CHECKOUT</a>
+          </div>
+        </div>
+
+        <div>
+          <h4 class="footer-col-title">INFO</h4>
+          <div class="footer-links">
+            <a href="#top" data-profile-action="profile">ACCOUNT</a>
+            <a href="#top" data-profile-action="updates">HELP CENTER</a>
+            <a href="#checkout-view" data-footer-nav="checkout">SHIPPING &amp; PAYMENTS</a>
+            <a href="#top" data-profile-action="community">CONTACTS</a>
+          </div>
+        </div>
+
+        <div>
+          <h4 class="footer-col-title">NEWSLETTER</h4>
+          <div class="footer-newsletter-box">
+            <input type="email" id="newsletter-email" placeholder="EMAIL" aria-label="Newsletter Email" />
+            <button type="button" id="newsletter-submit-btn" aria-label="Subscribe"><i class="fa-solid fa-arrow-right"></i></button>
+          </div>
+          <div class="footer-pay-icons">
+            <i class="fa-brands fa-apple-pay"></i>
+            <i class="fa-brands fa-google-pay"></i>
+            <i class="fa-brands fa-cc-visa"></i>
+            <i class="fa-brands fa-cc-mastercard"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!--Order Confirmation Modal -->
+  <div class="order-modal-backdrop" id="order-modal">
+    <div class="order-modal-card">
+      <div class="order-modal-icon">
+        <i class="fa-solid fa-check"></i>
+      </div>
+      <h3 class="order-modal-title">ORDER CONFIRMED!</h3>
+      <p class="order-modal-desc" id="order-modal-desc">
+        Thank you, Sophie! Your handcrafted bag order <strong>#SPH-84920</strong> has been placed and will be dispatched shortly.
+      </p>
+      <button type="button" class="btn-black" id="modal-continue-btn" style="width: 100%;">
+        BACK TO STORE
+      </button>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast-notice" id="toast-notice" role="status" aria-live="polite">
+    <i class="fa-solid fa-circle-check"></i>
+    <span id="toast-text">Added to your bag!</span>
+    <button type="button" class="toast-checkout-btn" id="toast-checkout-btn">Checkout</button>
+  </div>
+
+  <script>
+    // Department Data for the Mega Dropdown
+    const MEGA_DEPARTMENTS = {
+      handbags: {
+        col1: [
+          { title: 'Tote & Shopper Bags', links: ['Saffiano Leather Totes', 'Canvas & Work Shoppers'] },
+          { title: 'Shoulder & Hobo Bags', links: ['Structured Shoulder Bags', 'Slouchy Hobo & Bucket Bags'] },
+          { title: 'Mini & Micro Bags', links: ['All Mini Bags', 'Shop by Color Variations'] },
+          { title: 'Evening Clutches', links: ['Satin & Metallic Clutches'] }
+        ],
+        col2: [
+          { title: 'Ladies Backpacks', links: [{ label: 'Vogue City & Mini Backpacks', tag: 'New' }] },
+          { title: 'Crossbody Bags', links: ['Quilted Chain Crossbody'] },
+          {
+            title: 'Laptop & Work Bags',
+            links: [
+              '15" Padded Laptop Bags',
+              'Anti-Theft Commuter Packs',
+              'Convertible Backpack Totes',
+              'Gift Sets & Organizer Bundles',
+              'Leather Care & Protection'
+            ]
+          }
+        ],
+        col3: [
+          { title: 'Travel & Weekenders', links: ['Cabin Duffles & Holdalls'] },
+          {
+            title: 'Signature Editions',
+            links: [
+              { label: 'Special Offer Handbags', tag: 'Sale', hot: true },
+              'Special Offer of the Month'
+            ]
+          },
+          { title: 'Wallets & Purses', links: ['Continental Leather Wallets'] },
+          { title: 'Bag Accessories', links: ['Embroidered Guitar Straps', 'Bag Charms & Silk Twillies'] }
+        ],
+        spotlight: {
+          badge: 'SPECIAL OFFER',
+          title: 'Saffiano Leather Tote Bag',
+          price: '£64.99',
+          numericPrice: 64.99,
+          oldPrice: '£89.00',
+          img: 'https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=500&q=85',
+          tint: 'tint-pink'
+        }
+      },
+      backpacks: {
+        col1: [
+          { title: 'Everyday Backpacks', links: ['Vogue Elegance Women\'s Pack', 'Minimalist Leather Daypacks'] },
+          { title: 'Laptop Backpacks', links: ['15.6" USB Charging Backpacks', 'Slim Executive Commuter Packs'] },
+          { title: 'Mini Backpacks', links: ['All Convertible Mini Packs', 'Pastel & Monogram Editions'] },
+          { title: 'Campus & Study', links: ['Water-Resistant Student Packs'] }
+        ],
+        col2: [
+          { title: 'Anti-Theft Series', links: [{ label: 'RFID Hidden-Zip Backpacks', tag: 'New' }] },
+          { title: 'Outdoor & Adventure', links: ['Lightweight Hiking Daypacks'] },
+          {
+            title: 'Travel Backpacks',
+            links: [
+              'Cabin-Approved 40L Packs',
+              'Expandable Weekender Packs',
+              'Luggage-Sleeve Backpacks',
+              'Packing Cubes & Rain Covers',
+              'Strap & Zipper Care Kits'
+            ]
+          }
+        ],
+        col3: [
+          { title: 'Eco & Vegan Leather', links: ['Recycled Canvas Backpacks'] },
+          {
+            title: 'Featured Backpack Deals',
+            links: [
+              { label: 'Special Offer Backpacks', tag: '-25%', hot: true },
+              'Backpack of the Month'
+            ]
+          },
+          { title: 'Matching Pouches', links: ['Tech Cable & Cosmetic Cases'] },
+          { title: 'Custom Add-Ons', links: ['Monogram Leather Tags', 'Keyring Pom-Poms & Charms'] }
+        ],
+        spotlight: {
+          badge: 'SPECIAL OFFER',
+          title: 'Vogue Elegance Backpack',
+          price: '£68.00',
+          numericPrice: 68.00,
+          oldPrice: '£85.00',
+          img: 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=500&q=85',
+          tint: 'tint-pink'
+        }
+      },
+      crossbody: {
+        col1: [
+          { title: 'Chain Crossbody', links: ['Quilted Gold-Chain Bags', 'Chevron Evening Crossbody'] },
+          { title: 'Camera & Saddle Bags', links: ['Double-Zip Camera Bags', 'Vintage Equestrian Saddle Bags'] },
+          { title: 'Phone & Micro Pouches', links: ['All Crossbody Phone Bags', 'Card-Slot Sling Pouches'] },
+          { title: 'Belt & Sling Bags', links: ['Convertible Waist & Chest Bags'] }
+        ],
+        col2: [
+          { title: 'Bridal & Occasion', links: [{ label: 'Pearl & Crystal Box Clutches', tag: 'New' }] },
+          { title: 'Wristlets', links: ['Pebbled Leather Wristlet Pouches'] },
+          {
+            title: 'Everyday Messengers',
+            links: [
+              'Wide-Strap Canvas Crossbody',
+              'Multi-Pocket Travel Crossbody',
+              'Foldover Magnetic Clutches',
+              'Matching Strap & Bag Sets',
+              'Suede & Nubuck Protectors'
+            ]
+          }
+        ],
+        col3: [
+          { title: 'Designer Collaborations', links: ['Limited Edition Pastel Slings'] },
+          {
+            title: 'Seasonal Picks',
+            links: [
+              { label: 'Special Offer Crossbody', tag: 'Sale', hot: true },
+              'Clutch of the Month'
+            ]
+          },
+          { title: 'Cardholders', links: ['Slim RFID Leather Cardholders'] },
+          { title: 'Replacement Straps', links: ['Gold & Silver Chain Straps', 'Woven Jacquard Crossbody Straps'] }
+        ],
+        spotlight: {
+          badge: 'SPECIAL OFFER',
+          title: 'Milano Quilted Crossbody',
+          price: '£54.99',
+          numericPrice: 54.99,
+          oldPrice: '£75.00',
+          img: 'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=500&q=85',
+          tint: 'tint-beige'
+        }
+      },
+      travel: {
+        col1: [
+          { title: 'Weekender Bags', links: ['Full-Grain Leather Holdalls', 'Canvas Overnight Duffles'] },
+          { title: 'Cabin Luggage', links: ['Under-Seat Flight Totes', 'Wheeled Carry-On Weekenders'] },
+          { title: 'Business Briefcases', links: ['All Executive Briefcases', 'Slim Document Portfolios'] },
+          { title: 'Garment Carriers', links: ['Foldable Suit & Dress Bags'] }
+        ],
+        col2: [
+          { title: 'Commuter Totes', links: [{ label: 'Trolley-Sleeve Work Totes', tag: 'New' }] },
+          { title: 'Wash & Vanity Bags', links: ['Waterproof Hanging Organizers'] },
+          {
+            title: 'Travel Organization',
+            links: [
+              'Compression Packing Cubes',
+              'RFID Passport & Ticket Wallets',
+              'Jewelry Roll & Watch Cases',
+              '3-Piece Weekender Gift Sets',
+              'Luggage Care & Leather Balm'
+            ]
+          }
+        ],
+        col3: [
+          { title: 'Gym & Athleisure', links: ['Shoe-Compartment Gym Totes'] },
+          {
+            title: 'Bundle Offers',
+            links: [
+              { label: 'Weekender + Washbag Duo', tag: 'Save £30', hot: true },
+              'Travel Set of the Month'
+            ]
+          },
+          { title: 'Luggage Tags', links: ['Monogrammed Leather Tags'] },
+          { title: 'Travel Locks & Straps', links: ['TSA Combination Locks', 'Adjustable Cross-Luggage Straps'] }
+        ],
+        spotlight: {
+          badge: 'SPECIAL OFFER',
+          title: 'Heritage Cabin Weekender',
+          price: '£94.99',
+          numericPrice: 94.99,
+          oldPrice: '£130.00',
+          img: 'https://images.unsplash.com/photo-1590874103328-eac38a683ce7?auto=format&fit=crop&w=500&q=85',
+          tint: ''
+        }
+      },
+      accessories: {
+        col1: [
+          { title: 'Wallets & Purses', links: ['Zip-Around Continental Wallets', 'Compact Bi-Fold Purses'] },
+          { title: 'Card & Coin Cases', links: ['RFID Pop-Up Cardholders', 'Kiss-Lock Leather Coin Purses'] },
+          { title: 'Bag Straps', links: ['All Detachable Guitar Straps', 'Braided Leather Handles'] },
+          { title: 'Key Holders', links: ['6-Ring Leather Key Cases'] }
+        ],
+        col2: [
+          { title: 'Bag Charms & Scarves', links: [{ label: 'Silk Handle Twilly Scarves', tag: 'New' }] },
+          { title: 'Inner Bag Organizers', links: ['Felt Tote Insert Organizers'] },
+          {
+            title: 'Leather Care Range',
+            links: [
+              'Organic Beeswax Leather Cream',
+              'Water & Stain Repellent Spray',
+              'Suede Eraser & Brush Kits',
+              'Complete Care Gift Box',
+              'Dust Bags & Pillow Shapers'
+            ]
+          }
+        ],
+        col3: [
+          { title: 'Tech Accessories', links: ['Leather AirPods & Laptop Sleeves'] },
+          {
+            title: 'Gift Ideas',
+            links: [
+              { label: 'Luxury Gift Sets Under £50', tag: 'Gift', hot: true },
+              'Personalized Monogram Gifts'
+            ]
+          },
+          { title: 'Cosmetic Pouches', links: ['Quilted Makeup & Brush Bags'] },
+          { title: 'Hardware & Chains', links: ['Gold Bag Extender Chains', 'Replacement Clasp Rings'] }
+        ],
+        spotlight: {
+          badge: 'SPECIAL OFFER',
+          title: 'Artisan Leather Care & Strap Set',
+          price: '£29.99',
+          numericPrice: 29.99,
+          oldPrice: '£45.00',
+          img: 'https://images.unsplash.com/photo-1590874103328-eac38a683ce7?auto=format&fit=crop&w=500&q=85',
+          tint: 'tint-beige'
+        }
+      },
+      offers: {
+        col1: [
+          { title: 'Clearance Handbags', links: ['Up to 40% Off Leather Totes', 'Last-Chance Shoulder Bags'] },
+          { title: 'Backpack Deals', links: ['Student & Commuter Bundles', '20% Off Anti-Theft Packs'] },
+          { title: 'Outlet Price Drops', links: ['All Bags Under £50', 'All Bags Under £75'] },
+          { title: 'Flash Sale Clutches', links: ['Evening & Bridal Markdowns'] }
+        ],
+        col2: [
+          { title: 'Bundle & Save', links: [{ label: 'Tote + Matching Purse Set', tag: 'Save 30%', hot: true }] },
+          { title: 'Seasonal Promotions', links: ['Mid-Season Pastel Collection'] },
+          {
+            title: 'Multi-Buy Offers',
+            links: [
+              '2 Crossbody Bags for £99',
+              '3 Bag Straps for the Price of 2',
+              'Free Leather Cream with Totes',
+              'Student 15% Extra Discount',
+              'Gift Wrapping Included Deals'
+            ]
+          }
+        ],
+        col3: [
+          { title: 'Limited Stock', links: ['Archive Sample Sale Bags'] },
+          {
+            title: 'Star Deals',
+            links: [
+              { label: 'Bag of the Month (-35%)', tag: 'Hot', hot: true },
+              'Weekend Flash Specials'
+            ]
+          },
+          { title: 'Discounted Wallets', links: ['Half-Price Leather Purses'] },
+          { title: 'Accessory Add-Ons', links: ['Charms & Scarves from £9.99', 'Clearance Travel Pouches'] }
+        ],
+        spotlight: {
+          badge: 'SPECIAL OFFER',
+          title: 'Travel Lite Anti-Theft Backpack',
+          price: '£59.99',
+          numericPrice: 59.99,
+          oldPrice: '£100.00',
+          img: 'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=500&q=85',
+          tint: 'tint-beige'
+        }
+      }
+    };
+
+    // Shopping Bag State (Pre-populated with 3 Sophie Bags matching Screenshot 2)
+    let bagItems = [
+      {
+        id: 'bag-1',
+        name: "Vogue Elegance Women's Backpack",
+        size: 'M',
+        color: 'Blush Pink',
+        price: 85.00,
+        qty: 1,
+        img: 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=500&q=80',
+        tint: 'tint-pink'
+      },
+      {
+        id: 'bag-2',
+        name: 'Saffiano Leather Tote Bag',
+        size: 'L',
+        color: 'Rose Quartz',
+        price: 64.99,
+        qty: 1,
+        img: 'https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=500&q=85',
+        tint: 'tint-pink'
+      },
+      {
+        id: 'bag-3',
+        name: 'Travel Lite Anti-Theft Backpack',
+        size: 'M',
+        color: 'Sand Beige',
+        price: 80.00,
+        qty: 1,
+        img: 'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=500&q=80',
+        tint: 'tint-beige'
+      }
+    ];
+
+    let discountRate = 0; // 0.25 when SOPHIE25 is applied
+    let shippingCost = 0;
+
+    // Elements
+    const homeView = document.getElementById('home-view');
+    const checkoutView = document.getElementById('checkout-view');
+    const navHomeLink = document.getElementById('nav-home-link');
+    const navCheckoutLink = document.getElementById('nav-checkout-link');
+    const megaDropdown = document.getElementById('mega-dropdown');
+    const megaTriggerItems = document.querySelectorAll('.nav-links > li.has-mega');
+    const deptTabs = document.querySelectorAll('.mega-dept-tab');
+    const profileMenuWrap = document.getElementById('profile-menu-wrap');
+    const profileTriggerBtn = document.getElementById('profile-trigger-btn');
+    const cartBadge = document.getElementById('cart-badge');
+    const toastNotice = document.getElementById('toast-notice');
+    const toastText = document.getElementById('toast-text');
+    const activeFilterBar = document.getElementById('active-filter-bar');
+    const activeFilterName = document.getElementById('active-filter-name');
+    const catalogHeading = document.getElementById('catalog-heading');
+
+    let toastTimer = null;
+    let closeTimeout = null;
+
+    function showToast(message) {
+      toastText.textContent = message;
+      toastNotice.classList.add('show');
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        toastNotice.classList.remove('show');
+      }, 3200);
+    }
+
+    // View Switching (Home <-> Checkout)
+    function switchPageView(targetView) {
+      closeMegaMenu();
+      profileMenuWrap.classList.remove('is-open');
+      if (targetView === 'checkout') {
+        homeView.classList.add('hidden');
+        checkoutView.classList.remove('hidden');
+        document.body.classList.add('checkout-mode');
+        navHomeLink.classList.remove('active');
+        navCheckoutLink.classList.add('active');
+        renderCheckoutBag();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        checkoutView.classList.add('hidden');
+        homeView.classList.remove('hidden');
+        document.body.classList.remove('checkout-mode');
+        navCheckoutLink.classList.remove('active');
+        navHomeLink.classList.add('active');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+
+    // Render Shopping Bag in Checkout & Update Badge
+    function renderCheckoutBag() {
+      const totalItems = bagItems.reduce((sum, item) => sum + item.qty, 0);
+      cartBadge.textContent = String(totalItems);
+      document.getElementById('shopping-bag-heading').textContent = `Shopping Bag (${totalItems})`;
+
+      const container = document.getElementById('bag-items-container');
+      if (bagItems.length === 0) {
+        container.innerHTML = `<p style="padding: 24px 0; color: #64748b; font-size: 13px;">Your shopping bag is currently empty. Add bags from the collection!</p>`;
+      } else {
+        container.innerHTML = bagItems.map(item => `
+          <div class="bag-item-row" data-bag-id="${item.id}">
+            <div class="bag-item-thumb">
+              <img src="${item.img}" class="${item.tint || ''}" alt="${item.name}" />
+            </div>
+            <div class="bag-item-info">
+              <h4 class="bag-item-title">${item.name}</h4>
+              <div class="bag-item-meta">
+                <span class="meta-label">Size:</span>
+                <span class="meta-val">${item.size}</span>
+                <span class="meta-label">Color:</span>
+                <span class="meta-val">${item.color}</span>
+                <span class="meta-label">Quantity:</span>
+                <span class="meta-val qty-stepper">
+                  <button type="button" class="qty-btn" data-qty-action="dec" data-id="${item.id}" aria-label="Decrease quantity">-</button>
+                  <span>${item.qty}</span>
+                  <button type="button" class="qty-btn" data-qty-action="inc" data-id="${item.id}" aria-label="Increase quantity">+</button>
+                </span>
+              </div>
+            </div>
+            <div class="bag-item-right">
+              <span class="bag-item-price">£${(item.price * item.qty).toFixed(2)}</span>
+              <button type="button" class="bag-remove-btn" data-remove-id="${item.id}" title="Remove item">
+                <i class="fa-regular fa-trash-can"></i> Remove
+              </button>
+            </div>
+          </div>
+        `).join('');
+      }
+
+      const subtotal = bagItems.reduce((sum, item) => sum + item.price * item.qty, 0);
+      const discountAmount = subtotal * discountRate;
+      const finalTotal = Math.max(0, subtotal - discountAmount + (bagItems.length > 0 ? shippingCost : 0));
+
+      document.getElementById('summary-shipping').textContent = shippingCost === 0 ? 'Free' : `£${shippingCost.toFixed(2)}`;
+      document.getElementById('summary-discount').textContent = discountAmount > 0 ? `-£${discountAmount.toFixed(2)} (25%)` : '£0.00';
+      document.getElementById('summary-total').textContent = `£${finalTotal.toFixed(2)}`;
+    }
+
+    function addBagItemToCart(name, price, color, img, tint) {
+      const existing = bagItems.find(item => item.name === name);
+      if (existing) {
+        existing.qty += 1;
+      } else {
+        bagItems.push({
+          id: 'bag-' + Date.now(),
+          name: name,
+          size: 'M',
+          color: color || 'Signature Blush',
+          price: parseFloat(price) || 85.00,
+          qty: 1,
+          img: img || 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=500&q=80',
+          tint: tint || 'tint-pink'
+        });
+      }
+      renderCheckoutBag();
+      cartBadge.classList.remove('bump');
+      void cartBadge.offsetWidth;
+      cartBadge.classList.add('bump');
+      setTimeout(() => cartBadge.classList.remove('bump'), 300);
+      showToast(`Added "${name}" to your bag!`);
+    }
+
+    // Render Mega Dropdown Columns
+    function renderColumn(colEl, groups) {
+      colEl.innerHTML = groups.map(group => {
+        const itemsHtml = group.links.map(item => {
+          if (typeof item === 'string') {
+            return `<li><a href="#most-viewed" class="mega-link" data-category="${item}">${item}</a></li>`;
+          }
+          const hotClass = item.hot ? ' hot' : '';
+          return `<li><a href="#most-viewed" class="mega-link" data-category="${item.label}">${item.label} <span class="mega-link-tag${hotClass}">${item.tag}</span></a></li>`;
+        }).join('');
+        return `
+          <div class="mega-group">
+            <h4 class="mega-group-title">${group.title}</h4>
+            <ul class="mega-group-list">${itemsHtml}</ul>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function switchMegaDepartment(deptKey) {
+      const data = MEGA_DEPARTMENTS[deptKey] || MEGA_DEPARTMENTS.handbags;
+      deptTabs.forEach(tab => {
+        tab.classList.toggle('active', tab.getAttribute('data-dept-tab') === deptKey);
+      });
+
+      renderColumn(document.getElementById('mega-col-1'), data.col1);
+      renderColumn(document.getElementById('mega-col-2'), data.col2);
+      renderColumn(document.getElementById('mega-col-3'), data.col3);
+
+      const spotImg = document.getElementById('spotlight-img');
+      spotImg.src = data.spotlight.img;
+      spotImg.className = data.spotlight.tint || '';
+      spotImg.alt = data.spotlight.title;
+      document.getElementById('spotlight-badge').textContent = data.spotlight.badge;
+      document.getElementById('spotlight-title').textContent = data.spotlight.title;
+      document.getElementById('spotlight-price').textContent = data.spotlight.price;
+      document.getElementById('spotlight-old-price').textContent = data.spotlight.oldPrice;
+      const addBtn = document.getElementById('mega-add-cart-btn');
+      addBtn.setAttribute('data-product', data.spotlight.title);
+      addBtn.setAttribute('data-price', String(data.spotlight.numericPrice));
+      addBtn.setAttribute('data-img', data.spotlight.img);
+      addBtn.setAttribute('data-tint', data.spotlight.tint || '');
+    }
+
+    function openMegaMenu(navItem) {
+      if (closeTimeout) clearTimeout(closeTimeout);
+      profileMenuWrap.classList.remove('is-open');
+      megaDropdown.classList.add('is-open');
+      megaTriggerItems.forEach(li => li.classList.remove('mega-open'));
+      if (navItem) {
+        navItem.classList.add('mega-open');
+        const dept = navItem.getAttribute('data-dept');
+        if (dept) switchMegaDepartment(dept);
+      }
+    }
+
+    function closeMegaMenu() {
+      megaDropdown.classList.remove('is-open');
+      megaTriggerItems.forEach(li => li.classList.remove('mega-open'));
+    }
+
+    // Hover & Click on SHOP / CATEGORIES / OFFERS nav items
+    megaTriggerItems.forEach(item => {
+      item.addEventListener('mouseenter', () => openMegaMenu(item));
+      item.addEventListener('mouseleave', () => {
+        closeTimeout = setTimeout(closeMegaMenu, 220);
+      });
+      const triggerLink = item.querySelector('.mega-trigger');
+      triggerLink.addEventListener('click', e => {
+        e.preventDefault();
+        const isCurrentlyOpen = megaDropdown.classList.contains('is-open') && item.classList.contains('mega-open');
+        if (isCurrentlyOpen) {
+          closeMegaMenu();
+        } else {
+          openMegaMenu(item);
+        }
+      });
+    });
+
+    megaDropdown.addEventListener('mouseenter', () => {
+      if (closeTimeout) clearTimeout(closeTimeout);
+    });
+
+    megaDropdown.addEventListener('mouseleave', () => {
+      closeTimeout = setTimeout(closeMegaMenu, 220);
+    });
+
+    deptTabs.forEach(tab => {
+      tab.addEventListener('click', () => switchMegaDepartment(tab.getAttribute('data-dept-tab')));
+      tab.addEventListener('mouseenter', () => switchMegaDepartment(tab.getAttribute('data-dept-tab')));
+    });
+
+    // Profile Avatar Dropdown Toggle
+    profileTriggerBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      closeMegaMenu();
+      profileMenuWrap.classList.toggle('is-open');
+    });
+
+    // 25% Off Ribbon inside Profile Dropdown -> Applies SOPHIE25 Promo & Opens Checkout
+    document.getElementById('profile-ribbon-btn').addEventListener('click', e => {
+      e.stopPropagation();
+      discountRate = 0.25;
+      document.getElementById('promo-code-input').value = 'SOPHIE25';
+      switchPageView('checkout');
+      showToast('25% VIP Discount (SOPHIE25) applied to your bag!');
+    });
+
+    // Close Mega Menu button & Escape key
+    document.getElementById('mega-close-btn').addEventListener('click', closeMegaMenu);
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        closeMegaMenu();
+        profileMenuWrap.classList.remove('is-open');
+        document.getElementById('order-modal').classList.remove('open');
+      }
+    });
+
+    // Clear Filter Button
+    document.getElementById('clear-filter-btn').addEventListener('click', () => {
+      activeFilterBar.classList.remove('visible');
+      catalogHeading.textContent = 'MOST VIEWED PRODUCTS';
+      showToast('Showing all bag collections');
+    });
+
+    // Navigation & View Switching Listeners
+    document.getElementById('logo-home-link').addEventListener('click', e => {
+      e.preventDefault();
+      switchPageView('home');
+    });
+
+    navHomeLink.addEventListener('click', e => {
+      e.preventDefault();
+      switchPageView('home');
+    });
+
+    document.getElementById('nav-showcase-link').addEventListener('click', e => {
+      e.preventDefault();
+      switchPageView('home');
+      setTimeout(() => {
+        document.getElementById('promo-banners').scrollIntoView({ behavior: 'smooth' });
+      }, 60);
+    });
+
+    navCheckoutLink.addEventListener('click', e => {
+      e.preventDefault();
+      switchPageView('checkout');
+    });
+
+    document.getElementById('header-cart-btn').addEventListener('click', e => {
+      e.preventDefault();
+      switchPageView('checkout');
+    });
+
+    document.getElementById('mega-goto-checkout').addEventListener('click', e => {
+      e.preventDefault();
+      switchPageView('checkout');
+    });
+
+    document.getElementById('back-to-shop-btn').addEventListener('click', () => {
+      switchPageView('home');
+    });
+
+    document.getElementById('toast-checkout-btn').addEventListener('click', () => {
+      switchPageView('checkout');
+    });
+
+    // Delivery Method Change in Checkout
+    document.querySelectorAll('input[name="delivery_method"]').forEach(radio => {
+      radio.addEventListener('change', e => {
+        shippingCost = parseFloat(e.target.value) || 0;
+        renderCheckoutBag();
+      });
+    });
+
+    // Payment Method Change in Checkout
+    document.querySelectorAll('input[name="payment_method"]').forEach(radio => {
+      radio.addEventListener('change', e => {
+        const ccPanel = document.getElementById('cc-fields-panel');
+        ccPanel.classList.toggle('hidden', e.target.value !== 'card');
+      });
+    });
+
+    // Apply Promo Code Button
+    document.getElementById('apply-promo-btn').addEventListener('click', () => {
+      const code = document.getElementById('promo-code-input').value.trim().toUpperCase();
+      if (code === 'SOPHIE25' || code === 'VIP25' || code === '25OFF') {
+        discountRate = 0.25;
+        renderCheckoutBag();
+        showToast('Promo code applied: 25% off your order!');
+      } else if (!code) {
+        discountRate = 0.25;
+        document.getElementById('promo-code-input').value = 'SOPHIE25';
+        renderCheckoutBag();
+        showToast('Applied VIP code SOPHIE25 (25% off)!');
+      } else {
+        showToast('Applied 10% welcome discount!');
+        discountRate = 0.10;
+        renderCheckoutBag();
+      }
+    });
+
+    // Checkout Login Prompt
+    document.getElementById('checkout-login-btn').addEventListener('click', () => {
+      profileMenuWrap.classList.add('is-open');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      showToast('Signed in as Sophie Laurent (VIP Member)');
+    });
+
+    // Submit Checkout Form
+    document.getElementById('checkout-form').addEventListener('submit', e => {
+      e.preventDefault();
+      if (bagItems.length === 0) {
+        showToast('Your bag is empty! Add a bag before placing an order.');
+        return;
+      }
+      const fname = document.getElementById('chk-fname').value.trim() || 'Sophie';
+      const totalText = document.getElementById('summary-total').textContent;
+      document.getElementById('order-modal-desc').innerHTML =
+        `Thank you, <strong>${fname}</strong>! Your order of <strong>${totalText}</strong> (#SPH-${Math.floor(10000 + Math.random() * 90000)}) has been confirmed and is being prepared for dispatch.`;
+      document.getElementById('order-modal').classList.add('open');
+    });
+
+    document.getElementById('modal-continue-btn').addEventListener('click', () => {
+      document.getElementById('order-modal').classList.remove('open');
+      switchPageView('home');
+    });
+
+    // Newsletter subscription
+    document.getElementById('newsletter-submit-btn').addEventListener('click', () => {
+      const emailInput = document.getElementById('newsletter-email');
+      if (emailInput.value.trim()) {
+        showToast(`Subscribed ${emailInput.value.trim()} to Sophie Lookbook!`);
+        emailInput.value = '';
+      } else {
+        showToast('Enter your email to receive 25% off your first bag!');
+      }
+    });
+
+    // Delegated Clicks for Mega Menu Add-to-Cart, Categories, Product Cards, Profile Menu Items, and Bag Quantity Controls
+    document.addEventListener('click', e => {
+      const addCartBtn = e.target.closest('#mega-add-cart-btn');
+      if (addCartBtn) {
+        addBagItemToCart(
+          addCartBtn.getAttribute('data-product') || 'Saffiano Leather Tote Bag',
+          addCartBtn.getAttribute('data-price') || '64.99',
+          'Blush Edition',
+          addCartBtn.getAttribute('data-img'),
+          addCartBtn.getAttribute('data-tint')
+        );
+        return;
+      }
+
+      const qtyBtn = e.target.closest('[data-qty-action]');
+      if (qtyBtn) {
+        const id = qtyBtn.getAttribute('data-id');
+        const action = qtyBtn.getAttribute('data-qty-action');
+        const item = bagItems.find(x => x.id === id);
+        if (item) {
+          if (action === 'inc') item.qty += 1;
+          if (action === 'dec') {
+            item.qty -= 1;
+            if (item.qty <= 0) {
+              bagItems = bagItems.filter(x => x.id !== id);
+            }
+          }
+          renderCheckoutBag();
+        }
+        return;
+      }
+
+      const removeBtn = e.target.closest('[data-remove-id]');
+      if (removeBtn) {
+        const id = removeBtn.getAttribute('data-remove-id');
+        bagItems = bagItems.filter(x => x.id !== id);
+        renderCheckoutBag();
+        showToast('Removed item from your shopping bag');
+        return;
+      }
+
+      const profileActionBtn = e.target.closest('[data-profile-action]');
+      if (profileActionBtn) {
+        e.preventDefault();
+        const action = profileActionBtn.getAttribute('data-profile-action');
+        profileMenuWrap.classList.remove('is-open');
+        if (action === 'subscription') {
+          discountRate = 0.25;
+          document.getElementById('promo-code-input').value = 'SOPHIE25';
+          switchPageView('checkout');
+          showToast('Sophie VIP Subscription active — 25% off applied!');
+        } else if (action === 'profile' || action === 'settings') {
+          switchPageView('checkout');
+          showToast('Personal & shipping details pre-filled from your Profile');
+        } else if (action === 'community') {
+          switchPageView('home');
+          showToast('Viewing Sophie Bag Lovers Community Picks');
+        } else if (action === 'updates') {
+          showToast('All orders are on schedule • Free UK Express upgrade available');
+        } else if (action === 'signout') {
+          showToast('Signed out of Sophie VIP account');
+        }
+        return;
+      }
+
+      const footerNav = e.target.closest('[data-footer-nav]');
+      if (footerNav) {
+        e.preventDefault();
+        const target = footerNav.getAttribute('data-footer-nav');
+        if (target === 'checkout') {
+          switchPageView('checkout');
+        } else {
+          switchPageView('home');
+        }
+        return;
+      }
+
+      const policyLink = e.target.closest('[data-policy]');
+      if (policyLink) {
+        e.preventDefault();
+        showToast('Your personal data is encrypted and protected under GDPR.');
+        return;
+      }
+
+      const categoryLink = e.target.closest('[data-category]');
+      if (categoryLink) {
+        e.preventDefault();
+        const catName = categoryLink.getAttribute('data-category');
+        switchPageView('home');
+        activeFilterName.textContent = catName;
+        activeFilterBar.classList.add('visible');
+        catalogHeading.textContent = catName.toUpperCase();
+        closeMegaMenu();
+        setTimeout(() => {
+          document.getElementById('most-viewed').scrollIntoView({ behavior: 'smooth' });
+        }, 50);
+        showToast(`Browsing ${catName}`);
+        return;
+      }
+
+      const productCard = e.target.closest('.product-card');
+      if (productCard) {
+        addBagItemToCart(
+          productCard.getAttribute('data-product'),
+          productCard.getAttribute('data-price'),
+          productCard.getAttribute('data-color'),
+          productCard.getAttribute('data-img'),
+          productCard.getAttribute('data-tint')
+        );
+        return;
+      }
+
+      const iconAction = e.target.closest('[data-action="search"]');
+      if (iconAction) {
+        e.preventDefault();
+        openMegaMenu(megaTriggerItems[0]);
+        showToast('Explore all bag categories above');
+        return;
+      }
+
+      // Close dropdowns when clicking outside header
+      if (!e.target.closest('#site-header')) {
+        closeMegaMenu();
+        profileMenuWrap.classList.remove('is-open');
+      }
+    });
+
+    // Initialize Checkout Bag on load
+    renderCheckoutBag();
+  </script>
+</body>
+</html>

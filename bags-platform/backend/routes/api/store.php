@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\AttachmentController;
 use App\Http\Controllers\Api\V1\Shared\NotificationController;
+use App\Http\Controllers\Api\V1\Store\AccountController;
 use App\Http\Controllers\Api\V1\Store\AuthController;
 use App\Http\Controllers\Api\V1\Store\BrandingController;
 use App\Http\Controllers\Api\V1\Store\CartController;
@@ -46,6 +47,8 @@ Route::middleware(['throttle:store-catalog', ProtectStorefrontCaching::class])->
     Route::get('brands', [CatalogController::class, 'brands'])->name('brands');
     Route::get('cities', [CatalogController::class, 'cities'])->name('cities');
 
+    Route::get('catalog/filters', [CatalogController::class, 'filters'])->name('catalog.filters');
+    Route::get('showcase', [ProductController::class, 'showcase'])->name('showcase');
     Route::get('products', [ProductController::class, 'index'])->name('products.index');
     Route::get('products/{slug}', [ProductController::class, 'show'])->name('products.show');
     Route::get('products/{slug}/similar', [ProductController::class, 'similar'])->name('products.similar');
@@ -77,6 +80,7 @@ Route::get('orders/{number}/track', [StoreOrderController::class, 'track'])
 
 // مسارات حساب العميل المسجل فقط
 Route::middleware(['auth:sanctum', 'auth.customer'])->prefix('account')->name('account.')->group(function (): void {
+    Route::get('addresses', [AccountController::class, 'addresses'])->name('addresses.index');
     Route::get('wallet', [WalletController::class, 'index'])->name('wallet.index');
     Route::get('orders', [StoreOrderController::class, 'index'])->name('orders.index');
     Route::post('orders/{order}/cancel', [StoreOrderController::class, 'cancel'])->name('orders.cancel');

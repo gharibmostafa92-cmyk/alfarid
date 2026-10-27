@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" id="top">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -30,6 +30,7 @@
       opacity: 1;
       transition: opacity 0.22s ease-in-out;
       animation: pageFadeIn 0.35s ease-out;
+      overflow-x: hidden;
     }
 
     body.page-fade-out {
@@ -66,7 +67,6 @@
     .hero-wrapper {
       background-color: #dfe5e9;
       position: relative;
-      overflow: hidden;
     }
 
     header {
@@ -74,6 +74,8 @@
       align-items: center;
       justify-content: space-between;
       padding: 26px 0;
+      position: relative;
+      z-index: 100;
     }
 
     /* Logo */
@@ -97,7 +99,7 @@
     .nav-links {
       display: flex;
       align-items: center;
-      gap: 34px;
+      gap: 32px;
       font-family: 'Oswald', sans-serif;
       font-size: 13px;
       font-weight: 500;
@@ -105,22 +107,402 @@
       text-transform: uppercase;
     }
 
-    .nav-links li a {
+    .nav-links > li {
+      position: static;
+    }
+
+    .nav-links > li > a {
       display: flex;
       align-items: center;
       gap: 5px;
       color: #111;
+      padding: 8px 0;
+      position: relative;
       transition: color 0.2s ease;
     }
 
-    .nav-links li a.active,
-    .nav-links li a:hover {
-      color: #4f7d88;
+    .nav-links > li > a::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      bottom: 0;
+      width: 0;
+      height: 2.5px;
+      background-color: #159a8c;
+      border-radius: 2px;
+      transition: width 0.25s ease;
     }
 
-    .nav-links li a i {
+    .nav-links > li > a.active,
+    .nav-links > li > a:hover,
+    .nav-links > li.mega-open > a {
+      color: #159a8c;
+    }
+
+    .nav-links > li > a.active::after,
+    .nav-links > li > a:hover::after,
+    .nav-links > li.mega-open > a::after {
+      width: 100%;
+    }
+
+    .nav-links > li > a.nav-offers {
+      color: #e4584b;
+    }
+
+    .nav-links > li > a.nav-offers:hover,
+    .nav-links > li.mega-open > a.nav-offers {
+      color: #c93b2e;
+    }
+
+    .nav-links > li > a.nav-offers::after {
+      background-color: #e4584b;
+    }
+
+    .nav-links > li > a i {
       font-size: 9px;
       margin-top: 1px;
+      transition: transform 0.25s ease;
+    }
+
+    .nav-links > li.mega-open > a i {
+      transform: rotate(180deg);
+    }
+
+    /* ================= LONGACRES-INSPIRED MEGA DROPDOWN ================= */
+    .mega-dropdown-wrapper {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      z-index: 120;
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(10px);
+      pointer-events: none;
+      transition: opacity 0.26s cubic-bezier(0.16, 1, 0.3, 1),
+                  transform 0.26s cubic-bezier(0.16, 1, 0.3, 1),
+                  visibility 0.26s;
+    }
+
+    .mega-dropdown-wrapper.is-open {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+
+    .mega-dropdown-card {
+      background-color: #ffffff;
+      border-radius: 4px;
+      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.14), 0 4px 16px rgba(15, 23, 42, 0.05);
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      overflow: hidden;
+    }
+
+    /* Top Department Tab Strip (Matching the Longacres horizontal category bar) */
+    .mega-dept-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 42px;
+      border-bottom: 1px solid #f1f5f9;
+      background-color: #ffffff;
+    }
+
+    .mega-dept-tabs {
+      display: flex;
+      align-items: center;
+      gap: 36px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .mega-dept-tabs::-webkit-scrollbar {
+      display: none;
+    }
+
+    .mega-dept-tab {
+      background: none;
+      border: none;
+      font-family: 'Poppins', sans-serif;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: #334155;
+      padding: 18px 0 15px;
+      cursor: pointer;
+      position: relative;
+      white-space: nowrap;
+      transition: color 0.2s ease;
+    }
+
+    .mega-dept-tab::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      bottom: 0;
+      width: 0;
+      height: 3px;
+      background-color: #159a8c;
+      border-radius: 3px 3px 0 0;
+      transition: width 0.25s ease;
+    }
+
+    .mega-dept-tab:hover {
+      color: #0f172a;
+    }
+
+    .mega-dept-tab.active {
+      color: #0f172a;
+    }
+
+    .mega-dept-tab.active::after {
+      width: 100%;
+    }
+
+    .mega-dept-tab.offers-tab {
+      color: #e46054;
+    }
+
+    .mega-dept-tab.offers-tab.active,
+    .mega-dept-tab.offers-tab:hover {
+      color: #d64538;
+    }
+
+    .mega-dept-tab.offers-tab::after {
+      background-color: #e46054;
+    }
+
+    .mega-close-btn {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      color: #64748b;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      flex-shrink: 0;
+    }
+
+    .mega-close-btn:hover {
+      background: #f1f5f9;
+      color: #0f172a;
+      transform: scale(1.05);
+    }
+
+    /* Main Mega Menu Body: 3 Category Columns + 1 Featured Offer Column */
+    .mega-body {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr) 275px;
+      gap: 32px;
+      padding: 34px 42px 38px;
+      background-color: #ffffff;
+      align-items: start;
+    }
+
+    .mega-col {
+      display: flex;
+      flex-direction: column;
+      gap: 26px;
+    }
+
+    .mega-group-title {
+      font-family: 'Poppins', sans-serif;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: #27303f;
+      margin-bottom: 8px;
+      letter-spacing: -0.1px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .mega-group-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .mega-link {
+      font-family: 'Poppins', sans-serif;
+      font-size: 13px;
+      font-weight: 400;
+      color: #64748b;
+      line-height: 1.5;
+      transition: color 0.18s ease, transform 0.18s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .mega-link:hover {
+      color: #159a8c;
+      transform: translateX(3px);
+    }
+
+    .mega-link-tag {
+      font-size: 9.5px;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 3px;
+      background-color: #e6f6f4;
+      color: #159a8c;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .mega-link-tag.hot {
+      background-color: #fef2f2;
+      color: #ef4444;
+    }
+
+    /* Right Spotlight Card (Exact Longacres Special Offer Card Layout) */
+    .mega-spotlight {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .mega-spotlight-img-wrap {
+      position: relative;
+      background-color: #f4f6f8;
+      border-radius: 4px;
+      height: 205px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      overflow: hidden;
+      margin-bottom: 14px;
+    }
+
+    .mega-spotlight-img-wrap img {
+      max-width: 165px;
+      max-height: 170px;
+      object-fit: contain;
+      mix-blend-mode: multiply;
+      transition: transform 0.35s ease;
+    }
+
+    .mega-spotlight:hover .mega-spotlight-img-wrap img {
+      transform: scale(1.06);
+    }
+
+    .mega-special-badge {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      background-color: #f0544f;
+      color: #ffffff;
+      font-family: 'Poppins', sans-serif;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      z-index: 2;
+      box-shadow: 0 2px 6px rgba(240, 84, 79, 0.28);
+    }
+
+    .mega-spotlight-title {
+      font-family: 'Poppins', sans-serif;
+      font-size: 14px;
+      font-weight: 400;
+      color: #475569;
+      margin-bottom: 4px;
+    }
+
+    .mega-spotlight-price {
+      font-family: 'Poppins', sans-serif;
+      font-size: 15.5px;
+      font-weight: 700;
+      color: #1e293b;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .mega-spotlight-price .old-price {
+      font-size: 13px;
+      font-weight: 400;
+      color: #94a3b8;
+      text-decoration: line-through;
+    }
+
+    .mega-add-cart-btn {
+      width: 100%;
+      background-color: #159a8c;
+      color: #ffffff;
+      border: none;
+      border-radius: 999px;
+      padding: 12px 20px;
+      font-family: 'Poppins', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      cursor: pointer;
+      transition: background-color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+      box-shadow: 0 6px 16px rgba(21, 154, 140, 0.22);
+    }
+
+    .mega-add-cart-btn:hover {
+      background-color: #118276;
+      transform: translateY(-1px);
+      box-shadow: 0 8px 20px rgba(21, 154, 140, 0.3);
+    }
+
+    .mega-add-cart-btn:active {
+      transform: translateY(0);
+    }
+
+    /* Subtle Footer Bar inside Mega Menu */
+    .mega-footer {
+      background-color: #f8fafc;
+      border-top: 1px solid #f1f5f9;
+      padding: 12px 42px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #64748b;
+    }
+
+    .mega-footer-perks {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+
+    .mega-footer-perks span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .mega-footer-perks i {
+      color: #159a8c;
+    }
+
+    .mega-footer-cta {
+      font-weight: 600;
+      color: #159a8c;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: gap 0.2s ease;
+    }
+
+    .mega-footer-cta:hover {
+      gap: 8px;
     }
 
     /* Header Right Icons */
@@ -136,6 +518,11 @@
       display: flex;
       align-items: center;
       position: relative;
+      transition: color 0.2s ease;
+    }
+
+    .header-icons a:hover {
+      color: #159a8c;
     }
 
     .cart-icon-wrap {
@@ -150,12 +537,18 @@
       font-family: 'Poppins', sans-serif;
       font-size: 10px;
       font-weight: 600;
-      width: 17px;
-      height: 17px;
+      width: 18px;
+      height: 18px;
       border-radius: 50%;
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      transition: transform 0.25s ease, background-color 0.25s ease;
+    }
+
+    .cart-badge.bump {
+      transform: scale(1.3);
+      background-color: #159a8c;
     }
 
     /* Hero Content */
@@ -319,10 +712,46 @@
       width: 22px;
       height: 2px;
       background-color: #ffffff;
+      cursor: pointer;
     }
 
     .slider-dots span.active {
       background-color: #111111;
+    }
+
+    /* ================= ACTIVE FILTER PILL ================= */
+    .active-filter-bar {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .active-filter-bar.visible {
+      display: flex;
+    }
+
+    .filter-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background-color: #e6f6f4;
+      color: #0f766e;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 5px 14px;
+      border-radius: 999px;
+    }
+
+    .filter-pill button {
+      background: none;
+      border: none;
+      color: #0f766e;
+      cursor: pointer;
+      font-size: 12px;
+      display: inline-flex;
+      align-items: center;
     }
 
     /* ================= SECTIONS COMMON ================= */
@@ -360,6 +789,7 @@
 
     .product-card {
       text-align: center;
+      cursor: pointer;
     }
 
     .product-img-box {
@@ -371,6 +801,7 @@
       justify-content: center;
       padding: 25px;
       margin-bottom: 14px;
+      overflow: hidden;
     }
 
     .product-img-box img {
@@ -526,298 +957,47 @@
     .tint-blue { filter: sepia(0.2) saturate(1.2) hue-rotate(165deg) brightness(1.02); }
     .tint-cream { filter: sepia(0.18) saturate(0.6) brightness(1.08); }
 
-    /* Responsive adjustments */
-
-    /* ================= LUXURY BAG STORE FOOTER ================= */
-    .site-footer-wrap {
-      position: relative;
-      margin-top: 20px;
-      background-color: #ffffff;
-    }
-
-    /* Top Architectural & Bag Boutique Silhouette Skyline */
-    .footer-skyline {
-      display: block;
-      width: 100%;
-      line-height: 0;
-      overflow: hidden;
-      background-color: #ffffff;
-    }
-
-    .footer-skyline svg {
-      display: block;
-      width: 100%;
-      height: 78px;
-    }
-
-    .site-footer {
-      background-color: #151823;
-      color: #7d8495;
-      padding: 62px 0 52px;
-      font-family: 'Poppins', sans-serif;
-      position: relative;
-    }
-
-    .footer-grid {
-      display: grid;
-      grid-template-columns: 1.25fr 1.1fr 0.85fr 1.25fr;
-      gap: 42px;
-      margin-bottom: 58px;
-    }
-
-    .footer-col-title {
-      font-family: 'Oswald', sans-serif;
-      font-size: 16px;
-      font-weight: 400;
-      text-transform: uppercase;
-      letter-spacing: 1.1px;
-      color: #e4e8f0;
-      margin-bottom: 22px;
-    }
-
-    .footer-about-text {
-      font-size: 12.5px;
-      line-height: 1.78;
-      color: #7d8495;
-      margin-bottom: 14px;
-    }
-
-    .footer-about-text:last-child {
-      margin-bottom: 0;
-    }
-
-    /* Address Column */
-    .footer-address-list {
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-
-    .footer-address-item {
-      display: flex;
-      align-items: flex-start;
-      gap: 14px;
-      font-size: 12.5px;
-      line-height: 1.65;
-      color: #7d8495;
-    }
-
-    .footer-address-item i {
-      color: #8c93a4;
-      font-size: 14px;
-      margin-top: 4px;
-      width: 16px;
-      text-align: center;
-      flex-shrink: 0;
-      transition: color 0.25s ease;
-    }
-
-    .footer-address-item:hover i {
-      color: #1bc6cf;
-    }
-
-    .footer-address-item a {
-      color: #7d8495;
-      transition: color 0.2s ease;
-    }
-
-    .footer-address-item a:hover {
-      color: #1bc6cf;
-    }
-
-    /* Company Links Column */
-    .footer-links-list {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-
-    .footer-links-list li a {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 12.5px;
-      color: #7d8495;
-      transition: color 0.2s ease, transform 0.2s ease;
-    }
-
-    .footer-links-list li a span.chevron {
-      font-size: 14px;
-      line-height: 1;
-      color: #6c7383;
-      transition: color 0.2s ease;
-    }
-
-    .footer-links-list li a:hover {
-      color: #e4e8f0;
-      transform: translateX(4px);
-    }
-
-    .footer-links-list li a:hover span.chevron {
-      color: #1bc6cf;
-    }
-
-    /* Newsletter Column */
-    .footer-newsletter-desc {
-      font-size: 12.5px;
-      line-height: 1.75;
-      color: #7d8495;
-      margin-bottom: 22px;
-    }
-
-    .newsletter-form {
-      display: flex;
-      align-items: stretch;
-      width: 100%;
-      height: 40px;
-      background-color: #262a37;
-      border: 1px solid #313646;
-      border-radius: 2px;
-      overflow: hidden;
-      transition: border-color 0.25s ease;
-    }
-
-    .newsletter-form:focus-within {
-      border-color: #1bc6cf;
-    }
-
-    .newsletter-input {
-      flex: 1;
-      background: transparent;
-      border: none;
-      outline: none;
-      padding: 0 14px;
-      font-family: 'Poppins', sans-serif;
-      font-size: 12px;
-      color: #e4e8f0;
-      min-width: 0;
-    }
-
-    .newsletter-input::placeholder {
-      color: #676e7f;
-      font-style: italic;
-    }
-
-    .newsletter-btn {
-      width: 44px;
-      background-color: #3e4454;
-      border: none;
-      color: #d8dde8;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 13px;
-      transition: background-color 0.25s ease, color 0.25s ease;
-    }
-
-    .newsletter-btn:hover {
-      background-color: #1bc6cf;
+    /* Toast Notification */
+    .toast-notice {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background-color: #0f172a;
       color: #ffffff;
-    }
-
-    .newsletter-feedback {
-      font-size: 11.5px;
-      margin-top: 8px;
-      min-height: 18px;
-      color: #1bc6cf;
+      padding: 12px 20px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22);
+      z-index: 999;
       opacity: 0;
-      transform: translateY(-3px);
+      transform: translateY(15px);
+      pointer-events: none;
       transition: opacity 0.25s ease, transform 0.25s ease;
     }
 
-    .newsletter-feedback.visible {
+    .toast-notice.show {
       opacity: 1;
       transform: translateY(0);
     }
 
-    /* Social Icons Horizontal Divider */
-    .footer-social-divider {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 20px;
-      max-width: 780px;
-      margin: 0 auto 38px;
+    .toast-notice i {
+      color: #159a8c;
     }
 
-    .footer-social-divider::before,
-    .footer-social-divider::after {
-      content: "";
-      flex: 1;
-      height: 1px;
-      background-color: #272c3a;
-    }
-
-    .footer-social-icons {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .social-circle {
-      width: 34px;
-      height: 34px;
-      border-radius: 50%;
-      background-color: #1bc6cf;
-      color: #ffffff;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 14px;
-      transition: transform 0.25s ease, background-color 0.25s ease, box-shadow 0.25s ease;
-    }
-
-    .social-circle:hover {
-      background-color: #14aeb6;
-      transform: translateY(-3px);
-      box-shadow: 0 6px 16px rgba(27, 198, 207, 0.35);
-    }
-
-    /* Bottom Bag Boutique Emblem & Copyright */
-    .footer-bottom-brand {
-      text-align: center;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-
-    .footer-emblem-svg {
-      width: 148px;
-      height: 82px;
-      margin-bottom: 8px;
-    }
-
-    .footer-brand-title {
-      font-family: 'Oswald', sans-serif;
-      font-size: 21px;
-      font-weight: 400;
-      letter-spacing: 3.5px;
-      text-transform: uppercase;
-      color: #8c93a4;
-      margin-bottom: 14px;
-    }
-
-    .footer-copyright {
-      font-size: 11px;
-      line-height: 1.65;
-      color: #5c6272;
-      max-width: 420px;
-    }
-
-    .footer-copyright a {
-      color: #7d8495;
-      transition: color 0.2s ease;
-    }
-
-    .footer-copyright a:hover {
-      color: #1bc6cf;
-    }
-
+    /* Responsive adjustments */
     @media (max-width: 992px) {
-      .footer-grid {
+      .mega-body {
         grid-template-columns: repeat(2, 1fr);
-        gap: 34px;
+        padding: 24px;
+      }
+      .mega-dept-bar,
+      .mega-footer {
+        padding-left: 24px;
+        padding-right: 24px;
       }
       .product-grid {
         grid-template-columns: repeat(2, 1fr);
@@ -857,15 +1037,12 @@
     }
 
     @media (max-width: 576px) {
-      .footer-grid {
-        grid-template-columns: 1fr;
-        gap: 28px;
-      }
-      .footer-skyline svg {
-        height: 46px;
-      }
       .nav-links {
-        display: none;
+        gap: 14px;
+        font-size: 11px;
+      }
+      .mega-body {
+        grid-template-columns: 1fr;
       }
       .product-grid {
         grid-template-columns: 1fr;
@@ -880,7 +1057,7 @@
 <body>
 
   <!-- ================= HERO & NAVBAR ================= -->
-  <div class="hero-wrapper" id="top">
+  <div class="hero-wrapper">
     <!-- Ambient Portrait Background covering the hero section -->
     <div class="hero-bg-backdrop">
       <div class="hero-bg-backdrop-img">
@@ -890,9 +1067,9 @@
     </div>
 
     <div class="container">
-      <header>
+      <header id="site-header">
         <!-- Logo -->
-        <a href="home.html" class="logo">
+        <a href="#top" class="logo">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polygon points="2,12 20,3 14,21 10,14 2,12" fill="#000" />
             <line x1="20" y1="3" x2="10" y2="14" stroke="#fff" stroke-width="1.5" />
@@ -901,23 +1078,167 @@
         </a>
 
         <!-- Navigation Links -->
-        <ul class="nav-links">
-          <li><a href="home.html" class="active">HOME</a></li>
-          <li><a href="categories.html">SHOP <i class="fa-solid fa-chevron-down"></i></a></li>
-          <li><a href="categories.html">CATEGORIES <i class="fa-solid fa-chevron-down"></i></a></li>
-          <li><a href="design.html">3D SHOWCASE</a></li>
-          <li><a href="#">ABOUT</a></li>
-          <li><a href="#">CONTACT US</a></li>
+        <ul class="nav-links" id="main-nav">
+          <li><a href="#top">HOME</a></li>
+          <li class="has-mega" data-dept="handbags">
+            <a href="#most-viewed" class="mega-trigger">SHOP <i class="fa-solid fa-chevron-down"></i></a>
+          </li>
+          <li class="has-mega mega-open" data-dept="backpacks">
+            <a href="#most-viewed" class="mega-trigger">CATEGORIES <i class="fa-solid fa-chevron-down"></i></a>
+          </li>
+          <li><a href="#promo-banners">3D SHOWCASE</a></li>
+          <li><a href="#new-arrivals">ABOUT</a></li>
+          <li class="has-mega" data-dept="offers">
+            <a href="#most-viewed" class="mega-trigger nav-offers">OFFERS <i class="fa-solid fa-chevron-down"></i></a>
+          </li>
         </ul>
 
         <!-- Right Icons -->
         <div class="header-icons">
-          <a href="#" aria-label="Settings"><i class="fa-solid fa-gear"></i></a>
-          <a href="#" aria-label="Search"><i class="fa-solid fa-magnifying-glass"></i></a>
-          <a href="#" class="cart-icon-wrap" aria-label="Cart">
+          <a href="#most-viewed" data-action="settings" aria-label="Settings"><i class="fa-solid fa-gear"></i></a>
+          <a href="#most-viewed" data-action="search" aria-label="Search"><i class="fa-solid fa-magnifying-glass"></i></a>
+          <a href="#most-viewed" class="cart-icon-wrap" data-action="cart" aria-label="Cart">
             <i class="fa-solid fa-cart-shopping"></i>
-            <span class="cart-badge">0</span>
+            <span class="cart-badge" id="cart-badge">1</span>
           </a>
+        </div>
+
+        <!-- ================= MEGA DROPDOWN MENU ================= -->
+        <div class="mega-dropdown-wrapper is-open" id="mega-dropdown" role="region" aria-label="Bag Store Mega Menu">
+          <div class="mega-dropdown-card">
+            <!-- Horizontal Category Bar (Longacres style) -->
+            <div class="mega-dept-bar">
+              <div class="mega-dept-tabs" role="tablist">
+                <button type="button" class="mega-dept-tab active" data-dept-tab="handbags">Handbags &amp; Totes</button>
+                <button type="button" class="mega-dept-tab" data-dept-tab="backpacks">Backpacks</button>
+                <button type="button" class="mega-dept-tab" data-dept-tab="crossbody">Crossbody &amp; Clutches</button>
+                <button type="button" class="mega-dept-tab" data-dept-tab="travel">Travel &amp; Business</button>
+                <button type="button" class="mega-dept-tab" data-dept-tab="accessories">Leather &amp; Accessories</button>
+                <button type="button" class="mega-dept-tab offers-tab" data-dept-tab="offers">Offers</button>
+              </div>
+              <button type="button" class="mega-close-btn" id="mega-close-btn" aria-label="Close menu" title="Close menu">
+                <i class="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+
+            <!-- 3 Category Columns + Featured Special Offer Card -->
+            <div class="mega-body" id="mega-body-content">
+              <!-- Column 1 -->
+              <div class="mega-col" id="mega-col-1">
+                <div class="mega-group">
+                  <h4 class="mega-group-title">Tote &amp; Shopper Bags</h4>
+                  <ul class="mega-group-list">
+                    <li><a href="#most-viewed" class="mega-link" data-category="Saffiano Leather Totes">Saffiano Leather Totes</a></li>
+                    <li><a href="#most-viewed" class="mega-link" data-category="Canvas &amp; Work Shoppers">Canvas &amp; Work Shoppers</a></li>
+                  </ul>
+                </div>
+                <div class="mega-group">
+                  <h4 class="mega-group-title">Shoulder &amp; Hobo Bags</h4>
+                  <ul class="mega-group-list">
+                    <li><a href="#most-viewed" class="mega-link" data-category="Structured Shoulder Bags">Structured Shoulder Bags</a></li>
+                    <li><a href="#most-viewed" class="mega-link" data-category="Slouchy Hobo &amp; Bucket Bags">Slouchy Hobo &amp; Bucket Bags</a></li>
+                  </ul>
+                </div>
+                <div class="mega-group">
+                  <h4 class="mega-group-title">Mini &amp; Micro Bags</h4>
+                  <ul class="mega-group-list">
+                    <li><a href="#most-viewed" class="mega-link" data-category="All Mini Bags">All Mini Bags</a></li>
+                    <li><a href="#most-viewed" class="mega-link" data-category="Shop by Color Variations">Shop by Color Variations</a></li>
+                  </ul>
+                </div>
+                <div class="mega-group">
+                  <h4 class="mega-group-title">Evening Clutches</h4>
+                  <ul class="mega-group-list">
+                    <li><a href="#most-viewed" class="mega-link" data-category="Satin &amp; Metallic Clutches">Satin &amp; Metallic Clutches</a></li>
+                  </ul>
+                </div>
+              </div>
+
+              <!-- Column 2 -->
+              <div class="mega-col" id="mega-col-2">
+                <div class="mega-group">
+                  <h4 class="mega-group-title">Ladies Backpacks</h4>
+                  <ul class="mega-group-list">
+                    <li><a href="#most-viewed" class="mega-link" data-category="Vogue City &amp; Mini Backpacks">Vogue City &amp; Mini Backpacks <span class="mega-link-tag">New</span></a></li>
+                  </ul>
+                </div>
+                <div class="mega-group">
+                  <h4 class="mega-group-title">Crossbody Bags</h4>
+                  <ul class="mega-group-list">
+                    <li><a href="#most-viewed" class="mega-link" data-category="Quilted Chain Crossbody">Quilted Chain Crossbody</a></li>
+                  </ul>
+                </div>
+                <div class="mega-group">
+                  <h4 class="mega-group-title">Laptop &amp; Work Bags</h4>
+                  <ul class="mega-group-list">
+                    <li><a href="#most-viewed" class="mega-link" data-category="15-Inch Padded Laptop Bags">15" Padded Laptop Bags</a></li>
+                    <li><a href="#most-viewed" class="mega-link" data-category="Anti-Theft Commuter Packs">Anti-Theft Commuter Packs</a></li>
+                    <li><a href="#most-viewed" class="mega-link" data-category="Convertible Backpack Totes">Convertible Backpack Totes</a></li>
+                    <li><a href="#most-viewed" class="mega-link" data-category="Gift Sets &amp; Organizer Bundles">Gift Sets &amp; Organizer Bundles</a></li>
+                    <li><a href="#most-viewed" class="mega-link" data-category="Leather Care &amp; Protection">Leather Care &amp; Protection</a></li>
+                  </ul>
+                </div>
+              </div>
+
+              <!-- Column 3 -->
+              <div class="mega-col" id="mega-col-3">
+                <div class="mega-group">
+                  <h4 class="mega-group-title">Travel &amp; Weekenders</h4>
+                  <ul class="mega-group-list">
+                    <li><a href="#most-viewed" class="mega-link" data-category="Cabin Duffles &amp; Holdalls">Cabin Duffles &amp; Holdalls</a></li>
+                  </ul>
+                </div>
+                <div class="mega-group">
+                  <h4 class="mega-group-title">Signature Editions</h4>
+                  <ul class="mega-group-list">
+                    <li><a href="#most-viewed" class="mega-link" data-category="Special Offer Handbags">Special Offer Handbags <span class="mega-link-tag hot">Sale</span></a></li>
+                    <li><a href="#most-viewed" class="mega-link" data-category="Special Offer of the Month">Special Offer of the Month</a></li>
+                  </ul>
+                </div>
+                <div class="mega-group">
+                  <h4 class="mega-group-title">Wallets &amp; Purses</h4>
+                  <ul class="mega-group-list">
+                    <li><a href="#most-viewed" class="mega-link" data-category="Continental Leather Wallets">Continental Leather Wallets</a></li>
+                  </ul>
+                </div>
+                <div class="mega-group">
+                  <h4 class="mega-group-title">Bag Accessories</h4>
+                  <ul class="mega-group-list">
+                    <li><a href="#most-viewed" class="mega-link" data-category="Embroidered Guitar Straps">Embroidered Guitar Straps</a></li>
+                    <li><a href="#most-viewed" class="mega-link" data-category="Bag Charms &amp; Silk Twillies">Bag Charms &amp; Silk Twillies</a></li>
+                  </ul>
+                </div>
+              </div>
+
+              <!-- Column 4: Featured Special Offer Product -->
+              <div class="mega-spotlight" id="mega-spotlight-card">
+                <div class="mega-spotlight-img-wrap">
+                  <span class="mega-special-badge" id="spotlight-badge">SPECIAL OFFER</span>
+                  <img id="spotlight-img" src="https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=500&q=85" class="tint-pink" alt="Saffiano Leather Tote Bag" />
+                </div>
+                <h5 class="mega-spotlight-title" id="spotlight-title">Saffiano Leather Tote Bag</h5>
+                <div class="mega-spotlight-price">
+                  <span id="spotlight-price">£64.99</span>
+                  <span class="old-price" id="spotlight-old-price">£89.00</span>
+                </div>
+                <button type="button" class="mega-add-cart-btn" id="mega-add-cart-btn" data-product="Saffiano Leather Tote Bag">
+                  <i class="fa-solid fa-cart-shopping"></i> Add to cart
+                </button>
+              </div>
+            </div>
+
+            <!-- Subtle Bottom Bar -->
+            <div class="mega-footer">
+              <div class="mega-footer-perks">
+                <span><i class="fa-solid fa-truck-fast"></i> Free UK Delivery over £50</span>
+                <span><i class="fa-solid fa-shield-heart"></i> 2-Year Leather Warranty</span>
+                <span><i class="fa-solid fa-rotate-left"></i> 30-Day Easy Returns</span>
+              </div>
+              <a href="#most-viewed" class="mega-footer-cta" data-category="All Collections">
+                Explore Full Collection <i class="fa-solid fa-arrow-right"></i>
+              </a>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -932,7 +1253,7 @@
           <p class="hero-desc">
             The perfect blend of style and function. Designed for everyday adventures.
           </p>
-          <a href="categories.html" class="btn-black">SHOP NOW</a>
+          <a href="#most-viewed" class="btn-black">SHOP NOW</a>
         </div>
 
         <div class="hero-image">
@@ -954,13 +1275,19 @@
   <section class="products-section" id="most-viewed">
     <div class="container">
       <div class="section-header">
-        <h2 class="section-title">MOST VIEWED PRODUCTS</h2>
-        <p class="section-subtitle">When it comes to TVs, there are choices galore on Flipkart.</p>
+        <h2 class="section-title" id="catalog-heading">MOST VIEWED PRODUCTS</h2>
+        <p class="section-subtitle">Handcrafted leather bags, backpacks, and travel companions for every occasion.</p>
+        <div class="active-filter-bar" id="active-filter-bar">
+          <span class="filter-pill">
+            Showing: <strong id="active-filter-name">All Bags</strong>
+            <button type="button" id="clear-filter-btn" aria-label="Clear filter"><i class="fa-solid fa-xmark"></i></button>
+          </span>
+        </div>
       </div>
 
       <div class="product-grid">
         <!-- Product 1 -->
-        <div class="product-card">
+        <div class="product-card" data-product="Vogue Elegance Women's Backpack">
           <div class="product-img-box">
             <span class="badge">NEW</span>
             <img src="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=500&q=80" class="tint-pink" alt="Vogue Elegance Women's Backpack" />
@@ -970,7 +1297,7 @@
         </div>
 
         <!-- Product 2 -->
-        <div class="product-card">
+        <div class="product-card" data-product="Urban Chic Laptop Backpack">
           <div class="product-img-box">
             <span class="badge">NEW</span>
             <img src="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=500&q=80" class="tint-black" alt="Urban Chic Laptop Backpack" />
@@ -980,7 +1307,7 @@
         </div>
 
         <!-- Product 3 -->
-        <div class="product-card">
+        <div class="product-card" data-product="Travel Lite Anti-Theft Backpack">
           <div class="product-img-box">
             <span class="badge">-20%</span>
             <img src="https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=500&q=80" class="tint-beige" alt="Travel Lite Anti-Theft Backpack" />
@@ -990,7 +1317,7 @@
         </div>
 
         <!-- Product 4 -->
-        <div class="product-card">
+        <div class="product-card" data-product="Classic Fashion Backpack">
           <div class="product-img-box">
             <span class="badge">NEW</span>
             <img src="https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=500&q=80" class="tint-pink" alt="Classic Fashion Backpack" />
@@ -1001,7 +1328,7 @@
       </div>
 
       <div class="view-more-wrap">
-        <a href="categories.html" class="btn-view-more">VIEW MORE</a>
+        <a href="#new-arrivals" class="btn-view-more">VIEW MORE</a>
       </div>
     </div>
   </section>
@@ -1018,7 +1345,7 @@
           <div class="banner-content">
             <p class="banner-tag">NEW COLLECTION</p>
             <h3 class="banner-heading">Backpack</h3>
-            <a href="categories.html" class="banner-link">View collection <i class="fa-solid fa-chevron-right"></i></a>
+            <a href="#most-viewed" class="banner-link" data-category="Backpacks">View collection <i class="fa-solid fa-chevron-right"></i></a>
           </div>
         </div>
 
@@ -1030,7 +1357,7 @@
           <div class="banner-content">
             <p class="banner-tag">BAG ACCESSORIES</p>
             <h3 class="banner-heading">Accessories</h3>
-            <a href="categories.html" class="banner-link">View collection <i class="fa-solid fa-chevron-right"></i></a>
+            <a href="#most-viewed" class="banner-link" data-category="Bag Accessories">View collection <i class="fa-solid fa-chevron-right"></i></a>
           </div>
         </div>
       </div>
@@ -1042,12 +1369,12 @@
     <div class="container">
       <div class="section-header">
         <h2 class="section-title">NEW ARRIVALS</h2>
-        <p class="section-subtitle">Shop Laptop feature only the best laptop deals on the market.</p>
+        <p class="section-subtitle">Explore our latest seasonal arrivals crafted for daily commute and weekend escapes.</p>
       </div>
 
       <div class="product-grid">
         <!-- Product 5 -->
-        <div class="product-card">
+        <div class="product-card" data-product="Daily Commute Backpack">
           <div class="product-img-box">
             <span class="badge">NEW</span>
             <img src="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=500&q=80" class="tint-blue" alt="Daily Commute Backpack" />
@@ -1057,7 +1384,7 @@
         </div>
 
         <!-- Product 6 -->
-        <div class="product-card">
+        <div class="product-card" data-product="Minimalist Daypack">
           <div class="product-img-box">
             <span class="badge">NEW</span>
             <img src="https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=500&q=80" class="tint-cream" alt="Minimalist Daypack" />
@@ -1067,7 +1394,7 @@
         </div>
 
         <!-- Product 7 -->
-        <div class="product-card">
+        <div class="product-card" data-product="Student Laptop Backpack">
           <div class="product-img-box">
             <span class="badge">NEW</span>
             <img src="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=500&q=80" class="tint-pink" alt="Student Laptop Backpack" />
@@ -1077,7 +1404,7 @@
         </div>
 
         <!-- Product 8 -->
-        <div class="product-card">
+        <div class="product-card" data-product="Outdoor Travel Backpack">
           <div class="product-img-box">
             <span class="badge">NEW</span>
             <img src="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=500&q=80" class="tint-black" alt="Outdoor Travel Backpack" />
@@ -1089,219 +1416,455 @@
     </div>
   </section>
 
-  <!-- ================= LUXURY BAG STORE FOOTER ================= -->
-  <div class="site-footer-wrap" id="footer-contact">
-    <!-- Top Silhouette Border: Fashion District & Iconic Handbags/Backpacks Skyline -->
-    <div class="footer-skyline" aria-hidden="true">
-      <svg viewBox="0 0 1440 90" preserveAspectRatio="none" fill="#151823" xmlns="http://www.w3.org/2000/svg">
-        <!-- Base horizon bar -->
-        <rect x="0" y="76" width="1440" height="16" />
-        <!-- Left boutique & structured tote silhouette -->
-        <polygon points="0,78 0,54 22,54 22,42 48,42 48,60 64,60 64,28 102,28 102,52 118,52 118,78" />
-        <!-- Structured Handbag Silhouette 1 -->
-        <path d="M132,78 L138,40 L186,40 L192,78 Z" />
-        <path d="M150,40 C150,22 174,22 174,40" fill="none" stroke="#151823" stroke-width="5" />
-        <!-- Boutique blocks -->
-        <polygon points="205,78 205,46 238,46 238,22 278,22 278,56 296,56 296,34 336,34 336,62 354,62 354,78" />
-        <!-- Dome Backpack Silhouette -->
-        <path d="M368,78 L368,42 C368,24 414,24 414,42 L414,78 Z" />
-        <path d="M382,28 C382,16 400,16 400,28" fill="none" stroke="#151823" stroke-width="4.5" />
-        <!-- Mid-left fashion towers -->
-        <polygon points="428,78 428,50 456,50 456,30 492,30 492,58 512,58 512,38 558,38 558,48 584,48 584,64 606,64 606,78" />
-        <!-- Center Luxury Tote & Shopper Bag Silhouette -->
-        <polygon points="618,78 624,32 678,32 684,78" />
-        <path d="M638,32 C638,14 664,14 664,32" fill="none" stroke="#151823" stroke-width="5" />
-        <!-- Center-right boutique skyline -->
-        <polygon points="698,78 698,44 734,44 734,26 774,26 774,52 798,52 798,36 838,36 838,60 858,60 858,42 894,42 894,66 914,66 914,78" />
-        <!-- Messenger / Satchel Bag Silhouette -->
-        <rect x="926" y="42" width="58" height="36" rx="4" />
-        <path d="M942,42 C942,26 968,26 968,42" fill="none" stroke="#151823" stroke-width="4.5" />
-        <!-- Right high-street skyline -->
-        <polygon points="998,78 998,54 1026,54 1026,20 1068,20 1068,46 1094,46 1094,28 1136,28 1136,52 1158,52 1158,36 1196,36 1196,60 1214,60 1214,78" />
-        <!-- Right Luxury Backpack & Handbag Pair -->
-        <path d="M1226,78 L1226,40 C1226,22 1270,22 1270,40 L1270,78 Z" />
-        <path d="M1240,26 C1240,15 1256,15 1256,26" fill="none" stroke="#151823" stroke-width="4.5" />
-        <polygon points="1284,78 1284,48 1318,48 1318,30 1356,30 1356,56 1384,56 1384,38 1418,38 1418,58 1440,58 1440,78" />
-      </svg>
-    </div>
-
-    <footer class="site-footer">
-      <div class="container">
-        <!-- 4-Column Main Footer -->
-        <div class="footer-grid">
-          <!-- Column 1: ABOUT US -->
-          <div class="footer-col">
-            <h4 class="footer-col-title">ABOUT US</h4>
-            <p class="footer-about-text">
-              Sophie Bag Collection crafts contemporary ladies backpacks, structured leather totes, and anti-theft travel companions designed for effortless everyday elegance.
-            </p>
-            <p class="footer-about-text">
-              Every silhouette blends water-resistant materials, ergonomic comfort, and refined hardware to elevate your daily commute and weekend escapes.
-            </p>
-          </div>
-
-          <!-- Column 2: ADDRESS -->
-          <div class="footer-col">
-            <h4 class="footer-col-title">ADDRESS</h4>
-            <ul class="footer-address-list">
-              <li class="footer-address-item">
-                <i class="fa-solid fa-paper-plane"></i>
-                <div>
-                  <a href="mailto:contact@sophiebags.com">contact@sophiebags.com</a>
-                </div>
-              </li>
-              <li class="footer-address-item">
-                <i class="fa-solid fa-phone"></i>
-                <div>
-                  P: +44 (0) 20 7946 0821<br />
-                  F: +44 (0) 20 7946 0822
-                </div>
-              </li>
-              <li class="footer-address-item">
-                <i class="fa-solid fa-location-dot"></i>
-                <div>
-                  1234 Regent Street, Fashion District,<br />
-                  London, United Kingdom
-                </div>
-              </li>
-            </ul>
-          </div>
-
-          <!-- Column 3: COMPANY -->
-          <div class="footer-col">
-            <h4 class="footer-col-title">COMPANY</h4>
-            <ul class="footer-links-list">
-              <li><a href="#top"><span class="chevron">&rsaquo;</span> Home</a></li>
-              <li><a href="#most-viewed"><span class="chevron">&rsaquo;</span> Most Viewed Bags</a></li>
-              <li><a href="#promo-banners"><span class="chevron">&rsaquo;</span> Collections &amp; Accessories</a></li>
-              <li><a href="#new-arrivals"><span class="chevron">&rsaquo;</span> New Arrivals</a></li>
-              <li><a href="#top"><span class="chevron">&rsaquo;</span> 3D Bag Showcase</a></li>
-              <li><a href="#footer-contact"><span class="chevron">&rsaquo;</span> Contact Us</a></li>
-            </ul>
-          </div>
-
-          <!-- Column 4: NEWSLETTER -->
-          <div class="footer-col">
-            <h4 class="footer-col-title">NEWSLETTER</h4>
-            <p class="footer-newsletter-desc">
-              Keep up on our always evolving bag collections, seasonal colors, and exclusive member drops. Enter your e-mail and subscribe to our newsletter.
-            </p>
-            <form class="newsletter-form" id="footerNewsletterForm" novalidate>
-              <input
-                type="email"
-                id="footerNewsletterEmail"
-                class="newsletter-input"
-                placeholder="Enter your email address"
-                aria-label="Enter your email address"
-                required
-              />
-              <button type="submit" class="newsletter-btn" aria-label="Subscribe to newsletter">
-                <i class="fa-solid fa-paper-plane"></i>
-              </button>
-            </form>
-            <p class="newsletter-feedback" id="footerNewsletterFeedback" role="status" aria-live="polite"></p>
-          </div>
-        </div>
-
-        <!-- Center Divider Line with Turquoise Social Circles -->
-        <div class="footer-social-divider">
-          <div class="footer-social-icons">
-            <a href="#footer-contact" class="social-circle" aria-label="Facebook">
-              <i class="fa-brands fa-facebook-f"></i>
-            </a>
-            <a href="#footer-contact" class="social-circle" aria-label="Twitter">
-              <i class="fa-brands fa-twitter"></i>
-            </a>
-            <a href="#footer-contact" class="social-circle" aria-label="Instagram">
-              <i class="fa-brands fa-instagram"></i>
-            </a>
-          </div>
-        </div>
-
-        <!-- Bottom Brand Emblem (Two-Tone Bag Boutique Illustration) & Copyright -->
-        <div class="footer-bottom-brand">
-          <svg class="footer-emblem-svg" viewBox="0 0 180 96" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <!-- Ground Baseline -->
-            <line x1="16" y1="86" x2="164" y2="86" stroke="#6c7383" stroke-width="2" stroke-linecap="round" />
-
-            <!-- Left Structured Handbag (Two-Tone) -->
-            <path d="M36 46 C36 32, 56 32, 56 46" stroke="#dce0e8" stroke-width="3.2" stroke-linecap="round" fill="none" />
-            <polygon points="26,85 30,46 60,46 64,85" fill="#dce0e8" />
-            <polygon points="46,85 46,46 60,46 64,85" fill="#9299a8" />
-            <rect x="42" y="55" width="6" height="8" rx="1" fill="#151823" />
-
-            <!-- Center Tall Signature Backpack (Two-Tone) -->
-            <path d="M79 22 C79 10, 101 10, 101 22" stroke="#dce0e8" stroke-width="3.5" stroke-linecap="round" fill="none" />
-            <path d="M68 85 L68 34 C68 20, 112 20, 112 34 L112 85 Z" fill="#dce0e8" />
-            <path d="M90 20 C104 20, 112 26, 112 34 L112 85 L90 85 Z" fill="#8b92a1" />
-            <!-- Backpack Flap & Pocket Details -->
-            <path d="M73 36 Q90 46 107 36" stroke="#151823" stroke-width="2.2" fill="none" />
-            <rect x="76" y="54" width="28" height="22" rx="4" fill="#151823" fill-opacity="0.22" />
-            <rect x="87" y="40" width="6" height="10" rx="1.5" fill="#151823" />
-            <circle cx="80" cy="64" r="1.8" fill="#151823" />
-            <circle cx="100" cy="64" r="1.8" fill="#151823" />
-
-            <!-- Right Chic Boutique Tote & Decorative Tree Silhouette (matching screenshot's tree motif) -->
-            <path d="M122 54 C122 43, 136 43, 136 54" stroke="#8b92a1" stroke-width="2.8" stroke-linecap="round" fill="none" />
-            <rect x="116" y="54" width="26" height="31" rx="2" fill="#b7becb" />
-            <rect x="129" y="54" width="13" height="31" rx="1" fill="#7f8696" />
-
-            <!-- Minimalist Boutique Tree on Right (nod to the reference emblem) -->
-            <circle cx="151" cy="54" r="12" fill="#8b92a1" />
-            <path d="M151 42 A12 12 0 0 1 163 54 A12 12 0 0 1 151 66 Z" fill="#6d7483" />
-            <line x1="151" y1="62" x2="151" y2="85" stroke="#dce0e8" stroke-width="2.6" stroke-linecap="round" />
-            <line x1="151" y1="69" x2="156" y2="63" stroke="#dce0e8" stroke-width="2" stroke-linecap="round" />
-          </svg>
-
-          <div class="footer-brand-title">SOPHIE-BAGS</div>
-          <p class="footer-copyright">
-            Copyright &copy; 2026 Sophie Bag Collection Inc. All rights reserved.<br />
-            <a href="#top">sophiebags.com</a>
-          </p>
-        </div>
-      </div>
-    </footer>
+  <!-- Toast Notification -->
+  <div class="toast-notice" id="toast-notice" role="status" aria-live="polite">
+    <i class="fa-solid fa-circle-check"></i>
+    <span id="toast-text">Added to your bag!</span>
   </div>
 
   <script>
-    // Smooth Page Navigation Transition
-    document.querySelectorAll('a[href]').forEach(link => {
-      const href = link.getAttribute('href');
-      if (href && (href === 'home.html' || href === 'categories.html' || href === 'design.html')) {
-        link.addEventListener('click', e => {
-          const currentFile = window.location.pathname.split('/').pop() || 'home.html';
-          if (link.target !== '_blank' && !e.ctrlKey && !e.metaKey && href !== currentFile) {
-            e.preventDefault();
-            document.body.classList.add('page-fade-out');
-            setTimeout(() => {
-              window.location.href = href;
-            }, 180);
+    // Department Data for the Mega Dropdown (Longacres 3-Column + Right Special Offer Card structure)
+    const MEGA_DEPARTMENTS = {
+      handbags: {
+        col1: [
+          { title: 'Tote & Shopper Bags', links: ['Saffiano Leather Totes', 'Canvas & Work Shoppers'] },
+          { title: 'Shoulder & Hobo Bags', links: ['Structured Shoulder Bags', 'Slouchy Hobo & Bucket Bags'] },
+          { title: 'Mini & Micro Bags', links: ['All Mini Bags', 'Shop by Color Variations'] },
+          { title: 'Evening Clutches', links: ['Satin & Metallic Clutches'] }
+        ],
+        col2: [
+          { title: 'Ladies Backpacks', links: [{ label: 'Vogue City & Mini Backpacks', tag: 'New' }] },
+          { title: 'Crossbody Bags', links: ['Quilted Chain Crossbody'] },
+          {
+            title: 'Laptop & Work Bags',
+            links: [
+              '15" Padded Laptop Bags',
+              'Anti-Theft Commuter Packs',
+              'Convertible Backpack Totes',
+              'Gift Sets & Organizer Bundles',
+              'Leather Care & Protection'
+            ]
           }
-        });
+        ],
+        col3: [
+          { title: 'Travel & Weekenders', links: ['Cabin Duffles & Holdalls'] },
+          {
+            title: 'Signature Editions',
+            links: [
+              { label: 'Special Offer Handbags', tag: 'Sale', hot: true },
+              'Special Offer of the Month'
+            ]
+          },
+          { title: 'Wallets & Purses', links: ['Continental Leather Wallets'] },
+          { title: 'Bag Accessories', links: ['Embroidered Guitar Straps', 'Bag Charms & Silk Twillies'] }
+        ],
+        spotlight: {
+          badge: 'SPECIAL OFFER',
+          title: 'Saffiano Leather Tote Bag',
+          price: '£64.99',
+          oldPrice: '£89.00',
+          img: 'https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=500&q=85',
+          tint: 'tint-pink'
+        }
+      },
+      backpacks: {
+        col1: [
+          { title: 'Everyday Backpacks', links: ['Vogue Elegance Women\'s Pack', 'Minimalist Leather Daypacks'] },
+          { title: 'Laptop Backpacks', links: ['15.6" USB Charging Backpacks', 'Slim Executive Commuter Packs'] },
+          { title: 'Mini Backpacks', links: ['All Convertible Mini Packs', 'Pastel & Monogram Editions'] },
+          { title: 'Campus & Study', links: ['Water-Resistant Student Packs'] }
+        ],
+        col2: [
+          { title: 'Anti-Theft Series', links: [{ label: 'RFID Hidden-Zip Backpacks', tag: 'New' }] },
+          { title: 'Outdoor & Adventure', links: ['Lightweight Hiking Daypacks'] },
+          {
+            title: 'Travel Backpacks',
+            links: [
+              'Cabin-Approved 40L Packs',
+              'Expandable Weekender Packs',
+              'Luggage-Sleeve Backpacks',
+              'Packing Cubes & Rain Covers',
+              'Strap & Zipper Care Kits'
+            ]
+          }
+        ],
+        col3: [
+          { title: 'Eco & Vegan Leather', links: ['Recycled Canvas Backpacks'] },
+          {
+            title: 'Featured Backpack Deals',
+            links: [
+              { label: 'Special Offer Backpacks', tag: '-25%', hot: true },
+              'Backpack of the Month'
+            ]
+          },
+          { title: 'Matching Pouches', links: ['Tech Cable & Cosmetic Cases'] },
+          { title: 'Custom Add-Ons', links: ['Monogram Leather Tags', 'Keyring Pom-Poms & Charms'] }
+        ],
+        spotlight: {
+          badge: 'SPECIAL OFFER',
+          title: 'Vogue Elegance Backpack',
+          price: '£68.00',
+          oldPrice: '£85.00',
+          img: 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=500&q=85',
+          tint: 'tint-pink'
+        }
+      },
+      crossbody: {
+        col1: [
+          { title: 'Chain Crossbody', links: ['Quilted Gold-Chain Bags', 'Chevron Evening Crossbody'] },
+          { title: 'Camera & Saddle Bags', links: ['Double-Zip Camera Bags', 'Vintage Equestrian Saddle Bags'] },
+          { title: 'Phone & Micro Pouches', links: ['All Crossbody Phone Bags', 'Card-Slot Sling Pouches'] },
+          { title: 'Belt & Sling Bags', links: ['Convertible Waist & Chest Bags'] }
+        ],
+        col2: [
+          { title: 'Bridal & Occasion', links: [{ label: 'Pearl & Crystal Box Clutches', tag: 'New' }] },
+          { title: 'Wristlets', links: ['Pebbled Leather Wristlet Pouches'] },
+          {
+            title: 'Everyday Messengers',
+            links: [
+              'Wide-Strap Canvas Crossbody',
+              'Multi-Pocket Travel Crossbody',
+              'Foldover Magnetic Clutches',
+              'Matching Strap & Bag Sets',
+              'Suede & Nubuck Protectors'
+            ]
+          }
+        ],
+        col3: [
+          { title: 'Designer Collaborations', links: ['Limited Edition Pastel Slings'] },
+          {
+            title: 'Seasonal Picks',
+            links: [
+              { label: 'Special Offer Crossbody', tag: 'Sale', hot: true },
+              'Clutch of the Month'
+            ]
+          },
+          { title: 'Cardholders', links: ['Slim RFID Leather Cardholders'] },
+          { title: 'Replacement Straps', links: ['Gold & Silver Chain Straps', 'Woven Jacquard Crossbody Straps'] }
+        ],
+        spotlight: {
+          badge: 'SPECIAL OFFER',
+          title: 'Milano Quilted Crossbody',
+          price: '£54.99',
+          oldPrice: '£75.00',
+          img: 'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=500&q=85',
+          tint: 'tint-beige'
+        }
+      },
+      travel: {
+        col1: [
+          { title: 'Weekender Bags', links: ['Full-Grain Leather Holdalls', 'Canvas Overnight Duffles'] },
+          { title: 'Cabin Luggage', links: ['Under-Seat Flight Totes', 'Wheeled Carry-On Weekenders'] },
+          { title: 'Business Briefcases', links: ['All Executive Briefcases', 'Slim Document Portfolios'] },
+          { title: 'Garment Carriers', links: ['Foldable Suit & Dress Bags'] }
+        ],
+        col2: [
+          { title: 'Commuter Totes', links: [{ label: 'Trolley-Sleeve Work Totes', tag: 'New' }] },
+          { title: 'Wash & Vanity Bags', links: ['Waterproof Hanging Organizers'] },
+          {
+            title: 'Travel Organization',
+            links: [
+              'Compression Packing Cubes',
+              'RFID Passport & Ticket Wallets',
+              'Jewelry Roll & Watch Cases',
+              '3-Piece Weekender Gift Sets',
+              'Luggage Care & Leather Balm'
+            ]
+          }
+        ],
+        col3: [
+          { title: 'Gym & Athleisure', links: ['Shoe-Compartment Gym Totes'] },
+          {
+            title: 'Bundle Offers',
+            links: [
+              { label: 'Weekender + Washbag Duo', tag: 'Save £30', hot: true },
+              'Travel Set of the Month'
+            ]
+          },
+          { title: 'Luggage Tags', links: ['Monogrammed Leather Tags'] },
+          { title: 'Travel Locks & Straps', links: ['TSA Combination Locks', 'Adjustable Cross-Luggage Straps'] }
+        ],
+        spotlight: {
+          badge: 'SPECIAL OFFER',
+          title: 'Heritage Cabin Weekender',
+          price: '£94.99',
+          oldPrice: '£130.00',
+          img: 'https://images.unsplash.com/photo-1590874103328-eac38a683ce7?auto=format&fit=crop&w=500&q=85',
+          tint: ''
+        }
+      },
+      accessories: {
+        col1: [
+          { title: 'Wallets & Purses', links: ['Zip-Around Continental Wallets', 'Compact Bi-Fold Purses'] },
+          { title: 'Card & Coin Cases', links: ['RFID Pop-Up Cardholders', 'Kiss-Lock Leather Coin Purses'] },
+          { title: 'Bag Straps', links: ['All Detachable Guitar Straps', 'Braided Leather Handles'] },
+          { title: 'Key Holders', links: ['6-Ring Leather Key Cases'] }
+        ],
+        col2: [
+          { title: 'Bag Charms & Scarves', links: [{ label: 'Silk Handle Twilly Scarves', tag: 'New' }] },
+          { title: 'Inner Bag Organizers', links: ['Felt Tote Insert Organizers'] },
+          {
+            title: 'Leather Care Range',
+            links: [
+              'Organic Beeswax Leather Cream',
+              'Water & Stain Repellent Spray',
+              'Suede Eraser & Brush Kits',
+              'Complete Care Gift Box',
+              'Dust Bags & Pillow Shapers'
+            ]
+          }
+        ],
+        col3: [
+          { title: 'Tech Accessories', links: ['Leather AirPods & Laptop Sleeves'] },
+          {
+            title: 'Gift Ideas',
+            links: [
+              { label: 'Luxury Gift Sets Under £50', tag: 'Gift', hot: true },
+              'Personalized Monogram Gifts'
+            ]
+          },
+          { title: 'Cosmetic Pouches', links: ['Quilted Makeup & Brush Bags'] },
+          { title: 'Hardware & Chains', links: ['Gold Bag Extender Chains', 'Replacement Clasp Rings'] }
+        ],
+        spotlight: {
+          badge: 'SPECIAL OFFER',
+          title: 'Artisan Leather Care & Strap Set',
+          price: '£29.99',
+          oldPrice: '£45.00',
+          img: 'https://images.unsplash.com/photo-1590874103328-eac38a683ce7?auto=format&fit=crop&w=500&q=85',
+          tint: 'tint-beige'
+        }
+      },
+      offers: {
+        col1: [
+          { title: 'Clearance Handbags', links: ['Up to 40% Off Leather Totes', 'Last-Chance Shoulder Bags'] },
+          { title: 'Backpack Deals', links: ['Student & Commuter Bundles', '20% Off Anti-Theft Packs'] },
+          { title: 'Outlet Price Drops', links: ['All Bags Under £50', 'All Bags Under £75'] },
+          { title: 'Flash Sale Clutches', links: ['Evening & Bridal Markdowns'] }
+        ],
+        col2: [
+          { title: 'Bundle & Save', links: [{ label: 'Tote + Matching Purse Set', tag: 'Save 30%', hot: true }] },
+          { title: 'Seasonal Promotions', links: ['Mid-Season Pastel Collection'] },
+          {
+            title: 'Multi-Buy Offers',
+            links: [
+              '2 Crossbody Bags for £99',
+              '3 Bag Straps for the Price of 2',
+              'Free Leather Cream with Totes',
+              'Student 15% Extra Discount',
+              'Gift Wrapping Included Deals'
+            ]
+          }
+        ],
+        col3: [
+          { title: 'Limited Stock', links: ['Archive Sample Sale Bags'] },
+          {
+            title: 'Star Deals',
+            links: [
+              { label: 'Bag of the Month (-35%)', tag: 'Hot', hot: true },
+              'Weekend Flash Specials'
+            ]
+          },
+          { title: 'Discounted Wallets', links: ['Half-Price Leather Purses'] },
+          { title: 'Accessory Add-Ons', links: ['Charms & Scarves from £9.99', 'Clearance Travel Pouches'] }
+        ],
+        spotlight: {
+          badge: 'SPECIAL OFFER',
+          title: 'Travel Lite Anti-Theft Backpack',
+          price: '£59.99',
+          oldPrice: '£100.00',
+          img: 'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&w=500&q=85',
+          tint: 'tint-beige'
+        }
       }
+    };
+
+    const megaDropdown = document.getElementById('mega-dropdown');
+    const megaTriggerItems = document.querySelectorAll('.nav-links > li.has-mega');
+    const deptTabs = document.querySelectorAll('.mega-dept-tab');
+    const cartBadge = document.getElementById('cart-badge');
+    const toastNotice = document.getElementById('toast-notice');
+    const toastText = document.getElementById('toast-text');
+    const activeFilterBar = document.getElementById('active-filter-bar');
+    const activeFilterName = document.getElementById('active-filter-name');
+    const catalogHeading = document.getElementById('catalog-heading');
+
+    let cartCount = 1;
+    let toastTimer = null;
+    let closeTimeout = null;
+
+    function showToast(message) {
+      toastText.textContent = message;
+      toastNotice.classList.add('show');
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        toastNotice.classList.remove('show');
+      }, 2800);
+    }
+
+    function renderColumn(colEl, groups) {
+      colEl.innerHTML = groups.map(group => {
+        const itemsHtml = group.links.map(item => {
+          if (typeof item === 'string') {
+            return `<li><a href="#most-viewed" class="mega-link" data-category="${item}">${item}</a></li>`;
+          }
+          const hotClass = item.hot ? ' hot' : '';
+          return `<li><a href="#most-viewed" class="mega-link" data-category="${item.label}">${item.label} <span class="mega-link-tag${hotClass}">${item.tag}</span></a></li>`;
+        }).join('');
+        return `
+          <div class="mega-group">
+            <h4 class="mega-group-title">${group.title}</h4>
+            <ul class="mega-group-list">${itemsHtml}</ul>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function switchMegaDepartment(deptKey) {
+      const data = MEGA_DEPARTMENTS[deptKey] || MEGA_DEPARTMENTS.handbags;
+      deptTabs.forEach(tab => {
+        tab.classList.toggle('active', tab.getAttribute('data-dept-tab') === deptKey);
+      });
+
+      renderColumn(document.getElementById('mega-col-1'), data.col1);
+      renderColumn(document.getElementById('mega-col-2'), data.col2);
+      renderColumn(document.getElementById('mega-col-3'), data.col3);
+
+      const spotImg = document.getElementById('spotlight-img');
+      spotImg.src = data.spotlight.img;
+      spotImg.className = data.spotlight.tint || '';
+      spotImg.alt = data.spotlight.title;
+      document.getElementById('spotlight-badge').textContent = data.spotlight.badge;
+      document.getElementById('spotlight-title').textContent = data.spotlight.title;
+      document.getElementById('spotlight-price').textContent = data.spotlight.price;
+      document.getElementById('spotlight-old-price').textContent = data.spotlight.oldPrice;
+      document.getElementById('mega-add-cart-btn').setAttribute('data-product', data.spotlight.title);
+    }
+
+    function openMegaMenu(navItem) {
+      if (closeTimeout) clearTimeout(closeTimeout);
+      megaDropdown.classList.add('is-open');
+      megaTriggerItems.forEach(li => li.classList.remove('mega-open'));
+      if (navItem) {
+        navItem.classList.add('mega-open');
+        const dept = navItem.getAttribute('data-dept');
+        if (dept) switchMegaDepartment(dept);
+      }
+    }
+
+    function closeMegaMenu() {
+      megaDropdown.classList.remove('is-open');
+      megaTriggerItems.forEach(li => li.classList.remove('mega-open'));
+    }
+
+    // Hover & Click on SHOP / CATEGORIES / OFFERS nav items
+    megaTriggerItems.forEach(item => {
+      item.addEventListener('mouseenter', () => openMegaMenu(item));
+      item.addEventListener('mouseleave', () => {
+        closeTimeout = setTimeout(closeMegaMenu, 220);
+      });
+      const triggerLink = item.querySelector('.mega-trigger');
+      triggerLink.addEventListener('click', e => {
+        e.preventDefault();
+        const isCurrentlyOpen = megaDropdown.classList.contains('is-open') && item.classList.contains('mega-open');
+        if (isCurrentlyOpen) {
+          closeMegaMenu();
+        } else {
+          openMegaMenu(item);
+        }
+      });
     });
 
-    // Footer Newsletter Subscription Interaction
-    const newsletterForm = document.getElementById('footerNewsletterForm');
-    const newsletterEmail = document.getElementById('footerNewsletterEmail');
-    const newsletterFeedback = document.getElementById('footerNewsletterFeedback');
+    megaDropdown.addEventListener('mouseenter', () => {
+      if (closeTimeout) clearTimeout(closeTimeout);
+    });
 
-    if (newsletterForm && newsletterEmail && newsletterFeedback) {
-      newsletterForm.addEventListener('submit', e => {
-        e.preventDefault();
-        const emailVal = newsletterEmail.value.trim();
-        if (!emailVal || !emailVal.includes('@')) {
-          newsletterFeedback.textContent = 'Please enter a valid email address.';
-          newsletterFeedback.style.color = '#f08c8c';
-          newsletterFeedback.classList.add('visible');
-          return;
-        }
-        newsletterFeedback.textContent = 'Thank you for subscribing to Sophie Bag Collection!';
-        newsletterFeedback.style.color = '#1bc6cf';
-        newsletterFeedback.classList.add('visible');
-        newsletterEmail.value = '';
+    megaDropdown.addEventListener('mouseleave', () => {
+      closeTimeout = setTimeout(closeMegaMenu, 220);
+    });
+
+    // Department Tabs inside Mega Dropdown
+    deptTabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const deptKey = tab.getAttribute('data-dept-tab');
+        switchMegaDepartment(deptKey);
       });
-    }
+      tab.addEventListener('mouseenter', () => {
+        const deptKey = tab.getAttribute('data-dept-tab');
+        switchMegaDepartment(deptKey);
+      });
+    });
+
+    // Close button & Escape key
+    document.getElementById('mega-close-btn').addEventListener('click', closeMegaMenu);
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') closeMegaMenu();
+    });
+
+    // Clear Filter Button
+    document.getElementById('clear-filter-btn').addEventListener('click', () => {
+      activeFilterBar.classList.remove('visible');
+      catalogHeading.textContent = 'MOST VIEWED PRODUCTS';
+      showToast('Showing all bag collections');
+    });
+
+    // Event Delegation for Links, Category Selections, Add-to-Cart, and Product Cards
+    document.addEventListener('click', e => {
+      const addCartBtn = e.target.closest('#mega-add-cart-btn');
+      if (addCartBtn) {
+        const prodName = addCartBtn.getAttribute('data-product') || 'Special Offer Bag';
+        cartCount += 1;
+        cartBadge.textContent = String(cartCount);
+        cartBadge.classList.remove('bump');
+        void cartBadge.offsetWidth;
+        cartBadge.classList.add('bump');
+        setTimeout(() => cartBadge.classList.remove('bump'), 300);
+        showToast(`Added "${prodName}" to your cart!`);
+        return;
+      }
+
+      const categoryLink = e.target.closest('[data-category]');
+      if (categoryLink) {
+        const catName = categoryLink.getAttribute('data-category');
+        activeFilterName.textContent = catName;
+        activeFilterBar.classList.add('visible');
+        catalogHeading.textContent = catName.toUpperCase();
+        closeMegaMenu();
+        showToast(`Browsing ${catName}`);
+        return;
+      }
+
+      const productCard = e.target.closest('.product-card');
+      if (productCard) {
+        const prodName = productCard.getAttribute('data-product');
+        cartCount += 1;
+        cartBadge.textContent = String(cartCount);
+        cartBadge.classList.add('bump');
+        setTimeout(() => cartBadge.classList.remove('bump'), 300);
+        showToast(`Added "${prodName}" to your cart!`);
+        return;
+      }
+
+      const iconAction = e.target.closest('[data-action]');
+      if (iconAction) {
+        e.preventDefault();
+        const act = iconAction.getAttribute('data-action');
+        if (act === 'cart') {
+          showToast(`You have ${cartCount} item(s) in your shopping bag.`);
+        } else if (act === 'search') {
+          openMegaMenu(megaTriggerItems[0]);
+          showToast('Explore categories in the menu above');
+        } else {
+          showToast('Store currency: GBP (£)');
+        }
+        return;
+      }
+
+      // Close mega menu if clicking outside header
+      if (!e.target.closest('#site-header')) {
+        closeMegaMenu();
+      }
+    });
   </script>
 </body>
 </html>

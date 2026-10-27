@@ -17,6 +17,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Setting;
+use App\Models\ShippingRate;
 use App\Models\StockLevel;
 use App\Models\User;
 use App\Services\CartService;
@@ -28,6 +29,7 @@ use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -106,11 +108,13 @@ class StoreOrderFlowTest extends TestCase
         $headers = ['X-Cart-Session' => $token];
         $this->withHeaders($headers)->postJson('/api/v1/store/cart/coupon', ['code' => 'save10'])
             ->assertOk()->assertJsonPath('data.coupon_discount', 40);
+        $this->postJson('/api/v1/store/checkout/shipping-options', ['city_id' => $city->id, 'payment_method' => 'cod'])
+            ->assertOk()->assertJsonPath('data.preview.grand_total', 390)->assertJsonPath('data.preview.coupon_discount', 40);
 
         $response = $this->withHeaders($headers)->postJson('/api/v1/store/checkout', [
             'recipient_name' => 'ضيف', 'recipient_phone' => '01012345678',
             'city_id' => $city->id, 'shipping_address_line' => 'شارع التحرير',
-            'payment_method' => 'cod',
+            'payment_method' => 'cod', 'expected_total' => 390,
         ])->assertCreated();
 
         $response->assertJsonPath('data.subtotal', '400.00')
@@ -275,7 +279,8 @@ class StoreOrderFlowTest extends TestCase
         $draft = ProductVariant::factory()->create(['retail_price' => 100]);
         $this->postJson('/api/v1/store/cart/items', ['product_variant_id' => $draft->id, 'qty' => 1])->assertUnprocessable();
         $this->putJson('/api/v1/store/cart/items/123', ['qty' => 1])->assertNotFound();
-        $this->deleteJson('/api/v1/store/cart/items/123')->assertNotFound();
+        // L10: deletes are idempotent — a missing cart already satisfies them.
+        $this->deleteJson('/api/v1/store/cart/items/123')->assertNoContent();
         $this->deleteJson('/api/v1/store/cart/coupon')->assertNotFound();
         $this->postJson('/api/v1/store/cart/coupon', ['code' => 'INVALID'])->assertNotFound();
         $this->assertDatabaseCount('carts', 0);
@@ -305,8 +310,14 @@ class StoreOrderFlowTest extends TestCase
         $item = CartItem::factory()->create(['cart_id' => $cart->id, 'product_variant_id' => $live->id]);
         // Bypass model events to exercise historical orphaned rows as well.
         DB::table('product_variants')->where('id', $deleted->id)->update(['deleted_at' => now()]);
-        $this->withHeaders(['X-Cart-Session' => $cart->cart_token])->getJson('/api/v1/store/cart/items')
-            ->assertOk()->assertJsonCount(1, 'data.items')->assertJsonPath('data.items.0.id', $item->id);
+        // L1: the soft-deleted line stays visible as unavailable so the
+        // shopper can remove it, instead of vanishing silently.
+        $response = $this->withHeaders(['X-Cart-Session' => $cart->cart_token])->getJson('/api/v1/store/cart/items')
+            ->assertOk()->assertJsonCount(2, 'data.items');
+        $ghost = collect($response->json('data.items'))->firstWhere('product_variant_id', $deleted->id);
+        $this->assertFalse($ghost['priced']);
+        $this->assertSame(0, (int) $ghost['max_qty']);
+        $this->assertSame($item->id, collect($response->json('data.items'))->firstWhere('product_variant_id', $live->id)['id']);
         $live->delete();
         $this->assertDatabaseMissing('cart_items', ['id' => $item->id]);
         $this->deleteJson('/api/v1/store/cart/items')->assertOk()->assertJsonPath('data.items', []);
@@ -332,7 +343,14 @@ class StoreOrderFlowTest extends TestCase
         $this->assertSame(741.0, $result['totals']['total']);
         $priceQueries = array_filter($queries, fn ($query) => str_contains($query['query'], 'from "price_list_items"'));
         $this->assertCount(1, $priceQueries);
-        $this->assertLessThanOrEqual(8, count($queries));
+        // present() also eager-loads product/variant `images` media for the
+        // cart thumbnails: constant prefetches, still O(1) in lines (no N+1 —
+        // twenty lines with a per-line query would exceed this bound).
+        $this->assertLessThanOrEqual(10, count($queries));
+        // Phase 3.1 display contract: every line carries the card fields.
+        foreach (['product_slug', 'product_name_en', 'image', 'color', 'size'] as $key) {
+            $this->assertArrayHasKey($key, $result['items'][0]);
+        }
     }
 
     public function test_updating_a_removed_item_does_not_reinsert_it(): void
@@ -348,6 +366,106 @@ class StoreOrderFlowTest extends TestCase
         } catch (ModelNotFoundException) {
             $this->assertDatabaseMissing('cart_items', ['cart_id' => $cart->id]);
         }
+    }
+
+    public function test_daily_phone_quota_counts_only_committed_orders_and_not_idempotent_retries(): void
+    {
+        $variant = $this->purchasableVariant(100);
+        $this->giveStock($variant, 20);
+        $cart = Cart::factory()->create();
+        CartItem::factory()->create(['cart_id' => $cart->id, 'product_variant_id' => $variant->id, 'qty' => 1]);
+        $phone = '01012345678';
+        $key = 'checkout-phone-day:'.hash('sha256', Customer::normalizePhone($phone));
+        $data = [
+            'recipient_name' => 'ضيف', 'recipient_phone' => $phone, 'city_id' => City::factory()->create()->id,
+            'shipping_address_line' => 'عنوان', 'payment_method' => 'cod', 'idempotency_key' => 'phone-quota-retry',
+        ];
+        RateLimiter::clear($key);
+        $service = app(OrderService::class);
+        try {
+            DB::transaction(function () use ($service, $cart, $data): void {
+                $service->createFromCart($cart, $data);
+                throw new \RuntimeException('Rollback the outer transaction');
+            });
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('Rollback the outer transaction', $exception->getMessage());
+        }
+        $this->assertSame(0, RateLimiter::attempts($key));
+        $order = $service->createFromCart($cart->fresh(), $data);
+        $this->assertSame(1, RateLimiter::attempts($key));
+        $this->assertSame($order->id, $service->createFromCart($cart->fresh(), $data)->id);
+        $this->assertSame(1, RateLimiter::attempts($key));
+    }
+
+    public function test_shipping_preview_matches_committed_order_and_replay_after_cart_is_empty(): void
+    {
+        Setting::query()->where('key', 'tax_enabled')->update(['value' => '1']);
+        $variant = $this->purchasableVariant(200);
+        $this->giveStock($variant, 10);
+        $city = City::factory()->create(['shipping_cost' => 30]);
+        $rate = ShippingRate::factory()->create(['base_cost' => 35, 'cod_fee' => 12]);
+        $rate->zone->cities()->attach($city);
+        Coupon::factory()->create(['code' => 'SHIPFREE', 'type' => 'free_shipping', 'value' => 0]);
+        $added = $this->postJson('/api/v1/store/cart/items', [
+            'product_variant_id' => $variant->id, 'qty' => 2,
+        ])->assertOk();
+        $this->withHeader('X-Cart-Session', $added->json('data.cart_token'));
+        $this->postJson('/api/v1/store/cart/coupon', ['code' => 'SHIPFREE'])->assertOk();
+        $cart = $this->getJson('/api/v1/store/cart/items')->assertOk();
+        $cart->assertJsonStructure(['data' => ['items' => [['product_slug', 'product_name_en', 'image', 'color', 'size']]]]);
+        $quote = $this->postJson('/api/v1/store/checkout/shipping-options', ['city_id' => $city->id, 'payment_method' => 'cod'])
+            ->assertOk()->assertJsonPath('data.preview.shipping', 0)
+            ->assertJsonPath('data.preview.cod_fee', 12)->assertJsonPath('data.preview.tax', 56)
+            ->assertJsonPath('data.preview.grand_total', 468)->assertJsonPath('data.payment_methods', ['cod']);
+        $payload = ['recipient_name' => 'Integration shopper', 'recipient_phone' => '01012345678',
+            'city_id' => $city->id, 'shipping_address_line' => 'Integration address', 'payment_method' => 'cod',
+            'expected_total' => $quote->json('data.preview.grand_total')];
+        $this->withHeader('Idempotency-Key', 'storefront-real-integration-order');
+        $order = $this->postJson('/api/v1/store/checkout', $payload)->assertCreated()
+            ->assertJsonPath('data.grand_total', '468.00');
+        $this->postJson('/api/v1/store/checkout', $payload)->assertCreated()->assertJsonPath('data.id', $order->json('data.id'));
+        $this->assertSame(1, Order::query()->count());
+        $this->getJson('/api/v1/store/cart/items')->assertOk()->assertJsonPath('data.items', []);
+
+        if (getenv('CAPTURE_STOREFRONT_SAMPLES') === '1') {
+            $directory = base_path('../docs/api-samples');
+            foreach (['categories' => $this->getJson('/api/v1/store/categories')->assertOk()->json(),
+                'cities' => $this->getJson('/api/v1/store/cities')->assertOk()->json(),
+                'cart-items' => $cart->json(), 'shipping-options' => $quote->json()] as $name => $body) {
+                file_put_contents($directory.'/'.$name.'.json', json_encode($body, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES).PHP_EOL);
+            }
+        }
+    }
+
+    public function test_shipping_preview_uses_allowed_payment_method_when_cod_is_disabled(): void
+    {
+        config(['store.payment_methods' => ['card']]);
+        $city = City::factory()->create();
+        $rate = ShippingRate::factory()->create(['base_cost' => 35, 'cod_fee' => 12]);
+        $rate->zone->cities()->attach($city);
+        $this->postJson('/api/v1/store/checkout/shipping-options', ['city_id' => $city->id, 'payment_method' => 'cod'])
+            ->assertOk()->assertJsonPath('data.payment_methods', ['card'])->assertJsonPath('data.preview.cod_fee', 0);
+    }
+
+    public function test_checkout_saves_a_default_address_and_address_endpoint_is_scoped_to_its_owner(): void
+    {
+        $customer = Customer::factory()->create(['type' => 'retail', 'status' => 'approved']);
+        $other = Customer::factory()->create(['type' => 'retail', 'status' => 'approved']);
+        $variant = $this->purchasableVariant(100);
+        $this->giveStock($variant, 10);
+        $city = City::factory()->create(['shipping_cost' => 30]);
+        $other->addresses()->create(['city_id' => $city->id, 'address_line' => 'Other private address', 'is_default' => true]);
+        $this->withToken($customer->createToken('integration-checkout')->plainTextToken);
+        $this->postJson('/api/v1/store/cart/items', ['product_variant_id' => $variant->id, 'qty' => 1])->assertOk();
+        $this->postJson('/api/v1/store/checkout', ['recipient_name' => $customer->name, 'recipient_phone' => $customer->phone,
+            'city_id' => $city->id, 'shipping_address_line' => 'My saved address', 'payment_method' => 'cod', 'expected_total' => 130,
+        ])->assertCreated();
+        $this->getJson('/api/v1/store/account/addresses')->assertOk()->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.address_line', 'My saved address')->assertJsonPath('data.0.is_default', true);
+        Auth::forgetGuards();
+        $this->withToken($other->createToken('integration-other')->plainTextToken)
+            ->getJson('/api/v1/store/account/addresses')->assertOk()->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.address_line', 'Other private address');
     }
 
     private function purchasableVariant(float $price): ProductVariant

@@ -16,7 +16,9 @@ use App\Models\Coupon;
 use App\Models\Customer;
 use App\Services\CartService;
 use App\Services\OrderService;
+use App\Services\SettingService;
 use App\Services\ShippingQuoteService;
+use App\Services\StorePaymentPolicy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -27,6 +29,8 @@ class CheckoutController extends Controller
         private readonly CartService $carts,
         private readonly OrderService $orders,
         private readonly ShippingQuoteService $shippingQuote,
+        private readonly SettingService $settings,
+        private readonly StorePaymentPolicy $paymentPolicy,
     ) {}
 
     public function shippingOptions(ShippingOptionsRequest $request): JsonResponse
@@ -39,7 +43,10 @@ class CheckoutController extends Controller
         // نفس المدخلات التي سيحاسب عليها إتمام الشراء (M12 + F-29): البضاعة
         // بعد خصم الكوبون، ورسوم COD حسب طريقة الدفع الفعلية لا cod دائمًا
         $merchandise = max($totals['items_total'] - $totals['coupon_discount'], 0.0);
-        $cod = ($validated['payment_method'] ?? 'cod') === 'cod';
+        $methods = $this->paymentPolicy->allowedFor($customer);
+        $method = in_array($validated['payment_method'] ?? null, $methods, true)
+            ? $validated['payment_method'] : ($methods[0] ?? null);
+        $cod = $method === 'cod';
         $quote = $this->shippingQuote->quoteForCity($city->id, $merchandise, $cod);
         $rate = $quote['rate'];
 
@@ -52,16 +59,37 @@ class CheckoutController extends Controller
 
         $days = $rate !== null ? "من {$rate->estimated_days_min} إلى {$rate->estimated_days_max} أيام عمل" : null;
 
+        // معاينة الإجمالي بنفس معادلة OrderService::createFromCart (شاملة
+        // الكوبون والشحن المجاني وCOD والضريبة) — الفرونت يعرضها ويُرسلها
+        // كـ expected_total، فأي تغيّر سعري يُرفض بـ price_changed بدل تحصيل صامت.
+        $discountAmount = round($totals['pricing_discount'] + $totals['coupon_discount'], 2);
+        $taxAmount = 0.0;
+        if (filter_var($this->settings->get('tax_enabled', false), FILTER_VALIDATE_BOOLEAN)
+            && ! filter_var($this->settings->get('prices_include_tax', false), FILTER_VALIDATE_BOOLEAN)) {
+            $taxRate = (float) $this->settings->get('default_tax_rate', 0);
+            $taxAmount = round(($totals['subtotal'] - $discountAmount) * $taxRate / 100, 2);
+        }
+        $grandTotal = round(($totals['subtotal'] - $discountAmount) + $cost + $quote['cod_fee'] + $taxAmount, 2);
+
         return response()->json(['data' => [
             'city' => ['id' => $city->id, 'name_ar' => $city->name_ar, 'name_en' => $city->name_en],
             'cart_total' => $totals['total'],
+            'payment_methods' => $methods,
+            'preview' => [
+                'items_total' => $totals['items_total'],
+                'coupon_discount' => $totals['coupon_discount'],
+                'shipping' => $cost,
+                'cod_fee' => $quote['cod_fee'],
+                'tax' => $taxAmount,
+                'grand_total' => $grandTotal,
+            ],
             'options' => [[
                 'key' => 'standard',
                 'label' => 'شحن قياسي',
                 'cost' => $cost,
                 'cod_fee' => $quote['cod_fee'],
                 'currency' => 'EGP',
-                'estimated_days' => $days ?? 'من 2 إلى 4 أيام عمل',
+                'estimated_days' => $days,
             ]],
         ]]);
     }

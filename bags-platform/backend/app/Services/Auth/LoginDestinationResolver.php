@@ -45,12 +45,15 @@ final class LoginDestinationResolver
             if ($actor->status === CustomerStatus::Rejected) {
                 return ['app' => 'web', 'path' => '/wholesale/application-status', 'destination' => 'wholesale_pending'];
             }
+            // safe() كما هي: أي redirect آمن (مثل /checkout) له الأولوية،
+            // والافتراضي من الإعدادات لا من '/' الثابت.
+            $home = (string) config('store.retail_home', '/shop');
             $path = $this->safe($requested, '/');
             if ($path !== null && (str_starts_with($path, '/wholesale') || str_starts_with($path, '/supplier') || str_starts_with($path, '/auth'))) {
                 $path = null;
             }
 
-            return ['app' => 'web', 'path' => $path ?? '/', 'destination' => 'retail'];
+            return ['app' => 'web', 'path' => $path ?? $home, 'destination' => 'retail'];
         }
 
         if ($actor->status === CustomerStatus::Approved) {

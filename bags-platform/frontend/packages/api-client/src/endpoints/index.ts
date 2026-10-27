@@ -1,7 +1,8 @@
 export * from './inventory';
+export * from './operations';
 
 import { createApiClient, defaultApiClient as apiClient } from '../axios-instance';
-import type { PublicBranding, StoreCart } from '../types';
+import type { CartCouponResponse, CheckoutPayload, CheckoutResponse, PublicBranding, ShippingOptionsResponse, StoreCart, StoreCity, StoreOrder, TrackOrderResponse } from '../types';
 
 const publicApiClient = createApiClient({ getToken: () => null, onUnauthorized: () => {} });
 
@@ -15,13 +16,15 @@ export const brandingEndpoints = {
 
 const cartHeaders = (session: string | null) => session ? { 'X-Cart-Session': session } : {};
 export const cartEndpoints = {
-  clear: (session: string | null) => apiClient.delete<{ data: StoreCart }>('/api/v1/store/cart/items', { headers: cartHeaders(session) }).then(response => response.data.data),
+  clear: (session: string | null) => apiClient.delete<{ data: StoreCart }>('/api/v1/store/cart/items', { headers: cartHeaders(session) }).then(response => response.status === 204 ? cartEndpoints.get(session) : response.data.data),
   get: (session: string | null) => apiClient.get<{ data: StoreCart }>('/api/v1/store/cart/items', { headers: cartHeaders(session) }).then(response => response.data.data),
   add: (variantId: number, qty: number, session: string | null) => apiClient.post<{ data: StoreCart }>('/api/v1/store/cart/items', { product_variant_id: variantId, qty }, { headers: cartHeaders(session) }).then(response => response.data.data),
   update: (id: number, qty: number, session: string | null) => apiClient.put<{ data: StoreCart }>(`/api/v1/store/cart/items/${id}`, { qty }, { headers: cartHeaders(session) }).then(response => response.data.data),
-  remove: (id: number, session: string | null) => apiClient.delete<{ data: StoreCart }>(`/api/v1/store/cart/items/${id}`, { headers: cartHeaders(session) }).then(response => response.data.data),
+  remove: (id: number, session: string | null) => apiClient.delete<{ data: StoreCart }>(`/api/v1/store/cart/items/${id}`, { headers: cartHeaders(session) }).then(response => response.status === 204 ? cartEndpoints.get(session) : response.data.data),
+  applyCoupon: (code: string, session: string | null) => apiClient.post<{ data: CartCouponResponse }>('/api/v1/store/cart/coupon', { code }, { headers: cartHeaders(session) }).then(response => response.data.data),
+  removeCoupon: (session: string | null) => apiClient.delete<{ data: StoreCart }>('/api/v1/store/cart/coupon', { headers: cartHeaders(session) }).then(response => response.data.data),
 };
-import type { AdminBrand, AdminCategory, AdminMedia, AdminProduct, AdminVariant, BrandPayload, CategoryPayload, CategoryReorderItem, ProductPayload, ProductStatus, ResourceCollection, SalesChannel, StoreHomeData, VariantPayload } from '../types';
+import type { AdminBrand, AdminCategory, AdminMedia, AdminProduct, AdminVariant, BrandPayload, CategoryPayload, CategoryReorderItem, ProductPayload, ProductStatus, ResourceCollection, SalesChannel, StoreCatalogFilters, StoreCategory, StoreHomeData, StoreProduct, StoreProductCard, StoreProductListParams, VariantPayload } from '../types';
 
 export type ActorType = 'staff' | 'supplier' | 'customer';
 export type Destination = 'admin' | 'pos' | 'supplier' | 'wholesale' | 'wholesale_pending' | 'retail';
@@ -103,6 +106,8 @@ export const API_ENDPOINTS = {
     HOME: '/api/v1/store/home',
     PRODUCTS: '/api/v1/store/products',
     CATEGORIES: '/api/v1/store/categories',
+    CATALOG_FILTERS: '/api/v1/store/catalog/filters',
+    SHOWCASE: '/api/v1/store/showcase',
     CART: '/api/v1/store/cart',
     CHECKOUT: '/api/v1/store/checkout',
     ORDERS: '/api/v1/store/orders',
@@ -122,8 +127,38 @@ export const API_ENDPOINTS = {
 } as const;
 
 export const storeEndpoints = {
-  home: () =>
-    apiClient.get<{ data: StoreHomeData }>(API_ENDPOINTS.STORE.HOME).then((r) => r.data.data),
+  home: () => apiClient.get<{ data: StoreHomeData }>(API_ENDPOINTS.STORE.HOME).then((r) => r.data.data),
+  categories: (signal?: AbortSignal) =>
+    apiClient.get<{ data: StoreCategory[] }>(API_ENDPOINTS.STORE.CATEGORIES, { signal }).then((r) => r.data.data),
+  products: (params: StoreProductListParams, signal?: AbortSignal) =>
+    apiClient.get<ResourceCollection<StoreProductCard>>(API_ENDPOINTS.STORE.PRODUCTS, { params, signal }).then((r) => r.data),
+  product: (slug: string, signal?: AbortSignal) =>
+    apiClient.get<{ data: StoreProduct }>(`${API_ENDPOINTS.STORE.PRODUCTS}/${encodeURIComponent(slug)}`, { signal }).then((r) => r.data.data),
+  similar: (slug: string, signal?: AbortSignal) =>
+    apiClient.get<{ data: StoreProductCard[] }>(`${API_ENDPOINTS.STORE.PRODUCTS}/${encodeURIComponent(slug)}/similar`, { signal }).then((r) => r.data.data),
+  filters: (params: StoreProductListParams, signal?: AbortSignal) =>
+    apiClient.get<{ data: StoreCatalogFilters }>(API_ENDPOINTS.STORE.CATALOG_FILTERS, { params, signal }).then((r) => r.data.data),
+  showcase: (signal?: AbortSignal) =>
+    apiClient.get<{ data: StoreProduct[] }>(API_ENDPOINTS.STORE.SHOWCASE, { signal }).then((r) => r.data.data),
+};
+
+export const checkoutEndpoints = {
+  cities: () => apiClient.get<{ data: StoreCity[] }>('/api/v1/store/cities').then((r) => r.data.data),
+  shippingOptions: (body: { city_id: number; payment_method?: string }, session: string | null, signal?: AbortSignal) =>
+    apiClient.post<{ data: ShippingOptionsResponse }>('/api/v1/store/checkout/shipping-options', body, { headers: cartHeaders(session), signal }).then((r) => r.data.data),
+  place: (body: CheckoutPayload, session: string | null, idempotencyKey: string) =>
+    apiClient.post<CheckoutResponse>('/api/v1/store/checkout', body, {
+      headers: { ...cartHeaders(session), 'Idempotency-Key': idempotencyKey },
+    }).then((r) => r.data),
+  track: (number: string, phone?: string) => apiClient.get<{ data: TrackOrderResponse }>(`/api/v1/store/orders/${encodeURIComponent(number)}/track`, { params: phone ? { phone } : {} }).then((r) => r.data.data),
+};
+
+export const accountEndpoints = {
+  orders: () => apiClient.get<{ data: StoreOrder[] }>('/api/v1/store/account/orders').then((r) => r.data.data),
+  cancelOrder: (id: number) => apiClient.post<{ data: StoreOrder }>(`/api/v1/store/account/orders/${id}/cancel`).then((r) => r.data.data),
+  wallet: () => apiClient.get<{ balance: number | string; transactions: Array<{ id: number; type: string; amount: number | string; created_at: string }> }>('/api/v1/store/account/wallet').then((r) => r.data),
+  returns: () => apiClient.get<{ data: Array<{ id: number; status: string; created_at: string }> }>('/api/v1/store/account/returns').then((r) => r.data.data),
+  addresses: () => apiClient.get<{ data: Array<{ id: number; city_id: number; city_name_ar: string | null; city_name_en: string | null; address_line: string; is_default: boolean }> }>('/api/v1/store/account/addresses').then((r) => r.data.data),
 };
 
 const MULTIPART = { headers: { 'Content-Type': 'multipart/form-data' } };

@@ -4,9 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Store\Checkout;
 
-use App\Enums\CustomerStatus;
-use App\Enums\CustomerType;
 use App\Models\Customer;
+use App\Services\StorePaymentPolicy;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -39,21 +38,9 @@ class CheckoutRequest extends FormRequest
     /** @return array<int, string> */
     private function allowedPaymentMethods(): array
     {
-        $configured = array_values(array_filter((array) config('store.payment_methods', ['cod'])));
-        $walletEnabled = in_array('wallet', $configured, true);
-        $methods = array_values(array_filter($configured, fn ($method) => $method !== 'wallet'));
-
-        // المحفظة من الإعدادات فقط، ولعملاء معتمدين. إيقافها يتم بحذفها من STORE_PAYMENT_METHODS.
+        // المصدر الوحيد: StorePaymentPolicy (مشترك مع معاينة shipping-options).
         $user = auth('sanctum')->user();
-        if ($walletEnabled && $user instanceof Customer && $user->status === CustomerStatus::Approved) {
-            $methods[] = 'wallet';
-        }
-        if ($user instanceof Customer
-            && $user->status === CustomerStatus::Approved
-            && in_array($user->type, [CustomerType::Wholesale, CustomerType::Distributor], true)) {
-            $methods[] = 'credit';
-        }
 
-        return array_values(array_unique($methods));
+        return app(StorePaymentPolicy::class)->allowedFor($user instanceof Customer ? $user : null);
     }
 }

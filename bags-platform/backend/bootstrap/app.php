@@ -71,9 +71,12 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->render(function (QueryException $e, Request $request) {
+            // F7: أخطاء القفل والتزامن (مهلة قفل 55P03، جمود 40P01، فشل
+            // تسلسل 40001) رد مضبوط: 503 للاستعلام الآمن مع Retry-After،
+            // و409 للكتابة حتى لا تُعاد طفرة بلا idempotency تلقائيًا.
             if (($request->is('api/*') || $request->expectsJson())
-                && in_array($e->errorInfo[0] ?? $e->getCode(), ['55P03', '40P01'], true)) {
-                return response()->json(['message' => 'العملية مشغولة بطلب آخر؛ أعد المحاولة بعد لحظات.'], 409);
+                && in_array($e->errorInfo[0] ?? $e->getCode(), ['55P03', '40P01', '40001'], true)) {
+                return response()->json(['message' => 'العملية مشغولة بطلب آخر؛ أعد المحاولة بعد لحظات.'], $request->isMethodSafe() ? 503 : 409)->header('Retry-After', '1');
             }
 
             // M4: حذف مورد له مستخدمون (restrictOnDelete) يرمي 23503 — رد 409

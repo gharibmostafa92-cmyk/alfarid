@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { StoreBanner } from '@alfarid/api-client';
+import { StoreImage } from '../StoreImage';
 
 const PALETTE = ['#dfe6ec', '#ede3de', '#e7e9e1', '#efe6dc'];
 
@@ -13,7 +14,7 @@ function PromoCard({ banner, index, wide, single }: { banner: StoreBanner; index
     <div className={`min-h-[235px] ${single ? 'md:aspect-[16/5]' : ''} ${wide ? 'md:col-span-2' : ''} flex items-stretch overflow-hidden relative group`} style={{ backgroundColor: banner.bg_color || PALETTE[index % PALETTE.length] }}>
       {failed ? <p dir="auto" className="w-full px-6 text-center font-['Poppins'] font-bold text-black">{banner.title}</p> : <>
         <div className={hasText ? 'w-[48%] shrink-0 relative' : 'absolute inset-0'}>
-          <img src={banner.image} alt={banner.title} className="absolute inset-0 w-full h-full object-cover" loading="lazy" onError={() => setFailed(true)} />
+          <StoreImage src={banner.image} alt={banner.title} className="absolute inset-0 w-full h-full object-cover" loading="lazy" onError={() => setFailed(true)} />
         </div>
         {hasText && <div className="flex-1 min-w-0 px-4 sm:px-5 py-5 self-center break-words">
           {banner.kicker && <p dir="auto" className="font-['Oswald'] text-[13px] uppercase text-[#222] tracking-[0.5px] mb-0.5">{banner.kicker}</p>}

@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Models\Product;
+use App\Models\ProductVariant;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Throwable;
 
 /**
@@ -18,7 +21,7 @@ use Throwable;
  */
 class PruneOrphanMediaFiles extends Command
 {
-    protected $signature = 'media:prune-orphans {--disk=r2_public : المجلد العام للكتالوج} {--older-than=60 : عمر المجلد بالدقائق قبل اعتباره يتيمًا} {--dry-run : عرض فقط دون حذف}';
+    protected $signature = 'media:prune-orphans {--disk=r2_public : المجلد العام للكتالوج} {--older-than=60 : عمر المجلد بالدقائق قبل اعتباره يتيمًا} {--dry-run : عرض فقط دون حذف} {--staging-only : تنظيف صفوف الرفع المرحلي دون مسح مجلدات التخزين}';
 
     protected $description = 'Delete orphaned uuid/ media folders with no matching media row';
 
@@ -38,6 +41,32 @@ class PruneOrphanMediaFiles extends Command
         $pruned = 0;
         $skipped = 0;
         $failures = 0;
+
+        // A terminated video upload can leave its staging row behind. Remove
+        // expired staging media so the UUID sweep can reclaim those files too.
+        Media::query()->whereIn('model_type', [Product::class, ProductVariant::class])->whereIn('collection_name', ['video_staging', 'images_staging'])
+            ->where('disk', $diskName)->where('created_at', '<', now()->subMinutes($olderThan))
+            ->chunkById(100, function ($media) use ($dryRun, &$failures): void {
+                foreach ($media as $item) {
+                    if ($dryRun) {
+                        $this->line('Expired staging media: '.$item->id);
+
+                        continue;
+                    }
+                    try {
+                        $item->delete();
+                    } catch (Throwable $exception) {
+                        $failures++;
+                        $this->error('Failed to remove staging media '.$item->id.': '.$exception->getMessage());
+                    }
+                }
+            });
+
+        if ($this->option('staging-only')) {
+            $this->info('Expired staging media processed.');
+
+            return $failures === 0 ? self::SUCCESS : self::FAILURE;
+        }
 
         foreach ($disk->directories('') as $dir) {
             try {

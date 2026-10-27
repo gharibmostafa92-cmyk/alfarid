@@ -6,7 +6,6 @@ namespace App\Services;
 
 use App\Enums\CustomerStatus;
 use App\Enums\CustomerType;
-use App\Enums\ProductStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Cart;
 use App\Models\CartItem;
@@ -14,6 +13,7 @@ use App\Models\Customer;
 use App\Models\ProductVariant;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -25,6 +25,8 @@ use Illuminate\Support\Str;
  */
 class CartService
 {
+    public const MAX_REQUEST_QTY = 10000;
+
     public function __construct(
         protected PricingService $pricing,
         protected StoreCatalogService $catalog,
@@ -155,6 +157,8 @@ class CartService
 
     public function addItem(Cart $cart, ?Customer $customer, int $variantId, float $qty): Cart
     {
+        $this->assertWholeQuantity($qty);
+
         return DB::transaction(function () use ($cart, $customer, $variantId, $qty): Cart {
             // قفل صف السلة (F19): إضافتان متزامنتان تتسلسلان فلا تُحسب
             // الكمية على قراءة قديمة ولا يُتجاوز سقف البنود
@@ -201,6 +205,7 @@ class CartService
 
     public function updateItemQty(Cart $cart, ?Customer $customer, int $variantId, float $qty, ?int $itemId = null): Cart
     {
+        $this->assertWholeQuantity($qty, allowZero: true);
         if ($qty <= 0) {
             return $this->removeItem($cart, $variantId);
         }
@@ -251,11 +256,27 @@ class CartService
     public function pricedLines(Cart $cart, ?Customer $customer): array
     {
         $cart->loadMissing('items.variant.product');
+        $purchasableIds = $this->retailVariants()->whereIn('id', $cart->items->pluck('product_variant_id'))->pluck('id')->all();
         $context = $this->pricing->contextFor($customer, $cart->items->pluck('product_variant_id')->all());
         $lines = [];
         foreach ($cart->items as $item) {
             $variant = $item->variant;
             if ($variant === null) {
+                continue;
+            }
+            // L1: soft-deleted or deactivated variants stay in the response as
+            // unavailable lines so the shopper can remove them.
+            if (! in_array($variant->id, $purchasableIds, true)) {
+                $lines[] = [
+                    'item_id' => $item->id,
+                    'variant' => $variant,
+                    'qty' => (float) $item->qty,
+                    'unit_price' => null,
+                    'base_price' => null,
+                    'line_discount' => 0.0,
+                    'line_total' => 0.0,
+                ];
+
                 continue;
             }
             $qty = (float) $item->qty;
@@ -269,7 +290,8 @@ class CartService
                     'qty' => $qty,
                     'unit_price' => $unit,
                     'base_price' => $base,
-                    'line_discount' => BigDecimal::of((string) $base)->minus((string) $unit)->multipliedBy((string) $qty)->toScale(2, RoundingMode::HalfUp)->toFloat(),
+                    // F20: سعر مخصص أعلى من الأساسي لا يصنع خصمًا سالبًا في السطر.
+                    'line_discount' => max(0.0, BigDecimal::of((string) $base)->minus((string) $unit)->multipliedBy((string) $qty)->toScale(2, RoundingMode::HalfUp)->toFloat()),
                     'line_total' => BigDecimal::of((string) $unit)->multipliedBy((string) $qty)->toScale(2, RoundingMode::HalfUp)->toFloat(),
                 ];
             } catch (BusinessException) {
@@ -307,7 +329,8 @@ class CartService
                 continue;
             }
             // كل سطر يُقرَّب أولًا ثم تُجمع القيم المقرّبة (M17)
-            $subtotalDecimal = $subtotalDecimal->plus(BigDecimal::of((string) $line['base_price'])->multipliedBy((string) $line['qty'])->toScale(2, RoundingMode::HalfUp));
+            $lineSubtotal = BigDecimal::of((string) $line['base_price'])->multipliedBy((string) $line['qty'])->toScale(2, RoundingMode::HalfUp);
+            $subtotalDecimal = $subtotalDecimal->plus($lineSubtotal->isLessThan((string) $line['line_total']) ? (string) $line['line_total'] : $lineSubtotal);
             $itemsDecimal = $itemsDecimal->plus((string) $line['line_total']);
         }
         $subtotal = $subtotalDecimal->toFloat();
@@ -354,13 +377,17 @@ class CartService
      */
     public function assertLinesPurchasable(array $lines): void
     {
-        $ids = array_map(fn (array $line): int => (int) $line['variant']->id, $lines);
-        $variants = ProductVariant::query()->with('product')
-            ->whereIn('id', $ids)->get()->keyBy('id');
         foreach ($lines as $line) {
-            $variant = $variants->get($line['variant']->id) ?? $line['variant'];
-            if (! $variant->is_active || $variant->product === null
-                || $variant->product->status !== ProductStatus::Published || $variant->product->trashed()) {
+            $this->assertWholeQuantity((float) $line['qty']);
+        }
+        $ids = array_map(fn (array $line): int => (int) $line['variant']->id, $lines);
+        // H1: one batched refresh; the purchasability rule is the storefront
+        // published rule (retail channel + active category path), not just
+        // is_active/Published/trashed.
+        $variants = $this->retailVariants()->whereIn('id', $ids)->pluck('id')->all();
+        foreach ($lines as $line) {
+            $variant = $line['variant'];
+            if (! in_array($variant->id, $variants, true)) {
                 throw new BusinessException("الصنف ({$variant->sku}) لم يعد متاحًا للبيع؛ أزله من السلة وأعد المحاولة.");
             }
         }
@@ -389,6 +416,14 @@ class CartService
      */
     public function present(Cart $cart, ?Customer $customer): array
     {
+        // Eager-load display relations up front: product + variant media for the
+        // card image (same `images` collection as StoreProductCardResource via
+        // Product::catalogImages — there is no `catalog` collection). Constant
+        // cost regardless of line count (no N+1).
+        $cart->loadMissing([
+            'items.variant.product.media',
+            'items.variant.product.variants.media',
+        ]);
         $lines = $this->pricedLines($cart, $customer);
         $ids = array_map(fn (array $line): int => (int) $line['variant']->id, $lines);
         $availability = $this->catalog->availabilityMap($ids);
@@ -396,18 +431,33 @@ class CartService
         $items = [];
         foreach ($lines as $line) {
             $variant = $line['variant'];
+            $exact = (float) ($availability[$variant->id] ?? 0);
+            // L2: never expose the exact branch-wide balance; shoppers only
+            // need the purchasable ceiling. Unpriced lines report zero.
+            $maxQty = $line['unit_price'] === null ? 0.0 : $this->maxPurchasableQty($exact, $customer);
+            // Same image rule as StoreProductCardResource::toArray: first of
+            // Product::catalogImages() (product `images`, then active variants'
+            // `images`), thumb conversion when generated, original as fallback.
+            $images = $variant->product !== null ? $variant->product->catalogImages() : collect();
+            $first = $images->first();
             $items[] = [
                 'id' => $line['item_id'],
                 'product_variant_id' => $variant->id,
                 'product_id' => $variant->product_id,
                 'product_name' => $variant->product?->name_ar,
+                'product_slug' => $variant->product?->slug,
+                'product_name_en' => $variant->product?->name_en,
+                'image' => $first && $first->hasGeneratedConversion('thumb') ? $first->getUrl('thumb') : ($first?->getUrl() ?: null),
+                'color' => $variant->color_name_en ?? $variant->color_name_ar,
+                'size' => $variant->size ?? $variant->capacity,
                 'sku' => $variant->sku,
                 'qty' => $line['qty'],
                 'unit_price' => $line['unit_price'],
                 'base_price' => $line['base_price'],
                 'line_discount' => $line['line_discount'],
                 'line_total' => $line['line_total'],
-                'available' => $availability[$variant->id] ?? 0,
+                'available' => $maxQty,
+                'max_qty' => $maxQty,
                 'priced' => $line['unit_price'] !== null,
             ];
         }
@@ -423,13 +473,20 @@ class CartService
 
     private function purchasableVariant(int $variantId): ProductVariant
     {
-        $variant = ProductVariant::query()->with('product')->find($variantId);
-        if ($variant === null || ! $variant->is_active || $variant->product === null
-            || $variant->product->status !== ProductStatus::Published || $variant->product->trashed()) {
+        // H1: the single source of truth is the storefront published rule.
+        $variant = $this->retailVariants()->with('product')->find($variantId);
+        if ($variant === null) {
             throw new BusinessException('الصنف غير متاح للشراء.');
         }
 
         return $variant;
+    }
+
+    /** Use the catalog's visibility query for every retail purchase check. */
+    private function retailVariants(): Builder
+    {
+        return ProductVariant::query()->where('is_active', true)
+            ->whereIn('product_id', $this->catalog->publishedQuery()->withoutEagerLoads()->select('products.id'));
     }
 
     /** سقف كمية البند الواحد (H2): للزوار، وللمسجّلين غير الجملة سقف تجزئة. */
@@ -444,7 +501,7 @@ class CartService
     }
 
     /** سقف كمية السطر الفعّال للهوية: 0 = بلا سقف (عملاء الجملة المعتمدون). */
-    private function lineQtyCap(?Customer $customer): float
+    public function lineQtyCap(?Customer $customer): float
     {
         if ($customer === null) {
             return (float) config('store.guest_max_line_qty', 10);
@@ -455,6 +512,21 @@ class CartService
         }
 
         return (float) config('store.retail_max_line_qty', 50);
+    }
+
+    /** The displayed ceiling also respects the cart API's per-request bound. */
+    public function maxPurchasableQty(float $available, ?Customer $customer): float
+    {
+        $cap = $this->lineQtyCap($customer);
+
+        return max(0.0, min($available, self::MAX_REQUEST_QTY, $cap > 0 ? $cap : self::MAX_REQUEST_QTY));
+    }
+
+    public function assertWholeQuantity(float $qty, bool $allowZero = false): void
+    {
+        if (! is_finite($qty) || floor($qty) !== $qty || $qty < ($allowZero ? 0 : 1)) {
+            throw new BusinessException('الكمية يجب أن تكون عددًا صحيحًا من القطع.');
+        }
     }
 
     private function assertAvailable(int $variantId, float $qty): void

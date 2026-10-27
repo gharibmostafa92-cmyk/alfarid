@@ -67,6 +67,7 @@ class CatalogHardeningTest extends TestCase
 
         $this->requestWithToken($token, 'PUT', "/api/v1/admin/products/{$productId}", [
             'sales_channel' => 'both',
+            'expected_version' => Product::find($productId)->lock_version,
         ])->assertUnprocessable();
 
         $this->assertSame('retail', Product::find($productId)->sales_channel->value);
@@ -80,6 +81,7 @@ class CatalogHardeningTest extends TestCase
 
         $this->requestWithToken($token, 'PUT', "/api/v1/admin/products/{$productId}", [
             'category_id' => $inactive->id,
+            'expected_version' => Product::find($productId)->lock_version,
         ])->assertUnprocessable();
     }
 
@@ -290,6 +292,7 @@ class CatalogHardeningTest extends TestCase
 
         $this->requestWithToken($token, 'PUT', "/api/v1/admin/products/{$productId}", [
             'status' => 'published',
+            'expected_version' => Product::find($productId)->lock_version,
         ])->assertOk();
 
         return [$productId, $variantId, $category->id];

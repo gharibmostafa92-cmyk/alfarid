@@ -41,7 +41,9 @@ return [
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
             'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 90),
-            'after_commit' => false,
+            // F8: الإرسال داخل معاملة يُنفَّذ بعد الـ commit — قبل ذلك قد
+            // يقرأ Job بيانات قديمة أو يُنفَّذ لعملية تم التراجع عنها.
+            'after_commit' => true,
         ],
 
         'beanstalkd' => [
@@ -70,7 +72,8 @@ return [
             'queue' => env('REDIS_QUEUE', 'default'),
             'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 90),
             'block_for' => null,
-            'after_commit' => false,
+            // F8: same after-commit rule as the database connection.
+            'after_commit' => true,
         ],
 
         'deferred' => [
@@ -103,7 +106,9 @@ return [
     */
 
     'batching' => [
-        'database' => env('DB_CONNECTION', 'sqlite'),
+        // F17: الافتراضي sqlite بينما قاعدة البيانات pgsql — فشل تسجيل
+        // الدفعات كان يفشل بصمت. يتبع اتصال قاعدة البيانات الافتراضي.
+        'database' => env('DB_CONNECTION', 'pgsql'),
         'table' => 'job_batches',
     ],
 
@@ -122,7 +127,8 @@ return [
 
     'failed' => [
         'driver' => env('QUEUE_FAILED_DRIVER', 'database-uuids'),
-        'database' => env('DB_CONNECTION', 'sqlite'),
+        // F17: same pgsql-following default as batching above.
+        'database' => env('DB_CONNECTION', 'pgsql'),
         'table' => 'failed_jobs',
     ],
 

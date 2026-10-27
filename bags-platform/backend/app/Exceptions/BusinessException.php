@@ -27,6 +27,11 @@ class BusinessException extends Exception
             $payload['code'] = $this->errorCode;
         }
 
-        return response()->json($payload, $this->status);
+        $response = response()->json($payload, $this->status);
+        if ($this->status === 503) {
+            $response->headers->set('Retry-After', '1');
+        }
+
+        return $response;
     }
 }

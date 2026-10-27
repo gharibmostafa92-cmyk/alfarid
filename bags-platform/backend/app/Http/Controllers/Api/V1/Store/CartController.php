@@ -15,6 +15,7 @@ use App\Services\CartService;
 use App\Services\CouponService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
  * سلة المتجر — تعمل للزائر (هيدر X-Cart-Session) وللعميل المسجل (Bearer)
@@ -54,8 +55,17 @@ class CartController extends Controller
 
     public function destroy(Request $request, int $item): JsonResponse
     {
-        [$customer, $cart] = $this->currentCart($request);
-        $cartItem = $cart->items()->findOrFail($item);
+        // L10: cart deletes are idempotent — a missing cart or line is already
+        // the desired end state.
+        try {
+            [$customer, $cart] = $this->currentCart($request);
+        } catch (NotFoundHttpException) {
+            return response()->json(null, 204);
+        }
+        $cartItem = $cart->items()->find($item);
+        if ($cartItem === null) {
+            return response()->json(null, 204);
+        }
         $cart = $this->carts->removeItem($cart, (int) $cartItem->product_variant_id);
 
         return response()->json(['data' => $this->carts->present($cart, $customer)]);
@@ -71,7 +81,15 @@ class CartController extends Controller
 
     public function clear(Request $request): JsonResponse
     {
-        [$customer, $cart] = $this->currentCart($request);
+        // L10: clearing a missing cart is already the desired end state.
+        try {
+            [$customer, $cart] = $this->currentCart($request);
+        } catch (NotFoundHttpException) {
+            return response()->json(null, 204);
+        }
+        if (! $cart->exists) {
+            return response()->json(null, 204);
+        }
         $cart = $this->carts->clearItems($cart);
 
         return response()->json(['data' => $this->carts->present($cart, $customer)]);

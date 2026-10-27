@@ -1,391 +1,356 @@
-// ============ Shared Vortix UI primitives (RTL) ============
-const { useState, useEffect, useRef, useMemo, useContext, createContext, Fragment } = React;
+/* ============ Shared UI primitives (Vortix admin, RTL) ============ */
+const { useState, useEffect, useMemo, useRef, useContext, createContext, Fragment } = React;
 
-const InvCtx = createContext(null);
-const useInv = () => useContext(InvCtx);
-const useCan = () => { const { role } = useInv(); return p => INV_ROLES[role].perms.includes(p); };
+/* ---------- formatting ---------- */
+const fmtNum = (n, d = 2) => Number(n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+const fmtMoney = (n, d = 2) => <span className="num ltr">{fmtNum(n, d)} <span className="tx3" style={{ fontSize: '0.82em', fontWeight: 500 }}>EGP</span></span>;
+const fmtInt = (n) => Number(n).toLocaleString('en-US');
+const Num = ({ children, className = '' }) => <span className={'num ltr ' + className}>{children}</span>;
 
-// Simulated fetch lifecycle: loading → (live | empty | error) per demo tweak
-function useLoad(dep) {
-  const { demoState, reloadKey } = useInv();
-  const [phase, setPhase] = useState('loading');
-  useEffect(() => {
-    setPhase('loading');
-    if (demoState === 'loading') return;
-    const t = setTimeout(() => setPhase(demoState === 'live' ? 'ready' : demoState), 550);
-    return () => clearTimeout(t);
-  }, [demoState, reloadKey, dep]);
-  return phase;
-}
-
-// ---------- Icons (stroke, 1.9 like Vortix) ----------
-const IP = {
-  plus: 'M12 5v14M5 12h14',
-  edit: 'M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4',
-  trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
-  search: 'M11 4a7 7 0 100 14 7 7 0 000-14zM20 20l-3.5-3.5',
-  filter: 'M4 6h16M7 12h10M10 18h4',
-  x: 'M6 6l12 12M18 6L6 18',
-  check: 'M5 12l5 5L20 7',
-  chevL: 'M15 18l-6-6 6-6',
-  chevR: 'M9 6l6 6-6 6',
-  chevD: 'M19 9l-7 7-7-7',
-  pin: 'M12 21s-7-6.2-7-11.5A7 7 0 0119 9.5C19 14.8 12 21 12 21zM12 7a2.5 2.5 0 100 5 2.5 2.5 0 000-5z',
-  store: 'M4 10h16v10H4zM3 10l2-6h14l2 6M9 20v-5h6v5',
-  warehouse: 'M3 21V9l9-5 9 5v12M7 21v-8h10v8M7 17h10',
-  box: 'M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zM12 12l8-4.5M12 12v9M12 12L4 7.5',
-  layers: 'M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5M3 17.5l9 5 9-5',
-  sliders: 'M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4',
-  history: 'M3 12a9 9 0 109-9 9 9 0 00-6.4 2.6L3 8M3 3v5h5M12 7v5l3 2',
-  swap: 'M7 4L3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7',
-  clipboard: 'M9 4h6v3H9zM7 5H5v16h14V5h-2M9 12l2 2 4-4',
-  factory: 'M3 21V10l6 4V10l6 4V6h6v15H3zM7 17h2M12 17h2M17 17h2',
-  alert: 'M12 9v4M12 17h.01M10.3 3.9L2 18a2 2 0 001.7 3h16.6a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z',
-  refresh: 'M4 4v6h6M20 20v-6h-6M5.6 15a7 7 0 0011.8 2.4L20 14M4 10l2.6-3.4A7 7 0 0118.4 9',
-  lock: 'M6 11h12v10H6zM8 11V7a4 4 0 018 0v4',
-  eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 9a3 3 0 100 6 3 3 0 000-6z',
-  more: 'M12 6h.01M12 12h.01M12 18h.01',
-  truck: 'M3 6h11v10H3zM14 10h4l3 3v3h-7M7 19a2 2 0 100-4 2 2 0 000 4zM17 19a2 2 0 100-4 2 2 0 000 4z',
-  inbox: 'M3 13l3-8h12l3 8v6H3v-6zM3 13h5l1 3h6l1-3h5',
-  barcode: 'M4 6v12M7 6v12M10 6v12M14 6v12M17 6v12M20 6v12',
-  power: 'M12 3v8M6.3 7a8 8 0 1011.4 0',
-  arrowL: 'M19 12H5M11 6l-6 6 6 6',
-  sun: 'M12 8a4 4 0 100 8 4 4 0 000-8zM12 3v2m0 14v2M3 12h2m14 0h2m-2.6-6.4l-1.4 1.4M7 17l-1.4 1.4m0-12.8L7 7m10 10l1.4 1.4',
-  moon: 'M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z',
-  bell: 'M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 00-5-5.9V4a1 1 0 10-2 0v1.1A6 6 0 006 11v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9',
-  help: 'M12 3a9 9 0 100 18 9 9 0 000-18zM9.5 9a2.5 2.5 0 015 0c0 1.5-2.5 2-2.5 3.5m0 3h.01',
-  logout: 'M15 21h4a2 2 0 002-2V5a2 2 0 00-2-2h-4M8 17l-5-5 5-5M3 12h12',
-  info: 'M12 3a9 9 0 100 18 9 9 0 000-18zM12 8h.01M12 11v5',
-  image: 'M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4M15.5 9.5h.01',
-  upload: 'M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3',
-  link: 'M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1',
-  calendar: 'M4 5h16v16H4zM16 3v4M8 3v4M4 10h16',
-  tag: 'M3 12V4h8l10 10-8 8L3 12zM7.5 7.5h.01',
-  grid: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
-  external: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5',
-  slash: 'M5 19L19 5M12 3a9 9 0 100 18 9 9 0 000-18z',
-  slides: 'M7 6h10v12H7zM3 8v8M21 8v8',
-  popup: 'M4 4h16v16H4zM8 8h8v8H8z',
-  mid: 'M4 4h16v4H4zM4 10h16v5H4zM4 17h16v3H4z',
-  storefront: 'M3 9l1.5-5h15L21 9M3 9v11h18V9M3 9a3 3 0 006 0 3 3 0 006 0 3 3 0 006 0M10 20v-5h4v5',
+/* ---------- icons ---------- */
+const ICON_PATHS = {
+  search: <><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></>,
+  bell: <path d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 00-5-5.9V4a1 1 0 10-2 0v1.1A6 6 0 006 11v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />,
+  help: <><circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 015 0c0 1.5-2.5 2-2.5 3.5m0 3h.01" /></>,
+  sun: <><circle cx="12" cy="12" r="4" /><path d="M12 3v2m0 14v2M3 12h2m14 0h2m-2.6-6.4l-1.4 1.4M7 17l-1.4 1.4m0-12.8L7 7m10 10l1.4 1.4" /></>,
+  moon: <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />,
+  orders: <><path d="M6 2l-2 4v14a2 2 0 002 2h12a2 2 0 002-2V6l-2-4z" /><path d="M4 6h16M16 10a4 4 0 01-8 0" /></>,
+  returns: <><path d="M9 14L4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 010 11H11" /></>,
+  truck: <><path d="M1 4h14v12H1zM15 9h4l3 3v4h-7" /><circle cx="5.5" cy="18.5" r="2" /><circle cx="18.5" cy="18.5" r="2" /></>,
+  tag: <><path d="M20.6 13.4l-7.2 7.2a2 2 0 01-2.8 0L2 12V2h10l8.6 8.6a2 2 0 010 2.8z" /><circle cx="7" cy="7" r="1.5" /></>,
+  ticket: <><path d="M3 8V6a2 2 0 012-2h14a2 2 0 012 2v2a2 2 0 000 4v2a2 2 0 01-2 2H5a2 2 0 01-2-2v-2a2 2 0 000-4z" /><path d="M13 4v2m0 4v2m0 4v2" /></>,
+  factory: <><path d="M2 20h20M4 20V9l5 3V9l5 3V5h4v15" /></>,
+  cart: <><circle cx="9" cy="20" r="1.5" /><circle cx="18" cy="20" r="1.5" /><path d="M2 3h3l2.7 12.4a2 2 0 002 1.6h7.8a2 2 0 002-1.6L21 7H6" /></>,
+  vault: <><rect x="3" y="4" width="18" height="16" rx="2.5" /><circle cx="12" cy="12" r="3.5" /><path d="M12 8.5V7m0 10v-1.5M15.5 12H17M7 12h1.5" /></>,
+  clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
+  box: <><path d="M21 8l-9-5-9 5v8l9 5 9-5z" /><path d="M3 8l9 5 9-5M12 13v8" /></>,
+  chart: <><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></>,
+  star: <path d="M12 2l3 6.5 7 .9-5.1 4.8 1.3 7L12 17.8 5.8 21.2l1.3-7L2 9.4l7-.9z" />,
+  plus: <path d="M12 5v14M5 12h14" />,
+  x: <path d="M18 6L6 18M6 6l12 12" />,
+  chevL: <path d="M15 18l-6-6 6-6" />,
+  chevR: <path d="M9 18l6-6-6-6" />,
+  chevD: <path d="M19 9l-7 7-7-7" />,
+  filter: <path d="M4 6h16M7 12h10M10 18h4" />,
+  more: <><circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" /></>,
+  edit: <><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" /><path d="M18.5 2.5a2.1 2.1 0 013 3L12 15l-4 1 1-4z" /></>,
+  trash: <><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" /></>,
+  check: <path d="M20 6L9 17l-5-5" />,
+  upload: <><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" /></>,
+  download: <><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" /></>,
+  file: <><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><path d="M14 2v6h6" /></>,
+  link: <><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7" /><path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7" /></>,
+  flag: <><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7" /></>,
+  alert: <><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" /><path d="M12 9v4m0 4h.01" /></>,
+  info: <><circle cx="12" cy="12" r="9" /><path d="M12 8h.01M12 11v5" /></>,
+  user: <><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0116 0" /></>,
+  users: <><circle cx="9" cy="8" r="3.5" /><path d="M2 20a7 7 0 0114 0M16 4.5a3.5 3.5 0 010 7M18 14a6 6 0 014 6" /></>,
+  phone: <path d="M3 5a2 2 0 012-2h2.6a1 1 0 01.95.68l1.1 3.3a1 1 0 01-.27 1.02l-1.5 1.5a12 12 0 005.6 5.6l1.5-1.5a1 1 0 011.02-.27l3.3 1.1a1 1 0 01.68.95V19a2 2 0 01-2 2h-1C9.82 21 3 14.18 3 6V5z" />,
+  pin: <><path d="M12 22s7-6.5 7-12a7 7 0 00-14 0c0 5.5 7 12 7 12z" /><circle cx="12" cy="10" r="2.5" /></>,
+  store: <><path d="M3 9l1.5-5h15L21 9M3 9v11h18V9M3 9h18" /><path d="M9 20v-6h6v6" /></>,
+  card: <><rect x="2" y="5" width="20" height="14" rx="2.5" /><path d="M2 10h20" /></>,
+  wallet: <><path d="M20 7V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2h13a2 2 0 002-2v-2" /><path d="M22 11h-5a2 2 0 000 4h5z" /></>,
+  bank: <><path d="M3 21h18M4 10h16M12 3l9 5H3zM6 10v8m4-8v8m4-8v8m4-8v8" /></>,
+  cash: <><rect x="2" y="6" width="20" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /><path d="M6 12h.01M18 12h.01" /></>,
+  arrowL: <path d="M19 12H5m7-7l-7 7 7 7" />,
+  arrowR: <path d="M5 12h14m-7-7l7 7-7 7" />,
+  swap: <><path d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4" /></>,
+  send: <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />,
+  eye: <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z" /><circle cx="12" cy="12" r="3" /></>,
+  lock: <><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 018 0v4" /></>,
+  key: <><circle cx="8" cy="15" r="4" /><path d="M10.8 12.2L20 3m-3 3l3 3m-6 0l2 2" /></>,
+  calendar: <><rect x="3" y="4" width="18" height="17" rx="2.5" /><path d="M3 9h18M8 2v4m8-4v4" /></>,
+  layers: <><path d="M12 2l10 5-10 5L2 7z" /><path d="M2 17l10 5 10-5M2 12l10 5 10-5" /></>,
+  globe: <><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" /></>,
+  receipt: <><path d="M5 2v20l3-2 2 2 2-2 2 2 2-2 3 2V2l-3 2-2-2-2 2-2-2-2 2z" /><path d="M9 8h6M9 12h6M9 16h3" /></>,
+  quote: <><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" /><path d="M8 9h8M8 13h5" /></>,
+  logout: <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4m7 14l5-5-5-5m5 5H9" />,
+  grid: <><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></>,
+  ban: <><circle cx="12" cy="12" r="9" /><path d="M5.6 5.6l12.8 12.8" /></>,
+  refresh: <><path d="M23 4v6h-6M1 20v-6h6" /><path d="M3.5 9a9 9 0 0114.9-3.4L23 10M1 14l4.6 4.4A9 9 0 0020.5 15" /></>,
+  image: <><rect x="3" y="3" width="18" height="18" rx="2.5" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" /></>,
+  percent: <><path d="M19 5L5 19" /><circle cx="6.5" cy="6.5" r="2.5" /><circle cx="17.5" cy="17.5" r="2.5" /></>,
+  gift: <><rect x="3" y="8" width="18" height="4" rx="1" /><path d="M12 8v13M5 12v9h14v-9M12 8S11 3 8 3a2.5 2.5 0 000 5M12 8s1-5 4-5a2.5 2.5 0 010 5" /></>,
+  hash: <path d="M4 9h16M4 15h16M10 3L8 21M16 3l-2 18" />,
 };
-function Icon({ n, s = 16, w = 1.9, className = '', style }) {
+function Icon({ name, size = 16, sw = 1.9, className = '', style }) {
   return (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" className={className} style={style}>
-      <path d={IP[n]} />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw}
+      strokeLinecap="round" strokeLinejoin="round" className={className} style={{ flexShrink: 0, ...style }}>
+      {ICON_PATHS[name] || ICON_PATHS.info}
     </svg>
   );
 }
 
-// ---------- Layout ----------
+/* ---------- toast ---------- */
+const ToastCtx = createContext(() => {});
+function ToastHost({ children }) {
+  const [t, setT] = useState(null);
+  const timer = useRef();
+  const show = (text, tone = 'accent') => {
+    setT({ text, tone, k: Date.now() });
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setT(null), 2600);
+  };
+  return (
+    <ToastCtx.Provider value={show}>
+      {children}
+      <div className="toast" style={{ opacity: t ? 1 : 0, transform: t ? 'none' : 'translateY(8px)', pointerEvents: 'none' }}>
+        <div className="px-4 py-2.5 rounded-full shadow-lg text-[12px] font-medium flex items-center gap-2" style={{ background: 'var(--pill-active-bg)', color: 'var(--pill-active-text)' }}>
+          <span className="w-2 h-2 rounded-full" style={{ background: t?.tone === 'red' ? 'var(--red-tx)' : t?.tone === 'green' ? '#22c55e' : 'var(--accent)' }}></span>
+          <span>{t?.text}</span>
+        </div>
+      </div>
+    </ToastCtx.Provider>
+  );
+}
+const useToast = () => useContext(ToastCtx);
+
+/* ---------- basic atoms ---------- */
+function Badge({ tone = 'gray', dot = true, children, className = '' }) {
+  return <span className={`badge t-${tone} ${className}`}>{dot && <span className="dot"></span>}{children}</span>;
+}
+function StatusBadge({ map, value }) {
+  const s = map[value] || { label: value, tone: 'gray' };
+  return <Badge tone={s.tone}>{s.label}</Badge>;
+}
+function Toggle({ on, onChange, disabled }) {
+  return <button type="button" disabled={disabled} className={'tgl' + (on ? ' on' : '')} onClick={() => onChange && onChange(!on)} aria-pressed={on}></button>;
+}
+function ActiveDot({ on }) {
+  return <span className={'inline-flex items-center gap-1.5 text-[12px] font-medium ' + (on ? 'c-green' : 'tx3')}>
+    <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'currentColor' }}></span>{on ? 'مفعّل' : 'معطّل'}
+  </span>;
+}
+function Seg({ options, value, onChange }) {
+  return <div className="seg">{options.map(o => {
+    const v = typeof o === 'string' ? o : o.value; const l = typeof o === 'string' ? o : o.label;
+    return <button key={v} type="button" className={value === v ? 'on' : ''} onClick={() => onChange(v)}>{l}</button>;
+  })}</div>;
+}
+function Avatar({ name = '', tone = 0, size = 30 }) {
+  const palettes = ['#e0491f', '#18151c', '#7c5cff', '#0ea5a4', '#d97706', '#db2777'];
+  const ch = name.trim().charAt(0) || '؟';
+  return <span className="rounded-full inline-flex items-center justify-center text-white font-semibold shrink-0"
+    style={{ width: size, height: size, fontSize: size * 0.42, background: palettes[tone % palettes.length] }}>{ch}</span>;
+}
+
+/* ---------- layout pieces ---------- */
 function PageHead({ title, sub, actions, back }) {
   return (
-    <div className="flex flex-wrap items-end justify-between gap-4 pt-1 stagger-item stagger-1">
-      <div>
-        {back && (
-          <button onClick={back.onClick} className="flex items-center gap-1.5 text-[12px] font-medium c-secondary hover:c-primary mb-2">
-            <Icon n="chevR" s={14} /> {back.label}
-          </button>
-        )}
-        <h1 className="font-display text-[34px] sm:text-[38px] font-medium tracking-[-0.02em] leading-tight c-primary">{title}</h1>
-        {sub && <p className="text-[13.5px] mt-1 c-secondary">{sub}</p>}
+    <div className="stg stg-1 flex flex-wrap items-end justify-between gap-4 pt-1">
+      <div className="min-w-0">
+        {back && <button onClick={back.onClick} className="btn btn-ghost btn-xs mb-2 -ms-2"><Icon name="chevR" size={14} />{back.label}</button>}
+        <h1 className="font-display text-[34px] sm:text-[38px] font-medium tracking-[-0.01em] leading-tight tx1">{title}</h1>
+        {sub && <p className="text-[13.5px] mt-1 tx2 pretty">{sub}</p>}
       </div>
-      {actions && <div className="flex items-center gap-2.5 flex-wrap">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-2.5">{actions}</div>}
     </div>
   );
 }
-
-function Card({ children, className = '', pad = 'p-5', stagger = 2 }) {
-  return <div className={`v-card ${pad} stagger-item stagger-${stagger} ${className}`}>{children}</div>;
+function Card({ children, className = '', pad = 'p-5', stg = 2, ...rest }) {
+  return <div className={`v-card ${pad} stg stg-${stg} ${className}`} {...rest}>{children}</div>;
 }
-
-function CardHead({ title, meta, right }) {
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-      <div className="flex items-center gap-2.5">
-        <h3 className="font-display text-[17px] font-semibold c-primary">{title}</h3>
-        {meta && <span className="text-[11.5px] c-muted">| &nbsp;{meta}</span>}
+function CardHead({ title, sub, right, className = 'mb-4' }) {
+  return <div className={'flex flex-wrap items-center justify-between gap-3 ' + className}>
+    <div><h3 className="font-display text-[16px] font-semibold tx1">{title}</h3>{sub && <p className="text-[11.5px] mt-0.5 tx3">{sub}</p>}</div>
+    {right && <div className="flex items-center gap-2">{right}</div>}
+  </div>;
+}
+function KPI({ label, value, icon, hero, foot, small }) {
+  if (hero) return (
+    <div className="v-orange rounded-[18px] p-4 flex flex-col justify-between min-h-[118px]">
+      <div className="flex items-center justify-between">
+        <span className="text-[12.5px] font-medium text-white/90">{label}</span>
+        {icon && <span className="w-7 h-7 rounded-full bg-white/15 flex items-center justify-center"><Icon name={icon} size={14} /></span>}
       </div>
-      {right && <div className="flex items-center gap-2.5 flex-wrap">{right}</div>}
+      <div className={'font-display font-bold tracking-tight my-2.5 num ' + (small ? 'text-[22px]' : 'text-[28px]')}>{value}</div>
+      {foot && <div className="text-[11px] text-white/80">{foot}</div>}
+    </div>
+  );
+  return (
+    <div className="v-sub rounded-[18px] p-4 flex flex-col justify-between min-h-[118px]">
+      <div className="flex items-center justify-between">
+        <span className="text-[12.5px] font-medium tx2">{label}</span>
+        {icon && <span className="v-well w-7 h-7 rounded-full flex items-center justify-center"><Icon name={icon} size={14} /></span>}
+      </div>
+      <div className={'font-display font-bold tracking-tight my-2.5 tx1 num ' + (small ? 'text-[22px]' : 'text-[28px]')}>{value}</div>
+      {foot && <div className="text-[11px] tx3">{foot}</div>}
     </div>
   );
 }
 
-function Badge({ cls = 'b-gray', dot, children }) {
-  return <span className={`badge ${cls}`}>{dot && <span className="dot" />}{children}</span>;
-}
-const ActiveBadge = ({ on }) => <Badge cls={on ? 'b-green' : 'b-gray'} dot>{on ? 'نشط' : 'غير نشط'}</Badge>;
-
-function SearchPill({ value, onChange, placeholder = 'بحث', w = 'w-40' }) {
+/* ---------- filter bar ---------- */
+function SearchPill({ value, onChange, placeholder = 'بحث', w = 'w-44' }) {
   return (
-    <div className="v-subcard px-3 py-1.5 rounded-full flex items-center gap-2">
-      <Icon n="search" s={14} className="c-muted" />
-      <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className={`bg-transparent text-[12px] outline-none ${w} c-primary`} />
+    <div className="v-sub px-3 py-1.5 rounded-full flex items-center gap-2">
+      <Icon name="search" size={14} className="tx3" />
+      <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className={'bg-transparent text-[12px] outline-none tx1 ' + w} />
     </div>
   );
 }
-
-function Field({ label, req, hint, error, children, className = '' }) {
+function FSelect({ value, onChange, options, placeholder }) {
   return (
-    <label className={`block ${className}`}>
-      <span className="field-label">{label}{req && <span className="c-orange">*</span>}</span>
-      {children}
-      {error ? <span className="block text-[11px] mt-1" style={{ color: 'var(--badge-red-text)' }}>{error}</span>
-        : hint ? <span className="block text-[11px] mt-1 c-muted">{hint}</span> : null}
-    </label>
-  );
-}
-
-function Sel({ value, onChange, options, placeholder, className = '', small, disabled }) {
-  return (
-    <select disabled={disabled} value={value ?? ''} onChange={e => onChange(e.target.value || null)} className={`inp ${small ? 'inp-sm' : ''} ${className}`}>
-      {placeholder !== undefined && <option value="">{placeholder}</option>}
-      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+    <select className={'pill-inp' + (value ? ' on' : '')} value={value} onChange={e => onChange(e.target.value)}>
+      <option value="">{placeholder}</option>
+      {options.map(o => typeof o === 'string' ? <option key={o} value={o}>{o}</option> : <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>
   );
 }
-const branchOpts = (filter) => INV_BRANCHES.filter(b => !filter || filter(b)).map(b => ({ value: b.id, label: `${b.name} · ${b.type === 'warehouse' ? 'مخزن' : 'فرع'}` }));
-const locOpts = (branchId) => INV_LOCATIONS.filter(l => l.branchId === branchId && l.active).map(l => ({ value: l.id, label: `${l.name} (${l.code})` }));
-
-function Toggle({ on, onChange, disabled }) {
-  return <button type="button" disabled={disabled} onClick={() => onChange(!on)} className={`vtoggle ${on ? 'on' : ''} ${disabled ? 'opacity-40' : ''}`} />;
+function FChip({ on, onClick, children, icon }) {
+  return <button type="button" onClick={onClick} className={'pill-inp inline-flex items-center gap-1.5 font-medium ' + (on ? 'on' : '')}>{icon && <Icon name={icon} size={13} />}{children}</button>;
+}
+function FDate({ value, onChange, label }) {
+  return <label className="pill-inp inline-flex items-center gap-2 !py-[5px]"><span className="tx3 text-[11.5px]">{label}</span>
+    <input type="date" value={value} onChange={e => onChange(e.target.value)} className="bg-transparent outline-none text-[11.5px] tx1 num" /></label>;
 }
 
-// Permission-gated button: hidden or locked with tooltip
-function Can({ perm, children, mode = 'hide' }) {
-  const can = useCan();
-  if (can(perm)) return children;
-  if (mode === 'hide') return null;
+/* ---------- table ---------- */
+function DataTable({ cols, rows, onRow, empty = 'لا توجد بيانات مطابقة', compact, foot }) {
   return (
-    <span title="لا تملك الصلاحية" className="inline-flex items-center gap-1.5 text-[11.5px] c-muted px-3 py-1.5 rounded-full v-subcard">
-      <Icon n="lock" s={12} /> {mode}
-    </span>
-  );
-}
-
-// ---------- States ----------
-function SkeletonRows({ cols = 6, rows = 6 }) {
-  return (
-    <div className="space-y-0">
-      <div className="v-subcard h-9 rounded-xl mb-1" />
-      {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="flex items-center gap-4 px-3 py-3.5 v-border-b">
-          {Array.from({ length: cols }).map((_, j) => (
-            <div key={j} className="sk h-3" style={{ flex: j === 0 ? 2 : 1, opacity: 1 - i * 0.1 }} />
+    <div className="overflow-x-auto">
+      <table className={'tbl' + (compact ? ' compact' : '')}>
+        <thead><tr>{cols.map((c, i) => <th key={i} style={{ width: c.w, textAlign: c.align }}>{c.h}</th>)}</tr></thead>
+        <tbody>
+          {rows.length === 0 && <tr><td colSpan={cols.length} className="text-center !py-10 tx3">{empty}</td></tr>}
+          {rows.map((r, ri) => (
+            <tr key={r.id ?? ri} className={onRow ? 'clickable' : ''} onClick={onRow ? () => onRow(r) : undefined}>
+              {cols.map((c, ci) => <td key={ci} style={{ textAlign: c.align }}>{c.r ? c.r(r, ri) : r[c.k]}</td>)}
+            </tr>
           ))}
-        </div>
-      ))}
+        </tbody>
+        {foot}
+      </table>
     </div>
   );
 }
-
-function EmptyState({ icon = 'inbox', title, sub, action }) {
+function Pager({ total, per = 20, page = 1, onPage }) {
+  const pages = Math.max(1, Math.ceil(total / per));
   return (
-    <div className="v-subcard py-14 px-6 flex flex-col items-center text-center fade-in">
-      <div className="w-14 h-14 rounded-full flex items-center justify-center mb-4 relative" style={{ background: 'var(--bg-card)' }}>
-        <div className="absolute inset-0 rounded-full hatched opacity-60" />
-        <Icon n={icon} s={22} className="c-secondary relative" />
+    <div className="flex items-center justify-between pt-4 text-[12px] tx2">
+      <span>عرض <Num>{Math.min(total, (page - 1) * per + 1)}–{Math.min(total, page * per)}</Num> من <Num>{total}</Num></span>
+      <div className="flex items-center gap-1.5">
+        <button className="icon-btn !w-7 !h-7" disabled={page <= 1} onClick={() => onPage && onPage(page - 1)}><Icon name="chevR" size={13} /></button>
+        {Array.from({ length: Math.min(pages, 4) }).map((_, i) => (
+          <button key={i} onClick={() => onPage && onPage(i + 1)} className={'w-7 h-7 rounded-full text-[11.5px] font-semibold num ' + (page === i + 1 ? '' : 'tx2')}
+            style={page === i + 1 ? { background: 'var(--pill-active-bg)', color: 'var(--pill-active-text)' } : {}}>{i + 1}</button>
+        ))}
+        <button className="icon-btn !w-7 !h-7" disabled={page >= pages} onClick={() => onPage && onPage(page + 1)}><Icon name="chevL" size={13} /></button>
       </div>
-      <div className="font-display text-[15px] font-semibold c-primary">{title}</div>
-      {sub && <div className="text-[12.5px] c-secondary mt-1 max-w-sm" style={{ textWrap: 'pretty' }}>{sub}</div>}
-      {action && <div className="mt-5">{action}</div>}
     </div>
   );
 }
-
-function ErrorState({ msg = 'تعذّر الاتصال بالخادم. تحقّق من الاتصال وحاول مرة أخرى.', code = 'HTTP 503' }) {
-  const { reload } = useInv();
-  return (
-    <div className="py-12 px-6 flex flex-col items-center text-center rounded-2xl fade-in" style={{ background: 'var(--badge-red-bg)' }}>
-      <div className="w-12 h-12 rounded-full flex items-center justify-center mb-3" style={{ background: 'var(--bg-card)', color: 'var(--badge-red-text)' }}>
-        <Icon n="alert" s={20} />
-      </div>
-      <div className="font-display text-[15px] font-semibold" style={{ color: 'var(--badge-red-text)' }}>حدث خطأ أثناء تحميل البيانات</div>
-      <div className="text-[12.5px] c-secondary mt-1 max-w-md">{msg}</div>
-      <div className="mono text-[10.5px] c-muted mt-2">{code}</div>
-      <button onClick={reload} className="btn btn-dark btn-sm mt-4"><Icon n="refresh" s={13} /> إعادة المحاولة</button>
-    </div>
-  );
+function RowActions({ children }) {
+  return <div className="flex items-center gap-1 justify-end" onClick={e => e.stopPropagation()}>{children}</div>;
 }
 
-// Wrap list content with phase handling
-function Phase({ phase, cols, rows, empty, children }) {
-  if (phase === 'loading') return <SkeletonRows cols={cols} rows={rows} />;
-  if (phase === 'error') return <ErrorState />;
-  if (phase === 'empty') return empty;
-  return children;
-}
-
-function InlineAlert({ kind = 'red', icon = 'alert', title, children, onClose }) {
-  const map = { red: ['--badge-red-bg', '--badge-red-text'], amber: ['--badge-amber-bg', '--badge-amber-text'], blue: ['--badge-blue-bg', '--badge-blue-text'], green: ['--badge-green-bg', '--badge-green-text'] }[kind];
-  return (
-    <div className="rounded-2xl px-4 py-3 flex items-start gap-3 fade-in" style={{ background: `var(${map[0]})` }}>
-      <span style={{ color: `var(${map[1]})` }} className="mt-0.5"><Icon n={icon} s={16} /></span>
-      <div className="flex-1 text-[12.5px]">
-        {title && <div className="font-semibold" style={{ color: `var(${map[1]})` }}>{title}</div>}
-        <div className="c-primary opacity-80 mt-0.5">{children}</div>
-      </div>
-      {onClose && <button onClick={onClose} className="c-secondary"><Icon n="x" s={14} /></button>}
-    </div>
-  );
-}
-
-// ---------- Modal ----------
-function Modal({ open, onClose, title, sub, children, footer, width = 'max-w-lg' }) {
+/* ---------- modal / drawer ---------- */
+function Modal({ open, onClose, title, sub, children, footer, width = 520, icon, tone }) {
   useEffect(() => {
     if (!open) return;
-    const h = e => e.key === 'Escape' && onClose && onClose();
+    const h = e => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h);
   }, [open]);
   if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 fade-in" style={{ background: 'rgba(0,0,0,.4)', backdropFilter: 'blur(4px)' }} onMouseDown={e => e.target === e.currentTarget && onClose && onClose()}>
-      <div className={`v-card ${width} w-full shadow-2xl modal-in flex flex-col max-h-[92vh]`}>
+  return ReactDOM.createPortal(
+    <div className="modal-bd" onMouseDown={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: width }} dir="rtl">
         <div className="flex items-start justify-between gap-4 p-6 pb-4">
-          <div>
-            <h3 className="font-display text-[18px] font-semibold c-primary">{title}</h3>
-            {sub && <p className="text-[12px] c-secondary mt-0.5">{sub}</p>}
+          <div className="flex items-start gap-3">
+            {icon && <span className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 t-${tone || 'orange'}`}><Icon name={icon} size={17} /></span>}
+            <div><h3 className="font-display text-[18px] font-semibold tx1">{title}</h3>{sub && <p className="text-[12px] tx2 mt-1 pretty">{sub}</p>}</div>
           </div>
-          <button onClick={onClose} className="w-8 h-8 rounded-full v-subcard flex items-center justify-center c-secondary shrink-0"><Icon n="x" s={14} /></button>
+          <button className="icon-btn shrink-0" onClick={onClose}><Icon name="x" size={14} /></button>
         </div>
-        <div className="px-6 pb-2 overflow-y-auto flex-1">{children}</div>
-        {footer && <div className="p-6 pt-4 flex items-center justify-start gap-2.5 flex-row-reverse">{footer}</div>}
+        <div className="modal-body">{children}</div>
+        {footer && <div className="flex items-center justify-end gap-2 p-5 pt-4 mt-2 v-bt">{footer}</div>}
       </div>
-    </div>
-  );
+    </div>, document.body);
+}
+function ConfirmModal({ open, onClose, onConfirm, title, text, cta = 'تأكيد', danger }) {
+  return <Modal open={open} onClose={onClose} title={title} icon={danger ? 'alert' : 'info'} tone={danger ? 'red' : 'orange'} width={440}
+    footer={<><button className="btn btn-soft" onClick={onClose}>تراجع</button><button className={'btn ' + (danger ? 'btn-danger' : 'btn-dark')} onClick={() => { onConfirm && onConfirm(); onClose(); }}>{cta}</button></>}>
+    <p className="text-[13px] tx2 leading-relaxed pretty pb-2">{text}</p>
+  </Modal>;
 }
 
-function ConfirmDialog({ open, onClose, onConfirm, title, body, confirmLabel = 'تأكيد', danger, busy, error }) {
+/* ---------- form ---------- */
+function Field({ label, req, hint, err, children, className = '', count }) {
   return (
-    <Modal open={open} onClose={onClose} title={title} width="max-w-md"
-      footer={<>
-        <button className={`btn ${danger ? 'btn-orange' : 'btn-dark'}`} onClick={onConfirm} disabled={busy}>
-          {busy ? <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" /> : null}
-          {confirmLabel}
-        </button>
-        <button className="btn btn-soft" onClick={onClose}>تراجع</button>
-      </>}>
-      <div className="text-[13px] c-secondary leading-relaxed" style={{ textWrap: 'pretty' }}>{body}</div>
-      {error && <div className="mt-4"><InlineAlert kind="red" title="رفض الخادم العملية">{error}</InlineAlert></div>}
-    </Modal>
+    <label className={'block ' + className}>
+      {label && <div className="flex items-center justify-between mb-1.5">
+        <span className="lbl">{label}{req && <span className="accent ms-0.5">*</span>}</span>
+        {count && <span className="text-[10.5px] tx3 num">{count}</span>}
+      </div>}
+      {children}
+      {err ? <div className="text-[11px] c-red mt-1.5 flex items-center gap-1"><Icon name="alert" size={12} />{err}</div>
+        : hint ? <div className="text-[11px] tx3 mt-1.5 pretty">{hint}</div> : null}
+    </label>
   );
 }
-
-// ---------- Toast ----------
-function Toast({ toast }) {
-  return (
-    <div className={`fixed bottom-6 left-6 z-[60] pointer-events-none transition-all duration-300 ${toast ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}`}>
-      <div className="px-4 py-2.5 rounded-full shadow-lg text-xs font-medium flex items-center gap-2" style={{ background: 'var(--pill-active-bg)', color: 'var(--pill-active-text)' }}>
-        <span className="w-2 h-2 rounded-full bg-[#e0491f]" />
-        <span>{toast?.text}</span>
-      </div>
-    </div>
-  );
+function TextArea({ max, value, onChange, ...rest }) {
+  const [v, setV] = useState(value || '');
+  const val = onChange ? value : v;
+  return <Field {...rest} count={max ? `${(val || '').length} / ${max}` : null}>
+    <textarea className="inp" maxLength={max} value={val} onChange={e => onChange ? onChange(e.target.value) : setV(e.target.value)} placeholder={rest.placeholder}></textarea>
+  </Field>;
 }
-
-// ---------- Variant picker: product → variant/SKU (never stops at product) ----------
-function VariantPicker({ value, onChange, placeholder = 'ابحث بالاسم أو SKU أو الباركود', small, exclude = [], allowClear }) {
-  const [open, setOpen] = useState(false);
-  const [q, setQ] = useState('');
+function ToggleRow({ label, sub, on, onChange }) {
+  const [v, setV] = useState(on ?? true);
+  const val = onChange ? on : v;
+  return <div className="v-sub px-4 py-3 flex items-center justify-between gap-3">
+    <div><div className="text-[13px] font-medium tx1">{label}</div>{sub && <div className="text-[11.5px] tx3 mt-0.5">{sub}</div>}</div>
+    <Toggle on={val} onChange={x => onChange ? onChange(x) : setV(x)} />
+  </div>;
+}
+function Note({ tone = 'gray', icon = 'info', children, className = '' }) {
+  return <div className={`rounded-[14px] px-3.5 py-2.5 flex items-start gap-2.5 text-[12px] leading-relaxed t-${tone} ${className}`} style={{ fontWeight: 500 }}>
+    <Icon name={icon} size={15} style={{ marginTop: 2 }} /><div className="pretty">{children}</div></div>;
+}
+function Dropzone({ accept, max, label = 'اسحب الملف هنا أو اضغط للاختيار' }) {
+  const [file, setFile] = useState(null);
   const ref = useRef();
-  useEffect(() => {
-    const h = e => ref.current && !ref.current.contains(e.target) && setOpen(false);
-    document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h);
-  }, []);
-  const v = value ? invVariant(value) : null;
-  const ql = q.trim().toLowerCase();
-  const groups = INV_PRODUCTS.map(p => ({
-    ...p,
-    variants: p.variants.filter(x => !exclude.includes(x.id) && (!ql || p.name.includes(q) || x.sku.toLowerCase().includes(ql) || x.barcode.includes(ql) || x.attrs.includes(q))),
-  })).filter(p => p.variants.length);
-
-  return (
-    <div ref={ref} className="relative">
-      <button type="button" onClick={() => setOpen(o => !o)} className={`inp ${small ? 'inp-sm' : ''} flex items-center justify-between gap-2 text-right`}>
-        {v ? (
-          <span className="flex items-center gap-2 min-w-0">
-            <span className="truncate c-primary">{v.productName}</span>
-            <span className="text-[11px] c-muted shrink-0">{v.attrs}</span>
-            <span className="mono text-[10.5px] px-1.5 py-0.5 rounded-md shrink-0" style={{ background: 'var(--icon-well-bg)' }}>{v.sku}</span>
-          </span>
-        ) : <span className="c-muted truncate">{placeholder}</span>}
-        <span className="flex items-center gap-1 shrink-0">
-          {allowClear && v && <span onClick={e => { e.stopPropagation(); onChange(null); }} className="c-muted hover:c-primary"><Icon n="x" s={12} /></span>}
-          <Icon n="chevD" s={13} className="c-muted" />
-        </span>
-      </button>
-      {open && (
-        <div className="absolute z-40 mt-1.5 w-full min-w-[320px] v-card shadow-2xl p-2 modal-in" style={{ borderRadius: 16 }}>
-          <div className="v-subcard px-3 py-2 rounded-xl flex items-center gap-2 mb-1.5">
-            <Icon n="search" s={14} className="c-muted" />
-            <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="اسم المنتج، SKU، باركود…" className="bg-transparent text-[12.5px] outline-none flex-1 c-primary" />
-            <Icon n="barcode" s={14} className="c-muted" />
-          </div>
-          <div className="max-h-[260px] overflow-y-auto">
-            {groups.length === 0 && <div className="text-center text-[12px] c-muted py-6">لا توجد نتائج مطابقة</div>}
-            {groups.map(p => (
-              <div key={p.id} className="mb-1">
-                <div className="text-[11px] font-semibold c-secondary px-2.5 pt-2 pb-1 flex items-center gap-1.5"><Icon n="box" s={12} /> {p.name} <span className="c-muted font-normal">· {p.variants.length} متغير</span></div>
-                {p.variants.map(x => (
-                  <button type="button" key={x.id} onClick={() => { onChange(x.id); setOpen(false); setQ(''); }}
-                    className={`w-full flex items-center justify-between gap-3 px-2.5 py-2 rounded-xl text-right hover:bg-[var(--bg-subcard)] ${value === x.id ? 'bg-[var(--bg-subcard)]' : ''}`}>
-                    <span className="text-[12.5px] c-primary pr-4">{x.attrs}</span>
-                    <span className="flex items-center gap-2">
-                      <span className="mono text-[10.5px] c-muted">{x.barcode}</span>
-                      <span className="mono text-[11px] font-semibold c-primary">{x.sku}</span>
-                      {value === x.id && <Icon n="check" s={13} className="c-orange" />}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  return <div className="drop" onClick={() => ref.current.click()}>
+    <input ref={ref} type="file" className="hidden" accept={accept} onChange={e => setFile(e.target.files[0])} />
+    {file ? <div className="flex items-center justify-center gap-2 text-[12.5px] tx1"><Icon name="file" size={16} className="accent" /><span className="font-medium">{file.name}</span><span className="tx3 num">{(file.size / 1024).toFixed(0)} KB</span></div>
+      : <><div className="w-10 h-10 rounded-full v-well mx-auto flex items-center justify-center mb-2"><Icon name="upload" size={16} /></div>
+        <div className="text-[12.5px] font-medium tx1">{label}</div>
+        <div className="text-[11px] tx3 mt-1"><span className="ltr">{accept}</span> · حتى <Num>{max}</Num></div></>}
+  </div>;
 }
 
-function VariantCell({ id, showBarcode }) {
-  const v = invVariant(id);
-  return (
-    <div className="min-w-0">
-      <div className="font-medium c-primary truncate">{v.productName}</div>
-      <div className="text-[11px] c-muted mt-0.5 flex items-center gap-1.5">{v.attrs}{showBarcode && <><span>·</span><span className="mono">{v.barcode}</span></>}</div>
-    </div>
-  );
+/* ---------- detail bits ---------- */
+function KV({ items }) {
+  return <dl className="kv">{items.filter(Boolean).map(([k, v], i) => <Fragment key={i}><dt>{k}</dt><dd>{v ?? <span className="tx3">—</span>}</dd></Fragment>)}</dl>;
 }
-const Sku = ({ id, children }) => <span className="mono text-[11.5px] font-semibold px-2 py-0.5 rounded-md c-primary" style={{ background: 'var(--icon-well-bg)' }}>{children || invVariant(id).sku}</span>;
-
-function NumInput({ value, onChange, decimals = 4, integer, small, placeholder = '0', className = '', err }) {
-  return (
-    <input inputMode="decimal" value={value ?? ''} placeholder={placeholder}
-      onChange={e => {
-        let s = e.target.value.replace(/[^\d.]/g, '');
-        if (integer) s = s.replace(/\./g, '');
-        const parts = s.split('.');
-        if (parts.length > 2) s = parts[0] + '.' + parts.slice(1).join('');
-        if (parts[1] && parts[1].length > decimals) s = parts[0] + '.' + parts[1].slice(0, decimals);
-        onChange(s);
-      }}
-      className={`inp ${small ? 'inp-sm' : ''} num text-left ${err ? 'err' : ''} ${className}`} />
-  );
+function Timeline({ items }) {
+  return <ol className="relative">
+    {items.map((it, i) => (
+      <li key={i} className="flex gap-3 pb-5 last:pb-0 relative">
+        {i < items.length - 1 && <span className="absolute top-6 bottom-0 w-px" style={{ insetInlineStart: 11, background: 'var(--divider-color)' }}></span>}
+        <span className={'w-[23px] h-[23px] rounded-full flex items-center justify-center shrink-0 ' + (i === 0 ? 'btn-accent' : 'v-well')}><Icon name={it.icon || 'check'} size={11} sw={2.4} /></span>
+        <div className="flex-1 min-w-0 -mt-0.5">{it.body}</div>
+      </li>
+    ))}
+  </ol>;
 }
-
-function KPI({ label, value, icon, hot, sub }) {
-  return (
-    <div className={`${hot ? 'v-orange-card' : 'v-subcard'} rounded-[18px] p-4 flex flex-col justify-between min-h-[112px]`}>
-      <div className="flex items-center justify-between">
-        <span className={`text-[12.5px] font-medium ${hot ? 'text-white/90' : 'c-secondary'}`}>{label}</span>
-        <span className={`w-7 h-7 rounded-full flex items-center justify-center ${hot ? 'bg-white/15 text-white' : 'v-icon-well'}`}><Icon n={icon} s={14} w={2} /></span>
-      </div>
-      <div className={`font-display text-[28px] font-bold tracking-tight mt-2 num text-right ${hot ? '' : 'c-primary'}`}>{value}</div>
-      {sub && <div className={`text-[11px] ${hot ? 'text-white/80' : 'c-muted'}`}>{sub}</div>}
-    </div>
-  );
+function Empty({ icon = 'box', title, text, action }) {
+  return <div className="text-center py-12">
+    <div className="w-12 h-12 rounded-full v-well mx-auto flex items-center justify-center mb-3"><Icon name={icon} size={20} /></div>
+    <div className="font-display text-[15px] font-semibold tx1">{title}</div>
+    {text && <div className="text-[12px] tx2 mt-1 max-w-sm mx-auto pretty">{text}</div>}
+    {action && <div className="mt-4">{action}</div>}
+  </div>;
+}
+function HatchBar({ pct, h = 14 }) {
+  return <div className="w-full rounded-full overflow-hidden flex items-center gap-1 p-0.5" style={{ height: h }}>
+    <div className="h-full rounded-full transition-all duration-500" style={{ width: pct + '%', background: 'var(--accent)' }}></div>
+    <div className="h-full flex-1 rounded-full hatch-track"></div>
+  </div>;
 }
 
 Object.assign(window, {
-  InvCtx, useInv, useCan, useLoad, Icon, PageHead, Card, CardHead, Badge, ActiveBadge, SearchPill, Field, Sel, branchOpts, locOpts,
-  Toggle, Can, SkeletonRows, EmptyState, ErrorState, Phase, InlineAlert, Modal, ConfirmDialog, Toast, VariantPicker, VariantCell, Sku, NumInput, KPI,
+  fmtNum, fmtMoney, fmtInt, Num, Icon, ToastHost, useToast, Badge, StatusBadge, Toggle, ActiveDot, Seg, Avatar,
+  PageHead, Card, CardHead, KPI, SearchPill, FSelect, FChip, FDate, DataTable, Pager, RowActions,
+  Modal, ConfirmModal, Field, TextArea, ToggleRow, Note, Dropzone, KV, Timeline, Empty, HatchBar,
 });

@@ -113,6 +113,7 @@ export interface AdminVariant {
 export interface AdminProduct {
   lock_version?: number;
   id: number; code: string; name_ar: string; name_en: string; slug: string;
+  occasions: StoreOccasion[] | null; badge_en: string | null; badge_ar: string | null;
   description_ar: string | null; description_en: string | null;
   material_ar: string | null; material_en: string | null;
   dimensions: { length_cm: string | null; width_cm: string | null; height_cm: string | null };
@@ -162,9 +163,63 @@ export interface StoreCart {
   customer_id: number | null;
   items: Array<{
     id: number; product_variant_id: number; product_id: number; product_name: string | null; sku: string;
-    qty: number; unit_price: number | null; line_total: number; available: number; priced: boolean;
+    qty: number; unit_price: number | null; base_price: number | null; line_discount: number; line_total: number;
+    available: number; max_qty: number; priced: boolean;
+    product_slug: string | null; product_name_en: string | null; image: string | null;
+    color: string | null; size: string | null;
   }>;
   totals: { subtotal: number; pricing_discount: number; items_total: number; coupon_discount: number; total: number; coupon_code: string | null };
+}
+
+export interface StoreCity { id: number; name_ar: string; name_en: string | null; shipping_cost: string | number }
+
+export type CheckoutPaymentMethod = 'cod' | 'wallet' | 'credit';
+
+export interface CheckoutPayload {
+  recipient_name?: string; recipient_phone?: string; recipient_email?: string;
+  city_id: number; shipping_address_line: string; shipping_notes?: string;
+  expected_total?: number; payment_method: CheckoutPaymentMethod;
+}
+
+export interface StoreOrderItem {
+  id: number; product_variant_id: number; product_name: string; sku: string;
+  qty: number; unit_price: number | string; discount_amount: number | string; line_total: number | string;
+}
+
+export interface StoreOrder {
+  id: number; order_number: string; channel: string; status: string;
+  payment_method: string; payment_status: string;
+  recipient_name: string | null; recipient_phone: string | null;
+  city_id: number | null; shipping_address_line: string | null;
+  subtotal: number | string; discount_amount: number | string; coupon_code: string | null;
+  shipping_cost: number | string; cod_fee: number | string; tax_amount: number | string; grand_total: number | string;
+  items: StoreOrderItem[]; created_at: string;
+}
+
+export interface CheckoutResponse { data: StoreOrder; payment_url: string | null; message: string }
+
+export interface ShippingOption { key: string; label: string; cost: number; cod_fee: number; currency: string; estimated_days: string | null }
+
+export interface ShippingQuotePreview {
+  items_total: number; coupon_discount: number; shipping: number;
+  cod_fee: number; tax: number; grand_total: number;
+}
+
+export interface ShippingOptionsResponse {
+  city: { id: number; name_ar: string; name_en: string | null };
+  cart_total: number;
+  payment_methods: string[];
+  preview: ShippingQuotePreview | null;
+  options: ShippingOption[];
+}
+
+export interface CartCouponResponse { cart: StoreCart; coupon_discount: number }
+
+export interface TrackOrderResponse {
+  order_number: string; status: string;
+  items: Array<{ product_name: string; qty: number }>;
+  status_history: Array<{ status: string; at: string }>;
+  created_at: string;
 }
 export type StoreBannerLinkType = 'product' | 'category' | 'brand' | 'external' | 'none';
 
@@ -185,6 +240,19 @@ export interface StoreBanner {
   bg_color: string | null;
 }
 
+export type StoreOccasion = 'casual' | 'work' | 'weekend' | 'evening';
+export type StoreSort = 'featured' | 'newest' | 'best_selling' | 'price_asc' | 'price_desc' | 'name';
+
+export interface StoreImage { id: number; url: string; thumb: string | null }
+export interface StoreColor { name_en: string | null; name_ar: string | null; hex: string | null }
+
+export interface StoreCategory {
+  id: number; name_ar: string; name_en: string | null; slug: string;
+  description_ar: string | null; description_en: string | null;
+  image: string | null; direct_products_count?: number; products_count: number;
+  children: StoreCategory[];
+}
+
 export interface StoreProductCard {
   id: number;
   name_ar: string;
@@ -195,11 +263,45 @@ export interface StoreProductCard {
   category?: { id: number; name_ar: string; name_en: string | null; slug: string } | null;
   price: number | string | null;
   default_variant_id?: number | null;
+  variant_count?: number;
   old_price: number | string | null;
   discount_percentage: number | null;
   is_featured: boolean;
-  sales_count: number;
+  /** F19: removed from the API payload; kept optional for stale caches. */
+  sales_count?: number;
   in_stock: boolean;
+  is_new?: boolean; badge_en?: string | null; badge_ar?: string | null; colors?: StoreColor[];
+}
+
+export interface StoreProductVariant {
+  id: number; sku: string;
+  color_name_ar: string | null; color_name_en: string | null; color_hex: string | null;
+  size: string | null; capacity: string | null;
+  images: StoreImage[];
+  price: number | string | null; old_price: number | string | null; in_stock: boolean;
+  max_qty: number;
+}
+
+export interface StoreProduct extends StoreProductCard {
+  description_ar: string | null; description_en: string | null;
+  material_ar: string | null; material_en: string | null;
+  warranty_months: number | null; warranty_details?: string | null; country_of_origin: string | null;
+  occasions: StoreOccasion[];
+  dimensions?: { length_cm: number | null; width_cm: number | null; height_cm: number | null; weight_kg: number | null };
+  images: StoreImage[]; variants: StoreProductVariant[];
+}
+
+export interface StoreProductListParams {
+  category?: string; color?: string; price_min?: number; price_max?: number;
+  occasions?: StoreOccasion[]; in_stock?: 0 | 1; search?: string;
+  sort?: StoreSort; page?: number; per_page?: number;
+}
+
+export interface StoreCatalogFilters {
+  total: number;
+  colors: Array<{ id: string; name_en: string; name_ar: string | null; hex: string | null; count: number }>;
+  price_ranges: Array<{ id: string; min: number | null; max: number | null; count: number }>;
+  occasions: Array<{ id: StoreOccasion; count: number }>;
 }
 
 export interface StoreHomeData {

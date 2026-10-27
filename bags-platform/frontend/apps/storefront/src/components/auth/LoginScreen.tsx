@@ -9,6 +9,7 @@ import { useAuthStore } from '@/store/auth.store';
 import { loginUnified } from '@/services/auth.service';
 import { AccountForm, type AuthView } from './AccountForm';
 import { createSessionNonce } from './session-nonce';
+import { safeReturnPath } from '@/lib/safe-return-path';
 
 export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView = 'login' }) => {
   const { branding } = useBranding();
@@ -37,6 +38,7 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
   }, [view]);
 
   const home = useAuthStore((s) => s.home);
+  const destination = useAuthStore((s) => s.destination);
   const token = useAuthStore((s) => s.token);
 
   useEffect(() => {
@@ -78,10 +80,13 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
     };
   }, [view, token]);
 
-  // لو المستخدم داخل بالفعل، روح لصفحته الرئيسية
+  // لو المستخدم داخل بالفعل، ارجع للصفحة التي جاء منها (redirect) أو لصفحته الرئيسية
   useEffect(() => {
-    if (token && home) router.replace(home);
-  }, [token, home, router]);
+    if (!token || !home) return;
+    const r = params.get('redirect');
+    const safe = destination === 'retail' ? safeReturnPath(r) : null;
+    router.replace(safe ?? home);
+  }, [token, home, router, params, destination]);
 
   // Canvas refs
   const canvasRef = useRef<HTMLCanvasElement | null>(null);

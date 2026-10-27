@@ -217,7 +217,7 @@ class OrderAllocationService
             foreach ($plan as $variantId => $branchId) {
                 $query->orWhere(fn ($q) => $q->where('product_variant_id', $variantId)->where('branch_id', $branchId));
             }
-        })->where(fn ($q) => $q->whereNull('location_id')->orWhereHas('location', fn ($q) => $q->where('is_active', true)))->get();
+        })->where(fn ($q) => $q->whereNull('location_id')->orWhereHas('location', fn ($q) => $q->where('is_active', true)->whereNotIn('type', ['receiving', 'damaged'])))->get();
 
         return $this->inventoryService->lockLevels($rows->map->getAttributes()->all());
     }
@@ -239,7 +239,7 @@ class OrderAllocationService
             ->whereHas('branch', fn (Builder $q): Builder => $q->where('is_active', true))
             ->where(fn (Builder $q): Builder => $q
                 ->whereNull('location_id')
-                ->orWhereHas('location', fn (Builder $l): Builder => $l->where('is_active', true)))
+                ->orWhereHas('location', fn (Builder $l): Builder => $l->where('is_active', true)->whereNotIn('type', ['receiving', 'damaged'])))
             ->groupBy('branch_id', 'product_variant_id')
             ->selectRaw('branch_id, product_variant_id, SUM(available) as total_available')
             ->get();

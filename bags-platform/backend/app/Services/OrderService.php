@@ -27,6 +27,7 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\RateLimiter;
 
 /**
  * خدمات الطلب.
@@ -99,7 +100,15 @@ class OrderService
             }
         }
 
-        return DB::transaction(function () use ($cart, $data, $customer, $idempotencyKey, $idempotencyScope, $guestPhoneNormalized): Order {
+        // H5: validation failures never consume the daily phone budget.
+        $phoneDayKey = $customer === null && $guestPhoneNormalized !== null && preg_match('/\d/', $guestPhoneNormalized) === 1
+            ? 'checkout-phone-day:'.hash('sha256', $guestPhoneNormalized)
+            : null;
+        if ($phoneDayKey !== null && RateLimiter::tooManyAttempts($phoneDayKey, (int) config('auth.customer_limits.checkout_phone_day', 20))) {
+            throw new BusinessException('تجاوزت عدد الطلبات اليومية المسموحة لهذا الرقم؛ حاول غدًا.', [], 429);
+        }
+
+        $created = DB::transaction(function () use ($cart, $data, $customer, $idempotencyKey, $idempotencyScope, $guestPhoneNormalized, $phoneDayKey): Order {
             // قفل استشاري على (النطاق + المفتاح): طلبان متزامنان بنفس المفتاح
             // يتسلسلان، فيجد الثاني الطلب الأول ويعيده بدل إنشاء ثانٍ (F2/F-13)
             if ($idempotencyKey !== null && $idempotencyScope !== null) {
@@ -121,6 +130,9 @@ class OrderService
                 throw new BusinessException('السلة فارغة؛ لا يمكن إنشاء طلب.');
             }
 
+            foreach ($cart->items as $item) {
+                $this->cartService->assertWholeQuantity((float) $item->qty);
+            }
             $lines = $this->cartService->pricedLines($cart, $customer);
             foreach ($lines as $line) {
                 if ($line['unit_price'] === null) {
@@ -331,6 +343,20 @@ class OrderService
                 $order->update(['payment_status' => 'paid']);
             }
 
+            // تذكّر العنوان للعميل المسجل (الأول يصير افتراضيًا) لتعبئة
+            // فورم الشحن تلقائيًا في الطلبات اللاحقة.
+            if ($customer !== null && $city !== null && ! empty($data['shipping_address_line'])) {
+                $line = mb_substr(trim((string) $data['shipping_address_line']), 0, 500);
+                $addressQuery = $customer->addresses();
+                if ($line !== '' && ! (clone $addressQuery)->where('city_id', $city->id)->where('address_line', $line)->exists()) {
+                    $addressQuery->create([
+                        'city_id' => $city->id,
+                        'address_line' => $line,
+                        'is_default' => ! (clone $addressQuery)->where('is_default', true)->exists(),
+                    ]);
+                }
+            }
+
             // أول سجل حالة: إنشاء الطلب
             $order->statusHistories()->create([
                 'from_status' => null,
@@ -354,8 +380,14 @@ class OrderService
             $created = $order->fresh(['items', 'statusHistories']);
             OrderCreated::dispatch($created);
 
+            if ($phoneDayKey !== null) {
+                DB::afterCommit(fn () => RateLimiter::hit($phoneDayKey, 24 * 3600));
+            }
+
             return $created;
         });
+
+        return $created;
     }
 
     /**

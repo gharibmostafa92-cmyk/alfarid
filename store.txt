@@ -476,3 +476,4 @@ dir="auto": warranty_details وcountry_of_origin، لأنها ممكن تتكت�
 الـ slug: toLowerCase().
 الرسائل: كل نصوص الواجهة الجديدة (toasts وconfirm وempty states) تتكتب عربي بنفس أسلوب الموجود. رسائل السيرفر تتعرض زي ما هي.
 الفونتات: ماتغيرهاش. Readex Pro أو IBM Plex Sans Arabic للعربي، وPlus Jakarta Sans للأرقام والإنجليزي.
+Please read the attached task.txt file and execute all the instructions and tasks listed in it step by step

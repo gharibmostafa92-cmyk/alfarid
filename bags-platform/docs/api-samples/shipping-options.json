@@ -1,0 +1,31 @@
+{
+    "data": {
+        "city": {
+            "id": 7,
+            "name_ar": "Port Ardella",
+            "name_en": "Walkerhaven"
+        },
+        "cart_total": 400,
+        "payment_methods": [
+            "cod"
+        ],
+        "preview": {
+            "items_total": 400,
+            "coupon_discount": 0,
+            "shipping": 0,
+            "cod_fee": 12,
+            "tax": 56,
+            "grand_total": 468
+        },
+        "options": [
+            {
+                "key": "standard",
+                "label": "شحن قياسي",
+                "cost": 0,
+                "cod_fee": 12,
+                "currency": "EGP",
+                "estimated_days": "من 2 إلى 4 أيام عمل"
+            }
+        ]
+    }
+}

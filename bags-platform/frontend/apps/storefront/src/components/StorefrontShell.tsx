@@ -5,15 +5,21 @@ import { usePathname } from 'next/navigation';
 import { AccountMenu } from './auth/AccountMenu';
 import { useBranding } from '@alfarid/ui/branding';
 import { useCartSync } from '@/hooks/use-cart-sync';
+import { SophieHeader } from './sophie/SophieHeader';
 
 export function StorefrontShell({ children }: { children: React.ReactNode }) {
   useCartSync();
   const { branding } = useBranding();
   const pathname = usePathname();
+  const isStorePage = ['/', '/shop', '/categories', '/design', '/showcase', '/checkout'].includes(pathname);
+  if (isStorePage) {
+    return <><div className="store-header-shell"><div className="store-header-inner"><SophieHeader /></div></div>{children}</>;
+  }
 
   // Pages that manage their own luxury header & layout or specialized portals
   const isCustomLayout =
     pathname === '/' ||
+    pathname.startsWith('/checkout') ||
     pathname.startsWith('/auth/') ||
     pathname.startsWith('/categories') ||
     pathname.startsWith('/shop') ||

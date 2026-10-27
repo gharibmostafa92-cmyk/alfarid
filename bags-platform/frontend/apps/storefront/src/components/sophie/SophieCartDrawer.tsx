@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useEffect, useRef } from 'react';
+import Link from 'next/link';
 import { useCartStore } from '@/stores/cart-store';
 import { formatStorePrice } from '@alfarid/utils';
-import { SophieBagPlaceholder } from './SophieBagPlaceholder';
+import { StoreProductImage } from './StoreProductImage';
 
 interface SophieCartDrawerProps {
   isOpen: boolean;
@@ -94,7 +95,7 @@ export function SophieCartDrawer({ isOpen, onClose }: SophieCartDrawerProps) {
             ) : (
               items.map((item) => (
                 <div key={item.id} className="flex gap-4 pb-4 border-b border-gray-100">
-                  <div className="w-20 h-20 bg-gray-50 rounded-sm p-2 flex items-center justify-center shrink-0 [&_svg]:w-10 [&_span]:hidden"><SophieBagPlaceholder /></div>
+                  <div className="w-20 h-20 bg-gray-50 rounded-sm p-2 flex items-center justify-center shrink-0 [&_svg]:w-10 [&_span]:hidden"><StoreProductImage src={item.image} alt={item.name} /></div>
                   <div className="flex-1 min-w-0">
                     <h3 className="font-['Oswald'] text-sm font-medium text-gray-900 truncate">{item.name}</h3>
                     <p className="text-xs text-gray-600 font-semibold mt-0.5">{item.price === null ? 'Price unavailable' : formatStorePrice(item.price)}</p>
@@ -142,12 +143,13 @@ export function SophieCartDrawer({ isOpen, onClose }: SophieCartDrawerProps) {
               </div>
               <p className="text-[11px] text-gray-500 mb-4">Shipping and taxes calculated at checkout.</p>
               <div className="space-y-2">
-                <button
-                  disabled
-                  className="w-full bg-black text-white py-3 font-['Oswald'] text-xs font-medium uppercase tracking-widest hover:bg-neutral-800 transition"
+                <Link
+                  href="/checkout"
+                  onClick={onClose}
+                  className="w-full block text-center bg-black text-white py-3 font-['Oswald'] text-xs font-medium uppercase tracking-widest hover:bg-[#159a8c] transition"
                 >
-                  Checkout coming soon
-                </button>
+                  Proceed to Checkout
+                </Link>
                 <button
                   onClick={() => { void clearCart(); }}
                   disabled={busy}

@@ -29,16 +29,46 @@
    their URLs. Use `--delete-source` to remove the old guessable URLs as well.
 6. Run `php artisan media-library:regenerate --only=thumb --only=medium` for existing
    category and brand assets. Run a queue worker for conversions queued by the
-   configured media library. Newly uploaded product images render synchronously
-   per file, without holding a product row lock.
+   configured media library. Product images upload to staging outside a database
+   transaction; a short transaction links each completed original. Conversions
+   run on the queue after commit. Configure `QUEUE_CONNECTION=database` (or Redis)
+   and `MEDIA_QUEUE_CONNECTION` and run workers before accepting uploads.
 7. Run `php artisan config:cache` and `php artisan integrations:check`.
    `integrations:check --live` probes the private R2 disk and Gemini; separately
    confirm an actual catalog image and its thumbnail load through the public CDN,
    and private documents cannot be fetched anonymously.
+8. Before directing shoppers to the release, warm the homepage with a successful
+   `GET /api/v1/store/home`. Cold requests wait at most one second for the builder.
+   Facets stay fresh for 60 seconds and serve stale data during background
+   refresh for up to 600 seconds. Structural facets are shared; price ranges
+   are separated by pricing context and isolate customer-specific lists.
+   Apply the location/branch foreign keys, movement sequence lock update and
+   catalog trigram migrations before serving traffic. Resolve any historical
+   location/branch mismatches before validating the new foreign keys.
+9. Apply the `2026_10_28` migrations before serving the updated price endpoints.
+   Run `php artisan store:refresh-retail-prices` before opening traffic, then
+   restart queue workers. The scheduler refreshes public retail sorting prices
+   every five minutes, including time-limited lists. Per-product jobs refresh
+   changes after commit. Checkout always uses live pricing; a snapshot older
+   than ten minutes falls back to live pricing too.
+10. The new occasions constraint rejects objects and unknown array values.
+    Correct any reported historical invalid rows and retry migration. The
+    independent index repair detects invalid concurrent builds and rebuilds them.
+
+Image retries and image reordering share a product-scoped cache lock. Use the
+same shared cache across application nodes; no database row stays locked while
+an image streams or is converted. A failed conversion keeps the usable original;
+retry the failed conversion job or run `media-library:regenerate` after repair.
+
+Video uploads stream into a hidden `video_staging` collection before a short
+transaction swaps the live video. The scheduled `media:prune-orphans` command
+also removes expired `images_staging` and `video_staging` media after interrupted uploads.
+The scheduler also runs `--staging-only` hourly without listing every R2 folder.
+An image retry can recover an abandoned staging row after fifteen minutes.
 
 The image upload API accepts at most four images and 16 million pixels per image.
-Configure PHP workers with at least `memory_limit=512M` for synchronous image
-conversions, and size the worker pool against that memory budget. This is a
+Configure conversion workers with at least `memory_limit=512M` and size the
+worker pool against that memory budget. This is a
 deployment setting; the application does not raise server memory limits.
 The backoffice sends a persistent UUID per pending file and allows 180 seconds for
 the request. Retrying the same owner/UUID returns the existing media row.
@@ -47,7 +77,8 @@ Existing migrations already provide `products(category_id)`, `products(brand_id)
 and `product_variants.compare_at_price`; no duplicate schema changes are needed.
 The shared controller already rejects idempotency keys longer than 128 bytes;
 the global exception handler maps PostgreSQL lock conflicts (including receipt
-lock timeouts, SQLSTATE 55P03) to HTTP 409.
+lock timeouts, SQLSTATE 55P03) to HTTP 409 for writes and HTTP 503 for safe reads,
+with Retry-After exposed through CORS.
 `stock_levels_valid_balances` already prevents negative availability, so the
 existing positive-row stock filter agrees with the aggregate on product cards.
 

@@ -12,6 +12,9 @@ declare(strict_types=1);
 */
 
 return [
+    // صفحة الهوم لعميل التجزئة بعد تسجيل الدخول بلا redirect آمن.
+    'retail_home' => env('STORE_RETAIL_HOME', '/shop'),
+
     // أضيفوا wallet هنا لتفعيل المحفظة للعملاء المعتمدين. إزالتها توقف المحفظة.
     'payment_methods' => array_values(array_filter(array_map(
         'trim',

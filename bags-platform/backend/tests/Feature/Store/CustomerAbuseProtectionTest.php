@@ -127,7 +127,7 @@ class CustomerAbuseProtectionTest extends TestCase
         $query = $catalog->applyFilters($catalog->publishedQuery(), ['price_min' => 1, 'price_max' => 9999, 'sort' => 'price_asc']);
         $sql = $query->toSql();
         $this->assertSame(1, substr_count($sql, 'join lateral'));
-        $this->assertSame(1, substr_count($sql, 'MIN(priced_variants.store_price)'));
+        $this->assertSame(2, substr_count($sql, 'MIN(priced_variants.store_price)')); // stocked minimum, then fallback minimum
         $this->assertCount(1, $query->get());
         $this->assertNotEmpty(DB::select('EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) '.$sql, $query->getBindings()));
         $this->getJson('/api/v1/store/products?page=501')->assertUnprocessable()->assertJsonValidationErrors('page');
@@ -135,7 +135,8 @@ class CustomerAbuseProtectionTest extends TestCase
 
     public function test_expensive_catalog_queries_are_throttled(): void
     {
-        for ($i = 0; $i < 20; $i++) {
+        config(['auth.customer_limits.price_ip_minute' => 2]);
+        for ($i = 0; $i < 2; $i++) {
             $this->getJson('/api/v1/store/products?sort=price_asc')->assertOk();
         }
         $this->getJson('/api/v1/store/products?sort=price_asc')->assertTooManyRequests();

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Media;
 
 use App\Models\Product;
+use App\Models\ProductVariant;
 use Spatie\MediaLibrary\MediaCollections\Filesystem;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Spatie\MediaLibrary\MediaCollections\Models\Observers\MediaObserver;
@@ -15,7 +16,8 @@ class TransactionalMediaObserver extends MediaObserver
     {
         $localDemo = app()->environment(['local', 'testing'])
             && $media->getCustomProperty('storefront_demo') === true
-            && $media->model instanceof Product
+            && ($media->model instanceof Product
+                || ($media->model instanceof ProductVariant && str_starts_with((string) $media->model->product?->slug, 'demo-')))
             && $media->disk === 'public'
             && in_array($media->conversions_disk, ['', 'public'], true);
         // H5: catalog collections (Product/Variant/Category/Brand) use the public
