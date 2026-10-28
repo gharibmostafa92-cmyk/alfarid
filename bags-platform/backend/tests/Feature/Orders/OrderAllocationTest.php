@@ -81,6 +81,23 @@ class OrderAllocationTest extends TestCase
 
     // ---------- 7.2: التوزيع ----------
 
+    public function test_duplicate_fractional_lines_use_combined_stock_without_float_boundary_errors(): void
+    {
+        $variant = ProductVariant::factory()->create();
+        $short = Branch::factory()->create();
+        $enough = Branch::factory()->create();
+        $this->giveStock($variant, $short, 0.2);
+        $this->giveStock($variant, $enough, 0.3);
+        $order = $this->makeOrder([[$variant, 0.1], [$variant, 0.2]]);
+
+        $allocated = app(OrderAllocationService::class)->allocate($order, performedBy: $this->staff->id);
+
+        $this->assertSame($enough->id, $allocated->allocated_branch_id);
+        $this->assertSame('0.3000', $this->level($variant->id, $enough->id)->reserved);
+        $this->assertSame('0.0000', $this->level($variant->id, $short->id)->reserved);
+        $this->assertCount(2, $allocated->items);
+    }
+
     public function test_full_branch_allocation_prefers_customer_city(): void
     {
         $variant = ProductVariant::factory()->create();

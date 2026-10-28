@@ -30,17 +30,14 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 
 /**
- * خدمات الطلب.
- * - createFromCart: تحويل سلة إلى طلب بلقطات أسعار من PricingService،
- *   وخصم الكوبون، وشحن المدينة، وضريبة الإعدادات، ثم إفراغ السلة.
- * - changeStatus: بوابة تغيير الحالة الوحيدة — تتحقق من آلة الحالات،
- *   وتسجل التغيير في order_status_histories، وتدير آثار المخزون:
- *   confirmed ← حجز وتوزيع، shipped ← فك حجز + بيع فعلي،
- *   cancelled (من confirmed/processing) ← فك حجز.
+ * Handles order placement, status transition lifecycle, and associated inventory effects.
+ *
+ * Coordinates cart checkout, atomic stock reservation, coupon redemption,
+ * and ledger updates across order state transitions (confirmed, shipped, cancelled, returned).
  */
 class OrderService
 {
-    /** الانتقالات المسموحة بين حالات الطلب. */
+    /** Permitted state machine transitions for order statuses. */
     private const TRANSITIONS = [
         'pending' => ['confirmed', 'cancelled'],
         'confirmed' => ['processing', 'shipped', 'cancelled'],
@@ -61,16 +58,13 @@ class OrderService
     ) {}
 
     /**
-     * تحويل سلة إلى طلب جديد بحالة pending.
+     * Converts a customer or guest cart into a pending order with reserved inventory.
      *
-     * @param  array{recipient_name?: string|null, recipient_phone?: string|null, recipient_email?: string|null, city_id?: int|null, shipping_address_line?: string|null, shipping_notes?: string|null, payment_method?: string|null, channel?: string}  $data
+     * @param  array{recipient_name?: string|null, recipient_phone?: string|null, recipient_email?: string|null, city_id?: int|null, shipping_address_line?: string|null, shipping_notes?: string|null, payment_method?: string|null, channel?: string, idempotency_key?: string|null, expected_total?: float|int|string|null}  $data
      */
     public function createFromCart(Cart $cart, array $data, ?Customer $customer = null): Order
     {
-        // إعادة إرسال بنفس مفتاح منع التكرار ترجع الطلب نفسه (F-13):
-        // انقطاع الشبكة بعد إنشاء الطلب لا يعني «سلة فارغة» ولا طلبًا مكررًا.
-        // المفتاح مقيّد بهوية المُرسِل (F2): زائر لا يستطيع سرقة طلب غيره أو
-        // تعطيله بمعرفة/تخمين مفتاحه، فالمفتاح وحده ملك مشترك للفضاء كله.
+        // Idempotency key scoped to authenticated customer or normalized guest phone to prevent replay attacks.
         $idempotencyKey = isset($data['idempotency_key']) && is_string($data['idempotency_key']) && $data['idempotency_key'] !== ''
             ? mb_substr($data['idempotency_key'], 0, 191)
             : null;
@@ -79,9 +73,7 @@ class OrderService
         $guestPhoneNormalized = is_string($guestPhone) && trim($guestPhone) !== ''
             ? Customer::normalizePhone($guestPhone)
             : null;
-        // هاتف زائر لا يحمل أرقامًا بعد التوحيد = هوية مشتركة بين كل من أرسل
-        // مدخلًا عشوائيًا (M3): نطاق idempotency يصير 'guest:' عامًا ويتطابق
-        // التتبع مع أي هاتف. يُرفض بدل أن يفسد Discounts/التتبع.
+        // Require at least one digit in guest phone to prevent empty string collisions in guest scope.
         if ($customer === null && $guestPhoneNormalized !== null
             && preg_match('/\d/', $guestPhoneNormalized) !== 1) {
             throw new BusinessException('رقم هاتف صالح مطلوب لإتمام الشراء كزائر.');
@@ -109,8 +101,7 @@ class OrderService
         }
 
         $created = DB::transaction(function () use ($cart, $data, $customer, $idempotencyKey, $idempotencyScope, $guestPhoneNormalized, $phoneDayKey): Order {
-            // قفل استشاري على (النطاق + المفتاح): طلبان متزامنان بنفس المفتاح
-            // يتسلسلان، فيجد الثاني الطلب الأول ويعيده بدل إنشاء ثانٍ (F2/F-13)
+            // Transaction-level advisory lock serializes concurrent checkouts with the same idempotency key.
             if ($idempotencyKey !== null && $idempotencyScope !== null) {
                 DB::statement('SELECT pg_advisory_xact_lock(hashtext(?))', ['order-idem:'.$idempotencyScope.':'.$idempotencyKey]);
                 $existing = Order::query()
@@ -122,8 +113,7 @@ class OrderService
                 }
             }
 
-            // قفل صف السلة وقراءة بنودها طازجة: طلب متزامن ثانٍ ينتظر
-            // ثم يجد السلة فارغة بدل إنشاء طلب مكرر (H2)
+            // Lock cart row and fetch fresh items so concurrent checkouts cannot double-process the same cart.
             $cart = Cart::query()->whereKey($cart->id)->lockForUpdate()->firstOrFail();
             $cart->load('items');
             if ($cart->items->isEmpty()) {
@@ -138,15 +128,13 @@ class OrderService
                 if ($line['unit_price'] === null) {
                     throw new BusinessException("الصنف ({$line['variant']->sku}) غير مُسعَّر؛ لا يمكن إتمام الطلب.");
                 }
-                // سطر بقيمة صفر (كمية شبه صفرية × سعر صغير) لا يمر (F-03)
+                // Reject zero-value lines resulting from extreme rounding or micro-pricing anomalies.
                 if ($line['line_total'] <= 0) {
                     throw new BusinessException("قيمة الصنف ({$line['variant']->sku}) صفر؛ راجع الكمية أو السعر.");
                 }
             }
 
-            // سقوف المخزون (F5/H2): الزائر بلا تحقق من الهاتف، والعميل المسجّل
-            // بلا سقف كانا يحبسان المخزون بكميات ضخمة وطلبات معلّقة. عملاء
-            // الجملة/التوزيع المعتمدون مستثنون (مسار الجملة للكميات الكبيرة).
+            // Enforce maximum quantity caps per line and pending orders cap to prevent inventory hoarding.
             $isWholesale = $this->isWholesaleApproved($customer);
             if (! $isWholesale) {
                 $lineCap = $customer === null
@@ -188,23 +176,19 @@ class OrderService
                 }
             }
 
-            // إعادة التحقق من التوفر وقابلية البيع لحظة الشراء (M14):
-            // صنف عُطّل أو منتج أُلغي نشره/حُذف بعد الإضافة لا يُشترى
+            // Re-verify product availability and purchasability at checkout time.
             $this->cartService->assertLinesAvailable($lines);
             $this->cartService->assertLinesPurchasable($lines);
             $totals = $this->cartService->totals($cart, $customer, $lines);
             $subtotal = $totals['subtotal'];
             $pricingDiscount = $totals['pricing_discount'];
 
-            // الكوبون: إعادة تحقق صارمة عند الشراء (يشمل حد العميل الواحد)
+            // Strict coupon validation and rate-limiting at redemption time.
             $couponDiscount = 0.0;
             $couponId = null;
             $couponCode = null;
             $coupon = null;
             if ($cart->coupon_id !== null) {
-                // لا قفل صف كوبون مسبق (F4): ترتيب الأقفال صار مخزون←كوبون،
-                // والذرّية تُضمن عند تسجيل الاستخدام (قفل استشاري + زيادة
-                // شرطية) فلا جمود بين الشراء والإلغاء
                 try {
                     $coupon = $this->couponService->redeemableById(
                         (int) $cart->coupon_id,
@@ -213,10 +197,9 @@ class OrderService
                         $customer === null ? ($data['recipient_phone'] ?? null) : null,
                     );
                 } catch (BusinessException $e) {
-                    // رمز مميز حتى تعرض الواجهة زر إزالة الكوبون (H8)
+                    // Tag coupon invalidation so the front-end can prompt coupon removal.
                     throw new BusinessException($e->getMessage(), $e->errors, $e->status, 'coupon_invalid');
                 }
-                // حد معدّل لكل (كوبون + IP) عند إتمام الشراء (H3)
                 $this->couponService->enforceRateLimit($coupon, 'redeem');
                 $couponDiscount = $this->couponService->discountFor($coupon, $totals['items_total']);
                 $couponId = $coupon->id;
@@ -224,9 +207,7 @@ class OrderService
             }
             $discountAmount = round($pricingDiscount + $couponDiscount, 2);
 
-            // الشحن من تسعيرة المناطق الموحدة (M12): سعر المنطقة/الشركة
-            // وحدها المجاني ورسوم COD — ورجوع لسعر المدينة عند غياب سعر.
-            // كوبون الشحن المجاني يعفي من تكلفة الشحن (لا من رسوم COD)
+            // Calculate shipping quote and COD surcharge based on destination city and active rates.
             $city = null;
             $shippingCost = 0.0;
             $codFee = 0.0;
@@ -249,7 +230,7 @@ class OrderService
                 $shippingCost = 0.0;
             }
 
-            // الضريبة من الإعدادات (مفعّلة وغير مشمولة في الأسعار فقط)
+            // Apply sales tax from settings when enabled and not already included in catalog prices.
             $taxAmount = 0.0;
             $taxRate = 0.0;
             if (filter_var($this->settings->get('tax_enabled', false), FILTER_VALIDATE_BOOLEAN)
@@ -260,8 +241,7 @@ class OrderService
 
             $grandTotal = round(($subtotal - $discountAmount) + $shippingCost + $codFee + $taxAmount, 2);
 
-            // حماية من تغيّر السعر بين عرض السلة والشراء (M6): إن أرسل العميل
-            // الإجمالي الذي رآه واختلف عمّا حُسب فعليًا نرفض بدل تحصيل زائد صامت
+            // Reject checkout if grand total drifted since cart preview (e.g. price update or expired promo).
             if (isset($data['expected_total']) && is_numeric($data['expected_total'])
                 && abs((float) $data['expected_total'] - $grandTotal) > 0.01) {
                 throw new BusinessException(
@@ -296,10 +276,7 @@ class OrderService
                 'grand_total' => $grandTotal,
             ]);
 
-            // بنود الطلب بلقطات الاسم والـ SKU والسعر + توزيع الضريبة وحصة
-            // الكوبون على البنود بطريقة «أكبر باقٍ» (L5/M17): الحصة تُحسب
-            // بالقروش فتكون الأعداد صحيحة ومجموعها يساوي الإجمالي بالضبط،
-            // ولا يقع بند بحصة سالبة بسبب التقريب
+            // Distribute tax and coupon discounts across line items using the largest remainder method.
             $weights = array_map(fn (array $line): float => (float) $line['line_total'], $lines);
             $taxShares = $this->distributeLargestRemainder($taxAmount, $weights);
             $couponShares = $this->distributeLargestRemainder($couponDiscount, $weights);
@@ -316,15 +293,12 @@ class OrderService
                 ]);
             }
 
-            // الحجز الفوري داخل نفس معاملة الشراء (F-01): التوفر يتحول
-            // لحجز ذرّي تحت أقفال صفوف الأرصدة بدل انتظار التأكيد، فآخر
-            // وحدة لا تُباع مرتين. نقص الرصيد يُسقط الشراء كله هنا.
+            // Reserve stock immediately under pessimistic locks so the last unit cannot be oversold.
             $order->load('items');
             $this->allocationService->allocate($order, performedBy: $this->inventoryActorId($customer));
             $order->refresh();
 
-            // تسجيل استخدام الكوبون فعليًا (خصم البضاعة أو الشحن المُعفى).
-            // كوبون شحن مجاني وشحن الطلب صفر أصلًا لا يستهلك حدًا بلا فائدة (L4)
+            // Free shipping coupon without actual shipping cost does not consume user redemption limit.
             if ($coupon !== null
                 && ! ($coupon->type === 'free_shipping' && $waivedShipping <= 0)) {
                 $this->couponService->recordUsage(
@@ -343,8 +317,7 @@ class OrderService
                 $order->update(['payment_status' => 'paid']);
             }
 
-            // تذكّر العنوان للعميل المسجل (الأول يصير افتراضيًا) لتعبئة
-            // فورم الشحن تلقائيًا في الطلبات اللاحقة.
+            // Automatically persist customer shipping address for streamlined future checkouts.
             if ($customer !== null && $city !== null && ! empty($data['shipping_address_line'])) {
                 $line = mb_substr(trim((string) $data['shipping_address_line']), 0, 500);
                 $addressQuery = $customer->addresses();
@@ -357,7 +330,7 @@ class OrderService
                 }
             }
 
-            // أول سجل حالة: إنشاء الطلب
+            // Record initial pending status transition in history log.
             $order->statusHistories()->create([
                 'from_status' => null,
                 'to_status' => OrderStatus::Pending,
@@ -366,8 +339,7 @@ class OrderService
                 'notes' => 'تم إنشاء الطلب من السلة',
             ]);
 
-            // إفراغ السلة من البنود التي تحولت لطلب فقط (F-23): بند أُضيف
-            // والتزم أثناء المعاملة لا يجب أن يمسحه مسحٌ كامل للسلة
+            // Remove only ordered items from cart to preserve items concurrently added in other tabs.
             $orderedItemIds = array_values(array_unique(array_map(
                 fn (array $line): int => (int) $line['item_id'],
                 $lines,
@@ -391,22 +363,18 @@ class OrderService
     }
 
     /**
-     * بوابة الحالة الوحيدة. $expectedFrom (F-11): حالات مصدر يفترضها
-     * المستدعي على نسخته غير المقفولة — تُفحص بعد إعادة القراءة بالقفل،
-     * فسباق (عميل يلغي × أدمن يجهّز) لا يمر من فحص قديم.
-     * $returnEffects (المرحلة 9): عند false ينتقل الطلب إلى Returned بلا
-     * إعادة مخزون وبلا علم استرداد — مسار RMA سوّى المخزون عند الاستلام
-     * الفعلي والمال عند رد المبلغ، فتكرار الأثر هنا ازدواج.
+     * Executes an order status transition and triggers corresponding inventory and payment side-effects.
      *
-     * @param  array<int, OrderStatus>|null  $expectedFrom
+     * @param  array<int, OrderStatus>|null  $expectedFrom  Expected previous statuses to prevent race conditions.
+     * @param  bool  $returnEffects  Whether to generate automatic stock and refund side effects for returns.
+     * @param  bool  $allowNoticesLoss  Allows cancelling credit orders with approved wholesale payment notices.
      */
-    public function changeStatus(Order $order, OrderStatus|string $toStatus, ?Model $actor = null, ?string $notes = null, ?array $expectedFrom = null, bool $returnEffects = true): Order
+    public function changeStatus(Order $order, OrderStatus|string $toStatus, ?Model $actor = null, ?string $notes = null, ?array $expectedFrom = null, bool $returnEffects = true, bool $allowNoticesLoss = false): Order
     {
         $to = $toStatus instanceof OrderStatus ? $toStatus : OrderStatus::from($toStatus);
 
-        return DB::transaction(function () use ($order, $to, $actor, $notes, $expectedFrom, $returnEffects): Order {
-            // إعادة قراءة الطلب بقفل صف: النسخة الممرَّرة قد تكون قديمة،
-            // وكل الانتقالات على نفس الطلب يجب أن تتسلسل (C1)
+        return DB::transaction(function () use ($order, $to, $actor, $notes, $expectedFrom, $returnEffects, $allowNoticesLoss): Order {
+            // Lock order row to serialize status transitions and guard against stale client snapshots.
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $from = $order->status;
 
@@ -435,34 +403,39 @@ class OrderService
                 throw new BusinessException('للطلب مرتجعات قائمة؛ أكمل الاستلام والاسترداد من إدارة المرتجعات لمنع تكرار المخزون.');
             }
 
-            // آثار المخزون بحسب الانتقال
+            // Prevent silent cancellation of credit orders that hold approved wholesale treasury notices.
+            if ($to === OrderStatus::Cancelled && ! $allowNoticesLoss
+                && $order->payment_method === 'credit'
+                && \App\Models\WholesalePaymentNotice::query()->where('order_id', $order->id)
+                    ->where('status', \App\Enums\WholesalePaymentNoticeStatus::Approved->value)->exists()) {
+                throw new BusinessException('للطلب الآجل إشعارات سداد معتمدة مقيدة في الخزينة؛ سوِّها أولًا (رد أو تحويلها لائتمان حر) قبل الإلغاء.');
+            }
+
             $extraNote = null;
             if ($to === OrderStatus::Shipped) {
                 $this->shipOrder($order, $actorId);
             } elseif ($to === OrderStatus::Cancelled
                 && in_array($from, [OrderStatus::Pending, OrderStatus::Confirmed, OrderStatus::Processing], true)) {
-                // الحجز صار من لحظة الإنشاء (F-01) فيُفك من Pending أيضًا
+                // Stock is reserved from creation time, so release reservations on cancellation.
                 $this->releaseReservations($order, $actorId, 'إلغاء الطلب');
             } elseif ($to === OrderStatus::Returned
                 && in_array($from, [OrderStatus::Shipped, OrderStatus::Delivered], true)
                 && $returnEffects) {
-                // إعادة البضاعة المشحونة للمخزون بحركات sale_return (M13) —
-                // تُتخطى في مسار RMA لأن الاستلام الفعلي سوّاها بالفعل (مرحلة 9)
+                // Reverse sales in stock ledger unless handled by the warehouse RMA intake process.
                 if (! $this->returnSalesToStock($order, $actorId)) {
                     $extraNote = 'لا توجد حركات بيع مسجلة؛ يتطلب المرتجع استلامًا يدويًا في المستودع.';
                 }
             }
 
             if ($to === OrderStatus::Cancelled) {
-                // عكس استخدام الكوبون حتى لا يُحرم العميل منه بإلغاء (M13)
+                // Restore coupon usage quota upon order cancellation.
                 $this->reverseCouponUsage($order);
                 if ($order->payment_status === 'paid') {
                     $order->update(['requires_refund' => true]);
                 }
             }
 
-            // مرتجع لطلب مدفوع يحتاج استردادًا أيضًا، لا الإلغاء فقط (F-14) —
-            // في مسار RMA الاسترداد اكتمل داخل طلب المرتجع نفسه فلا علم هنا
+            // Flag paid returned order for refund processing.
             if ($to === OrderStatus::Returned && $order->payment_status === 'paid' && $returnEffects) {
                 $order->update(['requires_refund' => true]);
             }
@@ -480,16 +453,14 @@ class OrderService
 
             $order->update(['status' => $to]);
 
-            // تسوية COD عند التسليم من أي مسار (أدمن يدوي أو ويب هوك) —
-            // الأثر هنا في بوابة الحالة لا في ويب هوك الشحن فقط (F-14)
+            // Auto-settle COD payment status upon delivery.
             if ($to === OrderStatus::Delivered
                 && $order->payment_method === 'cod'
                 && $order->payment_status !== 'paid') {
                 $order->update(['payment_status' => 'paid']);
             }
 
-            // notes عمود varchar(500): ملاحظة الأدمن (حتى 500) مع الملحق قد
-            // تتجاوزه فتنفجر بحركة إرجاع بلا حركات بيع — تُقصّ على 500 (F-28)
+            // Truncate notes to fit the varchar(500) database column limit.
             $historyNotes = trim(($notes ?? '').($extraNote !== null ? ' — '.$extraNote : '')) ?: $notes;
 
             $order->statusHistories()->create([
@@ -500,9 +471,7 @@ class OrderService
                 'notes' => $historyNotes !== null ? mb_substr($historyNotes, 0, 500) : null,
             ]);
 
-            // التوزيع ناقص إن غاب فرع الطلب أو بقي بند بلا فرع: الاعتماد على
-            // allocated_branch_id وحده يفشل عندما تُوزَّع البنود في فروع
-            // مختلفة فيبقى حقل الطلب فارغًا (F1)
+            // Trigger item allocation if the order transitioned to confirmed without full allocation.
             if ($to === OrderStatus::Confirmed && ! $this->isAllocated($order)) {
                 $this->allocationService->allocate($order, performedBy: $actorId);
             }
@@ -512,8 +481,7 @@ class OrderService
     }
 
     /**
-     * كفاية التوزيع: يكفي أن يكون لفرع الطلب قيمة أو أن يكون كل بند موزّعًا
-     * فعليًا في فرع ما (F1) — التوزيع الجزئي (بند بلا فرع) يُعيد الاستدعاء.
+     * Checks whether all order items have been allocated to fulfillment branches.
      */
     private function isAllocated(Order $order): bool
     {
@@ -532,7 +500,9 @@ class OrderService
         return (int) $distribution->total === (int) $distribution->allocated;
     }
 
-    /** عميل جملة/توزيع معتمد — يُستثنى من سقوف التجزئة (H2). */
+    /**
+     * Checks if customer has approved wholesale/distributor status exempt from retail limits.
+     */
     private function isWholesaleApproved(?Customer $customer): bool
     {
         return $customer !== null
@@ -541,8 +511,7 @@ class OrderService
     }
 
     /**
-     * توزيع مبلغ على أوزان بطريقة «أكبر باقٍ» بعدد صحيح من القروش (L5):
-     * مجموع الحصص يساوي المبلغ بالضبط، ولا حصة سالبة بسبب التقريب.
+     * Distributes a total currency amount across weights using Hare-Niemeyer (largest remainder) algorithm.
      *
      * @param  array<int, float>  $weights
      * @return array<int, float>
@@ -586,9 +555,7 @@ class OrderService
     }
 
     /**
-     * الشحن: الحجز القائم الصافي لكل (متغير، فرع، موقع) — فك الحجز من reserved
-     * وخصم فعلي sale من on_hand على نفس صف الرصيد (C3).
-     * التجميع من الدفتر نفسه يجعل تكرار الشحن/الفك آمنًا: لا يُفك أي حجز مرتين.
+     * Releases reservations and records sale stock movements for all items in the order.
      */
     private function shipOrder(Order $order, ?int $actorId): void
     {
@@ -634,7 +601,9 @@ class OrderService
         }
     }
 
-    /** إلغاء طلب مُحجوز: فك الحجز القائم الصافي فقط فتعود الكميات متاحة للبيع (C3). */
+    /**
+     * Releases active stock reservations for cancelled orders back into available inventory.
+     */
     private function releaseReservations(Order $order, ?int $actorId, string $reason): void
     {
         $net = $this->netReservations($order);
@@ -665,9 +634,7 @@ class OrderService
     }
 
     /**
-     * إعادة بضاعة طلب مشحون/مُسلَّم إلى المخزون: صافي البيع القائم
-     * (المبيع ناقص sale_return المرتبط بالطلب) لكل مفتاح (C3/H7).
-     * ترجع false إذا لم يوجد صافي بيع (يحتاج استلامًا يدويًا).
+     * Restores delivered/shipped goods to on-hand inventory via SaleReturn stock movements.
      */
     private function returnSalesToStock(Order $order, ?int $actorId): bool
     {
@@ -678,7 +645,7 @@ class OrderService
             ->groupBy('product_variant_id', 'branch_id', 'location_id')
             ->selectRaw('product_variant_id, branch_id, location_id, SUM(quantity) AS net_qty, MAX(unit_cost) FILTER (WHERE type = \'sale\') AS sale_unit_cost')
             ->get()
-            // Sale سالبة وSaleReturn موجبة: الصافي السالب هو البيع القائم.
+            // Negative net represents un-returned sales (Sale is negative, SaleReturn is positive).
             ->map(fn ($row): array => [
                 'product_variant_id' => (int) $row->product_variant_id,
                 'branch_id' => (int) $row->branch_id,
@@ -727,9 +694,7 @@ class OrderService
     }
 
     /**
-     * الحجز القائم الصافي لكل (متغير، فرع، موقع): مجموع Reserve ناقص ما فُك
-     * بـ ReleaseReserve لنفس الطلب (C3). الصفوف تُقفل مرتبة عبر lockLevels
-     * قبل التنفيذ في المستدعي.
+     * Computes net active stock reservations per variant/location for an order.
      *
      * @return Collection<int, array{product_variant_id: int, branch_id: int, location_id: int|null, net_qty: float}>
      */
@@ -753,7 +718,9 @@ class OrderService
             ->values();
     }
 
-    /** عكس تسجيل استخدام الكوبون عند إلغاء الطلب: حذف السجل وإنقاص العدّاد (M13). */
+    /**
+     * Reverses recorded coupon usage and decrements used_count on order cancellation.
+     */
     private function reverseCouponUsage(Order $order): void
     {
         foreach (CouponUsage::query()->where('order_id', $order->id)->get() as $usage) {
@@ -762,7 +729,9 @@ class OrderService
         }
     }
 
-    /** حركات الحجز الأصلية للطلب من الدفتر (مصدر الحقيقة لمواضع الحجز ومواقعه). */
+    /**
+     * Retrieves original stock reserve movements associated with an order.
+     */
     private function reserveMovements(Order $order): Collection
     {
         return StockMovement::query()
@@ -773,16 +742,15 @@ class OrderService
             ->get();
     }
 
-    // التخزين على مستوى الـ instance لا static (F-27): في Octane/العمال
-    // طويلة العمر كانت قيمة static تبقى عالقة بين الطلبات وبين الاختبارات
+    // Instance-level cache avoids cross-test/Octane bleed of static properties.
     private ?int $systemActorId = null;
 
     private bool $systemActorResolved = false;
 
     /**
-     * منفّذ حركات المخزون: الموظف الفاعل نفسه؛ وعند غيابه (عميل/ويب هوك)
-     * يُنسب التنفيذ لمستخدم النظام المخصص (M19) — لا لأول Super Admin،
-     * حتى يبقى سجل التدقيق صادقًا. يُحسم مرة واحدة لكل نسخة خدمة.
+     * Resolves the user identity responsible for stock ledger entries.
+     *
+     * Falls back to dedicated system user for automated actions (webhooks, guest checkout).
      */
     private function inventoryActorId(?Model $actor): ?int
     {

@@ -277,12 +277,16 @@ class CExecutionReviewTest extends TestCase
     {
         $limiter = RateLimiter::limiter('checkout');
         $keys = [];
-        foreach (['2001:db8:1:2::1', '2001:db8:1:2::ffff'] as $ip) {
+        $ipKeys = [];
+        foreach (['2001:db8:1:2::1', '2001:db8:1:2::ffff', '2001:db8:1:3::1'] as $ip) {
             $request = Request::create('/api/v1/orders', 'POST', ['recipient_phone' => '01012345678'], server: ['REMOTE_ADDR' => $ip]);
             $limits = $limiter($request);
-            $keys[] = $limits[1]->key;
+            $keys[] = collect($limits)->first(fn ($limit) => str_starts_with($limit->key, 'checkout-network-day:'))->key;
+            $ipKeys[] = collect($limits)->first(fn ($limit) => str_starts_with($limit->key, 'checkout-ip-day:'))->key;
         }
         $this->assertSame($keys[0], $keys[1]);
+        $this->assertNotSame($keys[0], $keys[2]);
+        $this->assertNotSame($ipKeys[0], $ipKeys[1]);
     }
 
     public function test_incremental_reconciliation_keeps_corrupt_keys_until_fixed(): void

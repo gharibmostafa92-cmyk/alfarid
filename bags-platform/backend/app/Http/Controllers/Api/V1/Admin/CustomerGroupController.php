@@ -19,7 +19,10 @@ use Illuminate\Routing\Controllers\Middleware;
 
 class CustomerGroupController extends Controller implements HasMiddleware
 {
-    public function __construct(private readonly CustomerGroupService $groups) {}
+    public function __construct(
+        private readonly CustomerGroupService $groups,
+        private readonly BranchAccess $branchAccess,
+    ) {}
 
     public static function middleware(): array
     {
@@ -44,7 +47,7 @@ class CustomerGroupController extends Controller implements HasMiddleware
 
     public function store(StoreCustomerGroupRequest $request): JsonResponse
     {
-        app(BranchAccess::class)->assertCentralAccess($request->user());
+        $this->branchAccess->assertCentralAccess($request->user());
         $group = $this->groups->create($request->validated());
 
         return CustomerGroupResource::make($group)
@@ -60,14 +63,14 @@ class CustomerGroupController extends Controller implements HasMiddleware
 
     public function update(UpdateCustomerGroupRequest $request, CustomerGroup $customerGroup): CustomerGroupResource
     {
-        app(BranchAccess::class)->assertCentralAccess($request->user());
+        $this->branchAccess->assertCentralAccess($request->user());
 
         return CustomerGroupResource::make($this->groups->update($customerGroup, $request->validated()));
     }
 
     public function destroy(Request $request, CustomerGroup $customerGroup): JsonResponse
     {
-        app(BranchAccess::class)->assertCentralAccess($request->user());
+        $this->branchAccess->assertCentralAccess($request->user());
         $this->groups->delete($customerGroup);
 
         return response()->json(['message' => 'تم حذف مجموعة العملاء بنجاح']);

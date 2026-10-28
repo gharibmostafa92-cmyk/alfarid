@@ -11,7 +11,7 @@ import CategoriesMockPage from './pages/admin/categories-mock/CategoriesMockPage
 import PosPage from './pages/pos/PosPage';
 import CatalogMockPage from './pages/admin/catalog-mock/CatalogMockPage';
 import AdminMockPage from './pages/admin/admin-mock/AdminMockPage';
-import OperationsMockPage from './pages/admin/operations-mock/OperationsMockPage';
+import OperationsMockPage, { canViewOperation } from './pages/admin/operations-mock/OperationsMockPage';
 const InventoryPage = lazy(() => import('./pages/admin/inventory-mock/InventoryPage'));
 
 defaultApiClient.defaults.baseURL = resolveServiceUrl(import.meta.env.VITE_API_URL ?? 'http://localhost:8000');
@@ -26,16 +26,22 @@ export function App() {
 function AuthenticatedApp() {
   const user = useAuthStore((state) => state.user);
   const logoutRemote = useAuthStore((state) => state.logoutRemote);
-  const readRoute = () => window.location.hash.replace(/^#/, '').split('?')[0]
-    || window.location.pathname;
-  const [route, setRoute] = useState(readRoute);
+  const readRoute = () => window.location.hash.replace(/^#/, '')
+    || window.location.pathname + window.location.search;
+  const [routeWithQuery, setRouteWithQuery] = useState(readRoute);
+  const route = routeWithQuery.split('?')[0];
   const can = useCallback((permission: string) =>
     hasPermission(user?.permissions, permission), [user]);
-  const cashierOnly = user?.roles.length === 1 && user.roles[0] === 'cashier';
+  const cashierOnly = (user?.roles ?? []).includes('cashier') && ![
+    'orders.view', 'treasuries.view', 'expenses.view', 'treasury_transfers.view', 'reports.view',
+    'products.view', 'inventory.view', 'users.view', 'customers.view', 'roles.view', 'settings.view',
+    'returns.view', 'shipping.view', 'price_lists.view', 'promotions.view', 'pos_shifts.view',
+    'quotations.view', 'payment_notices.view',
+  ].some(can);
 
   useEffect(() => {
     // Stocktake navigation guards may synchronously restore the accepted hash.
-    const changed = () => queueMicrotask(() => setRoute(readRoute()));
+    const changed = () => queueMicrotask(() => setRouteWithQuery(readRoute()));
     window.addEventListener('hashchange', changed);
     window.addEventListener('popstate', changed);
     return () => {
@@ -49,7 +55,7 @@ function AuthenticatedApp() {
   const operationsActive = opMatch ? opMatch[1] : null;
   const operationsId = opMatch ? opMatch[2] : undefined;
   const operationsSub = (() => {
-    const raw = window.location.hash.includes('?') ? window.location.hash.split('?')[1] : window.location.search.replace(/^\?/, '');
+    const raw = routeWithQuery.split('?')[1] ?? '';
     return new URLSearchParams(raw).get('sub') || undefined;
   })();
 
@@ -92,6 +98,9 @@ function AuthenticatedApp() {
     catalogActive={catalogActive}
     catalogPage={
       isOperation && operationsActive ? (
+        !canViewOperation(operationsActive, can) ? (
+          <div dir="rtl" className="p-6">ليس لديك صلاحية عرض هذه الصفحة.</div>
+        ) : (
         <OperationsMockPage
           key={`${operationsActive}-${operationsId || ''}-${operationsSub || ''}`}
           page={operationsActive}
@@ -99,6 +108,7 @@ function AuthenticatedApp() {
           sub={operationsSub}
           can={can}
         />
+        )
       ) : inventoryActive ? (
         can('inventory.view') ? (
           <Suspense fallback={<div dir="rtl" className="p-6">جارٍ تحميل المخزون…</div>}>
@@ -124,8 +134,8 @@ function AuthenticatedApp() {
       ...(can('products.view') ? [{ id: 'products', label: 'المنتجات', onOpen: () => { window.location.hash = '/products'; } }] : []),
       ...(can('customers.view') ? [{ id: 'dealers', label: 'التجار والموزعون', onOpen: () => { window.location.hash = '/dealers'; } }] : []),
       ...(can('inventory.view') ? [{ id: 'production', label: 'استلام الإنتاج', onOpen: () => { window.location.hash = '/production'; } }] : []),
-      { id: 'finance', label: 'المالية', onOpen: () => { window.location.hash = '/finance'; } },
-      { id: 'reports', label: 'التقارير', onOpen: () => { window.location.hash = '/reports'; } },
+      ...(canViewOperation('finance', can) ? [{ id: 'finance', label: 'المالية', onOpen: () => { window.location.hash = '/finance'; } }] : []),
+      ...(can('reports.view') ? [{ id: 'reports', label: 'التقارير', onOpen: () => { window.location.hash = '/reports'; } }] : []),
       ...((can('users.view') || can('users.manage')) ? [{ id: 'users', label: 'المستخدمون', onOpen: () => { window.location.hash = '/users'; } }] : []),
       ...((can('roles.view') || can('roles.manage')) ? [{ id: 'roles', label: 'الأدوار', onOpen: () => { window.location.hash = '/roles'; } }] : []),
       ...((can('settings.view') || can('settings.manage')) ? [{ id: 'settings', label: 'الإعدادات', onOpen: () => { window.location.hash = '/settings'; } }] : []),

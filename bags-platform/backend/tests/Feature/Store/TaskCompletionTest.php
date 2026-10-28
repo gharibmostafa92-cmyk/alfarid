@@ -138,6 +138,21 @@ class TaskCompletionTest extends TestCase
         Event::assertDispatched(StockLowDetected::class, fn ($event) => $event->available === 9.0 && $event->reorderLevel === 10.0);
     }
 
+    public function test_low_stock_notification_is_discarded_on_rollback_and_delayed_until_commit(): void
+    {
+        Event::fake([StockLowDetected::class]);
+        DB::beginTransaction();
+        StockLowDetected::dispatch(1, 1, 2.0, 5.0);
+        Event::assertNotDispatched(StockLowDetected::class);
+        DB::rollBack();
+        Event::assertNotDispatched(StockLowDetected::class);
+        DB::transaction(function (): void {
+            StockLowDetected::dispatch(1, 1, 2.0, 5.0);
+            Event::assertNotDispatched(StockLowDetected::class);
+        });
+        Event::assertDispatchedTimes(StockLowDetected::class, 1);
+    }
+
     public function test_batch_stock_lock_rejects_a_location_from_another_branch(): void
     {
         $variant = $this->variant();

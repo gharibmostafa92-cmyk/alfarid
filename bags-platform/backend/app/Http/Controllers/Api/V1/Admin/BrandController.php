@@ -17,6 +17,9 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 
+/**
+ * Admin controller for brand catalog management, logo uploads, and product associations.
+ */
 class BrandController extends Controller implements HasMiddleware
 {
     public function __construct(private BrandService $service) {}
@@ -31,6 +34,12 @@ class BrandController extends Controller implements HasMiddleware
         ];
     }
 
+    /**
+     * Lists paginated brands with search, status filtering, and product counts.
+     *
+     * @param Request $request Filter query request
+     * @return AnonymousResourceCollection Paginated brand collection
+     */
     public function index(Request $request): AnonymousResourceCollection
     {
         $filters = $request->validate([
@@ -43,8 +52,7 @@ class BrandController extends Controller implements HasMiddleware
 
         $brands = Brand::query()
             ->with('media')
-            // F16: also expose the trashed-inclusive count so the UI can
-            // explain why delete fails on a "0 products" row.
+            // Expose trashed-inclusive count so clients can distinguish active vs soft-deleted product dependencies.
             ->withCount(['products', 'products as all_products_count' => fn ($q) => $q->withTrashed()])
             ->when(isset($filters['search']) && $filters['search'] !== '', function ($query) use ($filters): void {
                 $pattern = SearchTerm::pattern($filters['search']);
@@ -60,34 +68,62 @@ class BrandController extends Controller implements HasMiddleware
         return BrandResource::collection($brands);
     }
 
+    /**
+     * Retrieves a single brand with its logo and product counts.
+     *
+     * @param Brand $brand Target brand
+     * @return BrandResource Brand resource
+     */
     public function show(Brand $brand): BrandResource
     {
-        $brand->load('media')->loadCount(['products', 'products as all_products_count' => fn ($q) => $q->withTrashed()]);
-
-        return BrandResource::make($brand);
+        return $this->brandResource($brand);
     }
 
+    /**
+     * Creates a new brand with an optional logo image.
+     *
+     * @param StoreBrandRequest $request Validated creation request
+     * @return JsonResponse Created brand resource response
+     */
     public function store(StoreBrandRequest $request): JsonResponse
     {
         $brand = $this->service->create($request->validated(), $request->file('logo'));
-        $brand->load('media')->loadCount(['products', 'products as all_products_count' => fn ($q) => $q->withTrashed()]);
 
-        return BrandResource::make($brand)->response()->setStatusCode(201);
+        return $this->brandResource($brand)->response()->setStatusCode(201);
     }
 
-    // ملحوظة: تحديث براند مع لوجو بيتبعت POST مع _method=PUT، لأن PHP لا يقرأ ملفات multipart مع PUT.
+    /**
+     * Updates brand metadata and optionally replaces its logo.
+     *
+     * @param UpdateBrandRequest $request Validated update request
+     * @param Brand $brand Target brand
+     * @return BrandResource Updated brand resource
+     */
     public function update(UpdateBrandRequest $request, Brand $brand): BrandResource
     {
+        // Multipart file updates require POST with _method=PUT because PHP does not parse multipart on PUT.
         $brand = $this->service->update($brand, $request->validated(), $request->file('logo'));
-        $brand->load('media')->loadCount(['products', 'products as all_products_count' => fn ($q) => $q->withTrashed()]);
 
-        return BrandResource::make($brand);
+        return $this->brandResource($brand);
     }
 
+    /**
+     * Deletes a brand if it has no associated products.
+     *
+     * @param Brand $brand Target brand
+     * @return JsonResponse Deletion confirmation
+     */
     public function destroy(Brand $brand): JsonResponse
     {
         $this->service->delete($brand);
 
         return response()->json(['message' => 'تم الحذف']);
+    }
+
+    private function brandResource(Brand $brand): BrandResource
+    {
+        $brand->loadMissing('media')->loadCount(['products', 'products as all_products_count' => fn ($q) => $q->withTrashed()]);
+
+        return BrandResource::make($brand);
     }
 }

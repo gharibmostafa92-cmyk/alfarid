@@ -25,6 +25,7 @@ class AuthController extends Controller
     public function __construct(
         private readonly CustomerAuthService $auth,
         private readonly CartService $carts,
+        private readonly CustomerPhoneVerificationService $phoneVerification,
     ) {}
 
     public function register(RegisterRequest $request): JsonResponse
@@ -89,7 +90,7 @@ class AuthController extends Controller
     public function verifyPhone(PhoneVerificationRequest $request): JsonResponse
     {
         $data = $request->validated();
-        $proof = app(CustomerPhoneVerificationService::class)->verify($data['phone'], $data['code']);
+        $proof = $this->phoneVerification->verify($data['phone'], $data['code']);
 
         return response()->json(['phone_verification_token' => $proof, 'expires_in' => 600]);
     }

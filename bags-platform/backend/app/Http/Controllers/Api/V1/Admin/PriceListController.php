@@ -39,7 +39,7 @@ class PriceListController extends Controller implements HasMiddleware
     public function index(Request $request): AnonymousResourceCollection
     {
         $filters = $request->validate([
-            'type' => ['nullable', Rule::in(array_column(PriceListType::cases(), 'value'))],
+            'type' => ['nullable', Rule::enum(PriceListType::class)],
             'customer_id' => ['nullable', 'integer', 'min:1'],
             'customer_group_id' => ['nullable', 'integer', 'min:1'],
             'branch_id' => ['nullable', 'integer', 'min:1'],

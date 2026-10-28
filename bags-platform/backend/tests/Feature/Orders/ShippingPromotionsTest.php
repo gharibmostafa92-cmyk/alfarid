@@ -9,6 +9,7 @@ use App\Enums\StockBucket;
 use App\Enums\StockMovementType;
 use App\Models\Branch;
 use App\Models\Cart;
+use App\Models\Category;
 use App\Models\City;
 use App\Models\Coupon;
 use App\Models\CouponUsage;
@@ -52,11 +53,22 @@ class ShippingPromotionsTest extends TestCase
             'promotions.view', 'promotions.create', 'promotions.update', 'promotions.delete',
             'coupons.view', 'coupons.create', 'coupons.update', 'coupons.delete',
             'orders.view', 'orders.update', 'orders.allocate',
+            'inventory.all_branches',
         ]);
         $this->branch = Branch::factory()->create();
     }
 
     // ---------- 8.1: إدارة الشحن ----------
+
+    public function test_fixed_coupon_rejects_overflow_and_excess_decimal_places(): void
+    {
+        foreach (['100000000.00', '0.001', '1e20'] as $value) {
+            $this->api('POST', '/api/v1/admin/coupons', [
+                'code' => 'INVALID-MONEY', 'type' => 'fixed', 'value' => $value,
+            ])->assertUnprocessable()->assertJsonValidationErrors('value');
+        }
+        $this->assertDatabaseMissing('coupons', ['code' => 'INVALID-MONEY']);
+    }
 
     public function test_shipping_companies_zones_rates_crud(): void
     {
@@ -143,10 +155,11 @@ class ShippingPromotionsTest extends TestCase
 
     public function test_promotions_and_coupons_crud(): void
     {
+        $targets = Category::factory()->count(2)->create()->modelKeys();
         $this->api('POST', '/api/v1/admin/promotions', [
             'name' => 'خصم الصيف', 'type' => 'percentage_discount', 'value' => 20,
-            'applies_to' => 'categories', 'target_ids' => [1, 2],
-        ])->assertCreated()->assertJsonPath('data.target_ids', [1, 2]);
+            'applies_to' => 'categories', 'target_ids' => $targets,
+        ])->assertCreated()->assertJsonPath('data.target_ids', $targets);
         $this->api('GET', '/api/v1/admin/promotions')->assertOk()->assertJsonCount(1, 'data');
 
         $coupon = $this->api('POST', '/api/v1/admin/coupons', [

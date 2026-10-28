@@ -22,6 +22,7 @@ use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
+use Tests\Concerns\ExercisesHistoricalResale;
 use Tests\TestCase;
 
 /**
@@ -30,6 +31,7 @@ use Tests\TestCase;
  */
 class SupplierPortalTest extends TestCase
 {
+    use ExercisesHistoricalResale;
     use LazilyRefreshDatabase;
 
     private Supplier $supplierA;
@@ -50,6 +52,7 @@ class SupplierPortalTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->exerciseHistoricalResale();
         $this->seed([RolePermissionSeeder::class, SettingSeeder::class]);
 
         $this->supplierA = Supplier::factory()->create(['code' => 'SUP-A']);

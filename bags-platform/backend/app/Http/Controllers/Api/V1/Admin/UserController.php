@@ -123,17 +123,17 @@ class UserController extends Controller
             $user->syncRoles($roles);
             StaffAdministration::audit($currentUser, 'user.created', 'user', $user->id, array_keys($userAttributes + ['roles' => $roles]), after: StaffAdministration::userState($user));
 
-            return $user->load(['branch', 'roles.permissions', 'permissions']);
+            return $user;
         });
 
-        return UserResource::make($user)->response()->setStatusCode(201);
+        return $this->userResource($user)->response()->setStatusCode(201);
     }
 
     public function show(Request $request, User $user): UserResource
     {
         $this->assertAccessible($request->user('staff'), $user);
 
-        return UserResource::make($user->load(['branch', 'roles.permissions', 'permissions']));
+        return $this->userResource($user);
     }
 
     public function update(UpdateUserRequest $request, User $user): UserResource|JsonResponse
@@ -281,7 +281,7 @@ class UserController extends Controller
             ], 403);
         }
 
-        return UserResource::make($user->refresh()->load(['branch', 'roles.permissions', 'permissions']));
+        return $this->userResource($user->refresh());
     }
 
     public function destroy(Request $request, User $user): JsonResponse
@@ -374,5 +374,10 @@ class UserController extends Controller
         return response()->json([
             'message' => 'لا يمكنك إدارة حساب أو إسناد دور يمتلك صلاحيات لا تملكها.',
         ], 403);
+    }
+
+    private function userResource(User $user): UserResource
+    {
+        return UserResource::make($user->loadMissing(['branch', 'roles.permissions', 'permissions']));
     }
 }

@@ -20,6 +20,9 @@ class Expense extends Model
         'attachment_path',
         'notes',
         'created_by',
+        'voided_at',
+        'voided_by',
+        'void_reason',
     ];
 
     protected function casts(): array
@@ -27,6 +30,7 @@ class Expense extends Model
         return [
             'amount'       => 'decimal:2',
             'expense_date' => 'date',
+            'voided_at'    => 'datetime',
         ];
     }
 

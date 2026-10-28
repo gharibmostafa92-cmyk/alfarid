@@ -116,6 +116,46 @@ class WholesalePortalFeaturesTest extends TestCase
             ->assertJsonCount(2, 'data.latest_invoices');
     }
 
+    public function test_free_credit_combines_with_a_later_linked_notice_and_is_restored_after_cancellation(): void
+    {
+        $bank = Treasury::create([
+            'name' => 'بنك', 'code' => 'AUDIT-BANK', 'type' => TreasuryType::BankAccount,
+            'current_balance' => 0, 'is_active' => true,
+        ]);
+        $order = $this->creditOrder(100);
+        $service = app(\App\Services\WholesalePaymentNoticeService::class);
+        $admin = User::factory()->create();
+        $admin->assignRole('Super Admin');
+        $free = \App\Models\WholesalePaymentNotice::factory()->create([
+            'customer_id' => $this->trader->id, 'order_id' => null,
+            'amount' => 40, 'status' => 'pending_review',
+        ]);
+        $service->approve($free, $admin->id, $bank->id);
+        $this->assertSame('unpaid', $order->fresh()->payment_status);
+        $linked = \App\Models\WholesalePaymentNotice::factory()->create([
+            'customer_id' => $this->trader->id, 'order_id' => $order->id,
+            'amount' => 60, 'status' => 'pending_review',
+        ]);
+        $service->approve($linked, $admin->id, $bank->id);
+        $this->assertSame('paid', $order->fresh()->payment_status);
+        $this->assertSame(0.0, $service->outstandingBalance($this->trader));
+        $this->assertDatabaseHas('wholesale_payment_allocations', ['notice_id' => $free->id, 'order_id' => $order->id, 'amount' => '40.00']);
+        $this->assertTrue($order->statusHistories()->exists());
+
+        // Historical imports or an explicit settlement can contain cancelled paid orders.
+        $order->update(['status' => OrderStatus::Cancelled]);
+        $this->assertSame(-100.0, $service->outstandingBalance($this->trader));
+        $next = $this->creditOrder(150);
+        $notice = \App\Models\WholesalePaymentNotice::factory()->create([
+            'customer_id' => $this->trader->id, 'order_id' => null,
+            'amount' => 50, 'status' => 'pending_review',
+        ]);
+        $service->approve($notice, $admin->id, $bank->id);
+        $this->assertSame('paid', $next->fresh()->payment_status);
+        $this->assertSame(0.0, $service->outstandingBalance($this->trader));
+        $this->assertSame('150.00', $bank->fresh()->current_balance);
+    }
+
     public function test_products_expose_trader_price_and_quantity_tiers(): void
     {
         $response = $this->asTrader()->getJson('/api/v1/wholesale/products')->assertOk();

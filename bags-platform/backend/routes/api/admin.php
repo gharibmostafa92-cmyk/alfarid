@@ -94,7 +94,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
     ->group(function (): void {
         Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');
         Route::get('dashboard', [DashboardController::class, 'index'])->middleware('permission:reports.view')->name('dashboard');
-        Route::prefix('reports')->name('reports.')->middleware('permission:reports.view')->group(function (): void {
+        Route::prefix('reports')->name('reports.')->middleware(['permission:reports.view', 'throttle:30,1'])->group(function (): void {
             Route::get('sales', [ReportController::class, 'sales'])->name('sales');
             Route::get('inventory', [ReportController::class, 'inventory'])->name('inventory');
             Route::get('profit', [ReportController::class, 'profit'])->name('profit');
@@ -102,6 +102,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
             Route::get('shifts', [ReportController::class, 'shifts'])->name('shifts');
         });
         Route::post('notifications/{id}/read', [NotificationController::class, 'markAsRead'])->name('notifications.read');
+        Route::post('notifications/read-all', [NotificationController::class, 'readAll'])->name('notifications.read-all');
 
         Route::get('me', [AuthController::class, 'me'])->name('auth.me');
         Route::post('auth/logout', [AuthController::class, 'logout'])->name('auth.logout');
@@ -183,9 +184,9 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
         Route::delete('products/{product}/media/{media}', [ProductMediaController::class, 'destroy'])->name('products.media.destroy');
 
         // ================== المرحلة 3: المخزون ==================
-        Route::get('production-receipts/options', [ProductionReceiptController::class, 'options']);
-        Route::get('production-receipts', [ProductionReceiptController::class, 'index']);
-        Route::post('production-receipts', [ProductionReceiptController::class, 'store']);
+        Route::get('production-receipts/options', [ProductionReceiptController::class, 'options'])->name('production-receipts.options');
+        Route::get('production-receipts', [ProductionReceiptController::class, 'index'])->name('production-receipts.index');
+        Route::post('production-receipts', [ProductionReceiptController::class, 'store'])->name('production-receipts.store');
         Route::prefix('inventory')->name('inventory.')->group(function () {
             Route::get('/', [InventoryController::class, 'index'])->name('index');
             Route::get('/movements', [InventoryController::class, 'movements'])->name('movements');
@@ -231,6 +232,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
 
         // ================== المرحلة 7: الطلبات ==================
         Route::get('orders', [OrderController::class, 'index'])->name('orders.index');
+        Route::get('orders/stats', [OrderController::class, 'stats'])->name('orders.stats');
         Route::get('orders/{order}', [OrderController::class, 'show'])->name('orders.show');
         Route::patch('orders/{order}/status', [OrderController::class, 'updateStatus'])->name('orders.update-status');
         Route::post('orders/{order}/payment', [OrderController::class, 'updatePayment'])->name('orders.update-payment');
@@ -297,6 +299,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
         Route::apiResource('supplier-payments', SupplierPaymentController::class)
             ->parameters(['supplier-payments' => 'supplier_payment']);
         Route::post('supplier-payments/{supplier_payment}/allocate', [SupplierPaymentController::class, 'allocate'])->name('supplier-payments.allocate');
+        Route::post('supplier-payments/{supplier_payment}/void', [SupplierPaymentController::class, 'void'])->name('supplier-payments.void');
 
         Route::middleware('permission:store.manage|settings.view')->group(function (): void {
             Route::get('banners', [BannerController::class, 'index'])->name('banners.index');
@@ -326,6 +329,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
         Route::apiResource('treasuries', TreasuryController::class);
 
         Route::apiResource('expenses', ExpenseController::class);
+        Route::post('expenses/{expense}/void', [ExpenseController::class, 'void'])->name('expenses.void');
 
         Route::apiResource('treasury-transfers', TreasuryTransferController::class)
             ->parameters(['treasury-transfers' => 'treasuryTransfer'])

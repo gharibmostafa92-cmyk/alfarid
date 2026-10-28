@@ -7,6 +7,9 @@ namespace App\Http\Requests\Admin\Shipping;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
+/**
+ * Validates shipping rate configurations per carrier and destination zone.
+ */
 class ShippingRateRequest extends FormRequest
 {
     public function authorize(): bool
@@ -14,7 +17,9 @@ class ShippingRateRequest extends FormRequest
         return true;
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed>
+     */
     public function rules(): array
     {
         $rate = $this->route('shipping_rate');
@@ -27,11 +32,12 @@ class ShippingRateRequest extends FormRequest
                     ->where('shipping_company_id', $this->input('shipping_company_id'))
                     ->ignore($rate),
             ],
-            'base_cost' => ['required', 'numeric', 'min:0'],
-            'free_shipping_threshold' => ['nullable', 'numeric', 'min:0'],
-            'cod_fee' => ['nullable', 'numeric', 'min:0'],
-            'estimated_days_min' => ['required', 'integer', 'min:0'],
-            'estimated_days_max' => ['required', 'integer', 'gte:estimated_days_min'],
+            // Strict upper bounds prevent PostgreSQL numeric overflow exceptions.
+            'base_cost' => ['required', 'numeric', 'min:0', 'max:99999999.99', 'decimal:0,2'],
+            'free_shipping_threshold' => ['nullable', 'numeric', 'min:0', 'max:99999999.99', 'decimal:0,2'],
+            'cod_fee' => ['nullable', 'numeric', 'min:0', 'max:99999999.99', 'decimal:0,2'],
+            'estimated_days_min' => ['required', 'integer', 'min:0', 'max:365'],
+            'estimated_days_max' => ['required', 'integer', 'gte:estimated_days_min', 'max:365'],
         ];
     }
 }

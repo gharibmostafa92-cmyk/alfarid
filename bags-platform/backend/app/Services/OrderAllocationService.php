@@ -17,39 +17,42 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
- * توزيع الطلب على الفروع وحجز مخزونه (reserved) عبر InventoryService حصرًا.
- *
- * الخوارزمية:
- * 1. فرع مُجبر من الأدمن: يُتحقق من تغطيته ويُحجز منه.
- * 2. أول فرع نشط واحد يغطي الطلب كاملًا — أولوية لفرع نفس مدينة العميل.
- * 3. وإلا: كل صنف من الفرع الأعلى رصيدًا متاحًا له (الصنف كاملًا من فرع واحد).
- *
- * داخل الفرع الواحد قد يتوزع الصنف على أكثر من موقع (الأعلى متاحًا أولًا).
- * أي نقص في أي صنف يُلغي العملية كلها (transaction واحدة — لا حجز جزئي يتسرب).
+ * Allocates and reserves order inventory across branches based on proximity, stock availability, and split policies.
  */
 class OrderAllocationService
 {
     public function __construct(protected InventoryService $inventoryService) {}
 
+    /**
+     * Allocates order items to branch inventory and reserves stock atomically.
+     *
+     * @param Order $order Placed order to allocate
+     * @param int|null $forcedBranchId Manually selected branch by administrator, if any
+     * @param int|null $performedBy User ID performing the allocation
+     * @return Order Updated order with allocated branches
+     * @throws BusinessException If order is in invalid status, already allocated, or insufficient stock
+     */
     public function allocate(Order $order, ?int $forcedBranchId = null, ?int $performedBy = null): Order
     {
         return DB::transaction(function () use ($order, $forcedBranchId, $performedBy): Order {
-            // إعادة قراءة الطلب بقفل صف قبل فحص التوزيع السابق (C1)
+            // Re-read order under row lock to prevent concurrent allocation attempts.
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $order->load('items');
-            // ترتيب قفل عام ثابت (F-02): البنود بترتيب product_variant_id
-            // في كل المسارات حتى لا ينتظر طلبان بعضهما دائريًا (40P01)
+            // Consistent lock order by product_variant_id prevents deadlocks between concurrent allocations.
             $order->setRelation('items', $order->items
                 ->sortBy(fn (OrderItem $item): int => (int) $item->product_variant_id)
                 ->values());
             $performedBy ??= auth()->id();
+
+            if (in_array($order->status, [\App\Enums\OrderStatus::Cancelled, \App\Enums\OrderStatus::Shipped, \App\Enums\OrderStatus::Delivered, \App\Enums\OrderStatus::Returned], true)) {
+                throw new BusinessException('التوزيع غير متاح على هذه الحالة.');
+            }
 
             if ($order->allocated_branch_id !== null
                 || $order->items->contains(fn (OrderItem $item): bool => $item->allocated_branch_id !== null)) {
                 throw new BusinessException('الطلب مُوزّع على الفروع من قبل؛ ألغِ التوزيع الحالي أولًا قبل إعادة التوزيع.');
             }
 
-            // 1. فرع مُجبر يدويًا
             if ($forcedBranchId !== null) {
                 $branch = Branch::query()->where('is_active', true)->find($forcedBranchId);
                 if ($branch === null) {
@@ -61,18 +64,14 @@ class OrderAllocationService
                 return $order->fresh(['items']);
             }
 
-            // خريطة تغطية واحدة مجمّعة لكل الفروع والأصناف (M15) بدل
-            // استعلام لكل فرع × صنف — القرارات التالية كلها في الذاكرة
+            // Pre-calculate aggregate branch availability to evaluate allocation rules in memory.
             $coverage = $this->branchAvailabilityMap($order);
 
-            // 2. فرع واحد يغطي الطلب كاملًا (أولوية لنفس مدينة العميل:
-            // بالمعرّف أولًا ثم بمطابقة الاسم كرجوع — L5)
             $cityName = $order->city?->name_ar;
             $branches = Branch::query()
                 ->where('is_active', true)
                 ->when($order->city_id !== null, fn (Builder $q): Builder => $q->orderByRaw('CASE WHEN city_id = ? THEN 0 ELSE 1 END', [$order->city_id]))
-                // CASE لا «city = ? DESC» (F17): في Postgres ترتيب DESC يضع
-                // NULL أولًا فتتقدّم فروع بلا مدينة معلنة على فرع مدينة العميل
+                // Use CASE ordering instead of DESC because Postgres places NULLs first in DESC sorting.
                 ->when($cityName !== null, fn (Builder $q): Builder => $q->orderByRaw('CASE WHEN city = ? THEN 0 ELSE 1 END', [$cityName]))
                 ->orderBy('id')
                 ->get();
@@ -102,13 +101,19 @@ class OrderAllocationService
             // A bounded retry recalculates coverage after a competing checkout.
             for ($attempt = 0; $attempt < 3; $attempt++) {
                 $coverage = $this->branchAvailabilityMap($order);
+                // Aggregate required quantity per variant so duplicate items do not choose an insufficient branch.
+                $required = $this->requiredPerVariant($order);
                 $plan = [];
                 foreach ($order->items as $item) {
-                    $branchId = $this->bestBranchForItem($item, $coverage);
+                    $variantId = (int) $item->product_variant_id;
+                    if (array_key_exists($variantId, $plan)) {
+                        continue;
+                    }
+                    $branchId = $this->bestBranchForItem($item, $coverage, $required[$variantId]);
                     if ($branchId === null) {
                         throw new BusinessException("الرصيد المتاح للصنف [{$item->sku_snapshot}] غير كافٍ لإتمام الطلب.");
                     }
-                    $plan[(int) $item->product_variant_id] = $branchId;
+                    $plan[$variantId] = $branchId;
                 }
                 try {
                     return DB::transaction(function () use ($order, $plan, $performedBy): Order {
@@ -133,28 +138,33 @@ class OrderAllocationService
     }
 
     /**
-     * فك توزيع الطلب (M5): يُحرّر كل حجوزات الطلب من وعاء reserved ويعيده
-     * إلى «غير موزّع» — كان endpoint التوزيع يشير لهذه العملية في رسالته
-     * بينما لا سبيل لتنفيذها. الحجوزات تُقرأ من دفتر الحركات نفسه، فلا يعتمد
-     * الفك على حالة مشتقة قابلة للانحراف.
+     * Releases all inventory reservations tied to an allocated order and clears allocation state.
+     *
+     * @param Order $order Order to deallocate
+     * @param int|null $performedBy User ID performing the action
+     * @return Order Deallocated order instance
+     * @throws BusinessException If order cannot be deallocated
      */
     public function deallocate(Order $order, ?int $performedBy = null): Order
     {
         return DB::transaction(function () use ($order, $performedBy): Order {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $order->load('items');
-            // ترتيب قفل عام ثابت كالتوزيع (F-02) لتفادي الجمود
+            // Consistent lock order by product_variant_id prevents deadlocks between concurrent allocations.
             $order->setRelation('items', $order->items
                 ->sortBy(fn (OrderItem $item): int => (int) $item->product_variant_id)
                 ->values());
             $performedBy ??= auth()->id();
 
+            if (in_array($order->status, [\App\Enums\OrderStatus::Cancelled, \App\Enums\OrderStatus::Shipped, \App\Enums\OrderStatus::Delivered, \App\Enums\OrderStatus::Returned], true)) {
+                throw new BusinessException('فك التوزيع غير متاح على هذه الحالة.');
+            }
+
             if (! $this->isAllocated($order)) {
                 throw new BusinessException('الطلب غير موزّع على أي فرع؛ لا شيء لفكه.');
             }
 
-            // C3: الحجز القائم الصافي لكل مفتاح — لا يُفك أي حجز مرتين
-            // مهما تكرر allocate/deallocate.
+            // Calculate net reservations from ledger movements so deallocations remain idempotent.
             $net = StockMovement::query()
                 ->whereIn('reference_type', array_unique([$order->getMorphClass(), Order::class]))
                 ->where('reference_id', $order->id)
@@ -200,7 +210,12 @@ class OrderAllocationService
         });
     }
 
-    /** هل الطلب موزّع على أي فرع (على مستوى الطلب أو أي بند)؟ */
+    /**
+     * Checks whether an order or any of its items has an allocated branch.
+     *
+     * @param Order $order Order to check
+     * @return bool True if allocated at order level or item level
+     */
     public function isAllocated(Order $order): bool
     {
         return $order->allocated_branch_id !== null
@@ -222,12 +237,6 @@ class OrderAllocationService
         return $this->inventoryService->lockLevels($rows->map->getAttributes()->all());
     }
 
-    /**
-     * تغطية الفروع لأصناف الطلب باستعلام واحد مجمّع (M15):
-     * ‏[branch_id][variant_id] => مجموع المتاح في المواقع النشطة.
-     *
-     * @return array<int, array<int, float>>
-     */
     private function branchAvailabilityMap(Order $order): array
     {
         $variantIds = $order->items
@@ -252,11 +261,21 @@ class OrderAllocationService
         return $map;
     }
 
-    /** @param array<int, array<int, float>> $coverage */
+    private function requiredPerVariant(Order $order): array
+    {
+        $required = [];
+        foreach ($order->items as $item) {
+            $vid = (int) $item->product_variant_id;
+            $required[$vid] = ($required[$vid] ?? 0) + (int) round((float) $item->qty * 10000);
+        }
+
+        return $required;
+    }
+
     private function canBranchFulfillFullOrder(Order $order, int $branchId, array $coverage): bool
     {
-        foreach ($order->items as $item) {
-            if (($coverage[$branchId][(int) $item->product_variant_id] ?? 0) < (float) $item->qty) {
+        foreach ($this->requiredPerVariant($order) as $variantId => $qty) {
+            if ((int) round(($coverage[$branchId][$variantId] ?? 0) * 10000) < $qty) {
                 return false;
             }
         }
@@ -264,14 +283,14 @@ class OrderAllocationService
         return true;
     }
 
-    /** @param array<int, array<int, float>> $coverage */
-    private function bestBranchForItem(OrderItem $item, array $coverage): ?int
+    private function bestBranchForItem(OrderItem $item, array $coverage, ?int $requiredQty = null): ?int
     {
+        $need = $requiredQty ?? (int) round((float) $item->qty * 10000);
         $best = null;
         $bestAvailable = 0.0;
         foreach ($coverage as $branchId => $variants) {
             $available = $variants[(int) $item->product_variant_id] ?? 0;
-            if ($available >= (float) $item->qty && $available > $bestAvailable) {
+            if ((int) round($available * 10000) >= $need && $available > $bestAvailable) {
                 $best = $branchId;
                 $bestAvailable = $available;
             }
@@ -289,9 +308,6 @@ class OrderAllocationService
         }
     }
 
-    /**
-     * حجز كمية الصنف من فرع واحد، موزعة على مواقعه الأعلى متاحًا عند الحاجة.
-     */
     private function reserveItemFromBranch(Order $order, OrderItem $item, int $branchId, ?int $performedBy, Collection $levels): void
     {
         $remaining = (int) round((float) $item->qty * 10000);
@@ -317,12 +333,6 @@ class OrderAllocationService
         }
     }
 
-    /**
-     * صفوف رصيد قابلة للاستخدام: رصيد الفرع/المتغير في مواقع نشطة
-     * (أو بلا موقع) — الحجز لا يخرج من موقع معطّل.
-     *
-     * @return Builder<StockLevel>
-     */
     private function usableLevels(int $variantId, ?int $branchId = null): Builder
     {
         return StockLevel::query()

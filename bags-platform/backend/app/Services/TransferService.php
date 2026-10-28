@@ -23,10 +23,13 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
- * دورة حياة التحويلات بين الفروع. كل أثر مخزني بيمر من InventoryService فقط.
+ * Inter-branch inventory transfer service managing draft, approval, dispatch, and receiving stages.
  *
- * draft: لا أثر مخزني. approve: حجز في المرسل. ship: فك الحجز + إخراج فعلي +
- * in_transit عند المستلم. receive: تسوية in_transit + إضافة الفعلي المستلم.
+ * All inventory ledger side effects are coordinated exclusively via InventoryService:
+ * - draft: No inventory side effects.
+ * - approve: Reserves approved quantities at source branch to prevent concurrent overselling.
+ * - ship: Releases source reserve, issues TransferOut from on_hand, and records TransferInTransit at destination.
+ * - receive: Clears TransferTransitRelease from in_transit, adds TransferIn to on_hand, and writes off shortages.
  */
 class TransferService
 {
@@ -37,6 +40,11 @@ class TransferService
         private readonly SettingService $settings,
     ) {}
 
+    /**
+     * Paginates inter-branch transfers filtered by branch and status.
+     *
+     * @param  array<string, mixed>  $filters
+     */
     public function paginate(array $filters): LengthAwarePaginator
     {
         return StockTransfer::query()
@@ -49,6 +57,9 @@ class TransferService
             ->paginate($filters['per_page'] ?? 15);
     }
 
+    /**
+     * Retrieves a single stock transfer with items, branches, and audit relations.
+     */
     public function find(int $id): StockTransfer
     {
         return StockTransfer::query()
@@ -56,10 +67,14 @@ class TransferService
             ->findOrFail($id);
     }
 
+    /**
+     * Creates a new stock transfer draft with optional idempotency protection.
+     *
+     * @param  array<string, mixed>  $data
+     */
     public function create(array $data, int $userId, ?string $idempotencyKey = null): StockTransfer
     {
-        // H4: طلب التحويل قد ينشأ من فرع الوجهة (كاشير POS يطلب بضاعة)،
-        // فيُقبل نطاق أي من الفرعين.
+        // Transfers may be initiated from source (warehouse dispatch) or destination branch (POS replenishment request).
         $this->assertCreateAccess($userId, (int) $data['from_branch_id'], (int) $data['to_branch_id']);
 
         /** @var StockTransfer */
@@ -74,6 +89,11 @@ class TransferService
         );
     }
 
+    /**
+     * Persists new draft transfer and dispatches approval notification event.
+     *
+     * @param  array<string, mixed>  $data
+     */
     private function doCreate(array $data, int $userId): StockTransfer
     {
         return DB::transaction(function () use ($data, $userId): StockTransfer {
@@ -96,6 +116,11 @@ class TransferService
         });
     }
 
+    /**
+     * Updates transfer header and item lines while in draft status under pessimistic row lock.
+     *
+     * @param  array<string, mixed>  $data
+     */
     public function update(StockTransfer $transfer, array $data, int $userId): StockTransfer
     {
         return DB::transaction(function () use ($transfer, $data, $userId): StockTransfer {
@@ -133,7 +158,11 @@ class TransferService
         });
     }
 
-    /** الاعتماد: حجز الكميات المعتمدة في الفرع المرسل حتى لا تُباع قبل الشحن. */
+    /**
+     * Approves transfer lines and reserves inventory at source branch to guarantee shipment stock.
+     *
+     * @param  array<int, float|int|string>  $itemsPayload  Map of transfer item ID to approved quantity.
+     */
     public function approve(StockTransfer $transfer, array $itemsPayload, int $userId, ?string $expectedUpdatedAt = null, ?int $expectedVersion = null): StockTransfer
     {
         return DB::transaction(function () use ($transfer, $itemsPayload, $userId, $expectedUpdatedAt, $expectedVersion): StockTransfer {
@@ -142,7 +171,7 @@ class TransferService
             app(BranchAccess::class)->assertBranch($userId, $transfer->from_branch_id);
             $this->assertPayloadMatchesLockedItems($transfer, $itemsPayload, $expectedUpdatedAt, $expectedVersion);
             $this->assertStatus($transfer, TransferStatus::Draft, 'الاعتماد');
-            // H3: فشل مبكر قبل خروج البضاعة — لا اعتماد لوجهة لا يمكن استلامها.
+            // Early validation prevents approving transfers targeted at inactive or unreceivable branches.
             $this->assertReceivableDestination($transfer);
             if ($transfer->items->sum(fn ($item) => (float) ($itemsPayload[$item->id] ?? $item->requested_qty)) <= 0) {
                 throw new BusinessException('يجب اعتماد كمية موجبة واحدة على الأقل؛ يمكن إلغاء التحويل بدلًا من اعتماده بصفر.');
@@ -157,10 +186,7 @@ class TransferService
                     throw new BusinessException('الكمية المعتمدة يجب أن تكون بين صفر والكمية المطلوبة.');
                 }
 
-                // تحديثات البنود تتجمع في UPDATE واحد بعد الحلقة (M-6) — الأقفال
-                // مأخوذة طوال العملية، فتقليل الاستعلامات يقلل زمن احتجازها.
-                // الصف يُمرَّر كاملًا بحالته الحالية: PostgreSQL يتحقق من قيود
-                // NOT NULL وCHECK على الصف المقترح في upsert قبل حل التعارض.
+                // Collect quantity updates into a single batch upsert to minimize lock holding duration.
                 $qtyUpdates[] = [...$item->only(['id', 'stock_transfer_id', 'product_variant_id', 'from_location_id', 'to_location_id', 'requested_qty', 'approved_qty', 'shipped_qty', 'received_qty', 'created_at']), 'approved_qty' => $approvedQty, 'updated_at' => now()];
 
                 if ($approvedQty > 0) {
@@ -190,7 +216,21 @@ class TransferService
         });
     }
 
-    /** الشحن: فك الحجز وإخراج البضاعة من المرسل، وتسجيلها "في الطريق" عند المستلم. */
+    /**
+     * Dispatch approved stock from source branch and move into destination in-transit bucket.
+     *
+     * Releases source reservations, deducts physical on-hand inventory, returns any unshipped
+     * approved quantity back to available stock, and registers items as in-transit at destination.
+     *
+     * @param  StockTransfer  $transfer
+     * @param  array<int, float|int|string>  $itemsPayload  Map of transfer item ID to shipped quantity
+     * @param  int  $userId
+     * @param  string|null  $expectedUpdatedAt
+     * @param  int|null  $expectedVersion
+     * @return StockTransfer
+     *
+     * @throws BusinessException
+     */
     public function ship(StockTransfer $transfer, array $itemsPayload, int $userId, ?string $expectedUpdatedAt = null, ?int $expectedVersion = null): StockTransfer
     {
         return DB::transaction(function () use ($transfer, $itemsPayload, $userId, $expectedUpdatedAt, $expectedVersion): StockTransfer {
@@ -202,7 +242,7 @@ class TransferService
             }
             $this->assertPayloadMatchesLockedItems($transfer, $itemsPayload, $expectedUpdatedAt, $expectedVersion);
             $this->assertStatus($transfer, TransferStatus::Approved, 'الشحن');
-            // H3: الوجهة قد تُعطّل بين الاعتماد والشحن — لا شحن بلا وجهة تستلم.
+            // Fail early if destination branch or locations were deactivated between approval and shipping
             $this->assertReceivableDestination($transfer);
             if ($transfer->items->sum(fn ($item) => (float) ($itemsPayload[$item->id] ?? $item->approved_qty)) <= 0) {
                 throw new BusinessException('يجب شحن كمية موجبة واحدة على الأقل؛ يمكن إلغاء التحويل لفك الحجز.');
@@ -246,7 +286,7 @@ class TransferService
                     'created_by' => $userId,
                 ];
 
-                // المرسل: فك الحجز ثم إخراج فعلي
+                // Release source reservation before recording physical deduction from on-hand
                 $this->move([...$base,
                     'branch_id' => $transfer->from_branch_id,
                     'location_id' => $item->from_location_id,
@@ -264,7 +304,7 @@ class TransferService
                     'notes' => 'شحن تحويل '.$transfer->transfer_number,
                 ], $levels);
 
-                // الباقي المحجوز (معتمد ولم يُشحن) يرجع متاحًا للبيع
+                // Release approved but unshipped quantity back to available inventory
                 $unshipped = round((float) $item->approved_qty - $shippedQty, 4);
                 if ($unshipped > 0) {
                     $this->move([...$base,
@@ -277,7 +317,7 @@ class TransferService
                     ], $levels);
                 }
 
-                // المستلم: بضاعة في الطريق
+                // Increment in-transit stock at the destination branch/location
                 $this->move([...$base,
                     'branch_id' => $transfer->to_branch_id,
                     'location_id' => $item->to_location_id,
@@ -298,14 +338,28 @@ class TransferService
         });
     }
 
-    /** الاستلام: تسوية in_transit بالكامل، وإضافة المستلم فعليًا، وتسوية أي عجز كحركة مستقلة. */
+    /**
+     * Intake shipped inventory at the destination branch and settle in-transit stock.
+     *
+     * Moves verified goods from in-transit to on-hand. Any difference between shipped
+     * and received quantity is deducted as an explicit shortage ledger movement.
+     *
+     * @param  StockTransfer  $transfer
+     * @param  array<int, float|int|string>  $itemsPayload  Map of transfer item ID to received quantity
+     * @param  int  $userId
+     * @param  string|null  $expectedUpdatedAt
+     * @param  int|null  $expectedVersion
+     * @return StockTransfer
+     *
+     * @throws BusinessException
+     */
     public function receive(StockTransfer $transfer, array $itemsPayload, int $userId, ?string $expectedUpdatedAt = null, ?int $expectedVersion = null): StockTransfer
     {
         return DB::transaction(function () use ($transfer, $itemsPayload, $userId, $expectedUpdatedAt, $expectedVersion): StockTransfer {
             $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
             $transfer->load('items.variant');
             app(BranchAccess::class)->assertBranch($userId, $transfer->to_branch_id);
-            // L5: الاستلام يتحقق من نشاط الفرع المستلم كما يتحقق الإنشاء.
+            // Verify destination branch remains active before accepting inbound goods
             $toBranch = Branch::query()->find($transfer->to_branch_id);
             if ($toBranch === null || ! $toBranch->is_active) {
                 throw new BusinessException('الفرع المستلم غير نشط؛ لا يمكن الاستلام إليه.');
@@ -344,7 +398,7 @@ class TransferService
                     'created_by' => $userId,
                 ];
 
-                // خروج الجزء المستلم من "في الطريق" ودخوله الرصيد الفعلي
+                // Deduct accepted quantity from in-transit and post directly to destination on-hand
                 if ($receivedQty > 0) {
                     $this->move([...$base,
                         'type' => StockMovementType::TransferTransitRelease,
@@ -360,7 +414,7 @@ class TransferService
                     ], $levels);
                 }
 
-                // العجز بين المشحون والمستلم: تسوية مستقلة موثقة من رصيد "في الطريق"
+                // Any shortage is deducted from in-transit as an explicit shortage movement for loss tracking
                 $shortage = round($shippedQty - $receivedQty, 4);
                 if ($shortage > 0) {
                     $this->move([...$base,
@@ -388,7 +442,18 @@ class TransferService
         });
     }
 
-    /** الإلغاء: من المسودة مباشرة، ومن المعتمد بعد فك الحجز. المشحون لا يُلغى (يُستلم). */
+    /**
+     * Cancel an active transfer in draft or approved status.
+     *
+     * Once approved, cancelling releases reserved inventory back to available stock.
+     * Shipped transfers cannot be cancelled and must proceed to intake/settlement.
+     *
+     * @param  StockTransfer  $transfer
+     * @param  int  $userId
+     * @return StockTransfer
+     *
+     * @throws BusinessException
+     */
     public function cancel(StockTransfer $transfer, int $userId): StockTransfer
     {
         return DB::transaction(function () use ($transfer, $userId): StockTransfer {
@@ -426,6 +491,18 @@ class TransferService
         });
     }
 
+    /**
+     * Delete a draft or cancelled transfer.
+     *
+     * Transfers that have associated inventory ledger movements cannot be deleted
+     * to preserve audit trails and prevent orphaned reference records.
+     *
+     * @param  StockTransfer  $transfer
+     * @param  int  $userId
+     * @return void
+     *
+     * @throws BusinessException
+     */
     public function delete(StockTransfer $transfer, int $userId): void
     {
         DB::transaction(function () use ($transfer, $userId): void {
@@ -436,8 +513,7 @@ class TransferService
                 throw new BusinessException('لا يمكن حذف تحويل إلا في حالة المسودة أو الملغي.');
             }
 
-            // تحويل اعتُمد ثم أُلغي له حركات دفتر (حجز/فك حجز) تشير إليه بلا FK؛
-            // حذفه يترك مراجع يتيمة ويقطع أثر التدقيق — الإلغاء نفسه هو الحفظ الصحيح.
+            // Transfers with posted ledger movements must be preserved for financial and audit trails
             if (StockMovement::query()->whereIn('reference_type', [StockTransfer::class, 'stock_transfer'])->where('reference_id', $transfer->id)->exists()) {
                 throw new BusinessException('لا يمكن حذف تحويل له حركات مخزون مسجلة في الدفتر؛ إلغاؤه يحفظ أثر التدقيق.');
             }
@@ -447,9 +523,10 @@ class TransferService
     }
 
     /**
-     * حماية من الحمولات القديمة: أي معرّف عنصر لا يتبع التحويل المقفول يُرفض بدل
-     * تجاهله بصمت (التعديل بين تحقق الطلب والقفل كان يبدّل المعرّفات)، وطابع
-     * expected_updated_at الاختياري يمنع اعتماد نسخة لم يراجعها المعتمد.
+     * Prevent stale submission payloads and concurrent overwrites.
+     *
+     * Validates item IDs against locked items to catch deletions/swaps between request parsing
+     * and lock acquisition, and verifies optimistic concurrency controls (version and updated_at).
      */
     private function assertPayloadMatchesLockedItems(StockTransfer $transfer, array $itemsPayload, ?string $expectedUpdatedAt, ?int $expectedVersion = null): void
     {
@@ -494,8 +571,9 @@ class TransferService
     }
 
     /**
-     * H4: منشئ التحويل قد يكون في الفرع المرسل (مخزني) أو في فرع الوجهة
-     * (كاشير يطلب بضاعة) — يُقبل أي النطاقين، ويُرفض من لا ينتمي لواحد منهما.
+     * Authorize transfer initiation from either source or destination branch.
+     *
+     * Transfers can be initiated by source warehouse dispatchers or destination store managers.
      */
     private function assertCreateAccess(int $userId, int $fromBranchId, int $toBranchId): void
     {
@@ -514,10 +592,10 @@ class TransferService
     }
 
     /**
-     * H3: فشل مبكر على الوجهة قبل خروج البضاعة من المصدر حتى لا تعلق في
-     * in_transit. الفرع الوجهة يجب أن يكون نشطًا، ومواقع الاستلام تابعة له،
-     * والأصناف غير معطّلة. الأرشفة وحدها لا تحبس تحويلًا قائمًا، والاستلام
-     * بعد الشحن يظل ممكنًا حتى لو عُطّل المتغير أو موقعه وهو في الطريق.
+     * Validate destination branch, locations, and variants before dispatch.
+     *
+     * Prevents inventory from getting trapped in transit if the destination branch
+     * or receiving location was archived or deactivated after transfer creation.
      */
     private function assertReceivableDestination(StockTransfer $transfer): void
     {
@@ -566,7 +644,9 @@ class TransferService
         }
     }
 
-    /** حركة على صف مقفول مسبقًا ضمن $levels — بلا إعادة قفل أو فحص موقع. */
+    /**
+     * Post movement using pre-locked stock level instances to bypass re-locking overhead.
+     */
     private function move(array $data, Collection $levels): void
     {
         $level = $levels->get($this->inventory->levelKey([

@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { createRequire } = require('node:module');
+const { webcrypto } = require('node:crypto');
 const ts = require('typescript');
 
 function browser(token = null) {
@@ -28,21 +29,32 @@ function browser(token = null) {
 
 function load(relative, env, api = {}, extra = {}) {
   const filename = path.resolve(__dirname, '..', relative);
-  const requireFromApp = createRequire(filename);
-  const source = fs.readFileSync(filename, 'utf8').replaceAll('import.meta.env', '({})');
-  const exports = {};
-  vm.runInNewContext(ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
-  }).outputText, {
-    exports, ...env, URL, URLSearchParams,
-    require: name => {
-      if (name === '@alfarid/api-client') return { setAuthToken() {}, setUnauthorizedHandler() {}, resolveServiceUrl: url => url, ...api };
-      if (name === './mappers') return { toStaffUser: user => user };
-      if (extra[name]) return extra[name];
-      return requireFromApp(name);
-    },
-  }, { filename });
-  return exports;
+  const sourceRoot = path.resolve(__dirname, '../apps', relative.split('/')[1], 'src');
+  const modules = new Map();
+  let authToken = null;
+  const apiModule = { setAuthToken(token) { authToken = token; }, getAuthToken: () => authToken,
+    setUnauthorizedHandler() {}, resolveServiceUrl: url => url, ...api };
+  function evaluate(file) {
+    if (modules.has(file)) return modules.get(file);
+    const requireFromApp = createRequire(file);
+    const source = fs.readFileSync(file, 'utf8').replaceAll('import.meta.env', '({})');
+    const exports = {};
+    modules.set(file, exports);
+    vm.runInNewContext(ts.transpileModule(source, {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
+    }).outputText, {
+      exports, ...env, URL, URLSearchParams, crypto: webcrypto,
+      require: name => {
+        if (name === '@alfarid/api-client') return apiModule;
+        if (name === './mappers') return { toStaffUser: user => user };
+        if (extra[name]) return extra[name];
+        if (name.startsWith('@/')) return evaluate(path.join(sourceRoot, `${name.slice(2)}.ts`));
+        return requireFromApp(name);
+      },
+    }, { filename: file });
+    return exports;
+  }
+  return evaluate(filename);
 }
 
 const staffStore = 'apps/backoffice/src/stores/auth.store.ts';

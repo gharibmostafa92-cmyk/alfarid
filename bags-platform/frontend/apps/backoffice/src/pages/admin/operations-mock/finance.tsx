@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { treasuriesApi, expensesApi, treasuryTransfersApi, shiftsApi, quotationsApi, paymentNoticesApi, asPage, type TreasuryType, type Treasury, type Expense, type PosShift, type Quotation, type PaymentNotice, type Paginated } from '@alfarid/api-client';
+import { parseApiError } from '@alfarid/api-client';
+import { treasuriesApi, expensesApi, treasuryTransfersApi, shiftsApi, quotationsApi, paymentNoticesApi, asPage, newIdempotencyKey, type TreasuryType, type Treasury, type Expense, type PosShift, type Quotation, type PaymentNotice, type Paginated } from '@alfarid/api-client';
 import { useRemote, useAction } from './api/useRemote';
 import { useFormState } from './api/useFormState';
 import { mapErrors, num, toDate } from './api/mappers';
@@ -59,7 +60,7 @@ import {
 const today = () => toDate(new Date().toISOString());
 const mockPage = <T,>(data: T[], page = 1): Paginated<T> => ({ data: data.slice((page - 1) * 20, page * 20), meta: { current_page: page, last_page: Math.max(1, Math.ceil(data.length / 20)), per_page: 20, total: data.length, from: data.length ? (page - 1) * 20 + 1 : null, to: data.length ? Math.min(page * 20, data.length) : null } });
 export const mapTreasury = (t: Treasury): TreasuryRow & { branchId: number | null } => ({ id: t.id, code: t.code, name: t.name, type: treasuryToUI(t.type), branch: t.branch?.name ?? null, branchId: t.branch_id, balance: num(t.current_balance), active: t.is_active });
-export const mapExpense = (e: Expense): ExpenseRow => ({ id: e.id, no: e.expense_number, branch: e.branch?.name ?? '', tr: e.treasury_id, cat: e.category, amount: num(e.amount), date: e.expense_date?.slice(0, 10) ?? '', by: e.creator?.name ?? '', shift: e.shift_id ? `#${e.shift_id}` : null, notes: e.notes ?? '' });
+export const mapExpense = (e: Expense): ExpenseRow => ({ id: e.id, no: e.expense_number, branch: e.branch?.name ?? '', tr: e.treasury_id, cat: e.category, amount: num(e.amount), date: e.expense_date?.slice(0, 10) ?? '', by: e.creator?.name ?? '', shift: e.shift_id ? `#${e.shift_id}` : null, notes: e.notes ?? '', voidedAt: e.voided_at ?? null, voidReason: e.void_reason ?? null });
 export const mapShift = (s: PosShift): ShiftRow => ({ id: s.id, no: s.shift_number, cashier: s.cashier?.name ?? '', branch: s.branch?.name ?? '', tr: s.treasury_id, open: s.opened_at, close: s.closed_at, status: s.status === 'closed_pending_approval' ? 'closed' : s.status, exp: s.expected_closing_cash === null ? null : num(s.expected_closing_cash), act: s.actual_closing_cash === null ? null : num(s.actual_closing_cash) });
 const quoteStatus = (s: string) => s === 'priced_by_admin' ? 'priced' : s === 'converted_to_order' ? 'converted' : s;
 export const mapQuote = (q: Quotation): QuoteRow => ({ id: q.id, no: q.quotation_number, company: q.customer?.company_name || q.customer?.name || '—', cust: q.customer?.name ?? '', status: quoteStatus(q.status), total: q.status === 'draft' || q.status === 'requested' ? null : num(q.grand_total), valid: q.valid_until, date: q.created_at.slice(0, 10), order: q.converted_order_id ? `#${q.converted_order_id}` : undefined });
@@ -80,29 +81,27 @@ function RemoteNote({ remote }: { remote: { loading: boolean; error: { message: 
 }
 
 /* ---------------- FINANCE PAGE ---------------- */
-export function FinancePage({ sub = 'tr' }: { sub?: string }) {
+export function FinancePage({ sub = 'tr', can = () => true }: { sub?: string; can?: (permission: string) => boolean }) {
   const [tab, setTab] = useState(sub);
   useEffect(() => setTab(sub), [sub]);
+  const tabs = [
+    { value: 'tr', label: 'الخزائن', icon: 'vault', permission: 'treasuries.view' },
+    { value: 'exp', label: 'المصروفات', icon: 'receipt', permission: 'expenses.view' },
+    { value: 'trf', label: 'تحويلات الخزائن', icon: 'swap', permission: 'treasury_transfers.view' },
+  ].filter(t => can(t.permission));
+  const activeTab = tabs.some(t => t.value === tab) ? tab : tabs[0]?.value;
 
   return (
     <div className="space-y-5">
       <PageHead title="المالية" sub="الخزائن والمصروفات وتحويلات النقدية بين الخزائن." />
       <TabsBar
-        value={tab}
+        value={activeTab}
         onChange={(v: any) => setTab(v)}
-        tabs={[
-          { value: 'tr', label: 'الخزائن', icon: 'vault' },
-          { value: 'exp', label: 'المصروفات', icon: 'receipt' },
-          {
-            value: 'trf',
-            label: 'تحويلات الخزائن',
-            icon: 'swap',
-          },
-        ]}
+        tabs={tabs}
       />
-      {tab === 'tr' && <TreasuriesTab />}
-      {tab === 'exp' && <ExpensesTab />}
-      {tab === 'trf' && <TransfersTab />}
+      {activeTab === 'tr' && <TreasuriesTab />}
+      {activeTab === 'exp' && <ExpensesTab can={can} />}
+      {activeTab === 'trf' && <TransfersTab />}
     </div>
   );
 }
@@ -111,6 +110,7 @@ export function ExpenseForm({ onClose, onSaved }: { onClose: () => void; onSaved
   const toast = useToast();
   const { busy, run } = useAction();
   const f = useFormState({ branchId: '', treasuryId: '', category: '', amount: '', date: today(), notes: '' });
+  const [idemKey, setIdemKey] = useState(() => newIdempotencyKey());
   const treasures = useRemote((s) => allPages((page) => treasuriesApi.list({ page, per_page: 100, is_active: true }, s)), []);
   const branches = useRemote((s) => allPages((page) => opsApi.get('/api/v1/admin/branches', { params: { page, per_page: 100 }, signal: s }).then((r) => asPage<{ id: number; name: string }>(r))), []);
   const selectedTreasury = treasures.data?.find((t) => t.id === Number(f.v.treasuryId));
@@ -121,8 +121,8 @@ export function ExpenseForm({ onClose, onSaved }: { onClose: () => void; onSaved
       branch_id: Number(f.v.branchId),
       treasury_id: Number(f.v.treasuryId), category: f.v.category, amount: Number(f.v.amount),
       expense_date: f.v.date, notes: f.v.notes || null,
-    }), { toast, success: 'تم تسجيل سند الصرف', onFieldErrors: (e) => f.setErrors(e as any) });
-    if (r) { onSaved(); onClose(); }
+    }, idemKey), { toast, success: 'تم تسجيل سند الصرف', onFieldErrors: (e) => f.setErrors(e as any) });
+    if (r) { setIdemKey(newIdempotencyKey()); onSaved(); onClose(); }
   };
   return (
     <Modal open onClose={onClose} title="سند صرف مصروفات" icon="receipt" width={560}
@@ -372,13 +372,15 @@ export function TreasuriesTab() {
   );
 }
 
-export function ExpensesTab() {
+export function ExpensesTab({ can = () => true }: { can?: (permission: string) => boolean } = {}) {
   const toast = useToast();
-  const { run } = useAction();
+  const { busy, run } = useAction();
   const [br, setBr] = useState('');
   const [tr, setTr] = useState('');
   const [cat, setCat] = useState('');
   const [form, setForm] = useState(false);
+  const [voiding, setVoiding] = useState<ExpenseRow | null>(null);
+  const [voidReason, setVoidReason] = useState('');
 
   const categories = ['نظافة', 'صيانة', 'نقل وتحميل', 'إيجار', 'ضيافة', 'أدوات مكتبية', 'أخرى'];
   const [page, setPage] = useState(1);
@@ -387,9 +389,10 @@ export function ExpensesTab() {
   const treasures = useRemote((s) => allPages((page) => treasuriesApi.list({ page, per_page: 100 }, s)), []);
   const branches = useRemote((s) => allPages((page) => opsApi.get('/api/v1/admin/branches', { params: { page, per_page: 100 }, signal: s }).then((r) => asPage<{ id: number; name: string }>(r))), []);
   const rows = list.data?.data ?? [];
-  const largest = [...rows].sort((a, b) => b.amount - a.amount)[0];
+  const activeRows = rows.filter(e => !e.voidedAt);
+  const largest = [...activeRows].sort((a, b) => b.amount - a.amount)[0];
   const nameOf = (id: number) => treasures.data?.find((t) => t.id === id)?.name ?? (USE_MOCK ? trName(id) : `#${id}`);
-  const total = rows.reduce((a, e) => a + e.amount, 0);
+  const total = activeRows.reduce((a, e) => a + e.amount, 0);
 
   return (
     <>
@@ -427,6 +430,7 @@ export function ExpensesTab() {
           rows={rows}
           cols={[
             { h: 'رقم السند', r: (e: ExpenseRow) => <span className="num font-semibold tx1">{e.no}</span> },
+            { h: 'الحالة', r: (e: ExpenseRow) => <Badge tone={e.voidedAt ? 'red' : 'green'}>{e.voidedAt ? 'ملغى' : 'مسجّل'}</Badge> },
             { h: 'الفرع', r: (e: ExpenseRow) => <span className="tx2">{e.branch}</span> },
             { h: 'الخزينة', r: (e: ExpenseRow) => <span className="text-[12px]">{nameOf(e.tr)}</span> },
             {
@@ -457,8 +461,9 @@ export function ExpensesTab() {
             },
             {
               h: 'ملاحظات',
-              r: (e: ExpenseRow) => <span className="text-[11.5px] tx2 clamp1">{e.notes || '—'}</span>,
+              r: (e: ExpenseRow) => <span className="text-[11.5px] tx2 clamp1">{e.voidReason || e.notes || '—'}</span>,
             },
+            { h: '', r: (e: ExpenseRow) => !e.voidedAt && !e.shift && can('expenses.delete') ? <button className="btn btn-soft btn-sm" onClick={() => { setVoiding(e); setVoidReason(''); }}>إلغاء المصروف</button> : null },
           ]}
         />
         <Pager total={list.data?.meta.total ?? 0} page={page} per={20} onPage={setPage} />
@@ -466,6 +471,15 @@ export function ExpensesTab() {
       {form && (
         <ExpenseForm onClose={() => setForm(false)} onSaved={() => { list.reload(); treasures.reload(); }} />
       )}
+      {voiding && <Modal open title={`إلغاء المصروف ${voiding.no}`} onClose={() => { if (!busy) setVoiding(null); }}
+        footer={<button className="btn btn-dark" disabled={busy || !voidReason.trim()} onClick={async () => {
+          if (list.usingMock) return toast('البيانات المعروضة تجريبية — لم يتم الحفظ', 'red');
+          const result = await run(() => expensesApi.void(voiding.id, voidReason.trim()), { toast, success: 'تم إلغاء المصروف وعكس أثره على الخزينة' });
+          if (result) { setVoiding(null); list.reload(); treasures.reload(); }
+        }}>تأكيد الإلغاء</button>}>
+        <Note>يُحفظ السند في سجل التدقيق ويُعاد المبلغ إلى الخزينة.</Note>
+        <TextArea label="سبب الإلغاء" req value={voidReason} onChange={setVoidReason} />
+      </Modal>}
     </>
   );
 }
@@ -478,6 +492,8 @@ export function TransfersTab() {
   const [view, setView] = useState<any>(null);
   const [form, setForm] = useState(false);
   const [src, setSrc] = useState('');
+  const [idemKey, setIdemKey] = useState(() => newIdempotencyKey());
+  const [unresolved, setUnresolved] = useState(false);
   const [dst, setDst] = useState('');
   const [amount, setAmount] = useState('');
   const [notes, setNotes] = useState('');
@@ -513,10 +529,24 @@ export function TransfersTab() {
   const create = async () => {
     if (!src || !dst || src === dst) return toast('اختر مصدرًا ووجهة مختلفين', 'red');
     if (!amount || Number(amount) <= 0) return toast('أدخل مبلغًا صحيحًا', 'red');
-    const r = await run(() => treasuryTransfersApi.create({
-      from_treasury_id: Number(src), to_treasury_id: Number(dst), amount: Number(amount), notes: notes || null,
-    }), { toast, success: 'أُرسل طلب التحويل', onFieldErrors: setErrors });
-    if (r) { setForm(false); setSrc(''); setDst(''); setAmount(''); setNotes(''); list.reload(); treasures.reload(); }
+    const r = await run(async () => {
+      setUnresolved(true);
+      try {
+        return await treasuryTransfersApi.create({
+          from_treasury_id: Number(src), to_treasury_id: Number(dst), amount: Number(amount), notes: notes || null,
+        }, idemKey);
+      } catch (error) {
+        const { status } = parseApiError(error);
+        if (status !== null && status >= 400 && status < 500 && ![408, 409, 425, 429].includes(status)) setUnresolved(false);
+        throw error;
+      }
+    }, { toast, success: 'أُرسل طلب التحويل', onFieldErrors: setErrors });
+    if (r) { setUnresolved(false); setIdemKey(newIdempotencyKey()); setForm(false); setSrc(''); setDst(''); setAmount(''); setNotes(''); list.reload(); treasures.reload(); }
+  };
+  const closeForm = () => {
+    if (busy) return;
+    setForm(false);
+    if (!unresolved) { setIdemKey(newIdempotencyKey()); setErrors({}); }
   };
 
   return (
@@ -645,14 +675,14 @@ export function TransfersTab() {
       )}
       <Modal
         open={form}
-        onClose={() => setForm(false)}
+        onClose={closeForm}
         title="طلب تحويل بين خزائن"
         icon="swap"
         width={520}
         sub="يُنشأ بحالة «بانتظار الاعتماد» ولا يمكن تعديله بعد ذلك."
         footer={
           <>
-            <button className="btn btn-soft" onClick={() => setForm(false)}>
+            <button className="btn btn-soft" disabled={busy} onClick={closeForm}>
               إلغاء
             </button>
             <button
@@ -665,7 +695,8 @@ export function TransfersTab() {
           </>
         }
       >
-        <div className="space-y-4">
+        {unresolved && <p role="status">نتيجة الطلب السابق لم تُحسم. أعد الإرسال بنفس البيانات للتحقق منه بأمان.</p>}
+        <fieldset disabled={busy || unresolved} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <Field label="الخزينة المصدر" req err={errors.from_treasury_id}>
               <select className="inp" value={src} onChange={(e) => setSrc(e.target.value)}>
@@ -696,7 +727,7 @@ export function TransfersTab() {
             <input type="number" step="0.01" min="0.01" className="inp num" value={amount} onChange={(e) => setAmount(e.target.value)} />
           </Field>
           <TextArea label="ملاحظات" value={notes} onChange={setNotes} />
-        </div>
+        </fieldset>
       </Modal>
     </>
   );

@@ -12,15 +12,14 @@ use App\Models\Location;
 use App\Models\StockLevel;
 use App\Models\StockMovement;
 use App\Models\Stocktake;
+use App\Observers\CatalogRetailPriceObserver;
 use App\Services\Concerns\HandlesIdempotentCreation;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
- * جلسات الجرد الفعلي. لقطة system_qty بتتاخد من stock_levels وقت إنشاء العنصر،
- * والاعتماد بيحوّل الفروق لحركات دفتر (فائض/عجز) عبر InventoryService فقط،
- * وبعد الاعتماد الجلسة بتتقفل نهائيًا.
+ * Manages physical inventory stocktaking sessions, count reconciliation, and ledger adjustments.
  */
 class StocktakeService
 {
@@ -31,6 +30,12 @@ class StocktakeService
         private readonly SettingService $settings,
     ) {}
 
+    /**
+     * Paginates stocktake sessions with applied branch and status filters.
+     *
+     * @param array<string, mixed> $filters Query filters
+     * @return LengthAwarePaginator Paginated stocktakes
+     */
     public function paginate(array $filters): LengthAwarePaginator
     {
         return Stocktake::query()
@@ -43,6 +48,12 @@ class StocktakeService
             ->paginate($filters['per_page'] ?? 15);
     }
 
+    /**
+     * Retrieves a single stocktake session with loaded associations.
+     *
+     * @param int $id Stocktake ID
+     * @return Stocktake Retrieved stocktake model
+     */
     public function find(int $id): Stocktake
     {
         return Stocktake::query()
@@ -50,6 +61,15 @@ class StocktakeService
             ->findOrFail($id);
     }
 
+    /**
+     * Creates a new draft stocktake session idempotently.
+     *
+     * @param array<string, mixed> $data Stocktake attributes and items
+     * @param int $userId Creator ID
+     * @param string|null $idempotencyKey Optional client request idempotency key
+     * @return Stocktake Created stocktake
+     * @throws BusinessException If location or branch scope is invalid
+     */
     public function create(array $data, int $userId, ?string $idempotencyKey = null): Stocktake
     {
         app(BranchAccess::class)->assertBranch($userId, (int) $data['branch_id']);
@@ -70,8 +90,6 @@ class StocktakeService
     {
         return DB::transaction(function () use ($data, $userId): Stocktake {
             app(BranchAccess::class)->assertBranch($userId, (int) $data['branch_id']);
-            // M5: فرع يستخدم المواقع لا يُجرد إجماليًا — الفرق يُطبَّق على صف
-            // بلا موقع فقط فيُضاعف الرصيد وهميًا.
             $this->assertScopedLocation((int) $data['branch_id'], $data['location_id'] ?? null);
             $stocktake = Stocktake::query()->create([
                 'stocktake_number' => $this->settings->generateNextNumber('stocktake'),
@@ -88,6 +106,15 @@ class StocktakeService
         });
     }
 
+    /**
+     * Updates an editable stocktake session attributes, status, and items.
+     *
+     * @param Stocktake $stocktake Target stocktake
+     * @param array<string, mixed> $data Updated attributes
+     * @param int $userId User performing update
+     * @return Stocktake Updated stocktake instance
+     * @throws BusinessException If stocktake is locked or transition is invalid
+     */
     public function update(Stocktake $stocktake, array $data, int $userId): Stocktake
     {
         return DB::transaction(function () use ($stocktake, $data, $userId): Stocktake {
@@ -143,12 +170,16 @@ class StocktakeService
     }
 
     /**
-     * الاعتماد: تحويل كل فارق غير صفري لحركة دفتر (stocktake_gain/stocktake_loss)
-     * على on_hand في نطاق الجلسة (فرعها وموقعها)، ثم قفل الجلسة.
+     * Approves a stocktake session, recording inventory adjustments for non-zero count differences.
+     *
+     * @param Stocktake $stocktake Target stocktake
+     * @param int $userId Approving user ID
+     * @return Stocktake Approved and locked stocktake
+     * @throws BusinessException If items are uncounted, stale, or stocktake cannot be approved
      */
     public function approve(Stocktake $stocktake, int $userId): Stocktake
     {
-        return DB::transaction(function () use ($stocktake, $userId): Stocktake {
+        return app(CatalogRetailPriceObserver::class)->batch(fn () => DB::transaction(function () use ($stocktake, $userId): Stocktake {
             $stocktake = Stocktake::query()->lockForUpdate()->findOrFail($stocktake->id);
             app(BranchAccess::class)->assertBranch($userId, $stocktake->branch_id);
             $stocktake->load('items.variant');
@@ -175,14 +206,7 @@ class StocktakeService
                 'branch_id' => $stocktake->branch_id, 'location_id' => $stocktake->location_id,
             ])->all());
 
-            // سياسة اللقطة القديمة قابلة للضبط (inventory.stocktake_stale_policy):
-            // - reject (الافتراضي): أي حركة بعد العد ترفض الاعتماد وتعيد قائمة
-            //   إعادة العد. يمنع أيضًا تطبيق نفس الفرق مرتين عند تداخل جلستين.
-            // - apply_difference: تطبيق الفرق (counted − system_qty) على الرصيد
-            //   الحالي يحفظ الحركات البينية حسابيًا (النهائي = المعدود + صافيها)
-            //   فلا تُحبس جلسات الفروع النشطة. تسوية جرد أخرى بعد اللقطة تُرفض
-            //   في الوضعين حتى لا يُطبّق نفس الفرق مرتين.
-            // ولا تُحدَّث اللقطة بإعادة الحفظ في أي سياسة، بل بتغيير العدد أو recount.
+            // Reconcile according to configured stale policy: reject on intermediate movement or apply net difference.
             $rejectStale = config('inventory.stocktake_stale_policy', 'reject') !== 'apply_difference';
             $staleItemIds = [];
             $staleVariantIds = [];
@@ -249,9 +273,16 @@ class StocktakeService
             ]);
 
             return $stocktake->load(['items.variant', 'branch', 'location']);
-        });
+        }));
     }
 
+    /**
+     * Deletes a draft or cancelled stocktake session.
+     *
+     * @param Stocktake $stocktake Stocktake to delete
+     * @param int $userId Requesting user ID
+     * @throws BusinessException If session is in an undeletable status
+     */
     public function delete(Stocktake $stocktake, int $userId): void
     {
         DB::transaction(function () use ($stocktake, $userId): void {
@@ -266,16 +297,13 @@ class StocktakeService
         });
     }
 
-    /**
-     * M5: الجرد بلا موقع مرفوض إذا كان للفرع مواقع نشطة لها أرصدة —
-     * العدّ الإجمالي يُسجَّل فائضًا وهميًا على الصف بلا موقع.
-     */
     private function assertScopedLocation(int $branchId, mixed $locationId): void
     {
         if ($locationId !== null) {
             return;
         }
 
+        // Prevent branch-wide unlocated stocktaking when location-specific stock exists to avoid artificial discrepancies.
         $hasLocatedStock = StockLevel::query()->where('branch_id', $branchId)
             ->whereNotNull('location_id')->hasNonZeroBalance()->exists();
 
@@ -292,9 +320,7 @@ class StocktakeService
     }
 
     /**
-     * تسجيل العناصر مع لقطة system_qty من الرصيد الحالي في نطاق الجلسة.
-     *
-     * @param  list<array{product_variant_id: int, counted_qty?: float|int|string|null}>  $items
+     * @param list<array{product_variant_id: int, counted_qty?: float|int|string|null}> $items
      */
     private function syncItems(Stocktake $stocktake, array $items): void
     {
@@ -314,11 +340,12 @@ class StocktakeService
     }
 
     /**
-     * تحديث جزئي لعناصر جرد قائم (M-4): upsert للعناصر المرسلة فقط دون حذف
-     * الغائبين — تسجيل عدّ صنف واحد لا يتطلب إعادة إرسال قائمة الجلسة كاملة،
-     * والجلسات الأكبر من حد الحمولة (500) تُبنى عبر دفعات متتالية هنا.
+     * Incrementally updates a subset of stocktake items without deleting unmentioned ones.
      *
-     * @param  list<array{product_variant_id: int, counted_qty?: float|int|string|null, recount?: bool|null}>  $items
+     * @param Stocktake $stocktake Target stocktake
+     * @param list<array{product_variant_id: int, counted_qty?: float|int|string|null, recount?: bool|null}> $items Items payload
+     * @param int $userId User ID
+     * @return Stocktake Updated stocktake
      */
     public function upsertSomeItems(Stocktake $stocktake, array $items, int $userId): Stocktake
     {
@@ -334,7 +361,16 @@ class StocktakeService
         });
     }
 
-    /** Add a barcode scan while holding the session lock to avoid lost counts. */
+    /**
+     * Adds counted quantity to a stocktake item under row lock (e.g. for barcode scanning).
+     *
+     * @param Stocktake $stocktake Target stocktake
+     * @param int $variantId Scanned variant ID
+     * @param float $quantity Scanned quantity increment
+     * @param int $userId Scanning user ID
+     * @return Stocktake Updated stocktake
+     * @throws BusinessException If session is locked or quantity is invalid
+     */
     public function incrementItemCount(Stocktake $stocktake, int $variantId, float $quantity, int $userId): Stocktake
     {
         return DB::transaction(function () use ($stocktake, $variantId, $quantity, $userId): Stocktake {
@@ -349,8 +385,6 @@ class StocktakeService
                 throw new BusinessException('كمية العد تتجاوز النطاق المسموح.');
             }
             if ($existing !== null && $existing->counted_qty !== null) {
-                // A scan extends the same count; only an explicit recount may
-                // refresh its original stock/ledger snapshot.
                 $existing->update(['counted_qty' => $total]);
             } else {
                 $this->upsertItems($stocktake, [['product_variant_id' => $variantId, 'counted_qty' => $total]], deleteAbsent: false);
@@ -362,19 +396,12 @@ class StocktakeService
     }
 
     /**
-     * تحديث عناصر جرد قائم بدون كسر ربط اللقطة بلحظة العد:
-     * - عنصر جديد يُنشأ بلقطة الآن.
-     * - لقطة عنصر قائم لا تتجدد إلا إذا سُجّل counted_qty أو تغيّر، أو أُرسل recount=true.
-     * - إعادة حفظ بنفس الأعداد (الواجهة ترسل المصفوفة كاملة) لا تلمس اللقطات.
-     * - عنصر غائب من الحمولة يُحذف من الجرد (في الاستبدال الكامل فقط).
-     *
-     * @param  list<array{product_variant_id: int, counted_qty?: float|int|string|null, recount?: bool|null}>  $items
+     * @param list<array{product_variant_id: int, counted_qty?: float|int|string|null, recount?: bool|null}> $items
      */
     private function upsertItems(Stocktake $stocktake, array $items, bool $deleteAbsent = true): void
     {
         $existing = $stocktake->items()->get()->keyBy('product_variant_id');
 
-        // M3: سقف كلي للجلسة يُفحص داخل القفل — الجلسة الأكبر تُقسّم حسب الموقع.
         $payloadIds = collect($items)->map(fn ($item) => (int) $item['product_variant_id'])->unique()->values()->all();
         $totalItems = $deleteAbsent
             ? count($payloadIds)

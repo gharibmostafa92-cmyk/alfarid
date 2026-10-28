@@ -54,22 +54,20 @@ class PurchaseRequestController extends Controller implements HasMiddleware
         /** @var User $admin */
         $admin = $request->user();
         $pr = $this->procurement->createPurchaseRequest($request->validated(), $admin);
-        $pr->load(['branch:id,name', 'items.variant']);
 
-        return PurchaseRequestResource::make($pr)->response()->setStatusCode(201);
+        return $this->requestResource($pr)->response()->setStatusCode(201);
     }
 
     public function show(PurchaseRequest $purchaseRequest): PurchaseRequestResource
     {
-        return PurchaseRequestResource::make($purchaseRequest->load(['branch:id,name', 'items.variant']));
+        return $this->requestResource($purchaseRequest);
     }
 
     public function update(PurchaseRequestRequest $request, PurchaseRequest $purchaseRequest): PurchaseRequestResource
     {
         $pr = $this->procurement->updatePurchaseRequest($purchaseRequest, $request->validated());
-        $pr->load(['branch:id,name', 'items.variant']);
 
-        return PurchaseRequestResource::make($pr);
+        return $this->requestResource($pr);
     }
 
     public function destroy(PurchaseRequest $purchaseRequest): JsonResponse
@@ -80,6 +78,13 @@ class PurchaseRequestController extends Controller implements HasMiddleware
         $purchaseRequest->delete();
 
         return response()->json(['message' => 'تم حذف طلب الشراء.']);
+    }
+
+    private function requestResource(PurchaseRequest $request): PurchaseRequestResource
+    {
+        return PurchaseRequestResource::make(
+            $request->loadMissing(['branch:id,name', 'items.variant'])
+        );
     }
 
     public function submit(PurchaseRequest $purchaseRequest): PurchaseRequestResource

@@ -50,7 +50,7 @@ class WholesalePortalTest extends TestCase
 
         $product = Product::factory()->create(['status' => 'published']);
         $this->variant = $product->variants()->first() ?? ProductVariant::factory()->create(['product_id' => $product->id]);
-        $this->variant->update(['retail_price' => 100, 'is_active' => true]);
+        $this->variant->update(['retail_price' => 100, 'wholesale_price' => null, 'is_active' => true]);
     }
 
     private function adminToken(): string
@@ -86,6 +86,17 @@ class WholesalePortalTest extends TestCase
             ->assertJsonPath('data.items.0.offered_unit_price', '100.00')
             ->assertJsonPath('data.grand_total', '200.00')
             ->json('data.id');
+    }
+
+    public function test_quotation_prefers_explicit_wholesale_price_over_retail_fallback(): void
+    {
+        $this->variant->update(['wholesale_price' => 80]);
+
+        $this->asTrader()->postJson('/api/v1/wholesale/quotations', [
+            'items' => [['product_variant_id' => $this->variant->id, 'qty' => 2]],
+        ])->assertCreated()
+            ->assertJsonPath('data.items.0.offered_unit_price', '80.00')
+            ->assertJsonPath('data.grand_total', '160.00');
     }
 
     public function test_retail_and_pending_customers_are_blocked_by_the_triple_middleware(): void
@@ -251,6 +262,23 @@ class WholesalePortalTest extends TestCase
         $this->asAdmin()->postJson("/api/v1/admin/payment-notices/{$noticeId}/approve", [])->assertUnprocessable();
     }
 
+    public function test_notice_cannot_be_approved_into_a_pos_drawer(): void
+    {
+        $drawer = Treasury::create([
+            'name' => 'درج الاختبار', 'code' => 'POS-AUDIT-DRAWER',
+            'type' => TreasuryType::PosDrawer, 'branch_id' => Branch::factory()->create()->id,
+            'current_balance' => 0, 'is_active' => true,
+        ]);
+        $this->creditOrder(1000);
+        $noticeId = $this->submitNotice();
+        $this->asAdmin()->postJson("/api/v1/admin/payment-notices/{$noticeId}/approve", [
+            'treasury_id' => $drawer->id,
+        ])->assertUnprocessable();
+        $this->assertDatabaseHas('wholesale_payment_notices', ['id' => $noticeId, 'status' => 'pending_review']);
+        $this->assertDatabaseCount('treasury_transactions', 0);
+        $this->assertSame('0.00', $drawer->fresh()->current_balance);
+    }
+
     public function test_notice_approval_above_outstanding_debt_is_rejected(): void
     {
         $this->bankTreasury();
@@ -259,6 +287,70 @@ class WholesalePortalTest extends TestCase
 
         $this->asAdmin()->postJson("/api/v1/admin/payment-notices/{$noticeId}/approve", [])->assertUnprocessable();
         $this->assertDatabaseCount('treasury_transactions', 0);
+    }
+
+    public function test_cancel_blocked_with_approved_notice_and_credit_survives_explicit_cancel(): void
+    {
+        // H1: طلب آجل 1000 عليه إشعار معتمد 400 ثم إلغاء — الائتمان لا يضيع.
+        $this->bankTreasury();
+        $order = Order::factory()->create([
+            'customer_id' => $this->trader->id,
+            'payment_method' => 'credit',
+            'payment_status' => 'unpaid',
+            'status' => OrderStatus::Pending,
+            'subtotal' => 1000,
+            'grand_total' => 1000,
+        ]);
+        $noticeId = $this->submitNotice(['order_id' => $order->id, 'amount' => 400]);
+        $this->asAdmin()->postJson("/api/v1/admin/payment-notices/{$noticeId}/approve", [])->assertOk();
+
+        $this->asTrader()->getJson('/api/v1/wholesale/payment-notices/outstanding')
+            ->assertOk()->assertJsonPath('data.outstanding_balance', '600.00');
+
+        // الإلغاء الصامت مرفوض بوجود إشعار معتمد مقيد في الخزينة
+        $this->asAdmin()->patchJson("/api/v1/admin/orders/{$order->id}/status", ['status' => 'cancelled'])
+            ->assertUnprocessable();
+        $this->assertSame(OrderStatus::Pending, $order->fresh()->status);
+
+        // مسار التسوية الصريح مسموح، والـ 400 تبقى رصيدًا دائنًا حرًا
+        app(\App\Services\OrderService::class)->changeStatus(
+            $order->fresh(), OrderStatus::Cancelled, null, null, null, true, true
+        );
+        $this->assertSame(OrderStatus::Cancelled, $order->fresh()->status);
+        $this->asTrader()->getJson('/api/v1/wholesale/payment-notices/outstanding')
+            ->assertOk()->assertJsonPath('data.outstanding_balance', '-400.00');
+    }
+
+    public function test_free_notice_settles_oldest_open_orders_fifo_with_audit_history(): void
+    {
+        // M4: إشعار حر معتمد يوزع على أقدم الطلبات المفتوحة مع سجل تدقيق.
+        $this->bankTreasury();
+        $old = Order::factory()->create([
+            'customer_id' => $this->trader->id,
+            'payment_method' => 'credit',
+            'payment_status' => 'unpaid',
+            'status' => OrderStatus::Delivered,
+            'subtotal' => 300,
+            'grand_total' => 300,
+        ]);
+        $new = Order::factory()->create([
+            'customer_id' => $this->trader->id,
+            'payment_method' => 'credit',
+            'payment_status' => 'unpaid',
+            'status' => OrderStatus::Delivered,
+            'subtotal' => 500,
+            'grand_total' => 500,
+        ]);
+        $noticeId = $this->submitNotice(['amount' => 300]);
+        $this->asAdmin()->postJson("/api/v1/admin/payment-notices/{$noticeId}/approve", [])->assertOk();
+
+        $this->assertSame('paid', $old->fresh()->payment_status);
+        $this->assertSame('unpaid', $new->fresh()->payment_status);
+        $this->assertDatabaseHas('order_status_histories', [
+            'order_id' => $old->id,
+        ]);
+        $this->asTrader()->getJson('/api/v1/wholesale/payment-notices/outstanding')
+            ->assertOk()->assertJsonPath('data.outstanding_balance', '500.00');
     }
 
     public function test_notice_reject_flow_and_creation_guards(): void

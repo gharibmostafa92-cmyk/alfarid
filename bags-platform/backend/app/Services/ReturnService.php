@@ -24,16 +24,17 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 /**
- * خدمة المرتجعات (RMA) — دورة حياة طلب الإرجاع في أربع خطوات:
- * create ← تقديم الطلب (تحقق من التسليم ونافذة الاسترجاع وسقف الكميات)،
- * approve ← موافقة مبدئية (فرع مستلم وكميات معتمدة)،
- * receive ← استلام وفحص فعلي، refund ← رد مالي للعميل.
+ * Return Merchandise Authorization (RMA) service managing the four-stage return lifecycle.
  *
- * القاعدة الذهبية: الإنشاء والاعتماد لا يضيفان أي رصيد للمخزون. الإضافة
- * الفعلية تتم حصريًا في receive عبر InventoryService::recordMovement:
- * السليم يعود إلى on_hand بحركة sale_return، والتالف يُسجل في وعاء
- * damaged بحركة damage (بعد عودته فيزيائيًا إلى on_hand بنفس الكمية،
- * لأن وعاء التالف شريحة من الرصيد الفعلي لا رصيد مستقل).
+ * Lifecycle stages:
+ * 1. create: Submission (validates delivery status, return window, and item quantity ceilings).
+ * 2. approve: Administrative pre-approval (assigns receiving branch and approved item quantities).
+ * 3. receive: Physical warehouse inspection and stock ledger intake via InventoryService.
+ * 4. refund: Financial reimbursement (customer wallet credit or payment gateway reference).
+ *
+ * Golden Rule: Requests and approvals never alter stock balances. Only the physical intake
+ * stage (receive) records ledger movements: sale_return for intact goods into on_hand,
+ * followed by damage bucket allocation for defective units.
  */
 class ReturnService
 {
@@ -44,16 +45,14 @@ class ReturnService
     ) {}
 
     /**
-     * تقديم طلب إرجاع لطلب مُسلَّم داخل نافذة الاسترجاع.
-     * $customer عند الإنشاء من المتجر (يفرض ملكية الطلب)؛ null عند إنشاء
-     * الأدمن اليدوي لطلب أي عميل/زائر.
+     * Submits a new return request for a delivered order within the allowed return window.
      *
      * @param  array{reason: string, refund_method?: string|null, items: list<array{order_item_id: int, requested_qty: float|int|string, item_reason?: string|null, attachments?: list<UploadedFile>}>}  $data
      */
     public function createReturnRequest(Order $order, array $data, ?Customer $customer = null): ReturnRequest
     {
         $return = PrivateAttachments::transaction(function (PrivateAttachments $files) use ($order, $data, $customer): ReturnRequest {
-            // قفل صف الطلب: طلبا إرجاع متزامنان لنفس البند لا يتجاوزا سقفه معًا
+            // Lock order row to serialize concurrent return requests against line item quantities.
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
 
             if ($customer !== null && (int) $order->customer_id !== (int) $customer->id) {
@@ -69,7 +68,7 @@ class ReturnService
 
             $this->assertWithinReturnWindow($order);
 
-            // تجميع البنود المكررة لنفس سطر الطلب قبل فحص السقف
+            // Aggregate duplicate return lines for the same order item before validating ceilings.
             $lines = [];
             foreach ($data['items'] as $line) {
                 DiscreteQuantity::assert($line['requested_qty']);
@@ -87,8 +86,7 @@ class ReturnService
 
             foreach ($lines as $orderItemId => $line) {
                 $orderItem = $orderItems->get($orderItemId);
-                // ما سبق طلبه للإرجاع في طلبات قائمة (غير المرفوض/الملغي)
-                // يحجز من سقف البند حتى لا يُرجع أكثر مما اشتراه العميل
+                // Active return requests (excluding rejected/cancelled) count against remaining returnable quantity.
                 $previouslyRequested = (float) ReturnRequestItem::query()
                     ->where('order_item_id', $orderItemId)
                     ->join('return_requests', 'return_requests.id', '=', 'return_request_items.return_request_id')
@@ -130,8 +128,9 @@ class ReturnService
     }
 
     /**
-     * الموافقة المبدئية: تحديد الفرع المستلم والكميات المعتمدة لكل بند.
-     * لا تلمس المخزون بأي شكل — الاستلام الفعلي لاحقًا هو ما يحرّكه.
+     * Grants administrative pre-approval, designating receiving branch and approved item quantities.
+     *
+     * Does not alter inventory balances until physical intake.
      *
      * @param  array{branch_id: int, admin_notes?: string|null, items?: list<array{id: int, approved_qty: float|int|string}>}  $data
      */
@@ -157,7 +156,7 @@ class ReturnService
 
             $totalApproved = 0.0;
             foreach ($return->items as $item) {
-                // بند غير مذكور في الحمولة يُعتمد بكامل كميته المطلوبة
+                // Items omitted from approval payload default to their full requested quantity.
                 $qty = $approved->has($item->id)
                     ? (float) $approved->get($item->id)['approved_qty']
                     : (float) $item->requested_qty;
@@ -185,9 +184,7 @@ class ReturnService
     }
 
     /**
-     * الاستلام والفحص المخزني — الخطوة الوحيدة التي تحرّك المخزون:
-     * السليم sale_return إلى on_hand، والتالف damage إلى وعاء damaged،
-     * داخل معاملة واحدة عبر InventoryService حصرًا.
+     * Performs physical inspection and records inventory intake movements into warehouse stock.
      *
      * @param  array{items: list<array{id: int, received_good_qty: float|int|string, received_damaged_qty: float|int|string}>}  $data
      */
@@ -219,9 +216,7 @@ class ReturnService
                 }
             }
 
-            // تجميعات المرتجعات السابقة (مستلمة/مردودة) لكل بنود الطلب في
-            // استعلام واحد مجمّع بدل استعلام لكل بند داخل الحلقة (L5). بنود
-            // هذا المرتجع نفسه مستبعدة ضمنيًا لأن حالته ما زالت Approved.
+            // Aggregate prior returned quantities across order items in a single query to avoid N+1 queries.
             $previousByOrderItem = ReturnRequestItem::query()
                 ->whereIn('order_item_id', $return->items->pluck('order_item_id')->all())
                 ->whereHas('returnRequest', fn ($q) => $q->whereIn('status', [ReturnStatus::Received, ReturnStatus::Refunded]))
@@ -269,8 +264,7 @@ class ReturnService
                     ], $level);
                 }
                 if ($damaged > 0) {
-                    // القطعة التالفة عادت فيزيائيًا للمخزن فتدخل on_hand أولًا،
-                    // ثم تُحجز في وعاء التالف — المتاح للبيع لا يزيد بها
+                    // Damaged units return physically to on_hand before being segregated into the damaged bucket.
                     $this->inventory->recordMovement([...$base,
                         'type' => StockMovementType::SaleReturn,
                         'affected_bucket' => StockBucket::OnHand,
@@ -321,9 +315,7 @@ class ReturnService
     }
 
     /**
-     * رد المبلغ للعميل بعد الاستلام: محفظة (تُضاف لرصيد العميل) أو تسجيل
-     * مرجع تحويل/بوابة. اكتمال إرجاع كل بنود الطلب ينقل الطلب نفسه إلى
-     * Returned عبر بوابة الحالة بلا آثار مخزون/استرداد مكررة.
+     * Issues financial reimbursement to the customer via wallet credit or recorded payment gateway reference.
      *
      * @param  array{refund_method?: string|null, refund_reference?: string|null}  $data
      */
@@ -393,6 +385,9 @@ class ReturnService
         });
     }
 
+    /**
+     * Permanently deletes a pending return request and removes associated attachment files from private storage.
+     */
     public function delete(ReturnRequest $return): void
     {
         DB::transaction(function () use ($return): void {
@@ -408,7 +403,9 @@ class ReturnService
         });
     }
 
-    /** رفض طلب قيد المراجعة — بلا أي أثر (لم يتحرك مخزون ولا مال). */
+    /**
+     * Rejects a pending return request without modifying stock or treasury balances.
+     */
     public function reject(ReturnRequest $return, User $admin, ?string $notes = null): ReturnRequest
     {
         return DB::transaction(function () use ($return, $notes): ReturnRequest {
@@ -425,7 +422,9 @@ class ReturnService
         });
     }
 
-    /** إلغاء طلب لم يُستلم بعد (قيد المراجعة/معتمد) — بلا أي أثر مخزني. */
+    /**
+     * Cancels an unreceived return request (pending or approved).
+     */
     public function cancel(ReturnRequest $return, ?string $notes = null): ReturnRequest
     {
         return DB::transaction(function () use ($return, $notes): ReturnRequest {
@@ -443,8 +442,7 @@ class ReturnService
     }
 
     /**
-     * تعديلات إدارية بلا آثار جانبية: ملاحظات وطريقة رد (قبل اكتمال الرد)،
-     * وتوجيه حالتي rejected/cancelled لمساريهما في الخدمة.
+     * Updates non-financial return metadata, routing rejected and cancelled transitions to dedicated handlers.
      *
      * @param  array{admin_notes?: string|null, refund_method?: string|null, status?: string|null}  $data
      */
@@ -480,8 +478,7 @@ class ReturnService
     }
 
     /**
-     * نافذة الاسترجاع من الإعدادات (أيام من لحظة انتقال الطلب إلى delivered).
-     * 0 = الإرجاع متوقف، قيمة سالبة (مثل -1) = بلا حد زمني.
+     * Validates that the return request is submitted within the configured days since delivery.
      */
     private function assertWithinReturnWindow(Order $order): void
     {
@@ -507,7 +504,9 @@ class ReturnService
         }
     }
 
-    /** سعر وحدة الرد الصافي: ما دفعه العميل فعليًا للبند ÷ كميته (بعد خصومات الأسعار وحصة الكوبون والضريبة غير المشمولة). */
+    /**
+     * Computes effective net unit refund price after proportional discounts and non-inclusive taxes.
+     */
     private function netUnitRefundPrice(OrderItem $orderItem): float
     {
         $qty = (float) $orderItem->qty;
@@ -518,7 +517,9 @@ class ReturnService
         return round($this->netLineRefundCents($orderItem) / 100 / $qty, 4);
     }
 
-    /** صافي البند بالسنت: السعر × الكمية − الخصم + ضريبة البند (صفر عندما تكون الأسعار شاملة الضريبة). */
+    /**
+     * Computes net payable amount in integer cents for an order item (unit_price * qty - discounts + item taxes).
+     */
     private function netLineRefundCents(OrderItem $orderItem): int
     {
         $net = (float) $orderItem->unit_price * (float) $orderItem->qty
@@ -528,6 +529,9 @@ class ReturnService
         return (int) round(max(0.0, $net) * 100);
     }
 
+    /**
+     * Updates order payment status to refunded or partially_refunded based on cumulative return reimbursements.
+     */
     private function syncOrderPaymentStatusAfterRefund(Order $order): void
     {
         if (! in_array($order->payment_status, ['paid', 'partially_refunded', 'refunded'], true)) {
@@ -543,8 +547,7 @@ class ReturnService
     }
 
     /**
-     * حفظ صور العيوب على القرص الخاص داخل معاملة إنشاء المرتجع،
-     * وتسجيل مساراتها في attachments البند.
+     * Stores uploaded defect photos on private disk and updates item attachment paths.
      *
      * @param  list<array{order_item_id: int, attachments?: list<UploadedFile>}>  $rawItems
      */
@@ -576,7 +579,9 @@ class ReturnService
         }
     }
 
-    /** هل اكتمل استلام ورد قيمة كل بنود الطلب عبر المرتجعات؟ */
+    /**
+     * Checks whether all ordered items have been fully received and refunded.
+     */
     private function isOrderFullyReturned(Order $order): bool
     {
         $items = $order->items()->get();

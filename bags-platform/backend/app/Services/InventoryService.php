@@ -19,20 +19,20 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
- * القلب النابض للمخزون — الطريق الوحيد لتغيير أي رصيد في النظام.
+ * Single authority for modifying stock balances across the platform.
  *
- * قاعدة صارمة: ممنوع تعديل stock_levels من أي Controller أو Model آخر.
- * كل تغيير يمر من هنا: تسجيل حركة في دفتر الأستاذ (stock_movements) أولًا،
- * ثم تحديث الرصيد — داخل نفس الـ transaction ومع قفل الصف.
+ * Enforces ledger-first accounting: records a stock movement in the ledger
+ * before updating row balances under row-level database locks.
  */
 class InventoryService
 {
     public function __construct(private readonly SettingService $settings) {}
 
     /**
-     * الدالة المركزية الوحيدة لتغيير أي رصيد في النظام.
+     * Records an immutable stock movement and updates bucket balances.
      *
      * @param  array{product_variant_id: int, branch_id: int, location_id?: int|null, type: StockMovementType|string, affected_bucket: StockBucket|string, quantity: float|int|string, unit_cost?: float|null, reference_type?: string|null, reference_id?: int|null, created_by?: int|null, notes?: string|null}  $data
+     * @throws BusinessException If quantity is invalid, bucket balance goes negative, or available stock is insufficient.
      */
     public function recordMovement(array $data, ?StockLevel $prelockedLevel = null): StockMovement
     {
@@ -54,8 +54,7 @@ class InventoryService
             $this->assertValidMovementSemantics($type, $bucket, $units);
             $locationId = $data['location_id'] ?? null;
 
-            // صف مقفول مسبقًا من المستدعي (lockLevels): لا إعادة قفل ولا فحص موقع —
-            // المستدعي ضمن الصف والموقع عند القفل. خلاف ذلك نقفل هنا ونتحقق.
+            // Skip re-locking and location checks if caller already locked this level row.
             if ($prelockedLevel !== null) {
                 if ((int) $prelockedLevel->product_variant_id !== (int) $data['product_variant_id']
                     || (int) $prelockedLevel->branch_id !== (int) $data['branch_id']
@@ -75,9 +74,8 @@ class InventoryService
                 ]])->first();
             }
 
-            // H3: فحص النشاط للإدخال الجديد فقط (بضاعة تدخل المخزون أول مرة)،
-            // لا للنقل/المرتجع/الجرد — البضاعة موجودة فعلًا فيجب تسجيلها أينما
-            // كانت، وتصفية رصيد المعطّل متاحة بعمليات الإخراج (M5).
+            // Only new inbound inventory requires active variant and location.
+            // Stock transfers, returns, and write-offs remain allowed on inactive items to liquidate stock.
             $isNewInbound = in_array($type, [
                 StockMovementType::AdjustmentIn,
                 StockMovementType::ProductionReceipt,
@@ -99,13 +97,11 @@ class InventoryService
                 throw new BusinessException('الرصيد يتجاوز الحد المسموح.');
             }
 
-            // 2. التحقق: الرصيد المستهدف لا ينزل تحت الصفر
             if ($after < 0) {
                 throw new BusinessException("الرصيد غير كافٍ في ({$bucketKey}) لإتمام العملية.");
             }
 
-            // 3. التحقق: الكمية المتاحة للبيع لا تصبح سالبة بعد الحركة
-            //    (يغطي حجز/تالف جديد أكبر من المتاح، وسحب فعلي يبتلع محجوزًا أو تالفًا)
+            // Ensure available-for-sale quantity (on_hand - reserved - damaged) does not drop below zero.
             $onHand = $bucket === StockBucket::OnHand ? $after : (float) $stock->on_hand;
             $reserved = $bucket === StockBucket::Reserved ? $after : (float) $stock->reserved;
             $damaged = $bucket === StockBucket::Damaged ? $after : (float) $stock->damaged;
@@ -117,15 +113,13 @@ class InventoryService
                 throw new BusinessException("الكمية المتاحة للبيع ({$availableNow}) غير كافية لإتمام العملية.");
             }
 
-            // منفّذ الحركة إلزامي: من console/queue بلا مستخدم مصادق وبلا created_by
-            // صريح، الفشل الواضح أفضل من QueryException على قيد NOT NULL.
+            // Created-by is mandatory for audit trails; fails explicitly in queue/CLI contexts without auth user.
             $createdBy = $data['created_by'] ?? auth()->id();
             if ($createdBy === null) {
                 throw new \LogicException('recordMovement يتطلب created_by صريحًا عند غياب مستخدم مصادق.');
             }
 
-            // مرجع الدفتر يُخزن بالاسم القصير من morph map إن وُجد (stock_transfer/stocktake)
-            // حتى لا تكسر إعادة تسمية الكلاسات أثر التدقيق؛ الأسماء الكاملة القديمة تظل مقروءة.
+            // Store morph alias instead of FQCN so future class renames preserve audit trail queries.
             $referenceType = $data['reference_type'] ?? null;
             if (is_string($referenceType) && class_exists($referenceType)) {
                 $referenceType = (new $referenceType)->getMorphClass();
@@ -149,16 +143,11 @@ class InventoryService
                 'notes' => $data['notes'] ?? null,
             ]);
 
-            // 5. تحديث جدول الأرصدة من واقع الحركة
             $stock->{$bucketKey} = $after;
             $stock->save();
 
-            // 6. حدث انخفاض المخزون.
-            //    M1: حد الصف (> 0) معناه محلي — يُقارن بمتاح هذا الصف كما قبل.
-            //    أما حد المتغير فعتبة على مستوى الفرع: يُقارن بإجمالي متاح
-            //    المتغير في الفرع قبل الحركة وبعدها، وإلا ضاعت إنذارات
-            //    (إجمالي الفرع يعبر الحد دون أن يعبره أي صف) وكثرت كاذبة
-            //    (رف واحد ينخفض والفرع ممتلئ).
+            // Evaluate low stock threshold: location-specific reorder level triggers on row availability,
+            // while variant reorder level triggers on branch-wide aggregate availability.
             $rowLevel = (float) $stock->reorder_level;
             if ($rowLevel > 0) {
                 $effectOnAvailable = match ($bucket) {
@@ -184,9 +173,7 @@ class InventoryService
                     StockBucket::Reserved, StockBucket::Damaged => -$units,
                     default => 0,
                 };
-                // إجمالي الفرع بعد الحفظ مباشرة (الصف محفوظ أعلاه داخل
-                // نفس المعاملة فيرى المجموع المحدّث) — استعلام SUM مفهرس
-                // واحد لكل حركة ذات حد فقط.
+                // Check aggregate branch availability within the transaction to see the committed change.
                 $branchTotal = (float) (StockLevel::query()
                     ->where('product_variant_id', $stock->product_variant_id)
                     ->where('branch_id', $stock->branch_id)
@@ -218,11 +205,7 @@ class InventoryService
     }
 
     /**
-     * تسوية يدوية متعددة العناصر داخل transaction واحدة (أي فشل يلغي الكل).
-     *
-     * مع مفتاح عدم تكرار (Idempotency-Key): يُدرج المفتاح داخل نفس الـ transaction،
-     * فالتكرار المتزامن يصطدم بالقيد الفريد بعد commit الأول ويعيد الحركات المحفوظة،
-     * ونفس المفتاح بحمولة مختلفة يُرفض 409، وفشل الطلب يلغي المفتاح معه.
+     * Executes multiple stock adjustments atomically with optional idempotency protection.
      *
      * @param  array{branch_id: int, location_id?: int|null, items: list<array{product_variant_id: int, adjustment_type: string, quantity: float|int|string, reason?: string|null}>}  $payload
      * @return list<StockMovement>
@@ -254,9 +237,7 @@ class InventoryService
                 return $movements;
             });
         } catch (UniqueConstraintViolationException $e) {
-            // الالتقاط خاص بقيد مفتاح عدم التكرار وحده: أي انتهاك فريد آخر داخل
-            // المعاملة خطأ حقيقي يجب أن يظهر، لا أن يُقنَّع كتعارض مفتاح (L-2).
-            // L4: اسم القيد من رسالة السائق (errorInfo) لا من نص الاستثناء العام.
+            // Isolate idempotency key collisions from unrelated unique constraint violations.
             $driverMessage = (string) ($e->errorInfo[2] ?? $e->getMessage());
             if (! str_contains($driverMessage, 'inventory_idempotency_keys_user_id_key_unique')
                 && ! str_contains($e->getMessage(), 'inventory_idempotency_keys_user_id_key_unique')) {
@@ -290,8 +271,7 @@ class InventoryService
         return DB::transaction(function () use ($payload, $userId): array {
             app(BranchAccess::class)->assertBranch($userId, (int) $payload['branch_id']);
 
-            // M5: التعطيل لا يحبس الرصيد — عمليات الإخراج (decrease/تالف/شطب) مسموحة على
-            // متغير/موقع معطّل لتصفية رصيده، والإدخال (increase) وحده يتطلب النشاط.
+            // Deactivation allows stock write-offs/decreases, but increases require active variants and locations.
             if (collect($payload['items'])->contains('adjustment_type', 'increase')) {
                 $variants = ProductVariant::query()->withTrashed()
                     ->whereIn('id', array_column($payload['items'], 'product_variant_id'))
@@ -302,8 +282,7 @@ class InventoryService
                     if ($item['adjustment_type'] !== 'increase') {
                         continue;
                     }
-                    // المحذوف ناعمًا يعامل كمعطّل للإدخال، لكن إخراجه يظل مسموحًا
-                    // حتى لا يُحبس رصيده للأبد (M-9).
+                    // Soft-deleted variants cannot receive new stock, but write-offs remain allowed.
                     $variant = $variants->get($item['product_variant_id']);
                     if ($variant === null || $variant->trashed() || ! $variant->is_active) {
                         throw new BusinessException('لا يمكن الإدخال على متغير معطّل؛ فعّله أولًا أو استخدم عمليات الإخراج لتصفية رصيده.');
@@ -321,7 +300,7 @@ class InventoryService
             $movements = [];
 
             foreach ($payload['items'] as $item) {
-                // الصف مقفول مسبقًا أعلاه — تُمرَّر حركتا العنصر عليه مباشرة.
+                // Apply adjustment directly to prelocked level instance.
                 $level = $levels->get($this->levelKey([
                     'product_variant_id' => $item['product_variant_id'],
                     'branch_id' => $payload['branch_id'],
@@ -364,7 +343,9 @@ class InventoryService
         });
     }
 
-    /** الرصيد الحالي لمتغير في فرع/موقع (للقطات الجرد ونحوها) — قراءة فقط. */
+    /**
+     * Current stock level for a variant at a branch and location (read-only snapshot).
+     */
     public function levelFor(int $variantId, int $branchId, ?int $locationId): ?StockLevel
     {
         return StockLevel::query()
@@ -374,14 +355,18 @@ class InventoryService
             ->first();
     }
 
-    /** Acquire every stock key before a multi-item operation, in one global order. */
+    /**
+     * Acquire every stock key before a multi-item operation, in one global order.
+     *
+     * @param  list<array{product_variant_id: int, branch_id: int, location_id?: int|null}>  $keys
+     * @return Collection<string, StockLevel>
+     */
     public function lockLevels(array $keys): Collection
     {
         if (DB::transactionLevel() === 0) {
             throw new \LogicException('Stock locks require an active transaction.');
         }
-        // انتظار محدود للأقفال داخل هذه المعاملة فقط؛ التنافس الطويل يتحول لرفض
-        // واضح (409) بدل تعليق الطلب حتى مهلة PHP-FPM.
+        // Enforce 5s lock timeout to fail fast with 409 Conflict instead of holding PHP worker threads.
         $keys = collect($keys)->unique(fn ($key) => $this->levelKey($key))
             ->sortBy(fn ($key) => [(int) $key['branch_id'], (int) ($key['location_id'] ?? 0), (int) $key['product_variant_id']]);
         if ($keys->isEmpty()) {
@@ -434,9 +419,7 @@ class InventoryService
                 }
             }
 
-            // الإدخال نفسه قد ينتظر قفلًا: ON CONFLICT ينتظر معاملة أخرى أدخلت
-            // نفس المفتاح ولم تعتمد بعد، فيخضع لنفس lock_timeout — لازم يكون
-            // جوه الـ try حتى يتحول الانتظار الطويل لـ 409 لا 500 (M-2).
+            // Seed missing stock level rows with insertOrIgnore before acquiring exclusive row locks.
             $rows = $keys->map(fn ($key) => [
                 'product_variant_id' => $key['product_variant_id'], 'branch_id' => $key['branch_id'],
                 'location_id' => $key['location_id'] ?? null, 'created_at' => $now, 'updated_at' => $now,
@@ -445,7 +428,7 @@ class InventoryService
                 DB::table('stock_levels')->insertOrIgnore($chunk->all());
             }
 
-            $levels = StockLevel::query()->with(['variant:id,is_active,deleted_at,reorder_level', 'location:id,is_active'])->where(function ($query) use ($keys): void {
+            $levels = StockLevel::query()->with(['variant:id,product_id,is_active,deleted_at,reorder_level', 'location:id,is_active'])->where(function ($query) use ($keys): void {
                 foreach ($keys->groupBy(fn ($key) => $key['branch_id'].':'.($key['location_id'] ?? 0)) as $group) {
                     $identity = $group->first();
                     $query->orWhere(fn ($scope) => $scope->where('branch_id', $identity['branch_id'])
@@ -474,11 +457,19 @@ class InventoryService
         return $levels;
     }
 
+    /**
+     * Generates a composite key uniquely identifying a branch-location-variant level row.
+     *
+     * @param  array{branch_id: int|string, location_id?: int|string|null, product_variant_id: int|string}  $key
+     */
     public function levelKey(array $key): string
     {
         return $key['branch_id'].':'.($key['location_id'] ?? 0).':'.$key['product_variant_id'];
     }
 
+    /**
+     * Resolves the primary receiving location for a branch, defaulting to designated receiving type.
+     */
     public function receivingLocation(int $branchId, ?int $locationId = null): ?int
     {
         $query = Location::query()->where('branch_id', $branchId)->where('is_active', true);
@@ -494,9 +485,12 @@ class InventoryService
         return $id === null ? null : (int) $id;
     }
 
+    /**
+     * Validates movement type compatibility with affected stock bucket and sign of quantity.
+     */
     private function assertValidMovementSemantics(StockMovementType $type, StockBucket $bucket, int $units): void
     {
-        // L4: فرع default حتى لا ينفجر نوع جديد بـ UnhandledMatchError (500).
+        // Default branch prevents unhandled match errors if new enum cases are introduced.
         [$allowed, $positive] = match ($type) {
             StockMovementType::ProductionReceipt, StockMovementType::PurchaseReceipt, StockMovementType::SaleReturn,
             StockMovementType::AdjustmentIn, StockMovementType::StocktakeGain, StockMovementType::TransferIn => [[StockBucket::OnHand], true],
@@ -512,7 +506,7 @@ class InventoryService
             default => throw new BusinessException('نوع حركة مخزنية غير مدعوم: '.$type->value),
         };
         if (! in_array($bucket, $allowed, true) || ($units > 0) !== $positive) {
-            throw new BusinessException('نوع الحركة لا يطابق وعاء المخزون أو اتجاه الكمية.');
+            throw new BusinessException('نوع حركة المخزون لا يطابق وعاء المخزون أو اتجاه الكمية.');
         }
     }
 }

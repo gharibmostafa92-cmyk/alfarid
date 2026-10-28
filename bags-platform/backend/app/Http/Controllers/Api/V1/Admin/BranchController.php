@@ -22,6 +22,8 @@ use Illuminate\Support\Facades\DB;
 
 class BranchController extends Controller
 {
+    public function __construct(private readonly BranchAccess $branchAccess) {}
+
     public function index(Request $request): AnonymousResourceCollection
     {
         $validated = $request->validate([
@@ -40,7 +42,7 @@ class BranchController extends Controller
     public function store(StoreBranchRequest $request): JsonResponse
     {
         // M4: الفروع كيانات مركزية — إنشاؤها ليس لموظف فرع مقيّد.
-        app(BranchAccess::class)->assertCentralAccess($request->user());
+        $this->branchAccess->assertCentralAccess($request->user());
         $branch = Branch::query()->create($request->validated());
 
         return $this->branchResource($branch)->response()->setStatusCode(201);
@@ -53,7 +55,7 @@ class BranchController extends Controller
 
     public function update(UpdateBranchRequest $request, Branch $branch): BranchResource
     {
-        app(BranchAccess::class)->assertCentralAccess($request->user());
+        $this->branchAccess->assertCentralAccess($request->user());
         DB::transaction(function () use ($request, $branch): void {
             $locked = Branch::query()->lockForUpdate()->findOrFail($branch->id);
             if (array_key_exists('is_active', $request->validated()) && ! $request->boolean('is_active') && (
@@ -76,7 +78,7 @@ class BranchController extends Controller
 
     public function destroy(Request $request, Branch $branch): JsonResponse|Response
     {
-        app(BranchAccess::class)->assertCentralAccess($request->user());
+        $this->branchAccess->assertCentralAccess($request->user());
 
         try {
             $deleted = DB::transaction(function () use ($branch): bool {

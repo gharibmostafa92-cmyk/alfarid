@@ -250,11 +250,13 @@ class SecurityReviewRound3Test extends TestCase
 
         $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$created['id']}/approve", [
             'expected_updated_at' => now()->subDay()->toIso8601String(),
+            'expected_version' => $created['version'],
             'items' => [['id' => $created['items'][0]['id'], 'approved_qty' => 4]],
         ])->assertStatus(409);
 
         $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$created['id']}/approve", [
             'expected_updated_at' => $created['updated_at'],
+            'expected_version' => $created['version'],
             'items' => [['id' => $created['items'][0]['id'], 'approved_qty' => 4]],
         ])->assertOk();
     }

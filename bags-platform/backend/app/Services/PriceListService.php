@@ -22,11 +22,17 @@ use Illuminate\Support\Facades\Validator;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
- * إدارة قوائم الأسعار وعناصرها واستيراد/تصدير CSV.
- * منطق حساب السعر نفسه في PricingService.
+ * Manages price list entities, tiered volume items, and CSV bulk import/export.
+ *
+ * Core price resolution logic resides in PricingService.
  */
 class PriceListService
 {
+    /**
+     * Paginates price lists with branch-level scoping and optional filters.
+     *
+     * @param  array<string, mixed>  $filters
+     */
     public function paginate(array $filters, ?User $user = null): LengthAwarePaginator
     {
         return PriceList::query()
@@ -44,6 +50,9 @@ class PriceListService
             ->paginate($filters['per_page'] ?? 15);
     }
 
+    /**
+     * Retrieves a single price list by ID ensuring branch authorization.
+     */
     public function find(int $id, ?User $user = null): PriceList
     {
         return PriceList::query()
@@ -53,6 +62,11 @@ class PriceListService
             ->findOrFail($id);
     }
 
+    /**
+     * Creates a new price list with validated owner relationships and date ranges.
+     *
+     * @param  array<string, mixed>  $data
+     */
     public function create(array $data, ?User $user = null): PriceList
     {
         $restricted = $this->restrictedBranch($user);
@@ -70,12 +84,16 @@ class PriceListService
         return PriceList::query()->create($data)->load(['customer', 'customerGroup', 'branch']);
     }
 
+    /**
+     * Updates an existing price list under an exclusive row lock to prevent branch transfer races.
+     *
+     * @param  array<string, mixed>  $data
+     */
     public function update(PriceList $priceList, array $data, ?User $user = null): PriceList
     {
         $this->assertListAccess($user, $priceList);
         $restricted = $this->restrictedBranch($user);
-        // array_key_exists لا isset: إرسال branch_id = null كان يتخطى الفحص كله
-        // ويحوّل قائمة الفرع إلى قائمة عامة لكل الفروع (C-1).
+        // Use array_key_exists so passing branch_id = null cannot bypass branch restriction checks.
         if ($restricted !== null && array_key_exists('branch_id', $data)
             && ($data['branch_id'] === null || (int) $data['branch_id'] !== $restricted)) {
             throw new AuthorizationException('لا تملك صلاحية نقل قائمة أسعار إلى فرع آخر.');
@@ -84,8 +102,7 @@ class PriceListService
 
         return DB::transaction(function () use ($priceList, $data, $user): PriceList {
             $priceList = PriceList::query()->lockForUpdate()->findOrFail($priceList->id);
-            // إعادة الفحص على الصف المقفول: القائمة قد تكون انتقلت لفرع آخر بين
-            // فحص الـ route binding والقفل (L-1).
+            // Re-verify branch access after acquiring row lock to protect against concurrent reassignments.
             $this->assertListAccess($user, $priceList);
             $this->validateDates($data, $priceList);
             $data = $this->withValidOwner($data, $priceList);
@@ -95,10 +112,12 @@ class PriceListService
         });
     }
 
+    /**
+     * Enforces polymorphic ownership rules based on the target price list type.
+     */
     private function withValidOwner(array $data, ?PriceList $priceList = null): array
     {
-        // فرض ربط النوع بالمالك على الحالة النهائية: النوع الخاص بعميل لازم له عميل،
-        // والخاص بمجموعة لازم له مجموعة، وأي نوع تاني بيصفّي الحقلين تلقائيًا
+        // Enforce owner linkage on final state: customer_specific requires customer, customer_group requires group.
         $type = $data['type'] ?? $priceList?->type;
         $typeValue = $type instanceof PriceListType ? $type->value : $type;
 
@@ -124,19 +143,27 @@ class PriceListService
         return $data;
     }
 
+    /**
+     * Deletes a price list under exclusive lock (cascades item deletion in database).
+     */
     public function delete(PriceList $priceList, ?User $user = null): void
     {
         $this->assertListAccess($user, $priceList);
 
         DB::transaction(function () use ($priceList, $user): void {
             $locked = PriceList::query()->lockForUpdate()->findOrFail($priceList->id);
-            $this->assertListAccess($user, $locked); // إعادة فحص بعد القفل (L-1)
-            $locked->delete(); // العناصر بتتحذف بـ cascade في القاعدة
+            $this->assertListAccess($user, $locked);
+            $locked->delete();
         });
     }
 
     // ---------- Items ----------
 
+    /**
+     * Paginates tiered items belonging to a price list.
+     *
+     * @param  array<string, mixed>  $filters
+     */
     public function paginateItems(PriceList $priceList, array $filters, ?User $user = null): LengthAwarePaginator
     {
         $this->assertListAccess($user, $priceList);
@@ -150,6 +177,11 @@ class PriceListService
             ->paginate($filters['per_page'] ?? 15);
     }
 
+    /**
+     * Adds a tiered pricing item ensuring no duplicate (variant_id, min_qty) tier exists in the list.
+     *
+     * @param  array<string, mixed>  $data
+     */
     public function createItem(PriceList $priceList, array $data, ?User $user = null): PriceListItem
     {
         $this->assertListAccess($user, $priceList);
@@ -157,7 +189,7 @@ class PriceListService
 
         return DB::transaction(function () use ($priceList, $data, $user): PriceListItem {
             $priceList = PriceList::query()->lockForUpdate()->findOrFail($priceList->id);
-            $this->assertListAccess($user, $priceList); // إعادة فحص بعد القفل (L-1)
+            $this->assertListAccess($user, $priceList);
             $data['min_qty'] = $data['min_qty'] ?? 1;
             $this->validateDates($data);
             $this->assertNoDuplicateTier($priceList, (int) $data['product_variant_id'], (float) $data['min_qty']);
@@ -166,6 +198,11 @@ class PriceListService
         });
     }
 
+    /**
+     * Updates a tiered item under a lock on the parent price list and item row.
+     *
+     * @param  array<string, mixed>  $data
+     */
     public function updateItem(PriceListItem $item, array $data, ?User $user = null): PriceListItem
     {
         $this->assertListAccess($user, $item->priceList);
@@ -173,7 +210,7 @@ class PriceListService
 
         return DB::transaction(function () use ($item, $data, $user): PriceListItem {
             $lockedList = PriceList::query()->lockForUpdate()->findOrFail($item->price_list_id);
-            $this->assertListAccess($user, $lockedList); // إعادة فحص بعد القفل (L-1)
+            $this->assertListAccess($user, $lockedList);
             $item = PriceListItem::query()->lockForUpdate()->findOrFail($item->id);
             $this->validateDates($data, $item);
             if (isset($data['product_variant_id']) || isset($data['min_qty'])) {
@@ -191,17 +228,23 @@ class PriceListService
         });
     }
 
+    /**
+     * Deletes a price list item under row locks.
+     */
     public function deleteItem(PriceListItem $item, ?User $user = null): void
     {
         $this->assertListAccess($user, $item->priceList);
 
         DB::transaction(function () use ($item, $user): void {
             $lockedList = PriceList::query()->lockForUpdate()->findOrFail($item->price_list_id);
-            $this->assertListAccess($user, $lockedList); // إعادة فحص بعد القفل (L-1)
+            $this->assertListAccess($user, $lockedList);
             PriceListItem::query()->lockForUpdate()->findOrFail($item->id)->delete();
         });
     }
 
+    /**
+     * Guards against duplicate variant tiers with identical minimum quantities in the same list.
+     */
     private function assertNoDuplicateTier(PriceList $priceList, int $variantId, float $minQty, ?int $ignoreItemId = null): void
     {
         $exists = $priceList->items()
@@ -217,7 +260,9 @@ class PriceListService
 
     // ---------- CSV ----------
 
-    /** تصدير عناصر القائمة كـ CSV بنفس أعمدة الاستيراد عشان إعادة الاستيراد تشتغل. */
+    /**
+     * Streams price list items as a CSV file matching the import format.
+     */
     public function exportCsv(PriceList $priceList, ?User $user = null): StreamedResponse
     {
         $this->assertListAccess($user, $priceList);
@@ -225,8 +270,7 @@ class PriceListService
         return response()->streamDownload(function () use ($priceList): void {
             $handle = fopen('php://output', 'w');
             try {
-                // escape: '' — آلية الهروب الخاصة بـ PHP تكسر الحقول المنتهية بشرطة
-                // مائلة ومُهملة في PHP 8.4 (L-5).
+                // Disable PHP's default escape character to prevent trailing backslashes breaking CSV syntax.
                 fputcsv($handle, ['sku', 'variant_id', 'product_name', 'min_qty', 'price', 'starts_at', 'ends_at'], escape: '');
 
                 $priceList->items()
@@ -246,8 +290,7 @@ class PriceListService
                     });
 
             } catch (\Throwable $e) {
-                // فشل في منتصف البث يترك ملفًا مبتورًا عند العميل بحالة 200؛
-                // لا يمكن التراجع، لكن الفشل لازم يتسجل (L-5).
+                // Log streaming errors; browser receives aborted stream with partial data.
                 Log::error('فشل تصدير قائمة أسعار أثناء البث', [
                     'price_list_id' => $priceList->id,
                     'exception' => $e->getMessage(),
@@ -263,14 +306,16 @@ class PriceListService
         ]);
     }
 
+    /**
+     * Sanitizes CSV text cells against CSV formula injection attacks (=, +, -, @).
+     */
     private function csvText(string $value): string
     {
         return preg_match('/^[\s]*[=+@\-\t\r\n]/u', $value) ? "'".$value : $value;
     }
 
     /**
-     * استيراد CSV: كل صف بيحدّث أو ينشئ عنصرًا بمفتاح (القائمة، المتغير، min_qty)
-     * داخل transaction واحدة. أخطاء الصفوف الفردية بتتجمع في التقرير من غير ما توقف الكل.
+     * Imports CSV rows into price list items using batched upserts.
      *
      * @return array{created: int, updated: int, skipped: int, errors: list<array{line: int, message: string}>}
      */
@@ -318,8 +363,7 @@ class PriceListService
         $ids = array_values(array_filter(array_map(fn ($row) => filter_var($row['variant_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]), $rows)));
         $skus = [];
         foreach ($rows as $row) {
-            // الكتالوج يخزن SKU بأحرف كبيرة؛ مطابقة الاستيراد لا يجب أن تفشل على
-            // اختلاف الحالة (L-5)، فنجمع كل الصور المحتملة للبحث.
+            // Match SKUs case-insensitively to prevent import failures from casing discrepancies.
             $skus[] = $row['sku'];
             $skus[] = $this->unescapeCsvText($row['sku']);
             $skus[] = strtoupper($row['sku']);
@@ -357,7 +401,7 @@ class PriceListService
                 $report['errors'][] = ['line' => $row['line'], 'message' => $exception->getMessage()];
             }
         }
-        // تكرار نفس (متغير، min_qty) داخل الملف: الصف الأخير يكسب، والعدّ مرة واحدة
+        // De-duplicate same (variant, min_qty) lines in CSV payload with last-write-wins semantics.
         $deduped = [];
         foreach ($valid as $row) {
             $deduped[$row['product_variant_id'].':'.number_format((float) $row['min_qty'], 4, '.', '')] = $row;
@@ -366,10 +410,9 @@ class PriceListService
 
         DB::transaction(function () use ($valid, $priceList, $user, &$report): void {
             $locked = PriceList::query()->lockForUpdate()->findOrFail($priceList->id);
-            $this->assertListAccess($user, $locked); // إعادة فحص بعد القفل (L-1)
+            $this->assertListAccess($user, $locked);
 
-            // كتابة مجمّعة بدل updateOrCreate لكل صف: استعلام وجود واحد + upsert
-            // على دفعات، بدل آلاف الاستعلامات والقائمة مقفولة (M-6).
+            // Batch existing lookup and upsert to avoid thousands of per-row queries while holding row lock.
             $existing = PriceListItem::query()
                 ->where('price_list_id', $priceList->id)
                 ->whereIn('product_variant_id', array_column($valid, 'product_variant_id'))
@@ -402,15 +445,16 @@ class PriceListService
         return $report;
     }
 
+    /**
+     * Strips leading single quote added for CSV formula neutralization.
+     */
     private function unescapeCsvText(string $value): string
     {
         return str_starts_with($value, "'") && $this->csvText(substr($value, 1)) === $value ? substr($value, 1) : $value;
     }
 
     /**
-     * تحليل صارم للتواريخ: Y-m-d أو Y-m-d H:i:s أو ISO-8601 مع إزاحة فقط.
-     * القيم بلا إزاحة تُفسَّر بمنطقة عمل (business_timezone) وتُخزَّن UTC —
-     * لا strtotime: لا "next monday" ولا خلط بين التنسيقين الأمريكي والأوروبي.
+     * Parses dates strictly into UTC (Y-m-d H:i:s) assuming business timezone for un-offset inputs.
      */
     private function parseDate(string $value): ?string
     {
@@ -436,7 +480,9 @@ class PriceListService
         throw new BusinessException("تاريخ غير صالح: {$value} — الصيغ المقبولة: Y-m-d أو Y-m-d H:i:s أو ISO-8601 مع إزاحة.");
     }
 
-    /** تطبيع starts_at/ends_at القادمة من الـ API لنفس قواعد parseDate قبل الحفظ. */
+    /**
+     * Normalizes starts_at and ends_at input fields to UTC before storage.
+     */
     private function normalizeDates(array $data): array
     {
         foreach (['starts_at', 'ends_at'] as $field) {
@@ -451,24 +497,29 @@ class PriceListService
         return $data;
     }
 
-    // ----- نطاق الفرع (M4): الموظف المقيد لا يرى/يعدّل إلا قوائم فرعه -----
-    // مجموعات العملاء كيان مركزي بلا فرع بالتصميم، فلا ينطبق عليها هذا التقييد.
-
+    /**
+     * Resolves the branch ID restricted for a scoped admin user, or null if unrestricted.
+     */
     private function restrictedBranch(?User $user): ?int
     {
         return $user === null ? null : app(BranchAccess::class)->restrictedBranch($user);
     }
 
+    /**
+     * Asserts user access to a price list, throwing 404 for out-of-scope lists to avoid probing.
+     */
     public function assertListAccess(?User $user, PriceList $priceList): void
     {
         $restricted = $this->restrictedBranch($user);
         if ($restricted !== null && $priceList->branch_id !== $restricted) {
-            // 404 لا 403: كشف الوجود غير متسق مع find() الذي يرجع 404 أصلًا،
-            // وإخفاء الوجود هو السلوك الموحد لقوائم خارج النطاق (L-6).
+            // Throw 404 instead of 403 to prevent probing existence of other branches' price lists.
             throw new ModelNotFoundException('قائمة الأسعار غير موجودة.');
         }
     }
 
+    /**
+     * Asserts that price list starts_at does not exceed ends_at.
+     */
     private function validateDates(array $data, PriceList|PriceListItem|null $model = null): void
     {
         $start = array_key_exists('starts_at', $data) ? $data['starts_at'] : $model?->starts_at;

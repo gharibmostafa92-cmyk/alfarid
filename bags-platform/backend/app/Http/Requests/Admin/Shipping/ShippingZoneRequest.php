@@ -6,6 +6,9 @@ namespace App\Http\Requests\Admin\Shipping;
 
 use Illuminate\Foundation\Http\FormRequest;
 
+/**
+ * Validates shipping zone definitions and city mappings.
+ */
 class ShippingZoneRequest extends FormRequest
 {
     public function authorize(): bool
@@ -13,13 +16,15 @@ class ShippingZoneRequest extends FormRequest
         return true;
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed>
+     */
     public function rules(): array
     {
         return [
             'name' => ['required', 'string', 'max:255'],
             'is_active' => ['nullable', 'boolean'],
-            'city_ids' => ['nullable', 'array'],
+            'city_ids' => ['nullable', 'array', 'max:500'],
             'city_ids.*' => ['integer', 'exists:cities,id'],
         ];
     }

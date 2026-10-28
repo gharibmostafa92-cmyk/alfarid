@@ -11,12 +11,12 @@ use Illuminate\Validation\Validator;
 
 class UpdateSettingsRequest extends FormRequest
 {
-    public function authorize(): bool
+    public function authorize(BranchAccess $branchAccess): bool
     {
         if ($this->user('staff') === null) {
             return false;
         }
-        app(BranchAccess::class)->assertCentralAccess($this->user('staff'));
+        $branchAccess->assertCentralAccess($this->user('staff'));
 
         return true;
     }
@@ -44,47 +44,31 @@ class UpdateSettingsRequest extends FormRequest
             'tax_number' => ['sometimes', 'nullable', 'string', 'max:100'],
             'default_tax_rate' => ['sometimes', 'required', 'numeric', 'between:0,100'],
             'prices_include_tax' => ['sometimes', 'boolean'],
-
-            'invoice_prefix' => ['sometimes', 'nullable', 'string', 'max:30'],
-            'invoice_next_number' => ['sometimes', 'integer', 'min:1', 'max:999999999'],
-            'invoice_padding' => ['sometimes', 'integer', 'min:1', 'max:20'],
-            'order_prefix' => ['sometimes', 'nullable', 'string', 'max:30'],
-            'order_next_number' => ['sometimes', 'integer', 'min:1', 'max:999999999'],
-            'order_padding' => ['sometimes', 'integer', 'min:1', 'max:20'],
-            'purchase_order_prefix' => ['sometimes', 'nullable', 'string', 'max:30'],
-            'purchase_order_next_number' => ['sometimes', 'integer', 'min:1', 'max:999999999'],
-            'purchase_order_padding' => ['sometimes', 'integer', 'min:1', 'max:20'],
-            'quotation_prefix' => ['sometimes', 'nullable', 'string', 'max:30'],
-            'quotation_next_number' => ['sometimes', 'integer', 'min:1', 'max:999999999'],
-            'quotation_padding' => ['sometimes', 'integer', 'min:1', 'max:20'],
-            'movement_prefix' => ['sometimes', 'nullable', 'string', 'max:30'],
-            'movement_next_number' => ['sometimes', 'integer', 'min:1', 'max:999999999'],
-            'movement_padding' => ['sometimes', 'integer', 'min:1', 'max:20'],
-            'transfer_prefix' => ['sometimes', 'nullable', 'string', 'max:30'],
-            'transfer_next_number' => ['sometimes', 'integer', 'min:1', 'max:999999999'],
-            'transfer_padding' => ['sometimes', 'integer', 'min:1', 'max:20'],
-            'stocktake_prefix' => ['sometimes', 'nullable', 'string', 'max:30'],
-            'stocktake_next_number' => ['sometimes', 'integer', 'min:1', 'max:999999999'],
-            'stocktake_padding' => ['sometimes', 'integer', 'min:1', 'max:20'],
-            'return_prefix' => ['sometimes', 'nullable', 'string', 'max:30'],
-            'return_next_number' => ['sometimes', 'integer', 'min:1', 'max:999999999'],
-            'return_padding' => ['sometimes', 'integer', 'min:1', 'max:20'],
-            'purchase_request_prefix' => ['sometimes', 'nullable', 'string', 'max:30'],
-            'purchase_request_next_number' => ['sometimes', 'integer', 'min:1', 'max:999999999'],
-            'purchase_request_padding' => ['sometimes', 'integer', 'min:1', 'max:20'],
-            'delivery_prefix' => ['sometimes', 'nullable', 'string', 'max:30'],
-            'delivery_next_number' => ['sometimes', 'integer', 'min:1', 'max:999999999'],
-            'delivery_padding' => ['sometimes', 'integer', 'min:1', 'max:20'],
-            'supplier_invoice_prefix' => ['sometimes', 'nullable', 'string', 'max:30'],
-            'supplier_invoice_next_number' => ['sometimes', 'integer', 'min:1', 'max:999999999'],
-            'supplier_invoice_padding' => ['sometimes', 'integer', 'min:1', 'max:20'],
-            'supplier_payment_prefix' => ['sometimes', 'nullable', 'string', 'max:30'],
-            'supplier_payment_next_number' => ['sometimes', 'integer', 'min:1', 'max:999999999'],
-            'supplier_payment_padding' => ['sometimes', 'integer', 'min:1', 'max:20'],
             // 0 = الإرجاع متوقف، -1 = بلا حد زمني، قيمة موجبة = أيام من التسليم
             'return_window_days' => ['sometimes', 'integer', 'min:-1', 'max:3650'],
             'allow_self_approve_purchases' => ['sometimes', 'boolean'],
         ];
+
+        $sequenceTypes = [
+            'invoice',
+            'order',
+            'purchase_order',
+            'quotation',
+            'movement',
+            'transfer',
+            'stocktake',
+            'return',
+            'purchase_request',
+            'delivery',
+            'supplier_invoice',
+            'supplier_payment',
+        ];
+        foreach ($sequenceTypes as $type) {
+            $rules["{$type}_prefix"] = ['sometimes', 'nullable', 'string', 'max:30'];
+            $rules["{$type}_next_number"] = ['sometimes', 'integer', 'min:1', 'max:999999999'];
+            $rules["{$type}_padding"] = ['sometimes', 'integer', 'min:1', 'max:20'];
+        }
+
         $expectedRules = ['expected' => ['required', 'array']];
         foreach ($rules as $key => $keyRules) {
             $type = in_array('boolean', $keyRules, true) ? 'boolean'

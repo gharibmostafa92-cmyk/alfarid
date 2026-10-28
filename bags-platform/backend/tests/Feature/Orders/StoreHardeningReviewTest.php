@@ -222,8 +222,11 @@ class StoreHardeningReviewTest extends TestCase
     {
         $token = $this->staff->createToken('t')->plainTextToken;
 
-        $couponId = $this->withToken($token)->postJson('/api/v1/admin/coupons', [
+        $this->withToken($token)->postJson('/api/v1/admin/coupons', [
             'code' => 'NULLS', 'type' => 'percentage', 'value' => null,
+        ])->assertUnprocessable()->assertJsonValidationErrors('value');
+        $couponId = $this->withToken($token)->postJson('/api/v1/admin/coupons', [
+            'code' => 'NULLS', 'type' => 'free_shipping', 'value' => null,
             'usage_limit_per_customer' => null, 'is_active' => null,
         ])->assertCreated()->json('data.id');
         $this->assertSame(0.0, (float) Coupon::find($couponId)->value);
@@ -233,12 +236,16 @@ class StoreHardeningReviewTest extends TestCase
         ])->assertOk();
         $this->withToken($token)->patchJson("/api/v1/admin/coupons/{$couponId}", [
             'code' => 'NULLS', 'type' => 'percentage', 'value' => null, 'is_active' => null,
-        ])->assertOk();
+        ])->assertUnprocessable()->assertJsonValidationErrors('value');
         $this->assertSame(25.0, (float) Coupon::find($couponId)->value);
         $this->assertTrue((bool) Coupon::find($couponId)->is_active);
 
-        $promotionId = $this->withToken($token)->postJson('/api/v1/admin/promotions', [
+        $this->withToken($token)->postJson('/api/v1/admin/promotions', [
             'name' => 'عرض', 'type' => 'percentage_discount', 'value' => null,
+            'applies_to' => null, 'is_active' => null,
+        ])->assertUnprocessable()->assertJsonValidationErrors('value');
+        $promotionId = $this->withToken($token)->postJson('/api/v1/admin/promotions', [
+            'name' => 'شحن مجاني', 'type' => 'free_shipping', 'value' => null,
             'applies_to' => null, 'is_active' => null,
         ])->assertCreated()->json('data.id');
         $this->assertNotNull(Promotion::find($promotionId));

@@ -26,15 +26,13 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 
 /**
- * خدمة المشتريات — دورة الشراء كاملة:
- * طلب شراء داخلي (فرع) ← اعتماد ← أمر شراء لمورد ← إرسال ← قبول/طلب تعديل
- * من بوابة المورد ← إشعارات توريد (ASN) ← استلام مخزني.
+ * Manages the complete procurement lifecycle:
+ * Internal purchase requests (branch) -> approval -> purchase orders -> vendor dispatch ->
+ * supplier portal acceptance / revision requests -> advance shipping notices (ASN) -> warehouse intake.
  *
- * قلب المرحلة المحاسبي: الاستلام يحدّث متوسط التكلفة المرجح (WAC) للمتغير
- * قبل تغذية المخزون، والحركات كلها عبر InventoryService::recordMovement:
- *   NewAvg = (CurrentTotalOnHand × OldCost + ReceivedQty × PurchaseCost)
- *            ÷ (CurrentTotalOnHand + ReceivedQty)
- * حيث CurrentTotalOnHand = مجموع on_hand للمتغير في كل الفروع.
+ * Updates company-wide weighted average cost (WAC) per variant on goods receipt before inventory ledger posting:
+ *   NewAvg = (CurrentTotalOnHand * OldCost + ReceivedQty * PurchaseCost) / (CurrentTotalOnHand + ReceivedQty)
+ * where CurrentTotalOnHand comprises total on-hand and in-transit units across all branches.
  */
 class ProcurementService
 {
@@ -43,10 +41,14 @@ class ProcurementService
         protected SettingService $settings,
     ) {}
 
-    // ================= طلبات الشراء الداخلية =================
+    // ================= Internal Purchase Requests =================
 
     /**
+     * Create a draft internal purchase request for a branch.
+     *
      * @param  array{branch_id: int, notes?: string|null, items: list<array{product_variant_id: int, requested_qty: float|int|string, notes?: string|null}>}  $data
+     * @param  User  $requester
+     * @return PurchaseRequest
      */
     public function createPurchaseRequest(array $data, User $requester): PurchaseRequest
     {
@@ -65,7 +67,13 @@ class ProcurementService
     }
 
     /**
+     * Update an unapproved draft purchase request.
+     *
+     * @param  PurchaseRequest  $pr
      * @param  array{branch_id?: int, notes?: string|null, items?: list<array{product_variant_id: int, requested_qty: float|int|string, notes?: string|null}>}  $data
+     * @return PurchaseRequest
+     *
+     * @throws BusinessException
      */
     public function updatePurchaseRequest(PurchaseRequest $pr, array $data): PurchaseRequest
     {
@@ -84,16 +92,34 @@ class ProcurementService
         });
     }
 
+    /**
+     * Submit a draft purchase request for management approval.
+     *
+     * @param  PurchaseRequest  $pr
+     * @return PurchaseRequest
+     */
     public function submitPurchaseRequest(PurchaseRequest $pr): PurchaseRequest
     {
         return $this->transitionRequest($pr, PurchaseRequestStatus::Draft, PurchaseRequestStatus::Pending, 'الإرسال');
     }
 
+    /**
+     * Approve a pending purchase request, making it eligible for PO conversion.
+     *
+     * @param  PurchaseRequest  $pr
+     * @return PurchaseRequest
+     */
     public function approvePurchaseRequest(PurchaseRequest $pr): PurchaseRequest
     {
         return $this->transitionRequest($pr, PurchaseRequestStatus::Pending, PurchaseRequestStatus::Approved, 'الاعتماد');
     }
 
+    /**
+     * Reject a pending purchase request.
+     *
+     * @param  PurchaseRequest  $pr
+     * @return PurchaseRequest
+     */
     public function rejectPurchaseRequest(PurchaseRequest $pr): PurchaseRequest
     {
         return $this->transitionRequest($pr, PurchaseRequestStatus::Pending, PurchaseRequestStatus::Rejected, 'الرفض');
@@ -112,7 +138,11 @@ class ProcurementService
         });
     }
 
-    /** @param list<array{product_variant_id: int, requested_qty: float|int|string, notes?: string|null}> $items */
+    /**
+     * @param  PurchaseRequest  $pr
+     * @param  list<array{product_variant_id: int, requested_qty: float|int|string, notes?: string|null}>  $items
+     * @return void
+     */
     private function syncRequestItems(PurchaseRequest $pr, array $items): void
     {
         foreach ($items as $item) {
@@ -125,14 +155,19 @@ class ProcurementService
         }
     }
 
-    // ================= أوامر الشراء =================
+    // ================= Purchase Orders =================
 
     /**
-     * إنشاء أمر شراء (مسودة). عند ربطه بطلب داخلي معتمد تُنسخ بنوده
-     * افتراضيًا (بسعر تكلفة المتغير الحالية وضريبة صفر قابلة للتعديل)،
-     * ويتحول الطلب إلى converted_to_po.
+     * Create a draft purchase order, optionally converting an approved internal request.
+     *
+     * When linked to a purchase request, items are automatically populated from the request
+     * using current variant cost prices, and the request transitions to converted_to_po.
      *
      * @param  array{supplier_id: int, branch_id?: int|null, purchase_request_id?: int|null, expected_delivery_date?: string|null, discount_amount?: float|int|string|null, items?: list<array{product_variant_id: int, ordered_qty: float|int|string, unit_cost: float|int|string, tax_rate?: float|int|string|null}>}  $data
+     * @param  User  $creator
+     * @return PurchaseOrder
+     *
+     * @throws BusinessException
      */
     public function createPurchaseOrder(array $data, User $creator): PurchaseOrder
     {

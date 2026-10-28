@@ -39,7 +39,7 @@ class WholesaleRegisterRequest extends FormRequest
             'documents' => ['required', 'array', 'list', 'min:1', 'max:5'],
             'documents.*' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
             'document_types' => ['nullable', 'array', 'list', 'size:'.count(Arr::wrap($this->file('documents', [])))],
-            'document_types.*' => ['nullable', Rule::in(array_column(CustomerDocumentType::cases(), 'value'))],
+            'document_types.*' => ['nullable', Rule::enum(CustomerDocumentType::class)],
         ];
     }
 }

@@ -23,6 +23,11 @@ class AuthController extends Controller
 {
     private const DUMMY_PASSWORD_HASH = '$2y$12$dRibbzvWAKqkXBRPna4QCuri7dR8TKHRGDIt.RsplFZRfRcJzmPlq';
 
+    public function __construct(
+        private readonly LoginDestinationResolver $destinationResolver,
+        private readonly StaffTokenService $tokenService,
+    ) {}
+
     public function login(AdminLoginRequest $request): JsonResource|JsonResponse
     {
         $credentials = $request->validated();
@@ -42,11 +47,10 @@ class AuthController extends Controller
         RateLimiter::clear('admin-login-email:'.$emailKey);
         RateLimiter::clear('admin-login-email-hour:'.$emailKey);
 
-        $user->load(['branch', 'roles.permissions', 'permissions']);
-        $redirect = app(LoginDestinationResolver::class)->resolve($user);
-        $token = app(StaffTokenService::class)->issue($user, StaffHandoffService::credentialFingerprint($user));
+        $redirect = $this->destinationResolver->resolve($user);
+        $token = $this->tokenService->issue($user, StaffHandoffService::credentialFingerprint($user));
 
-        return UserResource::make($user)->additional(['token' => $token, 'redirect' => $redirect]);
+        return $this->userResource($user)->additional(['token' => $token, 'redirect' => $redirect]);
     }
 
     public function me(Request $request): JsonResource
@@ -55,9 +59,7 @@ class AuthController extends Controller
 
         abort_unless($user instanceof User, 403);
 
-        $user->load(['branch', 'roles.permissions', 'permissions']);
-
-        return UserResource::make($user);
+        return $this->userResource($user);
     }
 
     public function logout(Request $request): Response
@@ -65,5 +67,10 @@ class AuthController extends Controller
         $request->user('staff')?->currentAccessToken()?->delete();
 
         return response()->noContent();
+    }
+
+    private function userResource(User $user): UserResource
+    {
+        return UserResource::make($user->loadMissing(['branch', 'roles.permissions', 'permissions']));
     }
 }

@@ -58,24 +58,20 @@ class PurchaseOrderController extends Controller implements HasMiddleware
         /** @var User $admin */
         $admin = $request->user();
         $po = $this->procurement->createPurchaseOrder($request->validated(), $admin);
-        $po->load(['supplier:id,code,name', 'branch:id,name', 'items.variant']);
 
-        return PurchaseOrderResource::make($po)->response()->setStatusCode(201);
+        return $this->orderResource($po)->response()->setStatusCode(201);
     }
 
     public function show(PurchaseOrder $purchaseOrder): PurchaseOrderResource
     {
-        return PurchaseOrderResource::make($purchaseOrder->load([
-            'supplier:id,code,name', 'branch:id,name', 'items.variant', 'deliveries.items.variant',
-        ]));
+        return $this->orderResource($purchaseOrder, includeDeliveries: true);
     }
 
     public function update(PurchaseOrderRequest $request, PurchaseOrder $purchaseOrder): PurchaseOrderResource
     {
         $po = $this->procurement->updatePurchaseOrder($purchaseOrder, $request->validated());
-        $po->load(['supplier:id,code,name', 'branch:id,name', 'items.variant']);
 
-        return PurchaseOrderResource::make($po);
+        return $this->orderResource($po);
     }
 
     public function destroy(PurchaseOrder $purchaseOrder): JsonResponse
@@ -121,8 +117,17 @@ class PurchaseOrderController extends Controller implements HasMiddleware
             $admin->id,
             $request->header('Idempotency-Key'),
         );
-        $po->load(['supplier:id,code,name', 'branch:id,name', 'items.variant']);
 
-        return PurchaseOrderResource::make($po);
+        return $this->orderResource($po);
+    }
+
+    private function orderResource(PurchaseOrder $order, bool $includeDeliveries = false): PurchaseOrderResource
+    {
+        $relations = ['supplier:id,code,name', 'branch:id,name', 'items.variant'];
+        if ($includeDeliveries) {
+            $relations[] = 'deliveries.items.variant';
+        }
+
+        return PurchaseOrderResource::make($order->loadMissing($relations));
     }
 }

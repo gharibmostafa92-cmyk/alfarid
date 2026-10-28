@@ -372,6 +372,35 @@ class ReturnManagementTest extends TestCase
             ->assertUnprocessable();
     }
 
+    public function test_reject_via_update_requires_returns_approve_permission(): void
+    {
+        // M8: الرفض عبر update قرار اعتماد — returns.update وحده لا يكفي.
+        $return = ReturnRequest::factory()->create(['status' => 'pending', 'branch_id' => $this->branch->id]);
+
+        // موظف فرع بنطاق صحيح حتى يصل لفحص الصلاحية لا لحاجز الفروع
+        $limited = User::factory()->create(['branch_id' => $this->branch->id]);
+        $limited->givePermissionTo(\Spatie\Permission\Models\Permission::findOrCreate('returns.update', 'staff'));
+        $limitedToken = $limited->createToken('limited')->plainTextToken;
+
+        Auth::forgetGuards();
+        $this->withToken($limitedToken)->patchJson("/api/v1/admin/returns/{$return->id}", [
+            'status' => 'rejected',
+        ])->assertForbidden();
+        $this->assertDatabaseHas('return_requests', ['id' => $return->id, 'status' => 'pending']);
+
+        // تعديل الملاحظات فقط يبقى متاحًا بنفس الصلاحية
+        Auth::forgetGuards();
+        $this->withToken($limitedToken)->patchJson("/api/v1/admin/returns/{$return->id}", [
+            'admin_notes' => 'ملاحظة مراجعة',
+        ])->assertOk();
+
+        $limited->givePermissionTo(\Spatie\Permission\Models\Permission::findOrCreate('returns.approve', 'staff'));
+        Auth::forgetGuards();
+        $this->withToken($limitedToken)->patchJson("/api/v1/admin/returns/{$return->id}", [
+            'status' => 'rejected',
+        ])->assertOk()->assertJsonPath('data.status', 'rejected');
+    }
+
     public function test_admin_returns_endpoints_require_permissions(): void
     {
         $plainStaff = User::factory()->create();

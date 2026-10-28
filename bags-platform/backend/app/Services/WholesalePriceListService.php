@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Enums\ProductStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
 use App\Models\ProductVariant;
@@ -25,7 +26,7 @@ class WholesalePriceListService
     {
         $variants = ProductVariant::query()->with('product')
             ->where('is_active', true)
-            ->whereHas('product', fn ($q) => $q->where('status', 'published'))
+            ->whereHas('product', fn ($q) => $q->where('status', ProductStatus::Published->value))
             ->orderBy('sku')
             ->get();
 

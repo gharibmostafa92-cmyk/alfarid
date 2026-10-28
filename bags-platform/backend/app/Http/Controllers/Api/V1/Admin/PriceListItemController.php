@@ -45,7 +45,7 @@ class PriceListItemController extends Controller implements HasMiddleware
     {
         $item = $this->priceLists->createItem($priceList, $request->validated(), $request->user());
 
-        return (new PriceListItemResource($item))
+        return PriceListItemResource::make($item)
             ->additional(['message' => 'تمت إضافة سعر الصنف بنجاح'])
             ->response()
             ->setStatusCode(201);
@@ -55,12 +55,12 @@ class PriceListItemController extends Controller implements HasMiddleware
     {
         $this->priceLists->assertListAccess($request->user(), $priceList);
 
-        return new PriceListItemResource($item->load('variant.product'));
+        return PriceListItemResource::make($item->loadMissing('variant.product'));
     }
 
     public function update(UpdatePriceListItemRequest $request, PriceList $priceList, PriceListItem $item): PriceListItemResource
     {
-        return new PriceListItemResource($this->priceLists->updateItem($item, $request->validated(), $request->user()));
+        return PriceListItemResource::make($this->priceLists->updateItem($item, $request->validated(), $request->user()));
     }
 
     public function destroy(Request $request, PriceList $priceList, PriceListItem $item): JsonResponse

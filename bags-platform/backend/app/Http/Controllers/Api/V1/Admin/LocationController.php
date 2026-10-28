@@ -22,10 +22,12 @@ use Illuminate\Support\Facades\DB;
 
 class LocationController extends Controller
 {
+    public function __construct(private readonly BranchAccess $branchAccess) {}
+
     public function index(Request $request, Branch $branch): AnonymousResourceCollection
     {
         // M4: موظف الفرع A لا يعطّل مواقع الفرع B (كان يعلّق تحويلاتها مع H3).
-        app(BranchAccess::class)->assertBranch($request->user()->id, $branch->id);
+        $this->branchAccess->assertBranch($request->user()->id, $branch->id);
         $validated = $request->validate([
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
         ]);
@@ -40,7 +42,7 @@ class LocationController extends Controller
 
     public function store(StoreLocationRequest $request, Branch $branch): JsonResponse
     {
-        app(BranchAccess::class)->assertBranch($request->user()->id, $branch->id);
+        $this->branchAccess->assertBranch($request->user()->id, $branch->id);
         $location = $branch->locations()->create($request->validated());
 
         return LocationResource::make($location)->response()->setStatusCode(201);
@@ -48,16 +50,14 @@ class LocationController extends Controller
 
     public function show(Request $request, Branch $branch, Location $location): LocationResource
     {
-        app(BranchAccess::class)->assertBranch($request->user()->id, $branch->id);
-        $this->ensureLocationBelongsToBranch($branch, $location);
+        $this->authorizeLocation((int) $request->user()->id, $branch, $location);
 
         return LocationResource::make($location);
     }
 
     public function update(UpdateLocationRequest $request, Branch $branch, Location $location): LocationResource
     {
-        app(BranchAccess::class)->assertBranch($request->user()->id, $branch->id);
-        $this->ensureLocationBelongsToBranch($branch, $location);
+        $this->authorizeLocation((int) $request->user()->id, $branch, $location);
         $location->update($request->validated());
 
         return LocationResource::make($location);
@@ -65,8 +65,7 @@ class LocationController extends Controller
 
     public function destroy(Request $request, Branch $branch, Location $location): JsonResponse|Response
     {
-        app(BranchAccess::class)->assertBranch($request->user()->id, $branch->id);
-        $this->ensureLocationBelongsToBranch($branch, $location);
+        $this->authorizeLocation((int) $request->user()->id, $branch, $location);
 
         try {
             $deleted = DB::transaction(function () use ($branch, $location): bool {
@@ -127,5 +126,11 @@ class LocationController extends Controller
     private function ensureLocationBelongsToBranch(Branch $branch, Location $location): void
     {
         abort_unless($location->branch_id === $branch->getKey(), 404);
+    }
+
+    private function authorizeLocation(int $userId, Branch $branch, Location $location): void
+    {
+        $this->branchAccess->assertBranch($userId, $branch->id);
+        $this->ensureLocationBelongsToBranch($branch, $location);
     }
 }

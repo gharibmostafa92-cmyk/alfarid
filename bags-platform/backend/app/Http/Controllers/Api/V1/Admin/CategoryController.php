@@ -18,6 +18,9 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 
+/**
+ * Admin controller for hierarchical product categories, tree visualization, and reordering.
+ */
 class CategoryController extends Controller implements HasMiddleware
 {
     public function __construct(private CategoryService $service) {}
@@ -32,6 +35,12 @@ class CategoryController extends Controller implements HasMiddleware
         ];
     }
 
+    /**
+     * Lists categories as either a paginated list or a hierarchical tree.
+     *
+     * @param Request $request Filter query request
+     * @return AnonymousResourceCollection Category resources
+     */
     public function index(Request $request): AnonymousResourceCollection
     {
         $filters = $request->validate([
@@ -50,9 +59,7 @@ class CategoryController extends Controller implements HasMiddleware
 
         $categories = Category::query()
             ->with(['parent.media', 'media'])
-            // F16: products_count excludes soft-deleted rows while delete()
-            // checks withTrashed() — also expose the trashed-inclusive count
-            // so the UI can explain "0 live, N deleted" instead of confusing 409s.
+            // Expose trashed-inclusive count so clients can distinguish active vs soft-deleted product dependencies.
             ->withCount(['products', 'products as all_products_count' => fn ($q) => $q->withTrashed()])
             ->when(isset($filters['search']) && $filters['search'] !== '', function ($query) use ($filters): void {
                 $pattern = SearchTerm::pattern($filters['search']);
@@ -75,30 +82,51 @@ class CategoryController extends Controller implements HasMiddleware
         return CategoryResource::collection($categories);
     }
 
+    /**
+     * Retrieves details of a specific category including its child subcategories.
+     *
+     * @param Category $category Target category
+     * @return CategoryResource Category resource
+     */
     public function show(Category $category): CategoryResource
     {
-        $category->load('parent.media', 'children.media', 'media')->loadCount(['products', 'products as all_products_count' => fn ($q) => $q->withTrashed()]);
-
-        return CategoryResource::make($category);
+        return $this->categoryResource($category, includeChildren: true);
     }
 
+    /**
+     * Creates a new category with an optional image.
+     *
+     * @param StoreCategoryRequest $request Validated creation request
+     * @return JsonResponse Created category response
+     */
     public function store(StoreCategoryRequest $request): JsonResponse
     {
         $category = $this->service->create($request->validated(), $request->file('image'));
-        $category->load('parent.media', 'media')->loadCount(['products', 'products as all_products_count' => fn ($q) => $q->withTrashed()]);
 
-        return CategoryResource::make($category)->response()->setStatusCode(201);
+        return $this->categoryResource($category)->response()->setStatusCode(201);
     }
 
-    // ملحوظة: تحديث قسم مع صورة بيتبعت POST مع _method=PUT، لأن PHP لا يقرأ ملفات multipart مع PUT.
+    /**
+     * Updates category attributes, parent nesting, or image.
+     *
+     * @param UpdateCategoryRequest $request Validated update request
+     * @param Category $category Target category
+     * @return CategoryResource Updated category resource
+     */
     public function update(UpdateCategoryRequest $request, Category $category): CategoryResource
     {
+        // Multipart file updates require POST with _method=PUT because PHP does not parse multipart on PUT.
         $category = $this->service->update($category, $request->validated(), $request->file('image'));
-        $category->load('parent.media', 'media')->loadCount(['products', 'products as all_products_count' => fn ($q) => $q->withTrashed()]);
 
-        return CategoryResource::make($category);
+        return $this->categoryResource($category);
     }
 
+    /**
+     * Deletes a category if it has no associated products or subcategories.
+     *
+     * @param Category $category Target category
+     * @return JsonResponse Deletion confirmation
+     */
     public function destroy(Category $category): JsonResponse
     {
         $this->service->delete($category);
@@ -106,10 +134,24 @@ class CategoryController extends Controller implements HasMiddleware
         return response()->json(['message' => 'تم الحذف']);
     }
 
+    /**
+     * Reorders category display priority.
+     *
+     * @param ReorderCategoriesRequest $request Request with ordered items
+     * @return JsonResponse Reorder confirmation
+     */
     public function reorder(ReorderCategoriesRequest $request): JsonResponse
     {
         $this->service->reorder($request->validated()['items']);
 
         return response()->json(['message' => 'تم الترتيب']);
+    }
+
+    private function categoryResource(Category $category, bool $includeChildren = false): CategoryResource
+    {
+        $relations = $includeChildren ? ['parent.media', 'children.media', 'media'] : ['parent.media', 'media'];
+        $category->loadMissing($relations)->loadCount(['products', 'products as all_products_count' => fn ($q) => $q->withTrashed()]);
+
+        return CategoryResource::make($category);
     }
 }

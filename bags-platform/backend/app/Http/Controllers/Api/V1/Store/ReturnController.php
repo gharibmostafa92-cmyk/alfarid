@@ -21,20 +21,22 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
  */
 class ReturnController extends Controller
 {
+    private const RELATIONS = ['items.orderItem', 'order'];
+
     public function __construct(protected ReturnService $returns) {}
 
     public function index(Request $request): AnonymousResourceCollection
     {
         return ReturnRequestResource::collection(ReturnRequest::query()
-            ->where('customer_id', $request->user()->id)->with(['items.orderItem', 'order'])->latest('id')->paginate(20));
+            ->where('customer_id', $request->user()->id)->with(self::RELATIONS)->latest('id')->paginate(20));
     }
 
     public function show(Request $request, int $returnRequest): ReturnRequestResource
     {
         $return = ReturnRequest::query()->where('customer_id', $request->user()->id)
-            ->with(['items.orderItem', 'order'])->findOrFail($returnRequest);
+            ->with(self::RELATIONS)->findOrFail($returnRequest);
 
-        return ReturnRequestResource::make($return);
+        return $this->returnResource($return);
     }
 
     public function store(StoreReturnRequest $request): JsonResponse
@@ -47,8 +49,12 @@ class ReturnController extends Controller
             ->findOrFail((int) $request->validated('order_id'));
 
         $return = $this->returns->createReturnRequest($order, $request->payload(), $customer);
-        $return->load(['items.orderItem', 'order']);
 
-        return ReturnRequestResource::make($return)->response()->setStatusCode(201);
+        return $this->returnResource($return)->response()->setStatusCode(201);
+    }
+
+    private function returnResource(ReturnRequest $return): ReturnRequestResource
+    {
+        return ReturnRequestResource::make($return->loadMissing(self::RELATIONS));
     }
 }

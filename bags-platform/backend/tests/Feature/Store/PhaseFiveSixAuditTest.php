@@ -67,14 +67,16 @@ class PhaseFiveSixAuditTest extends TestCase
         $this->getJson('/api/v1/store/products?price_min=200&price_max=100')->assertUnprocessable();
     }
 
-    public function test_brand_filter_validates_nested_values_and_supports_scalar(): void
+    public function test_retired_brand_filter_rejects_scalar_and_nested_values(): void
     {
         $product = $this->product();
 
         $this->getJson('/api/v1/store/products?brand='.$product->brand_id)
-            ->assertOk()->assertJsonPath('data.0.id', $product->id);
+            ->assertUnprocessable()->assertJsonValidationErrors('brand');
         $this->getJson('/api/v1/store/products?brand[0][unexpected]=1')
-            ->assertUnprocessable()->assertJsonValidationErrors('brand.0');
+            ->assertUnprocessable()->assertJsonValidationErrors('brand');
+        $this->getJson('/api/v1/store/products')
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $product->id);
     }
 
     public function test_store_and_wholesale_registration_have_distinct_named_routes(): void

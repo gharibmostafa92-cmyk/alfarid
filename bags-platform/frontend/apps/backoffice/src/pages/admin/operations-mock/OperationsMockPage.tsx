@@ -47,6 +47,16 @@ export const NAV_GROUPS = [
 
 export const groupOf = (m: string) => NAV_GROUPS.find((g) => g.items.some((i) => i.m === m))?.key;
 
+export function canViewOperation(page: string, can: (permission: string) => boolean): boolean {
+  const permissions: Record<string, string[]> = {
+    orders: ['orders.view'], returns: ['returns.view'], shipping: ['shipping.view'],
+    pricing: ['price_lists.view', 'customer_groups.view'], promos: ['promotions.view', 'coupons.view'],
+    finance: ['treasuries.view', 'expenses.view', 'treasury_transfers.view'],
+    shifts: ['pos_shifts.view'], wholesale: ['quotations.view', 'payment_notices.view'], reports: ['reports.view'],
+  };
+  return !permissions[page] || permissions[page].some(can);
+}
+
 export interface OperationsMockPageProps {
   page: string;
   id?: string | number;
@@ -62,6 +72,7 @@ export default function OperationsMockPage({
   sub: initialSub,
   darkMode,
   theme,
+  can = () => true,
 }: OperationsMockPageProps) {
   const host = useRef<HTMLDivElement>(null);
   const [root, setRoot] = useState<ShadowRoot | null>(null);
@@ -163,12 +174,14 @@ export default function OperationsMockPage({
   const unread = notif.unread;
   const curGroup = groupOf(route.m);
 
-  const activeGroupObj = NAV_GROUPS.find((g) => g.key === curGroup);
+  const navGroups = NAV_GROUPS.map(g => ({ ...g, items: g.items.filter(it => canViewOperation(it.m, can)) })).filter(g => g.items.length > 0);
+  const activeGroupObj = navGroups.find((g) => g.key === curGroup);
 
   const pageContent = useMemo(() => {
     const { m, id, sub } = route;
     const numId = id != null ? Number(id) : undefined;
     if (['suppliers', 'purchasing', 'brands'].includes(m)) return <Empty icon="lock" title="هذا القسم متوقف" text="منتجات الفريد من تصنيعنا؛ التجار يُدارون من العملاء والجملة." />;
+    if (!canViewOperation(m, can)) return <Empty icon="lock" title="ليس لديك صلاحية عرض هذه الصفحة." />;
     switch (m) {
       case 'orders':
         return numId ? <OrderDetail id={numId} go={go} /> : <OrdersList go={go} />;
@@ -181,7 +194,7 @@ export default function OperationsMockPage({
       case 'promos':
         return <PromosPage />;
       case 'finance':
-        return <FinancePage sub={sub} />;
+        return <FinancePage sub={sub} can={can} />;
       case 'shifts':
         return <ShiftsPage />;
       case 'wholesale':
@@ -193,7 +206,7 @@ export default function OperationsMockPage({
       default:
         return <OrdersList go={go} />;
     }
-  }, [route, notifs, notif.loading, notif.hasMore]);
+  }, [route, notifs, notif.loading, notif.hasMore, can]);
 
   return (
     <div
@@ -213,7 +226,7 @@ export default function OperationsMockPage({
                   {/* Secondary Navigation Pills */}
                   <div className="flex items-center gap-2 flex-wrap">
                     <div className="v-pill p-1 flex items-center gap-1 flex-wrap">
-                      {NAV_GROUPS.map((g) => (
+                      {navGroups.map((g) => (
                         <button
                           key={g.key}
                           onClick={() => go({ m: g.items[0].m })}

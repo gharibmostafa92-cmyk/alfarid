@@ -54,6 +54,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->scoped(SettingService::class);
         $this->app->scoped(StoreCatalogService::class);
         $this->app->scoped(PricingService::class);
+        $this->app->scoped(CatalogRetailPriceObserver::class);
     }
 
     /**
@@ -66,16 +67,21 @@ class AppServiceProvider extends ServiceProvider
             $model::observe(CatalogRetailPriceObserver::class);
         }
         Event::listen(TransactionBeginning::class, function ($event): void {
+            app(CatalogRetailPriceObserver::class)->transactionBegan($event->connection);
             if ($event->connection->transactionLevel() === 1) {
                 app(SettingService::class)->resetReadSnapshot(true);
             }
         });
         Event::listen(TransactionCommitted::class, function ($event): void {
+            app(CatalogRetailPriceObserver::class)->transactionFinished($event->connection);
             if ($event->connection->transactionLevel() === 0) {
                 app(SettingService::class)->resetReadSnapshot(true);
             }
         });
-        Event::listen(TransactionRolledBack::class, fn ($event) => app(SettingService::class)->resetReadSnapshot($event->connection->transactionLevel() === 0));
+        Event::listen(TransactionRolledBack::class, function ($event): void {
+            app(CatalogRetailPriceObserver::class)->transactionFinished($event->connection, true);
+            app(SettingService::class)->resetReadSnapshot($event->connection->transactionLevel() === 0);
+        });
         Event::listen(JobProcessing::class, fn () => app(PermissionRegistrar::class)->clearPermissionsCollection());
         Gate::before(fn ($user) => $user instanceof User
             && $user->is_active && ! $user->is_system

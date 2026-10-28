@@ -1,0 +1,566 @@
+TAP version 13
+# Admin query serialization, pagination and AbortSignal tests passed.
+# Subtest: tests\\admin-endpoints.test.cjs
+ok 1 - tests\\admin-endpoints.test.cjs
+  ---
+  duration_ms: 892.6567
+  ...
+# Admin mapper and permission contract tests passed.
+# Subtest: tests\\admin-mappers.test.cjs
+ok 2 - tests\\admin-mappers.test.cjs
+  ---
+  duration_ms: 942.9892
+  ...
+# Subtest: an explicit logout token is preserved when a new session is active
+ok 3 - an explicit logout token is preserved when a new session is active
+  ---
+  duration_ms: 8.7757
+  ...
+# Subtest: a delayed 401 from an old session cannot clear a newer session
+ok 4 - a delayed 401 from an old session cannot clear a newer session
+  ---
+  duration_ms: 2.5264
+  ...
+# Subtest: a 401 for the current token clears the current session
+ok 5 - a 401 for the current token clears the current session
+  ---
+  duration_ms: 1.3781
+  ...
+# Subtest: a failed sign-in does not clear an existing session
+ok 6 - a failed sign-in does not clear an existing session
+  ---
+  duration_ms: 1.9579
+  ...
+# Subtest: staff tabs reload on account replacement and logout, not unrelated storage writes
+ok 7 - staff tabs reload on account replacement and logout, not unrelated storage writes
+  ---
+  duration_ms: 293.419
+  ...
+# Subtest: a delayed staff identity response cannot overwrite a newly selected account
+ok 8 - a delayed staff identity response cannot overwrite a newly selected account
+  ---
+  duration_ms: 124.621
+  ...
+# Subtest: web tabs reload only when the persisted session changes
+ok 9 - web tabs reload only when the persisted session changes
+  ---
+  duration_ms: 225.2531
+  ...
+# Subtest: session discovery validates staff on the server and never sends the token to the other origin
+ok 10 - session discovery validates staff on the server and never sends the token to the other origin
+  ---
+  duration_ms: 67.1106
+  ...
+# Subtest: an expired staff session does not redirect the login page
+ok 11 - an expired staff session does not redirect the login page
+  ---
+  duration_ms: 25.5415
+  ...
+# Subtest: discovery ignores a successful response after the session was removed
+ok 12 - discovery ignores a successful response after the session was removed
+  ---
+  duration_ms: 19.2459
+  ...
+# Subtest: discovery on a top-level page does not expose session status
+ok 13 - discovery on a top-level page does not expose session status
+  ---
+  duration_ms: 37.0451
+  ...
+# Server branding unavailable; using the default identity. Offline
+# Server branding unavailable; using the default identity. Branding API returned undefined
+# Server branding unavailable; using the default identity. Cannot read properties of null (reading 'name')
+# Subtest: server metadata caches public identity for one minute with an invalidation tag
+ok 14 - server metadata caches public identity for one minute with an invalidation tag
+  ---
+  duration_ms: 3.9878
+  ...
+# Subtest: server branding supports an internal API address independent of the browser address
+ok 15 - server branding supports an internal API address independent of the browser address
+  ---
+  duration_ms: 0.8658
+  ...
+# Subtest: unavailable or malformed branding falls back to Alfarid without breaking server rendering
+ok 16 - unavailable or malformed branding falls back to Alfarid without breaking server rendering
+  ---
+  duration_ms: 2.4597
+  ...
+# Subtest: product dimensions and descriptions round trip without exposing hidden cost
+ok 17 - product dimensions and descriptions round trip without exposing hidden cost
+  ---
+  duration_ms: 2.0395
+  ...
+# Subtest: new variants leave system identifiers to the server and send empty numeric values as null
+ok 18 - new variants leave system identifiers to the server and send empty numeric values as null
+  ---
+  duration_ms: 21.4539
+  ...
+# Subtest: variant images are grouped by the actual nested API color
+ok 19 - variant images are grouped by the actual nested API color
+  ---
+  duration_ms: 0.6008
+  ...
+# Subtest: create uses server identifiers before uploading files and never invents a SKU
+ok 20 - create uses server identifiers before uploading files and never invents a SKU
+  ---
+  duration_ms: 188.1796
+  ...
+# Subtest: existing product saves basic fields separately and creates replacements before removing old variants
+ok 21 - existing product saves basic fields separately and creates replacements before removing old variants
+  ---
+  duration_ms: 190.3496
+  ...
+# Subtest: partial variant errors identify the failed row and stop later writes
+ok 22 - partial variant errors identify the failed row and stop later writes
+  ---
+  duration_ms: 85.8609
+  ...
+# Subtest: image uploads use at most two requests and a retry skips completed files
+ok 23 - image uploads use at most two requests and a retry skips completed files
+  ---
+  duration_ms: 142.3563
+  ...
+# Subtest: rejected published image removal rolls the tile back into its position
+ok 24 - rejected published image removal rolls the tile back into its position
+  ---
+  duration_ms: 220.9852
+  ...
+# Subtest: color uploads resolve an already saved variant even if local color data is stale
+ok 25 - color uploads resolve an already saved variant even if local color data is stale
+  ---
+  duration_ms: 56.2233
+  ...
+# Subtest: color upload uses a saved ID when the create response omitted local variant IDs
+ok 26 - color upload uses a saved ID when the create response omitted local variant IDs
+  ---
+  duration_ms: 60.8254
+  ...
+# Subtest: create sends a stable idempotency key across retries
+ok 27 - create sends a stable idempotency key across retries
+  ---
+  duration_ms: 82.2967
+  ...
+# Subtest: uploads run before deletions so replacing the last image succeeds
+ok 28 - uploads run before deletions so replacing the last image succeeds
+  ---
+  duration_ms: 100.163
+  ...
+# Subtest: timestamp-only copies require a reload and versioned copies send expected_version
+ok 29 - timestamp-only copies require a reload and versioned copies send expected_version
+  ---
+  duration_ms: 106.897
+  ...
+# Subtest: a genuinely missing color preserves pending files and blocks media deletions/uploads
+ok 30 - a genuinely missing color preserves pending files and blocks media deletions/uploads
+  ---
+  duration_ms: 42.464
+  ...
+# Subtest: retry after a partial save uses returned product and variant versions
+ok 31 - retry after a partial save uses returned product and variant versions
+  ---
+  duration_ms: 39.056
+  ...
+# Subtest: a stale basic save identifies the product for the existing reload flow
+ok 32 - a stale basic save identifies the product for the existing reload flow
+  ---
+  duration_ms: 102.871
+  ...
+# Subtest: draft permits missing prices but still rejects invalid decimal prices
+ok 33 - draft permits missing prices but still rejects invalid decimal prices
+  ---
+  duration_ms: 2.724
+  ...
+# Subtest: variant combinations, SKU casing and manual system barcodes are validated
+ok 34 - variant combinations, SKU casing and manual system barcodes are validated
+  ---
+  duration_ms: 0.3521
+  ...
+# Subtest: four decimal costs round trip while selling prices remain two decimals
+ok 35 - four decimal costs round trip while selling prices remain two decimals
+  ---
+  duration_ms: 0.4638
+  ...
+# Subtest: moving into a group with sparse sort values preserves the intended visual order
+ok 36 - moving into a group with sparse sort values preserves the intended visual order
+  ---
+  duration_ms: 3.2602
+  ...
+# Subtest: reordering siblings sends the changed positions and excludes unrelated groups
+ok 37 - reordering siblings sends the changed positions and excludes unrelated groups
+  ---
+  duration_ms: 0.5166
+  ...
+# Subtest: Arabic and Persian order digits, Arabic search variants and bilingual descriptions survive conversion
+ok 38 - Arabic and Persian order digits, Arabic search variants and bilingual descriptions survive conversion
+  ---
+  duration_ms: 0.7736
+  ...
+# Subtest: API resource conversion keeps direct product counts separate from the child counts
+ok 39 - API resource conversion keeps direct product counts separate from the child counts
+  ---
+  duration_ms: 0.8693
+  ...
+# Subtest: API client serializes nullable values, false and method-spoofed multipart updates correctly
+ok 40 - API client serializes nullable values, false and method-spoofed multipart updates correctly
+  ---
+  duration_ms: 256.2232
+  ...
+# Subtest: variant choices traverse all product pages and fetch real nested variant IDs
+ok 41 - variant choices traverse all product pages and fetch real nested variant IDs
+  ---
+  duration_ms: 327.2026
+  ...
+# Subtest: price list item search loads every page instead of sending unsupported search filter
+ok 42 - price list item search loads every page instead of sending unsupported search filter
+  ---
+  duration_ms: 65.146
+  ...
+# Subtest: commerce reuses the established brands API instead of publishing a second implementation
+ok 43 - commerce reuses the established brands API instead of publishing a second implementation
+  ---
+  duration_ms: 201.738
+  ...
+# Subtest: editing a price list keeps its branch, customer and group relationships
+ok 44 - editing a price list keeps its branch, customer and group relationships
+  ---
+  duration_ms: 879.7559
+  ...
+# Subtest: editing a scoped promotion sends selected backend IDs instead of clearing its targets
+ok 45 - editing a scoped promotion sends selected backend IDs instead of clearing its targets
+  ---
+  duration_ms: 445.3615
+  ...
+# Subtest: unlimited per-customer coupon use remains zero on save
+ok 46 - unlimited per-customer coupon use remains zero on save
+  ---
+  duration_ms: 419.2648
+  ...
+# Subtest: editing a brand preserves both descriptions and uses the existing multipart update method
+ok 47 - editing a brand preserves both descriptions and uses the existing multipart update method
+  ---
+  duration_ms: 331.9998
+  ...
+# Subtest: a rejected used-coupon deletion keeps the editor and confirmation open
+ok 48 - a rejected used-coupon deletion keeps the editor and confirmation open
+  ---
+  duration_ms: 325.0013
+  ...
+# Subtest: production ignores financial mock fallback flags without crashing the application
+ok 49 - production ignores financial mock fallback flags without crashing the application
+  ---
+  duration_ms: 9.376
+  ...
+# Subtest: protected files isolate the new tab and use the fetched bytes for blocked or unsafe previews
+ok 50 - protected files isolate the new tab and use the fetched bytes for blocked or unsafe previews
+  ---
+  duration_ms: 137.4815
+  ...
+# Subtest: raw Laravel pagination retains the page and total
+ok 51 - raw Laravel pagination retains the page and total
+  ---
+  duration_ms: 0.36
+  ...
+# Subtest: an empty unpaginated list still has a usable page size
+ok 52 - an empty unpaginated list still has a usable page size
+  ---
+  duration_ms: 0.2782
+  ...
+# Subtest: Cairo calendar dates are ISO regardless of locale separator conventions
+ok 53 - Cairo calendar dates are ISO regardless of locale separator conventions
+  ---
+  duration_ms: 152.654
+  ...
+# Subtest: report periods reject impossible dates, missing boundaries, reversed and over 366 inclusive days
+ok 54 - report periods reject impossible dates, missing boundaries, reversed and over 366 inclusive days
+  ---
+  duration_ms: 73.2074
+  ...
+# Subtest: reports preserve rows/totals, encode booleans and notifications retain UUID/meta
+ok 55 - reports preserve rows/totals, encode booleans and notifications retain UUID/meta
+  ---
+  duration_ms: 15.192
+  ...
+# Subtest: quotation pricing posts actual offered prices and expiry to the admin quotation contract
+ok 56 - quotation pricing posts actual offered prices and expiry to the admin quotation contract
+  ---
+  duration_ms: 356.1181
+  ...
+# Subtest: payment notices preserve treasury and rejection notes and use protected receipt route
+ok 57 - payment notices preserve treasury and rejection notes and use protected receipt route
+  ---
+  duration_ms: 93.5259
+  ...
+# Subtest: finance views use server balances, cashier relations and actual shift cash fields
+ok 58 - finance views use server balances, cashier relations and actual shift cash fields
+  ---
+  duration_ms: 735.9126
+  ...
+# Subtest: wholesale views use real customer, grand total, converted order and receipt fields
+ok 59 - wholesale views use real customer, grand total, converted order and receipt fields
+  ---
+  duration_ms: 474.2489
+  ...
+# Subtest: shift filters preserve dates and serialize booleans using the shared contract cleaner
+ok 60 - shift filters preserve dates and serialize booleans using the shared contract cleaner
+  ---
+  duration_ms: 14.3524
+  ...
+# Subtest: transfer form retries reuse the same idempotency key and start a new key only after success
+ok 61 - transfer form retries reuse the same idempotency key and start a new key only after success
+  ---
+  duration_ms: 460.0938
+  ...
+# Subtest: mock mode never makes network requests even without a fixture
+ok 62 - mock mode never makes network requests even without a fixture
+  ---
+  duration_ms: 266.6845
+  ...
+# Subtest: an aborted late response cannot overwrite the next filter result
+ok 63 - an aborted late response cannot overwrite the next filter result
+  ---
+  duration_ms: 279.3057
+  ...
+# Subtest: 403 clears prior rows and does not fall back to demonstrations
+ok 64 - 403 clears prior rows and does not fall back to demonstrations
+  ---
+  duration_ms: 157.0829
+  ...
+# Subtest: fallback is explicitly flagged only for network/server failures
+ok 65 - fallback is explicitly flagged only for network/server failures
+  ---
+  duration_ms: 135.9205
+  ...
+# Subtest: mutations reject double clicks synchronously and retain 422 field errors
+ok 66 - mutations reject double clicks synchronously and retain 422 field errors
+  ---
+  duration_ms: 97.7559
+  ...
+# Subtest: notification polling stops while hidden and resumes while visible
+ok 67 - notification polling stops while hidden and resumes while visible
+  ---
+  duration_ms: 141.4458
+  ...
+# Subtest: notification reads keep UUIDs, reject duplicate clicks and roll back failures
+ok 68 - notification reads keep UUIDs, reject duplicate clicks and roll back failures
+  ---
+  duration_ms: 131.9007
+  ...
+# Subtest: mark all reads unloaded notifications in one request even when loaded items are already read
+ok 69 - mark all reads unloaded notifications in one request even when loaded items are already read
+  ---
+  duration_ms: 65.5883
+  ...
+# Subtest: mark all rejects duplicate bulk requests while the first request is pending
+ok 70 - mark all rejects duplicate bulk requests while the first request is pending
+  ---
+  duration_ms: 73.9152
+  ...
+# Subtest: failed bulk read restores the server unread count including unloaded notifications
+ok 71 - failed bulk read restores the server unread count including unloaded notifications
+  ---
+  duration_ms: 126.178
+  ...
+# Subtest: polling prepends new notifications and preserves loaded later pages and pagination
+ok 72 - polling prepends new notifications and preserves loaded later pages and pagination
+  ---
+  duration_ms: 32.9157
+  ...
+# Subtest: pending bulk read blocks notification polling until it completes
+ok 73 - pending bulk read blocks notification polling until it completes
+  ---
+  duration_ms: 26.8532
+  ...
+# Subtest: procurement preserves receipt item ids and retry keys
+ok 74 - procurement preserves receipt item ids and retry keys
+  ---
+  duration_ms: 609.522
+  ...
+# Subtest: supplier payment allocation sends one invoice and void uses the POST action
+ok 75 - supplier payment allocation sends one invoice and void uses the POST action
+  ---
+  duration_ms: 147.0752
+  ...
+# Subtest: supplier invoice update uses multipart method spoofing and preserves attachment
+ok 76 - supplier invoice update uses multipart method spoofing and preserves attachment
+  ---
+  duration_ms: 203.9996
+  ...
+# Subtest: LAN browsers reach the API, storefront and backoffice on the serving machine
+ok 77 - LAN browsers reach the API, storefront and backoffice on the serving machine
+  ---
+  duration_ms: 5.7792
+  ...
+# Subtest: explicit remote services, URL paths, and same-origin relative URLs are preserved
+ok 78 - explicit remote services, URL paths, and same-origin relative URLs are preserved
+  ---
+  duration_ms: 8.5318
+  ...
+# Subtest: localhost, production hosts, and server rendering keep configured addresses
+ok 79 - localhost, production hosts, and server rendering keep configured addresses
+  ---
+  duration_ms: 10.3079
+  ...
+# Subtest: uses the browser UUID implementation when available
+ok 80 - uses the browser UUID implementation when available
+  ---
+  duration_ms: 1.4256
+  ...
+# Subtest: missing randomUUID uses 128 bits from secure random values
+ok 81 - missing randomUUID uses 128 bits from secure random values
+  ---
+  duration_ms: 1.6443
+  ...
+# Subtest: missing or failing secure randomness skips discovery without throwing
+ok 82 - missing or failing secure randomness skips discovery without throwing
+  ---
+  duration_ms: 0.2735
+  ...
+# Staff permissions match the server without wildcard aliases.
+# Subtest: tests\\staff-permissions.test.cjs
+ok 17 - tests\\staff-permissions.test.cjs
+  ---
+  duration_ms: 1292.2102
+  ...
+# Subtest: add sends only variant/quantity/session and trusts the server total
+ok 84 - add sends only variant/quantity/session and trusts the server total
+  ---
+  duration_ms: 458.6701
+  ...
+# Subtest: reload restores server cart using the stored guest token
+ok 85 - reload restores server cart using the stored guest token
+  ---
+  duration_ms: 88.5245
+  ...
+# Subtest: clearing uses one bulk request and keeps the current cart on failure
+ok 86 - clearing uses one bulk request and keeps the current cart on failure
+  ---
+  duration_ms: 95.2104
+  ...
+# Subtest: queued additions share the server-issued guest session and errors retain the last valid cart
+ok 87 - queued additions share the server-issued guest session and errors retain the last valid cart
+  ---
+  duration_ms: 40.8311
+  ...
+# Subtest: a delayed old-session response cannot populate the next account cart
+ok 88 - a delayed old-session response cannot populate the next account cart
+  ---
+  duration_ms: 67.324
+  ...
+# Subtest: products with no usable price are omitted while a zero price remains valid
+ok 89 - products with no usable price are omitted while a zero price remains valid
+  ---
+  duration_ms: 12.9643
+  ...
+# Subtest: real product cards preserve photos, prices, routes and Arabic names without demo tints
+ok 90 - real product cards preserve photos, prices, routes and Arabic names without demo tints
+  ---
+  duration_ms: 0.5199
+  ...
+# Subtest: sold out takes precedence over sale and new badges
+ok 91 - sold out takes precedence over sale and new badges
+  ---
+  duration_ms: 0.4592
+  ...
+# Subtest: admin banner round trip preserves placement, optional copy, target and uploaded file
+ok 92 - admin banner round trip preserves placement, optional copy, target and uploaded file
+  ---
+  duration_ms: 62.7252
+  ...
+# Subtest: banner schedule inputs round trip Cairo local time without shifting the instant
+ok 93 - banner schedule inputs round trip Cairo local time without shifting the instant
+  ---
+  duration_ms: 1.6095
+  ...
+# Subtest: banner create and update preserve multipart file data through the actual HTTP client
+ok 94 - banner create and update preserve multipart file data through the actual HTTP client
+  ---
+  duration_ms: 555.6056
+  ...
+# Subtest: product stage asks for missing options instead of selecting the first variant
+ok 95 - product stage asks for missing options instead of selecting the first variant
+  ---
+  duration_ms: 5.327
+  ...
+# Subtest: products without sizes still require a color when multiple colors exist
+ok 96 - products without sizes still require a color when multiple colors exist
+  ---
+  duration_ms: 0.4765
+  ...
+# Subtest: all filters round trip through a product link and API parameters preserve array and boolean contracts
+ok 97 - all filters round trip through a product link and API parameters preserve array and boolean contracts
+  ---
+  duration_ms: 1.4659
+  ...
+# Subtest: reset filters produce a clean URL and legacy sort links still parse
+ok 98 - reset filters produce a clean URL and legacy sort links still parse
+  ---
+  duration_ms: 0.5184
+  ...
+# Subtest: cards show real EGP prices and truthful badge precedence, including zero and unavailable prices
+ok 99 - cards show real EGP prices and truthful badge precedence, including zero and unavailable prices
+  ---
+  duration_ms: 1.1565
+  ...
+# Subtest: details preserve distinct Arabic color variants, sizes, variant photos and null prices
+ok 100 - details preserve distinct Arabic color variants, sizes, variant photos and null prices
+  ---
+  duration_ms: 0.7156
+  ...
+# Subtest: category lookup finds nested categories and their full breadcrumb path
+ok 101 - category lookup finds nested categories and their full breadcrumb path
+  ---
+  duration_ms: 0.325
+  ...
+# Subtest: idempotent cart deletes reload the empty cart after a 204 response
+ok 102 - idempotent cart deletes reload the empty cart after a 204 response
+  ---
+  duration_ms: 210.9521
+  ...
+# Subtest: production CSP excludes local HTTP images while development previews retain them
+ok 103 - production CSP excludes local HTTP images while development previews retain them
+  ---
+  duration_ms: 72.4488
+  ...
+# Subtest: viewer identities are opaque and never reused across account switches
+ok 104 - viewer identities are opaque and never reused across account switches
+  ---
+  duration_ms: 5.8948
+  ...
+# Subtest: clearing a guest cart session clears both persistent and in-memory fallback
+ok 105 - clearing a guest cart session clears both persistent and in-memory fallback
+  ---
+  duration_ms: 68.7271
+  ...
+# Subtest: retail return paths cannot escape the site or override restricted destinations
+ok 106 - retail return paths cannot escape the site or override restricted destinations
+  ---
+  duration_ms: 142.9313
+  ...
+# Subtest: checkout endpoints unwrap real Laravel resource envelopes and preserve retry headers
+ok 107 - checkout endpoints unwrap real Laravel resource envelopes and preserve retry headers
+  ---
+  duration_ms: 261.382
+  ...
+# Subtest: root categories with direct products remain navigable without fabricated subcategories
+ok 108 - root categories with direct products remain navigable without fabricated subcategories
+  ---
+  duration_ms: 57.469
+  ...
+# Subtest: a failed login cart merge preserves the original guest session after auth resets cart identity
+ok 109 - a failed login cart merge preserves the original guest session after auth resets cart identity
+  ---
+  duration_ms: 65.7307
+  ...
+# Subtest: public API images use a same-origin path across surfaces without proxying unrelated URLs
+ok 110 - public API images use a same-origin path across surfaces without proxying unrelated URLs
+  ---
+  duration_ms: 13.6565
+  ...
+1..110
+# tests 110
+# suites 0
+# pass 110
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3860.1866

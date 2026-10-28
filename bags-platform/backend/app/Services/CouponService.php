@@ -15,19 +15,23 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 
 /**
- * التحقق من الكوبونات وربطها بالسلة وحساب خصمها وتسجيل استخدامها.
- * الفحوص: التفعيل، النافذة الزمنية، الحد الكلي للاستخدام، حد العميل
- * الواحد (usage_limit_per_customer — افتراضي 1)، والحد الأدنى للسلة.
- * الخصم النسبي: min(subtotal × value/100, max_discount_amount).
- * كوبون free_shipping خصمه المالي على البضاعة صفر — أثره إلغاء الشحن
- * عند إتمام الشراء (يُسجل مبلغ الشحن المُعفى في سجل الاستخدام).
+ * Handles coupon validation, application, discount calculations, and atomic usage tracking.
  */
 class CouponService
 {
-    // رسالة موحّدة لعدم صلاحية الكود (F-24): «غير موجود» و«موجود لكن غير
-    // قابل للاستخدام» يجب ألا يتيحا تمييز وجود الكود بالتخمين
+    // Uniform error prevents code enumeration and policy leaking.
     private const NOT_REDEEMABLE = 'كود الخصم غير صحيح أو غير متاح أو انتهت صلاحيته أو استُنفد حد استخدامه.';
 
+    /**
+     * Validates a coupon code and associates it with the cart.
+     *
+     * @param Cart $cart Target shopping cart
+     * @param string $code Raw coupon code
+     * @param float $subtotal Current cart subtotal
+     * @param Customer|null $customer Authenticated customer instance, if any
+     * @return float Calculated discount amount
+     * @throws BusinessException If coupon is invalid or rate limited
+     */
     public function validateAndApply(Cart $cart, string $code, float $subtotal, ?Customer $customer = null): float
     {
         $coupon = $this->findRedeemable($code, $subtotal, $customer);
@@ -39,9 +43,11 @@ class CouponService
     }
 
     /**
-     * حد معدّل لكل (كوبون + IP) (H3): بديل آمن عن السقف العالمي لطلبات
-     * الزوار المعلّقة الذي كان مهاجم واحد يُعطّل به الحملة على كل الزوار.
-     * يُستدعى عند التطبيق وعند إتمام الشراء.
+     * Enforces per-IP and per-coupon rate limits to mitigate brute-force and abuse.
+     *
+     * @param Coupon $coupon Target coupon
+     * @param string $action Action key (e.g., 'apply')
+     * @throws BusinessException If rate limit is exceeded
      */
     public function enforceRateLimit(Coupon $coupon, string $action = 'apply'): void
     {
@@ -57,7 +63,16 @@ class CouponService
         RateLimiter::hit($key, 60);
     }
 
-    /** يتحقق من كوبون مرتبط بسلة (عند إتمام الشراء) ويرجعه أو يرمي استثناءً. */
+    /**
+     * Re-validates a coupon ID during order checkout.
+     *
+     * @param int $couponId Coupon identifier
+     * @param float $subtotal Current cart subtotal
+     * @param Customer|null $customer Authenticated customer instance, if any
+     * @param string|null $guestPhone Unauthenticated guest phone number
+     * @return Coupon Validated coupon model
+     * @throws BusinessException If coupon is not eligible
+     */
     public function redeemableById(int $couponId, float $subtotal, ?Customer $customer = null, ?string $guestPhone = null): Coupon
     {
         $coupon = Coupon::query()->find($couponId);
@@ -69,9 +84,16 @@ class CouponService
         return $coupon;
     }
 
-    /** خصم البضاعة: النسبي بسقف، والثابت بحد الإجمالي، والشحن المجاني صفر هنا. */
+    /**
+     * Calculates the applicable merchandise discount.
+     *
+     * @param Coupon $coupon Target coupon
+     * @param float $subtotal Order merchandise subtotal
+     * @return float Monetary discount capped by maximum limits and subtotal
+     */
     public function discountFor(Coupon $coupon, float $subtotal): float
     {
+        // Free shipping discounts apply to shipping fees during checkout, not merchandise subtotal.
         if ($subtotal <= 0 || $coupon->type === 'free_shipping') {
             return 0.0;
         }
@@ -88,10 +110,14 @@ class CouponService
     }
 
     /**
-     * تسجيل استخدام فعلي عند إتمام الطلب + تحديث العداد الكلي ذرّيًا (F4).
-     * قفل استشاري على (الكوبون + هوية المستخدم) يمنع سباق الحد الفردي،
-     * والزيادة الشرطية على العداد الكلي تمنع تجاوز usage_limit حتى بلا
-     * قفل صف الكوبون على مسار الشراء (أُزيل القفل المسبق من OrderService).
+     * Atomically records coupon usage for an order and increments total usage count.
+     *
+     * @param Coupon $coupon Target coupon
+     * @param Order $order Associated completed order
+     * @param Customer|null $customer Authenticated customer, if any
+     * @param float $discountAmount Applied discount amount
+     * @return CouponUsage Newly created usage record
+     * @throws BusinessException If usage limit was exceeded concurrently
      */
     public function recordUsage(Coupon $coupon, Order $order, ?Customer $customer, float $discountAmount): CouponUsage
     {
@@ -102,12 +128,13 @@ class CouponService
         $identity = $customer !== null
             ? 'customer:'.$customer->id
             : 'phone:'.($guestPhoneNormalized ?? 'anonymous');
+        // Advisory transaction lock serializes concurrent checkouts per identity without locking table rows.
         DB::statement('SELECT pg_advisory_xact_lock(hashtext(?))', ['coupon-usage:'.$coupon->id.':'.$identity]);
 
-        // إعادة التحقق الفردي تحت القفل: استخدامان متزامنان لنفس الهوية
-        // يتسلسلان فيرى الثاني استخدام الأول
+        // Re-evaluate identity limit under the lock to prevent race conditions.
         $this->assertPerIdentityAllowed($coupon, $customer, $guestPhoneNormalized);
 
+        // Conditional atomic increment ensures usage_limit is never exceeded without locking coupon row.
         $incremented = Coupon::query()
             ->whereKey($coupon->id)
             ->where(fn ($q) => $q->whereNull('usage_limit')->orWhereColumn('used_count', '<', 'usage_limit'))
@@ -121,7 +148,6 @@ class CouponService
             'customer_id' => $customer?->id,
             'order_id' => $order->id,
             'discount_amount' => $discountAmount,
-            // هاتف الزائر الموحد يُخزَّن مع الاستخدام لفحص الحد لاحقًا في SQL (F-04)
             'guest_phone_normalized' => $guestPhoneNormalized,
         ]);
     }
@@ -142,7 +168,6 @@ class CouponService
         if (! $coupon->isRedeemableNow()) {
             throw new BusinessException(self::NOT_REDEEMABLE);
         }
-        // رسالة موحّدة (F20): لا تُفصح عن سبب الرفض فيُستخدم لتمييز السياسات
         if ($coupon->min_order_amount !== null && $subtotal < (float) $coupon->min_order_amount) {
             throw new BusinessException(self::NOT_REDEEMABLE);
         }
@@ -151,17 +176,9 @@ class CouponService
             ? Customer::normalizePhone($guestPhone)
             : null;
 
-        // (H3) أُزيل السقف العالمي لطلبات الزوار المعلّقة: كان مهاجم واحد
-        // ينشئ حدًا من الطلبات الوهمية فيعطّل الحملة على كل زائر شرعي. الحماية
-        // الآن: حد لكل هوية (أدناه) + حد معدّل لكل كوبون/IP + تقصير مهلة
-        // المعلّق — حماية أضعف ضد تدوير الأرقام عبر IPs لكنها لا تعطّل الحملة.
         $this->assertPerIdentityAllowed($coupon, $customer, $guestPhoneNormalized);
     }
 
-    /**
-     * حد الاستخدام لكل هوية (عميل/رقم زائر) — الطلبات الملغاة لا تحتسب.
-     * limit <= 0 يعني بلا حد فردي.
-     */
     private function assertPerIdentityAllowed(Coupon $coupon, ?Customer $customer, ?string $guestPhoneNormalized): void
     {
         $limit = (int) $coupon->usage_limit_per_customer;
@@ -169,28 +186,21 @@ class CouponService
             return;
         }
 
-        if ($customer !== null) {
-            $usedByCustomer = $coupon->usages()
-                ->where('customer_id', $customer->id)
-                ->whereHas('order', fn ($q) => $q->where('status', '!=', OrderStatus::Cancelled->value))
-                ->count();
-            if ($usedByCustomer >= $limit) {
-                throw new BusinessException(self::NOT_REDEEMABLE);
-            }
-
+        // Identify guests by normalized phone so cart token rotation cannot bypass the limit.
+        $identityField = $customer !== null ? 'customer_id' : ($guestPhoneNormalized !== null ? 'guest_phone_normalized' : null);
+        if ($identityField === null) {
             return;
         }
 
-        if ($guestPhoneNormalized !== null) {
-            // هوية الزائر هي رقم هاتفه الموحد — تبديل cart_token لا يتجاوز
-            // الحد (H3)، والعدّ في SQL على العمود المفهرس (F-04)
-            $usedByPhone = $coupon->usages()
-                ->where('guest_phone_normalized', $guestPhoneNormalized)
-                ->whereHas('order', fn ($q) => $q->where('status', '!=', OrderStatus::Cancelled->value))
-                ->count();
-            if ($usedByPhone >= $limit) {
-                throw new BusinessException(self::NOT_REDEEMABLE);
-            }
+        $identityValue = $customer !== null ? $customer->id : $guestPhoneNormalized;
+        // Exclude cancelled orders so customers regain their allowance when an order is cancelled.
+        $usageCount = $coupon->usages()
+            ->where($identityField, $identityValue)
+            ->whereHas('order', fn ($q) => $q->where('status', '!=', OrderStatus::Cancelled->value))
+            ->count();
+
+        if ($usageCount >= $limit) {
+            throw new BusinessException(self::NOT_REDEEMABLE);
         }
     }
 }

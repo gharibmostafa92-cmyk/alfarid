@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\DB;
 
 class RetailPriceSnapshot
 {
-    public function refresh(?int $productId = null): void
+    public function refresh(int|array|null $productId = null): void
     {
         Product::query()->when($productId !== null, fn ($query) => $query->whereKey($productId))
             ->when($productId === null, fn ($query) => $query->where('status', 'published')->whereIn('sales_channel', ['retail', 'both']))

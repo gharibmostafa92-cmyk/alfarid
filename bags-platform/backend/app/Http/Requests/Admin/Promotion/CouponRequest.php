@@ -4,10 +4,14 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Promotion;
 
+use App\Models\Coupon;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
+/**
+ * Validates promotional coupon creation and update requests.
+ */
 class CouponRequest extends FormRequest
 {
     public function authorize(): bool
@@ -15,20 +19,34 @@ class CouponRequest extends FormRequest
         return true;
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Get the validation rules that apply to the request.
+     *
+     * @return array<string, mixed>
+     */
     public function rules(): array
     {
         $coupon = $this->route('coupon');
 
         return [
-            'code' => ['required', 'string', 'max:50', Rule::unique('coupons', 'code')->ignore($coupon)],
+            // Case-insensitive uppercase uniqueness check prevents duplicate variants of the same code.
+            'code' => ['required', 'string', 'max:50', Rule::unique('coupons', 'code')->ignore($coupon),
+                function (string $attribute, mixed $value, \Closure $fail) use ($coupon): void {
+                    if (is_string($value) && Coupon::query()
+                        ->whereRaw('upper(code) = ?', [strtoupper($value)])
+                        ->when($coupon, fn ($query) => $query->whereKeyNot($coupon->getKey()))
+                        ->exists()) {
+                        $fail('رمز الكوبون مستخدم بالفعل.');
+                    }
+                },
+            ],
             'type' => ['required', Rule::in(['percentage', 'fixed', 'free_shipping'])],
-            // كوبون نسبي فوق 100% يعني خصمًا كاملًا وأكثر — ممنوع (M18)
-            'value' => ['nullable', 'numeric', 'min:0', Rule::when($this->input('type') === 'percentage', ['max:100'])],
-            'max_discount_amount' => ['nullable', 'numeric', 'min:0'],
-            'min_order_amount' => ['nullable', 'numeric', 'min:0'],
-            'usage_limit' => ['nullable', 'integer', 'min:1'],
-            'usage_limit_per_customer' => ['nullable', 'integer', 'min:0'],
+            // Percentage discount cannot exceed 100% of order merchandise value.
+            'value' => ['required_unless:type,free_shipping', 'nullable', 'numeric', 'min:0', 'max:99999999.99', 'decimal:0,2', Rule::when($this->input('type') === 'percentage', ['max:100'])],
+            'max_discount_amount' => ['nullable', 'numeric', 'min:0', 'max:99999999.99', 'decimal:0,2'],
+            'min_order_amount' => ['nullable', 'numeric', 'min:0', 'max:99999999.99', 'decimal:0,2'],
+            'usage_limit' => ['nullable', 'integer', 'min:1', 'max:1000000'],
+            'usage_limit_per_customer' => ['nullable', 'integer', 'min:0', 'max:1000000'],
             'starts_at' => ['nullable', 'date'],
             'ends_at' => ['nullable', 'date', 'after_or_equal:starts_at'],
             'is_active' => ['nullable', 'boolean'],
@@ -36,9 +54,7 @@ class CouponRequest extends FormRequest
     }
 
     /**
-     * (M1) فحص القيمة «الفعّالة» بعد الدمج مع الكوبون الحالي: قاعدة max:100
-     * أعلاه تعتمد على النوع المُرسل، فطلب تعديل يغيّر النوع إلى percentage
-     * دون إرسال value كان يترك قيمة قديمة (>100) تمرّ دون فحص.
+     * Validate effective merged value when switching coupon type to percentage without providing a new value.
      *
      * @return list<callable(Validator): void>
      */
@@ -51,8 +67,6 @@ class CouponRequest extends FormRequest
 
             $coupon = $this->route('coupon');
             $type = $this->input('type');
-            // قيمة غير رقمية (بما فيها null الصريح) تعني «أبقِ الحالية» في
-            // مسار التعديل — فالفحص على القيمة الفعلية لا المُرسلة
             $submitted = $this->input('value');
             $effective = is_numeric($submitted) ? (float) $submitted : (float) ($coupon?->value ?? 0);
 

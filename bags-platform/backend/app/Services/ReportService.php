@@ -10,20 +10,19 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * خدمة التقارير ولوحة معلومات الإدارة (المرحلة 13.2).
- *
- * قاعدة الأداء: كل الأرقام تُحسب باستعلامات تجميعية مباشرة في قاعدة
- * البيانات (SUM/COUNT/GROUP BY/CASE WHEN) — ممنوع جلب سجلات وحسابها
- * في PHP. «طلبات المبيعات» هنا = طلبات بحالات مؤكدة فصاعدًا
- * (confirmed/processing/shipped/delivered) — الملغاة والمنتظرة لا
- * تُحتسب مبيعات.
+ * Generates aggregated administrative reports, dashboard metrics, and financial summaries.
  */
 class ReportService
 {
     /** @var list<string> */
     private const SALES_STATUSES = ['confirmed', 'processing', 'shipped', 'delivered'];
 
-    /** @return array<string, mixed> */
+    /**
+     * Aggregates key management KPIs and top performers for the dashboard.
+     *
+     * @param int|null $branchId Optional branch scope filter
+     * @return array<string, mixed> Dashboard KPI metrics
+     */
     public function dashboard(?int $branchId = null): array
     {
         $businessNow = CarbonImmutable::now(config('app.business_timezone', 'Africa/Cairo'));
@@ -117,14 +116,17 @@ class ReportService
     }
 
     /**
-     * تقرير المبيعات الزمني: تجميع بالفترة (يومي/شهري) وبُعد اختياري
-     * (فرع/قناة/كاشير/طريقة دفع).
+     * Generates a time-series sales report grouped by period and optional dimension.
      *
-     * @return array{rows: list<array<string, mixed>>, totals: array<string, mixed>}
+     * @param string $from Start date (YYYY-MM-DD)
+     * @param string $to End date (YYYY-MM-DD)
+     * @param string $granularity Aggregation bucket ('daily' or 'monthly')
+     * @param string|null $groupBy Optional breakdown dimension ('branch', 'channel', 'payment_method', 'cashier')
+     * @param int|null $branchId Branch filter
+     * @return array{rows: list<array<string, mixed>>, totals: array<string, mixed>} Aggregated sales report
      */
     public function salesReport(string $from, string $to, string $granularity = 'daily', ?string $groupBy = null, ?int $branchId = null): array
     {
-
         [$periodStart, $periodEnd] = $this->periodBounds($from, $to);
         $zone = str_replace("'", "''", (string) config('app.business_timezone', 'Africa/Cairo'));
         $localCreated = "timezone('{$zone}', o.created_at AT TIME ZONE 'UTC')";
@@ -203,10 +205,11 @@ class ReportService
     }
 
     /**
-     * تقييم المخزون لكل فرع (on_hand × cost_price) + الأصناف الراكدة
-     * (رصيد موجود بلا أي حركة منذ X يوم).
+     * Computes inventory valuation and identifies dead stock without physical movement within a threshold.
      *
-     * @return array{valuation: list<array<string, mixed>>, total_value: float, dead_stock: list<array<string, mixed>>}
+     * @param int $deadDays Inactivity threshold in days
+     * @param int|null $branchId Branch filter
+     * @return array{valuation: list<array<string, mixed>>, total_value: float, dead_stock: list<array<string, mixed>>, dead_stock_days: int}
      */
     public function inventoryReport(int $deadDays = 90, ?int $branchId = null): array
     {
@@ -233,14 +236,13 @@ class ReportService
         $deadStock = DB::table('stock_levels as sl')->when($branchId !== null, fn ($q) => $q->where('sl.branch_id', $branchId))
             ->join('product_variants as pv', 'pv.id', '=', 'sl.product_variant_id')
             ->leftJoin('products as p', 'p.id', '=', 'pv.product_id')
-            ->leftJoinSub(
+            ->leftJoinLateral(
+                // Exclude reserve/release movements as temporary holds do not represent actual stock activity.
                 DB::table('stock_movements')->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
-                    ->selectRaw('product_variant_id, MAX(created_at) AS last_movement_at')
-                    ->groupBy('product_variant_id'),
+                    ->whereColumn('product_variant_id', 'sl.product_variant_id')
+                    ->whereNotIn('type', ['reserve', 'release_reserve'])
+                    ->selectRaw('MAX(created_at) AS last_movement_at'),
                 'lm',
-                'lm.product_variant_id',
-                '=',
-                'sl.product_variant_id',
             )
             ->selectRaw('sl.product_variant_id, pv.sku, p.name_ar AS product_name, SUM(sl.on_hand) AS on_hand, COALESCE(SUM(sl.on_hand * COALESCE(pv.cost_price, 0)), 0) AS tied_value, lm.last_movement_at')
             ->groupBy('sl.product_variant_id', 'pv.sku', 'p.name_ar', 'lm.last_movement_at')
@@ -267,35 +269,46 @@ class ReportService
     }
 
     /**
-     * مجمل وصافي الربح: صافي إيراد المبيعات − COGS (من حركات البيع في
-     * الدفتر بتكلفتها المسجلة أو تكلفة المتغير الحالية عند غيابها) −
-     * المصروفات المسجلة في الفترة.
+     * Computes gross and net profit matching recognized sales revenue against cost of goods sold and expenses.
      *
-     * @return array<string, float>
+     * @param string $from Start date (YYYY-MM-DD)
+     * @param string $to End date (YYYY-MM-DD)
+     * @param int|null $branchId Branch filter
+     * @return array<string, float> Profit metrics including revenue, COGS, and expenses
      */
     public function profitReport(string $from, string $to, ?int $branchId = null): array
     {
-
         [$periodStart, $periodEnd] = $this->periodBounds($from, $to);
+        // Revenue recognition aligns with COGS ledger timestamps to prevent cross-period margin distortion.
+        $saleDates = DB::table('stock_movements')->where('type', 'sale')
+            ->whereIn('reference_type', array_unique([\App\Models\Order::class, (new \App\Models\Order)->getMorphClass()]))
+            ->selectRaw('reference_id, MIN(created_at) AS recognized_at')->groupBy('reference_id');
         $revenue = (float) $this->salesEntries($branchId)
-            ->where('created_at', '>=', $periodStart)->where('created_at', '<', $periodEnd)
-            ->sum('grand_total');
+            ->leftJoinSub($saleDates, 'sales_event', 'sales_event.reference_id', '=', 'entries.id')
+            ->where(fn ($q) => $q->where('entries.sale_count', 0)->orWhereNotNull('sales_event.recognized_at'))
+            ->whereRaw('CASE WHEN entries.sale_count = 1 THEN sales_event.recognized_at ELSE entries.created_at END >= ?', [$periodStart])
+            ->whereRaw('CASE WHEN entries.sale_count = 1 THEN sales_event.recognized_at ELSE entries.created_at END < ?', [$periodEnd])
+            ->selectRaw('COALESCE(SUM(entries.subtotal - entries.discount_amount), 0) AS revenue')->value('revenue');
 
         $cogs = (float) (DB::table('stock_movements as sm')->when($branchId !== null, fn ($q) => $q->where('sm.branch_id', $branchId))
-            ->join('product_variants as pv', 'pv.id', '=', 'sm.product_variant_id')
             ->whereIn('sm.type', ['sale', 'sale_return'])
             ->where('sm.created_at', '>=', $periodStart)->where('sm.created_at', '<', $periodEnd)
-            ->selectRaw('COALESCE(SUM(-sm.quantity * COALESCE(sm.unit_cost, pv.cost_price, 0)), 0) AS c')
+            ->selectRaw('COALESCE(SUM(-sm.quantity * sm.unit_cost), 0) AS c')
             ->first()?->c ?? 0);
 
         $expenses = (float) DB::table('expenses')->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
+            ->whereNull('voided_at')
             ->whereBetween('expense_date', [$from, $to])
             ->sum('amount');
 
         $gross = $revenue - $cogs;
+        $missingCosts = DB::table('stock_movements')->whereIn('type', ['sale', 'sale_return'])
+            ->whereNull('unit_cost')->where('created_at', '>=', $periodStart)->where('created_at', '<', $periodEnd)
+            ->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))->count();
 
         return [
             'net_sales_revenue' => $revenue,
+            'missing_cost_movements' => $missingCosts,
             'cogs' => $cogs,
             'gross_profit' => $gross,
             'total_expenses' => $expenses,
@@ -304,11 +317,9 @@ class ReportService
     }
 
     /**
-     * أرصدة الموردين وأعمار ديونهم: لكل مورد رصيده الحالي وإجمالي
-     * مشترياته (فواتير معتمدة) وتوزيع المستحق غير المسدد على شرائح
-     * عمرية حسب تاريخ الاستحقاق.
+     * Generates supplier debt balances and accounts payable aging buckets.
      *
-     * @return list<array<string, mixed>>
+     * @return list<array<string, mixed>> Supplier balances with aging breakdowns
      */
     public function suppliersReport(): array
     {
@@ -346,14 +357,16 @@ class ReportService
     }
 
     /**
-     * تقرير ورديات الكاشير: أرقام الوردية المالية كما سُجلت عند الإغلاق
-     * (مبيعات نقدية/شبكة، متوقع/فعلي، فرق) مع إبراز ذوات الفروق.
+     * Reports POS cash drawer sessions, closing cash reconciliation, and variance tracking.
      *
-     * @return array{rows: list<array<string, mixed>>, totals: array<string, mixed>}
+     * @param string $from Start date (YYYY-MM-DD)
+     * @param string $to End date (YYYY-MM-DD)
+     * @param bool $onlyDifferences Filter only shifts with non-zero cash variance
+     * @param int|null $branchId Branch filter
+     * @return array{rows: list<array<string, mixed>>, totals: array<string, mixed>} Shift report
      */
     public function shiftsReport(string $from, string $to, bool $onlyDifferences = false, ?int $branchId = null): array
     {
-
         [$periodStart, $periodEnd] = $this->periodBounds($from, $to);
         $base = fn () => DB::table('pos_shifts as ps')->when($branchId !== null, fn ($q) => $q->where('ps.branch_id', $branchId))
             ->leftJoin('users as u', 'u.id', '=', 'ps.user_id')
@@ -401,7 +414,7 @@ class ReportService
         ];
     }
 
-    /** Sales and their reversals stay in the period when each event actually occurred. */
+    // Combines original sales with POS, RMA, and manual return reversals into a unified signed ledger stream.
     private function salesEntries(?int $branchId, string $alias = 'entries'): Builder
     {
         $columns = 'o.id, o.channel, o.allocated_branch_id, o.pos_shift_id, o.payment_method, o.created_at, o.subtotal, o.discount_amount, o.tax_amount, o.shipping_cost, o.grand_total, 1 AS sale_count';
@@ -413,6 +426,7 @@ class ReportService
             ->whereIn('r.status', ['received', 'refunded'])->whereNotNull('r.received_at')
             ->selectRaw('o.id, o.channel, r.branch_id AS allocated_branch_id, o.pos_shift_id, o.payment_method, r.received_at AS created_at, -r.total_refund_amount AS subtotal, 0 AS discount_amount, 0 AS tax_amount, 0 AS shipping_cost, -r.total_refund_amount AS grand_total, 0 AS sale_count');
         $manualReturns = DB::table('orders as o')->where('o.status', 'returned')->whereNull('o.return_of_order_id')
+            ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('orders as pos_return')->whereColumn('pos_return.return_of_order_id', 'o.id'))
             ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('return_requests as r')->whereColumn('r.order_id', 'o.id')->whereIn('r.status', ['received', 'refunded']))
             ->selectRaw('o.id, o.channel, o.allocated_branch_id, o.pos_shift_id, o.payment_method, o.updated_at AS created_at, -o.subtotal, -o.discount_amount, -o.tax_amount, -o.shipping_cost, -o.grand_total, 0 AS sale_count');
 

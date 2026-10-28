@@ -30,7 +30,7 @@ class StoreCustomerRequest extends FormRequest
             'email' => ['nullable', 'email', 'max:255'],
             'phone' => ['required', 'string', 'regex:/^01[0125][0-9]{8}$/', Rule::unique('customers', 'phone')],
             'password' => ['required', 'string', 'min:8', 'max:255'],
-            'type' => ['nullable', Rule::in(array_column(CustomerType::cases(), 'value'))],
+            'type' => ['nullable', Rule::enum(CustomerType::class)],
             'status' => ['nullable', Rule::in([CustomerStatus::Pending->value, CustomerStatus::Approved->value])],
             'company_name' => ['nullable', 'string', 'max:255'],
             'tax_number' => ['nullable', 'string', 'max:50'],

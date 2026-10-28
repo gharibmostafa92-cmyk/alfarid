@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-// تجهيز نص البحث لاستعلام LIKE: الـ wildcards اللي جاية من المستخدم بتتعامل كنص حرفي مش نمط
+/**
+ * Escapes user input to treat SQL LIKE wildcard characters as literal strings.
+ */
 class SearchTerm
 {
     public static function escape(string $term): string
@@ -15,5 +17,10 @@ class SearchTerm
     public static function pattern(string $term): string
     {
         return '%'.self::escape($term).'%';
+    }
+
+    public static function prefix(string $term): string
+    {
+        return self::escape($term).'%';
     }
 }

@@ -12,12 +12,26 @@ use App\Models\SupplierInvoice;
 use App\Models\SupplierUser;
 use App\Models\User;
 use App\Models\WholesalePaymentNotice;
+use App\Services\BranchAccess;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
+/**
+ * Securely streams private file attachments with strict role-based access control and nosniff headers.
+ */
 class AttachmentController extends Controller
 {
+    public function __construct(private readonly BranchAccess $branchAccess) {}
+
+    /**
+     * Streams inspection photos attached to a return request item.
+     *
+     * @param Request $request Authorized request
+     * @param int $returnItem Return item identifier
+     * @param int $attachment Attachment array index
+     * @return StreamedResponse File stream
+     */
     public function returnFile(Request $request, int $returnItem, int $attachment): StreamedResponse
     {
         $actor = $request->user();
@@ -28,10 +42,26 @@ class AttachmentController extends Controller
             abort_unless($actor instanceof User && $actor->can('returns.view'), 403);
         }
         $item = $query->findOrFail($returnItem);
+        if ($actor instanceof User) {
+            $return = $item->returnRequest;
+            $branchId = $return->branch_id ?? $return->order?->allocated_branch_id;
+            if ($branchId === null) {
+                $this->branchAccess->assertCentralAccess($actor);
+            } else {
+                $this->branchAccess->assertBranch($actor->id, (int) $branchId);
+            }
+        }
 
         return $this->download(($item->attachments ?? [])[$attachment] ?? null);
     }
 
+    /**
+     * Streams supplier invoice PDF attachment.
+     *
+     * @param Request $request Authorized request
+     * @param int $invoice Supplier invoice identifier
+     * @return StreamedResponse File stream
+     */
     public function invoice(Request $request, int $invoice): StreamedResponse
     {
         $actor = $request->user();
@@ -45,6 +75,13 @@ class AttachmentController extends Controller
         return $this->download($query->findOrFail($invoice)->attachment_path);
     }
 
+    /**
+     * Streams delivery receipt document attached to a procurement delivery.
+     *
+     * @param Request $request Authorized request
+     * @param int $delivery Delivery identifier
+     * @return StreamedResponse File stream
+     */
     public function delivery(Request $request, int $delivery): StreamedResponse
     {
         $actor = $request->user();
@@ -58,6 +95,13 @@ class AttachmentController extends Controller
         return $this->download($query->findOrFail($delivery)->invoice_file_path);
     }
 
+    /**
+     * Streams bank transfer receipt attached to a wholesale payment notice.
+     *
+     * @param Request $request Authorized request
+     * @param int $notice Payment notice identifier
+     * @return StreamedResponse File stream
+     */
     public function paymentNotice(Request $request, int $notice): StreamedResponse
     {
         $actor = $request->user();

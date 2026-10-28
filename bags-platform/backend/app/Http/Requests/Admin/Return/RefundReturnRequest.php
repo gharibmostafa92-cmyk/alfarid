@@ -22,7 +22,7 @@ class RefundReturnRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'refund_method' => ['nullable', Rule::in(array_column(RefundMethod::cases(), 'value'))],
+            'refund_method' => ['nullable', Rule::enum(RefundMethod::class)],
             'refund_reference' => ['nullable', 'string', 'max:191'],
         ];
     }

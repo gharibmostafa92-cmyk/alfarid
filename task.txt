@@ -1,1979 +1,688 @@
+خطة تنفيذ Load Balancing وHigh Availability لمنصة الفريد (bags-platform)
+مقدمة: إزاي الـ Load Balancer يرفع سعر السيستم فعلاً
+قريت الكود. المشتري الفاهم مش هيدفع أكتر لمجرد إن فيه ملف إعدادات HAProxy. اللي هيدفع فيه هو دليل مكتوب بالأرقام إن السيستم بيتحمل ضغط حقيقي وما بيقعش لما سيرفر يقع. عشان كده الخطة بتنتهي بحاجتين: تقرير اختبار حمل فيه مقارنة بين سيرفر واحد وتلات سيرفرات، واختبار فشل بنطفي فيه سيرفر والسيستم شغال. دول اللي هتعرضهم وقت البيع.
 
-0. ملاحظات حرجة من مراجعة الكود (اقرأها قبل أي خطوة)
-قارنتُ الحزمة بالمتطلبات التي في الطلب، ووجدت ثمانية فروق بين ما طُلب وما يقدّمه الـ Backend فعلاً. الخطة كلها مبنية على الكود الفعلي وليس على المتطلبات المفترضة:
+الأخبار الكويسة: الكود جاهز تقريباً للتوسع:
 
-#	المفترض في الطلب	الموجود فعلاً في الكود	قرار الخطة
-1	per_page في قائمة الطلبات	OrderController@index يستخدم paginate(20) ثابتاً، وكذلك Returns وSuppliers وPR وPO وNotifications	لا نرسل per_page لهذه الشاشات، ونمرّر per={20} للـ Pager
-2	فلتر status + search + dates للطلبات	الفلاتر الفعلية: status، allocated_branch_id، payment_method، date_from، date_to، search، needs_attention، requires_refund	نستخدم هذه الأسماء حرفياً
-3	تغيير الحالة إلى shipped عبر PATCH /status	UpdateOrderStatusRequest يمنع shipped يدوياً	الشحن يتم فقط عبر POST /orders/{id}/shipment
-4	Supplier Payment: Allocate بمصفوفة + Void endpoint	allocate يقبل supplier_invoice_id واحداً فقط. والإلغاء (Void) يتم عبر DELETE /supplier-payments/{id} مع void_reason	نلتزم بذلك
-5	تقارير بحد أقصى 366 يوماً	ReportController::period() لا يفرض هذا الحد، والباراميترات اسمها from/to وليس date_from	تحقق في الـ Frontend، مع مهمة Backend اختيارية (Phase 5)
-6	Mark-all-read للإشعارات	غير موجود. المتاح فقط index وPOST notifications/{id}/read	حلقة متسلسلة على غير المقروء في الصفحة الحالية
-7	opening_balance للخزينة	TreasuryController@store لا يقبله، ويضبط current_balance = 0	نخفي قيمته من الـ payload ولا نرسلها
-8	PO: Draft → Send	يوجد أيضاً POST purchase-orders/{id}/approve قبل send	دورة الحياة: Draft → Approve → Send → Receive → Close-short/Cancel
-وهناك أربعة أشياء غير موجودة في الحزمة، فيجب اكتشافها في الخطوة 0.1 قبل كتابة الأنواع النهائية:
+الـ auth معمول بـ Bearer tokens، وsupports_credentials في CORS قيمته false، فمش محتاج sticky sessions.
+فيه OperationIdempotencyService.
+الـ exception handler بيرجّع 503 ومعاه Retry-After في حالة الـ deadlock.
+فيه health check جاهز على /up.
+الـ services معمول لها scoped.
+الـ production بيرفض TRUSTED_PROXIES لو قيمتها wildcard.
+الأدوات كلها مجانية ومفتوحة المصدر: HAProxy وNginx وPHP-FPM وPgBouncer وRedis Sentinel وKeepalived وPrometheus وGrafana وLoki وk6 وDocker. التكلفة الوحيدة سيرفرات لو حبيت تشغّل على بيئة حقيقية. للديمو كفاية جهاز Linux واحد بـ 16GB رام.
 
-ملف AdminOrderResource.php مذكور في القائمة لكن محتواه غير متاح في النص.
-قواعد كل الـ FormRequest classes، مثل ShippingCompanyRequest وCouponRequest وPurchaseOrderRequest وApproveReturnRequest.
-شكل مخرجات ReportService لأن الـ Controller يغلّفها فقط بـ { data: ... }.
-أسماء حقول النقدية في PosShift (هل هي expected_cash أم closing_cash؟).
-[!IMPORTANT] قاعدة ذهبية للمنفّذ: أي حقل مكتوب بجانبه // VERIFY في هذه الخطة يجب أن تطابقه مع الملف المذكور في الخطوة 0.1. إذا اختلف الاسم عدّل ملف الأنواع والـ mapper فقط، ولا تعدّل مكوّن الواجهة.
+المعمارية النهائية
+Copy                Internet
+                    │
+         ┌──────────┴──────────┐
+         │  VIP (Keepalived)   │
+   ┌─────┴─────┐         ┌─────┴─────┐
+   │ HAProxy 1 │         │ HAProxy 2 │   ← TLS, routing, rate limit, health checks
+   └─────┬─────┘         └─────┬─────┘
+         ├──────────────┬──────┴───────┬──────────────┐
+   ┌─────┴─────┐  ┌─────┴─────┐  ┌─────┴─────┐  ┌─────┴──────┐
+   │ app1      │  │ app2      │  │ app3      │  │ storefront │ x2 (Next.js)
+   │nginx+fpm  │  │nginx+fpm  │  │nginx+fpm  │  │ backoffice │ (static)
+   └─────┬─────┘  └─────┬─────┘  └─────┬─────┘  │ pos        │ (static)
+         └──────────────┼──────────────┘        └────────────┘
+   ┌────────────────────┼─────────────────────┐
+   │ worker x2 │ media-worker │ scheduler x1  │
+   └────────────────────┼─────────────────────┘
+          ┌─────────────┴──────────────┐
+    ┌─────┴─────┐               ┌──────┴───────┐
+    │ PgBouncer │               │ HAProxy-data │ → Redis master/replica + 3 Sentinel
+    └─────┬─────┘               └──────────────┘
+    ┌─────┴─────┐
+    │ Postgres  │ (+ replica اختياري للتقارير)
+    └───────────┘
+قواعد عامة للمنفّذ (اقراها قبل ما تبدأ)
+اشتغل على branch اسمها feature/load-balancing. ما تعملش merge لأي مرحلة قبل ما "شروط القبول" بتاعتها تتحقق.
+بعد أي تعديل في PHP شغّل php artisan test على PostgreSQL، مش SQLite، لأن الكود بيعتمد على row locks وadvisory locks.
+كل الملفات الجديدة بتاعة البنية التحتية تتحط تحت bags-platform/infrastructure/ بالتقسيم ده: docker/ وhaproxy/ وpgbouncer/ وredis/ وkeepalived/ وmonitoring/ وk6/ وscripts/ وdocs/.
+ما تغيّرش أي business logic. شغلك كله في الإعدادات والـ middleware والبنية التحتية.
+لو أي حاجة في الخطة اتعارضت مع الكود الموجود وقّف واسأل. ما تخمّنش.
+المرحلة 0: القياس الأساسي (Baseline) — يوم واحد
+الهدف إننا نسجّل أداء السيستم الحالي على سيرفر واحد، عشان نقارن بيه بعدين.
 
-1. Phase 0: طبقة الـ API Client والبنية التحتية
-0.1 اكتشاف العقود (Contract Discovery)، إلزامي
-نفّذ الأوامر التالية من bags-platform/backend واحفظ مخرجاتها في docs/operations-contracts/:
+شغّل السيستم بالشكل الحالي: Laravel على سيرفر واحد وPostgreSQL وRedis.
+نزّل k6 من grafana.com/docs/k6 (مجاني).
+اعمل seed لبيانات واقعية: 2000 منتج على الأقل بالـ variants بتاعتها وأسعار ومخزون.
+شغّل سكريبت k6 من المرحلة 9 (هتكتبه دلوقتي بشكل مبسط) على GET /api/v1/store/home وGET /api/v1/store/products وGET /api/v1/store/products/{slug}.
+سجّل في infrastructure/docs/baseline.md: الـ RPS، وp50 وp95 وp99، ونسبة الأخطاء، واستهلاك CPU والرام.
+مهم: الـ rate limiters هتوقف اختبار الحمل لأن كل الطلبات جاية من IP واحد. في بيئة الاختبار بس ارفع الحدود من env، زي CUSTOMER_LOGIN_IP_MINUTE وأخواتها. ولو فيه limiter قيمته hardcoded زي store-branding (1200 في الدقيقة)، اقرا حل المرحلة 9 اللي بيستخدم X-Forwarded-For عشوائي.
 
-Copycd bags-platform/backend
-mkdir -p ../docs/operations-contracts
+شروط القبول: ملف baseline.md فيه أرقام حقيقية.
 
-# 1) كل المسارات الإدارية
-php artisan route:list --path=api/v1/admin --json > ../docs/operations-contracts/routes.json
+المرحلة 1: تجهيز Laravel للشغل على أكتر من سيرفر — 3 إلى 4 أيام
+دي أهم مرحلة. لو اتنفذت غلط السيستم هيبوظ بشكل صامت.
 
-# 2) هل يوجد endpoint للفروع؟ للعملاء؟ للـ variants؟
-php artisan route:list --path=api/v1/admin/branches
-php artisan route:list --path=api/v1/admin/customers
-php artisan route:list --path=api/v1/admin/products
-php artisan route:list --path=api/v1/admin/inventory
+1.1 مشكلة الـ IP (أخطر نقطة في الخطة كلها)
+كل الـ rate limiters في AppServiceProvider بتعتمد على $request->ip()، زي checkout وcart وcustomer-login. لو الـ trusted proxies متظبطة غلط، كل الزباين هيظهروا بـ IP الـ load balancer، وأول 120 طلب في الدقيقة هيقفلوا الموقع على الناس كلها.
 
-# 3) نسخ قواعد كل FormRequest ذات صلة
-for f in $(grep -rlE "Return|Shipping|PriceList|CustomerGroup|Promotion|Coupon|Supplier|Purchase|Quotation|PaymentNotice|Order" app/Http/Requests); do
-  echo "=== $f ==="; sed -n '/function rules/,/^    }/p' "$f";
-done > ../docs/operations-contracts/form-requests.txt
+الحل:
 
-# 4) نسخ كل الـ Resources
-cat app/Http/Resources/Admin/AdminOrderResource.php \
-    app/Http/Resources/Admin/*Shipping*Resource.php \
-    app/Http/Resources/Admin/*Coupon*Resource.php \
-    app/Http/Resources/Admin/*Promotion*Resource.php \
-    app/Http/Resources/Admin/*Quotation*Resource.php \
-    app/Http/Resources/Admin/*PaymentNotice*Resource.php \
-    app/Http/Resources/Admin/SupplierPaymentResource.php \
-    > ../docs/operations-contracts/resources.txt 2>/dev/null
+في docker-compose هنثبت IPs الـ proxies (التفاصيل في المرحلة 2).
+في .env الخاص بالـ production:
+CopyTRUSTED_PROXIES=172.31.0.10,172.31.0.11,172.31.0.20,172.31.0.21
+الأربع عناوين دول هما HAProxy 1 وHAProxy 2 وstorefront 1 وstorefront 2. ما تستخدمش *، لأن AppServiceProvider هيرمي LogicException (ودي ميزة أمان موجودة).
+ما تلمسش TrustProxies::at(...) في AppServiceProvider، هو شغال صح.
+1.2 Middleware للـ Request ID
+اعمل ملف app/Http/Middleware/AssignRequestId.php:
 
-# 5) قيم الـ Enums
-grep -rn "case " app/Enums/OrderStatus.php app/Enums/*Return*Status*.php app/Enums/PriceListType.php \
-  app/Enums/TreasuryType.php app/Enums/PosShiftStatus.php app/Enums/QuotationStatus.php \
-  app/Enums/WholesalePaymentNoticeStatus.php app/Enums/Purchase*Status*.php app/Enums/SupplierInvoice*Status*.php \
-  > ../docs/operations-contracts/enums.txt
-Copy
-بعدها احصل على Token للاختبار. الـ endpoint هو POST /api/v1/auth/login وجسمه { login, password } كما في authEndpoints.login:
+Copy<?php
 
-Copyexport API=http://localhost:8000
-export TOKEN=$(curl -s -X POST "$API/api/v1/auth/login" \
-  -H 'Accept: application/json' -H 'Content-Type: application/json' \
-  -d '{"login":"admin@example.com","password":"password"}' | jq -r .token)
-echo $TOKEN   # يجب ألا يكون null
-export H=(-H "Authorization: Bearer $TOKEN" -H 'Accept: application/json')
-احفظ عيّنة استجابة حقيقية لكل endpoint قراءة في docs/operations-contracts/fixtures/ (ستُستخدم في تصحيح الأنواع):
+declare(strict_types=1);
 
-Copymkdir -p ../docs/operations-contracts/fixtures
-for p in orders returns shipping-companies shipping-zones shipping-rates customer-groups price-lists \
-         promotions coupons brands suppliers purchase-requests purchase-orders supplier-invoices \
-         supplier-payments treasuries expenses treasury-transfers shifts quotations payment-notices notifications; do
-  curl -s "${H[@]}" "$API/api/v1/admin/$p" | jq '.' > ../docs/operations-contracts/fixtures/$p.json
-done
-for r in sales inventory profit suppliers shifts; do
-  curl -s "${H[@]}" "$API/api/v1/admin/reports/$r" | jq '.' > ../docs/operations-contracts/fixtures/report-$r.json
-done
-0.2 هيكل الملفات المطلوب إنشاؤه
-Copypackages/api-client/src/endpoints/operations/
-  http.ts            ← أنواع مشتركة + helpers + parseApiError
-  orders.ts          ← Orders + Returns
-  commerce.ts        ← Shipping + CustomerGroups + PriceLists + Items + Promotions + Coupons
-  suppliers.ts       ← Suppliers + Users + PR + PO + Invoices + Payments
-  finance.ts         ← Treasuries + Expenses + Transfers + Shifts + Quotations + PaymentNotices
-  reports.ts         ← Reports + Notifications
-  index.ts           ← re-export
+namespace App\Http\Middleware;
 
-apps/backoffice/src/pages/admin/operations-mock/api/
-  useRemote.ts       ← hook للتحميل/الإلغاء/إعادة التحميل
-  useFormState.ts    ← حالة النماذج + أخطاء 422
-  source.ts          ← علم الـ Mock fallback
-  mappers.ts         ← snake_case API → نماذج data.ts
-لا تعرّف brandsApi من جديد. هو موجود فعلاً في endpoints/index.ts ويدعم multipart مع _method=PUT، وسنستخدمه كما هو.
+use Closure;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\Response;
 
-0.3 الملف: packages/api-client/src/endpoints/operations/http.ts
-Copyimport type { AxiosResponse } from 'axios';
-import { defaultApiClient as api } from '../../axios-instance';
-
-export { api };
-export const ADMIN = '/api/v1/admin';
-export type Id = number;
-
-/** شكل Laravel paginate() القياسي */
-export interface PageMeta {
-  current_page: number;
-  last_page: number;
-  per_page: number;
-  total: number;
-  from: number | null;
-  to: number | null;
-}
-export interface Paginated<T> {
-  data: T[];
-  links?: Record<string, string | null>;
-  meta: PageMeta;
-}
-
-/** يحوّل أي استجابة قائمة (paginated أو مصفوفة) إلى Paginated موحّد */
-export function asPage<T>(r: AxiosResponse<any>): Paginated<T> {
-  const body = r.data;
-  if (body && Array.isArray(body.data) && body.meta) return body as Paginated<T>;
-  const arr: T[] = Array.isArray(body) ? body : Array.isArray(body?.data) ? body.data : [];
-  return { data: arr, meta: { current_page: 1, last_page: 1, per_page: arr.length, total: arr.length, from: arr.length ? 1 : null, to: arr.length } };
-}
-
-/** يفك { data: T } */
-export function one<T>(r: AxiosResponse<any>): T {
-  return (r.data && 'data' in r.data ? r.data.data : r.data) as T;
-}
-
-/** يحذف القيم الفارغة، ويحوّل boolean إلى 1/0 لأن Laravel `boolean` يرفض "true" */
-export function cleanParams(params: object = {}): Record<string, string | number> {
-  const out: Record<string, string | number> = {};
-  for (const [k, v] of Object.entries(params)) {
-    if (v === undefined || v === null || v === '') continue;
-    out[k] = typeof v === 'boolean' ? (v ? 1 : 0) : (v as any);
-  }
-  return out;
-}
-
-/** FormData لرفع الملفات. spoofPut=true عند التعديل لأن PHP لا يقرأ multipart مع PUT */
-export function toFormData(obj: Record<string, unknown>, spoofPut = false): FormData {
-  const fd = new FormData();
-  if (spoofPut) fd.append('_method', 'PUT');
-  const put = (key: string, v: unknown) => {
-    if (v === undefined) return;
-    if (v === null) return fd.append(key, '');
-    if (typeof v === 'boolean') return fd.append(key, v ? '1' : '0');
-    if (v instanceof Blob) return fd.append(key, v);
-    if (Array.isArray(v)) {
-      v.forEach((item, i) => {
-        if (item !== null && typeof item === 'object' && !(item instanceof Blob)) {
-          Object.entries(item).forEach(([ik, iv]) => put(`${key}[${i}][${ik}]`, iv));
-        } else put(`${key}[${i}]`, item);
-      });
-      return;
-    }
-    fd.append(key, String(v));
-  };
-  Object.entries(obj).forEach(([k, v]) => put(k, v));
-  return fd;
-}
-export const MULTIPART = { headers: { 'Content-Type': 'multipart/form-data' } };
-
-/** CRUD عام لموارد apiResource */
-export function crud<T, P extends object, Q extends object = Record<string, unknown>>(path: string) {
-  return {
-    list: (params?: Q, signal?: AbortSignal) =>
-      api.get(path, { params: cleanParams(params), signal }).then((r) => asPage<T>(r)),
-    show: (id: Id, signal?: AbortSignal) => api.get(`${path}/${id}`, { signal }).then((r) => one<T>(r)),
-    create: (body: P) => api.post(path, body).then((r) => one<T>(r)),
-    update: (id: Id, body: Partial<P>) => api.put(`${path}/${id}`, body).then((r) => one<T>(r)),
-    remove: (id: Id) => api.delete<{ message: string }>(`${path}/${id}`).then((r) => r.data),
-  };
-}
-
-/** تحميل مرفق محمي (يحتاج Bearer) وفتحه في تبويب جديد */
-export async function openProtectedFile(url: string): Promise<void> {
-  const r = await api.get(url, { responseType: 'blob' });
-  const blobUrl = URL.createObjectURL(r.data as Blob);
-  window.open(blobUrl, '_blank', 'noopener');
-  setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
-}
-
-/** تنزيل ملف (CSV) */
-export async function downloadFile(url: string, filename: string, params?: object): Promise<void> {
-  const r = await api.get(url, { responseType: 'blob', params: cleanParams(params) });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(r.data as Blob);
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
-/** مفتاح Idempotency للعمليات المالية */
-export const newIdempotencyKey = (): string =>
-  (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`);
-
-/** ===== معالجة الأخطاء ===== */
-export interface ParsedApiError {
-  status: number | null;
-  message: string;
-  fieldErrors: Record<string, string>; // أول رسالة لكل حقل
-}
-export function parseApiError(e: unknown): ParsedApiError {
-  const err = e as any;
-  const status: number | null = err?.response?.status ?? null;
-  const body = err?.response?.data ?? {};
-  const fieldErrors: Record<string, string> = {};
-  if (body.errors && typeof body.errors === 'object') {
-    for (const [k, v] of Object.entries(body.errors)) fieldErrors[k] = Array.isArray(v) ? String(v[0]) : String(v);
-  }
-  let message = body.message as string | undefined;
-  if (!message) {
-    if (status === null) message = 'تعذّر الاتصال بالخادم';
-    else if (status === 403) message = 'ليست لديك صلاحية لتنفيذ هذا الإجراء';
-    else if (status === 404) message = 'السجل غير موجود';
-    else if (status >= 500) message = 'حدث خطأ في الخادم، حاول لاحقاً';
-    else message = 'تعذّر تنفيذ الطلب';
-  }
-  return { status, message, fieldErrors };
-}
-Copy
-0.4 تسجيل الوحدة في الحزمة
-افتح packages/api-client/src/endpoints/index.ts وأضف هذا السطر تحت export * from './inventory'; مباشرة:
-
-Copyexport * from './operations';
-ثم أنشئ الملف packages/api-client/src/endpoints/operations/index.ts:
-
-Copyexport * from './http';
-export * from './orders';
-export * from './commerce';
-export * from './suppliers';
-export * from './finance';
-export * from './reports';
-وتأكد من أن src/index.ts يصدّر axios-instance لأننا نحتاج isAxiosCancel:
-
-Copygrep -n "axios-instance\|endpoints" bags-platform/frontend/packages/api-client/src/index.ts
-إذا لم يظهر axios-instance فأضف export * from './axios-instance';، وإذا لم يظهر endpoints فأضف export * from './endpoints';.
-
-تعارض الأسماء: قبل الإضافة شغّل grep -rn "export const \(adminOrdersApi\|suppliersApi\|reportsApi\|notificationsApi\)" packages/api-client/src. إذا ظهر أي اسم مكرر فأضف البادئة ops لاسمك، مثل opsSuppliersApi.
-
-0.5 الملف: apps/backoffice/src/pages/admin/operations-mock/api/source.ts
-Copy/** true = استخدم data.ts بدل الـ API بالكامل */
-export const USE_MOCK = import.meta.env.VITE_USE_MOCK_OPERATIONS === 'true';
-/** true = إذا فشل الطلب (5xx/شبكة) اعرض بيانات data.ts مع تنبيه */
-export const FALLBACK_ON_ERROR = import.meta.env.VITE_OPERATIONS_FALLBACK_ON_ERROR === 'true';
-أضف إلى apps/backoffice/src/vite-env.d.ts (أنشئه إن لم يكن موجوداً):
-
-Copy/// <reference types="vite/client" />
-interface ImportMetaEnv {
-  readonly VITE_API_URL?: string;
-  readonly VITE_USE_MOCK_OPERATIONS?: 'true' | 'false';
-  readonly VITE_OPERATIONS_FALLBACK_ON_ERROR?: 'true' | 'false';
-}
-interface ImportMeta { readonly env: ImportMetaEnv }
-وأضف إلى apps/backoffice/.env.development:
-
-CopyVITE_USE_MOCK_OPERATIONS=false
-VITE_OPERATIONS_FALLBACK_ON_ERROR=true
-وإلى .env.production:
-
-CopyVITE_USE_MOCK_OPERATIONS=false
-VITE_OPERATIONS_FALLBACK_ON_ERROR=false
-0.6 الملف: api/useRemote.ts
-المشروع لا يستخدم @tanstack/react-query، فلا تُضِفه. هذا الـ hook يغطي احتياجنا:
-
-Copyimport { useCallback, useEffect, useRef, useState, type DependencyList } from 'react';
-import { isAxiosCancel, parseApiError, type ParsedApiError } from '@alfarid/api-client';
-import { USE_MOCK, FALLBACK_ON_ERROR } from './source';
-
-export interface RemoteState<T> {
-  data: T | null;
-  loading: boolean;
-  error: ParsedApiError | null;
-  usingMock: boolean;
-  reload: () => void;
-  setData: React.Dispatch<React.SetStateAction<T | null>>;
-}
-
-export function useRemote<T>(
-  fetcher: (signal: AbortSignal) => Promise<T>,
-  deps: DependencyList,
-  opts: { enabled?: boolean; mock?: () => T; onError?: (e: ParsedApiError) => void } = {},
-): RemoteState<T> {
-  const { enabled = true, mock, onError } = opts;
-  const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState<boolean>(enabled);
-  const [error, setError] = useState<ParsedApiError | null>(null);
-  const [usingMock, setUsingMock] = useState(false);
-  const [tick, setTick] = useState(0);
-  const onErrorRef = useRef(onError);
-  onErrorRef.current = onError;
-
-  useEffect(() => {
-    if (!enabled) { setLoading(false); return; }
-    if (USE_MOCK && mock) { setData(mock()); setUsingMock(true); setLoading(false); return; }
-    const ctrl = new AbortController();
-    setLoading(true);
-    setError(null);
-    fetcher(ctrl.signal)
-      .then((d) => { setData(d); setUsingMock(false); })
-      .catch((e) => {
-        if (isAxiosCancel(e)) return;
-        const pe = parseApiError(e);
-        setError(pe);
-        onErrorRef.current?.(pe);
-        if (FALLBACK_ON_ERROR && mock && (pe.status === null || pe.status >= 500)) {
-          setData(mock()); setUsingMock(true);
+final class AssignRequestId
+{
+    public function handle(Request $request, Closure $next): Response
+    {
+        $id = $request->headers->get('X-Request-ID');
+        if (! is_string($id) || ! preg_match('/\A[A-Za-z0-9._:-]{8,128}\z/', $id)) {
+            $id = (string) Str::uuid();
         }
-      })
-      .finally(() => { if (!ctrl.signal.aborted) setLoading(false); });
-    return () => ctrl.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [...deps, tick, enabled]);
 
-  const reload = useCallback(() => setTick((t) => t + 1), []);
-  return { data, loading, error, usingMock, reload, setData };
-}
+        Log::withContext([
+            'request_id' => $id,
+            'node' => gethostname(),
+            'client_ip' => $request->ip(),
+        ]);
 
-/** تأخير قيمة البحث 350ms */
-export function useDebounced<T>(value: T, ms = 350): T {
-  const [v, setV] = useState(value);
-  useEffect(() => { const t = setTimeout(() => setV(value), ms); return () => clearTimeout(t); }, [value, ms]);
-  return v;
-}
+        $response = $next($request);
+        $response->headers->set('X-Request-ID', $id);
 
-/** تنفيذ mutation مع حالة busy وtoast */
-export function useAction() {
-  const [busy, setBusy] = useState(false);
-  const run = useCallback(async <R,>(
-    fn: () => Promise<R>,
-    h: { toast: (t: string, tone?: 'accent' | 'green' | 'red') => void; success?: string; onFieldErrors?: (f: Record<string, string>) => void },
-  ): Promise<R | undefined> => {
-    setBusy(true);
-    try {
-      const r = await fn();
-      if (h.success) h.toast(h.success, 'green');
-      return r;
-    } catch (e) {
-      const pe = parseApiError(e);
-      if (pe.status === 422 && Object.keys(pe.fieldErrors).length && h.onFieldErrors) h.onFieldErrors(pe.fieldErrors);
-      h.toast(pe.message, 'red');
-      return undefined;
-    } finally {
-      setBusy(false);
+        if (config('app.expose_node_header')) {
+            $response->headers->set('X-Served-By', (string) gethostname());
+        }
+
+        return $response;
     }
-  }, []);
-  return { busy, run };
 }
 Copy
-0.7 الملف: api/useFormState.ts
-النماذج الحالية تستخدم defaultValue (uncontrolled)، ولكي نرسل القيم يجب تحويلها إلى controlled. التغيير الوحيد المسموح في الـ JSX هو استبدال defaultValue={x} بـ value={f.v.key} onChange={f.on('key')}، وإضافة err={f.errors.key} لمكوّن Field. لا تغيّر أي className ولا ترتيب العناصر.
+سجّله في bootstrap/app.php جوه withMiddleware: $middleware->prepend(\App\Http\Middleware\AssignRequestId::class);
+ضيف في config/app.php: 'expose_node_header' => (bool) env('APP_EXPOSE_NODE_HEADER', false), وخليه true في الديمو بس، عشان تبيّن للمشتري إن الطلبات بتتوزع على السيرفرات.
+في config/cors.php غيّر exposed_headers لـ ['Retry-After', 'X-Request-ID'].
+1.3 تقليل طلبات CORS preflight
+config/cors.php فيه 'max_age' => 0، ومعناها إن المتصفح بيبعت طلب OPTIONS قبل كل طلب API، وده بيضاعف الحمل. غيّرها لـ:
 
-Copyimport { useState, type ChangeEvent } from 'react';
+Copy'max_age' => (int) env('CORS_MAX_AGE', 600),
+وضيف أصل الـ POS في CORS_ALLOWED_ORIGINS.
 
-export function useFormState<T extends Record<string, any>>(initial: T) {
-  const [v, setV] = useState<T>(initial);
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const set = <K extends keyof T>(k: K, val: T[K]) => {
-    setV((p) => ({ ...p, [k]: val }));
-    if (errors[k as string]) setErrors((e) => { const n = { ...e }; delete n[k as string]; return n; });
-  };
-  const on = (k: keyof T) => (e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const t = e.target as HTMLInputElement;
-    const val = t.type === 'number' ? (t.value === '' ? '' : Number(t.value)) : t.type === 'checkbox' ? t.checked : t.value;
-    set(k, val as T[keyof T]);
-  };
-  return { v, set, on, errors, setErrors };
-}
-تعديل ضروري في ui.tsx، بدون أي تغيير في الـ markup: افتح ToggleRow وTextArea. إذا لم يكن لديهما onChange فأضف prop اختيارياً:
+1.4 Readiness Health Check
+/up بيقول بس إن PHP شغال. محتاجين endpoint بيتأكد من الداتابيز وRedis كمان. اعمل app/Http/Controllers/HealthReadyController.php:
 
-Copy// ToggleRow: أضف إلى props
-onChange?: (on: boolean) => void;
-// داخل handler الضغط الحالي: بعد تحديث الحالة الداخلية استدعِ onChange?.(next)
+Copy<?php
 
-// TextArea: أضف إلى props
-onChange?: (v: string) => void;
-// وعلى <textarea>: onChange={(e) => { /* المنطق الحالي إن وجد */ props.onChange?.(e.target.value); }}
-0.8 Verification Gate لـ Phase 0
-Copycd bags-platform/frontend
-pnpm --filter @alfarid/api-client exec tsc --noEmit
-pnpm --filter @alfarid/backoffice typecheck
-شروط النجاح:
+declare(strict_types=1);
 
-لا أخطاء TypeScript.
-مجلد docs/operations-contracts/fixtures/ يحتوي ملفات JSON غير فارغة، ولا يوجد ملف يحتوي "message": "Unauthenticated.".
-grep -c "VERIFY" packages/api-client/src/endpoints/operations/*.ts يعطي 0 بعد أن تطابق كل حقل مع الـ fixtures. هذا الشرط يُفحص في نهاية كل Phase للملف الخاص بها.
-2. Phase 1: المبيعات والعمليات (Orders & Returns)
-1.1 جدول الـ Endpoints
-الإجراء	Method + Path	Body / Query	الاستجابة
-قائمة الطلبات	GET /api/v1/admin/orders	page, status, allocated_branch_id, payment_method, date_from, date_to, search(≤100), needs_attention, requires_refund	Paginated<AdminOrder> (20/صفحة)
-تفاصيل	GET /orders/{id}	—	{data: AdminOrder} مع items, status_histories, customer, city, allocated_branch
-تغيير الحالة	PATCH /orders/{id}/status	{status, notes?} ممنوع shipped	{data: AdminOrder}
-حالة الدفع	POST /orders/{id}/payment	{payment_status, notes?}	{data: AdminOrder}
-تخصيص فرع	POST /orders/{id}/allocate	{branch_id?: number|null} (null = تلقائي) فقط عند confirmed/processing	{data: AdminOrder}
-إلغاء التخصيص	POST /orders/{id}/deallocate	—	{data: AdminOrder}
-إنشاء شحنة	POST /orders/{id}/shipment	{shipping_company_id, awb_number?}	{data: Shipment}
-قائمة المرتجعات	GET /returns	page, search, status, order_id, customer_id	Paginated<ReturnRequest>
-إنشاء/تفاصيل/تعديل/حذف	POST/GET/PUT/DELETE /returns[/{id}]	انظر StoreReturnRequest	{data: ReturnRequest}
-موافقة	POST /returns/{id}/approve	انظر ApproveReturnRequest	{data: ReturnRequest}
-استلام وفحص	POST /returns/{id}/receive	انظر ReceiveReturnRequest	{data: ReturnRequest}
-استرداد	POST /returns/{id}/refund	انظر RefundReturnRequest	{data: ReturnRequest}
-انتقالات حالة الدفع المسموحة (من UpdateOrderPaymentRequest): unpaid→paid|failed، failed→paid|unpaid، paid→refunded، وrefunded نهائية.
+namespace App\Http\Controllers;
 
-1.2 الملف: endpoints/operations/orders.ts
-Copyimport { api, ADMIN, asPage, one, cleanParams, type Id, type Paginated } from './http';
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Redis;
+use Throwable;
 
-export type OrderStatus = 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'returned'; // VERIFY enums.txt
-export type PaymentStatus = 'unpaid' | 'paid' | 'failed' | 'refunded';
-export type PaymentMethod = 'cod' | 'card' | 'wallet' | 'bank_transfer' | 'credit';
+final class HealthReadyController
+{
+    public function __invoke(): JsonResponse
+    {
+        $checks = [];
 
-export const PAYMENT_TRANSITIONS: Record<PaymentStatus, PaymentStatus[]> = {
-  unpaid: ['paid', 'failed'],
-  failed: ['paid', 'unpaid'],
-  paid: ['refunded'],
-  refunded: [],
-};
+        try { DB::select('select 1'); $checks['db'] = 'ok'; }
+        catch (Throwable) { $checks['db'] = 'fail'; }
 
-export interface AdminOrderListParams {
-  page?: number;
-  status?: OrderStatus;
-  allocated_branch_id?: number;
-  payment_method?: PaymentMethod;
-  date_from?: string; // Y-m-d
-  date_to?: string;   // Y-m-d
-  search?: string;
-  needs_attention?: boolean;
-  requires_refund?: boolean;
-}
+        try { Redis::connection('default')->ping(); $checks['redis'] = 'ok'; }
+        catch (Throwable) { $checks['redis'] = 'fail'; }
 
-export interface AdminOrderItem {          // VERIFY resources.txt (OrderItemResource)
-  id: number;
-  product_variant_id: number;
-  product_name: string;
-  variant_name?: string | null;
-  sku: string;
-  qty: number;
-  unit_price: string;
-  line_total: string;
-}
+        $checks['storage'] = is_writable(storage_path('framework')) ? 'ok' : 'fail';
 
-export interface AdminOrderStatusHistory {
-  id: number;
-  from_status: OrderStatus | null;
-  to_status: OrderStatus;
-  changed_by_type: string | null;
-  changed_by_id: number | null;
-  notes: string | null;
-  created_at: string;
-}
+        $ok = ! in_array('fail', $checks, true);
 
-export interface AdminOrder {
-  id: number;
-  order_number: string;
-  status: OrderStatus;
-  payment_status: PaymentStatus;
-  payment_method: PaymentMethod;
-  requires_refund: boolean;
-  needs_attention: boolean;
-  guest_name: string | null;
-  guest_phone: string | null;
-  channel?: string | null;                 // VERIFY
-  subtotal?: string;                       // VERIFY
-  shipping_fee?: string;                   // VERIFY
-  discount_total?: string;                 // VERIFY
-  grand_total: string;                     // VERIFY (قد يكون total)
-  shipping_address?: string | null;        // VERIFY
-  items_count?: number;
-  customer?: { id: number; name: string; phone?: string | null; type?: string } | null;
-  city?: { id: number; name: string } | null;
-  allocated_branch?: { id: number; name: string } | null;
-  items?: AdminOrderItem[];
-  status_histories?: AdminOrderStatusHistory[];
-  created_at: string;
-}
-
-export interface ShipmentResponse { id: number; shipping_company_id: number; awb_number: string | null; tracking_url?: string | null; }
-
-const O = `${ADMIN}/orders`;
-export const adminOrdersApi = {
-  list: (p: AdminOrderListParams, signal?: AbortSignal): Promise<Paginated<AdminOrder>> =>
-    api.get(O, { params: cleanParams(p), signal }).then((r) => asPage<AdminOrder>(r)),
-  show: (id: Id, signal?: AbortSignal) => api.get(`${O}/${id}`, { signal }).then((r) => one<AdminOrder>(r)),
-  updateStatus: (id: Id, body: { status: Exclude<OrderStatus, 'shipped'>; notes?: string }) =>
-    api.patch(`${O}/${id}/status`, body).then((r) => one<AdminOrder>(r)),
-  updatePayment: (id: Id, body: { payment_status: PaymentStatus; notes?: string }) =>
-    api.post(`${O}/${id}/payment`, body).then((r) => one<AdminOrder>(r)),
-  allocate: (id: Id, branch_id: number | null) =>
-    api.post(`${O}/${id}/allocate`, { branch_id }).then((r) => one<AdminOrder>(r)),
-  deallocate: (id: Id) => api.post(`${O}/${id}/deallocate`).then((r) => one<AdminOrder>(r)),
-  createShipment: (id: Id, body: { shipping_company_id: number; awb_number?: string | null }) =>
-    api.post(`${O}/${id}/shipment`, body).then((r) => one<ShipmentResponse>(r)),
-};
-
-/* ===== Returns ===== */
-export type ReturnStatus = 'pending' | 'approved' | 'rejected' | 'received' | 'refunded' | 'cancelled'; // VERIFY
-export type RefundMethod = 'original' | 'wallet' | 'bank_transfer' | 'cash';                          // VERIFY
-
-export interface ReturnRequestItem {       // VERIFY (ReturnRequestItemResource)
-  id: number;
-  order_item_id: number;
-  product_name?: string;
-  sku?: string;
-  qty_requested: number;
-  qty_approved: number | null;
-  qty_received_good: number | null;
-  qty_received_damaged: number | null;
-  unit_price: string;
-}
-
-/** مطابق حرفياً لـ ReturnRequestResource::toArray */
-export interface ReturnRequest {
-  id: number;
-  return_number: string;
-  order_id: number;
-  order_number?: string | null;
-  customer_id: number | null;
-  customer_name?: string | null;
-  branch_id: number | null;
-  status: ReturnStatus;
-  refund_method: RefundMethod | null;
-  total_refund_amount: string | null;
-  reason: string | null;
-  admin_notes: string | null;
-  refund_reference: string | null;
-  approved_by: number | null;
-  received_by: number | null;
-  refunded_by: number | null;
-  approved_at: string | null;
-  received_at: string | null;
-  refunded_at: string | null;
-  items?: ReturnRequestItem[];
-  created_at: string | null;
-  updated_at: string | null;
-}
-
-export interface ReturnListParams { page?: number; search?: string; status?: ReturnStatus; order_id?: number; customer_id?: number }
-export interface StoreReturnPayload {      // VERIFY form-requests.txt (StoreReturnRequest)
-  order_id: number;
-  reason?: string;
-  items: { order_item_id: number; qty: number; reason?: string }[];
-}
-export interface ApproveReturnPayload { branch_id: number; items: { id: number; qty_approved: number }[]; admin_notes?: string } // VERIFY
-export interface ReceiveReturnPayload { items: { id: number; qty_good: number; qty_damaged: number }[]; admin_notes?: string } // VERIFY
-export interface RefundReturnPayload { refund_method: RefundMethod; refund_reference?: string; admin_notes?: string }         // VERIFY
-
-const R = `${ADMIN}/returns`;
-export const adminReturnsApi = {
-  list: (p: ReturnListParams, signal?: AbortSignal) =>
-    api.get(R, { params: cleanParams(p), signal }).then((r) => asPage<ReturnRequest>(r)),
-  show: (id: Id, signal?: AbortSignal) => api.get(`${R}/${id}`, { signal }).then((r) => one<ReturnRequest>(r)),
-  create: (b: StoreReturnPayload) => api.post(R, b).then((r) => one<ReturnRequest>(r)),
-  update: (id: Id, b: Partial<StoreReturnPayload> & { status?: 'rejected' | 'cancelled'; admin_notes?: string }) =>
-    api.put(`${R}/${id}`, b).then((r) => one<ReturnRequest>(r)),
-  remove: (id: Id) => api.delete(`${R}/${id}`).then((r) => r.data as { message: string }),
-  approve: (id: Id, b: ApproveReturnPayload) => api.post(`${R}/${id}/approve`, b).then((r) => one<ReturnRequest>(r)),
-  receive: (id: Id, b: ReceiveReturnPayload) => api.post(`${R}/${id}/receive`, b).then((r) => one<ReturnRequest>(r)),
-  refund: (id: Id, b: RefundReturnPayload) => api.post(`${R}/${id}/refund`, b).then((r) => one<ReturnRequest>(r)),
-};
-Copy
-إجراء الرفض/الإلغاء (Reject/Cancel) في ReturnDetail لا يملك endpoint مخصصاً. افتح UpdateReturnRequest في form-requests.txt: إذا كان يقبل status فاستخدم update(id, {status:'rejected'})، وإلا فاستخدم remove(id) للحالة pending فقط، وأخفِ الزر لباقي الحالات عبر الشرط القائم دون تعديل markup.
-
-1.3 الملف: operations-mock/api/mappers.ts (قسم Orders/Returns)
-Copyimport type { AdminOrder, ReturnRequest } from '@alfarid/api-client';
-import type { OrderRow, ReturnRow } from '../data';
-
-const TZ = 'Africa/Cairo';
-export const toDate = (iso?: string | null) =>
-  iso ? new Date(iso).toLocaleDateString('en-CA', { timeZone: TZ }) : '';           // YYYY-MM-DD
-export const toTime = (iso?: string | null) =>
-  iso ? new Date(iso).toLocaleTimeString('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit' }) : '';
-export const num = (v: string | number | null | undefined) => (v === null || v === undefined || v === '' ? 0 : Number(v));
-
-/** انسخ القيم الحرفية لـ ctype من مصفوفة ORDERS في data.ts (مثلاً 'ضيف' / 'جملة' / 'قطاعي') */
-const CTYPE_GUEST = '__COPY_FROM_DATA_TS_guest__';
-const CTYPE_WHOLESALE = '__COPY_FROM_DATA_TS_wholesale__';
-const CTYPE_RETAIL = '__COPY_FROM_DATA_TS_retail__';
-
-export function mapOrder(o: AdminOrder): OrderRow {
-  return {
-    id: o.id,
-    no: o.order_number,
-    customer: o.customer?.name ?? o.guest_name ?? '—',
-    guest: !o.customer,
-    ctype: !o.customer ? CTYPE_GUEST : o.customer.type === 'wholesale' ? CTYPE_WHOLESALE : CTYPE_RETAIL,
-    phone: o.customer?.phone ?? o.guest_phone ?? '',
-    channel: o.channel ?? 'web',
-    city: o.city?.name ?? '',
-    status: o.status,
-    pay: o.payment_method,
-    payStatus: o.payment_status,
-    branch: o.allocated_branch?.name ?? null,
-    total: num(o.grand_total),
-    date: toDate(o.created_at),
-    time: toTime(o.created_at),
-    followUp: !!o.needs_attention,
-    needRefund: !!o.requires_refund,
-  };
-}
-
-export function mapReturn(r: ReturnRequest, branchName?: (id: number | null) => string | null): ReturnRow {
-  return {
-    id: r.id,
-    no: r.return_number,
-    order: r.order_number ?? `#${r.order_id}`,
-    customer: r.customer_name ?? '—',
-    branch: branchName ? branchName(r.branch_id) : r.branch_id ? `#${r.branch_id}` : null,
-    status: r.status,
-    method: r.refund_method,
-    total: num(r.total_refund_amount),
-    date: toDate(r.created_at),
-  };
+        return response()
+            ->json(['status' => $ok ? 'ok' : 'fail', 'checks' => $checks], $ok ? 200 : 503)
+            ->header('Cache-Control', 'no-store');
+    }
 }
 Copy
-قرار ثابت: نحتفظ بالكائن الخام AdminOrder في حالة OrderDetail لأن التفاصيل تحتاج items وstatus_histories وallocated_branch.id، ونستخدم mapOrder فقط للحقول التي يعرضها الـ JSX الحالي بأسماء OrderRow.
+سجّل الـ route في bootstrap/app.php جوه callback الـ then:، ومن غير web middleware عشان ما يفتحش session ويكتب في الداتابيز مع كل health check:
 
-1.4 مصدر الفروع (Branches) للفلاتر
-الواجهة تستخدم BRANCHES: string[]، بينما الـ API يحتاج id. نفّذ أحد الخيارين حسب نتيجة الخطوة 0.1:
+CopyRoute::get('health/ready', \App\Http\Controllers\HealthReadyController::class);
+HAProxy هيمنع الوصول للمسار ده من بره (المرحلة 3).
 
-(أ) إذا ظهر GET api/v1/admin/branches، أضف إلى commerce.ts:
-Copyexport const branchesApi = { list: (signal?: AbortSignal) => api.get(`${ADMIN}/branches`, { signal, params: { per_page: 100 } }).then((r) => asPage<{ id: number; name: string }>(r).data) };
-(ب) إذا لم يظهر، شغّل:
-Copyphp artisan tinker --execute="echo App\Models\Branch::select('id','name')->orderBy('id')->get()->toJson();"
-والصق الناتج في data.ts كـ export const BRANCH_OPTIONS: { id: number; name: string }[] = [...].
-في الحالتين أنشئ helper في mappers.ts:
+1.5 تحويل كل الـ state المشتركة لـ Redis
+في .env.production:
 
-Copyexport const branchOptions = (list: { id: number; name: string }[]) => list.map((b) => ({ value: String(b.id), label: b.name }));
-ومرّره إلى FSelect options= بدل BRANCHES. FSelect يقبل {value,label}[] كما في PL_TYPES، فلا يتغير الشكل.
+CopyCACHE_STORE=redis
+CACHE_LIMITER=redis
+SESSION_DRIVER=redis
+SESSION_CONNECTION=default
+APP_MAINTENANCE_DRIVER=cache
+APP_MAINTENANCE_STORE=redis
+LOG_STACK=stderr
+LOG_STDERR_FORMATTER=Monolog\Formatter\JsonFormatter
+APP_MAINTENANCE_DRIVER=cache: القيمة الحالية file، ومعناها إن php artisan down هيقفل سيرفر واحد بس. لازم تتغير.
+LOG_STACK=stderr: اللوجات حالياً daily في ملف على كل سيرفر لوحده. هنجمعها في Loki في المرحلة 7.
+QUEUE_CONNECTION: خليه database زي ما هو. PostgreSQL بيوزع الـ jobs بين الـ workers من غير تكرار، وفيه after_commit => true. ده قرار متعمد عشان الـ jobs ما تضيعش، واكتبه في التوثيق.
+1.6 الملفات (Storage)
+FILESYSTEM_DISK افتراضياً r2 وده ممتاز. لكن فيه disk اسمه public محلي، والـ storefront فيه rewrite من /store-media لـ /storage على الباك إند. مع أكتر من سيرفر، أي ملف يترفع على app1 مش هيبان على app2.
 
-1.5 التعديلات على orders.tsx: OrdersList
-الاستيرادات: احذف ORDERS وRETURNS من import ./data وأبقِ على الخرائط (ORDER_STATUS، PAY_STATUS، RETURN_STATUS، ORDER_NEXT، REFUND_METHOD، CHANNELS…) والأنواع. ثم أضف:
+ابحث في الكود كله:
+Copygrep -rn "disk('public')\|disk(\"public\")\|asset('storage\|'public' =>" app/ config/ routes/
+أي مكان بيكتب على public حوّله لـ r2_public أو r2.
+شغّل php artisan uploads:migrate-to-r2، وهو أمر موجود عندك.
+بعد ما تتأكد إن مفيش ملفات بتتكتب محلياً، حدّث الـ rewrite بتاع /store-media في next.config.mjs بحيث يشاور على R2_PUBLIC_URL، وضيف hostname الـ CDN في images.remotePatterns.
+1.7 الـ Scheduler
+لو الـ scheduler اشتغل على التلات سيرفرات، media:prune-orphans وstore:refresh-retail-prices هيتنفذوا 3 مرات. عندنا طبقتين حماية:
 
-Copyimport { adminOrdersApi, type AdminOrderListParams, type OrderStatus } from '@alfarid/api-client';
-import { useRemote, useDebounced } from './api/useRemote';
-import { mapOrder } from './api/mappers';
-import { ORDERS } from './data'; // للـ mock fallback فقط
-الحالة داخل OrdersList. أبقِ على متغيرات الفلاتر الموجودة بأسمائها الحالية (q، st، br، from، to…)، وأضف:
+container واحد مخصص للـ scheduler (المرحلة 2).
+في routes/console.php ضيف ->onOneServer()->withoutOverlapping() لكل task، كأمان إضافي. ده بيشتغل لأن الـ cache بقى Redis مشترك.
+شروط القبول للمرحلة 1:
 
-Copyconst toast = useToast();
-const [page, setPage] = useState(1);
-const dq = useDebounced(q);
+الـ tests كلها ناجحة.
+GET /health/ready بيرجّع 200، ولما توقف Redis بيرجّع 503.
+بعد المرحلة 3 لازم يتحقق الاختبار ده: curl -H "X-Forwarded-For: 1.2.3.4" https://api.../api/v1/store/branding، وتلاقي في اللوج إن client_ip هو IP جهازك الحقيقي مش 1.2.3.4.
+المرحلة 2: Docker للتطبيق — 3 أيام
+2.1 الـ Dockerfile
+استخدم image مجانية جاهزة فيها Nginx وPHP-FPM مع بعض، زي serversideup/php:8.3-fpm-nginx. اعمل infrastructure/docker/app.Dockerfile:
 
-// ارجع للصفحة 1 عند تغيير أي فلتر
-useEffect(() => { setPage(1); }, [dq, st, br, from, to, flag]);
+CopyFROM serversideup/php:8.3-fpm-nginx
+USER root
+RUN install-php-extensions bcmath intl gd exif pdo_pgsql redis
+COPY --chown=www-data:www-data backend/ /var/www/html/
+RUN composer install --no-dev --optimize-autoloader --no-interaction
+COPY infrastructure/docker/php/opcache.ini /usr/local/etc/php/conf.d/zz-opcache.ini
+COPY infrastructure/docker/entrypoint.d/ /etc/entrypoint.d/
+USER www-data
+ملاحظات:
 
-const params: AdminOrderListParams = {
-  page,
-  status: (st || undefined) as OrderStatus | undefined,
-  search: dq || undefined,
-  allocated_branch_id: br ? Number(br) : undefined,
-  date_from: from || undefined,
-  date_to: to || undefined,
-  needs_attention: flag === 'follow' ? true : undefined,
-  requires_refund: flag === 'refund' ? true : undefined,
-};
+bcmath مطلوبة في composer.json.
+راجع أسماء الـ environment variables في توثيق الـ image نفسها، وتأكد إن AUTORUN_ENABLED=false عشان الـ migrations ما تتنفذش أوتوماتيك على كل سيرفر.
+2.2 الـ Entrypoint
+اعمل infrastructure/docker/entrypoint.d/50-laravel.sh. الـ caching بيحصل وقت تشغيل الـ container، مش وقت الـ build، لأن قيم env بتختلف من بيئة للتانية:
 
-const { data, loading, error, reload, usingMock } = useRemote(
-  (signal) => adminOrdersApi.list(params, signal),
-  [page, st, dq, br, from, to, flag],
-  {
-    mock: () => ({ data: [], meta: { current_page: 1, last_page: 1, per_page: 20, total: ORDERS.length, from: 1, to: ORDERS.length } } as any),
-    onError: (e) => toast(e.message, 'red'),
+Copy#!/bin/sh
+set -e
+php artisan config:cache
+php artisan route:cache
+php artisan event:cache
+2.3 إعدادات OPcache
+ملف opcache.ini:
+
+Copyopcache.enable=1
+opcache.memory_consumption=256
+opcache.interned_strings_buffer=32
+opcache.max_accelerated_files=30000
+opcache.validate_timestamps=0
+realpath_cache_size=4096K
+realpath_cache_ttl=600
+2.4 حساب PHP-FPM workers
+المعادلة: pm.max_children = (رام السيرفر المتاحة لـ PHP) ÷ (متوسط رام الـ process).
+إزاي تقيس متوسط الرام: تحت ضغط شغّل ps -ylC php-fpm --sort:rss وخد المتوسط. غالباً هيطلع بين 60 و90MB.
+مثال: سيرفر 4GB، فيه 3GB متاحة لـ PHP، يبقى 3000 ÷ 80 ≈ 36. قرّبها لـ 32.
+استخدم pm = static في الـ production.
+الرقم ده مهم في المرحلة 3: هو نفس قيمة maxconn لكل سيرفر في HAProxy.
+2.5 docker-compose
+اعمل infrastructure/docker-compose.yml بالخدمات دي:
+
+الخدمة	العدد	الأمر/الملاحظة
+app1, app2, app3	3	الـ image من فوق، port 8080 داخلي فقط
+worker	2	php artisan queue:work --tries=3 --max-time=3600
+media-worker	1	memory_limit=512M زي ما التوثيق بيطلب، --queue= بتاعة الـ media
+scheduler	1	php artisan schedule:work
+postgres	1	volume دائم
+pgbouncer, redis1, redis2, sentinel x3, haproxy-data		المرحلة 4
+haproxy1, haproxy2	2	المرحلة 3
+storefront1, storefront2, backoffice, pos		المرحلة 5
+لازم IPs ثابتة عشان TRUSTED_PROXIES:
+
+Copynetworks:
+  appnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24
+
+services:
+  haproxy1:
+    networks:
+      appnet:
+        ipv4_address: 172.31.0.10
+  haproxy2:
+    networks:
+      appnet:
+        ipv4_address: 172.31.0.11
+  storefront1:
+    networks:
+      appnet:
+        ipv4_address: 172.31.0.20
+  storefront2:
+    networks:
+      appnet:
+        ipv4_address: 172.31.0.21
+شروط القبول: docker compose up بيشغّل كل حاجة، وcurl http://app1:8080/health/ready من جوه الشبكة بيرجّع 200.
+
+المرحلة 3: طبقة HAProxy — 3 إلى 4 أيام
+استخدم haproxy:3.0 (نسخة LTS مجانية). اعمل infrastructure/haproxy/haproxy.cfg:
+
+Copyglobal
+    log stdout format raw local0
+    maxconn 50000
+    stats socket /var/run/haproxy/admin.sock mode 660 level admin expose-fd listeners
+    ssl-default-bind-options ssl-min-ver TLSv1.2
+
+defaults
+    mode http
+    log global
+    option httplog
+    option dontlognull
+    option http-keep-alive
+    option redispatch
+    retries 2
+    retry-on conn-failure empty-response
+    timeout connect 5s
+    timeout client 30s
+    timeout server 60s
+    timeout http-request 10s
+    timeout http-keep-alive 5s
+    timeout queue 20s
+
+frontend fe_public
+    bind :80
+    bind :443 ssl crt /etc/haproxy/certs/ alpn h2,http/1.1
+    http-request redirect scheme https code 301 unless { ssl_fc }
+
+    # Request ID
+    unique-id-format %[uuid()]
+    unique-id-header X-Request-ID
+
+    # امسح أي X-Forwarded-For جاي من العميل (منع تزوير IP) وحط الحقيقي
+    http-request del-header X-Forwarded-For
+    option forwardfor
+    http-request set-header X-Forwarded-Proto https if { ssl_fc }
+    http-request set-header X-Forwarded-Port %[dst_port]
+
+    # ما تسمحش بإعادة محاولة أي طلب بيغيّر بيانات
+    http-request disable-l7-retry unless METH_GET || METH_HEAD
+
+    # health endpoints داخلية فقط
+    http-request deny deny_status 404 if { path_beg /health } || { path /up }
+
+    # حد أقصى لحجم الطلب 25MB
+    http-request deny deny_status 413 if { req.hdr_val(content-length) gt 26214400 }
+
+    # Edge rate limiting (طبقة أولى قبل Laravel)
+    stick-table type ipv6 size 1m expire 60s store http_req_rate(10s),conn_cur
+    acl whitelisted src -f /etc/haproxy/whitelist.lst
+    http-request track-sc0 src unless whitelisted
+    http-request deny deny_status 429 if { sc_http_req_rate(0) gt 300 }
+    http-request deny deny_status 429 if { sc_conn_cur(0) gt 100 }
+
+    # Routing بالدومين
+    acl host_api   hdr(host),field(1,:) -i api.alfarid.example
+    acl host_admin hdr(host),field(1,:) -i admin.alfarid.example
+    acl host_pos   hdr(host),field(1,:) -i pos.alfarid.example
+    acl slow_path  path_beg /api/v1/admin/reports /api/v1/wholesale/price-list/export /api/v1/admin/price-lists
+
+    use_backend be_api_slow   if host_api slow_path
+    use_backend be_api        if host_api
+    use_backend be_backoffice if host_admin
+    use_backend be_pos        if host_pos
+    default_backend be_storefront
+
+backend be_api
+    balance leastconn
+    option httpchk
+    http-check send meth GET uri /health/ready ver HTTP/1.1 hdr Host api.internal
+    http-check expect status 200
+    default-server check inter 3s fall 3 rise 2 slowstart 20s maxconn 32
+    server app1 app1:8080
+    server app2 app2:8080
+    server app3 app3:8080
+
+backend be_api_slow
+    balance leastconn
+    timeout server 180s
+    server app1 app1:8080 track be_api/app1 maxconn 8
+    server app2 app2:8080 track be_api/app2 maxconn 8
+    server app3 app3:8080 track be_api/app3 maxconn 8
+
+backend be_storefront
+    balance roundrobin
+    option httpchk GET /healthz
+    default-server check inter 3s fall 3 rise 2
+    server sf1 storefront1:3000
+    server sf2 storefront2:3000
+
+backend be_backoffice
+    server bo1 backoffice:80 check
+
+backend be_pos
+    server pos1 pos:80 check
+
+frontend fe_stats
+    bind 127.0.0.1:8404
+    stats enable
+    stats uri /stats
+    stats refresh 5s
+    stats auth admin:${HAPROXY_STATS_PASSWORD}
+    http-request use-service prometheus-exporter if { path /metrics }
+Copy
+شرح القرارات المهمة (اكتبها في التوثيق، لأنها اللي هتبيّن للمشتري إن الشغل احترافي):
+
+maxconn 32 لكل سيرفر: بيساوي pm.max_children. HAProxy بيحجز الطلبات الزيادة في طابور بدل ما يغرق PHP-FPM، وده بيمنع انهيار السيرفر تحت الضغط.
+leastconn: بيبعت الطلب للسيرفر الأقل انشغالاً. مناسب لـ API فيه طلبات مدتها مختلفة جداً، زي checkout مقابل catalog.
+be_api_slow: التقارير وتصدير PDF وExcel ليها timeout أطول وعدد اتصالات محدود، عشان ما تاخدش كل الـ workers وتوقف الـ checkout.
+disable-l7-retry: HAProxy ما بيعيدش أي POST أبداً، فمستحيل طلب أوردر يتكرر. ده مكمّل للـ Idempotency service ولسلوك الـ exception handler اللي بيرجّع 409 على عمليات الكتابة.
+slowstart 20s: السيرفر الراجع من deploy بياخد الحمل بالتدريج لحد ما الـ OPcache يسخن.
+حد الـ edge (300 طلب في 10 ثواني): أعلى من حدود Laravel. الهدف هنا صد الهجمات قبل ما توصل PHP. فروع الـ POS اللي وراها NAT حطها في whitelist.lst.
+TLS مجاني: استخدم certbot مع Let's Encrypt، وادمج الـ fullchain والـ key في ملف .pem واحد في /etc/haproxy/certs/، واعمل cron للتجديد ثم kill -USR2 لـ HAProxy عشان يعيد التحميل من غير ما يقطع اتصالات. لو حطيت Cloudflare (الخطة المجانية) قدام HAProxy، هتحتاج تاخد IP العميل من CF-Connecting-IP بس لما الطلب يكون جاي من نطاقات Cloudflare الرسمية. ده تعديل منفصل.
+
+شروط القبول:
+
+curl -I https://api.../api/v1/store/branding 6 مرات متتالية، وتلاقي X-Served-By بيتغير بين app1 وapp2 وapp3.
+صفحة الـ stats شغالة.
+اختبار IP التزوير من المرحلة 1.7 ناجح.
+المرحلة 4: طبقة البيانات — 4 إلى 5 أيام
+4.1 PgBouncer (Connection Pooling)
+ليه: 3 سيرفرات × 32 worker = 96 اتصال، وفوقهم الـ workers والـ scheduler. PostgreSQL بيتعب مع الاتصالات الكتير. PgBouncer بيخلّي كل دول يشتغلوا على حوالي 40 اتصال حقيقي.
+
+اعمل infrastructure/pgbouncer/pgbouncer.ini (محتاج نسخة 1.21 أو أحدث):
+
+Copy[databases]
+alfarid = host=postgres port=5432 dbname=alfarid
+
+[pgbouncer]
+listen_addr = 0.0.0.0
+listen_port = 6432
+auth_type = scram-sha-256
+auth_file = /etc/pgbouncer/userlist.txt
+pool_mode = transaction
+max_client_conn = 2000
+default_pool_size = 40
+reserve_pool_size = 10
+max_prepared_statements = 200
+client_tls_sslmode = require
+client_tls_key_file = /etc/pgbouncer/tls/server.key
+client_tls_cert_file = /etc/pgbouncer/tls/server.crt
+server_tls_sslmode = require
+تحذيرات مهمة جداً (لازم تنفذها بالترتيب):
+
+TLS إجباري: AppServiceProvider بيرفض أي DB_SSLMODE أضعف من require في الـ production، فـ PgBouncer لازم يدعم TLS من ناحية العميل. اعمل شهادة self-signed مجانية:
+Copyopenssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=pgbouncer" -keyout server.key -out server.crt
+Advisory locks: التوثيق بيقول إن الكود بيستخدم advisory locks. ابحث:
+Copygrep -rn "pg_advisory_lock\|pg_try_advisory_lock\|pg_advisory_xact_lock\|SET \|set_config" app/ database/
+pg_advisory_xact_lock مرتبط بالـ transaction، وده آمن.
+pg_advisory_lock من غير xact مرتبط بالـ session، وده هيتكسر في transaction mode. لو لقيته يا إما تحوّله لـ xact، يا إما تخلي pool_mode = session، ويا إما تعمل connection منفصلة اسمها pgsql_direct تتصل بـ Postgres على طول وتستخدمها للحتة دي بس.
+SET LOCAL آمن. لكن SET من غير LOCAL مش آمن.
+Laravel بينفذ set names 'utf8' وset search_path to public أول ما يفتح الاتصال. دول مش هيعملوا مشكلة لأنهم نفس القيم الافتراضية للسيرفر. اتأكد إن الداتابيز encoding بتاعها UTF8.
+في .env: DB_HOST=pgbouncer وDB_PORT=6432. الـ migrations شغّلها على Postgres مباشرة مش من خلال PgBouncer.
+شغّل الـ test suite كلها على PgBouncer قبل ما تكمل.
+4.2 Redis High Availability
+الإعداد: Redis master وreplica و3 Sentinels. الـ Sentinels بيرقّوا الـ replica لـ master لو الـ master وقع.
+
+phpredis مش بيتكلم مع Sentinel بشكل مباشر. الحل المجاني المعروف إننا نحط haproxy-data قدام Redis، وده بيبعت الاتصالات للـ master الحالي بس. اعمل infrastructure/haproxy/haproxy-data.cfg:
+
+Copydefaults
+    mode tcp
+    timeout connect 3s
+    timeout client 1h
+    timeout server 1h
+
+frontend fe_redis
+    bind :6379
+    default_backend be_redis
+
+backend be_redis
+    option tcp-check
+    tcp-check connect
+    tcp-check send AUTH\ ${REDIS_PASSWORD}\r\n
+    tcp-check expect string +OK
+    tcp-check send PING\r\n
+    tcp-check expect string +PONG
+    tcp-check send info\ replication\r\n
+    tcp-check expect string role:master
+    tcp-check send QUIT\r\n
+    tcp-check expect string +OK
+    server redis1 redis1:6379 check inter 1s
+    server redis2 redis2:6379 check inter 1s
+إعدادات Redis: requirepass وmasterauth وappendonly yes.
+إعدادات Sentinel: sentinel monitor mymaster redis1 6379 2 مع down-after-milliseconds 5000.
+في .env: REDIS_HOST=haproxy-data وREDIS_PASSWORD=.... ما تسيبهاش null زي ما هي في .env.production.example الحالي.
+4.3 النسخ الاحتياطي (مجاني)
+اعمل container فيه cron بيشغّل pg_dump -Fc كل ليلة ويرفع النسخة على bucket خاص في R2 (عندك أصلاً)، ويحتفظ بآخر 14 نسخة. اختبر الاسترجاع مرة واحدة على الأقل واكتب الخطوات في الـ runbook.
+
+شروط القبول:
+
+الـ tests ناجحة من خلال PgBouncer.
+SHOW POOLS; في PgBouncer بيبيّن إن عدد الاتصالات الحقيقية محدود.
+docker stop redis1 أثناء اختبار حمل: الموقع يكمل شغال بعد أقل من 10 ثواني.
+المرحلة 5: الفرونت إند ورا الـ Load Balancer — يومين
+Storefront (Next.js):
+شغّل نسختين: next build ثم next start.
+اعمل route للـ health: في App Router الملف هو app/healthz/route.ts ويرجّع new Response('ok')، وفي Pages Router الملف هو pages/api/healthz.ts (وساعتها غيّر مسار الـ check في HAProxy).
+NEXT_PUBLIC_API_URL=https://api.alfarid.example
+مشكلة الـ SSR والـ IP (مهمة): لو الـ storefront بينادي الـ API من السيرفر (ابحث عن API_INTERNAL_URL)، كل الطلبات هتطلع بـ IP سيرفر Next.js، وthrottle:store-catalog هيقفل الموقع.
+في كل fetch بيحصل على السيرفر، ابعت IP العميل الحقيقي:
+Copyimport { headers } from 'next/headers';
+const h = await headers();
+const clientIp = h.get('x-forwarded-for')?.split(',')[0]?.trim();
+fetch(url, { headers: clientIp ? { 'X-Forwarded-For': clientIp } : {} });
+ده آمن لأن HAProxy بيمسح أي X-Forwarded-For جاي من العميل قبل ما الطلب يوصل Next.js.
+API_INTERNAL_URL يشاور على http://haproxy1:8081، وده frontend داخلي في HAProxy ضيفه للشبكة الداخلية بس. الفرق إنه ما بيمسحش X-Forwarded-For؛ بيستخدم option forwardfor بس.
+IPs سيرفرات الـ storefront موجودة أصلاً في TRUSTED_PROXIES.
+Backoffice وPOS:
+اعمل build ثابت (vite build) واخدمه من Nginx.
+ضيف الملفين المتولدين security-headers.nginx-map.conf وsecurity-headers.nginx-server.conf في إعدادات Nginx: ملف الـ map في بلوك http، والتاني في بلوك server.
+اتأكد إن VITE_API_URL بيشاور على دومين الـ API الحقيقي، عشان الـ CSP connect-src يتولد صح.
+شروط القبول:
+
+الموقع شغال من الدومينات التلاتة.
+docker stop storefront1 والموقع شغال عادي.
+لوج Laravel بيبيّن IP العميل الحقيقي في طلبات الـ SSR.
+المرحلة 6: High Availability للـ Load Balancer نفسه — يوم واحد
+Keepalived بيعمل IP عائم (VIP) بين HAProxy 1 وHAProxy 2. لو واحد وقع، التاني ياخد الـ IP في أقل من 3 ثواني.
+
+Copyvrrp_script chk_haproxy {
+    script "/usr/bin/killall -0 haproxy"
+    interval 2
+    weight -20
+}
+
+vrrp_instance VI_1 {
+    state MASTER            # BACKUP على السيرفر التاني
+    interface eth0
+    virtual_router_id 51
+    priority 110            # 100 على السيرفر التاني
+    advert_int 1
+    authentication {
+        auth_type PASS
+        auth_pass CHANGE_ME
+    }
+    virtual_ipaddress {
+        192.168.1.100/24
+    }
+    track_script {
+        chk_haproxy
+    }
+}
+ملاحظة صريحة: Keepalived محتاج شبكة L2 مشتركة، زي Docker على Linux أو LAN أو VPS provider بيدعم floating IP. على الكلاود العادي الـ floating IP غالباً بفلوس قليلة. للديمو المجاني، شغّله في Docker على Linux بصلاحية NET_ADMIN.
+
+شروط القبول: docker stop haproxy1 أثناء اختبار الحمل، والطلبات تكمل على الـ VIP.
+
+المرحلة 7: المراقبة (Observability) — يومين إلى 3
+كل الأدوات مجانية. ضيفها في compose منفصل اسمه docker-compose.monitoring.yml:
+
+الأداة	الوظيفة
+Prometheus	يجمع الـ metrics
+HAProxy /metrics	مدمج، من غير exporter منفصل
+node_exporter	CPU ورام وديسك لكل سيرفر
+postgres_exporter	اتصالات وlocks وبطء الـ queries
+redis_exporter	الذاكرة والـ hit rate
+PgBouncer exporter	حالة الـ pools
+Loki + Promtail	تجميع لوجات كل الـ containers (JSON من المرحلة 1)
+Grafana	الداشبوردات
+داشبوردات Grafana المطلوبة:
+
+Load Balancer: RPS لكل backend، وحالة كل سيرفر (UP/DOWN)، وطول الطابور، وp95 للـ response time، ونسب 4xx و5xx، وعدد الـ 429 من الـ edge.
+التطبيق: CPU ورام لكل node، وطول الـ queue (عدد صفوف جدول jobs)، وعدد الـ failed jobs.
+الداتا: اتصالات PgBouncer، والـ locks والـ deadlocks في Postgres، وذاكرة Redis.
+اللوجات: بحث بالـ request_id، وده بيوريك الطلب ده عدّى على أنهي سيرفر بالظبط.
+التنبيهات (Alerts):
+
+سيرفر DOWN لأكتر من دقيقة.
+نسبة 5xx فوق 1%.
+p95 فوق ثانية واحدة.
+طابور HAProxy فوق 50.
+طول الـ queue فوق الحد.
+ابعتها على Telegram أو email، والاتنين مجانيين.
+
+شروط القبول: الداشبوردات بتتحدث لحظياً أثناء اختبار الحمل.
+
+المرحلة 8: Deploy من غير توقف (Zero-Downtime) — يومين
+اعمل infrastructure/scripts/rolling-deploy.sh:
+
+Copy#!/usr/bin/env bash
+set -euo pipefail
+SOCK=/var/run/haproxy/admin.sock
+NODES=(app1 app2 app3)
+
+hap() {
+  for h in haproxy1 haproxy2; do
+    docker compose exec -T "$h" sh -c "echo '$1' | socat stdio $SOCK"
+  done
+}
+
+# 1) build الـ image الجديدة
+docker compose build app1
+
+# 2) migrations مرة واحدة بس (لازم تكون backward-compatible)
+docker compose run --rm app1 php artisan migrate --force
+
+# 3) rolling على كل سيرفر
+for n in "${NODES[@]}"; do
+  echo ">> draining $n"
+  hap "set server be_api/$n state drain"
+  sleep 20   # استنى الطلبات الجارية تخلص
+
+  docker compose up -d --no-deps --force-recreate "$n"
+
+  echo ">> waiting for $n to be ready"
+  for i in $(seq 1 60); do
+    if docker compose exec -T "$n" curl -fsS http://localhost:8080/health/ready >/dev/null; then
+      break
+    fi
+    sleep 2
+    [ "$i" = 60 ] && { echo "FAILED: $n"; exit 1; }
+  done
+
+  hap "set server be_api/$n state ready"
+done
+
+# 4) workers
+docker compose up -d --no-deps --force-recreate worker media-worker scheduler
+docker compose exec -T app1 php artisan queue:restart
+Copy
+قاعدة الـ migrations (اكتبها في الـ runbook): أي migration لازم يكون متوافق مع الكود القديم، لأن أثناء الـ deploy فيه سيرفرات شغالة بالكود القديم.
+
+إضافة عمود تتم على خطوتين: deploy فيه العمود nullable، وبعدين deploy تاني يستخدمه.
+حذف عمود يتم على خطوتين: deploy يبطّل يستخدمه، وبعدين deploy يحذفه.
+الالتزام ده موجود أصلاً في توثيقك، زي ترتيب migrations 000004 لـ 000006.
+
+شروط القبول: deploy كامل أثناء اختبار حمل k6، بنسبة أخطاء 0%.
+
+المرحلة 9: اختبارات الحمل والفشل — 3 أيام
+دي المرحلة اللي هتطلع منها أرقام البيع.
+
+9.1 سكريبت k6
+اعمل infrastructure/k6/store-load.js:
+
+Copyimport http from 'k6/http';
+import { check, sleep } from 'k6';
+
+const BASE = __ENV.BASE_URL;
+const SLUGS = JSON.parse(open('./slugs.json'));
+
+export const options = {
+  scenarios: {
+    browse: {
+      executor: 'ramping-vus',
+      stages: [
+        { duration: '2m', target: 200 },
+        { duration: '5m', target: 500 },
+        { duration: '2m', target: 0 },
+      ],
+    },
   },
-);
-const rows = useMemo(
-  () => (usingMock ? ORDERS : (data?.data ?? []).map(mapOrder)),
-  [data, usingMock],
-);
-Copy
-إذا لم يكن في الشاشة متغير flag لفلتر "يحتاج متابعة/استرداد"، فاحذف السطرين المرتبطين به ولا تُنشئ فلتراً جديداً.
-
-الجدول: لا تغيّر cols. غيّر فقط rows وempty:
-
-Copy<DataTable
-  rows={loading ? [] : rows}
-  empty={loading ? 'جارٍ التحميل…' : error && !usingMock
-    ? <Empty icon="alert" title="تعذّر تحميل الطلبات" text={error.message}
-        action={<button className="btn btn-soft btn-sm" onClick={reload}>إعادة المحاولة</button>} />
-    : undefined}
-  onRow={(o: OrderRow) => go({ m: 'orders', id: o.id })}
-  cols={/* كما هي */}
-/>
-<Pager total={data?.meta.total ?? rows.length} per={data?.meta.per_page ?? 20} page={page} onPage={setPage} />
-إذا كان Pager موجوداً في الشاشة فاستبدل props فقط، وإذا لم يكن موجوداً فأضفه بعد DataTable داخل نفس Card. هذه هي الإضافة الوحيدة المسموحة في الـ markup.
-
-بطاقات KPI (الأعداد حسب الحالة): لا يوجد endpoint إحصاءات، فنستخدم meta.total من طلبات خفيفة متوازية:
-
-Copyconst kpi = useRemote(async (signal) => {
-  const q = (p: AdminOrderListParams) => adminOrdersApi.list(p, signal).then((r) => r.meta.total);
-  const [pending, processing, follow, refund] = await Promise.all([
-    q({ status: 'pending' }), q({ status: 'processing' }), q({ needs_attention: true }), q({ requires_refund: true }),
-  ]);
-  return { pending, processing, follow, refund };
-}, []);
-// في JSX استبدل الأرقام الثابتة بـ: kpi.data?.pending ?? '—'
-1.6 التعديلات على OrderDetail
-Copyexport function OrderDetail({ id, go }: { id: number; go: Go }) {
-  const toast = useToast();
-  const { busy, run } = useAction();
-  const { data: order, loading, setData: setOrder } = useRemote(
-    (s) => adminOrdersApi.show(id, s), [id], { onError: (e) => toast(e.message, 'red') },
-  );
-  const shipCos = useRemote((s) => shippingCompaniesApi.list({ is_active: true }, s).then((p) => p.data), []);
-
-  if (loading || !order) return <div className="v-card p-8 text-center tx3">جارٍ التحميل…</div>;
-  const o = mapOrder(order); // استخدم o.* في كل مكان كان يستخدم الكائن الوهمي
-  ...
-استبدل المعالجات الوهمية كما يلي، مع الإبقاء على أسماء الـ state للمودالات كما هي:
-
-Copy// تغيير الحالة: خيارات المودال = ORDER_NEXT[o.status].filter(s => s !== 'shipped')
-const saveStatus = async (status: OrderStatus, notes: string) => {
-  const r = await run(() => adminOrdersApi.updateStatus(order.id, { status: status as any, notes: notes || undefined }),
-    { toast, success: 'تم تحديث حالة الطلب' });
-  if (r) { setOrder(r); setModal(null); }
-};
-
-// الدفع: خيارات المودال = PAYMENT_TRANSITIONS[order.payment_status]
-const savePayment = async (payment_status: PaymentStatus, notes: string) => {
-  const r = await run(() => adminOrdersApi.updatePayment(order.id, { payment_status, notes: notes || undefined }),
-    { toast, success: 'تم تحديث حالة الدفع' });
-  if (r) { setOrder(r); setModal(null); }
-};
-
-// التخصيص: '' في الـ select = تلقائي => null
-const saveAlloc = async (branchId: string) => {
-  const r = await run(() => adminOrdersApi.allocate(order.id, branchId ? Number(branchId) : null),
-    { toast, success: 'تم تخصيص الطلب' });
-  if (r) setOrder(r);
-};
-const deAlloc = async () => {
-  const r = await run(() => adminOrdersApi.deallocate(order.id), { toast, success: 'تم إلغاء التخصيص' });
-  if (r) setOrder(r);
-};
-// اعرض زرّي التخصيص/الإلغاء فقط إذا ['confirmed','processing'].includes(order.status)
-// (أضف الشرط إلى الشرط الموجود على العنصر، ولا تضف عنصراً جديداً)
-
-// الشحن: select شركة الشحن value = String(c.id) وليس code
-const saveShipment = async (companyId: string, awb: string) => {
-  const r = await run(() => adminOrdersApi.createShipment(order.id, { shipping_company_id: Number(companyId), awb_number: awb || null }),
-    { toast, success: 'تم إنشاء الشحنة' });
-  if (r) { setModal(null); setOrder(await adminOrdersApi.show(order.id)); } // الحالة تصبح shipped من الخادم
-};
-Copy
-الـ Timeline: حوّل order.status_histories إلى نفس الشكل الذي يستهلكه مكوّن Timeline الحالي:
-
-Copyconst timeline = (order.status_histories ?? []).map((h) => ({
-  title: ORDER_STATUS[h.to_status]?.label ?? h.to_status, // استخدم نفس مفتاح العرض المستخدم في mock الحالي
-  date: `${toDate(h.created_at)} ${toTime(h.created_at)}`,
-  note: h.notes ?? undefined,
-}));
-افتح Timeline في ui.tsx وانسخ أسماء خصائص العناصر التي يقرؤها (مثلاً t/d/n). إذا اختلفت عن title/date/note فغيّر أسماء المفاتيح في الـ map أعلاه فقط.
-
-جدول المنتجات: order.items يعرض product_name وsku وqty وunit_price وline_total (بعد num()).
-
-1.7 ReturnsList وReturnDetail وCreateReturnModal
-ReturnsList: نفس نمط OrdersList تماماً، مع adminReturnsApi.list({ page, search: dq || undefined, status: tab === 'all' ? undefined : tab }) وmapReturn وPager بـ per={20}. أعداد التبويبات تأتي من Promise.all على meta.total لكل حالة في RETURN_STATUS.
-
-ReturnDetail:
-
-Copyconst { data: ret, setData: setRet, loading } = useRemote((s) => adminReturnsApi.show(id, s), [id]);
-
-const approve = async (branchId: string, qtys: Record<number, number>, notes: string) => {
-  const r = await run(() => adminReturnsApi.approve(ret!.id, {
-    branch_id: Number(branchId),
-    items: (ret!.items ?? []).map((it) => ({ id: it.id, qty_approved: qtys[it.id] ?? it.qty_requested })),
-    admin_notes: notes || undefined,
-  }), { toast, success: 'تمت الموافقة على المرتجع' });
-  if (r) { setRet(r); setModal(null); }
-};
-
-const receive = async (good: Record<number, number>, damaged: Record<number, number>, notes: string) => {
-  const r = await run(() => adminReturnsApi.receive(ret!.id, {
-    items: (ret!.items ?? []).map((it) => ({ id: it.id, qty_good: good[it.id] ?? 0, qty_damaged: damaged[it.id] ?? 0 })),
-    admin_notes: notes || undefined,
-  }), { toast, success: 'تم استلام المرتجع وفحصه' });
-  if (r) { setRet(r); setModal(null); }
-};
-
-const refund = async (method: RefundMethod, reference: string) => {
-  const r = await run(() => adminReturnsApi.refund(ret!.id, { refund_method: method, refund_reference: reference || undefined }),
-    { toast, success: 'تم تنفيذ الاسترداد' });
-  if (r) { setRet(r); setModal(null); }
-};
-مؤشر الخطوات (pending → approved → received → refunded) يُحسب من ret.status، والتواريخ من approved_at وreceived_at وrefunded_at. في مودال الاسترداد يُعرض num(ret.total_refund_amount) بدل الحساب المحلي إن كان غير null.
-
-CreateReturnModal: حقل رقم الطلب يبحث عبر adminOrdersApi.list({ search: dq, status: 'delivered' }). عند الاختيار نجلب adminOrdersApi.show(orderId) لعرض items، ثم:
-
-Copyconst submit = async () => {
-  const r = await run(() => adminReturnsApi.create({
-    order_id: selectedOrder.id,
-    reason: f.v.reason || undefined,
-    items: Object.entries(qtys).filter(([, q]) => q > 0).map(([orderItemId, qty]) => ({ order_item_id: Number(orderItemId), qty })),
-  }), { toast, success: 'تم إنشاء طلب المرتجع', onFieldErrors: f.setErrors });
-  if (r) { onClose(); go({ m: 'returns', id: r.id }); }
-};
-أخطاء 422 بصيغة items.0.qty تُعرض تحت صف البند المقابل: f.errors[\items.${idx}.qty`]`.
-
-1.8 Verification Gate لـ Phase 1
-Copy# Backend
-cd bags-platform/backend
-php artisan test --filter='Order|Return'
-
-curl -s "${H[@]}" "$API/api/v1/admin/orders?status=pending&page=1" | jq '.meta.total, .data[0].order_number'
-ORDER_ID=$(curl -s "${H[@]}" "$API/api/v1/admin/orders?status=pending" | jq '.data[0].id')
-curl -s "${H[@]}" -X PATCH "$API/api/v1/admin/orders/$ORDER_ID/status" -H 'Content-Type: application/json' \
-  -d '{"status":"confirmed","notes":"gate-1"}' | jq '.data.status'          # => "confirmed"
-curl -s "${H[@]}" -X PATCH "$API/api/v1/admin/orders/$ORDER_ID/status" -H 'Content-Type: application/json' \
-  -d '{"status":"shipped"}' | jq '.errors'                                   # => خطأ 422 متوقع
-curl -s "${H[@]}" "$API/api/v1/admin/returns?status=pending" | jq '.meta.total'
-
-# Frontend
-cd ../frontend
-pnpm --filter @alfarid/api-client exec tsc --noEmit
-pnpm --filter @alfarid/backoffice typecheck
-grep -n "ORDERS\b\|RETURNS\b" apps/backoffice/src/pages/admin/operations-mock/orders.tsx   # يظهر فقط داخل mock: () =>
-اختبار يدوي: افتح /orders، وغيّر فلتر الحالة، وتأكد في DevTools → Network أن الطلب GET /api/v1/admin/orders?status=…&page=1. افتح طلباً وغيّر حالته، ثم أعد تحميل الصفحة وتأكد من بقاء التغيير. افتح أخيراً /returns ونفّذ approve على مرتجع pending.
-
-3. Phase 2: التجارة والتسعير (Shipping, Pricing, Promos, Brands)
-2.1 جدول الـ Endpoints
-المورد	المسار الأساسي	ملاحظات من الكود
-شركات الشحن	/shipping-companies (apiResource)	api_credentials يُدمج ولا يُستبدل؛ وإرسال null يتجاهله الخادم
-مناطق الشحن	/shipping-zones	المدن تُرسل كـ city_ids: number[]
-أسعار الشحن	/shipping-rates	الاستجابة تحمّل company وzone
-مجموعات العملاء	/customer-groups	فلاتر search, is_active, per_page(≤100)؛ الإنشاء والتعديل للمستخدم المركزي فقط (403 لغيره)
-قوائم الأسعار	/price-lists	فلاتر type, customer_id, customer_group_id, branch_id, is_active, search, per_page
-استيراد CSV	POST /price-lists/{id}/import	الحقل اسمه file، والرد {message, data: report}
-تصدير CSV	GET /price-lists/{id}/export	StreamedResponse
-بنود القائمة	/price-lists/{id}/items (nested apiResource)	scopeBindings
-العروض	/promotions	value/applies_to/is_active بقيمة null تُحذف من الـ payload في الخادم
-الكوبونات	/coupons	لا يمكن حذف كوبون له استخدامات (BusinessException)
-البراندات	/brands	استخدم brandsApi الموجود (multipart + _method=PUT)
-الصلاحيات المطلوبة: shipping.*، customer_groups.*، brands.*. وقد يعيد الخادم 403، فيُعرض عبر toast.
-
-2.2 الملف: endpoints/operations/commerce.ts
-Copyimport { api, ADMIN, crud, one, MULTIPART, downloadFile, type Id } from './http';
-
-/* ---------- Shipping ---------- */
-export interface ShippingCompany {             // VERIFY resources.txt
-  id: number; name: string; code: string;
-  tracking_url_template: string | null;
-  is_active: boolean; api_enabled: boolean;
-}
-export interface ShippingCompanyPayload {
-  name: string; code: string; tracking_url_template?: string | null;
-  is_active: boolean; api_enabled: boolean;
-}
-export const shippingCompaniesApi = crud<ShippingCompany, ShippingCompanyPayload, { is_active?: boolean; per_page?: number }>(`${ADMIN}/shipping-companies`);
-
-export interface ShippingZone { id: number; name: string; is_active: boolean; cities?: { id: number; name: string }[] }
-export interface ShippingZonePayload { name: string; is_active: boolean; city_ids: number[] }
-export const shippingZonesApi = crud<ShippingZone, ShippingZonePayload>(`${ADMIN}/shipping-zones`);
-
-export interface ShippingRate {                // VERIFY
-  id: number; shipping_company_id: number; shipping_zone_id: number;
-  base_rate: string; free_shipping_threshold: string | null; cod_fee: string;
-  min_days: number; max_days: number;
-  company?: { id: number; name: string; code: string }; zone?: { id: number; name: string };
-}
-export interface ShippingRatePayload {
-  shipping_company_id: number; shipping_zone_id: number; base_rate: number;
-  free_shipping_threshold: number | null; cod_fee: number; min_days: number; max_days: number;
-}
-export const shippingRatesApi = crud<ShippingRate, ShippingRatePayload>(`${ADMIN}/shipping-rates`);
-
-/* ---------- Customer groups ---------- */
-export interface CustomerGroupApi {            // VERIFY
-  id: number; name: string; code: string; description: string | null;
-  discount_percent: string; is_active: boolean; customers_count?: number;
-}
-export interface CustomerGroupPayload { name: string; code: string; description?: string | null; discount_percent: number; is_active: boolean }
-export const customerGroupsApi = crud<CustomerGroupApi, CustomerGroupPayload, { search?: string; is_active?: boolean; per_page?: number }>(`${ADMIN}/customer-groups`);
-
-/* ---------- Price lists (مطابق لـ PriceListResource) ---------- */
-export type PriceListType = 'retail' | 'wholesale' | 'distributor' | 'group' | 'customer'; // VERIFY PriceListType enum
-export interface PriceListApi {
-  id: number; name: string; type: PriceListType;
-  customer?: { id: number; name: string } | null;
-  customer_group?: { id: number; name: string; code: string } | null;
-  branch?: { id: number; name: string } | null;
-  currency: string; starts_at: string | null; ends_at: string | null;
-  priority: number; is_active: boolean; items_count?: number; created_at: string;
-}
-export interface PriceListPayload {
-  name: string; type: PriceListType;
-  customer_id?: number | null; customer_group_id?: number | null; branch_id?: number | null;
-  currency: 'EGP'; starts_at?: string | null; ends_at?: string | null;
-  priority: number; is_active: boolean;
-}
-export interface PriceListParams {
-  page?: number; per_page?: number; type?: PriceListType; customer_id?: number;
-  customer_group_id?: number; branch_id?: number; is_active?: boolean; search?: string;
-}
-export interface PriceListImportReport {        // VERIFY (PriceListService::importCsv)
-  created: number; updated: number; errors: { row: number; message: string }[];
-}
-const PL = `${ADMIN}/price-lists`;
-export const priceListsApi = {
-  ...crud<PriceListApi, PriceListPayload, PriceListParams>(PL),
-  import: (id: Id, file: File) => {
-    const fd = new FormData(); fd.append('file', file);
-    return api.post<{ message: string; data: PriceListImportReport }>(`${PL}/${id}/import`, fd, MULTIPART).then((r) => r.data);
+  thresholds: {
+    http_req_failed: ['rate<0.01'],
+    http_req_duration: ['p(95)<800'],
   },
-  exportCsv: (id: Id, name: string) => downloadFile(`${PL}/${id}/export`, `${name}.csv`),
 };
 
-export interface PriceListItemApi {             // VERIFY
-  id: number; price_list_id: number; product_variant_id: number;
-  variant?: { id: number; name: string; sku: string };
-  min_qty: number; price: string; starts_at: string | null; ends_at: string | null;
-}
-export interface PriceListItemPayload { product_variant_id: number; min_qty: number; price: number; starts_at?: string | null; ends_at?: string | null }
-export const priceListItemsApi = (priceListId: Id) =>
-  crud<PriceListItemApi, PriceListItemPayload, { page?: number; per_page?: number; search?: string }>(`${PL}/${priceListId}/items`);
-
-/* ---------- Promotions & Coupons ---------- */
-export type PromotionType = 'percent' | 'amount' | 'bxgy' | 'free_ship';      // VERIFY
-export type PromotionScope = 'all' | 'categories' | 'brands' | 'variants';    // VERIFY (applies_to)
-export interface PromotionApi {                 // VERIFY
-  id: number; name: string; type: PromotionType; value: string | null;
-  min_order_amount: string | null; applies_to: PromotionScope;
-  target_ids?: number[]; targets?: { id: number; name: string }[];
-  starts_at: string; ends_at: string | null; is_active: boolean;
-}
-export interface PromotionPayload {
-  name: string; type: PromotionType; value?: number; min_order_amount?: number | null;
-  applies_to?: PromotionScope; target_ids?: number[]; starts_at: string; ends_at?: string | null; is_active?: boolean;
-}
-export const promotionsApi = crud<PromotionApi, PromotionPayload>(`${ADMIN}/promotions`);
-
-export type CouponType = 'percent' | 'amount' | 'free_ship';
-export interface CouponApi {                    // VERIFY
-  id: number; code: string; type: CouponType; value: string;
-  max_discount: string | null; min_order_amount: string;
-  usage_limit: number | null; usage_limit_per_customer: number | null; used_count: number;
-  starts_at: string; ends_at: string | null; is_active: boolean;
-}
-export interface CouponPayload {
-  code: string; type: CouponType; value?: number; max_discount?: number | null; min_order_amount: number;
-  usage_limit?: number | null; usage_limit_per_customer?: number; starts_at: string; ends_at?: string | null; is_active?: boolean;
-}
-export const couponsApi = crud<CouponApi, CouponPayload>(`${ADMIN}/coupons`);
-Copy
-2.3 Mappers (أضفها إلى mappers.ts)
-Copyexport const mapShipCompany = (c: ShippingCompany): ShipCompany => ({
-  id: c.id, name: c.name, code: c.code, url: c.tracking_url_template ?? '', active: c.is_active, api: c.api_enabled,
-});
-export const mapShipZone = (z: ShippingZone): ShipZone & { cityIds: number[] } => ({
-  id: z.id, name: z.name, active: z.is_active,
-  cities: (z.cities ?? []).map((c) => c.name), cityIds: (z.cities ?? []).map((c) => c.id),
-});
-export const mapShipRate = (r: ShippingRate): ShipRate & { companyId: number } => ({
-  id: r.id, co: r.company?.code ?? String(r.shipping_company_id), companyId: r.shipping_company_id,
-  zone: r.shipping_zone_id, base: num(r.base_rate),
-  free: r.free_shipping_threshold === null ? null : num(r.free_shipping_threshold),
-  cod: num(r.cod_fee), min: r.min_days, max: r.max_days,
-});
-export const mapCustomerGroup = (g: CustomerGroupApi): CustomerGroup => ({
-  id: g.id, name: g.name, code: g.code, desc: g.description, disc: num(g.discount_percent), active: g.is_active,
-});
-export const mapPriceList = (p: PriceListApi): PriceListRow & { raw: PriceListApi } => ({
-  id: p.id, name: p.name, type: p.type,
-  target: p.customer?.name ?? p.customer_group?.name ?? null,
-  branch: p.branch?.name ?? null,
-  from: p.starts_at?.slice(0, 10) ?? '', to: p.ends_at?.slice(0, 10) ?? null,
-  prio: p.priority, active: p.is_active, items: p.items_count ?? 0, raw: p,
-});
-export const mapPromo = (p: PromotionApi): PromoRow => ({
-  id: p.id, name: p.name, type: p.type, value: p.value === null ? null : num(p.value),
-  min: p.min_order_amount === null ? null : num(p.min_order_amount),
-  scope: p.applies_to, targets: (p.targets ?? []).map((t) => t.name),
-  from: p.starts_at.slice(0, 10), to: p.ends_at?.slice(0, 10) ?? null, active: p.is_active,
-});
-export const mapCoupon = (c: CouponApi): CouponRow => ({
-  id: c.id, code: c.code, type: c.type, value: num(c.value) || null,
-  maxDisc: c.max_discount === null ? null : num(c.max_discount), min: num(c.min_order_amount),
-  total: c.usage_limit, perCust: c.usage_limit_per_customer, used: c.used_count,
-  from: c.starts_at.slice(0, 10), to: c.ends_at?.slice(0, 10) ?? null, active: c.is_active,
-});
-export const mapBrand = (b: AdminBrand): BrandRow => ({
-  id: b.id, ar: b.name_ar, en: b.name_en ?? '', slug: b.slug ?? null, sort: b.sort_order ?? 0,
-  active: b.is_active, logo: (b as any).logo_url ?? (b as any).media?.[0]?.url ?? null, // VERIFY AdminBrand
-  products: (b as any).products_count ?? 0,
-});
-Copy
-2.4 ShippingPage والمودالات الثلاثة
-تحميل البيانات في ShippingPage:
-
-Copyconst toast = useToast();
-const companies = useRemote((s) => shippingCompaniesApi.list({ per_page: 100 }, s).then((p) => p.data.map(mapShipCompany)), [], { mock: () => SHIP_COMPANIES });
-const zones = useRemote((s) => shippingZonesApi.list({}, s).then((p) => p.data.map(mapShipZone)), [], { mock: () => SHIP_ZONES as any });
-const rates = useRemote((s) => shippingRatesApi.list({}, s).then((p) => p.data.map(mapShipRate)), [], { mock: () => SHIP_RATES as any });
-const C = companies.data ?? [], Z = zones.data ?? [], RT = rates.data ?? [];
-بعد ذلك استبدل كل ظهور لـ SHIP_COMPANIES بـ C، وSHIP_ZONES بـ Z، وSHIP_RATES بـ RT، بما فيها count: في TabsBar. ومرّر لكل مودال onSaved:
-
-Copy{edit?.kind === 'companies' && <CompanyModal row={edit.row} onClose={() => setEdit(null)} onSaved={companies.reload} />}
-{edit?.kind === 'zones' && <ZoneModal row={edit.row} onClose={() => setEdit(null)} onSaved={zones.reload} />}
-{edit?.kind === 'rates' && <RateModal row={edit.row} companies={C} zones={Z} onClose={() => setEdit(null)} onSaved={rates.reload} />}
-CompanyModal: أبقِ على التحقق المحلي {awb} الموجود كما هو، ثم:
-
-Copyexport function CompanyModal({ row, onClose, onSaved }: { row: ShipCompany | null; onClose: () => void; onSaved: () => void }) {
-  const toast = useToast();
-  const { busy, run } = useAction();
-  const f = useFormState({ name: row?.name ?? '', code: row?.code ?? '', url: row?.url ?? '', active: row?.active ?? true, api: row?.api ?? false });
-  const urlErr = f.v.url && !f.v.url.includes('{awb}') ? '<النص العربي الحالي كما هو>' : null;
-  const save = async () => {
-    const body: ShippingCompanyPayload = { name: f.v.name, code: f.v.code, tracking_url_template: f.v.url || null, is_active: f.v.active, api_enabled: f.v.api };
-    const r = await run(() => (row ? shippingCompaniesApi.update(row.id, body) : shippingCompaniesApi.create(body)),
-      { toast, success: 'تم الحفظ', onFieldErrors: (e) => f.setErrors({ name: e.name, code: e.code, url: e.tracking_url_template }) });
-    if (r) { onSaved(); onClose(); }
-  };
-  // JSX: نفس الـ JSX الحالي مع:
-  //  <input className="inp" value={f.v.name} onChange={f.on('name')} />     + <Field err={f.errors.name}>
-  //  <input className="inp num" dir="ltr" value={f.v.code} onChange={f.on('code')} /> + <Field err={f.errors.code}>
-  //  url: value={f.v.url} onChange={f.on('url')}  و err={urlErr ?? f.errors.url}
-  //  <ToggleRow on={f.v.active} onChange={(v) => f.set('active', v)} />
-  //  زر الحفظ: disabled={!!urlErr || busy} onClick={save}
-}
-ZoneModal: قائمة المدن تأتي من checkoutEndpoints.cities() الموجود في الحزمة (GET /api/v1/store/cities) بدل CITIES:
-
-Copyconst cities = useRemote(() => checkoutEndpoints.cities(), []);  // StoreCity[] => {id, name}
-const [cityIds, setCityIds] = useState<number[]>((row as any)?.cityIds ?? []);
-const tg = (id: number) => setCityIds(cityIds.includes(id) ? cityIds.filter((x) => x !== id) : [...cityIds, id]);
-// JSX: (cities.data ?? []).map(c => <button key={c.id} onClick={() => tg(c.id)} className={'pill-inp text-[12px] ' + (cityIds.includes(c.id) ? 'on' : '')}>{c.name}</button>)
-// <Num>{cityIds.length}</Num>
-// save: shippingZonesApi.create/update({ name, is_active, city_ids: cityIds })  ; خطأ 422 'city_ids' => toast
-RateModal: الـ select لشركة الشحن يصبح value={String(f.v.companyId)} ويعرض companies.map(c => <option value={c.id}>). الـ payload:
-
-Copy{ shipping_company_id: Number(f.v.companyId), shipping_zone_id: Number(f.v.zone), base_rate: Number(f.v.base),
-  free_shipping_threshold: f.v.free === '' ? null : Number(f.v.free), cod_fee: Number(f.v.cod || 0),
-  min_days: Number(f.v.min), max_days: Number(f.v.max) }
-وخريطة أخطاء الحقول: base_rate→base، free_shipping_threshold→free، cod_fee→cod، min_days→min، max_days→max.
-
-قاعدة عامة لكل مودالات Phase 2-4: استخدم دالة mapErrors(e, {api_key: 'ui_key'}) بدل الكتابة يدوياً:
-
-Copyexport const mapErrors = (e: Record<string, string>, m: Record<string, string>) =>
-  Object.fromEntries(Object.entries(e).map(([k, v]) => [m[k] ?? k, v]));
-أضفها إلى mappers.ts.
-
-2.5 PricingPage وPriceListForm وPriceListDetail
-PricingPage: الفلاتر ترسل إلى الخادم بدلاً من الفلترة المحلية بـ .filter، فاحذف PRICE_LISTS.filter(...):
-
-Copyconst [page, setPage] = useState(1);
-const dq = useDebounced(q);
-const lists = useRemote((s) => priceListsApi.list({
-  page, per_page: 20, search: dq || undefined, type: (ty || undefined) as any,
-  customer_id: cus ? Number(cus) : undefined, customer_group_id: grp ? Number(grp) : undefined,
-  branch_id: br ? Number(br) : undefined, is_active: act === '' ? undefined : act === 'true',
-}, s), [page, dq, ty, cus, grp, br, act], { onError: (e) => toast(e.message, 'red') });
-const rows = (lists.data?.data ?? []).map(mapPriceList);
-
-const groups = useRemote((s) => customerGroupsApi.list({ per_page: 100 }, s).then((p) => p.data.map(mapCustomerGroup)), []);
-const customers = useRemote((s) => api.get(`/api/v1/admin/customers`, { params: { type: 'wholesale', per_page: 100 }, signal: s })
-  .then((r) => asPage<{ id: number; name: string }>(r).data), []); // VERIFY مسار العملاء من routes.json
-خيارات FSelect: cus تصبح customers.data.map(c => ({value:String(c.id), label:c.name}))، وgrp تصبح groups.data.map(g => ({value:String(g.id), label:g.name})).
-
-مودال المجموعة (gform) ينفّذ customerGroupsApi.create/update بالحقول {name, code, description, discount_percent, is_active}. إذا جاء 403 تظهر رسالة الخادم ("صلاحية مركزية")، ولا يُضاف أي منطق إضافي.
-
-مودال الاستيراد (imp): يحتاج اختيار قائمة الأسعار الهدف. الـ Dropzone الحالي: افتح ui.tsx وتحقق من وجود onFile. إن لم يوجد أضف prop اختيارياً onFile?: (f: File) => void يُستدعى من onChange الخاص بالـ <input type="file"> الداخلي.
-
-Copyconst [impFile, setImpFile] = useState<File | null>(null);
-const [impList, setImpList] = useState<string>('');           // يضاف select صغير؟ لا — استخدم form?.id أو القائمة المفتوحة
-const [report, setReport] = useState<PriceListImportReport | null>(null);
-const doImport = async () => {
-  if (!impFile || !impList) return toast('اختر الملف وقائمة الأسعار', 'red');
-  const r = await run(() => priceListsApi.import(Number(impList), impFile), { toast, success: 'تم تنفيذ الاستيراد' });
-  if (r) { setReport(r.data); lists.reload(); }
-};
-// الأرقام الثابتة 418/36/2 تُستبدل بـ report?.created ?? '—' / report?.updated ?? '—' / report?.errors.length ?? '—'
-// صفوف جدول الأخطاء: report?.errors.map(e => <tr><td className="num tx3 !w-14">#{e.row}</td><td className="text-[12px] c-red">{e.message}</td></tr>)
-قرار لمنع تغيير الواجهة: مودال الاستيراد في PricingPage لا يحتوي اختيار قائمة. لذلك انقل فتح المودال: زر "استيراد" في PricingPage يفتح المودال باستخدام impList = أول قائمة محددة في الفلاتر، وإن لم تكن هناك قائمة يظهر toast "افتح قائمة الأسعار ثم استورد". وأضف نفس المودال داخل PriceListDetail مع impList = String(id). إعادة استخدام المودال بنسخ الـ JSX كما هو مسموحة.
-
-PriceListForm:
-
-Copyconst body: PriceListPayload = {
-  name: f.v.name, type: type as PriceListType,
-  customer_id: type === 'customer' ? Number(f.v.customerId) : null,
-  customer_group_id: type === 'group' ? Number(f.v.groupId) : null,
-  branch_id: f.v.branchId ? Number(f.v.branchId) : null,
-  currency: 'EGP', starts_at: f.v.from || null, ends_at: f.v.to || null,
-  priority: prio, is_active: f.v.active,
-};
-// update: priceListsApi.update(row.id, body) ; create: priceListsApi.create(body)
-// mapErrors: { starts_at: 'from', ends_at: 'to', priority: 'prio', customer_id: 'customerId', customer_group_id: 'groupId', branch_id: 'branchId' }
-يبقى التحقق المحلي للأولوية بين -10000 و10000 كما هو.
-
-PriceListDetail:
-
-Copyconst pl = useRemote((s) => priceListsApi.show(id, s).then(mapPriceList), [id]);
-const itemsApi = useMemo(() => priceListItemsApi(id), [id]);
-const [search, setSearch] = useState('');
-const dsearch = useDebounced(search);
-const remoteItems = useRemote((s) => itemsApi.list({ per_page: 100, search: dsearch || undefined }, s), [dsearch]);
-
-// شكل items المحلي يبقى كما هو { id, v:{name, sku, price}, min, price, from, to } لأن الجدول يقرؤه:
-const [items, setItems] = useState<any[]>([]);
-useEffect(() => {
-  setItems((remoteItems.data?.data ?? []).map((it) => ({
-    id: it.id, v: { name: it.variant?.name ?? `#${it.product_variant_id}`, sku: it.variant?.sku ?? '', price: num(it.price) },
-    variantId: it.product_variant_id, min: it.min_qty, price: it.price, from: it.starts_at ?? '', to: it.ends_at ?? '',
-  })));
-}, [remoteItems.data]);
-
-// الحفظ عند مغادرة الحقل: أضف onBlur={() => saveRow(r)} على المدخلات الأربعة الموجودة (بدون تغيير className)
-const saveRow = async (r: any) => {
-  await run(() => itemsApi.update(r.id, { product_variant_id: r.variantId, min_qty: Number(r.min), price: Number(r.price), starts_at: r.from || null, ends_at: r.to || null }),
-    { toast, success: 'تم حفظ البند' });
-};
-const deleteRow = async (r: any) => {
-  const ok = await run(() => itemsApi.remove(r.id), { toast, success: 'تم حذف البند' });
-  if (ok) setItems(items.filter((x) => x.id !== r.id));
-};
-// زر "تطبيق" للزيادة النسبية: لا يوجد endpoint جماعي ⇒ حلقة متسلسلة
-const applyPercent = async (pct: number) => {
-  for (const r of items) {
-    const price = (Number(r.price) * (1 + pct / 100)).toFixed(4);
-    await itemsApi.update(r.id, { product_variant_id: r.variantId, min_qty: Number(r.min), price: Number(price), starts_at: r.from || null, ends_at: r.to || null });
-  }
-  toast('تم تطبيق التعديل', 'green'); remoteItems.reload();
-};
-// زر تصدير CSV: onClick={() => run(() => priceListsApi.exportCsv(id, pl.data!.name), { toast })}
-Copy
-مودال "إضافة بند": الـ select يحتاج قائمة variants. استخدم endpoint المنتجات الموجود في الحزمة (productsApi)، أو المسار الذي ظهر في الخطوة 0.1 لـ admin/products أو admin/inventory. قيمة كل option هي variant.id. بعدها itemsApi.create({ product_variant_id, min_qty, price, starts_at, ends_at }) ثم remoteItems.reload(). الحقول في SearchPill تُربط بـ value={search} onChange={setSearch} بدل value="".
-
-2.6 PromosPage (Promotions + Coupons)
-Copyconst promos = useRemote((s) => promotionsApi.list({}, s).then((p) => p.data.map(mapPromo)), [], { mock: () => PROMOS });
-const coupons = useRemote((s) => couponsApi.list({}, s).then((p) => p.data.map(mapCoupon)), [], { mock: () => COUPONS });
-// استبدل PROMOS بـ (promos.data ?? []) و COUPONS بـ (coupons.data ?? []) في كل مكان بما فيه count التبويبات
-PromoForm submit:
-
-Copyconst body: PromotionPayload = {
-  name: f.v.name, type: f.v.type,
-  value: f.v.type === 'percent' || f.v.type === 'amount' ? Number(f.v.value) : undefined,
-  min_order_amount: f.v.min === '' ? null : Number(f.v.min),
-  applies_to: f.v.scope, target_ids: f.v.scope === 'all' ? [] : f.v.targetIds,
-  starts_at: f.v.from, ends_at: f.v.to || null, is_active: f.v.active,
-};
-// mapErrors: { min_order_amount: 'min', applies_to: 'scope', target_ids: 'targets', starts_at: 'from', ends_at: 'to' }
-CouponForm submit:
-
-Copyconst body: CouponPayload = {
-  code: f.v.code.trim().toUpperCase(), type: f.v.type,
-  value: f.v.type === 'free_ship' ? undefined : Number(f.v.value),
-  max_discount: f.v.maxDisc === '' ? null : Number(f.v.maxDisc),
-  min_order_amount: Number(f.v.min || 0),
-  usage_limit: f.v.total === '' ? null : Number(f.v.total),
-  usage_limit_per_customer: f.v.perCust === '' ? undefined : Number(f.v.perCust),
-  starts_at: f.v.from, ends_at: f.v.to || null, is_active: f.v.active,
-};
-// mapErrors: { max_discount: 'maxDisc', min_order_amount: 'min', usage_limit: 'total', usage_limit_per_customer: 'perCust', starts_at: 'from', ends_at: 'to' }
-حذف كوبون: ConfirmModal ينفّذ couponsApi.remove(id). إذا أعاد الخادم خطأ (BusinessException "لا يمكن حذف كوبون له استخدامات…") يظهر النص عبر toast(pe.message,'red') ولا يُغلق المودال. وهذا يحدث تلقائياً من useAction.
-
-2.7 BrandsPage
-استخدم brandsApi الموجود، ولا تكتب endpoint جديداً:
-
-Copyimport { brandsApi, type BrandPayload } from '@alfarid/api-client';
-const [page, setPage] = useState(1);
-const brands = useRemote((s) => brandsApi.list({ page, per_page: 24, search: dq || undefined, is_active: act === '' ? undefined : act === 'true' ? 1 : 0 }, s), [page, dq, act], { mock: () => ({ data: BRANDS } as any) });
-const rows = (brands.data?.data ?? []).map(mapBrand);
-
-// BrandForm submit
-const [progress, setProgress] = useState(0);
-const save = async () => {
-  const p: BrandPayload = {
-    name_ar: f.v.ar, name_en: f.v.en || null, slug: f.v.slug || null, sort_order: Number(f.v.sort || 0),
-    is_active: f.v.active, logo: logoFile ?? undefined, remove_logo: removeLogo || undefined,
-  } as BrandPayload;
-  const r = await run(() => (row ? brandsApi.update(row.id, p, setProgress) : brandsApi.create(p, setProgress)),
-    { toast, success: 'تم حفظ البراند', onFieldErrors: (e) => f.setErrors(mapErrors(e, { name_ar: 'ar', name_en: 'en', sort_order: 'sort' })) });
-  if (r) { onSaved(); onClose(); }
-};
-الـ logoFile يأتي من Dropzone onFile. ولزر الحذف: إذا كان products_count > 0 أو all_products_count > 0 يبقى ConfirmModal كما هو، ويُعرض خطأ الخادم في toast إن رفض الحذف.
-
-2.8 Verification Gate لـ Phase 2
-Copycd bags-platform/backend
-php artisan test --filter='Shipping|PriceList|CustomerGroup|Promotion|Coupon|Brand'
-
-# CRUD شركة شحن
-CID=$(curl -s "${H[@]}" -X POST "$API/api/v1/admin/shipping-companies" -H 'Content-Type: application/json' \
-  -d '{"name":"Gate Co","code":"GATE2","tracking_url_template":"https://t.example/{awb}","is_active":true,"api_enabled":false}' | jq '.data.id')
-curl -s "${H[@]}" -X PUT "$API/api/v1/admin/shipping-companies/$CID" -H 'Content-Type: application/json' -d '{"name":"Gate Co 2"}' | jq '.data.name'
-curl -s "${H[@]}" -X DELETE "$API/api/v1/admin/shipping-companies/$CID" | jq '.message'
-
-# 422 mapping
-curl -s "${H[@]}" -X POST "$API/api/v1/admin/coupons" -H 'Content-Type: application/json' -d '{}' | jq '.errors | keys'
-
-# استيراد CSV
-PL=$(curl -s "${H[@]}" "$API/api/v1/admin/price-lists" | jq '.data[0].id')
-curl -s "${H[@]}" "$API/api/v1/admin/price-lists/$PL/export" -o /tmp/pl.csv && head -3 /tmp/pl.csv
-curl -s "${H[@]}" -X POST "$API/api/v1/admin/price-lists/$PL/import" -F "file=@/tmp/pl.csv" | jq '.data'
-
-# Brand multipart update (POST + _method=PUT)
-BID=$(curl -s "${H[@]}" "$API/api/v1/admin/brands" | jq '.data[0].id')
-curl -s "${H[@]}" -X POST "$API/api/v1/admin/brands/$BID" -F "_method=PUT" -F "sort_order=5" | jq '.data.sort_order'
-
-cd ../frontend
-pnpm --filter @alfarid/api-client exec tsc --noEmit
-pnpm --filter @alfarid/backoffice typecheck
-اختبار يدوي: أنشئ كوداً مكرراً لشركة شحن وتأكد أن الخطأ يظهر تحت حقل "الكود". أنشئ قائمة أسعار من نوع customer بدون عميل وتأكد من ظهور خطأ تحت حقل العميل. صدّر CSV ثم استورده وتأكد من ظهور الأرقام الحقيقية.
-
-4. Phase 3: سلسلة الإمداد والمشتريات
-3.1 دورات الحياة الفعلية
-الكيان	الانتقالات	Endpoint	الصلاحية
-طلب الشراء (PR)	draft → submitted	POST /purchase-requests/{id}/submit	purchases.update
-submitted → approved	POST …/approve	purchase_requests.approve
-submitted → rejected	POST …/reject	purchase_requests.approve
-حذف	DELETE /purchase-requests/{id} (draft فقط)	purchases.delete
-أمر الشراء (PO)	draft → approved	POST /purchase-orders/{id}/approve	—
-approved → sent	POST …/send	—
-استلام جزئي/كلي	POST …/receive + Idempotency-Key	—
-إغلاق ناقص	POST …/close-short	—
-إلغاء	POST …/cancel	—
-فاتورة المورد	draft → posted	POST /supplier-invoices/{id}/post	supplier_invoices.post
-إلغاء	POST …/cancel	supplier_invoices.cancel
-المرفق	GET /supplier-invoices/{id}/attachment (محمي)	—
-دفعة المورد	إنشاء	POST /supplier-payments + Idempotency-Key	supplier_payments.create
-تخصيص لفاتورة	POST …/allocate {supplier_invoice_id}	supplier_payments.update
-إلغاء وعكس الأثر	DELETE /supplier-payments/{id} {void_reason}	supplier_payments.delete
-مستخدمو بوابة المورد	CRUD	GET/POST /suppliers/{id}/users، PUT/DELETE /suppliers/{id}/users/{user}	—
-قيم الحالات: انسخها حرفياً من enums.txt إلى الأنواع أدناه. القيم المكتوبة مقترحة وعليها VERIFY.
-
-3.2 الملف: endpoints/operations/suppliers.ts
-Copyimport { api, ADMIN, crud, one, asPage, cleanParams, toFormData, MULTIPART, newIdempotencyKey, openProtectedFile, type Id } from './http';
-
-/** مطابق حرفياً لـ SupplierResource */
-export interface SupplierApi {
-  id: number; code: string; name: string; company_name: string | null;
-  email: string | null; phone: string | null; tax_number: string | null; commercial_register: string | null;
-  address: string | null; payment_terms_days: number; opening_balance: string; current_balance: string;
-  is_active: boolean; users?: SupplierUserApi[]; created_at: string | null; updated_at: string | null;
-}
-export interface SupplierPayload {
-  code: string; name: string; company_name?: string | null; email?: string | null; phone?: string | null;
-  tax_number?: string | null; commercial_register?: string | null; address?: string | null;
-  payment_terms_days: number; opening_balance?: number; is_active: boolean;
-}
-export interface SupplierUserApi { id: number; name: string; email: string; phone?: string | null; is_active: boolean } // VERIFY
-export interface SupplierUserPayload { name: string; email: string; phone?: string | null; password?: string; is_active: boolean }
-
-const S = `${ADMIN}/suppliers`;
-export const suppliersApi = {
-  ...crud<SupplierApi, SupplierPayload, { page?: number; search?: string; is_active?: boolean }>(S),
-  users: (id: Id, signal?: AbortSignal) => api.get(`${S}/${id}/users`, { signal }).then((r) => asPage<SupplierUserApi>(r).data),
-  createUser: (id: Id, b: SupplierUserPayload) => api.post(`${S}/${id}/users`, b).then((r) => one<SupplierUserApi>(r)),
-  updateUser: (id: Id, userId: Id, b: Partial<SupplierUserPayload>) => api.put(`${S}/${id}/users/${userId}`, b).then((r) => one<SupplierUserApi>(r)),
-  removeUser: (id: Id, userId: Id) => api.delete(`${S}/${id}/users/${userId}`).then((r) => r.data as { message: string }),
-};
-
-/* ---------- Purchase Requests ---------- */
-export type PRStatus = 'draft' | 'submitted' | 'approved' | 'rejected';     // VERIFY
-export interface PurchaseRequestApi {                                         // VERIFY
-  id: number; pr_number: string; status: PRStatus; notes: string | null;
-  branch?: { id: number; name: string }; creator?: { id: number; name: string } | null;
-  items?: { id: number; product_variant_id: number; qty: number; variant?: { id: number; name: string; sku: string } }[];
-  items_count?: number; created_at: string;
-}
-export interface PRPayload { branch_id: number; notes?: string | null; items: { product_variant_id: number; qty: number }[] }
-const PR = `${ADMIN}/purchase-requests`;
-export const purchaseRequestsApi = {
-  ...crud<PurchaseRequestApi, PRPayload, { page?: number; status?: PRStatus; branch_id?: number }>(PR),
-  submit: (id: Id) => api.post(`${PR}/${id}/submit`).then((r) => one<PurchaseRequestApi>(r)),
-  approve: (id: Id) => api.post(`${PR}/${id}/approve`).then((r) => one<PurchaseRequestApi>(r)),
-  reject: (id: Id, reason?: string) => api.post(`${PR}/${id}/reject`, { reason }).then((r) => one<PurchaseRequestApi>(r)),
-};
-
-/* ---------- Purchase Orders (مطابق لـ PurchaseOrderResource) ---------- */
-export type POStatus = 'draft' | 'approved' | 'sent' | 'partially_received' | 'received' | 'closed_short' | 'cancelled'; // VERIFY
-export interface PurchaseOrderItemApi {                                       // VERIFY
-  id: number; product_variant_id: number; qty_ordered: number; qty_received: number; unit_cost: string;
-  variant?: { id: number; name: string; sku: string };
-}
-export interface PurchaseOrderApi {
-  id: number; po_number: string; supplier_id: number; supplier?: { id: number; code: string; name: string } | null;
-  branch_id: number; branch?: { id: number; name: string } | null; purchase_request_id: number | null;
-  status: POStatus; expected_delivery_date: string | null; supplier_change_notes: string | null;
-  subtotal: string; discount_amount: string; tax_amount: string; grand_total: string;
-  created_by: number | null; approved_by: number | null;
-  items?: PurchaseOrderItemApi[]; deliveries?: unknown[];
-  created_at: string | null; updated_at: string | null;
-}
-export interface POPayload {
-  supplier_id: number; branch_id: number; purchase_request_id?: number | null;
-  expected_delivery_date?: string | null; discount_amount?: number; tax_amount?: number;
-  items: { product_variant_id: number; qty: number; unit_cost: number }[];   // VERIFY (qty vs qty_ordered)
-}
-export interface POReceivePayload {
-  location_id?: number | null; supplier_delivery_id?: number | null;
-  items: { purchase_order_item_id: number; qty: number }[];                  // VERIFY ReceivePurchaseOrderRequest
-}
-const PO = `${ADMIN}/purchase-orders`;
-export const purchaseOrdersApi = {
-  ...crud<PurchaseOrderApi, POPayload, { page?: number; search?: string; status?: POStatus; supplier_id?: number; branch_id?: number }>(PO),
-  approve: (id: Id) => api.post(`${PO}/${id}/approve`).then((r) => one<PurchaseOrderApi>(r)),
-  send: (id: Id) => api.post(`${PO}/${id}/send`).then((r) => one<PurchaseOrderApi>(r)),
-  cancel: (id: Id) => api.post(`${PO}/${id}/cancel`).then((r) => one<PurchaseOrderApi>(r)),
-  closeShort: (id: Id) => api.post(`${PO}/${id}/close-short`).then((r) => one<PurchaseOrderApi>(r)),
-  receive: (id: Id, b: POReceivePayload, idempotencyKey: string) =>
-    api.post(`${PO}/${id}/receive`, b, { headers: { 'Idempotency-Key': idempotencyKey } }).then((r) => one<PurchaseOrderApi>(r)),
-};
-
-/* ---------- Supplier Invoices (مطابق لـ SupplierInvoiceResource) ---------- */
-export type InvoiceStatus = 'draft' | 'posted' | 'partially_paid' | 'paid' | 'cancelled'; // VERIFY
-export interface SupplierInvoiceApi {
-  id: number; invoice_number: string; supplier_invoice_no: string | null; supplier_id: number;
-  supplier?: { id: number; code: string; name: string } | null;
-  purchase_order_id: number | null; purchase_order?: { id: number; po_number: string } | null;
-  issue_date: string | null; due_date: string | null;
-  subtotal: string; tax_amount: string; total_amount: string; paid_amount: string; remaining_amount: string;
-  status: InvoiceStatus; attachment_url: string | null; created_at: string | null; updated_at: string | null;
-}
-export interface InvoicePayload {                                                         // VERIFY SupplierInvoiceRequest
-  supplier_id: number; purchase_order_id?: number | null; supplier_invoice_no?: string | null;
-  issue_date: string; due_date?: string | null; subtotal: number; tax_amount: number;
-  attachment?: File | null;
-}
-const INV = `${ADMIN}/supplier-invoices`;
-export const supplierInvoicesApi = {
-  list: crud<SupplierInvoiceApi, InvoicePayload>(INV).list,
-  show: crud<SupplierInvoiceApi, InvoicePayload>(INV).show,
-  remove: crud<SupplierInvoiceApi, InvoicePayload>(INV).remove,
-  create: (b: InvoicePayload) => api.post(INV, toFormData(b as any), MULTIPART).then((r) => one<SupplierInvoiceApi>(r)),
-  update: (id: Id, b: Partial<InvoicePayload>) => api.post(`${INV}/${id}`, toFormData(b as any, true), MULTIPART).then((r) => one<SupplierInvoiceApi>(r)),
-  post: (id: Id) => api.post(`${INV}/${id}/post`).then((r) => one<SupplierInvoiceApi>(r)),
-  cancel: (id: Id) => api.post(`${INV}/${id}/cancel`).then((r) => one<SupplierInvoiceApi>(r)),
-  openAttachment: (id: Id) => openProtectedFile(`${INV}/${id}/attachment`),
-};
-
-/* ---------- Supplier Payments ---------- */
-export interface SupplierPaymentApi {                                         // VERIFY SupplierPaymentResource
-  id: number; payment_number: string; supplier_id: number; treasury_id: number | null;
-  supplier_invoice_id: number | null; invoice?: { id: number; invoice_number: string; supplier_invoice_no: string | null } | null;
-  amount: string; method: string; reference: string | null; paid_at: string; notes: string | null;
-  voided_at: string | null; void_reason: string | null; voided_by?: { id: number; name: string } | null;
-}
-export interface PaymentPayload {
-  supplier_id: number; treasury_id: number; supplier_invoice_id?: number | null;
-  amount: number; method: string; reference?: string | null; paid_at: string; notes?: string | null;
-}
-const PAY = `${ADMIN}/supplier-payments`;
-export const supplierPaymentsApi = {
-  list: crud<SupplierPaymentApi, PaymentPayload>(PAY).list,
-  show: crud<SupplierPaymentApi, PaymentPayload>(PAY).show,
-  create: (b: PaymentPayload, idempotencyKey: string) =>
-    api.post(PAY, b, { headers: { 'Idempotency-Key': idempotencyKey } }).then((r) => one<SupplierPaymentApi>(r)),
-  allocate: (id: Id, supplier_invoice_id: number) =>
-    api.post(`${PAY}/${id}/allocate`, { supplier_invoice_id }).then((r) => one<SupplierPaymentApi>(r)),
-  void: (id: Id, void_reason: string) =>
-    api.delete(`${PAY}/${id}`, { data: { void_reason } }).then((r) => r.data as { message: string }),
-};
-export { newIdempotencyKey };
-Copy
-3.3 Mappers
-Copyexport const mapSupplier = (s: SupplierApi): SupplierRow => ({
-  id: s.id, code: s.code, name: s.name, company: s.company_name, phone: s.phone ?? '',
-  email: s.email, terms: s.payment_terms_days, balance: num(s.current_balance), active: s.is_active,
-});
-export const mapPR = (p: PurchaseRequestApi): PurchaseRequest => ({
-  id: p.id, no: p.pr_number, branch: p.branch?.name ?? '', status: p.status,
-  by: p.creator?.name ?? '—', date: toDate(p.created_at), items: p.items_count ?? p.items?.length ?? 0,
-});
-export const mapPO = (p: PurchaseOrderApi): PurchaseOrder => ({
-  id: p.id, no: p.po_number, sup: p.supplier_id, branch: p.branch?.name ?? '',
-  status: p.status, eta: p.expected_delivery_date, total: num(p.grand_total),
-});
-export const mapInvoice = (i: SupplierInvoiceApi): SupplierInvoice => ({
-  id: i.id, sys: i.invoice_number, supNo: i.supplier_invoice_no ?? '', sup: i.supplier_id,
-  po: i.purchase_order?.po_number ?? null, issue: i.issue_date ?? '', due: i.due_date,
-  subtotal: num(i.subtotal), tax: num(i.tax_amount), paid: num(i.paid_amount), status: i.status, file: !!i.attachment_url,
-});
-export const mapPayment = (p: SupplierPaymentApi): SupplierPayment => ({
-  id: p.id, no: p.payment_number, sup: p.supplier_id, inv: p.invoice?.invoice_number ?? null,
-  amount: num(p.amount), method: p.method, ref: p.reference, date: toDate(p.paid_at), notes: p.notes,
-  void: p.voided_at ? { reason: p.void_reason ?? '', by: p.voided_by?.name ?? '—', at: toDate(p.voided_at) } : null,
-});
-المكوّنات التي تعرض اسم المورد عبر SUPPLIERS.find(s => s.id === row.sup) تستمر بالعمل إذا مرّرت لها قائمة الموردين المحمّلة. لذلك في PurchasingPage حمّل الموردين مرة واحدة (suppliersApi.list({ page: 1 })، ثم كرّر الصفحات حتى last_page إن احتجت) ومرّرها كـ prop suppliers للوحدات الأربع، واستبدل SUPPLIERS بـ suppliers.
-
-3.4 التحديثات المتفائلة (Optimistic Updates)
-تُستخدم فقط للمفاتيح غير المالية (تفعيل/تعطيل مورد أو مستخدم بوابة). العمليات المالية (post/receive/payment/void) تنتظر الخادم دائماً.
-
-Copy// mappers.ts
-export async function optimisticToggle<T extends { id: number }>(
-  list: T[], setList: (l: T[]) => void, id: number, patch: Partial<T>, call: () => Promise<unknown>,
-  toast: (t: string, tone?: 'accent' | 'green' | 'red') => void,
-) {
-  const prev = list;
-  setList(list.map((x) => (x.id === id ? { ...x, ...patch } : x)));
-  try { await call(); } catch (e) { setList(prev); toast(parseApiError(e).message, 'red'); }
-}
-مثال في SuppliersList: optimisticToggle(rows, setRows, s.id, { active: !s.active }, () => suppliersApi.update(s.id, { is_active: !s.active }), toast).
-
-3.5 الشاشات
-SuppliersList: suppliersApi.list({ page, search: dq || undefined, is_active })، مع Pager per={20} وmapSupplier.
-
-SupplierDetail:
-
-Copyconst sup = useRemote((s) => suppliersApi.show(id, s), [id]);
-const pos = useRemote((s) => purchaseOrdersApi.list({ supplier_id: id }, s).then((p) => p.data.map(mapPO)), [id]);
-const invs = useRemote((s) => supplierInvoicesApi.list({ supplier_id: id } as any, s).then((p) => p.data.map(mapInvoice)), [id]); // VERIFY فلتر supplier_id
-const users = useRemote((s) => suppliersApi.users(id, s), [id]);
-تبويب المستخدمين:
-
-الإنشاء: createUser(id, {name,email,phone,password,is_active}).
-التعديل: updateUser، ولا ترسل password إذا كان فارغاً (الخادم يتجاهله أصلاً).
-الحذف: removeUser.
-رسالة توضيحية بعد تغيير البريد أو كلمة المرور أو التعطيل: "تم تسجيل خروج المستخدم من كل الأجهزة"، لأن الخادم يحذف الـ tokens.
-حذف المورد: suppliersApi.remove(id). إذا كان للمورد أوامر أو فواتير يعيد الخادم رسالة عربية تُعرض في toast ويبقى المودال مفتوحاً.
-
-SupplierForm: الـ payload من SupplierPayload، وخريطة الأخطاء:
-
-Copy{ company_name: 'company', payment_terms_days: 'terms', opening_balance: 'opening' }
-PRModule:
-
-Copyconst prs = useRemote((s) => purchaseRequestsApi.list({ page, status: (st || undefined) as any, branch_id: br ? Number(br) : undefined }, s), [page, st, br]);
-const act = async (kind: 'submit' | 'approve' | 'reject' | 'delete', pr: PurchaseRequest) => {
-  const call = { submit: () => purchaseRequestsApi.submit(pr.id), approve: () => purchaseRequestsApi.approve(pr.id),
-                 reject: () => purchaseRequestsApi.reject(pr.id, rejectReason), delete: () => purchaseRequestsApi.remove(pr.id) }[kind];
-  const ok = await run(call, { toast, success: { submit: 'تم الإرسال للاعتماد', approve: 'تم الاعتماد', reject: 'تم الرفض', delete: 'تم الحذف' }[kind] });
-  if (ok) prs.reload();
-};
-// إظهار الأزرار (أضف الشرط على الأزرار الموجودة فقط):
-// submit/delete: pr.status === 'draft'   ;   approve/reject: pr.status === 'submitted' && can('purchase_requests.approve')
-POModule: نفس النمط، مع:
-
-Copyconst PO_ACTIONS: Record<string, ('approve' | 'send' | 'receive' | 'closeShort' | 'cancel')[]> = {
-  draft: ['approve', 'cancel'], approved: ['send', 'cancel'], sent: ['receive', 'cancel'],
-  partially_received: ['receive', 'closeShort'], received: [], closed_short: [], cancelled: [],
-}; // VERIFY مع enums.txt وقيود ProcurementService
-
-// مودال الاستلام: مفتاح Idempotency يُنشأ مرة واحدة عند فتح المودال (وليس عند كل ضغطة)
-const [idemKey] = useState(newIdempotencyKey);
-const receive = async (qtys: Record<number, number>) => {
-  const items = Object.entries(qtys).filter(([, q]) => q > 0).map(([itemId, qty]) => ({ purchase_order_item_id: Number(itemId), qty }));
-  if (!items.length) return toast('أدخل كمية واحدة على الأقل', 'red');
-  const r = await run(() => purchaseOrdersApi.receive(po.id, { items }, idemKey), { toast, success: 'تم تسجيل الاستلام وتحديث المخزون' });
-  if (r) { onClose(); onSaved(); }
-};
-// المتبقي لكل بند = qty_ordered - qty_received ⇒ max للمدخل (تحقق محلي: qty <= المتبقي)
-InvModule:
-
-الإنشاء/التعديل: supplierInvoicesApi.create/update مع attachment من Dropzone onFile.
-الترحيل (post) يتطلب ConfirmModal بنص "سيتم إثبات المديونية في رصيد المورد".
-الإلغاء عبر cancel.
-زر عرض المرفق: onClick={() => run(() => supplierInvoicesApi.openAttachment(inv.id), { toast })}.
-لا تستخدم <a href={attachment_url}> لأن المسار يحتاج Bearer token.
-عمود "المتبقي" يُعرض من remaining_amount القادم من الخادم وليس من حساب محلي.
-PayModule:
-
-Copyconst [idemKey, setIdemKey] = useState(newIdempotencyKey);
-const create = async () => {
-  const r = await run(() => supplierPaymentsApi.create({
-    supplier_id: Number(f.v.sup), treasury_id: Number(f.v.treasury), supplier_invoice_id: f.v.inv ? Number(f.v.inv) : null,
-    amount: Number(f.v.amount), method: f.v.method, reference: f.v.ref || null, paid_at: f.v.date, notes: f.v.notes || null,
-  }, idemKey), { toast, success: 'تم تسجيل الدفعة', onFieldErrors: (e) => f.setErrors(mapErrors(e, { supplier_id: 'sup', treasury_id: 'treasury', supplier_invoice_id: 'inv', paid_at: 'date', reference: 'ref' })) });
-  if (r) { setIdemKey(newIdempotencyKey()); onSaved(); onClose(); }
-};
-const allocate = (payId: number, invoiceId: number) => run(() => supplierPaymentsApi.allocate(payId, invoiceId), { toast, success: 'تم تخصيص الدفعة' });
-const voidPay = (payId: number, reason: string) => {
-  if (reason.trim().length < 3) return toast('سبب الإلغاء مطلوب', 'red');
-  return run(() => supplierPaymentsApi.void(payId, reason), { toast, success: 'تم إلغاء الدفعة وعكس أثرها' });
-};
-قائمة الخزائن في نموذج الدفع تأتي من treasuriesApi.list({ is_active: true }) (Phase 4، ويمكن إنشاء ملف finance.ts مبكراً). وقائمة الفواتير للتخصيص تأتي من supplierInvoicesApi.list({ supplier_id, status: 'posted' }).
-
-3.6 Verification Gate لـ Phase 3
-Copycd bags-platform/backend
-php artisan test --filter='Supplier|Purchase|Procurement'
-
-SUP=$(curl -s "${H[@]}" "$API/api/v1/admin/suppliers" | jq '.data[0].id')
-curl -s "${H[@]}" "$API/api/v1/admin/suppliers/$SUP" | jq '.data | {code, current_balance, payment_terms_days}'
-curl -s "${H[@]}" "$API/api/v1/admin/suppliers/$SUP/users" | jq 'length // (.data|length)'
-
-# PR lifecycle
-PR=$(curl -s "${H[@]}" "$API/api/v1/admin/purchase-requests?status=draft" | jq '.data[0].id')
-curl -s "${H[@]}" -X POST "$API/api/v1/admin/purchase-requests/$PR/submit" | jq '.data.status'   # submitted
-curl -s "${H[@]}" -X POST "$API/api/v1/admin/purchase-requests/$PR/approve" | jq '.data.status'  # approved
-
-# PO receive idempotency: نفس المفتاح مرتين ⇒ نفس النتيجة دون مضاعفة المخزون
-KEY=$(uuidgen)
-PO=$(curl -s "${H[@]}" "$API/api/v1/admin/purchase-orders?status=sent" | jq '.data[0].id')
-ITEM=$(curl -s "${H[@]}" "$API/api/v1/admin/purchase-orders/$PO" | jq '.data.items[0].id')
-for i in 1 2; do curl -s "${H[@]}" -X POST "$API/api/v1/admin/purchase-orders/$PO/receive" -H "Idempotency-Key: $KEY" \
-  -H 'Content-Type: application/json' -d "{\"items\":[{\"purchase_order_item_id\":$ITEM,\"qty\":1}]}" | jq '.data.status'; done
-
-# Payment void
-PAY=$(curl -s "${H[@]}" "$API/api/v1/admin/supplier-payments" | jq '.data[0].id')
-curl -s "${H[@]}" -X DELETE "$API/api/v1/admin/supplier-payments/$PAY" -H 'Content-Type: application/json' -d '{"void_reason":"gate-3 test"}' | jq '.message'
-
-cd ../frontend
-pnpm --filter @alfarid/api-client exec tsc --noEmit
-pnpm --filter @alfarid/backoffice typecheck
-نفّذ أوامر الـ receive والـ void على قاعدة بيانات اختبار فقط (php artisan migrate:fresh --seed على بيئة محلية).
-
-5. Phase 4: المالية والورديات والجملة
-4.1 الملف: endpoints/operations/finance.ts
-Copyimport { api, ADMIN, crud, one, asPage, cleanParams, openProtectedFile, type Id } from './http';
-
-/* ---------- Treasuries (قواعد TreasuryController حرفياً) ---------- */
-export type TreasuryType = 'main' | 'drawer' | 'bank';   // VERIFY TreasuryType enum
-export interface TreasuryApi {
-  id: number; name: string; code: string; branch_id: number | null; branch?: { id: number; name: string } | null;
-  type: TreasuryType; is_active: boolean; current_balance: string;
-}
-/** store: name(req,≤191), code(req,≤50,unique), branch_id(nullable), type(req), is_active(nullable). لا يوجد opening_balance */
-export interface TreasuryPayload { name: string; code: string; branch_id?: number | null; type: TreasuryType; is_active?: boolean }
-export const treasuriesApi = crud<TreasuryApi, TreasuryPayload, { is_active?: boolean; branch_id?: number; per_page?: number }>(`${ADMIN}/treasuries`);
-
-/* ---------- Expenses ---------- */
-export interface ExpenseApi {                              // VERIFY
-  id: number; expense_number: string; branch_id: number; branch?: { id: number; name: string };
-  treasury_id: number; treasury?: { id: number; name: string }; category: string; amount: string;
-  expense_date: string; notes: string | null; creator?: { id: number; name: string }; pos_shift?: { id: number; shift_number: string } | null;
-}
-/** store: branch_id(req), treasury_id(req), category(req,≤191), amount(req,0.01..99999999), expense_date(req,Y-m-d), notes(≤500) */
-export interface ExpensePayload { branch_id: number; treasury_id: number; category: string; amount: number; expense_date: string; notes?: string | null }
-export const expensesApi = crud<ExpenseApi, ExpensePayload, { page?: number; per_page?: number; branch_id?: number; treasury_id?: number; from?: string; to?: string }>(`${ADMIN}/expenses`);
-
-/* ---------- Treasury transfers (index/store/show + approve/reject) ---------- */
-export type TransferStatus = 'pending' | 'approved' | 'rejected';   // VERIFY
-export interface TreasuryTransferApi {
-  id: number; from_treasury_id: number; to_treasury_id: number; amount: string; status: TransferStatus; notes: string | null;
-  from_treasury?: { id: number; name: string }; to_treasury?: { id: number; name: string };
-  creator?: { id: number; name: string }; approver?: { id: number; name: string } | null; created_at: string;
-}
-export interface TransferPayload { from_treasury_id: number; to_treasury_id: number; amount: number; notes?: string | null }
-const TT = `${ADMIN}/treasury-transfers`;
-export const treasuryTransfersApi = {
-  list: (p: { page?: number; status?: TransferStatus } = {}, signal?: AbortSignal) =>
-    api.get(TT, { params: cleanParams(p), signal }).then((r) => asPage<TreasuryTransferApi>(r)),
-  show: (id: Id) => api.get(`${TT}/${id}`).then((r) => one<TreasuryTransferApi>(r)),
-  create: (b: TransferPayload) => api.post(TT, b).then((r) => one<TreasuryTransferApi>(r)),
-  approve: (id: Id) => api.post(`${TT}/${id}/approve`).then((r) => one<TreasuryTransferApi>(r)),
-  reject: (id: Id) => api.post(`${TT}/${id}/reject`).then((r) => one<TreasuryTransferApi>(r)),
-};
-
-/* ---------- POS shifts ---------- */
-export type ShiftStatus = 'open' | 'closed' | 'approved';   // VERIFY PosShiftStatus
-export interface PosShiftApi {                              // VERIFY أسماء حقول النقدية
-  id: number; shift_number: string; status: ShiftStatus;
-  opened_at: string; closed_at: string | null;
-  opening_cash: string; expected_cash: string | null; closing_cash: string | null; cash_difference: string | null;
-  cashier?: { id: number; name: string }; branch?: { id: number; name: string };
-  treasury?: { id: number; name: string }; approver?: { id: number; name: string } | null;
-  expenses?: ExpenseApi[];
-}
-export interface ShiftListParams { page?: number; per_page?: number; branch_id?: number; user_id?: number; status?: ShiftStatus; from_date?: string; to_date?: string }
-const SH = `${ADMIN}/shifts`;
-export const posShiftsApi = {
-  list: (p: ShiftListParams, signal?: AbortSignal) => api.get(SH, { params: cleanParams(p), signal }).then((r) => asPage<PosShiftApi>(r)),
-  show: (id: Id, signal?: AbortSignal) => api.get(`${SH}/${id}`, { signal }).then((r) => one<PosShiftApi>(r)),
-  approve: (id: Id) => api.post(`${SH}/${id}/approve`).then((r) => one<PosShiftApi>(r)),
-};
-
-/* ---------- Quotations ---------- */
-export type QuotationStatus = 'requested' | 'priced' | 'accepted' | 'rejected' | 'expired' | 'converted'; // VERIFY
-export interface QuotationApi {                             // VERIFY QuotationResource
-  id: number; quotation_number: string; status: QuotationStatus;
-  customer?: { id: number; name: string; company_name?: string | null };
-  items?: { id: number; product_variant_id: number; qty: number; unit_price: string | null; variant?: { name: string; sku: string; product?: { name: string } } }[];
-  total: string | null; valid_until: string | null; notes: string | null; order?: { id: number; order_number: string } | null; created_at: string;
-}
-export interface PriceQuotationPayload { items: { id: number; unit_price: number }[]; valid_until: string; notes?: string | null } // VERIFY PriceQuotationRequest
-const Q = `${ADMIN}/quotations`;
-export const quotationsApi = {
-  list: (p: { page?: number; per_page?: number; status?: QuotationStatus; customer_id?: number }, signal?: AbortSignal) =>
-    api.get(Q, { params: cleanParams(p), signal }).then((r) => asPage<QuotationApi>(r)),
-  show: (id: Id, signal?: AbortSignal) => api.get(`${Q}/${id}`, { signal }).then((r) => one<QuotationApi>(r)),
-  price: (id: Id, b: PriceQuotationPayload) => api.post(`${Q}/${id}/price`, b).then((r) => one<QuotationApi>(r)),
-  expire: (id: Id) => api.post(`${Q}/${id}/expire`).then((r) => one<QuotationApi>(r)),
-};
-
-/* ---------- Wholesale payment notices ---------- */
-export type NoticeStatus = 'pending' | 'approved' | 'rejected';   // VERIFY
-export interface PaymentNoticeApi {                               // VERIFY WholesalePaymentNoticeResource
-  id: number; notice_number: string; status: NoticeStatus; amount: string; method: string;
-  bank_name: string | null; reference: string | null; transfer_date: string;
-  customer?: { id: number; name: string; company_name?: string | null };
-  order?: { id: number; order_number: string } | null; treasury?: { id: number; name: string } | null;
-  admin_notes: string | null; has_receipt?: boolean; receipt_url?: string | null; created_at: string;
-}
-const PN = `${ADMIN}/payment-notices`;
-export const paymentNoticesApi = {
-  list: (p: { page?: number; per_page?: number; status?: NoticeStatus; customer_id?: number }, signal?: AbortSignal) =>
-    api.get(PN, { params: cleanParams(p), signal }).then((r) => asPage<PaymentNoticeApi>(r)),
-  show: (id: Id, signal?: AbortSignal) => api.get(`${PN}/${id}`, { signal }).then((r) => one<PaymentNoticeApi>(r)),
-  approve: (id: Id, b: { treasury_id?: number | null; admin_notes?: string | null }) => api.post(`${PN}/${id}/approve`, b).then((r) => one<PaymentNoticeApi>(r)),
-  reject: (id: Id, admin_notes: string) => api.post(`${PN}/${id}/reject`, { admin_notes }).then((r) => one<PaymentNoticeApi>(r)),
-  openReceipt: (id: Id) => openProtectedFile(`${PN}/${id}/receipt`),
-};
-Copy
-4.2 Mappers
-Copyexport const mapTreasury = (t: TreasuryApi): TreasuryRow => ({
-  id: t.id, name: t.name, code: t.code, type: t.type, branch: t.branch?.name ?? null, balance: num(t.current_balance), active: t.is_active,
-});
-export const mapExpense = (e: ExpenseApi): ExpenseRow => ({
-  id: e.id, no: e.expense_number, branch: e.branch?.name ?? '', tr: e.treasury_id, cat: e.category,
-  amount: num(e.amount), date: e.expense_date, by: e.creator?.name ?? '—', shift: e.pos_shift?.shift_number ?? null, notes: e.notes,
-});
-export const mapTransfer = (t: TreasuryTransferApi): TreasuryTransfer => ({
-  id: t.id, from: t.from_treasury_id, to: t.to_treasury_id, amount: num(t.amount), status: t.status,
-  by: t.creator?.name ?? '—', appr: t.approver?.name ?? null, date: toDate(t.created_at), notes: t.notes,
-});
-export const mapShift = (s: PosShiftApi): ShiftRow => ({
-  id: s.id, no: s.shift_number, cashier: s.cashier?.name ?? '—', branch: s.branch?.name ?? '', tr: s.treasury?.id ?? 0,
-  open: `${toDate(s.opened_at)} ${toTime(s.opened_at)}`, close: s.closed_at ? `${toDate(s.closed_at)} ${toTime(s.closed_at)}` : null,
-  status: s.status, exp: s.expected_cash === null ? null : num(s.expected_cash), act: s.closing_cash === null ? null : num(s.closing_cash),
-});
-/** الفرق = الفعلي - المتوقع. القيمة السالبة = عجز، والموجبة = زيادة. إن أعاد الخادم cash_difference فهو المرجع */
-export const shiftDiff = (s: PosShiftApi): number | null =>
-  s.cash_difference !== null && s.cash_difference !== undefined ? num(s.cash_difference)
-    : s.expected_cash !== null && s.closing_cash !== null ? +(num(s.closing_cash) - num(s.expected_cash)).toFixed(2) : null;
-
-export const mapQuote = (q: QuotationApi): QuoteRow => ({
-  id: q.id, no: q.quotation_number, cust: q.customer?.name ?? '—', company: q.customer?.company_name ?? '',
-  status: q.status, total: q.total === null ? null : num(q.total), valid: q.valid_until, date: toDate(q.created_at),
-  order: q.order?.order_number,
-});
-export const mapNotice = (n: PaymentNoticeApi): PaymentNoticeRow => ({
-  id: n.id, no: n.notice_number, cust: n.customer?.name ?? '—', company: n.customer?.company_name ?? '',
-  order: n.order?.order_number ?? null, amount: num(n.amount), method: n.method, bank: n.bank_name ?? '',
-  ref: n.reference ?? '', date: n.transfer_date, file: !!(n.has_receipt ?? n.receipt_url), status: n.status,
-  tr: n.treasury?.id, review: n.admin_notes ?? undefined,
-});
-Copy
-4.3 FinancePage
-TreasuriesTab:
-
-التحميل: treasuriesApi.list({ per_page: 100 }) ثم mapTreasury.
-البطاقات تعرض balance من current_balance.
-في نموذج الإنشاء: إذا كان حقل "الرصيد الافتتاحي" موجوداً في الـ JSX فاجعله readOnly مع القيمة 0 وأضف hint: "يُسجَّل الرصيد عبر تحويل أو إيراد"، لأن الخادم لا يقبله.
-خريطة الأخطاء: { branch_id: 'branch' }.
-بعد أي expense أو transfer approve استدعِ treasuries.reload()، لأن الأرصدة تتغير في الخادم.
-ExpensesTab:
-
-Copyconst save = async () => {
-  const r = await run(() => expensesApi.create({
-    branch_id: Number(f.v.branch), treasury_id: Number(f.v.tr), category: f.v.cat,
-    amount: Number(f.v.amount), expense_date: f.v.date, notes: f.v.notes || null,
-  }), { toast, success: 'تم تسجيل المصروف وخصمه من الخزينة', onFieldErrors: (e) => f.setErrors(mapErrors(e, { branch_id: 'branch', treasury_id: 'tr', category: 'cat', expense_date: 'date' })) });
-  if (r) { expenses.reload(); treasuries.reload(); onClose(); }
-};
-// تحقق محلي إضافي (تحذير فقط): إذا amount > رصيد الخزينة المختارة ⇒ hint أحمر "المبلغ أكبر من رصيد الخزينة"
-ExpenseController لا يقبل مرفقاً في الكود الحالي. إذا كان في نموذج المصروف Dropzone فاتركه ظاهراً لكن لا ترسل الملف، وأضف تعليق // TODO backend: expense attachment. هذا يحافظ على عدم تغيير الواجهة.
-
-TransfersTab:
-
-الإنشاء: treasuryTransfersApi.create({from_treasury_id, to_treasury_id, amount, notes}).
-تحقق محلي: from !== to. والخادم يفرض different:from_treasury_id أيضاً، فاربط خطأ to_treasury_id بحقل "إلى".
-أزرار الاعتماد والرفض تظهر فقط عند status === 'pending'، وبعد النجاح: transfers.reload(); treasuries.reload();.
-4.4 ShiftsPage وShiftModal
-Copyconst shifts = useRemote((s) => posShiftsApi.list({ page, per_page: 20, status: (st || undefined) as any,
-  branch_id: br ? Number(br) : undefined, from_date: from || undefined, to_date: to || undefined }, s), [page, st, br, from, to]);
-const rows = (shifts.data?.data ?? []).map(mapShift);
-
-// ShiftModal
-const detail = useRemote((s) => posShiftsApi.show(shiftId, s), [shiftId]);
-const diff = detail.data ? shiftDiff(detail.data) : null;
-// عرض: المتوقع = num(expected_cash) ، الفعلي = num(closing_cash) ، الفرق = diff (لون c-red إن <0 ، c-green إن >0)
-// المصروفات داخل الوردية: detail.data.expenses.map(mapExpense)
-const approve = async () => {
-  const r = await run(() => posShiftsApi.approve(shiftId), { toast, success: 'تم اعتماد الوردية وترحيل النقدية للخزنة الرئيسية' });
-  if (r) { detail.setData(r); onSaved(); }
-};
-// زر الاعتماد يظهر فقط إذا detail.data.status === 'closed' && can('pos_shifts.approve')
-4.5 WholesalePage
-QuotesTab: التحميل بـ quotationsApi.list({ page, per_page: 20, status }). عند فتح عرض سعر يُجلب quotationsApi.show(id)، ومودال التسعير يعرض items بمدخل unit_price لكل بند:
-
-Copyconst price = async (prices: Record<number, number>, validUntil: string, notes: string) => {
-  if (!validUntil || validUntil <= new Date().toISOString().slice(0, 10)) return toast('تاريخ الصلاحية يجب أن يكون في المستقبل', 'red');
-  const r = await run(() => quotationsApi.price(q.id, {
-    items: (q.items ?? []).map((it) => ({ id: it.id, unit_price: Number(prices[it.id] ?? 0) })),
-    valid_until: validUntil, notes: notes || null,
-  }), { toast, success: 'تم إرسال التسعير للعميل' });
-  if (r) { setQ(r); quotes.reload(); }
-};
-const expire = () => run(() => quotationsApi.expire(q.id), { toast, success: 'تم إنهاء صلاحية العرض' });
-// الإجمالي المعروض أثناء التسعير = Σ qty * unit_price (محلي للعرض فقط) ، وبعد الحفظ يُعرض total من الخادم
-NoticesTab:
-
-Copyconst approve = async (n: PaymentNoticeRow, treasuryId: string, notes: string) => {
-  const r = await run(() => paymentNoticesApi.approve(n.id, { treasury_id: treasuryId ? Number(treasuryId) : null, admin_notes: notes || null }),
-    { toast, success: 'تم اعتماد إشعار الدفع' });
-  if (r) { notices.reload(); onClose(); }
-};
-const reject = async (n: PaymentNoticeRow, reason: string) => {
-  if (!reason.trim()) return toast('سبب الرفض مطلوب', 'red');
-  const r = await run(() => paymentNoticesApi.reject(n.id, reason), { toast, success: 'تم رفض الإشعار' });
-  if (r) { notices.reload(); onClose(); }
-};
-// زر "عرض الإيصال": onClick={() => run(() => paymentNoticesApi.openReceipt(n.id), { toast })}  — يظهر فقط إن n.file
-4.6 Verification Gate لـ Phase 4
-Copycd bags-platform/backend
-php artisan test --filter='Treasury|Expense|Shift|Quotation|PaymentNotice'
-
-T1=$(curl -s "${H[@]}" "$API/api/v1/admin/treasuries" | jq '.data[0].id'); T2=$(curl -s "${H[@]}" "$API/api/v1/admin/treasuries" | jq '.data[1].id')
-BEFORE=$(curl -s "${H[@]}" "$API/api/v1/admin/treasuries/$T1" | jq -r '.data.current_balance')
-BR=$(curl -s "${H[@]}" "$API/api/v1/admin/treasuries/$T1" | jq '.data.branch_id // 1')
-curl -s "${H[@]}" -X POST "$API/api/v1/admin/expenses" -H 'Content-Type: application/json' \
-  -d "{\"branch_id\":$BR,\"treasury_id\":$T1,\"category\":\"gate\",\"amount\":10,\"expense_date\":\"$(date +%F)\"}" | jq '.data.id // .message'
-AFTER=$(curl -s "${H[@]}" "$API/api/v1/admin/treasuries/$T1" | jq -r '.data.current_balance')
-echo "$BEFORE -> $AFTER"   # يجب أن ينقص 10
-
-TR=$(curl -s "${H[@]}" -X POST "$API/api/v1/admin/treasury-transfers" -H 'Content-Type: application/json' \
-  -d "{\"from_treasury_id\":$T1,\"to_treasury_id\":$T2,\"amount\":5}" | jq '.data.id')
-curl -s "${H[@]}" -X POST "$API/api/v1/admin/treasury-transfers/$TR/approve" | jq '.message'
-curl -s "${H[@]}" -X POST "$API/api/v1/admin/treasury-transfers" -H 'Content-Type: application/json' \
-  -d "{\"from_treasury_id\":$T1,\"to_treasury_id\":$T1,\"amount\":5}" | jq '.errors.to_treasury_id'   # خطأ متوقع
-
-curl -s "${H[@]}" "$API/api/v1/admin/shifts?status=closed" | jq '.data[0] | keys'   # ثبّت أسماء حقول النقدية هنا
-curl -s "${H[@]}" "$API/api/v1/admin/quotations" | jq '.data[0] | keys'
-curl -s "${H[@]}" "$API/api/v1/admin/payment-notices" | jq '.data[0] | keys'
-
-cd ../frontend
-pnpm --filter @alfarid/api-client exec tsc --noEmit
-pnpm --filter @alfarid/backoffice typecheck
-6. Phase 5: التقارير والإشعارات الحية
-5.1 الملف: endpoints/operations/reports.ts
-Copyimport { api, ADMIN, cleanParams, type Id } from './http';
-
-export type Granularity = 'daily' | 'monthly';
-export type SalesGroupBy = 'branch' | 'channel' | 'cashier' | 'payment_method';
-export interface PeriodParams { from?: string; to?: string }  // Y-m-d — الأسماء from/to وليس date_from
-
-/** الأشكال التالية مبدئية — ثبّتها من fixtures/report-*.json */
-export interface SalesReportRow { period?: string; group?: string; orders_count: number; gross_sales: string; discounts: string; tax: string; shipping: string; net_sales: string } // VERIFY
-export interface InventoryReport { by_branch: { branch_id: number; branch_name: string; variants_count: number; qty: number; value: string }[]; dead_stock: { variant_id: number; name: string; sku: string; qty: number; last_sold_at: string | null }[] } // VERIFY
-export interface ProfitReport { revenue: string; cogs: string; gross_profit: string; expenses: string; net_profit: string } // VERIFY
-export interface SupplierReportRow { supplier_id: number; name: string; purchases_total: string; paid_total: string; balance: string } // VERIFY
-export interface ShiftReport { totals: { cash_sales: string; card_sales: string; returns: string; expenses: string; net_difference: string }; shifts: unknown[] } // VERIFY
-
-const RP = `${ADMIN}/reports`;
-const get = <T>(path: string, params: object, signal?: AbortSignal) =>
-  api.get<{ data: T }>(`${RP}/${path}`, { params: cleanParams(params), signal }).then((r) => r.data.data);
-
-export const reportsApi = {
-  sales: (p: PeriodParams & { granularity?: Granularity; group_by?: SalesGroupBy }, s?: AbortSignal) => get<SalesReportRow[]>('sales', p, s),
-  inventory: (p: { dead_days?: number }, s?: AbortSignal) => get<InventoryReport>('inventory', p, s),
-  profit: (p: PeriodParams, s?: AbortSignal) => get<ProfitReport>('profit', p, s),
-  suppliers: (s?: AbortSignal) => get<SupplierReportRow[]>('suppliers', {}, s),          // مركزي فقط (403 لغيره)
-  shifts: (p: PeriodParams & { only_differences?: boolean }, s?: AbortSignal) => get<ShiftReport>('shifts', p, s),
-};
-
-/** تحقق الفترة: إلزامي قبل أي طلب تقرير */
-export const MAX_REPORT_DAYS = 366;
-export function validatePeriod(from?: string, to?: string): string | null {
-  if (!from || !to) return null; // الخادم يستخدم بداية الشهر الحالي → اليوم
-  const a = new Date(from + 'T00:00:00Z').getTime(), b = new Date(to + 'T00:00:00Z').getTime();
-  if (Number.isNaN(a) || Number.isNaN(b)) return 'صيغة التاريخ غير صحيحة';
-  if (b < a) return 'تاريخ النهاية يجب أن يكون بعد تاريخ البداية';
-  if ((b - a) / 86_400_000 > MAX_REPORT_DAYS) return `أقصى مدى للتقرير ${MAX_REPORT_DAYS} يوماً`;
-  return null;
+function fakeIp() {
+  return `10.${__VU % 250}.${Math.floor(Math.random() * 250)}.${(__ITER % 250) + 1}`;
 }
 
-/* ---------- Notifications ---------- */
-export interface NotificationApi { id: string; type: string; data: Record<string, any>; read_at: string | null; created_at: string | null }
-export interface NotificationsPage {
-  data: NotificationApi[];
-  meta: { current_page: number; last_page: number; per_page: number; total: number; unread_count: number };
-}
-const N = `${ADMIN}/notifications`;
-export const notificationsApi = {
-  list: (page = 1, signal?: AbortSignal) => api.get<NotificationsPage>(N, { params: { page }, signal }).then((r) => r.data),
-  markRead: (id: string) =>
-    api.post<{ data: { id: string; read_at: string }; meta: { unread_count: number } }>(`${N}/${id}/read`).then((r) => r.data),
-};
-Copy
-5.2 مهمة Backend اختيارية: فرض حد 366 يوماً في الخادم
-حالياً ReportController::period() لا يفرض الحد. للتوافق مع المتطلب، أضف بعد validate داخل period():
-
-Copy// bags-platform/backend/app/Http/Controllers/Api/V1/Admin/ReportController.php — داخل private function period(Request $request)
-if ($from->diffInDays($to) > 366) {
-    throw \Illuminate\Validation\ValidationException::withMessages([
-        'to' => ['أقصى مدى للتقرير 366 يوماً.'],
-    ]);
-}
-استخدم أسماء المتغيرات الفعلية في الدالة ($from و$to بعد تحويلهما إلى Carbon). إن كانت مختلفة فاستبدلها. وأضف اختباراً في tests/Feature/Admin/ReportControllerTest.php يرسل from=2024-01-01&to=2025-06-01 ويتوقع 422.
-
-5.3 ReportsPage والتقارير الخمسة
-حالة الفترة مشتركة في ReportsPage وتُمرّر للتقارير، مع الإبقاء على مكونات FDate الموجودة:
-
-Copyconst [from, setFrom] = useState(firstDayOfMonth());   // helper: new Date().toISOString().slice(0,8)+'01'
-const [to, setTo] = useState(today());
-const periodErr = validatePeriod(from, to);
-// اعرض periodErr تحت حقول التاريخ عبر Field err= أو toast، ولا تُرسل أي طلب إن وُجد خطأ (enabled: !periodErr)
-SalesReport: استبدل المصفوفات الثابتة ([1.82, 2.04, …]، [4120, …]) بـ:
-
-Copyconst sales = useRemote((s) => reportsApi.sales({ from, to, granularity: 'monthly' }, s), [from, to], { enabled: !periodErr });
-const chart = (sales.data ?? []).map((r) => ({
-  label: r.period ?? r.group ?? '',          // نفس المفتاح الذي يقرؤه BarsChart حالياً للمحور
-  gross: num(r.gross_sales), net: num(r.net_sales), orders: r.orders_count,
-}));
-// <BarsChart data={chart} keyA="gross" keyB="net" labelA="..." labelB="..." fmt={fmtMoney} />   — نفس labelA/labelB الحالية
-// KPIs: الإجمالي = Σ gross ، الخصومات = Σ num(discounts) ، الضريبة = Σ num(tax) ، الشحن = Σ num(shipping) ، الصافي = Σ net ، الطلبات = Σ orders
-افتح BarsChart وتحقق من المفتاح المستخدم لاسم العمود (مثلاً d.label أو d.m). إذا كان m فغيّر label: في الـ map إلى m:.
-
-InventoryReport: reportsApi.inventory({ dead_days: 90 }). يتحول by_branch إلى صفوف الجدول الحالي (variants_count، qty، num(value))، والراكد من dead_stock بدل VARIANTS.slice(4, 9). هذا التقرير لا يحتاج فترة، فلا تمرّر from/to.
-
-ProfitReport: reportsApi.profit({ from, to }). القيم الثابتة 2,589,000 و1,942,000 و318,400 تُستبدل بـ num(revenue) وnum(cogs) وnum(expenses). الهامش = gross_profit / revenue × 100، مع حماية من القسمة على صفر.
-
-SupplierReport: reportsApi.suppliers(). إذا جاء 403 اعرض Empty بعنوان "هذا التقرير متاح للإدارة المركزية فقط" داخل نفس Card.
-
-ShiftReport: reportsApi.shifts({ from, to, only_differences: onlyDiff }). القيم الثابتة (82.4k، 56.1k، 4.9k، -270) تُستبدل بـ totals.*، وجدول الورديات من shifts عبر mapShift إن كان الشكل مطابقاً لـ PosShiftApi.
-
-5.4 الإشعارات: hook مشترك مع Polling
-أنشئ operations-mock/api/useNotifications.ts:
-
-Copyimport { useCallback, useEffect, useRef, useState } from 'react';
-import { notificationsApi, type NotificationApi, parseApiError, isAxiosCancel } from '@alfarid/api-client';
-import type { NotificationItem } from '../data';
-import { USE_MOCK } from './source';
-import { NOTIFICATIONS } from '../data'; // VERIFY اسم المصفوفة الوهمية
-
-const POLL_MS = 60_000;
-const toItem = (n: NotificationApi): NotificationItem => ({ id: n.id, type: n.type, data: n.data, read_at: n.read_at, created_at: n.created_at ?? '' });
-
-export function useNotifications(onError?: (msg: string) => void) {
-  const [items, setItems] = useState<NotificationItem[]>(USE_MOCK ? NOTIFICATIONS : []);
-  const [unread, setUnread] = useState<number>(USE_MOCK ? NOTIFICATIONS.filter((n) => !n.read_at).length : 0);
-  const [page, setPage] = useState(1);
-  const [lastPage, setLastPage] = useState(1);
-  const [loading, setLoading] = useState(!USE_MOCK);
-  const ctrlRef = useRef<AbortController | null>(null);
-
-  const load = useCallback(async (p = 1) => {
-    if (USE_MOCK) return;
-    ctrlRef.current?.abort();
-    const ctrl = new AbortController(); ctrlRef.current = ctrl;
-    try {
-      const r = await notificationsApi.list(p, ctrl.signal);
-      setItems((prev) => (p === 1 ? r.data.map(toItem) : [...prev, ...r.data.map(toItem)]));
-      setUnread(r.meta.unread_count); setPage(r.meta.current_page); setLastPage(r.meta.last_page);
-    } catch (e) {
-      if (!isAxiosCancel(e)) onError?.(parseApiError(e).message);
-    } finally { setLoading(false); }
-  }, [onError]);
-
-  // تحميل أولي + polling فقط عندما يكون التبويب ظاهراً
-  useEffect(() => {
-    load(1);
-    const t = setInterval(() => { if (document.visibilityState === 'visible') load(1); }, POLL_MS);
-    const onVis = () => { if (document.visibilityState === 'visible') load(1); };
-    document.addEventListener('visibilitychange', onVis);
-    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis); ctrlRef.current?.abort(); };
-  }, [load]);
-
-  const markRead = useCallback(async (id: string) => {
-    const now = new Date().toISOString();
-    setItems((l) => l.map((n) => (n.id === id && !n.read_at ? { ...n, read_at: now } : n)));      // optimistic
-    if (USE_MOCK) { setUnread((u) => Math.max(0, u - 1)); return; }
-    try { const r = await notificationsApi.markRead(id); setUnread(r.meta.unread_count); }
-    catch (e) { setItems((l) => l.map((n) => (n.id === id ? { ...n, read_at: null } : n))); onError?.(parseApiError(e).message); }
-  }, [onError]);
-
-  /** لا يوجد endpoint "قراءة الكل" — نمرّ على غير المقروء في المحمّل حالياً بالتتابع */
-  const markAllRead = useCallback(async () => {
-    for (const n of items.filter((x) => !x.read_at)) await markRead(n.id);
-  }, [items, markRead]);
-
-  const loadMore = useCallback(() => { if (page < lastPage) load(page + 1); }, [page, lastPage, load]);
-
-  return { items, unread, loading, markRead, markAllRead, loadMore, hasMore: page < lastPage, reload: () => load(1) };
+export default function () {
+  const h = { headers: { 'X-Forwarded-For': fakeIp(), Accept: 'application/json' } };
+  check(http.get(`${BASE}/api/v1/store/home`, h), { home: (r) => r.status === 200 });
+  check(http.get(`${BASE}/api/v1/store/products?sort=newest`, h), { list: (r) => r.status === 200 });
+  const s = SLUGS[Math.floor(Math.random() * SLUGS.length)];
+  check(http.get(`${BASE}/api/v1/store/products/${s}`, h), { pdp: (r) => r.status === 200 });
+  sleep(1);
 }
 Copy
-الربط: في OperationsMockPage.tsx استدعِ الـ hook مرة واحدة في الأعلى حتى يتشارك الدرج والصفحة نفس الحالة:
+الـ IP العشوائي: k6 بيشتغل من جوه الشبكة الداخلية على frontend الـ :8081 (اللي ما بيمسحش X-Forwarded-For)، فكل مستخدم وهمي بيظهر لـ Laravel بـ IP مختلف، والـ rate limiters تشتغل بشكل واقعي. لازم تضيف IP الـ k6 container في TRUSTED_PROXIES في بيئة الاختبار بس.
 
-Copyconst toast = useToast(); // إذا كان OperationsMockPage نفسه داخل ToastHost؛ وإلا فمرّر onError يكتب console.warn
-const notif = useNotifications((m) => toast(m, 'red'));
-...
-case 'notifications':
-  return <NotificationsPage items={notif.items} onRead={notif.markRead} onReadAll={notif.markAllRead} onMore={notif.hasMore ? notif.loadMore : undefined} go={go} />;
-...
-<NotifDrawer items={notif.items} onRead={notif.markRead} ... />
-// شارة العدد (badge) في زر الجرس: {notif.unread > 0 && <span ...>{notif.unread}</span>} — نفس العنصر الحالي، القيمة فقط تتغير
-ملاحظة مهمة: ToastHost يغلّف الشجرة. إذا كان useToast() يُستدعى في نفس المكوّن الذي يرندر <ToastHost>، فلن يجد الـ Context. في هذه الحالة انقل منطق useNotifications إلى مكوّن داخلي OperationsInner يُرندر داخل ToastHost.
+اعمل سيناريو تاني للـ cart والـ checkout على داتابيز staging فيها بيانات seed، وابعت Idempotency-Key في كل طلب.
 
-onOpen في الإشعار (فتح السجل): يقرأ n.data ويحوّله إلى go(...):
+9.2 خطة الاختبارات (سجّل نتيجة كل واحد)
+#	الاختبار	المتوقع
+1	حمل على سيرفر واحد (من غير LB)	الـ baseline
+2	نفس الحمل على 3 سيرفرات	RPS حوالي 2.5 لـ 3 أضعاف
+3	زوّد الحمل لحد ما p95 يعدّي ثانية	الحد الأقصى للسيستم
+4	docker kill app2 أثناء الحمل	أخطاء أقل من 0.5%، والحمل يتوزع على الباقيين
+5	docker kill redis1	Failover في أقل من 10 ثواني
+6	docker kill haproxy1	الـ VIP ينتقل في أقل من 3 ثواني
+7	Rolling deploy أثناء الحمل	0 أخطاء
+8	Spike مفاجئ من 0 لـ 1000 مستخدم في 10 ثواني	HAProxy يحجز الطلبات في الطابور، والسيرفرات ما تقعش
+9	50 طلب checkout متوازي على نفس الـ variant ونفس المخزون	مفيش overselling، ومفيش أوردر متكرر
+اختبار رقم 9 بيبيّن قوة الـ locks والـ idempotency اللي في الكود أصلاً، وده مكسب كبير في العرض.
 
-Copyexport function notificationTarget(n: NotificationItem): { m: string; id?: number } | null {
-  const d = n.data ?? {};
-  if (d.order_id) return { m: 'orders', id: d.order_id };
-  if (d.return_request_id) return { m: 'returns', id: d.return_request_id };
-  if (d.purchase_order_id) return { m: 'purchasing', id: d.purchase_order_id };
-  if (d.quotation_id || d.payment_notice_id) return { m: 'wholesale' };
-  if (d.pos_shift_id) return { m: 'shifts' };
-  return null; // VERIFY مفاتيح data من fixtures/notifications.json
-}
-5.5 Verification Gate لـ Phase 5
-Copycd bags-platform/backend
-php artisan test --filter='Report|Notification'
+شروط القبول: ملف infrastructure/docs/load-test-report.md فيه الأرقام وscreenshots من Grafana لكل اختبار.
 
-curl -s "${H[@]}" "$API/api/v1/admin/reports/sales?from=2026-05-01&to=2026-10-27&granularity=monthly" | jq '.data | length'
-curl -s "${H[@]}" "$API/api/v1/admin/reports/sales?from=2026-10-27&to=2026-01-01" | jq '.errors'     # 422 (to قبل from)
-curl -s "${H[@]}" "$API/api/v1/admin/reports/sales?from=2024-01-01&to=2026-01-01" | jq '.errors'     # 422 إذا نُفذت 5.2
-curl -s "${H[@]}" "$API/api/v1/admin/reports/inventory?dead_days=90" | jq '.data | keys'
-curl -s "${H[@]}" "$API/api/v1/admin/notifications" | jq '.meta.unread_count'
-NID=$(curl -s "${H[@]}" "$API/api/v1/admin/notifications" | jq -r '[.data[] | select(.read_at==null)][0].id')
-curl -s "${H[@]}" -X POST "$API/api/v1/admin/notifications/$NID/read" | jq '.meta.unread_count'       # ينقص 1
+المرحلة 10: التوثيق الخاص بالبيع — يومين
+اعمل الملفات دي في infrastructure/docs/:
 
-cd ../frontend
-pnpm --filter @alfarid/api-client exec tsc --noEmit
-pnpm --filter @alfarid/backoffice typecheck
-اختبار يدوي:
+architecture.md: الرسمة اللي فوق، وشرح كل طبقة، وسبب كل قرار (ليه leastconn، وليه maxconn، وليه queue على database، وليه PgBouncer).
+scaling-guide.md: إزاي تضيف سيرفر رابع في 3 خطوات (سطر في compose، وسطر في haproxy.cfg، وreload)، وجدول بأحجام السيرفرات المقترحة لكل مستوى زيارات مبني على نتايج اختباراتك الحقيقية.
+runbook.md: إيه اللي تعمله لو سيرفر وقع، أو Redis وقع، أو الداتابيز بطيئة، وإزاي تعمل deploy، وإزاي تعمل rollback، وإزاي تسترجع backup.
+load-test-report.md: من المرحلة 9.
+فيديو ديمو مدته 3 دقايق: Grafana مفتوح، وk6 شغال، وأنت بتطفي سيرفر قدام الكاميرا، والموقع ما يتأثرش. ده أقوى حاجة في العرض كله.
+نصيحة في العرض: اكتب الأرقام اللي قستها بالظبط، زي "X طلب في الثانية بـ p95 قيمته Y ملي ثانية على 3 سيرفرات بمواصفات Z". المشتري الفاهم بيثق في رقم متقاس أكتر بكتير من جملة زي "يتحمل ملايين المستخدمين".
 
-اختر فترة 400 يوم وتأكد من ظهور الخطأ وعدم إرسال أي طلب في Network.
-اترك الصفحة مفتوحة 60 ثانية وتأكد من ظهور GET /notifications دورياً، ومن توقفه عند إخفاء التبويب.
-اضغط "تعليم كمقروء" وتأكد من نقصان الشارة فوراً.
-7. خطة الإطلاق الشاملة وقائمة الـ Fallback
-7.1 مصفوفة علم الـ Mock
-VITE_USE_MOCK_OPERATIONS	VITE_OPERATIONS_FALLBACK_ON_ERROR	السلوك
-true	(أي قيمة)	كل الشاشات تقرأ data.ts، ولا توجد أي طلبات شبكة. للعرض والتصميم فقط
-false	true	API حقيقي. عند 5xx أو انقطاع الشبكة تُعرض بيانات data.ts مع toast أحمر ثابت
-false	false	وضع الإنتاج: API فقط، والأخطاء تظهر بـ Empty + زر إعادة المحاولة
-تنبيه واضح عند استخدام الـ Mock: أضف في OperationsMockPage.tsx أعلى المحتوى، باستخدام مكوّن Note الموجود في ui.tsx وبدون CSS جديد:
+مراحل اختيارية (بعد ما الأساسي يخلص ويستقر)
+A. Micro-cache للكتالوج (مكسب أداء كبير)
+كاش لمدة 10 ثواني في Nginx على كل سيرفر، لطلبات GET /api/v1/store/{home,categories,products...} اللي مش معاها Authorization ولا X-Cart-Session.
 
-Copy{(USE_MOCK) && <Note tone="orange">وضع البيانات التجريبية مفعّل — لا يتم حفظ أي تغيير.</Note>}
-وفي كل شاشة استخدمت useRemote، إذا كان usingMock === true بعد فشل الطلب اعرض:
+قبل ما تنفّذ:
 
-Copy{usingMock && !USE_MOCK && <Note tone="red">تعذّر الاتصال بالخادم؛ البيانات المعروضة تجريبية.</Note>}
-افتح Note في ui.tsx وتحقق من أسماء props المدعومة (مثل tone أو kind) واستخدم الاسم الصحيح.
+اتأكد إن الـ response ما بيختلفش حسب أي header تاني، زي اللغة أو الفرع.
+ما تكيّشش أي response فيه Set-Cookie أو Cache-Control: private. الـ ProtectStorefrontCaching الموجود عندك بيحط private, no-store للمستخدم المسجل، فاحترمه.
+خد موافقة صاحب البيزنس إن حالة المخزون ممكن تتأخر 10 ثواني.
+B. Laravel Octane (مع FrankenPHP)
+ممكن يضاعف الأداء 2 لـ 4 مرات. الكود متجهز جزئياً، لأن الـ services معمول لها scoped بالتحديد "لتجنب تسريب state في Octane". لكن الخطر عالي: أي static property أو singleton فيه state ممكن يسرّب بيانات عميل لعميل تاني.
 
-قاعدة صارمة للـ mutations في وضع الـ Mock: كل run(...) يجب أن يُتجاوز. أضف في بداية useAction.run:
+شروط التنفيذ: test suite كاملة، ومراجعة كل static في app/، واختبار حمل بمستخدمين مختلفين مع التأكد إن مفيش بيانات بتتخلط. لو أي شك، ما تنفذوش.
 
-Copyif (USE_MOCK) { h.toast('وضع تجريبي — لم يتم الحفظ', 'accent'); return undefined; }
-7.2 ترتيب الإطلاق
-Phase 0: يُدمج وحده (لا يغيّر سلوك الواجهة).
-Phases 1 إلى 5: كل Phase في Pull Request مستقل، ولا يُد
-مج الـ PR التالي قبل اجتياز الـ Verification Gate للـ PR السابق وموافقة مراجع واحد على الأقل. 3. بيئة Staging: تُنشر بالإعداد USE_MOCK=false وFALLBACK=true لمدة يومي عمل، مع مراقبة سجلات Laravel (storage/logs/laravel.log) لأي 500. 4. الإنتاج: يُنشر بالإعداد USE_MOCK=false وFALLBACK=false. 5. التنظيف بعد أسبوعين مستقرين:
-
-تُحذف المصفوفات الوهمية التي لم تعد مستخدمة من data.ts، وتبقى الأنواع وخرائط الحالات والتسميات.
-يُعاد تسمية المجلد operations-mock إلى operations في PR منفصل، مع تحديث import في App.tsx فقط.
-للتأكد أن مصفوفة وهمية لم تعد مستخدمة قبل حذفها، شغّل: grep -rn "\bORDERS\b\|\bRETURNS\b\|\bSHIP_COMPANIES\b\|\bPRICE_LISTS\b\|\bSUPPLIERS\b\|\bTREASURIES\b\|\bSHIFTS\b" apps/backoffice/src --include=*.tsx يجب ألا يظهر أي استخدام خارج mock: () =>.
-
-7.3 التحقق النهائي من البناء
-Copycd bags-platform/frontend
-pnpm install --frozen-lockfile
-pnpm --filter @alfarid/api-client exec tsc --noEmit
-pnpm --filter @alfarid/backoffice typecheck
-pnpm --filter @alfarid/backoffice lint
-pnpm --filter @alfarid/backoffice build
-
-# لا fetch أو axios مباشر داخل الواجهة
-grep -rnE "\bfetch\(|from 'axios'|axios\.create" apps/backoffice/src/pages/admin/operations-mock && echo "FAIL" || echo "OK"
-
-# لا تغيير في ملفات التصميم
-git diff --stat origin/main -- '**/operations-reference.css' | grep -q . && echo "FAIL: CSS changed" || echo "OK"
-
-# لا VERIFY متبقٍ
-grep -rn "VERIFY" packages/api-client/src/endpoints/operations && echo "FAIL" || echo "OK"
-
-cd ../backend
-php artisan test
-شروط القبول: كل الأوامر تنجح وتطبع OK. وفحص git diff على ملفات .tsx يجب ألا يُظهر أي تغيير في قيم className. للتحقق السريع:
-
-Copygit diff origin/main -- 'apps/backoffice/src/pages/admin/operations-mock/*.tsx' | grep -E '^[-+].*className=' | grep -v '^+++\|^---'
-أي سطر يظهر هنا يجب أن يكون زوجاً مطابقاً (حذف وإضافة لنفس className) ناتجاً عن تعديل خصائص أخرى في نفس السطر فقط.
-
-7.4 قائمة الـ Smoke Test الشاملة (يدوياً على Staging)
-#	الشاشة	الخطوات	النتيجة المتوقعة
-1	الطلبات	فلترة بالحالة والفرع والتاريخ، ثم الانتقال للصفحة 2	الطلب يحمل page=2 والصفوف تتغير
-2	تفاصيل طلب	تغيير الحالة، ثم الدفع، ثم التخصيص، ثم الشحن	يتحدث الـ Timeline، والحالة تصبح shipped بعد الشحن
-3	المرتجعات	إنشاء، ثم موافقة، ثم استلام، ثم استرداد	مؤشر الخطوات يكتمل ويظهر المبلغ من الخادم
-4	الشحن	إضافة شركة بكود مكرر	خطأ تحت حقل "الكود"
-5	التسعير	إنشاء قائمة، ثم إضافة بند، ثم تصدير CSV واستيراده	تقرير الاستيراد يعرض أرقاماً حقيقية
-6	العروض والكوبونات	حذف كوبون مستخدم	toast بالرسالة العربية، والمودال يبقى مفتوحاً
-7	البراندات	تعديل مع رفع شعار	يظهر الشعار الجديد بعد إعادة التحميل
-8	الموردون	إنشاء مستخدم بوابة، ثم تعطيله	toast يذكر تسجيل الخروج من الأجهزة
-9	المشتريات	PR: submit ثم approve، وPO: approve ثم send ثم receive جزئي ثم close-short	الحالات تتبع الجدول 3.1
-10	فواتير الموردين	رفع مرفق، ثم post، ثم فتح المرفق	يُفتح الملف في تبويب جديد
-11	دفعات الموردين	إنشاء، ثم allocate، ثم void بسبب	ينعكس رصيد المورد والفاتورة
-12	المالية	مصروف، ثم تحويل، ثم اعتماد	أرصدة الخزائن تتحدث فوراً
-13	الورديات	فتح وردية مغلقة ثم اعتمادها	الفرق صحيح وحالتها approved
-14	الجملة	تسعير عرض، ثم expire، ثم اعتماد إشعار دفع مع خزينة	تتحدث الحالات ويُفتح الإيصال
-15	التقارير	فترة 400 يوم	رسالة خطأ ولا يُرسل أي طلب
-16	الإشعارات	تعليم كمقروء، ثم قراءة الكل	الشارة تصل إلى صفر
-17	الصلاحيات	دخول بمستخدم فرع (غير مركزي)	403 تُعرض كـ toast، وتقرير الموردين يعرض Empty
-18	انقطاع الشبكة	إيقاف Laravel مع FALLBACK=true	تظهر بيانات تجريبية مع تنبيه أحمر، والحفظ يفشل برسالة واضحة
-19	انتهاء الجلسة	حذف الـ token أثناء العمل	onUnauthorized يعيد التوجيه لتسجيل الدخول
-7.5 قائمة التراجع (Rollback)
-تراجع فوري بدون نشر كود: اضبط VITE_USE_MOCK_OPERATIONS=true وأعد بناء الواجهة فقط (pnpm --filter @alfarid/backoffice build). ستعمل كل الشاشات بالبيانات التجريبية.
-تراجع جزئي لوحدة واحدة: اعمل git revert لـ PR الـ Phase المعنية فقط. هذا ممكن لأن كل Phase مستقلة بملف endpoints خاص بها.
-مهمة الـ Backend الاختيارية (5.2): مستقلة تماماً، ويمكن التراجع عنها دون أي أثر على الواجهة لأن الـ Frontend يتحقق محلياً من نفس الحد.
+C. Read Replica للتقارير
+Postgres streaming replication (مجاني)، واعمل connection منفصلة اسمها pgsql_reports تستخدمها endpoints التقارير بس. ما تعملش read/write split عام، لأن الكود معتمد بشكل كبير على lockForUpdate، والقراءة من replica متأخرة ممكن تعمل أخطاء في المخزون.

@@ -106,6 +106,11 @@ class AdminReportsTest extends TestCase
         StockLevel::forceCreate(['branch_id' => $branch->id, 'product_variant_id' => $dead->id, 'on_hand' => 10]);
 
         $moving = ProductVariant::factory()->create(['product_id' => $product->id, 'cost_price' => 20]);
+        StockMovement::create([
+            'reference_number' => 'MOV-RESERVE-ONLY', 'product_variant_id' => $dead->id,
+            'branch_id' => $branch->id, 'type' => 'reserve', 'affected_bucket' => 'reserved',
+            'quantity' => 1, 'balance_before' => 0, 'balance_after' => 1, 'created_by' => $this->admin->id,
+        ]);
         StockLevel::forceCreate(['branch_id' => $branch->id, 'product_variant_id' => $moving->id, 'on_hand' => 5]);
         StockMovement::create([
             'reference_number' => 'MOV-TEST-1',
@@ -129,10 +134,12 @@ class AdminReportsTest extends TestCase
 
     public function test_profit_report_uses_sale_movement_costs_and_expenses(): void
     {
-        $this->order(['grand_total' => 1000]);
+        $order = $this->order(['subtotal' => 1000, 'grand_total' => 1000]);
         $variant = ProductVariant::factory()->create(['cost_price' => 999]);
         StockMovement::create([
             'reference_number' => 'MOV-TEST-2',
+            'reference_type' => (new Order)->getMorphClass(),
+            'reference_id' => $order->id,
             'product_variant_id' => $variant->id,
             'branch_id' => Branch::factory()->create()->id,
             'type' => 'sale',

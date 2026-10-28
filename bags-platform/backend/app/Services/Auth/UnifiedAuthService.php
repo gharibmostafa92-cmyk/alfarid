@@ -35,12 +35,11 @@ final class UnifiedAuthService
         if (RateLimiter::tooManyAttempts($pairKey, $pairLimit)) {
             throw new TooManyRequestsHttpException(RateLimiter::availableIn($pairKey), 'محاولات دخول كثيرة؛ حاول لاحقًا.');
         }
-        foreach ([$hourKey => $hourLimit, $dayKey => $dayLimit] as $identityKey => $limit) {
-            if (RateLimiter::tooManyAttempts($identityKey, $limit)) {
-                throw new TooManyRequestsHttpException(RateLimiter::availableIn($identityKey), 'محاولات دخول كثيرة؛ حاول لاحقًا.');
-            }
+        if (RateLimiter::tooManyAttempts($hourKey, $hourLimit)) {
+            throw new TooManyRequestsHttpException(RateLimiter::availableIn($hourKey), 'محاولات دخول كثيرة؛ حاول لاحقًا.');
         }
         $broadLimitReached = RateLimiter::tooManyAttempts($ipKey, $ipLimit);
+        $dayLimitReached = RateLimiter::tooManyAttempts($dayKey, $dayLimit);
         try {
             $actor = $this->resolve($identifier, $password, $staff);
         } catch (BusinessException $exception) {
@@ -54,7 +53,7 @@ final class UnifiedAuthService
                     app(AuthenticationAlerts::class)->report('identifier_failures', $staff?->id);
                 }
                 // Broad quotas must not lock out valid credentials behind NAT or CGNAT.
-                if ($broadLimitReached) {
+                if ($broadLimitReached || $dayLimitReached) {
                     throw new TooManyRequestsHttpException(60, 'محاولات دخول كثيرة؛ حاول لاحقًا.');
                 }
             }

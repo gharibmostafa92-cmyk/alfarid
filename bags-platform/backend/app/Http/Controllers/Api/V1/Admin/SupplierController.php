@@ -66,7 +66,7 @@ class SupplierController extends Controller implements HasMiddleware
 
     public function show(Supplier $supplier): SupplierResource
     {
-        return SupplierResource::make($supplier->load('users'));
+        return SupplierResource::make($supplier->loadMissing('users'));
     }
 
     public function update(SupplierRequest $request, Supplier $supplier): SupplierResource
@@ -104,7 +104,7 @@ class SupplierController extends Controller implements HasMiddleware
 
     public function updateUser(UpdateSupplierUserRequest $request, Supplier $supplier, SupplierUser $user): SupplierUserResource
     {
-        abort_if((int) $user->supplier_id !== (int) $supplier->id, 404);
+        $this->assertBelongsToSupplier($supplier, $user);
         $data = $request->validated();
         if (empty($data['password'])) {
             unset($data['password']);
@@ -125,10 +125,15 @@ class SupplierController extends Controller implements HasMiddleware
 
     public function destroyUser(Supplier $supplier, SupplierUser $user): JsonResponse
     {
-        abort_if((int) $user->supplier_id !== (int) $supplier->id, 404);
+        $this->assertBelongsToSupplier($supplier, $user);
         $user->tokens()->delete();
         $user->delete();
 
         return response()->json(['message' => 'تم حذف حساب موظف المورد.']);
+    }
+
+    private function assertBelongsToSupplier(Supplier $supplier, SupplierUser $user): void
+    {
+        abort_if((int) $user->supplier_id !== (int) $supplier->id, 404);
     }
 }

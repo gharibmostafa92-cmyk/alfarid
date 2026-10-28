@@ -11,12 +11,14 @@ use App\Models\Location;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\StockMovement;
+use App\Models\SupplierUser;
 use App\Models\User;
 use App\Services\InventoryService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
@@ -127,8 +129,36 @@ class ManufacturingBusinessTest extends TestCase
 
     public function test_resale_endpoints_are_retired(): void
     {
-        foreach (['admin/brands', 'store/brands', 'admin/suppliers', 'admin/purchase-orders', 'admin/purchase-requests', 'admin/supplier-invoices', 'admin/supplier-payments', 'supplier/purchase-orders', 'admin/reports/suppliers'] as $path) {
-            $this->getJson('/api/v1/'.$path)->assertStatus(410);
+        $staff = $this->staff();
+        $supplier = SupplierUser::factory()->create();
+        $tokens = [null, $staff->createToken('retired-admin')->plainTextToken, $supplier->createToken('historical-supplier')->plainTextToken];
+        $tables = ['suppliers', 'supplier_users', 'purchase_orders', 'supplier_invoices', 'supplier_payments', 'stock_movements', 'treasury_transactions'];
+        $counts = array_combine($tables, array_map(fn ($table) => DB::table($table)->count(), $tables));
+
+        $endpoints = [
+            ['GET', 'admin/brands'], ['POST', 'admin/brands'], ['PUT', 'admin/brands/1'], ['DELETE', 'admin/brands/1'],
+            ['GET', 'store/brands'],
+            ['GET', 'admin/suppliers'], ['POST', 'admin/suppliers'], ['PUT', 'admin/suppliers/1'], ['DELETE', 'admin/suppliers/1'],
+            ['POST', 'admin/suppliers/1/users'], ['PUT', 'admin/suppliers/1/users/1'],
+            ['GET', 'admin/purchase-orders'], ['POST', 'admin/purchase-orders'], ['PUT', 'admin/purchase-orders/1'],
+            ['POST', 'admin/purchase-orders/1/approve'], ['POST', 'admin/purchase-orders/1/send'], ['POST', 'admin/purchase-orders/1/receive'],
+            ['GET', 'admin/purchase-requests'], ['POST', 'admin/purchase-requests'],
+            ['GET', 'admin/supplier-invoices'], ['POST', 'admin/supplier-invoices'], ['POST', 'admin/supplier-invoices/1/post'],
+            ['GET', 'admin/supplier-payments'], ['POST', 'admin/supplier-payments'], ['DELETE', 'admin/supplier-payments/1'], ['POST', 'admin/supplier-payments/1/void'],
+            ['GET', 'admin/reports/suppliers'],
+            ['POST', 'supplier/auth/login'], ['GET', 'supplier/dashboard'], ['GET', 'supplier/notifications'], ['GET', 'supplier/statement'],
+            ['GET', 'supplier/purchase-orders'], ['POST', 'supplier/purchase-orders/1/accept'], ['POST', 'supplier/purchase-orders/1/request-change'],
+        ];
+        foreach ($tokens as $token) {
+            foreach ($endpoints as [$method, $path]) {
+                Auth::forgetGuards();
+                $headers = $token === null ? [] : ['Authorization' => 'Bearer '.$token];
+                $this->json($method, '/api/v1/'.$path, [], $headers)->assertStatus(410)
+                    ->assertJsonPath('message', 'هذا الجزء متوقف؛ منتجات الفريد تصنيعنا، والتجار يُدارون من العملاء والجملة.');
+            }
+        }
+        foreach ($counts as $table => $count) {
+            $this->assertDatabaseCount($table, $count);
         }
     }
 

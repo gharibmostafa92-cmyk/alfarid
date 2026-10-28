@@ -48,9 +48,9 @@ class CustomerController extends Controller implements HasMiddleware
     public function index(Request $request): AnonymousResourceCollection
     {
         $filters = $request->validate([
-            'type' => ['nullable', Rule::in(array_column(CustomerType::cases(), 'value'))],
+            'type' => ['nullable', Rule::enum(CustomerType::class)],
             'business_only' => ['nullable', 'boolean'],
-            'status' => ['nullable', Rule::in(array_column(CustomerStatus::cases(), 'value'))],
+            'status' => ['nullable', Rule::enum(CustomerStatus::class)],
             'customer_group_id' => ['nullable', 'integer', 'min:1'],
             'search' => ['nullable', 'string', 'max:255'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
@@ -72,12 +72,12 @@ class CustomerController extends Controller implements HasMiddleware
 
     public function show(Customer $customer): CustomerResource
     {
-        return new CustomerResource($this->customers->find($customer->id));
+        return CustomerResource::make($this->customers->find($customer->id));
     }
 
     public function update(UpdateCustomerRequest $request, Customer $customer): CustomerResource
     {
-        return new CustomerResource($this->customers->update($customer, $request->validated(), $request->user()->id));
+        return CustomerResource::make($this->customers->update($customer, $request->validated(), $request->user()->id));
     }
 
     public function destroy(Request $request, Customer $customer): JsonResponse
@@ -91,21 +91,21 @@ class CustomerController extends Controller implements HasMiddleware
     {
         $customer = $this->customers->approve($customer, $request->validated(), $request->user()->id);
 
-        return (new CustomerResource($customer))->additional(['message' => 'تم اعتماد الحساب بنجاح']);
+        return CustomerResource::make($customer)->additional(['message' => 'تم اعتماد الحساب بنجاح']);
     }
 
     public function reject(RejectCustomerRequest $request, Customer $customer): CustomerResource
     {
         $customer = $this->customers->reject($customer, $request->validated()['reason'], $request->user()->id);
 
-        return (new CustomerResource($customer))->additional(['message' => 'تم رفض الحساب']);
+        return CustomerResource::make($customer)->additional(['message' => 'تم رفض الحساب']);
     }
 
     public function suspend(SuspendCustomerRequest $request, Customer $customer): CustomerResource
     {
         $customer = $this->customers->suspend($customer, $request->validated()['reason'], $request->user()->id);
 
-        return (new CustomerResource($customer))->additional(['message' => 'تم إيقاف الحساب وإنهاء جلساته']);
+        return CustomerResource::make($customer)->additional(['message' => 'تم إيقاف الحساب وإنهاء جلساته']);
     }
 
     /** تنزيل مستند تحقق من التخزين الخاص (scoped: المستند تابع لهذا العميل حصرًا). */
@@ -119,7 +119,7 @@ class CustomerController extends Controller implements HasMiddleware
 
     public function restore(Request $request, Customer $customer): CustomerResource
     {
-        return new CustomerResource($this->customers->restore($customer, $request->user()->id));
+        return CustomerResource::make($this->customers->restore($customer, $request->user()->id));
     }
 
     public function reviewDocument(Request $request, Customer $customer, CustomerDocument $document): JsonResponse

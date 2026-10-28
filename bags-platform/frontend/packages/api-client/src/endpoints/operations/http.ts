@@ -85,22 +85,47 @@ export function crud<T, P extends object, Q extends object = Record<string, unkn
   };
 }
 
+const SAFE_INLINE = new Set(['application/pdf', 'image/png', 'image/jpeg', 'image/webp']);
+
 /** تحميل مرفق محمي (يحتاج Bearer) وفتحه في تبويب جديد */
 export async function openProtectedFile(url: string): Promise<void> {
-  const r = await api.get(url, { responseType: 'blob' });
-  const blobUrl = URL.createObjectURL(r.data as Blob);
-  window.open(blobUrl, '_blank', 'noopener');
-  setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+  const w = window.open('', '_blank');
+  if (w) w.opener = null;
+  try {
+    const r = await api.get(url, { responseType: 'blob' });
+    const type = String(r.headers?.['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+    if (!SAFE_INLINE.has(type) || !w) {
+      if (w) w.close();
+      saveBlob(r.data as Blob, 'attachment');
+      return;
+    }
+    const blob = new Blob([r.data], { type });
+    const blobUrl = URL.createObjectURL(blob);
+    w.location.href = blobUrl;
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+  } catch (e) {
+    if (w) w.close();
+    throw e;
+  }
 }
 
 /** تنزيل ملف (CSV) */
 export async function downloadFile(url: string, filename: string, params?: object): Promise<void> {
   const r = await api.get(url, { responseType: 'blob', params: cleanParams(params) });
+  saveBlob(r.data as Blob, filename);
+}
+
+function saveBlob(blob: Blob, filename: string): void {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(r.data as Blob);
+  const href = URL.createObjectURL(blob);
+  a.href = href;
   a.download = filename;
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(a.href);
+  setTimeout(() => {
+    URL.revokeObjectURL(href);
+    a.remove();
+  }, 30_000);
 }
 
 /** مفتاح Idempotency للعمليات المالية */

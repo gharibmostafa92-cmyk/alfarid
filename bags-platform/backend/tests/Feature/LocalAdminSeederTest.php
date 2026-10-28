@@ -58,7 +58,9 @@ class LocalAdminSeederTest extends TestCase
         $admin->assignRole(StaffRole::SuperAdmin->value);
         $password = $admin->password;
         $token = $admin->createToken('existing-session')->plainTextToken;
-        $this->assertFalse($admin->can('inventory.adjust'));
+        $admin->roles()->firstOrFail()->revokePermissionTo(Permission::findOrCreate('inventory.adjust', 'staff'));
+        $admin = $admin->fresh();
+        $this->assertFalse($admin->getAllPermissions()->contains('name', 'inventory.adjust'));
 
         $this->seed(LocalAdminSeeder::class);
         $this->seed(LocalAdminSeeder::class);

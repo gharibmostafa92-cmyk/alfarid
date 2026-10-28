@@ -3,12 +3,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createRequire } = require('node:module');
+const { webcrypto } = require('node:crypto');
 const ts = require('typescript');
 
 const filename = path.join(__dirname, '../apps/storefront/src/stores/cart-store.ts');
-const code = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-}).outputText;
 const token = '1b5d1234-0000-4000-8000-123456789012';
 const cart = (quantity = 1, total = 750) => ({ id: 1, customer_id: null, cart_token: token,
   items: quantity ? [{ id: 101, product_variant_id: 88, product_id: 7, product_name: 'حقيبة', sku: 'BAG-01', qty: quantity, unit_price: 250, line_total: 250 * quantity, available: 5, priced: true }] : [],
@@ -16,14 +14,26 @@ const cart = (quantity = 1, total = 750) => ({ id: 1, customer_id: null, cart_to
 });
 
 function load(api, values = new Map(), auth = { token: null }) {
-  const moduleObject = { exports: {} };
-  const localStorage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
-  new Function('exports', 'module', 'require', 'localStorage', 'navigator', code)(
-    moduleObject.exports, moduleObject,
-    name => name === '@alfarid/api-client' ? { cartEndpoints: api, getAuthToken: () => auth.token } : createRequire(filename)(name),
-    localStorage, undefined,
-  );
-  return moduleObject.exports.useCartStore;
+  const modules = new Map();
+  const sourceRoot = path.resolve(__dirname, '../apps/storefront/src');
+  const localStorage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value),
+    removeItem: key => values.delete(key) };
+  function evaluate(file) {
+    if (modules.has(file)) return modules.get(file).exports;
+    const moduleObject = { exports: {} };
+    modules.set(file, moduleObject);
+    const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    }).outputText;
+    new Function('exports', 'module', 'require', 'localStorage', 'navigator', 'crypto', code)(
+      moduleObject.exports, moduleObject,
+      name => name === '@alfarid/api-client' ? { cartEndpoints: api, getAuthToken: () => auth.token }
+        : name.startsWith('@/') ? evaluate(path.join(sourceRoot, `${name.slice(2)}.ts`)) : createRequire(file)(name),
+      localStorage, undefined, webcrypto,
+    );
+    return moduleObject.exports;
+  }
+  return evaluate(filename).useCartStore;
 }
 
 test('add sends only variant/quantity/session and trusts the server total', async () => {
@@ -63,19 +73,23 @@ test('clearing uses one bulk request and keeps the current cart on failure', asy
 });
 
 test('queued additions share the server-issued guest session and errors retain the last valid cart', async () => {
-  const calls = [], values = new Map();
+  const calls = [], updates = [], values = new Map();
   const store = load({
     add: async (...args) => { calls.push(args); return cart(calls.length); },
-    update: async () => { throw { response: { data: { message: 'الكمية غير متاحة' } } }; },
+    update: async (...args) => { updates.push(args); throw { response: { data: { message: 'الكمية غير متاحة' } } }; },
   }, values);
   await Promise.all([store.getState().addItem(88), store.getState().addItem(88)]);
   assert.equal(calls[0][2], null);
   assert.equal(calls[1][2], token);
   assert.equal(store.getState().items[0].quantity, 2);
-  assert.equal(await store.getState().updateQuantity(101, 999), false);
+  // Stay within the displayed ceiling so stale stock reaches server validation.
+  assert.equal(await store.getState().updateQuantity(101, 4), false);
+  assert.deepEqual(updates, [[101, 4, token]]);
   assert.equal(store.getState().items[0].quantity, 2);
   assert.equal(store.getState().error, 'الكمية غير متاحة');
   assert.equal(await store.getState().updateQuantity(101, -1), false);
+  assert.equal(await store.getState().updateQuantity(101, 999), false);
+  assert.equal(updates.length, 1, 'Invalid or over-ceiling quantities must not reach the API');
 });
 
 test('a delayed old-session response cannot populate the next account cart', async () => {

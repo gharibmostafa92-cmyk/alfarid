@@ -29,6 +29,9 @@ export function useNotifications(onError?: (message: string) => void) {
   const ctrlRef = useRef<AbortController | null>(null);
   const pending = useRef(new Set<string>());
   const mounted = useRef(true);
+  const bulkPending = useRef(false);
+  const unreadRef = useRef(unread); unreadRef.current = unread;
+  const refreshCtrl = useRef<AbortController | null>(null);
 
   const load = useCallback(async (p = 1) => {
     if (USE_MOCK) return;
@@ -53,19 +56,38 @@ export function useNotifications(onError?: (message: string) => void) {
     } finally { if (!ctrl.signal.aborted) setLoading(false); }
   }, []);
 
+  const refreshQuiet = useCallback(async () => {
+    if (USE_MOCK || bulkPending.current || refreshCtrl.current) return;
+    const ctrl = new AbortController();
+    refreshCtrl.current = ctrl;
+    try {
+      const r = await notificationsApi.list(1, ctrl.signal);
+      if (ctrl.signal.aborted || !mounted.current) return;
+      setItems(prev => {
+        const incoming = r.data.map(toItem).map(n => pending.current.has(n.id) ? { ...n, read_at: n.read_at ?? new Date().toISOString() } : n);
+        const incomingIds = new Set(incoming.map(n => n.id));
+        return [...incoming, ...prev.filter(n => !incomingIds.has(n.id))];
+      });
+      setUnread(r.meta.unread_count); setLastPage(r.meta.last_page); setUsingMock(false);
+    } catch {
+      // Polling failures leave the last successfully loaded list visible.
+    } finally { if (refreshCtrl.current === ctrl) refreshCtrl.current = null; }
+  }, []);
+
   useEffect(() => {
     mounted.current = true; void load(1);
-    const poll = () => { if (document.visibilityState === 'visible' && pending.current.size === 0) void load(1); };
+    const poll = () => { if (document.visibilityState === 'visible' && pending.current.size === 0 && !bulkPending.current) void refreshQuiet(); };
     const timer = setInterval(poll, POLL_MS);
     document.addEventListener('visibilitychange', poll);
-    return () => { mounted.current = false; clearInterval(timer); document.removeEventListener('visibilitychange', poll); ctrlRef.current?.abort(); };
-  }, [load]);
+    return () => { mounted.current = false; clearInterval(timer); document.removeEventListener('visibilitychange', poll); ctrlRef.current?.abort(); refreshCtrl.current?.abort(); };
+  }, [load, refreshQuiet]);
 
   const markRead = useCallback(async (id: string) => {
     const item = itemsRef.current.find(n => n.id === id);
-    if (!item || item.read_at || pending.current.has(id)) return;
+    if (!item || item.read_at || pending.current.has(id) || bulkPending.current) return;
     if (usingMock && !USE_MOCK) { setError('البيانات تجريبية — تعذّر حفظ القراءة'); return; }
     ctrlRef.current?.abort();
+    refreshCtrl.current?.abort();
     setLoading(false);
     pending.current.add(id);
     const now = new Date().toISOString();
@@ -89,8 +111,32 @@ export function useNotifications(onError?: (message: string) => void) {
     } finally { pending.current.delete(id); }
   }, [usingMock]);
   const markAllRead = useCallback(async () => {
-    for (const item of itemsRef.current.filter(n => !n.read_at)) await markRead(item.id);
-  }, [markRead]);
-  const loadMore = useCallback(() => { if (!loading && page < lastPage) void load(page + 1); }, [loading, page, lastPage, load]);
+    if (bulkPending.current || pending.current.size > 0) return;
+    if (usingMock && !USE_MOCK) {
+      setError('البيانات تجريبية — تعذّر حفظ القراءة');
+      return;
+    }
+    bulkPending.current = true;
+    ctrlRef.current?.abort(); refreshCtrl.current?.abort(); setLoading(false);
+    const prev = itemsRef.current;
+    const prevUnread = unreadRef.current;
+    const now = new Date().toISOString();
+    setItems(items => items.map(n => ({ ...n, read_at: n.read_at ?? now })));
+    setUnread(0);
+    try {
+      const r = USE_MOCK ? { meta: { unread_count: 0 } } : await notificationsApi.readAll();
+      if (mounted.current) {
+        setError(null);
+        setUnread(r.meta.unread_count);
+      }
+    } catch (e) {
+      if (mounted.current) {
+        setItems(prev);
+        setUnread(prevUnread);
+        const message = parseApiError(e).message; setError(message); onErrorRef.current?.(message);
+      }
+    } finally { bulkPending.current = false; }
+  }, [usingMock]);
+  const loadMore = useCallback(() => { if (!loading && !bulkPending.current && page < lastPage) void load(page + 1); }, [loading, page, lastPage, load]);
   return { items, unread, loading, error, usingMock, markRead, markAllRead, loadMore, hasMore: page < lastPage, reload: () => load(1) };
 }

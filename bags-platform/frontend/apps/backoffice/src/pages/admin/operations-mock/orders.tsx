@@ -126,11 +126,8 @@ export function OrdersList({ go }: { go: (route: { m: string; id?: number | stri
   const branches = useRemote((s) => branchesApi.list({}, s).then((r) => r.data), []);
   const branchOpts = useMemo(() => branchOptions(branches.data ?? []), [branches.data]);
   const kpi = useRemote(async (signal) => {
-    const qq = (p: AdminOrderListParams) => adminOrdersApi.list(p, signal).then((r) => r.meta.total);
-    const [pending, processing, follow, refund] = await Promise.all([
-      qq({ status: 'pending' }), qq({ status: 'processing' }), qq({ needs_attention: true }), qq({ requires_refund: true }),
-    ]);
-    return { pending, processing, follow, refund };
+    const s = await adminOrdersApi.stats(signal);
+    return { pending: s.pending, processing: s.processing, follow: s.needs_attention, refund: s.requires_refund };
   }, []);
 
   const anyFilter = q || st || br || pm || from || to || fu || rf;
@@ -306,6 +303,7 @@ export function OrderDetail({
   const branchesList = useRemote((s) => branchesApi.list({}, s).then((r) => r.data), []);
   const [statusNotes, setStatusNotes] = useState('');
   const [payNotes, setPayNotes] = useState('');
+  const [refundRef, setRefundRef] = useState('');
   const [modal, setModal] = useState<string | null>(null);
   const [newSt, setNewSt] = useState('');
   const [newPay, setNewPay] = useState('');
@@ -326,9 +324,15 @@ export function OrderDetail({
 
   const savePayment = async (payment_status: PaymentStatus, notes: string) => {
     if (remote.usingMock) return toast('البيانات المعروضة تجريبية — لم يتم الحفظ', 'red');
-    const r = await run(() => adminOrdersApi.updatePayment(order.id, { payment_status, notes: notes || undefined }),
+    if (!notes.trim()) return toast('الملاحظات إلزامية للتعديل اليدوي على الدفع', 'red');
+    if (payment_status === 'refunded' && !refundRef.trim()) return toast('مرجع الاسترداد إلزامي عند التحويل إلى مسترد', 'red');
+    const r = await run(() => adminOrdersApi.updatePayment(order.id, {
+      payment_status,
+      notes,
+      ...(payment_status === 'refunded' ? { refund_reference: refundRef.trim() } : {}),
+    }),
       { toast, success: 'تم تحديث حالة الدفع' });
-    if (r) { setOrder(r); setModal(null); }
+    if (r) { setOrder(r); setModal(null); setRefundRef(''); }
   };
 
   const saveAlloc = async (branchId: string) => {
@@ -746,7 +750,12 @@ export function OrderDetail({
             </div>
           </Field>
           <Note icon="info">يُسجَّل تغيير الحالة فقط — لا يدعم النظام إدخال مبلغ دفعة جزئية.</Note>
-          <TextArea label="ملاحظات" max={500} placeholder="اختياري" value={payNotes} onChange={setPayNotes} />
+          <TextArea label="ملاحظات" max={500} placeholder="إلزامية للتعديل اليدوي" value={payNotes} onChange={setPayNotes} />
+          {newPay === 'refunded' && (
+            <Field label="مرجع الاسترداد" req>
+              <input className="inp" value={refundRef} onChange={(e) => setRefundRef(e.target.value)} placeholder="رقم مرجع الاسترداد الفعلي" maxLength={191} />
+            </Field>
+          )}
         </div>
       </Modal>
 
@@ -1150,8 +1159,8 @@ export function ReturnDetail({
   const [approveBranch, setApproveBranch] = useState('');
   const [rejectMode, setRejectMode] = useState('rejected');
   const [approveQtys, setApproveQtys] = useState<Record<number, number>>({});
-  const [goodQtys, setGoodQtys] = useState<Record<number, number>>({});
-  const [damagedQtys, setDamagedQtys] = useState<Record<number, number>>({});
+  const [goodQtys, setGoodQtys] = useState<Record<number, number | undefined>>({});
+  const [damagedQtys, setDamagedQtys] = useState<Record<number, number | undefined>>({});
   const [refundMethod, setRefundMethod] = useState('');
   const [refundRef, setRefundRef] = useState('');
   const [rejectNotes, setRejectNotes] = useState('');
@@ -1172,7 +1181,9 @@ export function ReturnDetail({
 
   const receive = async () => {
     if (!ret || remote.usingMock) return;
-    const items = (ret.items ?? []).map((it) => ({ id: it.id, received_good_qty: goodQtys[it.id] ?? (it.approved_qty ?? it.requested_qty), received_damaged_qty: damagedQtys[it.id] ?? 0 }));
+    const missing = (ret.items ?? []).filter((it) => goodQtys[it.id] === undefined || damagedQtys[it.id] === undefined);
+    if (missing.length > 0) return toast('أدخل الكمية السليمة والتالفة لكل بند بعد الفحص الفعلي', 'red');
+    const items = (ret.items ?? []).map((it) => ({ id: it.id, received_good_qty: goodQtys[it.id] ?? 0, received_damaged_qty: damagedQtys[it.id] ?? 0 }));
     const res = await run(() => adminReturnsApi.receive(ret.id, { items }), { toast, success: 'تم استلام المرتجع وفحصه' });
     if (res) { setRet(res); setModal(null); }
   };
@@ -1550,15 +1561,15 @@ export function ReturnDetail({
               <input
                 type="number"
                 min="0"
-                value={goodQtys[(l as any).id] ?? (l.appr ?? l.req ?? 0)}
-                onChange={(e) => setGoodQtys({ ...goodQtys, [(l as any).id]: Number(e.target.value) })}
+                value={goodQtys[(l as any).id] ?? ''}
+                onChange={(e) => setGoodQtys({ ...goodQtys, [(l as any).id]: e.target.value === '' ? undefined : Number(e.target.value) })}
                 className="inp inp-sm col-span-2 num text-center !bg-[var(--bg-card)]"
               />
               <input
                 type="number"
                 min="0"
-                value={damagedQtys[(l as any).id] ?? 0}
-                onChange={(e) => setDamagedQtys({ ...damagedQtys, [(l as any).id]: Number(e.target.value) })}
+                value={damagedQtys[(l as any).id] ?? ''}
+                onChange={(e) => setDamagedQtys({ ...damagedQtys, [(l as any).id]: e.target.value === '' ? undefined : Number(e.target.value) })}
                 className="inp inp-sm col-span-2 num text-center !bg-[var(--bg-card)]"
               />
             </div>

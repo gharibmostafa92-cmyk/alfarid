@@ -13,6 +13,7 @@ export const PAYMENT_TRANSITIONS: Record<PaymentStatus, PaymentStatus[]> = {
 
 export interface AdminOrderListParams {
   page?: number;
+  per_page?: number;
   status?: OrderStatus;
   allocated_branch_id?: number;
   payment_method?: PaymentMethod;
@@ -22,6 +23,8 @@ export interface AdminOrderListParams {
   needs_attention?: boolean;
   requires_refund?: boolean;
 }
+
+export interface AdminOrderStats { pending: number; processing: number; needs_attention: number; requires_refund: number }
 
 export interface AdminOrderItem {
   id: number;
@@ -96,13 +99,15 @@ export const adminOrdersApi = {
   show: (id: Id, signal?: AbortSignal) => api.get(`${O}/${id}`, { signal }).then((r) => one<AdminOrder>(r)),
   updateStatus: (id: Id, body: { status: Exclude<OrderStatus, 'shipped'>; notes?: string }) =>
     api.patch(`${O}/${id}/status`, body).then((r) => one<AdminOrder>(r)),
-  updatePayment: (id: Id, body: { payment_status: PaymentStatus; notes?: string }) =>
+  updatePayment: (id: Id, body: { payment_status: PaymentStatus; notes: string; refund_reference?: string }) =>
     api.post(`${O}/${id}/payment`, body).then((r) => one<AdminOrder>(r)),
   allocate: (id: Id, branch_id: number | null) =>
     api.post(`${O}/${id}/allocate`, { branch_id }).then((r) => one<AdminOrder>(r)),
   deallocate: (id: Id) => api.post(`${O}/${id}/deallocate`).then((r) => one<AdminOrder>(r)),
   createShipment: (id: Id, body: { shipping_company_id: number; awb_number?: string | null }) =>
     api.post(`${O}/${id}/shipment`, body).then((r) => one<ShipmentResponse>(r)),
+  stats: (signal?: AbortSignal): Promise<AdminOrderStats> =>
+    api.get<{ data: AdminOrderStats }>(`${O}/stats`, { signal }).then((r) => r.data.data),
 };
 
 /* ===== Returns ===== */

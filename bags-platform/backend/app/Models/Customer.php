@@ -70,6 +70,14 @@ class Customer extends Authenticatable
         $this->attributes['email'] = $normalized;
     }
 
+    /** خريطة تحويل الأرقام العربية والفارسية إلى أرقام لاتينية */
+    private const ARABIC_PERSIAN_DIGITS_MAP = [
+        '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4',
+        '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
+        '۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4',
+        '۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9',
+    ];
+
     public function setPhoneAttribute(string $phone): void
     {
         $this->attributes['phone'] = self::normalizePhone($phone);
@@ -77,10 +85,7 @@ class Customer extends Authenticatable
 
     public static function normalizePhone(string $phone): string
     {
-        $phone = strtr(trim($phone), array_combine(
-            preg_split('//u', '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', -1, PREG_SPLIT_NO_EMPTY),
-            str_split('01234567890123456789'),
-        ));
+        $phone = strtr(trim($phone), self::ARABIC_PERSIAN_DIGITS_MAP);
         $phone = preg_replace('/[\s().-]+/u', '', $phone);
         if (str_starts_with($phone, '+20')) {
             return '0'.substr($phone, 3);

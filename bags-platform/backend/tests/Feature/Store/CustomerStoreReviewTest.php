@@ -87,16 +87,20 @@ class CustomerStoreReviewTest extends TestCase
         $child = Category::factory()->create(['parent_id' => $inactiveCategory->id]);
         $hidden = $this->product(['category_id' => $child->id]);
         $brand = Brand::factory()->create(['is_active' => false]);
-        $brandHidden = $this->product(['brand_id' => $brand->id]);
+        $historicalBrandProduct = $this->product(['brand_id' => $brand->id]);
 
-        $this->getJson('/api/v1/store/products')->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $valid->id);
-        foreach ([$wholesale, $hidden, $brandHidden] as $product) {
+        $response = $this->getJson('/api/v1/store/products')->assertOk()->assertJsonCount(2, 'data');
+        $this->assertEqualsCanonicalizing([$valid->id, $historicalBrandProduct->id], $response->json('data.*.id'));
+        foreach ([$wholesale, $hidden] as $product) {
             $this->getJson('/api/v1/store/products/'.$product->slug)->assertNotFound();
             $this->getJson('/api/v1/store/products/'.$product->slug.'/similar')->assertNotFound();
         }
-        $this->getJson('/api/v1/store/home')->assertOk()->assertJsonCount(1, 'data.latest_products');
+        $this->getJson('/api/v1/store/products/'.$historicalBrandProduct->slug)->assertOk()->assertJsonPath('data.id', $historicalBrandProduct->id);
+        $this->getJson('/api/v1/store/products/'.$historicalBrandProduct->slug.'/similar')->assertOk();
+        $home = $this->getJson('/api/v1/store/home')->assertOk()->assertJsonCount(2, 'data.latest_products');
+        $this->assertEqualsCanonicalizing([$valid->id, $historicalBrandProduct->id], $home->json('data.latest_products.*.id'));
         $this->getJson('/api/v1/store/products?category='.$inactiveCategory->slug)->assertOk()->assertJsonCount(0, 'data');
-        $this->getJson('/api/v1/store/products?brand='.$brand->slug)->assertOk()->assertJsonCount(0, 'data');
+        $this->getJson('/api/v1/store/products?brand='.$brand->slug)->assertUnprocessable()->assertJsonValidationErrors('brand');
     }
 
     public function test_price_filters_and_sort_use_actual_customer_prices_and_put_nulls_last(): void
@@ -166,7 +170,7 @@ class CustomerStoreReviewTest extends TestCase
         $this->getJson('/api/v1/store/home')->assertOk()->assertJsonCount(0, 'data.discounted_products');
     }
 
-    public function test_read_query_count_does_not_grow_per_product_variant_or_brand_filter(): void
+    public function test_read_query_count_does_not_grow_per_product_variant_and_retired_brand_filters_do_not_query_brands(): void
     {
         $this->product();
         $queries = [];
@@ -185,27 +189,32 @@ class CustomerStoreReviewTest extends TestCase
         $this->assertLessThanOrEqual($baseline, count($queries));
         $brands = Brand::factory()->count(25)->create()->pluck('slug')->all();
         $queries = [];
-        $this->getJson('/api/v1/store/products?'.http_build_query(['brand' => $brands]))->assertOk();
+        $this->getJson('/api/v1/store/products?'.http_build_query(['brand' => $brands]))->assertUnprocessable()->assertJsonValidationErrors('brand');
         $brandQueries = array_filter($queries, fn ($sql) => str_starts_with($sql, 'select "id" from "brands"'));
-        $this->assertCount(1, $brandQueries);
+        $this->assertCount(0, $brandQueries);
     }
 
-    public function test_brand_and_category_media_queries_do_not_grow_per_record(): void
+    public function test_retired_brands_do_not_load_media_and_category_media_queries_do_not_grow_per_record(): void
     {
         Brand::factory()->create();
         $queries = [];
         DB::listen(function ($event) use (&$queries): void {
             $queries[] = $event->sql;
         });
-        $this->getJson('/api/v1/store/brands')->assertOk();
-        $baseline = count($queries);
+        $this->getJson('/api/v1/store/brands')->assertStatus(410);
+        $this->assertCount(0, $queries);
         Brand::factory()->count(15)->create();
         $queries = [];
-        $this->getJson('/api/v1/store/brands')->assertOk();
-        $this->assertSame($baseline, count($queries));
+        $this->getJson('/api/v1/store/brands')->assertStatus(410);
+        $this->assertCount(0, $queries);
+        Category::factory()->create();
+        $queries = [];
+        $this->getJson('/api/v1/store/categories')->assertOk();
+        $baseline = count($queries);
         Category::factory()->count(15)->create();
         $queries = [];
         $this->getJson('/api/v1/store/categories')->assertOk();
+        $this->assertSame($baseline, count($queries));
         $mediaQueries = array_filter($queries, fn ($sql) => str_contains($sql, 'from "media"'));
         $this->assertCount(1, $mediaQueries);
     }
@@ -384,6 +393,7 @@ class CustomerStoreReviewTest extends TestCase
 
     public function test_banner_keys_starting_with_http_receive_r2_signed_urls(): void
     {
+        config(['filesystems.banners_disk' => 'r2']);
         Banner::factory()->create(['image_path' => 'http_banners/hero.jpg']);
 
         $response = $this->getJson('/api/v1/store/home')->assertOk();

@@ -17,6 +17,7 @@ use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Tests\Concerns\ExercisesHistoricalResale;
 use Tests\TestCase;
 
 /**
@@ -26,6 +27,7 @@ use Tests\TestCase;
  */
 class PhaseNineTenAuditCompletionTest extends TestCase
 {
+    use ExercisesHistoricalResale;
     use LazilyRefreshDatabase;
 
     private User $admin;
@@ -78,6 +80,7 @@ class PhaseNineTenAuditCompletionTest extends TestCase
 
     public function test_purchase_receipt_is_rejected_when_receiving_branch_was_deactivated(): void
     {
+        $this->exerciseHistoricalResale();
         $branch = Branch::factory()->create();
         $supplier = Supplier::factory()->create();
         $product = Product::factory()->create();

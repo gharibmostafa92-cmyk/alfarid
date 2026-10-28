@@ -12,9 +12,11 @@ use Spatie\Permission\PermissionRegistrar;
 
 class PermissionController extends Controller
 {
-    public function index(PermissionRegistrar $permissionRegistrar): JsonResponse
+    public function __construct(private readonly PermissionRegistrar $permissionRegistrar) {}
+
+    public function index(): JsonResponse
     {
-        $permissions = $permissionRegistrar
+        $permissions = $this->permissionRegistrar
             ->getPermissions(['guard_name' => 'staff'])
             ->sortBy('name');
 

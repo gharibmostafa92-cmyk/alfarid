@@ -27,10 +27,15 @@ class ProductionReceiptController extends Controller implements HasMiddleware
         ];
     }
 
+    public function __construct(
+        private readonly BranchAccess $branchAccess,
+        private readonly ProductionReceiptService $productionReceipts,
+    ) {}
+
     public function options(Request $request): JsonResponse
     {
         $filters = $request->validate(['search' => ['nullable', 'string', 'max:100']]);
-        $branch = app(BranchAccess::class)->restrictedBranch($request->user());
+        $branch = $this->branchAccess->restrictedBranch($request->user());
         $branches = Branch::where('is_active', true)->when($branch, fn ($q) => $q->whereKey($branch))
             ->with(['locations' => fn ($q) => $q->where('is_active', true)])->orderBy('id')->get();
         $variants = ProductVariant::where('is_active', true)->whereHas('product')
@@ -50,7 +55,7 @@ class ProductionReceiptController extends Controller implements HasMiddleware
     public function index(Request $request): JsonResponse
     {
         $filters = $request->validate(['per_page' => ['nullable', 'integer', 'min:1', 'max:100']]);
-        $branch = app(BranchAccess::class)->restrictedBranch($request->user());
+        $branch = $this->branchAccess->restrictedBranch($request->user());
         $receipts = ProductionReceipt::query()->when($branch, fn ($q) => $q->where('branch_id', $branch))
             ->orderByDesc('id')->paginate($filters['per_page'] ?? 15);
         if (! CostAccess::canView($request->user())) {
@@ -66,11 +71,11 @@ class ProductionReceiptController extends Controller implements HasMiddleware
         return response()->json($receipts);
     }
 
-    public function store(StoreProductionReceiptRequest $request, ProductionReceiptService $service): JsonResponse
+    public function store(StoreProductionReceiptRequest $request): JsonResponse
     {
         $key = $this->idempotencyKey($request);
         abort_if($key === null, 422, 'مفتاح Idempotency-Key مطلوب لاستلام الإنتاج.');
-        $receipt = $service->receive($request->validated(), $request->user()->id, $key);
+        $receipt = $this->productionReceipts->receive($request->validated(), $request->user()->id, $key);
 
         return response()->json(['message' => 'تم استلام الإنتاج وإضافة الكميات للمخزون.', 'data' => $receipt], 201);
     }

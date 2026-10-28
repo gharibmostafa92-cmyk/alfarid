@@ -39,10 +39,12 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\TestWith;
+use Tests\Concerns\ExercisesHistoricalResale;
 use Tests\TestCase;
 
 class PhaseNineTenHardeningTest extends TestCase
 {
+    use ExercisesHistoricalResale;
     use LazilyRefreshDatabase;
 
     private User $admin;
@@ -56,6 +58,7 @@ class PhaseNineTenHardeningTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->exerciseHistoricalResale();
         $this->seed([RolePermissionSeeder::class, SettingSeeder::class]);
         $this->admin = User::factory()->create();
         $this->admin->assignRole('Super Admin');

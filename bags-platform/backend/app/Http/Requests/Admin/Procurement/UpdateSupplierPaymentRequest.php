@@ -22,7 +22,7 @@ class UpdateSupplierPaymentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'payment_method' => ['sometimes', Rule::in(array_column(SupplierPaymentMethod::cases(), 'value'))],
+            'payment_method' => ['sometimes', Rule::enum(SupplierPaymentMethod::class)],
             'reference_no' => ['nullable', 'string', 'max:100'],
             'notes' => ['nullable', 'string', 'max:2000'],
         ];

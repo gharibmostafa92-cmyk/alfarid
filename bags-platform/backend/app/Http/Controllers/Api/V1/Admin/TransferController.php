@@ -24,7 +24,10 @@ use Illuminate\Validation\Rule;
 
 class TransferController extends Controller implements HasMiddleware
 {
-    public function __construct(private readonly TransferService $transfers) {}
+    public function __construct(
+        private readonly TransferService $transfers,
+        private readonly BranchAccess $branchAccess,
+    ) {}
 
     public static function middleware(): array
     {
@@ -49,7 +52,7 @@ class TransferController extends Controller implements HasMiddleware
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
-        $filters['staff_branch_id'] = app(BranchAccess::class)->restrictedBranch($request->user());
+        $filters['staff_branch_id'] = $this->branchAccess->restrictedBranch($request->user());
 
         return StockTransferResource::collection($this->transfers->paginate($filters));
     }
@@ -58,7 +61,7 @@ class TransferController extends Controller implements HasMiddleware
     {
         $transfer = $this->transfers->create($request->validated(), $request->user()->id, $this->requiredIdempotencyKey($request));
 
-        return (new StockTransferResource($transfer))
+        return StockTransferResource::make($transfer)
             ->additional(['message' => 'تم إنشاء التحويل بنجاح'])
             ->response()
             ->setStatusCode(201);
@@ -66,14 +69,14 @@ class TransferController extends Controller implements HasMiddleware
 
     public function show(Request $request, StockTransfer $transfer): StockTransferResource
     {
-        app(BranchAccess::class)->assertBranch($request->user()->id, $transfer->from_branch_id, $transfer->to_branch_id);
+        $this->branchAccess->assertBranch($request->user()->id, $transfer->from_branch_id, $transfer->to_branch_id);
 
-        return new StockTransferResource($this->transfers->find($transfer->id));
+        return StockTransferResource::make($this->transfers->find($transfer->id));
     }
 
     public function update(UpdateTransferRequest $request, StockTransfer $transfer): StockTransferResource
     {
-        return new StockTransferResource($this->transfers->update($transfer, $request->validated(), $request->user()->id));
+        return StockTransferResource::make($this->transfers->update($transfer, $request->validated(), $request->user()->id));
     }
 
     public function destroy(Request $request, StockTransfer $transfer): JsonResponse
@@ -93,7 +96,7 @@ class TransferController extends Controller implements HasMiddleware
             $request->expectedVersion(),
         );
 
-        return (new StockTransferResource($transfer))->additional(['message' => 'تم اعتماد التحويل وحجز الكميات']);
+        return StockTransferResource::make($transfer)->additional(['message' => 'تم اعتماد التحويل وحجز الكميات']);
     }
 
     public function ship(ShipTransferRequest $request, StockTransfer $transfer): StockTransferResource
@@ -106,7 +109,7 @@ class TransferController extends Controller implements HasMiddleware
             $request->expectedVersion(),
         );
 
-        return (new StockTransferResource($transfer))->additional(['message' => 'تم شحن التحويل بنجاح']);
+        return StockTransferResource::make($transfer)->additional(['message' => 'تم شحن التحويل بنجاح']);
     }
 
     public function receive(ReceiveTransferRequest $request, StockTransfer $transfer): StockTransferResource
@@ -119,13 +122,13 @@ class TransferController extends Controller implements HasMiddleware
             $request->expectedVersion(),
         );
 
-        return (new StockTransferResource($transfer))->additional(['message' => 'تم استلام التحويل بنجاح']);
+        return StockTransferResource::make($transfer)->additional(['message' => 'تم استلام التحويل بنجاح']);
     }
 
     public function cancel(Request $request, StockTransfer $transfer): StockTransferResource
     {
         $transfer = $this->transfers->cancel($transfer, $request->user()->id);
 
-        return (new StockTransferResource($transfer))->additional(['message' => 'تم إلغاء التحويل']);
+        return StockTransferResource::make($transfer)->additional(['message' => 'تم إلغاء التحويل']);
     }
 }

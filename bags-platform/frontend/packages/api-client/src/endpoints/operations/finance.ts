@@ -13,9 +13,15 @@ export interface Expense {
   id: number; expense_number: string; branch_id: number; branch?: Named; treasury?: Named; creator?: Named;
   shift_id: number | null; amount: string; category: string; notes: string | null;
   treasury_id: number; expense_date: string;
+  voided_at?: string | null; voided_by?: number | null; void_reason?: string | null;
 }
 export interface ExpensePayload { branch_id: number; amount: number; category: string; notes?: string | null; treasury_id: number; expense_date: string }
-export const expensesApi = crud<Expense, ExpensePayload>(`${ADMIN}/expenses`);
+export const expensesApi = {
+  ...crud<Expense, ExpensePayload>(`${ADMIN}/expenses`),
+  create: (body: ExpensePayload, idempotencyKey: string) =>
+    api.post(`${ADMIN}/expenses`, body, { headers: { 'Idempotency-Key': idempotencyKey } }).then((r) => one<Expense>(r)),
+  void: (id: Id, void_reason: string) => api.post(`${ADMIN}/expenses/${id}/void`, { void_reason }).then((r) => one<Expense>(r)),
+};
 
 export interface TreasuryTransfer {
   id: number; from_treasury_id: number; to_treasury_id: number; amount: string; status: string; notes: string | null;
@@ -25,8 +31,10 @@ const TT = `${ADMIN}/treasury-transfers`;
 export const treasuryTransfersApi = {
   list: (params?: object, signal?: AbortSignal) => api.get(TT, { params: cleanParams(params), signal }).then((r) => asPage<TreasuryTransfer>(r)),
   show: (id: Id, signal?: AbortSignal) => api.get(`${TT}/${id}`, { signal }).then((r) => one<TreasuryTransfer>(r)),
-  create: (body: { from_treasury_id: number; to_treasury_id: number; amount: number; notes?: string | null }) => api.post(TT, body).then((r) => one<TreasuryTransfer>(r)),
-  approve: (id: Id) => api.post(`${TT}/${id}/approve`).then((r) => one<TreasuryTransfer>(r)),
+  create: (body: { from_treasury_id: number; to_treasury_id: number; amount: number; notes?: string | null }, idempotencyKey: string) =>
+    api.post(TT, body, { headers: { 'Idempotency-Key': idempotencyKey } }).then((r) => one<TreasuryTransfer>(r)),
+  approve: (id: Id, idempotencyKey?: string) =>
+    api.post(`${TT}/${id}/approve`, {}, { headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined }).then((r) => one<TreasuryTransfer>(r)),
   reject: (id: Id) => api.post(`${TT}/${id}/reject`).then((r) => one<TreasuryTransfer>(r)),
 };
 
@@ -79,7 +87,8 @@ const PN = `${ADMIN}/payment-notices`;
 export const paymentNoticesApi = {
   list: (params?: object, signal?: AbortSignal) => api.get(PN, { params: cleanParams(params), signal }).then((r) => asPage<PaymentNotice>(r)),
   show: (id: Id, signal?: AbortSignal) => api.get(`${PN}/${id}`, { signal }).then((r) => one<PaymentNotice>(r)),
-  approve: (id: Id, body: { treasury_id?: number | null; admin_notes?: string | null }) => api.post(`${PN}/${id}/approve`, body).then((r) => one<PaymentNotice>(r)),
+  approve: (id: Id, body: { treasury_id?: number | null; admin_notes?: string | null }, idempotencyKey?: string) =>
+    api.post(`${PN}/${id}/approve`, body, { headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined }).then((r) => one<PaymentNotice>(r)),
   reject: (id: Id, admin_notes: string) => api.post(`${PN}/${id}/reject`, { admin_notes }).then((r) => one<PaymentNotice>(r)),
   openReceipt: (id: Id) => openProtectedFile(`${PN}/${id}/receipt`),
   downloadReceipt: (id: Id) => downloadFile(`${PN}/${id}/receipt`, `payment-notice-${id}-receipt`),

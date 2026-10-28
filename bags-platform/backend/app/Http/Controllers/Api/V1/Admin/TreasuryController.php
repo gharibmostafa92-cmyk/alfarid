@@ -17,6 +17,9 @@ use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
+/**
+ * Manages treasury accounts, safes, and POS drawer definitions with branch access enforcement.
+ */
 class TreasuryController extends Controller implements HasMiddleware
 {
     public static function middleware(): array
@@ -29,6 +32,14 @@ class TreasuryController extends Controller implements HasMiddleware
         ];
     }
 
+    public function __construct(private readonly BranchAccess $branchAccess) {}
+
+    /**
+     * Lists paginated treasuries scoped by user branch restrictions and filters.
+     *
+     * @param Request $request Filter query request
+     * @return JsonResponse Paginated treasury accounts
+     */
     public function index(Request $request): JsonResponse
     {
         $filters = $request->validate([
@@ -38,7 +49,7 @@ class TreasuryController extends Controller implements HasMiddleware
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
-        $branch = app(BranchAccess::class)->restrictedBranch($request->user());
+        $branch = $this->branchAccess->restrictedBranch($request->user());
         $treasuries = Treasury::query()->when($branch !== null, fn ($q) => $q->where('branch_id', $branch))
             ->with('branch')
             ->when($filters['branch_id'] ?? null, fn ($q, $v) => $q->where('branch_id', $v))
@@ -51,6 +62,12 @@ class TreasuryController extends Controller implements HasMiddleware
         return response()->json($treasuries);
     }
 
+    /**
+     * Creates a new treasury account with zero starting balance.
+     *
+     * @param Request $request Creation payload
+     * @return JsonResponse Created treasury response
+     */
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -70,13 +87,28 @@ class TreasuryController extends Controller implements HasMiddleware
         ], 201);
     }
 
+    /**
+     * Retrieves details of a specific treasury.
+     *
+     * @param Request $request Incoming request
+     * @param Treasury $treasury Target treasury
+     * @return JsonResponse Treasury details
+     */
     public function show(Request $request, Treasury $treasury): JsonResponse
     {
-        app(BranchAccess::class)->assertTreasury($request->user()->id, $treasury);
+        $this->branchAccess->assertTreasury($request->user()->id, $treasury);
 
         return response()->json(['data' => $this->treasuryData($treasury)]);
     }
 
+    /**
+     * Updates an existing treasury, preventing type changes or reassignment with active balances.
+     *
+     * @param Request $request Update request payload
+     * @param Treasury $treasury Target treasury
+     * @return JsonResponse Updated treasury response
+     * @throws BusinessException If mutating immutable type or active balances
+     */
     public function update(Request $request, Treasury $treasury): JsonResponse
     {
         $data = $request->validate([
@@ -87,17 +119,18 @@ class TreasuryController extends Controller implements HasMiddleware
             'is_active' => ['nullable', 'boolean'],
         ]);
 
-        app(BranchAccess::class)->assertTreasury($request->user()->id, $treasury);
+        $this->branchAccess->assertTreasury($request->user()->id, $treasury);
         if (array_key_exists('branch_id', $data)) {
             $this->assertBranch($request, $data['branch_id']);
         }
         DB::transaction(function () use ($treasury, $data): void {
             $locked = Treasury::query()->lockForUpdate()->findOrFail($treasury->id);
+            // Treasury account types represent fundamental ledger entities and are immutable after creation.
             if (isset($data['type']) && $data['type'] !== $locked->type->value) {
                 throw new BusinessException('نوع الخزينة غير قابل للتغيير.');
             }
             $unsettled = PosShift::query()->where('treasury_id', $locked->id)->whereIn('status', ['open', 'closed_pending_approval'])->exists();
-            if (($unsettled || (float) $locked->current_balance !== 0.0 || DB::table('treasury_transactions')->where('treasury_id', $locked->id)->exists()) && array_key_exists('branch_id', $data) && $data['branch_id'] != $locked->branch_id) {
+            if (($unsettled || bccomp((string) $locked->current_balance, '0', 2) !== 0 || DB::table('treasury_transactions')->where('treasury_id', $locked->id)->exists()) && array_key_exists('branch_id', $data) && $data['branch_id'] != $locked->branch_id) {
                 throw new BusinessException('لا يمكن نقل خزينة لها رصيد أو سجل حركات إلى فرع آخر.');
             }
             if ($unsettled && array_key_exists('is_active', $data) && ! $data['is_active']) {
@@ -113,12 +146,20 @@ class TreasuryController extends Controller implements HasMiddleware
         ]);
     }
 
+    /**
+     * Deletes a treasury account if it has zero balance and no transaction history.
+     *
+     * @param Request $request Deletion request
+     * @param Treasury $treasury Target treasury
+     * @return JsonResponse Deletion confirmation
+     * @throws BusinessException If account has transactions, shifts, or non-zero balance
+     */
     public function destroy(Request $request, Treasury $treasury): JsonResponse
     {
-        app(BranchAccess::class)->assertTreasury($request->user()->id, $treasury);
+        $this->branchAccess->assertTreasury($request->user()->id, $treasury);
         DB::transaction(function () use ($treasury): void {
             $locked = Treasury::query()->lockForUpdate()->findOrFail($treasury->id);
-            if ((float) $locked->current_balance !== 0.0 || DB::table('treasury_transactions')->where('treasury_id', $locked->id)->exists()
+            if (bccomp((string) $locked->current_balance, '0', 2) !== 0 || DB::table('treasury_transactions')->where('treasury_id', $locked->id)->exists()
                 || PosShift::query()->where('treasury_id', $locked->id)->exists()) {
                 throw new BusinessException('لا يمكن حذف خزينة لها رصيد أو سجل حركات أو ورديات.');
             }
@@ -131,9 +172,9 @@ class TreasuryController extends Controller implements HasMiddleware
     private function assertBranch(Request $request, ?int $branchId): void
     {
         if ($branchId === null) {
-            app(BranchAccess::class)->assertCentralAccess($request->user());
+            $this->branchAccess->assertCentralAccess($request->user());
         } else {
-            app(BranchAccess::class)->assertBranch($request->user()->id, $branchId);
+            $this->branchAccess->assertBranch($request->user()->id, $branchId);
         }
     }
 

@@ -23,7 +23,7 @@ class UpdateReturnRequest extends FormRequest
     {
         return [
             'admin_notes' => ['nullable', 'string', 'max:2000'],
-            'refund_method' => ['nullable', Rule::in(array_column(RefundMethod::cases(), 'value'))],
+            'refund_method' => ['nullable', Rule::enum(RefundMethod::class)],
             'status' => ['nullable', Rule::in(['rejected', 'cancelled'])],
         ];
     }

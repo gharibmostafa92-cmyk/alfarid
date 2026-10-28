@@ -407,6 +407,7 @@ export function ProfitReport({ from, to, setFrom, setTo }: PeriodProps) {
   return (
     <>
       <RemoteFeedback state={live} />
+      {!!live.data?.missing_cost_movements && <p role="alert" className="c-amber">حساب الربح غير مكتمل: توجد {live.data.missing_cost_movements} حركة بدون تكلفة تاريخية مسجلة. راجع تكاليف الحركات قبل الاعتماد على الربح المعروض.</p>}
       <Card stg={3} pad="p-4">
         <div className="flex flex-wrap items-center gap-2">
           <DateRange {...{ from, to, setFrom, setTo }} />

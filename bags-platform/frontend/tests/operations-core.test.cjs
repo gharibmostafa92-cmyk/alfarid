@@ -15,6 +15,50 @@ function load(relative, dependencies = {}) {
 }
 const base = 'packages/api-client/src/endpoints/operations/';
 const http = load(base + 'http.ts', { '../../axios-instance': { defaultApiClient: {} } });
+
+test('production ignores financial mock fallback flags without crashing the application', () => {
+  const filename = path.resolve(__dirname, '../apps/backoffice/src/pages/admin/operations-mock/api/source.ts');
+  const code = ts.transpileModule(fs.readFileSync(filename, 'utf8').replaceAll('import.meta.env', 'env'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const exports = {};
+  new Function('env', 'exports', code)({ PROD: true, VITE_OPERATIONS_FALLBACK_ON_ERROR: 'true' }, exports);
+  assert.equal(exports.FALLBACK_ON_ERROR, false);
+});
+
+test('protected files isolate the new tab and use the fetched bytes for blocked or unsafe previews', async () => {
+  const previous = { window: global.window, document: global.document, setTimeout: global.setTimeout,
+    createObjectURL: URL.createObjectURL, revokeObjectURL: URL.revokeObjectURL };
+  let requests = 0, clicks = 0, closes = 0, opened, fetched;
+  const tab = { opener: { location: 'admin' }, location: { href: '' }, close() { closes++; } };
+  global.window = { open() { opened = tab; return tab; } };
+  global.document = { body: { appendChild() {} }, createElement: () => ({ click() { clicks++; }, remove() {} }) };
+  global.setTimeout = () => 1;
+  URL.createObjectURL = blob => { fetched = blob; return 'blob:safe'; };
+  URL.revokeObjectURL = () => {};
+  let type = 'application/pdf';
+  const files = load(base + 'http.ts', { '../../axios-instance': { defaultApiClient: { get: async () => {
+    requests++; return { data: new Blob(['contents'], { type }), headers: { 'content-type': type } };
+  } } } });
+  try {
+    await files.openProtectedFile('/receipt');
+    assert.equal(opened.opener, null);
+    assert.equal(opened.location.href, 'blob:safe');
+    assert.equal(fetched.type, 'application/pdf');
+    type = 'text/html';
+    await files.openProtectedFile('/unsafe');
+    assert.equal(requests, 2, 'unsafe files must download the existing response without another fetch');
+    assert.equal(clicks, 1); assert.equal(closes, 1);
+    global.window.open = () => null;
+    type = 'image/png';
+    await files.openProtectedFile('/blocked');
+    assert.equal(clicks, 2, 'blocked popups must fall back to downloading');
+    assert.equal(requests, 3);
+  } finally {
+    Object.assign(global, { window: previous.window, document: previous.document, setTimeout: previous.setTimeout });
+    URL.createObjectURL = previous.createObjectURL; URL.revokeObjectURL = previous.revokeObjectURL;
+  }
+});
 test('raw Laravel pagination retains the page and total', () => {
   const page = http.asPage({ data: { data: [{ id: 21 }], current_page: 2, last_page: 4, total: 61, per_page: 20, from: 21, to: 21 } });
   assert.equal(page.meta.current_page, 2); assert.equal(page.meta.total, 61); assert.equal(page.meta.last_page, 4);

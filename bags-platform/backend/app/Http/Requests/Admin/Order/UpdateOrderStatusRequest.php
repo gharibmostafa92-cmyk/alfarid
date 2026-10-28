@@ -8,6 +8,9 @@ use App\Enums\OrderStatus;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
+/**
+ * Validates administrative order status transition requests.
+ */
 class UpdateOrderStatusRequest extends FormRequest
 {
     public function authorize(): bool
@@ -15,11 +18,13 @@ class UpdateOrderStatusRequest extends FormRequest
         return true;
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @return array<string, mixed>
+     */
     public function rules(): array
     {
         return [
-            'status' => ['required', Rule::in(array_column(OrderStatus::cases(), 'value'))],
+            'status' => ['required', Rule::enum(OrderStatus::class)],
             'notes' => ['nullable', 'string', 'max:500'],
         ];
     }

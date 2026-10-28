@@ -27,10 +27,12 @@ use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
+use Tests\Concerns\ExercisesHistoricalResale;
 use Tests\TestCase;
 
 class UnifiedNotificationsTest extends TestCase
 {
+    use ExercisesHistoricalResale;
     use LazilyRefreshDatabase;
 
     private User $admin;
@@ -166,6 +168,7 @@ class UnifiedNotificationsTest extends TestCase
 
     public function test_purchase_order_sent_notifies_supplier_users(): void
     {
+        $this->exerciseHistoricalResale();
         $supplier = Supplier::factory()->create(['is_active' => true]);
         $supplierUser = SupplierUser::factory()->create(['supplier_id' => $supplier->id, 'is_active' => true]);
         $po = PurchaseOrder::factory()->create([

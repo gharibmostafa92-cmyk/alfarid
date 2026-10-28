@@ -102,5 +102,5 @@ export const supplierPaymentsApi = {
   create: (body: SupplierPaymentPayload, idempotencyKey: string) => api.post(PAY, body, { headers: { 'Idempotency-Key': idempotencyKey } }).then(r => one<SupplierPaymentApi>(r)),
   update: (id: Id, body: Pick<SupplierPaymentPayload, 'payment_method' | 'reference_no' | 'notes'>) => api.put(`${PAY}/${id}`, body).then(r => one<SupplierPaymentApi>(r)),
   allocate: (id: Id, supplier_invoice_id: number) => api.post(`${PAY}/${id}/allocate`, { supplier_invoice_id }).then(r => one<SupplierPaymentApi>(r)),
-  void: (id: Id, void_reason: string) => api.delete(`${PAY}/${id}`, { data: { void_reason } }).then(r => r.data as { message: string }),
+  void: (id: Id, void_reason: string) => api.post(`${PAY}/${id}/void`, { void_reason }).then(r => r.data as { message: string }),
 };

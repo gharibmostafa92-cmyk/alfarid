@@ -96,3 +96,84 @@ test('shift filters preserve dates and serialize booleans using the shared contr
   assert.deepEqual(f.calls[0].body.params, { page: 2, status: 'closed_pending_approval', from_date: '2026-10-01', to_date: '2026-10-27' });
   assert.equal(f.calls[0].body.signal, signal);
 });
+
+function transferFormHarness(api) {
+  const filename = path.resolve(__dirname, '../apps/backoffice/src/pages/admin/operations-mock/finance.tsx');
+  const compiled = new Module(filename, module);
+  const states = [];
+  let cursor = 0, remote = 0;
+  const react = {
+    createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
+    useState(initial) {
+      const index = cursor++;
+      if (!(index in states)) states[index] = typeof initial === 'function' ? initial() : initial;
+      return [states[index], value => { states[index] = typeof value === 'function' ? value(states[index]) : value; }];
+    },
+    useEffect() {}, useMemo: fn => fn(),
+  };
+  const ui = new Proxy({ useToast: () => () => {} }, { get: (target, name) => name in target ? target[name] : name });
+  compiled.require = name => {
+    if (name === 'react') return { ...react, default: react };
+    if (name === '@alfarid/api-client') return api;
+    if (name === './ui') return ui;
+    if (name === './data') return { TRANSFER_STATUS: {} };
+    if (name === './api/source') return { USE_MOCK: false };
+    if (name === './api/mappers') return { num: Number };
+    if (name === './api/useFormState') return {};
+    if (name === './api/useRemote') return {
+      useRemote: () => ({ data: remote++ === 0 ? { data: [], meta: { total: 0 } } : [],
+        loading: false, error: null, usingMock: false, reload() {} }),
+      useAction: () => ({ busy: false, run: async fn => { try { return await fn(); } catch { return undefined; } } }),
+    };
+    throw Error(`Unexpected finance dependency: ${name}`);
+  };
+  compiled._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React },
+  }).outputText, filename);
+  return () => { cursor = 0; remote = 0; return compiled.exports.TransfersTab(); };
+}
+
+function descendants(element, predicate) {
+  if (Array.isArray(element)) return element.flatMap(child => descendants(child, predicate));
+  if (!element || typeof element !== 'object') return [];
+  return [...(predicate(element) ? [element] : []), ...descendants(element.props?.children, predicate)];
+}
+
+test('transfer form retries reuse the same idempotency key and start a new key only after success', async () => {
+  const calls = [];
+  let generated = 0;
+  const render = transferFormHarness({
+    parseApiError: () => ({ status: null }),
+    newIdempotencyKey: () => `transfer-key-${++generated}`,
+    treasuryTransfersApi: { create: async (body, key) => {
+      calls.push({ body, key });
+      if (calls.length === 1) throw Error('Connection timed out');
+      return { id: calls.length };
+    } },
+  });
+  const modal = () => descendants(render(), node => node.type === 'Modal' && node.props.title === 'طلب تحويل بين خزائن')[0];
+  const open = () => descendants(render(), node => node.type === 'button' && node.props.children.includes('طلب تحويل'))[0].props.onClick();
+  const fill = () => {
+    const form = modal();
+    const selects = descendants(form, node => node.type === 'select');
+    selects[0].props.onChange({ target: { value: '3' } });
+    selects[1].props.onChange({ target: { value: '4' } });
+    descendants(form, node => node.type === 'input' && node.props.type === 'number')[0].props.onChange({ target: { value: '125.50' } });
+  };
+  const submit = () => descendants(modal().props.footer, node => node.type === 'button' && node.props.children.includes('إنشاء الطلب'))[0].props.onClick();
+
+  open(); fill(); await submit();
+  assert.equal(modal().props.open, true, 'A failed request must leave the form available for retry');
+  modal().props.onClose();
+  open();
+  assert.equal(modal().props.open, true);
+  await submit();
+  assert.deepEqual(calls[0].body, { from_treasury_id: 3, to_treasury_id: 4, amount: 125.5, notes: null });
+  assert.deepEqual(calls[1], calls[0]);
+  assert.equal(calls[0].key, 'transfer-key-1');
+  assert.equal(modal().props.open, false);
+
+  open(); fill(); await submit();
+  assert.equal(calls[2].key, 'transfer-key-2');
+  assert.notEqual(calls[2].key, calls[1].key);
+});

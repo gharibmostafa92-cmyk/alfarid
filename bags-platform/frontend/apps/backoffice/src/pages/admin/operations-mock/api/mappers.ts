@@ -10,8 +10,12 @@ export const toDate = (iso?: string | null): string => {
   const value = (key: string) => parts.find(part => part.type === key)?.value ?? '';
   return value('year') + '-' + value('month') + '-' + value('day');
 };
-export const toTime = (iso?: string | null) =>
-  iso ? new Date(iso).toLocaleTimeString('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit' }) : '';
+export const toTime = (iso?: string | null): string => {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return '';
+  return date.toLocaleTimeString('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
+};
 export const num = (v: string | number | null | undefined) => (v === null || v === undefined || v === '' ? 0 : Number(v));
 
 export const mapErrors = (e: Record<string, string>, m: Record<string, string>) =>
@@ -22,7 +26,10 @@ const CTYPE_WHOLESALE = 'جملة';
 const CTYPE_RETAIL = 'قطاعي';
 
 /** normalize backend values to the keys the current UI maps expect */
-const normalizePay = (p?: string | null): string => (p === 'bank_transfer' ? 'bank' : (p ?? 'cod'));
+const normalizePay = (p?: string | null): string => {
+  if (!p) return '';
+  return p === 'bank_transfer' ? 'bank' : p;
+};
 const normalizeRefundMethod = (m?: string | null): string | null => {
   if (!m) return null;
   if (m === 'original_payment') return 'original';

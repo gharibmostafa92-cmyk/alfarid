@@ -24,7 +24,10 @@ use Illuminate\Validation\Rule;
 
 class InventoryController extends Controller implements HasMiddleware
 {
-    public function __construct(private readonly InventoryService $inventory) {}
+    public function __construct(
+        private readonly InventoryService $inventory,
+        private readonly BranchAccess $branchAccess,
+    ) {}
 
     public static function middleware(): array
     {
@@ -47,7 +50,7 @@ class InventoryController extends Controller implements HasMiddleware
         ]);
 
         $levels = StockLevel::query()
-            ->when(app(BranchAccess::class)->restrictedBranch($request->user()), fn ($q, $branch) => $q->where('stock_levels.branch_id', $branch))
+            ->when($this->branchAccess->restrictedBranch($request->user()), fn ($q, $branch) => $q->where('stock_levels.branch_id', $branch))
             ->with(['variant.product', 'branch', 'location'])
             ->when($filters['branch_id'] ?? null, fn ($q, $v) => $q->where('stock_levels.branch_id', $v))
             ->when($filters['location_id'] ?? null, fn ($q, $v) => $q->where('stock_levels.location_id', $v))
@@ -84,7 +87,7 @@ class InventoryController extends Controller implements HasMiddleware
         ]);
 
         $movements = StockMovement::query()
-            ->when(app(BranchAccess::class)->restrictedBranch($request->user()), fn ($q, $branch) => $q->where('branch_id', $branch))
+            ->when($this->branchAccess->restrictedBranch($request->user()), fn ($q, $branch) => $q->where('branch_id', $branch))
             ->with(['variant', 'branch', 'location', 'creator'])
             ->when($filters['branch_id'] ?? null, fn ($q, $v) => $q->where('branch_id', $v))
             ->when($filters['location_id'] ?? null, fn ($q, $v) => $q->where('location_id', $v))

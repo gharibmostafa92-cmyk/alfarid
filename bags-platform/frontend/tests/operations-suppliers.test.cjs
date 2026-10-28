@@ -16,14 +16,14 @@ test('procurement preserves receipt item ids and retry keys', async () => {
  assert.deepEqual(calls[0], ['/api/v1/admin/purchase-orders/9/receive', body, {headers:{'Idempotency-Key':'receipt-key'}}]);
  await purchaseOrdersApi.closeShort(9); assert.equal(calls[1][0], '/api/v1/admin/purchase-orders/9/close-short');
 });
-test('supplier payment allocation sends one invoice and void uses DELETE body', async () => {
+test('supplier payment allocation sends one invoice and void uses the POST action', async () => {
  const calls = [], client = {post:async (...a)=>{calls.push(['post',...a]);return {data:{data:{id:1}}};}, delete:async (...a)=>{calls.push(['delete',...a]);return {data:{message:'voided'}};}};
  const http = load('packages/api-client/src/endpoints/operations/http.ts', {'../../axios-instance': {defaultApiClient:client}});
  const {supplierPaymentsApi} = load('packages/api-client/src/endpoints/operations/suppliers.ts', {'./http':http});
  await supplierPaymentsApi.create({supplier_id:2, amount:5, payment_method:'cash',payment_date:'2026-10-27'},'payment-key');
  assert.equal(calls[0][3].headers['Idempotency-Key'],'payment-key');
  await supplierPaymentsApi.allocate(1, 7); assert.deepEqual(calls[1], ['post','/api/v1/admin/supplier-payments/1/allocate',{supplier_invoice_id:7}]);
- await supplierPaymentsApi.void(1,'duplicate'); assert.deepEqual(calls[2],['delete','/api/v1/admin/supplier-payments/1',{data:{void_reason:'duplicate'}}]);
+ await supplierPaymentsApi.void(1,'duplicate'); assert.deepEqual(calls[2],['post','/api/v1/admin/supplier-payments/1/void',{void_reason:'duplicate'}]);
 });
 test('supplier invoice update uses multipart method spoofing and preserves attachment', async () => {
  const calls = [], client = {post:async (...a)=>{calls.push(a);return {data:{data:{id:1}}};}};

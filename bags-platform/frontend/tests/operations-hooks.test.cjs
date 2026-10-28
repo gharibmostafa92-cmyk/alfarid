@@ -53,10 +53,105 @@ test('notification reads keep UUIDs, reject duplicate clicks and roll back failu
  const previous={document:global.document,setInterval:global.setInterval,clearInterval:global.clearInterval};global.document={visibilityState:'visible',addEventListener(){},removeEventListener(){}};global.setInterval=()=>1;global.clearInterval=()=>{};
  let h,release,fail=true;const calls=[];
  try{
-  h=harness('useNotifications.ts',undefined,{api:{notificationsApi:{list:async()=>({data:[{id:'uuid-test',type:'AdminOrderCreatedNotification',data:{order_id:7},read_at:null,created_at:null}],meta:{current_page:1,last_page:1,unread_count:1}}),markRead:async id=>{calls.push(id);if(fail)return new Promise((resolve,reject)=>{release=()=>reject({status:500,message:'Read failed'});});return {data:{id,read_at:'now'},meta:{unread_count:0}};}}}});
+  h=harness('useNotifications.ts',undefined,{api:{notificationsApi:{list:async()=>({data:[{id:'uuid-test',type:'AdminOrderCreatedNotification',data:{order_id:7},read_at:null,created_at:null}],meta:{current_page:1,last_page:1,unread_count:1}}),markRead:async id=>{calls.push(id);if(fail)return new Promise((resolve,reject)=>{release=()=>reject({status:500,message:'Read failed'});});return {data:{id,read_at:'now'},meta:{unread_count:0}};},readAll:async()=>{calls.push('read-all');return {meta:{unread_count:0}};}}}});
   h.render(()=>h.hook.useNotifications());await tick();let n=h.render(()=>h.hook.useNotifications());
   const pending=n.markRead('uuid-test');await n.markRead('uuid-test');assert.deepEqual(calls,['uuid-test']);assert.equal(h.slots[2],0);release();await pending;
   assert.equal(h.slots[0][0].read_at,null);assert.equal(h.slots[2],1);assert.equal(h.slots[6],'Read failed');
-  fail=false;n=h.render(()=>h.hook.useNotifications());await n.markAllRead();assert.equal(h.slots[2],0);assert.equal(h.slots[6],null);assert.equal(h.slots[0][0].read_at,'now');
+  fail=false;n=h.render(()=>h.hook.useNotifications());await n.markAllRead();assert.equal(h.slots[2],0);assert.equal(h.slots[6],null);assert.ok(h.slots[0][0].read_at);assert.deepEqual(calls,['uuid-test','read-all']);
  }finally{h?.unmount();Object.assign(global,previous);}
+});
+
+function notification(id, read_at=null) {
+ return {id,type:'AdminOrderCreatedNotification',data:{order_id:7},read_at,created_at:null};
+}
+function notificationPage(data, current_page=1, last_page=1, unread_count=0) {
+ return {data,meta:{current_page,last_page,unread_count}};
+}
+function notificationBrowser() {
+ const previous={document:global.document,setInterval:global.setInterval,clearInterval:global.clearInterval};
+ let poll;
+ global.document={visibilityState:'visible',addEventListener(){},removeEventListener(){}};
+ global.setInterval=fn=>{poll=fn;return 1;};global.clearInterval=()=>{};
+ return {poll:()=>poll(),restore:()=>Object.assign(global,previous)};
+}
+
+test('mark all reads unloaded notifications in one request even when loaded items are already read',async()=>{
+ const browser=notificationBrowser();let h,bulk=0;
+ try{
+  h=harness('useNotifications.ts',undefined,{api:{notificationsApi:{
+   list:async()=>notificationPage([notification('read-on-page-one','2026-10-28T10:00:00Z')],1,3,25),
+   readAll:async()=>{bulk++;return {meta:{unread_count:0}};},
+   markRead:async()=>{assert.fail('bulk reading must not issue individual requests');},
+  }}});
+  h.render(()=>h.hook.useNotifications());await tick();
+  const before=h.render(()=>h.hook.useNotifications());assert.equal(before.unread,25);
+  await before.markAllRead();
+  assert.equal(bulk,1);assert.equal(h.render(()=>h.hook.useNotifications()).unread,0);
+ }finally{h?.unmount();browser.restore();}
+});
+
+test('mark all rejects duplicate bulk requests while the first request is pending',async()=>{
+ const browser=notificationBrowser();let h,bulk=0,pending;const releases=[];
+ try{
+  h=harness('useNotifications.ts',undefined,{api:{notificationsApi:{
+   list:async()=>notificationPage([notification('unread')],1,2,11),
+   readAll:()=>{bulk++;return new Promise(resolve=>{releases.push(()=>resolve({meta:{unread_count:0}}));});},
+  }}});
+  h.render(()=>h.hook.useNotifications());await tick();
+  const n=h.render(()=>h.hook.useNotifications());pending=n.markAllRead();
+  void n.markAllRead();assert.equal(bulk,1);
+  releases.forEach(release=>release());await pending;
+ }finally{releases.forEach(release=>release());await pending;h?.unmount();browser.restore();}
+});
+
+test('failed bulk read restores the server unread count including unloaded notifications',async()=>{
+ const browser=notificationBrowser();let h;
+ try{
+  h=harness('useNotifications.ts',undefined,{api:{notificationsApi:{
+   list:async()=>notificationPage([notification('unread'),notification('read','2026-10-28T10:00:00Z')],1,4,27),
+   readAll:async()=>{throw {status:500,message:'Bulk failed'};},
+  }}});
+  h.render(()=>h.hook.useNotifications());await tick();
+  await h.render(()=>h.hook.useNotifications()).markAllRead();
+  const n=h.render(()=>h.hook.useNotifications());
+  assert.equal(n.unread,27);assert.equal(n.items[0].read_at,null);
+  assert.equal(n.items[1].read_at,'2026-10-28T10:00:00Z');assert.equal(n.error,'Bulk failed');
+ }finally{h?.unmount();browser.restore();}
+});
+
+test('polling prepends new notifications and preserves loaded later pages and pagination',async()=>{
+ const browser=notificationBrowser();let h,firstPageCalls=0;const pages=[];
+ try{
+  h=harness('useNotifications.ts',undefined,{api:{notificationsApi:{
+   list:async page=>{
+    pages.push(page);
+    if(page===1){firstPageCalls++;return notificationPage(firstPageCalls===1?[notification('2'),notification('3')]:[notification('1'),notification('2')],1,3,5);}
+    if(page===2)return notificationPage([notification('4'),notification('5')],2,3,5);
+    return notificationPage([notification('6')],3,3,5);
+   },
+  }}});
+  h.render(()=>h.hook.useNotifications());await tick();
+  h.render(()=>h.hook.useNotifications()).loadMore();await tick();
+  assert.deepEqual(h.render(()=>h.hook.useNotifications()).items.map(n=>n.id),['2','3','4','5']);
+  browser.poll();await tick();
+  const refreshed=h.render(()=>h.hook.useNotifications());
+  assert.deepEqual(refreshed.items.map(n=>n.id),['1','2','3','4','5']);
+  refreshed.loadMore();await tick();
+  assert.deepEqual(pages,[1,2,1,3]);
+  assert.deepEqual(h.render(()=>h.hook.useNotifications()).items.map(n=>n.id),['1','2','3','4','5','6']);
+ }finally{h?.unmount();browser.restore();}
+});
+
+test('pending bulk read blocks notification polling until it completes',async()=>{
+ const browser=notificationBrowser();let h,release,pending,requests=0;
+ try{
+  h=harness('useNotifications.ts',undefined,{api:{notificationsApi:{
+   list:async()=>{requests++;return notificationPage([notification('unread')],1,1,1);},
+   readAll:()=>new Promise(resolve=>{release=()=>resolve({meta:{unread_count:0}});}),
+  }}});
+  h.render(()=>h.hook.useNotifications());await tick();
+  pending=h.render(()=>h.hook.useNotifications()).markAllRead();
+  browser.poll();await tick();assert.equal(requests,1);
+  release();await pending;browser.poll();await tick();assert.equal(requests,2);
+ }finally{release?.();await pending;h?.unmount();browser.restore();}
 });

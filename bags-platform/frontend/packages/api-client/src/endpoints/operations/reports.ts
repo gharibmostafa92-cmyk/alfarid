@@ -11,7 +11,7 @@ export interface InventoryReportData {
   total_value: Money; dead_stock_days: number;
   dead_stock: { product_variant_id: number; sku: string; product_name: string; on_hand: Money; tied_value: Money; last_movement_at: string | null }[];
 }
-export interface ProfitReportData { net_sales_revenue: Money; cogs: Money; gross_profit: Money; total_expenses: Money; net_profit: Money }
+export interface ProfitReportData { net_sales_revenue: Money; missing_cost_movements?: number; cogs: Money; gross_profit: Money; total_expenses: Money; net_profit: Money }
 export interface SupplierReportRow { supplier_id: number; supplier_name: string; current_balance: Money; total_purchases: Money; aging: Record<'not_due' | 'overdue_1_30' | 'overdue_31_60' | 'overdue_61_90' | 'overdue_90_plus', Money> }
 export interface ShiftReportRow { shift_id: number; shift_number: string; cashier_name: string; branch_name: string; status: string; opened_at: string; closed_at: string | null; cash_sales_total: Money; card_sales_total: Money; cash_returns_total: Money; cash_expenses_total: Money; expected_closing_cash: Money; actual_closing_cash: Money | null; cash_difference: Money | null; has_difference: boolean }
 export interface ShiftReportData { rows: ShiftReportRow[]; totals: { shifts_count: number; cash_sales: Money; card_sales: Money; shifts_with_difference: number } }
@@ -48,4 +48,5 @@ export interface NotificationsPage { data: NotificationApi[]; meta: Omit<PageMet
 export const notificationsApi = {
   list: (page = 1, signal?: AbortSignal) => api.get<NotificationsPage>(`${ADMIN}/notifications`, { params: { page }, signal }).then((r) => r.data),
   markRead: (id: string) => api.post<{ data: { id: string; read_at: string }; meta: { unread_count: number } }>(`${ADMIN}/notifications/${encodeURIComponent(id)}/read`).then((r) => r.data),
+  readAll: () => api.post<{ data: { read_all: boolean }; meta: { unread_count: number } }>(`${ADMIN}/notifications/read-all`).then((r) => r.data),
 };

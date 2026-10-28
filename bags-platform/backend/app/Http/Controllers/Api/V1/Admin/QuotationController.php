@@ -50,20 +50,20 @@ class QuotationController extends Controller implements HasMiddleware
     {
         $model = Quotation::query()->with(['customer', 'items.variant.product'])->findOrFail($quotation);
 
-        return (new QuotationResource($model))->response();
+        return QuotationResource::make($model)->response();
     }
 
     public function price(PriceQuotationRequest $request, int $quotation): JsonResponse
     {
         $model = Quotation::query()->findOrFail($quotation);
 
-        return (new QuotationResource($this->service->price($model, $request->validated())))->response();
+        return QuotationResource::make($this->service->price($model, $request->validated()))->response();
     }
 
     public function expire(int $quotation): JsonResponse
     {
         $model = Quotation::query()->findOrFail($quotation);
 
-        return (new QuotationResource($this->service->expire($model)))->response();
+        return QuotationResource::make($this->service->expire($model))->response();
     }
 }

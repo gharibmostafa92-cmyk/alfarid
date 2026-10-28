@@ -7,28 +7,26 @@ namespace App\Http\Controllers\Api\V1\Shared;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 /**
- * متحكم الإشعارات الموحد لكل البوابات (متجر/جملة/مورد/إدارة/Nقاط البيع):
- * يعمل مع أي notifiable مصادق (User/Customer/SupplierUser) عبر العلاقة
- * polymorphic في جدول notifications القياسي.
+ * Unified notification controller managing polymorphic in-app alerts across all portals.
  */
 class NotificationController extends Controller
 {
-    /** قائمة إشعارات المستخدم الحالي (20 لكل صفحة) + عدد غير المقروء. */
+    /**
+     * Lists paginated notifications for the authenticated notifiable entity with unread count.
+     *
+     * @param Request $request Authenticated request
+     * @return JsonResponse Paginated notifications with meta
+     */
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
         $page = $user->notifications()->paginate(20);
 
         return response()->json([
-            'data' => collect($page->items())->map(fn ($notification): array => [
-                'id' => $notification->id,
-                'type' => class_basename($notification->type),
-                'data' => $notification->data,
-                'read_at' => $notification->read_at?->toIso8601String(),
-                'created_at' => $notification->created_at?->toIso8601String(),
-            ])->all(),
+            'data' => collect($page->items())->map(fn ($notification) => $this->formatNotification($notification))->all(),
             'meta' => [
                 'current_page' => $page->currentPage(),
                 'last_page' => $page->lastPage(),
@@ -39,9 +37,16 @@ class NotificationController extends Controller
         ]);
     }
 
-    /** تعليم إشعار واحد كمقروء (إشعار غيره = 404). */
+    /**
+     * Marks a specific notification as read.
+     *
+     * @param Request $request Authenticated request
+     * @param string $id UUID of the notification
+     * @return JsonResponse Read confirmation and remaining unread count
+     */
     public function markAsRead(Request $request, string $id): JsonResponse
     {
+        abort_unless(Str::isUuid($id), 404);
         $notification = $request->user()->notifications()->findOrFail($id);
         $notification->markAsRead();
 
@@ -52,5 +57,32 @@ class NotificationController extends Controller
             ],
             'meta' => ['unread_count' => $request->user()->unreadNotifications()->count()],
         ]);
+    }
+
+    /**
+     * Bulk marks all unread notifications as read in a single update query.
+     *
+     * @param Request $request Authenticated request
+     * @return JsonResponse Bulk read confirmation
+     */
+    public function readAll(Request $request): JsonResponse
+    {
+        $request->user()->unreadNotifications()->update(['read_at' => now()]);
+
+        return response()->json([
+            'data' => ['read_all' => true],
+            'meta' => ['unread_count' => 0],
+        ]);
+    }
+
+    private function formatNotification(mixed $notification): array
+    {
+        return [
+            'id' => $notification->id,
+            'type' => class_basename($notification->type),
+            'data' => $notification->data,
+            'read_at' => $notification->read_at?->toIso8601String(),
+            'created_at' => $notification->created_at?->toIso8601String(),
+        ];
     }
 }

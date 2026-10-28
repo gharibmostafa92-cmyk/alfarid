@@ -18,6 +18,7 @@ use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
+use Tests\Concerns\ExercisesHistoricalResale;
 use Tests\TestCase;
 
 /**
@@ -26,6 +27,7 @@ use Tests\TestCase;
  */
 class ProcurementTest extends TestCase
 {
+    use ExercisesHistoricalResale;
     use LazilyRefreshDatabase;
 
     private User $admin;
@@ -46,6 +48,7 @@ class ProcurementTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->exerciseHistoricalResale();
         $this->seed([RolePermissionSeeder::class, SettingSeeder::class]);
 
         $this->admin = User::factory()->create();
@@ -311,7 +314,9 @@ class ProcurementTest extends TestCase
             ->assertJsonPath('data.status', 'paid');
 
         // حذف أول دفعة يعكس أثرها: الرصيد يرجع والفاتورة ترجع جزئية
-        $this->auth()->deleteJson("/api/v1/admin/supplier-payments/{$p1['id']}")->assertOk();
+        $this->auth()->postJson("/api/v1/admin/supplier-payments/{$p1['id']}/void")
+            ->assertUnprocessable()->assertJsonValidationErrors('void_reason');
+        $this->auth()->postJson("/api/v1/admin/supplier-payments/{$p1['id']}/void", ['void_reason' => 'Payment entered in error'])->assertOk();
         $this->assertSame('500.00', (string) $this->supplier->fresh()->current_balance);
         $this->auth()->getJson("/api/v1/admin/supplier-invoices/{$invoice['id']}")
             ->assertJsonPath('data.status', 'partially_paid')

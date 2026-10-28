@@ -7,6 +7,9 @@ namespace App\Http\Requests\Admin\Pricing;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
+/**
+ * Validates requests to add or update items in a price list.
+ */
 class StorePriceListItemRequest extends FormRequest
 {
     public function authorize(): bool
@@ -24,7 +27,7 @@ class StorePriceListItemRequest extends FormRequest
             'min_qty' => ['nullable', 'numeric', 'decimal:0,4', 'gt:0', 'max:99999999.9999'],
             'price' => ['required', 'numeric', 'decimal:0,4', 'min:0', 'max:99999999.9999'],
             'starts_at' => ['nullable', 'date'],
-            'ends_at' => ['nullable', 'date'],
+            'ends_at' => ['nullable', 'date', 'after_or_equal:starts_at'],
         ];
     }
 }

@@ -13,6 +13,7 @@ use App\Models\Stocktake;
 use App\Models\StockTransfer;
 use App\Models\User;
 use App\Services\BranchAccess;
+use App\Services\SearchTerm;
 use App\Services\StocktakeService;
 use App\Services\TransferService;
 use Illuminate\Http\JsonResponse;
@@ -21,10 +22,7 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Validation\Rule;
 
 /**
- * عمليات المخزون من شاشة الـ POS — واجهة رقيقة تفوّض إلى الخدمات.
- *
- * H4: لا منطق مخزني هنا — البحث والتحويل والاستلام والمسح كلها عبر
- * TransferService وStocktakeService بنفس القواعد والصلاحيات.
+ * Handles POS terminal inventory queries, branch transfer requests, incoming receipts, and barcode stocktake scans.
  */
 class PosStockController extends Controller
 {
@@ -34,7 +32,10 @@ class PosStockController extends Controller
     ) {}
 
     /**
-     * GET /pos/stock — أرصدة مخزون الفرع الحالي.
+     * Lists current branch inventory stock levels with search and low-stock filters.
+     *
+     * @param Request $request Filter query request
+     * @return AnonymousResourceCollection Paginated stock level resources
      */
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -53,9 +54,8 @@ class PosStockController extends Controller
             ->with(['variant.product', 'location'])
             ->when($filters['product_variant_id'] ?? null, fn ($q, $v) => $q->where('product_variant_id', $v))
             ->when($filters['q'] ?? null, function ($q, $v): void {
-                // H4: البحث في العمودين الفعليين (name_ar/name_en) مع تهريب
-                // محارف LIKE حتى لا تُفسد % و _ الاستعلام.
-                $like = '%'.addcslashes($v, '\\%_').'%';
+                // Escape LIKE wildcard characters to avoid malformed patterns and unintentional wildcards.
+                $like = SearchTerm::pattern((string) $v);
                 $q->whereHas('variant', fn ($vq) => $vq->where('sku', $v)
                     ->orWhere('barcode', $v)
                     ->orWhereHas('product', fn ($pq) => $pq
@@ -75,7 +75,10 @@ class PosStockController extends Controller
     }
 
     /**
-     * POST /pos/transfer-requests — طلب تحويل بضاعة إلى الفرع الحالي.
+     * Requests stock transfer from another active branch into the cashier's branch.
+     *
+     * @param Request $request Transfer request payload
+     * @return JsonResponse Created transfer response
      */
     public function requestTransfer(Request $request): JsonResponse
     {
@@ -84,8 +87,6 @@ class PosStockController extends Controller
         abort_unless($user->can('transfers.create'), 403);
 
         $data = $request->validate([
-            // H4: to_branch_id يُعرف من فرع الكاشير قبل التحقق، فيعمل
-            // different ويُرفض التساوي مع CHECK واضح لا 500.
             'from_branch_id' => ['required', 'integer', 'min:1',
                 Rule::exists('branches', 'id')->where('is_active', true),
                 Rule::notIn([$user->branch_id]),
@@ -104,7 +105,6 @@ class PosStockController extends Controller
 
         $data['to_branch_id'] = $user->branch_id;
 
-        // H4: TransferService::create يقبل منشئًا في فرع الوجهة.
         $transfer = $this->transfers->create($data, $user->id, $this->requiredIdempotencyKey($request));
 
         return response()->json([
@@ -115,7 +115,11 @@ class PosStockController extends Controller
     }
 
     /**
-     * POST /pos/transfers/{transfer}/receive — تأكيد استلام تحويلة واردة للفرع.
+     * Confirms receipt of an incoming transfer at the cashier's branch.
+     *
+     * @param Request $request Receipt request payload
+     * @param StockTransfer $transfer Target transfer model
+     * @return JsonResponse Receipt confirmation response
      */
     public function receiveTransfer(Request $request, StockTransfer $transfer): JsonResponse
     {
@@ -123,7 +127,6 @@ class PosStockController extends Controller
         $user = $request->user('staff');
         abort_unless($user->can('transfers.receive'), 403);
 
-        // التحقق أن الفرع المستقبل هو فرع الكاشير
         if ((int) $transfer->to_branch_id !== (int) $user->branch_id) {
             return response()->json(['message' => 'هذه التحويلة ليست موجهة لفرعك.'], 403);
         }
@@ -136,7 +139,6 @@ class PosStockController extends Controller
             'items.*.received_qty' => ['required', 'numeric', 'decimal:0,4', 'min:0', 'max:99999999.9999'],
         ]);
 
-        // H4: الخدمة تتوقع [item_id => qty] لا قائمة — التحويل هنا لا في الخدمة.
         $quantities = [];
         foreach ($data['items'] as $item) {
             $quantities[(int) $item['id']] = (float) $item['received_qty'];
@@ -152,11 +154,11 @@ class PosStockController extends Controller
     }
 
     /**
-     * POST /pos/stocktakes/{stocktake}/scan — مسح باركود في جلسة جرد مفتوحة.
+     * Records barcode scan count against an open stocktake session.
      *
-     * H4: تفويض كامل إلى StocktakeService::upsertSomeItems — اللقطة
-     * (system_qty/snapshot_movement_id) تُؤخذ من نطاق الجلسة (فرعها وموقعها)
-     * داخل الخدمة، فلا لقطة خاطئة ولا عنصر "قديم اللقطة" أبدًا.
+     * @param Request $request Scan request containing barcode and optional quantity
+     * @param Stocktake $stocktake Target stocktake session
+     * @return JsonResponse Scan registration response
      */
     public function scan(Request $request, Stocktake $stocktake): JsonResponse
     {
@@ -164,7 +166,6 @@ class PosStockController extends Controller
         $user = $request->user('staff');
         abort_unless($user->can('stocktakes.update'), 403);
 
-        // التحقق أن جلسة الجرد تتبع الفرع الحالي
         if ((int) $stocktake->branch_id !== (int) $user->branch_id) {
             return response()->json(['message' => 'جلسة الجرد لا تتبع فرعك.'], 403);
         }
@@ -181,7 +182,6 @@ class PosStockController extends Controller
 
         $qty = (float) ($data['qty'] ?? 1);
 
-        // البحث عن المتغير بالباركود
         $variant = ProductVariant::query()
             ->where('barcode', $data['barcode'])
             ->where('is_active', true)

@@ -23,10 +23,12 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
+use Tests\Concerns\ExercisesHistoricalResale;
 use Tests\TestCase;
 
 class UnifiedLoginHardeningTest extends TestCase
 {
+    use ExercisesHistoricalResale;
     use LazilyRefreshDatabase;
 
     public function test_supplier_login_rejected_when_company_inactive(): void
@@ -89,16 +91,17 @@ class UnifiedLoginHardeningTest extends TestCase
             ->assertJsonPath('cart_merged', true);
     }
 
-    public function test_supplier_tokens_are_capped(): void
+    public function test_retired_supplier_login_never_mints_tokens_even_below_token_cap(): void
     {
         config()->set('auth.supplier_max_tokens', 2);
         $user = SupplierUser::factory()->create(['password' => 'sup-pass']);
 
         for ($i = 0; $i < 3; $i++) {
-            $this->login(['login' => $user->email, 'password' => 'sup-pass'])->assertOk();
+            $this->login(['login' => $user->email, 'password' => 'sup-pass'])
+                ->assertUnauthorized()->assertJsonMissingPath('token')->assertJsonMissingPath('redirect');
         }
 
-        $this->assertSame(2, $user->tokens()->count());
+        $this->assertSame(0, $user->tokens()->count());
     }
 
     public function test_rejected_retail_customer_goes_to_application_status(): void
@@ -180,13 +183,17 @@ class UnifiedLoginHardeningTest extends TestCase
         $this->login(['login' => 'unknown@example.test', 'password' => 'wrong'])->assertUnauthorized();
     }
 
-    public function test_supplier_tokens_survive_an_empty_global_expiration(): void
+    public function test_retired_supplier_login_keeps_historical_tokens_without_minting_a_token(): void
     {
         config()->set('sanctum.expiration', '');
         $user = SupplierUser::factory()->create(['password' => 'sup-pass']);
         $existing = $user->createToken('other-device')->accessToken;
-        $this->login(['login' => $user->email, 'password' => 'sup-pass'])->assertOk();
+        $this->login(['login' => $user->email, 'password' => 'sup-pass'])
+            ->assertUnauthorized()->assertJsonMissingPath('token')->assertJsonMissingPath('redirect');
         $this->assertDatabaseHas('personal_access_tokens', ['id' => $existing->id]);
+        $this->assertSame(1, $user->tokens()->count());
+        $this->authed('get', '/api/v1/supplier/dashboard', $user->createToken('historical-portal')->plainTextToken)
+            ->assertStatus(410);
     }
 
     public function test_supplier_fk_migration_detaches_orphans_and_revokes_their_tokens(): void
@@ -272,6 +279,7 @@ class UnifiedLoginHardeningTest extends TestCase
 
     public function test_supplier_email_changes_revoke_existing_sessions(): void
     {
+        $this->exerciseHistoricalResale();
         $staff = User::factory()->create();
         $staff->givePermissionTo(Permission::findOrCreate('suppliers.update', 'staff'));
         $staffToken = $staff->createToken('manager')->plainTextToken;

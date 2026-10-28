@@ -13,10 +13,13 @@ use Illuminate\Http\Request;
 /** لوحة معلومات الإدارة: مؤشرات اليوم والشهر من ReportService. */
 class DashboardController extends Controller
 {
-    public function __construct(private readonly ReportService $reports) {}
+    public function __construct(
+        private readonly ReportService $reports,
+        private readonly BranchAccess $branchAccess,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
-        return response()->json(['data' => $this->reports->dashboard(app(BranchAccess::class)->restrictedBranch($request->user()))]);
+        return response()->json(['data' => $this->reports->dashboard($this->branchAccess->restrictedBranch($request->user()))]);
     }
 }

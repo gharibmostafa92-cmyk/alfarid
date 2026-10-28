@@ -41,34 +41,29 @@ class BannerController extends Controller
 
     public function show(Banner $banner): AdminBannerResource
     {
-        $this->attachLinkLabels(collect([$banner]));
-
-        return new AdminBannerResource($banner);
+        return $this->bannerResource($banner);
     }
 
     public function store(StoreBannerRequest $request): JsonResponse
     {
         $banner = $this->service->create($request->validated(), $request->file('image'));
-        $this->attachLinkLabels(collect([$banner]));
 
-        return (new AdminBannerResource($banner))->response()->setStatusCode(201);
+        return $this->bannerResource($banner)->response()->setStatusCode(201);
     }
 
     public function update(UpdateBannerRequest $request, Banner $banner): AdminBannerResource
     {
         $banner = $this->service->update($banner, $request->validated(), $request->file('image'));
-        $this->attachLinkLabels(collect([$banner]));
 
-        return new AdminBannerResource($banner);
+        return $this->bannerResource($banner);
     }
 
     public function toggle(Request $request, Banner $banner): AdminBannerResource
     {
         $data = $request->validate(['is_active' => ['sometimes', 'required', 'boolean']]);
         $banner = $this->service->setActive($banner, array_key_exists('is_active', $data) ? (bool) $data['is_active'] : null);
-        $this->attachLinkLabels(collect([$banner]));
 
-        return new AdminBannerResource($banner);
+        return $this->bannerResource($banner);
     }
 
     public function reorder(Request $request): JsonResponse
@@ -108,5 +103,12 @@ class BannerController extends Controller
                 default => null,
             });
         });
+    }
+
+    private function bannerResource(Banner $banner): AdminBannerResource
+    {
+        $this->attachLinkLabels(collect([$banner]));
+
+        return AdminBannerResource::make($banner);
     }
 }

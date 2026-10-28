@@ -21,6 +21,8 @@ use Spatie\Permission\Models\Role;
 
 class RoleController extends Controller
 {
+    public function __construct(private readonly BranchAccess $branchAccess) {}
+
     public function index(Request $request): AnonymousResourceCollection
     {
         $validated = $request->validate([
@@ -59,7 +61,7 @@ class RoleController extends Controller
         $role = DB::transaction(function () use ($validated, $permissions, $currentUser): Role {
             StaffAdministration::lock();
             StaffAdministration::authorize($currentUser, ['roles.create', 'roles.manage']);
-            app(BranchAccess::class)->assertCentralAccess($currentUser);
+            $this->branchAccess->assertCentralAccess($currentUser);
             abort_unless($this->mayGrantPermissions($currentUser, $permissions), 403);
             StaffAdministration::clearPermissionCacheAfterCommit();
             $role = Role::create([
@@ -69,17 +71,17 @@ class RoleController extends Controller
             $role->syncPermissions($permissions);
             StaffAdministration::audit($currentUser, 'role.created', 'role', $role->id, array_keys($validated), after: StaffAdministration::roleState($role));
 
-            return $role->load('permissions')->loadCount('users');
+            return $role;
         });
 
-        return RoleResource::make($role)->response()->setStatusCode(201);
+        return $this->roleResource($role)->response()->setStatusCode(201);
     }
 
     public function show(Role $role): RoleResource
     {
         $this->ensureStaffRole($role);
 
-        return RoleResource::make($role->load('permissions')->loadCount('users'));
+        return $this->roleResource($role);
     }
 
     public function update(UpdateRoleRequest $request, Role $role): RoleResource|JsonResponse
@@ -103,7 +105,7 @@ class RoleController extends Controller
         $failure = DB::transaction(function () use ($role, $validated, $permissions, $currentUser): ?string {
             StaffAdministration::lock();
             StaffAdministration::authorize($currentUser, ['roles.update', 'roles.manage']);
-            app(BranchAccess::class)->assertCentralAccess($currentUser);
+            $this->branchAccess->assertCentralAccess($currentUser);
             $lockedRole = Role::query()->whereKey($role->getKey())->lockForUpdate()->firstOrFail();
             $this->ensureStaffRole($lockedRole);
             StaffAdministration::assertVersion($lockedRole, isset($validated['expected_version']) ? (int) $validated['expected_version'] : null);
@@ -138,7 +140,7 @@ class RoleController extends Controller
             ], 403);
         }
 
-        return RoleResource::make($role->refresh()->load('permissions')->loadCount('users'));
+        return $this->roleResource($role->refresh());
     }
 
     public function destroy(Request $request, Role $role): JsonResponse|Response
@@ -148,7 +150,7 @@ class RoleController extends Controller
         $result = DB::transaction(function () use ($role, $request): string {
             StaffAdministration::lock();
             StaffAdministration::authorize($request->user('staff'), ['roles.delete', 'roles.manage']);
-            app(BranchAccess::class)->assertCentralAccess($request->user('staff'));
+            $this->branchAccess->assertCentralAccess($request->user('staff'));
             $lockedRole = Role::query()->whereKey($role->getKey())->lockForUpdate()->firstOrFail();
             $this->ensureStaffRole($lockedRole);
 
@@ -199,5 +201,10 @@ class RoleController extends Controller
     private function ensureStaffRole(Role $role): void
     {
         abort_unless($role->guard_name === 'staff', 404);
+    }
+
+    private function roleResource(Role $role): RoleResource
+    {
+        return RoleResource::make($role->loadMissing('permissions')->loadCount('users'));
     }
 }

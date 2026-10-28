@@ -22,7 +22,10 @@ use Illuminate\Validation\Rule;
 
 class StocktakeController extends Controller implements HasMiddleware
 {
-    public function __construct(private readonly StocktakeService $stocktakes) {}
+    public function __construct(
+        private readonly StocktakeService $stocktakes,
+        private readonly BranchAccess $branchAccess,
+    ) {}
 
     public static function middleware(): array
     {
@@ -43,7 +46,7 @@ class StocktakeController extends Controller implements HasMiddleware
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
-        $filters['staff_branch_id'] = app(BranchAccess::class)->restrictedBranch($request->user());
+        $filters['staff_branch_id'] = $this->branchAccess->restrictedBranch($request->user());
 
         return StocktakeResource::collection($this->stocktakes->paginate($filters));
     }
@@ -52,7 +55,7 @@ class StocktakeController extends Controller implements HasMiddleware
     {
         $stocktake = $this->stocktakes->create($request->validated(), $request->user()->id, $this->requiredIdempotencyKey($request));
 
-        return (new StocktakeResource($stocktake))
+        return StocktakeResource::make($stocktake)
             ->additional(['message' => 'تم إنشاء جلسة الجرد بنجاح'])
             ->response()
             ->setStatusCode(201);
@@ -60,20 +63,20 @@ class StocktakeController extends Controller implements HasMiddleware
 
     public function show(Request $request, Stocktake $stocktake): StocktakeResource
     {
-        app(BranchAccess::class)->assertBranch($request->user()->id, $stocktake->branch_id);
+        $this->branchAccess->assertBranch($request->user()->id, $stocktake->branch_id);
 
-        return new StocktakeResource($this->stocktakes->find($stocktake->id));
+        return StocktakeResource::make($this->stocktakes->find($stocktake->id));
     }
 
     public function update(UpdateStocktakeRequest $request, Stocktake $stocktake): StocktakeResource
     {
-        return new StocktakeResource($this->stocktakes->update($stocktake, $request->validated(), $request->user()->id));
+        return StocktakeResource::make($this->stocktakes->update($stocktake, $request->validated(), $request->user()->id));
     }
 
     /** تحديث جزئي للعناصر: upsert للمرسلة فقط دون حذف الغائبة (M-4). */
     public function updateItems(UpdateStocktakeItemsRequest $request, Stocktake $stocktake): StocktakeResource
     {
-        return new StocktakeResource($this->stocktakes->upsertSomeItems($stocktake, $request->validated()['items'], $request->user()->id));
+        return StocktakeResource::make($this->stocktakes->upsertSomeItems($stocktake, $request->validated()['items'], $request->user()->id));
     }
 
     public function destroy(Request $request, Stocktake $stocktake): JsonResponse
@@ -87,6 +90,6 @@ class StocktakeController extends Controller implements HasMiddleware
     {
         $stocktake = $this->stocktakes->approve($stocktake, $request->user()->id);
 
-        return (new StocktakeResource($stocktake))->additional(['message' => 'تم اعتماد الجرد وتسوية الفروق']);
+        return StocktakeResource::make($stocktake)->additional(['message' => 'تم اعتماد الجرد وتسوية الفروق']);
     }
 }

@@ -548,6 +548,8 @@ export const supName = (id: number): string => SUPPLIERS.find(s => s.id === id)?
 
 /* ---------- Finance, Shifts, Wholesale ---------- */
 export interface ExpenseRow {
+  voidedAt?: string | null;
+  voidReason?: string | null;
   id: number;
   no: string;
   branch: string;

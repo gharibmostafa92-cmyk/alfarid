@@ -18,26 +18,28 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
- * محرك التسعير المركزي — يُستدعى من المتجر والجملة والـ POS ولوحة الإدارة.
+ * Central pricing engine across storefront, wholesale portal, POS, and admin backoffice.
  *
- * شجرة الأولويات:
- * 1. سعر خاص بالعميل (customer_specific)
- * 2. سعر مجموعة العميل (customer_group)
- * 3. قائمة النوع (wholesale/distributor للمعتمدين فقط، وإلا retail)؛ وقناة
- *    جملة/موزع بلا عنصر مطابق ترجع لقوائم retail النشطة قبل السعر الأساسي.
- * 4. سعر الجملة لقناتي الجملة/الموزع، ثم سعر التجزئة إذا لم يوجد سعر جملة.
+ * Evaluation hierarchy:
+ * 1. Customer-specific price list (customer_specific)
+ * 2. Customer group price list (customer_group)
+ * 3. Channel price list (wholesale/distributor for approved accounts, otherwise retail).
+ *    Wholesale/distributor channels without a matching item fall back to active retail lists.
+ * 4. Channel base price (wholesale_price for wholesale/distributor, then retail_price).
  *
- * خصم مجموعة العميل (discount_percentage) لا يصنع مستوى مستقلًا: يُطبق فوق ناتج
- * المستويين 3/4 (سعر القناة)، ولا يُخصم من سعر خاص بالعميل أو سعر قائمة المجموعة.
- * متغير بلا سعر أساسي للقناة ولا قائمة مطابقة = غير مُسعَّر.
- *
- * داخل كل مستوى: القائمة المخصصة للفرع أولًا، ثم أعلى شريحة كمية محققة،
- * ثم أولوية القائمة، ثم السعر الأقل.
+ * Customer group discount percentages apply on top of tier 3/4 channel outcomes without
+ * overriding customer-specific or group-specific price lists.
+ * Within each tier: branch-specific list first, highest qualifying min_qty, highest priority, lowest price.
  */
 class PricingService
 {
     private array $catalogContexts = [];
 
+    /**
+     * Resolves cache key and public visibility context for customer catalog listings.
+     *
+     * @return array{key: string, public_retail: bool}
+     */
     public function catalogContext(?Customer $customer): array
     {
         if ($customer === null || $customer->status !== CustomerStatus::Approved) {
@@ -47,6 +49,9 @@ class PricingService
         return $this->catalogContexts[$customer->id] ??= $this->resolveCatalogContext($customer);
     }
 
+    /**
+     * Builds the unique catalog pricing context key for an approved customer.
+     */
     private function resolveCatalogContext(Customer $customer): array
     {
         $customer->loadMissing('customerGroup');
@@ -136,7 +141,13 @@ class PricingService
     }
 
     /**
+     * Resolves the effective unit price, base reference price, and pricing source for a variant.
+     *
+     * @param  float  $qty  Purchasing quantity used for volume tier matching.
+     * @param  int|null  $branchId  Optional branch restriction for branch-specific price lists.
+     * @param  array{channel: PriceListType, eligible: bool, group: object|null, items?: \Illuminate\Support\Collection}|null  $ctx  Preloaded pricing context.
      * @return array{unit_price: float, base_price: float, source: string, price_list_id: int|null}
+     * @throws BusinessException If quantity is non-positive or item has no valid price.
      */
     public function resolve(
         ProductVariant $variant,
@@ -173,7 +184,7 @@ class PricingService
                 ->when($ownerField !== null, fn ($q) => $q->where('price_lists.'.$ownerField, $ownerId)))->first();
         };
 
-        // الأولوية 1: سعر خاص بالعميل
+        // Priority 1: Customer-specific pricing.
         if ($eligibleCustomer) {
             $item = $pick(PriceListType::CustomerSpecific, 'customer_id', $customer->id);
 
@@ -182,7 +193,7 @@ class PricingService
             }
         }
 
-        // الأولوية 2: سعر مجموعة العميل
+        // Priority 2: Customer group pricing.
         $group = $ctx['group'];
         if ($group !== null) {
             $item = $pick(PriceListType::CustomerGroup, 'customer_group_id', $group->id);
@@ -192,11 +203,10 @@ class PricingService
             }
         }
 
-        // الأولوية 3: قائمة نوع العميل (أو القطاعي افتراضيًا)
+        // Priority 3: Customer channel price list (wholesale, distributor, or retail).
         $item = $pick($channel);
 
-        // قناة جملة/موزع بلا عنصر في قائمتها ترجع لقوائم القطاعي النشطة قبل
-        // السعر الأساسي — وإلا دفع عميل الجملة أكثر من عميل التجزئة (M-1).
+        // Wholesale/distributor channels without matched items fall back to active retail price lists.
         if ($item === null && $channel !== PriceListType::Retail) {
             $item = $pick(PriceListType::Retail);
 
@@ -210,18 +220,16 @@ class PricingService
             $channelListId = (int) $item->price_list_id;
             $channelSource = $channel->value;
         } elseif ($this->basePrice($variant, $channel) === null) {
-            // الأولوية 4 مستحيلة: لا قائمة مطابقة ولا سعر أساسي للقناة —
-            // الصنف غير مُسعَّر ولا يجوز أن يخرج بسعر صفر ليُباع مجانًا.
+            // Priority 4 is impossible: unpriced item without matching price list or base price.
             throw new BusinessException('الصنف غير مُسعَّر: لا توجد قائمة أسعار مطابقة ولا سعر قطاعي للمتغير.');
         } else {
-            // الأولوية 4: السعر الأساسي للقناة بعد استنفاد القوائم المطابقة.
+            // Priority 4: Channel base price when no price list matches.
             $channelPrice = $this->basePrice($variant, $channel);
             $channelListId = null;
             $channelSource = 'base_price';
         }
 
-        // خصم مجموعة العميل يُطبق "فوق" سعر القناة المحسوب (قائمة القناة أو الأساسي)،
-        // ولا يتجاوزه أبدًا — فلا يخسر العميل سعر جملة/موزع أفضل بسبب خصم مجموعته.
+        // Apply customer group discount percentage on top of channel list/base price.
         if ($group !== null && (float) $group->discount_percentage > 0) {
             return $this->formatResponse(
                 (string) BigDecimal::of($channelPrice)->multipliedBy($this->discountFactor($group->discount_percentage)),
@@ -236,10 +244,7 @@ class PricingService
     }
 
     /**
-     * سلم شرائح الكميات الساري لهذا العميل على المتغير: نقاط التحول هي كل
-     * قيم min_qty في القوائم المؤهلة له (خاصة/مجموعة/قناة/قطاعي احتياطي)،
-     * وسعر كل شريحة هو ناتج resolve نفسه عند حدّها الأدنى — فالسلم مطابق
-     * دائمًا لما سيُحصَّل فعليًا عند تلك الكمية.
+     * Returns the step-ladder volume pricing tiers applicable to a customer for a variant.
      *
      * @return list<array{min_qty: float, unit_price: float}>
      */
@@ -284,7 +289,9 @@ class PricingService
             ->all();
     }
 
-    /** قناة التسعير: الجملة/الموزع للحسابات المعتمدة فقط، وغير ذلك قطاعي. */
+    /**
+     * Resolves the pricing channel enum: approved wholesale/distributor accounts use their channel; all others use Retail.
+     */
     private function channelFor(?Customer $customer): PriceListType
     {
         if ($customer !== null
@@ -309,17 +316,25 @@ class PricingService
         return $variant->retail_price === null ? null : $variant->base_price;
     }
 
+    /**
+     * Returns the base catalog reference price for a variant under the customer's channel.
+     */
     public function basePriceForCustomer(ProductVariant $variant, ?Customer $customer): ?string
     {
         return $this->basePrice($variant, $this->channelFor($customer));
     }
 
+    /**
+     * Converts a percentage discount string (e.g. "15.00") into a decimal multiplication factor (0.85).
+     */
     private function discountFactor(string $percentage): string
     {
         return (string) BigDecimal::of('100')->minus($percentage)->dividedBy('100', 8);
     }
 
-    /** كل عناصر التسعير السارية لهذا المتغير والكمية والفرع والوقت. */
+    /**
+     * Query scope for active price list items matching variant, quantity threshold, branch, and current time.
+     */
     private function eligibleItems(?ProductVariant $variant, float $qty, ?int $branchId, Carbon $now, ?array $variantIds = null): Builder
     {
         return PriceListItem::query()
@@ -344,7 +359,9 @@ class PricingService
             });
     }
 
-    /** ترتيب داخل المستوى الواحد: فرع مخصص أولًا، أعلى شريحة، أعلى أولوية، أقل سعر. */
+    /**
+     * Sorts candidate price list items: branch-specific first, highest min_qty, highest priority, lowest price.
+     */
     private function ordered(Builder $query): Builder
     {
         return $query
@@ -355,6 +372,8 @@ class PricingService
     }
 
     /**
+     * Formats rounded pricing amounts and metadata into standard pricing response payload.
+     *
      * @return array{unit_price: float, base_price: float, source: string, price_list_id: int|null}
      */
     private function formatResponse(string|float $unitPrice, string $source, ?int $priceListId, ProductVariant $variant, PriceListType $channel): array

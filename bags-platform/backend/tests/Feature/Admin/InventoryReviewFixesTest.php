@@ -13,6 +13,7 @@ use App\Models\Customer;
 use App\Models\CustomerGroup;
 use App\Models\Location;
 use App\Models\PriceList;
+use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
 use App\Models\StockMovement;
@@ -34,6 +35,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
+use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -219,7 +221,8 @@ class InventoryReviewFixesTest extends TestCase
 
     public function test_inactive_groups_and_unapproved_customers_do_not_get_personalized_prices(): void
     {
-        $variant = ProductVariant::factory()->create(['retail_price' => 100]);
+        // This case exercises the wholesale channel's retail fallback.
+        $variant = ProductVariant::factory()->create(['retail_price' => 100, 'wholesale_price' => null]);
         $group = CustomerGroup::create(['name' => 'VIP', 'code' => 'VIP', 'is_active' => false, 'discount_percentage' => 10]);
         $customer = $this->customer($group);
         $groupList = PriceList::create(['name' => 'VIP', 'type' => 'customer_group', 'customer_group_id' => $group->id]);
@@ -236,7 +239,7 @@ class InventoryReviewFixesTest extends TestCase
 
     public function test_group_discount_is_a_fallback_without_stacking_on_explicit_group_price(): void
     {
-        $variant = ProductVariant::factory()->create(['retail_price' => 100]);
+        $variant = ProductVariant::factory()->create(['retail_price' => 100, 'wholesale_price' => null]);
         $group = CustomerGroup::create(['name' => 'VIP', 'code' => 'VIP', 'discount_percentage' => 10]);
         $customer = $this->customer($group);
         $pricing = app(PricingService::class);
@@ -336,7 +339,12 @@ class InventoryReviewFixesTest extends TestCase
         $second = $settings->generateNextNumber('movement');
         $this->assertNotSame($first, $second);
         $this->assertSame($before + 2, $settings->get('movement_next_number'));
-        $settings->updateBatch(['movement_next_number' => $before]);
+        try {
+            $settings->updateBatch(['movement_next_number' => $before]);
+            $this->fail('Lowering the movement sequence must be rejected.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('movement_next_number', $exception->errors());
+        }
         $this->assertSame($before + 2, $settings->get('movement_next_number'));
         $settings->updateBatch(['movement_next_number' => $before + 50]);
         $this->assertStringEndsWith((string) ($before + 50), $settings->generateNextNumber('movement'));
@@ -374,9 +382,15 @@ class InventoryReviewFixesTest extends TestCase
             $this->assertCount(2, $snapshotQueries);
             DB::flushQueryLog();
             app(StocktakeService::class)->approve($stocktake, $this->staff->id);
-            $variantQueries = array_filter(DB::getQueryLog(), fn ($query) => str_contains($query['query'], 'from "product_variants"'));
+            $variantQueries = array_filter(DB::getQueryLog(), fn ($query) => str_starts_with($query['query'], 'select') && str_contains($query['query'], 'from "product_variants"'));
             // Costs, row locks, active-input validation and response variants are batched.
             $this->assertCount(4, $variantQueries);
+            $snapshotUpdates = array_filter(DB::getQueryLog(), fn ($query) => str_starts_with($query['query'], 'UPDATE products SET catalog_min_retail_price'));
+            $this->assertCount(1, $snapshotUpdates);
+            $prices = Product::query()->whereIn('id', $variants->pluck('product_id'))->pluck('catalog_min_retail_price', 'id');
+            foreach ($variants as $variant) {
+                $this->assertSame($variant->retail_price, $prices[$variant->product_id]);
+            }
         } finally {
             DB::disableQueryLog();
             DB::flushQueryLog();

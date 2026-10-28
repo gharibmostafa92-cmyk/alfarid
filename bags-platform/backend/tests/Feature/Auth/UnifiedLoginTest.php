@@ -66,12 +66,13 @@ class UnifiedLoginTest extends TestCase
     #[TestWith(['/supplier-other'])]
     #[TestWith(['/supplier/../auth/login'])]
     #[TestWith(['/checkout'])]
-    public function test_supplier_redirect_stays_inside_supplier_portal(string $redirect): void
+    public function test_retired_supplier_login_cannot_issue_a_token_or_redirect(string $redirect): void
     {
         $supplier = SupplierUser::factory()->create(['password' => 'sup-pass']);
 
         $this->login(['login' => $supplier->email, 'password' => 'sup-pass', 'redirect' => $redirect])
-            ->assertOk()->assertJsonPath('redirect.path', '/supplier');
+            ->assertUnauthorized()->assertJsonMissingPath('redirect')->assertJsonMissingPath('token');
+        $this->assertSame(0, $supplier->tokens()->count());
     }
 
     public function test_customer_email_must_be_verified_but_normalized_phone_can_log_in(): void
@@ -214,19 +215,16 @@ class UnifiedLoginTest extends TestCase
         $this->travelBack();
     }
 
-    public function test_active_supplier_login_and_token_access_with_inactive_supplier_rejected(): void
+    public function test_active_and_inactive_supplier_login_are_rejected_and_historical_portal_is_retired(): void
     {
         $supplier = SupplierUser::factory()->create(['email' => 'supplier@example.test', 'password' => 'sup-pass']);
 
         $response = $this->login(['login' => 'supplier@example.test', 'password' => 'sup-pass']);
-        $response->assertOk()
-            ->assertJsonPath('actor.type', 'supplier')
-            ->assertJsonPath('redirect.app', 'web')
-            ->assertJsonPath('redirect.path', '/supplier');
-        $this->assertNotEmpty($response->json('token'));
+        $response->assertUnauthorized()->assertJsonMissingPath('token')->assertJsonMissingPath('redirect');
+        $this->assertSame(0, $supplier->tokens()->count());
 
-        $this->authed('get', '/api/v1/supplier/dashboard', (string) $response->json('token'))
-            ->assertOk();
+        $historicalToken = $supplier->createToken('historical-device')->plainTextToken;
+        $this->authed('get', '/api/v1/supplier/dashboard', $historicalToken)->assertStatus(410);
 
         SupplierUser::factory()->create(['email' => 'off-supplier@example.test', 'password' => 'sup-pass', 'is_active' => false]);
 
