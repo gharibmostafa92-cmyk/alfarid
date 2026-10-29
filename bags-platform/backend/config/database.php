@@ -97,6 +97,12 @@ return [
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
+            // PHP 8.3 issues SQL DEALLOCATE for named statements, which is not
+            // compatible with PgBouncer transaction pooling. Keep bound values
+            // in the PostgreSQL protocol, using an unnamed statement instead.
+            'options' => extension_loaded('pdo_pgsql') ? [
+                PDO::PGSQL_ATTR_DISABLE_PREPARES => (bool) env('DB_DISABLE_PREPARES', false),
+            ] : [],
         ],
 
         'sqlsrv' => [

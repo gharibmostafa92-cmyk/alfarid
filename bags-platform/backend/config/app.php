@@ -3,6 +3,8 @@
 return [
     'trusted_proxies' => env('TRUSTED_PROXIES'),
 
+    'expose_node_header' => (bool) env('APP_EXPOSE_NODE_HEADER', false),
+
     /*
     |--------------------------------------------------------------------------
     | Application Name

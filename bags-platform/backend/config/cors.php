@@ -10,7 +10,7 @@ return [
     ]))),
     'allowed_origins_patterns' => [],
     'allowed_headers' => ['*'],
-    'exposed_headers' => ['Retry-After'],
-    'max_age' => 0,
+    'exposed_headers' => ['Retry-After', 'X-Request-ID'],
+    'max_age' => (int) env('CORS_MAX_AGE', 600),
     'supports_credentials' => false,
 ];

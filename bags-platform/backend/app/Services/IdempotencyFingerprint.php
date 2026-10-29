@@ -5,12 +5,19 @@ declare(strict_types=1);
 namespace App\Services;
 
 /**
- * بصمة حمولات عدم التكرار: ترتيب حتمي لمفاتيح المصفوفات وتطبيع للأرقام،
- * بحيث تنتج الاختلافات الشكلية في تسلسل العميل ("5" مقابل 5 مقابل 5.0)
- * نفس البصمة، فلا تتحول إعادة إرسال مطابقة إلى 409 زائف (L-2).
+ * Computes deterministic request payload fingerprints for idempotency evaluation.
+ *
+ * Sorts array keys deterministically and normalizes scalar numeric representations
+ * so cosmetic serialization variations (e.g. "5" vs 5 vs 5.0) yield identical SHA-256 digests.
  */
 final class IdempotencyFingerprint
 {
+    /**
+     * Compute SHA-256 fingerprint for a canonicalized payload array.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return string
+     */
     public static function hash(array $payload): string
     {
         return hash('sha256', json_encode(self::canonicalize($payload), JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION));
@@ -18,8 +25,7 @@ final class IdempotencyFingerprint
 
     private static function canonicalize(mixed $value, ?string $field = null): mixed
     {
-        // L2: تكلفة الوحدة بدقة الحقل (4 خانات) لا خانتين — طلبان بنفس
-        // المفتاح يختلفان في الثالثة/الرابعة حمولتان مختلفتان (409) لا إعادة.
+        // Preserve unit_cost to 4 decimal places to match inventory cost precision
         if (is_numeric($value) && $field === 'unit_cost') {
             return (int) round(((float) $value) * 10000);
         }

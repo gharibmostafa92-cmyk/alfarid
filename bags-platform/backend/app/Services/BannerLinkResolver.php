@@ -9,11 +9,20 @@ use App\Models\Banner;
 use App\Models\Category;
 use Illuminate\Support\Collection;
 
+/**
+ * Resolves destination URLs for promotional banners.
+ * Maps product, category, and external link targets to storefront routes.
+ */
 final class BannerLinkResolver
 {
     public function __construct(private readonly StoreCatalogService $catalog) {}
 
-    /** @param Collection<int, Banner> $banners */
+    /**
+     * Resolve and attach valid relative or HTTPS target URLs to banner records.
+     *
+     * @param Collection<int, Banner> $banners
+     * @return Collection<int, Banner>
+     */
     public function attach(Collection $banners): Collection
     {
         $productIds = $banners->filter(fn ($b) => $b->link_type === BannerLinkType::Product)
@@ -21,6 +30,7 @@ final class BannerLinkResolver
         $categoryIds = $banners->filter(fn ($b) => $b->link_type === BannerLinkType::Category)
             ->pluck('link_value')->filter()->map(fn ($v) => (int) $v)->unique()->values()->all();
 
+        // Batch-resolve slugs for published products and active categories only
         $productSlugs = $productIds === [] ? collect() : $this->catalog->publishedQuery()
             ->whereIn('products.id', $productIds)->pluck('products.slug', 'products.id');
         $categorySlugs = $categoryIds === [] ? collect() : Category::query()
@@ -30,6 +40,7 @@ final class BannerLinkResolver
             $href = match ($b->link_type) {
                 BannerLinkType::Product => ($s = $productSlugs->get((int) $b->link_value)) ? '/products/'.rawurlencode($s) : null,
                 BannerLinkType::Category => ($s = $categorySlugs->get((int) $b->link_value)) ? '/shop?category='.rawurlencode($s) : null,
+                // Only allow secure HTTPS external links to prevent protocol exploitation
                 BannerLinkType::External => filter_var($b->link_value, FILTER_VALIDATE_URL)
                     && strtolower((string) parse_url($b->link_value, PHP_URL_SCHEME)) === 'https' ? $b->link_value : null,
                 default => null,

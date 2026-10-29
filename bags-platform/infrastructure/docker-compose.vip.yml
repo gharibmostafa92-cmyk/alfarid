@@ -1,0 +1,20 @@
+# Linux bridge demonstration. VIP is reachable inside appnet on Docker Desktop.
+services:
+  keepalived1:
+    image: alfarid-keepalived:local
+    build: {context: .., dockerfile: infrastructure/docker/keepalived.Dockerfile}
+    network_mode: service:haproxy1
+    cap_add: [NET_ADMIN, NET_RAW]
+    volumes: [./keepalived/keepalived-master.conf:/opt/keepalived.conf:ro]
+    entrypoint: [sh, -c, 'cp /opt/keepalived.conf /tmp/keepalived.conf && chmod 644 /tmp/keepalived.conf && exec keepalived --dont-fork --log-console --use-file=/tmp/keepalived.conf']
+    depends_on: [haproxy1]
+    profiles: [vip]
+  keepalived2:
+    image: alfarid-keepalived:local
+    build: {context: .., dockerfile: infrastructure/docker/keepalived.Dockerfile}
+    network_mode: service:haproxy2
+    cap_add: [NET_ADMIN, NET_RAW]
+    volumes: [./keepalived/keepalived-backup.conf:/opt/keepalived.conf:ro]
+    entrypoint: [sh, -c, 'cp /opt/keepalived.conf /tmp/keepalived.conf && chmod 644 /tmp/keepalived.conf && exec keepalived --dont-fork --log-console --use-file=/tmp/keepalived.conf']
+    depends_on: [haproxy2]
+    profiles: [vip]

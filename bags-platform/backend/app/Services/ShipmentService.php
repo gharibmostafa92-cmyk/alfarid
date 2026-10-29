@@ -16,36 +16,43 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
- * إنشاء بوالص الشحن للطلبات.
- * لا توجد بوابة شركة شحن مربوطة بعد: رقم البوليصة يُولّد داخليًا
- * (أو يُمرّر جاهزًا من الأدمن)، وتكلفة البوليصة من جدول أسعار الشحن
- * (شركة × منطقة مدينة الطلب) مع احترام حد الشحن المجاني.
+ * Manages order shipping manifests (AWBs) and carrier rate assignment.
+ *
+ * Generates tracking identifiers internally or registers carrier AWBs,
+ * calculates carrier shipping costs based on destination city zones and free shipping thresholds,
+ * and coordinates order status transitions with inventory dispatch.
  */
 class ShipmentService
 {
     public function __construct(protected OrderService $orders) {}
 
+    /**
+     * Create a shipment manifest for an order, assign shipping fees, and trigger dispatch state.
+     *
+     * @param  Order  $order
+     * @param  int  $companyId
+     * @param  string|null  $awbNumber
+     * @param  User  $actor
+     * @return Shipment
+     *
+     * @throws BusinessException
+     */
     public function createForOrder(Order $order, int $companyId, ?string $awbNumber, User $actor): Shipment
     {
         return DB::transaction(function () use ($order, $companyId, $awbNumber, $actor): Shipment {
-            // قفل الطلب والتحقق من حالته ومن عدم وجود بوليصة نشطة —
-            // نقرة مزدوجة لا تنتج بوليصتين ولا بيعًا مكررًا (H1)
+            // Lock order to prevent race conditions and duplicate shipments
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             $hasActiveShipmentEarly = $order->shipments()
                 ->whereNotIn('status', [ShipmentStatus::Failed->value, ShipmentStatus::Returned->value])
                 ->exists();
-            // بوليصة بديلة (F-16): طلب مشحون كل بوالصه فاشلة/مرتجعة يمكن
-            // إعادة إصدار بوليصة له — بلا changeStatus (حالته Shipped أصلًا
-            // ومخزونه خرج مع الشحنة الأولى)
+            // Allow replacement AWB issuance without re-deducting stock if all prior attempts failed or returned
             $isReplacement = $order->status === OrderStatus::Shipped
                 && ! $hasActiveShipmentEarly
                 && $order->shipments()->exists();
             if (! in_array($order->status, [OrderStatus::Confirmed, OrderStatus::Processing], true) && ! $isReplacement) {
                 throw new BusinessException('لا يمكن إنشاء بوليصة إلا لطلب مؤكد أو قيد التجهيز.');
             }
-            // الدفع المسبق (غير COD) لا يُشحن إلا وحالته paid (F-05): طلب
-            // مسترد أو غير مدفوع لا يخرج من المستودع فيُشحن مجانًا. ضبط
-            // paid يدويًا (تحويل بنكي) قبل الشحن مقصود هنا
+            // Non-COD orders require confirmed payment before warehouse dispatch
             if ($order->payment_method !== 'cod' && $order->payment_status !== 'paid') {
                 throw new BusinessException('لا يمكن شحن طلب دفع مسبق لم يُدفع بعد (الحالة الحالية: '.$order->payment_status.').');
             }
@@ -76,8 +83,7 @@ class ShipmentService
                 'raw_response' => ['source' => 'internal'],
             ]);
 
-            // الشحن الفعلي للطلب (يفك الحجز ويخصم البيع) عبر بوابة الحالة —
-            // البديلة لا تستدعيه: الطلب مشحون ومخزونه خرج من الشحنة الأولى
+            // Transition order status to Shipped and release stock allocations (bypassed for replacement shipments)
             if (! $isReplacement) {
                 $this->orders->changeStatus($order, OrderStatus::Shipped, $actor, "تم إنشاء بوليصة الشحن {$shipment->awb_number}");
             }
@@ -86,10 +92,10 @@ class ShipmentService
         });
     }
 
-    /** سعر الشركة لمنطقة مدينة الطلب إن وُجد. */
     /**
-     * سعر الشركة لمدينة الطلب: join مباشر rates × zone_cities مفلتر بالشركة
-     * والمدينة معًا — مدينة في أكثر من منطقة لا تختار منطقة بلا سعر (M12).
+     * Find active rate matching the carrier and order's destination city zone.
+     *
+     * Joins directly with zone cities to avoid ambiguous matching if a city is mapped to multiple zones.
      */
     private function rateFor(Order $order, int $companyId): ?ShippingRate
     {
@@ -108,8 +114,9 @@ class ShipmentService
             ->first();
     }
 
-    // تسعيرة العميل الموحدة في ShippingQuoteService (بلا تبعية دائرية)
-
+    /**
+     * Generate a unique tracking number prefixed with the carrier code.
+     */
     private function generateAwb(ShippingCompany $company): string
     {
         do {

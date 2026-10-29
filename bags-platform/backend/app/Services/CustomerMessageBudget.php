@@ -6,8 +6,19 @@ namespace App\Services;
 
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Manages daily and hourly outbound SMS/message rate-limit budgets.
+ * Tracks usage in customer_message_budgets table using atomic pessimistic row locks.
+ */
 class CustomerMessageBudget
 {
+    /**
+     * Atomically claim a messaging quota slot for the given scope and channel.
+     * Enforces global hourly/daily SMS quotas as well as per-recipient limits.
+     *
+     * @param string $scope Distinct scope identifier (e.g. "verify:<phone_hash>" or "reset:customer:<id>")
+     * @param bool $sms Whether this message consumes global SMS quota
+     */
     public function claim(string $scope, bool $sms = true): bool
     {
         $now = now(config('app.business_timezone', 'Africa/Cairo'));

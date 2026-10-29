@@ -13,9 +13,9 @@ use App\Models\StockLevel;
 use Illuminate\Support\Collection;
 
 /**
- * الطلب السريع لتجار الجملة (المرحلة 12.2): بحث جماعي بالأكواد مع أسعار
- * الشرائح والتوفر، واستيراد بنود إلى سلة التاجر الحالية، وإعادة طلب سابق —
- * كل الإضافات تمر عبر CartService فتُسعَّر بأسعار اليوم تلقائيًا.
+ * Quick-order service for wholesale customers.
+ * Handles bulk code lookups (with tiered pricing and stock availability), cart imports, and order re-ordering.
+ * All cart additions route through CartService to guarantee current real-time pricing.
  */
 class WholesaleQuickOrderService
 {
@@ -25,8 +25,7 @@ class WholesaleQuickOrderService
     ) {}
 
     /**
-     * بحث بالأكواد (SKU أو باركود) مع الكميات: السعر عند كمية كل بند من
-     * شرائحه السارية لهذا التاجر، والمتاح من كل الفروع.
+     * Batch lookup product variants by SKU or barcode with quantity-tier pricing and total available stock.
      *
      * @param  list<array{sku?: string|null, barcode?: string|null, qty: float}>  $lines
      * @return list<array<string, mixed>>
@@ -71,16 +70,15 @@ class WholesaleQuickOrderService
     }
 
     /**
-     * إضافة بنود (من ملف مستورد) إلى سلة التاجر: الأكواد غير المعروفة أو
-     * غير النشطة أو التي لا يغطيها المتاح تُتخطى بتقرير سبب، والباقي يُضاف
-     * عبر CartService (مدمجًا مع بنود السلة القائمة وبأسعار اليوم).
+     * Import multiple items from a parsed CSV/Excel file into the customer's active cart.
+     * Skips invalid codes or lines exceeding available stock with explanatory status reports.
      *
      * @param  list<array{sku: string, qty: float}>  $rows
      * @return array{added: list<array<string, mixed>>, skipped: list<array<string, mixed>>, cart: array<string, mixed>}
      */
     public function importToCart(Customer $customer, array $rows): array
     {
-        // دمج الأكواد المكررة في الملف قبل أي فحص توفر
+        // Consolidate duplicate codes within the input before running stock availability checks
         $merged = [];
         foreach ($rows as $row) {
             $sku = trim((string) $row['sku']);
@@ -136,9 +134,8 @@ class WholesaleQuickOrderService
     }
 
     /**
-     * إعادة طلب سابق: نسخ بنوده إلى سلة التاجر الحالية بأسعار اليوم
-     * (الإضافة عبر CartService تعيد التسعير تلقائيًا)، مع تخطي ما لم يعد
-     * متاحًا أو نشطًا بتقرير.
+     * Copy lines from a previous order into the customer's current cart at today's real-time prices.
+     * Skips items that are discontinued, unpublished, or out of stock.
      *
      * @return array{added: list<array<string, mixed>>, skipped: list<array<string, mixed>>, cart: array<string, mixed>}
      */
@@ -159,7 +156,7 @@ class WholesaleQuickOrderService
             ->values()
             ->all();
 
-        // نفس مسار الاستيراد لكن بالمفتاح هو معرّف المتغير لا الـ SKU اللقطة
+        // Mirror the import flow keyed by current variant ID rather than historical snapshot SKU
         $cart = $this->carts->resolveCart($customer, null);
         $inCart = $cart->items()->pluck('qty', 'product_variant_id')->map(fn ($q) => (float) $q)->all();
         $variants = ProductVariant::query()->with('product')
@@ -204,7 +201,7 @@ class WholesaleQuickOrderService
     }
 
     /**
-     * خريطة كود ← متغير نشط لمنتج منشور، بمفتاح الـ SKU والباركود معًا.
+     * Map active variants of published products by SKU and barcode.
      *
      * @param  list<array{sku?: string|null, barcode?: string|null}>  $lines
      * @return Collection<string, ProductVariant>
@@ -239,8 +236,7 @@ class WholesaleQuickOrderService
     }
 
     /**
-     * المتاح الكلي لكل متغير عبر كل الفروع (عمود available المولّد يُقرأ
-     * كنص من Postgres فيُحوَّل float — اصطلاح المشروع).
+     * Total available stock across all branches for a given list of variant IDs.
      *
      * @param  list<int>  $variantIds
      * @return array<int, float>

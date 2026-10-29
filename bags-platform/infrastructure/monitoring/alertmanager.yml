@@ -1,0 +1,9 @@
+route:
+  receiver: local
+  group_by: [alertname]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+receivers:
+  - name: local
+# Add email_configs or telegram_configs with the operator's destination.

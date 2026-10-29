@@ -8,14 +8,22 @@ use App\Models\City;
 use App\Models\ShippingRate;
 
 /**
- * تسعيرة الشحن التي يدفعها العميل (مصدر موحد مع تكلفة البوليصة — M12):
- * أول شركة نشطة (بترتيب id) لها سعر منطبق على المدينة؛ عند بلوغ حد الشحن
- * المجاني تكون التكلفة صفرًا، ورسوم الدفع عند الاستلام من نفس السعر.
- * بلا أي سعر منطبق: رجوع لسعر المدينة الافتراضي بلا رسوم COD.
+ * Computes customer shipping quotes and COD surcharges.
+ *
+ * Resolves rates from active carriers matching the destination city zone.
+ * Waives shipping cost when the merchandise total qualifies for free shipping,
+ * and falls back to the default city flat rate when no specific carrier rate matches.
  */
 class ShippingQuoteService
 {
-    /** @return array{cost: float, cod_fee: float, rate: ShippingRate|null} */
+    /**
+     * Calculate shipping rate and cash-on-delivery fees for an order destination.
+     *
+     * @param  int  $cityId
+     * @param  float  $merchandiseTotal
+     * @param  bool  $cod
+     * @return array{cost: float, cod_fee: float, rate: ShippingRate|null}
+     */
     public function quoteForCity(int $cityId, float $merchandiseTotal, bool $cod): array
     {
         $rate = ShippingRate::query()

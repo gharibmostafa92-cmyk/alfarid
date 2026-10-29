@@ -13,11 +13,12 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
- * معالجة ويب هوك بوابات الدفع:
- * تسجيل أولًا ← تحقق HMAC ← معالجة ذرّية داخل transaction بقفل استشاري
- * على (provider, event) لمنع المعالجة المكررة المتزامنة (H4) ←
- * التحقق من المبلغ والعملة مقابل إجمالي الطلب (H5) ← تحديث حالة الدفع
- * وتأكيد الطلب تلقائيًا عبر OrderService عند النجاح.
+ * Inbound payment gateway webhook processing service:
+ * - Logs payload fingerprint before signature verification to guard against malformed data.
+ * - Validates cryptographic signature per configured driver (HMAC, Paymob, Moyasar, Stripe).
+ * - Serializes processing atomically via PostgreSQL advisory lock on (provider:event_id).
+ * - Validates billed currency and amount against order grand total before updating status.
+ * - Automatically transitions pending orders to Confirmed upon successful payment capture.
  */
 class PaymentWebhookService
 {
@@ -31,19 +32,23 @@ class PaymentWebhookService
     ) {}
 
     /**
+     * Process an inbound payment gateway webhook request.
+     *
+     * @param  string  $gateway
+     * @param  array<string, mixed>  $payload
+     * @param  string  $rawBody
      * @param  array<string, string|null>  $headers
      * @param  array<string, mixed>  $query
+     * @param  string|null  $ip
      * @return array{http: int, body: array<string, mixed>}
      */
     public function handle(string $gateway, array $payload, string $rawBody, array $headers, array $query, ?string $ip): array
     {
         $provider = 'payment:'.$gateway;
-        // قبل التحقق لا يُوثق بأي حقل من الحمولة (F-07): مفتاح السجل
-        // المختصر هو بصمة الجسم فقط، وأي معرّف من الحمولة قد يكون مصفوفة
-        // تكسر (string) أو نصًا أطول من عمود السجل فيحوّل الهجوم لـ 500
+        // Pre-verification key uses raw body hash because unverified payload fields cannot be trusted
         $preVerifyKey = 'sha256:'.hash('sha256', $rawBody);
 
-        // حد حجم الجسم أولًا — الرفض بسجل مختصر بلا حمولة (M4)
+        // Reject oversized payloads early without storing unverified content
         if (strlen($rawBody) > 262144) {
             $this->slimLog($provider, $preVerifyKey, 'rejected', 'payload too large', $ip);
 
@@ -57,13 +62,10 @@ class PaymentWebhookService
             return ['http' => 404, 'body' => ['received' => false, 'message' => 'unknown gateway']];
         }
 
-        // Paymob (C1): توقيعه يغطي حقول obj المحددة فقط، فكل قرار (الحالة،
-        // المبلغ، المعرّف، ربط الطلب) يجب أن يُشتق من obj وحدها — لا من حقول
-        // أعلى المستوى غير الموقّعة (order_number/amount/event_id).
+        // Paymob signs fields within the 'obj' dictionary; status, amount, and order IDs must be read from obj
         $isPaymob = (string) ($config['driver'] ?? 'hmac') === 'paymob';
 
-        // التحقق بنمط البوابة (F-06) قبل تخزين الحمولة: محاولات مجهولة
-        // لا تملأ webhook_logs.payload — تُسجل مختصرة فقط (M4)
+        // Verify cryptographic signature before persisting payload in database
         $verified = $this->verifier->verifyGateway(
             (string) ($config['driver'] ?? 'hmac'),
             $config['secret'] ?? null,
@@ -79,9 +81,7 @@ class PaymentWebhookService
             return ['http' => 403, 'body' => ['received' => false, 'message' => 'invalid signature']];
         }
 
-        // بعد التحقق فقط: معرّف الحدث من الحمولة مُنقّى (قيمة مفردة وحد
-        // طول) ومدموجًا بنتيجة الحدث (F-08) حتى لا يبتلع الاستردادَ حدثُ
-        // الدفعِ لنفس المعاملة فيُعلَّم duplicate
+        // Combine extracted event ID with outcome so subsequent refunds on the same transaction are not dropped as duplicates
         $outcome = $isPaymob ? $this->paymobOutcome($payload) : $this->outcome($payload);
         $extractedId = $isPaymob ? $this->paymobEventId($payload) : $this->extractEventId($payload);
         $eventId = $extractedId !== null ? $extractedId.':'.$outcome : $preVerifyKey;
@@ -90,7 +90,7 @@ class PaymentWebhookService
         $log->update(['signature_valid' => true]);
 
         return DB::transaction(function () use ($gateway, $provider, $eventId, $payload, $log, $config, $outcome, $isPaymob): array {
-            // قفل استشاري على مفتاح الحدث: نسختان متزامنتان من نفس الحدث تتسلسلان هنا
+            // Advisory lock serializes concurrent webhooks for the same provider and event key
             DB::statement('SELECT pg_advisory_xact_lock(hashtext(?))', [$provider.':'.$eventId]);
 
             if ($this->alreadyProcessed($provider, $log)) {
@@ -99,8 +99,7 @@ class PaymentWebhookService
                 return ['http' => 200, 'body' => ['received' => true, 'duplicate' => true]];
             }
 
-            // ربط الطلب (C1): لـ Paymob من obj.order.id الموقّع مقابل
-            // orders.gateway_order_id، ولباقي البوابات من حقولها المعتادة
+            // Paymob references orders via obj.order.id mapped to orders.gateway_order_id
             $orderReference = $isPaymob
                 ? $this->paymobGatewayOrderId($payload)
                 : $this->extractOrderNumber($payload);
@@ -132,14 +131,12 @@ class PaymentWebhookService
                 return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
             }
 
-            // التحقق من المبلغ والعملة قبل أي تغيير (H5) — ولـ Paymob من
-            // obj.amount_cents/obj.currency الموقّعين فقط (C1)
+            // Validate that the paid amount and currency match order requirements
             $amountOk = $isPaymob
                 ? $this->paymobAmountMatches($payload, $order, $config)
                 : $this->amountMatches($payload, $order, $config);
             if ($outcome === 'paid' && ! $amountOk) {
-                // المال قد يكون قُبض فعلًا مع مبلغ مخالف: يُعلَّم الطلب للانتباه
-                // ويُنبَّه السجل — لا يُكتفى بسجل failed صامت (F-22)
+                // If money was captured with an unexpected amount, flag the order for staff investigation
                 $order->update(['needs_attention' => true]);
                 $log->update(['status' => 'failed', 'error' => 'amount mismatch']);
                 Log::warning('Payment amount/currency mismatch on a paid event.', [
@@ -155,7 +152,7 @@ class PaymentWebhookService
             $note = null;
             if ($outcome === 'paid') {
                 if ($order->status === OrderStatus::Cancelled) {
-                    // مال قُبض على طلب ملغي: يُثبت الدفع ويُعلَّم للاسترداد، ولا يُحيى الطلب
+                    // Payment captured after order cancellation: record payment and mark for refund without reviving order
                     $order->update(['payment_status' => 'paid', 'requires_refund' => true]);
                     $note = 'دفع ناجح على طلب ملغي — يحتاج استردادًا';
                 } else {
@@ -164,12 +161,10 @@ class PaymentWebhookService
                         try {
                             $this->orders->changeStatus($order, OrderStatus::Confirmed, null, "تأكيد تلقائي بعد نجاح الدفع عبر {$gateway}");
                         } catch (DeadlockException $e) {
-                            // جمود قفل: يُعاد رميه ليُعيد الوسيط المحاولة، ولا يُبتلع
-                            // كـ «دُفع ولم يُؤكَّد» فيفقد الحدث أثره (F12)
+                            // Re-throw database deadlock so the gateway retries delivery
                             throw $e;
                         } catch (Throwable $e) {
-                            // «دُفع ولم يُؤكَّد» حالة تشغيلية خطيرة: تنبيه سجل +
-                            // علامة ظاهرة في شاشة الطلب بدل دفنها في الويب هوك (M19)
+                            // Captured payment with confirmation failure requires visible staff attention
                             Log::warning('Payment captured but order auto-confirm failed.', [
                                 'order_id' => $order->id,
                                 'order_number' => $order->order_number,
@@ -183,16 +178,14 @@ class PaymentWebhookService
                 }
             } elseif ($outcome === 'failed') {
                 if ($order->payment_status === 'paid') {
-                    // حدث فشل متأخر بعد نجاح: لا رجوع من paid إلى failed
+                    // Ignore late failure notification if the order was already confirmed paid
                     $log->update(['status' => 'ignored', 'error' => 'حدث فشل متأخر بعد دفع ناجح — يُتجاهل']);
 
                     return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
                 }
                 $order->update(['payment_status' => 'failed']);
             } else { // refunded
-                // الاسترداد لا يلغي الطلب لكنه يوقفه عن التنفيذ الصامت (F-05):
-                // علم انتباه لأي استرداد على طلب غير ملغي — وبوابة الشحن
-                // ترفض شحن دفع مسبق حالته ليست paid
+                // Mark non-cancelled orders for staff review and block shipping dispatch
                 $order->update([
                     'payment_status' => 'refunded',
                     'needs_attention' => $order->status !== OrderStatus::Cancelled,
@@ -214,9 +207,12 @@ class PaymentWebhookService
         });
     }
 
+    /**
+     * Determine normalized payment outcome from gateway payload (paid, failed, refunded, pending, or ignored).
+     */
     private function outcome(array $payload): string
     {
-        // معاملة معلقة (Paymob: success=false مع pending=true) ليست فشلًا
+        // Pending status (e.g. Paymob success=false with pending=true) represents uncompleted payment rather than failure
         $pending = data_get($payload, 'obj.pending') ?? data_get($payload, 'data.pending') ?? data_get($payload, 'pending');
         if ($pending === true) {
             return 'pending';
@@ -241,8 +237,7 @@ class PaymentWebhookService
             return 'failed';
         }
 
-        // حدث Stripe بنيوي: النوع (type) هو مصدر الحالة، وليس status
-        // (F10) — charge.refunded / payment_intent.succeeded / *.failed
+        // Stripe events specify the outcome in the event 'type' attribute rather than an inner status field
         $type = strtolower((string) ($this->firstValue($payload, ['type', 'event_type', 'event']) ?? ''));
         if ($type !== '') {
             if (str_contains($type, 'refund')) {
@@ -261,8 +256,7 @@ class PaymentWebhookService
     }
 
     /**
-     * مقارنة مبلغ الحدث بإجمالي الطلب وعملته. إن لم يحمل الحدث مبلغًا
-     * يُقبل (بعض البوابات لا ترسله) — وإن حمله واختلف يُرفض.
+     * Verify that the webhook billed amount and currency match order requirements within a 1-cent tolerance.
      *
      * @param  array<string, mixed>  $config
      */
@@ -292,7 +286,7 @@ class PaymentWebhookService
             }
         }
         if ($amount === null) {
-            // بوابة تُعلن وجوب وجود المبلغ (F10): حدث ناجح بلا مبلغ لا يُقبل
+            // Respect gateway configuration specifying whether an explicit amount is strictly required
             return ! ($config['require_amount'] ?? false);
         }
 
@@ -307,7 +301,6 @@ class PaymentWebhookService
             'obj.order.merchant_order_id', 'obj.merchant_order_id', 'metadata.order_number',
         ]);
 
-        // قيم غير مفردة (مصفوفات) لا تُحوَّل لنص — تُتجاهل (F-07)
         return is_scalar($value) ? mb_substr((string) $value, 0, 191) : null;
     }
 
@@ -321,7 +314,9 @@ class PaymentWebhookService
         return is_scalar($value) ? mb_substr((string) $value, 0, 191) : null;
     }
 
-    /** كائن معاملة Paymob الموقّع (obj) — مصدر الحقيقة الوحيد لبوابة Paymob. */
+    /**
+     * Retrieve signed transaction dictionary from Paymob payload.
+     */
     private function paymobObj(array $payload): ?array
     {
         $obj = $payload['obj'] ?? null;
@@ -330,9 +325,9 @@ class PaymentWebhookService
     }
 
     /**
-     * حالة حدث Paymob من الحقول الموقّعة فقط (C1): علم الاسترداد/الإلغاء
-     * يُفحص قبل success لأن Paymob يرسل success=true مع is_refunded/is_voided
-     * فيُصنّف الاسترداد خطأً كدفع ناجح إن فُحص success أولًا.
+     * Derive Paymob event outcome strictly from signed fields.
+     *
+     * Refund and void flags are evaluated before success because Paymob sets success=true on refund events.
      */
     private function paymobOutcome(array $payload): string
     {
@@ -359,7 +354,9 @@ class PaymentWebhookService
         return 'ignored';
     }
 
-    /** معرّف حدث Paymob: obj.id الموقّع (لا event_id أعلى المستوى غير الموقّع). */
+    /**
+     * Extract event ID from Paymob signed obj.id.
+     */
     private function paymobEventId(array $payload): ?string
     {
         $obj = $this->paymobObj($payload);
@@ -368,7 +365,9 @@ class PaymentWebhookService
         return is_scalar($id) && $id !== '' ? mb_substr((string) $id, 0, 191) : null;
     }
 
-    /** معرّف طلب Paymob الموقّع (obj.order.id) لربط الطلب. */
+    /**
+     * Extract order ID from Paymob signed obj.order.id.
+     */
     private function paymobGatewayOrderId(array $payload): ?string
     {
         $obj = $this->paymobObj($payload);
@@ -378,8 +377,7 @@ class PaymentWebhookService
     }
 
     /**
-     * مطابقة المبلغ والعملة لـ Paymob من obj.amount_cents وobj.currency فقط
-     * (C1) — لا من amount/currency أعلى المستوى غير الموقّعين.
+     * Verify Paymob payment amount against signed obj.amount_cents and obj.currency fields.
      *
      * @param  array<string, mixed>  $config
      */
@@ -430,14 +428,16 @@ class PaymentWebhookService
         return WebhookLog::create([
             'provider' => $provider,
             'event_id' => $eventId,
-            // تنقية السر قبل التخزين (H1): Moyasar يضع secret_token في الجسم
+            // Sanitize sensitive credentials (e.g. secret_token) before persisting
             'payload' => WebhookLog::sanitizePayload($payload),
             'status' => 'received',
             'ip_address' => $ip,
         ]);
     }
 
-    /** سجل مختصر للطلبات المرفوضة قبل التحقق — بلا تخزين للحمولة (M4). */
+    /**
+     * Create a lightweight log entry for rejected requests without storing untrusted payload bytes.
+     */
     private function slimLog(string $provider, string $eventId, string $status, ?string $error, ?string $ip): void
     {
         WebhookLog::create([

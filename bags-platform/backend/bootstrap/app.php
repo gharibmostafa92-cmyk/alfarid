@@ -24,6 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
         then: function (): void {
+            Route::get('health/ready', \App\Http\Controllers\HealthReadyController::class);
             Route::middleware('api')
                 ->prefix('api/v1/admin')
                 ->group(base_path('routes/api/admin.php'));
@@ -58,6 +59,8 @@ return Application::configure(basePath: dirname(__DIR__))
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Resolve trusted forwarding headers before recording client_ip.
+        $middleware->append([\App\Http\Middleware\AssignRequestId::class]);
         $middleware->api(prepend: [ManufacturingBusiness::class]);
         $middleware->alias([
             'auth.staff' => EnsureStaffAuthenticated::class,

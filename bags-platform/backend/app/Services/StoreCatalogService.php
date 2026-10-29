@@ -22,10 +22,9 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
- * كتالوج المتجر للقراءة: استعلامات التصفح والفلترة وحساب المتاح أونلاين.
- * المتاح أونلاين = مجموع available (on_hand − reserved − damaged) في الفروع
- * النشطة فقط، بحساب SQL مجمّع (بلا تحميل صفوف في الذاكرة).
- * «منتج نشط» في المتجر = منشور (published).
+ * Read-only store catalog service: queries, facets, filtering, and real-time online stock availability.
+ * Online availability = aggregated SQL sum of sellable balances across active branches without loading in-memory rows.
+ * Only published products are visible on the storefront.
  */
 class StoreCatalogService
 {
@@ -38,12 +37,11 @@ class StoreCatalogService
 
     public function __construct(private readonly PricingService $pricing) {}
 
-    // ------------------------------------------------------------------ متاح
+    // ------------------------------------------------------------------ Availability
 
     /**
-     * شرط "الموقع القابل للبيع" الوحيد في الكتالوج: الفرع نشط، والموقع إما
-     * معدوم أو نشط من نوع قابل للبيع — receiving (لم تصل للرف بعد) وdamaged
-     * (تالفة لا تُشحن) مستبعدان معًا (F5).
+     * Apply sellable location constraint: branch must be active, and bin location must be unassigned
+     * or active and sellable (excluding receiving and damaged bins).
      */
     private function sellableLocationRule(object $query): void
     {
@@ -52,7 +50,9 @@ class StoreCatalogService
                 ->orWhere(fn ($l) => $l->where('locations.is_active', true)->whereNotIn('locations.type', ['receiving', 'damaged'])));
     }
 
-    /** EXISTS صف قابل للبيع لمنتج: نفس قاعدة المواقع القابلة للبيع (F5). */
+    /**
+     * Correlated EXISTS subquery checking for available sellable stock for a product.
+     */
     private function sellableExists(object $sub): void
     {
         $sub->select(DB::raw(1))
@@ -67,7 +67,9 @@ class StoreCatalogService
             ->where('stock_levels.available', '>', 0);
     }
 
-    /** إرفاق store_available بأي استعلام منتجات: مجموع متاح كل متغيراته في الفروع النشطة. */
+    /**
+     * Attach aggregated store_available subquery to product queries.
+     */
     public function withStoreAvailability(Builder $query): Builder
     {
         // L9: sellable stock only — active branches, active sellable locations
@@ -86,10 +88,10 @@ class StoreCatalogService
     }
 
     /**
-     * خريطة متاح لمتغيرات بعينها في استعلام واحد مجمّع.
+     * Batch-query sellable stock availability map for a list of variant IDs.
      *
      * @param  list<int>  $variantIds
-     * @return array<int, float>
+     * @return array<int, float> Map of variant ID to available stock quantity
      */
     public function availabilityMap(array $variantIds): array
     {
@@ -112,9 +114,11 @@ class StoreCatalogService
             ->all();
     }
 
-    // ------------------------------------------------------------------ أساس
+    // ------------------------------------------------------------------ Catalog Queries
 
-    /** استعلام المنتجات المنشورة بعلاقات البطاقة والمتاح المجمّع. */
+    /**
+     * Base query for published retail products with variant relationships, prices, and stock availability.
+     */
     public function publishedQuery(): Builder
     {
         $query = Product::query()
@@ -134,6 +138,9 @@ class StoreCatalogService
         return $this->withStoreAvailability($query);
     }
 
+    /**
+     * Attach sellable store_available subquery to variant queries.
+     */
     private function withVariantAvailability(Builder $query): Builder
     {
         $stock = DB::table('stock_levels')
@@ -145,10 +152,10 @@ class StoreCatalogService
             ->selectRaw('COALESCE(SUM(stock_levels.available), 0)'), 'store_available');
     }
 
-    // ------------------------------------------------------------------ فلاتر
+    // ------------------------------------------------------------------ Filtering & Sorting
 
     /**
-     * تطبيق فلاتر قائمة المنتجات (ProductFilterRequest) على الاستعلام.
+     * Apply storefront filter parameters (category, color, price, availability, occasion, search) to query.
      *
      * @param  array<string, mixed>  $filters
      */
@@ -159,7 +166,8 @@ class StoreCatalogService
             if ($category !== null) {
                 $query->whereIn('products.category_id', [$category->id, ...$this->cachedDescendantIds($category)]);
             } else {
-                $query->whereRaw('1 = 0'); // قسم غير موجود = نتيجة فارغة لا خطأ
+                // Nonexistent category resolves to empty result set without throwing an exception
+                $query->whereRaw('1 = 0');
             }
         }
 
@@ -206,6 +214,9 @@ class StoreCatalogService
         return $this->applySort($query, $filters['sort'] ?? 'featured');
     }
 
+    /**
+     * Apply sorting strategy (featured, price_asc, price_desc, name, best_selling, or newest).
+     */
     public function applySort(Builder $query, string $sort): Builder
     {
         if (in_array($sort, ['price_asc', 'price_desc'], true)) {
@@ -225,6 +236,9 @@ class StoreCatalogService
         };
     }
 
+    /**
+     * Memoized category lookup by slug or integer ID.
+     */
     private function resolveCategory(int|string $value): ?Category
     {
         // L4: one lookup per distinct value per request.
@@ -244,11 +258,10 @@ class StoreCatalogService
         return $this->descendantMemo[$category->id] ??= $category->descendantIds();
     }
 
-    // ------------------------------------------------------------------ أسعار العرض
+    // ------------------------------------------------------------------ Display Pricing
 
     /**
-     * F23: معادلة الخصم الوحيدة في المتجر — تُستخدم في البطاقة والتفاصيل
-     * معًا بدل تكرارها. (الصيغة الصحيحة: التقريب بعد الضرب في 100.)
+     * F23: Compute storefront discount percentage against compare_at basis price.
      */
     public static function discountPercentage(float $unitPrice, float $basis): ?int
     {
@@ -261,8 +274,8 @@ class StoreCatalogService
     }
 
     /**
-     * سعر عرض بطاقة المنتج: أرخص متغير نشط قابل للتسعير عبر PricingService
-     * (متغير بلا سعر ولا قائمة يُتخطى بدل كسر القائمة كلها).
+     * Compute display price for product card: finds cheapest active purchasable variant via PricingService.
+     * Prefers in-stock variant to prevent quick-add actions targeting sold-out items.
      *
      * @return array{price: float, base_price: float, compare_at: float|null, discount_percentage: int|null, variant_id: int}|null
      */
@@ -272,9 +285,7 @@ class StoreCatalogService
             ? $product->variants
             : $product->variants()->where('is_active', true)->orderBy('sort_order')->get();
 
-        // F18: السعر الظاهر والمتغير الافتراضي يفضّلان متغيرًا متوفرًا —
-        // الإضافة السريعة للسلة من البطاقة يجب ألا تستهدف صنفًا نافدًا.
-        // بلا خريطة توفر يُستخدم الأرخص كما قبل.
+        // F18: Preferred in-stock variant selection for quick add-to-cart actions
         $availability ??= $variants->every(fn ($variant) => array_key_exists('store_available', $variant->getAttributes()))
             ? $variants->mapWithKeys(fn ($variant) => [$variant->id => (float) $variant->store_available])->all()
             : $this->availabilityMap($variants->pluck('id')->all());
@@ -312,6 +323,9 @@ class StoreCatalogService
         return $bestInStock ?? $best;
     }
 
+    /**
+     * Resolve the currently authenticated and approved customer model, if any.
+     */
     public function customer(): ?Customer
     {
         $user = auth('sanctum')->user();
@@ -319,6 +333,11 @@ class StoreCatalogService
         return $user instanceof Customer && $user->status === CustomerStatus::Approved ? $user : null;
     }
 
+    /**
+     * Resolve variant unit price and base price for the customer.
+     *
+     * @return array{unit_price: float, base_price: float}
+     */
     public function variantPrice(ProductVariant $variant, ?Customer $customer): array
     {
         if (! array_key_exists('store_price', $variant->getAttributes())) {
@@ -345,6 +364,9 @@ class StoreCatalogService
             [now()->subMinutes(10), ...$live->getBindings()]);
     }
 
+    /**
+     * Build lateral minimum price query across active variants for a customer context.
+     */
     public function liveMinimumPriceQuery(?Customer $customer): \Illuminate\Database\Query\Builder
     {
         $variants = $this->withVariantAvailability($this->pricing->withStorePrice(ProductVariant::query(), $customer))
@@ -355,9 +377,12 @@ class StoreCatalogService
             ->whereColumn('priced_variants.product_id', 'products.id');
     }
 
-    // ------------------------------------------------------------------ فلاتر الواجهة
+    // ------------------------------------------------------------------ Facets & Aggregations
 
-    /** الـ facets بتتجاهل color والسعر عشان الاختيارات ما تختفيش لما المستخدم يختار واحدة منها */
+    /**
+     * Calculate structural facets (categories, colors, occasions) and price distribution ranges.
+     * Color and price filters are excluded from facet counts to prevent options from disappearing upon selection.
+     */
     public function facets(array $filters): array
     {
         if (! empty($filters['search']) || (string) config('cache.default') === 'array') {
@@ -424,7 +449,7 @@ class StoreCatalogService
             ->orderByDesc('count')->orderBy('id')->limit(24)->get()
             ->map(fn ($c) => [...(array) $c, 'count' => (int) $c->count]);
 
-        // F13: عدّادات المناسبات في استعلام واحد بدل استعلام لكل مناسبة.
+        // F13: Aggregate occasion counters in a single query using PostgreSQL conditional filtering
         $occasionBase = $this->applyFilters($this->publishedQuery()->withoutEagerLoads(),
             Arr::except($base, 'occasions'))->reorder()->select('products.id', 'products.occasions');
         $occasionCounts = DB::query()->fromSub($occasionBase->toBase(), 'occasion_scope')
@@ -468,6 +493,11 @@ class StoreCatalogService
         ])->all();
     }
 
+    /**
+     * Retrieve featured and best-selling product IDs for hero showcase carousel.
+     *
+     * @return list<int>
+     */
     public function showcaseIds(): array
     {
         $limit = (int) config('storefront.showcase_limit', 6);
@@ -485,9 +515,14 @@ class StoreCatalogService
             : Cache::flexible('store:showcase:ids:'.$limit, [300, 1800], $load, ['seconds' => 120]);
     }
 
-    // ------------------------------------------------------------------ الرئيسية والتشابه
+    // ------------------------------------------------------------------ Home & Recommendations
 
-    /** معرّفات أقسام الصفحة الرئيسية (تُخزَّن مؤقتًا في المتحكم — الأسعار لا تُخزَّن أبدًا). */
+    /**
+     * Retrieve section product IDs for homepage (latest, bestsellers, discounted).
+     * IDs are cached in the controller; prices are always computed fresh.
+     *
+     * @return array{latest_ids: list<int>, best_seller_ids: list<int>, discounted_ids: list<int>}
+     */
     public function homeSectionIds(): array
     {
         $latest = $this->publishedQuery()->reorder()->orderByDesc('products.created_at')->orderByDesc('products.id')->limit(12)->pluck('products.id')->all();
@@ -524,14 +559,14 @@ class StoreCatalogService
     }
 
     /**
-     * منتجات مشابهة: نفس القسم الفرعي، والمتوفر أولًا.
+     * Retrieve similar products within the same category, prioritizing in-stock items.
      *
      * @return Collection<int, Product>
      */
     public function similar(Product $product): Collection
     {
-        // F12: مرحلتان — 40 مرشحًا حسب sales_count (مفهرس) دون EXISTS ثقيل،
-        // ثم "المتوفر أولًا" في PHP عبر store_available، ثم تحميل كامل لـ 8 فقط.
+        // F12: Two-stage retrieval: fetch 40 candidates indexed by sales_count,
+        // prioritize available stock in memory, then load complete models for the top 8.
         $candidates = $this->publishedQuery()->withoutEagerLoads()
             ->where('products.id', '!=', $product->id)
             ->where('products.category_id', $product->category_id)
@@ -555,7 +590,6 @@ class StoreCatalogService
                 ->get()
                 ->keyBy('id');
 
-        // Eloquent Collection بالترتيب المحسوب (المتوفر أولًا ثم الأعلى مبيعًا).
         return new Collection(collect($orderedIds)
             ->map(fn ($id) => $full->get($id))
             ->filter()

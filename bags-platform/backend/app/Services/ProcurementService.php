@@ -226,7 +226,13 @@ class ProcurementService
     }
 
     /**
+     * Update an unreceived draft or revision-requested purchase order.
+     *
+     * @param  PurchaseOrder  $po
      * @param  array{supplier_id?: int, branch_id?: int, expected_delivery_date?: string|null, discount_amount?: float|int|string|null, items?: list<array{product_variant_id: int, ordered_qty: float|int|string, unit_cost: float|int|string, tax_rate?: float|int|string|null}>}  $data
+     * @return PurchaseOrder
+     *
+     * @throws BusinessException
      */
     public function updatePurchaseOrder(PurchaseOrder $po, array $data): PurchaseOrder
     {
@@ -244,6 +250,7 @@ class ProcurementService
                     || (isset($data['branch_id']) && (int) $data['branch_id'] !== (int) $po->branch_id))) {
                 throw new BusinessException('لا يمكن تغيير المورد أو الفرع أو البنود بعد تسجيل إشعار توريد.');
             }
+            // Modifying core commercial terms invalidates prior internal approval
             if (array_intersect(['supplier_id', 'branch_id', 'items', 'discount_amount', 'expected_delivery_date'], array_keys($data))) {
                 $data['approved_by'] = null;
             }
@@ -266,7 +273,15 @@ class ProcurementService
         });
     }
 
-    /** ختم الاعتماد الداخلي (approved_by) على مسودة — الإرسال خطوة مستقلة. */
+    /**
+     * Approve a purchase order internally (separation of duties enforced unless self-approval is enabled).
+     *
+     * @param  PurchaseOrder  $po
+     * @param  User  $admin
+     * @return PurchaseOrder
+     *
+     * @throws BusinessException
+     */
     public function approvePurchaseOrder(PurchaseOrder $po, User $admin): PurchaseOrder
     {
         return DB::transaction(function () use ($po, $admin): PurchaseOrder {
@@ -284,6 +299,14 @@ class ProcurementService
         });
     }
 
+    /**
+     * Dispatch an approved purchase order to the vendor and fire notification event.
+     *
+     * @param  PurchaseOrder  $po
+     * @return PurchaseOrder
+     *
+     * @throws BusinessException
+     */
     public function sendPurchaseOrder(PurchaseOrder $po): PurchaseOrder
     {
         return DB::transaction(function () use ($po): PurchaseOrder {
@@ -309,6 +332,14 @@ class ProcurementService
         });
     }
 
+    /**
+     * Cancel an active purchase order and reject any pending vendor delivery notices.
+     *
+     * @param  PurchaseOrder  $po
+     * @return PurchaseOrder
+     *
+     * @throws BusinessException
+     */
     public function cancelPurchaseOrder(PurchaseOrder $po): PurchaseOrder
     {
         return DB::transaction(function () use ($po): PurchaseOrder {
@@ -332,7 +363,11 @@ class ProcurementService
         });
     }
 
-    /** @param list<array{product_variant_id: int, ordered_qty: float|int|string, unit_cost: float|int|string, tax_rate?: float|int|string|null}> $items */
+    /**
+     * @param  PurchaseOrder  $po
+     * @param  list<array{product_variant_id: int, ordered_qty: float|int|string, unit_cost: float|int|string, tax_rate?: float|int|string|null}>  $items
+     * @return void
+     */
     private function syncOrderItems(PurchaseOrder $po, array $items): void
     {
         foreach ($items as $item) {
@@ -352,7 +387,9 @@ class ProcurementService
         }
     }
 
-    /** إجماليات الرأس من البنود: subtotal وضرائب البنود والخصم والنهائي. */
+    /**
+     * Compute header totals from line items including net line totals, taxes, discount, and grand total.
+     */
     private function recalculateTotals(PurchaseOrder $po): void
     {
         $items = $po->items()->get();
@@ -368,6 +405,16 @@ class ProcurementService
         ]);
     }
 
+    /**
+     * Delete an unfulfilled draft or cancelled purchase order.
+     *
+     * Orders with deliveries, received stock, or supplier invoices must be preserved for accounting audit trails.
+     *
+     * @param  PurchaseOrder  $po
+     * @return void
+     *
+     * @throws BusinessException
+     */
     public function deletePurchaseOrder(PurchaseOrder $po): void
     {
         DB::transaction(function () use ($po): void {
@@ -386,6 +433,14 @@ class ProcurementService
         });
     }
 
+    /**
+     * Mark a partially received order as completed to write off outstanding balances.
+     *
+     * @param  PurchaseOrder  $po
+     * @return PurchaseOrder
+     *
+     * @throws BusinessException
+     */
     public function closeShort(PurchaseOrder $po): PurchaseOrder
     {
         return DB::transaction(function () use ($po): PurchaseOrder {
@@ -405,16 +460,24 @@ class ProcurementService
         return PurchaseOrder::query()->lockForUpdate()->findOrFail($po->id);
     }
 
-    // ================= الاستلام ومتوسط التكلفة =================
+    // ================= Receipts & Weighted Average Cost =================
 
     /**
-     * استلام بضاعة أمر شراء (كلي أو جزئي) + تحديث متوسط التكلفة المرجح
-     * + تغذية المخزون — قلب المرحلة 10.
+     * Intake goods for a purchase order (full or partial), update weighted average cost (WAC),
+     * and increment warehouse on-hand inventory.
      *
-     * عند ربط الاستلام بإشعار توريد (supplierDeliveryId) تُطابَق الكميات
-     * مع بنوده وتُحدَّث حالته إلى received عند اكتمال استلام مشحوناته.
+     * When linked to an Advance Shipping Notice (ASN / supplierDeliveryId), received quantities
+     * reconcile against ASN lines and mark the delivery as completed when fully received.
      *
+     * @param  PurchaseOrder  $po
      * @param  list<array{purchase_order_item_id: int, qty: float|int|string}>  $receivedItems
+     * @param  int|null  $locationId
+     * @param  int|null  $supplierDeliveryId
+     * @param  int|null  $performedBy
+     * @param  string|null  $idempotencyKey
+     * @return PurchaseOrder
+     *
+     * @throws BusinessException
      */
     public function receivePurchaseOrder(PurchaseOrder $po, array $receivedItems, ?int $locationId = null, ?int $supplierDeliveryId = null, ?int $performedBy = null, ?string $idempotencyKey = null): PurchaseOrder
     {
@@ -436,8 +499,7 @@ class ProcurementService
             ], true)) {
                 throw new BusinessException("لا يمكن استلام بضاعة لأمر شراء في حالة ({$po->status->value}).");
             }
-            // إعادة فحص نشاط فرع الاستلام لحظة الاستلام الفعلي (L4): قد يكون
-            // الفرع عُطّل بعد إرسال الأمر، فلا يصح تغذية مخزون فرع ميت.
+            // Re-verify branch status at intake time to prevent crediting stock to an inactive branch
             if (! Branch::query()->whereKey($po->branch_id)->where('is_active', true)->exists()) {
                 throw new BusinessException('فرع استلام أمر الشراء غير نشط.');
             }
@@ -494,7 +556,7 @@ class ProcurementService
                     }
                 }
 
-                // 1. المتغير مقفولًا لتحديث متوسط التكلفة بأمان
+                // 1. Calculate and update new company-wide weighted average cost (WAC)
                 $variant = $variants->get($poItem->product_variant_id);
                 if ($variant === null) {
                     throw new BusinessException('متغير الصنف غير متاح للاستلام.');
@@ -507,7 +569,6 @@ class ProcurementService
                 $oldCost = (string) $variant->cost_price;
                 $newUnitCost = bcadd(bcmul((string) $poItem->unit_cost, $costFactor, 5), '0.00005', 4);
 
-                // معادلة المتوسط المرجح للتكلفة (WAC)
                 $safeCurrentStock = bccomp($currentTotalOnHand, '0', 4) < 0 ? '0' : $currentTotalOnHand;
                 $totalCost = bcadd(bcmul($safeCurrentStock, $oldCost, 8), bcmul((string) $qtyToReceive, $newUnitCost, 8), 8);
                 $newAverageCost = bcadd(bcdiv($totalCost, bcadd($safeCurrentStock, (string) $qtyToReceive, 4), 5), '0.00005', 4);
@@ -517,7 +578,7 @@ class ProcurementService
                     'last_cost_price' => $newUnitCost,
                 ]);
 
-                // 2. حركة إضافة للمخزون عبر InventoryService حصرًا
+                // 2. Post physical inventory receipt to warehouse on-hand ledger
                 $this->inventory->recordMovement([
                     'product_variant_id' => $variant->id,
                     'branch_id' => (int) $po->branch_id,
@@ -532,7 +593,7 @@ class ProcurementService
                     'notes' => "استلام من أمر شراء رقم {$po->po_number}",
                 ]);
 
-                // 3. تحديث المستلم في بند الأمر (وبند إشعار التوريد عند الربط)
+                // 3. Increment received quantities on PO line and linked ASN item
                 $poItem->increment('received_qty', $qtyToReceive);
                 $deliveryItem?->increment('received_qty', $qtyToReceive);
             }
@@ -545,7 +606,7 @@ class ProcurementService
                 }
             }
 
-            // 4. حالة الأمر: مكتمل عند استلام كل بنوده، وإلا جزئي
+            // 4. Update overall PO status based on whether all ordered quantities are satisfied
             $po->load('items');
             $allCompleted = $po->items->every(fn (PurchaseOrderItem $i): bool => (float) $i->received_qty >= (float) $i->ordered_qty);
             $po->update(['status' => $allCompleted ? PurchaseOrderStatus::Completed : PurchaseOrderStatus::PartiallyReceived]);
@@ -554,9 +615,17 @@ class ProcurementService
         });
     }
 
-    // ================= بوابة المورد =================
+    // ================= Supplier Portal =================
 
-    /** قبول المورد لأمر شراء مُرسل إليه (نطاق المورد يُفرض هنا أيضًا). */
+    /**
+     * Accept a purchase order via the vendor portal.
+     *
+     * @param  PurchaseOrder  $po
+     * @param  SupplierUser  $user
+     * @return PurchaseOrder
+     *
+     * @throws BusinessException
+     */
     public function supplierAccept(PurchaseOrder $po, SupplierUser $user): PurchaseOrder
     {
         $this->assertOwnsOrder($po, $user);
@@ -573,7 +642,16 @@ class ProcurementService
         });
     }
 
-    /** طلب المورد تعديل الأسعار/الكميات/الموعد مع ملاحظاته للإدارة. */
+    /**
+     * Request price, quantity, or delivery date modifications from the vendor portal.
+     *
+     * @param  PurchaseOrder  $po
+     * @param  SupplierUser  $user
+     * @param  string  $notes
+     * @return PurchaseOrder
+     *
+     * @throws BusinessException
+     */
     public function supplierRequestChange(PurchaseOrder $po, SupplierUser $user, string $notes): PurchaseOrder
     {
         $this->assertOwnsOrder($po, $user);
@@ -597,10 +675,18 @@ class ProcurementService
     }
 
     /**
-     * إشعار توريد (ASN) من المورد: كميات مشحونة فعليًا في هذه الدفعة +
-     * فاتورة مبدئية مرفوعة. سقف الشحن التراكمي لكل بند = الكمية المطلوبة.
+     * Create an Advance Shipping Notice (ASN) from the supplier portal with attached invoice.
      *
+     * Enforces cumulative dispatched quantity caps (already received + pending in ASNs + current).
+     *
+     * @param  PurchaseOrder  $po
+     * @param  SupplierUser  $user
      * @param  array{delivery_date: string, supplier_invoice_no?: string|null, notes?: string|null, items: list<array{purchase_order_item_id: int, shipped_qty: float|int|string}>}  $data
+     * @param  UploadedFile|null  $invoiceFile
+     * @param  string|null  $idempotencyKey
+     * @return SupplierDelivery
+     *
+     * @throws BusinessException
      */
     public function createSupplierDelivery(PurchaseOrder $po, SupplierUser $user, array $data, ?UploadedFile $invoiceFile = null, ?string $idempotencyKey = null): SupplierDelivery
     {
@@ -630,7 +716,7 @@ class ProcurementService
                 throw new BusinessException("لا يمكن إرسال توريد لأمر شراء في حالة ({$po->status->value}).");
             }
 
-            // تجميع البنود المكررة قبل فحص سقف الشحن التراكمي
+            // Aggregate duplicate line submissions before evaluating cumulative quantity caps
             $lines = [];
             foreach ($data['items'] as $line) {
                 DiscreteQuantity::assert($line['shipped_qty']);
@@ -670,7 +756,7 @@ class ProcurementService
                 ]);
             }
 
-            // الشحن دون قبول صريح = قبول ضمني بالالتزام
+            // Dispatching items without explicit prior acceptance constitutes implicit acceptance
             if ($po->status === PurchaseOrderStatus::SentToSupplier) {
                 $po->update(['status' => PurchaseOrderStatus::SupplierAccepted]);
             }
@@ -685,7 +771,9 @@ class ProcurementService
         return $delivery->fresh(['items']);
     }
 
-    /** حارس نطاق بوابة المورد: أمر شراء مورد آخر غير موجود أصلًا في عالم هذا المستخدم. */
+    /**
+     * Ensure the authenticated supplier user belongs to the purchase order vendor.
+     */
     private function assertOwnsOrder(PurchaseOrder $po, SupplierUser $user): void
     {
         if ((int) $po->supplier_id !== (int) $user->supplier_id) {

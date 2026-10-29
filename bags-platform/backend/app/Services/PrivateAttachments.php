@@ -10,10 +10,23 @@ use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 use Throwable;
 
+/**
+ * Transactional file upload manager for private cloud storage (R2).
+ *
+ * Automatically tracks and deletes uploaded files if the database transaction fails.
+ */
 class PrivateAttachments
 {
     private array $stored = [];
 
+    /**
+     * Execute a callback within a transactional scope, deleting stored files if rolled back.
+     *
+     * @param  callable(self): mixed  $callback
+     * @return mixed
+     *
+     * @throws Throwable
+     */
     public static function transaction(callable $callback): mixed
     {
         $files = new self;
@@ -25,6 +38,15 @@ class PrivateAttachments
         }
     }
 
+    /**
+     * Store an uploaded file on private R2 storage and track it for transaction rollback cleanup.
+     *
+     * @param  UploadedFile  $file
+     * @param  string  $directory
+     * @return string
+     *
+     * @throws RuntimeException
+     */
     public function store(UploadedFile $file, string $directory): string
     {
         $path = $file->store($directory, 'r2');

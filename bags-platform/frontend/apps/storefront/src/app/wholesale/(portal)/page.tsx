@@ -1,7 +1,8 @@
 'use client';
-import { FinancialDashboard } from '@alfarid/ui';
+
+import { WholesalePortal } from '@alfarid/ui';
 import { logoutWeb } from '@/services/auth.service';
 
 export default function WholesalePortalPage() {
-  return <FinancialDashboard onLogout={logoutWeb} />;
+  return <WholesalePortal onLogout={logoutWeb} />;
 }

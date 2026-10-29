@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Store;
 
-use App\Enums\CustomerStatus;
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Store\Checkout\CheckoutRequest;
@@ -64,8 +63,7 @@ class CheckoutController extends Controller
         // كـ expected_total، فأي تغيّر سعري يُرفض بـ price_changed بدل تحصيل صامت.
         $discountAmount = round($totals['pricing_discount'] + $totals['coupon_discount'], 2);
         $taxAmount = 0.0;
-        if (filter_var($this->settings->get('tax_enabled', false), FILTER_VALIDATE_BOOLEAN)
-            && ! filter_var($this->settings->get('prices_include_tax', false), FILTER_VALIDATE_BOOLEAN)) {
+        if ($this->settings->getBool('tax_enabled') && ! $this->settings->getBool('prices_include_tax')) {
             $taxRate = (float) $this->settings->get('default_tax_rate', 0);
             $taxAmount = round(($totals['subtotal'] - $discountAmount) * $taxRate / 100, 2);
         }
@@ -124,10 +122,7 @@ class CheckoutController extends Controller
         $user = auth('sanctum')->user();
         // عميل موقوف/مرفوض بتوكن صالح يُعامل كزائر (F-20): لا تُربط سلاته
         // وطلباته بحساب غير نشط ولا تُمنح له أسعار/حدود العميل
-        $customer = $user instanceof Customer
-            && ! in_array($user->status, [CustomerStatus::Suspended, CustomerStatus::Rejected], true)
-                ? $user
-                : null;
+        $customer = $user instanceof Customer && $user->canShop() ? $user : null;
         $cart = $this->carts->resolveCart($customer, $request->header('X-Cart-Session'), $create);
 
         return [$customer, $cart];

@@ -14,10 +14,18 @@ use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
+/**
+ * Handles phone verification OTP delivery, verification, and proof token validation.
+ */
 class CustomerPhoneVerificationService
 {
+    /**
+     * Generate and dispatch a 6-digit OTP code to the provided phone number.
+     * Enforces a 60-second cooldown and daily message quota per phone key.
+     */
     public function send(string $phone): void
     {
+        // Avoid sending verification codes to numbers already registered
         if (Customer::withTrashed()->where('phone', $phone)->exists()) {
             return;
         }
@@ -52,6 +60,12 @@ class CustomerPhoneVerificationService
         }
     }
 
+    /**
+     * Verify an OTP code and issue a one-time 64-character verification proof token.
+     * Enforces a maximum of 5 attempts and a 10-minute expiration window.
+     *
+     * @throws BusinessException If code is invalid, expired, or maximum attempts exceeded
+     */
     public function verify(string $phone, string $code): string
     {
         $proof = DB::transaction(function () use ($phone, $code): ?string {
@@ -79,6 +93,11 @@ class CustomerPhoneVerificationService
         return $proof;
     }
 
+    /**
+     * Validate the presence of a valid phone verification proof token on incoming request.
+     *
+     * @throws ValidationException
+     */
     public function requireProof(Request $request): void
     {
         if (! config('auth.require_phone_verification')) {
@@ -91,6 +110,9 @@ class CustomerPhoneVerificationService
         }
     }
 
+    /**
+     * Verify phone ownership proof token against stored hash and check expiration.
+     */
     private function validProof(string $phone, string $proof, bool $consume = false): bool
     {
         $query = DB::table('customer_phone_verifications')->where('phone_key', hash('sha256', $phone));
@@ -106,6 +128,11 @@ class CustomerPhoneVerificationService
         return $valid;
     }
 
+    /**
+     * Validate and atomically consume the phone verification token during registration.
+     *
+     * @throws BusinessException If token is missing, invalid, or expired
+     */
     public function consume(array $data): bool
     {
         if (! config('auth.require_phone_verification')) {

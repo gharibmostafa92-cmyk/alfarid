@@ -1,0 +1,3 @@
+# POS branches behind NAT + office IPs that share one public IP.
+# One entry per line (IP or CIDR). These skip the edge rate-limit table.
+# 127.0.0.1

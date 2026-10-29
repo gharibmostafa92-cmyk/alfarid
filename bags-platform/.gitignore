@@ -149,3 +149,7 @@ tmp/
 # Local Infrastructure Overrides
 # ------------------------------------------
 docker-compose.override.yml
+infrastructure/k6/slugs.json
+infrastructure/k6/results/
+infrastructure/haproxy/certs/
+infrastructure/pgbouncer/tls/

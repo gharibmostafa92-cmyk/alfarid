@@ -56,6 +56,11 @@ class Customer extends Authenticatable
         return $this->belongsTo(CustomerGroup::class);
     }
 
+    public function canShop(): bool
+    {
+        return ! in_array($this->status, [CustomerStatus::Suspended, CustomerStatus::Rejected], true);
+    }
+
     public function getEmailForPasswordReset(): string
     {
         return 'customer:'.$this->getKey();

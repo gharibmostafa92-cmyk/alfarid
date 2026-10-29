@@ -17,10 +17,11 @@ use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
 /**
- * عروض أسعار الجملة (المرحلة 12.1): يبني التاجر مسودة بأسعار محسوبة من
- * PricingService، يرسلها، تسعّرها الإدارة (أو تعتمد الأسعار المحسوبة)،
- * ثم يقبلها التاجر أو يرفضها قبل انتهاء صلاحيتها. لا أثر مخزني هنا —
- * التحويل لطلب خطوة لاحقة تنفّذ عبر OrderService.
+ * Manages the wholesale quotation lifecycle:
+ * Draft creation with dynamic pricing -> customer submission -> administrator pricing and validation ->
+ * customer acceptance with automated order generation and stock allocation, or rejection/expiry.
+ *
+ * Quotations hold no inventory reservations; stock allocation occurs only upon customer acceptance.
  */
 class QuotationService
 {
@@ -31,6 +32,13 @@ class QuotationService
         private readonly OrderAllocationService $allocation,
     ) {}
 
+    /**
+     * Create a new draft quotation for a wholesale customer.
+     *
+     * @param  Customer  $customer
+     * @param  array{customer_notes?: string|null, items: list<array{product_variant_id: int, qty: float, requested_target_price?: float|null}>}  $data
+     * @return Quotation
+     */
     public function create(Customer $customer, array $data): Quotation
     {
         return DB::transaction(function () use ($customer, $data): Quotation {
@@ -48,6 +56,15 @@ class QuotationService
         });
     }
 
+    /**
+     * Update items and customer notes on an unsubmitted draft quotation.
+     *
+     * @param  Quotation  $quotation
+     * @param  array{customer_notes?: string|null, items?: list<array{product_variant_id: int, qty: float, requested_target_price?: float|null}>}  $data
+     * @return Quotation
+     *
+     * @throws BusinessException
+     */
     public function update(Quotation $quotation, array $data): Quotation
     {
         if ($quotation->status !== QuotationStatus::Draft) {
@@ -70,6 +87,14 @@ class QuotationService
         });
     }
 
+    /**
+     * Submit a draft quotation for administrator pricing and review.
+     *
+     * @param  Quotation  $quotation
+     * @return Quotation
+     *
+     * @throws BusinessException
+     */
     public function submit(Quotation $quotation): Quotation
     {
         if ($quotation->status !== QuotationStatus::Draft) {
@@ -86,8 +111,13 @@ class QuotationService
     }
 
     /**
-     * تسعير الإدارة: تحديث الأسعار المعروضة لبنود محددة (أو اعتماد المحسوبة
-     * كما هي) مع الخصم والضريبة وصلاحية العرض.
+     * Set negotiated prices, validity expiration, discounts, and taxes by an administrator.
+     *
+     * @param  Quotation  $quotation
+     * @param  array{valid_until?: string|null, admin_notes?: string|null, discount_amount?: float|null, tax_amount?: float|null, items?: list<array{id: int, offered_unit_price: float}>}  $data
+     * @return Quotation
+     *
+     * @throws BusinessException
      */
     public function price(Quotation $quotation, array $data): Quotation
     {
@@ -124,10 +154,15 @@ class QuotationService
     }
 
     /**
-     * قبول التاجر للعرض المسعّر يحوّله تلقائيًا إلى طلب مؤكد (المرحلة 12.2)
-     * بنفس الأسعار المتفق عليها: إنشاء الطلب آجلًا (credit) بأسعار العرض
-     * الثابتة، حجز مخزونه عبر خدمة التوزيع، ثم تأكيده عبر بوابة الحالات —
-     * وأي نقص مخزون يُسقط التحويل كله ويبقى العرض مسعّرًا كما هو.
+     * Accept an administrator-priced quotation and automatically convert it into a confirmed order.
+     *
+     * Preserves negotiated line prices, distributes header discounts/taxes using Hare-Niemeyer,
+     * and allocates inventory. Fails the conversion entirely if any item lacks available stock.
+     *
+     * @param  Quotation  $quotation
+     * @return Quotation
+     *
+     * @throws BusinessException
      */
     public function accept(Quotation $quotation): Quotation
     {
@@ -164,8 +199,7 @@ class QuotationService
                 'grand_total' => $quotation->grand_total,
             ]);
 
-            // خصم وضريبة الترويسة يوزَّعان على البنود بأكبر باقٍ حتى تطابق
-            // حسابات الاسترداد لاحقًا مجموع الترويسة بالقرش.
+            // Distribute header discount and tax to items using largest remainder for exact cent precision
             $weights = $quotation->items->map(fn ($item) => (float) $item->line_total)->all();
             $discountShares = $this->distributeLargestRemainder((float) $quotation->discount_amount, $weights);
             $taxShares = $this->distributeLargestRemainder((float) $quotation->tax_amount, $weights);
@@ -208,7 +242,9 @@ class QuotationService
         });
     }
 
-    /** معرّف مستخدم النظام منفّذًا لحركات مخزون العميل (نفس اصطلاح OrderService). */
+    /**
+     * Retrieve the designated system user ID for recording customer-initiated ledger movements.
+     */
     private function systemActorId(): ?int
     {
         $id = User::query()
@@ -219,9 +255,11 @@ class QuotationService
     }
 
     /**
-     * توزيع مبلغ على بنود بأوزان مالية بطريقة أكبر باقٍ (بالقروش) — مجموع
-     * الحصص يساوي المبلغ بالضبط ولا تقع حصة سالبة.
+     * Distribute an amount proportionally across weights using the Largest Remainder (Hare-Niemeyer) method.
      *
+     * Ensures line item shares sum exactly to the header amount with zero rounding discrepancies.
+     *
+     * @param  float  $amount
      * @param  list<float>  $weights
      * @return list<float>
      */
@@ -255,6 +293,14 @@ class QuotationService
         return array_map(fn (int $cents): float => $cents / 100, $shares);
     }
 
+    /**
+     * Reject a submitted or priced quotation.
+     *
+     * @param  Quotation  $quotation
+     * @return Quotation
+     *
+     * @throws BusinessException
+     */
     public function reject(Quotation $quotation): Quotation
     {
         if (! in_array($quotation->status, [QuotationStatus::Requested, QuotationStatus::PricedByAdmin], true)) {
@@ -266,6 +312,14 @@ class QuotationService
         return $quotation->load('items.variant.product');
     }
 
+    /**
+     * Expire a past-due quotation.
+     *
+     * @param  Quotation  $quotation
+     * @return Quotation
+     *
+     * @throws BusinessException
+     */
     public function expire(Quotation $quotation): Quotation
     {
         if (! in_array($quotation->status, [QuotationStatus::Requested, QuotationStatus::PricedByAdmin], true)) {
@@ -277,6 +331,14 @@ class QuotationService
         return $quotation->load('items.variant.product');
     }
 
+    /**
+     * Delete an unsubmitted draft quotation.
+     *
+     * @param  Quotation  $quotation
+     * @return void
+     *
+     * @throws BusinessException
+     */
     public function deleteDraft(Quotation $quotation): void
     {
         if ($quotation->status !== QuotationStatus::Draft) {

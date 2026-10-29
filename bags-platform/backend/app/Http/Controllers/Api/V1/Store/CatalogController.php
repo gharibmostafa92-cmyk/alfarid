@@ -28,6 +28,12 @@ class CatalogController extends Controller
 
     public function categories(Request $request): JsonResponse
     {
+        $childrenScope = fn ($q) => $q->where('is_active', true)
+            ->with('media')
+            ->withCount('activeProducts')
+            ->orderBy('sort_order')
+            ->orderBy('id');
+
         $roots = Category::query()
             ->whereNull('parent_id')
             ->where('is_active', true)
@@ -35,8 +41,7 @@ class CatalogController extends Controller
             ->withCount('activeProducts')
             ->with([
                 // L6: id tie-break keeps sibling order deterministic across pages.
-                'children' => fn ($q) => $q->where('is_active', true)->with('media')->withCount('activeProducts')->orderBy('sort_order')->orderBy('id')
-                    ->with(['children' => fn ($q2) => $q2->where('is_active', true)->with('media')->withCount('activeProducts')->orderBy('sort_order')->orderBy('id')]),
+                'children' => fn ($q) => $childrenScope($q)->with(['children' => $childrenScope]),
             ])
             ->orderBy('sort_order')->orderBy('id')
             ->get();

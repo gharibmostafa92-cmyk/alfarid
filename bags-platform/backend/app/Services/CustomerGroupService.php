@@ -10,8 +10,14 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Manages customer groups and their wholesale discount configurations.
+ */
 class CustomerGroupService
 {
+    /**
+     * Paginate customer groups with search filtering and active counts.
+     */
     public function paginate(array $filters): LengthAwarePaginator
     {
         return CustomerGroup::query()
@@ -25,6 +31,9 @@ class CustomerGroupService
             ->paginate($filters['per_page'] ?? 15);
     }
 
+    /**
+     * Create a new customer group record.
+     */
     public function create(array $data): CustomerGroup
     {
         $data = array_filter($data, fn ($value, $key) => $value !== null || ! in_array($key, ['discount_percentage', 'is_active'], true), ARRAY_FILTER_USE_BOTH);
@@ -32,6 +41,9 @@ class CustomerGroupService
         return CustomerGroup::query()->create($data);
     }
 
+    /**
+     * Update customer group attributes.
+     */
     public function update(CustomerGroup $group, array $data): CustomerGroup
     {
         $group->update($data);
@@ -39,12 +51,16 @@ class CustomerGroupService
         return $group;
     }
 
+    /**
+     * Delete customer group safely under lock, preventing orphaned customer associations.
+     *
+     * @throws BusinessException If assigned to customers or price lists
+     */
     public function delete(CustomerGroup $group): void
     {
         try {
             DB::transaction(function () use ($group): void {
-                // قفل الصف قبل الفحص والحذف حتى لا يتسلل عميل/قائمة بينهما (L3):
-                // عميل يُضاف أثناء الحذف كان يفقد مجموعته بصمت عبر nullOnDelete.
+                // Lock row before existence check to prevent concurrent customer assignment that would silently lose group via nullOnDelete
                 $group = CustomerGroup::query()->lockForUpdate()->findOrFail($group->id);
 
                 if ($group->customers()->exists()) {
@@ -58,7 +74,7 @@ class CustomerGroupService
                 $group->delete();
             });
         } catch (QueryException $e) {
-            // أي سباق متبقٍ عند قيد FK يظهر كـ 422 مفهوم لا 500
+            // Convert foreign key violation (PostgreSQL 23503) into friendly 422 business error
             if (($e->errorInfo[0] ?? $e->getCode()) === '23503') {
                 throw new BusinessException('لا يمكن حذف مجموعة مرتبطة بعملاء أو قوائم أسعار.');
             }

@@ -1,0 +1,41 @@
+groups:
+  - name: alfarid-lb
+    rules:
+      - alert: ServerDown
+        expr: haproxy_server_status{state="DOWN",proxy="be_api"} == 1 or up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Backend server DOWN for more than 1 minute'
+
+      - alert: High5xxRate
+        expr: sum by (instance, proxy) (rate(haproxy_backend_http_responses_total{code="5xx"}[5m])) / clamp_min(sum by (instance, proxy) (rate(haproxy_backend_http_responses_total[5m])), 0.001) > 0.01
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: '5xx rate above 1%'
+
+      - alert: HighP95Latency
+        expr: k6_http_req_duration_p95 > 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'p95 latency above 1s'
+
+      - alert: HAProxyQueueBacklog
+        expr: haproxy_backend_current_queue > 50
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'HAProxy queue above 50 — app nodes saturated'
+      - alert: ApplicationQueueBacklog
+        expr: alfarid_queue_pending > 1000
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Database queue has more than 1000 pending jobs'

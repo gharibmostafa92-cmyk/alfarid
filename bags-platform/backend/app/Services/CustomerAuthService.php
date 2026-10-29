@@ -17,11 +17,15 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
 /**
- * دورة مصادقة العملاء (متجر قطاعي + جملة): التسجيل، الدخول، واستعادة كلمة المرور.
- * القيم الحساسة (type/status) تُفرض هنا برمجيًا ولا تأتي من الطلب أبدًا.
+ * Customer authentication lifecycle coordinator (retail store and wholesale portal).
+ * Handles self-registration, credential authentication, password recovery, and token issuance.
+ * Security boundaries: sensitive attributes (type/status) are strictly assigned programmatically.
  */
 class CustomerAuthService
 {
+    /**
+     * Generate or return a cached dummy bcrypt/hasher hash to prevent user-enumeration timing attacks.
+     */
     public static function dummyHash(): string
     {
         if (config('hashing.driver', 'bcrypt') === 'bcrypt') {
@@ -33,12 +37,18 @@ class CustomerAuthService
         return $hashes[$key] ??= Hash::make('not-a-customer-password');
     }
 
+    /**
+     * Compute HMAC key for phone/email to prevent rainbow-table reversal on small phone number spaces in audit logs.
+     */
     private function identifierKey(string $identifier): string
     {
         return hash_hmac('sha256', $identifier, (string) config('app.key'));
     }
 
-    /** تسجيل متجر قطاعي: نوع retail وحالة approved دائمًا. */
+    /**
+     * Self-register a retail store customer.
+     * Enforces Retail type and Approved status unconditionally.
+     */
     public function registerRetail(array $data): Customer
     {
         $verified = app(CustomerPhoneVerificationService::class)->consume($data);
@@ -59,9 +69,11 @@ class CustomerAuthService
     }
 
     /**
-     * دخول بالهاتف أو البريد. الحساب الموقوف يُرفض 403 بسبب الإيقاف؛
-     * أي حالة أخرى (بما فيها pending/rejected للجملة) تستطيع الدخول —
-     * بوابات النوع والحالة (wholesale.approved) تحكم ما بعد الدخول.
+     * Authenticate customer credentials via phone or verified email.
+     * Suspended accounts are rejected with 403; pending/rejected wholesale accounts may log in
+     * to check application status, with channel guards restricting subsequent actions.
+     *
+     * @throws BusinessException If credentials invalid or account suspended
      */
     public function login(string $identifier, string $password): Customer
     {
@@ -74,9 +86,8 @@ class CustomerAuthService
 
         $validPassword = Hash::check($password, $customer?->password ?? $dummyHash);
         if ($customer === null || ! $validPassword) {
-            // M11: لا تكتب صف audit لمعرّف غير موجود (هجمات stuffing تتحول لكتابات
-            // غير محدودة)، واكتفِ بسجل info مع sampling. المعرّف يُحمى بـ HMAC
-            // بمفتاح التطبيق لأن sha256 وحده قابل للعكس على مساحة الهواتف.
+            // Avoid inserting unbounded audit log rows for nonexistent identifiers during stuffing attacks;
+            // log sampled info metric instead, keyed by HMAC.
             if ($customer === null) {
                 if (random_int(1, 10) === 1) {
                     logger()->info('customer.login_failed', ['identifier_key' => $this->identifierKey($identifier)]);
@@ -105,8 +116,8 @@ class CustomerAuthService
     }
 
     /**
-     * استعادة كلمة المرور: رمز في password_reset_tokens + إشعار للعميل.
-     * الرد واحد دائمًا (نجاح ظاهري) حتى لا يُستدل على وجود الحساب.
+     * Initiate asynchronous password reset workflow.
+     * Returns generic success regardless of account existence to prevent user enumeration.
      */
     public function forgotPassword(?string $email, ?string $phone): void
     {
@@ -118,6 +129,10 @@ class CustomerAuthService
             ->onConnection(config('auth.customer_password_reset.connection', 'database'));
     }
 
+    /**
+     * Generate password reset token and dispatch notification.
+     * Enforces token throttling and message budget limits.
+     */
     public function sendPasswordReset(?string $email, ?string $phone): void
     {
         if (! $email && ! $phone) {
@@ -168,6 +183,12 @@ class CustomerAuthService
         }
     }
 
+    /**
+     * Validate reset token and update customer password.
+     * Revokes all active sessions upon successful reset.
+     *
+     * @throws BusinessException If token is invalid or expired
+     */
     public function resetPassword(array $data): void
     {
         $dummyHash = self::dummyHash();
@@ -193,7 +214,12 @@ class CustomerAuthService
         });
     }
 
-    /** إصدار توكن Sanctum باسم القناة (store-token / wholesale-token). */
+    /**
+     * Issue a channel-scoped Sanctum access token (e.g. store-token, wholesale-token).
+     * Prunes expired tokens and limits maximum active concurrent sessions.
+     *
+     * @throws BusinessException If account is suspended
+     */
     public function issueToken(Customer $customer, string $name): string
     {
         return DB::transaction(function () use ($customer, $name): string {

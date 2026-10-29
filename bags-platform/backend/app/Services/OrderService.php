@@ -233,8 +233,7 @@ class OrderService
             // Apply sales tax from settings when enabled and not already included in catalog prices.
             $taxAmount = 0.0;
             $taxRate = 0.0;
-            if (filter_var($this->settings->get('tax_enabled', false), FILTER_VALIDATE_BOOLEAN)
-                && ! filter_var($this->settings->get('prices_include_tax', false), FILTER_VALIDATE_BOOLEAN)) {
+            if ($this->settings->getBool('tax_enabled') && ! $this->settings->getBool('prices_include_tax')) {
                 $taxRate = (float) $this->settings->get('default_tax_rate', 0);
                 $taxAmount = round(($subtotal - $discountAmount) * $taxRate / 100, 2);
             }

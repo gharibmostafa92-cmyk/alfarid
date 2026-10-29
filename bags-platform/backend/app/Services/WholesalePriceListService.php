@@ -11,15 +11,16 @@ use App\Models\ProductVariant;
 use App\Models\StockLevel;
 
 /**
- * صفوف قائمة أسعار الجملة لتاجر بعينه (المرحلة 12.2): كل متغير نشط لمنتج
- * منشور بسعره الخاص بهذا التاجر وشرائح كمياته — مصدر موحّد لتصديرَي
- * Excel وPDF حتى لا يختلفا أبدًا.
+ * Generates customer-specific wholesale price list export rows.
+ * Acts as the single source of truth for both Excel and PDF price list exports.
  */
 class WholesalePriceListService
 {
     public function __construct(private readonly PricingService $pricing) {}
 
     /**
+     * Build tabular pricing and availability rows for all active variants for the given customer.
+     *
      * @return list<array{sku: string, barcode: string|null, product_name: string|null, base_price: float|null, wholesale_price: float|null, tier_prices: list<array{min_qty: float, unit_price: float}>, available_qty: float}>
      */
     public function rows(Customer $customer): array
@@ -48,7 +49,7 @@ class WholesalePriceListService
                 $base = $resolved['base_price'];
                 $tiers = $this->pricing->tiersFor($variant, $customer, $ctx);
             } catch (BusinessException) {
-                // متغير غير مُسعَّر: يظهر في القائمة بلا سعر بدل إسقاط التصدير كله
+                // Unpriced variant: emit with null price rather than failing the entire export
                 $price = null;
                 $base = $variant->retail_price !== null ? (float) $variant->retail_price : null;
                 $tiers = [];

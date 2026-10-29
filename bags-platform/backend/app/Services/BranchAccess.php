@@ -10,15 +10,27 @@ use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
 
 /**
- * نطاق الفروع للموظفين — Fail-Closed:
- * الوصول لكل الفروع امتياز صريح (Super Admin أو صلاحية inventory.all_branches)،
- * والموظف المرتبط بفرع محصور فيه، ومن لا فرع له ولا امتياز يُرفض بدل أن يرى كل شيء.
+ * Enforces staff branch scoping using a fail-closed access policy:
+ * Multi-branch access is an explicit privilege (Super Admin role or inventory.all_branches permission).
+ * A branch-assigned staff member is strictly confined to their branch.
+ * Users with no branch assignment and no all-branch privilege are denied access by default.
  */
 class BranchAccess
 {
-    /** @var array<int, User> ذاكرة لكل طلب حتى لا يُعاد تحميل المستخدم مع كل فحص. */
+    /** @var array<int, User> Per-request memory cache to avoid reloading user instances on repeated checks. */
     private array $usersById = [];
 
+    /**
+     * Determine branch scope restriction for the given user.
+     *
+     * Returns null if user possesses global multi-branch access, returns branch ID if confined,
+     * or throws an authorization exception if unassigned without global privileges.
+     *
+     * @param  User|null  $user
+     * @return int|null
+     *
+     * @throws AuthorizationException
+     */
     public function restrictedBranch(?User $user): ?int
     {
         if ($user === null) {
@@ -36,6 +48,15 @@ class BranchAccess
         throw new AuthorizationException('حسابك غير مرتبط بأي فرع ولا تملك صلاحية الوصول لكل الفروع (inventory.all_branches).');
     }
 
+    /**
+     * Assert that the user is authorized to access at least one of the specified branches.
+     *
+     * @param  int  $userId
+     * @param  int  ...$branchIds
+     * @return void
+     *
+     * @throws AuthorizationException
+     */
     public function assertBranch(int $userId, int ...$branchIds): void
     {
         $branchId = $this->restrictedBranch($this->usersById[$userId] ??= User::findOrFail($userId));
@@ -44,6 +65,14 @@ class BranchAccess
         }
     }
 
+    /**
+     * Assert that the user possesses global multi-branch access required for central headquarters operations.
+     *
+     * @param  User|null  $user
+     * @return void
+     *
+     * @throws AuthorizationException
+     */
     public function assertCentralAccess(?User $user): void
     {
         if ($this->restrictedBranch($user) !== null) {
@@ -51,6 +80,17 @@ class BranchAccess
         }
     }
 
+    /**
+     * Assert that the user is authorized to perform operations on the specified treasury.
+     *
+     * Central treasuries (branch_id = null) require global access; branch treasuries require branch access.
+     *
+     * @param  int  $userId
+     * @param  Treasury  $treasury
+     * @return void
+     *
+     * @throws AuthorizationException
+     */
     public function assertTreasury(int $userId, Treasury $treasury): void
     {
         if ($treasury->branch_id === null) {

@@ -18,18 +18,24 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 /**
- * مالية الموردين — دفتر المورد الدائن:
- * - اعتماد فاتورة (post) يزيد suppliers.current_balance بقيمة total_amount.
- * - دفعة تنقص الرصيد وتحدّث paid_amount وحالة فاتورتها المرتبطة.
- * - حذف دفعة/إلغاء فاتورة معتمدة يعكس الأثر بالكامل.
- * كل حركة تحت قفل صف المورد حتى لا تتسابق فاتورة ودفعة على نفس الرصيد.
+ * Manages supplier accounts payable and vendor ledger accounting:
+ * - Posting a vendor invoice credits suppliers.current_balance by total_amount.
+ * - Recording a payment debits current_balance and updates paid_amount and invoice settlement status.
+ * - Voiding payments or cancelling posted invoices reverses ledger balances cleanly.
+ * All operations acquire pessimistic row locks on the supplier record to serialize concurrent financial entries.
  */
 class SupplierFinanceService
 {
     public function __construct(protected SettingService $settings) {}
 
     /**
+     * Create a draft supplier invoice with optional PDF attachment.
+     *
      * @param  array{supplier_id: int, purchase_order_id?: int|null, supplier_invoice_no: string, issue_date: string, due_date?: string|null, subtotal: float|int|string, tax_amount?: float|int|string|null}  $data
+     * @param  UploadedFile|null  $attachment
+     * @return SupplierInvoice
+     *
+     * @throws BusinessException
      */
     public function createInvoice(array $data, ?UploadedFile $attachment = null): SupplierInvoice
     {
@@ -44,7 +50,7 @@ class SupplierFinanceService
             $tax = round((float) ($data['tax_amount'] ?? 0), 2);
             $this->assertInvoiceDoesNotExceedOrder($poId, round($subtotal + $tax, 2));
             $issueDate = Carbon::parse($data['issue_date']);
-            // الاستحقاق الافتراضي: تاريخ الإصدار + أجل سداد المورد
+            // Default due date: issue date plus supplier credit terms
             $dueDate = ! empty($data['due_date'])
                 ? Carbon::parse($data['due_date'])
                 : $issueDate->copy()->addDays((int) $supplier->payment_terms_days);
@@ -76,7 +82,14 @@ class SupplierFinanceService
     }
 
     /**
+     * Update an unposted draft supplier invoice.
+     *
+     * @param  SupplierInvoice  $invoice
      * @param  array{supplier_invoice_no?: string, purchase_order_id?: int|null, issue_date?: string, due_date?: string|null, subtotal?: float|int|string, tax_amount?: float|int|string|null}  $data
+     * @param  UploadedFile|null  $attachment
+     * @return SupplierInvoice
+     *
+     * @throws BusinessException
      */
     public function updateInvoice(SupplierInvoice $invoice, array $data, ?UploadedFile $attachment = null): SupplierInvoice
     {
@@ -126,7 +139,14 @@ class SupplierFinanceService
         return $invoice->fresh();
     }
 
-    /** اعتماد الفاتورة: تُثبت الاستحقاق في رصيد المورد الدائن. */
+    /**
+     * Post a draft invoice and credit the supplier's accounts payable balance.
+     *
+     * @param  SupplierInvoice  $invoice
+     * @return SupplierInvoice
+     *
+     * @throws BusinessException
+     */
     public function postInvoice(SupplierInvoice $invoice): SupplierInvoice
     {
         return DB::transaction(function () use ($invoice): SupplierInvoice {
@@ -142,7 +162,14 @@ class SupplierFinanceService
         });
     }
 
-    /** إلغاء فاتورة: المسودة بلا أثر؛ والمعتمدة غير المسددة تعكس رصيدها. */
+    /**
+     * Cancel a draft invoice or reverse a posted un-paid invoice from the vendor balance.
+     *
+     * @param  SupplierInvoice  $invoice
+     * @return SupplierInvoice
+     *
+     * @throws BusinessException
+     */
     public function cancelInvoice(SupplierInvoice $invoice): SupplierInvoice
     {
         return DB::transaction(function () use ($invoice): SupplierInvoice {
@@ -164,6 +191,14 @@ class SupplierFinanceService
         });
     }
 
+    /**
+     * Delete an unposted draft invoice and remove its stored attachment.
+     *
+     * @param  SupplierInvoice  $invoice
+     * @return void
+     *
+     * @throws BusinessException
+     */
     public function deleteInvoice(SupplierInvoice $invoice): void
     {
         DB::transaction(function () use ($invoice): void {
@@ -181,10 +216,14 @@ class SupplierFinanceService
     }
 
     /**
-     * تسجيل دفعة لمورد: تخفض رصيده، وتُسند لفاتورة معتمدة عند ربطها
-     * (بسقف المتبقي منها) فتتحدث paid_amount وحالتها.
+     * Record a payment to a supplier, decrementing accounts payable balance and settling linked invoice.
      *
      * @param  array{supplier_id: int, supplier_invoice_id?: int|null, amount: float|int|string, payment_method: string, reference_no?: string|null, payment_date: string, notes?: string|null}  $data
+     * @param  User  $creator
+     * @param  string|null  $idempotencyKey
+     * @return SupplierPayment
+     *
+     * @throws BusinessException
      */
     public function createPayment(array $data, User $creator, ?string $idempotencyKey = null): SupplierPayment
     {
@@ -242,6 +281,15 @@ class SupplierFinanceService
         });
     }
 
+    /**
+     * Update payment metadata such as method, reference number, or notes.
+     *
+     * @param  SupplierPayment  $payment
+     * @param  array{payment_method?: string, reference_no?: string|null, notes?: string|null}  $data
+     * @return SupplierPayment
+     *
+     * @throws BusinessException
+     */
     public function updatePayment(SupplierPayment $payment, array $data): SupplierPayment
     {
         return DB::transaction(function () use ($payment, $data): SupplierPayment {
@@ -259,6 +307,9 @@ class SupplierFinanceService
         });
     }
 
+    /**
+     * Validate uniqueness of reference number per supplier for non-cash payment methods.
+     */
     private function paymentReference(int $supplierId, string $method, ?string $reference, ?int $exceptId = null): ?string
     {
         $reference = $reference !== null ? trim($reference) : null;
@@ -275,12 +326,29 @@ class SupplierFinanceService
         return $reference;
     }
 
-    /** إلغاء دفعة يعكس أثرها كاملًا: رصيد المورد ومدفوعات فاتورتها، ويبقى السجل للتدقيق. */
+    /**
+     * Void a payment to reverse its ledger effects while preserving the audit record.
+     *
+     * @param  SupplierPayment  $payment
+     * @param  User|null  $actor
+     * @param  string|null  $reason
+     * @return void
+     */
     public function deletePayment(SupplierPayment $payment, ?User $actor = null, ?string $reason = null): void
     {
         $this->voidPayment($payment, $actor, $reason);
     }
 
+    /**
+     * Void a supplier payment, restoring vendor payable balance and deducting paid_amount on linked invoice.
+     *
+     * @param  SupplierPayment  $payment
+     * @param  User|null  $actor
+     * @param  string|null  $reason
+     * @return SupplierPayment
+     *
+     * @throws BusinessException
+     */
     public function voidPayment(SupplierPayment $payment, ?User $actor = null, ?string $reason = null): SupplierPayment
     {
         return DB::transaction(function () use ($payment, $actor, $reason): SupplierPayment {
@@ -308,6 +376,15 @@ class SupplierFinanceService
         });
     }
 
+    /**
+     * Allocate an unlinked payment toward an existing posted invoice.
+     *
+     * @param  SupplierPayment  $payment
+     * @param  int  $invoiceId
+     * @return SupplierPayment
+     *
+     * @throws BusinessException
+     */
     public function allocatePayment(SupplierPayment $payment, int $invoiceId): SupplierPayment
     {
         return DB::transaction(function () use ($payment, $invoiceId): SupplierPayment {
@@ -340,7 +417,9 @@ class SupplierFinanceService
         });
     }
 
-    /** حالة الفاتورة من مدفوعاتها: صفر ← posted، جزئي ← partially_paid، كامل ← paid. */
+    /**
+     * Update invoice payment status based on cumulative settled amounts (posted, partially_paid, paid).
+     */
     private function syncInvoicePaidStatus(SupplierInvoice $invoice): void
     {
         if ($invoice->status === SupplierInvoiceStatus::Draft
@@ -401,11 +480,14 @@ class SupplierFinanceService
     }
 
     /**
-     * كشف حساب المورد (Ledger) لفترة: رصيد افتتاحي محسوب من كل الحركات
-     * قبل الفترة، ثم حركات الفترة بترتيب زمني مع رصيد تراكمي متحرك:
-     * الفواتير المعتمدة Credit (+) والدفعات Debit (−).
+     * Generate chronological supplier ledger statement with period opening balance and running totals.
      *
+     * @param  Supplier  $supplier
+     * @param  string|null  $fromDate
+     * @param  string|null  $toDate
      * @return array<string, mixed>
+     *
+     * @throws BusinessException
      */
     public function statement(Supplier $supplier, ?string $fromDate = null, ?string $toDate = null): array
     {

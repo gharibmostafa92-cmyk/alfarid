@@ -9,13 +9,21 @@ use App\Enums\CustomerType;
 use App\Models\Customer;
 
 /**
- * سياسة طرق الدفع المسموحة في المتجر — المصدر الوحيد المشترك بين
- * CheckoutRequest (التحقق) وCheckoutController::shippingOptions (المعاينة).
- * المحفظة من الإعدادات فقط وللعملاء المعتمدين، والآجل لعملاء الجملة المعتمدين.
+ * Storefront payment method eligibility policy.
+ *
+ * Central source of truth for payment methods available at checkout:
+ * - Wallet payment requires explicit config activation and an approved customer account.
+ * - Credit (deferred) payment is restricted to approved wholesale or distributor accounts.
+ * - Cash-on-delivery and gateway methods follow configured storefront settings.
  */
 final class StorePaymentPolicy
 {
-    /** @return array<int, string> */
+    /**
+     * Resolve eligible payment methods for the given customer.
+     *
+     * @param  Customer|null  $customer
+     * @return array<int, string>
+     */
     public function allowedFor(?Customer $customer): array
     {
         $configured = array_values(array_filter((array) config('store.payment_methods', ['cod'])));

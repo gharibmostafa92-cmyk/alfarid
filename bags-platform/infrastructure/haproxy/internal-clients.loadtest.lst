@@ -1,0 +1,4 @@
+# TEST ENVIRONMENT ONLY: trusted SSR nodes plus the isolated k6 container.
+172.31.0.20
+172.31.0.21
+172.31.0.40

@@ -9,14 +9,19 @@ use App\Models\Supplier;
 use Illuminate\Support\Facades\DB;
 
 /**
- * إدارة الموردين: قاعدة الرصيد الوحيدة هنا أن current_balance يبدأ من
- * opening_balance لحظة الإنشاء؛ بعدها لا يتحرك إلا عبر SupplierFinanceService
- * (اعتماد فواتير ودفعات) — تعديل بيانات المورد لا يمس رصيده الجاري.
+ * Manages supplier profiles and opening balances.
+ *
+ * The current balance initializes from the opening balance upon creation.
+ * Subsequent balance movements are strictly managed through SupplierFinanceService
+ * via posted invoices and recorded payments.
  */
 class SupplierService
 {
     /**
+     * Create a new supplier record and initialize current balance to opening balance.
+     *
      * @param  array<string, mixed>  $data
+     * @return Supplier
      */
     public function create(array $data): Supplier
     {
@@ -28,11 +33,17 @@ class SupplierService
     }
 
     /**
+     * Update supplier details, allowing opening balance adjustment only prior to recorded financial transactions.
+     *
+     * @param  Supplier  $supplier
      * @param  array<string, mixed>  $data
+     * @return Supplier
+     *
+     * @throws BusinessException
      */
     public function update(Supplier $supplier, array $data): Supplier
     {
-        // الرصيد الجاري نتيجة دفترية — لا يُعدَّل يدويًا من شاشة المورد
+        // Current balance is an accounting ledger outcome and cannot be edited manually
         return DB::transaction(function () use ($supplier, $data): Supplier {
             $supplier = Supplier::query()->lockForUpdate()->findOrFail($supplier->id);
             unset($data['current_balance']);

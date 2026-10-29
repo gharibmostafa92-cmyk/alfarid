@@ -76,6 +76,6 @@ class OrderController extends Controller
         $order = $this->orders->changeStatus($order, OrderStatus::Cancelled, $customer, 'ألغاه العميل من حسابه',
             [OrderStatus::Pending, OrderStatus::Confirmed]);
 
-        return OrderResource::make($order->load('items'));
+        return OrderResource::make($order->loadMissing('items'));
     }
 }

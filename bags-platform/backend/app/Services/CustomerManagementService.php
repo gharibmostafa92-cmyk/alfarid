@@ -19,12 +19,14 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
- * إدارة العملاء من لوحة الإدارة: CRUD + دورة اعتماد الجملة (اعتماد/رفض/إيقاف).
- * الإيقاف يقتل كل جلسات العميل فورًا؛ الرفض يبقي توكنه حيًا حتى يطّلع على
- * سبب الرفض ومستنداته المرفوضة عبر application-status.
+ * Customer administration and lifecycle management (CRUD, wholesale verification, approval, rejection, and suspension).
+ * Immediate suspension invalidates all active sessions; rejection keeps tokens active to review rejection reasons.
  */
 class CustomerManagementService
 {
+    /**
+     * Paginate customers with search, type, and status filtering.
+     */
     public function paginate(array $filters): LengthAwarePaginator
     {
         return Customer::query()
@@ -39,6 +41,9 @@ class CustomerManagementService
             ->paginate($filters['per_page'] ?? 15)->withQueryString();
     }
 
+    /**
+     * Retrieve customer with complete profile relations.
+     */
     public function find(int $id): Customer
     {
         return Customer::query()
@@ -46,11 +51,17 @@ class CustomerManagementService
             ->findOrFail($id);
     }
 
+    /**
+     * Create customer record from admin console.
+     * Enforces Approved status for retail and Pending for wholesale accounts.
+     *
+     * @throws BusinessException If attempting to directly create an approved wholesale account
+     */
     public function create(array $data, ?int $actorId = null): Customer
     {
         $data['type'] ??= CustomerType::Retail->value;
         $data['credit_limit'] ??= 0;
-        // الحالة الافتراضية حسب النوع ما لم تُرسل صراحة: قطاعي معتمد، جملة/موزع قيد المراجعة
+        // Default status by type unless explicitly provided: retail is approved, wholesale requires review
         $data['status'] ??= ($data['type'] ?? CustomerType::Retail->value) === CustomerType::Retail->value
             ? CustomerStatus::Approved
             : CustomerStatus::Pending;
@@ -73,6 +84,10 @@ class CustomerManagementService
         });
     }
 
+    /**
+     * Update customer profile, credentials, and business identity.
+     * Invalidates active sessions and reset tokens if credentials change.
+     */
     public function update(Customer $customer, array $data, ?int $actorId = null): Customer
     {
         return DB::transaction(function () use ($customer, $data, $actorId): Customer {
@@ -112,7 +127,9 @@ class CustomerManagementService
         });
     }
 
-    /** حذف ناعم + إنهاء الجلسات: حساب محذوف لا يبقى مسجلًا دخوله. */
+    /**
+     * Soft-delete customer and revoke all active tokens/sessions.
+     */
     public function delete(Customer $customer, ?int $actorId = null): void
     {
         DB::transaction(function () use ($customer, $actorId): void {
@@ -125,8 +142,10 @@ class CustomerManagementService
     }
 
     /**
-     * اعتماد حساب (غالبًا طلب جملة): يطبق اختياريًا المجموعة والحد الائتماني
-     * والترقية لموزع، ويسجل المعتمِد ووقته، ويمسح أي سبب رفض/إيقاف سابق.
+     * Approve customer application (wholesale/distributor).
+     * Validates verified supporting documents and assigns group, credit limit, and approver timestamp.
+     *
+     * @throws BusinessException If documents unverified or required legal info missing
      */
     public function approve(Customer $customer, array $data, int $adminId): Customer
     {
@@ -172,6 +191,11 @@ class CustomerManagementService
         });
     }
 
+    /**
+     * Reject a pending customer application with a recorded reason.
+     *
+     * @throws BusinessException If customer is not in Pending status
+     */
     public function reject(Customer $customer, string $reason, ?int $actorId = null): Customer
     {
         return DB::transaction(function () use ($customer, $reason, $actorId): Customer {
@@ -194,7 +218,9 @@ class CustomerManagementService
         });
     }
 
-    /** إيقاف فوري: الحالة + السبب + حذف كل توكنات العميل في نفس اللحظة. */
+    /**
+     * Suspend customer account and revoke all active sessions immediately.
+     */
     public function suspend(Customer $customer, string $reason, ?int $actorId = null): Customer
     {
         return DB::transaction(function () use ($customer, $reason, $actorId): Customer {
@@ -214,6 +240,9 @@ class CustomerManagementService
         });
     }
 
+    /**
+     * Restore a soft-deleted customer account.
+     */
     public function restore(Customer $customer, ?int $actorId): Customer
     {
         return DB::transaction(function () use ($customer, $actorId): Customer {
@@ -228,6 +257,9 @@ class CustomerManagementService
         });
     }
 
+    /**
+     * Review supporting customer verification document status (verified/rejected).
+     */
     public function reviewDocument(Customer $customer, CustomerDocument $document, string $status, int $actorId): CustomerDocument
     {
         return DB::transaction(function () use ($customer, $document, $status, $actorId) {
@@ -240,6 +272,9 @@ class CustomerManagementService
         });
     }
 
+    /**
+     * Store and associate a private customer document up to a limit of 5 documents.
+     */
     public function uploadDocument(Customer $customer, UploadedFile $file, int $actorId): CustomerDocument
     {
         return PrivateAttachments::transaction(function (PrivateAttachments $files) use ($customer, $file, $actorId): CustomerDocument {

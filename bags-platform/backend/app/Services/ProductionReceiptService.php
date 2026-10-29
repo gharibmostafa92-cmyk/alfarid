@@ -14,10 +14,27 @@ use App\Models\StockLevel;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Handles finished goods manufacturing intake and inventory ledger posting.
+ *
+ * Recalculates weighted average cost (WAC) for manufactured variants across all branches
+ * and records production receipt movements into branch on-hand inventory.
+ */
 class ProductionReceiptService
 {
     public function __construct(private readonly InventoryService $inventory) {}
 
+    /**
+     * Intake a manufactured batch into branch inventory and update variant landed cost.
+     *
+     * @param  array{branch_id: int, batch_number: string, items: list<array{product_variant_id: int, quantity: int|float, unit_cost: string|float|int}>, location_id?: int|null, notes?: string|null}  $data
+     * @param  int  $userId
+     * @param  string  $key  Idempotency key for request deduplication
+     * @return ProductionReceipt
+     *
+     * @throws BusinessException
+     * @throws UniqueConstraintViolationException
+     */
     public function receive(array $data, int $userId, string $key): ProductionReceipt
     {
         app(BranchAccess::class)->assertBranch($userId, (int) $data['branch_id']);
@@ -101,6 +118,9 @@ class ProductionReceiptService
         }
     }
 
+    /**
+     * Return previously created receipt if request payload hash matches idempotency key.
+     */
     private function replay(ProductionReceipt $receipt, string $hash): ProductionReceipt
     {
         if (! hash_equals($receipt->request_hash, $hash)) {

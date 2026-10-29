@@ -1,0 +1,5 @@
+# SCRAM auth file for PgBouncer (userlist.txt format: "user" "password").
+# Generate with: docker compose run --rm pgbouncer mkpasswd / SCRAM, or
+#   psql -c "SELECT '\"'||usename||'\" \"'||passwd||'\"' FROM pg_shadow;"
+# Replace the placeholder below with the real SCRAM secret, mode 0600.
+"alfarid" "SCRAM-SHA-256$4096:PLACEHOLDER$PLACEHOLDER$PLACEHOLDER="

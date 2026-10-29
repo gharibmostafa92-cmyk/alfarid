@@ -12,8 +12,15 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
+/**
+ * Manages promotional banner lifecycle, file storage, reordering, and scheduling.
+ */
 final class BannerService
 {
+    /**
+     * Store a new banner and its associated image asset.
+     * Deletes stored image if database transaction fails.
+     */
     public function create(array $data, UploadedFile $image): Banner
     {
         $path = $this->storeImage($image);
@@ -25,6 +32,9 @@ final class BannerService
         }
     }
 
+    /**
+     * Update banner attributes and optionally replace its image.
+     */
     public function update(Banner $banner, array $data, ?UploadedFile $image): Banner
     {
         $newPath = $image ? $this->storeImage($image) : null;
@@ -47,6 +57,9 @@ final class BannerService
         }
     }
 
+    /**
+     * Delete banner record and prune its image asset after transaction commit.
+     */
     public function delete(Banner $banner): void
     {
         DB::transaction(function () use ($banner): void {
@@ -57,6 +70,9 @@ final class BannerService
         });
     }
 
+    /**
+     * Update or toggle the active status of a banner.
+     */
     public function setActive(Banner $banner, ?bool $active): Banner
     {
         return DB::transaction(function () use ($banner, $active): Banner {
@@ -67,7 +83,11 @@ final class BannerService
         });
     }
 
-    /** @param list<int> $ids */
+    /**
+     * Reorder banner display positions sequentially.
+     *
+     * @param list<int> $ids
+     */
     public function reorder(string $position, array $ids): void
     {
         DB::transaction(function () use ($position, $ids): void {
@@ -77,6 +97,9 @@ final class BannerService
         });
     }
 
+    /**
+     * Remove physical image file if no other banner record references it.
+     */
     private function deleteIfUnreferenced(?string $path): void
     {
         if ($path && ! Banner::query()->where('image_path', $path)->exists()) {
@@ -88,6 +111,9 @@ final class BannerService
         }
     }
 
+    /**
+     * Normalize banner fields and convert schedule dates to application timezone.
+     */
     private function normalize(array $data): array
     {
         unset($data['image']);
@@ -111,6 +137,9 @@ final class BannerService
         return $data;
     }
 
+    /**
+     * Persist uploaded image file using UUID to prevent collisions.
+     */
     private function storeImage(UploadedFile $file): string
     {
         $path = $file->storeAs('banners', Str::uuid().'.'.$file->extension(), BannerImage::disk());

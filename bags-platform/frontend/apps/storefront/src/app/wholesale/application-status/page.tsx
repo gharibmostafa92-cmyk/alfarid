@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { defaultApiClient } from '@alfarid/api-client';
-import { FinancialDashboard } from '@alfarid/ui';
+import { WholesalePortal } from '@alfarid/ui';
 import { useAuthStore } from '@/store/auth.store';
 import { logoutWeb } from '@/services/auth.service';
 import { RequireActor } from '@/components/auth/RequireActor';
@@ -29,20 +29,30 @@ function ApplicationStatusContent() {
   return (
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold">حالة طلب الاعتماد</h1>
-      {error ? <div role="alert">
-        <p>تعذر تحميل حالة الطلب. حاول مرة أخرى.</p>
-        <button type="button" onClick={() => setAttempt((n) => n + 1)}>إعادة المحاولة</button>
-      </div> : <>
-        <p className="mt-2 text-sm" role="status">الحالة: {data?.status ?? 'جارٍ التحميل…'}</p>
-        {data?.rejection_reason && <p className="mt-2 text-sm text-red-600">سبب الرفض: {data.rejection_reason}</p>}
-      </>}
+      {error ? (
+        <div role="alert">
+          <p>تعذر تحميل حالة الطلب. حاول مرة أخرى.</p>
+          <button type="button" onClick={() => setAttempt((n) => n + 1)}>إعادة المحاولة</button>
+        </div>
+      ) : (
+        <>
+          <p className="mt-2 text-sm" role="status">الحالة: {data?.status ?? 'جارٍ التحميل…'}</p>
+          {data?.rejection_reason && <p className="mt-2 text-sm text-red-600">سبب الرفض: {data.rejection_reason}</p>}
+        </>
+      )}
     </div>
   );
 }
 
 export default function ApplicationStatusPage() {
   const customerType = useAuthStore((state) => state.user?.type);
-  return <RequireActor allow={['wholesale_pending', 'wholesale']}>
-    {customerType === 'retail' ? <ApplicationStatusContent /> : <FinancialDashboard onLogout={logoutWeb} />}
-  </RequireActor>;
+  return (
+    <RequireActor allow={['wholesale_pending', 'wholesale']}>
+      {customerType === 'retail' ? (
+        <ApplicationStatusContent />
+      ) : (
+        <WholesalePortal initialScreen="status" onLogout={logoutWeb} />
+      )}
+    </RequireActor>
+  );
 }

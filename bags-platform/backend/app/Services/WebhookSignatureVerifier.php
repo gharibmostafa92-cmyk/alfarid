@@ -5,17 +5,23 @@ declare(strict_types=1);
 namespace App\Services;
 
 /**
- * التحقق من توقيعات الويب هوك بأنماط البوابات الحقيقية (F-06):
- * - hmac (الافتراضي): HMAC-SHA256 للنص الخام في هيدر واحد.
- * - stripe: هيدر Stripe-Signature بصيغة t=…,v1=… والتوقيع على "{t}.{body}"
- *   مع فحص حداثة الطابع الزمني (≤ 300 ثانية) ضد إعادة الإرسال.
- * - paymob: معامل hmac في الـ query — HMAC-SHA512 لحقول المعاملة
- *   بترتيب Paymob الرسمي المنشور.
- * - moyasar: secret_token داخل جسم الطلب يطابق السر المضبوط.
- * كل المقارنات hash_equals. لا مكتبات خارجية.
+ * Cryptographic webhook signature validator supporting multiple gateway drivers:
+ * - hmac (default): HMAC-SHA256 over raw request body against designated header.
+ * - stripe: Stripe-Signature header format (t=...,v1=...) with 300s replay prevention.
+ * - paymob: HMAC-SHA512 over official concatenated transaction dictionary fields.
+ * - moyasar: Constant-time comparison of secret_token within payload.
+ * All signature checks utilize timing-attack safe hash_equals.
  */
 class WebhookSignatureVerifier
 {
+    /**
+     * Verify standard HMAC-SHA256 signature against raw request body.
+     *
+     * @param  string|null  $secret
+     * @param  string  $rawBody
+     * @param  string|null  $signature
+     * @return bool
+     */
     public function verify(?string $secret, string $rawBody, ?string $signature): bool
     {
         if ($secret === null || $secret === '' || $signature === null || $signature === '') {
@@ -32,9 +38,16 @@ class WebhookSignatureVerifier
     }
 
     /**
-     * @param  array<string, string|null>  $headers  مفاتيح بحروف صغيرة
+     * Dispatch signature validation to gateway-specific verifier.
+     *
+     * @param  string  $driver
+     * @param  string|null  $secret
+     * @param  string  $rawBody
+     * @param  array<string, string|null>  $headers  Lowercase header map
      * @param  array<string, mixed>  $query
      * @param  array<string, mixed>  $payload
+     * @param  string|null  $signatureHeader
+     * @return bool
      */
     public function verifyGateway(string $driver, ?string $secret, string $rawBody, array $headers, array $query, array $payload, ?string $signatureHeader = null): bool
     {
@@ -74,7 +87,7 @@ class WebhookSignatureVerifier
         if ($timestamp === null || $signatures === [] || ! ctype_digit($timestamp)) {
             return false;
         }
-        // حماية من إعادة الإرسال: طابع أقدم من 5 دقائق يُرفض
+        // Reject events older than 5 minutes to prevent replay attacks
         if (abs(time() - (int) $timestamp) > 300) {
             return false;
         }
@@ -101,7 +114,7 @@ class WebhookSignatureVerifier
         }
 
         $tx = isset($payload['obj']) && is_array($payload['obj']) ? $payload['obj'] : $payload;
-        // ترتيب حقول Paymob الرسمي لرسالة الـ callback
+        // Official Paymob callback field order for HMAC-SHA512 calculation
         $fields = [
             'amount_cents', 'created_at', 'currency', 'error_occured',
             'has_parent_transaction', 'id', 'integration_id', 'is_3d_secure',

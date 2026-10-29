@@ -8,8 +8,26 @@ use App\Exceptions\BusinessException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Scoped operation idempotency coordinator.
+ *
+ * Guarantees exactly-once execution for state-changing financial and inventory intake operations
+ * by tracking idempotency keys scoped to the authenticated actor and verifying request payload hashes.
+ */
 class OperationIdempotencyService
 {
+    /**
+     * Execute an operation idempotently or return the previously recorded result.
+     *
+     * @param  string  $operation  Unique operation identifier (e.g. purchase_receipt, supplier_payment)
+     * @param  Model  $actor  Authenticated user or customer instance
+     * @param  string|null  $key  Idempotency key supplied by the client
+     * @param  array<string, mixed>  $payload  Request payload for canonical hash comparison
+     * @param  callable(): Model  $execute  Operation execution callback
+     * @return Model
+     *
+     * @throws BusinessException
+     */
     public function run(string $operation, Model $actor, ?string $key, array $payload, callable $execute): Model
     {
         if ($key === null || ! preg_match('/\A[A-Za-z0-9._:-]{1,128}\z/', $key)) {

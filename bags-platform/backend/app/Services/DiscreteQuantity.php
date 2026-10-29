@@ -6,8 +6,20 @@ namespace App\Services;
 
 use App\Exceptions\BusinessException;
 
+/**
+ * Validates discrete integer quantity values within allowable domain boundaries.
+ */
 final class DiscreteQuantity
 {
+    /**
+     * Assert that the given quantity is a finite integer within allowed business limits.
+     *
+     * @param  mixed  $qty
+     * @param  bool  $allowZero
+     * @return void
+     *
+     * @throws BusinessException
+     */
     public static function assert(mixed $qty, bool $allowZero = false): void
     {
         if (! is_numeric($qty) || ! is_finite((float) $qty)

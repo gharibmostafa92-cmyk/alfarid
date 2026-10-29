@@ -1,0 +1,29 @@
+# Explicit opt-in on a seeded staging database only.
+x-test-env: &test-env
+  TRUSTED_PROXIES: 172.31.0.10,172.31.0.11,172.31.0.20,172.31.0.21,172.31.0.40
+  APP_EXPOSE_NODE_HEADER: 'true'
+services:
+  app1:
+    environment: *test-env
+  app2:
+    environment: *test-env
+  app3:
+    environment: *test-env
+  haproxy1:
+    volumes:
+      - ./haproxy/internal-clients.loadtest.lst:/etc/haproxy/internal-clients.lst:ro
+  haproxy2:
+    volumes:
+      - ./haproxy/internal-clients.loadtest.lst:/etc/haproxy/internal-clients.lst:ro
+  k6:
+    image: grafana/k6:2.2.0
+    user: '0:0'
+    volumes: [./k6:/scripts]
+    working_dir: /scripts
+    environment:
+      BASE_URL: http://haproxy1:8081
+      K6_PROMETHEUS_RW_SERVER_URL: http://prometheus:9090/api/v1/write
+      K6_PROMETHEUS_RW_TREND_STATS: p(95),p(99),med
+    networks:
+      appnet: {ipv4_address: 172.31.0.40}
+    profiles: [loadtest]

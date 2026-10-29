@@ -14,14 +14,16 @@ use Illuminate\Support\Facades\DB;
 use Throwable;
 
 /**
- * معالجة ويب هوك شركات الشحن:
- * تسجيل أولًا ← تحقق HMAC بسر الشركة ← معالجة ذرّية بقفل استشاري (H4) ←
- * تحديث البوليصة مع احترام ترتيب الحالات وعدم التراجع من حالة نهائية (H6) ←
- * عند delivered تحويل الطلب إلى DELIVERED وإثبات دفع COD.
+ * Inbound shipping carrier webhook processing service:
+ * - Logs payload fingerprint before signature verification to guard against malformed data.
+ * - Validates HMAC signature using the carrier's configured webhook secret.
+ * - Serializes processing atomically via PostgreSQL advisory locks on (provider:event_id).
+ * - Enforces status progression rules to ignore stale or regressive out-of-order events.
+ * - Updates shipment records and automatically triggers order delivery or flags for manual review.
  */
 class ShippingWebhookService
 {
-    /** مرادفات حالات شركات الشحن الشائعة → حالات البوليصة الداخلية. */
+    /** Common carrier status aliases mapped to internal shipment enum cases. */
     private const STATUS_MAP = [
         'created' => ShipmentStatus::Created,
         'picked_up' => ShipmentStatus::PickedUp,
@@ -40,7 +42,7 @@ class ShippingWebhookService
         'rto' => ShipmentStatus::Returned,
     ];
 
-    /** رتبة التقدم في سلسلة التسليم — التراجع في الرتبة يعني حدثًا متأخرًا. */
+    /** Lifecycle hierarchy rank — events with lower rank than current state represent out-of-order deliveries. */
     private const RANK = [
         'created' => 0,
         'picked_up' => 1,
@@ -55,12 +57,20 @@ class ShippingWebhookService
         protected OrderService $orders,
     ) {}
 
-    /** @return array{http: int, body: array<string, mixed>} */
+    /**
+     * Process an inbound carrier tracking webhook event.
+     *
+     * @param  string  $companyCode
+     * @param  array<string, mixed>  $payload
+     * @param  string  $rawBody
+     * @param  string|null  $signature
+     * @param  string|null  $ip
+     * @return array{http: int, body: array<string, mixed>}
+     */
     public function handle(string $companyCode, array $payload, string $rawBody, ?string $signature, ?string $ip): array
     {
         $provider = 'shipping:'.$companyCode;
-        // قبل التحقق: مفتاح السجل المختصر بصمة الجسم فقط — حقول الحمولة
-        // غير موثوقة وقد تكسر السجل أو تتجاوز أعمدته (F-07)
+        // Pre-verification key uses raw body hash because unverified payload fields cannot be trusted
         $preVerifyKey = 'sha256:'.hash('sha256', $rawBody);
 
         if (strlen($rawBody) > 262144) {
@@ -71,15 +81,13 @@ class ShippingWebhookService
 
         $company = ShippingCompany::query()->where('code', $companyCode)->first();
         if ($company === null || ! $company->is_active) {
-            // ردّ عام (L3): لا نفرّق في الردّ بين كود صحيح لكن شركته معطّلة
-            // وكود وهمي — منعًا لاستخدام رمز 404 كأداة تعداد لأكواد الشركات
+            // Generic 403 response prevents carrier code enumeration via distinct HTTP response codes
             $this->slimLog($provider, $preVerifyKey, 'failed', 'شركة شحن غير معروفة أو معطّلة', $ip);
 
             return ['http' => 403, 'body' => ['received' => false, 'message' => 'invalid signature']];
         }
 
-        // سر التوقيع: webhook_secret الخاص بالشركة فقط — لا رجوع لمفتاح API
-        // ولا لسر افتراضي مشترك (M10)، والتحقق قبل تخزين الحمولة (M4)
+        // Validate HMAC signature exclusively using the carrier's designated webhook_secret
         $credentials = $company->api_credentials ?? [];
         $secret = $credentials['webhook_secret'] ?? null;
         if (! is_string($secret) || $secret === '' || ! $this->verifier->verify($secret, $rawBody, $signature)) {
@@ -89,7 +97,7 @@ class ShippingWebhookService
             return ['http' => 403, 'body' => ['received' => false, 'message' => 'invalid signature']];
         }
 
-        // بعد التحقق فقط يُشتق مفتاح الحدث من الحمولة (مُنقّى)
+        // Derive sanitized event identifier after cryptographic verification succeeds
         $eventId = $this->effectiveEventId($payload, $rawBody);
         $log = $this->startLog($provider, $eventId, $payload, $ip);
         $log->update(['signature_valid' => true]);
@@ -120,7 +128,7 @@ class ShippingWebhookService
                 return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
             }
 
-            // ترتيب الحالات: لا تراجع من حالة نهائية ولا في سلسلة التقدم (H6)
+            // Reject regressive status transitions or movements out of terminal states
             if (! $this->transitionAllowed($shipment->status, $status)) {
                 $log->update(['status' => 'ignored', 'error' => "حدث متأخر/متراجع: {$shipment->status->value} ← {$status->value}"]);
 
@@ -132,11 +140,7 @@ class ShippingWebhookService
             $note = null;
             $failed = false;
             if ($status === ShipmentStatus::Returned) {
-                // إشعار المرتجع (بما فيه rto) يعني بدء الإرجاع لا وصوله:
-                // لا إعادة للمخزون من الويب هوك (F-15) — البضاعة قد تكون
-                // في الطريق أو تالفة. يُعلَّم الطلب للانتباه، والإعادة
-                // الفعلية عند استلام المستودع يدويًا (الأدمن → Returned
-                // عبر changeStatus فيسجل sale_return عندها فقط)
+                // Return notification marks order for attention; physical stock re-entry happens upon manual warehouse intake
                 $order = $shipment->order;
                 if ($order !== null && in_array($order->status, [OrderStatus::Shipped, OrderStatus::Delivered], true)) {
                     $order->update(['needs_attention' => true]);
@@ -144,10 +148,7 @@ class ShippingWebhookService
                 }
             }
             if ($status === ShipmentStatus::Failed) {
-                // بوليصة فاشلة لا تترك الطلب صامتًا (F-16): انتباه للمتابعة
-                // (وإصدار بديلة ممكن من نفس شاشة الطلب طالما لا بوليصة نشطة).
-                // لكن تجاوز بلاغ فشل لبوليصة قديمة بعد إنشاء بوليصة بديلة نشطة
-                // ليس عطلًا حقيقيًا: لا يُوسم الطلب ولا يُنبَّه عليه (F-18)
+                // Mark order for staff review unless a newer replacement shipment is already active
                 $order = $shipment->order;
                 if ($order !== null && ! $this->hasNewerActiveShipment($shipment)) {
                     $order->update(['needs_attention' => true]);
@@ -160,19 +161,14 @@ class ShippingWebhookService
                 $order = $shipment->order;
                 if ($order !== null && $order->status === OrderStatus::Shipped) {
                     try {
-                        // تسوية COD صارت أثرًا مركزيًا في changeStatus عند
-                        // انتقال Delivered (F-14) — لا تكرار ولا تحصيل
-                        // مُصنّع هنا: طلب غير مشحون لا ينتقل أصلًا
+                        // Order delivery transitions settle cash-on-delivery payments automatically
                         $this->orders->changeStatus($order, OrderStatus::Delivered, null, 'تم التسليم — إشعار شركة الشحن');
                     } catch (Throwable $e) {
-                        // (H5) أخطاء الازدحام المؤقتة (جمود/مهلة قفل/انقطاع اتصال)
-                        // تُعاد للبوابة لتُعيد المحاولة — ابتلاعها وسوم الحدث
-                        // «processed» يمنع أي إعادة فيضيع تحويل الطلب صامتًا
+                        // Re-throw transient database exceptions so the webhook provider retries delivery
                         if ($this->isTransient($e)) {
                             throw $e;
                         }
-                        // فشل حقيقي غير مؤقت: لا نُعلن النجاح — نوسم الطلب
-                        // للانتباه ونُسجّل الحدث «failed» لا «processed»
+                        // Non-transient errors flag the order for staff intervention without dropping the event
                         $order->update(['needs_attention' => true]);
                         $failed = true;
                         $note = 'تم تسليم البوليصة لكن تحويل الطلب فشل: '.$e->getMessage();
@@ -186,31 +182,36 @@ class ShippingWebhookService
         });
     }
 
-    /** هل الخطأ ازدحام مؤقت يستحق إعادة المحاولة من البوابة (H5)؟ */
+    /**
+     * Determine whether an exception is a transient concurrency or connection error eligible for webhook retry.
+     */
     private function isTransient(Throwable $e): bool
     {
         if (! $e instanceof QueryException) {
             return false;
         }
 
-        // 55P03 = مهلة قفل، 40P01 = جمود، 08006/08003 = انقطاع اتصال
+        // Postgres codes: 55P03 = lock timeout, 40P01 = deadlock, 08006/08003 = connection failure
         return in_array($e->errorInfo[0] ?? $e->getCode(), ['55P03', '40P01', '08006', '08003'], true);
     }
 
+    /**
+     * Enforce status state machine rules to prevent lifecycle regression.
+     */
     private function transitionAllowed(ShipmentStatus $current, ShipmentStatus $new): bool
     {
         if ($current === $new) {
             return true;
         }
-        // الحالات النهائية لا تتحرك
+        // Terminal states cannot transition further
         if (in_array($current, [ShipmentStatus::Delivered, ShipmentStatus::Returned], true)) {
             return false;
         }
-        // الفشل قد يحدث في أي مرحلة، ومن الفشل يمكن استئناف التقدم (إعادة محاولة التسليم)
+        // Failed shipments may resume progression on redelivery attempts
         if ($new === ShipmentStatus::Failed || $current === ShipmentStatus::Failed) {
             return true;
         }
-        // الإرجاع مسموح من أي مرحلة غير نهائية
+        // Returns are permissible from any non-terminal state
         if ($new === ShipmentStatus::Returned) {
             return true;
         }
@@ -219,14 +220,12 @@ class ShippingWebhookService
     }
 
     /**
-     * مفتاح حدث فعّال: معرّف الحدث الحقيقي مدموجًا بحالة الشحنة المُطبّعة
-     * (F-03): بعض الشركات تعيد استخدام نفس event_id لتحديثات مختلفة لنفس
-     * البوليصة، فدمج الحالة يمنع ابتلاع تحديث حقيقي كـ duplicate. ثم مركّب
-     * awb|status|timestamp، وإلا بصمة الجسم.
+     * Build an effective deduplication key by combining event ID with normalized status.
+     *
+     * Prevents carriers that reuse event IDs for subsequent milestone updates from being dropped as duplicates.
      */
     private function effectiveEventId(array $payload, string $rawBody): string
     {
-        // كل قيمة تُستخدم في المفتاح يجب أن تكون مفردة وبحد طول (F-07)
         $eventId = $this->firstValue($payload, ['event_id', 'eventId', 'data.event_id']);
         if (is_scalar($eventId)) {
             $status = $this->rawStatus($payload);
@@ -245,12 +244,12 @@ class ShippingWebhookService
         return 'sha256:'.hash('sha256', $rawBody);
     }
 
-    /** حالة الشحنة مطبّعة للاستخدام في مفتاح الحدث (F-03). */
+    /**
+     * Extract and normalize raw status string for key generation.
+     */
     private function rawStatus(array $payload): ?string
     {
         $raw = $this->firstValue($payload, ['status', 'state', 'shipment_status', 'data.status', 'data.state']);
-        // قيمة غير قياسية (مصفوفة/كائن) تُتجاهل (L2): (string) عليها يُنتج
-        // تحذير "Array to string conversion" ومفتاحًا باطلًا
         if (! is_scalar($raw)) {
             return null;
         }
@@ -270,7 +269,9 @@ class ShippingWebhookService
         return self::STATUS_MAP[$key] ?? null;
     }
 
-    /** هل أُنشئت بوليصة أحدث ونشطة لهذا الطلب؟ (تجاوز بلاغ فشل قديم — F18). */
+    /**
+     * Check whether a newer active shipment exists for the order to ignore stale failure events.
+     */
     private function hasNewerActiveShipment(Shipment $shipment): bool
     {
         return Shipment::query()
@@ -302,14 +303,16 @@ class ShippingWebhookService
         return WebhookLog::create([
             'provider' => $provider,
             'event_id' => $eventId,
-            // تنقية المفاتيح الحسّاسة قبل التخزين (H1)
+            // Sanitize sensitive credentials before persisting webhook body
             'payload' => WebhookLog::sanitizePayload($payload),
             'status' => 'received',
             'ip_address' => $ip,
         ]);
     }
 
-    /** سجل مختصر للطلبات المرفوضة قبل التحقق — بلا تخزين للحمولة (M4). */
+    /**
+     * Create a lightweight log entry for rejected requests without storing untrusted payload bytes.
+     */
     private function slimLog(string $provider, string $eventId, string $status, ?string $error, ?string $ip): void
     {
         WebhookLog::create([

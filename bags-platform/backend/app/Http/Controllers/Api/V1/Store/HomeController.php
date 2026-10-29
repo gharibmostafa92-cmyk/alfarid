@@ -22,7 +22,10 @@ use Illuminate\Support\Facades\Cache;
  */
 class HomeController extends Controller
 {
-    public function __construct(private readonly StoreCatalogService $catalog) {}
+    public function __construct(
+        private readonly StoreCatalogService $catalog,
+        private readonly BannerLinkResolver $bannerResolver,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -46,7 +49,7 @@ class HomeController extends Controller
             ->where(fn ($q) => $q->whereNull('starts_at')->orWhere('starts_at', '<=', now()))
             ->where(fn ($q) => $q->whereNull('ends_at')->orWhere('ends_at', '>=', now()))
             ->orderBy('sort_order')->orderBy('id')->get();
-        $banners = app(BannerLinkResolver::class)->attach($banners);
+        $banners = $this->bannerResolver->attach($banners);
         $bannersPayload = collect(StoreBannerResource::collection($banners)->resolve($request))
             ->filter(fn (array $b) => $b['image'] !== null)
             ->values();

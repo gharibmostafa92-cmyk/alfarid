@@ -37,9 +37,7 @@ class ProductController extends Controller
             ->where('products.slug', $slug)
             ->firstOrFail();
 
-        $resource = new StoreProductResource($product);
-
-        return $resource;
+        return StoreProductResource::make($product);
     }
 
     public function showcase(Request $request): JsonResponse
@@ -48,11 +46,7 @@ class ProductController extends Controller
         $loaded = $this->catalog->publishedQuery()->whereIn('products.id', $ids)->get()->keyBy('id');
         $products = collect($ids)->map(fn ($id) => $loaded->get($id))->filter()->values();
 
-        return response()->json(['data' => $products->map(function ($p) use ($request) {
-            $resource = new StoreProductResource($p);
-
-            return $resource->resolve($request);
-        })->values()]);
+        return response()->json(['data' => StoreProductResource::collection($products)->resolve($request)]);
     }
 
     public function similar(string $slug): JsonResponse

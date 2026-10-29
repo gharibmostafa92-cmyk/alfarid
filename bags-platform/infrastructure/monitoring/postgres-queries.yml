@@ -1,0 +1,5 @@
+alfarid_queue:
+  query: 'SELECT (SELECT count(*) FROM jobs) AS pending, (SELECT count(*) FROM failed_jobs) AS failed'
+  metrics:
+    - pending: {usage: GAUGE, description: Pending database queue jobs}
+    - failed: {usage: GAUGE, description: Failed database queue jobs}

@@ -18,16 +18,20 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
- * تسجيل تجار الجملة: حساب pending + مستندات تحقق في تخزين خاص.
- * الاعتماد نفسه قرار إدارة (مهمة 5.4) — هنا يُنشأ الطلب فقط.
+ * Wholesale customer self-registration service.
+ * Registers customer in Pending status and stages uploaded verification documents into private storage.
+ * Final approval is performed by administrators via CustomerManagementService.
  */
 class WholesaleRegistrationService
 {
     public function __construct(private readonly CustomerAuthService $auth) {}
 
     /**
+     * Register a new wholesale customer and store supporting verification documents.
+     * Staged files are moved into customer directory upon successful transaction.
+     *
      * @param  list<UploadedFile>  $files
-     * @param  list<string|null>  $documentTypes  أنواع موازية للملفات (افتراضي other)
+     * @param  list<string|null>  $documentTypes Parallel document type tags (defaults to "other")
      * @return array{customer: Customer, token: string}
      */
     public function register(array $data, array $files, array $documentTypes = []): array
@@ -70,8 +74,8 @@ class WholesaleRegistrationService
                 ]);
 
                 foreach ($staged as $document) {
-                    // تخزين خاص: وثائق الشركات لا تخرج بروابط عامة أبدًا،
-                    // والتنزيل لاحقًا عبر نهاية الأدمن المحمية فقط.
+                    // Private storage: sensitive corporate documents are never publicly exposed;
+                    // downloads are strictly routed through authenticated admin endpoints.
                     $path = "customer_documents/{$customer->id}/".$document['filename'];
                     $storedPaths[] = $path;
                     if (! Storage::disk('r2')->move($document['path'], $path)) {
@@ -96,7 +100,7 @@ class WholesaleRegistrationService
                 ];
             });
         } catch (\Throwable $e) {
-            // فشل قاعدة البيانات بعد رفع ملفات: نظّفها حتى لا تبقى يتيمة
+            // Transaction failure: clean up uploaded files on cloud storage to prevent orphaned assets
             foreach ($storedPaths as $path) {
                 Storage::disk('r2')->delete($path);
             }

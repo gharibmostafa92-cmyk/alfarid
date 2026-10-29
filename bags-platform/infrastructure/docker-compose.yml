@@ -1,0 +1,253 @@
+name: alfarid-lb
+
+x-app: &app
+  image: alfarid-app:${APP_TAG:-local}
+  build: {context: .., dockerfile: infrastructure/docker/app.Dockerfile}
+  env_file: .env
+  environment: &app-env
+    AUTORUN_ENABLED: 'false'
+    APP_ENV: production
+    APP_DEBUG: 'false'
+    APP_EXPOSE_NODE_HEADER: ${APP_EXPOSE_NODE_HEADER:-false}
+    TRUSTED_PROXIES: 172.31.0.10,172.31.0.11,172.31.0.20,172.31.0.21
+    DB_HOST: pgbouncer
+    DB_PORT: '6432'
+    DB_DATABASE: alfarid
+    DB_SSLMODE: require
+    DB_DISABLE_PREPARES: 'true'
+    DB_URL: ''
+    REDIS_CLIENT: phpredis
+    REDIS_HOST: haproxy-data
+    REDIS_URL: ''
+    CACHE_STORE: redis
+    CACHE_LIMITER: redis
+    SESSION_DRIVER: redis
+    SESSION_CONNECTION: default
+    APP_MAINTENANCE_DRIVER: cache
+    APP_MAINTENANCE_STORE: redis
+    QUEUE_CONNECTION: database
+    MEDIA_QUEUE: media
+    LOG_STACK: stderr
+    LOG_STDERR_FORMATTER: Monolog\Formatter\JsonFormatter
+    PHP_FPM_PM_CONTROL: static
+    PHP_FPM_PM_MAX_CHILDREN: ${APP_MAXCONN:-32}
+  networks: [appnet]
+  restart: unless-stopped
+  depends_on: [pgbouncer, haproxy-data]
+
+x-edge: &edge
+  image: alfarid-haproxy:local
+  build: {context: .., dockerfile: infrastructure/docker/haproxy.Dockerfile}
+  environment:
+    REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+    HAPROXY_STATS_PASSWORD: ${HAPROXY_STATS_PASSWORD:?set HAPROXY_STATS_PASSWORD}
+    APP_MAXCONN: ${APP_MAXCONN:-32}
+    APP_SLOW_MAXCONN: ${APP_SLOW_MAXCONN:-8}
+  volumes:
+    - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    - ./haproxy/certs:/etc/haproxy/certs:ro
+    - ./haproxy/whitelist.lst:/etc/haproxy/whitelist.lst:ro
+    - ./haproxy/internal-clients.lst:/etc/haproxy/internal-clients.lst:ro
+  restart: unless-stopped
+
+x-redis: &redis
+  image: redis:7-alpine
+  environment: &redis-env
+    REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+  entrypoint: [sh, /opt/redis-start.sh]
+  volumes: [./redis/start.sh:/opt/redis-start.sh:ro]
+  restart: unless-stopped
+
+services:
+  app1:
+    <<: *app
+    hostname: app1
+    healthcheck: &app-health
+      test: [CMD, curl, -fsS, http://localhost:8080/health/ready]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 30s
+  app2:
+    <<: *app
+    hostname: app2
+    healthcheck: *app-health
+  app3:
+    <<: *app
+    hostname: app3
+    healthcheck: *app-health
+  worker:
+    <<: *app
+    command: [php, artisan, 'queue:work', '--queue=default', '--tries=3', '--max-time=3600']
+    healthcheck: {disable: true}
+    stop_grace_period: 190s
+  worker2:
+    <<: *app
+    command: [php, artisan, 'queue:work', '--queue=default', '--tries=3', '--max-time=3600']
+    healthcheck: {disable: true}
+    stop_grace_period: 190s
+  media-worker:
+    <<: *app
+    environment:
+      <<: *app-env
+      PHP_MEMORY_LIMIT: 512M
+    command: [php, -d, memory_limit=512M, artisan, 'queue:work', '--queue=media', '--tries=3', '--max-time=3600', '--memory=512']
+    healthcheck: {disable: true}
+    stop_grace_period: 190s
+  scheduler:
+    <<: *app
+    command: [php, artisan, 'schedule:work']
+    healthcheck: {disable: true}
+  postgres:
+    image: alfarid-data:local
+    build: {context: .., dockerfile: infrastructure/docker/data.Dockerfile}
+    entrypoint: [sh, /opt/postgres-start.sh]
+    environment:
+      POSTGRES_DB: alfarid
+      POSTGRES_USER: ${DB_USERNAME:?set DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    networks: [appnet]
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d alfarid']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+  pgbouncer:
+    image: alfarid-data:local
+    build: {context: .., dockerfile: infrastructure/docker/data.Dockerfile}
+    entrypoint: [sh, /opt/pgbouncer-start.sh]
+    environment:
+      DB_USERNAME: ${DB_USERNAME:?set DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
+    volumes: [./pgbouncer/pgbouncer.ini:/opt/pgbouncer.ini:ro]
+    depends_on:
+      postgres: {condition: service_healthy}
+    networks: [appnet]
+    restart: unless-stopped
+  redis1:
+    <<: *redis
+    command: [primary]
+    volumes: [./redis/start.sh:/opt/redis-start.sh:ro, redis1-data:/data]
+    networks:
+      appnet: {ipv4_address: 172.31.0.31}
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG']
+      interval: 3s
+      timeout: 2s
+      retries: 10
+  redis2:
+    <<: *redis
+    command: [replica]
+    volumes: [./redis/start.sh:/opt/redis-start.sh:ro, redis2-data:/data]
+    networks:
+      appnet: {ipv4_address: 172.31.0.32}
+    depends_on:
+      redis1: {condition: service_healthy}
+  sentinel1: &sentinel
+    <<: *redis
+    command: [sentinel]
+    environment:
+      <<: *redis-env
+      SENTINEL_DOWN_AFTER: '2000'
+    volumes: [./redis/start.sh:/opt/redis-start.sh:ro, sentinel1-data:/data]
+    networks: [appnet]
+    depends_on:
+      redis1: {condition: service_healthy}
+  sentinel2:
+    <<: *sentinel
+    environment:
+      <<: *redis-env
+      SENTINEL_DOWN_AFTER: '3000'
+    volumes: [./redis/start.sh:/opt/redis-start.sh:ro, sentinel2-data:/data]
+  sentinel3:
+    <<: *sentinel
+    environment:
+      <<: *redis-env
+      SENTINEL_DOWN_AFTER: '4000'
+    volumes: [./redis/start.sh:/opt/redis-start.sh:ro, sentinel3-data:/data]
+  haproxy-data:
+    image: haproxy:3.0-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+    volumes: [./haproxy/haproxy-data.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro]
+    networks: [appnet]
+    restart: unless-stopped
+    depends_on: [redis1, redis2]
+  haproxy1:
+    <<: *edge
+    ports: ['${HTTP_PORT:-8088}:80', '${HTTPS_PORT:-8443}:443', '127.0.0.1:${STATS_PORT:-8404}:8404']
+    networks:
+      appnet: {ipv4_address: 172.31.0.10}
+  haproxy2:
+    <<: *edge
+    ports: ['${HTTP_BACKUP_PORT:-8089}:80', '${HTTPS_BACKUP_PORT:-8444}:443']
+    networks:
+      appnet: {ipv4_address: 172.31.0.11}
+  storefront1: &storefront
+    image: alfarid-storefront:local
+    build:
+      context: ..
+      dockerfile: infrastructure/docker/storefront.Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-https://api.alfarid.example}
+        R2_PUBLIC_URL: ${R2_PUBLIC_URL:-}
+    environment: {API_INTERNAL_URL: 'http://haproxy1:8081'}
+    networks:
+      appnet: {ipv4_address: 172.31.0.20}
+    restart: unless-stopped
+    profiles: [frontend]
+  storefront2:
+    <<: *storefront
+    networks:
+      appnet: {ipv4_address: 172.31.0.21}
+  backoffice:
+    image: alfarid-backoffice:local
+    build:
+      context: ..
+      dockerfile: infrastructure/docker/static.Dockerfile
+      args:
+        APP: backoffice
+        VITE_API_URL: ${PUBLIC_API_URL:-https://api.alfarid.example}
+        VITE_WEB_URL: ${PUBLIC_WEB_URL:-https://alfarid.example}
+    networks: [appnet]
+    profiles: [frontend]
+  pos:
+    image: alfarid-pos:local
+    build:
+      context: ..
+      dockerfile: infrastructure/docker/static.Dockerfile
+      args:
+        APP: pos
+        VITE_API_URL: ${PUBLIC_API_URL:-https://api.alfarid.example}
+    networks: [appnet]
+    profiles: [frontend]
+  backup:
+    image: alfarid-data:local
+    entrypoint: [sh, -c, 'while true; do /opt/pg-backup.sh; sleep 86400; done']
+    env_file: .env
+    environment:
+      PGHOST: postgres
+      PGUSER: ${DB_USERNAME:?}
+      PGPASSWORD: ${DB_PASSWORD:?}
+      PGDATABASE: alfarid
+      PGSSLMODE: require
+    volumes: [backups:/backups]
+    networks: [appnet]
+    profiles: [backup]
+    restart: unless-stopped
+
+networks:
+  appnet:
+    ipam:
+      # Reserve low addresses for trusted proxies, Redis and the floating VIP.
+      config: [{subnet: 172.31.0.0/24, ip_range: 172.31.0.128/25}]
+volumes:
+  pgdata:
+  redis1-data:
+  redis2-data:
+  sentinel1-data:
+  sentinel2-data:
+  sentinel3-data:
+  backups:

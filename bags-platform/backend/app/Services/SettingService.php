@@ -15,9 +15,15 @@ use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 use JsonException;
 
+/**
+ * Central settings and document numbering configuration service.
+ *
+ * Caches static system settings and manages atomic generation of sequential document identifiers
+ * (orders, transfers, movements, invoices) via PostgreSQL sequences and optimistic concurrency locking.
+ */
 class SettingService
 {
-    /** @var array<string, array{0: string, 1: int}> بادئة وحشو الترقيم لكل نوع — يُقرآن مرة واحدة لكل طلب (M11). */
+    /** @var array<string, array{0: string, 1: int}> Cached numbering prefix and padding config per request to avoid repeated lookups. */
     private array $numberingConfig = [];
 
     private ?array $transactionSnapshot = null;
@@ -62,7 +68,7 @@ class SettingService
         'supplier_payment_next_number',
     ];
 
-    /** مستندات داخلية تُرقَّم بتسلسل PostgreSQL (فجوات مقبولة) حتى لا يُحتجز قفل العداد داخل معاملات طويلة. */
+    /** Internal documents numbered via dedicated PostgreSQL sequences to prevent long transaction row locks. */
     private const SEQUENCE_TYPES = [
         'order' => 'order_next_number',
         'purchase_order' => 'purchase_order_next_number',
@@ -174,6 +180,11 @@ class SettingService
         return $default;
     }
 
+    public function getBool(string $key, bool $default = false): bool
+    {
+        return filter_var($this->get($key, $default), FILTER_VALIDATE_BOOLEAN);
+    }
+
     /** @return array{name: string, logo: ?string, email: ?string, phone: ?string, address: ?string} */
     public function publicBranding(): array
     {
@@ -266,10 +277,7 @@ class SettingService
             DB::afterCommit(fn () => $this->clearCache());
 
             if ($movementSequenceTarget !== null) {
-                // مزامنة التسلسل بعد الاعتماد لا داخله: ALTER SEQUENCE داخل
-                // المعاملة كان يحجب كل nextval (أي كل حركات المخزون) حتى نهاية
-                // معاملة الإعدادات (L-9). الدالة تقفل الترقيم لمدة الاستعلام
-                // نفسه وتنسّق رفع الحد الأدنى مع كل تخصيص جديد لمنع إعادة رقم.
+                // Synchronize sequence after commit to avoid holding an exclusive lock on the sequence during transactions
                 DB::afterCommit(function () use ($movementSequenceTarget): void {
                     $this->synchronizeSequence(fn () => DB::selectOne('SELECT inventory_movement_number(?) AS number', [$movementSequenceTarget]));
                 });
@@ -315,7 +323,7 @@ class SettingService
         [$prefix, $padding] = $this->numberingConfig($type, $definition['prefix'], $definition['padding']);
 
         return DB::transaction(function () use ($definition, $prefix, $padding): string {
-            // العداد وحده يُقفل ويُقرأ طازجًا كل مرة؛ البادئة والحشو من ذاكرة الطلب.
+            // Counter row is locked and read fresh; prefix and padding are cached in request memory
             $nextSetting = Setting::query()
                 ->where('key', $definition['next'])
                 ->lockForUpdate()
@@ -336,7 +344,7 @@ class SettingService
     }
 
     /**
-     * بادئة وحشو نوع ترقيم — قراءة واحدة لكل طلب بدل استعلام مع كل حركة/مستند.
+     * Cache numbering prefix and padding per request to reduce query overhead.
      *
      * @return array{0: string, 1: int}
      */

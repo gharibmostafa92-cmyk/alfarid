@@ -1,165 +1,181 @@
-/* ============ Status maps + mock data ============ */
-const BRANCHES = ['فرع مدينة نصر', 'فرع المعادي', 'فرع الإسكندرية - سموحة', 'فرع المنصورة', 'المخزن الرئيسي'];
-const CITIES = ['القاهرة', 'الجيزة', 'الإسكندرية', 'المنصورة', 'طنطا', 'الزقازيق', 'أسيوط', 'سوهاج', 'الأقصر', 'أسوان', 'بورسعيد', 'الإسماعيلية', 'السويس', 'دمياط', 'المنيا', 'بني سويف', 'الفيوم', 'الغردقة'];
-const CHANNELS = ['المتجر الإلكتروني', 'تطبيق الجوال', 'نقطة البيع', 'بوابة الجملة'];
-const CASHIERS = ['محمود سعيد', 'منة الله عادل', 'كريم فتحي', 'سارة حمدي', 'يوسف عاطف'];
+/* Mock data shaped after the wholesale + store API responses. */
+const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+const fmt = (n, d = 2) => Number(n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+const Money = ({ v, strong, cls = '' }) => (
+  <span className={`num ${cls}`} style={strong ? { fontWeight: 600, color: 'var(--ink)' } : null}>
+    {fmt(v)} <small style={{ fontSize: '0.78em', color: 'var(--soft)', fontWeight: 500 }}>EGP</small>
+  </span>
+);
+const D = (s) => <span className="num">{s}</span>;
+
+const ACCOUNT = {
+  name: 'محمود عبد الرحمن', phone: '+20 100 482 1190', email: 'm.abdelrahman@nourtrading.com',
+  company: 'شركة النور للتجارة والتوزيع', tax_number: '512-884-306', commercial_register: '148392 — القاهرة',
+  status: 'approved', approved_at: '2026-03-14', rejection_reason: null,
+  credit_limit: 250000, used_credit: 142650, available_credit: 107350, in_progress_orders_count: 4,
+  wallet: 3840,
+};
+
+const APP_STATUS = {
+  pending:   { label: 'قيد المراجعة', v: 'warning', icon: 'fa-hourglass-half' },
+  approved:  { label: 'معتمد', v: 'success', icon: 'fa-circle-check' },
+  rejected:  { label: 'مرفوض', v: 'danger', icon: 'fa-circle-xmark' },
+  suspended: { label: 'موقوف', v: 'default', icon: 'fa-circle-pause' },
+};
+const DOCS = [
+  { name: 'commercial-register-2026.pdf', type: 'السجل التجاري', status: 'approved' },
+  { name: 'tax-card-front.jpg', type: 'البطاقة الضريبية', status: 'rejected', note: 'الصورة غير واضحة، والرقم الضريبي غير مقروء.' },
+  { name: 'national-id-owner.pdf', type: 'بطاقة الرقم القومي للمالك', status: 'pending' },
+  { name: 'shop-photo.png', type: 'صورة واجهة المحل', status: 'approved' },
+];
+const DOC_STATUS = { approved: ['مقبول', 'success'], rejected: ['مرفوض', 'danger'], pending: ['قيد المراجعة', 'warning'] };
 
 const ORDER_STATUS = {
-  pending: { label: 'قيد المراجعة', tone: 'amber' },
-  confirmed: { label: 'مؤكد', tone: 'blue' },
-  processing: { label: 'قيد التجهيز', tone: 'violet' },
-  shipped: { label: 'تم الشحن', tone: 'orange' },
-  delivered: { label: 'تم التسليم', tone: 'green' },
-  cancelled: { label: 'ملغي', tone: 'red' },
-  returned: { label: 'مرتجع', tone: 'gray' },
+  pending: ['قيد المراجعة', 'warning'], confirmed: ['مؤكد', 'info'], processing: ['جاري التجهيز', 'info'],
+  shipped: ['تم الشحن', 'accent'], delivered: ['تم التسليم', 'success'], cancelled: ['ملغي', 'default'], returned: ['مرتجع', 'danger'],
 };
-const ORDER_NEXT = {
-  pending: ['confirmed', 'cancelled'],
-  confirmed: ['processing', 'shipped', 'cancelled'],
-  processing: ['shipped', 'cancelled'],
-  shipped: ['delivered', 'returned'],
-  delivered: ['returned'],
-  cancelled: [], returned: [],
-};
-const PAY_STATUS = {
-  unpaid: { label: 'غير مدفوع', tone: 'amber' },
-  paid: { label: 'مدفوع', tone: 'green' },
-  failed: { label: 'فشل الدفع', tone: 'red' },
-  refunded: { label: 'مسترد', tone: 'gray' },
-};
-const PAY_METHODS = { cod: 'عند الاستلام', card: 'بطاقة', wallet: 'محفظة', bank: 'تحويل بنكي', credit: 'آجل' };
-
-const RETURN_STATUS = {
-  pending: { label: 'قيد المراجعة', tone: 'amber' },
-  approved: { label: 'موافق عليه', tone: 'blue' },
-  rejected: { label: 'مرفوض', tone: 'red' },
-  received: { label: 'مستلم', tone: 'violet' },
-  refunded: { label: 'تم رد المبلغ', tone: 'green' },
-  cancelled: { label: 'ملغي', tone: 'gray' },
-};
-const REFUND_METHODS = { original: 'وسيلة الدفع الأصلية', wallet: 'المحفظة', bank: 'تحويل بنكي', cash: 'نقدي' };
-
-const PR_STATUS = {
-  draft: { label: 'مسودة', tone: 'gray' },
-  pending: { label: 'بانتظار الاعتماد', tone: 'amber' },
-  approved: { label: 'معتمد', tone: 'green' },
-  rejected: { label: 'مرفوض', tone: 'red' },
-  converted_to_po: { label: 'تحول لأمر شراء', tone: 'violet' },
-};
-const PO_STATUS = {
-  draft: { label: 'مسودة', tone: 'gray' },
-  sent: { label: 'مرسل للمورد', tone: 'blue' },
-  accepted: { label: 'مقبول من المورد', tone: 'green' },
-  revision: { label: 'المورد طلب تعديلًا', tone: 'amber' },
-  partial: { label: 'مستلم جزئيًا', tone: 'violet' },
-  completed: { label: 'مكتمل', tone: 'green' },
-  cancelled: { label: 'ملغي', tone: 'red' },
-};
-const INV_STATUS = {
-  draft: { label: 'مسودة', tone: 'gray' },
-  posted: { label: 'مُرحّلة', tone: 'blue' },
-  partial: { label: 'مدفوعة جزئيًا', tone: 'amber' },
-  paid: { label: 'مدفوعة', tone: 'green' },
-  cancelled: { label: 'ملغاة', tone: 'red' },
-};
-const TRANSFER_STATUS = {
-  pending: { label: 'بانتظار الاعتماد', tone: 'amber' },
-  approved: { label: 'معتمد', tone: 'green' },
-  rejected: { label: 'مرفوض', tone: 'red' },
-};
-const SHIFT_STATUS = {
-  open: { label: 'مفتوحة', tone: 'blue' },
-  closed: { label: 'مغلقة بانتظار الاعتماد', tone: 'amber' },
-  approved: { label: 'معتمدة', tone: 'green' },
-};
+const PAY_METHOD = { credit: 'آجل', cod: 'الدفع عند الاستلام', bank_transfer: 'تحويل بنكي', wallet: 'المحفظة' };
+const PAY_STATUS = { paid: ['مدفوع', 'success'], unpaid: ['غير مدفوع', 'danger'], partial: ['مدفوع جزئيًا', 'warning'], pending: ['في انتظار التحصيل', 'default'] };
 const QUOTE_STATUS = {
-  draft: { label: 'مسودة', tone: 'gray' },
-  requested: { label: 'مطلوب تسعيره', tone: 'amber' },
-  priced: { label: 'مسعّر من الإدارة', tone: 'blue' },
-  accepted: { label: 'مقبول', tone: 'green' },
-  rejected: { label: 'مرفوض', tone: 'red' },
-  expired: { label: 'منتهي', tone: 'gray' },
-  converted: { label: 'تحول لطلب', tone: 'violet' },
+  draft: ['مسودة', 'default'], requested: ['مطلوب تسعيره', 'warning'], priced: ['تم تسعيره من الإدارة', 'info'],
+  accepted: ['مقبول', 'success'], rejected: ['مرفوض', 'danger'], expired: ['منتهي', 'default'], converted: ['محوّل لطلب', 'accent'],
 };
-const NOTICE_STATUS = {
-  pending: { label: 'بانتظار المراجعة', tone: 'amber' },
-  approved: { label: 'موافق عليه', tone: 'green' },
-  rejected: { label: 'مرفوض', tone: 'red' },
+const NOTICE_STATUS = { pending: ['قيد المراجعة', 'warning'], approved: ['معتمد', 'success'], rejected: ['مرفوض', 'danger'] };
+const RETURN_STATUS = {
+  requested: ['تم تقديم الطلب', 'warning'], approved: ['تمت الموافقة', 'info'], received: ['تم استلام المرتجع', 'accent'],
+  refunded: ['تم رد المبلغ', 'success'], rejected: ['مرفوض', 'danger'],
 };
+const NOTICE_METHOD = { bank_transfer: 'تحويل بنكي', cheque: 'شيك', deposit: 'إيداع' };
 
-/* ---------- products ---------- */
-const VARIANTS = [
-  { id: 1, name: 'زيت زيتون بكر ممتاز 1 لتر', sku: 'OIL-EV-1000', price: 385, cost: 290 },
-  { id: 2, name: 'أرز مصري فاخر 5 كجم', sku: 'RCE-EG-5000', price: 210, cost: 168 },
-  { id: 3, name: 'سكر أبيض ناعم 1 كجم', sku: 'SGR-WH-1000', price: 38.5, cost: 31 },
-  { id: 4, name: 'شاي أسود ناعم 250 جم', sku: 'TEA-BL-250', price: 96, cost: 72 },
-  { id: 5, name: 'مكرونة بيني 400 جم', sku: 'PST-PN-400', price: 22, cost: 15.5 },
-  { id: 6, name: 'سمن نباتي 2 كجم', sku: 'GHE-VG-2000', price: 268, cost: 214 },
-  { id: 7, name: 'عسل نحل طبيعي 500 جم', sku: 'HNY-NT-500', price: 240, cost: 175 },
-  { id: 8, name: 'تونة قطع فاتح 185 جم', sku: 'TNA-LT-185', price: 64, cost: 49 },
-  { id: 9, name: 'بن محوّج 200 جم', sku: 'COF-SP-200', price: 145, cost: 104 },
-  { id: 10, name: 'دقيق فاخر 1 كجم', sku: 'FLR-PR-1000', price: 32, cost: 25 },
+const PRODUCTS = [
+  { id: 1, name_ar: 'حقيبة توت كلاسيك جلد طبيعي', name_en: 'Classic Leather Tote', base: 1450, variants: [
+    { id: 101, label: 'أسود', sku: 'SPH-TT-001-BLK', barcode: '6224001001011', price: 1080, qty: 340, tiers: [[24, 1040], [60, 995]] },
+    { id: 102, label: 'كاميل', sku: 'SPH-TT-001-CML', barcode: '6224001001028', price: 1080, qty: 96, tiers: [[24, 1040], [60, 995]] },
+    { id: 103, label: 'كريمي', sku: 'SPH-TT-001-CRM', barcode: '6224001001035', price: 1110, qty: 0, tiers: [[24, 1065]] } ] },
+  { id: 2, name_ar: 'حقيبة كروس صغيرة', name_en: 'Mini Crossbody', base: 780, variants: [
+    { id: 201, label: 'وردي', sku: 'SPH-CB-014-PNK', barcode: '6224001014011', price: 560, qty: 512, tiers: [[36, 535], [120, 510]] },
+    { id: 202, label: 'أسود', sku: 'SPH-CB-014-BLK', barcode: '6224001014028', price: 560, qty: 288, tiers: [[36, 535], [120, 510]] } ] },
+  { id: 3, name_ar: 'شنطة ظهر حضرية', name_en: 'Urban Backpack', base: 1290, variants: [
+    { id: 301, label: 'كحلي / كبير', sku: 'SPH-BP-007-NVY-L', barcode: '6224001007015', price: 925, qty: 150, tiers: [[20, 895], [50, 860]] },
+    { id: 302, label: 'رمادي / متوسط', sku: 'SPH-BP-007-GRY-M', barcode: '6224001007022', price: 880, qty: 18, tiers: [[20, 850]] } ] },
+  { id: 4, name_ar: 'كلاتش سهرة مطرز', name_en: 'Embroidered Evening Clutch', base: 640, variants: [
+    { id: 401, label: 'ذهبي', sku: 'SPH-CL-022-GLD', barcode: '6224001022010', price: 455, qty: 220, tiers: [[48, 430]] } ] },
+  { id: 5, name_ar: 'حقيبة لابتوب بزنس', name_en: 'Business Laptop Bag', base: 1680, variants: [
+    { id: 501, label: 'أسود / 15 بوصة', sku: 'SPH-LB-031-BLK-15', barcode: '6224001031012', price: 1235, qty: 74, tiers: [[12, 1199], [40, 1150]] },
+    { id: 502, label: 'بني / 14 بوصة', sku: 'SPH-LB-031-BRN-14', barcode: '6224001031029', price: 1210, qty: 61, tiers: [[12, 1175]] } ] },
+  { id: 6, name_ar: 'محفظة يد نسائي', name_en: 'Zip Around Wallet', base: 390, variants: [
+    { id: 601, label: 'نبيتي', sku: 'SPH-WL-040-BRG', barcode: '6224001040014', price: 270, qty: 900, tiers: [[60, 255], [200, 240]] },
+    { id: 602, label: 'بيج', sku: 'SPH-WL-040-BGE', barcode: '6224001040021', price: 270, qty: 640, tiers: [[60, 255], [200, 240]] } ] },
+  { id: 7, name_ar: 'حقيبة سفر ويك إند', name_en: 'Weekender Duffel', base: 2150, variants: [
+    { id: 701, label: 'زيتي', sku: 'SPH-DF-009-OLV', barcode: '6224001009019', price: 1590, qty: 42, tiers: [[10, 1540]] } ] },
+  { id: 8, name_ar: 'شنطة كتف هوبو', name_en: 'Soft Hobo Shoulder', base: 990, variants: [
+    { id: 801, label: 'تركوازي', sku: 'SPH-HB-018-TRQ', barcode: '6224001018011', price: 720, qty: 130, tiers: [[24, 690]] },
+    { id: 802, label: 'أسود', sku: 'SPH-HB-018-BLK', barcode: '6224001018028', price: 720, qty: 205, tiers: [[24, 690]] } ] },
+];
+const ALL_VARIANTS = PRODUCTS.flatMap((p) => p.variants.map((v) => ({ ...v, product: p })));
+const findVariant = (code) => ALL_VARIANTS.find((v) => v.sku.toLowerCase() === String(code).trim().toLowerCase() || v.barcode === String(code).trim());
+
+const ORDERS = [
+  { id: 9, number: 'WS-260418', date: '2026-10-26', status: 'processing', method: 'credit', pay: 'unpaid', subtotal: 48600, discount: 2430, shipping: 350, cod_fee: 0, tax: 0, total: 46520, cancellable: true, returnable: false,
+    recipient: 'محمود عبد الرحمن', phone: '+20 100 482 1190', city: 'القاهرة', address: '14 ش التحرير، الدقي، الجيزة — المخزن الرئيسي',
+    items: [{ name: 'حقيبة توت كلاسيك جلد طبيعي', sku: 'SPH-TT-001-BLK', qty: 30, unit: 1040, discount: 1200 }, { name: 'محفظة يد نسائي', sku: 'SPH-WL-040-BRG', qty: 60, unit: 255, discount: 1230 }],
+    track: [['pending', '2026-10-26 10:42', true], ['confirmed', '2026-10-26 13:05', true], ['processing', '2026-10-27 09:20', 'now'], ['shipped'], ['delivered']] },
+  { id: 8, number: 'WS-260377', date: '2026-10-21', status: 'shipped', method: 'credit', pay: 'unpaid', subtotal: 22400, discount: 0, shipping: 250, cod_fee: 0, tax: 0, total: 22650, cancellable: false, returnable: false,
+    recipient: 'محمود عبد الرحمن', phone: '+20 100 482 1190', city: 'الإسكندرية', address: '8 ش فؤاد، محطة الرمل — فرع الإسكندرية',
+    items: [{ name: 'حقيبة كروس صغيرة', sku: 'SPH-CB-014-PNK', qty: 40, unit: 560, discount: 0 }],
+    track: [['pending', '2026-10-21 11:10', true], ['confirmed', '2026-10-21 15:40', true], ['processing', '2026-10-22 08:00', true], ['shipped', '2026-10-23 17:25', 'now'], ['delivered']] },
+  { id: 7, number: 'WS-260301', date: '2026-10-12', status: 'delivered', method: 'bank_transfer', pay: 'paid', subtotal: 36975, discount: 1100, shipping: 0, cod_fee: 0, tax: 0, total: 35875, cancellable: false, returnable: true,
+    recipient: 'أحمد سمير', phone: '+20 112 300 7741', city: 'القاهرة', address: '14 ش التحرير، الدقي، الجيزة — المخزن الرئيسي',
+    items: [{ name: 'شنطة ظهر حضرية', sku: 'SPH-BP-007-NVY-L', qty: 25, unit: 895, discount: 600 }, { name: 'كلاتش سهرة مطرز', sku: 'SPH-CL-022-GLD', qty: 30, unit: 455, discount: 500 }],
+    track: [['pending', '2026-10-12', true], ['confirmed', '2026-10-12', true], ['processing', '2026-10-13', true], ['shipped', '2026-10-14', true], ['delivered', '2026-10-16 12:30', 'now']] },
+  { id: 6, number: 'WS-260244', date: '2026-10-03', status: 'delivered', method: 'cod', pay: 'paid', subtotal: 14820, discount: 0, shipping: 200, cod_fee: 150, tax: 0, total: 15170, cancellable: false, returnable: true,
+    recipient: 'محمود عبد الرحمن', phone: '+20 100 482 1190', city: 'القاهرة', address: '14 ش التحرير، الدقي، الجيزة — المخزن الرئيسي',
+    items: [{ name: 'حقيبة لابتوب بزنس', sku: 'SPH-LB-031-BLK-15', qty: 12, unit: 1235, discount: 0 }],
+    track: [['pending', '2026-10-03', true], ['delivered', '2026-10-06', 'now']] },
+  { id: 5, number: 'WS-260190', date: '2026-09-25', status: 'pending', method: 'credit', pay: 'unpaid', subtotal: 8640, discount: 0, shipping: 200, cod_fee: 0, tax: 0, total: 8840, cancellable: true, returnable: false,
+    recipient: 'محمود عبد الرحمن', phone: '+20 100 482 1190', city: 'المنصورة', address: '3 ش الجمهورية، المنصورة',
+    items: [{ name: 'شنطة كتف هوبو', sku: 'SPH-HB-018-TRQ', qty: 12, unit: 720, discount: 0 }],
+    track: [['pending', '2026-09-25 18:02', 'now'], ['confirmed'], ['processing'], ['shipped'], ['delivered']] },
+  { id: 4, number: 'WS-260112', date: '2026-09-11', status: 'cancelled', method: 'credit', pay: 'unpaid', subtotal: 15900, discount: 0, shipping: 0, cod_fee: 0, tax: 0, total: 15900, cancellable: false, returnable: false,
+    recipient: 'محمود عبد الرحمن', phone: '+20 100 482 1190', city: 'القاهرة', address: '14 ش التحرير، الدقي، الجيزة',
+    items: [{ name: 'حقيبة سفر ويك إند', sku: 'SPH-DF-009-OLV', qty: 10, unit: 1590, discount: 0 }],
+    track: [['pending', '2026-09-11', true], ['cancelled', '2026-09-12 10:00', 'now']] },
 ];
 
-/* ---------- orders ---------- */
-const NAMES = ['أحمد عبد الرحمن', 'مريم خالد', 'شركة النور للتجارة', 'محمد إبراهيم', 'زائر', 'نورهان سامي', 'عمر مصطفى', 'هبة الله فوزي', 'سوبر ماركت الأمل', 'إسلام حسن', 'زائر', 'دينا وليد'];
-const ORDERS = (() => {
-  const sts = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'delivered', 'cancelled', 'returned', 'pending', 'processing', 'shipped', 'confirmed'];
-  const pays = ['cod', 'card', 'wallet', 'bank', 'credit', 'cod', 'card', 'card', 'cod', 'wallet', 'cod', 'credit'];
-  const pst = ['unpaid', 'paid', 'paid', 'unpaid', 'paid', 'paid', 'refunded', 'paid', 'failed', 'paid', 'unpaid', 'unpaid'];
-  return NAMES.map((n, i) => {
-    const guest = n === 'زائر';
-    return {
-      id: 10482 - i * 7, no: 'ORD-' + (10482 - i * 7),
-      customer: guest ? (i === 4 ? 'رانيا محمود' : 'طارق سليم') : n, guest,
-      ctype: guest ? 'زائر' : (n.includes('شركة') || n.includes('سوبر')) ? 'جملة' : 'قطاعي',
-      phone: '01' + ['0', '1', '2', '5'][i % 4] + String(23456781 + i * 1093217).slice(0, 8),
-      channel: CHANNELS[i % 4], status: sts[i], pay: pays[i], payStatus: pst[i],
-      branch: i === 8 ? null : BRANCHES[i % 5],
-      total: [1284.5, 3920, 642, 18750, 455.75, 2310, 980, 1675, 799, 5420, 312.5, 24800][i],
-      date: `2026-10-${String(27 - Math.floor(i / 2)).padStart(2, '0')}`, time: ['09:14', '10:42', '11:05', '12:30', '13:18', '14:02', '15:47', '16:20', '17:11', '18:35', '19:08', '20:44'][i],
-      followUp: [true, false, false, true, false, false, false, false, true, false, false, true][i],
-      needRefund: [false, false, false, false, false, false, true, true, false, false, false, false][i],
-      city: CITIES[i % 8],
-    };
-  });
-})();
+const QUOTES = [
+  { id: 31, number: 'QT-2026-0031', created: '2026-10-25', valid_until: '2026-11-08', status: 'priced', subtotal: 118500, discount: 5925, tax: 0, total: 112575,
+    trader_note: 'طلبية لموسم الشتاء، نحتاج التسليم قبل منتصف نوفمبر.', admin_note: 'تم تطبيق خصم كمية إضافي 5% على إجمالي العرض. الأسعار سارية حتى تاريخ الصلاحية.',
+    items: [{ name: 'حقيبة توت كلاسيك جلد طبيعي', sku: 'SPH-TT-001-BLK', qty: 80, target: 950, offered: 980 }, { name: 'شنطة ظهر حضرية', sku: 'SPH-BP-007-NVY-L', qty: 50, target: 820, offered: 835 }] },
+  { id: 30, number: 'QT-2026-0030', created: '2026-10-22', valid_until: null, status: 'requested', subtotal: 0, discount: 0, tax: 0, total: null,
+    trader_note: 'نطلب أفضل سعر لكمية 200 قطعة.', admin_note: null,
+    items: [{ name: 'محفظة يد نسائي', sku: 'SPH-WL-040-BGE', qty: 200, target: 225, offered: null }] },
+  { id: 29, number: 'QT-2026-0029', created: '2026-10-20', valid_until: null, status: 'draft', subtotal: 0, discount: 0, tax: 0, total: null, trader_note: '', admin_note: null,
+    items: [{ name: 'كلاتش سهرة مطرز', sku: 'SPH-CL-022-GLD', qty: 60, target: 410, offered: null }] },
+  { id: 27, number: 'QT-2026-0027', created: '2026-10-01', valid_until: '2026-10-15', status: 'converted', subtotal: 37800, discount: 0, tax: 0, total: 37800, converted_order_id: 'WS-260301',
+    trader_note: '', admin_note: 'مقبول.', items: [{ name: 'شنطة ظهر حضرية', sku: 'SPH-BP-007-NVY-L', qty: 25, target: 870, offered: 895 }] },
+  { id: 25, number: 'QT-2026-0025', created: '2026-09-14', valid_until: '2026-09-28', status: 'expired', subtotal: 21600, discount: 0, tax: 0, total: 21600, trader_note: '', admin_note: null,
+    items: [{ name: 'حقيبة كروس صغيرة', sku: 'SPH-CB-014-BLK', qty: 40, target: 500, offered: 540 }] },
+  { id: 22, number: 'QT-2026-0022', created: '2026-08-30', valid_until: '2026-09-13', status: 'rejected', subtotal: 15400, discount: 0, tax: 0, total: 15400, trader_note: '', admin_note: null,
+    items: [{ name: 'حقيبة سفر ويك إند', sku: 'SPH-DF-009-OLV', qty: 10, target: 1350, offered: 1540 }] },
+];
 
-/* ---------- returns ---------- */
+const STATEMENT = {
+  opening: 96420, closing: 142650,
+  rows: [
+    { date: '2026-10-01', ref: '—', desc: 'رصيد أول المدة', debit: 0, credit: 0, bal: 96420, opening: true },
+    { date: '2026-10-03', ref: 'WS-260244', desc: 'فاتورة مبيعات', debit: 15170, credit: 0, bal: 111590 },
+    { date: '2026-10-06', ref: 'PN-0412', desc: 'تحصيل عند الاستلام', debit: 0, credit: 15170, bal: 96420 },
+    { date: '2026-10-12', ref: 'WS-260301', desc: 'فاتورة مبيعات', debit: 35875, credit: 0, bal: 132295 },
+    { date: '2026-10-15', ref: 'PN-0418', desc: 'إشعار سداد — تحويل بنكي (معتمد)', debit: 0, credit: 35875, bal: 96420 },
+    { date: '2026-10-18', ref: 'RT-0091', desc: 'إشعار دائن — مرتجع', debit: 0, credit: 2790, bal: 93630 },
+    { date: '2026-10-21', ref: 'WS-260377', desc: 'فاتورة مبيعات (آجل)', debit: 22650, credit: 0, bal: 116280 },
+    { date: '2026-10-22', ref: 'PN-0425', desc: 'إشعار سداد — شيك (معتمد)', debit: 0, credit: 20150, bal: 96130 },
+    { date: '2026-10-26', ref: 'WS-260418', desc: 'فاتورة مبيعات (آجل)', debit: 46520, credit: 0, bal: 142650 },
+  ],
+};
+
+const NOTICES = [
+  { id: 431, number: 'PN-0431', order: 'WS-260377', amount: 22650, method: 'bank_transfer', date: '2026-10-27', status: 'pending', created: '2026-10-27', bank: 'البنك الأهلي المصري', ref: 'NBE-77820193', admin_note: null, receipt: 'transfer-receipt-27oct.pdf' },
+  { id: 425, number: 'PN-0425', order: null, amount: 20150, method: 'cheque', date: '2026-10-22', status: 'approved', created: '2026-10-22', bank: 'بنك مصر', ref: 'CHQ-004418', admin_note: 'تم تحصيل الشيك وإضافته لحسابكم.', receipt: 'cheque-004418.jpg' },
+  { id: 418, number: 'PN-0418', order: 'WS-260301', amount: 35875, method: 'bank_transfer', date: '2026-10-14', status: 'approved', created: '2026-10-14', bank: 'CIB', ref: 'CIB-2210-5531', admin_note: null, receipt: 'cib-transfer.png' },
+  { id: 409, number: 'PN-0409', order: null, amount: 12000, method: 'deposit', date: '2026-09-30', status: 'rejected', created: '2026-09-30', bank: 'بنك القاهرة', ref: 'BDC-99120', admin_note: 'رقم المرجع لا يطابق كشف البنك. برجاء إرسال إشعار جديد بالإيصال الصحيح.', receipt: 'deposit-slip.jpg' },
+];
+
 const RETURNS = [
-  { id: 1, no: 'RET-2041', order: 'ORD-10433', customer: 'نورهان سامي', branch: 'فرع المعادي', status: 'pending', method: 'original', total: 770, date: '2026-10-27' },
-  { id: 2, no: 'RET-2040', order: 'ORD-10426', customer: 'عمر مصطفى', branch: 'فرع مدينة نصر', status: 'approved', method: 'wallet', total: 1240, date: '2026-10-26' },
-  { id: 3, no: 'RET-2039', order: 'ORD-10398', customer: 'سوبر ماركت الأمل', branch: 'المخزن الرئيسي', status: 'received', method: 'bank', total: 6480, date: '2026-10-25' },
-  { id: 4, no: 'RET-2038', order: 'ORD-10377', customer: 'هبة الله فوزي', branch: 'فرع الإسكندرية - سموحة', status: 'refunded', method: 'cash', total: 385, date: '2026-10-23' },
-  { id: 5, no: 'RET-2037', order: 'ORD-10361', customer: 'إسلام حسن', branch: 'فرع المنصورة', status: 'rejected', method: null, total: 0, date: '2026-10-22' },
-  { id: 6, no: 'RET-2036', order: 'ORD-10340', customer: 'مريم خالد', branch: null, status: 'cancelled', method: 'original', total: 210, date: '2026-10-20' },
+  { id: 91, number: 'RT-0091', order: 'WS-260244', status: 'refunded', refund: 2790, method: 'wallet', ref: 'WAL-TRX-55102', date: '2026-10-09',
+    reason: 'عيوب تصنيع في بعض القطع', approved_at: '2026-10-11', received_at: '2026-10-15', refunded_at: '2026-10-18',
+    items: [{ name: 'حقيبة لابتوب بزنس', sku: 'SPH-LB-031-BLK-15', qty: 2, reason: 'قطع في السحّاب', photos: 3 }] },
+  { id: 95, number: 'RT-0095', order: 'WS-260301', status: 'approved', refund: 1820, method: 'credit_note', ref: null, date: '2026-10-24',
+    reason: 'لون مختلف عن المطلوب', approved_at: '2026-10-25', received_at: null, refunded_at: null,
+    items: [{ name: 'كلاتش سهرة مطرز', sku: 'SPH-CL-022-GLD', qty: 4, reason: 'اللون فضي بدل ذهبي', photos: 2 }] },
+];
+const REFUND_METHOD = { wallet: 'رصيد المحفظة', credit_note: 'إشعار دائن على الحساب', original: 'نفس طريقة الدفع' };
+
+const WALLET_TX = [
+  { type: 'refund', label: 'استرداد مرتجع', amount: 2790, after: 3840, date: '2026-10-18 14:20', ref: 'RT-0091' },
+  { type: 'debit', label: 'خصم على طلب', amount: -1950, after: 1050, date: '2026-09-02 11:05', ref: 'WS-259870' },
+  { type: 'credit', label: 'إضافة من الإدارة', amount: 1500, after: 3000, date: '2026-08-20 09:30', ref: 'ADJ-0021' },
+  { type: 'refund', label: 'استرداد طلب ملغي', amount: 1500, after: 1500, date: '2026-07-14 16:45', ref: 'WS-259402' },
 ];
 
-/* ---------- suppliers ---------- */
-const SUPPLIERS = [
-  { id: 1, code: 'SUP-001', name: 'مصطفى الشريف', company: 'الشريف للزيوت والسمن', phone: '01001234567', email: 'orders@sherif-oils.com', terms: 30, balance: 184250, active: true },
-  { id: 2, code: 'SUP-002', name: 'هاني عبد الله', company: 'مطاحن الدلتا', phone: '01112233445', email: 'sales@deltamills.eg', terms: 45, balance: 92600.5, active: true },
-  { id: 3, code: 'SUP-003', name: 'إيمان رشاد', company: 'النيل للتعبئة', phone: '01223344556', email: null, terms: 15, balance: -4200, active: true },
-  { id: 4, code: 'SUP-004', name: 'شريف منير', company: 'بن الحرمين', phone: '01098877665', email: 'info@haramain-coffee.com', terms: 60, balance: 38900, active: true },
-  { id: 5, code: 'SUP-005', name: 'وليد قاسم', company: null, phone: '01556677889', email: null, terms: 0, balance: 0, active: false },
-  { id: 6, code: 'SUP-006', name: 'رامي جمال', company: 'جمال للأغذية المحفوظة', phone: '01067788990', email: 'rami@gamal-foods.com', terms: 30, balance: 61340, active: true },
+const NOTIFS = [
+  { id: 1, icon: 'fa-file-signature', title: 'تم تسعير عرض السعر QT-2026-0031', body: 'الإدارة أرسلت أسعار العرض. العرض صالح حتى 8 نوفمبر 2026.', time: 'منذ ساعتين', unread: true, link: ['quote', 31] },
+  { id: 2, icon: 'fa-truck-fast', title: 'طلبك WS-260377 في الطريق', body: 'تم شحن الطلب لفرع الإسكندرية.', time: 'منذ 5 أيام', unread: true, link: ['order', 8] },
+  { id: 3, icon: 'fa-money-check', title: 'تم اعتماد إشعار السداد PN-0425', body: 'تم إضافة 20,150.00 EGP لحسابكم.', time: '22 أكتوبر', unread: true, link: ['notice', 425] },
+  { id: 4, icon: 'fa-rotate-left', title: 'تمت الموافقة على المرتجع RT-0095', body: 'برجاء تسليم القطع لمندوب الشحن خلال 3 أيام عمل.', time: '25 أكتوبر', unread: false, link: ['return', 95] },
+  { id: 5, icon: 'fa-bell', title: 'تحديث على قائمة الأسعار', body: 'تم تحديث شرائح الكميات لعدد من المنتجات.', time: '18 أكتوبر', unread: false, link: null },
+  { id: 6, icon: 'fa-circle-xmark', title: 'تم رفض إشعار السداد PN-0409', body: 'رقم المرجع لا يطابق كشف البنك.', time: '1 أكتوبر', unread: false, link: ['notice', 409] },
 ];
 
-const TREASURIES = [
-  { id: 1, name: 'الخزنة الرئيسية', code: 'TR-MAIN', type: 'main', branch: null, balance: 1284600, active: true },
-  { id: 2, name: 'درج كاشير 1 — مدينة نصر', code: 'CD-NC-01', type: 'drawer', branch: 'فرع مدينة نصر', balance: 18420.5, active: true },
-  { id: 3, name: 'درج كاشير 2 — مدينة نصر', code: 'CD-NC-02', type: 'drawer', branch: 'فرع مدينة نصر', balance: 9310, active: true },
-  { id: 4, name: 'درج كاشير — المعادي', code: 'CD-MA-01', type: 'drawer', branch: 'فرع المعادي', balance: 12780, active: true },
-  { id: 5, name: 'البنك الأهلي — جاري', code: 'BK-NBE-01', type: 'bank', branch: null, balance: 3420150.75, active: true },
-  { id: 6, name: 'بنك مصر — جاري', code: 'BK-MSR-01', type: 'bank', branch: null, balance: 865300, active: true },
-  { id: 7, name: 'درج كاشير — سموحة', code: 'CD-AX-01', type: 'drawer', branch: 'فرع الإسكندرية - سموحة', balance: 0, active: false },
+const ADDRESSES = [
+  { id: 1, label: 'المخزن الرئيسي', city: 'القاهرة', address: '14 ش التحرير، الدقي، الجيزة', default: true },
+  { id: 2, label: 'فرع الإسكندرية', city: 'الإسكندرية', address: '8 ش فؤاد، محطة الرمل', default: false },
+  { id: 3, label: 'فرع المنصورة', city: 'المنصورة', address: '3 ش الجمهورية', default: false },
 ];
-const TREASURY_TYPES = { main: 'خزنة رئيسية', drawer: 'درج كاشير', bank: 'حساب بنكي' };
-
-const WHOLESALE = ['شركة النور للتجارة', 'سوبر ماركت الأمل', 'هايبر الفتح', 'مؤسسة الرحمة للتوزيع', 'ماركت الصفا'];
 
 Object.assign(window, {
-  BRANCHES, CITIES, CHANNELS, CASHIERS, ORDER_STATUS, ORDER_NEXT, PAY_STATUS, PAY_METHODS, RETURN_STATUS, REFUND_METHODS,
-  PR_STATUS, PO_STATUS, INV_STATUS, TRANSFER_STATUS, SHIFT_STATUS, QUOTE_STATUS, NOTICE_STATUS,
-  VARIANTS, ORDERS, RETURNS, SUPPLIERS, TREASURIES, TREASURY_TYPES, WHOLESALE,
+  fmt, Money, D, ACCOUNT, APP_STATUS, DOCS, DOC_STATUS, ORDER_STATUS, PAY_METHOD, PAY_STATUS, QUOTE_STATUS, NOTICE_STATUS,
+  RETURN_STATUS, NOTICE_METHOD, PRODUCTS, ALL_VARIANTS, findVariant, ORDERS, QUOTES, STATEMENT, NOTICES, RETURNS, REFUND_METHOD,
+  WALLET_TX, NOTIFS, ADDRESSES,
 });

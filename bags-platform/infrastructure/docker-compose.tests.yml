@@ -1,0 +1,17 @@
+services:
+  tests:
+    extends: {file: docker-compose.yml, service: app1}
+    image: alfarid-tests:local
+    build: {context: .., dockerfile: infrastructure/docker/tests.Dockerfile}
+    entrypoint: [sh, -c, 'php artisan config:clear && php artisan test "$@"', '--']
+    environment:
+      APP_ENV: testing
+      DB_DATABASE: alfarid_testing
+      CACHE_STORE: array
+      CACHE_LIMITER: array
+      QUEUE_CONNECTION: sync
+      SESSION_DRIVER: array
+      APP_MAINTENANCE_DRIVER: file
+    healthcheck: {disable: true}
+    restart: 'no'
+    profiles: [test]
