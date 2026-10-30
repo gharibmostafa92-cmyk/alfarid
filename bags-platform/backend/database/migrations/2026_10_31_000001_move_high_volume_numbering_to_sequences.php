@@ -97,6 +97,18 @@ SQL);
     {
         $this->createFunction(self::LEGAL_INVOICE_TYPES);
         foreach (self::NEW_TYPES as $type) {
+            // M-3: قبل الحذف تُكتب last_value + is_called في settings — صفوف
+            // settings لم تتقدم منذ الـ migration، وبدون هذا يعود الترقيم
+            // من قيم قديمة فيُنتج أرقامًا مكررة.
+            try {
+                $row = DB::selectOne("SELECT last_value, is_called FROM document_{$type}_number_seq");
+                if ($row) {
+                    $next = (int) $row->last_value + ($row->is_called ? 1 : 0);
+                    DB::table('settings')->where('key', $this->meta()[$type]['setting'])->update(['value' => (string) max(1, $next)]);
+                }
+            } catch (\Throwable) {
+                // الـ sequence غير موجود أصلًا — لا شيء يُحفظ.
+            }
             DB::statement("DROP SEQUENCE IF EXISTS document_{$type}_number_seq");
         }
     }

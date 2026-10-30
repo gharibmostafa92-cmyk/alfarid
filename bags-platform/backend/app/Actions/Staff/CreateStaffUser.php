@@ -50,6 +50,12 @@ final class CreateStaffUser
             abort_if($branch !== null && (int) ($attrs['branch_id'] ?? 0) !== $branch, 403);
             StaffAdministration::lockRoles($roles);
             abort_unless(StaffAdministration::mayManageUser($actor, roles: $roles), 403);
+            // M-14: الفحص عند الاقتراح قد يسبق التأكيد بدقائق — أعد تشغيل
+            // قاعدة تفرد البريد (داخل users وعبر أنواع الحسابات) تحت القفل.
+            \Illuminate\Support\Facades\Validator::make(
+                ['email' => $attrs['email'] ?? null],
+                ['email' => ['required', 'email', 'max:255', \Illuminate\Validation\Rule::unique('users', 'email'), new \App\Rules\EmailNotUsedByOtherAccountType('users')]]
+            )->validate();
             $user = User::create($attrs);
             $user->syncRoles($roles);
             StaffAdministration::audit($actor, 'user.created', 'user', $user->id, array_keys($attrs + ['roles' => $roles]), [], StaffAdministration::userState($user), $via);

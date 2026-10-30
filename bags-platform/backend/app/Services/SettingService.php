@@ -30,11 +30,15 @@ class SettingService
 
     private bool $uncommittedSettings = false;
 
+    /** M-6: ذاكرة على مستوى الطلب للنسخة المثبتة — الخدمة scoped فلا تتسرب بين الطلبات. */
+    private ?array $requestCache = null;
+
     public function resetReadSnapshot(bool $transactionBoundary = false): void
     {
         $this->transactionSnapshot = null;
         if ($transactionBoundary) {
             $this->uncommittedSettings = false;
+            $this->requestCache = null;
         }
     }
 
@@ -166,13 +170,25 @@ class SettingService
             $version = Cache::get(self::CACHE_VERSION_KEY);
         }
 
+        // M-6: خارج الـ transactions تُحفظ النتيجة في ذاكرة الطلب — كل get()
+        // كان يكلف رحلتين للكاش وفك تسلسل المصفوفة كاملة.
+        if ($this->requestCache !== null) {
+            return $this->requestCache;
+        }
         $key = self::CACHE_KEY.':'.$version;
         if ($inTransaction) {
             // Reuse committed cache values, but never publish an uncommitted cache miss.
             return $this->transactionSnapshot = Cache::get($key) ?? $read();
         }
 
-        return Cache::remember($key, self::CACHE_TTL_SECONDS, $read);
+        $result = Cache::remember($key, self::CACHE_TTL_SECONDS, $read);
+        // كاتب متأخر قد يدير النسخة أثناء القراءة — لقطة قديمة لا تُحفظ
+        // في ذاكرة الطلب، وإلا التصقت القيمة القديمة بباقي الطلب.
+        if (Cache::get(self::CACHE_VERSION_KEY) === $version) {
+            $this->requestCache = $result;
+        }
+
+        return $result;
     }
 
     public function get(string $key, mixed $default = null): mixed
@@ -299,18 +315,15 @@ class SettingService
                 ['settings' => $this->auditableSettings($before)], ['settings' => $this->auditableSettings($after)], $via);
             DB::afterCommit(fn () => $this->clearCache());
 
+            // M-2: المزامنة داخل الـ transaction — الـ setval غير transactional،
+            // ففشل لاحق (rollback) ينتج فجوة فقط، والفجوات مقبولة لهذه الأنواع.
+            // البديل السابق (afterCommit + warning) كان يترك العداد قديمًا
+            // فيكرر أرقام مستندات.
             if ($movementSequenceTarget !== null) {
-                // Synchronize sequence after commit to avoid holding an exclusive lock on the sequence during transactions
-                DB::afterCommit(function () use ($movementSequenceTarget): void {
-                    $this->synchronizeSequence(fn () => DB::selectOne('SELECT inventory_movement_number(?) AS number', [$movementSequenceTarget]));
-                });
+                DB::selectOne('SELECT inventory_movement_number(?) AS number', [$movementSequenceTarget]);
             }
-            if ($documentSequenceTargets !== []) {
-                DB::afterCommit(function () use ($documentSequenceTargets): void {
-                    foreach ($documentSequenceTargets as $type => $minimum) {
-                        $this->synchronizeSequence(fn () => DB::selectOne('SELECT document_next_number(?, ?) AS number', [$type, $minimum]));
-                    }
-                });
+            foreach ($documentSequenceTargets as $type => $minimum) {
+                DB::selectOne('SELECT document_next_number(?, ?) AS number', [$type, $minimum]);
             }
         }, attempts: 3);
     }
@@ -386,21 +399,12 @@ class SettingService
         })();
     }
 
-    private function synchronizeSequence(callable $sync): void
-    {
-        try {
-            $sync();
-        } catch (\Throwable $exception) {
-            report($exception);
-            $this->warnings[] = 'تم حفظ الإعدادات، لكن تعذرت مزامنة أحد عدادات الترقيم؛ أعد حفظ العداد للمحاولة مرة أخرى.';
-        }
-    }
-
     public function clearCache(): void
     {
         Cache::forever(self::CACHE_VERSION_KEY, (string) Str::uuid());
         Cache::forget(self::CACHE_KEY); // Retire the cache key used before versioning.
         $this->numberingConfig = [];
+        $this->requestCache = null;
         $this->resetReadSnapshot();
     }
 

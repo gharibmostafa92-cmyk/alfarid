@@ -59,11 +59,16 @@ class GeminiClient
                     ->post('https://generativelanguage.googleapis.com/v1beta/models/'.rawurlencode($model).':generateContent', $payload);
             } catch (ConnectionException) {
                 if ($attempt === 0) {
+                    // L-10: إعادة المحاولة بعد timeout قد تُحاسَب مرتين لدى
+                    // المزود — تُسجَّل هنا بدل الصمت.
+                    logger()->warning('gemini.request_retry', ['method' => 'generate', 'reason' => 'connection_timeout']);
+
                     continue;
                 }
                 throw new GeminiException('تعذّر الاتصال بخدمة Gemini.');
             }
             if (($response->status() === 429 || $response->serverError()) && $attempt === 0) {
+                logger()->warning('gemini.request_retry', ['method' => 'generate', 'reason' => 'http_'.$response->status()]);
                 usleep(250000);
 
                 continue;
@@ -122,9 +127,16 @@ class GeminiClient
                 }
             }
         }
+        // M-9: حد الإخراج من الإعدادات (كما في generate) لا مثبتًا — نماذج
+        // التفكير (Gemini 2.5) تحسب توكنز التفكير ضمنه فتظهر MAX_TOKENS زورًا.
+        $maxOutputTokens = max(1024, (int) config('services.gemini.max_output_tokens', 2048));
+        $generationConfig = ['temperature' => 0.2, 'maxOutputTokens' => $maxOutputTokens];
+        if (is_string($model) && preg_match('/^gemini-2\.5/i', $model) === 1) {
+            $generationConfig['thinkingConfig'] = ['thinkingBudget' => min(1024, (int) ($maxOutputTokens / 4))];
+        }
         $payload = [
             'contents' => $contents,
-            'generationConfig' => ['temperature' => 0.2, 'maxOutputTokens' => 2048],
+            'generationConfig' => $generationConfig,
         ];
         if ($functionDeclarations) {
             $payload['tools'] = [['functionDeclarations' => $functionDeclarations]];
@@ -141,11 +153,16 @@ class GeminiClient
                     ->post('https://generativelanguage.googleapis.com/v1beta/models/'.rawurlencode($model).':generateContent', $payload);
             } catch (ConnectionException) {
                 if ($attempt === 0) {
+                    // L-10: إعادة المحاولة بعد timeout قد تُحاسَب مرتين لدى
+                    // المزود — تُسجَّل هنا بدل الصمت.
+                    logger()->warning('gemini.request_retry', ['method' => 'converse', 'reason' => 'connection_timeout']);
+
                     continue;
                 }
                 throw new GeminiException('تعذّر الاتصال بخدمة Gemini.');
             }
             if (($response->status() === 429 || $response->serverError()) && $attempt === 0) {
+                logger()->warning('gemini.request_retry', ['method' => 'converse', 'reason' => 'http_'.$response->status()]);
                 usleep(250000);
 
                 continue;

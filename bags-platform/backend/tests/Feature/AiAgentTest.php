@@ -329,6 +329,11 @@ class AiAgentTest extends TestCase
         $conv = $this->conv($owner);
         $conv->messages()->create(['role' => 'model', 'content' => 'رد', 'provider_parts' => [['text' => 'رد', 'thoughtSignature' => 'private-signature']]]);
         $token = $this->token($auditor);
+        // M-10: مدقق بلا وصول مركزي يُمنع من محادثات الفروع الأخرى.
+        $this->withToken($token)->getJson("/api/v1/admin/ai/conversations/{$conv->id}")->assertForbidden();
+        $auditor->givePermissionTo(Permission::findOrCreate('inventory.all_branches', 'staff'));
+        Auth::forgetGuards();
+        $token = $this->token($auditor);
         $this->withToken($token)->getJson("/api/v1/admin/ai/conversations/{$conv->id}")->assertOk()->assertJsonMissingPath('data.messages.0.provider_parts');
         $this->withToken($token)->patchJson("/api/v1/admin/ai/conversations/{$conv->id}/pin", ['is_pinned' => true])->assertForbidden();
         $this->withToken($token)->deleteJson("/api/v1/admin/ai/conversations/{$conv->id}")->assertForbidden();
@@ -382,6 +387,25 @@ class AiAgentTest extends TestCase
         $this->artisan('ai:evaluate', ['--actor' => $admin->id, '--case' => ['egy-11-1'], '--min-accuracy' => 1, '--rpm' => 600])->assertExitCode(1);
         $this->assertSame(0, AiPendingAction::count());
         $this->assertDatabaseMissing('roles', ['name' => 'مراجع مخزون']);
+    }
+
+    public function test_failed_model_usage_is_recorded_and_counts_toward_budget(): void
+    {
+        // H-4: توكنز الطلب الفاشل (MAX_TOKENS) تُسجَّل على رسالة الـ event
+        // نفسها فيُحصيها guard() — لا تكلفة بلا سقف.
+        $admin = $this->staff(['ai_agent.use']);
+        $token = $this->token($admin);
+        $conv = $this->conv($admin);
+        Http::fake(['generativelanguage.googleapis.com/*' => Http::response([
+            'candidates' => [['finishReason' => 'MAX_TOKENS', 'content' => ['parts' => [['text' => 'partial']]]]],
+            'usageMetadata' => ['promptTokenCount' => 60, 'candidatesTokenCount' => 40, 'totalTokenCount' => 100],
+        ])]);
+        $this->withToken($token)->postJson("/api/v1/admin/ai/conversations/{$conv->id}/messages", ['text' => 'نص طويل'])->assertStatus(502);
+        $this->assertDatabaseHas('ai_messages', ['conversation_id' => $conv->id, 'role' => 'event', 'input_tokens' => 60, 'output_tokens' => 40]);
+        DB::table('settings')->where('key', 'ai_daily_token_budget_per_user')->update(['value' => '100']);
+        app(SettingService::class)->clearCache();
+        $conv2 = $this->conv($admin);
+        $this->withToken($token)->postJson("/api/v1/admin/ai/conversations/{$conv2->id}/messages", ['text' => 'طلب آخر'])->assertStatus(429);
     }
 
     public function test_deleting_a_conversation_does_not_reset_daily_token_usage(): void

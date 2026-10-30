@@ -15,6 +15,7 @@ use App\Models\Branch;
 use App\Services\BranchAccess;
 use App\Services\StaffAdministration;
 use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -34,7 +35,11 @@ class BranchController extends Controller
 
     public function store(StoreBranchRequest $request, CreateBranch $action): JsonResponse
     {
-        $branch = $action($request->user(), $request->validated());
+        try {
+            $branch = $action($request->user(), $request->validated());
+        } catch (UniqueConstraintViolationException) {
+            return response()->json(['message' => 'كود الفرع مستخدم بالفعل.'], 422);
+        }
 
         return $this->branchResource($branch)->response()->setStatusCode(201);
     }
@@ -50,7 +55,11 @@ class BranchController extends Controller
 
     public function update(UpdateBranchRequest $request, Branch $branch, UpdateBranch $action): BranchResource
     {
-        $branch = $action($request->user(), $branch, $request->validated());
+        try {
+            $branch = $action($request->user(), $branch, $request->validated());
+        } catch (UniqueConstraintViolationException) {
+            abort(422, 'كود الفرع مستخدم بالفعل.');
+        }
 
         return $this->branchResource($branch);
     }

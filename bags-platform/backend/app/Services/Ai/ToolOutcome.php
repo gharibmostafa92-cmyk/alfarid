@@ -47,7 +47,10 @@ final class ToolOutcome
 
     public function haltsLoop(): bool
     {
-        return in_array($this->type, ['picker', 'proposal', 'denied'], true);
+        // L-3: رفض الصلاحيات (auditable) فقط يوقف الدورة — أخطاء التحقق
+        // تُرد كنتيجة أداة فيُعطى النموذج فرصة للتصحيح بدل إنهاء الدورة.
+        return in_array($this->type, ['picker', 'proposal'], true)
+            || ($this->type === 'denied' && $this->auditable);
     }
 
     /** @param array{name:string,args:array<string,mixed>} $call @return array{role:string,parts:list<array<string,mixed>>} */

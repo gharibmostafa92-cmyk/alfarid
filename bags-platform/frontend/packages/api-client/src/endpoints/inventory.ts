@@ -20,7 +20,9 @@ export interface BranchPayload {
   name: string; code: string; type: 'branch' | 'warehouse';
   phone?: string | null; email?: string | null; address?: string | null;
   city?: string | null; city_id?: number | null; is_active?: boolean;
+  lock_version?: number;
 }
+export type BranchUpdatePayload = Partial<BranchPayload> & { lock_version: number };
 export interface LocationListParams { per_page?: number; page?: number }
 export interface LocationPayload {
   name: string; code: string;
@@ -73,7 +75,7 @@ export const branchesApi = {
     apiClient.get<{ data: Branch }>(`${BASE}/branches/${id}`, { signal }).then((r) => r.data.data),
   create: (p: BranchPayload) =>
     apiClient.post<{ data: Branch }>(`${BASE}/branches`, p).then((r) => r.data.data),
-  update: (id: number, p: Partial<BranchPayload>) =>
+  update: (id: number, p: BranchUpdatePayload) =>
     apiClient.put<{ data: Branch }>(`${BASE}/branches/${id}`, p).then((r) => r.data.data),
   remove: (id: number) =>
     apiClient.delete(`${BASE}/branches/${id}`).then((r) => r.data),

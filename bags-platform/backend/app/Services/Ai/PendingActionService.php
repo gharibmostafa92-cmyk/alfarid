@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Ai;
 
 use App\Models\AiMessage;
+use App\Exceptions\BusinessException;
 use App\Models\AiPendingAction;
 use App\Models\Branch;
 use App\Models\User;
@@ -52,14 +53,16 @@ final class PendingActionService
                 return ToolOutcome::result((bool) ($locked->result['ok'] ?? false), $locked->result['message'], $locked->result);
             }
             abort_unless($locked->status === 'pending' && $locked->expires_at->isFuture(), 409, 'العملية الجماعية مش متاحة للتنفيذ.');
-            abort_unless($typed === 'تنفيذ', 422, 'اكتب تنفيذ لتأكيد المجموعة.');
+            abort_unless(trim((string) $typed) === 'تنفيذ', 422, 'اكتب تنفيذ لتأكيد المجموعة.');
             $ids = $locked->args['action_ids'];
             $selected = $selectedItems ?? $ids;
             abort_if(! $selected || array_diff($selected, $ids) !== [] || count(array_unique($selected)) !== count($selected), 422);
             $locked->forceFill(['status' => 'confirmed'])->save();
-            // M10: الأفراد بيرجعوا pending بس جوه العملية الجماعية دي — قبلها
-            // مبقيين bulk_child فميقدرش حد يؤكد واحد فيهم من غيرها.
-            AiPendingAction::query()->whereIn('id', $ids)->where('status', 'bulk_child')->update(['status' => 'pending']);
+            // M-4: المختارون فقط يتحولون لـ pending، والباقون يُلغون في نفس
+            // الـ transaction — فلا نافذة سباق لتأكيد مستبعد من تبويب آخر،
+            // ولا أيتام pending لو انهارت العملية بعد الـ claim.
+            AiPendingAction::query()->whereIn('id', $selected)->where('status', 'bulk_child')->update(['status' => 'pending']);
+            AiPendingAction::query()->whereIn('id', array_diff($ids, $selected))->whereIn('status', ['bulk_child', 'pending'])->update(['status' => 'cancelled']);
 
             return ['selected' => $selected, 'all' => $ids];
         });
@@ -67,13 +70,8 @@ final class PendingActionService
             return $claim;
         }
         $results = [];
-        foreach ($claim['all'] as $id) {
+        foreach ($claim['selected'] as $id) {
             $child = AiPendingAction::query()->where('conversation_id', $action->conversation_id)->where('user_id', $actor->id)->findOrFail($id);
-            if (! in_array($id, $claim['selected'], true)) {
-                $this->cancel($actor, $child);
-
-                continue;
-            }
             try {
                 // Bulk-level typed confirmation ('تنفيذ') + per-item review is the
                 // compensating control here: the committed bulk test requires
@@ -146,10 +144,12 @@ final class PendingActionService
                 $r = Role::find($action->args['role_id'] ?? null);
                 $expectedTyped = $r?->name;
             }
-            if ($expectedTyped !== null && $typed !== null && $typed !== $expectedTyped) {
+            // L-9: مطابقة متسامحة (trim + توحيد حالة) بدل الحرفية الصارمة.
+            $norm = fn (?string $v): ?string => $v === null ? null : mb_strtolower(trim($v));
+            if ($expectedTyped !== null && $typed !== null && $norm($typed) !== $norm($expectedTyped)) {
                 abort(422, 'نص التأكيد مش مطابق.');
             }
-            if ($expectedTyped !== null && $typed === null) {
+            if ($expectedTyped !== null && ($typed === null || trim($typed) === '')) {
                 abort(422, 'اكتب نص التأكيد المطلوب: '.$expectedTyped);
             }
         }
@@ -167,6 +167,17 @@ final class PendingActionService
             $action->forceFill(['status' => 'failed', 'result' => ['message' => $message]])->save();
             $this->event($action, 'result', $message, [['type' => 'result', 'ok' => false, 'message' => $message]]);
             abort(409, $message);
+        } catch (BusinessException|ValidationException $e) {
+            // M-5: خطأ عمل مفهوم (تعطيل مرفوض/تحقق) يُحوَّل لفشل مسجَّل بدل
+            // إلغاء الـ transaction الخارجية وبقاء الإجراء pending للأبد.
+            $message = $e instanceof ValidationException
+                ? collect($e->errors())->flatten()->implode(' ')
+                : $e->getMessage();
+            $message = trim((string) $message) !== '' ? $message : 'تعذّر التنفيذ؛ راجع البيانات أو اطلب اقتراحًا جديدًا.';
+            $action->forceFill(['status' => 'failed', 'result' => ['message' => $message]])->save();
+            $this->event($action, 'result', $message, [['type' => 'result', 'ok' => false, 'message' => $message]]);
+
+            return ToolOutcome::result(false, $message);
         } catch (HttpExceptionInterface $e) {
             if ($e->getStatusCode() === 409) {
                 $action->forceFill(['status' => 'failed', 'result' => ['message' => 'حد عدّل السجل ده بعد الاقتراح. تحب أجهّز اقتراح جديد؟']])->save();
@@ -220,9 +231,13 @@ final class PendingActionService
 
     public function undo(User $actor, AiPendingAction $action): ToolOutcome
     {
+        // L-6: فحص الملكية قبل قفل الصفوف — لا قفل لصفوف إجراء لا يملكه المستخدم.
+        abort_unless($action->user_id === $actor->id, 403);
+
         return DB::transaction(function () use ($actor, $action) {
             StaffAdministration::lock();
             $locked = AiPendingAction::query()->lockForUpdate()->findOrFail($action->id);
+            abort_unless($locked->user_id === $actor->id, 403);
             $this->registry->lockTargets($locked);
 
             return $this->undoLocked($actor, $locked);

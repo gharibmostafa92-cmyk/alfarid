@@ -62,7 +62,11 @@ class EnsureStaffAuthenticated
         $routeUser = $request->route('user');
         $targetId = $routeUser instanceof User ? $routeUser->getKey() : $routeUser;
 
+        // L-8: مطابقة المسار بدقة (users/{user} فقط) — لا أي مسار مستقبلي
+        // مثل users/{user}/roles يُستثنى تلقائيًا.
         return in_array($request->method(), ['PUT', 'PATCH'], true)
+            && count(explode('/', trim($request->path(), '/'))) === 4
+            && $request->is('api/v1/admin/users/*')
             && (int) $targetId === (int) $user->getKey();
     }
 }

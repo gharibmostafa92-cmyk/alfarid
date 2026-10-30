@@ -62,6 +62,9 @@ class UpdateSettingsRequest extends FormRequest
             'ai_action_ttl_minutes' => ['sometimes', 'integer', 'min:1', 'max:1440'],
             'ai_retention_days' => ['sometimes', 'integer', 'min:1', 'max:3650'],
             'ai_bulk_max_items' => ['sometimes', 'integer', 'min:1', 'max:100'],
+            'ai_max_tokens_per_cycle' => ['sometimes', 'integer', 'min:1000', 'max:10000000'],
+            'ai_tool_result_max_chars' => ['sometimes', 'integer', 'min:1024', 'max:200000'],
+            'ai_max_concurrent_sessions' => ['sometimes', 'integer', 'min:1', 'max:100'],
         ];
 
         $sequenceTypes = [

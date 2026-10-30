@@ -14,6 +14,7 @@ use App\Models\Location;
 use App\Models\StockLevel;
 use App\Services\BranchAccess;
 use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -45,7 +46,11 @@ class LocationController extends Controller
     public function store(StoreLocationRequest $request, Branch $branch): JsonResponse
     {
         $this->branchAccess->assertBranch($request->user()->id, $branch->id);
-        $location = $branch->locations()->create($request->validated());
+        try {
+            $location = $branch->locations()->create($request->validated());
+        } catch (UniqueConstraintViolationException) {
+            return response()->json(['message' => 'كود الموقع مستخدم بالفعل في هذا الفرع.'], 422);
+        }
         // M5: تدقيق الإنشاء زي ما المساعد بيعمل.
         StaffAdministration::audit($request->user('staff'), 'location.created', 'location', $location->getKey(),
             ['name', 'code', 'type'], [], ['name' => $location->name, 'code' => $location->code, 'type' => $location->type->value, 'branch' => $branch->name],
@@ -61,13 +66,20 @@ class LocationController extends Controller
         return LocationResource::make($location);
     }
 
-    public function update(UpdateLocationRequest $request, Branch $branch, Location $location): LocationResource
+    public function update(UpdateLocationRequest $request, Branch $branch, Location $location, \App\Actions\Locations\SetLocationStatus $setStatus): LocationResource
     {
         $this->authorizeLocation((int) $request->user()->id, $branch, $location);
         $validated = $request->validated();
+        if (array_key_exists('is_active', $validated) && count($validated) === 1) {
+            $updated = $setStatus($request->user('staff'), $location, (bool) $validated['is_active'], ['channel' => 'rest']);
+
+            return LocationResource::make($updated);
+        }
         // M5: قفل توافقي على الصف، ورفض تغيير النوع/التعطيل لموقع عليه
         // أرصدة — تغيير المعنى من غير تحذير أو سجل تدقيق.
-        $updated = DB::transaction(function () use ($request, $branch, $location, $validated): Location {
+        // M-1: سباق قيد فريد متزامن يُرجع 422 بدل 500.
+        try {
+            $updated = DB::transaction(function () use ($request, $branch, $location, $validated): Location {
             $locked = Location::query()->whereKey($location->getKey())->lockForUpdate()->firstOrFail();
             $before = ['name' => $locked->name, 'code' => $locked->code, 'type' => $locked->type->value, 'is_active' => (bool) $locked->is_active];
             $after = $before;
@@ -92,7 +104,10 @@ class LocationController extends Controller
                 array_keys($validated), $before, $after, via: ['channel' => 'rest']);
 
             return $locked;
-        });
+            });
+        } catch (UniqueConstraintViolationException) {
+            abort(422, 'كود الموقع مستخدم بالفعل في هذا الفرع.');
+        }
 
         return LocationResource::make($updated);
     }

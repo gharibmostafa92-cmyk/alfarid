@@ -17,6 +17,7 @@ export interface Branch {
   id: number; name: string; code: string; type: BranchType;
   phone: string | null; email: string | null; address: string | null;
   city: string | null; city_id: number | null; is_active: boolean;
+  lock_version: number;
   locations_count?: number; employees_count?: number;
   created_at: string; updated_at: string;
 }

@@ -126,8 +126,10 @@ class StaffSettingsCommitTest extends TestCase
         $this->assertSame([], $queries);
     }
 
-    public function test_sequence_sync_failure_reports_a_warning_after_committing_settings_and_can_be_retried(): void
+    public function test_sequence_sync_failure_rolls_back_settings_without_silent_warning(): void
     {
+        // M-2: المزامنة داخل الـ transaction — فشلها يُفشل الحفظ كله
+        // (rollback) بدل حفظ الإعدادات مع "warning" وعداد قديم يُكرر الأرقام.
         $this->seed(SettingSeeder::class);
         $actor = User::factory()->create();
         $actor->givePermissionTo(Permission::findOrCreate('settings.manage', 'staff'));
@@ -138,9 +140,9 @@ class StaffSettingsCommitTest extends TestCase
             $this->withToken($token)->putJson('/api/v1/admin/settings', [
                 'company_name' => 'Committed company', 'order_next_number' => 2000,
                 'expected' => ['company_name' => 'Alfarid', 'order_next_number' => 1000],
-            ])->assertOk()->assertJsonCount(1, 'warnings')
-                ->assertJsonPath('data.company.company_name', 'Committed company');
-            $this->assertDatabaseHas('settings', ['key' => 'order_next_number', 'value' => '2000']);
+            ])->assertServerError();
+            $this->assertDatabaseHas('settings', ['key' => 'company_name', 'value' => 'Alfarid']);
+            $this->assertDatabaseHas('settings', ['key' => 'order_next_number', 'value' => '1000']);
         } finally {
             DB::statement('ALTER FUNCTION test_unavailable_document_next_number(text, bigint) RENAME TO document_next_number');
         }

@@ -76,17 +76,43 @@ final class AgentOrchestrator
     /** @param array{text?:string,selection?:array<string,mixed>|null,mentions?:list<array<string,mixed>>} $turn */
     public function handle(User $actor, AiConversation $conv, array $turn, ?callable $progress = null): AgentReply
     {
+        // M-8: سقف عام للجلسات المتزامنة — كل stream يحجز worker حتى 240 ثانية،
+        // وبلا سقف جماعي 30 موظفًا يشلّون pool الـ FPM كله (بديل فصل الـ pool
+        // يتطلب بنية FPM جديدة؛ هذا الحد يعمل على أي بنية).
+        $maxConcurrent = max(1, (int) $this->settings->get('ai_max_concurrent_sessions', 10));
+        $slots = Cache::increment('ai-agent:concurrent-sessions');
+        if ($slots === 1) {
+            Cache::put('ai-agent:concurrent-sessions', 1, 600);
+        }
+        if ($slots > $maxConcurrent) {
+            Cache::decrement('ai-agent:concurrent-sessions');
+            abort(429, 'في ضغط على المساعد حالياً؛ حاول بعد دقيقة.');
+        }
+        try {
+            return $this->handleWithUserLock($actor, $conv, $turn, $progress);
+        } finally {
+            Cache::decrement('ai-agent:concurrent-sessions');
+        }
+    }
+
+    /** @param array{text?:string,selection?:array<string,mixed>|null,mentions?:list<array<string,mixed>>} $turn */
+    private function handleWithUserLock(User $actor, AiConversation $conv, array $turn, ?callable $progress = null): AgentReply
+    {
         $lock = Cache::lock('ai-agent:user:'.$actor->id, 600);
         abort_unless($lock->get(), 423, 'في طلب تاني للمساعد لسه شغال؛ استنى لما يخلص.');
         // H4: الـ fatal error بيتجاوز الـ finally — ندفق الـ shutdown بيقفل
         // القفل حتى مع انتهاء زمن التنفيذ أو انقطاع الـ SSE.
-        register_shutdown_function(function () use ($lock): void {
-            try {
-                $lock->release();
-            } catch (\Throwable) {
-                // القفل خلص أصلًا أو الكاش مش متاح وقت الإنهاء — لا فعل.
-            }
-        });
+        // L-2: تحت Octane تتراكم الـ shutdown callbacks في الـ worker حتى
+        // إنهائه (تسرب ذاكرة) — try/finally وحده يكفي هناك.
+        if (! isset($_SERVER['LARAVEL_OCTANE'])) {
+            register_shutdown_function(function () use ($lock): void {
+                try {
+                    $lock->release();
+                } catch (\Throwable) {
+                    // القفل خلص أصلًا أو الكاش مش متاح وقت الإنهاء — لا فعل.
+                }
+            });
+        }
         try {
             // H4: قطع اتصال السحب من غير ignore_user_abort بينهي الدورة في
             // نصها وسيب رسالة ناقصة من غير ردّ أدوات.
@@ -153,11 +179,17 @@ final class AgentOrchestrator
                 // فشل شبكة بعد الطلع من الـ provider) لازم تُخصم من العداد
                 // اليومي، وإلا يعيد المستخدم المحاولة ببلاش مقلب ميزانية.
                 if (($usage = $failure->usage()) !== null) {
-                    $consumed = max(0, (int) $usage['total_tokens']);
+                    $in = max(0, (int) ($usage['input_tokens'] ?? 0));
+                    $out = max(0, (int) ($usage['output_tokens'] ?? 0));
+                    $consumed = max(0, (int) ($usage['total_tokens'] ?? $in + $out));
+                    if ($out === 0 && $consumed > $in) {
+                        $out = $consumed - $in;
+                    }
                     $conv->forceFill(['total_tokens' => $conv->total_tokens + $consumed, 'last_message_at' => now()])->save();
                     if ($consumed > 0) {
                         AiMessage::create(['conversation_id' => $conv->id, 'role' => 'event',
-                            'content' => 'فشل استكمال الرد من مزوّد النموذج وبُخرج '.$consumed.' توكن من الميزانية.']);
+                            'content' => 'فشل استكمال الرد من مزوّد النموذج وبُخرج '.$consumed.' توكن من الميزانية.',
+                            'input_tokens' => $in, 'output_tokens' => $out]);
                     }
                 }
                 throw $failure;
@@ -248,12 +280,53 @@ final class AgentOrchestrator
         return $parts;
     }
 
+    /** @param \Illuminate\Support\Collection<int, \App\Models\AiMessage> $messages @return \Illuminate\Support\Collection<int, \App\Models\AiMessage> */
+    private function fitHistoryBudget($messages, int $budget): mixed
+    {
+        if ($messages->isEmpty()) {
+            return $messages;
+        }
+        $size = fn ($m): int => mb_strlen((string) $m->content)
+            + ($m->provider_parts ? mb_strlen(json_encode($m->provider_parts, JSON_UNESCAPED_UNICODE) ?: '') : 0);
+        $hasCalls = fn ($m): bool => $m->role === 'model' && is_array($m->provider_parts)
+            && collect($m->provider_parts)->pluck('functionCall')->filter()->isNotEmpty();
+        $keep = [];
+        $total = 0;
+        $i = $messages->count() - 1;
+        while ($i >= 0) {
+            // رد الأداة يُسحب مع استدعاء الموديل السابق له — وحدة ذرية.
+            if ($messages[$i]->role === 'tool' && $i - 1 >= 0 && $hasCalls($messages[$i - 1])) {
+                $unit = [$i - 1, $i];
+                $i -= 2;
+            } else {
+                $unit = [$i];
+                $i--;
+            }
+            $cost = array_sum(array_map(fn ($j) => $size($messages[$j]), $unit));
+            if ($keep !== [] && $total + $cost > $budget) {
+                break;
+            }
+            foreach ($unit as $j) {
+                $keep[] = $j;
+            }
+            $total += $cost;
+        }
+        sort($keep);
+        // NOTE: Eloquent Collection::only() يطابق مفاتيح النماذج لا المواضع —
+        // الترشيح هنا موضعي حصرًا.
+        return $messages->filter(fn ($m, $key) => in_array($key, $keep, true))->values();
+    }
+
     /** @return list<array{role:string,parts:list<array<string,mixed>>}> */
     private function history(AiConversation $conv): array
     {
         $messages = $conv->messages()->orderByDesc('id')->limit(60)->get()->reverse()->values();
         // Start at a complete user turn so function calls and their responses stay paired.
-        $messages = $messages->skipUntil(fn ($message) => $message->role === 'user');
+        $messages = $messages->skipUntil(fn ($message) => $message->role === 'user')->values();
+        // M-7: سقف إجمالي بالحروف (لا بعدد الرسائل فقط) — نتيجة أداة واحدة
+        // قد تصل لـ 16k حرف. يُطبق من الأحدث للأقدم، وزوج
+        // functionCall/functionResponse وحدة ذرية لا تُشطر.
+        $messages = $this->fitHistoryBudget($messages, 60000);
         $history = [];
         if ($first = $messages->first()) {
             $older = $conv->messages()->where('id', '<', $first->id)->whereIn('role', ['user', 'event'])->orderByDesc('id')->limit(10)->get()->reverse();

@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\V1\Admin\Ai;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Admin\UpdateSettingsRequest;
 use App\Models\AiMessage;
+use InvalidArgumentException;
 use App\Services\Ai\ToolRegistry;
 use App\Services\BranchAccess;
 use App\Services\SettingService;
@@ -34,19 +35,30 @@ class AiAdministrationController extends Controller
         $expected = $data['expected'];
         unset($data['expected']);
         abort_unless(array_diff(array_keys($data), array_keys($expected)) === [] && array_diff(array_keys($expected), array_keys($data)) === [], 422, 'القيم الأصلية مطلوبة لكل إعداد معدل.');
-        DB::transaction(function () use ($request, $settings, $data, $expected): void {
-            StaffAdministration::lock();
-            StaffAdministration::authorize($request->user('staff'), ['ai_agent.settings']);
-            $settings->updateBatch($data, $expected);
-        });
+        try {
+            DB::transaction(function () use ($request, $settings, $data, $expected): void {
+                StaffAdministration::lock();
+                StaffAdministration::authorize($request->user('staff'), ['ai_agent.settings']);
+                // L-5: قناة التدقيق (ai) لا تُترك فارغة كما في SettingController.
+                $settings->updateBatch($data, $expected, ['channel' => 'ai']);
+            });
+        } catch (InvalidArgumentException) {
+            return response()->json([
+                'message' => 'إعداد أو أكثر غير مهيأ في قاعدة البيانات. شغّل Seeder الإعدادات ثم أعد المحاولة.',
+            ], 409);
+        }
 
         return response()->json(['data' => $settings->getAllGrouped()['ai'] ?? []]);
     }
 
-    public function usage(Request $request): JsonResponse
+    public function usage(Request $request, BranchAccess $branches): JsonResponse
     {
         $actor = $request->user('staff');
         $all = $request->boolean('all') && $actor->can('ai_agent.logs.view');
+        // L-4: all=1 يكشف استهلاك المؤسسة كاملة — يتطلب وصولًا مركزيًا.
+        if ($all) {
+            $branches->assertCentralAccess($actor);
+        }
         $rows = AiMessage::query()->whereHas('conversation', function ($q) use ($actor, $all): void {
             $q->withTrashed();
             if (! $all) {

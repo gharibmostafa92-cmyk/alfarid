@@ -1021,33 +1021,20 @@ final class ToolRegistry
 
     private function execSetLocationStatus(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
     {
-        $branchId = null;
-        $before = [];
         try {
-            // H3: قفل صف الموقع وقت التنفيذ زي LocationController::destroy،
-            // وتدقيق بقيمة before الفعلية مو بالعكس.
-            $location = DB::transaction(function () use ($actor, $args, $via, &$branchId, &$before): Location {
-                $locked = Location::query()->lockForUpdate()->findOrFail($args['location_id']);
-                $this->branches->assertBranch($actor->id, $locked->branch_id);
-                StaffAdministration::authorize($actor, ['locations.update', 'locations.manage']);
-                $before = ['is_active' => (bool) $locked->is_active];
-                $locked->update(['is_active' => (bool) $args['active']]);
-                $branchId = $locked->branch_id;
-
-                return $locked;
-            });
+            // H3: مصدر واحد لقاعدة "لا تعطيل لموقع عليه رصيد" عبر SetLocationStatus.
+            $location = app(\App\Actions\Locations\SetLocationStatus::class)(
+                $actor, Location::findOrFail($args['location_id']), (bool) $args['active'], $via);
         } catch (\Illuminate\Database\QueryException $e) {
             report($e);
 
             return ToolOutcome::result(false, 'تعذّر تحديث الموقع؛ حاول مرة أخرى.');
         }
-        StaffAdministration::audit($actor, $args['active'] ? 'location.activated' : 'location.deactivated', 'location', $location->id,
-            [], $before, ['is_active' => (bool) $args['active']], $via);
 
         return ToolOutcome::result(true, $args['active'] ? 'تم تفعيل الموقع.' : 'تم تعطيل الموقع.',
             ['location_id' => $location->id],
             ['type' => 'result', 'ok' => true, 'message' => 'تم تحديث حالة الموقع.',
-                'deep_link' => '/branches?branchId='.$branchId]);
+                'deep_link' => '/branches?branchId='.$location->branch_id]);
     }
 
     private function prepDeleteLocation(User $actor, AiConversation $conv, array $args): ToolOutcome
@@ -1414,10 +1401,9 @@ final class ToolRegistry
                 return $f ? ToolOutcome::result(false, 'مش مسموح.') : ToolOutcome::result(true, 'تم التراجع.');
             }
             if ($tool === 'set_location_status' && isset($inv['is_active'])) {
-                $loc = Location::findOrFail($args['location_id']);
-                $this->branches->assertBranch($actor->id, $loc->branch_id);
-                $loc->update(['is_active' => (bool) $inv['is_active']]);
-                StaffAdministration::audit($actor, 'location.status_undone', 'location', $loc->id, [], [], ['is_active' => $inv['is_active']], $via);
+                // H3: التراجع يمر بنفس القاعدة المشتركة (مع قفل الصف داخل الـ action).
+                app(\App\Actions\Locations\SetLocationStatus::class)(
+                    $actor, Location::findOrFail($args['location_id']), (bool) $inv['is_active'], $via);
 
                 return ToolOutcome::result(true, 'تم التراجع.');
             }

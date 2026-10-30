@@ -62,7 +62,7 @@ class P03ToolsTest extends TestCase
     {
         $branch = Branch::factory()->create();
         $loc = Location::factory()->for($branch)->create(['name' => 'رف A', 'code' => 'SH-A']);
-        $admin = $this->staff(['ai_agent.use', 'branches.view', 'inventory.all_branches']);
+        $admin = $this->staff(['ai_agent.use', 'branches.view', 'locations.view', 'inventory.all_branches']);
         $registry = app(ToolRegistry::class);
         $outcome = $registry->dispatch($admin, $this->conv($admin), ['name' => 'list_locations', 'args' => ['branch_id' => $branch->id]]);
         $this->assertSame('data', $outcome->type);
@@ -86,7 +86,7 @@ class P03ToolsTest extends TestCase
     public function test_create_location_proposal_and_confirm(): void
     {
         $branch = Branch::factory()->create(['code' => 'BR-LOC']);
-        $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'branches.update', 'inventory.all_branches']);
+        $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'branches.update', 'locations.create', 'locations.manage', 'inventory.all_branches']);
         $registry = app(ToolRegistry::class);
         $conv = $this->conv($admin);
         $outcome = $registry->dispatch($admin, $conv, ['name' => 'create_location', 'args' => [
@@ -110,7 +110,7 @@ class P03ToolsTest extends TestCase
     {
         $branch = Branch::factory()->create();
         Location::factory()->for($branch)->create(['code' => 'SH-DUP']);
-        $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'branches.update', 'inventory.all_branches']);
+        $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'branches.update', 'locations.create', 'locations.manage', 'inventory.all_branches']);
         $registry = app(ToolRegistry::class);
         $outcome = $registry->dispatch($admin, $this->conv($admin), ['name' => 'create_location', 'args' => [
             'branch_id' => $branch->id,
@@ -126,7 +126,7 @@ class P03ToolsTest extends TestCase
     {
         $branch = Branch::factory()->create();
         $loc = Location::factory()->for($branch)->create(['is_active' => true]);
-        $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'branches.update', 'inventory.all_branches']);
+        $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'branches.update', 'locations.update', 'locations.manage', 'inventory.all_branches']);
         $registry = app(ToolRegistry::class);
         $conv = $this->conv($admin);
         $outcome = $registry->dispatch($admin, $conv, ['name' => 'set_location_status', 'args' => [
@@ -152,7 +152,7 @@ class P03ToolsTest extends TestCase
         $branch = Branch::factory()->create();
         $loc = Location::factory()->for($branch)->create();
         $variant = \App\Models\ProductVariant::factory()->create();
-        $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'branches.delete', 'inventory.all_branches']);
+        $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'branches.delete', 'locations.delete', 'locations.manage', 'inventory.all_branches']);
         $registry = app(ToolRegistry::class);
         $conv = $this->conv($admin);
 
@@ -181,7 +181,7 @@ class P03ToolsTest extends TestCase
     {
         $branch = Branch::factory()->create();
         $loc = Location::factory()->for($branch)->create(['name' => 'حذف']);
-        $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'branches.delete', 'inventory.all_branches']);
+        $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'branches.delete', 'locations.delete', 'locations.manage', 'inventory.all_branches']);
         $registry = app(ToolRegistry::class);
         $conv = $this->conv($admin);
         $outcome = $registry->dispatch($admin, $conv, ['name' => 'delete_location', 'args' => ['location_id' => $loc->id]]);
@@ -191,6 +191,66 @@ class P03ToolsTest extends TestCase
         $this->withToken($token)->postJson("/api/v1/admin/ai/actions/{$action->id}/confirm")->assertOk();
         $this->assertNull(Location::find($loc->id));
         $this->assertDatabaseHas('staff_audit_logs', ['action' => 'location.deleted', 'target_type' => 'location']);
+    }
+
+    public function test_set_location_status_refuses_deactivation_with_balances_in_assistant(): void
+    {
+        // H-3: قاعدة "لا تعطيل لموقع عليه رصيد" مصدرها المشترك — المساعد
+        // يرفض كما يرفض الـ REST، والحالة تبقى نشطة.
+        $branch = Branch::factory()->create();
+        $loc = Location::factory()->for($branch)->create(['is_active' => true]);
+        $variant = \App\Models\ProductVariant::factory()->create();
+        DB::table('stock_levels')->insert([
+            'location_id' => $loc->id,
+            'product_variant_id' => $variant->id,
+            'branch_id' => $branch->id,
+            'on_hand' => 5,
+            'reserved' => 0,
+            'damaged' => 0,
+            'in_transit' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'locations.update', 'locations.manage', 'inventory.all_branches']);
+        $registry = app(ToolRegistry::class);
+        $conv = $this->conv($admin);
+        $outcome = $registry->dispatch($admin, $conv, ['name' => 'set_location_status', 'args' => ['location_id' => $loc->id, 'active' => false]]);
+        $this->assertSame('proposal', $outcome->type);
+        $action = AiPendingAction::firstOrFail();
+        $token = $this->token($admin);
+        // M-5: خطأ العمل يُسجَّل فشلًا برسالة مفهومة بدل بقاء pending للأبد.
+        $this->withToken($token)->postJson("/api/v1/admin/ai/actions/{$action->id}/confirm")
+            ->assertOk()->assertJsonPath('data.ok', false)->assertJsonPath('data.message', 'لا يمكن تعطيل الموقع وهو عليه أرصدة غير صفرية.');
+        $this->assertSame('failed', $action->fresh()->status);
+        $this->assertTrue($loc->fresh()->is_active);
+    }
+
+    public function test_bulk_confirm_cancels_unselected_inside_claim(): void
+    {
+        // M-4: غير المختارين يُلغون داخل الـ claim نفسه — لا نافذة سباق
+        // لتأكيد مستبعد من تبويب آخر.
+        $branch = Branch::factory()->create();
+        $first = Location::factory()->for($branch)->create(['is_active' => true]);
+        $second = Location::factory()->for($branch)->create(['is_active' => true]);
+        $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'locations.update', 'locations.manage', 'inventory.all_branches']);
+        $registry = app(ToolRegistry::class);
+        $conv = $this->conv($admin);
+        $outcome = $registry->dispatch($admin, $conv, ['name' => 'bulk_actions', 'args' => ['items' => [
+            ['tool' => 'set_location_status', 'args' => ['location_id' => $first->id, 'active' => false]],
+            ['tool' => 'set_location_status', 'args' => ['location_id' => $second->id, 'active' => false]],
+        ]]]);
+        $this->assertSame('proposal', $outcome->type);
+        $parent = AiPendingAction::where('tool', 'bulk_actions')->firstOrFail();
+        $children = AiPendingAction::whereIn('id', $parent->args['action_ids'])->orderBy('id')->get();
+        $this->assertCount(2, $children);
+        $token = $this->token($admin);
+        $this->withToken($token)->postJson("/api/v1/admin/ai/actions/{$parent->id}/confirm", [
+            'typed_confirmation' => 'تنفيذ',
+            'selected_items' => [$children[0]->id],
+        ])->assertOk();
+        $this->assertSame('cancelled', $children[1]->fresh()->status);
+        $this->assertFalse($first->fresh()->is_active);
+        $this->assertTrue($second->fresh()->is_active);
     }
 
     // ── Settings ─────────────────────────────────────────────────────────────
@@ -307,7 +367,7 @@ class P03ToolsTest extends TestCase
         $branch = Branch::factory()->create();
         Location::factory()->for($branch)->create(['name' => 'رف ألف', 'code' => 'SH-ALF']);
         Location::factory()->for($branch)->create(['name' => 'منطقة تالف', 'code' => 'DMG-01']);
-        $admin = $this->staff(['ai_agent.use', 'branches.view', 'inventory.all_branches']);
+        $admin = $this->staff(['ai_agent.use', 'branches.view', 'locations.view', 'inventory.all_branches']);
         $registry = app(ToolRegistry::class);
         $outcome = $registry->dispatch($admin, $this->conv($admin), ['name' => 'find_entities', 'args' => ['type' => 'location', 'query' => 'SH-ALF']]);
         $this->assertSame('data', $outcome->type);

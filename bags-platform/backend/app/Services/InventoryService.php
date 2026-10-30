@@ -8,6 +8,7 @@ use App\Enums\StockBucket;
 use App\Enums\StockMovementType;
 use App\Events\StockLowDetected;
 use App\Exceptions\BusinessException;
+use App\Models\Branch;
 use App\Models\InventoryIdempotencyKey;
 use App\Models\Location;
 use App\Models\ProductVariant;
@@ -437,6 +438,28 @@ class InventoryService
                 }
             })->orderBy('branch_id')->orderByRaw('location_id ASC NULLS FIRST')->orderBy('product_variant_id')
                 ->lockForUpdate()->get()->keyBy(fn ($stock) => $this->levelKey($stock->getAttributes()));
+
+            // M-11: بعد قفل صفوف الأرصدة يُفحص is_active للموقع والفرع تحت
+            // قفل FOR SHARE — يقفل التعطيل (FOR UPDATE على نفس الصفوف)
+            // فيتسلسل المساران: إما يرى المخزونُ التعطيلَ فيرفض، أو يرى
+            // التعطيلُ الرصيدَ الجديد فيرفض. بلا هذا يدخل رصيد بين الفحص والتعطيل.
+            $branchIds = $keys->pluck('branch_id')->map(fn ($id) => (int) $id)->unique()->values();
+            if ($branchIds->isNotEmpty()) {
+                $inactiveBranches = Branch::query()->whereIn('id', $branchIds->all())->sharedLock()->pluck('is_active', 'id');
+                foreach ($branchIds as $branchId) {
+                    if ($inactiveBranches->has($branchId) && ! (bool) $inactiveBranches->get($branchId)) {
+                        throw new BusinessException('الفرع متوقف حالياً ولا يقبل حركات مخزنية.');
+                    }
+                }
+            }
+            if ($locationIds->isNotEmpty()) {
+                $inactiveLocations = Location::query()->whereIn('id', $locationIds->all())->sharedLock()->pluck('is_active', 'id');
+                foreach ($locationIds as $locationId) {
+                    if ($inactiveLocations->has($locationId) && ! (bool) $inactiveLocations->get($locationId)) {
+                        throw new BusinessException('الموقع متوقف حالياً ولا يقبل حركات مخزنية.');
+                    }
+                }
+            }
         } catch (QueryException $e) {
             // Keep deadlocks as database exceptions so the outer transaction
             // can retry them. The API exception handler returns 409 if exhausted.

@@ -74,6 +74,9 @@ class SettingSeeder extends Seeder
         ['group' => 'ai', 'key' => 'ai_action_ttl_minutes', 'value' => '10', 'type' => 'integer'],
         ['group' => 'ai', 'key' => 'ai_retention_days', 'value' => '180', 'type' => 'integer'],
         ['group' => 'ai', 'key' => 'ai_bulk_max_items', 'value' => '25', 'type' => 'integer'],
+        ['group' => 'ai', 'key' => 'ai_max_tokens_per_cycle', 'value' => '100000', 'type' => 'integer'],
+        ['group' => 'ai', 'key' => 'ai_tool_result_max_chars', 'value' => '16000', 'type' => 'integer'],
+        ['group' => 'ai', 'key' => 'ai_max_concurrent_sessions', 'value' => '10', 'type' => 'integer'],
     ];
 
     public function run(): void

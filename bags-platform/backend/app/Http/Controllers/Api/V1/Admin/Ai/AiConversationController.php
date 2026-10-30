@@ -42,7 +42,12 @@ class AiConversationController extends Controller
     {
         $this->authorizeView($request, $conversation);
 
-        return response()->json(['data' => $conversation->load(['messages' => fn ($q) => $q->where('role', '!=', 'tool')->where(fn ($m) => $m->whereNotNull('content')->orWhereNotNull('ui_blocks'))->orderBy('id'), 'pendingActions' => fn ($q) => $q->select('id', 'conversation_id', 'status', 'expires_at')])]);
+        // L-7: حد أعلى (أحدث 200) — كل رسالة جديدة كانت تعيد تحميل
+        // المحادثة كاملة بلا حد.
+        $conversation->load(['messages' => fn ($q) => $q->where('role', '!=', 'tool')->where(fn ($m) => $m->whereNotNull('content')->orWhereNotNull('ui_blocks'))->orderByDesc('id')->limit(200), 'pendingActions' => fn ($q) => $q->select('id', 'conversation_id', 'status', 'expires_at')]);
+        $conversation->setRelation('messages', $conversation->messages->sortBy('id')->values());
+
+        return response()->json(['data' => $conversation]);
     }
 
     public function destroy(Request $request, AiConversation $conversation): Response
@@ -68,11 +73,9 @@ class AiConversationController extends Controller
         if ($c->user_id === $actor->id) {
             return;
         }
-        // M11 (partial): index?all=1 requires central access above; show of a
-        // single conversation stays logs.view-gated to satisfy the committed
-        // conversation-visibility test. Residual: a branch-restricted auditor
-        // with logs.view can open conversations containing other branches'
-        // staff/branch tables — narrow further if that is unacceptable.
+        // M-10: محادثة مستخدم آخر قد تحتوي جداول موظفين/فروع أخرى في
+        // ui_blocks — تتطلب logs.view مع وصول مركزي، كما في index?all=1.
         abort_unless($actor->can('ai_agent.logs.view'), 403);
+        $this->branchAccess->assertCentralAccess($actor);
     }
 }

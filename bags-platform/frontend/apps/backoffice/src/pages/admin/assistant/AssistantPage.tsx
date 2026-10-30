@@ -23,6 +23,25 @@ function MessageText({ text }: { text: string | null }) {
   );
 }
 
+// L-1: مع responseType: 'text' تصل response.data نصًا — تُفقد رسائل
+// 429 (الميزانية) و423 (طلب جارٍ) و403. JSON.parse آمن داخل catch.
+function apiErrorMessage(e: unknown, fallback: string): string {
+  const data = (e as { response?: { data?: unknown } }).response?.data;
+  if (typeof data === 'string') {
+    try {
+      const parsed = JSON.parse(data) as { message?: unknown };
+      if (typeof parsed.message === 'string' && parsed.message !== '') return parsed.message;
+    } catch {
+      if (data !== '') return data;
+    }
+  }
+  if (typeof data === 'object' && data !== null && typeof (data as { message?: unknown }).message === 'string') {
+    return (data as { message: string }).message;
+  }
+
+  return fallback;
+}
+
 export default function AssistantPage({ can }: { can: (permission: string) => boolean }) {
   const [conversations, setConversations] = useState<Conv[]>([]);
   const [currentId, setCurrentId] = useState<number | null>(null);
@@ -32,6 +51,7 @@ export default function AssistantPage({ can }: { can: (permission: string) => bo
   const [status, setStatus] = useState('جاهز');
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [oncePassword, setOncePassword] = useState('');
   const execute = can('ai_agent.execute');
 
   const refreshList = useCallback(async () => {
@@ -127,10 +147,7 @@ export default function AssistantPage({ can }: { can: (permission: string) => bo
 
         return true;
       } catch (e) {
-        setError(
-          (e as { response?: { data?: { message?: string } } }).response?.data?.message ??
-            'تعذر إتمام طلب المساعد. حاول مرة تانية.',
-        );
+        setError(apiErrorMessage(e, 'تعذر إتمام طلب المساعد. حاول مرة تانية.'));
 
         return false;
       } finally {
@@ -154,14 +171,15 @@ export default function AssistantPage({ can }: { can: (permission: string) => bo
       setBusy(true);
       setError('');
       try {
-        if (kind === 'confirm') await assistantApi.confirm(id, typed, selected);
-        else if (kind === 'cancel') await assistantApi.cancel(id);
+        if (kind === 'confirm') {
+          const res = await assistantApi.confirm(id, typed, selected);
+          const pw = (res.result as { generated_password?: unknown } | undefined)?.generated_password;
+          if (typeof pw === 'string' && pw !== '') setOncePassword(pw);
+        } else if (kind === 'cancel') await assistantApi.cancel(id);
         else await assistantApi.undo(id);
         if (currentId) await openConversation(currentId);
       } catch (e) {
-        setError(
-          (e as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'تعذر تنفيذ الإجراء.',
-        );
+        setError(apiErrorMessage(e, 'تعذر تنفيذ الإجراء.'));
       } finally {
         setBusy(false);
       }
@@ -236,6 +254,22 @@ export default function AssistantPage({ can }: { can: (permission: string) => bo
           <AssistantComposer busy={busy || currentId === null} onSend={send} quickCommands={[]} />
         </main>
       </div>
+      {oncePassword !== '' && (
+        <div role="dialog" aria-modal="true" aria-label="كلمة المرور المؤقتة" className="assistant-password-modal">
+          <p>تم إنشاء الموظف. كلمة المرور المؤقتة (تظهر مرة واحدة):</p>
+          <code>{oncePassword}</code>
+          <div>
+            <button
+              onClick={() => {
+                void navigator.clipboard?.writeText(oncePassword).catch(() => undefined);
+              }}
+            >
+              نسخ
+            </button>
+            <button onClick={() => setOncePassword('')}>إغلاق</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
