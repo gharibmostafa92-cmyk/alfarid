@@ -6,6 +6,7 @@ namespace App\Http\Requests\Api\V1\Admin;
 
 use App\Models\User;
 use App\Rules\EmailNotUsedByOtherAccountType;
+use App\Rules\PasswordByteLimit;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
@@ -51,7 +52,7 @@ class UpdateUserRequest extends FormRequest
             ],
             'phone' => ['sometimes', 'nullable', 'string', 'max:30'],
             'current_password' => ['sometimes', 'nullable', 'string', 'max:255'],
-            'password' => ['sometimes', 'nullable', 'string', Password::min(12)->letters()->numbers(), 'max:255'],
+            'password' => ['sometimes', 'nullable', 'string', Password::min(12)->letters()->numbers(), 'max:255', new PasswordByteLimit],
             'branch_id' => ['sometimes', 'nullable', 'integer', Rule::exists('branches', 'id')],
             'is_active' => ['sometimes', 'boolean'],
             'roles' => ['sometimes', 'array'],

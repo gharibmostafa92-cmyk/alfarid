@@ -43,6 +43,24 @@ class QuickOrderController extends Controller
      * استيراد ملف (sku, qty) إلى سلة التاجر مباشرة مع تقرير بالمضاف
      * والمتخطى (كود غير معروف أو مخزون لا يغطي).
      */
+    /**
+     * إضافة بنود الطلب السريع إلى السلة دفعة واحدة (حتى 500 بند)
+     * بدل طلب cart add لكل سطر.
+     */
+    public function addToCart(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'items' => ['required', 'array', 'min:1', 'max:500'],
+            'items.*.sku' => ['required', 'string', 'max:255'],
+            'items.*.qty' => ['required', 'numeric', 'gt:0', 'max:1000000'],
+        ]);
+
+        /** @var Customer $customer */
+        $customer = $request->user();
+
+        return response()->json(['data' => $this->service->importToCart($customer, $validated['items'])]);
+    }
+
     public function import(Request $request): JsonResponse
     {
         $request->validate([

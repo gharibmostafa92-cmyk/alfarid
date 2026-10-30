@@ -25,12 +25,19 @@ class OrderConfirmationNotification extends Notification implements ShouldQueue
     /** @return array<string, mixed> */
     public function toArray(object $notifiable): array
     {
+        $message = "تم استلام طلبك رقم {$this->order->order_number} بنجاح وهو قيد المراجعة.";
+
         return [
             'kind' => 'order_confirmation',
             'order_id' => $this->order->id,
             'order_number' => $this->order->order_number,
             'grand_total' => $this->order->grand_total,
-            'message' => "تم استلام طلبك رقم {$this->order->order_number} بنجاح وهو قيد المراجعة.",
+            'message' => $message,
+            // شكل موحد لبوابة الجملة: {title, body, icon, link:{screen,id}}
+            'title' => "تم استلام طلبك رقم {$this->order->order_number}",
+            'body' => $message,
+            'icon' => 'fa-box',
+            'link' => ['screen' => 'order', 'id' => $this->order->id],
         ];
     }
 }

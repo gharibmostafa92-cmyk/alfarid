@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
+use Throwable;
 
 class BackfillMediaPathLayouts extends Command
 {
@@ -18,23 +19,43 @@ class BackfillMediaPathLayouts extends Command
     public function handle(): int
     {
         $count = 0;
-        Media::query()->whereNull('custom_properties->path_layout')->chunkById(100, function ($items) use (&$count): void {
+        $missing = 0;
+        // L7: per-item try/catch — one R2 error must not abort the whole
+        // backfill. Files missing on BOTH layouts are logged as missing
+        // (not silently stamped uuid) so the orphan sweeper can reclaim them.
+        Media::query()->whereNull('custom_properties->path_layout')->chunkById(100, function ($items) use (&$count, &$missing): void {
             foreach ($items as $item) {
-                DB::transaction(function () use ($item, &$count): void {
-                    $media = Media::whereKey($item->id)->lockForUpdate()->first();
-                    if (! $media || $media->hasCustomProperty('path_layout')) {
-                        return;
-                    }
-                    // One-time console probe (never at request time): legacy rows
-                    // live under id/<file>, newer rows under uuid/<file>.
-                    $layout = Storage::disk($media->disk)->exists($media->id.'/'.$media->file_name) ? 'id' : 'uuid';
-                    $media->setCustomProperty('path_layout', $layout);
-                    $media->save();
-                    $count++;
-                });
+                try {
+                    DB::transaction(function () use ($item, &$count, &$missing): void {
+                        $media = Media::whereKey($item->id)->lockForUpdate()->first();
+                        if (! $media || $media->hasCustomProperty('path_layout')) {
+                            return;
+                        }
+                        $disk = Storage::disk($media->disk);
+                        // One-time console probe (never at request time): legacy rows
+                        // live under id/<file>, newer rows under uuid/<file>.
+                        $hasIdPath = $disk->exists($media->id.'/'.$media->file_name);
+                        $hasUuidPath = ! $hasIdPath && $disk->exists($media->uuid.'/'.$media->file_name);
+                        if (! $hasIdPath && ! $hasUuidPath) {
+                            $missing++;
+                            logger()->warning('Backfill: media file missing on both layouts.', ['media_id' => $media->id]);
+
+                            return;
+                        }
+                        $media->setCustomProperty('path_layout', $hasIdPath ? 'id' : 'uuid');
+                        $media->save();
+                        $count++;
+                    });
+                } catch (Throwable $exception) {
+                    report($exception);
+                    $this->warn('Skipped media '.$item->id.': '.$exception->getMessage());
+                }
             }
         });
         $this->info("Updated {$count} media layouts.");
+        if ($missing > 0) {
+            $this->warn("{$missing} media files were missing on both layouts; their layout was left unset.");
+        }
 
         return self::SUCCESS;
     }

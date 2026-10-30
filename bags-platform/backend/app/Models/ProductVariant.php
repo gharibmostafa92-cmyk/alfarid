@@ -54,6 +54,20 @@ class ProductVariant extends Model implements HasMedia
         return (string) ($this->retail_price ?? 0);
     }
 
+    /**
+     * اسم العرض للكتالوج: اللون والمقاس معًا (مثال: "أسود / L")،
+     * ويرجع SKU عند غيابهما.
+     */
+    public function displayLabel(): string
+    {
+        $parts = array_filter([
+            $this->color_name_ar ?? $this->color_name_en,
+            $this->size ?? $this->capacity,
+        ], fn ($v) => $v !== null && trim((string) $v) !== '');
+
+        return $parts !== [] ? implode(' / ', $parts) : (string) $this->sku;
+    }
+
     // صور خاصة باللون ده
     public function registerMediaCollections(): void
     {

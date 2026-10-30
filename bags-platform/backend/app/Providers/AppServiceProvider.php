@@ -109,18 +109,24 @@ class AppServiceProvider extends ServiceProvider
         // مستمعو نظام الإشعارات الموحد (المرحلة 13.1) يُكتشفون تلقائيًا من
         // app/Listeners عبر تلميحات أنواع الأحداث — لا تسجيل صريح هنا حتى
         // لا تُستدعى المستمعات مرتين.
+        // H5: one IPv6 device owns a whole /64 (2^64 addresses). Keying by
+        // the full $request->ip() lets an attacker rotate addresses and dodge
+        // every IP bucket (SMS pumping, coupon guessing, account stuffing).
+        // Collapse IPv6 to its /64; IPv4 stays as-is (one IPv4 may hide a
+        // whole CGNAT cell, so it must not carry a daily budget alone).
+        $networkIp = \App\Services\Auth\NetworkIdentity::forRequest(...);
         RateLimiter::for('customer-registration', fn (Request $request) => [
-            Limit::perMinute(config('auth.customer_limits.registration_ip_minute', 20))->by('customer-register-minute:'.$request->ip()),
-            Limit::perDay(config('auth.customer_limits.registration_ip_day', 500))->by('customer-register-day:'.$request->ip()),
+            Limit::perMinute(config('auth.customer_limits.registration_ip_minute', 20))->by('customer-register-minute:'.$networkIp($request)),
+            Limit::perDay(config('auth.customer_limits.registration_ip_day', 500))->by('customer-register-day:'.$networkIp($request)),
         ]);
-        RateLimiter::for('store-branding', fn (Request $request) => Limit::perMinute(1200)->by('store-branding:'.$request->ip()));
+        RateLimiter::for('store-branding', fn (Request $request) => Limit::perMinute(1200)->by('store-branding:'.$networkIp($request)));
         // H2: filters + search ride the expensive price limiter. H3: no shared
         // global bucket — one global counter turns cheap traffic into a
         // store-wide 429 on the whole product list. Per-IP ceilings plus the
         // facets cache (H2) reduce load without a store-wide denial bucket.
-        RateLimiter::for('store-catalog', function (Request $request) {
+        RateLimiter::for('store-catalog', function (Request $request) use ($networkIp) {
             $customer = auth('sanctum')->user();
-            $identity = $customer instanceof Customer ? 'customer:'.$customer->id : $request->ip();
+            $identity = $customer instanceof Customer ? 'customer:'.$customer->id : $networkIp($request);
             $expensive = $request->hasAny(['price_min', 'price_max', 'search'])
                 || in_array($request->input('sort'), ['price_asc', 'price_desc'], true)
                 || ($request->route() !== null && $request->route()->getName() === 'store.catalog.filters');
@@ -139,20 +145,20 @@ class AppServiceProvider extends ServiceProvider
                 : (is_string($phone) ? Customer::normalizePhone($phone) : 'invalid'));
         };
         RateLimiter::for('customer-reset-confirm', fn (Request $request) => [
-            Limit::perMinute(config('auth.customer_limits.reset_confirm_ip_minute', 120))->by('reset-confirm-ip:'.$request->ip()),
+            Limit::perMinute(config('auth.customer_limits.reset_confirm_ip_minute', 120))->by('reset-confirm-ip:'.$networkIp($request)),
             Limit::perMinute(10)->by('reset-confirm-id:'.$identifierKey($request)),
         ]);
         $phoneKey = fn (Request $request): string => hash('sha256', is_string($request->input('phone')) ? Customer::normalizePhone($request->input('phone')) : 'invalid');
         RateLimiter::for('customer-phone-send', fn (Request $request) => [
-            Limit::perMinute(config('auth.customer_limits.phone_ip_minute', 20))->by('phone-send-ip:'.$request->ip()),
-            Limit::perDay(config('auth.customer_limits.phone_ip_day', 500))->by('phone-send-day:'.$request->ip()),
+            Limit::perMinute(config('auth.customer_limits.phone_ip_minute', 20))->by('phone-send-ip:'.$networkIp($request)),
+            Limit::perDay(config('auth.customer_limits.phone_ip_day', 500))->by('phone-send-day:'.$networkIp($request)),
             Limit::perMinute(1)->by('phone-send-id:'.$phoneKey($request)),
             // F16: سقف يومي لكل رقم — بلا سقف يمكن إرسال 1440 رسالة يوميًا
             // لضحية واحدة (إزعاج وتكلفة SMS pumping).
             Limit::perDay(config('auth.customer_limits.phone_id_day', 5))->by('phone-send-id-day:'.$phoneKey($request)),
         ]);
         RateLimiter::for('customer-phone-verify', fn (Request $request) => [
-            Limit::perMinute(config('auth.customer_limits.phone_verify_ip_minute', 120))->by('phone-verify-ip:'.$request->ip()),
+            Limit::perMinute(config('auth.customer_limits.phone_verify_ip_minute', 120))->by('phone-verify-ip:'.$networkIp($request)),
             Limit::perMinute(5)->by('phone-verify-id:'.$phoneKey($request)),
             // F16: سقف يومي لكل رقم — الرمز 6 أرقام ويُبطل بعد 5 محاولات
             // (CustomerPhoneVerificationService)، والسقف اليومي طبقة إضافية.
@@ -174,7 +180,7 @@ class AppServiceProvider extends ServiceProvider
         ]);
 
         // حد دخول العملاء (متجر/جملة): بالمُعرّف (بريد/هاتف) وبالـ IP معًا
-        RateLimiter::for('customer-login', function (Request $request): array {
+        RateLimiter::for('customer-login', function (Request $request) use ($networkIp): array {
             $identifier = $request->input('login');
             $idKey = is_string($identifier) ? hash('sha256', str_contains($identifier, '@')
                 ? Str::lower(trim($identifier)) : Customer::normalizePhone($identifier)) : 'none';
@@ -183,7 +189,7 @@ class AppServiceProvider extends ServiceProvider
                 Limit::perMinute(5)->by('customer-login-id:'.$idKey),
                 Limit::perHour(config('auth.customer_limits.login_id_hour', 30))->by('customer-login-id-hour:'.$idKey),
                 Limit::perDay(config('auth.customer_limits.login_id_day', 100))->by('customer-login-id-day:'.$idKey),
-                Limit::perMinute(config('auth.customer_limits.login_ip_minute', 120))->by('customer-login-ip:'.($request->ip() ?? 'unknown')),
+                Limit::perMinute(config('auth.customer_limits.login_ip_minute', 120))->by('customer-login-ip:'.$networkIp($request)),
             ];
         });
 
@@ -191,7 +197,7 @@ class AppServiceProvider extends ServiceProvider
         // H4: behind CGNAT one IPv4 hides thousands of shoppers, so logged-in
         // customers are keyed by customer_id and the IP minute ceiling is
         // generous — abuse is handled by account/phone limits, not the NAT.
-        RateLimiter::for('cart', function (Request $request) {
+        RateLimiter::for('cart', function (Request $request) use ($networkIp) {
             $customer = auth('sanctum')->user();
             if ($customer instanceof Customer) {
                 return [Limit::perMinute(120)->by('cart-customer:'.$customer->id)];
@@ -200,17 +206,17 @@ class AppServiceProvider extends ServiceProvider
             // F2/F15: حد الزائر مخفّض وقابل للضبط — كل POST بلا جلسة قد
             // ينشئ سلة جديدة، و600/دقيقة لكل IP تضخّم carts/cart_items.
             return [
-                Limit::perMinute(config('auth.customer_limits.cart_guest_ip_minute', 120))->by('cart-ip:'.$request->ip()),
-                Limit::perDay(config('auth.customer_limits.cart_guest_ip_day', 2000))->by('cart-ip-day:'.$request->ip()),
+                Limit::perMinute(config('auth.customer_limits.cart_guest_ip_minute', 120))->by('cart-ip:'.$networkIp($request)),
+                Limit::perDay(config('auth.customer_limits.cart_guest_ip_day', 2000))->by('cart-ip-day:'.$networkIp($request)),
             ];
         });
         // تخمين أكواد الكوبونات (F-24): حد ضيق خاص لكل IP وأيضًا لكل
         // توكن/جلسة سلة، بدل الاعتماد على حد السلة العام فقط
-        RateLimiter::for('coupon', function (Request $request): array {
+        RateLimiter::for('coupon', function (Request $request) use ($networkIp): array {
             $identity = $request->bearerToken() ?? $request->header('X-Cart-Session') ?? 'guest';
 
             return [
-                Limit::perMinute(10)->by('coupon-ip:'.$request->ip()),
+                Limit::perMinute(10)->by('coupon-ip:'.$networkIp($request)),
                 Limit::perMinute(10)->by('coupon-id:'.hash('sha256', (string) $identity)),
             ];
         });
@@ -222,7 +228,7 @@ class AppServiceProvider extends ServiceProvider
         // bucket — requests without a phone get no phone key at all, and the
         // daily phone counter lives in OrderService after successful
         // validation instead of the middleware.
-        RateLimiter::for('checkout', function (Request $request): array {
+        RateLimiter::for('checkout', function (Request $request) use ($networkIp): array {
             $customer = auth('sanctum')->user();
             $customer = $customer instanceof Customer ? $customer : null;
             $phone = $request->input('recipient_phone');
@@ -237,10 +243,10 @@ class AppServiceProvider extends ServiceProvider
             } else {
                 // F2: حد الزائر مخفّض وقابل للضبط، مع سقف يومي لكل IP
                 // (IPv4 مشمول — لا /64 وحده) وسقف يومي لكل هاتف.
-                $limits[] = Limit::perMinute(config('auth.customer_limits.checkout_guest_ip_minute', 30))->by('checkout-ip:'.$request->ip());
-                $limits[] = Limit::perDay(config('auth.customer_limits.checkout_guest_ip_day', 200))->by('checkout-ip-day:'.$request->ip());
+                $limits[] = Limit::perMinute(config('auth.customer_limits.checkout_guest_ip_minute', 30))->by('checkout-ip:'.$networkIp($request));
+                $limits[] = Limit::perDay(config('auth.customer_limits.checkout_guest_ip_day', 200))->by('checkout-ip-day:'.$networkIp($request));
                 $packedIp = inet_pton((string) $request->ip());
-                if ($packedIp !== false && strlen($packedIp) === 16) {
+                if ($packedIp !== false && str_starts_with($networkIp($request), 'net64:')) {
                     $networkKey = hash('sha256', substr($packedIp, 0, 8));
                     $limits[] = Limit::perDay((int) config('inventory.checkout_daily_network_limit', 100))->by('checkout-network-day:'.$networkKey);
                 }
@@ -254,13 +260,13 @@ class AppServiceProvider extends ServiceProvider
             return $limits;
         });
         RateLimiter::for('order-tracking', fn (Request $request) => [
-            Limit::perMinute(10)->by('order-tracking-ip:'.$request->ip()),
+            Limit::perMinute(10)->by('order-tracking-ip:'.$networkIp($request)),
         ]);
         RateLimiter::for('webhooks', fn (Request $request) => [
-            Limit::perMinute(120)->by('webhooks-ip:'.$request->ip()),
+            Limit::perMinute(120)->by('webhooks-ip:'.$networkIp($request)),
         ]);
 
-        RateLimiter::for('supplier-login', function (Request $request): array {
+        RateLimiter::for('supplier-login', function (Request $request) use ($networkIp): array {
             $email = $request->input('email');
             $normalizedEmail = is_string($email)
                 ? Str::transliterate(Str::lower(trim($email)))
@@ -270,11 +276,11 @@ class AppServiceProvider extends ServiceProvider
             return [
                 Limit::perMinute(5)->by('supplier-login-email:'.$emailKey),
                 Limit::perHour(30)->by('supplier-login-email-hour:'.$emailKey),
-                Limit::perMinute(120)->by('supplier-login-ip:'.($request->ip() ?? 'unknown')),
+                Limit::perMinute(120)->by('supplier-login-ip:'.$networkIp($request)),
             ];
         });
 
-        RateLimiter::for('admin-login', function (Request $request): array {
+        RateLimiter::for('admin-login', function (Request $request) use ($networkIp): array {
             $email = $request->input('email');
             $normalizedEmail = is_string($email)
                 ? Str::transliterate(Str::lower(trim($email)))
@@ -284,31 +290,31 @@ class AppServiceProvider extends ServiceProvider
             return [
                 Limit::perMinute(5)->by('admin-login-email:'.$emailKey),
                 Limit::perHour(30)->by('admin-login-email-hour:'.$emailKey),
-                Limit::perMinute(120)->by('admin-login-ip:'.($request->ip() ?? 'unknown')),
+                Limit::perMinute(120)->by('admin-login-ip:'.$networkIp($request)),
             ];
         });
 
         RateLimiter::for('customer-password-reset', fn (Request $request) => [
-            Limit::perMinute(config('auth.customer_limits.reset_ip_minute', 20))->by('customer-password-reset:'.$request->ip()),
-            Limit::perDay(config('auth.customer_limits.reset_ip_day', 500))->by('customer-password-reset-day:'.$request->ip()),
+            Limit::perMinute(config('auth.customer_limits.reset_ip_minute', 20))->by('customer-password-reset:'.$networkIp($request)),
+            Limit::perDay(config('auth.customer_limits.reset_ip_day', 500))->by('customer-password-reset-day:'.$networkIp($request)),
             Limit::perMinute(5)->by('customer-password-reset-id:'.$identifierKey($request)),
             Limit::perDay(10)->by('customer-password-reset-id-day:'.$identifierKey($request)),
         ]);
 
         // حد تسجيل دخول الكاشير على نقطة البيع
-        RateLimiter::for('pos-login', function (Request $request): array {
+        RateLimiter::for('pos-login', function (Request $request) use ($networkIp): array {
             $email = $request->input('email');
             $emailKey = hash('sha256', Str::lower(trim(is_string($email) ? $email : '')));
 
             return [
                 Limit::perMinute(5)->by('pos-login-email:'.$emailKey),
                 Limit::perHour(30)->by('pos-login-email-hour:'.$emailKey),
-                Limit::perMinute(120)->by('pos-login-ip:'.($request->ip() ?? 'unknown')),
+                Limit::perMinute(120)->by('pos-login-ip:'.$networkIp($request)),
             ];
         });
 
         // حد الدخول الموحد: بالـ IP وبالمعرّف (بريد/هاتف) معًا
-        RateLimiter::for('unified-login', function (Request $request) {
+        RateLimiter::for('unified-login', function (Request $request) use ($networkIp) {
             // H2: طبّع المعرّف بنفس منطق CustomerAuthService::login، وإلا كانت
             // كل صيغة هاتف (‎+20/0020/مسافات/أرقام عربية) بعدّاد مستقل.
             // M3: المدخل قد يكون array فيصل قبل الـ validation — لا تصبه لـ string.
@@ -324,12 +330,12 @@ class AppServiceProvider extends ServiceProvider
                 // M6: حد الـ IP قابل للضبط (شبكات CGNAT والفروع المشتركة)، وحد
                 // إبقاء حد ضيق لكل (IP + معرّف) ضد التخمين المركّز.
                 // الحدود العامة تحسب الفشل فقط داخل UnifiedAuthService.
-                Limit::perMinute((int) config('auth.unified_login_ip_minute', 120))->by('ip:'.$request->ip()),
-                Limit::perMinute(5)->by('id:'.$id.':'.$request->ip()),
+                Limit::perMinute((int) config('auth.unified_login_ip_minute', 120))->by('ip:'.$networkIp($request)),
+                Limit::perMinute(5)->by('id:'.$id.':'.$networkIp($request)),
             ];
         });
 
-        RateLimiter::for('unified-handoff', fn (Request $request) => Limit::perMinute((int) config('auth.unified_handoff_ip_minute', 60))->by($request->ip()));
+        RateLimiter::for('unified-handoff', fn (Request $request) => Limit::perMinute((int) config('auth.unified_handoff_ip_minute', 60))->by($networkIp($request)));
 
         // M8: الـ handoff يعتمد على cache مشترك يدعم الأقفال عبر الخوادم.
         // file/array يكسرانه بصمت على عدة nodes — نبّه في الإنتاج مبكرًا.

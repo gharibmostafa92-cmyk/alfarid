@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\Auth\StaffHandoffService;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Models\Role;
 use Symfony\Component\Process\Process;
 use Tests\TestCase;
@@ -106,6 +107,37 @@ class AuthConcurrencyTest extends TestCase
             .'echo $response->getStatusCode() === 200 ? "OK" : "REJECTED";';
         $this->race([$job, $job]);
         $this->assertSame(1, $user->tokens()->count());
+    }
+
+    public function test_concurrent_customer_registrations_claim_a_case_insensitive_email_once(): void
+    {
+        $jobs = [];
+        foreach (['01011112222', '01011113333'] as $index => $phone) {
+            $data = var_export(['name' => 'Concurrent customer', 'phone' => $phone,
+                'email' => $index === 0 ? 'register-race@example.test' : 'REGISTER-RACE@example.test',
+                'password' => 'Race-password12'], true);
+            $jobs[] = 'app(App\\Services\\CustomerAuthService::class)->registerRetail('.$data.'); echo "OK";';
+        }
+        $this->race($jobs);
+        $this->assertSame(1, Customer::count());
+    }
+
+    public function test_retail_and_wholesale_customer_registration_share_the_email_claim(): void
+    {
+        $data = ['name' => 'Concurrent customer', 'phone' => '01011112222',
+            'email' => 'register-race@example.test', 'password' => 'Race-password12'];
+        $retail = 'app(App\\Services\\CustomerAuthService::class)->registerRetail('.var_export($data, true).'); echo "OK";';
+        $data = [...$data, 'phone' => '01011113333', 'email' => 'REGISTER-RACE@example.test',
+            'company_name' => 'Concurrent company', 'tax_number' => '123456789', 'commercial_register' => '987654'];
+        $wholesale = 'Illuminate\\Support\\Facades\\Storage::persistentFake("r2");'
+            .'Illuminate\\Support\\Facades\\Notification::fake();'
+            .'app(App\\Services\\WholesaleRegistrationService::class)->register('.var_export($data, true).', '
+            .'[Illuminate\\Http\\UploadedFile::fake()->create("registration.pdf", 1, "application/pdf")]); echo "OK";';
+        $this->race([$retail, $wholesale]);
+        $this->assertSame(1, Customer::count());
+        $documents = Customer::firstOrFail()->type->value === 'wholesale' ? 1 : 0;
+        $this->assertDatabaseCount('customer_documents', $documents);
+        $this->assertCount($documents, Storage::disk('r2')->allFiles());
     }
 
     /** @param list<string> $jobs */

@@ -259,13 +259,13 @@ class CustomerStoreReviewTest extends TestCase
         $this->assertSame(CustomerType::Wholesale, $customer->refresh()->type);
     }
 
-    public function test_email_is_normalized_and_unverified_addresses_do_not_reserve_login_identity(): void
+    public function test_email_is_normalized_and_duplicate_contact_addresses_are_rejected(): void
     {
         $this->postJson('/api/v1/store/auth/register', ['name' => 'X', 'email' => ' User@Example.Test ', 'phone' => ' 01000000000 ', 'password' => 'password'])
             ->assertCreated()->assertJsonPath('data.email', 'user@example.test')->assertJsonPath('data.phone', '01000000000');
         $this->postJson('/api/v1/store/auth/login', ['login' => 'USER@EXAMPLE.TEST', 'password' => 'password'])->assertUnauthorized();
         $this->postJson('/api/v1/store/auth/register', ['name' => 'Y', 'email' => 'USER@example.test', 'phone' => '01000000001', 'password' => 'password'])
-            ->assertCreated();
+            ->assertUnprocessable()->assertJsonValidationErrors('email');
     }
 
     public function test_deleted_customers_can_be_found_and_restored_without_losing_status_or_history(): void
@@ -415,7 +415,7 @@ class CustomerStoreReviewTest extends TestCase
         Storage::shouldReceive('disk')->with('r2')->andReturn($proxy);
 
         $response = $this->postJson('/api/v1/wholesale/auth/register', [
-            'name' => 'Wholesale', 'phone' => '01000987654', 'password' => 'password',
+            'name' => 'Wholesale', 'phone' => '01000987654', 'password' => 'secure-password123',
             'company_name' => 'Company', 'tax_number' => '123', 'commercial_register' => '456',
             'documents' => [UploadedFile::fake()->create(str_repeat('a', 300).'.jpg', 20, 'application/pdf')],
         ])->assertCreated();

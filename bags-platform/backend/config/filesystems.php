@@ -64,6 +64,7 @@ return [
 
         'r2' => [
             'driver' => 's3',
+            'options' => ['CacheControl' => 'private, max-age=120'],
             'key' => env('R2_ACCESS_KEY_ID'),
             'secret' => env('R2_SECRET_ACCESS_KEY'),
             'region' => 'auto',
@@ -84,6 +85,7 @@ return [
         // URL must never expose customer_documents / supplier_invoices.
         'r2_public' => [
             'driver' => 's3',
+            'options' => ['CacheControl' => env('MEDIA_REMOTE_CACHE_CONTROL', 'public, max-age=604800')],
             'key' => env('R2_ACCESS_KEY_ID'),
             'secret' => env('R2_SECRET_ACCESS_KEY'),
             'region' => 'auto',

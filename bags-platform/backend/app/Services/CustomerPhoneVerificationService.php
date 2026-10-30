@@ -23,7 +23,7 @@ class CustomerPhoneVerificationService
      * Generate and dispatch a 6-digit OTP code to the provided phone number.
      * Enforces a 60-second cooldown and daily message quota per phone key.
      */
-    public function send(string $phone): void
+    public function send(string $phone, ?string $networkKey = null): void
     {
         // Avoid sending verification codes to numbers already registered
         if (Customer::withTrashed()->where('phone', $phone)->exists()) {
@@ -31,7 +31,7 @@ class CustomerPhoneVerificationService
         }
         $code = (string) random_int(100000, 999999);
         $key = hash('sha256', $phone);
-        $created = DB::transaction(function () use ($key, $code): bool {
+        $created = DB::transaction(function () use ($key, $code, $networkKey): bool {
             DB::table('customer_phone_verifications')->insertOrIgnore([
                 'phone_key' => $key, 'code_hash' => '', 'created_at' => now()->subDay(), 'expires_at' => now()->subDay(),
             ]);
@@ -39,11 +39,11 @@ class CustomerPhoneVerificationService
             if ($row->verified_at !== null && now()->lt($row->expires_at)) {
                 return false;
             }
-            if (now()->subSeconds(60)->lt($row->created_at) || ! app(CustomerMessageBudget::class)->claim('verify:'.$key)) {
+            if (now()->subSeconds(60)->lt($row->created_at) || ! app(CustomerMessageBudget::class)->claim('verify:'.$key, networkKey: $networkKey)) {
                 return false;
             }
             DB::table('customer_phone_verifications')->where('phone_key', $key)->update([
-                'code_hash' => Hash::make($code), 'proof_hash' => null, 'attempts' => 0, 'verified_at' => null,
+                'code_hash' => 'hmac:'.hash_hmac('sha256', $key.':'.$code, (string) config('app.key')), 'proof_hash' => null, 'attempts' => 0, 'verified_at' => null,
                 'created_at' => now(), 'expires_at' => now()->addMinutes(10),
             ]);
 
@@ -71,10 +71,13 @@ class CustomerPhoneVerificationService
         $proof = DB::transaction(function () use ($phone, $code): ?string {
             $key = hash('sha256', $phone);
             $row = DB::table('customer_phone_verifications')->where('phone_key', $key)->lockForUpdate()->first();
-            $valid = Hash::check($code, $row?->code_hash ?: CustomerAuthService::dummyHash());
             if ($row === null || $row->attempts >= 5 || now()->gte($row->expires_at) || $row->verified_at !== null) {
                 return null;
             }
+            // Legacy bcrypt challenges remain valid during their ten-minute lifetime.
+            $valid = str_starts_with($row->code_hash, 'hmac:')
+                ? hash_equals($row->code_hash, 'hmac:'.hash_hmac('sha256', $key.':'.$code, (string) config('app.key')))
+                : ($row->code_hash !== '' && Hash::check($code, $row->code_hash));
             DB::table('customer_phone_verifications')->where('phone_key', $key)->increment('attempts');
             if (! $valid) {
                 return null;

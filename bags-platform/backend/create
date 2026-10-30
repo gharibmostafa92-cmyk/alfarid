@@ -1,0 +1,2 @@
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:126:            $this->assertSame(0, $record->media()->count());
+tests/Feature\Admin\Catalog\CatalogAuditTest.php:143:            $this->assertSame(0, $record->fresh()->media()->count());

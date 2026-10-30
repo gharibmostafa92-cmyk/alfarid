@@ -19,6 +19,9 @@ use App\Services\InventoryService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 /**
@@ -61,6 +64,12 @@ class PosCriticalFixesTest extends TestCase
             'branch_id' => $this->branch->id,
             'is_active' => true,
         ]);
+
+        $role = Role::findOrCreate('cashier', 'staff');
+        $this->cashier->assignRole($role);
+        foreach (['pos.access', 'pos.sales.refund'] as $permission) {
+            $this->cashier->givePermissionTo(Permission::findOrCreate($permission, 'staff'));
+        }
 
         $this->posDrawer = Treasury::create([
             'name' => 'Ahmed Drawer',
@@ -113,7 +122,7 @@ class PosCriticalFixesTest extends TestCase
             'created_by' => $this->cashier->id,
         ]);
 
-        $this->cashier->givePermissionTo(\Spatie\Permission\Models\Permission::findOrCreate('pos.discount', 'staff'));
+        $this->cashier->givePermissionTo(Permission::findOrCreate('pos.discount', 'staff'));
         $this->token = $this->cashier->createToken('pos', ['pos'])->plainTextToken;
 
         $this->withToken($this->token)->postJson('/api/v1/pos/shifts/open', [
@@ -197,11 +206,13 @@ class PosCriticalFixesTest extends TestCase
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
         ])->assertStatus(422);
     }
+
     public function json($method, $uri, array $data = [], array $headers = [], $options = 0)
     {
         if (strtoupper($method) === 'POST' && str_ends_with($uri, '/pos/sales') && ! isset($headers['Idempotency-Key']) && ! isset($this->defaultHeaders['Idempotency-Key'])) {
-            $headers['Idempotency-Key'] = (string) \Illuminate\Support\Str::uuid();
+            $headers['Idempotency-Key'] = (string) Str::uuid();
         }
+
         return parent::json($method, $uri, $data, $headers, $options);
     }
 }

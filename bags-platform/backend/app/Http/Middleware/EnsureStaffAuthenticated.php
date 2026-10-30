@@ -29,6 +29,12 @@ class EnsureStaffAuthenticated
             ], 403);
         }
 
+        $token = $user->currentAccessToken();
+        if ($token !== null && ! $token->can('*')
+            && ! ($request->is('api/v1/pos/*') && $token->can('pos'))) {
+            return response()->json(['message' => 'التوكن غير مصرح له بهذه الواجهة.'], 403);
+        }
+
         return $next($request);
     }
 }

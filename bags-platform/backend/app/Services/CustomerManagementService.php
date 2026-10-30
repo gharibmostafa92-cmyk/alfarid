@@ -294,6 +294,6 @@ class CustomerManagementService
             CustomerAuditLog::record($customer, 'document_uploaded', $actorId, ['document_id' => $document->id]);
 
             return $document;
-        });
+        }, [[$file, 'customer_documents/'.$customer->id]]);
     }
 }

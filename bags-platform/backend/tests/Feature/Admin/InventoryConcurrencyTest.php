@@ -347,13 +347,30 @@ PHP;
         $branch = Branch::factory()->create();
         $data = var_export($this->data($variant, $branch), true);
         app(InventoryService::class)->recordMovement($this->data($variant, $branch));
-        $writer = 'Illuminate\Support\Facades\DB::transaction(function () { app(App\Services\InventoryService::class)->recordMovement('.$data.'); touch(getenv("INVENTORY_START_FILE").".left"); usleep(1500000); });';
+        $writer = str_replace('MOVEMENT_DATA', $data, <<<'PHP'
+Illuminate\Support\Facades\DB::transaction(function () {
+    app(App\Services\InventoryService::class)->recordMovement(MOVEMENT_DATA);
+    touch(getenv('INVENTORY_START_FILE').'.left');
+    $deadline = microtime(true) + 12;
+    do {
+        Illuminate\Support\Facades\DB::select('SELECT pg_stat_clear_snapshot()');
+        $blocked = Illuminate\Support\Facades\DB::selectOne("SELECT EXISTS (
+            SELECT 1 FROM pg_stat_activity WHERE datname = current_database()
+            AND application_name = 'inventory-reconcile-reader' AND wait_event_type = 'Lock'
+        ) AS waiting");
+        if ($blocked->waiting) break;
+        if (microtime(true) > $deadline) throw new RuntimeException('Reconciliation did not reach the uncommitted movement');
+        usleep(10000);
+    } while (true);
+});
+PHP);
         $reader = <<<'PHP'
 $deadline = microtime(true) + 8;
 while (!is_file(getenv('INVENTORY_START_FILE').'.left')) {
     if (microtime(true) > $deadline) throw new RuntimeException('Writer did not start');
     usleep(10000);
 }
+Illuminate\Support\Facades\DB::statement("SET application_name = 'inventory-reconcile-reader'");
 if (Illuminate\Support\Facades\Artisan::call('inventory:reconcile', ['--incremental' => true]) !== 0) throw new RuntimeException('Snapshot mismatch');
 PHP;
         $this->race([$writer, $reader]);

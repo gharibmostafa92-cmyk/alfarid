@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Services\StatementBudget;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -23,6 +24,11 @@ class ReconcileInventory extends Command
     protected $description = 'مطابقة أرصدة المخزون مع دفتر الحركات وكشف أي كتابة مباشرة';
 
     public function handle(): int
+    {
+        return StatementBudget::run(300000, fn (): int => $this->reconcile());
+    }
+
+    private function reconcile(): int
     {
         $branch = $this->option('branch_id');
         if ($branch !== null && filter_var($branch, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) === false) {

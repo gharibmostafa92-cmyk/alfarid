@@ -17,10 +17,10 @@ class SendCustomerPhoneVerification implements ShouldBeEncrypted, ShouldQueue
 
     public int $timeout = 30;
 
-    public function __construct(public readonly string $phone) {}
+    public function __construct(public readonly string $phone, public readonly ?string $networkKey = null) {}
 
     public function handle(CustomerPhoneVerificationService $service): void
     {
-        $service->send($this->phone);
+        $service->send($this->phone, $this->networkKey);
     }
 }

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Notifications\Channels;
 
 use App\Exceptions\BusinessException;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Notifications\Notification;
 use Illuminate\Support\Facades\Http;
 
@@ -18,10 +20,14 @@ class CustomerSmsChannel
             throw new BusinessException('خدمة الرسائل النصية غير مهيأة حاليًا.', [], 503);
         }
 
-        $response = Http::withToken($token)->connectTimeout(3)->timeout(10)->post($url, [
-            'to' => $customer->routeNotificationFor('customer_sms', $notification) ?? $customer->phone,
-            'message' => $notification->toSms($customer),
-        ])->throw();
+        try {
+            $response = Http::withToken($token)->connectTimeout(3)->timeout(10)->post($url, [
+                'to' => $customer->routeNotificationFor('customer_sms', $notification) ?? $customer->phone,
+                'message' => $notification->toSms($customer),
+            ])->throw();
+        } catch (ConnectionException|RequestException) {
+            throw new BusinessException('خدمة الرسائل النصية غير متاحة مؤقتًا؛ أعد المحاولة لاحقًا.', [], 503);
+        }
         if ($response->json('success') !== true) {
             throw new BusinessException('رفض مزود الرسائل إرسال الرسالة.', [], 503);
         }

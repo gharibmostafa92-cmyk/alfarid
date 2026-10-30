@@ -9,6 +9,7 @@ use App\Http\Requests\Api\V1\Admin\AdminLoginRequest;
 use App\Http\Resources\Api\V1\Admin\UserResource;
 use App\Models\User;
 use App\Services\Auth\LoginDestinationResolver;
+use App\Services\Auth\StaffAuthenticationAudit;
 use App\Services\Auth\StaffHandoffService;
 use App\Services\Auth\StaffTokenService;
 use Illuminate\Http\JsonResponse;
@@ -16,8 +17,6 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\RateLimiter;
-use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
@@ -38,17 +37,16 @@ class AuthController extends Controller
         $passwordMatches = Hash::check($credentials['password'], $storedHash);
 
         if (! $user instanceof User || ! $user->is_active || $user->is_system || ! $passwordMatches) {
+            StaffAuthenticationAudit::record($user, 'failed');
+
             return response()->json([
                 'message' => 'بيانات تسجيل الدخول غير صحيحة أو الحساب غير نشط.',
             ], 401);
         }
 
-        $emailKey = hash('sha256', Str::transliterate(Str::lower(trim($credentials['email']))));
-        RateLimiter::clear('admin-login-email:'.$emailKey);
-        RateLimiter::clear('admin-login-email-hour:'.$emailKey);
-
         $redirect = $this->destinationResolver->resolve($user);
         $token = $this->tokenService->issue($user, StaffHandoffService::credentialFingerprint($user));
+        StaffAuthenticationAudit::record($user, 'success');
 
         return $this->userResource($user)->additional(['token' => $token, 'redirect' => $redirect]);
     }

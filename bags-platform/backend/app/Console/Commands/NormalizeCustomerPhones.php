@@ -17,7 +17,13 @@ class NormalizeCustomerPhones extends Command
 
     public function handle(): int
     {
-        DB::statement("CREATE TEMP TABLE customer_phone_normalization ON COMMIT PRESERVE ROWS AS
+        // Pin the temporary table to one connection under transaction pooling.
+        return DB::transaction(fn (): int => $this->normalize());
+    }
+
+    private function normalize(): int
+    {
+        DB::statement("CREATE TEMP TABLE customer_phone_normalization ON COMMIT DROP AS
             WITH cleaned AS (
                 SELECT id, phone AS before, regexp_replace(translate(TRIM(phone),
                     '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789'), '[[:space:]().-]+', '', 'g') AS value
@@ -25,6 +31,7 @@ class NormalizeCustomerPhones extends Command
             )
             SELECT id, before, CASE
                 WHEN before ~ '^legacy-[0-9]+$' THEN before
+                WHEN value ~ '^201[0125][0-9]{8}$' THEN '0' || SUBSTRING(value FROM 3)
                 WHEN value LIKE '+20%' THEN '0' || SUBSTRING(value FROM 4)
                 WHEN value LIKE '0020%' THEN '0' || SUBSTRING(value FROM 5)
                 ELSE value END AS after FROM cleaned");

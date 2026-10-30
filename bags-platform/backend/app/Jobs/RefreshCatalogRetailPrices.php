@@ -5,14 +5,14 @@ declare(strict_types=1);
 namespace App\Jobs;
 
 use App\Services\Catalog\RetailPriceSnapshot;
-use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 
 /**
  * Queued unique job refreshing denormalized catalog minimum retail prices and stock availability snapshots.
  */
-class RefreshCatalogRetailPrices implements ShouldBeUnique, ShouldQueue
+class RefreshCatalogRetailPrices implements ShouldBeUniqueUntilProcessing, ShouldQueue
 {
     use Queueable;
 
@@ -21,6 +21,8 @@ class RefreshCatalogRetailPrices implements ShouldBeUnique, ShouldQueue
     public int $tries = 3;
 
     public int $timeout = 120;
+
+    public bool $failOnTimeout = true;
 
     public function __construct(public int|array|null $productId = null)
     {
@@ -47,7 +49,7 @@ class RefreshCatalogRetailPrices implements ShouldBeUnique, ShouldQueue
     /**
      * Executes the snapshot refresh calculation.
      *
-     * @param RetailPriceSnapshot $snapshots Snapshot calculation service
+     * @param  RetailPriceSnapshot  $snapshots  Snapshot calculation service
      */
     public function handle(RetailPriceSnapshot $snapshots): void
     {

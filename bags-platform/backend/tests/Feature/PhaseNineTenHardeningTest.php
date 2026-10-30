@@ -28,7 +28,9 @@ use App\Models\User;
 use App\Services\PrivateAttachments;
 use App\Services\ProcurementService;
 use App\Services\ReturnService;
+use App\Services\SettingService;
 use App\Services\SupplierFinanceService;
+use Carbon\Carbon;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Database\QueryException;
@@ -96,6 +98,33 @@ class PhaseNineTenHardeningTest extends TestCase
         $order->statusHistories()->create(['to_status' => OrderStatus::Delivered, 'created_at' => now()]);
 
         return $order->fresh(['items']);
+    }
+
+    #[TestWith([14, 14, 0, true])]
+    #[TestWith([14, 14, 1, false])]
+    #[TestWith([0, 0, 0, false])]
+    #[TestWith([-1, 365, 0, true])]
+    public function test_return_window_boundaries_follow_the_configured_policy(int $window, int $age, int $seconds, bool $allowed): void
+    {
+        $this->travelTo(Carbon::parse('2026-10-29 12:00:00', 'Africa/Cairo'));
+        app(SettingService::class)->updateBatch(['return_window_days' => $window]);
+        $order = $this->order();
+        $order->statusHistories()->update(['created_at' => now()->subDays($age)->subSeconds($seconds)]);
+        $response = $this->api('returns', ['order_id' => $order->id, 'reason' => 'checklist', 'items' => [['order_item_id' => $order->items->first()->id, 'requested_qty' => 1]]]);
+        $response->assertStatus($allowed ? 201 : 422);
+        $this->assertDatabaseCount('return_requests', $allowed ? 1 : 0);
+        $this->assertDatabaseCount('stock_movements', 0);
+    }
+
+    public function test_duplicate_return_lines_cannot_exceed_the_order_item_quantity(): void
+    {
+        $order = $this->order(3);
+        $this->api('returns', ['order_id' => $order->id, 'reason' => 'checklist', 'items' => [
+            ['order_item_id' => $order->items->first()->id, 'requested_qty' => 1],
+            ['order_item_id' => $order->items->first()->id, 'requested_qty' => 3],
+        ]])->assertUnprocessable();
+        $this->assertDatabaseCount('return_requests', 0);
+        $this->assertDatabaseCount('stock_movements', 0);
     }
 
     private function pending(Order $order, int $qty = 1): ReturnRequest
@@ -253,7 +282,8 @@ class PhaseNineTenHardeningTest extends TestCase
         $token = $order->customer->createToken('review')->plainTextToken;
         $this->withToken($token)->getJson('/api/v1/store/account/returns')->assertOk()->assertJsonCount(1, 'data');
         $url = "/api/v1/store/account/return-items/{$return->items->first()->id}/attachments/0";
-        $this->withToken($token)->get($url)->assertOk();
+        // H3: authorized downloads 302-redirect to a short-lived signed R2 URL.
+        $this->withToken($token)->get($url)->assertRedirect();
         Auth::forgetGuards();
         $other = Customer::factory()->create();
         $this->withToken($other->createToken('review')->plainTextToken)->getJson("/api/v1/store/account/returns/{$return->id}")->assertNotFound();
@@ -492,8 +522,9 @@ class PhaseNineTenHardeningTest extends TestCase
         $delivery = SupplierDelivery::factory()->create(['supplier_id' => $this->supplier->id, 'purchase_order_id' => $po->id, 'invoice_file_path' => $invoice->attachment_path]);
         $owner = SupplierUser::factory()->create(['supplier_id' => $this->supplier->id]);
         Auth::forgetGuards();
-        $this->withToken($owner->createToken('review')->plainTextToken)->get("/api/v1/supplier/supplier-invoices/{$invoice->id}/attachment")->assertOk();
-        $this->get("/api/v1/supplier/deliveries/{$delivery->id}/invoice")->assertOk();
+        // H3: authorized downloads 302-redirect to a short-lived signed R2 URL.
+        $this->withToken($owner->createToken('review')->plainTextToken)->get("/api/v1/supplier/supplier-invoices/{$invoice->id}/attachment")->assertRedirect();
+        $this->get("/api/v1/supplier/deliveries/{$delivery->id}/invoice")->assertRedirect();
         Auth::forgetGuards();
         $other = SupplierUser::factory()->create(['supplier_id' => Supplier::factory()->create()->id]);
         $this->withToken($other->createToken('review')->plainTextToken)->get("/api/v1/supplier/supplier-invoices/{$invoice->id}/attachment")->assertNotFound();

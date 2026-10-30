@@ -12,8 +12,12 @@ class HealthReadyTest extends TestCase
 
     public function test_readiness_is_healthy_when_all_dependencies_are_available(): void
     {
-        Redis::shouldReceive('connection')->with('default')->andReturn(new class {
-            public function ping(): bool { return true; }
+        Redis::shouldReceive('connection')->with('health')->andReturn(new class
+        {
+            public function ping(): bool
+            {
+                return true;
+            }
         });
 
         $this->get('/health/ready')->assertOk()
@@ -22,7 +26,7 @@ class HealthReadyTest extends TestCase
 
     public function test_readiness_returns_service_unavailable_when_redis_fails(): void
     {
-        Redis::shouldReceive('connection')->with('default')->andThrow(new \RuntimeException('Redis unavailable'));
+        Redis::shouldReceive('connection')->with('health')->andThrow(new \RuntimeException('Redis unavailable'));
 
         $this->get('/health/ready')->assertStatus(503)
             ->assertJsonPath('status', 'fail')->assertJsonPath('checks.redis', 'fail');

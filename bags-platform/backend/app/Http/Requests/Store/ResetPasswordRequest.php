@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Store;
 
 use App\Http\Requests\Concerns\NormalizesCustomerInput;
+use App\Rules\PasswordByteLimit;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -27,7 +28,7 @@ class ResetPasswordRequest extends FormRequest
             'email' => ['nullable', 'email', 'max:255', 'required_without:phone', 'prohibits:phone'],
             'phone' => ['nullable', 'string', 'regex:/^01[0125][0-9]{8}$/', 'required_without:email', 'prohibits:email'],
             'token' => ['required', 'string', 'size:64'],
-            'password' => ['required', 'string', 'min:8', 'max:255', 'confirmed'],
+            'password' => ['required', 'string', new PasswordByteLimit, 'min:8', 'max:72', 'confirmed'],
         ];
     }
 

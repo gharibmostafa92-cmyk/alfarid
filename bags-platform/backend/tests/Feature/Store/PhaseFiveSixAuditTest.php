@@ -263,12 +263,12 @@ class PhaseFiveSixAuditTest extends TestCase
     public function test_token_failure_rolls_back_wholesale_registration_and_uploaded_files(): void
     {
         $this->fakeUploads();
-        $this->mock(CustomerAuthService::class, function ($mock): void {
+        $this->partialMock(CustomerAuthService::class, function ($mock): void {
             $mock->shouldReceive('issueToken')->once()->andThrow(new \RuntimeException('Token failure'));
         });
 
         $this->postJson('/api/v1/wholesale/auth/register', [
-            'name' => 'Wholesale', 'phone' => '01000987654', 'password' => 'password',
+            'name' => 'Wholesale', 'phone' => '01000987654', 'password' => 'secure-password123',
             'company_name' => 'Company', 'tax_number' => '123', 'commercial_register' => '456',
             'documents' => [UploadedFile::fake()->create('register.pdf', 20, 'application/pdf')],
         ])->assertServerError();
@@ -285,7 +285,7 @@ class PhaseFiveSixAuditTest extends TestCase
         Storage::shouldReceive('disk')->with('r2')->andReturn($disk);
 
         $this->postJson('/api/v1/wholesale/auth/register', [
-            'name' => 'Wholesale', 'phone' => '01000987654', 'password' => 'password',
+            'name' => 'Wholesale', 'phone' => '01000987654', 'password' => 'secure-password123',
             'company_name' => 'Company', 'tax_number' => '123', 'commercial_register' => '456',
             'documents' => [UploadedFile::fake()->create('register.pdf', 20, 'application/pdf')],
         ])->assertServerError();

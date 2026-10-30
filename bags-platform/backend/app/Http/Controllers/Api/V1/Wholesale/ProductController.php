@@ -51,7 +51,7 @@ class ProductController extends Controller
             ->whereHas('category', fn ($q) => $q->where('is_active', true)
                 ->whereDoesntHave('parent', fn ($parent) => $parent->where('is_active', false)
                     ->orWhereHas('parent', fn ($ancestor) => $ancestor->where('is_active', false))))
-            ->with(['variants' => fn ($q) => $q->where('is_active', true)])
+            ->with(['media', 'variants' => fn ($q) => $q->where('is_active', true)->with('media')])
             ->when($filters['search'] ?? null, function ($q, $v): void {
                 $pattern = SearchTerm::pattern($v);
                 $q->where(fn ($sub) => $sub
@@ -81,33 +81,44 @@ class ProductController extends Controller
         // this page — load it once instead of per variant.
         $pricingCtx = $this->pricing->contextFor($customer, $variantIds);
 
-        $data = $products->getCollection()->map(fn (Product $product) => [
-            'id' => $product->id,
-            'name' => $product->name_ar,
-            'name_en' => $product->name_en,
-            'variants' => $product->variants->map(function (ProductVariant $variant) use ($customer, $availability, $pricingCtx): array {
-                try {
-                    $resolved = $this->pricing->resolve($variant, $customer, 1, null, $pricingCtx);
-                    $price = $resolved['unit_price'];
-                    $base = $resolved['base_price'];
-                    $tiers = $this->pricing->tiersFor($variant, $customer, $pricingCtx);
-                } catch (BusinessException) {
-                    $price = null;
-                    $base = $variant->retail_price !== null ? (float) $variant->retail_price : null;
-                    $tiers = [];
-                }
+        $data = $products->getCollection()->map(function (Product $product) use ($customer, $availability, $pricingCtx): array {
+            $images = $product->catalogImages();
+            $first = $images->first();
+            $image = $first !== null
+                ? ($first->hasGeneratedConversion('thumb') ? $first->getUrl('thumb') : $first->getUrl())
+                : null;
 
-                return [
-                    'id' => $variant->id,
-                    'sku' => $variant->sku,
-                    'barcode' => $variant->barcode,
-                    'base_price' => $base,
-                    'your_price' => $price,
-                    'tier_prices' => $tiers,
-                    'available_qty' => $availability[$variant->id] ?? 0.0,
-                ];
-            })->values()->all(),
-        ])->values()->all();
+            return [
+                'id' => $product->id,
+                'name' => $product->name_ar,
+                'name_en' => $product->name_en,
+                'image' => $image,
+                'variants' => $product->variants->map(function (ProductVariant $variant) use ($customer, $availability, $pricingCtx, $image): array {
+                    try {
+                        $resolved = $this->pricing->resolve($variant, $customer, 1, null, $pricingCtx);
+                        $price = $resolved['unit_price'];
+                        $base = $resolved['base_price'];
+                        $tiers = $this->pricing->tiersFor($variant, $customer, $pricingCtx);
+                    } catch (BusinessException) {
+                        $price = null;
+                        $base = $variant->retail_price !== null ? (float) $variant->retail_price : null;
+                        $tiers = [];
+                    }
+
+                    return [
+                        'id' => $variant->id,
+                        'sku' => $variant->sku,
+                        'barcode' => $variant->barcode,
+                        'label' => $variant->displayLabel(),
+                        'image' => $image,
+                        'base_price' => $base,
+                        'your_price' => $price,
+                        'tier_prices' => $tiers,
+                        'available_qty' => $availability[$variant->id] ?? 0.0,
+                    ];
+                })->values()->all(),
+            ];
+        })->values()->all();
 
         return response()->json([
             'data' => $data,

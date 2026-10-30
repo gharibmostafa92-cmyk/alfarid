@@ -698,7 +698,7 @@ class ProcurementService
 
         return PrivateAttachments::transaction(fn (PrivateAttachments $files) => app(OperationIdempotencyService::class)->run('supplier_delivery', $user, $idempotencyKey,
             ['purchase_order_id' => $po->id, ...$data, 'invoice_hash' => $invoiceFile ? hash_file('sha256', $invoiceFile->getRealPath()) : null],
-            fn () => $this->executeSupplierDelivery($po, $user, $data, $invoiceFile, $files)));
+            fn () => $this->executeSupplierDelivery($po, $user, $data, $invoiceFile, $files)), [[$invoiceFile, 'supplier_deliveries/pending']]);
     }
 
     private function executeSupplierDelivery(PurchaseOrder $po, SupplierUser $user, array $data, ?UploadedFile $invoiceFile, PrivateAttachments $files): SupplierDelivery

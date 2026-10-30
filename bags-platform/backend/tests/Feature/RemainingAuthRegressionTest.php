@@ -8,7 +8,6 @@ use App\Exceptions\BusinessException;
 use App\Models\User;
 use App\Services\Auth\UnifiedAuthService;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
-use Illuminate\Support\Facades\Hash;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
 use Tests\TestCase;
 
@@ -35,7 +34,7 @@ class RemainingAuthRegressionTest extends TestCase
         $auth->attempt($staff->email, 'wrong-password');
     }
 
-    public function test_the_hourly_identifier_guard_still_stops_hash_checks_across_rotating_ips(): void
+    public function test_the_hourly_identifier_guard_accepts_valid_credentials_and_rejects_bad_guesses_across_ips(): void
     {
         config([
             'auth.unified_login_failures_hour' => 10,
@@ -50,9 +49,9 @@ class RemainingAuthRegressionTest extends TestCase
         }
 
         request()->server->set('REMOTE_ADDR', '192.0.2.3');
-        Hash::shouldReceive('check')->never();
+        $this->assertSame($staff->id, $auth->attempt($staff->email, 'Good-password12')->id);
         $this->expectException(TooManyRequestsHttpException::class);
-        $auth->attempt($staff->email, 'Good-password12');
+        $auth->attempt($staff->email, 'wrong-password');
     }
 
     private function wrongPassword(UnifiedAuthService $auth, string $identifier): void

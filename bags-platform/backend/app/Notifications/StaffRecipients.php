@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Notifications;
 
 use App\Models\User;
+use App\Services\BranchAccess;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
@@ -14,7 +16,7 @@ use Illuminate\Database\Eloquent\Collection;
 final class StaffRecipients
 {
     /** @param list<string> $permissions */
-    public static function withAnyPermission(array $permissions): Collection
+    public static function withAnyPermission(array $permissions, ?array $branchIds = null): Collection
     {
         return User::query()
             ->where('is_active', true)->where('is_system', false)
@@ -26,7 +28,19 @@ final class StaffRecipients
                             ->whereHas('permissions', fn ($perm) => $perm->where('name', $permission)->where('guard_name', 'staff')));
                 }
             })
-            ->get();
+            ->get()->filter(function (User $user) use ($branchIds): bool {
+                // null means an event without branch-scoped business data.
+                if ($branchIds === null) {
+                    return true;
+                }
+                try {
+                    $branch = app(BranchAccess::class)->restrictedBranch($user);
+
+                    return $branch === null || in_array($branch, $branchIds, true);
+                } catch (AuthorizationException) {
+                    return false;
+                }
+            })->values();
     }
 
     /** مديرو فرع معين: نشطون مقيدون بالفرع ويملكون صلاحية المخزون أو Super Admin. */

@@ -74,13 +74,13 @@ return [
      * This queue connection will be used to generate derived and responsive images.
      * Leave empty to use the default queue connection.
      */
-    'queue_connection_name' => env('MEDIA_QUEUE_CONNECTION', env('QUEUE_CONNECTION', 'database')),
+    'queue_connection_name' => env('MEDIA_QUEUE_CONNECTION', 'database-media'),
 
     /*
      * This queue will be used to generate derived and responsive images.
      * Leave empty to use the default queue.
      */
-    'queue_name' => env('MEDIA_QUEUE', ''),
+    'queue_name' => env('MEDIA_QUEUE', 'media'),
 
     /*
      * By default all conversions will be performed on a queue.
@@ -298,9 +298,15 @@ return [
          *
          * Supported by S3: CacheControl, Expires, StorageClass,
          * ServerSideEncryption, Metadata, ACL, ContentEncoding
+         *
+         * L11: catalog conversions land on the public bucket (long public
+         * cache is correct there), but private documents on the r2 disk must
+         * never be cacheable by shared caches — AttachmentController serves
+         * them via short-lived signed URLs with private, no-store.
          */
         'extra_headers' => [
-            'CacheControl' => 'max-age=604800',
+            // Cache policy is set per disk in filesystems.php so private
+            // documents never inherit the public catalog policy.
         ],
     ],
 

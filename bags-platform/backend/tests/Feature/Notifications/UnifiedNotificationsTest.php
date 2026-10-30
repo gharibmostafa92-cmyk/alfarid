@@ -106,6 +106,7 @@ class UnifiedNotificationsTest extends TestCase
         $purchasing = User::factory()->create();
         $purchasing->givePermissionTo('purchases.view');
         $branch = Branch::factory()->create();
+        $purchasing->update(['branch_id' => $branch->id]);
         $variant = ProductVariant::factory()->create(['reorder_level' => 5]);
         StockLevel::forceCreate(['branch_id' => $branch->id, 'product_variant_id' => $variant->id, 'on_hand' => 10]);
 
@@ -148,7 +149,7 @@ class UnifiedNotificationsTest extends TestCase
     public function test_wholesale_application_submitted_and_rejected_notify_both_sides(): void
     {
         $this->postJson('/api/v1/wholesale/auth/register', [
-            'name' => 'تاجر جديد', 'phone' => '01000987654', 'password' => 'password',
+            'name' => 'تاجر جديد', 'phone' => '01000987654', 'password' => 'secure-password123',
             'company_name' => 'شركة', 'tax_number' => '123', 'commercial_register' => '456',
             'documents' => [UploadedFile::fake()->create('doc.jpg', 20, 'application/pdf')],
         ])->assertCreated();

@@ -23,6 +23,49 @@ class UnifiedLoginTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
+    #[TestWith(['01022334455'])]
+    #[TestWith(['+201022334455'])]
+    #[TestWith(['pending@example.test'])]
+    #[TestWith(['  PENDING@EXAMPLE.TEST  '])]
+    public function test_pending_trader_with_unverified_contacts_logs_in_to_the_waiting_page(string $identifier): void
+    {
+        $customer = Customer::factory()->wholesale()->create([
+            'email' => 'pending@example.test', 'email_verified_at' => null,
+            'phone' => '01022334455', 'phone_verified_at' => null, 'password' => 'trader-password',
+        ]);
+        $response = $this->login(['login' => $identifier, 'password' => 'trader-password', 'redirect' => '/wholesale']);
+        $response->assertOk()->assertJsonPath('redirect.path', '/wholesale/application-status')
+            ->assertJsonPath('actor.subtype', 'wholesale_pending')->assertJsonPath('data.id', $customer->id);
+        $this->authed('get', '/api/v1/wholesale/auth/application-status', $response->json('token'))
+            ->assertOk()->assertJsonPath('data.status', 'pending');
+        $this->authed('get', '/api/v1/wholesale/dashboard', $response->json('token'))->assertForbidden();
+        $this->assertNull($customer->fresh()->email_verified_at);
+        $this->login(['login' => $identifier, 'password' => 'wrong-password'])->assertUnauthorized();
+    }
+
+    public function test_shared_unverified_contact_email_cannot_choose_a_pending_trader_account(): void
+    {
+        Customer::factory()->wholesale()->create(['email' => 'shared@example.test', 'email_verified_at' => null, 'password' => 'trader-password']);
+        Customer::factory()->create(['email' => 'shared@example.test', 'email_verified_at' => null]);
+        $this->login(['login' => 'shared@example.test', 'password' => 'trader-password'])->assertUnauthorized();
+    }
+
+    public function test_pending_contact_email_cannot_override_its_verified_owner(): void
+    {
+        $owner = Customer::factory()->create(['email' => 'owner@example.test', 'password' => 'owner-password']);
+        Customer::factory()->wholesale()->create(['email' => 'owner@example.test', 'email_verified_at' => null, 'password' => 'trader-password']);
+        $this->login(['login' => 'owner@example.test', 'password' => 'trader-password'])->assertUnauthorized();
+        $this->login(['login' => 'owner@example.test', 'password' => 'owner-password'])->assertOk()->assertJsonPath('data.id', $owner->id);
+    }
+
+    #[TestWith(['approved', '/wholesale'])]
+    #[TestWith(['rejected', '/wholesale/application-status'])]
+    public function test_trader_contact_login_remains_consistent_after_review(string $status, string $path): void
+    {
+        Customer::factory()->wholesale()->create(['status' => $status, 'email' => 'reviewed@example.test', 'email_verified_at' => null, 'password' => 'trader-password']);
+        $this->login(['login' => 'reviewed@example.test', 'password' => 'trader-password'])->assertOk()->assertJsonPath('redirect.path', $path);
+    }
+
     public function test_handoff_rechecks_roles_before_issuing_a_token(): void
     {
         $staff = $this->makeStaff('revoked@example.test', 'secret123');

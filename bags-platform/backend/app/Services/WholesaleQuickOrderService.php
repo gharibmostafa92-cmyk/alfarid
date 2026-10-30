@@ -58,6 +58,8 @@ class WholesaleQuickOrderService
                 'product_variant_id' => $variant->id,
                 'sku' => $variant->sku,
                 'barcode' => $variant->barcode,
+                'label' => $variant->displayLabel(),
+                'image' => $this->imageFor($variant),
                 'product_name' => $variant->product?->name_ar,
                 'qty' => $qty,
                 'unit_price' => $unitPrice,
@@ -211,7 +213,7 @@ class WholesaleQuickOrderService
         $skus = collect($lines)->pluck('sku')->filter()->unique()->all();
         $barcodes = collect($lines)->pluck('barcode')->filter()->unique()->all();
 
-        $variants = ProductVariant::query()->with('product')
+        $variants = ProductVariant::query()->with(['product.media', 'media'])
             ->where('is_active', true)
             ->whereHas('product', fn ($q) => $q->where('status', 'published'))
             ->where(function ($q) use ($skus, $barcodes): void {
@@ -233,6 +235,21 @@ class WholesaleQuickOrderService
         }
 
         return $map;
+    }
+
+    /**
+     * أول صورة للمنتج (صور المنتج ثم صور المتغير)، بنفس قاعدة الكتالوج.
+     */
+    private function imageFor(ProductVariant $variant): ?string
+    {
+        $media = $variant->product?->getMedia('images')->first()
+            ?? $variant->getMedia('images')->first();
+
+        if ($media === null) {
+            return null;
+        }
+
+        return $media->hasGeneratedConversion('thumb') ? $media->getUrl('thumb') : $media->getUrl();
     }
 
     /**

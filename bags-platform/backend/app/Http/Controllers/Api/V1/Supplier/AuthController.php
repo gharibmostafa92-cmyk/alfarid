@@ -12,8 +12,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\RateLimiter;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -44,10 +42,6 @@ class AuthController extends Controller
                 'email' => ['المورد التابع له هذا الحساب غير نشط حاليًا.'],
             ]);
         }
-
-        $emailKey = hash('sha256', Str::transliterate($email));
-        RateLimiter::clear('supplier-login-email:'.$emailKey);
-        RateLimiter::clear('supplier-login-email-hour:'.$emailKey);
 
         return response()->json([
             'token' => $this->issueToken($user),

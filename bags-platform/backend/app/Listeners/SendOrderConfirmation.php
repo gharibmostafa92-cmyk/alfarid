@@ -5,13 +5,15 @@ declare(strict_types=1);
 namespace App\Listeners;
 
 use App\Events\OrderCreated;
-use App\Notifications\AdminOrderCreatedNotification;
 use App\Notifications\OrderConfirmationNotification;
-use App\Notifications\StaffRecipients;
 use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Support\Facades\Notification;
 
-/** تأكيد الطلب للعميل + تنبيه طاقم الإدارة (حاملي orders.view وSuper Admin). */
+/**
+ * تأكيد الطلب للعميل فقط.
+ *
+ * L8: staff fan-out lives in SendStaffOrderNotification (separate queued
+ * listener) so a staff-notify failure never re-sends this confirmation.
+ */
 class SendOrderConfirmation implements ShouldQueue
 {
     public function handle(OrderCreated $event): void
@@ -20,11 +22,6 @@ class SendOrderConfirmation implements ShouldQueue
 
         if ($order->customer !== null) {
             $order->customer->notify(new OrderConfirmationNotification($order));
-        }
-
-        $staff = StaffRecipients::withAnyPermission(['orders.view']);
-        if ($staff->isNotEmpty()) {
-            Notification::send($staff, new AdminOrderCreatedNotification($order));
         }
     }
 }

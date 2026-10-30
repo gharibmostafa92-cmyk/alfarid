@@ -92,6 +92,7 @@ class CExecutionReviewTest extends TestCase
 
     private function posApi(): static
     {
+        $this->permit('pos.access');
         Auth::forgetGuards();
 
         return $this->withToken($this->cashier->createToken('pos', ['pos'])->plainTextToken);
@@ -286,7 +287,11 @@ class CExecutionReviewTest extends TestCase
         }
         $this->assertSame($keys[0], $keys[1]);
         $this->assertNotSame($keys[0], $keys[2]);
-        $this->assertNotSame($ipKeys[0], $ipKeys[1]);
+        // H5: per-IP buckets collapse IPv6 to /64, so two addresses in the
+        // same /64 share the per-IP daily key (rotating the low 64 bits no
+        // longer dodges the bucket); a different /64 gets a different key.
+        $this->assertSame($ipKeys[0], $ipKeys[1]);
+        $this->assertNotSame($ipKeys[0], $ipKeys[2]);
     }
 
     public function test_incremental_reconciliation_keeps_corrupt_keys_until_fixed(): void

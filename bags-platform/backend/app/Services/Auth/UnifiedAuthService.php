@@ -23,8 +23,8 @@ final class UnifiedAuthService
     {
         $identifier = str_contains($login, '@') ? mb_strtolower(trim($login)) : Customer::normalizePhone($login);
         $key = 'unified-login:failures:'.hash_hmac('sha256', $identifier, (string) config('app.key'));
-        $ipKey = 'unified-login:ip-failures:'.hash_hmac('sha256', (string) request()->ip(), (string) config('app.key'));
-        $pairKey = $key.':ip:'.hash('sha256', (string) request()->ip()).':hour';
+        $ipKey = 'unified-login:ip-failures:'.NetworkIdentity::key(request());
+        $pairKey = $key.':ip:'.NetworkIdentity::key(request()).':hour';
         $dayKey = $key.':day';
         $hourKey = $key.':hour';
         $staff = str_contains($identifier, '@') ? User::query()->whereRaw('LOWER(email) = ?', [$identifier])->first() : null;
@@ -35,9 +35,7 @@ final class UnifiedAuthService
         if (RateLimiter::tooManyAttempts($pairKey, $pairLimit)) {
             throw new TooManyRequestsHttpException(RateLimiter::availableIn($pairKey), 'محاولات دخول كثيرة؛ حاول لاحقًا.');
         }
-        if (RateLimiter::tooManyAttempts($hourKey, $hourLimit)) {
-            throw new TooManyRequestsHttpException(RateLimiter::availableIn($hourKey), 'محاولات دخول كثيرة؛ حاول لاحقًا.');
-        }
+        $hourLimitReached = RateLimiter::tooManyAttempts($hourKey, $hourLimit);
         $broadLimitReached = RateLimiter::tooManyAttempts($ipKey, $ipLimit);
         $dayLimitReached = RateLimiter::tooManyAttempts($dayKey, $dayLimit);
         try {
@@ -53,7 +51,7 @@ final class UnifiedAuthService
                     app(AuthenticationAlerts::class)->report('identifier_failures', $staff?->id);
                 }
                 // Broad quotas must not lock out valid credentials behind NAT or CGNAT.
-                if ($broadLimitReached || $dayLimitReached) {
+                if ($broadLimitReached || $dayLimitReached || $hourLimitReached) {
                     throw new TooManyRequestsHttpException(60, 'محاولات دخول كثيرة؛ حاول لاحقًا.');
                 }
             }
@@ -76,10 +74,7 @@ final class UnifiedAuthService
             // بالأولوية (staff ثم supplier ثم customer) أو dummy hash عند غياب
             // الجميع. الفحص الإضافي يحدث فقط في حالة البريد المشترك الشاذة.
             $supplierUser = null; // Supplier accounts are historical; dealers use Customer accounts.
-            $customer = Customer::query()
-                ->whereNotNull('email_verified_at')
-                ->whereRaw('LOWER(email) = ?', [$email])
-                ->first();
+            $customer = $this->customerAuth->findForLogin($email);
 
             // L4: رصد أي بريد مشترك بين جدولين — بما فيها العملاء.
             $present = array_values(array_filter([$staff, $supplierUser, $customer]));
@@ -100,6 +95,7 @@ final class UnifiedAuthService
                     continue;
                 }
                 if ($candidate instanceof User && (! $candidate->is_active || $candidate->is_system)) {
+                    StaffAuthenticationAudit::record($candidate, 'inactive');
                     logger()->info('staff.login', ['user_id' => $candidate->id, 'ip' => request()->ip(), 'result' => 'inactive']);
 
                     continue;
@@ -124,6 +120,9 @@ final class UnifiedAuthService
                 }
 
                 foreach ([$staff, $supplierUser] as $account) {
+                    if ($account instanceof User) {
+                        StaffAuthenticationAudit::record($account, 'wrong_password');
+                    }
                     if ($account !== null) {
                         logger()->info($account instanceof User ? 'staff.login' : 'supplier.login', [
                             'user_id' => $account->id, 'ip' => request()->ip(), 'result' => 'wrong_password',
@@ -135,6 +134,7 @@ final class UnifiedAuthService
 
             if ($matched instanceof User) {
                 $this->rehashIfNeeded($matched, $password);
+                StaffAuthenticationAudit::record($matched, 'success');
 
                 logger()->info('staff.login', ['user_id' => $matched->id, 'ip' => request()->ip(), 'result' => 'success']);
 
@@ -160,9 +160,7 @@ final class UnifiedAuthService
                 );
             }
             // L7: إعادة التجزئة بعد فحص الإيقاف.
-            if (Hash::needsRehash($matched->password)) {
-                $matched->forceFill(['password' => $password])->save();
-            }
+            $this->rehashIfNeeded($matched, $password);
             CustomerAuditLog::record($matched, 'login_succeeded', null);
 
             return $matched;
@@ -172,7 +170,7 @@ final class UnifiedAuthService
         return $this->customerAuth->login($login, $password);
     }
 
-    private function rehashIfNeeded(User|SupplierUser $model, string $password): void
+    private function rehashIfNeeded(User|SupplierUser|Customer $model, string $password): void
     {
         if (Hash::needsRehash($model->password)) {
             $original = $model->password;

@@ -35,15 +35,25 @@ class WholesalePaymentNoticeService
     /**
      * Submits a new payment notice with an uploaded proof receipt.
      *
-     * @param Customer $customer Submitting wholesale customer
-     * @param array<string, mixed> $data Notice metadata
-     * @param UploadedFile $receipt Proof of payment file
+     * @param  Customer  $customer  Submitting wholesale customer
+     * @param  array<string, mixed>  $data  Notice metadata
+     * @param  UploadedFile  $receipt  Proof of payment file
      * @return WholesalePaymentNotice Created pending notice
+     *
      * @throws BusinessException If linked order is invalid or capacity exceeded
      */
     public function create(Customer $customer, array $data, UploadedFile $receipt): WholesalePaymentNotice
     {
         return PrivateAttachments::transaction(function (PrivateAttachments $files) use ($customer, $data, $receipt): WholesalePaymentNotice {
+            // Serialize free and linked submissions for the same customer before
+            // checking the bank reference, including requests with different files.
+            Customer::query()->lockForUpdate()->findOrFail($customer->id);
+            $reference = trim($data['reference_number']);
+            if (WholesalePaymentNotice::query()->where('customer_id', $customer->id)
+                ->whereRaw('lower(btrim(reference_number)) = ?', [mb_strtolower($reference)])->exists()) {
+                throw new BusinessException('رقم مرجع السداد مسجل بالفعل لهذا التاجر.', [], 409);
+            }
+
             $order = null;
 
             if (! empty($data['order_id'])) {
@@ -61,18 +71,18 @@ class WholesalePaymentNoticeService
                 'amount' => $data['amount'],
                 'payment_method' => $data['payment_method'],
                 'bank_name' => $data['bank_name'],
-                'reference_number' => $data['reference_number'],
+                'reference_number' => $reference,
                 'transfer_date' => $data['transfer_date'],
                 'receipt_file_path' => $path,
                 'status' => WholesalePaymentNoticeStatus::PendingReview,
             ]);
-        });
+        }, [[$receipt, 'wholesale_payment_notices/'.$customer->id]]);
     }
 
     /**
      * Computes the current net debt for a wholesale customer (negative implies credit balance).
      *
-     * @param Customer $customer Wholesale customer
+     * @param  Customer  $customer  Wholesale customer
      * @return float Current outstanding debt or negative advance credit
      */
     public function outstandingBalance(Customer $customer): float
@@ -144,9 +154,9 @@ class WholesalePaymentNoticeService
     /**
      * Generates a chronological statement of account including debits, credits, and opening balance.
      *
-     * @param Customer $customer Wholesale customer
-     * @param string|null $from Start date (inclusive, YYYY-MM-DD)
-     * @param string|null $to End date (inclusive, YYYY-MM-DD)
+     * @param  Customer  $customer  Wholesale customer
+     * @param  string|null  $from  Start date (inclusive, YYYY-MM-DD)
+     * @param  string|null  $to  End date (inclusive, YYYY-MM-DD)
      * @return array{opening_balance: float, closing_balance: float, entries: list<array<string, mixed>>}
      */
     public function statement(Customer $customer, ?string $from = null, ?string $to = null): array
@@ -219,11 +229,11 @@ class WholesalePaymentNoticeService
             $running += $delta;
             $result[] = [
                 'date' => $entry['date']->toDateString(),
-                'type' => $entry['type'],
-                'description' => $entry['description'],
                 'reference' => $entry['reference'],
-                'amount' => number_format($entry['amount'], 2, '.', ''),
-                'running_balance' => number_format($running, 2, '.', ''),
+                'description' => $entry['description'],
+                'debit' => $entry['type'] === 'debit' ? number_format($entry['amount'], 2, '.', '') : number_format(0, 2, '.', ''),
+                'credit' => $entry['type'] === 'credit' ? number_format($entry['amount'], 2, '.', '') : number_format(0, 2, '.', ''),
+                'balance' => number_format($running, 2, '.', ''),
             ];
         }
 
@@ -237,11 +247,12 @@ class WholesalePaymentNoticeService
     /**
      * Approves a payment notice, recording treasury receipt and allocating against open debt.
      *
-     * @param WholesalePaymentNotice $notice Target notice
-     * @param int $adminId Approving staff member ID
-     * @param int|null $treasuryId Destination treasury ID
-     * @param string|null $adminNotes Optional administrative review notes
+     * @param  WholesalePaymentNotice  $notice  Target notice
+     * @param  int  $adminId  Approving staff member ID
+     * @param  int|null  $treasuryId  Destination treasury ID
+     * @param  string|null  $adminNotes  Optional administrative review notes
      * @return WholesalePaymentNotice Updated notice instance
+     *
      * @throws BusinessException If notice was reviewed, exceeds debt, or treasury is invalid
      */
     public function approve(WholesalePaymentNotice $notice, int $adminId, ?int $treasuryId = null, ?string $adminNotes = null): WholesalePaymentNotice
@@ -252,6 +263,13 @@ class WholesalePaymentNoticeService
 
             if ($notice->status !== WholesalePaymentNoticeStatus::PendingReview) {
                 throw new BusinessException('إشعار السداد هذا تمت مراجعته من قبل.');
+            }
+
+            if ($notice->order_id !== null) {
+                $order = Order::query()->lockForUpdate()->findOrFail($notice->order_id);
+                if ($order->payment_status === 'paid') {
+                    throw new BusinessException('الطلب المرتبط تم سداده بالفعل؛ لا يمكن اعتماد إشعار السداد.');
+                }
             }
 
             // Decimal comparison avoids floating-point precision boundary errors.
@@ -292,10 +310,11 @@ class WholesalePaymentNoticeService
     /**
      * Rejects a pending wholesale payment notice.
      *
-     * @param WholesalePaymentNotice $notice Target notice
-     * @param int $adminId Reviewing staff member ID
-     * @param string|null $adminNotes Reason for rejection
+     * @param  WholesalePaymentNotice  $notice  Target notice
+     * @param  int  $adminId  Reviewing staff member ID
+     * @param  string|null  $adminNotes  Reason for rejection
      * @return WholesalePaymentNotice Updated notice instance
+     *
      * @throws BusinessException If notice was already reviewed
      */
     public function reject(WholesalePaymentNotice $notice, int $adminId, ?string $adminNotes = null): WholesalePaymentNotice
@@ -404,6 +423,7 @@ class WholesalePaymentNoticeService
                 ->toScale(2, RoundingMode::HalfUp);
             if ($need->isLessThanOrEqualTo('0')) {
                 $this->markOrderPaid($order, $adminId, "تسوية آجل بالإشعار الحر {$noticeNumber}");
+
                 continue;
             }
             if ($available->compareTo($need) >= 0) {

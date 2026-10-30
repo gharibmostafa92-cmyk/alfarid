@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Models\Order;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
@@ -20,7 +21,7 @@ class ReportService
     /**
      * Aggregates key management KPIs and top performers for the dashboard.
      *
-     * @param int|null $branchId Optional branch scope filter
+     * @param  int|null  $branchId  Optional branch scope filter
      * @return array<string, mixed> Dashboard KPI metrics
      */
     public function dashboard(?int $branchId = null): array
@@ -118,14 +119,19 @@ class ReportService
     /**
      * Generates a time-series sales report grouped by period and optional dimension.
      *
-     * @param string $from Start date (YYYY-MM-DD)
-     * @param string $to End date (YYYY-MM-DD)
-     * @param string $granularity Aggregation bucket ('daily' or 'monthly')
-     * @param string|null $groupBy Optional breakdown dimension ('branch', 'channel', 'payment_method', 'cashier')
-     * @param int|null $branchId Branch filter
+     * @param  string  $from  Start date (YYYY-MM-DD)
+     * @param  string  $to  End date (YYYY-MM-DD)
+     * @param  string  $granularity  Aggregation bucket ('daily' or 'monthly')
+     * @param  string|null  $groupBy  Optional breakdown dimension ('branch', 'channel', 'payment_method', 'cashier')
+     * @param  int|null  $branchId  Branch filter
      * @return array{rows: list<array<string, mixed>>, totals: array<string, mixed>} Aggregated sales report
      */
     public function salesReport(string $from, string $to, string $granularity = 'daily', ?string $groupBy = null, ?int $branchId = null): array
+    {
+        return StatementBudget::run(150000, fn (): array => $this->calculateSalesReport($from, $to, $granularity, $groupBy, $branchId));
+    }
+
+    private function calculateSalesReport(string $from, string $to, string $granularity = 'daily', ?string $groupBy = null, ?int $branchId = null): array
     {
         [$periodStart, $periodEnd] = $this->periodBounds($from, $to);
         $zone = str_replace("'", "''", (string) config('app.business_timezone', 'Africa/Cairo'));
@@ -207,11 +213,16 @@ class ReportService
     /**
      * Computes inventory valuation and identifies dead stock without physical movement within a threshold.
      *
-     * @param int $deadDays Inactivity threshold in days
-     * @param int|null $branchId Branch filter
+     * @param  int  $deadDays  Inactivity threshold in days
+     * @param  int|null  $branchId  Branch filter
      * @return array{valuation: list<array<string, mixed>>, total_value: float, dead_stock: list<array<string, mixed>>, dead_stock_days: int}
      */
     public function inventoryReport(int $deadDays = 90, ?int $branchId = null): array
+    {
+        return StatementBudget::run(150000, fn (): array => $this->calculateInventoryReport($deadDays, $branchId));
+    }
+
+    private function calculateInventoryReport(int $deadDays = 90, ?int $branchId = null): array
     {
         $valuation = DB::table('stock_levels as sl')->when($branchId !== null, fn ($q) => $q->where('sl.branch_id', $branchId))
             ->join('product_variants as pv', 'pv.id', '=', 'sl.product_variant_id')
@@ -271,17 +282,22 @@ class ReportService
     /**
      * Computes gross and net profit matching recognized sales revenue against cost of goods sold and expenses.
      *
-     * @param string $from Start date (YYYY-MM-DD)
-     * @param string $to End date (YYYY-MM-DD)
-     * @param int|null $branchId Branch filter
+     * @param  string  $from  Start date (YYYY-MM-DD)
+     * @param  string  $to  End date (YYYY-MM-DD)
+     * @param  int|null  $branchId  Branch filter
      * @return array<string, float> Profit metrics including revenue, COGS, and expenses
      */
     public function profitReport(string $from, string $to, ?int $branchId = null): array
     {
+        return StatementBudget::run(150000, fn (): array => $this->calculateProfitReport($from, $to, $branchId));
+    }
+
+    private function calculateProfitReport(string $from, string $to, ?int $branchId = null): array
+    {
         [$periodStart, $periodEnd] = $this->periodBounds($from, $to);
         // Revenue recognition aligns with COGS ledger timestamps to prevent cross-period margin distortion.
         $saleDates = DB::table('stock_movements')->where('type', 'sale')
-            ->whereIn('reference_type', array_unique([\App\Models\Order::class, (new \App\Models\Order)->getMorphClass()]))
+            ->whereIn('reference_type', array_unique([Order::class, (new Order)->getMorphClass()]))
             ->selectRaw('reference_id, MIN(created_at) AS recognized_at')->groupBy('reference_id');
         $revenue = (float) $this->salesEntries($branchId)
             ->leftJoinSub($saleDates, 'sales_event', 'sales_event.reference_id', '=', 'entries.id')
@@ -323,6 +339,11 @@ class ReportService
      */
     public function suppliersReport(): array
     {
+        return StatementBudget::run(150000, fn (): array => $this->calculateSuppliersReport());
+    }
+
+    private function calculateSuppliersReport(): array
+    {
         $aging = DB::table('supplier_invoices')
             ->selectRaw(implode(', ', [
                 'supplier_id',
@@ -359,13 +380,18 @@ class ReportService
     /**
      * Reports POS cash drawer sessions, closing cash reconciliation, and variance tracking.
      *
-     * @param string $from Start date (YYYY-MM-DD)
-     * @param string $to End date (YYYY-MM-DD)
-     * @param bool $onlyDifferences Filter only shifts with non-zero cash variance
-     * @param int|null $branchId Branch filter
+     * @param  string  $from  Start date (YYYY-MM-DD)
+     * @param  string  $to  End date (YYYY-MM-DD)
+     * @param  bool  $onlyDifferences  Filter only shifts with non-zero cash variance
+     * @param  int|null  $branchId  Branch filter
      * @return array{rows: list<array<string, mixed>>, totals: array<string, mixed>} Shift report
      */
     public function shiftsReport(string $from, string $to, bool $onlyDifferences = false, ?int $branchId = null): array
+    {
+        return StatementBudget::run(150000, fn (): array => $this->calculateShiftsReport($from, $to, $onlyDifferences, $branchId));
+    }
+
+    private function calculateShiftsReport(string $from, string $to, bool $onlyDifferences = false, ?int $branchId = null): array
     {
         [$periodStart, $periodEnd] = $this->periodBounds($from, $to);
         $base = fn () => DB::table('pos_shifts as ps')->when($branchId !== null, fn ($q) => $q->where('ps.branch_id', $branchId))

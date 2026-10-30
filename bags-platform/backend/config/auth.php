@@ -5,7 +5,7 @@ use App\Models\SupplierUser;
 use App\Models\User;
 
 return [
-    'require_phone_verification' => env('CUSTOMER_REQUIRE_PHONE_VERIFICATION', true),
+    'require_phone_verification' => env('CUSTOMER_REQUIRE_PHONE_VERIFICATION', false),
     'customer_max_tokens' => (int) env('CUSTOMER_MAX_TOKENS', 10),
     'customer_token_minutes' => (int) env('CUSTOMER_TOKEN_MINUTES', 1440),
     'supplier_max_tokens' => (int) env('SUPPLIER_MAX_TOKENS', 5),
@@ -21,6 +21,8 @@ return [
     'unified_login_failures_day' => (int) env('UNIFIED_LOGIN_FAILURES_DAY', 100),
     'unified_login_identifier_failures_hour' => (int) env('UNIFIED_LOGIN_IDENTIFIER_FAILURES_HOUR', 30),
     'unified_handoff_ip_minute' => (int) env('UNIFIED_HANDOFF_IP_MINUTE', 60),
+    'customer_sms_verification_fraction' => (float) env('CUSTOMER_SMS_VERIFICATION_FRACTION', 0.6),
+    'customer_sms_verification_network_daily_limit' => (int) env('CUSTOMER_SMS_VERIFICATION_NETWORK_DAILY_LIMIT', 10),
     'customer_sms_daily_limit' => (int) env('CUSTOMER_SMS_DAILY_LIMIT', 1000),
     'customer_sms_hourly_limit' => (int) env('CUSTOMER_SMS_HOURLY_LIMIT', 100),
     'customer_limits' => [

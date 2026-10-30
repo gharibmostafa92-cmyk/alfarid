@@ -36,6 +36,9 @@ Route::middleware(['auth:sanctum', 'auth.customer', 'wholesale.approved'])->grou
     // الطلب السريع واستيراد Excel وإعادة الطلب
     Route::post('quick-order/lookup', [QuickOrderController::class, 'lookup'])->name('quick-order.lookup');
     Route::post('quick-order/import', [QuickOrderController::class, 'import'])->name('quick-order.import');
+    Route::post('quick-order/add-to-cart', [QuickOrderController::class, 'addToCart'])->name('quick-order.add-to-cart');
+    Route::get('orders', [OrderController::class, 'index'])->name('orders.index');
+    Route::get('orders/{order}', [OrderController::class, 'show'])->whereNumber('order')->name('orders.show');
     Route::post('orders/{order}/reorder', [OrderController::class, 'reorder'])->whereNumber('order')->name('orders.reorder');
 
     // الفواتير، كشف الحساب، وإشعارات السداد البنكي
@@ -58,4 +61,5 @@ Route::middleware(['auth:sanctum', 'auth.customer', 'wholesale.approved'])->grou
     // الإشعارات (المرحلة 13)
     Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');
     Route::post('notifications/{id}/read', [NotificationController::class, 'markAsRead'])->name('notifications.read');
+    Route::post('notifications/read-all', [NotificationController::class, 'readAll'])->name('notifications.read-all');
 });

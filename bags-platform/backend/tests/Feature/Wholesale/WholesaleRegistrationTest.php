@@ -32,7 +32,7 @@ class WholesaleRegistrationTest extends TestCase
             'name' => 'تاجر جملة',
             'email' => 'ws@example.com',
             'phone' => '01022223333',
-            'password' => 'password123',
+            'password' => 'secure-password123',
             'company_name' => 'شركة الأفق للتجارة',
             'tax_number' => '123456789',
             'commercial_register' => '987654',

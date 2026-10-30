@@ -24,7 +24,9 @@ use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class PosEndpointsTest extends TestCase
@@ -62,6 +64,12 @@ class PosEndpointsTest extends TestCase
             'branch_id' => $this->branch->id,
             'is_active' => true,
         ]);
+
+        $role = Role::findOrCreate('cashier', 'staff');
+        $this->cashier->assignRole($role);
+        foreach (['pos.access', 'pos.sales.refund'] as $permission) {
+            $this->cashier->givePermissionTo(Permission::findOrCreate($permission, 'staff'));
+        }
 
         $this->posDrawer = Treasury::create([
             'name' => 'Ahmed Drawer',
@@ -385,11 +393,13 @@ class PosEndpointsTest extends TestCase
         ]);
         $scan2->assertOk()->assertJsonPath('counted_qty', '3.0000');
     }
+
     public function json($method, $uri, array $data = [], array $headers = [], $options = 0)
     {
         if (strtoupper($method) === 'POST' && str_ends_with($uri, '/pos/sales') && ! isset($headers['Idempotency-Key']) && ! isset($this->defaultHeaders['Idempotency-Key'])) {
-            $headers['Idempotency-Key'] = (string) \Illuminate\Support\Str::uuid();
+            $headers['Idempotency-Key'] = (string) Str::uuid();
         }
+
         return parent::json($method, $uri, $data, $headers, $options);
     }
 }

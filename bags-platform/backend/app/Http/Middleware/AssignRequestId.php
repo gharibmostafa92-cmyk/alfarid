@@ -6,6 +6,7 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
@@ -19,6 +20,14 @@ final class AssignRequestId
             $id = (string) Str::uuid();
         }
 
+        // L2: Context (not Log::withContext) propagates request_id to queued
+        // jobs and their log records (Laravel 11+); Log context stayed in
+        // the HTTP process. Keep Log::withContext too for log formatting.
+        Context::add([
+            'request_id' => $id,
+            'node' => gethostname(),
+            'client_ip' => $request->ip(),
+        ]);
         Log::withContext([
             'request_id' => $id,
             'node' => gethostname(),

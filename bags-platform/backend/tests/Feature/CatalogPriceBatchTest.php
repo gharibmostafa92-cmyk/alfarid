@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Jobs\RefreshCatalogRetailPrices;
+use App\Models\Branch;
 use App\Models\ProductVariant;
 use App\Observers\CatalogRetailPriceObserver;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
@@ -16,6 +17,33 @@ use Tests\TestCase;
 class CatalogPriceBatchTest extends TestCase
 {
     use LazilyRefreshDatabase;
+
+    public function test_branch_refresh_is_dispatched_only_after_transaction_commit(): void
+    {
+        Bus::fake([RefreshCatalogRetailPrices::class]);
+
+        DB::transaction(function (): void {
+            app(CatalogRetailPriceObserver::class)->saved(new Branch);
+            Bus::assertNothingDispatched();
+        });
+
+        Bus::assertDispatchedTimes(RefreshCatalogRetailPrices::class, 1);
+    }
+
+    public function test_rolled_back_branch_refresh_is_not_dispatched(): void
+    {
+        Bus::fake([RefreshCatalogRetailPrices::class]);
+
+        try {
+            DB::transaction(function (): void {
+                app(CatalogRetailPriceObserver::class)->saved(new Branch);
+                throw new RuntimeException('rollback');
+            });
+        } catch (RuntimeException) {
+        }
+
+        Bus::assertNothingDispatched();
+    }
 
     public function test_failed_batch_does_not_publish_or_leak_product_ids_into_the_next_batch(): void
     {

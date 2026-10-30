@@ -24,7 +24,7 @@ if (config('auth.legacy_login_enabled', false)) {
         ->name('auth.login');
 }
 
-Route::middleware(['auth:sanctum', 'auth.staff'])->group(function (): void {
+Route::middleware(['auth:sanctum', 'auth.staff', 'permission:pos.access'])->group(function (): void {
     Route::post('auth/logout', [PosAuthController::class, 'logout'])->name('auth.logout');
 
     // الورديات: الفتح والعرض لا يحتاجان وردية قائمة، والإغلاق داخل مجموعة الوردية بالأسفل
@@ -42,8 +42,8 @@ Route::middleware(['auth:sanctum', 'auth.staff'])->group(function (): void {
         // المبيعات والفواتير المعلقة والمرتجعات والاستبدالات
         Route::post('sales', [PosSaleController::class, 'store'])->name('sales.store');
         Route::post('sales/hold', [PosSaleController::class, 'hold'])->name('sales.hold');
-        Route::post('sales/{sale}/return', [PosSaleController::class, 'processReturn'])->name('sales.return');
-        Route::post('sales/{sale}/exchange', [PosSaleController::class, 'processExchange'])->name('sales.exchange');
+        Route::post('sales/{sale}/return', [PosSaleController::class, 'processReturn'])->middleware('permission:pos.sales.refund')->name('sales.return');
+        Route::post('sales/{sale}/exchange', [PosSaleController::class, 'processExchange'])->middleware('permission:pos.sales.refund')->name('sales.exchange');
 
         // مخزون الفرع والتحويلات والجرد بالباركود
         Route::get('stock', [PosStockController::class, 'index'])->name('stock.index');

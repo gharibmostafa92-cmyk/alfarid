@@ -40,9 +40,22 @@ return [
             'connection' => env('DB_QUEUE_CONNECTION'),
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
-            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 90),
+            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 180),
             // F8: الإرسال داخل معاملة يُنفَّذ بعد الـ commit — قبل ذلك قد
             // يقرأ Job بيانات قديمة أو يُنفَّذ لعملية تم التراجع عنها.
+            'after_commit' => true,
+        ],
+
+        // M8: dedicated media connection with a long visibility timeout.
+        // Video/image conversions run up to --timeout=600 on the media
+        // worker; with retry_after=90 a second worker would pick the same
+        // job after 90s and run it twice. 900s keeps one owner.
+        'database-media' => [
+            'driver' => 'database',
+            'connection' => env('DB_QUEUE_CONNECTION'),
+            'table' => env('DB_QUEUE_TABLE', 'jobs'),
+            'queue' => env('DB_MEDIA_QUEUE', 'media'),
+            'retry_after' => (int) env('DB_MEDIA_QUEUE_RETRY_AFTER', 900),
             'after_commit' => true,
         ],
 

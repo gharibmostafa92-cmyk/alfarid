@@ -25,9 +25,12 @@ class CustomerResource extends JsonResource
             'type' => $this->type,
             'status' => $this->status,
             'company_name' => $this->company_name,
+            'tax_number' => $this->tax_number,
+            'commercial_register' => $this->commercial_register,
             'customer_group_id' => $this->customer_group_id,
             'credit_limit' => $this->credit_limit,
             'wallet_balance' => $this->wallet_balance,
+            'approved_at' => $this->approved_at?->toIso8601String(),
             'created_at' => $this->created_at,
         ];
     }

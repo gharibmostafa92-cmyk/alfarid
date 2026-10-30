@@ -34,7 +34,9 @@ Route::prefix('auth')->name('auth.')->group(function (): void {
     Route::middleware(['auth:sanctum', 'auth.customer'])->group(function (): void {
         Route::post('logout', [AuthController::class, 'logout'])->name('logout');
         Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');
-        Route::post('notifications/{id}/read', [NotificationController::class, 'markAsRead'])->name('notifications.read');
+        // M3: notifications.id is uuid — non-uuid values stay 404 instead of
+        // throwing Postgres 22P02 (500 + log spam) via findOrFail.
+        Route::post('notifications/{id}/read', [NotificationController::class, 'markAsRead'])->whereUuid('id')->name('notifications.read');
     });
 });
 

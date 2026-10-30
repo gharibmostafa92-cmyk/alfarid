@@ -51,6 +51,12 @@ class ReturnService
      */
     public function createReturnRequest(Order $order, array $data, ?Customer $customer = null): ReturnRequest
     {
+        $uploads = [];
+        foreach ($data['items'] as $item) {
+            foreach ($item['attachments'] ?? [] as $file) {
+                $uploads[] = [$file, 'return_requests/pending'];
+            }
+        }
         $return = PrivateAttachments::transaction(function (PrivateAttachments $files) use ($order, $data, $customer): ReturnRequest {
             // Lock order row to serialize concurrent return requests against line item quantities.
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
@@ -122,7 +128,7 @@ class ReturnService
             $this->storeAttachments($return, $data['items'], $files);
 
             return $return;
-        });
+        }, $uploads);
 
         return $return->fresh(['items']);
     }

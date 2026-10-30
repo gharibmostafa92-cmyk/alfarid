@@ -68,49 +68,61 @@ class PruneOrphanMediaFiles extends Command
             return $failures === 0 ? self::SUCCESS : self::FAILURE;
         }
 
-        foreach ($disk->directories('') as $dir) {
-            try {
-                $base = basename($dir);
-                // uuid layout only — legacy numeric id/ folders are untouched.
-                if (! preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $base)) {
+        $process = function (array $candidates) use ($disk, $dryRun, $cutoff, &$pruned, &$skipped, &$failures): void {
+            $referenced = DB::table('media')->whereIn('uuid', array_keys($candidates))->pluck('uuid')->flip();
+            foreach ($candidates as $base => $dir) {
+                if ($referenced->has($base)) {
                     continue;
                 }
-                if (DB::table('media')->where('uuid', $base)->exists()) {
-                    continue;
-                }
-                $files = $disk->allFiles($dir);
-                if ($files === []) {
-                    $this->warn("Empty directory {$dir} — leaving it in place.");
+                try {
+                    $newest = 0;
+                    $count = 0;
+                    foreach ($disk->getDriver()->listContents($dir, true) as $file) {
+                        if ($file->isFile()) {
+                            $count++;
+                            $newest = max($newest, $file->lastModified() ?? PHP_INT_MAX);
+                        }
+                    }
+                    if ($count === 0 || $newest >= $cutoff) {
+                        $skipped++;
 
-                    continue;
-                }
-                $newest = 0;
-                foreach ($files as $file) {
-                    $newest = max($newest, $disk->lastModified($file));
-                }
-                if ($newest >= $cutoff) {
-                    $skipped++;
-
-                    continue;
-                }
-                // Recheck after listing timestamps; a live upload may have committed
-                // while the storage listing was in progress.
-                if (DB::table('media')->where('uuid', $base)->exists()) {
-                    continue;
-                }
-                if ($dryRun) {
-                    $this->line("[dry-run] would delete {$dir} (".count($files).' files)');
-                } else {
-                    if (! $disk->deleteDirectory($dir)) {
+                        continue;
+                    }
+                    if (DB::table('media')->where('uuid', $base)->exists()) {
+                        continue;
+                    }
+                    if ($dryRun) {
+                        $this->line("[dry-run] would delete {$dir} ({$count} files)");
+                    } elseif (! $disk->deleteDirectory($dir)) {
                         throw new \RuntimeException('Storage did not confirm deletion.');
                     }
+                    $pruned++;
+                } catch (Throwable $exception) {
+                    $failures++;
+                    report($exception);
+                    $this->error('Could not process '.$dir.'; rerun after checking storage access.');
                 }
-                $pruned++;
-            } catch (Throwable $exception) {
-                $failures++;
-                report($exception);
-                $this->error('Could not process '.$dir.'; rerun after checking storage access.');
             }
+        };
+        try {
+            $batch = [];
+            foreach ($disk->getDriver()->listContents('', false) as $entry) {
+                $dir = $entry->path();
+                if ($entry->isDir() && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $dir)) {
+                    $batch[$dir] = $dir;
+                    if (count($batch) === 500) {
+                        $process($batch);
+                        $batch = [];
+                    }
+                }
+            }
+            if ($batch !== []) {
+                $process($batch);
+            }
+        } catch (Throwable $exception) {
+            $failures++;
+            report($exception);
+            $this->error('Could not list media storage.');
         }
 
         $this->info("Pruned {$pruned} orphan media directorie(s); {$skipped} recent upload(s) left for the grace window.");

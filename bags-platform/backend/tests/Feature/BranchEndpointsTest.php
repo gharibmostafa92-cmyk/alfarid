@@ -80,6 +80,20 @@ class BranchEndpointsTest extends TestCase
             ->assertJsonValidationErrors(['code', 'type']);
     }
 
+    public function test_branch_can_be_deactivated_and_reactivated(): void
+    {
+        $branch = Branch::factory()->create(['is_active' => true]);
+        $token = $this->staffWithPermission('branches.manage')->createToken('test')->plainTextToken;
+
+        foreach ([false, true] as $active) {
+            $this->requestWithToken($token, 'PATCH', "/api/v1/admin/branches/{$branch->id}", [
+                'is_active' => $active,
+            ])->assertOk()->assertJsonPath('data.is_active', $active);
+
+            $this->assertSame($active, $branch->fresh()->is_active);
+        }
+    }
+
     public function test_branch_cannot_be_deleted_while_staff_are_assigned(): void
     {
         $branch = Branch::factory()->create();

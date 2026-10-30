@@ -5,7 +5,13 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Exceptions\BusinessException;
+use App\Models\CustomerWalletTransaction;
+use App\Models\ProductionReceipt;
+use App\Models\SupplierDelivery;
+use App\Models\SupplierInvoice;
+use App\Models\SupplierPayment;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -16,6 +22,15 @@ use Illuminate\Support\Facades\DB;
  */
 class OperationIdempotencyService
 {
+    // Result-only aliases avoid changing existing polymorphic relation queries.
+    private const RESULT_TYPES = [
+        'supplier_payment' => SupplierPayment::class,
+        'supplier_delivery' => SupplierDelivery::class,
+        'supplier_invoice' => SupplierInvoice::class,
+        'production_receipt' => ProductionReceipt::class,
+        'customer_wallet_transaction' => CustomerWalletTransaction::class,
+    ];
+
     /**
      * Execute an operation idempotently or return the previously recorded result.
      *
@@ -24,7 +39,6 @@ class OperationIdempotencyService
      * @param  string|null  $key  Idempotency key supplied by the client
      * @param  array<string, mixed>  $payload  Request payload for canonical hash comparison
      * @param  callable(): Model  $execute  Operation execution callback
-     * @return Model
      *
      * @throws BusinessException
      */
@@ -37,15 +51,21 @@ class OperationIdempotencyService
         $hash = IdempotencyFingerprint::hash($payload);
 
         return DB::transaction(function () use ($scope, $hash, $execute): Model {
+            $previousTimeout = DB::selectOne("SELECT current_setting('lock_timeout') AS value")->value;
+            DB::statement("SET LOCAL lock_timeout = '3s'");
             $inserted = DB::table('operation_idempotency_keys')->insertOrIgnore([
                 ...$scope, 'request_hash' => $hash, 'created_at' => now(),
             ]);
             $record = DB::table('operation_idempotency_keys')->where($scope)->lockForUpdate()->first();
+            DB::selectOne("SELECT set_config('lock_timeout', ?, true)", [$previousTimeout]);
+            if ($record === null) {
+                throw new BusinessException('العملية مشغولة؛ أعد المحاولة بنفس المفتاح.', [], 409);
+            }
             if (! $inserted) {
                 if (! hash_equals($record->request_hash, $hash)) {
                     throw new BusinessException('مفتاح عدم التكرار مستخدم مع بيانات مختلفة.', [], 409);
                 }
-                $result = $record->result_type::query()->find($record->result_id);
+                $result = self::findResult($record->result_type ?? null, $record->result_id ?? null);
                 if ($result === null) {
                     throw new BusinessException('العملية سبق تنفيذها ثم أزيل مستندها؛ استخدم عملية جديدة.', [], 409);
                 }
@@ -54,10 +74,42 @@ class OperationIdempotencyService
             }
             $result = $execute();
             DB::table('operation_idempotency_keys')->where($scope)->update([
-                'result_type' => $result::class, 'result_id' => $result->getKey(),
+                // M1: store the morph alias, not the FQCN — a class rename
+                // must not turn every replay into a fatal error.
+                'result_type' => array_search($result::class, self::RESULT_TYPES, true) ?: $result->getMorphClass(), 'result_id' => $result->getKey(),
             ]);
 
             return $result;
-        }, 3);
+            // Callbacks may upload files or invoke external services. Let the
+            // client retry a failed transaction instead of repeating those effects.
+        }, 1);
+    }
+
+    /**
+     * Resolve a stored idempotency result via its morph alias.
+     *
+     * Legacy rows stored the FQCN; resolve those directly for BC. New rows
+     * store getMorphClass() and resolve through the morph map.
+     */
+    private static function findResult(mixed $type, mixed $id): ?Model
+    {
+        if (! is_string($type) || $type === '' || $id === null) {
+            return null;
+        }
+
+        $class = self::RESULT_TYPES[$type] ?? Relation::getMorphedModel($type) ?? $type;
+
+        if (! is_string($class) || ! is_subclass_of($class, Model::class)) {
+            return null;
+        }
+
+        /** @var Model $instance */
+        $instance = new $class;
+
+        if (! $instance instanceof Model) {
+            return null;
+        }
+
+        return $instance->newQuery()->find($id);
     }
 }

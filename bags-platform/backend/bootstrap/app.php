@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\HealthReadyController;
+use App\Http\Middleware\AssignRequestId;
 use App\Http\Middleware\EnsureCustomerAuthenticated;
 use App\Http\Middleware\EnsureOpenPosShift;
 use App\Http\Middleware\EnsureStaffAuthenticated;
@@ -24,7 +26,7 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
         then: function (): void {
-            Route::get('health/ready', \App\Http\Controllers\HealthReadyController::class);
+            Route::get('health/ready', HealthReadyController::class);
             Route::middleware('api')
                 ->prefix('api/v1/admin')
                 ->group(base_path('routes/api/admin.php'));
@@ -60,7 +62,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         // Resolve trusted forwarding headers before recording client_ip.
-        $middleware->append([\App\Http\Middleware\AssignRequestId::class]);
+        $middleware->append([AssignRequestId::class]);
         $middleware->api(prepend: [ManufacturingBusiness::class]);
         $middleware->alias([
             'auth.staff' => EnsureStaffAuthenticated::class,
@@ -73,7 +75,23 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        $exceptions->report(function (QueryException $e) {
+            $state = (string) ($e->errorInfo[0] ?? $e->getCode());
+            if ($state === '57014' || str_starts_with($state, '08')) {
+                logger()->warning('Database operation unavailable.', ['sqlstate' => $state]);
+
+                return false;
+            }
+
+            return null;
+        });
         $exceptions->render(function (QueryException $e, Request $request) {
+            $state = (string) ($e->errorInfo[0] ?? $e->getCode());
+            if (($request->is('api/*') || $request->expectsJson())
+                && ($state === '57014' || str_starts_with($state, '08'))) {
+                return response()->json(['message' => 'الخدمة غير متاحة مؤقتًا؛ أعد المحاولة بعد لحظات.'], 503)
+                    ->header('Retry-After', '1');
+            }
             // F7: أخطاء القفل والتزامن (مهلة قفل 55P03، جمود 40P01، فشل
             // تسلسل 40001) رد مضبوط: 503 للاستعلام الآمن مع Retry-After،
             // و409 للكتابة حتى لا تُعاد طفرة بلا idempotency تلقائيًا.
@@ -87,6 +105,11 @@ return Application::configure(basePath: dirname(__DIR__))
             if (($request->is('api/*') || $request->expectsJson())
                 && in_array($e->errorInfo[0] ?? $e->getCode(), ['23503'], true)) {
                 return response()->json(['message' => 'تعذر تنفيذ العملية لوجود سجلات مرتبطة أو لتغيّر السجل المرجعي؛ حدّث البيانات وأعد المحاولة.'], 409);
+            }
+
+            if (($request->is('api/*') || $request->expectsJson())
+                && ! $e instanceof UniqueConstraintViolationException) {
+                return response()->json(['message' => 'تعذر حفظ البيانات بسبب خطأ داخلي؛ أعد المحاولة، وإذا استمرت المشكلة تواصل مع الدعم.'], 500);
             }
 
             return null;

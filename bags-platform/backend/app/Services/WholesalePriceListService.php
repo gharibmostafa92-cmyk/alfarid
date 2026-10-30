@@ -25,6 +25,11 @@ class WholesalePriceListService
      */
     public function rows(Customer $customer): array
     {
+        return StatementBudget::run(150000, fn (): array => $this->calculateRows($customer));
+    }
+
+    private function calculateRows(Customer $customer): array
+    {
         $variants = ProductVariant::query()->with('product')
             ->where('is_active', true)
             ->whereHas('product', fn ($q) => $q->where('status', ProductStatus::Published->value))

@@ -17,7 +17,7 @@ class NotificationController extends Controller
     /**
      * Lists paginated notifications for the authenticated notifiable entity with unread count.
      *
-     * @param Request $request Authenticated request
+     * @param  Request  $request  Authenticated request
      * @return JsonResponse Paginated notifications with meta
      */
     public function index(Request $request): JsonResponse
@@ -40,8 +40,8 @@ class NotificationController extends Controller
     /**
      * Marks a specific notification as read.
      *
-     * @param Request $request Authenticated request
-     * @param string $id UUID of the notification
+     * @param  Request  $request  Authenticated request
+     * @param  string  $id  UUID of the notification
      * @return JsonResponse Read confirmation and remaining unread count
      */
     public function markAsRead(Request $request, string $id): JsonResponse
@@ -60,18 +60,27 @@ class NotificationController extends Controller
     }
 
     /**
-     * Bulk marks all unread notifications as read in a single update query.
+     * Marks unread notifications present at the start in bounded update batches.
      *
-     * @param Request $request Authenticated request
+     * @param  Request  $request  Authenticated request
      * @return JsonResponse Bulk read confirmation
      */
     public function readAll(Request $request): JsonResponse
     {
-        $request->user()->unreadNotifications()->update(['read_at' => now()]);
+        $user = $request->user();
+        $startedAt = now();
+        do {
+            $ids = $user->unreadNotifications()->where('created_at', '<=', $startedAt)
+                ->reorder()->orderBy('created_at')->orderBy('id')->limit(1000)->pluck('id');
+            if ($ids->isEmpty()) {
+                break;
+            }
+            $user->unreadNotifications()->whereIn('id', $ids)->update(['read_at' => $startedAt]);
+        } while ($ids->count() === 1000);
 
         return response()->json([
             'data' => ['read_all' => true],
-            'meta' => ['unread_count' => 0],
+            'meta' => ['unread_count' => $user->unreadNotifications()->count()],
         ]);
     }
 

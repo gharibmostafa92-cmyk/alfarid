@@ -19,6 +19,17 @@ class StoreAuthTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
+    public function test_registration_without_phone_proof_sends_no_verification_message(): void
+    {
+        config(['auth.require_phone_verification' => false]);
+        Notification::fake();
+        $this->postJson('/api/v1/store/auth/register', [
+            'name' => 'New customer', 'phone' => '01012345678', 'password' => 'password123',
+        ])->assertCreated()->assertJsonPath('data.phone_verified_at', null);
+        Notification::assertNothingSent();
+        $this->assertDatabaseCount('customer_phone_verifications', 0);
+    }
+
     public function test_register_forces_retail_approved_and_returns_working_token(): void
     {
         $response = $this->postJson('/api/v1/store/auth/register', [
@@ -47,7 +58,7 @@ class StoreAuthTest extends TestCase
         $this->withToken($token)->postJson('/api/v1/store/auth/logout')->assertUnauthorized();
     }
 
-    public function test_register_validates_unique_phone_and_password_and_accepts_contact_email(): void
+    public function test_register_validates_unique_phone_email_and_password(): void
     {
         Customer::factory()->create(['phone' => '01012345678', 'email' => 'taken@example.com']);
 
@@ -57,7 +68,7 @@ class StoreAuthTest extends TestCase
 
         $this->postJson('/api/v1/store/auth/register', [
             'name' => 'X', 'phone' => '01087654322', 'email' => 'taken@example.com', 'password' => 'password123',
-        ])->assertCreated()->assertJsonPath('data.email_verified_at', null);
+        ])->assertUnprocessable()->assertJsonValidationErrors('email');
 
         $this->postJson('/api/v1/store/auth/register', [
             'name' => 'X', 'phone' => '01087654321', 'password' => 'short',

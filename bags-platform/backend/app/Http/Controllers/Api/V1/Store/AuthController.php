@@ -12,6 +12,7 @@ use App\Http\Requests\Store\RegisterRequest;
 use App\Http\Requests\Store\ResetPasswordRequest;
 use App\Http\Resources\Store\CustomerResource;
 use App\Jobs\SendCustomerPhoneVerification;
+use App\Services\Auth\NetworkIdentity;
 use App\Services\CartService;
 use App\Services\CustomerAuthService;
 use App\Services\CustomerPhoneVerificationService;
@@ -37,10 +38,16 @@ class AuthController extends Controller
         });
 
         // حساب جديد = دخول فوري: تُدمج سلة الزائر إن وُجدت
-        $this->carts->mergeGuestCart($customer, $request->header('X-Cart-Session'));
+        $cartMerged = true;
+        try {
+            $this->carts->mergeGuestCart($customer, $request->header('X-Cart-Session'));
+        } catch (\Throwable $exception) {
+            report($exception);
+            $cartMerged = false;
+        }
 
         return CustomerResource::make($customer)
-            ->additional(['message' => 'تم إنشاء حسابك بنجاح', 'token' => $token])
+            ->additional(['message' => 'تم إنشاء حسابك بنجاح', 'token' => $token, 'cart_merged' => $cartMerged])
             ->response()
             ->setStatusCode(201);
     }
@@ -51,10 +58,16 @@ class AuthController extends Controller
         $token = $this->auth->issueToken($customer, 'store-token');
 
         // دمج سلة الزائر (إن وُجدت بهيدر الجلسة) في سلة الحساب تلقائيًا
-        $this->carts->mergeGuestCart($customer, $request->header('X-Cart-Session'));
+        $cartMerged = true;
+        try {
+            $this->carts->mergeGuestCart($customer, $request->header('X-Cart-Session'));
+        } catch (\Throwable $exception) {
+            report($exception);
+            $cartMerged = false;
+        }
 
         return CustomerResource::make($customer)
-            ->additional(['message' => 'تم تسجيل الدخول بنجاح', 'token' => $token]);
+            ->additional(['message' => 'تم تسجيل الدخول بنجاح', 'token' => $token, 'cart_merged' => $cartMerged]);
     }
 
     /** خروج: حذف التوكن الحالي فقط (بقية الجلسات على أجهزة أخرى تظل فعالة). */
@@ -81,7 +94,7 @@ class AuthController extends Controller
 
     public function sendPhoneVerification(PhoneVerificationRequest $request): JsonResponse
     {
-        SendCustomerPhoneVerification::dispatch($request->validated()['phone'])
+        SendCustomerPhoneVerification::dispatch($request->validated()['phone'], NetworkIdentity::key($request))
             ->onConnection(config('auth.customer_password_reset.connection', 'database'));
 
         return response()->json(['message' => 'لو الرقم متاح للتسجيل، سيتم إرسال رمز التحقق إليه.']);

@@ -240,6 +240,20 @@ class OrderService
 
             $grandTotal = round(($subtotal - $discountAmount) + $shippingCost + $codFee + $taxAmount, 2);
 
+            // B4: حد الائتمان للتجار — طلب credit يتجاوز المتاح يُرفض قبل إنشاء الطلب.
+            if (($data['payment_method'] ?? null) === 'credit' && $customer !== null) {
+                Customer::query()->whereKey($customer->id)->lockForUpdate()->first();
+                $outstanding = app(WholesalePaymentNoticeService::class)->outstandingBalance($customer->fresh());
+                if ($outstanding + $grandTotal > (float) $customer->credit_limit) {
+                    throw new BusinessException(
+                        'إجمالي الطلب يتجاوز حد الائتمان المتاح.',
+                        [],
+                        422,
+                        'credit_limit_exceeded',
+                    );
+                }
+            }
+
             // Reject checkout if grand total drifted since cart preview (e.g. price update or expired promo).
             if (isset($data['expected_total']) && is_numeric($data['expected_total'])
                 && abs((float) $data['expected_total'] - $grandTotal) > 0.01) {

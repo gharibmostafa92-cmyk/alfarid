@@ -290,10 +290,12 @@ class WholesalePortalFeaturesTest extends TestCase
         $response = $this->asTrader()->getJson('/api/v1/wholesale/statement')->assertOk();
         $entries = $response->json('data.entries');
         $this->assertCount(2, $entries);
-        $this->assertSame('debit', $entries[0]['type']);
-        $this->assertSame('1000.00', $entries[0]['running_balance']);
-        $this->assertSame('credit', $entries[1]['type']);
-        $this->assertSame('600.00', $entries[1]['running_balance']);
+        $this->assertSame('1000.00', $entries[0]['debit']);
+        $this->assertSame('0.00', $entries[0]['credit']);
+        $this->assertSame('1000.00', $entries[0]['balance']);
+        $this->assertSame('0.00', $entries[1]['debit']);
+        $this->assertSame('400.00', $entries[1]['credit']);
+        $this->assertSame('600.00', $entries[1]['balance']);
         $response->assertJsonPath('data.closing_balance', '600.00');
     }
 }

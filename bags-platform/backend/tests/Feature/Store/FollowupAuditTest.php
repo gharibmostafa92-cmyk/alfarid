@@ -50,13 +50,13 @@ class FollowupAuditTest extends TestCase
         ]);
     }
 
-    public function test_rotating_ips_cannot_bypass_the_identifier_failure_budget_or_check_more_passwords(): void
+    public function test_rotating_ips_enforce_the_identifier_budget_after_checking_credentials(): void
     {
         config(['auth.unified_login_identifier_failures_hour' => 2]);
         foreach (['192.0.2.1', '192.0.2.2'] as $ip) {
             $this->withServerVariables(['REMOTE_ADDR' => $ip])->postJson('/api/v1/auth/login', ['login' => 'unknown@example.test', 'password' => 'wrong'])->assertUnauthorized();
         }
-        Hash::shouldReceive('check')->never();
+        Hash::shouldReceive('check')->once()->andReturn(false);
         $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.3'])->postJson('/api/v1/auth/login', ['login' => 'UNKNOWN@example.test', 'password' => 'another'])->assertTooManyRequests()->assertHeader('Retry-After');
     }
 

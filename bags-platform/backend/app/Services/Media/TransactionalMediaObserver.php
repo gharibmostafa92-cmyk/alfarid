@@ -49,6 +49,12 @@ class TransactionalMediaObserver extends MediaObserver
         $copy = clone $media;
         $path = app(UuidPathGenerator::class)->getPath($copy);
         $copy->setCustomProperty('path_layout', $path === $copy->id.'/' ? 'id' : 'uuid');
-        $media->getConnection()->afterCommit(fn () => parent::deleted($copy));
+        $media->getConnection()->afterCommit(function () use ($copy): void {
+            try {
+                parent::deleted($copy);
+            } catch (\Throwable $exception) {
+                report($exception);
+            }
+        });
     }
 }

@@ -10,6 +10,7 @@ use App\Models\ProductVariant;
 use App\Models\StockLevel;
 use Illuminate\Database\Connection;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Monitors price list, variant, and stock mutations to batch-refresh catalog price snapshots across nested transactions.
@@ -25,7 +26,7 @@ class CatalogRetailPriceObserver
     /**
      * Records pre-transaction state snapshot on connection begin.
      *
-     * @param Connection $connection Database connection instance
+     * @param  Connection  $connection  Database connection instance
      */
     public function transactionBegan(Connection $connection): void
     {
@@ -37,8 +38,8 @@ class CatalogRetailPriceObserver
     /**
      * Reverts pending IDs if transaction rolled back, or cleans up state on commit.
      *
-     * @param Connection $connection Database connection
-     * @param bool $rolledBack Whether transaction rolled back
+     * @param  Connection  $connection  Database connection
+     * @param  bool  $rolledBack  Whether transaction rolled back
      */
     public function transactionFinished(Connection $connection, bool $rolledBack = false): void
     {
@@ -59,7 +60,7 @@ class CatalogRetailPriceObserver
     /**
      * Groups mutations in a closure to defer dispatching refresh job until outermost batch completes.
      *
-     * @param callable $callback Executable closure
+     * @param  callable  $callback  Executable closure
      * @return mixed Closure return value
      */
     public function batch(callable $callback): mixed
@@ -81,7 +82,7 @@ class CatalogRetailPriceObserver
         if ($this->batchDepth === 0 && $this->pendingProductIds !== []) {
             $ids = $this->pendingProductIds;
             $this->pendingProductIds = [];
-            RefreshCatalogRetailPrices::dispatch($ids);
+            $this->dispatchRefresh($ids);
         }
 
         return $result;
@@ -116,7 +117,7 @@ class CatalogRetailPriceObserver
                 $productIds = ProductVariant::withTrashed()->whereIn('id', array_filter($variantIds))->pluck('product_id')->all();
             }
         } else {
-            RefreshCatalogRetailPrices::dispatch();
+            $this->dispatchRefresh();
 
             return;
         }
@@ -129,7 +130,17 @@ class CatalogRetailPriceObserver
         if ($this->batchDepth > 0) {
             $this->pendingProductIds = array_values(array_unique(array_merge($this->pendingProductIds, $clean)));
         } else {
-            RefreshCatalogRetailPrices::dispatch($clean);
+            $this->dispatchRefresh($clean);
         }
+    }
+
+    private function dispatchRefresh(int|array|null $productIds = null): void
+    {
+        // PendingDispatch acquires the unique lock before the job's afterCommit
+        // setting takes effect. Defer dispatch itself so a database cache lock
+        // collision cannot abort the transaction saving the model.
+        DB::afterCommit(static function () use ($productIds): void {
+            RefreshCatalogRetailPrices::dispatch($productIds);
+        });
     }
 }

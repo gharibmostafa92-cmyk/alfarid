@@ -114,7 +114,7 @@ class CustomerAdditionalReviewTest extends TestCase
         $this->assertTrue($budget->claim('mail', sms: false));
     }
 
-    public function test_sms_budget_warns_once_at_eighty_percent(): void
+    public function test_sms_budget_warns_once_at_eighty_percent_and_once_on_exhaustion(): void
     {
         $this->freezeTime();
         config(['auth.customer_sms_hourly_limit' => 5, 'auth.customer_sms_daily_limit' => 100]);
@@ -122,10 +122,14 @@ class CustomerAdditionalReviewTest extends TestCase
         for ($i = 0; $i < 5; $i++) {
             $this->assertTrue(app(CustomerMessageBudget::class)->claim('recipient-'.$i));
         }
-        Log::shouldHaveReceived('warning')->once()->with('Customer SMS budget reached 80%.', [
+        Log::shouldHaveReceived('warning')->with('Customer SMS budget reached 80%.', [
             'scope' => 'sms:global:hour:'.now(config('app.business_timezone', 'Africa/Cairo'))->format('H'),
             'date' => now(config('app.business_timezone', 'Africa/Cairo'))->toDateString(), 'limit' => 5,
-        ]);
+        ])->once();
+        Log::shouldHaveReceived('warning')->with('Customer SMS budget exhausted.', [
+            'scope' => 'sms:global:hour:'.now(config('app.business_timezone', 'Africa/Cairo'))->format('H'),
+            'date' => now(config('app.business_timezone', 'Africa/Cairo'))->toDateString(), 'limit' => 5,
+        ])->once();
     }
 
     public function test_resending_cannot_invalidate_valid_phone_proof(): void
@@ -161,13 +165,13 @@ class CustomerAdditionalReviewTest extends TestCase
         Notification::assertSentOnDemandTimes(CustomerPhoneVerificationCode::class, 1);
     }
 
-    public function test_unverified_email_does_not_reserve_identity_or_allow_login_and_recovery(): void
+    public function test_duplicate_unverified_email_is_rejected_without_allowing_email_login_or_recovery(): void
     {
         Notification::fake();
         $customer = Customer::factory()->create(['email' => 'victim@example.test', 'email_verified_at' => null]);
         $payload = ['name' => 'Owner', 'email' => ' VICTIM@EXAMPLE.TEST ', 'phone' => '01001234567', 'password' => 'password'];
 
-        $this->postJson('/api/v1/store/auth/register', $payload)->assertCreated()->assertJsonPath('data.email', 'victim@example.test');
+        $this->postJson('/api/v1/store/auth/register', $payload)->assertUnprocessable()->assertJsonValidationErrors('email');
         Auth::forgetGuards();
         $this->postJson('/api/v1/store/auth/login', ['login' => 'victim@example.test', 'password' => 'password'])->assertUnauthorized();
         $this->postJson('/api/v1/store/auth/forgot-password', ['email' => 'victim@example.test'])->assertOk();
@@ -312,7 +316,7 @@ class CustomerAdditionalReviewTest extends TestCase
     public function test_document_type_count_must_match_uploaded_files(): void
     {
         $this->fakeUploads();
-        $this->postJson('/api/v1/wholesale/auth/register', ['name' => 'Company', 'phone' => '01001234567', 'password' => 'password',
+        $this->postJson('/api/v1/wholesale/auth/register', ['name' => 'Company', 'phone' => '01001234567', 'password' => 'secure-password123',
             'company_name' => 'Company', 'tax_number' => '123', 'commercial_register' => '456',
             'documents' => [UploadedFile::fake()->create('id.pdf', 10, 'application/pdf')],
             'document_types' => ['national_id', 'tax_card']])->assertUnprocessable()->assertJsonValidationErrors('document_types');
@@ -394,7 +398,7 @@ class CustomerAdditionalReviewTest extends TestCase
     public function test_document_upload_with_scalar_file_returns_422(): void
     {
         $this->fakeUploads();
-        $this->postJson('/api/v1/wholesale/auth/register', ['name' => 'Company', 'phone' => '01001234567', 'password' => 'password',
+        $this->postJson('/api/v1/wholesale/auth/register', ['name' => 'Company', 'phone' => '01001234567', 'password' => 'secure-password123',
             'company_name' => 'Company', 'tax_number' => '123', 'commercial_register' => '456',
             'documents' => UploadedFile::fake()->create('id.pdf', 10, 'application/pdf'),
             'document_types' => ['national_id']])->assertUnprocessable()->assertJsonValidationErrors('documents');

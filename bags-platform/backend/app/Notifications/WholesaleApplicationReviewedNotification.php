@@ -28,14 +28,20 @@ class WholesaleApplicationReviewedNotification extends Notification implements S
     public function toArray(object $notifiable): array
     {
         $approved = $this->decision === 'approved';
+        $message = $approved
+            ? 'تمت الموافقة على حساب الجملة الخاص بك — يمكنك الآن الشراء بأسعار الجملة.'
+            : 'نأسف، تم رفض طلب تفعيل حساب الجملة الخاص بك'.($this->reason !== null ? " — السبب: {$this->reason}" : '.');
 
         return [
             'kind' => 'wholesale_application_reviewed',
             'decision' => $this->decision,
             'reason' => $this->reason,
-            'message' => $approved
-                ? 'تمت الموافقة على حساب الجملة الخاص بك — يمكنك الآن الشراء بأسعار الجملة.'
-                : 'نأسف، تم رفض طلب تفعيل حساب الجملة الخاص بك'.($this->reason !== null ? " — السبب: {$this->reason}" : '.'),
+            'message' => $message,
+            // شكل موحد لبوابة الجملة: {title, body, icon, link:{screen,id}}
+            'title' => $approved ? 'تمت الموافقة على حساب الجملة' : 'تم رفض طلب تفعيل حساب الجملة',
+            'body' => $message,
+            'icon' => $approved ? 'fa-circle-check' : 'fa-circle-xmark',
+            'link' => ['screen' => null, 'id' => null],
         ];
     }
 }

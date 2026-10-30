@@ -16,14 +16,18 @@ final class HealthReadyController
         $checks = [];
 
         try {
-            DB::select('select 1');
+            $connection = DB::connection('pgsql-health');
+            $connection->transaction(function () use ($connection): void {
+                $connection->statement("SET LOCAL statement_timeout = '1s'");
+                $connection->select('select 1');
+            });
             $checks['db'] = 'ok';
         } catch (Throwable) {
             $checks['db'] = 'fail';
         }
 
         try {
-            Redis::connection('default')->ping();
+            Redis::connection('health')->ping();
             $checks['redis'] = 'ok';
         } catch (Throwable) {
             $checks['redis'] = 'fail';

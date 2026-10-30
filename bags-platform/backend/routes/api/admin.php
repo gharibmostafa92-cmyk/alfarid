@@ -101,7 +101,9 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
             Route::get('suppliers', [ReportController::class, 'suppliers'])->name('suppliers');
             Route::get('shifts', [ReportController::class, 'shifts'])->name('shifts');
         });
-        Route::post('notifications/{id}/read', [NotificationController::class, 'markAsRead'])->name('notifications.read');
+        // M3: notifications.id is uuid — non-uuid values stay 404 instead of
+        // throwing Postgres 22P02 (500 + log spam) via findOrFail.
+        Route::post('notifications/{id}/read', [NotificationController::class, 'markAsRead'])->whereUuid('id')->name('notifications.read');
         Route::post('notifications/read-all', [NotificationController::class, 'readAll'])->name('notifications.read-all');
 
         Route::get('me', [AuthController::class, 'me'])->name('auth.me');

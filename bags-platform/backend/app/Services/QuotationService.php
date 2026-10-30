@@ -180,6 +180,18 @@ class QuotationService
             $quotation->loadMissing(['customer', 'items.variant.product']);
             $customer = $quotation->customer;
 
+            // B4: الطلب الناتج عن قبول عرض السعر آجل — يُرفض لو تجاوز حد الائتمان.
+            Customer::query()->whereKey($customer->id)->lockForUpdate()->first();
+            $outstanding = app(WholesalePaymentNoticeService::class)->outstandingBalance($customer->fresh());
+            if ($outstanding + (float) $quotation->grand_total > (float) $customer->credit_limit) {
+                throw new BusinessException(
+                    'إجمالي الطلب يتجاوز حد الائتمان المتاح.',
+                    [],
+                    422,
+                    'credit_limit_exceeded',
+                );
+            }
+
             $order = Order::create([
                 'order_number' => $this->settings->generateNextNumber('order'),
                 'channel' => 'wholesale',

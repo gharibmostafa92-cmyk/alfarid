@@ -15,12 +15,16 @@ use App\Models\Quotation;
 use App\Models\StockLevel;
 use App\Models\Treasury;
 use App\Models\User;
+use App\Services\OrderService;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Database\Seeders\WholesalePortalPermissionSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
 class WholesalePortalTest extends TestCase
@@ -219,7 +223,7 @@ class WholesalePortalTest extends TestCase
             'amount' => 1000,
             'payment_method' => 'bank_transfer',
             'bank_name' => 'بنك مصر',
-            'reference_number' => 'TRX-123',
+            'reference_number' => 'TRX-'.Str::uuid(),
             'transfer_date' => now()->toDateString(),
             'receipt' => UploadedFile::fake()->image('receipt.jpg'),
         ], $overrides);
@@ -260,6 +264,52 @@ class WholesalePortalTest extends TestCase
 
         // مراجعة ثانية على نفس الإشعار مرفوضة
         $this->asAdmin()->postJson("/api/v1/admin/payment-notices/{$noticeId}/approve", [])->assertUnprocessable();
+    }
+
+    public function test_notice_for_an_order_paid_before_review_is_rejected_without_receiving_money(): void
+    {
+        $treasury = $this->bankTreasury();
+        $order = $this->creditOrder(1000);
+        $this->creditOrder(1000); // Other debt must not mask the already-paid linked order.
+        $noticeId = $this->submitNotice(['order_id' => $order->id, 'amount' => 400]);
+        $order->update(['payment_status' => 'paid']);
+
+        $this->asAdmin()->postJson('/api/v1/admin/payment-notices/'.$noticeId.'/approve', [])
+            ->assertUnprocessable()->assertJsonPath('message', 'الطلب المرتبط تم سداده بالفعل؛ لا يمكن اعتماد إشعار السداد.');
+        $this->assertDatabaseHas('wholesale_payment_notices', ['id' => $noticeId, 'status' => 'pending_review', 'treasury_transaction_id' => null]);
+        $this->assertDatabaseCount('treasury_transactions', 0);
+        $this->assertSame('0.00', $treasury->fresh()->current_balance);
+        $this->asTrader()->getJson('/api/v1/wholesale/payment-notices/outstanding')
+            ->assertOk()->assertJsonPath('data.outstanding_balance', '1000.00');
+    }
+
+    #[TestWith([false])]
+    #[TestWith([true])]
+    public function test_repeated_notice_reference_is_rejected_without_leaving_a_second_receipt(bool $linked): void
+    {
+        $order = $this->creditOrder(1000);
+        $payload = ['amount' => 400, 'reference_number' => 'REPEATED-REFERENCE'];
+        if ($linked) {
+            $payload['order_id'] = $order->id;
+        }
+        $first = $this->submitNotice($payload);
+        $this->asTrader()->withHeader('Accept', 'application/json')->post('/api/v1/wholesale/payment-notices', [
+            ...$payload, 'reference_number' => ' repeated-reference ', 'payment_method' => 'bank_transfer',
+            'bank_name' => 'بنك مصر', 'transfer_date' => now()->toDateString(), 'receipt' => UploadedFile::fake()->image('second.jpg'),
+        ])->assertConflict();
+        $this->assertDatabaseHas('wholesale_payment_notices', ['id' => $first]);
+        $this->assertDatabaseCount('wholesale_payment_notices', 1);
+        $this->assertCount(1, Storage::disk('r2')->allFiles());
+        $this->assertDatabaseCount('treasury_transactions', 0);
+    }
+
+    public function test_different_customers_can_submit_the_same_bank_reference(): void
+    {
+        $this->submitNotice(['amount' => 100, 'reference_number' => 'SHARED-REFERENCE']);
+        $this->trader = Customer::factory()->wholesale()->create(['status' => 'approved']);
+        $this->traderToken = $this->trader->createToken('other')->plainTextToken;
+        $this->submitNotice(['amount' => 100, 'reference_number' => 'SHARED-REFERENCE']);
+        $this->assertDatabaseCount('wholesale_payment_notices', 2);
     }
 
     public function test_notice_cannot_be_approved_into_a_pos_drawer(): void
@@ -313,7 +363,7 @@ class WholesalePortalTest extends TestCase
         $this->assertSame(OrderStatus::Pending, $order->fresh()->status);
 
         // مسار التسوية الصريح مسموح، والـ 400 تبقى رصيدًا دائنًا حرًا
-        app(\App\Services\OrderService::class)->changeStatus(
+        app(OrderService::class)->changeStatus(
             $order->fresh(), OrderStatus::Cancelled, null, null, null, true, true
         );
         $this->assertSame(OrderStatus::Cancelled, $order->fresh()->status);

@@ -76,7 +76,7 @@ class SupplierFinanceService
             }
 
             return $invoice;
-        });
+        }, [[$attachment, 'supplier_invoices/pending']]);
 
         return $invoice->fresh();
     }
@@ -134,7 +134,7 @@ class SupplierFinanceService
             }
 
             return $invoice;
-        });
+        }, [[$attachment, 'supplier_invoices/pending']]);
 
         return $invoice->fresh();
     }

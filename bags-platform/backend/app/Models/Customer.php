@@ -92,6 +92,9 @@ class Customer extends Authenticatable
     {
         $phone = strtr(trim($phone), self::ARABIC_PERSIAN_DIGITS_MAP);
         $phone = preg_replace('/[\s().-]+/u', '', $phone);
+        if (preg_match('/^201[0125][0-9]{8}$/', $phone)) {
+            return '0'.substr($phone, 2);
+        }
         if (str_starts_with($phone, '+20')) {
             return '0'.substr($phone, 3);
         }
