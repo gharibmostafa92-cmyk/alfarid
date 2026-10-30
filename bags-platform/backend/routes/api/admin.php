@@ -83,6 +83,11 @@ Route::pattern('purchase_request', '[0-9]{1,18}');
 Route::pattern('purchase_order', '[0-9]{1,18}');
 Route::pattern('supplier_invoice', '[0-9]{1,18}');
 Route::pattern('supplier_payment', '[0-9]{1,18}');
+// L4: معاملات المساعد مقيدة النمط — المحادثة integer والفعل ULID.
+// قيمة رمزية خارج النمط تفضي لـ 404 بدل 22P02 في Postgres.
+// (كانا UUID خطأً فكسرا كل مسارات المساعد: 404 دائم.)
+Route::pattern('conversation', '[0-9]{1,18}');
+Route::pattern('action', '[0-9A-Za-z]{26}');
 
 // Public admin authentication endpoint (legacy — prefer /api/v1/auth/login).
 // M5: تُعطَّل بضبط LEGACY_LOGIN_ENABLED=false حتى لا تتضاعف ميزانية التخمين
@@ -142,6 +147,9 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
                 ->middleware('permission:locations.delete|locations.manage');
         });
 
+        // L8: self-service rotation for flagged temp passwords — no
+        // users.update required (defined before the resource routes).
+        Route::put('me/password', [UserController::class, 'updateOwnPassword'])->name('me.password');
         Route::apiResource('users', UserController::class)
             ->only(['index', 'show'])
             ->middleware('permission:users.view|users.manage');
@@ -367,6 +375,8 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
             Route::post('actions/{action}/confirm', [AiActionController::class, 'confirm'])->middleware('permission:ai_agent.execute')->name('actions.confirm');
             Route::post('actions/{action}/cancel', [AiActionController::class, 'cancel'])->name('actions.cancel');
             Route::post('actions/{action}/undo', [AiActionController::class, 'undo'])->middleware('permission:ai_agent.execute')->name('actions.undo');
-            Route::get('mentions', [AiMentionController::class, 'search'])->name('mentions');
+            // M6: الزر بتاع mentions بيتنادى مع كل ضغطة بعد debounce — GAS
+            // (AuditStaffAdministration) يعدّ POST بس ففلتر GET مش مغطّى.
+            Route::get('mentions', [AiMentionController::class, 'search'])->middleware('throttle:60,1')->name('mentions');
         });
     });

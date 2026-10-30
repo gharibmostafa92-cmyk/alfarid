@@ -1,17 +1,128 @@
-bags-platform/frontend/packages/ui/src/financial-dashboard/FinancialDashboard.jsx:191:      <button type="button" data-mobile-nav="more" aria-haspopup="dialog" aria-expanded={modal === 'navigation'} aria-controls="v-modal-backdrop" aria-current={!primaryNavigation.some(item => item.id === currentView) ? 'page' : undefined} onClick={() => setModal('navigation')}>
-bags-platform/frontend/packages/ui/src/financial-dashboard/FinancialDashboard.jsx:318:      : [['Client Email', 'email', 'billing@acme.corp', 'modal-request-email'], ['Amount (USD)', 'number', '4800', 'modal-request-amt']];
-bags-platform/frontend/packages/ui/src/financial-dashboard/FinancialDashboard.jsx:332:    return state.pnlMonths.map((item, index) => <Fragment key={index}>{" "}<div role="button" tabIndex={0} aria-label={`${item.month}: Profit ${item.profitVal}, Loss ${item.lossVal}`} data-selected={selectedPnlIdx === index ? "true" : undefined} onClick={() => setSelectedPnlIdx(prev => prev === index ? null : index)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedPnlIdx(prev => prev === index ? null : index); } }} className="v-pnl-col group relative flex-1 h-full flex flex-col items-center justify-end cursor-pointer">{" "}<div className="v-pnl-tooltip opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity absolute -top-8 z-20 px-2 py-1 rounded-md text-[10px] font-semibold whitespace-nowrap shadow-md" style={{
-bags-platform/frontend/packages/ui/src/financial-dashboard/FinancialDashboard.jsx:335:        }}>{"" + " P: " + item.profitVal + " \xB7 L: " + item.lossVal + " "}</div>{" "}<div className="w-full max-w-[26px] h-full flex flex-col justify-end gap-[3px]">{" "}{item.profitPct > 0 ? <><div className="w-full rounded-[6px] bar-profit-hatched transition-all duration-500" style={{
-bags-platform/frontend/packages/ui/src/financial-dashboard/FinancialDashboard.jsx:364:        }}>{"" + r.price}</td><td className="py-3 px-3 whitespace-nowrap">{" "}<span className={"inline-flex items-center gap-1.5 text-[12px] font-medium " + (r.status === 'Completed' ? 'text-emerald-500' : 'text-amber-500') + ""}>{" "}<span className={"w-1.5 h-1.5 rounded-full " + (r.status === 'Completed' ? 'bg-emerald-500' : 'bg-amber-500') + ""}></span>{" "}{r.status}{" "}</span>{" "}</td><td className="py-3 px-3 flex items-center justify-between gap-2 whitespace-nowrap" style={{
-bags-platform/frontend/packages/ui/src/financial-dashboard/FinancialDashboard.jsx:387:            }}>{" "}<span>{"" + c.avatarText}</span>{" "}<span className="w-2.5 h-2.5 rounded-full bg-emerald-500 absolute -bottom-0.5 -right-0.5" style={{
-bags-platform/frontend/packages/ui/src/financial-dashboard/FinancialDashboard.jsx:393:              }}>{lastMsg}</div>{" "}</div>{" "}</div>{" "}<div className="flex flex-col items-end gap-1 shrink-0">{" "}<span className="text-[10.5px]" style={{
-bags-platform/frontend/packages/ui/src/financial-dashboard/FinancialDashboard.jsx:414:    {shadowRoot && createPortal(<><style>{dashboardStyles}</style><>{" "}<div id="theme-wipe-overlay" className="hidden" ref={underlayRef}></div>{" "}<div id="v-toast" role="status" aria-live="polite" className={'fixed bottom-6 right-6 z-50 pointer-events-none transition-all duration-300 ' + (toast ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2')}>{" "}<div className="px-4 py-2.5 rounded-full shadow-lg text-xs font-medium flex items-center gap-2" style={{
-bags-platform/frontend/packages/ui/src/financial-dashboard/FinancialDashboard.jsx:474:                      }}>Limit is $10k a month</div>{" "}<div className="wallet-status text-[10px] font-semibold text-emerald-500 mt-1.5">Active</div>{" "}</div>{" "}<div role="button" tabIndex={0} data-wallet="EUR" className="wallet-card v-card !rounded-[13px] p-2.5 cursor-pointer hover:shadow-xs transition" onClick={() => walletClick('EUR')} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); walletClick('EUR'); } }}>{" "}<div className="flex items-center justify-between mb-2">{" "}<div className="flex items-center gap-1.5">{" "}<span className="text-xs">🇩🇪</span>{" "}<span className="text-[11px] font-semibold">EUR</span>{" "}</div>{" "}<span className="text-[10px]" style={{
-bags-platform/frontend/packages/ui/src/financial-dashboard/FinancialDashboard.jsx:476:                        }}>⋮</span>{" "}</div>{" "}<div className="text-[12px] font-bold tracking-tight" id="wallet-eur-val">€14,160.54</div>{" "}<div className="text-[10px] mt-0.5 truncate" style={{
-bags-platform/frontend/packages/ui/src/financial-dashboard/FinancialDashboard.jsx:478:                      }}>Limit is €8k a month</div>{" "}<div className="wallet-status text-[10px] font-semibold text-emerald-500 mt-1.5">Active</div>{" "}</div>{" "}<div role="button" tabIndex={0} data-wallet="GBP" className="wallet-card v-card !rounded-[13px] p-2.5 cursor-pointer hover:shadow-xs transition" onClick={() => walletClick('GBP')} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); walletClick('GBP'); } }}>{" "}<div className="flex items-center justify-between mb-2">{" "}<div className="flex items-center gap-1.5">{" "}<span className="text-xs">🇬🇧</span>{" "}<span className="text-[11px] font-semibold">GBP</span>{" "}</div>{" "}<span className="text-[10px]" style={{
-bags-platform/frontend/packages/ui/src/financial-dashboard/FinancialDashboard.jsx:482:                      }}>Limit is £7.5k a month</div>{" "}<div id="gbp-wallet-status" className={'wallet-status text-[10px] font-semibold mt-1.5 ' + (state.gbpActive ? 'text-emerald-500' : 'text-rose-500')}>{state.gbpActive ? 'Active' : 'Inactive'}</div>{" "}</div>{" "}</div>{" "}</div>{" "}</div>{" "}<div className="lg:col-span-4 v-card p-4 grid grid-cols-2 gap-3.5 stagger-item stagger-3">{" "}<div className="v-orange-earnings rounded-[18px] p-4 flex flex-col justify-between shadow-xs">{" "}<div className="flex items-center justify-between">{" "}<span className="text-[12.5px] font-medium text-white/90">Total Earnings</span>{" "}<span className="w-7 h-7 rounded-full bg-white/15 flex items-center justify-center">{" "}<svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">{" "}<rect x="3" y="6" width="18" height="13" rx="2"></rect>{" "}<path d="M3 10h18"></path>{" "}</svg>{" "}</span>{" "}</div>{" "}<div className="font-display text-[32px] font-bold tracking-tight my-3" id="kpi-earnings">{<AnimatedNumber value={849} start={209} duration={750} trigger={counterEpoch} format={value => '$' + Math.round(value)} />}</div>{" "}<div className="flex items-center gap-2">{" "}<span className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold bg-white/20 text-white">↑ 7%</span>{" "}<span className="text-[11px] text-white/80">This month</span>{" "}</div>{" "}</div>{" "}<div className="v-subcard rounded-[18px] p-4 flex flex-col justify-between">{" "}<div className="flex items-center justify-between">{" "}<span className="text-[12.5px] font-medium" style={{
-bags-platform/frontend/packages/ui/src/financial-dashboard/FinancialDashboard.jsx:514:                      </span>{" "}</div>{" "}</div>{" "}<div className="relative flex items-end gap-2.5 h-[190px] pt-3">{" "}<div className="flex flex-col justify-between h-full text-[10px] pr-1 pb-5 shrink-0" style={{
-bags-platform/frontend/packages/ui/src/financial-dashboard/FinancialDashboard.jsx:516:                    }}>{" "}<span>50k</span>{" "}<span>40k</span>{" "}<span>30k</span>{" "}<span>20k</span>{" "}<span>10k</span>{" "}<span>00</span>{" "}</div>{" "}<div className="relative flex-1 h-full flex items-end justify-between gap-2 pb-5">{" "}<div className="absolute inset-x-0 top-0 bottom-5 flex flex-col justify-between pointer-events-none">{" "}<div className="v-border-b border-dashed w-full"></div>{" "}<div className="v-border-b border-dashed w-full"></div>{" "}<div className="v-border-b border-dashed w-full"></div>{" "}<div className="v-border-b border-dashed w-full"></div>{" "}<div className="v-border-b border-dashed w-full"></div>{" "}<div className="v-border-b w-full"></div>{" "}</div>{" "}<div id="pnl-bars-container" className="relative z-10 w-full h-full flex items-end justify-between gap-1.5 px-1">{renderPnlBars()}</div>{" "}</div>{" "}</div>{" "}</div>{" "}</div>{" "}</div>{" "}<div className="grid grid-cols-1 lg:grid-cols-12 gap-5">{" "}<div className="lg:col-span-4 v-card p-5 flex flex-col justify-between stagger-item stagger-4">{" "}<div>{" "}<h3 className="font-display text-[15px] font-semibold" style={{
-bags-platform/frontend/packages/ui/src/financial-dashboard/FinancialDashboard.jsx:560:                    }}>{" "}<span>{chat.avatarText}</span>{" "}<span className="w-2.5 h-2.5 rounded-full bg-emerald-500 absolute -bottom-0.5 -right-0.5" style={{
-bags-platform/frontend/packages/ui/src/financial-dashboard/FinancialDashboard.jsx:564:                      }}>{chat.name}</div>{" "}<div id="active-chat-status" className="text-[11px] font-medium text-emerald-500">{chat.status}</div>{" "}</div>{" "}</div>{" "}<div className="flex items-center gap-2">{" "}<button type="button" id="chat-call-btn" aria-label="Voice call" className="v-touch-icon-btn w-9 h-9 rounded-full v-subcard flex items-center justify-center hover:opacity-80 transition" style={{
-bags-platform/frontend/packages/ui/src/financial-dashboard/FinancialDashboard.jsx:574:                  }} value={composer} onChange={event => setComposer(event.target.value)} placeholder={`Message ${chat.name}...`} />{" "}<button type="button" id="chat-emoji-btn" aria-label="Insert wave emoji" className="v-touch-icon-btn hover:opacity-75 transition" style={{
+H1: الوكيل يعدّل الإعدادات من غير تحقق من القيم (HIGH)
+المشكلة:
+* validateArgs بيبني القواعد من خصائص الـ declaration في المستوى الأول بس. يعني changes بيتحقق إنه array وخلاص، وما بيتحققش من المفاتيح ولا القيم اللي جواه.
+* prepUpdateSettings بيتأكد إن المفتاح موجود في UpdateSettingsRequest::rules()، لكن ما بيطبقش القواعد نفسها. والقائمة دي فيها كمان expected وexpected.* وai_disabled_tools.*.
+* prepUpdateDocNumbering ما عندوش أي حد لطول prefix أو قيمة padding. الـ REST بيحدد max:30 وmax:20.
+* الـ enum في الوكيل فيه shift وexpense وtreasury_transfer وpayment_notice، ودول ما لهمش قواعد في UpdateSettingsRequest. فالوكيل يقدر يعدّلهم والـ REST لأ. وكمان auditableSettings() بيشيلهم من سجل التدقيق، فالتغيير بيتسجل من غير القيم.
+* execUpdateSettings وexecUpdateDocNumbering بينادوا updateBatch مباشرة من غير ما يعيدوا التحقق.
+إمتى تحصل: مستخدم عنده settings.manage وai_agent.execute يأكد كارت فيه قيم غلط. القيم ممكن تيجي من هلوسة الموديل أو من prompt injection في بيانات الأدوات.
+الأثر:
+* default_tax_rate = 1400 يفسد حسابات كل الفواتير الجديدة.
+* padding = 5000000 أو prefix طوله آلاف الحروف يخلي str_pad ينفّخ الذاكرة أو يعدّي طول عمود رقم المستند، فتقف عملية إنشاء الطلبات والفواتير في النظام كله.
+* return_window_days = "abc" يتخزن كنص.
+* لو مرّ مفتاح expected.company_name، بيترمي InvalidArgumentException وبيرجع 500.
+الإصلاح: مصدر قواعد واحد، والتحقق مرتين: مرة في prepare ومرة في execute (الكود في القسم 9). وكمان ضيف أنواع الترقيم الناقصة لـ UpdateSettingsRequest، أو شيلها من enum الوكيل.
+ليه الإصلاح ده كافي: المسارين هيطبقوا نفس القواعد بالظبط، وإعادة التحقق في execute بتحمي من أي args اتخزنت قبل الإصلاح.
+التكلفة: ولا حاجة تقريبًا.
+H2: مدير مقيّد بفرع يعدّل أدوار عامة عن طريق الوكيل (HIGH)
+المشكلة: prepCreateRole بيستدعي assertCentralAccess، لكن prepUpdateRolePerms وprepDeleteRole ما بيستدعوهاش، ولا assertAiConstraints بيستدعيها لـ role_id. والأدوار في Spatie عامة على كل الفروع.
+إمتى تحصل: مدير فرع عنده roles.update أو roles.delete وai_agent.execute.
+الأثر: يقدر يشيل صلاحيات من دور مستخدم في كل الفروع، أو يمنح موظفين في فروع تانية صلاحيات هو نفسه عنده. ده تعدّي واضح لحدود الفروع.
+ملاحظة: UpdateRole وRoleController مش في الحزمة. لو مسار الـ REST فيه نفس الثغرة، المشكلة أوسع من الوكيل.
+الإصلاح: استدعاء assertCentralAccess في prepare وفي execute لكل أدوات الأدوار. التعديل موجود في القسم 9.
+التكلفة: المدير المقيّد مش هيقدر يعدّل أي دور. لو المطلوب أدوار خاصة بكل فرع، ده محتاج تصميم منفصل.
+H3: أدوات المواقع في الوكيل بصلاحيات مختلفة عن الـ REST، والحذف من غير قفل (HIGH)
+المشكلة:
+* create_location وset_location_status بيطلبوا branches.update|manage، وdelete_location بيطلب branches.delete|manage. أما الـ REST فبيطلب locations.create|update|delete|manage.
+* execDeleteLocation بيعمل check-then-delete من غير lockForUpdate على الموقع. وlockTargets ما بيتعاملش مع النوع location أصلًا.
+* execSetLocationStatus بيسجل في التدقيق before = !active بدل القيمة الحقيقية قبل التعديل.
+الأثر:
+* اللي عنده branches.delete، والمفروض يحذف فروع بس، يقدر يحذف مواقع من غير locations.delete.
+* العكس كمان: صاحب locations.manage ممنوع من أدوات المواقع في الوكيل.
+* لو اتسجلت حركة مخزون في نفس اللحظة، الـ FK بيرمي QueryException، والاستثناء ده مش من نوع HttpException، فبيرجع 500 والإجراء بيفضل pending.
+الإصلاح: استخدام locations.* في الأربع أدوات، وقفل صف الموقع زي LocationController::destroy بالظبط، وتسجيل الحالة الفعلية قبل التعديل.
+H4: انقطاع دورة الوكيل بيبوّظ المحادثة ويحجز القفل (HIGH)
+المشكلة:
+* handleLocked بيحفظ رسالة model فيها functionCall، وبعدها بيحفظ رسالة tool في عملية منفصلة. لو العملية ماتت بينهم، رسالة الأداة مش هتتحفظ. أسباب الموت كتير: max_execution_time (6 خطوات × محاولتين × 25 ثانية ممكن توصل لدقائق)، أو SIGKILL، أو قطع الـ SSE من غير ignore_user_abort.
+* في الحالة دي history() بيرجّع دور model فيه functionCall ووراه رسالة user عادية. Gemini بيرفض الترتيب ده بـ 400، فكل رسالة بعدها في المحادثة هتفشل.
+* الـ fatal error بيتجاوز finally، فـ Cache::lock مش بيتحرر ويفضل 600 ثانية، والمستخدم بياخد 423 طول المدة دي.
+* مفيش حد زمني كلي للدورة الواحدة.
+الأثر: محادثات بايظة على طول، ومستخدم مقفول عليه، وworkers محجوزة.
+الإصلاح:
+1. تنظيف التاريخ وتجاهل أي functionCall مالوش رد.
+2. ignore_user_abort(true) وset_time_limit محدد.
+3. تحرير القفل من register_shutdown_function.
+4. حد زمني كلي للدورة.
+الكود في القسم 9.
+التكلفة: لو المستخدم قفل الصفحة، العملية هتكمل لحد ما الدورة تخلص.
+H5: عدادات الصف الواحد بتعمل اختناق في نقاط البيع (HIGH، مشروطة)
+المشكلة: generateNextNumber للأنواع اللي مش في SEQUENCE_TYPES بيعمل lockForUpdate على صف واحد في settings. الأنواع دي: pos_invoice وinvoice وshift وexpense وtreasury_transfer وpayment_notice. ولما الدالة بتتنادى جوه transaction عملية البيع (وده المتوقع، لكن كود الـ POS مش في الحزمة)، الـ DB::transaction الداخلية بتبقى savepoint، والقفل بيفضل ماسك لحد ما transaction البيع كلها تعمل commit.
+الأثر: كل عمليات البيع في كل الفروع بتتنفذ ورا بعض على صف واحد. وتحت الضغط هيظهر انتظار طويل وlock_timeout.
+الإصلاح: للأنواع اللي مش محتاجة ترقيم متصل من غير فجوات، انقلها لـ PostgreSQL sequences زي باقي الأنواع. لو فاتورة الضريبة لازم تكون متصلة قانونيًا، خليها على قفل الصف، بس ولّد الرقم في آخر خطوة قبل الـ commit عشان القفل يتمسك أقل وقت ممكن.
+التكلفة: الـ sequences بتسيب فجوات لما transaction تترجع.
+H6: واجهة المساعد Mock، والـ renderer معرّض لـ XSS (HIGH، جاهزية للإنتاج)
+المشكلة:
+* AssistantPage.tsx فيه بيانات وهمية: "Claude Opus 4.8" و"gemini-3.7-flash" وردود ثابتة وتوكنز عشوائية، ومكتوب في الفوتر "OpenAI API".
+* ما بينادي ولا endpoint، فكروت التأكيد والتراجع والـ pickers مش ممكن توصلها من الواجهة.
+* renderMarkdown بيعمل escape للـ code blocks بس، ونتيجته بتتعرض بـ dangerouslySetInnerHTML. أول ما يتوصل بنص الموديل، اللي ممكن يردد أسماء فروع أو موظفين فيها <img onerror>، هيبقى stored XSS في لوحة الـ Super Admin.
+الإصلاح: بناء AssistantPage على assistantApi وAssistantBlock وAssistantComposer، وعرض النص كـ text (white-space: pre-wrap)، أو استخدام markdown renderer بيعمل sanitize، زي react-markdown من غير rehype-raw.
+M1: find_entities(type=location, branch_id=X) بيعدّي قيد الفرع (MEDIUM)
+EntityResolver::locations بيطبق قيد الفرع بس لما $branchId === null. فمستخدم مقيّد بفرع يقدر يشوف مواقع أي فرع تاني بإنه يبعت branch_id. ده عكس سياسة fail-closed المكتوبة في BranchAccess. الإصلاح في القسم 9.
+M2: اختيار موقع من الـ picker بيرجع 422 (MEDIUM، وظيفية)
+ask_user_to_choose بيدعم location، والواجهة بتبعت selection.entity='location'. لكن AiMessageController::validated بيقبل in:branch,user,role,permission بس، فالـ picker ده عمره ما هيشتغل. الحل: ضيف location للقائمة. EntityResolver::reference بيدعمه بالفعل.
+M3: تعديل الفرع من الـ REST من غير optimistic concurrency (MEDIUM)
+UpdateBranch بيقبل $expectedUpdatedAt، لكن BranchController::update ما بيبعتهوش، فاتنين بيعدّلوا نفس الفرع آخر واحد بيكسب. وحتى لو اتبعت، دقة updated_at بالثانية. الحل: عمود lock_version على branches زي users، يبقى إلزامي في UpdateBranchRequest.
+M4: تعطيل الفرع ما بيأثرش على موظفينه (MEDIUM، مشروطة بقواعد العمل)
+BranchAccess::restrictedBranch ما بيتأكدش إن الفرع is_active، وUpdateBranch ما بيلغيش التوكنز. فموظفين الفرع المعطّل بيكملوا شغلهم عادي (POS ومخزون)، وكمان ينفع تعيين موظف جديد على فرع معطّل. لو "معطّل" المقصود بيها "مقفول"، اعمل fail-closed في restrictedBranch لما الفرع يكون معطّل، أو امنع تعيين موظفين عليه.
+M5: مسار المواقع في الـ REST من غير تدقيق ولا حراسة (MEDIUM)
+LocationController ما بيسجلش أي تدقيق للإنشاء أو التعديل أو الحذف، مع إن الوكيل بيسجل. وبيسمح بتعطيل موقع فيه رصيد أو تغيير type من shelf لـ damaged، وده بيغير معنى المخزون الموجود من غير أي تحذير. وكمان مفيش قفل على update. الحل: سجل تدقيق، وارفض تغيير type لو فيه أرصدة غير صفرية.
+M6: البحث في الكيانات بيعمل فلترة في PHP على الجدول كله (MEDIUM، أداء/DoS)
+EntityResolver::users/branches/locations بيستخدموا lazy(200) وبيفلتروا في PHP. يعني الاستعلام اللي ملوش نتيجة بيمسح الجدول كله. و/ai/mentions بيتنادى مع كل ضغطة زر بعد debounce بـ 200ms، ومن غير throttle، لأن AuditStaffAdministration بيحدد طلبات POST والمشابهة بس. الحل: انقل الفلترة لـ SQL (ILIKE مع LIMIT 50)، ولو المطابقة العربية مهمة استخدم عمود search_normalized. وضيف throttle للـ endpoint.
+M7: ميزانية التوكنز ضعيفة ومكلفة (MEDIUM)
+* guard() بيشغّل whereDate(created_at, today()) مع whereHas. الاستعلام ده non-sargable، ومفيش index على ai_messages.created_at، وبيتنفذ لحد 7 مرات في كل دورة.
+* لو Gemini رجع MAX_TOKENS أو SAFETY، GeminiClient بيرمي استثناء قبل ما يتسجل الاستهلاك. فالتوكنز المدفوعة مش بتتحسب.
+* كل خطوة بتبعت التاريخ كله، اللي ممكن يكون لحد 60 رسالة فيها نتائج أدوات، وكمان 27 declaration. يعني التكلفة تقريبًا تربيعية، ودورة واحدة ممكن تعدّي الميزانية اليومية كلها (200k).
+* listLocations بيعمل ->get() من غير حد.
+الحل: استعلام بنطاق زمني (created_at >= startOfDay) مع index، وتسجيل الاستهلاك حتى لو الطلب فشل، وحد أعلى للتوكنز في الدورة الواحدة، وحد لحجم نتائج الأدوات.
+M8: العدادات الحية في expected بترجع 409 باستمرار على الأنظمة المزدحمة (MEDIUM)
+بالنسبة للأنواع اللي على sequences، get('order_next_number') بيرجع القيمة الحالية من الـ sequence. القيمة دي بتزيد مع كل طلب، فالقيمة اللي في expected بتبقى قديمة بعد ثواني وتعديل العداد بيفشل بـ 409. ده بيحصل في الـ REST، وفي الوكيل أكتر بكتير لأن الـ TTL عشر دقائق. الحل: للعدادات، قارن بقاعدة "الجديد ≥ الحالي" بس، وسيب expected للبادئة والطول.
+M9: حالة SettingService الداخلية ممكن تفضل قديمة (MEDIUM، مشروطة)
+transactionSnapshot ما بيتصفرش في آخر الـ transaction. وresetReadSnapshot(true) مش بيتنادى من أي مكان ظاهر في الحزمة، فـ uncommittedSettings بيفضل true بعد أول updateBatch. وnumberingConfig بيتخزن في الـ instance. لو الخدمة singleton، أو شغالة في queue workers أو Octane، الـ workers هتفضل تستخدم بادئات وإعدادات قديمة. الحل: صفّر الحالة دي مع حدثي TransactionCommitted وTransactionRolledBack، وفي Queue::before.
+M10: الإجراء الجماعي (bulk) مش ذري، والإجراءات الفرعية ممكن تتأكد لوحدها (MEDIUM)
+* confirmBulk بيخلي الحالة confirmed وبعدين بينفذ الإجراءات الفرعية برا أي transaction. لو العملية ماتت في النص، الحالة بتفضل confirmed على طول ومفيش طريقة تكمل منها.
+* الإجراءات الفرعية pending عادية وأرقامها ظاهرة في items[].key، فممكن تتأكد كل واحدة لوحدها من غير مراجعة المجموعة.
+* confirmBulk بيملا كود الفرع تلقائيًا كتأكيد كتابي، فالحماية الكتابية لتعطيل الفرع بتتلغي جوه المجموعة.
+الحل: حالة مخصوصة للإجراءات الفرعية (bulk_child) يرفضها confirm() المباشر، ومهمة دورية تقفل الإجراءات اللي فضلت confirmed بعد مهلة معينة.
+M11: صلاحية ai_agent.logs.view بتعدّي حدود الفروع (MEDIUM)
+index?all=1 وshow بيعرضوا محادثات كل المستخدمين، بما فيها جداول موظفين وفروع، حتى لو اللي بيشوف مقيّد بفرع. الحل: اشترط assertCentralAccess مع all.
+M12: كاش الـ branding في الـ storefront بيتقسم حسب IP كل زائر (MEDIUM، أداء)
+getServerBranding بيبعت X-Forwarded-For في fetch عليه revalidate: 60. على حد علمي، مفتاح كاش Next.js بيدخل فيه الـ headers، فكل IP بياخد مدخل كاش لوحده. النتيجة: نسبة الإصابة في الكاش قريبة من الصفر، وكل زائر جديد بيعمل نداء للباك إند، وكمان publicBranding() بيقرا من الداتابيز من غير كاش. الحل: شيل الـ header من الطلب ده تحديدًا (الـ branding مش محتاج rate-limit لكل زائر)، وخلي publicBranding تقرا من staticSettings().
+M13: طلبات الوكيل المتزامنة الطويلة بتحجز PHP workers (MEDIUM)
+في أسوأ حالة، الدورة الواحدة ممكن تقعد دقائق. ولو Gemini بطيء أو واقع، كل أدمن بيحجز worker. ولو الـ pool مشترك مع الـ API، الباك أوفيس والمتجر هيتأثروا. الحل: نفس الحد الزمني الكلي من H4، ومع أول فشل اتصال وقّف الدورة بدل ما تعيد المحاولة في كل خطوة.
+M14: unique races بترجع 500 والإجراء بيفضل pending (MEDIUM)
+branches.code وlocations(branch_id, code) وusers.email بيتحقق منهم بقاعدة unique قبل الإدخال. لو طلبين وصلوا في نفس اللحظة، أو المستخدم ضغط مرتين، الداتابيز بترمي 23505 وبيرجع 500. في الوكيل، create_location وcreate_staff_user ما بيعيدوش التحقق وقت التأكيد، فبيرجع 500 والإجراء بيفضل pending. الحل: handler عام لـ UniqueConstraintViolationException، والتقاط الاستثناء في confirmLocked برا الـ savepoint (القسم 9).
+M15: EvaluateAiAgent ناقصه imports (MEDIUM، أدوات)
+في النسخة المرفقة، الكود بيستخدم ToolOutcome وEntityResolver من غير use، مع إن الـ namespace هو App\Console\Commands. النتيجة: Class not found في كل case، والـ catch (\Throwable) بيمسكه ويسجله كـ "provider request failed"، فالدقة تطلع 0% من غير سبب واضح.
+M16: قاعدة EmailNotUsedByOtherAccountType (MEDIUM)
+LOWER(email) = ? على customers من غير functional index بيعمل seq scan، والجدول ده ممكن يكون كبير جدًا. وكمان التفرد بين الجداول مضمون على مستوى التطبيق بس، فلو موظف وعميل اتسجلوا بنفس الإيميل في نفس اللحظة، الاتنين هيعدّوا. الحل: CREATE INDEX ... ON customers (LOWER(email)) WHERE deleted_at IS NULL. ولو التفرد بين الجداول شرط صارم، اعمل جدول account_emails موحد عليه unique.
+L1: الـ down() في migrations الإعدادات بيمسح مفاتيح مالهاش علاقة (LOW)
+where('key','like','delivery\_%') وexpense\_% وshift\_% هتمسح أي إعداد تاني بيبدأ بنفس البادئة، زي delivery_fee أو expense_approval_required. الحل: قائمة مفاتيح صريحة.
+L2: ON UPDATE CASCADE على الـ composite FK (LOW)
+لو locations.branch_id اتغير في يوم من الأيام، stock_movements.branch_id هيتغير معاه، يعني الدفتر التاريخي هيتعاد كتابته. الأفضل ON UPDATE RESTRICT. كمان الـ migration بتشتغل برا transaction، فلو فشلت في النص، إعادة تشغيلها هتفشل بـ "already exists".
+L3: SET LOCAL lock_timeout='5s' بيسري على الـ transaction كلها (LOW)
+بيأثر على قفل الصفوف وعلى استعلامات المخزون كمان. والخطأ 55P03 بيرجع 500 بدل 409 أو 503 مع رسالة "حاول مرة أخرى".
+L4: معاملات المسار مش رقمية (LOW)
+{conversation} لو قيمته مش رقمية، PostgreSQL بيرمي 22P02 وبيرجع 500. الحل: whereNumber('conversation')، زي اللي متعمل في store.php.
+L5: ilike '%'.$q.'%' من غير escape (LOW)
+% و_ بيتعاملوا كـ wildcards. مفيش SQL injection، لكن نتايج البحث بتبقى غير دقيقة. استخدم SearchTerm::pattern الموجود.
+L6: تعديلات الإعدادات من الوكيل مش بتتعلّم بالقناة (LOW، observability)
+SettingService::updateBatch بيسجل التدقيق من غير via، فما تقدرش تفرق بين تعديل جه من الوكيل وتعديل جه من الشاشة.
+L7: الـ deep link بتاع /branches مش بيظهر (LOW)
+الـ regex في AssistantBlock بيقبل users|roles|settings بس، فروابط الفروع والمواقع مش هتظهر.
+L8: كلمة المرور المؤقتة (LOW)
+* مفيش إجبار على تغييرها في أول دخول.
+* لو رد HTTP بتاع التأكيد ضاع، إعادة الطلب بترجع "اتنفذ قبل كده" من غير الباسورد.
+* إزالة الباسورد من الرسائل المحفوظة معتمدة على regex على نص عربي، ولو صياغة الرسالة اتغيرت الباسورد هيتسرب. الأفضل ما يدخلش في message أصلًا، ويتبعت في حقل منفصل مش بيتحفظ.
+L9: الـ system prompt بيقول إن كل فرع جديد بيتعمله موقع افتراضي (LOW)
+CreateBranch اللي في الحزمة ما بيعملش كده، إلا لو فيه observer مش موجود في الحزمة. لو مفيش، الموديل هيدي معلومة غلط للمستخدم.
+L10: indexes ناقصة (LOW)
+ai_pending_actions.conversation_id (الـ FK في PostgreSQL مش بيعمل index تلقائي)، وai_messages(conversation_id, created_at).
+L11: سجل التدقيق بيمتلي بـ administration.denied (LOW)
+ToolRegistry::dispatch بيسجل denied لكل رفض، حتى أخطاء التحقق و"مش موجود". ولو فيه prompt injection، ممكن يتكرر لحد 6 خطوات × عدد الأدوات.
+L12: ai_disabled_tools.* مش بيتحقق منها (LOW)
+ما بيتحققش إن الاسم موجود في الـ registry، فأي غلطة إملائية بتعدّي من غير ما حد ياخد باله. ضيف Rule::in(array_keys($registry->definitions())).
+INFO
+* الـ advisory lock العام بيخلي كل عمليات الإدارة تتنفذ ورا بعض. ده مقبول لعمليات قليلة التكرار، فمش محتاج تغيير.
+* definitions() بتتبني من الأول في كل استدعاء. التكلفة صغيرة، ومحتاجة memoization بس لو ظهرت في الـ profiling.
+* args_hash بـ HMAC سليم كحماية ضد التلاعب في الداتابيز.
+

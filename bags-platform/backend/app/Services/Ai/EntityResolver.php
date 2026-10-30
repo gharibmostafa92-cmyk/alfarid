@@ -8,6 +8,7 @@ use App\Models\Branch;
 use App\Models\Location;
 use App\Models\User;
 use App\Services\BranchAccess;
+use App\Services\SearchTerm;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
@@ -45,11 +46,23 @@ final class EntityResolver
         if ($restricted === -1) {
             return [];
         }
-        $q = Branch::query()->withCount('users')->when($restricted !== null, fn ($x) => $x->whereKey($restricted))->when(array_key_exists('active', $filters), fn ($x) => $x->where('is_active', $filters['active']))->when(isset($filters['type']), fn ($x) => $x->where('type', $filters['type']))->when(isset($filters['city']), fn ($x) => $x->where('city', $filters['city']))->orderBy('id');
-        $items = $q->lazy(200)->filter(fn (Branch $b) => $query === '' || $this->matches($query, [$b->name, $b->code, $b->city ?? '']))
-            ->take(50)->map(fn (Branch $b) => ['id' => $b->id, 'label' => $b->name.' ('.$b->code.')', 'meta' => trim(($b->city ?? '').' · '.($b->is_active ? 'نشط' : 'متوقف').' · موظفين: '.$b->users_count)])->values()->all();
-
-        return $items;
+        // M6/L5: الفلترة في SQL (ILIKE محمي بـ SearchTerm::escape) مع LIMIT —
+        // استعلام بلا نتيجة ما يمسحش الجدول كله ولا يعمل ذاكرة lazy.
+        return Branch::query()->withCount('users')
+            ->when($restricted !== null, fn ($x) => $x->whereKey($restricted))
+            ->when(array_key_exists('active', $filters), fn ($x) => $x->where('is_active', $filters['active']))
+            ->when(isset($filters['type']), fn ($x) => $x->where('type', $filters['type']))
+            ->when(isset($filters['city']), fn ($x) => $x->where('city', $filters['city']))
+            ->when($query !== '', fn ($x) => $x->where(fn ($w) => $w
+                ->where('name', 'ilike', SearchTerm::pattern($query))
+                ->orWhere('code', 'ilike', SearchTerm::pattern($query))
+                ->orWhere('city', 'ilike', SearchTerm::pattern($query))))
+            ->orderBy('id')
+            ->limit(50)
+            ->get()
+            ->map(fn (Branch $b) => ['id' => $b->id, 'label' => $b->name.' ('.$b->code.')', 'meta' => trim(($b->city ?? '').' · '.($b->is_active ? 'نشط' : 'متوقف').' · موظفين: '.$b->users_count)])
+            ->values()
+            ->all();
     }
 
     /** @return list<array{id:int,label:string,meta:string}> */
@@ -59,19 +72,33 @@ final class EntityResolver
         if ($restricted === -1) {
             return [];
         }
-        $items = User::query()->where('is_system', false)->when($restricted !== null, fn ($x) => $x->where('branch_id', $restricted))->orderBy('id')->lazy(200)
-            ->filter(fn (User $u) => $query === '' || $this->matches($query, [$u->name, $u->email, $u->phone ?? '']))
-            ->take(50)->map(fn (User $u) => ['id' => $u->id, 'label' => $u->name, 'meta' => $this->maskEmail($u->email).' · '.($u->is_active ? 'نشط' : 'معطّل')])->values()->all();
 
-        return $items;
+        return User::query()->where('is_system', false)
+            ->when($restricted !== null, fn ($x) => $x->where('branch_id', $restricted))
+            ->when($query !== '', fn ($x) => $x->where(fn ($w) => $w
+                ->where('name', 'ilike', SearchTerm::pattern($query))
+                ->orWhere('email', 'ilike', SearchTerm::pattern($query))
+                ->orWhere('phone', 'ilike', SearchTerm::pattern($query))))
+            ->orderBy('id')
+            ->limit(50)
+            ->get()
+            ->map(fn (User $u) => ['id' => $u->id, 'label' => $u->name, 'meta' => $this->maskEmail($u->email).' · '.($u->is_active ? 'نشط' : 'معطّل')])
+            ->values()
+            ->all();
     }
 
     /** @return list<array{id:int,label:string,meta:string}> */
     public function roles(string $query = ''): array
     {
-        return Role::query()->withCount(['users', 'permissions'])->where('guard_name', 'staff')->orderBy('id')->get()
-            ->filter(fn (Role $r) => $query === '' || $this->matches($query, [$r->name]))
-            ->take(50)->map(fn (Role $r) => ['id' => $r->id, 'label' => $r->name, 'meta' => 'موظفين: '.$r->users_count.' · صلاحيات: '.$r->permissions_count])->values()->all();
+        return Role::query()->withCount(['users', 'permissions'])
+            ->where('guard_name', 'staff')
+            ->when($query !== '', fn ($x) => $x->where('name', 'ilike', SearchTerm::pattern($query)))
+            ->orderBy('id')
+            ->limit(50)
+            ->get()
+            ->map(fn (Role $r) => ['id' => $r->id, 'label' => $r->name, 'meta' => 'موظفين: '.$r->users_count.' · صلاحيات: '.$r->permissions_count])
+            ->values()
+            ->all();
     }
 
     /** @return list<array{id:int,label:string,meta:string}> */
@@ -81,13 +108,16 @@ final class EntityResolver
         if ($restricted === -1) {
             return [];
         }
-        $items = Location::query()
-            ->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
-            ->when($restricted !== null && $branchId === null, fn ($q) => $q->where('branch_id', $restricted))
+        // M1: قيد الفرع يطبق أولًا — مقيّد بفرع ما يقدرش يوجّه branch_id لفرع تاني.
+        // M6/L5: نفس الفلترة السلكية المحمية مع LIMIT.
+        return Location::query()
+            ->when($restricted !== null, fn ($q) => $q->where('branch_id', $restricted), fn ($q) => $q->when($branchId !== null, fn ($w) => $w->where('branch_id', $branchId)))
+            ->when($query !== '', fn ($x) => $x->where(fn ($w) => $w
+                ->where('name', 'ilike', SearchTerm::pattern($query))
+                ->orWhere('code', 'ilike', SearchTerm::pattern($query))))
             ->orderBy('id')
-            ->lazy(200)
-            ->filter(fn (Location $l) => $query === '' || $this->matches($query, [$l->name, $l->code]))
-            ->take(50)
+            ->limit(50)
+            ->get()
             ->map(fn (Location $l) => [
                 'id' => $l->id,
                 'label' => $l->name.' ('.$l->code.')',
@@ -95,8 +125,6 @@ final class EntityResolver
             ])
             ->values()
             ->all();
-
-        return $items;
     }
 
     public function maskEmail(?string $email): string

@@ -23,5 +23,8 @@ class PruneAiConversations implements ShouldQueue
             }
         });
         AiPendingAction::query()->where('status', 'pending')->where('expires_at', '<', now())->update(['status' => 'expired']);
+        // M10: كارت جماعي اتحجز confirmed وما اتنفذش (العملية اتقطعت) —
+        // يتقفل برسالة مفهومة بدل ما يفضل عالق للأبد.
+        AiPendingAction::query()->where('status', 'confirmed')->where('updated_at', '<', now()->subMinutes(5))->update(['status' => 'failed', 'result' => ['message' => 'العملية الجماعية انتهت من غير تنفيذ كامل. اطلب اقتراح جديد.']]);
     }
 }

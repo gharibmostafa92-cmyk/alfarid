@@ -32,10 +32,14 @@ return new class extends Migration
 
     public function down(): void
     {
-        DB::table('settings')->where('key', 'like', 'purchase\_request\_%')
-            ->orWhere('key', 'like', 'delivery\_%')
-            ->orWhere('key', 'like', 'supplier\_invoice\_%')
-            ->orWhere('key', 'like', 'supplier\_payment\_%')
-            ->delete();
+        // L1: قائمة مفاتيح صريحة — wildcard بيقع على إعدادات تانية
+        // (delivery_fee، approved_expenses...) ملهاش علاقة بالترقيم.
+        $keys = [];
+        foreach (['purchase_request', 'delivery', 'supplier_invoice', 'supplier_payment'] as $type) {
+            $keys[] = "{$type}_prefix";
+            $keys[] = "{$type}_next_number";
+            $keys[] = "{$type}_padding";
+        }
+        DB::table('settings')->whereIn('key', $keys)->delete();
     }
 };

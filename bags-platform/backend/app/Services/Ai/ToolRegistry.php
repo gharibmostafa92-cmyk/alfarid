@@ -17,6 +17,7 @@ use App\Http\Requests\Api\V1\Admin\StoreBranchRequest;
 use App\Http\Requests\Api\V1\Admin\StoreRoleRequest;
 use App\Http\Requests\Api\V1\Admin\StoreUserRequest;
 use App\Enums\LocationType;
+use App\Http\Requests\Api\V1\Admin\UpdateSettingsRequest;
 use App\Models\AiConversation;
 use App\Models\AiPendingAction;
 use App\Models\Branch;
@@ -52,7 +53,7 @@ final class ToolRegistry
         $locationTypes = array_column(LocationType::cases(), 'value');
 
         return [
-            'bulk_actions' => ['kind' => ToolKind::Write, 'permissions' => ['branches.update', 'branches.manage', 'users.update', 'users.manage', 'roles.update', 'roles.manage'], 'risk' => 'high', 'declaration' => ['name' => 'bulk_actions', 'description' => 'اقتراح مجموعة تعديلات مستقلة بكارت واحد. راجع كل عنصر قبل التأكيد؛ لا تنفذ أي تعديل فوراً.', 'parameters' => $obj(['items' => ['type' => 'ARRAY', 'minItems' => 2, 'items' => $obj(['tool' => ['type' => 'STRING', 'enum' => ['set_branch_status', 'update_role_permissions', 'set_user_status', 'assign_roles', 'revoke_user_sessions', 'set_location_status', 'create_location']], 'args' => $obj(['branch_id' => $int, 'user_id' => $int, 'role_id' => $int, 'location_id' => $int, 'active' => $bool, 'add' => $strArr, 'remove' => $strArr, 'name' => $str, 'code' => $str, 'type' => $str])], ['tool', 'args'])]], ['items'])]],
+            'bulk_actions' => ['kind' => ToolKind::Write, 'permissions' => ['branches.update', 'branches.manage', 'users.update', 'users.manage', 'roles.update', 'roles.manage', 'locations.update', 'locations.manage'], 'risk' => 'high', 'declaration' => ['name' => 'bulk_actions', 'description' => 'اقتراح مجموعة تعديلات مستقلة بكارت واحد. راجع كل عنصر قبل التأكيد؛ لا تنفذ أي تعديل فوراً.', 'parameters' => $obj(['items' => ['type' => 'ARRAY', 'minItems' => 2, 'items' => $obj(['tool' => ['type' => 'STRING', 'enum' => ['set_branch_status', 'update_role_permissions', 'set_user_status', 'assign_roles', 'revoke_user_sessions', 'set_location_status', 'create_location']], 'args' => $obj(['branch_id' => $int, 'user_id' => $int, 'role_id' => $int, 'location_id' => $int, 'active' => $bool, 'add' => $strArr, 'remove' => $strArr, 'name' => $str, 'code' => $str, 'type' => $str])], ['tool', 'args'])]], ['items'])]],
             'find_entities' => ['kind' => ToolKind::Read, 'permissions' => ['branches.view', 'branches.manage', 'users.view', 'users.manage', 'roles.view', 'roles.manage', 'permissions.view'], 'risk' => 'low', 'declaration' => ['name' => 'find_entities', 'description' => 'بحث عن فروع أو موظفين أو أدوار أو صلاحيات أو مواقع تخزين', 'parameters' => $obj(['type' => ['type' => 'STRING', 'enum' => ['branch', 'user', 'role', 'permission', 'location']], 'query' => $str, 'branch_id' => $int], ['type', 'query'])]],
             'list_branches' => ['kind' => ToolKind::Read, 'permissions' => ['branches.view', 'branches.manage'], 'risk' => 'low', 'declaration' => ['name' => 'list_branches', 'description' => 'قائمة الفروع (active=false للمتوقفة)', 'parameters' => $obj(['active' => $bool, 'city' => $str, 'type' => ['type' => 'STRING', 'enum' => $branchTypes]])]],
             'list_permissions' => ['kind' => ToolKind::Read, 'permissions' => ['permissions.view', 'roles.view', 'roles.manage'], 'risk' => 'low', 'declaration' => ['name' => 'list_permissions', 'description' => 'كتالوج الصلاحيات المتاحة', 'parameters' => $obj([])]],
@@ -74,10 +75,12 @@ final class ToolRegistry
             'revoke_user_sessions' => ['kind' => ToolKind::Write, 'permissions' => ['users.update', 'users.manage'], 'risk' => 'medium', 'declaration' => ['name' => 'revoke_user_sessions', 'description' => 'تسجيل خروج موظف من كل الأجهزة (يحتاج تأكيد)', 'parameters' => $obj(['user_id' => $int], ['user_id'])]],
 
             // ── P03 Locations ──────────────────────────────────────────────────────
-            'list_locations' => ['kind' => ToolKind::Read, 'permissions' => ['branches.view', 'branches.manage'], 'risk' => 'low', 'declaration' => ['name' => 'list_locations', 'description' => 'عرض مواقع التخزين في فرع معين', 'parameters' => $obj(['branch_id' => $int, 'branch_query' => $str, 'type' => ['type' => 'STRING', 'enum' => $locationTypes]])]],
-            'create_location' => ['kind' => ToolKind::Write, 'permissions' => ['branches.update', 'branches.manage'], 'risk' => 'low', 'declaration' => ['name' => 'create_location', 'description' => 'إنشاء موقع تخزين جديد في فرع (يحتاج تأكيد)', 'parameters' => $obj(['branch_id' => $int, 'branch_query' => $str, 'name' => $str, 'code' => $str, 'type' => ['type' => 'STRING', 'enum' => $locationTypes]], ['name', 'code', 'type'])]],
-            'set_location_status' => ['kind' => ToolKind::Write, 'permissions' => ['branches.update', 'branches.manage'], 'risk' => 'medium', 'declaration' => ['name' => 'set_location_status', 'description' => 'تفعيل أو تعطيل موقع تخزين (يحتاج تأكيد)', 'parameters' => $obj(['location_id' => $int, 'active' => $bool], ['location_id', 'active'])]],
-            'delete_location' => ['kind' => ToolKind::Write, 'permissions' => ['branches.delete', 'branches.manage'], 'risk' => 'high', 'declaration' => ['name' => 'delete_location', 'description' => 'حذف موقع تخزين (يحتاج تأكيد، ممنوع لو فيه رصيد أو حركات)', 'parameters' => $obj(['location_id' => $int], ['location_id'])]],
+            // H3: صلاحيات الأدوات موحّدة مع الـ REST (locations.*) — مين ملوش
+            // locations.* على الشاشة مش هيحذف/يعطّل مواقع من المساعد.
+            'list_locations' => ['kind' => ToolKind::Read, 'permissions' => ['locations.view', 'locations.manage'], 'risk' => 'low', 'declaration' => ['name' => 'list_locations', 'description' => 'عرض مواقع التخزين في فرع معين', 'parameters' => $obj(['branch_id' => $int, 'branch_query' => $str, 'type' => ['type' => 'STRING', 'enum' => $locationTypes]])]],
+            'create_location' => ['kind' => ToolKind::Write, 'permissions' => ['locations.create', 'locations.manage'], 'risk' => 'low', 'declaration' => ['name' => 'create_location', 'description' => 'إنشاء موقع تخزين جديد في فرع (يحتاج تأكيد)', 'parameters' => $obj(['branch_id' => $int, 'branch_query' => $str, 'name' => $str, 'code' => $str, 'type' => ['type' => 'STRING', 'enum' => $locationTypes]], ['name', 'code', 'type'])]],
+            'set_location_status' => ['kind' => ToolKind::Write, 'permissions' => ['locations.update', 'locations.manage'], 'risk' => 'medium', 'declaration' => ['name' => 'set_location_status', 'description' => 'تفعيل أو تعطيل موقع تخزين (يحتاج تأكيد)', 'parameters' => $obj(['location_id' => $int, 'active' => $bool], ['location_id', 'active'])]],
+            'delete_location' => ['kind' => ToolKind::Write, 'permissions' => ['locations.delete', 'locations.manage'], 'risk' => 'high', 'declaration' => ['name' => 'delete_location', 'description' => 'حذف موقع تخزين (يحتاج تأكيد، ممنوع لو فيه رصيد أو حركات)', 'parameters' => $obj(['location_id' => $int], ['location_id'])]],
 
             // ── P03 Settings & Numbering ───────────────────────────────────────────
             'view_settings' => ['kind' => ToolKind::Read, 'permissions' => ['settings.view', 'settings.manage'], 'risk' => 'low', 'declaration' => ['name' => 'view_settings', 'description' => 'عرض إعدادات المؤسسة (هوية الشركة، الضرائب، السياسات، الترقيم)', 'parameters' => $obj(['group' => ['type' => 'STRING', 'enum' => ['company', 'tax', 'policy', 'numbering', 'store', 'purchases', 'ai', 'all']]])]],
@@ -120,7 +123,9 @@ final class ToolRegistry
     public function dispatch(User $actor, AiConversation $conv, array $call): ToolOutcome
     {
         $outcome = $this->dispatchAllowed($actor, $conv, $call);
-        if ($outcome->type === 'denied') {
+        // L11: سجل denied لرفض الصلاحيات فقط — أخطاء التحقق و"مش موجود"
+        // من prompt injection كانت تملأ سجل التدقيق (6 خطوات × أدوات).
+        if ($outcome->type === 'denied' && $outcome->auditable) {
             StaffAdministration::audit($actor, 'administration.denied', 'ai_conversation', $conv->id, [], via: ['channel' => 'ai', 'conversation_id' => $conv->id]);
         }
 
@@ -133,11 +138,11 @@ final class ToolRegistry
         $args = $call['args'] ?? [];
         $defs = $this->definitions();
         if (! isset($defs[$name])) {
-            return ToolOutcome::denied('أداة غير معروفة.');
+            return ToolOutcome::denied('أداة غير معروفة.', auditable: false);
         }
         $disabled = $this->settings->get('ai_disabled_tools', []);
         if (is_array($disabled) && in_array($name, $disabled, true)) {
-            return ToolOutcome::denied('الأداة دي مقفولة من الإعدادات.');
+            return ToolOutcome::denied('الأداة دي مقفولة من الإعدادات.', auditable: false);
         }
         if ($defs[$name]['kind'] === ToolKind::Write && ! $actor->can('ai_agent.execute')) {
             return ToolOutcome::denied('محتاج صلاحية ai_agent.execute لتنفيذ تعديلات.');
@@ -146,7 +151,11 @@ final class ToolRegistry
             return ToolOutcome::denied('معندكش الصلاحية الأصلية للأداة دي.');
         }
         try {
-            $this->validateArgs($name, $args);
+            try {
+                $this->validateArgs($name, $args);
+            } catch (ValidationException $e) {
+                return ToolOutcome::denied(collect($e->errors())->flatten()->implode(' '), auditable: false);
+            }
 
             return match ($name) {
                 'find_entities' => $this->findEntities($actor, $args),
@@ -166,13 +175,15 @@ final class ToolRegistry
                 default => $this->prepareWrite($actor, $conv, $name, $args),
             };
         } catch (ValidationException $e) {
-            return ToolOutcome::denied(collect($e->errors())->flatten()->implode(' '));
+            return ToolOutcome::denied(collect($e->errors())->flatten()->implode(' '), auditable: false);
         } catch (HttpExceptionInterface $e) {
-            return ToolOutcome::denied($e->getMessage() ?: 'مرفوض.');
+            $auditable = in_array($e->getStatusCode(), [401, 403], true);
+
+            return ToolOutcome::denied($e->getMessage() ?: 'مرفوض.', auditable: $auditable);
         } catch (\Throwable $e) {
             report($e);
 
-            return ToolOutcome::denied('حصل خطأ أثناء تنفيذ الأداة.');
+            return ToolOutcome::denied('حصل خطأ أثناء تنفيذ الأداة.', auditable: false);
         }
     }
 
@@ -266,7 +277,7 @@ final class ToolRegistry
             'user' => ToolOutcome::data(['results' => $this->resolver->users($actor, $query)]),
             'role' => ToolOutcome::data(['results' => $this->resolver->roles($query)]),
             'location' => ToolOutcome::data(['results' => $this->resolver->locations($actor, $query, isset($args['branch_id']) ? (int) $args['branch_id'] : null)]),
-            'permission' => ToolOutcome::data(['results' => Permission::query()->where('guard_name', 'staff')->get()->filter(fn ($p) => EntityResolver::normalize($p->name) && str_contains(EntityResolver::normalize($p->name), EntityResolver::normalize($query)))->map(fn ($p) => ['id' => $p->name, 'label' => $p->name, 'meta' => ''])->values()->all()]),
+            'permission' => ToolOutcome::data(['results' => Permission::query()->where('guard_name', 'staff')->when($query !== '', fn ($q) => $q->where('name', 'ilike', \App\Services\SearchTerm::pattern($query)))->orderBy('name')->limit(50)->get()->map(fn ($p) => ['id' => $p->name, 'label' => $p->name, 'meta' => ''])->values()->all()]),
             default => ToolOutcome::denied('نوع كيان غير معروف.'),
         };
     }
@@ -297,7 +308,7 @@ final class ToolRegistry
             'user' => ['users.view', 'users.manage'],
             'role' => ['roles.view', 'roles.manage'],
             'permission' => ['permissions.view', 'roles.view', 'roles.manage'],
-            'location' => ['branches.view', 'branches.manage'],
+            'location' => ['locations.view', 'locations.manage'],
             default => [],
         };
 
@@ -381,6 +392,9 @@ final class ToolRegistry
                 $items[] = ['key' => $id, 'label' => $outcome->uiBlock['title'], 'change' => $item['tool'], 'before' => $outcome->uiBlock['before'] ?? null, 'after' => $outcome->uiBlock['after'] ?? null];
             }
             $outcome = $this->makeProposal($actor, $conv, 'bulk_actions', ['action_ids' => $ids], [], ['title' => 'مراجعة '.count($ids).' عمليات', 'items' => $items, 'warnings' => ['كل عنصر بيتنفذ لوحده. راجع التغييرات واستبعد أي عنصر مش مطلوب.']], null, 'high');
+            // M10: الأجراءات الفرعية بتبقى bulk_child لحد ما المجموعة تتأكد —
+            // كده اصلی الـ confirm() المباشر لواحد منهم مرفوض من غير مراجعة.
+            AiPendingAction::whereIn('id', $ids)->where('status', 'pending')->update(['status' => 'bulk_child']);
             $block = $outcome->uiBlock;
             $block['type'] = 'bulk_plan';
             $block['items'] = $items;
@@ -555,6 +569,11 @@ final class ToolRegistry
 
     private function prepUpdateRolePerms(User $actor, AiConversation $conv, array $args): ToolOutcome
     {
+        try {
+            $this->branches->assertCentralAccess($actor);
+        } catch (\Throwable) {
+            return ToolOutcome::denied('تعديل صلاحيات الأدوار محتاج وصول مركزي.');
+        }
         $role = Role::find((int) ($args['role_id'] ?? 0));
         if (! $role || $role->guard_name !== 'staff') {
             return ToolOutcome::denied('الدور مش موجود.');
@@ -578,6 +597,11 @@ final class ToolRegistry
 
     private function prepDeleteRole(User $actor, AiConversation $conv, array $args): ToolOutcome
     {
+        try {
+            $this->branches->assertCentralAccess($actor);
+        } catch (\Throwable) {
+            return ToolOutcome::denied('حذف الأدوار محتاج وصول مركزي.');
+        }
         $role = Role::find((int) ($args['role_id'] ?? 0));
         if (! $role) {
             return ToolOutcome::denied('الدور مش موجود.');
@@ -696,8 +720,16 @@ final class ToolRegistry
             }
         }
         if (isset($args['role_id'])) {
+            // H2: الأدوار عامة على كل الفروع — إدارتها من المساعد محتاجة
+            // وصول مركزي، زي ما محصل في شاشة الأدوار.
+            $this->branches->assertCentralAccess($actor);
             $role = Role::where('guard_name', 'staff')->findOrFail($args['role_id']);
             abort_if(StaffRole::isReserved($role->name), 403);
+        }
+        // H2: إنشاء الأدوار بلا role_id — الفحص أعلاه لا يغطيه، والتحقق
+        // في prepare وحده لا يكفي وقت execute.
+        if (in_array($action->tool, ['create_role', 'update_role_permissions', 'delete_role'], true)) {
+            $this->branches->assertCentralAccess($actor);
         }
         $roles = array_merge($args['add'] ?? [], $args['remove'] ?? [], $args['roles'] ?? []);
         if (in_array($action->tool, ['assign_roles', 'create_staff_user'], true)) {
@@ -709,6 +741,9 @@ final class ToolRegistry
     {
         if (str_starts_with($key, 'branch:')) {
             abort_if($this->branchVersion($model) !== $expected, 409, 'حد عدّل السجل ده بعد الاقتراح.');
+        } elseif (str_starts_with($key, 'location:')) {
+            // H3: الموقع نسختة lock هي بصمة الحالة، بتقارن كذا في قفل الصف.
+            abort_if($this->hashArgs(['is_active' => (bool) $model->is_active]) !== $expected, 409, 'حد عدّل السجل ده بعد الاقتراح.');
         } else {
             abort_if((int) $model->lock_version !== $expected, 409, 'حد عدّل السجل ده بعد الاقتراح.');
         }
@@ -724,7 +759,7 @@ final class ToolRegistry
         foreach ($action->expected_versions ?? [] as $key => $version) {
             [$type, $id] = explode(':', $key, 2);
             $model = match ($type) {
-                'branch' => Branch::class, 'user' => User::class, 'role' => Role::class, default => null
+                'branch' => Branch::class, 'user' => User::class, 'role' => Role::class, 'location' => Location::class, default => null
             };
             abort_unless($model, 409);
             $record = $model::query()->lockForUpdate()->find($id);
@@ -886,6 +921,8 @@ final class ToolRegistry
         $locations = $branch->locations()
             ->when(isset($args['type']), fn ($q) => $q->where('type', $args['type']))
             ->orderBy('id')
+            // M7: بلا حد، فرع فيه آلاف المواقع يلاحظ الطلب ونتيجة ضخمة.
+            ->limit(200)
             ->get(['id', 'name', 'code', 'type', 'is_active']);
 
         if ($locations->isEmpty()) {
@@ -931,7 +968,7 @@ final class ToolRegistry
     {
         $branch = Branch::findOrFail($args['branch_id']);
         $this->branches->assertBranch($actor->id, $branch->id);
-        StaffAdministration::authorize($actor, ['branches.update', 'branches.manage']);
+        StaffAdministration::authorize($actor, ['locations.create', 'locations.manage']);
 
         $location = $branch->locations()->create([
             'name' => $args['name'],
@@ -972,7 +1009,9 @@ final class ToolRegistry
         }
 
         return $this->makeProposal($actor, $conv, 'set_location_status',
-            ['location_id' => $location->id, 'active' => $active], [],
+            ['location_id' => $location->id, 'active' => $active],
+            // H3: إصدار حالة الموقع بيتقفل وقت التنفيذ (lockTargets).
+            ['location:'.$location->id => $this->hashArgs(['is_active' => (bool) $location->is_active])],
             ['title' => ($active ? 'تفعيل ' : 'تعطيل ').$location->name.' في '.($branch?->name ?? ''),
                 'before' => ['is_active' => (bool) $location->is_active],
                 'after' => ['is_active' => $active],
@@ -982,19 +1021,33 @@ final class ToolRegistry
 
     private function execSetLocationStatus(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
     {
-        $location = Location::findOrFail($args['location_id']);
-        $this->branches->assertBranch($actor->id, $location->branch_id);
-        StaffAdministration::authorize($actor, ['branches.update', 'branches.manage']);
+        $branchId = null;
+        $before = [];
+        try {
+            // H3: قفل صف الموقع وقت التنفيذ زي LocationController::destroy،
+            // وتدقيق بقيمة before الفعلية مو بالعكس.
+            $location = DB::transaction(function () use ($actor, $args, $via, &$branchId, &$before): Location {
+                $locked = Location::query()->lockForUpdate()->findOrFail($args['location_id']);
+                $this->branches->assertBranch($actor->id, $locked->branch_id);
+                StaffAdministration::authorize($actor, ['locations.update', 'locations.manage']);
+                $before = ['is_active' => (bool) $locked->is_active];
+                $locked->update(['is_active' => (bool) $args['active']]);
+                $branchId = $locked->branch_id;
 
-        $location->update(['is_active' => (bool) $args['active']]);
-        $branch = Branch::find($location->branch_id);
+                return $locked;
+            });
+        } catch (\Illuminate\Database\QueryException $e) {
+            report($e);
+
+            return ToolOutcome::result(false, 'تعذّر تحديث الموقع؛ حاول مرة أخرى.');
+        }
         StaffAdministration::audit($actor, $args['active'] ? 'location.activated' : 'location.deactivated', 'location', $location->id,
-            [], ['is_active' => ! $args['active']], ['is_active' => $args['active']], $via);
+            [], $before, ['is_active' => (bool) $args['active']], $via);
 
         return ToolOutcome::result(true, $args['active'] ? 'تم تفعيل الموقع.' : 'تم تعطيل الموقع.',
             ['location_id' => $location->id],
             ['type' => 'result', 'ok' => true, 'message' => 'تم تحديث حالة الموقع.',
-                'deep_link' => '/branches?branchId='.$location->branch_id]);
+                'deep_link' => '/branches?branchId='.$branchId]);
     }
 
     private function prepDeleteLocation(User $actor, AiConversation $conv, array $args): ToolOutcome
@@ -1030,32 +1083,48 @@ final class ToolRegistry
 
     private function execDeleteLocation(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
     {
-        $location = Location::findOrFail($args['location_id']);
-        $this->branches->assertBranch($actor->id, $location->branch_id);
-        StaffAdministration::authorize($actor, ['branches.delete', 'branches.manage']);
+        try {
+            $summary = DB::transaction(function () use ($actor, $args, $via): array {
+                // H3: قفل صف الموقع زي LocationController::destroy بالظبط —
+                // الحذف ضد حركة متزامنة بيرجع failed بدل QueryException/500.
+                $locked = Location::query()->lockForUpdate()->findOrFail($args['location_id']);
+                $this->branches->assertBranch($actor->id, $locked->branch_id);
+                StaffAdministration::authorize($actor, ['locations.delete', 'locations.manage']);
 
-        $hasMovements = DB::table('stock_movements')->where('location_id', $location->id)->exists();
-        if ($hasMovements) {
-            return ToolOutcome::result(false, 'لا يمكن حذف الموقع لارتباطه بحركات مخزنية.');
+                if (DB::table('stock_movements')->where('location_id', $locked->id)->exists()) {
+                    return ['ok' => false, 'message' => 'لا يمكن حذف الموقع لارتباطه بحركات مخزنية.', 'branch_id' => $locked->branch_id];
+                }
+                $hasBalances = StockLevel::query()->where('location_id', $locked->id)
+                    ->hasNonZeroBalance()
+                    ->exists();
+                if ($hasBalances) {
+                    return ['ok' => false, 'message' => 'لا يمكن حذف الموقع وفيه أرصدة. صفّرها أولاً.', 'branch_id' => $locked->branch_id];
+                }
+
+                $branch = Branch::find($locked->branch_id);
+                $name = $locked->name;
+                $code = $locked->code;
+                StockLevel::query()->where('location_id', $locked->id)->delete();
+
+                StaffAdministration::audit($actor, 'location.deleted', 'location', $locked->id,
+                    [], ['name' => $name, 'code' => $code], [], $via);
+                $locked->delete();
+
+                return ['ok' => true, 'name' => $name, 'branch_id' => $locked->branch_id, 'branch_name' => $branch?->name ?? ''];
+            });
+        } catch (\Illuminate\Database\QueryException $e) {
+            report($e);
+
+            return ToolOutcome::result(false, 'تعذّر حذف الموقع؛ تربطه حكّة متزامنة. حاول مرة أخرى.');
         }
-        $hasBalances = StockLevel::query()->where('location_id', $location->id)
-            ->hasNonZeroBalance()
-            ->exists();
-        if ($hasBalances) {
-            return ToolOutcome::result(false, 'لا يمكن حذف الموقع وفيه أرصدة. صفّرها أولاً.');
+        if (! $summary['ok']) {
+            return ToolOutcome::result(false, $summary['message'], [], ['type' => 'result', 'ok' => false, 'message' => $summary['message']]);
         }
-
-        StockLevel::query()->where('location_id', $location->id)->delete();
-
-        $branch = Branch::find($location->branch_id);
-        $name = $location->name;
-        StaffAdministration::audit($actor, 'location.deleted', 'location', $location->id,
-            [], ['name' => $name, 'code' => $location->code], [], $via);
-        $location->delete();
+        $message = 'تم حذف موقع '.$summary['name'].' من '.$summary['branch_name'];
 
         return ToolOutcome::result(true, 'تم حذف الموقع.', [],
-            ['type' => 'result', 'ok' => true, 'message' => 'تم حذف موقع '.$name.' من '.($branch?->name ?? ''),
-                'deep_link' => '/branches?branchId='.($branch?->id ?? '')]);
+            ['type' => 'result', 'ok' => true, 'message' => $message,
+                'deep_link' => '/branches?branchId='.$summary['branch_id']]);
     }
 
     // ── P03: Settings & Document Numbering ─────────────────────────────────
@@ -1160,7 +1229,11 @@ final class ToolRegistry
         }
 
         // التحقق إن المفاتيح موجودة ومسموحة
-        $allowedKeys = array_keys((new \App\Http\Requests\Api\V1\Admin\UpdateSettingsRequest)->rules());
+        // H1: مفاتيح expected/expected.* وai_disabled_tools.* ليست إعدادات قابلة للتعديل.
+        $allowedKeys = array_values(array_filter(
+            array_keys((new \App\Http\Requests\Api\V1\Admin\UpdateSettingsRequest)->rules()),
+            fn (string $key): bool => $key !== 'expected' && ! str_starts_with($key, 'expected.') && ! str_ends_with($key, '.*')
+        ));
         $unknownKeys = array_diff(array_keys($changes), $allowedKeys);
         if ($unknownKeys !== []) {
             return ToolOutcome::denied('إعدادات غير معروفة: '.implode(', ', $unknownKeys));
@@ -1171,6 +1244,10 @@ final class ToolRegistry
         foreach (array_keys($changes) as $key) {
             $current[$key] = $this->settings->get($key);
         }
+
+        // H1: تطبيق نفس قواعد الـ REST على قيم الوكيل (نحو/نطاقات/حدود
+        // prefix وpadding) — المصدر واحد: UpdateSettingsRequest::rules().
+        $this->validateSettingChanges($changes);
 
         $warnings = [];
         if (isset($changes['tax_enabled']) && ! $changes['tax_enabled']) {
@@ -1191,11 +1268,38 @@ final class ToolRegistry
                 'warnings' => $warnings], $current, 'high');
     }
 
+    /**
+     * H1: تحقق من قيم الإعدادات بمصدر القواعد الواحد (UpdateSettingsRequest)
+     * مع تجاهل مفاتيح expected وبقاعدتها اللي بتشترط وجود القيمة الأصلية.
+     */
+    private function validateSettingChanges(array $changes): void
+    {
+        $rules = array_filter(
+            (new UpdateSettingsRequest)->rules(),
+            fn (string $key): bool => $key !== 'expected' && ! str_starts_with($key, 'expected.') && ! str_ends_with($key, '.*'),
+            ARRAY_FILTER_USE_KEY
+        );
+        // H1: مفتاح غير معروف (من هلوسة أو حقن) يترفض هنا أيضًا في execute،
+        // حتى لو args اتخزنت قبل الإصلاح.
+        $unknown = array_diff(array_keys($changes), array_keys($rules));
+        if ($unknown !== []) {
+            throw ValidationException::withMessages(array_fill_keys($unknown, 'إعداد غير معروف.'));
+        }
+        $applicable = [];
+        foreach (array_keys($changes) as $key) {
+            $applicable[$key] = $rules[$key];
+        }
+        Validator::make($changes, $applicable)->validate();
+    }
+
     private function execUpdateSettings(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
     {
         $this->branches->assertCentralAccess($actor);
         StaffAdministration::authorize($actor, ['settings.manage']);
-        $this->settings->updateBatch($args['changes'], $args['expected']);
+        // H1: إعادة التحقق وقت التأكيد تحمي من args خزّنت قبل الإصلاح.
+        $this->validateSettingChanges($args['changes']);
+        // L6: التدقيق يعرف إن التعديل جه من قناة المساعد.
+        $this->settings->updateBatch($args['changes'], $args['expected'], $via);
 
         return ToolOutcome::result(true, 'تم تحديث الإعدادات.',
             ['updated_keys' => array_keys($args['changes'])],
@@ -1237,6 +1341,9 @@ final class ToolRegistry
         if (empty($changes)) {
             return ToolOutcome::denied('حدد قيمة واحدة على الأقل (prefix أو next_number أو padding).');
         }
+        // H1: مسار الترقيم مطبّق عليه حدود الـ REST: بادئة 30 رمزًا
+        // كحد أقصى، padding من 1 لـ 20، عداد بين 1 و999999999.
+        $this->validateSettingChanges($changes);
 
         $warnings = [];
         if (isset($args['next_number'])) {
@@ -1263,7 +1370,10 @@ final class ToolRegistry
     {
         $this->branches->assertCentralAccess($actor);
         StaffAdministration::authorize($actor, ['settings.manage']);
-        $this->settings->updateBatch($args['changes'], $args['expected']);
+        // H1: إعادة التحقق وقت التأكيد.
+        $this->validateSettingChanges($args['changes']);
+        // L6: التدقيق يعرف إن التعديل جه من قناة المساعد.
+        $this->settings->updateBatch($args['changes'], $args['expected'], $via);
 
         return ToolOutcome::result(true, 'تم تحديث ترقيم '.$args['type'].'.',
             ['type' => $args['type'], 'updated_keys' => array_keys($args['changes'])],

@@ -25,8 +25,17 @@ final class StaffAdministration
      */
     public static function lock(): void
     {
-        DB::statement("SET LOCAL lock_timeout = '5s'");
-        DB::select('SELECT pg_advisory_xact_lock(79301, 1)');
+        // L3: SET LOCAL يسري على الـ transaction كلها — 55P03 (lock timeout)
+        // تتحول لـ 409 قابلة لإعادة المحاولة بدل 500.
+        try {
+            DB::statement("SET LOCAL lock_timeout = '5s'");
+            DB::select('SELECT pg_advisory_xact_lock(79301, 1)');
+        } catch (\Illuminate\Database\QueryException $e) {
+            if (($e->errorInfo[0] ?? null) === '55P03') {
+                abort(409, 'النظام مشغول حاليًا؛ حاول مرة أخرى.');
+            }
+            throw $e;
+        }
     }
 
     /**

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Enums\StaffRole;
+use App\Models\Branch;
 use App\Models\Treasury;
 use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -19,6 +20,9 @@ class BranchAccess
 {
     /** @var array<int, User> Per-request memory cache to avoid reloading user instances on repeated checks. */
     private array $usersById = [];
+
+    /** @var array<int, bool> M4: حالة تفعيل الفرع للمستخدم المرتبط — cache بمستوى الطلب. */
+    private array $branchActive = [];
 
     /**
      * Determine branch scope restriction for the given user.
@@ -42,7 +46,15 @@ class BranchAccess
         }
 
         if ($user->branch_id !== null) {
-            return (int) $user->branch_id;
+            // M4: الفرع المعطّل مقفول — مقيّد بفرع معطّل مالوش أي وصول
+            // (fail-closed) بدل ما يكمل POS/مخزون عادي على فرع مزعّم إنه مقفول.
+            $branchId = (int) $user->branch_id;
+            $this->branchActive[$branchId] ??= (bool) (Branch::query()->find($branchId)?->is_active);
+            if (! $this->branchActive[$branchId]) {
+                throw new AuthorizationException('الفرع المرتبط بحسابك متوقف حالياً.');
+            }
+
+            return $branchId;
         }
 
         throw new AuthorizationException('حسابك غير مرتبط بأي فرع ولا تملك صلاحية الوصول لكل الفروع (inventory.all_branches).');

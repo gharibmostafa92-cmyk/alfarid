@@ -14,9 +14,15 @@ final class ToolOutcome
         return new self('data', $data, $block);
     }
 
-    public static function denied(string $message): self
+    /** L11: denied audit flag — validation/not-found denials must not flood the audit log. */
+    public bool $auditable = true;
+
+    public static function denied(string $message, bool $auditable = true): self
     {
-        return new self('denied', [], null, $message);
+        $outcome = new self('denied', [], null, $message);
+        $outcome->auditable = $auditable;
+
+        return $outcome;
     }
 
     public static function picker(array $block): self

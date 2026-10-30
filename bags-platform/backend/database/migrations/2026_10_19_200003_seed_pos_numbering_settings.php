@@ -29,10 +29,13 @@ return new class extends Migration
 
     public function down(): void
     {
-        DB::table('settings')->where('key', 'like', 'shift\_%')
-            ->orWhere('key', 'like', 'pos\_invoice\_%')
-            ->orWhere('key', 'like', 'expense\_%')
-            ->orWhere('key', 'like', 'treasury\_transfer\_%')
-            ->delete();
+        // L1: المفاتيح المزروعة في up() فقط — بلا wildcard يقطع إعدادات تانية.
+        $keys = [];
+        foreach (['shift', 'pos_invoice', 'expense', 'treasury_transfer'] as $type) {
+            $keys[] = "{$type}_prefix";
+            $keys[] = "{$type}_next_number";
+            $keys[] = "{$type}_padding";
+        }
+        DB::table('settings')->whereIn('key', $keys)->delete();
     }
 };

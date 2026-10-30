@@ -60,8 +60,8 @@ class AiMessageController extends Controller
     {
         return $request->validate([
             'text' => ['nullable', 'string', 'max:8000'],
-            'selection' => ['nullable', 'array:entity,id,label'], 'selection.entity' => ['required_with:selection', 'in:branch,user,role,permission'], 'selection.id' => ['required_with:selection', Rule::when($request->input('selection.entity') !== 'permission', ['integer', 'min:1'], ['string', 'max:255'])], 'selection.label' => ['nullable', 'string', 'max:255'],
-            'mentions' => ['nullable', 'array', 'max:25'], 'mentions.*.entity' => ['required', 'in:branch,user,role'], 'mentions.*.id' => ['required', 'integer', 'min:1'],
+            'selection' => ['nullable', 'array:entity,id,label'], 'selection.entity' => ['required_with:selection', 'in:branch,user,role,permission,location'], 'selection.id' => ['required_with:selection', Rule::when($request->input('selection.entity') !== 'permission', ['integer', 'min:1'], ['string', 'max:255'])], 'selection.label' => ['nullable', 'string', 'max:255'],
+            'mentions' => ['nullable', 'array', 'max:25'], 'mentions.*.entity' => ['required', 'in:branch,user,role,location'], 'mentions.*.id' => ['required', 'integer', 'min:1'],
         ]);
     }
 }

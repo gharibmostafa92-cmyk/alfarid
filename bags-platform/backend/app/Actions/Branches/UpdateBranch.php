@@ -26,7 +26,13 @@ final class UpdateBranch
             StaffAdministration::authorize($actor, ['branches.update', 'branches.manage']);
             $this->access->assertCentralAccess($actor);
             $locked = Branch::query()->lockForUpdate()->findOrFail($branch->id);
-            if ($expectedUpdatedAt !== null && $locked->updated_at?->toIso8601String() !== $expectedUpdatedAt) {
+            // M3: قفل توافقي حقيقي بالـ lock_version (بدقة أقل من الثانية)،
+            // مع دعم expectedUpdatedAt القديم احتياطًا.
+            $expectedLockVersion = $data['lock_version'] ?? null;
+            unset($data['lock_version']);
+            if ($expectedLockVersion !== null) {
+                abort_if((int) $locked->lock_version !== (int) $expectedLockVersion, 409, 'تم تعديل السجل بواسطة مستخدم آخر؛ أعد التحميل قبل الحفظ.');
+            } elseif ($expectedUpdatedAt !== null && $locked->updated_at?->toIso8601String() !== $expectedUpdatedAt) {
                 abort(409, 'تم تعديل السجل بواسطة مستخدم آخر؛ أعد التحميل قبل الحفظ.');
             }
             $before = StaffAdministration::branchState($locked);

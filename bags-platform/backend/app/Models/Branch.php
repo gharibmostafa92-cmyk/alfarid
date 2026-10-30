@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\BranchType;
+use App\Models\Concerns\TracksEditVersion;
 use Database\Factories\BranchFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -16,6 +17,8 @@ class Branch extends Model
 {
     /** @use HasFactory<BranchFactory> */
     use HasFactory;
+
+    use TracksEditVersion;
 
     public function locations(): HasMany
     {

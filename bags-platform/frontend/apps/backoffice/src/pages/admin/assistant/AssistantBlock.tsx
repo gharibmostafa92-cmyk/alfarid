@@ -58,7 +58,8 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
     </section>;
   }
   if (block.type === 'result') {
-    const link = typeof block.deep_link === 'string' && /^\/(users|roles|settings)(\?|$)/.test(block.deep_link) ? block.deep_link : undefined;
+    // L7: روابط الفروع والمواقع كانت تُسقط — الـ regex يقبلها الآن.
+    const link = typeof block.deep_link === 'string' && /^\/(users|roles|settings|branches)(\?|$)/.test(block.deep_link) ? block.deep_link : undefined;
     const undo = typeof block.undo_action_id === 'string' ? block.undo_action_id : undefined;
     const undoLive = undo && status !== 'undone' && Date.parse(String(block.undo_available_until)) > now;
     return <section className="assistant-block v-subcard" role="status"><strong>{block.ok ? 'نجح: ' : 'تعذر التنفيذ: '}{String(block.message ?? '')}</strong>{items.map((item, index) => <p key={index}>{item.ok ? 'نجح' : 'فشل'}: {item.message}</p>)}<div className="assistant-actions">{link && <a href={`#${link}`}>افتح في الشاشة</a>}{undoLive && execute && <button disabled={busy} onClick={() => onAction('undo', undo)}>تراجع</button>}</div></section>;

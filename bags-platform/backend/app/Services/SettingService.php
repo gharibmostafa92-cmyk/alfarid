@@ -80,7 +80,25 @@ class SettingService
         'delivery' => 'delivery_next_number',
         'supplier_invoice' => 'supplier_invoice_next_number',
         'supplier_payment' => 'supplier_payment_next_number',
+        // H5: نقاط البيع المرتفعة الحجم على sequences — فجوات مقبولة لتجنب
+        // اختناق صف واحد عند كل عملية بيع/مصروف/تحويل خزينة.
+        'shift' => 'shift_next_number',
+        'pos_invoice' => 'pos_invoice_next_number',
+        'expense' => 'expense_next_number',
+        'treasury_transfer' => 'treasury_transfer_next_number',
+        'payment_notice' => 'payment_notice_next_number',
     ];
+    // H5: فاتورة الضريبية (invoice) مش دخيلة هنا — تفضل على قفل الصف لأن
+    // الترقيم المتصل شرط قانوني.
+
+    /**
+     * M9: تصفير الحالة الداخلية للخدمة (نفسها snapshot/عداد/عداد الوكيل).
+     */
+    public function forgetMemoryState(): void
+    {
+        $this->numberingConfig = [];
+        $this->resetReadSnapshot(true);
+    }
 
     /**
      * Return all settings grouped by their group name, with values cast to their declared types.
@@ -188,9 +206,8 @@ class SettingService
     /** @return array{name: string, logo: ?string, email: ?string, phone: ?string, address: ?string} */
     public function publicBranding(): array
     {
-        $company = Setting::query()->where('group', 'company')
-            ->whereIn('key', ['company_name', 'company_logo', 'company_email', 'company_phone', 'company_address'])
-            ->pluck('value', 'key')->all();
+        // M12: نقرا من كاش static بدل query على الداتابيز لكل زائر.
+        $company = $this->staticSettings()['company'] ?? [];
 
         return [
             'name' => trim((string) ($company['company_name'] ?? '')) ?: 'Alfarid',
@@ -208,10 +225,10 @@ class SettingService
      *
      * @throws JsonException
      */
-    public function updateBatch(array $settings, ?array $expected = null): void
+    public function updateBatch(array $settings, ?array $expected = null, array $via = []): void
     {
         $this->warnings = [];
-        DB::transaction(function () use ($settings, $expected): void {
+        DB::transaction(function () use ($settings, $expected, $via): void {
             $this->uncommittedSettings = true;
             $this->resetReadSnapshot();
             $movementSequenceTarget = null;
@@ -239,7 +256,13 @@ class SettingService
                 if (in_array($key, self::NUMBERING_COUNTER_KEYS, true)) {
                     $current = $this->get($key);
                 }
-                if ($expected !== null && (! array_key_exists($key, $expected)
+                // M7/M8: العدادات الحية (قيم الـ sequences) بتزيد من نفسها مع
+                // كل فاتورة/عملية بتتنفذ — تسجيل التوقيع على القيمة الحلية
+                // بيورّط 409 دايمًا على الأنظمة المزدحمة. للعدادات القاعدة هي
+                // "الجديد ≥ الحالي" بس (فوق)، وexpected يحكم البادئة والطول
+                // والأنواع غير العدادية (فاتورة ضريبية مثلًا تفضل بالمساواة).
+                $isCounter = in_array($key, self::NUMBERING_COUNTER_KEYS, true);
+                if (! $isCounter && $expected !== null && (! array_key_exists($key, $expected)
                     || $this->comparisonValue($current, $setting->type) !== $this->comparisonValue($expected[$key], $setting->type))) {
                     abort(409, 'تم تغيير إعداد أو عداد منذ فتح الصفحة؛ أعد تحميل الإعدادات قبل الحفظ.');
                 }
@@ -273,7 +296,7 @@ class SettingService
             }
 
             StaffAdministration::audit(request()->user('staff'), 'settings.updated', 'settings', null, array_keys($settings),
-                ['settings' => $this->auditableSettings($before)], ['settings' => $this->auditableSettings($after)]);
+                ['settings' => $this->auditableSettings($before)], ['settings' => $this->auditableSettings($after)], $via);
             DB::afterCommit(fn () => $this->clearCache());
 
             if ($movementSequenceTarget !== null) {
@@ -416,6 +439,7 @@ class SettingService
             'supplier_invoice' => ['prefix' => 'supplier_invoice_prefix', 'next' => 'supplier_invoice_next_number', 'padding' => 'supplier_invoice_padding'],
             'supplier_payment' => ['prefix' => 'supplier_payment_prefix',    'next' => 'supplier_payment_next_number',    'padding' => 'supplier_payment_padding'],
             'shift' => ['prefix' => 'shift_prefix',               'next' => 'shift_next_number',               'padding' => 'shift_padding'],
+            'pos_invoice' => ['prefix' => 'pos_invoice_prefix',      'next' => 'pos_invoice_next_number',      'padding' => 'pos_invoice_padding'],
             'expense' => ['prefix' => 'expense_prefix',             'next' => 'expense_next_number',             'padding' => 'expense_padding'],
             'treasury_transfer' => ['prefix' => 'treasury_transfer_prefix',   'next' => 'treasury_transfer_next_number',   'padding' => 'treasury_transfer_padding'],
             'payment_notice' => ['prefix' => 'payment_notice_prefix',      'next' => 'payment_notice_next_number',      'padding' => 'payment_notice_padding'],

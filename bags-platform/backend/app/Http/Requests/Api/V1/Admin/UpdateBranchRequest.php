@@ -58,6 +58,8 @@ class UpdateBranchRequest extends FormRequest
             'city' => ['sometimes', 'nullable', 'string', 'max:120'],
             'city_id' => ['sometimes', 'nullable', 'integer', 'exists:cities,id'],
             'is_active' => ['sometimes', 'boolean'],
+            // M3: قفل توافقي إلزامي مثل الموظفين.
+            'lock_version' => ['required', 'integer', 'min:0'],
         ];
     }
 }

@@ -28,7 +28,8 @@ class SettingController extends Controller
             $validated = $request->validated();
             $expected = $validated['expected'];
             unset($validated['expected']);
-            $this->settings->updateBatch($validated, $expected);
+            // L6: ميّز قناة التعديل في التدقيق (rest مقابل ai).
+            $this->settings->updateBatch($validated, $expected, ['channel' => 'rest']);
         } catch (InvalidArgumentException) {
             return response()->json([
                 'message' => 'إعداد أو أكثر غير مهيأ في قاعدة البيانات. شغّل Seeder الإعدادات ثم أعد المحاولة.',

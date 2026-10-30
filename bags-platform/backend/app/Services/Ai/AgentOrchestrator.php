@@ -17,6 +17,9 @@ final class AgentOrchestrator
 {
     private const MAX_STEPS = 6;
 
+    /** H4/M13: حد زمني كلي لدورة الوكيل الواحدة في الثواني — أطول من كده تعرض الطلب/الـ worker للحجز. */
+    private const MAX_CYCLE_SECONDS = 240;
+
     public function __construct(private GeminiClient $gemini, private ToolRegistry $registry, private SettingService $settings) {}
 
     public function guard(User $actor): void
@@ -26,7 +29,14 @@ final class AgentOrchestrator
         abort_unless($actor->is_active && $actor->can('ai_agent.use'), 403);
         $budget = (int) $this->settings->get('ai_daily_token_budget_per_user', 200000);
         if ($budget > 0) {
-            $used = (int) AiMessage::query()->whereHas('conversation', fn ($q) => $q->withTrashed()->where('user_id', $actor->id))->whereDate('created_at', today())->sum(DB::raw('input_tokens + output_tokens'));
+            // M6/M7: join مباشر + نطاق timestamp بدل whereDate + whereHas
+            // (سايقل وفهرس على البادئة بدل مسح جدول كامل بليفة ملبّضة).
+            $used = (int) AiMessage::query()
+                ->join('ai_conversations as ai_conversations_budget', 'ai_conversations_budget.id', '=', 'ai_messages.conversation_id')
+                ->where('ai_conversations_budget.user_id', $actor->id)
+                ->where('ai_messages.created_at', '>=', today()->startOfDay())
+                ->where('ai_messages.created_at', '<', today()->addDay()->startOfDay())
+                ->sum(DB::raw('ai_messages.input_tokens + ai_messages.output_tokens'));
             abort_if($used >= $budget, 429, 'وصلت لحد التوكنز اليومي للمساعد.');
         }
     }
@@ -55,7 +65,7 @@ final class AgentOrchestrator
             '- مش بتقدر: تدير Super Admin، أو الأدوار المحجوزة، أو الباسوردات، أو حساب المستخدم نفسه. لو حد طلب كده وجّهه للشاشة.',
             '',
             'المعلومات الهيكلية:',
-            '- الفرع يحتوي على مواقع تخزين (shelf/zone/bin/damaged/receiving). كل فرع جديد بيتعمله موقع افتراضي.',
+            '- الفرع يحتوي على مواقع تخزين (shelf/zone/bin/damaged/receiving). المواقع تُنشأ صراحة لكل فرع ولا يوجد موقع افتراضي تلقائي.',
             '- أنواع الفروع: branch (فرع بيع) وwarehouse (مخزن).',
             '- الموظف مرتبط بفرع واحد وله أدوار متعددة.',
             '- إعدادات الشركة تشمل: الهوية، الضرائب (tax_enabled, default_tax_rate, prices_include_tax)، نافذة الإرجاع (return_window_days).',
@@ -68,7 +78,20 @@ final class AgentOrchestrator
     {
         $lock = Cache::lock('ai-agent:user:'.$actor->id, 600);
         abort_unless($lock->get(), 423, 'في طلب تاني للمساعد لسه شغال؛ استنى لما يخلص.');
+        // H4: الـ fatal error بيتجاوز الـ finally — ندفق الـ shutdown بيقفل
+        // القفل حتى مع انتهاء زمن التنفيذ أو انقطاع الـ SSE.
+        register_shutdown_function(function () use ($lock): void {
+            try {
+                $lock->release();
+            } catch (\Throwable) {
+                // القفل خلص أصلًا أو الكاش مش متاح وقت الإنهاء — لا فعل.
+            }
+        });
         try {
+            // H4: قطع اتصال السحب من غير ignore_user_abort بينهي الدورة في
+            // نصها وسيب رسالة ناقصة من غير ردّ أدوات.
+            ignore_user_abort(true);
+
             return $this->handleLocked($actor, $conv, $turn, $progress);
         } finally {
             $lock->release();
@@ -77,6 +100,7 @@ final class AgentOrchestrator
 
     private function handleLocked(User $actor, AiConversation $conv, array $turn, ?callable $progress): AgentReply
     {
+        $cycleStartedAt = microtime(true);
         $this->guard($actor);
         $text = trim((string) ($turn['text'] ?? ''));
         $selection = $turn['selection'] ?? null;
@@ -109,15 +133,46 @@ final class AgentOrchestrator
         $declarations = $this->registry->declarationsFor($actor);
         $system = $this->systemPrompt($actor);
         $readBlocks = [];
+        $cycleTokens = 0;
         for ($step = 0; $step < self::MAX_STEPS; $step++) {
+            $elapsed = microtime(true) - $cycleStartedAt;
+            if ($elapsed >= self::MAX_CYCLE_SECONDS || (int) (self::MAX_CYCLE_SECONDS - $elapsed) <= 0) {
+                break;
+            }
+            // H4/M13: حد أقصى زمني للدورة ومهلة تنفيذ بتجري دورة بدورة، فأول
+            // فشل اتصال بيقف كل حاجة بدل ما تقعد تعيد المحاولة وشتغل دقايق.
+            set_time_limit((int) ceil(self::MAX_CYCLE_SECONDS - $elapsed) + 5);
             $this->guard($actor);
             if ($progress) {
                 $progress('براجع الطلب والصلاحيات…');
             }
-            $res = $this->gemini->converse($history, $declarations, $system, $conv->model ?: null);
+            try {
+                $res = $this->gemini->converse($history, $declarations, $system, $conv->model ?: null);
+            } catch (GeminiException $failure) {
+                // M8/M7: توكنز الطلب الفاشل ("aborted tokens" — MAX_TOKENS أو
+                // فشل شبكة بعد الطلع من الـ provider) لازم تُخصم من العداد
+                // اليومي، وإلا يعيد المستخدم المحاولة ببلاش مقلب ميزانية.
+                if (($usage = $failure->usage()) !== null) {
+                    $consumed = max(0, (int) $usage['total_tokens']);
+                    $conv->forceFill(['total_tokens' => $conv->total_tokens + $consumed, 'last_message_at' => now()])->save();
+                    if ($consumed > 0) {
+                        AiMessage::create(['conversation_id' => $conv->id, 'role' => 'event',
+                            'content' => 'فشل استكمال الرد من مزوّد النموذج وبُخرج '.$consumed.' توكن من الميزانية.']);
+                    }
+                }
+                throw $failure;
+            }
+            // M7: سقف توكنز للدورة الواحدة — يمنع دورة وحيدة تنفد ميزانية اليوم.
+            $cycleTokens += (int) $res['usage']['total_tokens'];
             $conv->forceFill(['total_tokens' => $conv->total_tokens + $res['usage']['total_tokens'], 'last_message_at' => now()])->save();
             $modelMsg = AiMessage::create(['conversation_id' => $conv->id, 'role' => 'model', 'content' => $res['text'] !== '' ? $res['text'] : null, 'provider_parts' => $res['parts'], 'input_tokens' => $res['usage']['input_tokens'], 'output_tokens' => $res['usage']['output_tokens']]);
             $history[] = ['role' => 'model', 'parts' => $res['parts']];
+            $cycleCap = max(1000, (int) $this->settings->get('ai_max_tokens_per_cycle', 100000));
+            if ($cycleTokens > $cycleCap) {
+                $blocks = array_merge($readBlocks, [['type' => 'notice', 'message' => 'الدورة نفدت سقف التوكنز ('.$cycleCap.' توكن) واتوقفت قبل إتمام الطلب.']]);
+
+                return new AgentReply('الطلب ده استنزف سقف التوكنز للدورة ('.$cycleCap.') فاتوقفت. جرّب طلب أقصر أو اقتسمه.', $blocks, $modelMsg->id);
+            }
             if (! $res['calls']) {
                 $modelMsg->forceFill(['content' => $res['text'], 'ui_blocks' => $readBlocks ?: null])->save();
 
@@ -152,8 +207,8 @@ final class AgentOrchestrator
                     $denials[] = $outcome->message;
                 }
             }
-            AiMessage::create(['conversation_id' => $conv->id, 'role' => 'tool', 'provider_parts' => $responses]);
-            $history[] = ['role' => 'user', 'parts' => $responses];
+            AiMessage::create(['conversation_id' => $conv->id, 'role' => 'tool', 'provider_parts' => $this->cappedToolResponses($responses)]);
+            $history[] = ['role' => 'user', 'parts' => $this->cappedToolResponses($responses)];
             if ($halted) {
                 $blocks = array_merge($readBlocks, $blocks);
                 $replyText = implode("\n", array_filter([$res['text'], ...$denials]));
@@ -165,6 +220,32 @@ final class AgentOrchestrator
         $msg = AiMessage::create(['conversation_id' => $conv->id, 'role' => 'model', 'content' => 'محتاج توضيح أكتر عشان أكمل.']);
 
         return new AgentReply('محتاج توضيح أكتر عشان أكمل.', [], $msg->id);
+    }
+
+    /**
+     * M7: سقف حجم نتائج الأدوات — نتيجة ضخمة تعبّي التاريخ وترفع تكلفة الـ
+     * token بتقريبًا تربيعيًا. الجزء المقطوع راجع للأداة كنص مفهوم.
+     */
+    private function cappedToolResponses(array $parts): array
+    {
+        $cap = max(1024, (int) $this->settings->get('ai_tool_result_max_chars', 16000));
+        foreach ($parts as $index => $part) {
+            if (json_encode($part, JSON_UNESCAPED_UNICODE) !== false
+                && strlen(json_encode($part, JSON_UNESCAPED_UNICODE)) <= $cap) {
+                continue;
+            }
+            $response = $part['functionResponse'] ?? null;
+            if (! is_array($response)) {
+                continue;
+            }
+            $name = (string) ($response['name'] ?? 'unknown');
+            $parts[$index] = ['functionResponse' => [
+                'name' => $name,
+                'response' => ['error' => 'نتيجة الأداة اتجاوزت الحد ('.$cap.' رمز). حدّد بحثك أو جيب البيانات خبطة خبطة.'],
+            ] + (isset($response['id']) && is_string($response['id']) ? ['id' => $response['id']] : [])];
+        }
+
+        return $parts;
     }
 
     /** @return list<array{role:string,parts:list<array<string,mixed>>}> */
@@ -186,6 +267,21 @@ final class AgentOrchestrator
                 $history[] = ['role' => 'user', 'parts' => $m->provider_parts ?: [['text' => (string) $m->content]]];
             } elseif ($m->role === 'model' && $m->provider_parts) {
                 $history[] = ['role' => 'model', 'parts' => $m->provider_parts];
+                // M0/H4: لو الموديل طلب functionCalls وماتت ال العملية قبل حفظ
+                // ردّ الأداة، التاريخ هيبقى فيه functionCall يتيم — الـ API بيرفضه
+                // بـ 400 ويخرب الطلب كله. نعالجه هنا بدل الحذف اليدوي.
+                $pending = collect($m->provider_parts)->pluck('functionCall')->filter()->values();
+                if ($pending->isNotEmpty()) {
+                    $next = $messages->get($messages->search($m) + 1);
+                    if ($next === null || $next->role !== 'tool') {
+                        $history[] = ['role' => 'user', 'parts' => $pending
+                            ->map(fn ($call) => ['functionResponse' => [
+                                'name' => (string) ($call['name'] ?? 'unknown'),
+                                'response' => ['interrupted' => true, 'message' => 'انقطعت العملية قبل تنفيذ الأداة؛ أعد الطلب.'],
+                            ] + (isset($call['id']) && is_string($call['id']) ? ['id' => $call['id']] : [])])
+                            ->all()];
+                    }
+                }
             } elseif ($m->role === 'model' && $m->content) {
                 $history[] = ['role' => 'model', 'parts' => [['text' => (string) $m->content]]];
             } elseif ($m->role === 'tool' && $m->provider_parts) {

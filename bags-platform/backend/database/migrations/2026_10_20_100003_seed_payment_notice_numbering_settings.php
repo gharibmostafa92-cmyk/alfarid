@@ -20,6 +20,9 @@ return new class extends Migration
 
     public function down(): void
     {
-        DB::table('settings')->where('key', 'like', 'payment\_notice\_%')->delete();
+        // L1: المفاتيح المزروعة في up() فقط — بلا wildcard.
+        DB::table('settings')->whereIn('key', [
+            'payment_notice_prefix', 'payment_notice_next_number', 'payment_notice_padding',
+        ])->delete();
     }
 };

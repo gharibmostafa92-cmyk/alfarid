@@ -121,6 +121,44 @@ class UserController extends Controller
         return $this->userResource($user);
     }
 
+    /**
+     * L8: self-service password rotation — no users.update required, so a
+     * flagged newcomer can always comply. Only the own password may change
+     * here, and only with the verified current password.
+     */
+    public function updateOwnPassword(Request $request): UserResource|JsonResponse
+    {
+        $user = $request->user('staff');
+        abort_unless($user instanceof User, 403);
+        $validated = $request->validate([
+            'expected_version' => ['required', 'integer', 'min:0'],
+            'current_password' => ['required', 'string', 'max:255'],
+            'password' => ['required', 'string', \Illuminate\Validation\Rules\Password::min(12)->letters()->numbers(), 'max:255', new \App\Rules\PasswordByteLimit],
+        ]);
+        $limitKey = 'staff:current-password:'.$user->id;
+        if (RateLimiter::tooManyAttempts($limitKey, max(1, (int) config('auth.staff_current_password_failures', 5)))) {
+            throw new TooManyRequestsHttpException(RateLimiter::availableIn($limitKey));
+        }
+        if (! Hash::check($validated['current_password'], $user->password)) {
+            RateLimiter::hit($limitKey, 3600);
+
+            throw ValidationException::withMessages(['current_password' => 'أدخل كلمة المرور الحالية الصحيحة لتغيير بيانات الدخول.']);
+        }
+        RateLimiter::clear($limitKey);
+        $failure = app(UpdateStaffUser::class)(
+            $user,
+            $user,
+            ['password' => Hash::make($validated['password']), 'expected_version' => $validated['expected_version']],
+            verifiedPasswordHash: $user->password,
+            selfRotation: true
+        );
+        if ($failure !== null) {
+            return response()->json(['message' => 'تعذر تغيير كلمة المرور.'], 403);
+        }
+
+        return $this->userResource($user->refresh());
+    }
+
     public function update(UpdateUserRequest $request, User $user): UserResource|JsonResponse
     {
         abort_if($user->is_system, 404);
@@ -173,7 +211,11 @@ class UserController extends Controller
         if (isset($userAttributes['password'])) {
             $actionData['password'] = $userAttributes['password'];
         }
-        $failure = app(UpdateStaffUser::class)($currentUser, $user, $actionData, verifiedPasswordHash: $verifiedPasswordHash);
+        // L8: self password-only rotation (verified current password) does not
+        // require users.update — otherwise flagged newcomers could never comply.
+        $selfRotation = $isCurrentUser && isset($userAttributes['password'])
+            && array_diff(array_keys($validated), ['password', 'current_password', 'expected_version']) === [];
+        $failure = app(UpdateStaffUser::class)($currentUser, $user, $actionData, verifiedPasswordHash: $verifiedPasswordHash, selfRotation: $selfRotation);
 
         if ($failure !== null) {
             if ($failure === 'insufficient_permissions') {

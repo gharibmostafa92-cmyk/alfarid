@@ -83,7 +83,12 @@ class AppServiceProvider extends ServiceProvider
             app(CatalogRetailPriceObserver::class)->transactionFinished($event->connection, true);
             app(SettingService::class)->resetReadSnapshot($event->connection->transactionLevel() === 0);
         });
-        Event::listen(JobProcessing::class, fn () => app(PermissionRegistrar::class)->clearPermissionsCollection());
+        Event::listen(JobProcessing::class, function (): void {
+            app(PermissionRegistrar::class)->clearPermissionsCollection();
+            // M9: worker نحتاجها عن نفسه — إعدادات/بادئات ترقيم قديمة من
+            // الجاب الفات ما تفضلش عاملة تحت فيه الوحدة الجديدة.
+            app(SettingService::class)->forgetMemoryState();
+        });
         Gate::before(fn ($user) => $user instanceof User
             && $user->is_active && ! $user->is_system
             && $user->hasRole(StaffRole::SuperAdmin->value, 'staff') ? true : null);

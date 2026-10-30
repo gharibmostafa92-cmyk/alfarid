@@ -20,6 +20,8 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 
+use App\Services\StaffAdministration;
+
 class LocationController extends Controller
 {
     public function __construct(private readonly BranchAccess $branchAccess) {}
@@ -44,6 +46,10 @@ class LocationController extends Controller
     {
         $this->branchAccess->assertBranch($request->user()->id, $branch->id);
         $location = $branch->locations()->create($request->validated());
+        // M5: تدقيق الإنشاء زي ما المساعد بيعمل.
+        StaffAdministration::audit($request->user('staff'), 'location.created', 'location', $location->getKey(),
+            ['name', 'code', 'type'], [], ['name' => $location->name, 'code' => $location->code, 'type' => $location->type->value, 'branch' => $branch->name],
+            via: ['channel' => 'rest']);
 
         return LocationResource::make($location)->response()->setStatusCode(201);
     }
@@ -58,9 +64,37 @@ class LocationController extends Controller
     public function update(UpdateLocationRequest $request, Branch $branch, Location $location): LocationResource
     {
         $this->authorizeLocation((int) $request->user()->id, $branch, $location);
-        $location->update($request->validated());
+        $validated = $request->validated();
+        // M5: قفل توافقي على الصف، ورفض تغيير النوع/التعطيل لموقع عليه
+        // أرصدة — تغيير المعنى من غير تحذير أو سجل تدقيق.
+        $updated = DB::transaction(function () use ($request, $branch, $location, $validated): Location {
+            $locked = Location::query()->whereKey($location->getKey())->lockForUpdate()->firstOrFail();
+            $before = ['name' => $locked->name, 'code' => $locked->code, 'type' => $locked->type->value, 'is_active' => (bool) $locked->is_active];
+            $after = $before;
+            foreach (['name' => null, 'code' => null, 'is_active' => null] as $field => $_) {
+                if (array_key_exists($field, $validated)) {
+                    $after[$field] = $field === 'is_active' ? (bool) $validated[$field] : $validated[$field];
+                }
+            }
+            if (isset($validated['type'])) {
+                $after['type'] = $validated['type'] instanceof \App\Enums\LocationType ? $validated['type']->value : (string) $validated['type'];
+                if ($after['type'] !== $before['type']) {
+                    $hasBalances = StockLevel::query()->where('location_id', $locked->getKey())->hasNonZeroBalance()->exists();
+                    abort_unless(! $hasBalances, 422, 'لا يمكن تغيير نوع الموقع وهو عليه أرصدة غير صفرية؛ صفّرها أولًا.');
+                }
+            }
+            if (array_key_exists('is_active', $validated) && ! (bool) $validated['is_active']) {
+                $hasBalances = StockLevel::query()->where('location_id', $locked->getKey())->hasNonZeroBalance()->exists();
+                abort_unless(! $hasBalances, 422, 'لا يمكن تعطيل الموقع وهو عليه أرصدة غير صفرية.');
+            }
+            $locked->update($validated);
+            StaffAdministration::audit($request->user('staff'), 'location.updated', 'location', $locked->getKey(),
+                array_keys($validated), $before, $after, via: ['channel' => 'rest']);
 
-        return LocationResource::make($location);
+            return $locked;
+        });
+
+        return LocationResource::make($updated);
     }
 
     public function destroy(Request $request, Branch $branch, Location $location): JsonResponse|Response
@@ -68,7 +102,7 @@ class LocationController extends Controller
         $this->authorizeLocation((int) $request->user()->id, $branch, $location);
 
         try {
-            $deleted = DB::transaction(function () use ($branch, $location): bool {
+            $deleted = DB::transaction(function () use ($request, $branch, $location): bool {
                 $lockedLocation = Location::query()
                     ->whereKey($location->getKey())
                     ->lockForUpdate()
@@ -89,6 +123,12 @@ class LocationController extends Controller
                     throw new BusinessException('لا يمكن حذف الموقع وفيه أرصدة (متاح/محجوز/تالف/في الطريق)؛ صفّرها أولًا.');
                 }
                 StockLevel::query()->where('location_id', $lockedLocation->getKey())->delete();
+
+                // M5: تدقيق حذف الموقع زي بقية عمليات الإدارة.
+                StaffAdministration::audit($request->user('staff'), 'location.deleted', 'location', $lockedLocation->getKey(),
+                    ['name', 'code', 'type'],
+                    ['name' => $lockedLocation->name, 'code' => $lockedLocation->code, 'type' => $lockedLocation->type->value], [],
+                    via: ['channel' => 'rest']);
 
                 $lockedLocation->delete();
 

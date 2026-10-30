@@ -27,6 +27,8 @@ class UserResource extends JsonResource
                 ? null
                 : ['id' => $this->branch->id, 'name' => $this->branch->name]),
             'is_active' => $this->is_active,
+            // L8: ليعرف الفرونت أن المستخدم مطالب بتدوير كلمة المرور.
+            'must_change_password' => (bool) $this->must_change_password,
             'roles' => $this->whenLoaded(
                 'roles',
                 fn () => $this->roles->map(fn ($role): array => [

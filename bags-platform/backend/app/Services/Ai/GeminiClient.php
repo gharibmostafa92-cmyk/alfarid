@@ -155,8 +155,16 @@ class GeminiClient
             }
             $candidate = $response->json('candidates.0', []);
             $finish = (string) ($candidate['finishReason'] ?? '');
+            $usage = $response->json('usageMetadata', []);
+            // M7: حضّر قياس الاستخدام قبل أي باب خروج — الرد غير المكتمل
+            // (MAX_TOKENS/SAFETY...) كمان بيكلف توكنز لازم تدخل الميزانية.
+            $measured = [
+                'input_tokens' => (int) ($usage['promptTokenCount'] ?? 0),
+                'output_tokens' => (int) ($usage['candidatesTokenCount'] ?? 0),
+                'total_tokens' => (int) ($usage['totalTokenCount'] ?? 0),
+            ];
             if ($finish !== 'STOP') {
-                throw new GeminiException('لم ترجع خدمة Gemini إجابة مكتملة.');
+                throw GeminiException::withUsage('لم ترجع خدمة Gemini إجابة مكتملة.', $measured, $response->status());
             }
             $parts = $candidate['content']['parts'] ?? [];
             if (! is_array($parts)) {
@@ -173,15 +181,14 @@ class GeminiClient
                 }
             }
             if (! $calls && trim($text) === '') {
-                throw new GeminiException('لم ترجع خدمة Gemini إجابة مكتملة.');
+                throw GeminiException::withUsage('لم ترجع خدمة Gemini إجابة مكتملة.', $measured);
             }
-            $usage = $response->json('usageMetadata', []);
-            $input = (int) ($usage['promptTokenCount'] ?? 0);
-            $output = (int) ($usage['candidatesTokenCount'] ?? 0);
-            $output = max($output, (int) ($usage['totalTokenCount'] ?? ($input + $output)) - $input);
+            $input = $measured['input_tokens'];
+            $output = $measured['output_tokens'];
+            $output = max($output, $measured['total_tokens'] - $input);
 
             return ['parts' => $parts, 'text' => trim($text), 'calls' => $calls, 'finish' => $finish, 'model' => $model,
-                'usage' => ['input_tokens' => $input, 'output_tokens' => $output, 'total_tokens' => (int) ($usage['totalTokenCount'] ?? $input + $output)]];
+                'usage' => ['input_tokens' => $input, 'output_tokens' => $output, 'total_tokens' => max($measured['total_tokens'], $input + $output)]];
         }
         throw new GeminiException('تعذّر تنفيذ طلب Gemini.');
     }

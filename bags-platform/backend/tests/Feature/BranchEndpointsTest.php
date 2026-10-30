@@ -52,6 +52,8 @@ class BranchEndpointsTest extends TestCase
             'name' => 'Central Warehouse',
             'code' => ' br-001 ',
             'type' => 'warehouse',
+            // M3: optimistic concurrency is mandatory on branch updates.
+            'lock_version' => $created->json('data.lock_version'),
         ])->assertOk()
             ->assertJsonPath('data.name', 'Central Warehouse')
             ->assertJsonPath('data.type', 'warehouse');
@@ -88,6 +90,8 @@ class BranchEndpointsTest extends TestCase
         foreach ([false, true] as $active) {
             $this->requestWithToken($token, 'PATCH', "/api/v1/admin/branches/{$branch->id}", [
                 'is_active' => $active,
+                // M3: optimistic concurrency is mandatory on branch updates.
+                'lock_version' => $branch->fresh()->lock_version,
             ])->assertOk()->assertJsonPath('data.is_active', $active);
 
             $this->assertSame($active, $branch->fresh()->is_active);

@@ -10,6 +10,7 @@ use App\Models\Branch;
 use App\Models\User;
 use App\Services\SettingService;
 use App\Services\StaffAdministration;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Role;
@@ -56,6 +57,9 @@ final class PendingActionService
             $selected = $selectedItems ?? $ids;
             abort_if(! $selected || array_diff($selected, $ids) !== [] || count(array_unique($selected)) !== count($selected), 422);
             $locked->forceFill(['status' => 'confirmed'])->save();
+            // M10: الأفراد بيرجعوا pending بس جوه العملية الجماعية دي — قبلها
+            // مبقيين bulk_child فميقدرش حد يؤكد واحد فيهم من غيرها.
+            AiPendingAction::query()->whereIn('id', $ids)->where('status', 'bulk_child')->update(['status' => 'pending']);
 
             return ['selected' => $selected, 'all' => $ids];
         });
@@ -71,6 +75,11 @@ final class PendingActionService
                 continue;
             }
             try {
+                // Bulk-level typed confirmation ('تنفيذ') + per-item review is the
+                // compensating control here: the committed bulk test requires
+                // branch deactivation to succeed inside a bulk, so per-item
+                // typed codes are auto-filled from the server (not user input).
+                // Residual risk (M10): typed protection is weaker inside bulks.
                 $typedChild = $child->tool === 'set_branch_status' ? Branch::find($child->args['branch_id'])?->code : null;
                 $outcome = $this->confirm($actor, $child, $typedChild);
                 $results[] = ['action_id' => $id, 'ok' => $outcome->type === 'result', 'message' => $outcome->message];
@@ -151,6 +160,13 @@ final class PendingActionService
 
                 return $this->registry->executeWrite($actor, $action, $via);
             });
+        } catch (UniqueConstraintViolationException) {
+            // M14: 23505 بتصل برا الـ savepoint — الإجراء يتاخد failed برسالة
+            // مفهومة بدل 500 والإجراء يتعلق pending للأبد.
+            $message = 'قيمة مشتركة (كود فرع أو موقع/بريد) اتحجزت لحظة الحفظ. اطلب اقتراح جديد.';
+            $action->forceFill(['status' => 'failed', 'result' => ['message' => $message]])->save();
+            $this->event($action, 'result', $message, [['type' => 'result', 'ok' => false, 'message' => $message]]);
+            abort(409, $message);
         } catch (HttpExceptionInterface $e) {
             if ($e->getStatusCode() === 409) {
                 $action->forceFill(['status' => 'failed', 'result' => ['message' => 'حد عدّل السجل ده بعد الاقتراح. تحب أجهّز اقتراح جديد؟']])->save();
@@ -192,7 +208,8 @@ final class PendingActionService
             if ($locked->status === 'pending') {
                 $locked->forceFill(['status' => 'cancelled'])->save();
                 if ($locked->tool === 'bulk_actions') {
-                    AiPendingAction::query()->where('user_id', $actor->id)->where('conversation_id', $locked->conversation_id)->whereIn('id', $locked->args['action_ids'])->where('status', 'pending')->update(['status' => 'cancelled']);
+                    // M10: الإجراءات الفرعية بتنقفل مع الخبّة الجماعية.
+                    AiPendingAction::query()->where('user_id', $actor->id)->where('conversation_id', $locked->conversation_id)->whereIn('id', $locked->args['action_ids'])->whereIn('status', ['pending', 'bulk_child'])->update(['status' => 'cancelled']);
                 }
                 $this->event($locked, 'result', 'تم إلغاء الإجراء '.$locked->id, [['type' => 'result', 'ok' => true, 'message' => 'تم إلغاء الإجراء.']]);
             }
@@ -240,10 +257,15 @@ final class PendingActionService
     private function event(AiPendingAction $action, string $kind, string $text, array $blocks, bool $stripPassword = false): void
     {
         if ($stripPassword) {
-            $text = preg_replace('/الباسورد المؤقت.*$/u', 'تم إنشاء الموظف (الباسورد ظهر للأدمن مرة واحدة).', $text) ?? $text;
+            // L8: لا تعتمد على regex فوق صياغة عربية قد تتغير — المؤقتة
+            // تُعرض مرة واحدة في رد التأكيد فقط، والمخزّن نص ثابت.
+            $text = 'تم إنشاء الموظف (الباسورد ظهر للأدمن مرة واحدة).';
             $blocks = array_map(function ($b) {
                 if (isset($b['message'])) {
-                    $b['message'] = preg_replace('/الباسورد المؤقت.*$/u', 'تم إنشاء الموظف.', $b['message']) ?? $b['message'];
+                    $b['message'] = 'تم إنشاء الموظف.';
+                }
+                if (isset($b['generated_password'])) {
+                    unset($b['generated_password']);
                 }
 
                 return $b;

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Actions\Staff;
 
 use App\Enums\StaffRole;
+use App\Models\Branch;
 use App\Models\User;
 use App\Services\BranchAccess;
 use App\Services\StaffAdministration;
@@ -23,6 +24,11 @@ final class CreateStaffUser
         $roles = $validated['roles'] ?? [];
         $branch = $this->branches->restrictedBranch($actor);
         abort_if($branch !== null && (int) ($validated['branch_id'] ?? 0) !== $branch, 403);
+        // M4: منع تعيين موظف جديد على فرع معطّل.
+        $targetBranchId = (int) ($validated['branch_id'] ?? 0);
+        if ($targetBranchId > 0) {
+            abort_unless((bool) (Branch::query()->find($targetBranchId)?->is_active), 422, 'لا يمكن تعيين موظف على فرع متوقف.');
+        }
         if (in_array(StaffRole::SuperAdmin->value, $roles, true) && ! $actor->hasRole(StaffRole::SuperAdmin->value, 'staff')) {
             abort(403, 'يجب أن تكون Super Admin لإسناد هذا الدور.');
         }
@@ -33,6 +39,8 @@ final class CreateStaffUser
         if ($generatePassword) {
             $plain = Str::password(16);
             $attrs['password'] = $plain;
+            // L8: المؤقتة المولّدة يجب تدويرها في أول دخول.
+            $attrs['must_change_password'] = true;
         }
         $attrs['password'] = Hash::make($attrs['password']);
         $user = DB::transaction(function () use ($attrs, $roles, $actor, $via): User {

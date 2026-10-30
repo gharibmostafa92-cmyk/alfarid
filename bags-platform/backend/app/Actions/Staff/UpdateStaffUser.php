@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Actions\Staff;
 
 use App\Enums\StaffRole;
+use App\Models\Branch;
 use App\Models\User;
 use App\Services\BranchAccess;
 use App\Services\StaffAdministration;
@@ -16,8 +17,14 @@ final class UpdateStaffUser
 {
     public function __construct(private BranchAccess $branches) {}
 
-    /** Credentials are validated and hashed by the REST caller; AI may never supply them. */
-    public function __invoke(User $actor, User $target, array $validated, array $via = [], ?string $verifiedPasswordHash = null): ?string
+    /**
+     * Credentials are validated and hashed by the REST caller; AI may never supply them.
+     *
+     * L8: $selfRotation allows a password-only self change (verified current
+     * password) without users.update — otherwise a freshly created staff
+     * member could never clear must_change_password.
+     */
+    public function __invoke(User $actor, User $target, array $validated, array $via = [], ?string $verifiedPasswordHash = null, bool $selfRotation = false): ?string
     {
         abort_if($target->is_system, 404);
         if (($via['channel'] ?? null) === 'ai') {
@@ -39,10 +46,17 @@ final class UpdateStaffUser
             $isSuperAdminRequester,
             $assigningSuperAdmin,
             $validated,
-            $verifiedPasswordHash, $via,
+            $verifiedPasswordHash, $via, $selfRotation,
         ): ?string {
             StaffAdministration::lock();
-            StaffAdministration::authorize($currentUser, ['users.update', 'users.manage']);
+            if (! $selfRotation) {
+                StaffAdministration::authorize($currentUser, ['users.update', 'users.manage']);
+            } else {
+                // Rotation-only: actor must be active and operating on self.
+                abort_unless($currentUser->is_active && ! $currentUser->is_system && $currentUser->is($user), 403);
+                // Rotation-only payloads change nothing but the password.
+                abort_if($roles !== null || array_diff(array_keys($userAttributes), ['password', 'must_change_password']) !== [], 403);
+            }
             $isSuperAdminRequester = $currentUser->hasRole(StaffRole::SuperAdmin->value, 'staff');
             $lockedUser = User::query()->whereKey($user->getKey())->lockForUpdate()->firstOrFail();
             abort_if($lockedUser->is_system, 404);
@@ -59,6 +73,11 @@ final class UpdateStaffUser
             if (array_key_exists('branch_id', $userAttributes)) {
                 $branch = $this->branches->restrictedBranch($currentUser);
                 abort_if($branch !== null && (int) ($userAttributes['branch_id'] ?? 0) !== $branch, 403);
+                // M4: نقل موظف لفرع معطّل مرفوض.
+                $newBranchId = (int) ($userAttributes['branch_id'] ?? 0);
+                if ($newBranchId > 0 && $newBranchId !== (int) $lockedUser->branch_id) {
+                    abort_unless((bool) (Branch::query()->find($newBranchId)?->is_active), 422, 'لا يمكن تعيين موظف على فرع متوقف.');
+                }
             }
             if ($roles !== null) {
                 StaffAdministration::lockRoles($roles);
@@ -85,6 +104,12 @@ final class UpdateStaffUser
             }
 
             $emailChanged = isset($userAttributes['email']) && $userAttributes['email'] !== $lockedUser->email;
+            $passwordChanged = array_key_exists('password', $userAttributes);
+            if ($passwordChanged) {
+                // L8: تدوير ذاتي يُسقط الإجبار؛ تعيين إداري لكلمة سر موظف
+                // آخر يُشغّله (لم يخترها بنفسه).
+                $userAttributes['must_change_password'] = ! $currentUser->is($lockedUser);
+            }
             $lockedUser->update($userAttributes);
 
             $rolesChanged = false;
@@ -99,7 +124,6 @@ final class UpdateStaffUser
                 }
             }
 
-            $passwordChanged = array_key_exists('password', $userAttributes);
             $deactivated = array_key_exists('is_active', $userAttributes)
                 && ! (bool) $userAttributes['is_active'];
 

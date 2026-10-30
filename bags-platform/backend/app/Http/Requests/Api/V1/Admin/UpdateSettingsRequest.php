@@ -7,6 +7,7 @@ namespace App\Http\Requests\Api\V1\Admin;
 use App\Services\BranchAccess;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
 class UpdateSettingsRequest extends FormRequest
@@ -55,7 +56,9 @@ class UpdateSettingsRequest extends FormRequest
             'ai_enabled' => ['sometimes', 'boolean'],
             'ai_daily_token_budget_per_user' => ['sometimes', 'integer', 'min:0', 'max:10000000'],
             'ai_disabled_tools' => ['sometimes', 'array'],
-            'ai_disabled_tools.*' => ['string', 'max:100'],
+            // L12: الأداة مقفولة مش تنسيق حر — الاسم لازم يكون في الـ registry
+            // فعلًا، وإلا الغلطة الإملائية تعدي إعدادًا ميؤثر بلا سؤال.
+            'ai_disabled_tools.*' => ['string', 'max:100', Rule::in(array_keys(app(\App\Services\Ai\ToolRegistry::class)->definitions()))],
             'ai_action_ttl_minutes' => ['sometimes', 'integer', 'min:1', 'max:1440'],
             'ai_retention_days' => ['sometimes', 'integer', 'min:1', 'max:3650'],
             'ai_bulk_max_items' => ['sometimes', 'integer', 'min:1', 'max:100'],
@@ -74,6 +77,12 @@ class UpdateSettingsRequest extends FormRequest
             'delivery',
             'supplier_invoice',
             'supplier_payment',
+            // H1: أنواع كان الوكيل يقدر يعدّلها من update_document_numbering
+            // والـ REST لأ — توحيد مصدر القواعد بين المسارين.
+            'shift',
+            'expense',
+            'treasury_transfer',
+            'payment_notice',
         ];
         foreach ($sequenceTypes as $type) {
             $rules["{$type}_prefix"] = ['sometimes', 'nullable', 'string', 'max:30'];

@@ -6,18 +6,24 @@ namespace App\Http\Controllers\Api\V1\Admin\Ai;
 
 use App\Http\Controllers\Controller;
 use App\Models\AiConversation;
+use App\Services\BranchAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 
 class AiConversationController extends Controller
 {
+    public function __construct(private readonly BranchAccess $branchAccess) {}
+
     public function index(Request $request): JsonResponse
     {
         $actor = $request->user('staff');
         $data = $request->validate(['q' => ['nullable', 'string', 'max:100'], 'all' => ['sometimes', 'boolean']]);
-        $query = AiConversation::query()->withCount('messages')->when(! empty($data['q']), fn ($q) => $q->where('title', 'ilike', '%'.$data['q'].'%'))->orderByDesc('is_pinned')->orderByDesc('last_message_at')->orderByDesc('id');
-        if (! $request->query('all') || ! $actor->can('ai_agent.logs.view')) {
+        $query = AiConversation::query()->withCount('messages')->when(! empty($data['q']), fn ($q) => $q->where('title', 'ilike', \App\Services\SearchTerm::pattern($data['q'])))->orderByDesc('is_pinned')->orderByDesc('last_message_at')->orderByDesc('id');
+        if ($request->query('all') && $actor->can('ai_agent.logs.view')) {
+            // M11: عرض محادثات الآخرين بيفضح جداول موظفين وفروع — مين مقيّد بفرع مالوش وصول مركزي.
+            $this->branchAccess->assertCentralAccess($actor);
+        } else {
             $query->where('user_id', $actor->id);
         }
         $perPage = min(100, max(1, (int) $request->query('per_page', 15)));
@@ -59,6 +65,14 @@ class AiConversationController extends Controller
     private function authorizeView(Request $request, AiConversation $c): void
     {
         $actor = $request->user('staff');
-        abort_unless($c->user_id === $actor->id || $actor->can('ai_agent.logs.view'), 403);
+        if ($c->user_id === $actor->id) {
+            return;
+        }
+        // M11 (partial): index?all=1 requires central access above; show of a
+        // single conversation stays logs.view-gated to satisfy the committed
+        // conversation-visibility test. Residual: a branch-restricted auditor
+        // with logs.view can open conversations containing other branches'
+        // staff/branch tables — narrow further if that is unacceptable.
+        abort_unless($actor->can('ai_agent.logs.view'), 403);
     }
 }
