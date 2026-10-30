@@ -11,6 +11,7 @@ import CategoriesMockPage from './pages/admin/categories-mock/CategoriesMockPage
 import PosPage from './pages/pos/PosPage';
 import CatalogMockPage from './pages/admin/catalog-mock/CatalogMockPage';
 import AdminMockPage from './pages/admin/admin-mock/AdminMockPage';
+const AssistantPage = lazy(() => import('./pages/admin/assistant/AssistantPage'));
 import OperationsMockPage, { canViewOperation } from './pages/admin/operations-mock/OperationsMockPage';
 const InventoryPage = lazy(() => import('./pages/admin/inventory-mock/InventoryPage'));
 
@@ -61,10 +62,10 @@ function AuthenticatedApp() {
 
   useEffect(() => {
     const isStore = ['/store', '/banners', '/settings/store', '/settings/banners'].includes(route);
-    if (cashierOnly && !['/', '/dashboard', '/pos'].includes(route)) {
+    if (cashierOnly && !['/', '/dashboard', '/pos', ...(can('ai_agent.use') ? ['/assistant'] : [])].includes(route)) {
       window.location.replace('/dashboard');
     } else if (
-      !['/', '/dashboard', '/categories', '/dealers', '/production', '/pos', '/users', '/roles', '/settings'].includes(route) &&
+      !['/', '/dashboard', '/categories', '/dealers', '/production', '/pos', '/users', '/roles', '/settings', '/assistant'].includes(route) &&
       !isStore &&
       !isOperation &&
       !/^\/products(?:\/(?:new|[0-9]+))?$/.test(route) &&
@@ -72,16 +73,16 @@ function AuthenticatedApp() {
     ) {
       window.location.replace('/dashboard');
     }
-  }, [cashierOnly, route, isOperation]);
+  }, [cashierOnly, route, isOperation, can]);
 
-  if (cashierOnly && !['/', '/dashboard', '/pos'].includes(route)) return null;
+  if (cashierOnly && !['/', '/dashboard', '/pos', ...(can('ai_agent.use') ? ['/assistant'] : [])].includes(route)) return null;
   if (route === '/pos') return <PosPage />;
 
   const categoriesActive = route === '/categories';
   const inventoryActive = route === '/inventory' || route.startsWith('/inventory/');
   const isStoreRoute = route === '/store' || route === '/banners' || route === '/settings/store' || route === '/settings/banners';
   const adminActive = route === '/users' ? 'users' : route === '/roles' ? 'roles' : (route === '/settings' || isStoreRoute) ? 'settings' : null;
-  const catalogActive = isOperation
+  const catalogActive = route === '/assistant' ? 'assistant' : isOperation
     ? operationsActive
     : inventoryActive
     ? 'inventory'
@@ -93,11 +94,12 @@ function AuthenticatedApp() {
     ? 'production'
     : adminActive;
 
+  const assistantNav = can('ai_agent.use') ? [{ id: 'assistant', label: 'المساعد الذكي', onOpen: () => { window.location.hash = '/assistant'; } }] : [];
   return <FinancialDashboard
     onLogout={logoutRemote}
     catalogActive={catalogActive}
     catalogPage={
-      isOperation && operationsActive ? (
+      route === '/assistant' ? <Suspense fallback={<div dir="rtl">جارٍ تحميل المساعد…</div>}><AssistantPage can={can} /></Suspense> : isOperation && operationsActive ? (
         !canViewOperation(operationsActive, can) ? (
           <div dir="rtl" className="p-6">ليس لديك صلاحية عرض هذه الصفحة.</div>
         ) : (
@@ -139,7 +141,8 @@ function AuthenticatedApp() {
       ...((can('users.view') || can('users.manage')) ? [{ id: 'users', label: 'المستخدمون', onOpen: () => { window.location.hash = '/users'; } }] : []),
       ...((can('roles.view') || can('roles.manage')) ? [{ id: 'roles', label: 'الأدوار', onOpen: () => { window.location.hash = '/roles'; } }] : []),
       ...((can('settings.view') || can('settings.manage')) ? [{ id: 'settings', label: 'الإعدادات', onOpen: () => { window.location.hash = '/settings'; } }] : []),
-    ] : []}
+      ...assistantNav,
+    ] : assistantNav}
     onCloseCatalog={() => { window.location.hash = '/dashboard'; }}
     onOpenNotifications={() => { window.location.hash = '/notifications'; }}
     categoriesActive={categoriesActive}

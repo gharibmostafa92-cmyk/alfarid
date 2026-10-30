@@ -119,6 +119,12 @@ final class EvaluateAiAgent extends Command
                         $args['branch_id'] = $results[0]['id'];
                     }
                 }
+                if (in_array($call['name'], ['list_locations', 'create_location']) && ! isset($args['branch_id']) && isset($args['branch_query'])) {
+                    $results = $this->fixtureResponse($context, ['name' => 'find_entities', 'args' => ['type' => 'branch', 'query' => $args['branch_query']]])['results'];
+                    if (count($results) === 1) {
+                        $args['branch_id'] = $results[0]['id'];
+                    }
+                }
                 $correct = $call['name'] === $case['tool'] && $this->containsArgs($args, $case['args']);
                 // Never call dispatch/execute here. An unexpected write invalidates the case.
                 if ($registry->isWrite($call['name']) && ! $correct) {
@@ -145,15 +151,31 @@ final class EvaluateAiAgent extends Command
         $key = match ($call['name']) {
             'list_branches' => 'branches', 'list_staff' => 'users', 'list_roles' => 'roles',
             'find_entities' => match ($call['args']['type'] ?? '') {
-                'branch' => 'branches', 'user' => 'users', 'role' => 'roles', default => ''
+                'branch' => 'branches', 'user' => 'users', 'role' => 'roles', 'location' => 'locations', default => ''
             },
+            'list_locations' => 'locations',
             default => '',
         };
+        if ($call['name'] === 'view_settings' || $call['name'] === 'update_settings') {
+            return ['settings' => ['tax_rate' => '15', 'tax_name' => 'ضريبة القيمة المضافة', 'tax_included' => 'true', 'return_window_days' => '14'], 'executed' => $call['name'] === 'update_settings'];
+        }
+        if ($call['name'] === 'view_document_numbering' || $call['name'] === 'update_document_numbering') {
+            $type = $call['args']['type'] ?? 'invoice';
+            return ['numbering' => ['type' => $type, 'prefix' => 'INV-', 'next_number' => 1, 'padding' => 5], 'executed' => $call['name'] === 'update_document_numbering'];
+        }
+        if (in_array($call['name'], ['create_location', 'set_location_status', 'delete_location'])) {
+            return ['executed' => false, 'message' => 'يحتاج تأكيد'];
+        }
         if (! $key) {
             return ['context' => $context, 'executed' => false];
         }
         $query = $normalize($call['args']['query'] ?? '');
-        $items = array_values(array_filter($context[$key], fn ($item) => $query === '' || str_contains($normalize($item['name'].' '.($item['code'] ?? '')), $query)));
+        $items = $context[$key] ?? [];
+        // For locations, filter by branch_id if provided
+        if ($key === 'locations' && isset($call['args']['branch_id'])) {
+            $items = array_values(array_filter($items, fn ($item) => ($item['branch_id'] ?? null) === $call['args']['branch_id']));
+        }
+        $items = array_values(array_filter($items, fn ($item) => $query === '' || str_contains($normalize($item['name'].' '.($item['code'] ?? '')), $query)));
         $items = array_map(fn ($item) => ['id' => $item['id'], 'label' => $item['name'], 'meta' => $item['code'] ?? ''], $items);
 
         return [$call['name'] === 'find_entities' ? 'results' : $key => $items];

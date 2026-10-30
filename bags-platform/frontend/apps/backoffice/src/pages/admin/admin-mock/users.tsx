@@ -69,9 +69,10 @@ export interface UsersScreenProps {
   roles: AdminRole[];
   onNavigate?: (page: 'users' | 'roles' | 'settings', params?: Record<string, any>) => void;
   initialRoleFilter?: number | 'all';
+  initialUserId?: number;
 }
 
-export function UsersScreen({ rolesLoading, can, onUsersChanged, roles, onNavigate, initialRoleFilter = 'all' }: UsersScreenProps) {
+export function UsersScreen({ rolesLoading, can, onUsersChanged, roles, onNavigate, initialRoleFilter = 'all', initialUserId }: UsersScreenProps) {
   const { meId, iAmSuper, myPerms } = useMe();
   const branchesQ = useBranches();
   const branches = branchesQ.data ?? [];
@@ -86,6 +87,15 @@ export function UsersScreen({ rolesLoading, can, onUsersChanged, roles, onNaviga
   const perPage = 8;
   const [drawer, setDrawer] = useState<{ mode: 'create' } | { mode: 'edit'; user: AdminUser; focusPwd?: boolean } | null>(null);
   const [confirm, setConfirm] = useState<AdminUser | null>(null);
+  const linkedUser = useApi(signal => initialUserId ? adminApi.getUser(initialUserId, signal) : Promise.resolve(null), [initialUserId]);
+  useQueryError(linkedUser.error);
+  const mayEditLinkedUser = can('users.update') || can('users.manage');
+  useEffect(() => {
+    if (!linkedUser.data) return;
+    const user = toAdminUser(linkedUser.data, meId);
+    setQ(user.name);
+    if (mayEditLinkedUser && (!user.role_names?.includes('Super Admin') || iAmSuper)) setDrawer({ mode: 'edit', user });
+  }, [linkedUser.data, meId, mayEditLinkedUser, iAmSuper]);
 
   useEffect(() => {
     if (initialRoleFilter !== 'all') {

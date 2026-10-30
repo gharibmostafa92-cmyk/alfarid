@@ -1,72 +1,126 @@
-# خطة ومواصفات مساعد الإدارة الذكي (Gemini Super Admin Chat Agent)
+# المساعد الإداري الذكي — التنفيذ الحالي
 
-## 1. نظرة عامة والهدف (Overview & Objectives)
-تمكين **المدير العام (Super Admin)** عبر واجهة محادثة ذكية (AI Chat Interface) في لوحة الإدارة (`Backoffice / FinancialDashboard`) من إدارة النظام وأركانه الأساسية باللغة الطبيعية (عربي / إنجليزي)، مع الاعتماد على **Google Gemini** (عبر `App\Services\Ai\GeminiClient`) و**تقنية استدعاء الأدوات (Function Calling / Tool Execution)** لإجراء العمليات الحساسة بأمان كامل:
-1. **إدارة الفروع (Branches)**: إضافة فرع جديد، تعديل بيانات فرع، تعطيل أو تفعيل فرع.
-2. **إدارة الأدوار والصلاحيات (Roles & Permissions)**: إنشاء دور جديد، إسناد أو تعديل الصلاحيات، عرض كتالوج الصلاحيات.
-3. **إدارة المستخدمين والموظفين (Staff & Users)**: إضافة مستخدم جديد، إسناد الأدوار، ربطه بفرع، تعطيل أو تفعيل حساب.
+هذا المستند يحل محل الخطة القديمة التي كانت تقصر المساعد على Super Admin. المواصفات الأصلية موجودة في `task.txt` بجذر المستودع.
 
----
+## الهوية والصلاحيات
 
-## 2. مواءمة التصميم وواجهات المستخدم (UI Design Alignment)
-النظام يحتوي مسبقاً على:
-- تصميم الشات المدمج في لوحة التحكم الإدارية: [FinancialDashboard.jsx](file:///d:/programming/programming/projects/alfarid/bags-platform/frontend/packages/ui/src/financial-dashboard/FinancialDashboard.jsx) مع قنوات المحادثة (`chats`), سجل الرسائل (`chat-messages-feed`), حقل الإدخال (`chat-composer-input`).
-- واجهة المحادثة المتقدمة: [ai-chat.html](file:///d:/programming/programming/projects/alfarid/ai-chat.html) بستايل عصري (Tailwind + Markdown + بطاقات الإجراءات وأكواد المهام).
+- المساعد يعمل بهوية الموظف الحالي. `ai_agent.use` يتيح المحادثة، وأدوات القراءة تحتاج صلاحية عرض نوع البيانات نفسه.
+- التعديل يحتاج `ai_agent.execute` بالإضافة إلى صلاحية العملية الأصلية، مع إعادة التحقق عند التأكيد والتراجع.
+- `ai_agent.settings` لإعدادات المساعد في الإدارة المركزية، و`ai_agent.logs.view` لمراجعة محادثات الموظفين واستهلاكهم.
+- لا يمكن للمساعد تعديل حساب المنفذ نفسه، أو إعطاء أو إزالة دور Super Admin، أو تعديل الأدوار المحجوزة، أو تغيير بيانات الدخول. حماية آخر Super Admin تبقى مطبقة.
+- أنواع الفروع تأتي مباشرة من `BranchType`: `branch` و`warehouse`، وليست `retail` أو`office`.
 
-### دورة عمل المحادثة في الواجهة:
-1. يكتب الـ Super Admin طلبه: "أضف فرع جديد اسمه فرع المعادي كوده BR-MAADI نوعه retail في القاهرة هاتف 01012345678".
-2. يقوم الذكاء الاصطناعي (Gemini) بفهم النية واستخراج البارامترات المنظمة واستدعاء أداة `create_branch`.
-3. للعمليات الحساسة (مثل: تعطيل فرع، حذف دور، تعطيل موظف): تُعرض بطاقة تأكيد تفاعلية (Confirmation Card) تحتوي على تفاصيل العملية وزر **«تأكيد التنفيذ»** وزر **«إلغاء»**.
-4. عند التأكيد يتم إرسال طلب التنفيذ إلى الـ API وإرجاع بطاقة نجاح منسقة مع تحديث فوري لبيانات النظام.
+## التنفيذ
 
----
+- `/assistant` شاشة RTL داخل Vortix، تتضمن بحث المحادثات وتثبيتها وحذفها، Markdown بدون HTML أو صور خارجية، ومنشن `@` للموظفين و`#` للفروع و`!` للأدوار، وأوامر سريعة عبر `/`.
+- `GeminiClient::generate()` يحتفظ بعقده السابق. `converse()` يدعم function calling، ويحفظ الأجزاء الأصلية والتوقيعات، ويقبل استدعاءات الأدوات بدون نص.
+- `AgentOrchestrator` يحتفظ بأزواج الاستدعاء والنتيجة، ويحد السياق الحديث مع مقتطفات من الأقدم. سقف الحلقة ست خطوات، مع قفل لكل مستخدم وفحص الميزانية في كل خطوة.
+- جميع تعديلات الموظفين والأدوار والفروع ومواقع التخزين والإعدادات تمر عبر `Actions` مشتركة مع REST. تجهيز الاقتراح لا يغير الكيان المستهدف.
+- `ai_pending_actions` يحفظ المعاملات وHMAC والإصدارات والمعاينة. التأكيد يستخدم النسخة المخزنة تحت قفل، ويمنع إعادة التنفيذ. إلغاء العملية يسجل حدثاً في المحادثة.
+- التراجع متاح 15 دقيقة لتعديل حالة الفرع أو الموظف أو موقع التخزين، وصلاحيات الدور، وأدوار الموظف. يتحقق من بصمة الحالة بعد التنفيذ قبل استعادة القيم السابقة. الإنشاء والحذف وإلغاء الجلسات وتعديل الإعدادات لا تعرض تراجعاً آلياً.
+- `bulk_actions` يجمع اقتراحات محدودة بـ`ai_bulk_max_items`. يستطيع المستخدم استبعاد عناصر. لكل عنصر معاملة مستقلة ونتيجة مستقلة؛ فشل عنصر لا يلغي نجاح الباقي.
+- كلمة المرور المولدة عند إنشاء موظف تظهر في استجابة التأكيد مرة واحدة فقط، ولا تحفظ في سجل المحادثة أو نتيجة الإجراء أو ترسل إلى Gemini.
+- النتائج والرفض تسجل في `staff_audit_logs`، مع `via.channel=ai` ومعرفي المحادثة والإجراء عند التنفيذ.
+- تنظيف المحادثات يومي الساعة 05:10 بتوقيت العمل. الحذف بعد فترة الاحتفاظ فعلي ويشمل الرسائل والإجراءات التابعة والمحادثات المحذوفة من الواجهة.
 
-## 3. كتالوج أدوات الذكاء الاصطناعي (Gemini Function Calling Tools)
+## API
 
-### أ. أدوات الفروع (Branch Management Tools)
-- `create_branch(name: string, code: string, type: 'retail'|'warehouse'|'office', phone?: string, email?: string, city?: string, address?: string)`
-  - تستدعي منطق `StoreBranchRequest` و`BranchController::store`.
-- `toggle_branch_status(code_or_id: string|number, is_active: boolean)`
-  - تفعيل أو تعطيل فرع (يتطلب تأكيد مسبق إذا كان التعطيل).
-- `list_branches(city?: string, type?: string, active_only?: boolean)`
-  - عرض الفروع الحالية للـ Super Admin.
+كل المسارات التالية تحت `/api/v1/admin/ai` وتحتاج جلسة موظف و`ai_agent.use`:
 
-### ب. أدوات الأدوار والصلاحيات (Roles & Permissions Tools)
-- `list_permissions()`
-  - جلب كتالوج الصلاحيات المتاحة في النظام (`users.view`, `branches.manage`, `orders.view`, إلخ).
-- `create_role(name: string, display_name: string, permissions: string[])`
-  - إنشاء دور جديد وربط الصلاحيات المحددة عبر `StoreRoleRequest`.
-- `update_role_permissions(role_name_or_id: string|number, add_permissions?: string[], remove_permissions?: string[])`
-  - تعديل صلاحيات دور قائم.
-- `list_roles()`
-  - جلب قائمة الأدوار وموظفيها وصلاحياتها.
+| المسار | الوظيفة |
+| --- | --- |
+| GET/POST `conversations` | القائمة والإنشاء؛ `q` للبحث و`all=1` للمراجعين |
+| GET/DELETE `conversations/{conversation}` | العرض أو الحذف؛ حذف محادثتك فقط |
+| PATCH `conversations/{conversation}/pin` | تثبيت محادثتك عبر `is_pinned` |
+| POST `conversations/{conversation}/messages` | إرسال رسالة JSON |
+| POST `conversations/{conversation}/stream` | إرسال رسالة مع SSE: `status` ثم `reply` أو `error` |
+| POST `actions/{action}/confirm` | التأكيد؛ `typed_confirmation` و`selected_items` للمجموعة |
+| POST `actions/{action}/cancel` | الإلغاء |
+| POST `actions/{action}/undo` | التراجع |
+| GET `mentions` | مراجع حقيقية مقيدة بصلاحيات العرض والنطاق |
+| GET `usage` | استهلاك آخر 30 يوماً؛ `all=1` للمراجعين |
+| GET/PUT `settings` | إعدادات المساعد بصلاحية `ai_agent.settings` والوصول المركزي |
 
-### ج. أدوات المستخدمين والموظفين (User & Staff Management Tools)
-- `create_staff_user(name: string, email: string, phone: string, role: string, branch_id?: number, password?: string)`
-  - إضافة مستخدم جديد للنظام وتعيين دوره وفرعه عبر `StoreUserRequest` و`StaffAdministration`.
-- `toggle_user_status(user_id_or_email: string|number, is_active: boolean)`
-  - تفعيل أو إيقاف وصول مستخدم.
-- `assign_role_to_user(user_id_or_email: string|number, role: string)`
-  - تغيير دور الموظف مع تسجيل الحدث في `StaffAuthenticationAudit`.
-- `list_staff_users(branch_id?: number, role?: string)`
-  - استعراض الموظفين الحاليين.
+نتائج الأدوات وأجزاء المزود الداخلية لا تظهر كرسائل للمستخدم. مراجع الاختيارات والمنشن تعاد مطابقتها على السيرفر، وبيانات الموظفين في القراءة تعرض البريد بشكل مقنع.
 
----
+## أدوات المساعد
 
-## 4. البنية البرمجية الخلفية (Backend Architecture)
-1. **المسار (Route)**:
-   - `POST /api/v1/admin/ai/chat` (محمي بـ `auth:sanctum` و `auth.staff` والتأكد من دور `super-admin`).
-2. **الخدمة (Service)**:
-   - `App\Services\Ai\SuperAdminAgentService`:
-     - حقن `GeminiClient`.
-     - بناء الـ System Prompt متضمناً هوية المساعد وقواعد الحوكمة.
-     - تعريف Tool Definitions بتنسيق Google Gemini API Function Declarations.
-     - معالجة `functionCall` وتنفيذ العمليات داخل `DB::transaction`.
-     - تسجيل العمليات في سجل التدقيق `StaffAuthenticationAudit`.
+### الأدوات الأصلية (P02)
+| الأداة | النوع | الوصف |
+| --- | --- | --- |
+| `find_entities` | قراءة | بحث عن فروع أو موظفين أو أدوار أو صلاحيات أو مواقع تخزين |
+| `list_branches` | قراءة | قائمة الفروع |
+| `list_roles` | قراءة | قائمة الأدوار |
+| `list_permissions` | قراءة | كتالوج الصلاحيات |
+| `list_staff` | قراءة | قائمة الموظفين |
+| `explain_user_access` | قراءة | شرح أدوار وصلاحيات موظف |
+| `who_can` | قراءة | مين معاه صلاحية معينة |
+| `compare_roles` | قراءة | مقارنة صلاحيات دورين |
+| `recent_audit` | قراءة | آخر أحداث سجل التدقيق |
+| `ask_user_to_choose` | واجهة | اختيار كيان من قائمة |
+| `create_branch` | كتابة | إنشاء فرع |
+| `set_branch_status` | كتابة | تفعيل/تعطيل فرع |
+| `create_role` | كتابة | إنشاء دور |
+| `update_role_permissions` | كتابة | تعديل صلاحيات دور |
+| `delete_role` | كتابة | حذف دور |
+| `create_staff_user` | كتابة | إنشاء موظف |
+| `set_user_status` | كتابة | تفعيل/تعطيل موظف |
+| `assign_roles` | كتابة | تعديل أدوار موظف |
+| `revoke_user_sessions` | كتابة | تسجيل خروج موظف |
+| `bulk_actions` | كتابة | مجموعة تعديلات مستقلة |
 
----
+### أدوات P03 — المؤسسة والإدارة
+| الأداة | النوع | الوصف |
+| --- | --- | --- |
+| `list_locations` | قراءة | عرض مواقع التخزين في فرع |
+| `create_location` | كتابة | إنشاء موقع تخزين |
+| `set_location_status` | كتابة | تفعيل/تعطيل موقع (يدعم التراجع) |
+| `delete_location` | كتابة | حذف موقع (يرفض لو فيه أرصدة أو حركات) |
+| `view_settings` | قراءة | عرض إعدادات المؤسسة بالمجموعات |
+| `view_document_numbering` | قراءة | عرض بادئات المستندات وعدّاداتها (16 نوع) |
+| `update_settings` | كتابة | تعديل إعدادات (هوية، ضرائب، سياسات) |
+| `update_document_numbering` | كتابة | تعديل بادئة/عداد/طول ترقيم مستند |
 
-## 5. قواعد الحماية وتدقيق العمليات (Security & Audit)
-- التحقق الإجباري من هوية المنفّذ: يجب أن يمتلك صلاحية `super-admin`.
-- أي تعديل على المستخدمين أو الأدوار أو الفروع يسجل تلقائياً عبر `AuditStaffAdministration`.
-- تقييد نطاق الفروع (`BranchAccess`) والتكلفة (`CostAccess`) يظل مطبقاً على باقي المستخدمين.
+## التشغيل والتحقق
+
+طبّق migrations المساعد، ثم شغّل:
+
+```sh
+php artisan db:seed --class=AiAgentPermissionSeeder
+php artisan db:seed --class=SettingSeeder
+```
+
+الـseeder الأول يضيف صلاحيات المساعد ويمنحها لدور Super Admin الموجود، دون إعادة مزامنة بقية صلاحيات الأدوار. الـseeder الثاني يضيف الإعدادات الناقصة فقط.
+
+اضبط `GEMINI_API_KEY` و`GEMINI_MODEL`، ثم فعّل المساعد من «الاستهلاك والإعدادات». الإعداد الافتراضي `ai_enabled=false`. شغّل Laravel scheduler في بيئة الاستضافة لتنفيذ التنظيف.
+
+```sh
+php artisan test --compact --filter=AiAgentTest
+php artisan test --compact --filter=GeminiClientTest
+php artisan ai:evaluate --check
+# تقييم حي دون تنفيذ أي أدوات أو تعديل بيانات التطبيق:
+php artisan ai:evaluate --actor=STAFF_ID --min-accuracy=0.85
+```
+
+من مجلد `frontend`:
+
+```sh
+pnpm --filter @alfarid/backoffice build
+node --test tests/assistant.test.cjs
+node tests/assistant.e2e.cjs
+```
+
+اختبار المتصفح يستخدم استجابات API معزولة، ويغطي Vortix والتأكيد والمنشن والعمليات الجماعية والأخطاء والإعدادات والسجلات وأربع مقاسات شاشة.
+
+يتضمن `tests/Fixtures/ai-agent-egyptian.json` ستين حالة بالمصري. Workflow التقييم يتحقق من البيانات في PR، ويشغّل التقييم الحي على `main` أو يدوياً؛ يحتاج secret باسم `GEMINI_API_KEY` وvariable باسم `GEMINI_MODEL` أو اختيار الموديل عند التشغيل اليدوي. دقة النموذج الحية لا يمكن استنتاجها من الاختبارات المزيفة.
+
+تم التحقق حياً من إعدادات التطوير الحالية: المفتاح الموجود صالح، ومختلف عن المفتاح التاريخي في الـdemo، والموديل المضبوط `gemini-3.1-flash-lite`. نجحت دورة functionCall → functionResponse → رد نصي نهائي ببيانات تجريبية دون تعديل كيانات التطبيق. إذا لم يكن المفتاح التاريخي قد أُلغي من حساب Google بالفعل، فإزالته من الملف وحدها لا تلغيه عند المزود.
+
+التقييم يدعم خطوات البحث الوسيطة (حتى ست خطوات)، ويقارن صلاحيات التعديل المطلوبة بدقة، ولا يستدعي أي Action فعلي. المعدل الافتراضي 10 طلبات للمزود في الدقيقة (`--rpm=10`) لتقليل أخطاء 429. يمكن عزل حالة عبر `--case=egy-7-1`.
+
+## نتيجة التحقق المحلية — 2026-10-30
+
+- نجح الفحص الشامل للـBackend: 1355 اختباراً و18174 assertion. بعده نجحت مجموعات التغييرات الإضافية: AiAgentTest (26)، وGeminiClientTest (10)، وEntityResolverTest (2)، مع إعادة فحص الموظفين وحمايات الإدارة بعد توحيد Actions.
+- نجح بناء Backoffice وTypeScript، واختبارات العمليات (39) والجلسات (15) وعقود الإدارة (3) ومحلل SSE. نجح اختبار المتصفح على 320 و768 و1024 و1440، بما يشمل التأكيد، المنشن، العمليات الجماعية، حفظ المسودة عند فشل الطلب، السجلات، التثبيت، وروابط الموظفين ووصول الكاشير المصرح له.
+- التقييم الحي للموديل gemini-3.1-flash-lite: 58/60 = 96.7%، متجاوزاً حد 85%، دون أخطاء مزود في الدفعة الأخيرة ودون تنفيذ أي تعديلات فعلية. الحالتان غير المطابقتين كانتا صياغة اسم فرع أسوان، واختيار عرض قائمة بدلاً من picker.
+- فحص التنسيق وgit diff --check ناجحان. migrations وصلاحيات وإعدادات المساعد مطبقة على التطوير المحلي، مع إبقاء ai_enabled=false حسب الافتراضي المحدد.

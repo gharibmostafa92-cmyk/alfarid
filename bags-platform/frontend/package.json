@@ -13,6 +13,8 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "test:operations": "node --test tests/operations-core.test.cjs tests/operations-hooks.test.cjs tests/operations-commerce.test.cjs tests/operations-finance.test.cjs tests/operations-suppliers.test.cjs",
     "test:operations:e2e": "node tests/operations.e2e.cjs",
+    "test:assistant": "node --test tests/assistant.test.cjs",
+    "test:assistant:e2e": "node tests/assistant.e2e.cjs",
     "test:wholesale": "node --test tests/wholesale-portal.test.cjs",
     "test:wholesale:e2e": "node tests/wholesale-portal.e2e.cjs",
     "generate:types": "pnpm --filter @alfarid/api-client generate:types"

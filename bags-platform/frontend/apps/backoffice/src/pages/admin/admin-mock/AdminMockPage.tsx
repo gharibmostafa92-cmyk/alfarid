@@ -42,6 +42,7 @@ export default function AdminMockPage({ page, can, darkMode, theme, initialTab }
     return {
       role: roleParam ? (isNaN(Number(roleParam)) ? 'all' : Number(roleParam)) : 'all',
       roleId: roleIdParam && !isNaN(Number(roleIdParam)) ? Number(roleIdParam) : undefined,
+      userId: sp.get('userId') && /^[1-9][0-9]*$/.test(sp.get('userId')!) ? Number(sp.get('userId')) : undefined,
       tab: tabParam || initialTab || undefined,
     };
   }, [page, window.location.hash, initialTab]);
@@ -193,6 +194,7 @@ export default function AdminMockPage({ page, can, darkMode, theme, initialTab }
                   roles={roles}
                   onNavigate={handleNavigate}
                   initialRoleFilter={queryParams.role as any}
+                  initialUserId={queryParams.userId}
                 />
               )}
 

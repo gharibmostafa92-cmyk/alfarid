@@ -13,6 +13,7 @@ export const UI_MODULES: UiModule[] = [
   { module: 'finance', label: 'المالية والخزائن', icon: 'wallet', prefixes: ['payments','payment_notices','treasuries','expenses'] },
   { module: 'users', label: 'المستخدمون والأدوار', icon: 'users', prefixes: ['users','roles','permissions'] },
   { module: 'settings', label: 'الإعدادات والتقارير', icon: 'sliders', prefixes: ['settings','reports','notifications'] },
+  { module: 'ai', label: 'المساعد الذكي', icon: 'sparkles', prefixes: ['ai_agent'] },
 ];
 export const OTHER_MODULE: UiModule = { module: 'other', label: 'صلاحيات أخرى', icon: 'shield', prefixes: [] };
 
@@ -22,6 +23,7 @@ const ACTION: Record<string, string> = {
   receive: 'استلام', ship: 'شحن', adjust: 'تسوية', refund: 'رد أموال', post: 'ترحيل',
   cancel: 'إلغاء', allocate: 'حجز', access: 'دخول', price: 'تسعير', payment: 'تعديل حالة الدفع',
   view_cost: 'عرض التكلفة', all_branches: 'الوصول لكل الفروع', discount: 'خصم يدوي',
+  use: 'استخدام', execute: 'تنفيذ', 'logs.view': 'عرض سجلات المساعد',
   override_price: 'تعديل السعر عند البيع',
 };
 const RESOURCE: Record<string, string> = {
@@ -35,10 +37,14 @@ const RESOURCE: Record<string, string> = {
   returns: 'المرتجعات', shipping: 'الشحن', promotions: 'العروض', coupons: 'الكوبونات',
   store: 'إدارة المتجر',
   branches: 'الفروع', locations: 'المواقع', payments: 'المدفوعات', payment_notices: 'إشعارات الدفع',
-  reports: 'التقارير', notifications: 'الإشعارات', pos: 'نقطة البيع',
+  reports: 'التقارير', notifications: 'الإشعارات', pos: 'نقطة البيع', ai_agent: 'المساعد الذكي',
 };
 /** labels مخصوصة للمفاتيح اللي التركيب الآلي مش بيطلع لها اسم كويس */
 const OVERRIDES: Record<string, string> = {
+  'ai_agent.use': 'استخدام المساعد الذكي',
+  'ai_agent.execute': 'تنفيذ عمليات عبر المساعد الذكي',
+  'ai_agent.logs.view': 'عرض محادثات المساعد للموظفين',
+  'ai_agent.settings': 'تعديل إعدادات المساعد الذكي',
   'pos.access': 'الدخول إلى نقطة البيع',
   'pos.sales.view': 'عرض مبيعات نقطة البيع',
   'pos.sales.create': 'البيع من نقطة البيع',
@@ -50,6 +56,7 @@ const SENSITIVE = new Set<string>([
   'pos.discount','pos.override_price','pos.sales.refund','orders.payment',
   'purchases.approve','purchase_requests.approve','returns.approve','returns.refund',
   'supplier_invoices.post','supplier_invoices.cancel','supplier_payments.create',
+  'ai_agent.execute','ai_agent.logs.view','ai_agent.settings',
   'payment_notices.approve','settings.update','settings.manage','users.manage',
   'roles.create','roles.update','roles.delete','roles.manage','price_lists.import',
 ]);

@@ -16,9 +16,13 @@ use App\Enums\StaffRole;
 use App\Http\Requests\Api\V1\Admin\StoreBranchRequest;
 use App\Http\Requests\Api\V1\Admin\StoreRoleRequest;
 use App\Http\Requests\Api\V1\Admin\StoreUserRequest;
+use App\Enums\LocationType;
 use App\Models\AiConversation;
 use App\Models\AiPendingAction;
 use App\Models\Branch;
+use App\Models\Location;
+use App\Models\Setting;
+use App\Models\StockLevel;
 use App\Models\User;
 use App\Services\BranchAccess;
 use App\Services\CostAccess;
@@ -45,10 +49,11 @@ final class ToolRegistry
         $bool = ['type' => 'BOOLEAN'];
         $strArr = ['type' => 'ARRAY', 'items' => ['type' => 'STRING']];
         $branchTypes = array_column(BranchType::cases(), 'value');
+        $locationTypes = array_column(LocationType::cases(), 'value');
 
         return [
-            'bulk_actions' => ['kind' => ToolKind::Write, 'permissions' => ['branches.update', 'branches.manage', 'users.update', 'users.manage', 'roles.update', 'roles.manage'], 'risk' => 'high', 'declaration' => ['name' => 'bulk_actions', 'description' => 'اقتراح مجموعة تعديلات مستقلة بكارت واحد. راجع كل عنصر قبل التأكيد؛ لا تنفذ أي تعديل فوراً.', 'parameters' => $obj(['items' => ['type' => 'ARRAY', 'minItems' => 2, 'items' => $obj(['tool' => ['type' => 'STRING', 'enum' => ['set_branch_status', 'update_role_permissions', 'set_user_status', 'assign_roles', 'revoke_user_sessions']], 'args' => $obj(['branch_id' => $int, 'user_id' => $int, 'role_id' => $int, 'active' => $bool, 'add' => $strArr, 'remove' => $strArr])], ['tool', 'args'])]], ['items'])]],
-            'find_entities' => ['kind' => ToolKind::Read, 'permissions' => ['branches.view', 'branches.manage', 'users.view', 'users.manage', 'roles.view', 'roles.manage', 'permissions.view'], 'risk' => 'low', 'declaration' => ['name' => 'find_entities', 'description' => 'بحث عن فروع أو موظفين أو أدوار أو صلاحيات', 'parameters' => $obj(['type' => ['type' => 'STRING', 'enum' => ['branch', 'user', 'role', 'permission']], 'query' => $str], ['type', 'query'])]],
+            'bulk_actions' => ['kind' => ToolKind::Write, 'permissions' => ['branches.update', 'branches.manage', 'users.update', 'users.manage', 'roles.update', 'roles.manage'], 'risk' => 'high', 'declaration' => ['name' => 'bulk_actions', 'description' => 'اقتراح مجموعة تعديلات مستقلة بكارت واحد. راجع كل عنصر قبل التأكيد؛ لا تنفذ أي تعديل فوراً.', 'parameters' => $obj(['items' => ['type' => 'ARRAY', 'minItems' => 2, 'items' => $obj(['tool' => ['type' => 'STRING', 'enum' => ['set_branch_status', 'update_role_permissions', 'set_user_status', 'assign_roles', 'revoke_user_sessions', 'set_location_status', 'create_location']], 'args' => $obj(['branch_id' => $int, 'user_id' => $int, 'role_id' => $int, 'location_id' => $int, 'active' => $bool, 'add' => $strArr, 'remove' => $strArr, 'name' => $str, 'code' => $str, 'type' => $str])], ['tool', 'args'])]], ['items'])]],
+            'find_entities' => ['kind' => ToolKind::Read, 'permissions' => ['branches.view', 'branches.manage', 'users.view', 'users.manage', 'roles.view', 'roles.manage', 'permissions.view'], 'risk' => 'low', 'declaration' => ['name' => 'find_entities', 'description' => 'بحث عن فروع أو موظفين أو أدوار أو صلاحيات أو مواقع تخزين', 'parameters' => $obj(['type' => ['type' => 'STRING', 'enum' => ['branch', 'user', 'role', 'permission', 'location']], 'query' => $str, 'branch_id' => $int], ['type', 'query'])]],
             'list_branches' => ['kind' => ToolKind::Read, 'permissions' => ['branches.view', 'branches.manage'], 'risk' => 'low', 'declaration' => ['name' => 'list_branches', 'description' => 'قائمة الفروع (active=false للمتوقفة)', 'parameters' => $obj(['active' => $bool, 'city' => $str, 'type' => ['type' => 'STRING', 'enum' => $branchTypes]])]],
             'list_permissions' => ['kind' => ToolKind::Read, 'permissions' => ['permissions.view', 'roles.view', 'roles.manage'], 'risk' => 'low', 'declaration' => ['name' => 'list_permissions', 'description' => 'كتالوج الصلاحيات المتاحة', 'parameters' => $obj([])]],
             'list_roles' => ['kind' => ToolKind::Read, 'permissions' => ['roles.view', 'roles.manage'], 'risk' => 'low', 'declaration' => ['name' => 'list_roles', 'description' => 'قائمة الأدوار', 'parameters' => $obj([])]],
@@ -57,7 +62,7 @@ final class ToolRegistry
             'who_can' => ['kind' => ToolKind::Read, 'permissions' => ['roles.view', 'roles.manage', 'permissions.view'], 'risk' => 'low', 'declaration' => ['name' => 'who_can', 'description' => 'مين معاه صلاحية معينة', 'parameters' => $obj(['permission' => $str], ['permission'])]],
             'compare_roles' => ['kind' => ToolKind::Read, 'permissions' => ['roles.view', 'roles.manage'], 'risk' => 'low', 'declaration' => ['name' => 'compare_roles', 'description' => 'مقارنة صلاحيات دورين', 'parameters' => $obj(['role_a' => $int, 'role_b' => $int], ['role_a', 'role_b'])]],
             'recent_audit' => ['kind' => ToolKind::Read, 'permissions' => ['users.view', 'users.manage'], 'risk' => 'low', 'declaration' => ['name' => 'recent_audit', 'description' => 'آخر أحداث سجل التدقيق الإداري', 'parameters' => $obj(['days' => $int])]],
-            'ask_user_to_choose' => ['kind' => ToolKind::Ui, 'permissions' => ['branches.view', 'branches.manage', 'users.view', 'users.manage', 'roles.view', 'roles.manage'], 'risk' => 'low', 'declaration' => ['name' => 'ask_user_to_choose', 'description' => 'اطلب من المستخدم اختيار كيان من قائمة حقيقية', 'parameters' => $obj(['entity_type' => ['type' => 'STRING', 'enum' => ['branch', 'user', 'role']], 'purpose' => $str, 'query' => $str], ['entity_type', 'purpose'])]],
+            'ask_user_to_choose' => ['kind' => ToolKind::Ui, 'permissions' => ['branches.view', 'branches.manage', 'users.view', 'users.manage', 'roles.view', 'roles.manage'], 'risk' => 'low', 'declaration' => ['name' => 'ask_user_to_choose', 'description' => 'اطلب من المستخدم اختيار كيان من قائمة حقيقية', 'parameters' => $obj(['entity_type' => ['type' => 'STRING', 'enum' => ['branch', 'user', 'role', 'location']], 'purpose' => $str, 'query' => $str], ['entity_type', 'purpose'])]],
             'create_branch' => ['kind' => ToolKind::Write, 'permissions' => ['branches.create', 'branches.manage'], 'risk' => 'low', 'declaration' => ['name' => 'create_branch', 'description' => 'إنشاء فرع جديد (يحتاج تأكيد)', 'parameters' => $obj(['name' => $str, 'code' => $str, 'type' => ['type' => 'STRING', 'enum' => $branchTypes], 'city' => $str, 'phone' => $str], ['name', 'code', 'type'])]],
             'set_branch_status' => ['kind' => ToolKind::Write, 'permissions' => ['branches.update', 'branches.manage'], 'risk' => 'high', 'declaration' => ['name' => 'set_branch_status', 'description' => 'تفعيل أو تعطيل فرع (يحتاج تأكيد)', 'parameters' => $obj(['branch_id' => $int, 'branch_query' => $str, 'active' => $bool], ['active'])]],
             'create_role' => ['kind' => ToolKind::Write, 'permissions' => ['roles.create', 'roles.manage'], 'risk' => 'medium', 'declaration' => ['name' => 'create_role', 'description' => 'إنشاء دور جديد (يحتاج تأكيد)', 'parameters' => $obj(['name' => $str, 'permissions' => $strArr], ['name'])]],
@@ -67,6 +72,18 @@ final class ToolRegistry
             'set_user_status' => ['kind' => ToolKind::Write, 'permissions' => ['users.update', 'users.manage'], 'risk' => 'high', 'declaration' => ['name' => 'set_user_status', 'description' => 'تفعيل أو تعطيل موظف (يحتاج تأكيد)', 'parameters' => $obj(['user_id' => $int, 'active' => $bool], ['user_id', 'active'])]],
             'assign_roles' => ['kind' => ToolKind::Write, 'permissions' => ['users.update', 'users.manage'], 'risk' => 'high', 'declaration' => ['name' => 'assign_roles', 'description' => 'إضافة أو إزالة أدوار موظف (يحتاج تأكيد، بيخرجه من كل الأجهزة)', 'parameters' => $obj(['user_id' => $int, 'add' => $strArr, 'remove' => $strArr], ['user_id'])]],
             'revoke_user_sessions' => ['kind' => ToolKind::Write, 'permissions' => ['users.update', 'users.manage'], 'risk' => 'medium', 'declaration' => ['name' => 'revoke_user_sessions', 'description' => 'تسجيل خروج موظف من كل الأجهزة (يحتاج تأكيد)', 'parameters' => $obj(['user_id' => $int], ['user_id'])]],
+
+            // ── P03 Locations ──────────────────────────────────────────────────────
+            'list_locations' => ['kind' => ToolKind::Read, 'permissions' => ['branches.view', 'branches.manage'], 'risk' => 'low', 'declaration' => ['name' => 'list_locations', 'description' => 'عرض مواقع التخزين في فرع معين', 'parameters' => $obj(['branch_id' => $int, 'branch_query' => $str, 'type' => ['type' => 'STRING', 'enum' => $locationTypes]])]],
+            'create_location' => ['kind' => ToolKind::Write, 'permissions' => ['branches.update', 'branches.manage'], 'risk' => 'low', 'declaration' => ['name' => 'create_location', 'description' => 'إنشاء موقع تخزين جديد في فرع (يحتاج تأكيد)', 'parameters' => $obj(['branch_id' => $int, 'branch_query' => $str, 'name' => $str, 'code' => $str, 'type' => ['type' => 'STRING', 'enum' => $locationTypes]], ['name', 'code', 'type'])]],
+            'set_location_status' => ['kind' => ToolKind::Write, 'permissions' => ['branches.update', 'branches.manage'], 'risk' => 'medium', 'declaration' => ['name' => 'set_location_status', 'description' => 'تفعيل أو تعطيل موقع تخزين (يحتاج تأكيد)', 'parameters' => $obj(['location_id' => $int, 'active' => $bool], ['location_id', 'active'])]],
+            'delete_location' => ['kind' => ToolKind::Write, 'permissions' => ['branches.delete', 'branches.manage'], 'risk' => 'high', 'declaration' => ['name' => 'delete_location', 'description' => 'حذف موقع تخزين (يحتاج تأكيد، ممنوع لو فيه رصيد أو حركات)', 'parameters' => $obj(['location_id' => $int], ['location_id'])]],
+
+            // ── P03 Settings & Numbering ───────────────────────────────────────────
+            'view_settings' => ['kind' => ToolKind::Read, 'permissions' => ['settings.view', 'settings.manage'], 'risk' => 'low', 'declaration' => ['name' => 'view_settings', 'description' => 'عرض إعدادات المؤسسة (هوية الشركة، الضرائب، السياسات، الترقيم)', 'parameters' => $obj(['group' => ['type' => 'STRING', 'enum' => ['company', 'tax', 'policy', 'numbering', 'store', 'purchases', 'ai', 'all']]])]],
+            'view_document_numbering' => ['kind' => ToolKind::Read, 'permissions' => ['settings.view', 'settings.manage'], 'risk' => 'low', 'declaration' => ['name' => 'view_document_numbering', 'description' => 'عرض بادئات المستندات وعدّاداتها الحالية وعينة الرقم', 'parameters' => $obj(['type' => ['type' => 'STRING', 'enum' => ['order', 'invoice', 'purchase_order', 'quotation', 'transfer', 'stocktake', 'return', 'purchase_request', 'delivery', 'supplier_invoice', 'supplier_payment', 'shift', 'expense', 'treasury_transfer', 'payment_notice', 'movement', 'all']]])]],
+            'update_settings' => ['kind' => ToolKind::Write, 'permissions' => ['settings.manage'], 'risk' => 'high', 'declaration' => ['name' => 'update_settings', 'description' => 'تعديل إعدادات المؤسسة (يحتاج تأكيد). اقرأ الإعدادات الحالية أولاً بـ view_settings.', 'parameters' => $obj(['changes' => $obj(['company_name' => $str, 'company_email' => $str, 'company_phone' => $str, 'company_address' => $str, 'company_logo' => $str, 'commercial_register' => $str, 'tax_enabled' => $bool, 'tax_number' => $str, 'default_tax_rate' => ['type' => 'NUMBER'], 'prices_include_tax' => $bool, 'return_window_days' => $int, 'allow_self_approve_purchases' => $bool])], ['changes'])]],
+            'update_document_numbering' => ['kind' => ToolKind::Write, 'permissions' => ['settings.manage'], 'risk' => 'high', 'declaration' => ['name' => 'update_document_numbering', 'description' => 'تعديل بادئة أو عداد أو طول ترقيم مستند (يحتاج تأكيد). العداد لا ينخفض.', 'parameters' => $obj(['type' => ['type' => 'STRING', 'enum' => ['order', 'invoice', 'purchase_order', 'quotation', 'transfer', 'stocktake', 'return', 'purchase_request', 'delivery', 'supplier_invoice', 'supplier_payment', 'shift', 'expense', 'treasury_transfer', 'payment_notice', 'movement']], 'prefix' => $str, 'next_number' => $int, 'padding' => $int], ['type'])]],
         ];
     }
 
@@ -143,6 +160,9 @@ final class ToolRegistry
                 'recent_audit' => $this->recentAudit($actor, $args),
                 'ask_user_to_choose' => $this->picker($actor, $args),
                 'bulk_actions' => $this->prepareBulk($actor, $conv, $args),
+                'list_locations' => $this->listLocations($actor, $args),
+                'view_settings' => $this->viewSettings($actor, $args),
+                'view_document_numbering' => $this->viewDocumentNumbering($actor, $args),
                 default => $this->prepareWrite($actor, $conv, $name, $args),
             };
         } catch (ValidationException $e) {
@@ -180,7 +200,7 @@ final class ToolRegistry
             $args['email'] = mb_strtolower(trim($args['email']));
         }
         if ($name === 'bulk_actions') {
-            Validator::make($args, ['items' => ['required', 'array', 'min:2', 'max:'.max(1, (int) $this->settings->get('ai_bulk_max_items', 25))], 'items.*.tool' => ['required', Rule::in(['set_branch_status', 'update_role_permissions', 'set_user_status', 'assign_roles', 'revoke_user_sessions'])], 'items.*.args' => ['required', 'array']])->validate();
+            Validator::make($args, ['items' => ['required', 'array', 'min:2', 'max:'.max(1, (int) $this->settings->get('ai_bulk_max_items', 25))], 'items.*.tool' => ['required', Rule::in(['set_branch_status', 'update_role_permissions', 'set_user_status', 'assign_roles', 'revoke_user_sessions', 'set_location_status', 'create_location'])], 'items.*.args' => ['required', 'array']])->validate();
 
             return;
         }
@@ -188,7 +208,7 @@ final class ToolRegistry
         $rules = [];
         foreach ($schema['properties'] as $key => $property) {
             $rules[$key] = [in_array($key, $schema['required'] ?? [], true) ? 'required' : 'sometimes', match ($property['type']) {
-                'INTEGER' => 'integer', 'BOOLEAN' => 'boolean', 'ARRAY' => 'array', default => 'string'
+                'INTEGER' => 'integer', 'BOOLEAN' => 'boolean', 'ARRAY' => 'array', 'OBJECT' => 'array', 'NUMBER' => 'numeric', default => 'string'
             }];
             if ($property['type'] === 'STRING') {
                 $rules[$key][] = 'max:255';
@@ -245,6 +265,7 @@ final class ToolRegistry
             'branch' => ToolOutcome::data(['results' => $this->resolver->branches($actor, $query)]),
             'user' => ToolOutcome::data(['results' => $this->resolver->users($actor, $query)]),
             'role' => ToolOutcome::data(['results' => $this->resolver->roles($query)]),
+            'location' => ToolOutcome::data(['results' => $this->resolver->locations($actor, $query, isset($args['branch_id']) ? (int) $args['branch_id'] : null)]),
             'permission' => ToolOutcome::data(['results' => Permission::query()->where('guard_name', 'staff')->get()->filter(fn ($p) => EntityResolver::normalize($p->name) && str_contains(EntityResolver::normalize($p->name), EntityResolver::normalize($query)))->map(fn ($p) => ['id' => $p->name, 'label' => $p->name, 'meta' => ''])->values()->all()]),
             default => ToolOutcome::denied('نوع كيان غير معروف.'),
         };
@@ -276,6 +297,7 @@ final class ToolRegistry
             'user' => ['users.view', 'users.manage'],
             'role' => ['roles.view', 'roles.manage'],
             'permission' => ['permissions.view', 'roles.view', 'roles.manage'],
+            'location' => ['branches.view', 'branches.manage'],
             default => [],
         };
 
@@ -324,7 +346,7 @@ final class ToolRegistry
             return ToolOutcome::denied('معندكش صلاحية عرض النوع ده.');
         }
         $options = match ($type) {
-            'branch' => $this->resolver->branches($actor, $query), 'user' => $this->resolver->users($actor, $query), 'role' => $this->resolver->roles($query), default => []
+            'branch' => $this->resolver->branches($actor, $query), 'user' => $this->resolver->users($actor, $query), 'role' => $this->resolver->roles($query), 'location' => $this->resolver->locations($actor, $query), default => []
         };
 
         return ToolOutcome::picker(['type' => 'entity_picker', 'entity' => $type, 'purpose' => (string) ($args['purpose'] ?? ''), 'multi' => false, 'options' => $options]);
@@ -447,6 +469,11 @@ final class ToolRegistry
             'set_user_status' => $this->prepSetUserStatus($actor, $conv, $args),
             'assign_roles' => $this->prepAssignRoles($actor, $conv, $args),
             'revoke_user_sessions' => $this->prepRevokeSessions($actor, $conv, $args),
+            'create_location' => $this->prepCreateLocation($actor, $conv, $args),
+            'set_location_status' => $this->prepSetLocationStatus($actor, $conv, $args),
+            'delete_location' => $this->prepDeleteLocation($actor, $conv, $args),
+            'update_settings' => $this->prepUpdateSettings($actor, $conv, $args),
+            'update_document_numbering' => $this->prepUpdateDocNumbering($actor, $conv, $args),
             default => ToolOutcome::denied('أداة كتابة غير معروفة.'),
         };
     }
@@ -639,6 +666,11 @@ final class ToolRegistry
                 'set_user_status' => $this->execSetUserStatus($actor, $args, $via, $action),
                 'assign_roles' => $this->execAssignRoles($actor, $args, $via, $action),
                 'revoke_user_sessions' => $this->execRevoke($actor, $args, $via, $action),
+                'create_location' => $this->execCreateLocation($actor, $args, $via, $action),
+                'set_location_status' => $this->execSetLocationStatus($actor, $args, $via, $action),
+                'delete_location' => $this->execDeleteLocation($actor, $args, $via, $action),
+                'update_settings' => $this->execUpdateSettings($actor, $args, $via, $action),
+                'update_document_numbering' => $this->execUpdateDocNumbering($actor, $args, $via, $action),
                 default => ToolOutcome::result(false, 'أداة غير معروفة.'),
             };
         } catch (HttpExceptionInterface $e) {
@@ -705,7 +737,7 @@ final class ToolRegistry
 
     public function canUndo(AiPendingAction $action): bool
     {
-        return $action->inverse && in_array($action->tool, ['set_branch_status', 'update_role_permissions', 'set_user_status', 'assign_roles'], true);
+        return $action->inverse && in_array($action->tool, ['set_branch_status', 'update_role_permissions', 'set_user_status', 'assign_roles', 'set_location_status'], true);
     }
 
     public function targetState(AiPendingAction $action): string
@@ -713,6 +745,11 @@ final class ToolRegistry
         $args = $action->args;
         if (isset($args['branch_id']) && $action->tool === 'set_branch_status') {
             return $this->branchVersion(Branch::findOrFail($args['branch_id']));
+        }
+        if (isset($args['location_id']) && $action->tool === 'set_location_status') {
+            $loc = Location::findOrFail($args['location_id']);
+
+            return $this->hashArgs(['is_active' => (bool) $loc->is_active]);
         }
         if (isset($args['role_id'])) {
             $role = Role::findOrFail($args['role_id']);
@@ -815,6 +852,426 @@ final class ToolRegistry
         return ToolOutcome::result(true, 'تم تسجيل الخروج من كل الأجهزة.', ['user_id' => $user->id], ['type' => 'result', 'ok' => true, 'message' => 'تم تسجيل الخروج من كل الأجهزة.']);
     }
 
+    // ── P03: Locations ─────────────────────────────────────────────────────
+
+    private function resolveBranch(User $actor, array $args): ?Branch
+    {
+        if (! empty($args['branch_id'])) {
+            $branch = Branch::find((int) $args['branch_id']);
+            if ($branch) {
+                $restricted = $this->branches->restrictedBranch($actor);
+                if ($restricted !== null && (int) $branch->id !== $restricted) {
+                    return null;
+                }
+            }
+
+            return $branch;
+        }
+        if (! empty($args['branch_query'])) {
+            $opts = $this->resolver->branches($actor, (string) $args['branch_query']);
+            if (count($opts) === 1) {
+                return Branch::find($opts[0]['id']);
+            }
+        }
+
+        return null;
+    }
+
+    private function listLocations(User $actor, array $args): ToolOutcome
+    {
+        $branch = $this->resolveBranch($actor, $args);
+        if (! $branch) {
+            return $this->pickerFor($actor, 'branch', 'اختر الفرع لعرض مواقعه', (string) ($args['branch_query'] ?? ''));
+        }
+        $locations = $branch->locations()
+            ->when(isset($args['type']), fn ($q) => $q->where('type', $args['type']))
+            ->orderBy('id')
+            ->get(['id', 'name', 'code', 'type', 'is_active']);
+
+        if ($locations->isEmpty()) {
+            return ToolOutcome::data(['locations' => [], 'branch' => $branch->name, 'message' => 'مفيش مواقع تخزين في الفرع ده.']);
+        }
+
+        return ToolOutcome::data(
+            ['locations' => $locations->toArray(), 'branch' => $branch->name],
+            ['type' => 'table', 'columns' => ['ID', 'الاسم', 'الكود', 'النوع', 'الحالة'],
+                'rows' => $locations->map(fn ($l) => [$l->id, $l->name, $l->code, $l->type->value, $l->is_active ? 'نشط' : 'معطّل'])->all()]
+        );
+    }
+
+    private function prepCreateLocation(User $actor, AiConversation $conv, array $args): ToolOutcome
+    {
+        $branch = $this->resolveBranch($actor, $args);
+        if (! $branch) {
+            return $this->pickerFor($actor, 'branch', 'اختر الفرع لإنشاء الموقع فيه', (string) ($args['branch_query'] ?? ''));
+        }
+        try {
+            $this->branches->assertBranch($actor->id, $branch->id);
+        } catch (\Throwable) {
+            return ToolOutcome::denied('الفرع خارج نطاقك.');
+        }
+        $data = [
+            'branch_id' => $branch->id,
+            'name' => (string) $args['name'],
+            'code' => mb_strtoupper(trim((string) $args['code'])),
+            'type' => (string) $args['type'],
+        ];
+        $warnings = [];
+        if ($branch->locations()->where('code', $data['code'])->exists()) {
+            $warnings[] = 'الكود ده مستخدم بالفعل في الفرع ده.';
+        }
+
+        return $this->makeProposal($actor, $conv, 'create_location', $data, [],
+            ['title' => 'إنشاء موقع '.$data['name'].' في '.$branch->name,
+                'after' => array_merge($data, ['branch_name' => $branch->name]),
+                'warnings' => $warnings], null, 'low');
+    }
+
+    private function execCreateLocation(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
+    {
+        $branch = Branch::findOrFail($args['branch_id']);
+        $this->branches->assertBranch($actor->id, $branch->id);
+        StaffAdministration::authorize($actor, ['branches.update', 'branches.manage']);
+
+        $location = $branch->locations()->create([
+            'name' => $args['name'],
+            'code' => $args['code'],
+            'type' => $args['type'],
+            'is_active' => true,
+        ]);
+
+        StaffAdministration::audit($actor, 'location.created', 'location', $location->id,
+            [], [], ['name' => $args['name'], 'code' => $args['code'], 'branch' => $branch->name], $via);
+
+        $action->forceFill(['inverse' => ['location_id' => $location->id]])->save();
+
+        return ToolOutcome::result(true, 'تم إنشاء الموقع.', ['location_id' => $location->id],
+            ['type' => 'result', 'ok' => true, 'message' => 'تم إنشاء موقع '.$args['name'].' ('.$args['code'].') في '.$branch->name,
+                'deep_link' => '/branches?branchId='.$branch->id]);
+    }
+
+    private function prepSetLocationStatus(User $actor, AiConversation $conv, array $args): ToolOutcome
+    {
+        $location = Location::find((int) ($args['location_id'] ?? 0));
+        if (! $location) {
+            return ToolOutcome::denied('الموقع مش موجود.');
+        }
+        try {
+            $this->branches->assertBranch($actor->id, $location->branch_id);
+        } catch (\Throwable) {
+            return ToolOutcome::denied('الفرع خارج نطاقك.');
+        }
+        $branch = Branch::find($location->branch_id);
+        $active = (bool) ($args['active'] ?? false);
+        $warnings = [];
+        if (! $active) {
+            $hasStock = StockLevel::query()->where('location_id', $location->id)->hasNonZeroBalance()->exists();
+            if ($hasStock) {
+                $warnings[] = 'الموقع فيه أرصدة مخزنية.';
+            }
+        }
+
+        return $this->makeProposal($actor, $conv, 'set_location_status',
+            ['location_id' => $location->id, 'active' => $active], [],
+            ['title' => ($active ? 'تفعيل ' : 'تعطيل ').$location->name.' في '.($branch?->name ?? ''),
+                'before' => ['is_active' => (bool) $location->is_active],
+                'after' => ['is_active' => $active],
+                'warnings' => $warnings],
+            ['is_active' => (bool) $location->is_active], $active ? 'low' : 'medium');
+    }
+
+    private function execSetLocationStatus(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
+    {
+        $location = Location::findOrFail($args['location_id']);
+        $this->branches->assertBranch($actor->id, $location->branch_id);
+        StaffAdministration::authorize($actor, ['branches.update', 'branches.manage']);
+
+        $location->update(['is_active' => (bool) $args['active']]);
+        $branch = Branch::find($location->branch_id);
+        StaffAdministration::audit($actor, $args['active'] ? 'location.activated' : 'location.deactivated', 'location', $location->id,
+            [], ['is_active' => ! $args['active']], ['is_active' => $args['active']], $via);
+
+        return ToolOutcome::result(true, $args['active'] ? 'تم تفعيل الموقع.' : 'تم تعطيل الموقع.',
+            ['location_id' => $location->id],
+            ['type' => 'result', 'ok' => true, 'message' => 'تم تحديث حالة الموقع.',
+                'deep_link' => '/branches?branchId='.$location->branch_id]);
+    }
+
+    private function prepDeleteLocation(User $actor, AiConversation $conv, array $args): ToolOutcome
+    {
+        $location = Location::find((int) ($args['location_id'] ?? 0));
+        if (! $location) {
+            return ToolOutcome::denied('الموقع مش موجود.');
+        }
+        try {
+            $this->branches->assertBranch($actor->id, $location->branch_id);
+        } catch (\Throwable) {
+            return ToolOutcome::denied('الفرع خارج نطاقك.');
+        }
+        $branch = Branch::find($location->branch_id);
+        $warnings = [];
+        $hasMovements = DB::table('stock_movements')->where('location_id', $location->id)->exists();
+        if ($hasMovements) {
+            $warnings[] = 'الموقع مرتبط بحركات مخزنية — الحذف هيترفض.';
+        }
+        $hasBalances = StockLevel::query()->where('location_id', $location->id)
+            ->hasNonZeroBalance()
+            ->exists();
+        if ($hasBalances) {
+            $warnings[] = 'الموقع فيه أرصدة — صفّرها أولاً.';
+        }
+
+        return $this->makeProposal($actor, $conv, 'delete_location',
+            ['location_id' => $location->id], [],
+            ['title' => 'حذف موقع '.$location->name.' ('.$location->code.') من '.($branch?->name ?? ''),
+                'before' => ['name' => $location->name, 'code' => $location->code, 'type' => $location->type->value],
+                'warnings' => $warnings], null, 'high');
+    }
+
+    private function execDeleteLocation(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
+    {
+        $location = Location::findOrFail($args['location_id']);
+        $this->branches->assertBranch($actor->id, $location->branch_id);
+        StaffAdministration::authorize($actor, ['branches.delete', 'branches.manage']);
+
+        $hasMovements = DB::table('stock_movements')->where('location_id', $location->id)->exists();
+        if ($hasMovements) {
+            return ToolOutcome::result(false, 'لا يمكن حذف الموقع لارتباطه بحركات مخزنية.');
+        }
+        $hasBalances = StockLevel::query()->where('location_id', $location->id)
+            ->hasNonZeroBalance()
+            ->exists();
+        if ($hasBalances) {
+            return ToolOutcome::result(false, 'لا يمكن حذف الموقع وفيه أرصدة. صفّرها أولاً.');
+        }
+
+        StockLevel::query()->where('location_id', $location->id)->delete();
+
+        $branch = Branch::find($location->branch_id);
+        $name = $location->name;
+        StaffAdministration::audit($actor, 'location.deleted', 'location', $location->id,
+            [], ['name' => $name, 'code' => $location->code], [], $via);
+        $location->delete();
+
+        return ToolOutcome::result(true, 'تم حذف الموقع.', [],
+            ['type' => 'result', 'ok' => true, 'message' => 'تم حذف موقع '.$name.' من '.($branch?->name ?? ''),
+                'deep_link' => '/branches?branchId='.($branch?->id ?? '')]);
+    }
+
+    // ── P03: Settings & Document Numbering ─────────────────────────────────
+
+    private function viewSettings(User $actor, array $args): ToolOutcome
+    {
+        try {
+            $this->branches->assertCentralAccess($actor);
+        } catch (\Throwable) {
+            return ToolOutcome::denied('عرض الإعدادات محتاج وصول مركزي.');
+        }
+        $all = $this->settings->getAllGrouped();
+        $group = (string) ($args['group'] ?? 'all');
+
+        // حماية إعدادات AI
+        if (! $actor->can('ai_agent.settings')) {
+            unset($all['ai']);
+        }
+
+        if ($group !== 'all' && $group !== '') {
+            $data = $all[$group] ?? [];
+            if ($data === []) {
+                return ToolOutcome::denied('المجموعة "'.$group.'" مش موجودة أو فاضية.');
+            }
+
+            return ToolOutcome::data(['settings' => $data, 'group' => $group]);
+        }
+
+        return ToolOutcome::data(['settings' => $all]);
+    }
+
+    private function viewDocumentNumbering(User $actor, array $args): ToolOutcome
+    {
+        try {
+            $this->branches->assertCentralAccess($actor);
+        } catch (\Throwable) {
+            return ToolOutcome::denied('عرض الترقيم محتاج وصول مركزي.');
+        }
+
+        $allTypes = ['order', 'invoice', 'purchase_order', 'quotation', 'transfer', 'stocktake',
+            'return', 'purchase_request', 'delivery', 'supplier_invoice', 'supplier_payment',
+            'shift', 'expense', 'treasury_transfer', 'payment_notice', 'movement'];
+
+        $type = (string) ($args['type'] ?? 'all');
+
+        $readNumbering = function (string $t): array {
+            $prefix = $this->settings->get($t.'_prefix', '');
+            $next = $this->settings->get($t.'_next_number', 1);
+            $padding = (int) $this->settings->get($t.'_padding', 6);
+
+            return [
+                'type' => $t,
+                'prefix' => $prefix,
+                'next_number' => $next,
+                'padding' => $padding,
+                'sample' => $prefix.str_pad((string) $next, $padding, '0', STR_PAD_LEFT),
+            ];
+        };
+
+        if ($type !== 'all' && $type !== '') {
+            if (! in_array($type, $allTypes, true)) {
+                return ToolOutcome::denied('نوع مستند غير معروف.');
+            }
+
+            return ToolOutcome::data(['numbering' => $readNumbering($type)]);
+        }
+
+        $rows = [];
+        foreach ($allTypes as $t) {
+            $info = $readNumbering($t);
+            $rows[] = [$info['type'], $info['prefix'], $info['next_number'], $info['padding'], $info['sample']];
+        }
+
+        return ToolOutcome::data(
+            ['numbering' => $rows],
+            ['type' => 'table', 'columns' => ['النوع', 'البادئة', 'العداد', 'الطول', 'عينة'], 'rows' => $rows]
+        );
+    }
+
+    private function prepUpdateSettings(User $actor, AiConversation $conv, array $args): ToolOutcome
+    {
+        try {
+            $this->branches->assertCentralAccess($actor);
+        } catch (\Throwable) {
+            return ToolOutcome::denied('تعديل الإعدادات محتاج وصول مركزي.');
+        }
+        $changes = $args['changes'] ?? [];
+        if (empty($changes)) {
+            return ToolOutcome::denied('مفيش تغييرات.');
+        }
+
+        // منع تعديل AI settings بدون صلاحية
+        $aiKeys = array_filter(array_keys($changes), fn ($k) => str_starts_with($k, 'ai_'));
+        if ($aiKeys !== [] && ! $actor->can('ai_agent.settings')) {
+            return ToolOutcome::denied('تعديل إعدادات الذكاء الاصطناعي محتاج صلاحية ai_agent.settings.');
+        }
+
+        // منع تعديل ترقيم من هنا — ليها أداة مخصوصة
+        $numberingKeys = array_filter(array_keys($changes), fn ($k) => str_ends_with($k, '_prefix') || str_ends_with($k, '_next_number') || str_ends_with($k, '_padding'));
+        if ($numberingKeys !== []) {
+            return ToolOutcome::denied('ترقيم المستندات يتعدل من أداة update_document_numbering.');
+        }
+
+        // التحقق إن المفاتيح موجودة ومسموحة
+        $allowedKeys = array_keys((new \App\Http\Requests\Api\V1\Admin\UpdateSettingsRequest)->rules());
+        $unknownKeys = array_diff(array_keys($changes), $allowedKeys);
+        if ($unknownKeys !== []) {
+            return ToolOutcome::denied('إعدادات غير معروفة: '.implode(', ', $unknownKeys));
+        }
+
+        // قراءة القيم الحالية
+        $current = [];
+        foreach (array_keys($changes) as $key) {
+            $current[$key] = $this->settings->get($key);
+        }
+
+        $warnings = [];
+        if (isset($changes['tax_enabled']) && ! $changes['tax_enabled']) {
+            $warnings[] = 'تعطيل الضرائب هيأثر على كل الفواتير الجديدة.';
+        }
+        if (isset($changes['return_window_days'])) {
+            if ($changes['return_window_days'] === 0) {
+                $warnings[] = 'الإرجاع هيكون متوقف تماماً.';
+            } elseif ($changes['return_window_days'] < 0) {
+                $warnings[] = 'الإرجاع هيكون بلا حد زمني.';
+            }
+        }
+
+        return $this->makeProposal($actor, $conv, 'update_settings',
+            ['changes' => $changes, 'expected' => $current], [],
+            ['title' => 'تعديل '.count($changes).' إعداد',
+                'before' => $current, 'after' => $changes,
+                'warnings' => $warnings], $current, 'high');
+    }
+
+    private function execUpdateSettings(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
+    {
+        $this->branches->assertCentralAccess($actor);
+        StaffAdministration::authorize($actor, ['settings.manage']);
+        $this->settings->updateBatch($args['changes'], $args['expected']);
+
+        return ToolOutcome::result(true, 'تم تحديث الإعدادات.',
+            ['updated_keys' => array_keys($args['changes'])],
+            ['type' => 'result', 'ok' => true,
+                'message' => 'تم تحديث '.count($args['changes']).' إعداد.',
+                'deep_link' => '/settings']);
+    }
+
+    private function prepUpdateDocNumbering(User $actor, AiConversation $conv, array $args): ToolOutcome
+    {
+        try {
+            $this->branches->assertCentralAccess($actor);
+        } catch (\Throwable) {
+            return ToolOutcome::denied('تعديل الترقيم محتاج وصول مركزي.');
+        }
+        $type = (string) ($args['type'] ?? '');
+        if ($type === '') {
+            return ToolOutcome::denied('نوع المستند مطلوب.');
+        }
+
+        $changes = [];
+        $current = [];
+        if (isset($args['prefix'])) {
+            $key = $type.'_prefix';
+            $changes[$key] = (string) $args['prefix'];
+            $current[$key] = $this->settings->get($key, '');
+        }
+        if (isset($args['next_number'])) {
+            $key = $type.'_next_number';
+            $changes[$key] = (int) $args['next_number'];
+            $current[$key] = $this->settings->get($key, 1);
+        }
+        if (isset($args['padding'])) {
+            $key = $type.'_padding';
+            $changes[$key] = (int) $args['padding'];
+            $current[$key] = $this->settings->get($key, 6);
+        }
+
+        if (empty($changes)) {
+            return ToolOutcome::denied('حدد قيمة واحدة على الأقل (prefix أو next_number أو padding).');
+        }
+
+        $warnings = [];
+        if (isset($args['next_number'])) {
+            $currentNext = $current[$type.'_next_number'] ?? 1;
+            if ($args['next_number'] < $currentNext) {
+                $warnings[] = 'العداد لا ينخفض — لو القيمة أقل من الحالية هتتجاهل.';
+            }
+        }
+
+        // بناء عينة الرقم الجديد
+        $newPrefix = $changes[$type.'_prefix'] ?? $this->settings->get($type.'_prefix', '');
+        $newNext = $changes[$type.'_next_number'] ?? $this->settings->get($type.'_next_number', 1);
+        $newPadding = $changes[$type.'_padding'] ?? $this->settings->get($type.'_padding', 6);
+        $sample = $newPrefix.str_pad((string) $newNext, $newPadding, '0', STR_PAD_LEFT);
+
+        return $this->makeProposal($actor, $conv, 'update_document_numbering',
+            ['type' => $type, 'changes' => $changes, 'expected' => $current], [],
+            ['title' => 'تعديل ترقيم '.$type,
+                'before' => $current, 'after' => array_merge($changes, ['sample' => $sample]),
+                'warnings' => $warnings], $current, 'high');
+    }
+
+    private function execUpdateDocNumbering(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
+    {
+        $this->branches->assertCentralAccess($actor);
+        StaffAdministration::authorize($actor, ['settings.manage']);
+        $this->settings->updateBatch($args['changes'], $args['expected']);
+
+        return ToolOutcome::result(true, 'تم تحديث ترقيم '.$args['type'].'.',
+            ['type' => $args['type'], 'updated_keys' => array_keys($args['changes'])],
+            ['type' => 'result', 'ok' => true,
+                'message' => 'تم تحديث ترقيم '.$args['type'].'.',
+                'deep_link' => '/settings']);
+    }
+
     public function executeUndo(User $actor, AiPendingAction $action, array $via): ToolOutcome
     {
         $inv = $action->inverse ?? [];
@@ -845,6 +1302,14 @@ final class ToolRegistry
                 $f = app(UpdateStaffUser::class)($actor, $u, ['roles' => $inv['roles']], $via);
 
                 return $f ? ToolOutcome::result(false, 'مش مسموح.') : ToolOutcome::result(true, 'تم التراجع.');
+            }
+            if ($tool === 'set_location_status' && isset($inv['is_active'])) {
+                $loc = Location::findOrFail($args['location_id']);
+                $this->branches->assertBranch($actor->id, $loc->branch_id);
+                $loc->update(['is_active' => (bool) $inv['is_active']]);
+                StaffAdministration::audit($actor, 'location.status_undone', 'location', $loc->id, [], [], ['is_active' => $inv['is_active']], $via);
+
+                return ToolOutcome::result(true, 'تم التراجع.');
             }
 
             return ToolOutcome::result(false, 'العملية دي مفيهاش تراجع تلقائي.');

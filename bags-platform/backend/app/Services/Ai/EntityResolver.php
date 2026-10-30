@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Ai;
 
 use App\Models\Branch;
+use App\Models\Location;
 use App\Models\User;
 use App\Services\BranchAccess;
 use Spatie\Permission\Models\Permission;
@@ -73,6 +74,31 @@ final class EntityResolver
             ->take(50)->map(fn (Role $r) => ['id' => $r->id, 'label' => $r->name, 'meta' => 'موظفين: '.$r->users_count.' · صلاحيات: '.$r->permissions_count])->values()->all();
     }
 
+    /** @return list<array{id:int,label:string,meta:string}> */
+    public function locations(User $actor, string $query = '', ?int $branchId = null): array
+    {
+        $restricted = $this->restricted($actor);
+        if ($restricted === -1) {
+            return [];
+        }
+        $items = Location::query()
+            ->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
+            ->when($restricted !== null && $branchId === null, fn ($q) => $q->where('branch_id', $restricted))
+            ->orderBy('id')
+            ->lazy(200)
+            ->filter(fn (Location $l) => $query === '' || $this->matches($query, [$l->name, $l->code]))
+            ->take(50)
+            ->map(fn (Location $l) => [
+                'id' => $l->id,
+                'label' => $l->name.' ('.$l->code.')',
+                'meta' => trim(($l->type?->value ?? '').' · '.($l->is_active ? 'نشط' : 'معطّل').' · فرع: '.$l->branch_id),
+            ])
+            ->values()
+            ->all();
+
+        return $items;
+    }
+
     public function maskEmail(?string $email): string
     {
         if (! $email || ! str_contains($email, '@')) {
@@ -125,6 +151,7 @@ final class EntityResolver
             'user' => User::query()->where('is_system', false)->when($branch !== null, fn ($q) => $q->where('branch_id', $branch))->find($id),
             'role' => Role::query()->where('guard_name', 'staff')->find($id),
             'permission' => Permission::query()->where('guard_name', 'staff')->where('name', $id)->first(),
+            'location' => Location::query()->when($branch !== null, fn ($q) => $q->where('branch_id', $branch))->find($id),
             default => null,
         };
         abort_unless($model, 422, 'الاختيار مش موجود أو خارج نطاقك.');

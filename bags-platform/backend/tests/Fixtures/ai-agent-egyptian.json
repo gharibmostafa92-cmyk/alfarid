@@ -31,6 +31,32 @@
         "id": 12,
         "name": "سارة"
       }
+    ],
+    "locations": [
+      {
+        "id": 101,
+        "name": "رف A-01",
+        "code": "SH-A01",
+        "type": "shelf",
+        "branch_id": 7,
+        "branch_name": "المعادي"
+      },
+      {
+        "id": 102,
+        "name": "منطقة التالف",
+        "code": "DMG-01",
+        "type": "damaged",
+        "branch_id": 7,
+        "branch_name": "المعادي"
+      },
+      {
+        "id": 103,
+        "name": "منطقة الاستلام",
+        "code": "RCV-01",
+        "type": "receiving",
+        "branch_id": 8,
+        "branch_name": "الدقي"
+      }
     ]
   },
   "cases": [
@@ -531,6 +557,158 @@
       "text": "وقف فرعي المعادي والدقي بكارت تأكيد واحد",
       "tool": "bulk_actions",
       "args": {}
+    },
+
+    {
+      "id": "egy-21-1",
+      "text": "وريني مواقع التخزين في فرع المعادي",
+      "tool": "list_locations",
+      "args": {"branch_id": 7}
+    },
+    {
+      "id": "egy-21-2",
+      "text": "اعرض المواقع بتاعت المعادي",
+      "tool": "list_locations",
+      "args": {"branch_id": 7}
+    },
+    {
+      "id": "egy-21-3",
+      "text": "إيه الأماكن الموجودة في فرع المعادي؟",
+      "tool": "list_locations",
+      "args": {"branch_id": 7}
+    },
+
+    {
+      "id": "egy-22-1",
+      "text": "اعمل موقع تخزين جديد في المعادي اسمه رف B-02 كوده SH-B02 نوعه shelf",
+      "tool": "create_location",
+      "args": {"name": "رف B-02", "code": "SH-B02", "type": "shelf", "branch_id": 7}
+    },
+    {
+      "id": "egy-22-2",
+      "text": "ضيف رف جديد في فرع المعادي اسمه رف B-02 بكود SH-B02",
+      "tool": "create_location",
+      "args": {"name": "رف B-02", "code": "SH-B02", "type": "shelf"}
+    },
+    {
+      "id": "egy-22-3",
+      "text": "أنشئ موقع shelf في المعادي اسمه رف B-02 كوده SH-B02",
+      "tool": "create_location",
+      "args": {"name": "رف B-02", "code": "SH-B02", "type": "shelf"}
+    },
+
+    {
+      "id": "egy-23-1",
+      "text": "عطّل موقع منطقة التالف",
+      "tool": "set_location_status",
+      "args": {"location_id": 102, "active": false}
+    },
+    {
+      "id": "egy-23-2",
+      "text": "وقف موقع التالف اللي في المعادي",
+      "tool": "set_location_status",
+      "args": {"active": false}
+    },
+    {
+      "id": "egy-23-3",
+      "text": "خلّي منطقة التالف غير نشطة",
+      "tool": "set_location_status",
+      "args": {"active": false}
+    },
+
+    {
+      "id": "egy-24-1",
+      "text": "امسح موقع منطقة الاستلام في الدقي",
+      "tool": "delete_location",
+      "args": {"location_id": 103}
+    },
+    {
+      "id": "egy-24-2",
+      "text": "احذف موقع الاستلام بتاع فرع الدقي",
+      "tool": "delete_location",
+      "args": {"location_id": 103}
+    },
+    {
+      "id": "egy-24-3",
+      "text": "شيل موقع الاستلام من الدقي",
+      "tool": "delete_location",
+      "args": {"location_id": 103}
+    },
+
+    {
+      "id": "egy-25-1",
+      "text": "وريني إعدادات الضريبة",
+      "tool": "view_settings",
+      "args": {"group": "tax"}
+    },
+    {
+      "id": "egy-25-2",
+      "text": "إيه نسبة الضريبة الحالية؟",
+      "tool": "view_settings",
+      "args": {"group": "tax"}
+    },
+    {
+      "id": "egy-25-3",
+      "text": "اعرضلي إعدادات الضرائب",
+      "tool": "view_settings",
+      "args": {"group": "tax"}
+    },
+
+    {
+      "id": "egy-26-1",
+      "text": "وريني ترقيم فواتير المبيعات",
+      "tool": "view_document_numbering",
+      "args": {"type": "invoice"}
+    },
+    {
+      "id": "egy-26-2",
+      "text": "إيه بادئة فواتير المبيعات دلوقتي؟",
+      "tool": "view_document_numbering",
+      "args": {"type": "invoice"}
+    },
+    {
+      "id": "egy-26-3",
+      "text": "اعرض إعدادات رقم الفاتورة",
+      "tool": "view_document_numbering",
+      "args": {"type": "invoice"}
+    },
+
+    {
+      "id": "egy-27-1",
+      "text": "غيّر بادئة أوامر الشراء لـ PO-",
+      "tool": "update_document_numbering",
+      "args": {"type": "purchase_order", "prefix": "PO-"}
+    },
+    {
+      "id": "egy-27-2",
+      "text": "خلي بادئة أمر الشراء PO- بدل ما هي عليه",
+      "tool": "update_document_numbering",
+      "args": {"type": "purchase_order", "prefix": "PO-"}
+    },
+    {
+      "id": "egy-27-3",
+      "text": "عدّل بريفكس purchase order يبقى PO-",
+      "tool": "update_document_numbering",
+      "args": {"type": "purchase_order", "prefix": "PO-"}
+    },
+
+    {
+      "id": "egy-28-1",
+      "text": "خلي نافذة الإرجاع 30 يوم",
+      "tool": "update_settings",
+      "args": {"changes": {"return_window_days": 30}}
+    },
+    {
+      "id": "egy-28-2",
+      "text": "غيّر مدة الإرجاع لـ 30 يوم بدل 14",
+      "tool": "update_settings",
+      "args": {"changes": {"return_window_days": 30}}
+    },
+    {
+      "id": "egy-28-3",
+      "text": "عدّل سياسة الإرجاع تبقى 30 يوم",
+      "tool": "update_settings",
+      "args": {"changes": {"return_window_days": 30}}
     }
   ]
 }
