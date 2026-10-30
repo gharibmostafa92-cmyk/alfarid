@@ -21,6 +21,7 @@ use App\Models\TreasuryTransfer;
 use App\Models\User;
 use App\Models\WholesalePaymentNotice;
 use App\Observers\CatalogRetailPriceObserver;
+use App\Services\Auth\NetworkIdentity;
 use App\Services\BranchAccess;
 use App\Services\PricingService;
 use App\Services\SettingService;
@@ -114,7 +115,7 @@ class AppServiceProvider extends ServiceProvider
         // every IP bucket (SMS pumping, coupon guessing, account stuffing).
         // Collapse IPv6 to its /64; IPv4 stays as-is (one IPv4 may hide a
         // whole CGNAT cell, so it must not carry a daily budget alone).
-        $networkIp = \App\Services\Auth\NetworkIdentity::forRequest(...);
+        $networkIp = NetworkIdentity::forRequest(...);
         RateLimiter::for('customer-registration', fn (Request $request) => [
             Limit::perMinute(config('auth.customer_limits.registration_ip_minute', 20))->by('customer-register-minute:'.$networkIp($request)),
             Limit::perDay(config('auth.customer_limits.registration_ip_day', 500))->by('customer-register-day:'.$networkIp($request)),
@@ -336,6 +337,7 @@ class AppServiceProvider extends ServiceProvider
         });
 
         RateLimiter::for('unified-handoff', fn (Request $request) => Limit::perMinute((int) config('auth.unified_handoff_ip_minute', 60))->by($networkIp($request)));
+        RateLimiter::for('ai-chat', fn (Request $request) => Limit::perMinute(20)->by('ai-chat:'.($request->user('staff')?->id ?? $networkIp($request))));
 
         // M8: الـ handoff يعتمد على cache مشترك يدعم الأقفال عبر الخوادم.
         // file/array يكسرانه بصمت على عدة nodes — نبّه في الإنتاج مبكرًا.

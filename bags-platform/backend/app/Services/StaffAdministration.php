@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Enums\StaffRole;
+use App\Models\Branch;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
@@ -77,6 +78,47 @@ final class StaffAdministration
      *
      * @return array{name: string, permissions: list<string>}
      */
+    /** @return array{name: string, is_active: bool} */
+    public static function mayGrantPermissions(?User $actor, array $permissions): bool
+    {
+        if (! $actor instanceof User) {
+            return false;
+        }
+        $actor->unsetRelation('roles')->unsetRelation('permissions');
+
+        return $actor->hasRole(StaffRole::SuperAdmin->value, 'staff') || $actor->hasAllPermissions(array_values(array_unique($permissions)));
+    }
+
+    /** @param list<string> $roles */
+    public static function mayManageUser(mixed $actor, ?User $target = null, array $roles = []): bool
+    {
+        if (! $actor instanceof User) {
+            return false;
+        }
+        $actor->unsetRelation('roles')->unsetRelation('permissions');
+        if ($target?->is_system) {
+            return false;
+        }
+        if ($actor->hasRole(StaffRole::SuperAdmin->value, 'staff')) {
+            return true;
+        }
+        if (in_array(StaffRole::SuperAdmin->value, $roles, true) || $target?->hasRole(StaffRole::SuperAdmin->value, 'staff')) {
+            return false;
+        }
+        $permissions = Role::query()->where('guard_name', 'staff')->whereIn('name', $roles)->with('permissions')->get()
+            ->flatMap(fn (Role $role) => $role->permissions->pluck('name'));
+        if ($target !== null) {
+            $permissions = $permissions->merge($target->getAllPermissions()->pluck('name'));
+        }
+
+        return $actor->hasAllPermissions($permissions->unique()->all());
+    }
+
+    public static function branchState(Branch $branch): array
+    {
+        return ['name' => $branch->name, 'is_active' => (bool) $branch->is_active];
+    }
+
     public static function roleState(Role $role): array
     {
         return ['name' => $role->name, 'permissions' => $role->permissions()->orderBy('name')->pluck('name')->all()];
@@ -85,7 +127,7 @@ final class StaffAdministration
     /**
      * Shared-lock roles in deterministic ID order to ensure they exist and prevent deletion during assignment.
      *
-     * @param list<string> $names
+     * @param  list<string>  $names
      */
     public static function lockRoles(array $names): void
     {
@@ -99,7 +141,7 @@ final class StaffAdministration
     /**
      * Re-verify active status and permission grant against database state.
      *
-     * @param list<string> $permissions
+     * @param  list<string>  $permissions
      */
     public static function authorize(User $actor, array $permissions): void
     {
@@ -121,13 +163,13 @@ final class StaffAdministration
     /**
      * Record an administrative audit entry with sanitized before/after metadata.
      *
-     * @param list<string> $fields
-     * @param array<string, mixed> $before
-     * @param array<string, mixed> $after
+     * @param  list<string>  $fields
+     * @param  array<string, mixed>  $before
+     * @param  array<string, mixed>  $after
      */
-    public static function audit(?User $actor, string $action, string $targetType, int|string|null $targetId, array $fields, array $before = [], array $after = []): void
+    public static function audit(?User $actor, string $action, string $targetType, int|string|null $targetId, array $fields, array $before = [], array $after = [], array $via = []): void
     {
-        $allowed = array_flip(['roles', 'permissions', 'name', 'branch_id', 'is_active', 'settings']);
+        $allowed = array_flip(['roles', 'permissions', 'name', 'branch_id', 'is_active', 'settings', 'code', 'type', 'is_active_branch']);
         DB::table('staff_audit_logs')->insert([
             'actor_id' => $actor?->id,
             'action' => $action,
@@ -136,6 +178,7 @@ final class StaffAdministration
             // Sensitive fields (passwords, tokens) are stripped; only allowed state keys are stored
             'metadata' => json_encode(['fields' => array_values(array_diff($fields, ['current_password', 'expected_version'])),
                 'before' => array_intersect_key($before, $allowed), 'after' => array_intersect_key($after, $allowed),
+                'via' => array_intersect_key($via, array_flip(['channel', 'conversation_id', 'action_id'])),
                 'ip' => request()->ip(), 'method' => request()->method()], JSON_THROW_ON_ERROR),
             'created_at' => now(),
         ]);

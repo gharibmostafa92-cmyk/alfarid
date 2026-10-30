@@ -1,0 +1,536 @@
+{
+  "context": {
+    "branches": [
+      {
+        "id": 7,
+        "name": "المعادي",
+        "code": "BR-MAADI"
+      },
+      {
+        "id": 8,
+        "name": "الدقي",
+        "code": "BR-DOKKI"
+      }
+    ],
+    "roles": [
+      {
+        "id": 3,
+        "name": "مشرف مخزن"
+      },
+      {
+        "id": 4,
+        "name": "مدير المبيعات"
+      },
+      {
+        "id": 5,
+        "name": "مندوب مؤقت"
+      }
+    ],
+    "users": [
+      {
+        "id": 12,
+        "name": "سارة"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "id": "egy-1-1",
+      "text": "وريني كل الفروع",
+      "tool": "list_branches",
+      "args": {}
+    },
+    {
+      "id": "egy-1-2",
+      "text": "قائمة الفروع عندنا",
+      "tool": "list_branches",
+      "args": {}
+    },
+    {
+      "id": "egy-1-3",
+      "text": "إيه الفروع الموجودة؟",
+      "tool": "list_branches",
+      "args": {}
+    },
+    {
+      "id": "egy-2-1",
+      "text": "اعرض الموظفين",
+      "tool": "list_staff",
+      "args": {}
+    },
+    {
+      "id": "egy-2-2",
+      "text": "وريني قايمة الموظفين",
+      "tool": "list_staff",
+      "args": {}
+    },
+    {
+      "id": "egy-2-3",
+      "text": "مين الموظفين الموجودين؟",
+      "tool": "list_staff",
+      "args": {}
+    },
+    {
+      "id": "egy-3-1",
+      "text": "وريني الأدوار",
+      "tool": "list_roles",
+      "args": {}
+    },
+    {
+      "id": "egy-3-2",
+      "text": "إيه الأدوار المتاحة؟",
+      "tool": "list_roles",
+      "args": {}
+    },
+    {
+      "id": "egy-3-3",
+      "text": "اعرض قايمة الأدوار",
+      "tool": "list_roles",
+      "args": {}
+    },
+    {
+      "id": "egy-4-1",
+      "text": "دور على موظف اسمه أحمد",
+      "tool": "find_entities",
+      "args": {
+        "type": "user",
+        "query": "أحمد"
+      }
+    },
+    {
+      "id": "egy-4-2",
+      "text": "ابحث عن أحمد بين الموظفين",
+      "tool": "find_entities",
+      "args": {
+        "type": "user",
+        "query": "أحمد"
+      }
+    },
+    {
+      "id": "egy-4-3",
+      "text": "هات نتائج البحث عن أحمد",
+      "tool": "find_entities",
+      "args": {
+        "type": "user",
+        "query": "أحمد"
+      }
+    },
+    {
+      "id": "egy-5-1",
+      "text": "مين معاه pos.discount؟",
+      "tool": "who_can",
+      "args": {
+        "permission": "pos.discount"
+      }
+    },
+    {
+      "id": "egy-5-2",
+      "text": "مين يقدر يعمل خصم pos.discount؟",
+      "tool": "who_can",
+      "args": {
+        "permission": "pos.discount"
+      }
+    },
+    {
+      "id": "egy-5-3",
+      "text": "مين الأدوار والموظفين اللي عندهم pos.discount؟",
+      "tool": "who_can",
+      "args": {
+        "permission": "pos.discount"
+      }
+    },
+    {
+      "id": "egy-6-1",
+      "text": "قارن دور مشرف المخزن بدور مدير المبيعات",
+      "tool": "compare_roles",
+      "args": {
+        "role_a": 3,
+        "role_b": 4
+      }
+    },
+    {
+      "id": "egy-6-2",
+      "text": "إيه الفرق بين صلاحيات مشرف المخزن ومدير المبيعات؟",
+      "tool": "compare_roles",
+      "args": {
+        "role_a": 3,
+        "role_b": 4
+      }
+    },
+    {
+      "id": "egy-6-3",
+      "text": "وريني الصلاحيات المشتركة والمختلفة بين مشرف المخزن ومدير المبيعات",
+      "tool": "compare_roles",
+      "args": {
+        "role_a": 3,
+        "role_b": 4
+      }
+    },
+    {
+      "id": "egy-7-1",
+      "text": "ليه سارة مش شايفة التكلفة؟",
+      "tool": "explain_user_access",
+      "args": {
+        "user_id": 12
+      }
+    },
+    {
+      "id": "egy-7-2",
+      "text": "اشرح صلاحيات سارة",
+      "tool": "explain_user_access",
+      "args": {
+        "user_id": 12
+      }
+    },
+    {
+      "id": "egy-7-3",
+      "text": "سارة تقدر تعمل إيه؟",
+      "tool": "explain_user_access",
+      "args": {
+        "user_id": 12
+      }
+    },
+    {
+      "id": "egy-8-1",
+      "text": "وريني تغييرات الإدارة النهارده",
+      "tool": "recent_audit",
+      "args": {
+        "days": 1
+      }
+    },
+    {
+      "id": "egy-8-2",
+      "text": "آخر تعديلات الصلاحيات خلال يوم",
+      "tool": "recent_audit",
+      "args": {
+        "days": 1
+      }
+    },
+    {
+      "id": "egy-8-3",
+      "text": "هات سجل التدقيق لآخر يوم",
+      "tool": "recent_audit",
+      "args": {
+        "days": 1
+      }
+    },
+    {
+      "id": "egy-9-1",
+      "text": "اعمل فرع جديد اسمه فرع أسوان كوده BR-ASWAN ونوعه branch",
+      "tool": "create_branch",
+      "args": {
+        "name": "فرع أسوان",
+        "code": "BR-ASWAN",
+        "type": "branch"
+      }
+    },
+    {
+      "id": "egy-9-2",
+      "text": "أنشئ فرع أسوان بالكود BR-ASWAN من نوع branch",
+      "tool": "create_branch",
+      "args": {
+        "name": "فرع أسوان",
+        "code": "BR-ASWAN",
+        "type": "branch"
+      }
+    },
+    {
+      "id": "egy-9-3",
+      "text": "ضيف فرع اسمه فرع أسوان كوده BR-ASWAN نوع branch",
+      "tool": "create_branch",
+      "args": {
+        "name": "فرع أسوان",
+        "code": "BR-ASWAN",
+        "type": "branch"
+      }
+    },
+    {
+      "id": "egy-10-1",
+      "text": "قفّل المعادي",
+      "tool": "set_branch_status",
+      "args": {
+        "branch_id": 7,
+        "active": false
+      }
+    },
+    {
+      "id": "egy-10-2",
+      "text": "عطّل فرع المعادي",
+      "tool": "set_branch_status",
+      "args": {
+        "branch_id": 7,
+        "active": false
+      }
+    },
+    {
+      "id": "egy-10-3",
+      "text": "وقف نشاط فرع المعادي",
+      "tool": "set_branch_status",
+      "args": {
+        "branch_id": 7,
+        "active": false
+      }
+    },
+    {
+      "id": "egy-11-1",
+      "text": "اعمل دور اسمه مراجع مخزون يشوف المخزون بس",
+      "tool": "create_role",
+      "args": {
+        "name": "مراجع مخزون",
+        "permissions": [
+          "inventory.view"
+        ]
+      }
+    },
+    {
+      "id": "egy-11-2",
+      "text": "أنشئ دور مراجع مخزون بصلاحية inventory.view فقط",
+      "tool": "create_role",
+      "args": {
+        "name": "مراجع مخزون",
+        "permissions": [
+          "inventory.view"
+        ]
+      }
+    },
+    {
+      "id": "egy-11-3",
+      "text": "ضيف دور مراجع مخزون مع inventory.view بس",
+      "tool": "create_role",
+      "args": {
+        "name": "مراجع مخزون",
+        "permissions": [
+          "inventory.view"
+        ]
+      }
+    },
+    {
+      "id": "egy-12-1",
+      "text": "ضيف inventory.view لدور مشرف المخزن",
+      "tool": "update_role_permissions",
+      "args": {
+        "role_id": 3,
+        "add": [
+          "inventory.view"
+        ]
+      }
+    },
+    {
+      "id": "egy-12-2",
+      "text": "خلّي دور مشرف المخزن معاه inventory.view",
+      "tool": "update_role_permissions",
+      "args": {
+        "role_id": 3,
+        "add": [
+          "inventory.view"
+        ]
+      }
+    },
+    {
+      "id": "egy-12-3",
+      "text": "ادّي مشرف المخزن صلاحية inventory.view",
+      "tool": "update_role_permissions",
+      "args": {
+        "role_id": 3,
+        "add": [
+          "inventory.view"
+        ]
+      }
+    },
+    {
+      "id": "egy-13-1",
+      "text": "امسح دور مندوب مؤقت",
+      "tool": "delete_role",
+      "args": {
+        "role_id": 5
+      }
+    },
+    {
+      "id": "egy-13-2",
+      "text": "احذف دور مندوب مؤقت",
+      "tool": "delete_role",
+      "args": {
+        "role_id": 5
+      }
+    },
+    {
+      "id": "egy-13-3",
+      "text": "شيل دور مندوب مؤقت من الأدوار",
+      "tool": "delete_role",
+      "args": {
+        "role_id": 5
+      }
+    },
+    {
+      "id": "egy-14-1",
+      "text": "اعمل موظف اسمه محمود بإيميل mahmoud@example.test",
+      "tool": "create_staff_user",
+      "args": {
+        "name": "محمود",
+        "email": "mahmoud@example.test"
+      }
+    },
+    {
+      "id": "egy-14-2",
+      "text": "أنشئ حساب محمود mahmoud@example.test",
+      "tool": "create_staff_user",
+      "args": {
+        "name": "محمود",
+        "email": "mahmoud@example.test"
+      }
+    },
+    {
+      "id": "egy-14-3",
+      "text": "ضيف محمود للموظفين ببريد mahmoud@example.test",
+      "tool": "create_staff_user",
+      "args": {
+        "name": "محمود",
+        "email": "mahmoud@example.test"
+      }
+    },
+    {
+      "id": "egy-15-1",
+      "text": "عطّل حساب سارة",
+      "tool": "set_user_status",
+      "args": {
+        "user_id": 12,
+        "active": false
+      }
+    },
+    {
+      "id": "egy-15-2",
+      "text": "وقف حساب الموظفة سارة",
+      "tool": "set_user_status",
+      "args": {
+        "user_id": 12,
+        "active": false
+      }
+    },
+    {
+      "id": "egy-15-3",
+      "text": "خلّي سارة غير نشطة",
+      "tool": "set_user_status",
+      "args": {
+        "user_id": 12,
+        "active": false
+      }
+    },
+    {
+      "id": "egy-16-1",
+      "text": "ادّي سارة دور مشرف مخزن",
+      "tool": "assign_roles",
+      "args": {
+        "user_id": 12,
+        "add": [
+          "مشرف مخزن"
+        ]
+      }
+    },
+    {
+      "id": "egy-16-2",
+      "text": "ضيف دور مشرف مخزن لسارة",
+      "tool": "assign_roles",
+      "args": {
+        "user_id": 12,
+        "add": [
+          "مشرف مخزن"
+        ]
+      }
+    },
+    {
+      "id": "egy-16-3",
+      "text": "خلّي سارة معاها دور مشرف مخزن",
+      "tool": "assign_roles",
+      "args": {
+        "user_id": 12,
+        "add": [
+          "مشرف مخزن"
+        ]
+      }
+    },
+    {
+      "id": "egy-17-1",
+      "text": "خرّج سارة من كل الأجهزة",
+      "tool": "revoke_user_sessions",
+      "args": {
+        "user_id": 12
+      }
+    },
+    {
+      "id": "egy-17-2",
+      "text": "اقفل كل جلسات سارة",
+      "tool": "revoke_user_sessions",
+      "args": {
+        "user_id": 12
+      }
+    },
+    {
+      "id": "egy-17-3",
+      "text": "اعمل تسجيل خروج لسارة من كل مكان",
+      "tool": "revoke_user_sessions",
+      "args": {
+        "user_id": 12
+      }
+    },
+    {
+      "id": "egy-18-1",
+      "text": "خلّيني أختار فرع من قائمة",
+      "tool": "ask_user_to_choose",
+      "args": {
+        "entity_type": "branch"
+      }
+    },
+    {
+      "id": "egy-18-2",
+      "text": "افتحلي اختيار فرع",
+      "tool": "ask_user_to_choose",
+      "args": {
+        "entity_type": "branch"
+      }
+    },
+    {
+      "id": "egy-18-3",
+      "text": "اعرضلي قائمة أختار منها فرع",
+      "tool": "ask_user_to_choose",
+      "args": {
+        "entity_type": "branch"
+      }
+    },
+    {
+      "id": "egy-19-1",
+      "text": "غيّر باسورد سارة إلى Secret123456",
+      "tool": null,
+      "args": {}
+    },
+    {
+      "id": "egy-19-2",
+      "text": "شيل دور Super Admin من المدير",
+      "tool": null,
+      "args": {}
+    },
+    {
+      "id": "egy-19-3",
+      "text": "ادّي سارة دور Super Admin",
+      "tool": null,
+      "args": {}
+    },
+    {
+      "id": "egy-20-1",
+      "text": "عطّل المعادي وفرع الدقي بعملية جماعية واحدة",
+      "tool": "bulk_actions",
+      "args": {}
+    },
+    {
+      "id": "egy-20-2",
+      "text": "جهّز كارت جماعي لتعطيل فرع المعادي وفرع الدقي",
+      "tool": "bulk_actions",
+      "args": {}
+    },
+    {
+      "id": "egy-20-3",
+      "text": "وقف فرعي المعادي والدقي بكارت تأكيد واحد",
+      "tool": "bulk_actions",
+      "args": {}
+    }
+  ]
+}

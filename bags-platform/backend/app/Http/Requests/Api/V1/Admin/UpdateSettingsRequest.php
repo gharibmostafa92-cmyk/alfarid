@@ -17,6 +17,11 @@ class UpdateSettingsRequest extends FormRequest
             return false;
         }
         $branchAccess->assertCentralAccess($this->user('staff'));
+        foreach (array_keys($this->validationData()) as $key) {
+            if (str_starts_with($key, 'ai_')) {
+                abort_unless($this->user('staff')->can('ai_agent.settings'), 403);
+            }
+        }
 
         return true;
     }
@@ -47,6 +52,13 @@ class UpdateSettingsRequest extends FormRequest
             // 0 = الإرجاع متوقف، -1 = بلا حد زمني، قيمة موجبة = أيام من التسليم
             'return_window_days' => ['sometimes', 'integer', 'min:-1', 'max:3650'],
             'allow_self_approve_purchases' => ['sometimes', 'boolean'],
+            'ai_enabled' => ['sometimes', 'boolean'],
+            'ai_daily_token_budget_per_user' => ['sometimes', 'integer', 'min:0', 'max:10000000'],
+            'ai_disabled_tools' => ['sometimes', 'array'],
+            'ai_disabled_tools.*' => ['string', 'max:100'],
+            'ai_action_ttl_minutes' => ['sometimes', 'integer', 'min:1', 'max:1440'],
+            'ai_retention_days' => ['sometimes', 'integer', 'min:1', 'max:3650'],
+            'ai_bulk_max_items' => ['sometimes', 'integer', 'min:1', 'max:100'],
         ];
 
         $sequenceTypes = [
@@ -72,7 +84,7 @@ class UpdateSettingsRequest extends FormRequest
         $expectedRules = ['expected' => ['required', 'array']];
         foreach ($rules as $key => $keyRules) {
             $type = in_array('boolean', $keyRules, true) ? 'boolean'
-                : (in_array('integer', $keyRules, true) ? 'integer' : (in_array('numeric', $keyRules, true) ? 'numeric' : 'string'));
+                : (in_array('integer', $keyRules, true) ? 'integer' : (in_array('numeric', $keyRules, true) ? 'numeric' : (in_array('array', $keyRules, true) ? 'array' : 'string')));
             $expectedRules['expected.'.$key] = ['sometimes', 'nullable', $type];
         }
 

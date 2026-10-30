@@ -18,7 +18,7 @@ final class AuditStaffAdministration
     public function handle(Request $request, Closure $next): mixed
     {
         if (! in_array($request->method(), ['POST', 'PATCH', 'PUT', 'DELETE'], true)
-            || ! preg_match('~^api/v1/admin/(users|roles|settings)(?:/([0-9]+))?$~', $request->path(), $target)) {
+            || ! preg_match('~^api/v1/admin/(users|roles|settings|branches|ai)(?:/([0-9a-zA-Z\-]+))?(?:/.*)?$~', $request->path(), $target)) {
             return $next($request);
         }
         $actor = $request->user('staff');
@@ -49,9 +49,10 @@ final class AuditStaffAdministration
         $actor = $request->user('staff');
         if ($actor instanceof User && ! $actor->is_system) {
             // Runs after a controller transaction has rolled back, so a rejected action remains visible.
-            $type = ['users' => 'user', 'roles' => 'role', 'settings' => 'settings'][$target[1]];
+            $type = ['users' => 'user', 'roles' => 'role', 'settings' => 'settings', 'branches' => 'branch', 'ai' => 'ai_conversation'][$target[1]];
             try {
-                StaffAdministration::audit($actor, 'administration.denied', $type, $target[2] ?? null, []);
+                $targetId = isset($target[2]) && ctype_digit($target[2]) ? (int) $target[2] : null;
+                StaffAdministration::audit($actor, 'administration.denied', $type, $targetId, []);
             } catch (Throwable $exception) {
                 report($exception);
             }

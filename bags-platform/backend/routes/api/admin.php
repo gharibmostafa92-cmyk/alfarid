@@ -2,6 +2,11 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Api\V1\Admin\Ai\AiActionController;
+use App\Http\Controllers\Api\V1\Admin\Ai\AiAdministrationController;
+use App\Http\Controllers\Api\V1\Admin\Ai\AiConversationController;
+use App\Http\Controllers\Api\V1\Admin\Ai\AiMentionController;
+use App\Http\Controllers\Api\V1\Admin\Ai\AiMessageController;
 use App\Http\Controllers\Api\V1\Admin\AuthController;
 use App\Http\Controllers\Api\V1\Admin\BannerController;
 use App\Http\Controllers\Api\V1\Admin\BranchController;
@@ -347,4 +352,21 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
             ->name('shifts.show');
         Route::post('shifts/{shift}/approve', [PosShiftAdminController::class, 'approve'])
             ->name('shifts.approve');
+
+        Route::prefix('ai')->name('ai.')->middleware('permission:ai_agent.use')->group(function (): void {
+            Route::get('settings', [AiAdministrationController::class, 'settings'])->middleware('permission:ai_agent.settings')->name('settings');
+            Route::put('settings', [AiAdministrationController::class, 'updateSettings'])->middleware('permission:ai_agent.settings')->name('settings.update');
+            Route::get('usage', [AiAdministrationController::class, 'usage'])->name('usage');
+            Route::patch('conversations/{conversation}/pin', [AiConversationController::class, 'pin'])->name('conversations.pin');
+            Route::post('conversations/{conversation}/stream', [AiMessageController::class, 'stream'])->middleware('throttle:ai-chat')->name('conversations.stream');
+            Route::get('conversations', [AiConversationController::class, 'index'])->name('conversations.index');
+            Route::post('conversations', [AiConversationController::class, 'store'])->name('conversations.store');
+            Route::get('conversations/{conversation}', [AiConversationController::class, 'show'])->name('conversations.show');
+            Route::delete('conversations/{conversation}', [AiConversationController::class, 'destroy'])->name('conversations.destroy');
+            Route::post('conversations/{conversation}/messages', [AiMessageController::class, 'store'])->middleware('throttle:ai-chat')->name('conversations.messages.store');
+            Route::post('actions/{action}/confirm', [AiActionController::class, 'confirm'])->middleware('permission:ai_agent.execute')->name('actions.confirm');
+            Route::post('actions/{action}/cancel', [AiActionController::class, 'cancel'])->name('actions.cancel');
+            Route::post('actions/{action}/undo', [AiActionController::class, 'undo'])->middleware('permission:ai_agent.execute')->name('actions.undo');
+            Route::get('mentions', [AiMentionController::class, 'search'])->name('mentions');
+        });
     });

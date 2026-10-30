@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
+use App\Actions\Staff\CreateRole;
+use App\Actions\Staff\DeleteRole;
+use App\Actions\Staff\UpdateRole;
 use App\Enums\StaffRole;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Admin\StoreRoleRequest;
@@ -11,12 +14,10 @@ use App\Http\Requests\Api\V1\Admin\UpdateRoleRequest;
 use App\Http\Resources\Api\V1\Admin\RoleResource;
 use App\Models\User;
 use App\Services\BranchAccess;
-use App\Services\StaffAdministration;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
-use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Models\Role;
 
 class RoleController extends Controller
@@ -58,21 +59,7 @@ class RoleController extends Controller
             ], 403);
         }
 
-        $role = DB::transaction(function () use ($validated, $permissions, $currentUser): Role {
-            StaffAdministration::lock();
-            StaffAdministration::authorize($currentUser, ['roles.create', 'roles.manage']);
-            $this->branchAccess->assertCentralAccess($currentUser);
-            abort_unless($this->mayGrantPermissions($currentUser, $permissions), 403);
-            StaffAdministration::clearPermissionCacheAfterCommit();
-            $role = Role::create([
-                'name' => $validated['name'],
-                'guard_name' => 'staff',
-            ]);
-            $role->syncPermissions($permissions);
-            StaffAdministration::audit($currentUser, 'role.created', 'role', $role->id, array_keys($validated), after: StaffAdministration::roleState($role));
-
-            return $role;
-        });
+        $role = app(CreateRole::class)($currentUser, $validated);
 
         return $this->roleResource($role)->response()->setStatusCode(201);
     }
@@ -102,37 +89,7 @@ class RoleController extends Controller
             ], 403);
         }
 
-        $failure = DB::transaction(function () use ($role, $validated, $permissions, $currentUser): ?string {
-            StaffAdministration::lock();
-            StaffAdministration::authorize($currentUser, ['roles.update', 'roles.manage']);
-            $this->branchAccess->assertCentralAccess($currentUser);
-            $lockedRole = Role::query()->whereKey($role->getKey())->lockForUpdate()->firstOrFail();
-            $this->ensureStaffRole($lockedRole);
-            StaffAdministration::assertVersion($lockedRole, isset($validated['expected_version']) ? (int) $validated['expected_version'] : null);
-            $before = StaffAdministration::roleState($lockedRole);
-
-            if (($lockedRole->name === StaffRole::SuperAdmin->value || (StaffRole::isReserved($lockedRole->name) && array_key_exists('name', $validated)))) {
-                return 'protected';
-            }
-
-            abort_unless($this->mayGrantPermissions($currentUser, array_unique(array_merge(
-                $lockedRole->permissions()->pluck('name')->all(), $permissions ?? []
-            ))), 403);
-            StaffAdministration::clearPermissionCacheAfterCommit();
-
-            if (array_key_exists('name', $validated)) {
-                $lockedRole->name = $validated['name'];
-                $lockedRole->save();
-            }
-
-            if ($permissions !== null) {
-                $lockedRole->syncPermissions($permissions);
-            }
-            StaffAdministration::advanceVersion($lockedRole);
-            StaffAdministration::audit($currentUser, 'role.updated', 'role', $lockedRole->id, array_keys($validated), $before, StaffAdministration::roleState($lockedRole));
-
-            return null;
-        });
+        $failure = app(UpdateRole::class)($currentUser, $role, $validated);
 
         if ($failure !== null) {
             return response()->json([
@@ -147,29 +104,7 @@ class RoleController extends Controller
     {
         $this->ensureStaffRole($role);
 
-        $result = DB::transaction(function () use ($role, $request): string {
-            StaffAdministration::lock();
-            StaffAdministration::authorize($request->user('staff'), ['roles.delete', 'roles.manage']);
-            $this->branchAccess->assertCentralAccess($request->user('staff'));
-            $lockedRole = Role::query()->whereKey($role->getKey())->lockForUpdate()->firstOrFail();
-            $this->ensureStaffRole($lockedRole);
-
-            if (StaffRole::isReserved($lockedRole->name)) {
-                return 'protected';
-            }
-
-            abort_unless($this->mayGrantPermissions($request->user('staff'), $lockedRole->permissions()->pluck('name')->all()), 403);
-
-            if ($lockedRole->users()->exists()) {
-                return 'in_use';
-            }
-
-            StaffAdministration::audit($request->user('staff'), 'role.deleted', 'role', $lockedRole->id, ['name', 'permissions'], before: StaffAdministration::roleState($lockedRole));
-            $lockedRole->delete();
-            StaffAdministration::clearPermissionCacheAfterCommit();
-
-            return 'deleted';
-        });
+        $result = app(DeleteRole::class)($request->user('staff'), $role);
 
         if ($result === 'protected') {
             return response()->json([

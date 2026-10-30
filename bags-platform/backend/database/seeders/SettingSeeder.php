@@ -67,6 +67,13 @@ class SettingSeeder extends Seeder
         // المرحلة 9: نافذة الاسترجاع بالأيام من التسليم. 0 = متوقف، -1 = بلا حد.
         ['group' => 'orders', 'key' => 'return_window_days', 'value' => '14', 'type' => 'integer'],
         ['group' => 'purchases', 'key' => 'allow_self_approve_purchases', 'value' => '0', 'type' => 'boolean'],
+
+        ['group' => 'ai', 'key' => 'ai_enabled', 'value' => '0', 'type' => 'boolean'],
+        ['group' => 'ai', 'key' => 'ai_daily_token_budget_per_user', 'value' => '200000', 'type' => 'integer'],
+        ['group' => 'ai', 'key' => 'ai_disabled_tools', 'value' => '[]', 'type' => 'json'],
+        ['group' => 'ai', 'key' => 'ai_action_ttl_minutes', 'value' => '10', 'type' => 'integer'],
+        ['group' => 'ai', 'key' => 'ai_retention_days', 'value' => '180', 'type' => 'integer'],
+        ['group' => 'ai', 'key' => 'ai_bulk_max_items', 'value' => '25', 'type' => 'integer'],
     ];
 
     public function run(): void

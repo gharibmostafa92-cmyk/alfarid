@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
+use App\Actions\Staff\CreateStaffUser;
+use App\Actions\Staff\DeactivateStaffUser;
+use App\Actions\Staff\UpdateStaffUser;
 use App\Enums\StaffRole;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Admin\StoreUserRequest;
@@ -12,12 +15,10 @@ use App\Http\Resources\Api\V1\Admin\UserResource;
 use App\Models\User;
 use App\Services\BranchAccess;
 use App\Services\SearchTerm;
-use App\Services\StaffAdministration;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Arr;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\Rule;
@@ -108,23 +109,7 @@ class UserController extends Controller
             return $this->insufficientPermissionsResponse();
         }
 
-        $userAttributes = Arr::except($validated, ['roles']);
-        $userAttributes['is_active'] ??= true;
-        $userAttributes['password'] = Hash::make($userAttributes['password']);
-
-        $user = DB::transaction(function () use ($userAttributes, $roles, $currentUser): User {
-            StaffAdministration::lock();
-            StaffAdministration::authorize($currentUser, ['users.create', 'users.manage']);
-            $branch = $this->branches->restrictedBranch($currentUser);
-            abort_if($branch !== null && (int) ($userAttributes['branch_id'] ?? 0) !== $branch, 403);
-            StaffAdministration::lockRoles($roles);
-            abort_unless($this->mayManageUser($currentUser, roles: $roles), 403);
-            $user = User::create($userAttributes);
-            $user->syncRoles($roles);
-            StaffAdministration::audit($currentUser, 'user.created', 'user', $user->id, array_keys($userAttributes + ['roles' => $roles]), after: StaffAdministration::userState($user));
-
-            return $user;
-        });
+        $user = app(CreateStaffUser::class)($currentUser, $validated)['user'];
 
         return $this->userResource($user)->response()->setStatusCode(201);
     }
@@ -184,90 +169,11 @@ class UserController extends Controller
             $userAttributes['password'] = Hash::make($userAttributes['password']);
         }
 
-        $isSuperAdminRequester = $currentUser instanceof User
-            && $currentUser->hasRole(StaffRole::SuperAdmin->value, 'staff');
-        $assigningSuperAdmin = is_array($roles)
-            && in_array(StaffRole::SuperAdmin->value, $roles, true);
-
-        $failure = DB::transaction(function () use (
-            $user,
-            $userAttributes,
-            $roles,
-            $currentUser,
-            $isSuperAdminRequester,
-            $assigningSuperAdmin,
-            $validated,
-            $verifiedPasswordHash,
-        ): ?string {
-            StaffAdministration::lock();
-            StaffAdministration::authorize($currentUser, ['users.update', 'users.manage']);
-            $isSuperAdminRequester = $currentUser->hasRole(StaffRole::SuperAdmin->value, 'staff');
-            $lockedUser = User::query()->whereKey($user->getKey())->lockForUpdate()->firstOrFail();
-            $this->assertAccessible($currentUser, $lockedUser);
-            StaffAdministration::assertVersion($lockedUser, isset($validated['expected_version']) ? (int) $validated['expected_version'] : null);
-            $before = StaffAdministration::userState($lockedUser);
-            $ownCredentialsChanged = $currentUser->is($lockedUser) && (isset($userAttributes['password'])
-                || (isset($userAttributes['email']) && $userAttributes['email'] !== $lockedUser->email));
-            if ($ownCredentialsChanged && ($verifiedPasswordHash === null
-                || ! hash_equals($lockedUser->password, $verifiedPasswordHash))) {
-                throw ValidationException::withMessages(['current_password' => 'أدخل كلمة المرور الحالية الصحيحة لتغيير بيانات الدخول.']);
-            }
-            if (array_key_exists('branch_id', $userAttributes)) {
-                $branch = $this->branches->restrictedBranch($currentUser);
-                abort_if($branch !== null && (int) ($userAttributes['branch_id'] ?? 0) !== $branch, 403);
-            }
-            if ($roles !== null) {
-                StaffAdministration::lockRoles($roles);
-            }
-            $targetIsSuperAdmin = $lockedUser->hasRole(StaffRole::SuperAdmin->value, 'staff');
-
-            if ($targetIsSuperAdmin && (
-                (array_key_exists('is_active', $userAttributes) && ! (bool) $userAttributes['is_active'])
-                || ($roles !== null && ! in_array(StaffRole::SuperAdmin->value, $roles, true))
-            )) {
-                if (! $isSuperAdminRequester || ! StaffAdministration::hasOtherActiveSuperAdmin($lockedUser)) {
-                    return 'protected_super_admin';
-                }
-            }
-
-            if (! $isSuperAdminRequester && (
-                $targetIsSuperAdmin || $assigningSuperAdmin
-            )) {
-                return 'protected';
-            }
-
-            if (! $this->mayManageUser($currentUser, $lockedUser, $roles ?? [])) {
-                return 'insufficient_permissions';
-            }
-
-            $emailChanged = isset($userAttributes['email']) && $userAttributes['email'] !== $lockedUser->email;
-            $lockedUser->update($userAttributes);
-
-            $rolesChanged = false;
-            if ($roles !== null) {
-                $requestedRoles = $roles;
-                sort($requestedRoles);
-                $currentRoles = $before['roles'];
-                sort($currentRoles);
-                $rolesChanged = $requestedRoles !== $currentRoles;
-                if ($rolesChanged) {
-                    $lockedUser->syncRoles($roles);
-                }
-            }
-
-            $passwordChanged = array_key_exists('password', $userAttributes);
-            $deactivated = array_key_exists('is_active', $userAttributes)
-                && ! (bool) $userAttributes['is_active'];
-
-            StaffAdministration::advanceVersion($lockedUser);
-            StaffAdministration::audit($currentUser, 'user.updated', 'user', $lockedUser->id, array_keys($userAttributes + ($roles !== null ? ['roles' => $roles] : [])), $before, StaffAdministration::userState($lockedUser));
-
-            if ($passwordChanged || $emailChanged || $deactivated || $rolesChanged) {
-                $lockedUser->tokens()->delete();
-            }
-
-            return null;
-        });
+        $actionData = Arr::except($validated, ['password']);
+        if (isset($userAttributes['password'])) {
+            $actionData['password'] = $userAttributes['password'];
+        }
+        $failure = app(UpdateStaffUser::class)($currentUser, $user, $actionData, verifiedPasswordHash: $verifiedPasswordHash);
 
         if ($failure !== null) {
             if ($failure === 'insufficient_permissions') {
@@ -296,30 +202,7 @@ class UserController extends Controller
             ], 403);
         }
 
-        $deleted = DB::transaction(function () use ($currentUser, $user, $validated): bool {
-            StaffAdministration::lock();
-            StaffAdministration::authorize($currentUser, ['users.delete', 'users.manage']);
-            $lockedUser = User::query()->whereKey($user->getKey())->lockForUpdate()->firstOrFail();
-
-            $this->assertAccessible($currentUser, $lockedUser);
-            if (($lockedUser->hasRole(StaffRole::SuperAdmin->value, 'staff')
-                && (! $currentUser->hasRole(StaffRole::SuperAdmin->value, 'staff') || ! StaffAdministration::hasOtherActiveSuperAdmin($lockedUser)))
-                || ! $this->mayManageUser($currentUser, $lockedUser)) {
-                return false;
-            }
-
-            if (! $lockedUser->is_active) {
-                return true;
-            }
-            StaffAdministration::assertVersion($lockedUser, (int) $validated['expected_version']);
-            $before = StaffAdministration::userState($lockedUser);
-            $lockedUser->forceFill(['is_active' => false]);
-            StaffAdministration::advanceVersion($lockedUser);
-            StaffAdministration::audit($currentUser, 'user.deactivated', 'user', $lockedUser->id, ['is_active'], $before, StaffAdministration::userState($lockedUser));
-            $lockedUser->tokens()->delete();
-
-            return true;
-        });
+        $deleted = app(DeactivateStaffUser::class)($currentUser, $user, (int) $validated['expected_version']);
 
         if (! $deleted) {
             return response()->json([
