@@ -8,7 +8,7 @@ import { StoreImage } from '../StoreImage';
 import { formatStorePrice } from '@alfarid/utils';
 import { useStoreCategories, useStoreProducts, useStoreShowcase } from '@/hooks/use-store-catalog';
 import { STORE_ROUTES } from '@/lib/store-routes';
-import { pick, toCardVM, toDetailVM, type CatalogCardVM } from '@/lib/catalog-mappers';
+import { pick, toCardVM, toDetailVM } from '@/lib/catalog-mappers';
 
 const slotImg = (item: ReturnType<typeof toDetailVM> | null | undefined) =>
   item?.variants[0]?.images[0]?.url ?? item?.images[0]?.url ?? null;
@@ -97,9 +97,10 @@ export function DesignShowcaseContent() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (currentMode !== 'carousel' || !canNav) return;
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      if ((e.target as HTMLElement).closest('input, textarea, select, button, a, [role="dialog"]')) return;
+      if (e.key === 'ArrowRight') {
         navigateCarousel(1);
-      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      } else if (e.key === 'ArrowLeft') {
         navigateCarousel(-1);
       }
     };
@@ -152,10 +153,6 @@ export function DesignShowcaseContent() {
     }
   };
 
-  const handleGridCard = (card: CatalogCardVM) => {
-    router.push(STORE_ROUTES.product(card.slug));
-  };
-
   // 3D stage slots indices
   const leftIdx = totalProducts > 0 ? (activeIndex - 1 + totalProducts) % totalProducts : 0;
   const rightIdx = totalProducts > 0 ? (activeIndex + 1) % totalProducts : 0;
@@ -167,7 +164,7 @@ export function DesignShowcaseContent() {
   const brand = current && current.categoryLabel ? current.categoryLabel.toUpperCase() : 'SOPHIE';
   const priceLabel = current ? (variant?.price ?? current.fallbackPrice) : null;
   return (
-    <div className="design-page" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+    <main id="main-content" tabIndex={-1} className="design-page" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
       {/* ================= VIEW SWITCHER BUTTONS (TOP RIGHT) ================= */}
       <div className="design-view-switcher">
         <button
@@ -225,7 +222,7 @@ export function DesignShowcaseContent() {
 
       {/* ================= 1. 3D CAROUSEL VIEW ================= */}
       {currentMode === 'carousel' && (
-        <main className="design-carousel-view">
+        <section className="design-carousel-view" aria-label="Product showcase">
           {showcaseQ.isPending ? (
             <>
               <div className="design-stage">
@@ -290,7 +287,7 @@ export function DesignShowcaseContent() {
               )}
             </>
           )}
-        </main>
+        </section>
       )}
 
       {/* ================= 3. GRID CATALOG VIEW ================= */}
@@ -309,7 +306,7 @@ export function DesignShowcaseContent() {
               </div>
             ) : (
               gridCards.map((card) => (
-                <div key={card.id} className="design-grid-card" onClick={() => handleGridCard(card)}>
+                <Link key={card.id} className="design-grid-card" href={STORE_ROUTES.product(card.slug)}>
                   <div className="design-grid-img-box">
                     {card.badge && <span className="design-grid-card-badge">{card.badge}</span>}
                     <StoreImage src={card.img ?? ''} className="" alt={card.name} loading="lazy" />
@@ -319,7 +316,7 @@ export function DesignShowcaseContent() {
                     <span>{card.priceLabel}</span>
                   </div>
                   <div className="design-grid-meta-sub">{card.name}</div>
-                </div>
+                </Link>
               ))
             )}
           </div>
@@ -327,6 +324,6 @@ export function DesignShowcaseContent() {
       )}
 
 
-    </div>
+    </main>
   );
 }

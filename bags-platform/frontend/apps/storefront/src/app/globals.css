@@ -10,10 +10,54 @@
 
 :root {
   --font-cairo: 'Cairo', sans-serif;
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+}
+
+html {
+  overflow-x: clip;
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  scroll-padding-top: 100px;
+  scroll-padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
 }
 
 body {
   font-family: 'Poppins', var(--font-cairo), sans-serif;
   background-color: #ffffff;
   color: #111111;
+  overflow-x: clip;
+  -webkit-tap-highlight-color: transparent;
+  line-height: 1.5;
+}
+
+button, a, input, select, textarea {
+  touch-action: manipulation;
+}
+
+input, textarea, select {
+  max-width: 100%;
+}
+
+[id^="checkout-section-"], #product-options, #product-details {
+  scroll-margin-top: 110px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role="tab"]:focus-visible {
+  outline: 2px solid #4f7d88;
+  outline-offset: 2px;
 }

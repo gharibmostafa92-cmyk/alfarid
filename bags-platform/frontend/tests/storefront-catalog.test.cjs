@@ -10,7 +10,14 @@ function load(relative, dependencies = {}) {
   const compiled = new Module(filename, module);
   compiled.filename = filename;
   compiled.paths = Module._nodeModulePaths(path.dirname(filename));
-  compiled.require = name => name in dependencies ? dependencies[name] : Module.prototype.require.call(compiled, name);
+  compiled.require = name => {
+    if (name in dependencies) return dependencies[name];
+    const sibling = path.resolve(path.dirname(filename), name + '.ts');
+    if (name.startsWith('.') && fs.existsSync(sibling)) {
+      return load(path.relative(path.resolve(__dirname, '..'), sibling), dependencies);
+    }
+    return Module.prototype.require.call(compiled, name);
+  };
   compiled._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText, filename);

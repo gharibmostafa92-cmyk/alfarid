@@ -1,6 +1,6 @@
 .luxury-auth-page {
-  --auth-sans: 'Inter', 'IBM Plex Sans Arabic', sans-serif;
-  --auth-mono: 'JetBrains Mono', 'IBM Plex Sans Arabic', monospace;
+  --auth-sans: 'Poppins', 'Cairo', sans-serif;
+  --auth-mono: 'Poppins', 'Cairo', sans-serif;
   min-height: 100svh;
   width: 100%;
   background: #fff;
@@ -54,7 +54,7 @@
 }
 .luxury-lang-btn {
   flex-shrink: 0;
-  min-height: 40px;
+  min-height: 44px;
   padding: 8px 12px;
   border: 1px solid transparent;
   border-radius: 999px;
@@ -211,6 +211,11 @@
 .luxury-auth-fields { display: flex; flex-direction: column; gap: 20px; min-width: 0; border: 0; margin: 0; padding: 0; }
 .luxury-auth-fields:disabled { opacity: .7; }
 .luxury-switch-link { border: 0; padding: 0; background: transparent; cursor: pointer; }
+.luxury-switch-link { display: inline-flex; align-items: center; min-height: 44px; }
+.luxury-top-bar { padding-top: env(safe-area-inset-top, 0px); }
+.luxury-brand-btn { min-height: 44px; min-width: 0; overflow-wrap: anywhere; }
+.luxury-auth-page :is(h1, p, label) { overflow-wrap: anywhere; }
+.luxury-form-wrap { padding-bottom: max(40px, env(safe-area-inset-bottom, 0px)); }
 .luxury-switch-link:disabled, .luxury-inline-action:disabled { cursor: wait; opacity: .6; }
 .luxury-field-hint { margin: 8px 0 12px; color: #666; font-size: 12px; line-height: 1.8; }
 .luxury-inline-action { display: inline-block; border: 0; background: transparent; padding: 8px 0; color: #262626; font-family: var(--auth-sans); font-size: 12px; text-decoration: underline; text-underline-offset: 4px; cursor: pointer; }

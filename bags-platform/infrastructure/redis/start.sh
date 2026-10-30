@@ -25,10 +25,17 @@ masterauth $REDIS_PASSWORD
 appendonly yes
 appendfsync everysec
 maxmemory 512mb
+# Shared security counters and locks must never be evicted to admit cache entries.
 maxmemory-policy noeviction
 EOF
     [ "$1" != replica ] || echo 'replicaof 172.31.0.31 6379' >> runtime.conf
   fi
+fi
+if [ "$1" != sentinel ]; then
+  # Existing volumes retain Redis' rewritten role/replication settings, but
+  # must receive policy updates too. Apply this before handing ownership back.
+  sed -i '/^maxmemory-policy[[:space:]]/d' runtime.conf
+  echo 'maxmemory-policy noeviction' >> runtime.conf
 fi
 chown -R redis:redis /data
 if [ "$1" = sentinel ]; then

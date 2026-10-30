@@ -148,3 +148,40 @@ bags-platform/frontend/.c-review-*
 # Local Infrastructure Overrides
 # ------------------------------------------
 docker-compose.override.yml
+
+# ------------------------------------------
+# Media & Videos
+# ------------------------------------------
+*.mp4
+*.mov
+*.avi
+*.webm
+*.mkv
+*.flv
+*.wmv
+*.m4v
+
+# ------------------------------------------
+# Text Files & Notes (User Directive)
+# ------------------------------------------
+*.txt
+**/*.txt
+!**/robots.txt
+
+# ------------------------------------------
+# Test Results & Artifacts
+# ------------------------------------------
+test-results/
+**/test-results/
+playwright-report/
+blob-report/
+
+# ------------------------------------------
+# Temporary / Unnecessary CLI & Scratch Files
+# ------------------------------------------
+-e
+download
+store
+probe-servers-tmp.cjs
+repomix-files.txt
+

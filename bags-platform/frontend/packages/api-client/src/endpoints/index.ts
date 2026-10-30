@@ -2,6 +2,7 @@ export * from './inventory';
 export * from './operations';
 
 import { createApiClient, defaultApiClient as apiClient } from '../axios-instance';
+import { SLOW_REQUEST_TIMEOUT } from './operations/http';
 import type { CartCouponResponse, CheckoutPayload, CheckoutResponse, PublicBranding, ShippingOptionsResponse, StoreCart, StoreCity, StoreOrder, TrackOrderResponse } from '../types';
 
 const publicApiClient = createApiClient({ getToken: () => null, onUnauthorized: () => {} });
@@ -156,9 +157,44 @@ export const checkoutEndpoints = {
 export const accountEndpoints = {
   orders: () => apiClient.get<{ data: StoreOrder[] }>('/api/v1/store/account/orders').then((r) => r.data.data),
   cancelOrder: (id: number) => apiClient.post<{ data: StoreOrder }>(`/api/v1/store/account/orders/${id}/cancel`).then((r) => r.data.data),
-  wallet: () => apiClient.get<{ balance: number | string; transactions: Array<{ id: number; type: string; amount: number | string; created_at: string }> }>('/api/v1/store/account/wallet').then((r) => r.data),
-  returns: () => apiClient.get<{ data: Array<{ id: number; status: string; created_at: string }> }>('/api/v1/store/account/returns').then((r) => r.data.data),
+  wallet: (page = 1) => apiClient.get<{ balance: number | string; transactions: { data: Array<{ id: number; type: string; amount: number | string; balance_after: number | string; reference_type: string | null; reference_id: number | null; created_at: string }>; current_page: number; last_page: number; total: number } }>('/api/v1/store/account/wallet', { params: { page } }).then((r) => r.data),
+  returns: (page = 1) => apiClient.get<{ data: unknown[]; meta: { current_page: number; last_page: number; total: number } }>(`/api/v1/store/account/returns?page=${page}`).then((r) => r.data),
+  returnDetail: (id: number) => apiClient.get<{ data: unknown }>(`/api/v1/store/account/returns/${id}`).then((r) => r.data.data),
+  createReturn: (fd: FormData) => apiClient.post<{ data: { id: number } }>('/api/v1/store/account/returns', fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data.data),
   addresses: () => apiClient.get<{ data: Array<{ id: number; city_id: number; city_name_ar: string | null; city_name_en: string | null; address_line: string; is_default: boolean }> }>('/api/v1/store/account/addresses').then((r) => r.data.data),
+};
+
+const W = '/api/v1/wholesale';
+export const wholesaleEndpoints = {
+  applicationStatus: (signal?: AbortSignal) => apiClient.get(`${W}/auth/application-status`, { signal }).then((r) => r.data.data),
+  dashboard: (signal?: AbortSignal) => apiClient.get(`${W}/dashboard`, { signal }).then((r) => r.data.data),
+  products: (p: { search?: string; page?: number; per_page?: number }, signal?: AbortSignal) => apiClient.get(`${W}/products`, { params: p, signal }).then((r) => r.data),
+  exportPriceList: (format: 'pdf' | 'xlsx') => apiClient.get(`${W}/price-list/export`, { params: { format }, responseType: 'blob', timeout: SLOW_REQUEST_TIMEOUT }),
+  quickLookup: (items: Array<{ sku?: string; barcode?: string; qty: number }>) => apiClient.post(`${W}/quick-order/lookup`, { items }).then((r) => r.data),
+  quickImport: (file: File) => { const f = new FormData(); f.append('file', file); return apiClient.post(`${W}/quick-order/import`, f, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data.data); },
+  quickAddToCart: (items: Array<{ sku: string; qty: number }>) => apiClient.post(`${W}/quick-order/add-to-cart`, { items }).then((r) => r.data.data),
+  orders: (p: { group?: string; page?: number }, signal?: AbortSignal) => apiClient.get(`${W}/orders`, { params: p, signal }).then((r) => r.data),
+  order: (id: number, signal?: AbortSignal) => apiClient.get(`${W}/orders/${id}`, { signal }).then((r) => r.data.data),
+  reorder: (id: number) => apiClient.post(`${W}/orders/${id}/reorder`).then((r) => r.data.data),
+  invoices: (p: { payment_status?: 'paid' | 'unpaid'; page?: number }, signal?: AbortSignal) => apiClient.get(`${W}/invoices`, { params: p, signal }).then((r) => r.data),
+  invoicePdf: (id: number) => apiClient.get(`${W}/invoices/${id}/pdf`, { responseType: 'blob' }),
+  statement: (p: { from?: string; to?: string }, signal?: AbortSignal) => apiClient.get(`${W}/statement`, { params: p, signal }).then((r) => r.data.data),
+  notices: (p: { status?: string; page?: number }, signal?: AbortSignal) => apiClient.get(`${W}/payment-notices`, { params: p, signal }).then((r) => r.data),
+  notice: (id: number, signal?: AbortSignal) => apiClient.get(`${W}/payment-notices/${id}`, { signal }).then((r) => r.data.data),
+  outstanding: (signal?: AbortSignal) => apiClient.get(`${W}/payment-notices/outstanding`, { signal }).then((r) => r.data.data),
+  createNotice: (fd: FormData) => apiClient.post(`${W}/payment-notices`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data.data),
+  noticeReceipt: (id: number) => apiClient.get(`${W}/payment-notices/${id}/receipt`, { responseType: 'blob', params: { signed: 1 } }),
+  quotes: (p: { status?: string; page?: number }, signal?: AbortSignal) => apiClient.get(`${W}/quotations`, { params: p, signal }).then((r) => r.data),
+  quote: (id: number, signal?: AbortSignal) => apiClient.get(`${W}/quotations/${id}`, { signal }).then((r) => r.data.data),
+  createQuote: (body: unknown) => apiClient.post(`${W}/quotations`, body).then((r) => r.data.data),
+  updateQuote: (id: number, body: unknown) => apiClient.put(`${W}/quotations/${id}`, body).then((r) => r.data.data),
+  deleteQuote: (id: number) => apiClient.delete(`${W}/quotations/${id}`),
+  submitQuote: (id: number) => apiClient.post(`${W}/quotations/${id}/submit`).then((r) => r.data.data),
+  acceptQuote: (id: number) => apiClient.post(`${W}/quotations/${id}/accept`).then((r) => r.data.data),
+  rejectQuote: (id: number) => apiClient.post(`${W}/quotations/${id}/reject`).then((r) => r.data.data),
+  notifications: (page = 1, signal?: AbortSignal) => apiClient.get(`${W}/notifications`, { params: { page }, signal }).then((r) => r.data),
+  readNotification: (id: string) => apiClient.post(`${W}/notifications/${id}/read`).then((r) => r.data),
+  readAllNotifications: () => apiClient.post(`${W}/notifications/read-all`).then((r) => r.data),
 };
 
 const MULTIPART = { headers: { 'Content-Type': 'multipart/form-data' } };

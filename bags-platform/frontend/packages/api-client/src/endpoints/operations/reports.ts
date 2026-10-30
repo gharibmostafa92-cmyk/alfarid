@@ -1,4 +1,4 @@
-import { api, ADMIN, cleanParams, type PageMeta } from './http';
+import { api, ADMIN, cleanParams, SLOW_REQUEST_TIMEOUT, type PageMeta } from './http';
 
 type Money = number | string;
 export interface ReportPeriod { from?: string; to?: string }
@@ -16,7 +16,7 @@ export interface SupplierReportRow { supplier_id: number; supplier_name: string;
 export interface ShiftReportRow { shift_id: number; shift_number: string; cashier_name: string; branch_name: string; status: string; opened_at: string; closed_at: string | null; cash_sales_total: Money; card_sales_total: Money; cash_returns_total: Money; cash_expenses_total: Money; expected_closing_cash: Money; actual_closing_cash: Money | null; cash_difference: Money | null; has_difference: boolean }
 export interface ShiftReportData { rows: ShiftReportRow[]; totals: { shifts_count: number; cash_sales: Money; card_sales: Money; shifts_with_difference: number } }
 const report = <T>(name: string, p: object, signal?: AbortSignal): Promise<T> =>
-  api.get<{ data: T }>(`${ADMIN}/reports/${name}`, { params: cleanParams(p), signal }).then((r) => r.data.data);
+  api.get<{ data: T }>(`${ADMIN}/reports/${name}`, { params: cleanParams(p), signal, timeout: SLOW_REQUEST_TIMEOUT }).then((r) => r.data.data);
 export const reportsApi = {
   sales: (p: SalesReportParams = {}, signal?: AbortSignal) => report<SalesReportData>('sales', p, signal),
   profit: (p: ReportPeriod = {}, signal?: AbortSignal) => report<ProfitReportData>('profit', p, signal),

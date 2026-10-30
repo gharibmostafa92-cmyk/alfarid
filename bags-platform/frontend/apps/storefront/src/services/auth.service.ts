@@ -57,6 +57,7 @@ export interface RegistrationInput {
 }
 
 interface RegistrationResponse {
+  cart_merged?: boolean;
   token: string;
   data: Record<string, unknown>;
 }
@@ -84,13 +85,17 @@ export async function registerWeb(input: RegistrationInput, wholesale: boolean, 
     token: response.data.token, actorType: 'customer',
     destination: wholesale ? 'wholesale_pending' : 'retail', home, user: response.data.data,
   });
-  if (!wholesale) clearGuestCartSession();
+  if (!wholesale) {
+    if (response.data.cart_merged === false && session) restoreGuestCartSession(session);
+    else clearGuestCartSession();
+  }
   return home;
 }
 
 function recoveryIdentifier(login: string) {
   const value = login.trim();
-  return value.includes('@') ? { email: value } : { phone: value };
+  if (value.includes('@')) throw new Error('استخدم رقم الموبايل المسجل لاستعادة حسابك.');
+  return { phone: value };
 }
 
 export async function requestPasswordReset(login: string) {

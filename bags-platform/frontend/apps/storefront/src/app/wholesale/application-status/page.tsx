@@ -1,9 +1,10 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { defaultApiClient } from '@alfarid/api-client';
+import { useRouter } from 'next/navigation';
+import { authEndpoints, defaultApiClient } from '@alfarid/api-client';
 import { WholesalePortal } from '@alfarid/ui';
 import { useAuthStore } from '@/store/auth.store';
-import { logoutWeb } from '@/services/auth.service';
+import { logoutWeb, requestPasswordReset, resetWebPassword } from '@/services/auth.service';
 import { RequireActor } from '@/components/auth/RequireActor';
 
 interface ApplicationStatus {
@@ -45,13 +46,25 @@ function ApplicationStatusContent() {
 }
 
 export default function ApplicationStatusPage() {
+  const router = useRouter();
   const customerType = useAuthStore((state) => state.user?.type);
+  const onEnter = async () => {
+    const me = await authEndpoints.me();
+    useAuthStore.setState({ destination: me.actor.subtype, user: me.data, home: me.redirect.path });
+    router.replace('/wholesale');
+  };
   return (
     <RequireActor allow={['wholesale_pending', 'wholesale']}>
       {customerType === 'retail' ? (
         <ApplicationStatusContent />
       ) : (
-        <WholesalePortal initialScreen="status" onLogout={logoutWeb} />
+        <WholesalePortal
+          initialScreen="status"
+          onLogout={logoutWeb}
+          onEnter={onEnter}
+          onForgotSubmit={requestPasswordReset}
+          onResetSubmit={resetWebPassword}
+        />
       )}
     </RequireActor>
   );

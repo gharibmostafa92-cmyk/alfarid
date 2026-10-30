@@ -16,6 +16,23 @@ function load(relative, dependencies = {}) {
 const base = 'packages/api-client/src/endpoints/operations/';
 const http = load(base + 'http.ts', { '../../axios-instance': { defaultApiClient: {} } });
 
+test('server clients keep request tokens separate and reject global token mutation', () => {
+  const requests = [];
+  const axios = { create: () => ({ interceptors: {
+    request: { use: callback => requests.push(callback) },
+    response: { use() {} },
+  } }) };
+  const client = load('packages/api-client/src/axios-instance.ts', {
+    axios: { default: axios }, './service-url': { resolveServiceUrl: url => url },
+  });
+  assert.throws(() => client.setAuthToken('server-user'), /must not be called on the server/);
+  client.createApiClient({ getToken: () => 'user-a' });
+  client.createApiClient({ getToken: () => 'user-b' });
+  assert.equal(requests[1]({ headers: {} }).headers.Authorization, 'Bearer user-a');
+  assert.equal(requests[2]({ headers: {} }).headers.Authorization, 'Bearer user-b');
+  assert.equal(requests[0]({ headers: {} }).headers.Authorization, undefined);
+});
+
 test('production ignores financial mock fallback flags without crashing the application', () => {
   const filename = path.resolve(__dirname, '../apps/backoffice/src/pages/admin/operations-mock/api/source.ts');
   const code = ts.transpileModule(fs.readFileSync(filename, 'utf8').replaceAll('import.meta.env', 'env'), {
@@ -66,6 +83,32 @@ test('raw Laravel pagination retains the page and total', () => {
 test('an empty unpaginated list still has a usable page size', () => {
   const page = http.asPage({ data: { data: [] } });
   assert.ok(page.meta.per_page > 0); assert.equal(page.meta.total, 0);
+});
+
+test('reports and exports allow the slow backend to finish', async () => {
+  const calls = [];
+  const api = { get: async (url, config) => { calls.push({ url, config }); return { data: { data: [] } }; } };
+  const { reportsApi } = load(base + 'reports.ts', { './http': { ...http, api } });
+  await reportsApi.sales();
+  assert.ok(calls[0].config.timeout > 180_000);
+});
+
+test('protected signed attachments navigate directly without fetching R2 bytes', async () => {
+  const previous = global.window;
+  const tab = { opener: {}, location: { href: '' }, close() {} };
+  global.window = { open: () => tab };
+  const signedUrl = 'https://private.example/receipt?signature=abc';
+  const files = load(base + 'http.ts', { '../../axios-instance': { defaultApiClient: { get: async (url, config) => {
+    assert.equal(config.params.signed, 1);
+    return { data: new Blob([JSON.stringify({ url: signedUrl })]), headers: { 'content-type': 'application/json' } };
+  } } } });
+  try {
+    await files.openProtectedFile('/receipt');
+    assert.equal(tab.location.href, signedUrl);
+    assert.equal(tab.opener, null);
+  } finally {
+    global.window = previous;
+  }
 });
 test('Cairo calendar dates are ISO regardless of locale separator conventions', () => {
   const { toDate } = load('apps/backoffice/src/pages/admin/operations-mock/api/mappers.ts');

@@ -1,6 +1,7 @@
 /* Sophie — 3D Interactive Bag Showcase Stylesheet */
 
 .design-page {
+  position: relative;
   --bg: #ffffff;
   --text: #111111;
   --muted: #777777;
@@ -204,15 +205,15 @@
 
 /* ================= VIEW SWITCHER (TOP RIGHT) ================= */
 .design-view-switcher {
-  position: fixed;
-  top: 98px;
+  position: absolute;
+  top: 16px;
   right: 50px;
   display: flex;
   background: #f4f6f8;
   border-radius: 30px;
   padding: 4px;
   gap: 4px;
-  z-index: 90;
+  z-index: 20;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
   border: 1px solid #e9ecef;
   transition: var(--transition-fast);
@@ -225,6 +226,7 @@
 }
 
 .design-switch-btn {
+  min-height: 44px;
   padding: 6px 14px;
   border-radius: 20px;
   display: flex;
@@ -246,6 +248,19 @@
   font-size: 12px;
 }
 
+.design-page:focus { outline: none; }
+.design-page :is(button, a, [role="button"]):focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.design-carousel-arrow { min-width: 44px; min-height: 44px; }
+
+@media (max-width: 768px) {
+  .design-bag-subtitle { overflow-wrap: anywhere; font-size: 14px; }
+  .design-products-grid { gap: 16px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .design-page *, .design-page *::before, .design-page *::after { animation: none; transition: none; }
+}
+
 .design-switch-btn.active {
   background-color: #000;
   color: #fff;
@@ -257,7 +272,7 @@
   position: fixed;
   top: 130px;
   left: 50px;
-  z-index: 80;
+  z-index: 20;
   transition: var(--transition-slow);
 }
 
@@ -461,7 +476,7 @@
 .design-carousel-info {
   text-align: center;
   margin-top: 10px;
-  z-index: 40;
+  z-index: 10;
   transition: opacity 0.35s ease, transform 0.35s ease;
 }
 

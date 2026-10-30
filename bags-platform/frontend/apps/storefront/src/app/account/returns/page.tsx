@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { accountEndpoints } from '@alfarid/api-client';
 
@@ -8,19 +8,22 @@ export default function AccountReturnsPage() {
   const [items, setItems] = useState<Array<{ id: number; status: string; created_at: string }> | null>(null);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    accountEndpoints.returns().then(setItems).catch(() => setError('تعذر تحميل المرتجعات.'));
+  const load = useCallback(async () => {
+    setError('');
+    try { setItems(await accountEndpoints.returns().then(r => r.data as Array<{ id: number; status: string; created_at: string }>)); }
+    catch { setError('تعذر تحميل المرتجعات.'); }
   }, []);
 
+  useEffect(() => { void load(); }, [load]);
   return (
-    <main className="min-h-screen bg-[#f3f5f7]">
+    <main id="main-content" tabIndex={-1} className="min-h-screen bg-[#f3f5f7]">
       <section className="checkout-wrapper" aria-label="Returns">
         <div className="container" style={{ maxWidth: '720px', margin: '0 auto', padding: '40px 20px' }}>
           <h1 className="checkout-giant-title">RETURNS</h1>
-          {error && <div className="checkout-banner is-error" role="alert"><span>{error}</span></div>}
-          {items === null ? (
-            <div aria-hidden="true"><div className="mega-skel-link" /></div>
-          ) : items.length === 0 ? (
+          {error && <div className="checkout-banner is-error" role="alert"><span>{error}</span><button type="button" className="btn-apply-promo" onClick={() => { void load(); }}>إعادة المحاولة</button></div>}
+          {items === null ? (error ? null : (
+            <div role="status" aria-label="Loading returns"><div className="mega-skel-link" /></div>
+          )) : items.length === 0 ? (
             <div className="checkout-block"><p>لا توجد طلبات إرجاع. <Link href="/account/orders">طلباتي</Link></p></div>
           ) : (
             items.map((r) => (

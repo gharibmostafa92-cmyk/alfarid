@@ -11,9 +11,23 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
   useCartSync();
   const { branding } = useBranding();
   const pathname = usePathname();
-  const isStorePage = ['/', '/shop', '/categories', '/design', '/showcase', '/checkout'].includes(pathname);
+  const isCheckout = pathname.startsWith('/checkout');
+  const isStorePage = ['/', '/shop', '/categories', '/design', '/showcase'].includes(pathname)
+    || isCheckout || pathname === '/account' || pathname.startsWith('/account/') || pathname.startsWith('/orders/');
   if (isStorePage) {
-    return <><div className="store-header-shell"><div className="store-header-inner"><SophieHeader /></div></div>{children}</>;
+    return (
+      <div className={`store-page-shell${isCheckout ? ' is-checkout' : ''}`}>
+        <a href="#main-content" className="skip-to-content">
+          Skip to main content
+        </a>
+        <div className="store-header-shell">
+          <div className="store-header-inner">
+            <SophieHeader />
+          </div>
+        </div>
+        {children}
+      </div>
+    );
   }
 
   // Pages that manage their own luxury header & layout or specialized portals
@@ -28,24 +42,43 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
     ['/wholesale/register', '/wholesale', '/wholesale/application-status', '/supplier'].includes(pathname);
 
   if (isCustomLayout) {
-    return <>{children}</>;
+    return (
+      <>
+        <a href="#main-content" className="skip-to-content">
+          Skip to main content
+        </a>
+        {children}
+      </>
+    );
   }
 
   return (
     <>
-      <header className="border-b border-slate-200 bg-white sticky top-0 z-40 shadow-sm">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-6">
-            <span dir="auto" className="text-xl font-bold text-black font-['Poppins'] truncate">{branding.name}</span>
-            <nav className="hidden md:flex items-center gap-4 text-sm font-medium text-slate-600 font-['Oswald'] uppercase">
-              <Link href="/" className="hover:text-[#4f7d88]">Home</Link>
-              <Link href="/wholesale" className="hover:text-[#4f7d88]">Wholesale Portal</Link>
+      <a href="#main-content" className="skip-to-content">
+        Skip to main content
+      </a>
+      <header className="border-b border-slate-200 bg-white/95 backdrop-blur-xs sticky top-0 z-40 shadow-xs">
+        <div className="container mx-auto px-4 h-16 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-4 sm:gap-6 min-w-0">
+            <Link
+              href="/"
+              className="text-lg sm:text-xl font-bold text-black font-['Poppins'] truncate min-h-[44px] inline-flex items-center"
+            >
+              <span dir="auto" className="truncate">{branding.name}</span>
+            </Link>
+            <nav aria-label="Portal navigation" className="flex items-center gap-2 sm:gap-4 text-xs sm:text-sm font-medium text-slate-700 font-['Oswald'] uppercase">
+              <Link href="/" className="hover:text-[#4f7d88] transition-colors px-2 py-2.5 min-h-[44px] inline-flex items-center">
+                Home
+              </Link>
+              <Link href="/wholesale" className="hover:text-[#4f7d88] transition-colors px-2 py-2.5 min-h-[44px] inline-flex items-center">
+                Wholesale Portal
+              </Link>
             </nav>
           </div>
           <AccountMenu />
         </div>
       </header>
-      <main>{children}</main>
+      <main id="main-content">{children}</main>
     </>
   );
 }

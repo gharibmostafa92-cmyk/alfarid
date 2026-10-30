@@ -53,6 +53,23 @@ acquire a trusted proxy's static IP. Redis uses `noeviction`: evicting shared lo
 or rate-limit counters under memory pressure would break correctness. Redis and
 Sentinel role/config rewrites persist independently per node.
 
+Cache and security counters still share one Redis memory budget. Keep
+`noeviction` until cache moves to an independent Redis deployment; a logical
+Redis DB does not isolate eviction. At 80% memory, investigate cache cardinality
+and provision capacity. Any `evicted_keys` increase is critical. `redis/start.sh`
+generates the live config and applies policy updates to existing volumes;
+`redis.conf` is a matching reference, not the runtime file.
+
+PostgreSQL defaults to a 30-second statement budget and a 60-second idle
+transaction budget. Reports and wholesale export queries explicitly use
+150-second transaction-local budgets; reconciliation uses 300 seconds. Local
+settings are restored before returning and roll back with savepoints, so pooled
+sessions do not retain them. Migrations connect directly to PostgreSQL with
+`PGOPTIONS` disabling those two budgets and bounding lock waits to 10 seconds.
+Deploy uses `migrate --isolated`; concurrent unique-index builds avoid blocking
+table writes. Existing valid webhook indexes are retained. An interrupted
+concurrent build leaves an invalid index, removed before retrying the migration.
+
 This is service redundancy on one Docker host, with one PostgreSQL primary and
 one data proxy. Real host failure protection requires distributing services over
 independent machines.

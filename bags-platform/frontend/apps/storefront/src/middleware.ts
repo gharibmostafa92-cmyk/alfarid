@@ -4,9 +4,11 @@ export function middleware(request: NextRequest) {
   const nonce = btoa(crypto.randomUUID());
   const development = process.env.NODE_ENV !== 'production';
   const api = new URL(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
+  const office = new URL(process.env.NEXT_PUBLIC_BACKOFFICE_URL || 'http://localhost:5173');
   // Match the API client's loopback-to-LAN resolution during local previews.
   const hostname = request.nextUrl.hostname;
   if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hostname) && ['localhost', '127.0.0.1'].includes(api.hostname)) api.hostname = hostname;
+  if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hostname) && ['localhost', '127.0.0.1'].includes(office.hostname)) office.hostname = hostname;
   const reverbHost = process.env.NEXT_PUBLIC_REVERB_HOST || 'localhost';
   const reverbPort = process.env.NEXT_PUBLIC_REVERB_PORT || '8080';
   const socket = `${process.env.NEXT_PUBLIC_REVERB_SCHEME === 'https' ? 'wss' : 'ws'}://${reverbHost}:${reverbPort}`;
@@ -17,6 +19,7 @@ export function middleware(request: NextRequest) {
     "font-src 'self' https://fonts.gstatic.com",
     "img-src 'self' https: data: blob:" + (development ? ` http://localhost:8000 http://127.0.0.1:8000${api.protocol === 'http:' ? ` ${api.origin}` : ''}` : ''),
     `connect-src 'self' ${api.origin} ${socket}${development ? ' ws: wss:' : ''}`,
+    `frame-src 'self' ${office.origin}`,
     "object-src 'none'", "base-uri 'self'", "form-action 'self'", "frame-ancestors 'none'",
   ].join('; ');
   const headers = new Headers(request.headers);

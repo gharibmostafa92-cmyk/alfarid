@@ -91,13 +91,21 @@ services:
     environment:
       <<: *app-env
       PHP_MEMORY_LIMIT: 512M
-    command: [php, -d, memory_limit=512M, artisan, 'queue:work', '--queue=media', '--tries=3', '--max-time=3600', '--memory=512']
+    # M8: video/image conversions can exceed the 60s default --timeout and get
+    # SIGKILLed, retried 3x, then marked failed. --timeout=600 with a matching
+    # retry_after=900 media connection keeps one attempt alive long enough;
+    # stop_grace_period must exceed --timeout so SIGTERM can finish the job.
+    command: [php, -d, memory_limit=512M, artisan, 'queue:work', 'database-media', '--queue=media', '--tries=3', '--timeout=600', '--max-time=3600', '--memory=512']
     healthcheck: {disable: true}
-    stop_grace_period: 190s
+    stop_grace_period: 660s
   scheduler:
     <<: *app
     command: [php, artisan, 'schedule:work']
     healthcheck: {disable: true}
+    # H4: give in-flight jobs time to finish and release their
+    # withoutOverlapping() locks before SIGKILL (default 10s orphaned
+    # locks for 24h). Must exceed the longest scheduled job runtime.
+    stop_grace_period: 300s
   postgres:
     image: alfarid-data:local
     build: {context: .., dockerfile: infrastructure/docker/data.Dockerfile}

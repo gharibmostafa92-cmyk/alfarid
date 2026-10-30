@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
 import { STORE_ROUTES } from '@/lib/store-routes';
 import { BrandLogo, useBranding } from '@alfarid/ui/branding';
 
@@ -43,19 +44,19 @@ export function SophieFooter() {
       </div>
 
       {/* Main Luxury Dark Footer */}
-      <footer className="bg-[#151823] text-[#7d8495] pt-16 pb-14 font-['Poppins'] relative">
+      <footer className="bg-[#151823] text-[#a4abba] pt-16 pb-14 font-['Poppins'] relative">
         <div className="max-w-[1140px] mx-auto px-5">
           {/* 4-Column Main Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10 mb-14">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-10 mb-10 lg:mb-14">
             {/* Column 1: ABOUT US */}
             <div>
               <h4 className="font-['Oswald'] text-[16px] font-normal uppercase tracking-[1.1px] text-[#e4e8f0] mb-5">
                 ABOUT US
               </h4>
-              <p className="text-[12.5px] leading-[1.78] text-[#7d8495] mb-3.5">
+              <p className="text-[12.5px] leading-[1.78] text-[#a4abba] mb-3.5">
                 {branding.name} crafts contemporary ladies backpacks, structured leather totes, and anti-theft travel companions designed for effortless everyday elegance.
               </p>
-              <p className="text-[12.5px] leading-[1.78] text-[#7d8495]">
+              <p className="text-[12.5px] leading-[1.78] text-[#a4abba]">
                 Every silhouette blends water-resistant materials, ergonomic comfort, and refined hardware to elevate your daily commute and weekend escapes.
               </p>
             </div>
@@ -90,32 +91,32 @@ export function SophieFooter() {
               </h4>
               <ul className="space-y-2.5 text-[12.5px]">
                 <li>
-                  <a href="#top" className="inline-flex items-center gap-2 text-[#7d8495] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
+                  <Link href="/" className="inline-flex items-center gap-2 text-[#a4abba] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
                     <span className="text-[#6c7383]">&rsaquo;</span> Home
-                  </a>
+                  </Link>
                 </li>
                 <li>
-                  <a href={STORE_ROUTES.shop({ sort: 'best_selling' })} className="inline-flex items-center gap-2 text-[#7d8495] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
+                  <a href={STORE_ROUTES.shop({ sort: 'best_selling' })} className="inline-flex items-center gap-2 text-[#a4abba] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
                     <span className="text-[#6c7383]">&rsaquo;</span> Best Sellers
                   </a>
                 </li>
                 <li>
-                  <a href={STORE_ROUTES.shop()} className="inline-flex items-center gap-2 text-[#7d8495] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
+                  <a href={STORE_ROUTES.shop()} className="inline-flex items-center gap-2 text-[#a4abba] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
                     <span className="text-[#6c7383]">&rsaquo;</span> Collections &amp; Accessories
                   </a>
                 </li>
                 <li>
-                  <a href={STORE_ROUTES.shop({ sort: 'newest' })} className="inline-flex items-center gap-2 text-[#7d8495] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
+                  <a href={STORE_ROUTES.shop({ sort: 'newest' })} className="inline-flex items-center gap-2 text-[#a4abba] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
                     <span className="text-[#6c7383]">&rsaquo;</span> New Arrivals
                   </a>
                 </li>
                 <li>
-                  <a href="/wholesale" className="inline-flex items-center gap-2 text-[#7d8495] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
+                  <a href="/wholesale" className="inline-flex items-center gap-2 text-[#a4abba] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
                     <span className="text-[#6c7383]">&rsaquo;</span> Wholesale Portal
                   </a>
                 </li>
                 <li>
-                  <a href="#footer-contact" className="inline-flex items-center gap-2 text-[#7d8495] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
+                  <a href="#footer-contact" className="inline-flex items-center gap-2 text-[#a4abba] hover:text-[#e4e8f0] hover:translate-x-1 transition-all">
                     <span className="text-[#6c7383]">&rsaquo;</span> Contact Us
                   </a>
                 </li>
@@ -127,7 +128,7 @@ export function SophieFooter() {
               <h4 className="font-['Oswald'] text-[16px] font-normal uppercase tracking-[1.1px] text-[#e4e8f0] mb-5">
                 NEWSLETTER
               </h4>
-              <p className="text-[12.5px] leading-[1.75] text-[#7d8495] mb-5">
+              <p className="text-[12.5px] leading-[1.75] text-[#a4abba] mb-5">
                 Newsletter subscriptions will be available soon.
               </p>
             </div>
@@ -139,21 +140,21 @@ export function SophieFooter() {
               <a
                 href="#footer-contact"
                 aria-label="Facebook"
-                className="w-[34px] h-[34px] rounded-full bg-[#1bc6cf] text-white flex items-center justify-center text-sm hover:bg-[#14aeb6] hover:-translate-y-0.5 hover:shadow-[0_6px_16px_rgba(27,198,207,0.35)] transition-all"
+                className="w-11 h-11 rounded-full bg-[#1bc6cf] text-white flex items-center justify-center text-sm hover:bg-[#14aeb6] hover:-translate-y-0.5 hover:shadow-[0_6px_16px_rgba(27,198,207,0.35)] transition-all"
               >
                 f
               </a>
               <a
                 href="#footer-contact"
                 aria-label="Twitter"
-                className="w-[34px] h-[34px] rounded-full bg-[#1bc6cf] text-white flex items-center justify-center text-sm hover:bg-[#14aeb6] hover:-translate-y-0.5 hover:shadow-[0_6px_16px_rgba(27,198,207,0.35)] transition-all"
+                className="w-11 h-11 rounded-full bg-[#1bc6cf] text-white flex items-center justify-center text-sm hover:bg-[#14aeb6] hover:-translate-y-0.5 hover:shadow-[0_6px_16px_rgba(27,198,207,0.35)] transition-all"
               >
                 𝕏
               </a>
               <a
                 href="#footer-contact"
                 aria-label="Instagram"
-                className="w-[34px] h-[34px] rounded-full bg-[#1bc6cf] text-white flex items-center justify-center text-sm hover:bg-[#14aeb6] hover:-translate-y-0.5 hover:shadow-[0_6px_16px_rgba(27,198,207,0.35)] transition-all"
+                className="w-11 h-11 rounded-full bg-[#1bc6cf] text-white flex items-center justify-center text-sm hover:bg-[#14aeb6] hover:-translate-y-0.5 hover:shadow-[0_6px_16px_rgba(27,198,207,0.35)] transition-all"
               >
                 📷
               </a>
@@ -197,7 +198,7 @@ export function SophieFooter() {
             </div>
             <p className="text-[11px] leading-[1.65] text-[#5c6272] max-w-[420px]">
               Copyright &copy; {new Date().getFullYear()} {branding.name}. All rights reserved.<br />
-              <a href="#top" className="text-[#7d8495] hover:text-[#1bc6cf] transition-colors">
+              <a href="#top" className="text-[#a4abba] hover:text-[#1bc6cf] transition-colors">
                 {branding.name}
               </a>
             </p>

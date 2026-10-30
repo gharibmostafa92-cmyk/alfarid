@@ -54,7 +54,7 @@ export function ProductExperience({ product, onBack, initialColor, initialSize }
   };
   const prompt = !sizeReady ? 'Choose your size' : !color ? 'Choose your color' : 'Your selection';
 
-  return <article className="design-page product-experience product-mode">
+  return <main id="main-content" tabIndex={-1} className="design-page product-experience product-mode">
     <section className="product-purchase-stage" aria-label="Product selection and 3D stage">
       <aside id="product-options" className="design-sidebar product-configurator" aria-label="Product options">
         <button className="product-back" onClick={onBack}><ArrowLeft size={14} /> Back to collection</button>
@@ -88,5 +88,5 @@ export function ProductExperience({ product, onBack, initialColor, initialSize }
         <div><dt>Selected piece</dt><dd>{[variant?.sizeLabel, variant?.colorLabel, variant?.sku].filter(Boolean).join(' · ') || detail.name}</dd></div>
       </dl>
     </section>
-  </article>;
+  </main>;
 }

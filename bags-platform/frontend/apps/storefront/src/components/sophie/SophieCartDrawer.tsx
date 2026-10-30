@@ -54,16 +54,24 @@ export function SophieCartDrawer({ isOpen, onClose }: SophieCartDrawerProps) {
         aria-hidden="true"
       />
 
-      <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
-        <div ref={panel} tabIndex={-1} aria-modal="true" role="dialog" aria-label="Shopping cart" className="w-screen max-w-md bg-white shadow-2xl flex flex-col">
+      <div className="fixed inset-y-0 right-0 max-w-full flex pl-0 sm:pl-10">
+        <div
+          ref={panel}
+          tabIndex={-1}
+          aria-modal="true"
+          role="dialog"
+          aria-label="Shopping cart"
+          className="store-cart-panel w-screen max-w-md bg-white shadow-2xl flex flex-col focus:outline-none"
+        >
           {/* Header */}
-          <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-            <h2 className="font-['Oswald'] text-xl uppercase tracking-wider font-semibold text-black">
+          <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-gray-100 flex items-center justify-between gap-2">
+            <h2 className="font-['Oswald'] text-lg sm:text-xl uppercase tracking-wider font-semibold text-black">
               Shopping Cart ({items.reduce((s, i) => s + i.quantity, 0)})
             </h2>
             <button
+              type="button"
               onClick={onClose}
-              className="text-gray-400 hover:text-black transition p-1"
+              className="w-11 h-11 inline-flex items-center justify-center rounded-full text-gray-500 hover:text-black hover:bg-gray-100 transition-colors"
               aria-label="Close cart"
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -73,56 +81,92 @@ export function SophieCartDrawer({ isOpen, onClose }: SophieCartDrawerProps) {
           </div>
 
           {/* Items List */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-4">
-            {loading && <p role="status" className="text-sm">Updating your cart…</p>}
-            {error && <div role="alert" className="text-sm text-red-700">{error}<button className="block underline mt-2" onClick={() => { void loadCart(); }}>Try again</button></div>}
+          <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-5 space-y-4 overscroll-contain">
+            {loading && (
+              <p role="status" aria-live="polite" className="text-sm text-gray-600 flex items-center gap-2">
+                <span className="inline-block w-3.5 h-3.5 border-2 border-gray-300 border-t-black rounded-full animate-spin" aria-hidden="true" />
+                Updating your cart…
+              </p>
+            )}
+            {error && (
+              <div role="alert" className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-lg p-3">
+                <p>{error}</p>
+                <button
+                  type="button"
+                  className="inline-flex items-center mt-2 font-semibold underline min-h-[36px]"
+                  onClick={() => { void loadCart(); }}
+                >
+                  Try again
+                </button>
+              </div>
+            )}
             {items.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-center py-12">
-                <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mb-4 text-gray-400">
+              <div className="h-full flex flex-col items-center justify-center text-center py-12 px-4">
+                <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mb-4 text-gray-500">
                   <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
                   </svg>
                 </div>
-                <p className="font-['Oswald'] text-lg font-medium text-gray-800 uppercase tracking-wide">Your cart is empty</p>
-                <p className="text-xs text-gray-500 mt-1">Discover our exclusive bag collections and new arrivals.</p>
+                <p className="font-['Oswald'] text-lg font-medium text-gray-900 uppercase tracking-wide">Your cart is empty</p>
+                <p className="text-xs sm:text-sm text-gray-600 mt-1.5 max-w-[260px] leading-relaxed">
+                  Discover our exclusive bag collections and new arrivals.
+                </p>
                 <button
+                  type="button"
                   onClick={onClose}
-                  className="mt-6 bg-black text-white px-6 py-2.5 font-['Oswald'] text-xs uppercase tracking-widest hover:bg-neutral-800 transition"
+                  className="mt-6 bg-black text-white px-7 py-3 min-h-[44px] font-['Oswald'] text-xs uppercase tracking-widest hover:bg-neutral-800 transition-colors"
                 >
                   Start Shopping
                 </button>
               </div>
             ) : (
               items.map((item) => (
-                <div key={item.id} className="flex gap-4 pb-4 border-b border-gray-100">
-                  <div className="w-20 h-20 bg-gray-50 rounded-sm p-2 flex items-center justify-center shrink-0 [&_svg]:w-10 [&_span]:hidden"><StoreProductImage src={item.image} alt={item.name} /></div>
+                <div key={item.id} className="flex gap-3.5 sm:gap-4 pb-4 border-b border-gray-100 items-start">
+                  <div className="w-20 h-20 bg-gray-50 rounded-md p-2 flex items-center justify-center shrink-0 [&_svg]:w-10 [&_span]:hidden">
+                    <StoreProductImage src={item.image} alt={item.name} />
+                  </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-['Oswald'] text-sm font-medium text-gray-900 truncate">{item.name}</h3>
-                    <p className="text-xs text-gray-600 font-semibold mt-0.5">{item.price === null ? 'Price unavailable' : formatStorePrice(item.price)}</p>
-                    <div className="flex items-center gap-2 mt-2">
+                    <h3 className="font-['Oswald'] text-sm font-medium text-gray-900 line-clamp-2 leading-snug">
+                      {item.name}
+                    </h3>
+                    {(item.color || item.size) && (
+                      <p className="text-[11px] text-gray-500 mt-0.5 truncate">
+                        {[item.color, item.size].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
+                    <p className="text-xs text-gray-800 font-semibold mt-1">
+                      {item.price === null ? 'Price unavailable' : formatStorePrice(item.price)}
+                    </p>
+                    <div className="flex items-center gap-1.5 mt-2.5">
                       <button
+                        type="button"
                         onClick={() => updateQuantity(item.id, Math.max(1, item.quantity - 1))}
                         disabled={busy || item.quantity <= 1}
                         aria-label={`Decrease quantity of ${item.name}`}
-                        className="w-6 h-6 border border-gray-200 text-xs flex items-center justify-center hover:bg-gray-100 transition"
+                        className="w-11 h-11 border border-gray-200 rounded-md text-sm font-medium flex items-center justify-center hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                       >
-                        -
+                        −
                       </button>
-                      <span className="text-xs font-medium w-6 text-center">{item.quantity}</span>
+                      <span className="text-xs font-semibold min-w-[28px] text-center" aria-live="polite">
+                        {item.quantity}
+                      </span>
                       <button
+                        type="button"
                         onClick={() => updateQuantity(item.id, item.quantity + 1)}
                         disabled={busy || item.quantity >= item.available || item.price === null}
                         aria-label={`Increase quantity of ${item.name}`}
-                        className="w-6 h-6 border border-gray-200 text-xs flex items-center justify-center hover:bg-gray-100 transition"
+                        className="w-11 h-11 border border-gray-200 rounded-md text-sm font-medium flex items-center justify-center hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                       >
                         +
                       </button>
                     </div>
                   </div>
                   <button
+                    type="button"
                     onClick={() => removeItem(item.id)}
                     disabled={busy}
-                    className="text-gray-300 hover:text-red-500 transition self-start p-1"
+                    aria-label={`Remove ${item.name} from cart`}
+                    className="w-11 h-11 inline-flex items-center justify-center rounded-full text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors self-start shrink-0"
                     title="Remove item"
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -134,26 +178,27 @@ export function SophieCartDrawer({ isOpen, onClose }: SophieCartDrawerProps) {
             )}
           </div>
 
-          {/* Footer & Checkout */}
+          {/* Footer & Checkout (Thumb-friendly bottom zone with safe-area support) */}
           {items.length > 0 && (
-            <div className="p-6 border-t border-gray-100 bg-gray-50/50">
-              <div className="flex justify-between items-center mb-4">
-                <span className="font-['Oswald'] text-sm uppercase text-gray-600 tracking-wider">Cart total:</span>
+            <div className="px-4 sm:px-6 pt-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))] border-t border-gray-100 bg-gray-50/80">
+              <div className="flex justify-between items-center mb-2">
+                <span className="font-['Oswald'] text-sm uppercase text-gray-700 tracking-wider">Cart total:</span>
                 <span className="font-['Oswald'] text-lg font-bold text-gray-900">{formatStorePrice(total())}</span>
               </div>
-              <p className="text-[11px] text-gray-500 mb-4">Shipping and taxes calculated at checkout.</p>
-              <div className="space-y-2">
+              <p className="text-[11.5px] text-gray-600 mb-4">Shipping and taxes calculated at checkout.</p>
+              <div className="space-y-2.5">
                 <Link
                   href="/checkout"
                   onClick={onClose}
-                  className="w-full block text-center bg-black text-white py-3 font-['Oswald'] text-xs font-medium uppercase tracking-widest hover:bg-[#159a8c] transition"
+                  className="w-full min-h-[48px] inline-flex items-center justify-center text-center bg-black text-white py-3.5 px-6 font-['Oswald'] text-xs font-medium uppercase tracking-widest hover:bg-[#159a8c] transition-colors"
                 >
                   Proceed to Checkout
                 </Link>
                 <button
+                  type="button"
                   onClick={() => { void clearCart(); }}
                   disabled={busy}
-                  className="w-full text-center text-xs text-gray-500 hover:text-red-600 transition py-1"
+                  className="w-full min-h-[44px] text-center text-xs text-gray-600 hover:text-red-600 transition-colors py-2"
                 >
                   Clear Cart
                 </button>

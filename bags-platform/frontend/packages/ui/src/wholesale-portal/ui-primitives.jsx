@@ -1,4 +1,4 @@
-import React, { useState, createContext, useContext, Fragment } from 'react';
+import React, { useEffect } from 'react';
 
 /* Shared primitives — mirror @alfarid/ui + sophie.css patterns. */
 
@@ -81,7 +81,7 @@ export const Async = ({ children, empty, rows, cols, isEmpty }) => {
 
 export const Pager = ({ page = 1, pages = 3, total, per = 15, onPage = () => {} }) => (
   <div className="pager">
-    <span>عرض <span className="num">{(page - 1) * per + 1}–{Math.min(page * per, total)}</span> من <span className="num">{total}</span></span>
+    <span>عرض <span className="num">{total ? (page - 1) * per + 1 : 0}–{Math.min(page * per, total)}</span> من <span className="num">{total}</span></span>
     <div className="pager-btns">
       <button disabled={page === 1} onClick={() => onPage(page - 1)} aria-label="السابق"><i className="fa-solid fa-chevron-right" /></button>
       {Array.from({ length: pages }).map((_, i) => <button key={i} className={page === i + 1 ? 'is-on' : ''} onClick={() => onPage(i + 1)}>{i + 1}</button>)}

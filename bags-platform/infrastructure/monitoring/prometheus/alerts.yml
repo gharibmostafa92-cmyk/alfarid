@@ -39,3 +39,18 @@ groups:
           severity: warning
         annotations:
           summary: 'Database queue has more than 1000 pending jobs'
+      # Shared cache/security state uses noeviction; alert before writes fail.
+      - alert: RedisMemoryHigh
+        expr: (redis_memory_used_bytes / redis_memory_max_bytes) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Redis memory above 80% of maxmemory'
+
+      - alert: RedisSecurityStateEvicted
+        expr: increase(redis_evicted_keys_total[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Redis evicted security counters or locks; check the runtime memory policy'

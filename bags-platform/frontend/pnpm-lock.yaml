@@ -263,6 +263,9 @@ importers:
 
   packages/ui:
     dependencies:
+      '@alfarid/api-client':
+        specifier: workspace:*
+        version: link:../api-client
       clsx:
         specifier: ^2.1.1
         version: 2.1.1

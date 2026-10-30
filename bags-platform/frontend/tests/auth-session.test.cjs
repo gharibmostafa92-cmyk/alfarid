@@ -1,4 +1,4 @@
-const { test, afterEach } = require('node:test');
+const { test, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -23,7 +23,20 @@ const { createApiClient, setAuthToken, setUnauthorizedHandler } = loadTypeScript
   path.resolve(__dirname, '../packages/api-client/src/axios-instance.ts'),
 );
 
-afterEach(() => { setAuthToken(null); setUnauthorizedHandler(null); });
+beforeEach(() => { global.window = { location: { hostname: 'localhost' } }; });
+afterEach(() => { global.window = {}; setAuthToken(null); setUnauthorizedHandler(null); delete global.window; });
+
+test('SSR rejects module tokens and isolates concurrent per-request clients', async () => {
+  delete global.window;
+  assert.throws(() => setAuthToken('server-token'), /must not be called on the server/);
+  const tokens = ['customer-a', 'customer-b'];
+  const headers = await Promise.all(tokens.map(async token => {
+    const client = createApiClient({ getToken: () => token });
+    client.defaults.adapter = async config => ({ data: config.headers.get('Authorization'), status: 200, headers: {}, config });
+    return (await client.get('/api/v1/auth/me')).data;
+  }));
+  assert.deepEqual(headers, tokens.map(token => `Bearer ${token}`));
+});
 
 test('an explicit logout token is preserved when a new session is active', async () => {
   setAuthToken('new-token');

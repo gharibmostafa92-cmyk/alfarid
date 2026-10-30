@@ -146,7 +146,7 @@ export function SophieMegaDropdown({
                     onClick={(e) => handleCategoryClick(e, link.slug)}
                     data-category={link.slug}
                   >
-                    {link.label}
+                    <span>{link.label}</span>
                     <span className="mega-link-count">{link.count}</span>
                   </a>
                 </li>
@@ -247,8 +247,8 @@ export function SophieMegaDropdown({
         </div>
 
         {/* Mega Menu Body: 3 Columns of Categories + 1 Spotlight Offer Card */}
-        {!activeDept ? error ? <p role="alert">تعذّر تحميل الأقسام. <button type="button" onClick={onRetry}>إعادة المحاولة</button></p>
-          : departments ? <p>لا توجد أقسام متاحة حاليًا. <a href="/shop">تصفّح المتجر</a></p> : renderSkeleton() : (
+        {!activeDept ? error ? <p role="alert" className="p-6 text-sm text-red-700">تعذّر تحميل الأقسام. <button type="button" className="underline font-semibold ml-1" onClick={onRetry}>إعادة المحاولة</button></p>
+          : departments ? <p className="p-6 text-sm text-gray-600">لا توجد أقسام متاحة حاليًا. <a href="/shop" className="underline font-semibold">تصفّح المتجر</a></p> : renderSkeleton() : (
           <div className="mega-body" id="mega-body-content">
             {renderColumn(activeDept.col1, 1)}
             {renderColumn(activeDept.col2, 2)}
@@ -256,8 +256,8 @@ export function SophieMegaDropdown({
 
             {/* Column 4: Spotlight Special Offer Product */}
             <div className="mega-spotlight" id="mega-spotlight-card">
-              {spotlight.isError ? <p role="alert">تعذّر تحميل المنتج. <button type="button" onClick={() => spotlight.refetch()}>إعادة المحاولة</button></p>
-                : spot === null ? <p>اكتشف منتجات القسم من الروابط.</p> : !spot ? (
+              {spotlight.isError ? <p role="alert" className="text-sm text-red-700">تعذّر تحميل المنتج. <button type="button" className="underline font-semibold ml-1" onClick={() => spotlight.refetch()}>إعادة المحاولة</button></p>
+                : spot === null ? <p className="text-sm text-gray-600">اكتشف منتجات القسم من الروابط.</p> : !spot ? (
                 <div className="mega-spotlight-skel" aria-hidden="true">
                   <div className="mega-spotlight-skel-img" />
                   <div className="mega-skel-title" />
@@ -295,6 +295,7 @@ export function SophieMegaDropdown({
                     id="mega-add-cart-btn"
                     onClick={handleAddToCart}
                     disabled={cartBusy}
+                    aria-live="polite"
                     data-product={spot.name}
                     data-price={spot.price ?? ''}
                   >
@@ -303,7 +304,7 @@ export function SophieMegaDropdown({
                       : <i className="fa-solid fa-cart-shopping" aria-hidden="true" />}
                     {cartBusy ? 'Adding…' : spotActionLabel}
                   </button>
-                  {addError && <p role="alert">{addError}</p>}
+                  {addError && <p role="alert" className="text-xs text-red-700 mt-2">{addError}</p>}
                 </>
               )}
             </div>

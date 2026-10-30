@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { headers } from 'next/headers';
 import './globals.css';
 import { QueryProvider } from '../providers/query-provider';
@@ -7,6 +7,13 @@ import { StoreBrandingProvider } from '@/providers/store-branding-provider';
 import { getServerBranding } from '@/lib/server-branding';
 // Each document needs a fresh nonce; the branding fetch remains cached for one minute.
 export const revalidate = 60;
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  themeColor: '#ffffff',
+};
 
 export async function generateMetadata(): Promise<Metadata> {
   const branding = await getServerBranding();
@@ -40,7 +47,7 @@ export default async function RootLayout({
           href="/vendor/fontawesome/css/all.min.css"
         />
       </head>
-      <body className="min-h-screen bg-white text-[#111111] antialiased">
+      <body className="min-h-screen bg-white text-[#111111] antialiased overflow-x-clip selection:bg-[#159a8c]/15 selection:text-[#111111]">
         <StoreBrandingProvider initialBranding={branding}><QueryProvider>
           <StorefrontShell>{children}</StorefrontShell>
         </QueryProvider></StoreBrandingProvider>

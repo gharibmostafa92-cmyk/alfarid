@@ -8,12 +8,20 @@ export interface ApiClientConfig {
   withCredentials?: boolean;
   getToken?: () => string | null | undefined;
   onUnauthorized?: () => void;
+  /** Override for slower endpoints such as reports and exports. */
+  timeout?: number;
 }
 
 let activeToken: string | null = null;
 let unauthorizedHandler: (() => void) | null = null;
 
 export function setAuthToken(token: string | null) {
+  // H7: module state is shared across concurrent SSR requests. Setting a
+  // per-request token here would leak user A's token into user B's request.
+  // On the server always use createApiClient({ getToken: () => tokenFromThisRequest }).
+  if (typeof window === 'undefined') {
+    throw new Error('setAuthToken must not be called on the server -- create a per-request client with createApiClient({ getToken }) instead.');
+  }
   activeToken = token;
 }
 
@@ -32,7 +40,7 @@ export function createApiClient(config: ApiClientConfig = {}): AxiosInstance {
 
   const instance = axios.create({
     baseURL: resolveServiceUrl(config.baseURL || envBaseUrl || 'http://localhost:8000'),
-    timeout: 30000,
+    timeout: config.timeout ?? 30000,
     withCredentials: config.withCredentials ?? false,
     headers: {
       'Content-Type': 'application/json',

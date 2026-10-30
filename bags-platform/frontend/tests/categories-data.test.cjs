@@ -11,7 +11,15 @@ function load(file, overrides = {}) {
   const target = path.resolve(file);
   if (cache.has(target)) return cache.get(target);
   const module = { exports: {} };
-  const requireModule = name => overrides[name] || load(path.resolve(path.dirname(target), name + '.js'), overrides);
+  const requireModule = name => {
+    if (name in overrides) return overrides[name];
+    const sibling = path.resolve(path.dirname(target), name);
+    for (const [dependency, value] of Object.entries(overrides)) {
+      if (path.resolve('packages/api-client/src/endpoints', dependency) === sibling) return value;
+    }
+    const extension = fs.existsSync(sibling + '.ts') ? '.ts' : '.js';
+    return load(sibling + extension, overrides);
+  };
   const compiled = ts.transpileModule(fs.readFileSync(target, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;

@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent, type InputHTMLAttributes } from 'react';
 import { useRouter } from 'next/navigation';
 import { useBranding } from '@alfarid/ui/branding';
-import { registerWeb, requestPasswordReset, resetWebPassword, sendPhoneVerification, verifyPhone } from '@/services/auth.service';
+import { registerWeb, requestPasswordReset, resetWebPassword } from '@/services/auth.service';
 
 export type AuthView = 'login' | 'register' | 'wholesale-register' | 'forgot-password' | 'reset-password';
 type AccountView = Exclude<AuthView, 'login'>;
@@ -122,31 +122,10 @@ export function AccountForm({
   const [taxNumber, setTaxNumber] = useState('');
   const [commercialRegister, setCommercialRegister] = useState('');
   const [documents, setDocuments] = useState<File[]>([]);
-  const [codeSent, setCodeSent] = useState(false);
-  const [code, setCode] = useState('');
-  const [phoneProof, setPhoneProof] = useState('');
-  const [resendAt, setResendAt] = useState(0);
-  const [secondsLeft, setSecondsLeft] = useState(0);
 
   useEffect(() => {
     if (wholesale && businessStep) document.getElementById('auth-company_name')?.focus();
   }, [wholesale, businessStep]);
-
-  useEffect(() => {
-    if (resendAt <= Date.now()) {
-      setSecondsLeft(0);
-      return;
-    }
-    let interval: number | undefined;
-    const updateRemaining = () => {
-      const rem = Math.max(0, Math.ceil((resendAt - Date.now()) / 1000));
-      setSecondsLeft(rem);
-      if (rem === 0 && interval !== undefined) window.clearInterval(interval);
-    };
-    updateRemaining();
-    interval = window.setInterval(updateRemaining, 1000);
-    return () => window.clearInterval(interval);
-  }, [resendAt]);
 
   const text = (arabic: string, english: string) => (ar ? arabic : english);
   const title = recovery
@@ -159,7 +138,7 @@ export function AccountForm({
   const subtitle = recovery
     ? resetStep
       ? text('أدخل رمز الاستعادة وكلمة المرور الجديدة.', 'Enter your recovery code and a new password.')
-      : text('أدخل بريدك الإلكتروني أو رقم موبايلك لاستعادة حسابك.', 'Enter your email or mobile number to recover your account.')
+      : text('أدخل رقم الموبايل المسجل لاستعادة حسابك.', 'Enter your registered mobile number to recover your account.')
     : wholesale
       ? businessStep
         ? text('بيانات شركتك ومستنداتها لمراجعة طلب الجملة.', 'Your business details and documents for application review.')
@@ -171,12 +150,7 @@ export function AccountForm({
     if (response?.status === 422) {
       const fields = response.data?.errors ?? {};
       setErrors(fields);
-      if (wholesale && ['name', 'phone', 'email', 'password', 'phone_verification_token'].some((key) => fields[key])) setBusinessStep(false);
-      if (fields.phone_verification_token) {
-        setPhoneProof('');
-        setCodeSent(false);
-        setCode('');
-      }
+      if (wholesale && ['name', 'phone', 'email', 'password'].some((key) => fields[key])) setBusinessStep(false);
       if (Object.keys(fields).length === 0) setFormError(response.data?.message ?? text('راجع البيانات وحاول مرة أخرى.', 'Check your details and try again.'));
     } else if (response?.status === 429) {
       const seconds = response.headers?.['retry-after'] ?? '60';
@@ -200,6 +174,10 @@ export function AccountForm({
       setBusinessStep(true);
       return;
     }
+    if (recovery && identifier.includes('@')) {
+      setFormError(text('استخدم رقم الموبايل المسجل لاستعادة حسابك.', 'Use your registered mobile number to recover your account.'));
+      return;
+    }
     setBusy(true);
     try {
       if (recovery) {
@@ -221,7 +199,6 @@ export function AccountForm({
             phone: phone.trim(),
             email: email.trim() || undefined,
             password,
-            phone_verification_token: phoneProof || undefined,
             ...(wholesale ? { company_name: company.trim(), tax_number: taxNumber.trim(), commercial_register: commercialRegister.trim() } : {}),
           },
           wholesale,
@@ -229,52 +206,6 @@ export function AccountForm({
         );
         router.replace(home);
       }
-    } catch (err) {
-      handleError(err);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function sendCode() {
-    if (busy) return;
-    setFormError('');
-    setErrors({});
-    setNotice('');
-    if (!phone.trim()) {
-      setErrors({ phone: [text('أدخل رقم الموبايل أولًا.', 'Enter your mobile number first.')] });
-      return;
-    }
-    if (Date.now() < resendAt) {
-      setNotice(text('انتظر دقيقة قبل طلب رمز آخر.', 'Wait one minute before requesting another code.'));
-      return;
-    }
-    setBusy(true);
-    try {
-      const response = await sendPhoneVerification(phone.trim());
-      setCodeSent(true);
-      setNotice(response.message);
-      setResendAt(Date.now() + 60000);
-    } catch (err) {
-      handleError(err);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function confirmPhone() {
-    if (busy) return;
-    setErrors({});
-    setFormError('');
-    setNotice('');
-    if (!/^\d{6}$/.test(code)) {
-      setErrors({ code: [text('أدخل رمز التحقق المكون من 6 أرقام.', 'Enter the 6-digit verification code.')] });
-      return;
-    }
-    setBusy(true);
-    try {
-      setPhoneProof(await verifyPhone(phone.trim(), code));
-      setNotice(text('تم تأكيد رقم الموبايل.', 'Your mobile number is verified.'));
     } catch (err) {
       handleError(err);
     } finally {
@@ -292,9 +223,9 @@ export function AccountForm({
         autoComplete="new-password"
         enterKeyHint="next"
         required
-        minLength={8}
-        maxLength={255}
-        placeholder={text('8 أحرف على الأقل', 'At least 8 characters')}
+        minLength={wholesale || resetStep ? 12 : 8}
+        maxLength={72}
+        placeholder={wholesale || resetStep ? text('12 حرفًا على الأقل', 'At least 12 characters') : text('8 أحرف على الأقل', 'At least 8 characters')}
         value={password}
         onChange={(e) => setPassword(e.target.value)}
         error={errors.password?.[0]}
@@ -307,8 +238,8 @@ export function AccountForm({
         autoComplete="new-password"
         enterKeyHint={wholesale ? 'next' : 'done'}
         required
-        minLength={8}
-        maxLength={255}
+        minLength={wholesale || resetStep ? 12 : 8}
+        maxLength={72}
         placeholder={text('أعد إدخال كلمة المرور', 'Re-enter your password')}
         value={confirmation}
         onChange={(e) => setConfirmation(e.target.value)}
@@ -364,15 +295,15 @@ export function AccountForm({
                 <AuthInput
                   lang={lang}
                   name="identifier"
-                  label={text('البريد الإلكتروني أو رقم الموبايل', 'Email or mobile number')}
+                  label={text('رقم الموبايل المسجل', 'Registered mobile number')}
                   type="text"
-                  inputMode="email"
-                  autoComplete="username"
+                  inputMode="tel"
+                  autoComplete="tel"
                   enterKeyHint={resetStep ? 'next' : 'done'}
                   required
                   maxLength={255}
                   dir="ltr"
-                  placeholder={text('example@domain.com / 01xxxxxxxxx', 'example@domain.com / +201xxxxxxxxx')}
+                  placeholder={text('01xxxxxxxxx', '+201xxxxxxxxx')}
                   value={identifier}
                   onChange={(e) => {
                     setIdentifier(e.target.value);
@@ -533,53 +464,9 @@ export function AccountForm({
                     dir="ltr"
                     placeholder={text('01xxxxxxxxx', '+201xxxxxxxxx')}
                     value={phone}
-                    onChange={(e) => {
-                      setPhone(e.target.value);
-                      setPhoneProof('');
-                      setCodeSent(false);
-                      setCode('');
-                      setNotice('');
-                      setResendAt(0);
-                    }}
-                    error={errors.phone?.[0] ?? errors.phone_verification_token?.[0]}
+                    onChange={(e) => setPhone(e.target.value)}
+                    error={errors.phone?.[0]}
                   />
-                  {phoneProof ? (
-                    <p className="luxury-field-hint luxury-verified-badge" role="status">
-                    {text('رقم الموبايل مؤكّد', 'Mobile number verified')}
-                    </p>
-                  ) : (
-                    <div className="luxury-inline-action-row">
-                      <button type="button" className="luxury-inline-action" disabled={secondsLeft > 0} onClick={sendCode}>
-                        {codeSent ? text('إعادة إرسال رمز التحقق', 'Resend verification code') : text('إرسال رمز التحقق', 'Send verification code')}
-                      </button>
-                      {secondsLeft > 0 && (
-                        <span className="luxury-countdown-badge" role="timer" aria-live="off">
-                          {text(`${secondsLeft} ث`, `${secondsLeft}s`)}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  {codeSent && !phoneProof && (
-                    <div className="luxury-phone-verification">
-                      <AuthInput
-                        lang={lang}
-                        name="code"
-                        label={text('رمز التحقق', 'Verification code')}
-                        inputMode="numeric"
-                        autoComplete="one-time-code"
-                        enterKeyHint="done"
-                        maxLength={6}
-                        dir="ltr"
-                        placeholder="000000"
-                        value={code}
-                        onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-                        error={errors.code?.[0]}
-                      />
-                      <button type="button" className="luxury-secondary-button" onClick={confirmPhone}>
-                        {text('تأكيد الرقم', 'Verify number')}
-                      </button>
-                    </div>
-                  )}
                 </div>
                 <AuthInput
                   lang={lang}

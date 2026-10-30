@@ -1,17 +1,16 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import './portal.css';
 import './auth.css';
 import { AppCtx } from './context';
-import {
-  fmt,
-  ACCOUNT,
-  ALL_VARIANTS,
-  PRODUCTS,
-  NOTIFS,
-  ORDERS,
-} from './mock-data';
+import { authEndpoints, cartEndpoints, wholesaleEndpoints, defaultApiClient } from '@alfarid/api-client';
+import { useApi } from './data/useApi';
+import { DataBoundary } from './data/DataBoundary';
+import { Async, ErrorState } from './ui-primitives';
+import { apiError } from './data/helpers';
+import { mapAccount, mapCart } from './data/mappers';
+import { fmt } from './data/format';
 import {
   Dashboard,
   Catalog,
@@ -83,28 +82,34 @@ const NAV_GROUPS = [
   },
 ];
 
+const readRoute = (initialScreen) => {
+  if (typeof window === 'undefined') return { screen: initialScreen, id: null };
+  const p = new URLSearchParams(window.location.search);
+  return { screen: p.get('screen') || initialScreen, id: p.get('id') ? Number(p.get('id')) : null };
+};
+
+/**
+ * @param {{ initialScreen?: string, initialId?: number|null, onLogout?: (() => unknown)|null, onEnter?: (() => unknown)|null, onForbidden?: (() => unknown)|null, onForgotSubmit?: ((login: string) => Promise<unknown>)|null, onResetSubmit?: ((login: string, token: string, password: string, confirmation: string) => Promise<unknown>)|null, brandName?: string }} props
+ */
 export function WholesalePortal({
   initialScreen = 'dashboard',
   initialId = null,
-  onLogout,
+  onLogout = null,
+  onEnter = null,
+  onForbidden = null,
+  onForgotSubmit = null,
+  onResetSubmit = null,
   brandName = 'SOPHIE',
 }) {
-  const [route, setRoute] = useState({ screen: initialScreen, id: initialId });
-  const [cart, setCart] = useState([
-    {
-      ...ALL_VARIANTS[0],
-      product: PRODUCTS[0],
-      qty: 6,
-    },
-    {
-      ...ALL_VARIANTS[3],
-      product: PRODUCTS[1],
-      qty: 4,
-    },
-  ]);
-  const [notifs, setNotifs] = useState(NOTIFS);
-  const [orders, setOrders] = useState(ORDERS);
-  const [lastOrder, setLastOrder] = useState(ORDERS[0]);
+  const [route, setRoute] = useState(() => {
+    const r = readRoute(initialScreen);
+    return initialId != null && r.id == null ? { screen: r.screen, id: initialId } : r;
+  });
+  const routeRef = useRef(route);
+  routeRef.current = route;
+  const isAuthScreen = ['status', 'forgot', 'reset'].includes(route.screen);
+  const [lastOrder, setLastOrder] = useState(null);
+  const [unread, setUnread] = useState(0);
   const [toasts, setToasts] = useState([]);
 
   const toast = useCallback((msg) => {
@@ -115,86 +120,103 @@ export function WholesalePortal({
     }, 3500);
   }, []);
 
+  const forbidden = useCallback(() => {
+    if (routeRef.current.screen !== 'status' && typeof onForbidden === 'function') onForbidden();
+  }, [onForbidden]);
+
+  useEffect(() => {
+    const interceptor = defaultApiClient.interceptors.response.use((r) => r, (e) => {
+      if (apiError(e).status === 403 && e.config?.url?.startsWith('/api/v1/wholesale/')) forbidden();
+      return Promise.reject(e);
+    });
+    return () => defaultApiClient.interceptors.response.eject(interceptor);
+  }, [forbidden]);
+
+  const accountApi = useApi(async (signal) => {
+    const [me, dash] = await Promise.all([authEndpoints.me(), wholesaleEndpoints.dashboard(signal)]);
+    return { account: mapAccount(me.data, dash), dash };
+  }, [], !isAuthScreen);
+  const account = accountApi.data?.account;
+  const dash = accountApi.data?.dash;
+  const refreshAccount = accountApi.reload;
+  const cartApi = useApi(() => cartEndpoints.get(null).then(mapCart), [], !isAuthScreen);
+  const cart = cartApi.data;
+  const setCartState = cartApi.setData;
+
+  const loadCart = useCallback(async () => {
+    try {
+      const c = await cartEndpoints.get(null);
+      setCartState(mapCart(c));
+    } catch (e) {
+      if (apiError(e).status === 403) forbidden();
+    }
+  }, [forbidden, setCartState]);
+
+  const addToCart = useCallback(async (lines) => {
+    try {
+      let last = null;
+      for (const l of lines) last = await cartEndpoints.add(l.variant_id, l.qty, null);
+      if (last) setCartState(mapCart(last));
+      toast('تمت الإضافة إلى سلة المشتريات بنجاح');
+    } catch (e) { toast(apiError(e).message); }
+  }, [toast, setCartState]);
+
+  const applyCartResponse = useCallback((c) => {
+    if (c) setCartState(mapCart(c));
+  }, [setCartState]);
+
+  useEffect(() => {
+    if (isAuthScreen) return;
+    const tick = () => wholesaleEndpoints.notifications(1).then((r) => setUnread(r.meta.unread_count)).catch(() => {});
+    tick();
+    const t = setInterval(tick, 60000);
+    return () => clearInterval(t);
+  }, [isAuthScreen]);
+
   const go = useCallback((screen, id = null) => {
-    setRoute({ screen, id });
+    const p = new URLSearchParams();
+    p.set('screen', screen);
+    if (id != null) p.set('id', id);
     if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', `${window.location.pathname}?${p}`);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
+    setRoute({ screen, id });
   }, []);
 
-  const addToCart = useCallback((variant, qty = 1) => {
-    setCart((prev) => {
-      const existing = prev.find((item) => item.sku === variant.sku);
-      if (existing) {
-        return prev.map((item) =>
-          item.sku === variant.sku ? { ...item, qty: item.qty + qty } : item
-        );
-      }
-      const prod = PRODUCTS.find((p) => p.id === variant.productId) || PRODUCTS[0];
-      return [...prev, { ...variant, product: prod, qty }];
-    });
-    toast('تمت الإضافة إلى سلة المشتريات بنجاح');
-  }, [toast]);
-
-  const placeOrder = useCallback((payload) => {
-    const newId = orders.length + 1;
-    const newOrder = {
-      id: newId,
-      number: `ORD-2026-0${140 + newId}`,
-      date: new Date().toISOString().split('T')[0],
-      status: 'pending',
-      pay: payload.payment_method === 'credit' ? 'unpaid' : 'paid',
-      method: payload.payment_method || 'credit',
-      subtotal: payload.subtotal || 25000,
-      discount: payload.discount || 0,
-      tax: payload.tax || 3500,
-      shipping: payload.shipping || 0,
-      total: payload.total || 28500,
-      items: cart.map((it) => ({
-        name: it.product?.name_ar || it.name || 'حقيبة',
-        sku: it.sku,
-        qty: it.qty,
-        price: it.price || 1500,
-        color: it.color || 'أسود',
-      })),
-      history: [
-        ['pending', 'الآن', 'تم استلام الطلب وبانتظار المراجعة والتأكيد'],
-      ],
-      po: payload.po_number || null,
-      address: payload.shipping_address || 'المخزن الرئيسي',
-      notes: payload.notes || null,
-    };
-    setOrders((prev) => [newOrder, ...prev]);
-    setLastOrder(newOrder);
-    setCart([]);
-    toast(`تم تسجيل الطلب ${newOrder.number} بنجاح`);
-    return newOrder;
-  }, [cart, orders.length, toast]);
+  useEffect(() => {
+    const onPop = () => setRoute(readRoute(initialScreen));
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [initialScreen]);
 
   const logout = useCallback(() => {
     if (onLogout) onLogout();
     else toast('تم تسجيل الخروج');
   }, [onLogout, toast]);
 
-  const unreadNotifsCount = useMemo(() => notifs.filter((n) => n.unread).length, [notifs]);
-  const cartTotalQty = useMemo(() => cart.reduce((sum, it) => sum + (it.qty || 0), 0), [cart]);
+  const cartTotalQty = cart?.lines.reduce((s, l) => s + l.qty, 0) ?? 0;
 
-  const contextValue = useMemo(() => ({
+  const contextValue = {
     go,
     route,
     cart,
-    setCart,
+    cartApi,
+    accountApi,
+    loadCart,
     addToCart,
-    placeOrder,
+    applyCartResponse,
+    cartTotalQty,
     lastOrder,
-    notifs,
-    setNotifs,
-    orders,
-    setOrders,
+    setLastOrder,
+    unread,
+    setUnread,
+    account,
+    dash,
+    refreshAccount,
     toast,
-    account: ACCOUNT,
     logout,
-  }), [go, route, cart, placeOrder, lastOrder, notifs, orders, toast, logout]);
+  };
 
   // Screen router
   const renderScreen = () => {
@@ -248,17 +270,35 @@ export function WholesalePortal({
       case 'account':
         return <Account />;
       case 'status':
-        return <ApplicationStatus onBack={() => go('dashboard')} onEnter={() => go('dashboard')} />;
+        return <ApplicationStatus onLogout={logout} onEnter={onEnter || (() => go('dashboard'))} />;
       case 'forgot':
-        return <ForgotPassword onBack={() => go('dashboard')} onGoReset={() => go('reset')} />;
+        return <ForgotPassword onBack={() => go('dashboard')} onGoReset={() => go('reset')} onForgotSubmit={onForgotSubmit} />;
       case 'reset':
-        return <ResetPassword onBack={() => go('dashboard')} onForgot={() => go('forgot')} />;
+        return <ResetPassword onBack={() => go('dashboard')} onForgot={() => go('forgot')} onResetSubmit={onResetSubmit} />;
       default:
         return <Dashboard />;
     }
   };
 
-  const isAuthScreen = ['status', 'forgot', 'reset'].includes(route.screen);
+  if (isAuthScreen) return (
+    <AppCtx.Provider value={contextValue}>
+      <div className="wholesale-portal-app" dir="rtl">{renderScreen()}</div>
+    </AppCtx.Provider>
+  );
+
+  if (!account) {
+    if (accountApi.state === 'error') return (
+      <div className="wholesale-portal-app" dir="rtl"><ErrorState onRetry={refreshAccount} /></div>
+    );
+    return (
+      <div className="wholesale-portal-app" dir="rtl">
+        <div className="wp-layout">
+          <aside className="wp-side"><div className="sk" style={{ height: 18, width: '60%', margin: 16 }} /><div className="sk" style={{ height: 12, width: '80%', margin: 16 }} /><div className="sk" style={{ height: 12, width: '70%', margin: 16 }} /></aside>
+          <main className="wp-main"><div className="wp-wrap"><div className="sk" style={{ height: 28, width: '40%', marginBottom: 16 }} /><div className="sk" style={{ height: 120, width: '100%' }} /></div></main>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <AppCtx.Provider value={contextValue}>
@@ -275,7 +315,7 @@ export function WholesalePortal({
           <div className="wp-head-right">
             <div className="wp-credit-chip" title="الحد الائتماني والمتاح">
               <span>الرصيد المتاح:</span>
-              <strong className="num">{fmt(ACCOUNT.available_credit, 0)} EGP</strong>
+              <strong className="num">{fmt(account.available_credit ?? 0, 0)} EGP</strong>
             </div>
 
             <button
@@ -284,7 +324,7 @@ export function WholesalePortal({
               title="الإشعارات"
             >
               <i className="fa-regular fa-bell" />
-              {unreadNotifsCount > 0 && <span className="wp-count">{unreadNotifsCount}</span>}
+              {unread > 0 && <span className="wp-count">{unread}</span>}
             </button>
 
             <button
@@ -301,17 +341,12 @@ export function WholesalePortal({
               onClick={() => go('account')}
               title="الملف التجاري"
             >
-              {ACCOUNT.name.split(' ').map((s) => s[0]).slice(0, 2).join('')}
+              {String(account.name || '').split(' ').map((s) => s[0]).slice(0, 2).join('')}
             </button>
           </div>
         </header>
 
-        {/* Auth full page or standard layout */}
-        {isAuthScreen ? (
-          <div className="wp-main" style={{ padding: 0 }}>
-            {renderScreen()}
-          </div>
-        ) : (
+        {/* Standard portal layout */}
           <div className="wp-layout">
             {/* Sidebar */}
             <aside className="wp-side">
@@ -330,8 +365,8 @@ export function WholesalePortal({
                     const badgeVal =
                       item.badge === 'cart' && cartTotalQty > 0
                         ? cartTotalQty
-                        : item.badge === 'notifs' && unreadNotifsCount > 0
-                        ? unreadNotifsCount
+                        : item.badge === 'notifs' && unread > 0
+                        ? unread
                         : null;
 
                     return (
@@ -375,12 +410,12 @@ export function WholesalePortal({
             {/* Main Content Area */}
             <main className="wp-main">
               <div className="wp-wrap">
-                {renderScreen()}
+                {route.screen === 'dashboard' ? (
+                  <DataBoundary api={accountApi}><Async rows={3} cols={4}>{renderScreen()}</Async></DataBoundary>
+                ) : renderScreen()}
               </div>
             </main>
           </div>
-        )}
-
         {/* Floating Toasts */}
         {toasts.length > 0 && (
           <div

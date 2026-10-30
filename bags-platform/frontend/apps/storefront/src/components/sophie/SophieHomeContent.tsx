@@ -35,8 +35,8 @@ export function SophieHomeContent() {
     {!isPending && data && <SophieProductsSection id="best-sellers" title="BEST SELLERS" subtitle="Our most-loved pieces, chosen by you." products={best} showViewMore viewMoreHref={STORE_ROUTES.shop({ sort: 'best_selling' })} />}
     {!isPending && <SophiePromoBanners banners={promos} />}
     {!isPending && data && <>
-      <SophieProductsSection id="new-arrivals" title="NEW ARRIVALS" subtitle="Fresh silhouettes, just landed." products={latest} showViewMore viewMoreHref={STORE_ROUTES.shop({ sort: 'newest' })} className="pt-12 pb-10" />
-      <SophieProductsSection id="on-sale" title="ON SALE" subtitle="Limited-time prices on selected styles." products={sale} showViewMore viewMoreHref={STORE_ROUTES.shop({ on_sale: '1' })} className="pt-12 pb-20" />
+      <SophieProductsSection id="new-arrivals" title="NEW ARRIVALS" subtitle="Fresh silhouettes, just landed." products={latest} showViewMore viewMoreHref={STORE_ROUTES.shop({ sort: 'newest' })} className="pt-10 pb-8 sm:pt-12 sm:pb-10" />
+      <SophieProductsSection id="on-sale" title="ON SALE" subtitle="Limited-time prices on selected styles." products={sale} showViewMore viewMoreHref={STORE_ROUTES.shop({ on_sale: '1' })} className="pt-10 pb-14 sm:pt-12 sm:pb-20" />
     </>}
     {!isPending && popup && <SophiePopup key={`${popup.id}:${popup.image}`} banner={popup} />}
     <SophieFooter />

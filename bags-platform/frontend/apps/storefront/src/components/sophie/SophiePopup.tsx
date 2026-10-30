@@ -53,13 +53,54 @@ export function SophiePopup({ banner }: { banner: StoreBanner }) {
   }, [open, failed, close]);
 
   if (!open || failed) return null;
-  const image = <StoreImage src={banner.image} alt={banner.title} className="w-full h-full object-cover" onError={() => { setFailed(true); setOpen(false); }} />;
-  return <div className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-[2px] flex items-center justify-center" onClick={(event) => { if (event.target === event.currentTarget) close(); }}>
-    <div ref={dialog} role="dialog" aria-modal="true" aria-label={banner.title} className="sophie-pop-in w-[88vw] max-w-[380px] aspect-[4/5] bg-white overflow-hidden relative max-h-[90dvh]">
-      <button onClick={close} aria-label="Close offer" className="absolute z-10 right-3 top-3 rounded-full bg-white w-8 h-8 flex items-center justify-center text-black">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6" /></svg>
-      </button>
-      {banner.href ? <a href={banner.href} onClick={close} className="block w-full h-full" {...(banner.is_external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}>{image}</a> : image}
+  const image = (
+    <StoreImage
+      src={banner.image}
+      alt={banner.title}
+      className="w-full h-full object-cover"
+      onError={() => {
+        setFailed(true);
+        setOpen(false);
+      }}
+    />
+  );
+  return (
+    <div
+      className="fixed inset-0 z-[60] bg-black/55 backdrop-blur-[2px] flex items-center justify-center p-4"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) close();
+      }}
+    >
+      <div
+        ref={dialog}
+        role="dialog"
+        aria-modal="true"
+        aria-label={banner.title}
+        className="sophie-pop-in w-full max-w-[380px] aspect-[4/5] bg-white overflow-hidden relative max-h-[calc(88dvh-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px))] shadow-2xl rounded-sm"
+      >
+        <button
+          type="button"
+          onClick={close}
+          aria-label="Close offer"
+          className="absolute z-10 right-3 top-3 rounded-full bg-white/95 hover:bg-white shadow-md w-11 h-11 flex items-center justify-center text-black transition-transform active:scale-95"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
+            <path d="m6 6 12 12M6 18 18 6" />
+          </svg>
+        </button>
+        {banner.href ? (
+          <a
+            href={banner.href}
+            onClick={close}
+            className="block w-full h-full"
+            {...(banner.is_external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+          >
+            {image}
+          </a>
+        ) : (
+          image
+        )}
+      </div>
     </div>
-  </div>;
+  );
 }

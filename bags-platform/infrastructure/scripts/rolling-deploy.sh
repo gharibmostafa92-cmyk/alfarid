@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# M10: migrate-first means OLD code (not-yet-updated app nodes, workers,
+# scheduler) runs against the NEW schema for the whole rollout, and old
+# workers can pick up jobs serialized by new code. All migrations MUST be
+# expand/contract: this release may only ADD (nullable columns, new tables,
+# new indexes); drops/renames/not-null-ening live in a LATER release after
+# every node runs the new code. Jobs must stay decodable by the previous
+# release for at least one deploy (tolerant readers, no required new fields).
 set -euo pipefail
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 DC=(docker compose --project-directory "$ROOT" -f "$ROOT/docker-compose.yml")
@@ -14,7 +21,9 @@ hap() {
 }
 
 if [[ ${SKIP_BUILD:-0} != 1 ]]; then "${DC[@]}" build app1; fi
-"${DC[@]}" run --rm --no-deps -e DB_HOST=postgres -e DB_PORT=5432 app1 php artisan migrate --force
+"${DC[@]}" run --rm --no-deps -e DB_HOST=postgres -e DB_PORT=5432 \
+  -e 'PGOPTIONS=-c statement_timeout=0 -c idle_in_transaction_session_timeout=0 -c lock_timeout=10000' \
+  app1 php artisan migrate --force --isolated=75
 for node in "${NODES[@]}"; do
   echo "Draining $node on both proxies and both API backends"
   for proxy in haproxy1 haproxy2; do

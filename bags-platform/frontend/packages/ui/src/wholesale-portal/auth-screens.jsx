@@ -1,55 +1,14 @@
-
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import {
-  fmt, Money, D, ACCOUNT, APP_STATUS, DOCS, DOC_STATUS, ORDER_STATUS, PAY_METHOD,
-  PAY_STATUS, QUOTE_STATUS, NOTICE_STATUS, RETURN_STATUS, NOTICE_METHOD, REFUND_METHOD,
-  PRODUCTS, ALL_VARIANTS, findVariant, ORDERS, QUOTES, STATEMENT, NOTICES, RETURNS,
-  WALLET_TX, NOTIFS, ADDRESSES
-} from './mock-data';
-import {
-  Badge, PageHead, Crumb, Panel, SkeletonRows, Empty, ErrorState,
-  DataStateCtx, Async, Pager, Field, Modal, Banner, Qty, Thumb, Seg
-} from './ui-primitives';
+import { AuthHalftone } from '../components/auth-halftone';
+import React, { useState } from 'react';
+import { wholesaleEndpoints } from '@alfarid/api-client';
+import { useApi } from './data/useApi';
+import { DataBoundary } from './data/DataBoundary';
+import { apiError } from './data/helpers';
+import { APP_STATUS, DOC_STATUS, DOC_TYPE } from './data/constants';
 
 /* Screens 4–5 — share the luxury-auth split frame (luxuryAuth.css). */
 
-export const Halftone = () => {
-  const ref = useRef(null);
-  useEffect(() => {
-    const W = 560, H = 640, c = ref.current, ctx = c.getContext('2d');
-    const off = document.createElement('canvas'); off.width = W; off.height = H;
-    const o = off.getContext('2d');
-    // Stand-in silhouette (real build uses BIRKIN_IMG_DATA)
-    o.fillStyle = '#fff'; o.fillRect(0, 0, W, H);
-    const g = o.createRadialGradient(250, 360, 40, 280, 400, 260);
-    g.addColorStop(0, '#222'); g.addColorStop(1, '#bbb');
-    o.fillStyle = g;
-    o.beginPath(); o.moveTo(110, 270); o.lineTo(450, 270); o.lineTo(490, 520); o.quadraticCurveTo(490, 540, 470, 540); o.lineTo(90, 540); o.quadraticCurveTo(70, 540, 70, 520); o.closePath(); o.fill();
-    o.lineWidth = 26; o.strokeStyle = '#444'; o.beginPath(); o.moveTo(190, 275); o.bezierCurveTo(190, 150, 370, 150, 370, 275); o.stroke();
-    o.fillStyle = '#eee'; o.fillRect(250, 330, 60, 34);
-    const px = o.getImageData(0, 0, W, H).data;
-    let mouse = { x: -999, y: -999 };
-    const draw = () => {
-      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); ctx.fillStyle = '#09090b';
-      const s = 7, h = s / 2;
-      for (let y = h; y < H; y += s) for (let x = h; x < W; x += s) {
-        const i = ((y | 0) * W + (x | 0)) * 4, dark = 1 - px[i] / 255;
-        if (dark < 0.06) continue;
-        const dx = x - mouse.x, dy = y - mouse.y, d = Math.hypot(dx, dy);
-        let X = x, Y = y, k = 1;
-        if (d < 110) { const f = 1 - d / 110; X += dx / (d + 1) * f * 2.2; Y += dy / (d + 1) * f * 2.2; k = 1 + f * .16; }
-        const r = Math.pow(dark, .92) * s * .68 * k; if (r < .45) continue;
-        ctx.beginPath(); ctx.moveTo(X, Y - r); ctx.lineTo(X + r, Y); ctx.lineTo(X, Y + r); ctx.lineTo(X - r, Y); ctx.fill();
-      }
-    };
-    draw();
-    const mv = (e) => { const b = c.getBoundingClientRect(); mouse = { x: (e.clientX - b.left) / b.width * W, y: (e.clientY - b.top) / b.height * H }; requestAnimationFrame(draw); };
-    const lv = () => { mouse = { x: -999, y: -999 }; requestAnimationFrame(draw); };
-    c.addEventListener('pointermove', mv); c.addEventListener('pointerleave', lv);
-    return () => { c.removeEventListener('pointermove', mv); c.removeEventListener('pointerleave', lv); };
-  }, []);
-  return <canvas ref={ref} width="560" height="640" aria-hidden="true" />;
-};
+export const Halftone = AuthHalftone;
 
 export const AuthFrame = ({ children, wide }) => (
   <div className="luxury-auth-page" dir="ltr">
@@ -69,26 +28,40 @@ export const AuthFrame = ({ children, wide }) => (
   </div>
 );
 
-/* ---------- 4. Application status ---------- */
-export const ApplicationStatus = ({ status, onRefresh, onLogout, onEnter }) => {
-  const s = APP_STATUS[status];
-  const [refreshing, setRefreshing] = useState(false);
-  const { state, retry } = React.useContext(DataStateCtx);
-  const refresh = () => { setRefreshing(true); setTimeout(() => { setRefreshing(false); onRefresh && onRefresh(); }, 900); };
-  const reason = status === 'rejected' ? 'البطاقة الضريبية المرفقة غير واضحة، والسجل التجاري منتهي الصلاحية.'
-    : status === 'suspended' ? 'تم إيقاف الحساب مؤقتًا لتجاوز مدة السداد المتفق عليها. تواصل مع إدارة الحسابات.' : null;
+const DOC_ST = { verified: 'approved' };
 
-  return (
+/* ---------- 4. Application status ---------- */
+export const ApplicationStatus = ({ onLogout, onEnter }) => {
+  const [entering, setEntering] = useState(false);
+  const [enterError, setEnterError] = useState('');
+  const api = useApi((signal) => wholesaleEndpoints.applicationStatus(signal), []);
+  const d = api.data;
+  const status = d?.status || 'pending';
+  const s = APP_STATUS[status] || APP_STATUS.pending;
+  const docs = (d?.documents || []).map((doc) => ({
+    name: doc.original_name, type: DOC_TYPE[doc.document_type] || doc.document_type, status: DOC_ST[doc.status] || doc.status,
+  }));
+  const reason = status === 'rejected' ? d?.rejection_reason : status === 'suspended' ? d?.suspension_reason : null;
+  const enter = async () => {
+    if (entering || !onEnter) return;
+    setEntering(true);
+    setEnterError('');
+    try { await onEnter(); }
+    catch (error) { setEnterError(apiError(error).message); }
+    finally { setEntering(false); }
+  };
+
+  const inner = (
     <AuthFrame wide>
       <h1 className="luxury-title">حالة طلب الاعتماد</h1>
       <p className="luxury-sub">نراجع بيانات شركتك ومستنداتها قبل تفعيل أسعار الجملة والشراء الآجل وعروض الأسعار.</p>
 
-      {state === 'loading' ? (
+      {api.state === 'loading' ? (
         <div className="luxury-auth-fields">{[80, 60, 90, 70].map((w, i) => <div key={i} className="sk" style={{ height: 14, width: w + '%' }} />)}</div>
-      ) : state === 'error' ? (
+      ) : api.state === 'error' ? (
         <div className="luxury-auth-fields">
           <p className="luxury-form-error" role="alert">تعذر تحميل حالة الطلب. حاول مرة أخرى.</p>
-          <button className="pill-btn-primary" onClick={retry}>إعادة المحاولة</button>
+          <button className="pill-btn-primary" onClick={api.reload}>إعادة المحاولة</button>
         </div>
       ) : (
         <div className="luxury-auth-fields">
@@ -98,7 +71,7 @@ export const ApplicationStatus = ({ status, onRefresh, onLogout, onEnter }) => {
               <div className="luxury-field-label" style={{ margin: 0, color: '#737373', fontWeight: 400 }}>حالة الحساب</div>
               <div className="as-status-label">{s.label}</div>
             </div>
-            {status === 'approved' && <div className="as-date"><span>تاريخ الاعتماد</span><b className="num">{ACCOUNT.approved_at}</b></div>}
+            {status === 'approved' && d?.approved_at && <div className="as-date"><span>تاريخ الاعتماد</span><b className="num">{String(d.approved_at).slice(0, 10)}</b></div>}
           </div>
 
           {reason && <p className="luxury-form-error" role="alert"><b>{status === 'rejected' ? 'سبب الرفض: ' : 'سبب الإيقاف: '}</b>{reason}</p>}
@@ -107,40 +80,41 @@ export const ApplicationStatus = ({ status, onRefresh, onLogout, onEnter }) => {
           <div className="as-block">
             <div className="as-block-title">بيانات الحساب والشركة</div>
             <dl className="as-kv">
-              <dt>اسم التاجر</dt><dd>{ACCOUNT.name}</dd>
-              <dt>الموبايل</dt><dd className="num">{ACCOUNT.phone}</dd>
-              <dt>البريد</dt><dd className="num">{ACCOUNT.email}</dd>
-              <dt>الشركة</dt><dd>{ACCOUNT.company}</dd>
-              <dt>الرقم الضريبي</dt><dd className="num">{ACCOUNT.tax_number}</dd>
-              <dt>السجل التجاري</dt><dd>{ACCOUNT.commercial_register}</dd>
+              <dt>اسم التاجر</dt><dd>{d?.name}</dd>
+              <dt>الموبايل</dt><dd className="num">{d?.phone}</dd>
+              <dt>البريد</dt><dd className="num">{d?.email}</dd>
+              <dt>الشركة</dt><dd>{d?.company_name}</dd>
+              <dt>الرقم الضريبي</dt><dd className="num">{d?.tax_number}</dd>
+              <dt>السجل التجاري</dt><dd>{d?.commercial_register}</dd>
             </dl>
           </div>
 
           <div className="as-block">
-            <div className="as-block-title">المستندات <span className="num" style={{ color: '#a3a3a3' }}>{DOCS.length}</span></div>
+            <div className="as-block-title">المستندات <span className="num" style={{ color: '#a3a3a3' }}>{docs.length}</span></div>
             <ul className="luxury-file-list as-docs">
-              {DOCS.map((d) => {
-                const [l, v] = DOC_STATUS[status === 'approved' ? 'approved' : d.status];
-                const rej = status !== 'approved' && d.status === 'rejected';
+              {docs.map((doc) => {
+                const [l, v] = DOC_STATUS[doc.status] || DOC_STATUS.pending;
+                const rej = status !== 'approved' && doc.status === 'rejected';
                 return (
-                  <li key={d.name} className={rej ? 'is-rej' : ''}>
+                  <li key={doc.name} className={rej ? 'is-rej' : ''}>
                     <span>
-                      <i className={`fa-regular ${d.name.endsWith('.pdf') ? 'fa-file-pdf' : 'fa-file-image'}`} />
-                      <span><b>{d.type}</b><small className="num">{d.name}</small>{rej && d.note && <em>{d.note}</em>}</span>
+                      <i className={`fa-regular ${doc.name.endsWith('.pdf') ? 'fa-file-pdf' : 'fa-file-image'}`} />
+                      <span><b>{doc.type}</b><small className="num">{doc.name}</small></span>
                     </span>
                     <span className={`badge ${v}`}>{l}</span>
                   </li>
                 );
               })}
             </ul>
-            {(status === 'rejected' || DOCS.some((d) => d.status === 'rejected')) && status !== 'approved' && (
+            {(status === 'rejected' || docs.some((x) => x.status === 'rejected')) && status !== 'approved' && (
               <p className="luxury-field-hint" style={{ marginBottom: 0 }}><i className="fa-solid fa-circle-info" /> إعادة رفع المستندات غير متاحة من البوابة حاليًا — تواصل مع فريق المبيعات لاستكمالها.</p>
             )}
           </div>
 
+          {enterError && <p className="luxury-form-error" role="alert">{enterError}</p>}
           {status === 'approved'
-            ? <button className="pill-btn-primary" onClick={onEnter}>الدخول إلى بوابة الجملة</button>
-            : <button className="pill-btn-primary" onClick={refresh} disabled={refreshing}>{refreshing ? <><span className="spin" style={{ marginInlineEnd: 10 }} /> جارٍ التحديث…</> : 'تحديث حالة الطلب'}</button>}
+            ? <button className="pill-btn-primary" disabled={entering} onClick={enter}>الدخول إلى بوابة الجملة</button>
+            : <button className="pill-btn-primary" onClick={api.reload}>تحديث حالة الطلب</button>}
           <div className="luxury-bottom-switch" style={{ marginTop: 4 }}>
             <button className="luxury-switch-link" onClick={onLogout}>تسجيل الخروج</button>
           </div>
@@ -148,18 +122,29 @@ export const ApplicationStatus = ({ status, onRefresh, onLogout, onEnter }) => {
       )}
     </AuthFrame>
   );
+
+  return <DataBoundary api={api}>{inner}</DataBoundary>;
 };
 
 /* ---------- 5. Forgot / reset password ---------- */
-export const ForgotPassword = ({ onBack, onGoReset }) => {
+export const ForgotPassword = ({ onBack, onGoReset, onForgotSubmit }) => {
   const [login, setLogin] = useState('');
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     if (!login.trim()) { setErr('أدخل البريد الإلكتروني أو رقم الموبايل.'); return; }
-    setErr(''); setBusy(true); setTimeout(() => { setBusy(false); setSent(true); }, 900);
+    if (!onForgotSubmit) { setErr('خدمة الاستعادة غير متاحة حاليًا.'); return; }
+    setErr(''); setBusy(true);
+    try {
+      await onForgotSubmit(login.trim());
+      setSent(true);
+    } catch (er) {
+      setErr(apiError(er).message);
+    } finally {
+      setBusy(false);
+    }
   };
   return (
     <AuthFrame>
@@ -186,20 +171,47 @@ export const ForgotPassword = ({ onBack, onGoReset }) => {
   );
 };
 
-export const ResetPassword = ({ onBack, linkState = 'valid', onForgot }) => {
+const readResetParams = () => {
+  if (typeof window === 'undefined') return { token: '', login: '' };
+  const p = new URLSearchParams(window.location.search);
+  return { token: p.get('token') || '', login: p.get('email') || p.get('phone') || '' };
+};
+
+export const ResetPassword = ({ onBack, linkState = 'valid', onForgot, onResetSubmit }) => {
+  const [{ token: urlToken, login: urlLogin }] = useState(readResetParams);
   const [show, setShow] = useState(false);
+  const [login, setLogin] = useState(urlLogin);
   const [p1, setP1] = useState(''); const [p2, setP2] = useState('');
   const [errs, setErrs] = useState({});
+  const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
-  const submit = (e) => {
+  const token = urlToken;
+  const submit = async (e) => {
     e.preventDefault();
     const er = {};
+    if (!login.trim()) er.login = 'أدخل البريد الإلكتروني أو رقم الموبايل.';
+    if (!token) er.token = 'رابط إعادة التعيين ناقص الرمز (token).';
     if (p1.length < 8) er.p1 = 'كلمة المرور لازم تكون 8 حروف على الأقل.';
     if (p1 !== p2) er.p2 = 'تأكيد كلمة المرور غير مطابق.';
-    setErrs(er); if (!Object.keys(er).length) setDone(true);
+    setErrs(er);
+    if (Object.keys(er).length) return;
+    if (!onResetSubmit) { setErrs({ ...er, token: 'خدمة إعادة التعيين غير متاحة حاليًا.' }); return; }
+    setBusy(true);
+    try {
+      await onResetSubmit(login.trim(), token, p1, p2);
+      setDone(true);
+    } catch (err) {
+      const info = apiError(err);
+      const mapped = {};
+      const fields = { password: 'p1', password_confirmation: 'p2', email: 'login', phone: 'login' };
+      Object.entries(info.fields || {}).forEach(([k, msgs]) => { mapped[fields[k] || k] = Array.isArray(msgs) ? msgs[0] : String(msgs); });
+      setErrs({ ...mapped, ...(Object.keys(mapped).length ? {} : { p1: info.message }) });
+    } finally {
+      setBusy(false);
+    }
   };
   const rules = [[p1.length >= 8, '8 حروف على الأقل'], [/[A-Za-z]/.test(p1) && /\d/.test(p1), 'حروف وأرقام'], [p1 && p1 === p2, 'التأكيد مطابق']];
-  if (linkState !== 'valid') return (
+  if (linkState !== 'valid' || !token) return (
     <AuthFrame>
       <h1 className="luxury-title">{linkState === 'expired' ? 'انتهت صلاحية الرابط' : 'الرابط غير صالح'}</h1>
       <p className="luxury-sub">{linkState === 'expired' ? 'روابط إعادة التعيين صالحة لمدة 60 دقيقة فقط. اطلب رابط جديد.' : 'الرابط ده مستخدم قبل كده أو ناقص. اطلب رابط جديد من صفحة استعادة كلمة المرور.'}</p>
@@ -220,8 +232,10 @@ export const ResetPassword = ({ onBack, linkState = 'valid', onForgot }) => {
       ) : (
         <form className="luxury-form" onSubmit={submit} noValidate>
           <div>
-            <label className="luxury-field-label">البريد الإلكتروني</label>
-            <input className="pill-input" dir="ltr" value={ACCOUNT.email} readOnly style={{ background: '#fafafa', color: '#737373' }} />
+            <label className="luxury-field-label">البريد الإلكتروني أو رقم الموبايل<span className="luxury-req-mark">*</span></label>
+            <input className="pill-input" dir="ltr" value={login} onChange={(e) => setLogin(e.target.value)} aria-invalid={!!errs.login} />
+            {errs.login && <p className="luxury-field-error" role="alert">{errs.login}</p>}
+            {errs.token && <p className="luxury-field-error" role="alert">{errs.token}</p>}
           </div>
           {[['p1', 'كلمة المرور الجديدة', p1, setP1], ['p2', 'تأكيد كلمة المرور', p2, setP2]].map(([k, l, v, set]) => (
             <div key={k}>
@@ -234,13 +248,10 @@ export const ResetPassword = ({ onBack, linkState = 'valid', onForgot }) => {
             </div>
           ))}
           <ul className="as-rules">{rules.map(([ok, l]) => <li key={l} className={ok ? 'ok' : ''}><i className={`fa-solid ${ok ? 'fa-check' : 'fa-circle'}`} />{l}</li>)}</ul>
-          <button className="pill-btn-primary">حفظ كلمة المرور</button>
+          <button className="pill-btn-primary" disabled={busy}>{busy ? 'جارٍ الحفظ…' : 'حفظ كلمة المرور'}</button>
           <div className="luxury-bottom-switch"><button type="button" className="luxury-switch-link" onClick={onBack}>العودة لتسجيل الدخول</button></div>
         </form>
       )}
     </AuthFrame>
   );
 };
-
-
-

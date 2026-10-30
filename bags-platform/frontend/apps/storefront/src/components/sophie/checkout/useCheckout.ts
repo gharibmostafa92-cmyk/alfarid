@@ -15,6 +15,14 @@ import { useAuthStore } from '@/store/auth.store';
 import { useAuthHydrated } from '@/hooks/use-auth-hydrated';
 import { viewerKey } from '@/lib/viewer-key';
 
+export interface SavedAddressItem {
+  id: number;
+  city_id: number;
+  address_line: string;
+  is_default?: boolean;
+  label?: string;
+}
+
 export interface CheckoutForm {
   fullName: string;
   phone: string;
@@ -30,9 +38,17 @@ export interface CheckoutForm {
 }
 
 const initialForm: CheckoutForm = {
-  fullName: '', phone: '', email: '', cityId: null,
-  street: '', building: '', floor: '', apartment: '', notes: '',
-  paymentMethod: 'cod', agreeTerms: false,
+  fullName: '',
+  phone: '',
+  email: '',
+  cityId: null,
+  street: '',
+  building: '',
+  floor: '',
+  apartment: '',
+  notes: '',
+  paymentMethod: 'cod',
+  agreeTerms: false,
 };
 
 /** Server field -> form field, for 422 mapping. */
@@ -47,12 +63,17 @@ const fieldMap: Record<string, keyof CheckoutForm | 'banner'> = {
   expected_total: 'banner',
 };
 
-export function buildAddressLine(form: Pick<CheckoutForm, 'street' | 'building' | 'floor' | 'apartment'>) {
-  return [form.street.trim(),
+export function buildAddressLine(
+  form: Pick<CheckoutForm, 'street' | 'building' | 'floor' | 'apartment'>,
+) {
+  return [
+    form.street.trim(),
     form.building.trim() && `Bldg ${form.building.trim()}`,
     form.floor.trim() && `Floor ${form.floor.trim()}`,
     form.apartment.trim() && `Apt ${form.apartment.trim()}`,
-  ].filter(Boolean).join(', ');
+  ]
+    .filter(Boolean)
+    .join(', ');
 }
 
 export function useCheckout() {
@@ -61,8 +82,13 @@ export function useCheckout() {
   const [form, setForm] = useState<CheckoutForm>(initialForm);
   const [touched, setTouched] = useState<Partial<Record<keyof CheckoutForm, boolean>>>({});
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof CheckoutForm, string>>>({});
-  const [banner, setBanner] = useState<{ kind: 'error' | 'info'; text: string; action?: { label: string; onClick: () => void } } | null>(null);
+  const [banner, setBanner] = useState<{
+    kind: 'error' | 'info';
+    text: string;
+    action?: { label: string; onClick: () => void };
+  } | null>(null);
   const [cities, setCities] = useState<StoreCity[] | null>(null);
+  const [savedAddresses, setSavedAddresses] = useState<SavedAddressItem[]>([]);
   const [quote, setQuote] = useState<ShippingOptionsResponse | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [citiesError, setCitiesError] = useState(false);
@@ -74,7 +100,11 @@ export function useCheckout() {
   const pending = useRef<{ body: CheckoutPayload; session: string | null } | null>(null);
   const [promoInput, setPromoInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const keyRef = useRef<string>(typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+  const keyRef = useRef<string>(
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random()}`,
+  );
   const promoTried = useRef(false);
 
   const items = useCartStore((s) => s.items);
@@ -92,8 +122,17 @@ export function useCheckout() {
   const token = useAuthStore((s) => s.token);
   const hydrated = useAuthHydrated();
   const owner = viewerKey(token);
-  const attemptOwner = token ? `${useAuthStore.getState().actorType}:${String(user?.id ?? 'unknown')}` : 'guest';
-  const quoteKey = JSON.stringify([owner, form.cityId, form.paymentMethod, couponCode, items, quoteRevision]);
+  const attemptOwner = token
+    ? `${useAuthStore.getState().actorType}:${String(user?.id ?? 'unknown')}`
+    : 'guest';
+  const quoteKey = JSON.stringify([
+    owner,
+    form.cityId,
+    form.paymentMethod,
+    couponCode,
+    items,
+    quoteRevision,
+  ]);
   const liveQuote = quotedFor === quoteKey && !cartBusy && !cartLoading ? quote : null;
 
   // A reload after a lost response must recover the same attempt, never create a second order.
@@ -103,24 +142,47 @@ export function useCheckout() {
     setUncertain(false);
     try {
       const saved = JSON.parse(sessionStorage.getItem('pending_checkout') ?? 'null');
-      if (saved?.owner === attemptOwner && typeof saved.key === 'string' && saved.body?.city_id
-        && saved.body?.recipient_phone && Number.isFinite(saved.body.expected_total)) {
+      if (
+        saved?.owner === attemptOwner &&
+        typeof saved.key === 'string' &&
+        saved.body?.city_id &&
+        saved.body?.recipient_phone &&
+        Number.isFinite(saved.body.expected_total)
+      ) {
         keyRef.current = saved.key;
         pending.current = { body: saved.body, session: saved.session ?? null };
         setUncertain(true);
-        setBanner({ kind: 'info', text: 'في محاولة طلب سابقة لم يتم تأكيدها. اضغط إعادة المحاولة لتأكيد نفس الطلب.' });
-        setForm((f) => ({ ...f, fullName: saved.body.recipient_name, phone: saved.body.recipient_phone,
-          email: saved.body.recipient_email ?? '', cityId: saved.body.city_id,
-          street: saved.body.shipping_address_line, notes: saved.body.shipping_notes ?? '',
-          paymentMethod: saved.body.payment_method, agreeTerms: true }));
+        setBanner({
+          kind: 'info',
+          text: 'في محاولة طلب سابقة لم يتم تأكيدها. اضغط إعادة المحاولة لتأكيد نفس الطلب.',
+        });
+        setForm((f) => ({
+          ...f,
+          fullName: saved.body.recipient_name,
+          phone: saved.body.recipient_phone,
+          email: saved.body.recipient_email ?? '',
+          cityId: saved.body.city_id,
+          street: saved.body.shipping_address_line,
+          notes: saved.body.shipping_notes ?? '',
+          paymentMethod: saved.body.payment_method,
+          agreeTerms: true,
+        }));
       }
-    } catch { /* Storage is optional; the in-memory attempt remains safe. */ }
+    } catch {
+      /* Storage is optional; the in-memory attempt remains safe. */
+    }
   }, [hydrated, attemptOwner]);
 
   const loadCities = useCallback(() => {
     setCitiesError(false);
     setCities(null);
-    checkoutEndpoints.cities().then(setCities).catch(() => { setCities([]); setCitiesError(true); });
+    checkoutEndpoints
+      .cities()
+      .then(setCities)
+      .catch(() => {
+        setCities([]);
+        setCitiesError(true);
+      });
   }, []);
 
   const set = useCallback(<K extends keyof CheckoutForm>(key: K, value: CheckoutForm[K]) => {
@@ -130,6 +192,15 @@ export function useCheckout() {
 
   const blur = useCallback((key: keyof CheckoutForm) => {
     setTouched((t) => ({ ...t, [key]: true }));
+  }, []);
+
+  const applySavedAddress = useCallback((addr: SavedAddressItem) => {
+    setForm((f) => ({
+      ...f,
+      cityId: addr.city_id,
+      street: addr.address_line,
+    }));
+    setFieldErrors((e) => ({ ...e, cityId: undefined, street: undefined }));
   }, []);
 
   // Prefill contact fields for signed-in shoppers.
@@ -143,16 +214,27 @@ export function useCheckout() {
     }));
   }, [user]);
 
-  // Default saved address (first default) for signed-in shoppers.
+  // Default saved address (first default) for signed-in shoppers, plus list for one-tap switching.
   useEffect(() => {
-    if (!token) return;
+    if (!token) {
+      setSavedAddresses([]);
+      return;
+    }
     let cancelled = false;
-    accountEndpoints.addresses().then((list) => {
-      if (cancelled || list.length === 0) return;
-      const d = list.find((a) => a.is_default) ?? list[0];
-      setForm((f) => (f.street || f.cityId ? f : { ...f, cityId: d.city_id, street: d.address_line }));
-    }).catch(() => {});
-    return () => { cancelled = true; };
+    accountEndpoints
+      .addresses()
+      .then((list) => {
+        if (cancelled || list.length === 0) return;
+        setSavedAddresses(list as SavedAddressItem[]);
+        const d = list.find((a) => a.is_default) ?? list[0];
+        setForm((f) =>
+          f.street || f.cityId ? f : { ...f, cityId: d.city_id, street: d.address_line },
+        );
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [token]);
 
   // Initial load: cart + cities in parallel.
@@ -166,7 +248,11 @@ export function useCheckout() {
 
   // Live quote: city / payment method / coupon / cart changes (debounced 300ms).
   useEffect(() => {
-    if (!hydrated || form.cityId === null || cartBusy || cartLoading) { setQuote(null); setQuoteLoading(false); return; }
+    if (!hydrated || form.cityId === null || cartBusy || cartLoading) {
+      setQuote(null);
+      setQuoteLoading(false);
+      return;
+    }
     let current = true;
     const controller = new AbortController();
     setQuote(null);
@@ -174,20 +260,35 @@ export function useCheckout() {
     setQuoteLoading(true);
     const t = setTimeout(() => {
       checkoutEndpoints
-        .shippingOptions({ city_id: form.cityId as number, payment_method: form.paymentMethod }, getCartSession(), controller.signal)
+        .shippingOptions(
+          { city_id: form.cityId as number, payment_method: form.paymentMethod },
+          getCartSession(),
+          controller.signal,
+        )
         .then((res) => {
           if (!current) return;
-          const allowed = res.payment_methods.filter((m) => ['cod', 'wallet', 'credit'].includes(m));
+          const allowed = res.payment_methods.filter((m) =>
+            ['cod', 'wallet', 'credit'].includes(m),
+          );
           if (!allowed.includes(form.paymentMethod) && allowed.length) {
             setForm((f) => ({ ...f, paymentMethod: allowed[0] as CheckoutPaymentMethod }));
             return;
           }
-          setQuote(res); setQuotedFor(quoteKey);
+          setQuote(res);
+          setQuotedFor(quoteKey);
         })
-        .catch(() => { if (current) setQuoteError(true); })
-        .finally(() => { if (current) setQuoteLoading(false); });
+        .catch(() => {
+          if (current) setQuoteError(true);
+        })
+        .finally(() => {
+          if (current) setQuoteLoading(false);
+        });
     }, 300);
-    return () => { current = false; clearTimeout(t); controller.abort(); };
+    return () => {
+      current = false;
+      clearTimeout(t);
+      controller.abort();
+    };
   }, [quoteKey, hydrated, cartBusy, cartLoading, form.cityId, form.paymentMethod]);
 
   // ?promo=CODE auto-applies once.
@@ -198,7 +299,12 @@ export function useCheckout() {
     promoTried.current = true;
     setPromoInput(code);
     applyCoupon(code).then((ok) => {
-      if (!ok) setBanner({ kind: 'error', text: useCartStore.getState().error || 'كود الخصم غير صالح أو منتهي.' });
+      if (!ok) {
+        setBanner({
+          kind: 'error',
+          text: useCartStore.getState().error || 'كود الخصم غير صالح أو منتهي.',
+        });
+      }
     });
   }, [params, hydrated, cartLoading, totals, applyCoupon]);
 
@@ -207,7 +313,9 @@ export function useCheckout() {
     if (!form.fullName.trim()) e.fullName = 'الاسم مطلوب';
     if (!form.phone.trim()) e.phone = 'رقم الموبايل مطلوب';
     else if (!/^[0-9+\s().-]{7,}$/.test(form.phone.trim())) e.phone = 'رقم موبايل غير صالح';
-    if (form.email.trim() && !/^\S+@\S+\.\S+$/.test(form.email.trim())) e.email = 'بريد إلكتروني غير صالح';
+    if (form.email.trim() && !/^\S+@\S+\.\S+$/.test(form.email.trim())) {
+      e.email = 'بريد إلكتروني غير صالح';
+    }
     if (form.cityId === null) e.cityId = 'اختار المدينة';
     if (!form.street.trim()) e.street = 'العنوان مطلوب';
     if (!form.agreeTerms) e.agreeTerms = 'لازم توافق على الشروط عشان تكمل الطلب';
@@ -223,79 +331,153 @@ export function useCheckout() {
   }, [errors, touched, fieldErrors]);
 
   const validate = useCallback(() => {
-    setTouched({ fullName: true, phone: true, email: true, cityId: true, street: true, agreeTerms: true });
+    setTouched({
+      fullName: true,
+      phone: true,
+      email: true,
+      cityId: true,
+      street: true,
+      agreeTerms: true,
+    });
     if (Object.keys(errors).length > 0) {
-      requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-checkout-error="true"]')?.focus());
+      requestAnimationFrame(() =>
+        document.querySelector<HTMLElement>('[data-checkout-error="true"]')?.focus(),
+      );
       return false;
     }
     return true;
   }, [errors]);
 
-  const handleError = useCallback((err: unknown) => {
-    const status = (err as { response?: { status?: number; headers?: Record<string, string>; data?: { message?: string; errors?: Record<string, string[]>; code?: string } } })?.response;
-    const code = status?.data?.code;
-    if (code === 'price_changed') {
-      loadCart();
-      setQuote(null);
-      refreshQuote((v) => v + 1);
-      setBanner({ kind: 'error', text: 'الأسعار اتحدثت، راجع الإجمالي واضغط إتمام الطلب تاني.' });
-      return;
-    }
-    if (code === 'coupon_invalid') {
-      setBanner({
-        kind: 'error', text: status?.data?.message || 'الكوبون مبقاش صالح.',
-        action: { label: 'إزالة الكوبون', onClick: () => { removeCoupon(); setBanner(null); } },
-      });
-      return;
-    }
-    if (status?.status === 429) {
-      const retry = status.headers?.['retry-after'] ?? 60;
-      setBanner({ kind: 'error', text: `محاولات كتيرة، حاول بعد ${retry} ثانية.` });
-      return;
-    }
-    if (status?.status === 422) {
-      const apiErrors = status.data?.errors ?? {};
-      const mapped: Partial<Record<keyof CheckoutForm, string>> = {};
-      Object.entries(apiErrors).forEach(([key, messages]) => {
-        const target = fieldMap[key];
-        if (target && target !== 'banner' && messages?.[0]) mapped[target] = messages[0];
-      });
-      if (Object.keys(mapped).length > 0) {
-        setFieldErrors(mapped);
-        setTouched((t) => ({ ...t, ...Object.fromEntries(Object.keys(mapped).map((k) => [k, true])) }));
-        setTimeout(() => document.querySelector('[data-checkout-error="true"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+  const handleError = useCallback(
+    (err: unknown) => {
+      const status = (
+        err as {
+          response?: {
+            status?: number;
+            headers?: Record<string, string>;
+            data?: { message?: string; errors?: Record<string, string[]>; code?: string };
+          };
+        }
+      )?.response;
+      const code = status?.data?.code;
+      if (code === 'price_changed') {
+        loadCart();
+        setQuote(null);
+        refreshQuote((v) => v + 1);
+        setBanner({
+          kind: 'error',
+          text: 'الأسعار اتحدثت، راجع الإجمالي واضغط إتمام الطلب تاني.',
+        });
         return;
       }
-    }
-    setBanner({ kind: 'error', text: status?.data?.message || 'حصل خطأ، حاول تاني.' });
-  }, [loadCart, removeCoupon]);
+      if (code === 'coupon_invalid') {
+        setBanner({
+          kind: 'error',
+          text: status?.data?.message || 'الكوبون مبقاش صالح.',
+          action: {
+            label: 'إزالة الكوبون',
+            onClick: () => {
+              removeCoupon();
+              setBanner(null);
+            },
+          },
+        });
+        return;
+      }
+      if (status?.status === 429) {
+        const retry = status.headers?.['retry-after'] ?? 60;
+        setBanner({ kind: 'error', text: `محاولات كتيرة، حاول بعد ${retry} ثانية.` });
+        return;
+      }
+      if (status?.status === 422) {
+        const apiErrors = status.data?.errors ?? {};
+        const mapped: Partial<Record<keyof CheckoutForm, string>> = {};
+        Object.entries(apiErrors).forEach(([key, messages]) => {
+          const target = fieldMap[key];
+          if (target && target !== 'banner' && messages?.[0]) mapped[target] = messages[0];
+        });
+        if (Object.keys(mapped).length > 0) {
+          setFieldErrors(mapped);
+          setTouched((t) => ({
+            ...t,
+            ...Object.fromEntries(Object.keys(mapped).map((k) => [k, true])),
+          }));
+          setTimeout(
+            () =>
+              document
+                .querySelector('[data-checkout-error="true"]')
+                ?.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+            50,
+          );
+          return;
+        }
+      }
+      setBanner({ kind: 'error', text: status?.data?.message || 'حصل خطأ، حاول تاني.' });
+    },
+    [loadCart, removeCoupon],
+  );
 
   const submit = useCallback(async () => {
     if (submittingRef.current) return;
-    if (!pending.current && (!validate() || !liveQuote?.preview || cartBusy || cartLoading || items.length === 0)) return;
-    if (!pending.current && items.some((i) => !i.priced || i.quantity > i.available)) {
-      setBanner({ kind: 'error', text: 'في منتجات مش متاحة بالكمية دي، شيلها أو قلل الكمية الأول.' });
+    if (
+      !pending.current &&
+      (!validate() || !liveQuote?.preview || cartBusy || cartLoading || items.length === 0)
+    ) {
       return;
     }
-    if (!pending.current && (form.cityId === null || !liveQuote?.payment_methods.includes(form.paymentMethod))) return;
+    if (!pending.current && items.some((i) => !i.priced || i.quantity > i.available)) {
+      setBanner({
+        kind: 'error',
+        text: 'في منتجات مش متاحة بالكمية دي، شيلها أو قلل الكمية الأول.',
+      });
+      return;
+    }
+    if (
+      !pending.current &&
+      (form.cityId === null || !liveQuote?.payment_methods.includes(form.paymentMethod))
+    ) {
+      return;
+    }
     submittingRef.current = true;
     setSubmitting(true);
     try {
-      pending.current ??= { body: {
-        recipient_name: form.fullName.trim(),
-        recipient_phone: form.phone.trim(),
-        recipient_email: form.email.trim() || undefined,
-        city_id: form.cityId!,
-        shipping_address_line: addressLine,
-        shipping_notes: form.notes.trim() || undefined,
-        payment_method: form.paymentMethod,
-        expected_total: liveQuote!.preview!.grand_total,
-      }, session: getCartSession() };
-      try { sessionStorage.setItem('pending_checkout', JSON.stringify({ owner: attemptOwner, key: keyRef.current, ...pending.current })); } catch { /* In-memory retry still uses the same key. */ }
-      const res = await checkoutEndpoints.place(pending.current.body, pending.current.session, keyRef.current);
-      try { sessionStorage.setItem('last_order', JSON.stringify(res.data)); } catch { /* Receipt storage must never turn a successful order into a retry. */ }
+      pending.current ??= {
+        body: {
+          recipient_name: form.fullName.trim(),
+          recipient_phone: form.phone.trim(),
+          recipient_email: form.email.trim() || undefined,
+          city_id: form.cityId!,
+          shipping_address_line: addressLine,
+          shipping_notes: form.notes.trim() || undefined,
+          payment_method: form.paymentMethod,
+          expected_total: liveQuote!.preview!.grand_total,
+        },
+        session: getCartSession(),
+      };
+      try {
+        sessionStorage.setItem(
+          'pending_checkout',
+          JSON.stringify({ owner: attemptOwner, key: keyRef.current, ...pending.current }),
+        );
+      } catch {
+        /* In-memory retry still uses the same key. */
+      }
+      const res = await checkoutEndpoints.place(
+        pending.current.body,
+        pending.current.session,
+        keyRef.current,
+      );
+      try {
+        sessionStorage.setItem('last_order', JSON.stringify(res.data));
+      } catch {
+        /* Receipt storage must never turn a successful order into a retry. */
+      }
       pending.current = null;
-      try { sessionStorage.removeItem('pending_checkout'); } catch { /* Optional storage. */ }
+      try {
+        sessionStorage.removeItem('pending_checkout');
+      } catch {
+        /* Optional storage. */
+      }
       setUncertain(false);
       await loadCart();
       router.replace(`/checkout/success?order=${encodeURIComponent(res.data.order_number)}`);
@@ -303,35 +485,105 @@ export function useCheckout() {
       handleError(e);
       const status = (e as { response?: { status: number } }).response?.status;
       // Network errors and server failures may have committed the order. Retry the exact request and key.
-      if (status && status >= 400 && status < 500 && status !== 408 && status !== 409 && status !== 429) {
+      if (
+        status &&
+        status >= 400 &&
+        status < 500 &&
+        status !== 408 &&
+        status !== 409 &&
+        status !== 429
+      ) {
         pending.current = null;
-        try { sessionStorage.removeItem('pending_checkout'); } catch { /* Optional storage. */ }
+        try {
+          sessionStorage.removeItem('pending_checkout');
+        } catch {
+          /* Optional storage. */
+        }
         setUncertain(false);
         keyRef.current = crypto.randomUUID();
       } else {
         setUncertain(true);
-        const retryAfter = (e as { response?: { headers?: Record<string, string> } }).response?.headers?.['retry-after'];
-        setBanner({ kind: 'error', text: 'تعذّر تأكيد نتيجة الطلب. اضغط إعادة المحاولة لتأكيد نفس الطلب بدون تكراره.'
-          + (status === 429 ? ` محاولات كتيرة، حاول بعد ${retryAfter ?? 60} ثانية.` : '') });
+        const retryAfter = (e as { response?: { headers?: Record<string, string> } }).response
+          ?.headers?.['retry-after'];
+        setBanner({
+          kind: 'error',
+          text:
+            'تعذّر تأكيد نتيجة الطلب. اضغط إعادة المحاولة لتأكيد نفس الطلب بدون تكراره.' +
+            (status === 429 ? ` محاولات كتيرة، حاول بعد ${retryAfter ?? 60} ثانية.` : ''),
+        });
       }
     } finally {
       submittingRef.current = false;
       setSubmitting(false);
     }
-  }, [validate, items, form, addressLine, liveQuote, cartBusy, cartLoading, loadCart, router, handleError, attemptOwner]);
+  }, [
+    validate,
+    items,
+    form,
+    addressLine,
+    liveQuote,
+    cartBusy,
+    cartLoading,
+    loadCart,
+    router,
+    handleError,
+    attemptOwner,
+  ]);
 
-  const step = !form.fullName.trim() || !form.phone.trim() ? 1 : form.cityId === null || !form.street.trim() ? 2 : 3;
+  const step =
+    !form.fullName.trim() || !form.phone.trim()
+      ? 1
+      : form.cityId === null || !form.street.trim()
+        ? 2
+        : 3;
 
   return {
-    form, set, blur, visibleErrors, fieldErrors, banner, setBanner,
-    cities, citiesError, loadCities, quote: liveQuote, quoteLoading, quoteError,
+    form,
+    set,
+    blur,
+    visibleErrors,
+    fieldErrors,
+    banner,
+    setBanner,
+    cities,
+    citiesError,
+    loadCities,
+    savedAddresses,
+    applySavedAddress,
+    quote: liveQuote,
+    quoteLoading,
+    quoteError,
     retryQuote: () => refreshQuote((v) => v + 1),
     locked: submitting || uncertain,
-    canSubmit: !submitting && (uncertain || (!!liveQuote?.preview && !!liveQuote.options.length && liveQuote.payment_methods.includes(form.paymentMethod) && !cartBusy && !cartLoading && items.length > 0)),
-    uncertain, promoInput, setPromoInput,
-    items, cartLoading, cartBusy, cartError, totals, couponCode,
-    updateQuantity, removeItem, applyCoupon, removeCoupon, loadCart,
-    submit, submitting, step, addressLine, user, token,
+    canSubmit:
+      !submitting &&
+      (uncertain ||
+        (!!liveQuote?.preview &&
+          !!liveQuote.options.length &&
+          liveQuote.payment_methods.includes(form.paymentMethod) &&
+          !cartBusy &&
+          !cartLoading &&
+          items.length > 0)),
+    uncertain,
+    promoInput,
+    setPromoInput,
+    items,
+    cartLoading,
+    cartBusy,
+    cartError,
+    totals,
+    couponCode,
+    updateQuantity,
+    removeItem,
+    applyCoupon,
+    removeCoupon,
+    loadCart,
+    submit,
+    submitting,
+    step,
+    addressLine,
+    user,
+    token,
   };
 }
 

@@ -10,3 +10,5 @@ export * from './components/branding-provider';
 export { FinancialDashboard } from './financial-dashboard/FinancialDashboard';
 export { WholesalePortal } from './wholesale-portal';
 export * as wholesalePortal from './wholesale-portal';
+
+export { AuthHalftone } from './components/auth-halftone';

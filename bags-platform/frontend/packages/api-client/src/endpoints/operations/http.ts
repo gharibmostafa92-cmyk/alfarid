@@ -3,6 +3,7 @@ import { defaultApiClient as api } from '../../axios-instance';
 
 export { api };
 export const ADMIN = '/api/v1/admin';
+export const SLOW_REQUEST_TIMEOUT = 190_000;
 export type Id = number;
 
 /** شكل Laravel paginate() القياسي */
@@ -87,12 +88,37 @@ export function crud<T, P extends object, Q extends object = Record<string, unkn
 
 const SAFE_INLINE = new Set(['application/pdf', 'image/png', 'image/jpeg', 'image/webp']);
 
+/** Signed private downloads are navigations; their bytes never pass through XHR. */
+export async function signedAttachmentUrl(response: AxiosResponse): Promise<string | null> {
+  if (!String(response.headers?.['content-type'] ?? '').includes('application/json')) return null;
+  const body = response.data instanceof Blob ? JSON.parse(await response.data.text()) : response.data;
+  if (typeof body?.url !== 'string' || !/^https?:\/\//i.test(body.url)) {
+    throw new Error('Invalid attachment URL');
+  }
+  return body.url;
+}
+
+function navigateToAttachment(url: string): void {
+  const a = document.createElement('a');
+  a.href = url;
+  a.rel = 'noreferrer';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 /** تحميل مرفق محمي (يحتاج Bearer) وفتحه في تبويب جديد */
 export async function openProtectedFile(url: string): Promise<void> {
   const w = window.open('', '_blank');
   if (w) w.opener = null;
   try {
-    const r = await api.get(url, { responseType: 'blob' });
+    const r = await api.get(url, { responseType: 'blob', params: { signed: 1 } });
+    const signedUrl = await signedAttachmentUrl(r);
+    if (signedUrl) {
+      if (w) w.location.href = signedUrl;
+      else navigateToAttachment(signedUrl);
+      return;
+    }
     const type = String(r.headers?.['content-type'] ?? '').split(';')[0].trim().toLowerCase();
     if (!SAFE_INLINE.has(type) || !w) {
       if (w) w.close();
@@ -111,7 +137,12 @@ export async function openProtectedFile(url: string): Promise<void> {
 
 /** تنزيل ملف (CSV) */
 export async function downloadFile(url: string, filename: string, params?: object): Promise<void> {
-  const r = await api.get(url, { responseType: 'blob', params: cleanParams(params) });
+  const r = await api.get(url, { responseType: 'blob', params: { ...cleanParams(params), signed: 1 }, timeout: SLOW_REQUEST_TIMEOUT });
+  const signedUrl = await signedAttachmentUrl(r);
+  if (signedUrl) {
+    navigateToAttachment(signedUrl);
+    return;
+  }
   saveBlob(r.data as Blob, filename);
 }
 

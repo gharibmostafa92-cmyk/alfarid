@@ -11,7 +11,7 @@ export default function AccountPage() {
   const email = (user?.email as string) || (user?.phone as string) || '';
 
   return (
-    <main className="min-h-screen bg-[#f3f5f7]">
+    <main id="main-content" tabIndex={-1} className="min-h-screen bg-[#f3f5f7]">
       <section className="checkout-wrapper" aria-label="My profile">
         <div className="container" style={{ maxWidth: '720px', margin: '0 auto', padding: '40px 20px' }}>
           <h1 className="checkout-giant-title">MY PROFILE</h1>

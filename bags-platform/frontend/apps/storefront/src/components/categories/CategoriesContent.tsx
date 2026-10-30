@@ -30,8 +30,15 @@ export function CategoriesContent() {
   };
   const closeProduct = () => router.push(`${pathname}${buildSearch(filters)}`, { scroll: false });
 
-  // UI state (kept local)
-  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
+  // UI state (kept local): collapse filter sidebar on mobile by default to keep products visible
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 993px)');
+    setIsSidebarOpen(desktop.matches);
+    const onChange = (event: MediaQueryListEvent) => setIsSidebarOpen(event.matches);
+    desktop.addEventListener('change', onChange);
+    return () => desktop.removeEventListener('change', onChange);
+  }, []);
   const [toast, setToast] = useState<{ show: boolean; msg: string }>({ show: false, msg: '' });
   const [wishlist, setWishlist] = useState<Set<number>>(new Set());
 
@@ -90,35 +97,37 @@ export function CategoriesContent() {
   const renderCard = (card: CatalogCardVM) => {
     const isWishlisted = wishlist.has(card.id);
     return (
-      <div key={card.id} className="product-card" onClick={() => openProduct(card.slug)}>
+      <article key={card.id} className="product-card">
         <div className="product-img-box">
           {card.badge && <span className={card.badgeType}>{card.badge}</span>}
           <div className="card-actions">
-            <span
-              className="action-btn" title="Choose options"
+            <button type="button"
+              className="action-btn" title="Choose options" aria-label={`Choose options for ${card.name}`}
               onClick={(e) => {
                 e.stopPropagation();
                 openProduct(card.slug);
               }}
             >
               <i className="fa-solid fa-bag-shopping" />
-            </span>
-            <span className="action-btn" title="Quick View" onClick={(e) => { e.stopPropagation(); openProduct(card.slug); }}>
+            </button>
+            <button type="button" className="action-btn" title="Quick View" aria-label={`View ${card.name}`} onClick={() => openProduct(card.slug)}>
               <i className="fa-regular fa-eye" />
-            </span>
-            <span className="action-btn" title="Add to Wishlist" onClick={(e) => handleToggleWishlist(card.id, e)}>
+            </button>
+            <button type="button" className="action-btn" title="Add to Wishlist" aria-label={`Save ${card.name} to wishlist`} aria-pressed={isWishlisted} onClick={(e) => handleToggleWishlist(card.id, e)}>
               <i className={isWishlisted ? 'fa-solid fa-heart' : 'fa-regular fa-heart'} style={{ color: isWishlisted ? '#e11d48' : '' }} />
-            </span>
+            </button>
           </div>
-          <StoreImage src={card.img ?? DEFAULT_HERO.img} className="" alt={card.name} loading="lazy" />
+          <Link href={`${pathname}${buildSearch(filters, { product: card.slug })}`} aria-label={card.name}>
+            <StoreImage src={card.img ?? DEFAULT_HERO.img} className="" alt={card.name} loading="lazy" />
+          </Link>
         </div>
         <p className="product-category-tag">{card.categoryLabel}</p>
-        <h3 className="product-name">{card.name}</h3>
+        <h3 className="product-name"><Link href={`${pathname}${buildSearch(filters, { product: card.slug })}`}>{card.name}</Link></h3>
         <p className="product-price">
           {card.oldPriceLabel && <span className="old-price">{card.oldPriceLabel}</span>}
           {card.priceLabel}
         </p>
-      </div>
+      </article>
     );
   };
 
@@ -134,7 +143,7 @@ export function CategoriesContent() {
   const heroImg = activeCat?.node.image ?? DEFAULT_HERO.img;
 
   return (
-    <div className="categories-page">
+    <main id="main-content" tabIndex={-1} className="categories-page">
       {/* ================= TOP WRAPPER & HEADER ================= */}
       {activeView === 'catalog' && <div className="cat-top-wrapper">
         <div className="categories-container">
@@ -216,6 +225,7 @@ export function CategoriesContent() {
                   <div className="sort-wrap">
                     <span>Sort by</span>
                     <select
+                      aria-label="Sort products"
                       className="sort-select"
                       value={filters.sort}
                       onChange={(e) => updateFilters({ sort: e.target.value as CatalogFilterState['sort'] })}
@@ -230,7 +240,7 @@ export function CategoriesContent() {
 
               <div className="catalog-layout">
                 {/* Sidebar Filters */}
-                <aside id="catalog-filters" aria-label="Product filters" className={`filter-sidebar ${isSidebarOpen ? '' : 'hidden'}`}>
+                <aside id="catalog-filters" hidden={!isSidebarOpen} aria-label="Product filters" className="filter-sidebar">
                   <div className="filter-sidebar-inner">
                     <div className="sidebar-header">
                       <div className="sidebar-header-left">
@@ -242,7 +252,7 @@ export function CategoriesContent() {
                       <button
                         className="btn-close-sidebar"
                         onClick={() => setIsSidebarOpen(false)}
-                        title="Hide Filters"
+                        title="Hide Filters" aria-label="Hide Filters"
                       >
                         <i className="fa-solid fa-xmark" />
                       </button>
@@ -258,24 +268,24 @@ export function CategoriesContent() {
                     <div className="filter-group">
                       <div className="group-heading">Categories</div>
                       <div className="filter-list">
-                        <div
+                        <button type="button"
                           className={`filter-item ${filters.category === null ? 'active' : ''}`}
                           onClick={() => updateFilters({ category: null })}
                         >
                           <span>All Collections</span>
                           <span className="count">{allCount}</span>
-                        </div>
+                        </button>
                         {roots.map((c) => (
                           <React.Fragment key={c.slug}>
-                            <div
+                            <button type="button"
                               className={`filter-item ${filters.category === c.slug ? 'active' : ''}`}
                               onClick={() => updateFilters({ category: c.slug })}
                             >
                               <span>{pick(c.name_en, c.name_ar)}</span>
                               <span className="count">{c.products_count}</span>
-                            </div>
+                            </button>
                             {(c.children ?? []).map((child) => (
-                              <div
+                              <button type="button"
                                 key={child.slug}
                                 className={`filter-item ${filters.category === child.slug ? 'active' : ''}`}
                                 style={{ paddingLeft: 12 }}
@@ -283,7 +293,7 @@ export function CategoriesContent() {
                               >
                                 <span>{pick(child.name_en, child.name_ar)}</span>
                                 <span className="count">{child.products_count}</span>
-                              </div>
+                              </button>
                             ))}
                           </React.Fragment>
                         ))}
@@ -437,10 +447,10 @@ export function CategoriesContent() {
       </section>
 
       {/* ================= FLOATING TOAST ================= */}
-      <div className={`cat-toast-notice ${toast.show ? 'show' : ''}`}>
+      <div role="status" aria-live="polite" className={`cat-toast-notice ${toast.show ? 'show' : ''}`}>
         <i className="fa-solid fa-circle-check" style={{ color: '#4f7d88', fontSize: '18px' }} />
         <span>{toast.msg}</span>
       </div>
-    </div>
+    </main>
   );
 }
