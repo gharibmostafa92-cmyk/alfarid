@@ -13,211 +13,225 @@ H1: الوكيل يعدّل الإعدادات من غير تحقق من الق�
 * لو مرّ مفتاح expected.company_name، بيترمي InvalidArgumentException وبيرجع 500.
 الإصلاح: مصدر قواعد واحد، والتحقق مرتين: مرة في prepare ومرة في execute (الكود في القسم 9). وكمان ضيف أنواع الترقيم الناقصة لـ UpdateSettingsRequest، أو شيلها من enum الوكيل.
 ليه الإصلاح ده كافي: المسارين هيطبقوا نفس القواعد بالظبط، وإعادة التحقق في execute بتحمي من أي args اتخزنت قبل الإصلاح.
-التكلفة: ولا حاجة تقريبًا.
-H2: مدير مقيّد بفرع يعدّل أدوار عامة عن طريق الوكيل (HIGH)
-المشكلة: prepCreateRole بيستدعي assertCentralAccess، لكن prepUpdateRolePerms وprepDeleteRole ما بيستدعوهاش، ولا assertAiConstraints بيستدعيها لـ role_id. والأدوار في Spatie عامة على كل الفروع.
-إمتى تحصل: مدير فرع عنده roles.update أو roles.delete وai_agent.execute.
-الأثر: يقدر يشيل صلاحيات من دور مستخدم في كل الفروع، أو يمنح موظفين في فروع تانية صلاحيات هو نفسه عنده. ده تعدّي واضح لحدود الفروع.
-ملاحظة: UpdateRole وRoleController مش في الحزمة. لو مسار الـ REST فيه نفس الثغرة، المشكلة أوسع من الوكيل.
-الإصلاح: استدعاء assertCentralAccess في prepare وفي execute لكل أدوات الأدوار. التعديل موجود في القسم 9.
-التكلفة: المدير المقيّد مش هيقدر يعدّل أي دور. لو المطلوب أدوار خاصة بكل فرع، ده محتاج تصميم منفصل.
-H3: أدوات المواقع في الوكيل بصلاحيات مختلفة عن الـ REST، والحذف من غير قفل (HIGH)
-المشكلة:
-* create_location وset_location_status بيطلبوا branches.update|manage، وdelete_location بيطلب branches.delete|manage. أما الـ REST فبيطلب locations.create|update|delete|manage.
-* execDeleteLocation بيعمل check-then-delete من غير lockForUpdate على الموقع. وlockTargets ما بيتعاملش مع النوع location أصلًا.
-* execSetLocationStatus بيسجل في التدقيق before = !active بدل القيمة الحقيقية قبل التعديل.
-الأثر:
-* اللي عنده branches.delete، والمفروض يحذف فروع بس، يقدر يحذف مواقع من غير locations.delete.
-* العكس كمان: صاحب locations.manage ممنوع من أدوات المواقع في الوكيل.
-* لو اتسجلت حركة مخزون في نفس اللحظة، الـ FK بيرمي QueryException، والاستثناء ده مش من نوع HttpException، فبيرجع 500 والإجراء بيفضل pending.
-الإصلاح: استخدام locations.* في الأربع أدوات، وقفل صف الموقع زي LocationController::destroy بالظبط، وتسجيل الحالة الفعلية قبل التعديل.
-H4: انقطاع دورة الوكيل بيبوّظ المحادثة ويحجز القفل (HIGH)
-المشكلة:
-* handleLocked بيحفظ رسالة model فيها functionCall، وبعدها بيحفظ رسالة tool في عملية منفصلة. لو العملية ماتت بينهم، رسالة الأداة مش هتتحفظ. أسباب الموت كتير: max_execution_time (6 خطوات × محاولتين × 25 ثانية ممكن توصل لدقائق)، أو SIGKILL، أو قطع الـ SSE من غير ignore_user_abort.
-* في الحالة دي history() بيرجّع دور model فيه functionCall ووراه رسالة user عادية. Gemini بيرفض الترتيب ده بـ 400، فكل رسالة بعدها في المحادثة هتفشل.
-* الـ fatal error بيتجاوز finally، فـ Cache::lock مش بيتحرر ويفضل 600 ثانية، والمستخدم بياخد 423 طول المدة دي.
-* مفيش حد زمني كلي للدورة الواحدة.
-الأثر: محادثات بايظة على طول، ومستخدم مقفول عليه، وworkers محجوزة.
-الإصلاح:
-1. تنظيف التاريخ وتجاهل أي functionCall مالوش رد.
-2. ignore_user_abort(true) وset_time_limit محدد.
-3. تحرير القفل من register_shutdown_function.
-4. حد زمني كلي للدورة.
-الكود في القسم 9.
-التكلفة: لو المستخدم قفل الصفحة، العملية هتكمل لحد ما الدورة تخلص.
-H5: عدادات الصف الواحد بتعمل اختناق في نقاط البيع (HIGH، مشروطة)
-المشكلة: generateNextNumber للأنواع اللي مش في SEQUENCE_TYPES بيعمل lockForUpdate على صف واحد في settings. الأنواع دي: pos_invoice وinvoice وshift وexpense وtreasury_transfer وpayment_notice. ولما الدالة بتتنادى جوه transaction عملية البيع (وده المتوقع، لكن كود الـ POS مش في الحزمة)، الـ DB::transaction الداخلية بتبقى savepoint، والقفل بيفضل ماسك لحد ما transaction البيع كلها تعمل commit.
-الأثر: كل عمليات البيع في كل الفروع بتتنفذ ورا بعض على صف واحد. وتحت الضغط هيظهر انتظار طويل وlock_timeout.
-الإصلاح: للأنواع اللي مش محتاجة ترقيم متصل من غير فجوات، انقلها لـ PostgreSQL sequences زي باقي الأنواع. لو فاتورة الضريبة لازم تكون متصلة قانونيًا، خليها على قفل الصف، بس ولّد الرقم في آخر خطوة قبل الـ commit عشان القفل يتمسك أقل وقت ممكن.
-التكلفة: الـ sequences بتسيب فجوات لما transaction تترجع.
-H6: واجهة المساعد Mock، والـ renderer معرّض لـ XSS (HIGH، جاهزية للإنتاج)
-المشكلة:
-* AssistantPage.tsx فيه بيانات وهمية: "Claude Opus 4.8" و"gemini-3.7-flash" وردود ثابتة وتوكنز عشوائية، ومكتوب في الفوتر "OpenAI API".
-* ما بينادي ولا endpoint، فكروت التأكيد والتراجع والـ pickers مش ممكن توصلها من الواجهة.
-* renderMarkdown بيعمل escape للـ code blocks بس، ونتيجته بتتعرض بـ dangerouslySetInnerHTML. أول ما يتوصل بنص الموديل، اللي ممكن يردد أسماء فروع أو موظفين فيها <img onerror>، هيبقى stored XSS في لوحة الـ Super Admin.
-الإصلاح: بناء AssistantPage على assistantApi وAssistantBlock وAssistantComposer، وعرض النص كـ text (white-space: pre-wrap)، أو استخدام markdown renderer بيعمل sanitize، زي react-markdown من غير rehype-raw.
-M1: find_entities(type=location, branch_id=X) بيعدّي قيد الفرع (MEDIUM)
-EntityResolver::locations بيطبق قيد الفرع بس لما $branchId === null. فمستخدم مقيّد بفرع يقدر يشوف مواقع أي فرع تاني بإنه يبعت branch_id. ده عكس سياسة fail-closed المكتوبة في BranchAccess. الإصلاح في القسم 9.
-M2: اختيار موقع من الـ picker بيرجع 422 (MEDIUM، وظيفية)
-ask_user_to_choose بيدعم location، والواجهة بتبعت selection.entity='location'. لكن AiMessageController::validated بيقبل in:branch,user,role,permission بس، فالـ picker ده عمره ما هيشتغل. الحل: ضيف location للقائمة. EntityResolver::reference بيدعمه بالفعل.
-M3: تعديل الفرع من الـ REST من غير optimistic concurrency (MEDIUM)
-UpdateBranch بيقبل $expectedUpdatedAt، لكن BranchController::update ما بيبعتهوش، فاتنين بيعدّلوا نفس الفرع آخر واحد بيكسب. وحتى لو اتبعت، دقة updated_at بالثانية. الحل: عمود lock_version على branches زي users، يبقى إلزامي في UpdateBranchRequest.
-M4: تعطيل الفرع ما بيأثرش على موظفينه (MEDIUM، مشروطة بقواعد العمل)
-BranchAccess::restrictedBranch ما بيتأكدش إن الفرع is_active، وUpdateBranch ما بيلغيش التوكنز. فموظفين الفرع المعطّل بيكملوا شغلهم عادي (POS ومخزون)، وكمان ينفع تعيين موظف جديد على فرع معطّل. لو "معطّل" المقصود بيها "مقفول"، اعمل fail-closed في restrictedBranch لما الفرع يكون معطّل، أو امنع تعيين موظفين عليه.
-M5: مسار المواقع في الـ REST من غير تدقيق ولا حراسة (MEDIUM)
-LocationController ما بيسجلش أي تدقيق للإنشاء أو التعديل أو الحذف، مع إن الوكيل بيسجل. وبيسمح بتعطيل موقع فيه رصيد أو تغيير type من shelf لـ damaged، وده بيغير معنى المخزون الموجود من غير أي تحذير. وكمان مفيش قفل على update. الحل: سجل تدقيق، وارفض تغيير type لو فيه أرصدة غير صفرية.
-M6: البحث في الكيانات بيعمل فلترة في PHP على الجدول كله (MEDIUM، أداء/DoS)
-EntityResolver::users/branches/locations بيستخدموا lazy(200) وبيفلتروا في PHP. يعني الاستعلام اللي ملوش نتيجة بيمسح الجدول كله. و/ai/mentions بيتنادى مع كل ضغطة زر بعد debounce بـ 200ms، ومن غير throttle، لأن AuditStaffAdministration بيحدد طلبات POST والمشابهة بس. الحل: انقل الفلترة لـ SQL (ILIKE مع LIMIT 50)، ولو المطابقة العربية مهمة استخدم عمود search_normalized. وضيف throttle للـ endpoint.
-M7: ميزانية التوكنز ضعيفة ومكلفة (MEDIUM)
-* guard() بيشغّل whereDate(created_at, today()) مع whereHas. الاستعلام ده non-sargable، ومفيش index على ai_messages.created_at، وبيتنفذ لحد 7 مرات في كل دورة.
-* لو Gemini رجع MAX_TOKENS أو SAFETY، GeminiClient بيرمي استثناء قبل ما يتسجل الاستهلاك. فالتوكنز المدفوعة مش بتتحسب.
-* كل خطوة بتبعت التاريخ كله، اللي ممكن يكون لحد 60 رسالة فيها نتائج أدوات، وكمان 27 declaration. يعني التكلفة تقريبًا تربيعية، ودورة واحدة ممكن تعدّي الميزانية اليومية كلها (200k).
-* listLocations بيعمل ->get() من غير حد.
-الحل: استعلام بنطاق زمني (created_at >= startOfDay) مع index، وتسجيل الاستهلاك حتى لو الطلب فشل، وحد أعلى للتوكنز في الدورة الواحدة، وحد لحجم نتائج الأدوات.
-M8: العدادات الحية في expected بترجع 409 باستمرار على الأنظمة المزدحمة (MEDIUM)
-بالنسبة للأنواع اللي على sequences، get('order_next_number') بيرجع القيمة الحالية من الـ sequence. القيمة دي بتزيد مع كل طلب، فالقيمة اللي في expected بتبقى قديمة بعد ثواني وتعديل العداد بيفشل بـ 409. ده بيحصل في الـ REST، وفي الوكيل أكتر بكتير لأن الـ TTL عشر دقائق. الحل: للعدادات، قارن بقاعدة "الجديد ≥ الحالي" بس، وسيب expected للبادئة والطول.
-M9: حالة SettingService الداخلية ممكن تفضل قديمة (MEDIUM، مشروطة)
-transactionSnapshot ما بيتصفرش في آخر الـ transaction. وresetReadSnapshot(true) مش بيتنادى من أي مكان ظاهر في الحزمة، فـ uncommittedSettings بيفضل true بعد أول updateBatch. وnumberingConfig بيتخزن في الـ instance. لو الخدمة singleton، أو شغالة في queue workers أو Octane، الـ workers هتفضل تستخدم بادئات وإعدادات قديمة. الحل: صفّر الحالة دي مع حدثي TransactionCommitted وTransactionRolledBack، وفي Queue::before.
-M10: الإجراء الجماعي (bulk) مش ذري، والإجراءات الفرعية ممكن تتأكد لوحدها (MEDIUM)
-* confirmBulk بيخلي الحالة confirmed وبعدين بينفذ الإجراءات الفرعية برا أي transaction. لو العملية ماتت في النص، الحالة بتفضل confirmed على طول ومفيش طريقة تكمل منها.
-* الإجراءات الفرعية pending عادية وأرقامها ظاهرة في items[].key، فممكن تتأكد كل واحدة لوحدها من غير مراجعة المجموعة.
-* confirmBulk بيملا كود الفرع تلقائيًا كتأكيد كتابي، فالحماية الكتابية لتعطيل الفرع بتتلغي جوه المجموعة.
-الحل: حالة مخصوصة للإجراءات الفرعية (bulk_child) يرفضها confirm() المباشر، ومهمة دورية تقفل الإجراءات اللي فضلت confirmed بعد مهلة معينة.
-M11: صلاحية ai_agent.logs.view بتعدّي حدود الفروع (MEDIUM)
-index?all=1 وshow بيعرضوا محادثات كل المستخدمين، بما فيها جداول موظفين وفروع، حتى لو اللي بيشوف مقيّد بفرع. الحل: اشترط assertCentralAccess مع all.
-M12: كاش الـ branding في الـ storefront بيتقسم حسب IP كل زائر (MEDIUM، أداء)
-getServerBranding بيبعت X-Forwarded-For في fetch عليه revalidate: 60. على حد علمي، مفتاح كاش Next.js بيدخل فيه الـ headers، فكل IP بياخد مدخل كاش لوحده. النتيجة: نسبة الإصابة في الكاش قريبة من الصفر، وكل زائر جديد بيعمل نداء للباك إند، وكمان publicBranding() بيقرا من الداتابيز من غير كاش. الحل: شيل الـ header من الطلب ده تحديدًا (الـ branding مش محتاج rate-limit لكل زائر)، وخلي publicBranding تقرا من staticSettings().
-M13: طلبات الوكيل المتزامنة الطويلة بتحجز PHP workers (MEDIUM)
-في أسوأ حالة، الدورة الواحدة ممكن تقعد دقائق. ولو Gemini بطيء أو واقع، كل أدمن بيحجز worker. ولو الـ pool مشترك مع الـ API، الباك أوفيس والمتجر هيتأثروا. الحل: نفس الحد الزمني الكلي من H4، ومع أول فشل اتصال وقّف الدورة بدل ما تعيد المحاولة في كل خطوة.
-M14: unique races بترجع 500 والإجراء بيفضل pending (MEDIUM)
-branches.code وlocations(branch_id, code) وusers.email بيتحقق منهم بقاعدة unique قبل الإدخال. لو طلبين وصلوا في نفس اللحظة، أو المستخدم ضغط مرتين، الداتابيز بترمي 23505 وبيرجع 500. في الوكيل، create_location وcreate_staff_user ما بيعيدوش التحقق وقت التأكيد، فبيرجع 500 والإجراء بيفضل pending. الحل: handler عام لـ UniqueConstraintViolationException، والتقاط الاستثناء في confirmLocked برا الـ savepoint (القسم 9).
-M15: EvaluateAiAgent ناقصه imports (MEDIUM، أدوات)
-في النسخة المرفقة، الكود بيستخدم ToolOutcome وEntityResolver من غير use، مع إن الـ namespace هو App\Console\Commands. النتيجة: Class not found في كل case، والـ catch (\Throwable) بيمسكه ويسجله كـ "provider request failed"، فالدقة تطلع 0% من غير سبب واضح.
-M16: قاعدة EmailNotUsedByOtherAccountType (MEDIUM)
-LOWER(email) = ? على customers من غير functional index بيعمل seq scan، والجدول ده ممكن يكون كبير جدًا. وكمان التفرد بين الجداول مضمون على مستوى التطبيق بس، فلو موظف وعميل اتسجلوا بنفس الإيميل في نفس اللحظة، الاتنين هيعدّوا. الحل: CREATE INDEX ... ON customers (LOWER(email)) WHERE deleted_at IS NULL. ولو التفرد بين الجداول شرط صارم، اعمل جدول account_emails موحد عليه unique.
-L1: الـ down() في migrations الإعدادات بيمسح مفاتيح مالهاش علاقة (LOW)
-where('key','like','delivery\_%') وexpense\_% وshift\_% هتمسح أي إعداد تاني بيبدأ بنفس البادئة، زي delivery_fee أو expense_approval_required. الحل: قائمة مفاتيح صريحة.
-L2: ON UPDATE CASCADE على الـ composite FK (LOW)
-لو locations.branch_id اتغير في يوم من الأيام، stock_movements.branch_id هيتغير معاه، يعني الدفتر التاريخي هيتعاد كتابته. الأفضل ON UPDATE RESTRICT. كمان الـ migration بتشتغل برا transaction، فلو فشلت في النص، إعادة تشغيلها هتفشل بـ "already exists".
-L3: SET LOCAL lock_timeout='5s' بيسري على الـ transaction كلها (LOW)
-بيأثر على قفل الصفوف وعلى استعلامات المخزون كمان. والخطأ 55P03 بيرجع 500 بدل 409 أو 503 مع رسالة "حاول مرة أخرى".
-L4: معاملات المسار مش رقمية (LOW)
-{conversation} لو قيمته مش رقمية، PostgreSQL بيرمي 22P02 وبيرجع 500. الحل: whereNumber('conversation')، زي اللي متعمل في store.php.
-L5: ilike '%'.$q.'%' من غير escape (LOW)
-% و_ بيتعاملوا كـ wildcards. مفيش SQL injection، لكن نتايج البحث بتبقى غير دقيقة. استخدم SearchTerm::pattern الموجود.
-L6: تعديلات الإعدادات من الوكيل مش بتتعلّم بالقناة (LOW، observability)
-SettingService::updateBatch بيسجل التدقيق من غير via، فما تقدرش تفرق بين تعديل جه من الوكيل وتعديل جه من الشاشة.
-L7: الـ deep link بتاع /branches مش بيظهر (LOW)
-الـ regex في AssistantBlock بيقبل users|roles|settings بس، فروابط الفروع والمواقع مش هتظهر.
-L8: كلمة المرور المؤقتة (LOW)
-* مفيش إجبار على تغييرها في أول دخول.
-* لو رد HTTP بتاع التأكيد ضاع، إعادة الطلب بترجع "اتنفذ قبل كده" من غير الباسورد.
-* إزالة الباسورد من الرسائل المحفوظة معتمدة على regex على نص عربي، ولو صياغة الرسالة اتغيرت الباسورد هيتسرب. الأفضل ما يدخلش في message أصلًا، ويتبعت في حقل منفصل مش بيتحفظ.
-L9: الـ system prompt بيقول إن كل فرع جديد بيتعمله موقع افتراضي (LOW)
-CreateBranch اللي في الحزمة ما بيعملش كده، إلا لو فيه observer مش موجود في الحزمة. لو مفيش، الموديل هيدي معلومة غلط للمستخدم.
-L10: indexes ناقصة (LOW)
-ai_pending_actions.conversation_id (الـ FK في PostgreSQL مش بيعمل index تلقائي)، وai_messages(conversation_id, created_at).
-L11: سجل التدقيق بيمتلي بـ administration.denied (LOW)
-ToolRegistry::dispatch بيسجل denied لكل رفض، حتى أخطاء التحقق و"مش موجود". ولو فيه prompt injection، ممكن يتكرر لحد 6 خطوات × عدد الأدوات.
-L12: ai_disabled_tools.* مش بيتحقق منها (LOW)
-ما بيتحققش إن الاسم موجود في الـ registry، فأي غلطة إملائية بتعدّي من غير ما حد ياخد باله. ضيف Rule::in(array_keys($registry->definitions())).
+التكلفة: ولا حاجة تقريبًا. 
+النتيجة: تضخيم في التكلفة والتخزين وسجلات التدقيق، والتاريخ يتملي.
+الحل: حد أقصى مثلاً 8 استدعاءات. الزيادة ماتتنفذش، لكن لازم تاخد functionResponse مرفوض لأن Gemini بيطلب رد لكل استدعاء (الكود في القسم 9).
+M-3 — MEDIUM: استثناءات غير مصنّفة في التأكيد ترجع 500 والإجراء يفضل pending
+المكان: PendingActionService::confirmLocked() وconfirm().
+المشكلة: الـ catch بيغطي UniqueConstraintViolation وBusinessException|ValidationException وHttpExceptionInterface بس. اللي بيفلت منه:
+AuthorizationException من BranchAccess::assertCentralAccess وassertBranch جوه CreateBranch وUpdateBranch وexecCreateLocation.
+ModelNotFoundException من findOrFail في execCreateLocation (لو الفرع اتحذف) وexecCreateStaffUser.
+Spatie\Permission\Exceptions\RoleAlreadyExists من Role::create لو اسم الدور اتحجز بين الاقتراح والتأكيد.
+QueryException لانتهاء مهلة القفل (55P03) على صفوف المستخدم أو الدور، أو deadlock (40P01).
+النتيجة: الـ transaction الخارجي يترجع، فيرجع 500 والإجراء يفضل pending، والواجهة تعرض خطأ عام، والمستخدم يعيد المحاولة فيفشل تاني. وفي المسار الجماعي ده بيتسجل failed بس من غير رسالة تفهم.
+الحل: تصنيف صريح (الكود في القسم 9): التفويض والكيان المفقود وتعارض الاسم يتسجلوا failed برسالة واضحة، والـ lock timeout والـ deadlock يرجعوا 409 قابل لإعادة المحاولة من غير ما الإجراء يتعلّم failed.
+M-4 — MEDIUM: تغيير البادئة أو الطول ممكن يكرر أرقام صدرت قبل كده
+المكان: SettingService::updateBatch() وقواعد UpdateSettingsRequest (prefix لحد 30، وpadding من 1 لـ 20).
+مثال: INV- بطول 6 أصدرت INV-001000. الأدمن غيّر البادئة لـ INV-00 والطول لـ 4، فالرقم 1000 يطلع INV-001000 تاني.
+النتيجة: لو فيه unique index على عمود الرقم، إنشاء المستندات يفشل وقت التشغيل (POS أو فواتير). ولو مفيش، يبقى عندك رقم فاتورة قانوني مكرر. التحقق الحالي بيمنع تخفيض العداد بس.
+الحل: جوه updateBatch، بعد حساب البادئة والطول والعداد الجداد لكل نوع، نشيك إن prefix.str_pad(next) مش موجود في جدول المستند (map للنوع والجدول والعمود، شبه meta() في migration H5)، ونرفض بـ ValidationException. وتأكد إن فيه unique index على كل عمود رقم مستند.
+الموازنة: استعلام exists واحد لكل نوع اتعدّل، وده قليل.
+M-5 — MEDIUM: نص التأكيد بيتملي تلقائياً في التأكيد الجماعي
+المكان: confirmBulk، في السطر $typedChild = ... Branch::find(...)?->code.
+المشكلة: كلمة "تنفيذ" واحدة بتأكد لحد 25 عملية عالية الخطورة، منها تعطيل فروع وتعطيل موظفين وتعديل أدوار، والحماية بالكود المكتوب بتتلغي من السيرفر. الكود نفسه معلّم عليها كـ residual risk (M10).
+الحل الأبسط: شيل set_branch_status من الـ enum بتاع bulk_actions (في الـ definition وفي validateArgs)، أو اطلب typed_confirmations لكل عنصر عالي الخطورة في selected_items.
+M-6 — MEDIUM (تحتاج تحقق): سباق تعطيل الفرع مع فتح وردية POS أو حركة خزينة
+المكان: UpdateBranch بيشيك PosShift ... Open وTreasury current_balance != 0 بقراءة عادية تحت FOR UPDATE على صف الفرع.
+الشرط: لو مسار فتح الوردية أو حركة الخزينة بيعتمد على BranchAccess::restrictedBranch() بس (قراءة من غير قفل ومتكاشة على مستوى الطلب) ومش بياخد FOR SHARE على صف الفرع زي lockLevels.
+النتيجة: وردية تتفتح على فرع اتعطل، وموظفين الفرع ممنوعين بالكامل (fail-closed)، فالوردية والنقدية تفضل عالقة.
+الحل: في فتح الوردية وأي حركة خزينة فرعية: Branch::whereKey($id)->sharedLock()->value('is_active') جوه الـ transaction، بنفس منطق M-11 في المخزون.
+L-1 — LOW: استثناء تدوير كلمة المرور عبر users/{self} كود ميت
+المكان: EnsureStaffAuthenticated::isPasswordRotationRequest، في count(explode('/', trim($path,'/'))) === 4.
+المشكلة: المسار api/v1/admin/users/5 فيه 5 أجزاء، فالشرط عمره ما بيتحقق. أي واجهة بتدوّر كلمة المرور المؤقتة عبر PUT users/{id} هتاخد 403 password_change_required.
+الحل: $request->routeIs('admin.users.update') && (int) $targetId === (int) $user->getKey().
+L-2 — LOW: execUpdateSettings مابيعيدش فحص ai_agent.settings
+الفحص بيحصل في prepUpdateSettings بس. لو الصلاحية اتسحبت خلال الـ TTL (10 دقايق)، التنفيذ يكمل عادي. الحل: إعادة الفحص في التنفيذ (القسم 9).
+
+L-3 — LOW: سباق تغيير البريد في UpdateStaffUser يرجع 500
+تفرّد البريد بيتشيك في الـ FormRequest قبل القفل. تعديلين متزامنين لنفس البريد يتسلسلوا على القفل، والتاني يضرب في unique index، فتطلع UniqueConstraintViolationException غير ملتقطة. الحل: إعادة التحقق تحت القفل زي CreateStaffUser (M-14).
+
+L-4 — LOW: الـ down() في migration الـ 2026_10_15_014600 بيحذف أعمدة كانت موجودة قبلها
+الـ up() بيضيف الأعمدة بشرط hasColumn، لكن الـ down() بيحذف phone/branch_id/is_active من غير شرط. لو phone كان موجود قبل الـ migration، الـ rollback هيضيّعه.
+
+L-5 — LOW: التدقيق مابيسجلش قيمة تغيير البريد
+audit() بيفلتر before/after على allowed، وemail مش فيها. وتغيير بريد موظف هو الطريق الطبيعي للاستيلاء على حساب (استعادة كلمة المرور). اقتراح: سجّل البريد مقنّعاً (maskEmail) أو hash له في before/after.
+
+L-6 — LOW: deadlock نادر بين الحذف وحركات المخزون
+DeleteBranch وLocationController::destroy بيقفلوا الفرع أو الموقع (UPDATE) وبعدين يحذفوا stock_levels. أما lockLevels فبيقفل stock_levels الأول وبعدين الفرع أو الموقع (SHARE). الترتيب معكوس، فممكن يحصل 40P01 وواحد منهم يطلع 500. نادر لأنه بيحتاج حركة أولى متزامنة مع الحذف.
+
+L-7 — LOW: منطق mayManageUser مكرر
+فيه نسخة في UserController ونسخة في StaffAdministration، ولو اتعدلت واحدة ونسيت التانية هيظهر تباين أمني. الحل: احذف نسخة الـ controller واستدعي الـ service.
+
+L-8 — LOW: حدود متضاربة بين REST والمساعد
+كود الموقع: max:100 في REST، وmax:255 في المساعد (validateArgs).
+pos_invoice موجود في الإعدادات لكنه مش في UpdateSettingsRequest ولا في enum أدوات الترقيم.
+ده آمن، بس بيخلق سلوك مختلف بين المسارين.
+
+L-9 — LOW: أخطاء الـ stream مش مصنفة صح
+في AiMessageController::stream، AuthorizationException وValidationException مش HttpExceptionInterface، فبتتعرض كـ 502 مع report(). الأفضل تحويلها لـ 403/422.
+
 INFO
-* الـ advisory lock العام بيخلي كل عمليات الإدارة تتنفذ ورا بعض. ده مقبول لعمليات قليلة التكرار، فمش محتاج تغيير.
-* definitions() بتتبني من الأول في كل استدعاء. التكلفة صغيرة، ومحتاجة memoization بس لو ظهرت في الـ profiling.
-* args_hash بـ HMAC سليم كحماية ضد التلاعب في الداتابيز.
+قفل المستخدم بيتعلق: ai-agent:user:{id} بـ TTL قدره 600 ثانية، ولو العامل اتقتل بـ SIGKILL المستخدم يتقفل عن المساعد 10 دقايق.
+ToolRegistry::definitions() بيتبني من الصفر في كل نداء: وبيتنادى عشرات المرات في الطلب، منها جوه UpdateSettingsRequest::rules() وauditableSettings(). خزّنه في property.
+جدولة التنظيف: ai:prune-conversations وstaff:prune-audit-logs مش متعرفين في الحزمة. اتأكد من الجدولة، ومن وجود index على staff_audit_logs.created_at.
+set_time_limit على Linux: مابيحسبش وقت انتظار الشبكة، فالحماية الفعلية هي فحص MAX_CYCLE_SECONDS بين الخطوات بس.
+lock_version للفروع: صحة القفل التوافقي معتمدة بالكامل على TracksEditVersion (مش موجود في الحزمة). اتأكد إنه بيزوّد القيمة مع كل update.
 
-H-1: تعديل الفرع من الواجهة مكسور
-المشكلة: UpdateBranchRequest يشترط 'lock_version' => ['required', 'integer', 'min:0']. لكن BranchPayload في packages/api-client/src/endpoints/inventory.ts لا يحتوي هذا الحقل، وbranchesApi.update(id, p: Partial<BranchPayload>) لا يملك طريقة لإرساله.
-متى تحدث: في كل طلب PUT على /branches/{id} من الـ backoffice، إلا إذا كان هناك مستدعٍ آخر خارج الحزمة يحقن الحقل.
-الأثر: لا يمكن تعديل أي فرع أو تعطيله من الشاشة.
-الإصلاح: إضافة lock_version إلى النوع وإلزام المستدعي بإرساله (الكود في القسم 9). وعند استقبال 409 تُعاد قراءة الفرع.
-لماذا يحل المشكلة: يغلق الفجوة بين عقد الـ API والعميل.
-المقايضة: شاشة الفروع يجب أن تحتفظ بالنسخة التي قرأتها.
-H-2: كلمة المرور المؤقتة تضيع
-المشكلة: الدالة execCreateStaffUser تُرجع generated_password في data وفي رسالة ui_block، وAiActionController::confirm يعيدها فعلاً في الاستجابة. لكن act() في AssistantPage.tsx يتجاهل الاستجابة: ينفذ await assistantApi.confirm(...) ثم openConversation(...). والرسالة المخزنة عبر event(stripPassword: true) لا تحتوي كلمة المرور، وهذا متعمد.
-الأثر: يُنشأ موظف بـ must_change_password = true وبكلمة مرور لا يعرفها أحد. الحساب غير قابل للاستخدام حتى يعيد أدمن تعيين كلمة المرور يدوياً.
-الإصلاح: قراءة result.generated_password من استجابة التأكيد وعرضها مرة واحدة في نافذة مع زر نسخ (الكود في القسم 9).
-المقايضة: كلمة المرور ستبقى في ذاكرة المتصفح طوال عرض النافذة. امسحها من الـ state عند الإغلاق.
-H-3: المساعد يتجاوز قاعدة "لا تعطيل لموقع عليه رصيد"
-المشكلة: LocationController::update يرفض التعطيل إذا كان على الموقع رصيد غير صفري: abort_unless(! $hasBalances, 422, ...). أما ToolRegistry::execSetLocationStatus فيقفل الصف ثم ينفذ update(['is_active' => ...]) مباشرة بدون هذا الفحص. وكذلك مسار التراجع في executeUndo الخاص بـ set_location_status، وهو أيضاً لا يقفل الصف.
-الأثر: مخزون "عالق" في موقع معطّل، وقد يكسر عمليات الجرد والتحويل التي تفترض أن الموقع المعطّل فارغ.
-الإصلاح: نقل القاعدة إلى action مشترك مثل SetLocationStatus يستخدمه الـ REST والمساعد والتراجع معاً (الكود في القسم 9).
-لماذا يحل المشكلة: يصبح للقاعدة مصدر واحد، فلا يتكرر الانحراف بين المسارين.
-H-4: ثغرة في ميزانية التوكنز
-المشكلة: guard() يحسب الاستهلاك اليومي من SUM(ai_messages.input_tokens + output_tokens). لكن عند GeminiException مع usage، يضيف handleLocked التوكنز إلى ai_conversations.total_tokens فقط، ثم ينشئ رسالة event بدون input_tokens/output_tokens. التعليق M7/M8 يقول إنها تُخصم من الميزانية، والكود لا يفعل ذلك.
-متى تحدث: maxOutputTokens مثبت على 2048 في converse(). يكفي أن يطلب المستخدم نصاً طويلاً فيرجع النموذج بـ MAX_TOKENS، ثم يكرر الطلب 20 مرة في الدقيقة مع history كبير قد يصل إلى عشرات آلاف التوكنز في كل طلب.
-الأثر: تكلفة فعلية لدى Google بلا سقف، وصفحة usage تُظهر أرقاماً أقل من الحقيقة.
-الإصلاح: تسجيل التوكنز على رسالة الـ event نفسها (الكود في القسم 9).
-H-5: القفل التفاؤلي للفروع يعتمد على trait غير مرفق
-المشكلة: UpdateBranch يحذف lock_version من $data ولا يستدعي advanceVersion()، بعكس UpdateStaffUser. لو كان TracksEditVersion لا يزيد العمود في حدث updating، فستبقى القيمة 0 للأبد ويصبح إصلاح M3 شكلياً.
-الإصلاح: تحقق من الـ trait. إن لم يكن يزيد العمود، أضف بعد $locked->update($data):
-Copy$locked->forceFill(['lock_version' => $locked->lock_version + 1])->save();
-أو استخدم StaffAdministration::advanceVersion($locked).
-M-1: تعارض القيود الفريدة يُرجع 500 في الـ REST
-المشكلة: LocationController::store وupdate وBranchController::store وupdate تعتمد على قاعدة Rule::unique، وهي فحص ثم تنفيذ. عند طلبين متزامنين بنفس الكود، يرمي الثاني UniqueConstraintViolationException بدون معالجة. مسار المساعد يعالج هذه الحالة (M14)، والـ REST لا يعالجها.
-الإصلاح: التقاط الاستثناء وإرجاع 422 (الكود في القسم 9).
-M-2: مزامنة sequences الترقيم تتم بعد الـ commit
-المشكلة: في updateBatch يُستدعى document_next_number(type, minimum) داخل afterCommit. لو فشل الاستدعاء تُحفظ الإعدادات وتظهر "warning" فقط.
-متى تصبح خطيرة: عندما يرفع الأدمن العداد عمداً ليتخطى أرقاماً مستوردة من نظام قديم. إذا فشلت المزامنة يستمر الـ sequence من القيمة القديمة، فتتكرر أرقام مستندات. هذا إما يكسر البيع بخطأ unique، أو يُنتج تكراراً صامتاً إذا لم يكن هناك قيد فريد.
-الإصلاح: نفذ المزامنة داخل الـ transaction. الـ setval غير transactional، فلو حدث rollback لاحقاً ستنتج فجوة فقط، والفجوات مقبولة صراحة لهذه الأنواع (H5).
-المقايضة: القفل الـ advisory يُمسك لميكروثوانٍ إضافية داخل الـ transaction.
-M-3: الـ rollback لـ migration الترقيم يسبب تكرار أرقام
-المشكلة: 2026_10_31_000001...::down() يحذف الـ sequences ويعيد الدالة للأنواع القانونية فقط. لكن صفوف settings لم تتقدم منذ الـ migration، فيعود الترقيم من قيم قديمة ويُنتج أرقاماً مكررة.
-الإصلاح: قبل الحذف، اكتب في settings القيمة last_value + is_called لكل sequence (الكود في القسم 9).
-M-4: التأكيد الجماعي غير قابل للاستعادة ويفتح نافذة سباق
-المشكلة: confirmBulk يحوّل كل الأبناء، بما فيهم غير المختارين، من bulk_child إلى pending داخل الـ claim، ثم يلغي غير المختارين واحداً واحداً في الحلقة خارج الـ transaction.
-الأثر:
-أثناء الحلقة يمكن تأكيد ابن استبعده المستخدم صراحة، عبر /actions/{child}/confirm من تبويب آخر لنفس المستخدم.
-لو انهارت العملية في منتصف الحلقة، يحوّل PruneAiConversations الأب إلى failed بعد 5 دقائق. يبقى الأبناء المتبقون pending وقابلين للتأكيد فردياً، بلا أي سجل يربطهم بالعملية الجماعية الأصلية.
-الإصلاح: داخل الـ claim حوّل المختارين فقط إلى pending وألغِ الباقين في نفس الـ transaction (الكود في القسم 9). وعند انتهاء مهلة الأب، أعد الأبناء غير المنفذين إلى cancelled.
-M-5: معالجة غير متسقة للاستثناءات في confirmLocked
-المشكلة: يُلتقط فقط UniqueConstraintViolationException وHttpExceptionInterface. أما BusinessException، مثل رفض تعطيل فرع عليه شحنات في الطريق، وValidationException من lockRoles، فتلغي الـ transaction الخارجية بالكامل. النتيجة: الإجراء يبقى pending، ولا تُسجل رسالة event، وفي الحلقة الجماعية يُسجَّل BusinessException عبر report() كخطأ نظام.
-الإصلاح: أضف catch لـ BusinessException|ValidationException يحوّل الإجراء إلى failed برسالة مفهومة، كما في فرع الـ 409.
-M-6: كل استدعاء SettingService::get() يكلف رحلتين إلى الكاش
-المشكلة: staticSettings() لا يحفظ النتيجة في الذاكرة خارج الـ transactions. كل get() ينفذ Cache::get(VERSION) ثم Cache::get(key) ويفك تسلسل مصفوفة الإعدادات كاملة. المسارات الساخنة تستدعيه مرات كثيرة في الطلب الواحد، منها declarationsFor وdispatchAllowed وguard في كل خطوة، إضافة إلى POS والكتالوج.
-الإصلاح: حفظ النتيجة في الذاكرة على مستوى الطلب (الكود في القسم 9). الخدمة مسجلة كـ scoped، فلا تتسرب القيم بين الطلبات حتى تحت Octane.
-M-7: حجم الـ history محدود بعدد الرسائل لا بحجمها
-المشكلة: history() يجلب آخر 60 رسالة، وكل نتيجة أداة قد تصل إلى 16000 حرف. في المحادثات الطويلة قد تقترب كل خطوة من سقف الدورة البالغ 100k توكن، فيتوقف المساعد بعد خطوة واحدة ويستهلك الميزانية بسرعة.
-الإصلاح: حد إجمالي بالحروف، مثلاً 60k، يُطبق من الأحدث للأقدم مع الحفاظ على تزاوج functionCall مع functionResponse.
-M-8: سعة عمال PHP-FPM
-المشكلة: كل طلب stream يحجز worker لمدة قد تصل إلى 240 ثانية (ignore_user_abort وset_time_limit). الحد الوحيد هو قفل واحد لكل مستخدم.
-الأثر: إذا فتح 30 موظفاً المساعد في نفس الوقت مع pool من 30 worker، يتعطل الـ backoffice كله، بما فيه POS إن كان يشارك نفس الـ pool.
-الإصلاح بدون بنية جديدة: pool منفصل في FPM لمسار /api/v1/admin/ai/*، أو قفل عام عبر Cache::lock بعدد أقصى من الجلسات المتزامنة.
-M-9: maxOutputTokens = 2048 مثبت في converse()
-المشكلة: مع نماذج التفكير (Gemini 2.5)، توكنز التفكير تُحسب ضمن هذا الحد. فتظهر MAX_TOKENS في طلبات عادية، وتفشل الدورة كلها، وتغذي الثغرة H-4.
-الإصلاح: اقرأ القيمة من الإعدادات كما في generate()، واضبط thinkingConfig.thinkingBudget إن كان النموذج يدعمه.
-M-10: إمكانية رؤية محادثات فروع أخرى (مُعترف بها في الكود)
-المشكلة: AiConversationController::show يسمح لأي مستخدم يملك ai_agent.logs.view برؤية أي محادثة، حتى لو كان مقيداً بفرع. والمحادثة قد تحتوي جداول موظفين وفروع أخرى في ui_blocks.
-الإصلاح: طبّق assertCentralAccess عند user_id !== actor، كما يفعل index?all=1، وحدّث الاختبار الذي يمنع ذلك.
-M-11: سباق بين التعطيل وعمليات المخزون (مشروط بكود InventoryService غير المرفق)
-المشكلة: فحص الأرصدة والشحنات قبل تعطيل موقع (LocationController::update) أو فرع (UpdateBranch) يقفل صف الموقع أو الفرع فقط. عمليات المخزون غالباً تقفل صفوف stock_levels، لا صف الموقع، فيمكن أن يدخل رصيد بين الفحص والتعطيل.
-الإصلاح: إما أن يفحص InventoryService::lockLevels حالة is_active للموقع والفرع بعد قفل صفوفهما بـ FOR SHARE، أو أن يقفل التعطيل نفس الصفوف التي يقفلها المخزون.
-M-12: تعطيل الفرع لا يفحص الورديات المفتوحة
-المشكلة: restrictedBranch يمنع موظفي الفرع المعطّل من أي وصول (fail-closed). لو كانت هناك وردية POS مفتوحة أو خزينة بها رصيد، فلن يستطيع أحد من الفرع إغلاقها.
-الإصلاح: أضف فحص الورديات المفتوحة وأرصدة الخزائن في UpdateBranch بجانب فحص in_transit.
-M-13: فهارس ناقصة لعمليات التنظيف
-المشكلة: PruneAiConversations يستعلم بـ status='pending' AND expires_at<now وبـ status='confirmed' AND updated_at<.... لا يوجد فهرس مناسب، والفهرس (user_id,status) لا يخدم هذا الاستعلام. وشرط COALESCE(last_message_at, created_at) < ? لا يستفيد من أي فهرس. الجدول ينمو بلا dedup لمدة 180 يوماً.
-الإصلاح: فهرسان جزئيان وفهرس تعبيري (الكود في القسم 9).
-M-14: تفرد البريد بين أنواع الحسابات يُفحص على مستوى التطبيق فقط
-المشكلة: EmailNotUsedByOtherAccountType فحص ثم تنفيذ عبر ثلاثة جداول. في مسار المساعد يُفحص عند الاقتراح فقط، والفجوة حتى التأكيد قد تصل إلى ai_action_ttl_minutes.
-الإصلاح الأدنى: أعد تشغيل القاعدة داخل CreateStaffUser تحت القفل. القرار الأقوى جدول account_emails بقيد فريد، لكنه تغيير معماري لا أوصي به إلا لو كان التكرار مشكلة فعلية.
-نتائج LOW
-L-1: رسائل الخطأ قبل بدء الـ stream تضيع. بسبب responseType: 'text'، تكون response.data نصاً، فلا تصل رسائل 429 (الميزانية) و423 (طلب آخر جارٍ) و403. الحل: JSON.parse آمن داخل catch.
-L-2: register_shutdown_function تتراكم تحت Octane في كل طلب ولا تُنفذ إلا عند إنهاء الـ worker، وهذا تسرب ذاكرة. التطبيق يأخذ Octane في الاعتبار (تعليق L-6)، فاستخدم try/finally وحده هناك.
-L-3: أي رفض يوقف الدورة. haltsLoop() يتضمن denied، فأي خطأ تحقق في وسائط أداة ينهي الدورة بدل أن يُعطى النموذج فرصة للتصحيح. الحل: أوقف فقط عند رفض الصلاحيات (auditable).
-L-4: AiAdministrationController::usage?all=1 بدون assertCentralAccess، فيرى المدقق المقيد بفرع استهلاك المؤسسة كاملة. البيانات مجمّعة، لذلك الخطورة منخفضة.
-L-5: updateSettings في AiAdministrationController لا يلتقط InvalidArgumentException، فإذا كان أي مفتاح ai_* غير موجود في جدول settings يحدث 500، بعكس SettingController. كما يمرر via فارغاً، فيسقط channel من سجل التدقيق.
-L-6: undo() يستدعي lockTargets قبل فحص الملكية، فيقدر مستخدم آخر على قفل صفوف إجراء لا يملكه، مع أن الـ ULID غير قابل للتخمين. انقل فحص الملكية إلى البداية.
-L-7: تحذف show() كل رسائل المحادثة بلا حد، وكل رسالة جديدة تعيد تحميل المحادثة كاملة. أضف ترقيم صفحات أو حداً أعلى.
-L-8: قائمة استثناءات must_change_password هشة. isPasswordRotationRequest يسمح بأي PUT/PATCH على مسار فيه {user} يساوي المستخدم نفسه، فأي مسار مستقبلي مثل users/{user}/roles سيُستثنى تلقائياً. الأفضل مطابقة اسم المسار بدقة.
-L-9: التحقق من نص التأكيد بمطابقة حرفية ($typed !== $expectedTyped) بدون trim أو توحيد حالة الأحرف، فتظهر 422 مزعجة.
-L-10: إعادة المحاولة عند timeout في GeminiClient قد تُحاسَب مرتين لدى المزود دون أن تُسجَّل.
-L-11: الأبناء بحالة bulk_child لا تنتهي صلاحيتهم أبداً في PruneAiConversations.
-L-12: الـ polling الخاص بالهوية التجارية. BrandingProvider يستعلم كل 60 ثانية لكل تبويب. إن لم يضبط StoreBrandingProvider القيمة pollIntervalMs=0 فالحمل يتناسب مع عدد الزوار. لم أتحقق لأن الملف غير مرفق.
-ملاحظات INFO
-document_next_number(type, NULL) يأخذ advisory lock حول nextval رغم أن nextval ذرّي أصلاً، فهذا تسلسل غير ضروري في أعلى مسار POS حجماً.
-الإعدادان ai_max_tokens_per_cycle وai_tool_result_max_chars يُقرآن لكنهما غير موجودين في UpdateSettingsRequest، فلا يمكن ضبطهما إلا مباشرة من قاعدة البيانات.
-تدوير APP_KEY يبطل كل الإجراءات المعلقة وكل undo_state، لأن hashArgs يستخدم HMAC بهذا المفتاح.
-updateOwnPassword يحذف كل التوكنز، بما فيها توكن الجلسة الحالية. يجب أن تتوقع الواجهة إعادة تسجيل الدخول.
-EvaluateAiAgent يقرأ من tests/Fixtures، وهذا المجلد غالباً مستبعد من صورة الإنتاج.
 
+
+H-1 — HIGH: محادثة المساعد ممكن تبوظ للأبد
+المكان: AgentOrchestrator::history() وfitHistoryBudget() وPendingActionService::event().
+المشكلة: الربط بين functionCall ورده معتمد على التجاور في ترتيب الـ id. event() بيكتب رسالة role=event من التأكيد أو الإلغاء أو التراجع من غير ما ياخد قفل المستخدم اللي بتاخده الدورة.
+إمتى بتحصل: المستخدم يبعت رسالة جديدة، وقبل ما الرد يخلص يدوس "تأكيد" على كارت قديم في نفس المحادثة (أو من تبويب تاني). كده يبقى الترتيب: model(functionCall) id=10، بعدين event id=11، بعدين tool id=12.
+النتيجة: history() بيلاقي إن اللي بعد الـ model مش tool، فيحط رد "interrupted" صناعي، وبعدين رسالة الـ tool تتبعت كـ functionResponse يتيم. ونفس الشيء في fitHistoryBudget لأن الـ tool بقى "وحدة" لوحده. Gemini يرفض ده بـ 400، والتاريخ بيتبني بنفس الشكل في كل طلب، فالمحادثة تفضل بايظة لحد ما الرسائل دي تخرج من نافذة الـ 60 رسالة.
+الحل: تطبيع الأزواج قبل ميزانية التاريخ (الكود في القسم 9). لما نلاقي model فيه استدعاءات، ندوّر على أقرب tool قبل أي رسالة user أو model ونطلّعه بعده على طول، والـ events اللي في النص تتأجل لبعده. وأي tool مش مربوط يتشال.
+الموازنة: ترتيب العرض للنموذج بيختلف شوية عن ترتيب الـ id، وده مقبول. البديل إن التأكيد ياخد قفل المستخدم، وده هيعلّق التأكيد لحد 240 ثانية، فمش مستحسن.
+M-1 — MEDIUM: عدّاد التزامن العام مش موثوق
+المكان: AgentOrchestrator::handle()، في Cache::increment('ai-agent:concurrent-sessions') وبعده put(...,1,600) لما $slots===1.
+المشكلة: فيه سباق بين increment وput: طلب تاني ممكن يزوّد العداد لـ 2، وبعدين put يرجّعه لـ 1. كمان الـ TTL بيتحط مرة واحدة بس، وبعد ما يخلص والجلسات لسه شغالة، الـ decrement بيعمل قيم سالبة فالحد يتوسع. ولو العامل اتقتل (SIGKILL أو انتهاء مهلة FPM)، الـ finally مابيتنفذش فالعداد يتسرب.
+النتيجة: إما الحد ما يتطبقش تحت الضغط، أو 429 غلط.
+الحل: "slots" مبنية على Cache::lock بـ TTL وملكية (الكود في القسم 9).
+الموازنة: فيه لحد N محاولة لاخد lock في كل طلب (N≤100)، وده مهمل.
+M-2 — MEDIUM: مفيش سقف لعدد الاستدعاءات في الخطوة
+المكان: حلقة foreach ($res['calls'] as $call) في handleLocked.
+المشكلة: النموذج (أو prompt injection من أسماء الكيانات) ممكن يرجع عشرات الاستدعاءات في رد واحد. كل كتابة بتعمل صف AiPendingAction، وكل رفض قابل للتدقيق بيكتب في staff_audit_logs.
+النتيجة: تضخيم في التكلفة والتخزين وسجلات التدقيق، والتاريخ يتملي.
+الحل: حد أقصى مثلاً 8 استدعاءات. الزيادة ماتتنفذش، لكن لازم تاخد functionResponse مرفوض لأن Gemini بيطلب رد لكل استدعاء (الكود في القسم 9).
+M-3 — MEDIUM: استثناءات غير مصنّفة في التأكيد ترجع 500 والإجراء يفضل pending
+المكان: PendingActionService::confirmLocked() وconfirm().
+المشكلة: الـ catch بيغطي UniqueConstraintViolation وBusinessException|ValidationException وHttpExceptionInterface بس. اللي بيفلت منه:
+AuthorizationException من BranchAccess::assertCentralAccess وassertBranch جوه CreateBranch وUpdateBranch وexecCreateLocation.
+ModelNotFoundException من findOrFail في execCreateLocation (لو الفرع اتحذف) وexecCreateStaffUser.
+Spatie\Permission\Exceptions\RoleAlreadyExists من Role::create لو اسم الدور اتحجز بين الاقتراح والتأكيد.
+QueryException لانتهاء مهلة القفل (55P03) على صفوف المستخدم أو الدور، أو deadlock (40P01).
+النتيجة: الـ transaction الخارجي يترجع، فيرجع 500 والإجراء يفضل pending، والواجهة تعرض خطأ عام، والمستخدم يعيد المحاولة فيفشل تاني. وفي المسار الجماعي ده بيتسجل failed بس من غير رسالة تفهم.
+الحل: تصنيف صريح (الكود في القسم 9): التفويض والكيان المفقود وتعارض الاسم يتسجلوا failed برسالة واضحة، والـ lock timeout والـ deadlock يرجعوا 409 قابل لإعادة المحاولة من غير ما الإجراء يتعلّم failed.
+M-4 — MEDIUM: تغيير البادئة أو الطول ممكن يكرر أرقام صدرت قبل كده
+المكان: SettingService::updateBatch() وقواعد UpdateSettingsRequest (prefix لحد 30، وpadding من 1 لـ 20).
+مثال: INV- بطول 6 أصدرت INV-001000. الأدمن غيّر البادئة لـ INV-00 والطول لـ 4، فالرقم 1000 يطلع INV-001000 تاني.
+النتيجة: لو فيه unique index على عمود الرقم، إنشاء المستندات يفشل وقت التشغيل (POS أو فواتير). ولو مفيش، يبقى عندك رقم فاتورة قانوني مكرر. التحقق الحالي بيمنع تخفيض العداد بس.
+الحل: جوه updateBatch، بعد حساب البادئة والطول والعداد الجداد لكل نوع، نشيك إن prefix.str_pad(next) مش موجود في جدول المستند (map للنوع والجدول والعمود، شبه meta() في migration H5)، ونرفض بـ ValidationException. وتأكد إن فيه unique index على كل عمود رقم مستند.
+الموازنة: استعلام exists واحد لكل نوع اتعدّل، وده قليل.
+M-5 — MEDIUM: نص التأكيد بيتملي تلقائياً في التأكيد الجماعي
+المكان: confirmBulk، في السطر $typedChild = ... Branch::find(...)?->code.
+المشكلة: كلمة "تنفيذ" واحدة بتأكد لحد 25 عملية عالية الخطورة، منها تعطيل فروع وتعطيل موظفين وتعديل أدوار، والحماية بالكود المكتوب بتتلغي من السيرفر. الكود نفسه معلّم عليها كـ residual risk (M10).
+الحل الأبسط: شيل set_branch_status من الـ enum بتاع bulk_actions (في الـ definition وفي validateArgs)، أو اطلب typed_confirmations لكل عنصر عالي الخطورة في selected_items.
+M-6 — MEDIUM (تحتاج تحقق): سباق تعطيل الفرع مع فتح وردية POS أو حركة خزينة
+المكان: UpdateBranch بيشيك PosShift ... Open وTreasury current_balance != 0 بقراءة عادية تحت FOR UPDATE على صف الفرع.
+الشرط: لو مسار فتح الوردية أو حركة الخزينة بيعتمد على BranchAccess::restrictedBranch() بس (قراءة من غير قفل ومتكاشة على مستوى الطلب) ومش بياخد FOR SHARE على صف الفرع زي lockLevels.
+النتيجة: وردية تتفتح على فرع اتعطل، وموظفين الفرع ممنوعين بالكامل (fail-closed)، فالوردية والنقدية تفضل عالقة.
+الحل: في فتح الوردية وأي حركة خزينة فرعية: Branch::whereKey($id)->sharedLock()->value('is_active') جوه الـ transaction، بنفس منطق M-11 في المخزون.
+L-1 — LOW: استثناء تدوير كلمة المرور عبر users/{self} كود ميت
+المكان: EnsureStaffAuthenticated::isPasswordRotationRequest، في count(explode('/', trim($path,'/'))) === 4.
+المشكلة: المسار api/v1/admin/users/5 فيه 5 أجزاء، فالشرط عمره ما بيتحقق. أي واجهة بتدوّر كلمة المرور المؤقتة عبر PUT users/{id} هتاخد 403 password_change_required.
+الحل: $request->routeIs('admin.users.update') && (int) $targetId === (int) $user->getKey().
+L-2 — LOW: execUpdateSettings مابيعيدش فحص ai_agent.settings
+الفحص بيحصل في prepUpdateSettings بس. لو الصلاحية اتسحبت خلال الـ TTL (10 دقايق)، التنفيذ يكمل عادي. الحل: إعادة الفحص في التنفيذ (القسم 9).
+
+L-3 — LOW: سباق تغيير البريد في UpdateStaffUser يرجع 500
+تفرّد البريد بيتشيك في الـ FormRequest قبل القفل. تعديلين متزامنين لنفس البريد يتسلسلوا على القفل، والتاني يضرب في unique index، فتطلع UniqueConstraintViolationException غير ملتقطة. الحل: إعادة التحقق تحت القفل زي CreateStaffUser (M-14).
+
+L-4 — LOW: الـ down() في migration الـ 2026_10_15_014600 بيحذف أعمدة كانت موجودة قبلها
+الـ up() بيضيف الأعمدة بشرط hasColumn، لكن الـ down() بيحذف phone/branch_id/is_active من غير شرط. لو phone كان موجود قبل الـ migration، الـ rollback هيضيّعه.
+
+L-5 — LOW: التدقيق مابيسجلش قيمة تغيير البريد
+audit() بيفلتر before/after على allowed، وemail مش فيها. وتغيير بريد موظف هو الطريق الطبيعي للاستيلاء على حساب (استعادة كلمة المرور). اقتراح: سجّل البريد مقنّعاً (maskEmail) أو hash له في before/after.
+
+L-6 — LOW: deadlock نادر بين الحذف وحركات المخزون
+DeleteBranch وLocationController::destroy بيقفلوا الفرع أو الموقع (UPDATE) وبعدين يحذفوا stock_levels. أما lockLevels فبيقفل stock_levels الأول وبعدين الفرع أو الموقع (SHARE). الترتيب معكوس، فممكن يحصل 40P01 وواحد منهم يطلع 500. نادر لأنه بيحتاج حركة أولى متزامنة مع الحذف.
+
+L-7 — LOW: منطق mayManageUser مكرر
+فيه نسخة في UserController ونسخة في StaffAdministration، ولو اتعدلت واحدة ونسيت التانية هيظهر تباين أمني. الحل: احذف نسخة الـ controller واستدعي الـ service.
+
+L-8 — LOW: حدود متضاربة بين REST والمساعد
+كود الموقع: max:100 في REST، وmax:255 في المساعد (validateArgs).
+pos_invoice موجود في الإعدادات لكنه مش في UpdateSettingsRequest ولا في enum أدوات الترقيم.
+ده آمن، بس بيخلق سلوك مختلف بين المسارين.
+
+L-9 — LOW: أخطاء الـ stream مش مصنفة صح
+في AiMessageController::stream، AuthorizationException وValidationException مش HttpExceptionInterface، فبتتعرض كـ 502 مع report(). الأفضل تحويلها لـ 403/422.
+
+INFO
+قفل المستخدم بيتعلق: ai-agent:user:{id} بـ TTL قدره 600 ثانية، ولو العامل اتقتل بـ SIGKILL المستخدم يتقفل عن المساعد 10 دقايق.
+ToolRegistry::definitions() بيتبني من الصفر في كل نداء: وبيتنادى عشرات المرات في الطلب، منها جوه UpdateSettingsRequest::rules() وauditableSettings(). خزّنه في property.
+جدولة التنظيف: ai:prune-conversations وstaff:prune-audit-logs مش متعرفين في الحزمة. اتأكد من الجدولة، ومن وجود index على staff_audit_logs.created_at.
+set_time_limit على Linux: مابيحسبش وقت انتظار الشبكة، فالحماية الفعلية هي فحص MAX_CYCLE_SECONDS بين الخطوات بس.
+lock_version للفروع: صحة القفل التوافقي معتمدة بالكامل على TracksEditVersion (مش موجود في الحزمة). اتأكد إنه بيزوّد القيمة مع كل update. حل المشاكل دي وارفع علي githup علطول من غير فرع
+H-1 — HIGH: محادثة المساعد ممكن تبوظ للأبد
+المكان: AgentOrchestrator::history() وfitHistoryBudget() وPendingActionService::event().
+المشكلة: الربط بين functionCall ورده معتمد على التجاور في ترتيب الـ id. event() بيكتب رسالة role=event من التأكيد أو الإلغاء أو التراجع من غير ما ياخد قفل المستخدم اللي بتاخده الدورة.
+إمتى بتحصل: المستخدم يبعت رسالة جديدة، وقبل ما الرد يخلص يدوس "تأكيد" على كارت قديم في نفس المحادثة (أو من تبويب تاني). كده يبقى الترتيب: model(functionCall) id=10، بعدين event id=11، بعدين tool id=12.
+النتيجة: history() بيلاقي إن اللي بعد الـ model مش tool، فيحط رد "interrupted" صناعي، وبعدين رسالة الـ tool تتبعت كـ functionResponse يتيم. ونفس الشيء في fitHistoryBudget لأن الـ tool بقى "وحدة" لوحده. Gemini يرفض ده بـ 400، والتاريخ بيتبني بنفس الشكل في كل طلب، فالمحادثة تفضل بايظة لحد ما الرسائل دي تخرج من نافذة الـ 60 رسالة.
+الحل: تطبيع الأزواج قبل ميزانية التاريخ (الكود في القسم 9). لما نلاقي model فيه استدعاءات، ندوّر على أقرب tool قبل أي رسالة user أو model ونطلّعه بعده على طول، والـ events اللي في النص تتأجل لبعده. وأي tool مش مربوط يتشال.
+الموازنة: ترتيب العرض للنموذج بيختلف شوية عن ترتيب الـ id، وده مقبول. البديل إن التأكيد ياخد قفل المستخدم، وده هيعلّق التأكيد لحد 240 ثانية، فمش مستحسن.
+M-1 — MEDIUM: عدّاد التزامن العام مش موثوق
+المكان: AgentOrchestrator::handle()، في Cache::increment('ai-agent:concurrent-sessions') وبعده put(...,1,600) لما $slots===1.
+المشكلة: فيه سباق بين increment وput: طلب تاني ممكن يزوّد العداد لـ 2، وبعدين put يرجّعه لـ 1. كمان الـ TTL بيتحط مرة واحدة بس، وبعد ما يخلص والجلسات لسه شغالة، الـ decrement بيعمل قيم سالبة فالحد يتوسع. ولو العامل اتقتل (SIGKILL أو انتهاء مهلة FPM)، الـ finally مابيتنفذش فالعداد يتسرب.
+النتيجة: إما الحد ما يتطبقش تحت الضغط، أو 429 غلط.
+الحل: "slots" مبنية على Cache::lock بـ TTL وملكية (الكود في القسم 9).
+الموازنة: فيه لحد N محاولة لاخد lock في كل طلب (N≤100)، وده مهمل.
+M-2 — MEDIUM: مفيش سقف لعدد الاستدعاءات في الخطوة
+المكان: حلقة foreach ($res['calls'] as $call) في handleLocked.
+المشكلة: النموذج (أو prompt injection من أسماء الكيانات) ممكن يرجع عشرات الاستدعاءات في رد واحد. كل كتابة بتعمل صف AiPendingAction، وكل رفض قابل للتدقيق بيكتب في staff_audit_logs.
+النتيجة: تضخيم في التكلفة والتخزين وسجلات التدقيق، والتاريخ يتملي.
+الحل: حد أقصى مثلاً 8 استدعاءات. الزيادة ماتتنفذش، لكن لازم تاخد functionResponse مرفوض لأن Gemini بيطلب رد لكل استدعاء (الكود في القسم 9).
+M-3 — MEDIUM: استثناءات غير مصنّفة في التأكيد ترجع 500 والإجراء يفضل pending
+المكان: PendingActionService::confirmLocked() وconfirm().
+المشكلة: الـ catch بيغطي UniqueConstraintViolation وBusinessException|ValidationException وHttpExceptionInterface بس. اللي بيفلت منه:
+AuthorizationException من BranchAccess::assertCentralAccess وassertBranch جوه CreateBranch وUpdateBranch وexecCreateLocation.
+ModelNotFoundException من findOrFail في execCreateLocation (لو الفرع اتحذف) وexecCreateStaffUser.
+Spatie\Permission\Exceptions\RoleAlreadyExists من Role::create لو اسم الدور اتحجز بين الاقتراح والتأكيد.
+QueryException لانتهاء مهلة القفل (55P03) على صفوف المستخدم أو الدور، أو deadlock (40P01).
+النتيجة: الـ transaction الخارجي يترجع، فيرجع 500 والإجراء يفضل pending، والواجهة تعرض خطأ عام، والمستخدم يعيد المحاولة فيفشل تاني. وفي المسار الجماعي ده بيتسجل failed بس من غير رسالة تفهم.
+الحل: تصنيف صريح (الكود في القسم 9): التفويض والكيان المفقود وتعارض الاسم يتسجلوا failed برسالة واضحة، والـ lock timeout والـ deadlock يرجعوا 409 قابل لإعادة المحاولة من غير ما الإجراء يتعلّم failed.
+M-4 — MEDIUM: تغيير البادئة أو الطول ممكن يكرر أرقام صدرت قبل كده
+المكان: SettingService::updateBatch() وقواعد UpdateSettingsRequest (prefix لحد 30، وpadding من 1 لـ 20).
+مثال: INV- بطول 6 أصدرت INV-001000. الأدمن غيّر البادئة لـ INV-00 والطول لـ 4، فالرقم 1000 يطلع INV-001000 تاني.
+النتيجة: لو فيه unique index على عمود الرقم، إنشاء المستندات يفشل وقت التشغيل (POS أو فواتير). ولو مفيش، يبقى عندك رقم فاتورة قانوني مكرر. التحقق الحالي بيمنع تخفيض العداد بس.
+الحل: جوه updateBatch، بعد حساب البادئة والطول والعداد الجداد لكل نوع، نشيك إن prefix.str_pad(next) مش موجود في جدول المستند (map للنوع والجدول والعمود، شبه meta() في migration H5)، ونرفض بـ ValidationException. وتأكد إن فيه unique index على كل عمود رقم مستند.
+الموازنة: استعلام exists واحد لكل نوع اتعدّل، وده قليل.
+M-5 — MEDIUM: نص التأكيد بيتملي تلقائياً في التأكيد الجماعي
+المكان: confirmBulk، في السطر $typedChild = ... Branch::find(...)?->code.
+المشكلة: كلمة "تنفيذ" واحدة بتأكد لحد 25 عملية عالية الخطورة، منها تعطيل فروع وتعطيل موظفين وتعديل أدوار، والحماية بالكود المكتوب بتتلغي من السيرفر. الكود نفسه معلّم عليها كـ residual risk (M10).
+الحل الأبسط: شيل set_branch_status من الـ enum بتاع bulk_actions (في الـ definition وفي validateArgs)، أو اطلب typed_confirmations لكل عنصر عالي الخطورة في selected_items.
+M-6 — MEDIUM (تحتاج تحقق): سباق تعطيل الفرع مع فتح وردية POS أو حركة خزينة
+المكان: UpdateBranch بيشيك PosShift ... Open وTreasury current_balance != 0 بقراءة عادية تحت FOR UPDATE على صف الفرع.
+الشرط: لو مسار فتح الوردية أو حركة الخزينة بيعتمد على BranchAccess::restrictedBranch() بس (قراءة من غير قفل ومتكاشة على مستوى الطلب) ومش بياخد FOR SHARE على صف الفرع زي lockLevels.
+النتيجة: وردية تتفتح على فرع اتعطل، وموظفين الفرع ممنوعين بالكامل (fail-closed)، فالوردية والنقدية تفضل عالقة.
+الحل: في فتح الوردية وأي حركة خزينة فرعية: Branch::whereKey($id)->sharedLock()->value('is_active') جوه الـ transaction، بنفس منطق M-11 في المخزون.
+L-1 — LOW: استثناء تدوير كلمة المرور عبر users/{self} كود ميت
+المكان: EnsureStaffAuthenticated::isPasswordRotationRequest، في count(explode('/', trim($path,'/'))) === 4.
+المشكلة: المسار api/v1/admin/users/5 فيه 5 أجزاء، فالشرط عمره ما بيتحقق. أي واجهة بتدوّر كلمة المرور المؤقتة عبر PUT users/{id} هتاخد 403 password_change_required.
+الحل: $request->routeIs('admin.users.update') && (int) $targetId === (int) $user->getKey().
+L-2 — LOW: execUpdateSettings مابيعيدش فحص ai_agent.settings
+الفحص بيحصل في prepUpdateSettings بس. لو الصلاحية اتسحبت خلال الـ TTL (10 دقايق)، التنفيذ يكمل عادي. الحل: إعادة الفحص في التنفيذ (القسم 9).
+
+L-3 — LOW: سباق تغيير البريد في UpdateStaffUser يرجع 500
+تفرّد البريد بيتشيك في الـ FormRequest قبل القفل. تعديلين متزامنين لنفس البريد يتسلسلوا على القفل، والتاني يضرب في unique index، فتطلع UniqueConstraintViolationException غير ملتقطة. الحل: إعادة التحقق تحت القفل زي CreateStaffUser (M-14).
+
+L-4 — LOW: الـ down() في migration الـ 2026_10_15_014600 بيحذف أعمدة كانت موجودة قبلها
+الـ up() بيضيف الأعمدة بشرط hasColumn، لكن الـ down() بيحذف phone/branch_id/is_active من غير شرط. لو phone كان موجود قبل الـ migration، الـ rollback هيضيّعه.
+
+L-5 — LOW: التدقيق مابيسجلش قيمة تغيير البريد
+audit() بيفلتر before/after على allowed، وemail مش فيها. وتغيير بريد موظف هو الطريق الطبيعي للاستيلاء على حساب (استعادة كلمة المرور). اقتراح: سجّل البريد مقنّعاً (maskEmail) أو hash له في before/after.
+
+L-6 — LOW: deadlock نادر بين الحذف وحركات المخزون
+DeleteBranch وLocationController::destroy بيقفلوا الفرع أو الموقع (UPDATE) وبعدين يحذفوا stock_levels. أما lockLevels فبيقفل stock_levels الأول وبعدين الفرع أو الموقع (SHARE). الترتيب معكوس، فممكن يحصل 40P01 وواحد منهم يطلع 500. نادر لأنه بيحتاج حركة أولى متزامنة مع الحذف.
+
+L-7 — LOW: منطق mayManageUser مكرر
+فيه نسخة في UserController ونسخة في StaffAdministration، ولو اتعدلت واحدة ونسيت التانية هيظهر تباين أمني. الحل: احذف نسخة الـ controller واستدعي الـ service.
+
+L-8 — LOW: حدود متضاربة بين REST والمساعد
+كود الموقع: max:100 في REST، وmax:255 في المساعد (validateArgs).
+pos_invoice موجود في الإعدادات لكنه مش في UpdateSettingsRequest ولا في enum أدوات الترقيم.
+ده آمن، بس بيخلق سلوك مختلف بين المسارين.
+
+L-9 — LOW: أخطاء الـ stream مش مصنفة صح
+في AiMessageController::stream، AuthorizationException وValidationException مش HttpExceptionInterface، فبتتعرض كـ 502 مع report(). الأفضل تحويلها لـ 403/422.
+
+INFO
+قفل المستخدم بيتعلق: ai-agent:user:{id} بـ TTL قدره 600 ثانية، ولو العامل اتقتل بـ SIGKILL المستخدم يتقفل عن المساعد 10 دقايق.
+ToolRegistry::definitions() بيتبني من الصفر في كل نداء: وبيتنادى عشرات المرات في الطلب، منها جوه UpdateSettingsRequest::rules() وauditableSettings(). خزّنه في property.
+جدولة التنظيف: ai:prune-conversations وstaff:prune-audit-logs مش متعرفين في الحزمة. اتأكد من الجدولة، ومن وجود index على staff_audit_logs.created_at.
+set_time_limit على Linux: مابيحسبش وقت انتظار الشبكة، فالحماية الفعلية هي فحص MAX_CYCLE_SECONDS بين الخطوات بس.
+lock_version للفروع: صحة القفل التوافقي معتمدة بالكامل على TracksEditVersion (مش موجود في الحزمة). اتأكد إنه بيزوّد القيمة مع كل update. حل المشاكل دي وارفع علي githup علطول من غير فرع
