@@ -39,10 +39,19 @@ use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 final class ToolRegistry
 {
+    /** INFO: الـ definitions كانت تتبني من الصفر في كل نداء (عشرات المرات في الطلب) — تخزين على مستوى الطلب. */
+    private ?array $definitionsCache = null;
+
     public function __construct(private EntityResolver $resolver, private BranchAccess $branches, private SettingService $settings) {}
 
     /** @return array<string, array{kind:ToolKind, permissions:list<string>, declaration:array<string,mixed>, risk:string}> */
     public function definitions(): array
+    {
+        return $this->definitionsCache ??= $this->buildDefinitions();
+    }
+
+    /** @return array<string, array{kind:ToolKind, permissions:list<string>, declaration:array<string,mixed>, risk:string}> */
+    private function buildDefinitions(): array
     {
         $obj = fn (array $props, array $req = []) => ['type' => 'OBJECT', 'properties' => (object) $props, 'required' => $req];
         $str = ['type' => 'STRING'];
@@ -53,7 +62,7 @@ final class ToolRegistry
         $locationTypes = array_column(LocationType::cases(), 'value');
 
         return [
-            'bulk_actions' => ['kind' => ToolKind::Write, 'permissions' => ['branches.update', 'branches.manage', 'users.update', 'users.manage', 'roles.update', 'roles.manage', 'locations.update', 'locations.manage'], 'risk' => 'high', 'declaration' => ['name' => 'bulk_actions', 'description' => 'اقتراح مجموعة تعديلات مستقلة بكارت واحد. راجع كل عنصر قبل التأكيد؛ لا تنفذ أي تعديل فوراً.', 'parameters' => $obj(['items' => ['type' => 'ARRAY', 'minItems' => 2, 'items' => $obj(['tool' => ['type' => 'STRING', 'enum' => ['set_branch_status', 'update_role_permissions', 'set_user_status', 'assign_roles', 'revoke_user_sessions', 'set_location_status', 'create_location']], 'args' => $obj(['branch_id' => $int, 'user_id' => $int, 'role_id' => $int, 'location_id' => $int, 'active' => $bool, 'add' => $strArr, 'remove' => $strArr, 'name' => $str, 'code' => $str, 'type' => $str])], ['tool', 'args'])]], ['items'])]],
+            'bulk_actions' => ['kind' => ToolKind::Write, 'permissions' => ['branches.update', 'branches.manage', 'users.update', 'users.manage', 'roles.update', 'roles.manage', 'locations.update', 'locations.manage'], 'risk' => 'high', 'declaration' => ['name' => 'bulk_actions', 'description' => 'اقتراح مجموعة تعديلات مستقلة بكارت واحد. راجع كل عنصر قبل التأكيد؛ لا تنفذ أي تعديل فوراً.', 'parameters' => $obj(['items' => ['type' => 'ARRAY', 'minItems' => 2, 'items' => $obj(['tool' => ['type' => 'STRING', 'enum' => ['update_role_permissions', 'set_user_status', 'assign_roles', 'revoke_user_sessions', 'set_location_status', 'create_location']], 'args' => $obj(['branch_id' => $int, 'user_id' => $int, 'role_id' => $int, 'location_id' => $int, 'active' => $bool, 'add' => $strArr, 'remove' => $strArr, 'name' => $str, 'code' => $str, 'type' => $str])], ['tool', 'args'])]], ['items'])]],
             'find_entities' => ['kind' => ToolKind::Read, 'permissions' => ['branches.view', 'branches.manage', 'users.view', 'users.manage', 'roles.view', 'roles.manage', 'permissions.view'], 'risk' => 'low', 'declaration' => ['name' => 'find_entities', 'description' => 'بحث عن فروع أو موظفين أو أدوار أو صلاحيات أو مواقع تخزين', 'parameters' => $obj(['type' => ['type' => 'STRING', 'enum' => ['branch', 'user', 'role', 'permission', 'location']], 'query' => $str, 'branch_id' => $int], ['type', 'query'])]],
             'list_branches' => ['kind' => ToolKind::Read, 'permissions' => ['branches.view', 'branches.manage'], 'risk' => 'low', 'declaration' => ['name' => 'list_branches', 'description' => 'قائمة الفروع (active=false للمتوقفة)', 'parameters' => $obj(['active' => $bool, 'city' => $str, 'type' => ['type' => 'STRING', 'enum' => $branchTypes]])]],
             'list_permissions' => ['kind' => ToolKind::Read, 'permissions' => ['permissions.view', 'roles.view', 'roles.manage'], 'risk' => 'low', 'declaration' => ['name' => 'list_permissions', 'description' => 'كتالوج الصلاحيات المتاحة', 'parameters' => $obj([])]],
@@ -84,9 +93,9 @@ final class ToolRegistry
 
             // ── P03 Settings & Numbering ───────────────────────────────────────────
             'view_settings' => ['kind' => ToolKind::Read, 'permissions' => ['settings.view', 'settings.manage'], 'risk' => 'low', 'declaration' => ['name' => 'view_settings', 'description' => 'عرض إعدادات المؤسسة (هوية الشركة، الضرائب، السياسات، الترقيم)', 'parameters' => $obj(['group' => ['type' => 'STRING', 'enum' => ['company', 'tax', 'policy', 'numbering', 'store', 'purchases', 'ai', 'all']]])]],
-            'view_document_numbering' => ['kind' => ToolKind::Read, 'permissions' => ['settings.view', 'settings.manage'], 'risk' => 'low', 'declaration' => ['name' => 'view_document_numbering', 'description' => 'عرض بادئات المستندات وعدّاداتها الحالية وعينة الرقم', 'parameters' => $obj(['type' => ['type' => 'STRING', 'enum' => ['order', 'invoice', 'purchase_order', 'quotation', 'transfer', 'stocktake', 'return', 'purchase_request', 'delivery', 'supplier_invoice', 'supplier_payment', 'shift', 'expense', 'treasury_transfer', 'payment_notice', 'movement', 'all']]])]],
+            'view_document_numbering' => ['kind' => ToolKind::Read, 'permissions' => ['settings.view', 'settings.manage'], 'risk' => 'low', 'declaration' => ['name' => 'view_document_numbering', 'description' => 'عرض بادئات المستندات وعدّاداتها الحالية وعينة الرقم', 'parameters' => $obj(['type' => ['type' => 'STRING', 'enum' => ['order', 'invoice', 'purchase_order', 'quotation', 'transfer', 'stocktake', 'return', 'purchase_request', 'delivery', 'supplier_invoice', 'supplier_payment', 'shift', 'pos_invoice', 'expense', 'treasury_transfer', 'payment_notice', 'movement', 'all']]])]],
             'update_settings' => ['kind' => ToolKind::Write, 'permissions' => ['settings.manage'], 'risk' => 'high', 'declaration' => ['name' => 'update_settings', 'description' => 'تعديل إعدادات المؤسسة (يحتاج تأكيد). اقرأ الإعدادات الحالية أولاً بـ view_settings.', 'parameters' => $obj(['changes' => $obj(['company_name' => $str, 'company_email' => $str, 'company_phone' => $str, 'company_address' => $str, 'company_logo' => $str, 'commercial_register' => $str, 'tax_enabled' => $bool, 'tax_number' => $str, 'default_tax_rate' => ['type' => 'NUMBER'], 'prices_include_tax' => $bool, 'return_window_days' => $int, 'allow_self_approve_purchases' => $bool])], ['changes'])]],
-            'update_document_numbering' => ['kind' => ToolKind::Write, 'permissions' => ['settings.manage'], 'risk' => 'high', 'declaration' => ['name' => 'update_document_numbering', 'description' => 'تعديل بادئة أو عداد أو طول ترقيم مستند (يحتاج تأكيد). العداد لا ينخفض.', 'parameters' => $obj(['type' => ['type' => 'STRING', 'enum' => ['order', 'invoice', 'purchase_order', 'quotation', 'transfer', 'stocktake', 'return', 'purchase_request', 'delivery', 'supplier_invoice', 'supplier_payment', 'shift', 'expense', 'treasury_transfer', 'payment_notice', 'movement']], 'prefix' => $str, 'next_number' => $int, 'padding' => $int], ['type'])]],
+            'update_document_numbering' => ['kind' => ToolKind::Write, 'permissions' => ['settings.manage'], 'risk' => 'high', 'declaration' => ['name' => 'update_document_numbering', 'description' => 'تعديل بادئة أو عداد أو طول ترقيم مستند (يحتاج تأكيد). العداد لا ينخفض.', 'parameters' => $obj(['type' => ['type' => 'STRING', 'enum' => ['order', 'invoice', 'purchase_order', 'quotation', 'transfer', 'stocktake', 'return', 'purchase_request', 'delivery', 'supplier_invoice', 'supplier_payment', 'shift', 'pos_invoice', 'expense', 'treasury_transfer', 'payment_notice', 'movement']], 'prefix' => $str, 'next_number' => $int, 'padding' => $int], ['type'])]],
         ];
     }
 
@@ -211,7 +220,7 @@ final class ToolRegistry
             $args['email'] = mb_strtolower(trim($args['email']));
         }
         if ($name === 'bulk_actions') {
-            Validator::make($args, ['items' => ['required', 'array', 'min:2', 'max:'.max(1, (int) $this->settings->get('ai_bulk_max_items', 25))], 'items.*.tool' => ['required', Rule::in(['set_branch_status', 'update_role_permissions', 'set_user_status', 'assign_roles', 'revoke_user_sessions', 'set_location_status', 'create_location'])], 'items.*.args' => ['required', 'array']])->validate();
+            Validator::make($args, ['items' => ['required', 'array', 'min:2', 'max:'.max(1, (int) $this->settings->get('ai_bulk_max_items', 25))], 'items.*.tool' => ['required', Rule::in(['update_role_permissions', 'set_user_status', 'assign_roles', 'revoke_user_sessions', 'set_location_status', 'create_location'])], 'items.*.args' => ['required', 'array']])->validate();
 
             return;
         }
@@ -253,6 +262,10 @@ final class ToolRegistry
             $userRules = (new StoreUserRequest)->rules();
             unset($userRules['password']);
             $rules = array_replace($rules, $userRules);
+        }
+        if (in_array($name, ['create_location', 'set_location_status'], true) && isset($rules['code'])) {
+            // L-8: كود الموقع max:100 في الـ REST — توحيد الحد بين المسارين.
+            $rules['code'] = array_map(static fn ($rule) => $rule === 'max:255' ? 'max:100' : $rule, $rules['code']);
         }
         if ($name === 'create_branch') {
             $rules = array_replace($rules, (new StoreBranchRequest)->rules());
@@ -1074,6 +1087,12 @@ final class ToolRegistry
             $summary = DB::transaction(function () use ($actor, $args, $via): array {
                 // H3: قفل صف الموقع زي LocationController::destroy بالظبط —
                 // الحذف ضد حركة متزامنة بيرجع failed بدل QueryException/500.
+                StockLevel::query()->where('location_id', $args['location_id'])
+                    ->orderBy('branch_id')
+                    ->orderByRaw('location_id ASC NULLS FIRST')
+                    ->orderBy('product_variant_id')
+                    ->lockForUpdate()
+                    ->get();
                 $locked = Location::query()->lockForUpdate()->findOrFail($args['location_id']);
                 $this->branches->assertBranch($actor->id, $locked->branch_id);
                 StaffAdministration::authorize($actor, ['locations.delete', 'locations.manage']);
@@ -1283,6 +1302,9 @@ final class ToolRegistry
     {
         $this->branches->assertCentralAccess($actor);
         StaffAdministration::authorize($actor, ['settings.manage']);
+        if (array_filter(array_keys($args['changes']), fn ($key) => str_starts_with($key, 'ai_')) !== []) {
+            StaffAdministration::authorize($actor, ['ai_agent.settings']);
+        }
         // H1: إعادة التحقق وقت التأكيد تحمي من args خزّنت قبل الإصلاح.
         $this->validateSettingChanges($args['changes']);
         // L6: التدقيق يعرف إن التعديل جه من قناة المساعد.

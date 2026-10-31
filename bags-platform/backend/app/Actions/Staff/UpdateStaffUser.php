@@ -7,10 +7,13 @@ namespace App\Actions\Staff;
 use App\Enums\StaffRole;
 use App\Models\Branch;
 use App\Models\User;
+use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Services\BranchAccess;
 use App\Services\StaffAdministration;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 final class UpdateStaffUser
@@ -104,6 +107,12 @@ final class UpdateStaffUser
             }
 
             $emailChanged = isset($userAttributes['email']) && $userAttributes['email'] !== $lockedUser->email;
+            if ($emailChanged) {
+                Validator::make(
+                    ['email' => $userAttributes['email']],
+                    ['email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($lockedUser->id), new EmailNotUsedByOtherAccountType('users')]]
+                )->validate();
+            }
             $passwordChanged = array_key_exists('password', $userAttributes);
             if ($passwordChanged) {
                 // L8: تدوير ذاتي يُسقط الإجبار؛ تعيين إداري لكلمة سر موظف
@@ -123,11 +132,17 @@ final class UpdateStaffUser
                     $lockedUser->syncRoles($roles);
                 }
             }
+            if ($rolesChanged && ! $lockedUser->wasChanged('lock_version')) {
+                // Roles live on the pivot table: a roles-only change issues no
+                // users-row UPDATE, so TracksEditVersion never fires. Force the
+                // bump to keep the optimistic-concurrency contract (version+1
+                // per update) that the API and the AI expected_versions rely on.
+                StaffAdministration::advanceVersion($lockedUser);
+            }
 
             $deactivated = array_key_exists('is_active', $userAttributes)
                 && ! (bool) $userAttributes['is_active'];
 
-            StaffAdministration::advanceVersion($lockedUser);
             StaffAdministration::audit($currentUser, 'user.updated', 'user', $lockedUser->id, array_keys($userAttributes + ($roles !== null ? ['roles' => $roles] : [])), $before, StaffAdministration::userState($lockedUser), $via);
 
             if ($passwordChanged || $emailChanged || $deactivated || $rolesChanged) {

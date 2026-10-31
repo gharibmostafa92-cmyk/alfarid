@@ -83,6 +83,7 @@ class UpdateSettingsRequest extends FormRequest
             // H1: أنواع كان الوكيل يقدر يعدّلها من update_document_numbering
             // والـ REST لأ — توحيد مصدر القواعد بين المسارين.
             'shift',
+            'pos_invoice',
             'expense',
             'treasury_transfer',
             'payment_notice',

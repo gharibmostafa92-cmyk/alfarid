@@ -95,6 +95,25 @@ class SettingService
     // H5: فاتورة الضريبية (invoice) مش دخيلة هنا — تفضل على قفل الصف لأن
     // الترقيم المتصل شرط قانوني.
 
+    /** @var array<string, array{0: string, 1: string}> */
+    private const NUMBERING_TARGETS = [
+        'order' => ['orders', 'order_number'],
+        'purchase_order' => ['purchase_orders', 'po_number'],
+        'quotation' => ['quotations', 'quotation_number'],
+        'transfer' => ['stock_transfers', 'transfer_number'],
+        'stocktake' => ['stocktakes', 'stocktake_number'],
+        'return' => ['return_requests', 'return_number'],
+        'purchase_request' => ['purchase_requests', 'request_number'],
+        'delivery' => ['supplier_deliveries', 'delivery_number'],
+        'supplier_invoice' => ['supplier_invoices', 'invoice_number'],
+        'supplier_payment' => ['supplier_payments', 'payment_number'],
+        'shift' => ['pos_shifts', 'shift_number'],
+        'expense' => ['expenses', 'expense_number'],
+        'treasury_transfer' => ['treasury_transfers', 'transfer_number'],
+        'payment_notice' => ['wholesale_payment_notices', 'notice_number'],
+        'movement' => ['stock_movements', 'reference_number'],
+    ];
+
     /**
      * M9: تصفير الحالة الداخلية للخدمة (نفسها snapshot/عداد/عداد الوكيل).
      */
@@ -234,6 +253,34 @@ class SettingService
         ];
     }
 
+    private function assertNumberingDoesNotCollide(array $settings, array $after): void
+    {
+        foreach ($this->numberingDefinitions() as $type => $definition) {
+            $keys = [$definition['prefix'], $definition['next'], $definition['padding']];
+            $target = self::NUMBERING_TARGETS[$type] ?? null;
+            if ($target === null || array_intersect($keys, array_keys($settings)) === []) {
+                continue;
+            }
+
+            $prefix = array_key_exists($definition['prefix'], $after)
+                ? (string) $after[$definition['prefix']]
+                : (string) $this->get($definition['prefix'], '');
+            $padding = array_key_exists($definition['padding'], $after)
+                ? max(0, (int) $after[$definition['padding']])
+                : max(0, (int) $this->get($definition['padding'], 0));
+            $next = array_key_exists($definition['next'], $after)
+                ? (int) $after[$definition['next']]
+                : ($type === 'movement' ? $this->nextMovementNumber() : $this->nextDocumentNumber($type));
+            $number = $prefix.str_pad((string) $next, $padding, '0', STR_PAD_LEFT);
+
+            if (DB::table($target[0])->where($target[1], $number)->exists()) {
+                throw ValidationException::withMessages([
+                    $definition['next'] => 'الرقم '.$number.' مستخدم بالفعل في '.$target[0].'. غيّر البداية أو البادئة أو الطول.',
+                ]);
+            }
+        }
+    }
+
     /**
      * Update a flat key/value map atomically and invalidate the cached settings after commit.
      *
@@ -310,6 +357,8 @@ class SettingService
                 $setting->save();
                 $after[$key] = $this->castValue($setting->value, $setting->type);
             }
+
+            $this->assertNumberingDoesNotCollide($settings, $after);
 
             StaffAdministration::audit(request()->user('staff'), 'settings.updated', 'settings', null, array_keys($settings),
                 ['settings' => $this->auditableSettings($before)], ['settings' => $this->auditableSettings($after)], $via);

@@ -44,6 +44,9 @@ class TreasuryService
         return DB::transaction(function () use ($data): TreasuryTransaction {
             /** @var Treasury $treasury */
             $treasury = Treasury::query()->lockForUpdate()->findOrFail($data['treasury_id']);
+            if ($treasury->branch_id !== null) {
+                app(BranchAccess::class)->lockActiveBranch((int) $treasury->branch_id);
+            }
 
             if (! $treasury->is_active && $data['type'] !== TreasuryTransactionType::ExpenseReversal) {
                 throw new BusinessException('الخزينة غير نشطة.');
@@ -96,7 +99,8 @@ class TreasuryService
             if ((int) $transfer->created_by === $approverId) {
                 throw new BusinessException('يجب أن يعتمد تحويل الخزينة موظف آخر غير منشئه.');
             }
-            $this->lockTreasuries([$transfer->from_treasury_id, $transfer->to_treasury_id], $approverId);
+            $treasuries = $this->lockTreasuries([$transfer->from_treasury_id, $transfer->to_treasury_id], $approverId);
+            app(BranchAccess::class)->lockActiveBranches($treasuries->pluck('branch_id')->filter());
             $absAmount = (string) BigDecimal::of((string) $transfer->amount)->abs()->toScale(2, RoundingMode::HalfUp);
 
             $this->record([
@@ -151,6 +155,7 @@ class TreasuryService
             }
 
             $locked = $this->lockTreasuries([$shift->treasury_id, $mainSafe->id]);
+            app(BranchAccess::class)->lockActiveBranches($locked->pluck('branch_id')->filter());
             $drawer = $locked->get($shift->treasury_id);
             $amount = (string) BigDecimal::of((string) $shift->actual_closing_cash)->toScale(2, RoundingMode::HalfUp);
             $difference = BigDecimal::of((string) $shift->actual_closing_cash)
@@ -201,24 +206,28 @@ class TreasuryService
      */
     public function createTransfer(array $data, int $userId): TreasuryTransfer
     {
-        foreach (Treasury::query()->whereIn('id', [$data['from_treasury_id'], $data['to_treasury_id']])->get() as $treasury) {
-            app(BranchAccess::class)->assertTreasury($userId, $treasury);
-        }
-        if ($data['from_treasury_id'] === $data['to_treasury_id']) {
-            throw new BusinessException('لا يمكن التحويل من خزينة إلى نفسها.');
-        }
+        return DB::transaction(function () use ($data, $userId): TreasuryTransfer {
+            $treasuries = Treasury::query()->whereIn('id', [$data['from_treasury_id'], $data['to_treasury_id']])->get();
+            foreach ($treasuries as $treasury) {
+                app(BranchAccess::class)->assertTreasury($userId, $treasury);
+            }
+            app(BranchAccess::class)->lockActiveBranches($treasuries->pluck('branch_id')->filter());
+            if ($data['from_treasury_id'] === $data['to_treasury_id']) {
+                throw new BusinessException('لا يمكن التحويل من خزينة إلى نفسها.');
+            }
 
-        $number = $this->settings->generateNextNumber('treasury_transfer');
+            $number = $this->settings->generateNextNumber('treasury_transfer');
 
-        return TreasuryTransfer::create([
-            'transfer_number' => $number,
-            'from_treasury_id' => $data['from_treasury_id'],
-            'to_treasury_id' => $data['to_treasury_id'],
-            'amount' => $data['amount'],
-            'status' => TreasuryTransferStatus::Pending,
-            'created_by' => $userId,
-            'notes' => $data['notes'] ?? null,
-        ]);
+            return TreasuryTransfer::create([
+                'transfer_number' => $number,
+                'from_treasury_id' => $data['from_treasury_id'],
+                'to_treasury_id' => $data['to_treasury_id'],
+                'amount' => $data['amount'],
+                'status' => TreasuryTransferStatus::Pending,
+                'created_by' => $userId,
+                'notes' => $data['notes'] ?? null,
+            ]);
+        }, 3);
     }
 
     /**

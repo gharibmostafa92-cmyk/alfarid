@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\SerializesAccountEmail;
+use App\Models\Concerns\TracksEditVersion;
 use Database\Factories\UserFactory;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -22,6 +23,7 @@ class User extends Authenticatable
     use HasApiTokens, HasFactory, HasRoles, Notifiable;
 
     use SerializesAccountEmail;
+    use TracksEditVersion;
 
     protected string $guard_name = 'staff';
 

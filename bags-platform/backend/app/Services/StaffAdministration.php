@@ -79,7 +79,7 @@ final class StaffAdministration
     public static function userState(User $user): array
     {
         return ['roles' => $user->roles()->orderBy('name')->pluck('name')->all(),
-            'branch_id' => $user->branch_id, 'is_active' => (bool) $user->is_active];
+            'branch_id' => $user->branch_id, 'is_active' => (bool) $user->is_active, 'email' => $user->email];
     }
 
     /**
@@ -176,9 +176,27 @@ final class StaffAdministration
      * @param  array<string, mixed>  $before
      * @param  array<string, mixed>  $after
      */
+    public static function maskEmail(mixed $email): ?string
+    {
+        if (! is_string($email) || trim($email) === '') {
+            return null;
+        }
+        [$local, $domain] = array_pad(explode('@', $email, 2), 2, '');
+
+        return mb_substr($local, 0, 2).'***'.($domain !== '' ? '@'.$domain : '');
+    }
+
     public static function audit(?User $actor, string $action, string $targetType, int|string|null $targetId, array $fields, array $before = [], array $after = [], array $via = []): void
     {
-        $allowed = array_flip(['roles', 'permissions', 'name', 'branch_id', 'is_active', 'settings', 'code', 'type', 'is_active_branch']);
+        $allowed = array_flip(['roles', 'permissions', 'name', 'branch_id', 'is_active', 'settings', 'code', 'type', 'is_active_branch', 'email']);
+        $before = array_intersect_key($before, $allowed);
+        $after = array_intersect_key($after, $allowed);
+        if (array_key_exists('email', $before)) {
+            $before['email'] = self::maskEmail($before['email']);
+        }
+        if (array_key_exists('email', $after)) {
+            $after['email'] = self::maskEmail($after['email']);
+        }
         DB::table('staff_audit_logs')->insert([
             'actor_id' => $actor?->id,
             'action' => $action,
@@ -186,7 +204,7 @@ final class StaffAdministration
             'target_id' => $targetId,
             // Sensitive fields (passwords, tokens) are stripped; only allowed state keys are stored
             'metadata' => json_encode(['fields' => array_values(array_diff($fields, ['current_password', 'expected_version'])),
-                'before' => array_intersect_key($before, $allowed), 'after' => array_intersect_key($after, $allowed),
+                'before' => $before, 'after' => $after,
                 'via' => array_intersect_key($via, array_flip(['channel', 'conversation_id', 'action_id'])),
                 'ip' => request()->ip(), 'method' => request()->method()], JSON_THROW_ON_ERROR),
             'created_at' => now(),

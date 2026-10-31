@@ -214,12 +214,14 @@ class AiAgentHardeningTest extends TestCase
     {
         // M10: sub-actions stay bulk_child until the bulk runs, so one item
         // can never be confirmed alone bypassing group review.
-        $first = Branch::factory()->create(['code' => 'BR-ISO-1']);
-        $second = Branch::factory()->create(['code' => 'BR-ISO-2']);
-        $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'branches.update', 'inventory.all_branches']);
+        // M-5: set_branch_status is no longer bulk-eligible — same scenario
+        // with a permitted bulk tool.
+        $first = $this->staff([]);
+        $second = $this->staff([]);
+        $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'users.update', 'inventory.all_branches']);
         $outcome = app(ToolRegistry::class)->dispatch($admin, $this->conv($admin), ['name' => 'bulk_actions', 'args' => ['items' => [
-            ['tool' => 'set_branch_status', 'args' => ['branch_id' => $first->id, 'active' => true]],
-            ['tool' => 'set_branch_status', 'args' => ['branch_id' => $second->id, 'active' => true]],
+            ['tool' => 'revoke_user_sessions', 'args' => ['user_id' => $first->id]],
+            ['tool' => 'revoke_user_sessions', 'args' => ['user_id' => $second->id]],
         ]]]);
         $this->assertSame('proposal', $outcome->type);
         $child = AiPendingAction::query()->where('status', 'bulk_child')->firstOrFail();

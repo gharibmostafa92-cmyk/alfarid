@@ -39,8 +39,7 @@ final class DeactivateStaffUser
                 StaffAdministration::assertVersion($locked, $expectedVersion);
             }
             $before = StaffAdministration::userState($locked);
-            $locked->forceFill(['is_active' => false]);
-            StaffAdministration::advanceVersion($locked);
+            $locked->forceFill(['is_active' => false])->save();
             StaffAdministration::audit($actor, 'user.deactivated', 'user', $locked->id, ['is_active'], $before, StaffAdministration::userState($locked), $via);
             $locked->tokens()->delete();
 

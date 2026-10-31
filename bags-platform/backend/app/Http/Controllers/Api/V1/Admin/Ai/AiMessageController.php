@@ -8,9 +8,11 @@ use App\Http\Controllers\Controller;
 use App\Models\AiConversation;
 use App\Services\Ai\AgentOrchestrator;
 use App\Services\Ai\GeminiException;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
@@ -34,7 +36,14 @@ class AiMessageController extends Controller
                 $reply = $orchestrator->handle($request->user('staff'), $conversation, $data, fn ($status) => $emit('status', ['message' => $status]));
                 $emit('reply', ['text' => $reply->text, 'ui_blocks' => $reply->blocks, 'message_id' => $reply->messageId]);
             } catch (\Throwable $e) {
-                $status = $e instanceof HttpExceptionInterface ? $e->getStatusCode() : 502;
+                // L-9: أخطاء التفويض والتحقق ليست HttpExceptionInterface —
+                // بدون تصنيف كانت تظهر كـ 502 مضللة.
+                $status = match (true) {
+                    $e instanceof HttpExceptionInterface => $e->getStatusCode(),
+                    $e instanceof AuthorizationException => 403,
+                    $e instanceof ValidationException => 422,
+                    default => 502,
+                };
                 if ($status >= 500) {
                     report($e);
                 }

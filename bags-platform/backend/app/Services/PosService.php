@@ -55,6 +55,7 @@ class PosService
     {
         return DB::transaction(function () use ($user, $branchId, $treasuryId, $openingCash): PosShift {
             app(BranchAccess::class)->assertBranch($user->id, $branchId);
+            app(BranchAccess::class)->lockActiveBranch($branchId);
             User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
             if (! is_finite($openingCash) || $openingCash < 0) {
                 throw new BusinessException('العهدة النقدية غير صالحة.');
@@ -160,6 +161,7 @@ class PosService
 
         return DB::transaction(function () use ($shift, $actualCash, $notes): PosShift {
             $shift = $this->lockOpenShift($shift);
+            app(BranchAccess::class)->lockActiveBranch((int) $shift->branch_id);
             if (! is_finite($actualCash) || $actualCash < 0) {
                 throw new BusinessException('النقدية الفعلية غير صالحة.');
             }
@@ -226,6 +228,7 @@ class PosService
         return DB::transaction(function () use ($shift, $approver): PosShift {
             $shift = PosShift::query()->lockForUpdate()->findOrFail($shift->id);
             app(BranchAccess::class)->assertBranch($approver->id, $shift->branch_id);
+            app(BranchAccess::class)->lockActiveBranch((int) $shift->branch_id);
             if ($shift->status !== PosShiftStatus::ClosedPendingApproval) {
                 throw new BusinessException('الوردية ليست في انتظار الاعتماد.');
             }
@@ -799,6 +802,7 @@ class PosService
 
         return DB::transaction(function () use ($shift, $data, $userId): Expense {
             $shift = $this->lockOpenShift($shift);
+            app(BranchAccess::class)->lockActiveBranch((int) $shift->branch_id);
             $expenseNumber = $this->settings->generateNextNumber('expense');
 
             $expense = Expense::create([

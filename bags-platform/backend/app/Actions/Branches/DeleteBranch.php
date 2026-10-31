@@ -25,6 +25,12 @@ final class DeleteBranch
             StaffAdministration::lock();
             StaffAdministration::authorize($actor, ['branches.delete', 'branches.manage']);
             $this->access->assertCentralAccess($actor);
+            StockLevel::query()->where('branch_id', $branch->getKey())
+                ->orderBy('branch_id')
+                ->orderByRaw('location_id ASC NULLS FIRST')
+                ->orderBy('product_variant_id')
+                ->lockForUpdate()
+                ->get();
             $locked = Branch::query()->whereKey($branch->getKey())->lockForUpdate()->firstOrFail();
             if ($locked->users()->exists()) {
                 return false;

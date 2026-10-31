@@ -118,6 +118,12 @@ class LocationController extends Controller
 
         try {
             $deleted = DB::transaction(function () use ($request, $branch, $location): bool {
+                StockLevel::query()->where('location_id', $location->getKey())
+                    ->orderBy('branch_id')
+                    ->orderByRaw('location_id ASC NULLS FIRST')
+                    ->orderBy('product_variant_id')
+                    ->lockForUpdate()
+                    ->get();
                 $lockedLocation = Location::query()
                     ->whereKey($location->getKey())
                     ->lockForUpdate()

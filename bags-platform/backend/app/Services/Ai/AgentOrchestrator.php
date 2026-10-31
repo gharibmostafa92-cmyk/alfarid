@@ -20,6 +20,8 @@ final class AgentOrchestrator
     /** H4/M13: حد زمني كلي لدورة الوكيل الواحدة في الثواني — أطول من كده تعرض الطلب/الـ worker للحجز. */
     private const MAX_CYCLE_SECONDS = 240;
 
+    private const MAX_CALLS_PER_STEP = 8;
+
     public function __construct(private GeminiClient $gemini, private ToolRegistry $registry, private SettingService $settings) {}
 
     public function guard(User $actor): void
@@ -80,18 +82,22 @@ final class AgentOrchestrator
         // وبلا سقف جماعي 30 موظفًا يشلّون pool الـ FPM كله (بديل فصل الـ pool
         // يتطلب بنية FPM جديدة؛ هذا الحد يعمل على أي بنية).
         $maxConcurrent = max(1, (int) $this->settings->get('ai_max_concurrent_sessions', 10));
-        $slots = Cache::increment('ai-agent:concurrent-sessions');
-        if ($slots === 1) {
-            Cache::put('ai-agent:concurrent-sessions', 1, 600);
+        $ttl = self::MAX_CYCLE_SECONDS + 60;
+        $attempts = max(1, min(100, $maxConcurrent * 3 + 10));
+        $slot = null;
+        for ($attempt = 0; $attempt < $attempts; $attempt++) {
+            $candidate = Cache::lock('ai-agent:concurrent-slot:'.($attempt % $maxConcurrent), $ttl);
+            if ($candidate->get()) {
+                $slot = $candidate;
+
+                break;
+            }
         }
-        if ($slots > $maxConcurrent) {
-            Cache::decrement('ai-agent:concurrent-sessions');
-            abort(429, 'في ضغط على المساعد حالياً؛ حاول بعد دقيقة.');
-        }
+        abort_if($slot === null, 429, 'في ضغط على المساعد حالياً؛ حاول بعد دقيقة.');
         try {
             return $this->handleWithUserLock($actor, $conv, $turn, $progress);
         } finally {
-            Cache::decrement('ai-agent:concurrent-sessions');
+            $slot->release();
         }
     }
 
@@ -214,7 +220,15 @@ final class AgentOrchestrator
             $blocks = [];
             $halted = false;
             $denials = [];
-            foreach ($res['calls'] as $call) {
+            foreach (array_values($res['calls']) as $index => $call) {
+                if ($index >= self::MAX_CALLS_PER_STEP) {
+                    $responses[] = ['functionResponse' => [
+                        'name' => (string) ($call['name'] ?? 'unknown'),
+                        'response' => ['error' => 'تم تجاهل الاستدعاء الزائد: الحد الأقصى '.self::MAX_CALLS_PER_STEP.' استدعاءات في الخطوة الواحدة.'],
+                    ] + (isset($call['id']) && is_string($call['id']) ? ['id' => $call['id']] : [])];
+
+                    continue;
+                }
                 if ($progress) {
                     $progress($this->registry->isWrite($call['name']) ? 'بحسب التأثير وبجهز كارت المراجعة…' : 'بدوّر في البيانات المسموحة ليك…');
                 }
@@ -317,12 +331,71 @@ final class AgentOrchestrator
         return $messages->filter(fn ($m, $key) => in_array($key, $keep, true))->values();
     }
 
+    /** @param \Illuminate\Support\Collection<int, \App\Models\AiMessage> $messages */
+    private function normalizeToolCallHistory($messages): mixed
+    {
+        $hasCalls = fn ($m): bool => $m->role === 'model' && is_array($m->provider_parts)
+            && collect($m->provider_parts)->pluck('functionCall')->filter()->isNotEmpty();
+        $normalized = collect();
+        $deferred = [];
+        $pending = null;
+        $flushDeferred = function () use (&$deferred, &$normalized): void {
+            foreach ($deferred as $event) {
+                $normalized->push($event);
+            }
+            $deferred = [];
+        };
+
+        foreach ($messages as $message) {
+            if ($message->role === 'event') {
+                if ($pending !== null) {
+                    $deferred[] = $message;
+                } else {
+                    $normalized->push($message);
+                }
+
+                continue;
+            }
+
+            if ($message->role === 'tool') {
+                if ($pending !== null) {
+                    $normalized->push($pending);
+                    $normalized->push($message);
+                    $pending = null;
+                    $flushDeferred();
+                }
+
+                continue;
+            }
+
+            if ($pending !== null) {
+                $normalized->push($pending);
+                $flushDeferred();
+                $pending = null;
+            }
+
+            if ($hasCalls($message)) {
+                $pending = $message;
+            } else {
+                $normalized->push($message);
+            }
+        }
+
+        if ($pending !== null) {
+            $normalized->push($pending);
+            $flushDeferred();
+        }
+
+        return $normalized->values();
+    }
+
     /** @return list<array{role:string,parts:list<array<string,mixed>>}> */
     private function history(AiConversation $conv): array
     {
         $messages = $conv->messages()->orderByDesc('id')->limit(60)->get()->reverse()->values();
         // Start at a complete user turn so function calls and their responses stay paired.
         $messages = $messages->skipUntil(fn ($message) => $message->role === 'user')->values();
+        $messages = $this->normalizeToolCallHistory($messages);
         // M-7: سقف إجمالي بالحروف (لا بعدد الرسائل فقط) — نتيجة أداة واحدة
         // قد تصل لـ 16k حرف. يُطبق من الأحدث للأقدم، وزوج
         // functionCall/functionResponse وحدة ذرية لا تُشطر.

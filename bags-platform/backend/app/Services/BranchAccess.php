@@ -9,6 +9,8 @@ use App\Models\Branch;
 use App\Models\Treasury;
 use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Support\Collection;
 
 /**
  * Enforces staff branch scoping using a fail-closed access policy:
@@ -90,6 +92,37 @@ class BranchAccess
         if ($this->restrictedBranch($user) !== null) {
             throw new AuthorizationException('هذه العملية المركزية تتطلب صلاحية الوصول لكل الفروع.');
         }
+    }
+
+    public function lockActiveBranch(int $branchId): Branch
+    {
+        return $this->lockActiveBranches([$branchId])->get($branchId)
+            ?? throw (new ModelNotFoundException)->setModel(Branch::class, [$branchId]);
+    }
+
+    /**
+     * @param  array<int, int>|Collection<int, int>  $branchIds
+     * @return Collection<int, Branch>
+     */
+    public function lockActiveBranches(array|Collection $branchIds): Collection
+    {
+        $ids = collect($branchIds)->map(fn ($id) => (int) $id)->unique()->sort()->values();
+        if ($ids->isEmpty()) {
+            return collect();
+        }
+
+        $branches = Branch::query()->whereIn('id', $ids->all())->orderBy('id')->sharedLock()->get()->keyBy('id');
+        foreach ($ids as $id) {
+            $branch = $branches->get($id);
+            if ($branch === null) {
+                throw (new ModelNotFoundException)->setModel(Branch::class, [$id]);
+            }
+            if (! $branch->is_active) {
+                throw new AuthorizationException('الفرع متوقف حالياً.');
+            }
+        }
+
+        return $branches;
     }
 
     /**

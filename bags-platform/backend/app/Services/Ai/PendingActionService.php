@@ -11,9 +11,13 @@ use App\Models\Branch;
 use App\Models\User;
 use App\Services\SettingService;
 use App\Services\StaffAdministration;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Spatie\Permission\Exceptions\RoleAlreadyExists;
 use Spatie\Permission\Models\Role;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
@@ -73,20 +77,26 @@ final class PendingActionService
         foreach ($claim['selected'] as $id) {
             $child = AiPendingAction::query()->where('conversation_id', $action->conversation_id)->where('user_id', $actor->id)->findOrFail($id);
             try {
-                // Bulk-level typed confirmation ('تنفيذ') + per-item review is the
-                // compensating control here: the committed bulk test requires
-                // branch deactivation to succeed inside a bulk, so per-item
-                // typed codes are auto-filled from the server (not user input).
-                // Residual risk (M10): typed protection is weaker inside bulks.
-                $typedChild = $child->tool === 'set_branch_status' ? Branch::find($child->args['branch_id'])?->code : null;
-                $outcome = $this->confirm($actor, $child, $typedChild);
+                $outcome = $this->confirm($actor, $child);
                 $results[] = ['action_id' => $id, 'ok' => $outcome->type === 'result', 'message' => $outcome->message];
+            } catch (QueryException $e) {
+                if (! $this->isRetryableLockFailure($e)) {
+                    report($e);
+                    AiPendingAction::whereKey($id)->where('status', 'pending')->update(['status' => 'failed']);
+                    $results[] = ['action_id' => $id, 'ok' => false, 'message' => 'تعذّر تنفيذ العنصر ده ضمن الدفعة؛ راجع التفاصيل أو جرّبه لوحده.'];
+
+                    continue;
+                }
+                AiPendingAction::whereKey($action->id)->where('status', 'confirmed')->update(['status' => 'pending']);
+                $message = 'السجل مشغول بتعديل تاني؛ مفيش حاجة اتأكدت. جرّب تأكيد الدفعة تاني بعد لحظة.';
+                $this->event($action, 'result', $message, [['type' => 'result', 'ok' => false, 'message' => $message]]);
+                abort(409, $message);
             } catch (\Throwable $e) {
                 if (! $e instanceof HttpExceptionInterface && ! $e instanceof ValidationException) {
                     report($e);
                 }
                 AiPendingAction::whereKey($id)->where('status', 'pending')->update(['status' => 'failed']);
-                $results[] = ['action_id' => $id, 'ok' => false, 'message' => 'تعذر تنفيذ العنصر؛ راجع الصلاحيات أو اطلب اقتراح جديد.'];
+                $results[] = ['action_id' => $id, 'ok' => false, 'message' => 'تعذّر تنفيذ العنصر ده ضمن الدفعة؛ راجع التفاصيل أو جرّبه لوحده.'];
             }
         }
         $successes = count(array_filter($results, fn ($item) => $item['ok']));
@@ -178,6 +188,21 @@ final class PendingActionService
             $this->event($action, 'result', $message, [['type' => 'result', 'ok' => false, 'message' => $message]]);
 
             return ToolOutcome::result(false, $message);
+        } catch (AuthorizationException|ModelNotFoundException|RoleAlreadyExists $e) {
+            $message = match (true) {
+                $e instanceof AuthorizationException => 'صلاحيتك على السجل ده اتغيرت بعد الاقتراح؛ اطلب اقتراحًا جديدًا.',
+                $e instanceof ModelNotFoundException => 'السجل المطلوب لم يعد موجودًا؛ اطلب اقتراحًا جديدًا.',
+                default => trim((string) $e->getMessage()) !== '' ? $e->getMessage() : 'القيمة المطلوبة موجودة بالفعل؛ اطلب اقتراحًا جديدًا.',
+            };
+            $action->forceFill(['status' => 'failed', 'result' => ['message' => $message]])->save();
+            $this->event($action, 'result', $message, [['type' => 'result', 'ok' => false, 'message' => $message]]);
+
+            return ToolOutcome::result(false, $message);
+        } catch (QueryException $e) {
+            if (! $this->isRetryableLockFailure($e)) {
+                throw $e;
+            }
+            abort(409, 'السجل مشغول بتعديل تاني؛ مفيش حاجة اتنفذت. جرّب التأكيد تاني بعد لحظة.');
         } catch (HttpExceptionInterface $e) {
             if ($e->getStatusCode() === 409) {
                 $action->forceFill(['status' => 'failed', 'result' => ['message' => 'حد عدّل السجل ده بعد الاقتراح. تحب أجهّز اقتراح جديد؟']])->save();
@@ -267,6 +292,11 @@ final class PendingActionService
         }
 
         return $outcome;
+    }
+
+    private function isRetryableLockFailure(QueryException $e): bool
+    {
+        return in_array((string) $e->getCode(), ['55P03', '40P01'], true);
     }
 
     private function event(AiPendingAction $action, string $kind, string $text, array $blocks, bool $stripPassword = false): void

@@ -23,7 +23,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
-use Spatie\Permission\Models\Role;
+use App\Services\StaffAdministration;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
 
 class UserController extends Controller
@@ -105,7 +105,7 @@ class UserController extends Controller
             ], 403);
         }
 
-        if (! $this->mayManageUser($currentUser, roles: $roles)) {
+        if (! StaffAdministration::mayManageUser($currentUser, roles: $roles)) {
             return $this->insufficientPermissionsResponse();
         }
 
@@ -256,42 +256,6 @@ class UserController extends Controller
             'message' => 'تم تعطيل حساب الموظف وإلغاء رموزه.',
             'data' => UserResource::make($user->refresh()->load(['branch', 'roles.permissions', 'permissions']))->resolve($request),
         ]);
-    }
-
-    /** @param list<string> $roles */
-    private function mayManageUser(mixed $actor, ?User $target = null, array $roles = []): bool
-    {
-        if (! $actor instanceof User) {
-            return false;
-        }
-
-        $actor->unsetRelation('roles')->unsetRelation('permissions');
-        if ($target?->is_system) {
-            return false;
-        }
-
-        if ($actor->hasRole(StaffRole::SuperAdmin->value, 'staff')) {
-            return true;
-        }
-
-        // Super Admin is privileged by Gate even when it has no explicit permissions.
-        if (in_array(StaffRole::SuperAdmin->value, $roles, true)
-            || $target?->hasRole(StaffRole::SuperAdmin->value, 'staff')) {
-            return false;
-        }
-
-        $permissions = Role::query()
-            ->where('guard_name', 'staff')
-            ->whereIn('name', $roles)
-            ->with('permissions')
-            ->get()
-            ->flatMap(fn (Role $role) => $role->permissions->pluck('name'));
-
-        if ($target !== null) {
-            $permissions = $permissions->merge($target->getAllPermissions()->pluck('name'));
-        }
-
-        return $actor->hasAllPermissions($permissions->unique()->all());
     }
 
     private function insufficientPermissionsResponse(): JsonResponse

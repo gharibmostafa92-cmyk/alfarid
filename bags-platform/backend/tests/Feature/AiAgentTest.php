@@ -291,13 +291,15 @@ class AiAgentTest extends TestCase
 
     public function test_bulk_confirmation_keeps_successes_when_another_item_is_stale(): void
     {
-        $first = Branch::factory()->create(['code' => 'BR-BULK-1']);
-        $second = Branch::factory()->create(['code' => 'BR-BULK-2']);
-        $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'branches.update', 'inventory.all_branches']);
+        // M-5: set_branch_status is no longer bulk-eligible — same stale-item
+        // scenario with a permitted bulk tool.
+        $first = $this->staff([]);
+        $second = $this->staff([]);
+        $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'users.update', 'inventory.all_branches']);
         $conv = $this->conv($admin);
         $outcome = app(ToolRegistry::class)->dispatch($admin, $conv, ['name' => 'bulk_actions', 'args' => ['items' => [
-            ['tool' => 'set_branch_status', 'args' => ['branch_id' => $first->id, 'active' => false]],
-            ['tool' => 'set_branch_status', 'args' => ['branch_id' => $second->id, 'active' => false]],
+            ['tool' => 'set_user_status', 'args' => ['user_id' => $first->id, 'active' => false]],
+            ['tool' => 'set_user_status', 'args' => ['user_id' => $second->id, 'active' => false]],
         ]]]);
         $this->assertSame('proposal', $outcome->type);
         $this->assertSame('bulk_plan', $outcome->uiBlock['type']);
@@ -308,7 +310,7 @@ class AiAgentTest extends TestCase
         $this->assertTrue($first->fresh()->is_active);
         $this->assertFalse($second->fresh()->is_active);
         $this->withToken($token)->postJson("/api/v1/admin/ai/actions/{$id}/confirm", ['typed_confirmation' => 'تنفيذ'])->assertOk();
-        $this->assertSame(1, DB::table('staff_audit_logs')->where('action', 'branch.deactivated')->count());
+        $this->assertSame(1, DB::table('staff_audit_logs')->where('action', 'user.updated')->where('target_id', $second->id)->count());
     }
 
     public function test_ai_settings_require_dedicated_permission_and_preserve_array_values(): void
