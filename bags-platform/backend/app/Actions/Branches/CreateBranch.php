@@ -23,7 +23,12 @@ final class CreateBranch
             StaffAdministration::lock();
             StaffAdministration::authorize($actor, ['branches.create', 'branches.manage']);
             $this->access->assertCentralAccess($actor);
+            // city_id wins over free text so the two columns cannot drift.
+            if (! empty($data['city_id']) && ($city = \App\Models\City::query()->find($data['city_id']))) {
+                $data['city'] = $city->name_ar ?: $city->name_en;
+            }
             $branch = Branch::query()->create($data);
+            $branch->refresh();
             StaffAdministration::audit($actor, 'branch.created', 'branch', $branch->id, array_keys($data), [], StaffAdministration::branchState($branch), $via);
 
             return $branch;

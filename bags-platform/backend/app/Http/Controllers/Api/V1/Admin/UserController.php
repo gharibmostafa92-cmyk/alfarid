@@ -149,6 +149,7 @@ class UserController extends Controller
             $user,
             $user,
             ['password' => Hash::make($validated['password']), 'expected_version' => $validated['expected_version']],
+            ['current_token_id' => $request->user('staff')?->currentAccessToken()?->id],
             verifiedPasswordHash: $user->password,
             selfRotation: true
         );
@@ -215,7 +216,9 @@ class UserController extends Controller
         // require users.update — otherwise flagged newcomers could never comply.
         $selfRotation = $isCurrentUser && isset($userAttributes['password'])
             && array_diff(array_keys($validated), ['password', 'current_password', 'expected_version']) === [];
-        $failure = app(UpdateStaffUser::class)($currentUser, $user, $actionData, verifiedPasswordHash: $verifiedPasswordHash, selfRotation: $selfRotation);
+        $failure = app(UpdateStaffUser::class)($currentUser, $user, $actionData,
+            ['current_token_id' => $selfRotation ? $request->user('staff')?->currentAccessToken()?->id : null],
+            verifiedPasswordHash: $verifiedPasswordHash, selfRotation: $selfRotation);
 
         if ($failure !== null) {
             if ($failure === 'insufficient_permissions') {

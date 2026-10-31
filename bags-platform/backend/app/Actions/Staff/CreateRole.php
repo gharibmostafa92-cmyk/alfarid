@@ -32,7 +32,13 @@ final class CreateRole
             $this->access->assertCentralAccess($actor);
             abort_unless(StaffAdministration::mayGrantPermissions($actor, $permissions), 403);
             StaffAdministration::clearPermissionCacheAfterCommit();
-            $role = Role::create(['name' => $data['name'], 'guard_name' => 'staff']);
+            try {
+                $role = Role::create(['name' => $data['name'], 'guard_name' => 'staff']);
+            } catch (\Spatie\Permission\Exceptions\RoleAlreadyExists|\Illuminate\Database\UniqueConstraintViolationException $e) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'name' => 'اسم الدور مستخدم بالفعل؛ أعد التحميل ثم حاول مرة أخرى.',
+                ]);
+            }
             $role->syncPermissions($permissions);
             StaffAdministration::audit($actor, 'role.created', 'role', $role->id, array_keys($data), [], StaffAdministration::roleState($role), $via);
 

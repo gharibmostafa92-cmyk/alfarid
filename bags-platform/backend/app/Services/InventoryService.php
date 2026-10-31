@@ -497,15 +497,21 @@ class InventoryService
     {
         $query = Location::query()->where('branch_id', $branchId)->where('is_active', true);
         if ($locationId !== null) {
-            if (! $query->whereKey($locationId)->exists()) {
+            $location = (clone $query)->whereKey($locationId)->first();
+            if ($location === null || (string) $location->type->value === 'damaged') {
                 throw new BusinessException('موقع الاستلام غير نشط أو لا يتبع الفرع.');
             }
 
             return $locationId;
         }
-        $id = $query->orderByRaw("CASE WHEN type = 'receiving' THEN 0 ELSE 1 END")->orderBy('id')->value('id');
+        // Damaged locations are never eligible as receiving locations.
+        $id = (clone $query)->where('type', '!=', 'damaged')
+            ->orderByRaw("CASE WHEN type = 'receiving' THEN 0 ELSE 1 END")->orderBy('id')->value('id');
+        if ($id === null) {
+            throw new BusinessException('لا يوجد موقع استلام صالح للفرع.');
+        }
 
-        return $id === null ? null : (int) $id;
+        return (int) $id;
     }
 
     /**

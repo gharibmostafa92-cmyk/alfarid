@@ -46,15 +46,23 @@ class LocationController extends Controller
     public function store(StoreLocationRequest $request, Branch $branch): JsonResponse
     {
         $this->branchAccess->assertBranch($request->user()->id, $branch->id);
+        // Creating a location inside an inactive branch is rejected.
+        abort_unless((bool) $branch->fresh()->is_active, 422, 'لا يمكن إنشاء موقع داخل فرع متوقف.');
         try {
-            $location = $branch->locations()->create($request->validated());
+            $location = DB::transaction(function () use ($request, $branch): Location {
+                $created = $branch->locations()->create($request->validated());
+                $created->refresh();
+                // M5: تدقيق الإنشاء زي ما المساعد بيعمل — داخل المعاملة حتى لا
+                // يُنشأ موقع بلا سجل تدقيق.
+                StaffAdministration::audit($request->user('staff'), 'location.created', 'location', $created->getKey(),
+                    ['name', 'code', 'type'], [], ['name' => $created->name, 'code' => $created->code, 'type' => $created->type->value, 'branch' => $branch->name],
+                    via: ['channel' => 'rest']);
+
+                return $created;
+            });
         } catch (UniqueConstraintViolationException) {
             return response()->json(['message' => 'كود الموقع مستخدم بالفعل في هذا الفرع.'], 422);
         }
-        // M5: تدقيق الإنشاء زي ما المساعد بيعمل.
-        StaffAdministration::audit($request->user('staff'), 'location.created', 'location', $location->getKey(),
-            ['name', 'code', 'type'], [], ['name' => $location->name, 'code' => $location->code, 'type' => $location->type->value, 'branch' => $branch->name],
-            via: ['channel' => 'rest']);
 
         return LocationResource::make($location)->response()->setStatusCode(201);
     }
@@ -98,6 +106,10 @@ class LocationController extends Controller
             if (array_key_exists('is_active', $validated) && ! (bool) $validated['is_active']) {
                 $hasBalances = StockLevel::query()->where('location_id', $locked->getKey())->hasNonZeroBalance()->exists();
                 abort_unless(! $hasBalances, 422, 'لا يمكن تعطيل الموقع وهو عليه أرصدة غير صفرية.');
+            }
+            if (array_key_exists('is_active', $validated) && (bool) $validated['is_active']
+                && ! (bool) \App\Models\Branch::query()->find($locked->branch_id)?->is_active) {
+                abort(422, 'لا يمكن تفعيل موقع داخل فرع متوقف.');
             }
             $locked->update($validated);
             StaffAdministration::audit($request->user('staff'), 'location.updated', 'location', $locked->getKey(),

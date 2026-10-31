@@ -44,6 +44,17 @@ class EnsureStaffAuthenticated
             return response()->json(['message' => 'التوكن غير مصرح له بهذه الواجهة.'], 403);
         }
 
+        // Staff assigned to a deactivated branch are fail-closed everywhere
+        // except password rotation and logout, mirroring BranchAccess.
+        if (! $this->isPasswordRotationRequest($request, $user)
+            && ! $request->is('api/v1/admin/auth/logout') && ! $request->is('api/v1/auth/logout')
+            && ! $user->hasRole(\App\Enums\StaffRole::SuperAdmin->value, 'staff')
+            && ! $user->can('inventory.all_branches')
+            && $user->branch_id !== null
+            && ! (bool) \App\Models\Branch::query()->find($user->branch_id)?->is_active) {
+            return response()->json(['message' => 'الفرع المرتبط بحسابك متوقف حالياً.'], 403);
+        }
+
         return $next($request);
     }
 

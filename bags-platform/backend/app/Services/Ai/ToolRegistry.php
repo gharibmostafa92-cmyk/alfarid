@@ -982,6 +982,7 @@ final class ToolRegistry
         $branch = Branch::findOrFail($args['branch_id']);
         $this->branches->assertBranch($actor->id, $branch->id);
         StaffAdministration::authorize($actor, ['locations.create', 'locations.manage']);
+        abort_unless((bool) $branch->is_active, 422, 'لا يمكن إنشاء موقع داخل فرع متوقف.');
 
         $location = $branch->locations()->create([
             'name' => $args['name'],

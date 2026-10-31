@@ -41,7 +41,13 @@ final class UpdateRole
             StaffAdministration::clearPermissionCacheAfterCommit();
             if (array_key_exists('name', $data)) {
                 $locked->name = $data['name'];
-                $locked->save();
+                try {
+                    $locked->save();
+                } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'name' => 'اسم الدور مستخدم بالفعل؛ أعد التحميل ثم حاول مرة أخرى.',
+                    ]);
+                }
             }
             if ($permissions !== null) {
                 $locked->syncPermissions($permissions);

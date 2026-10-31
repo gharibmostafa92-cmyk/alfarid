@@ -98,16 +98,17 @@ class BranchEndpointsTest extends TestCase
         }
     }
 
-    public function test_branch_update_without_lock_version_falls_back_gracefully(): void
+    public function test_branch_update_without_lock_version_is_rejected(): void
     {
         $branch = Branch::factory()->create(['is_active' => true]);
         $token = $this->staffWithPermission('branches.manage')->createToken('test')->plainTextToken;
 
+        // Optimistic locking is mandatory: a missing lock_version is a 422.
         $this->requestWithToken($token, 'PATCH', "/api/v1/admin/branches/{$branch->id}", [
             'is_active' => false,
-        ])->assertOk()->assertJsonPath('data.is_active', false);
+        ])->assertUnprocessable()->assertJsonValidationErrors('lock_version');
 
-        $this->assertFalse((bool) $branch->fresh()->is_active);
+        $this->assertTrue((bool) $branch->fresh()->is_active);
     }
 
     public function test_branch_cannot_be_deleted_while_staff_are_assigned(): void

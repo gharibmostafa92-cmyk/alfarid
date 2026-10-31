@@ -271,11 +271,26 @@ class SettingService
             $next = array_key_exists($definition['next'], $after)
                 ? (int) $after[$definition['next']]
                 : ($type === 'movement' ? $this->nextMovementNumber() : $this->nextDocumentNumber($type));
-            $number = $prefix.str_pad((string) $next, $padding, '0', STR_PAD_LEFT);
 
-            if (DB::table($target[0])->where($target[1], $number)->exists()) {
+            // Collision scan covers the next number AND any future number:
+            // any existing document sharing this prefix whose numeric suffix
+            // is >= the proposed counter would collide now or later.
+            $escaped = addcslashes($prefix, '\\%_');
+            $existing = DB::table($target[0])->where($target[1], 'like', $escaped.'%')->pluck($target[1]);
+            $max = null;
+            foreach ($existing as $number) {
+                // The remainder after the prefix must be purely numeric:
+                // that numeric suffix is what future counters would reproduce.
+                $tail = trim(substr((string) $number, strlen($prefix)));
+                if ($tail === '' || ! ctype_digit($tail)) {
+                    continue;
+                }
+                $max = max($max ?? 0, (int) $tail);
+            }
+
+            if ($max !== null && $max >= $next) {
                 throw ValidationException::withMessages([
-                    $definition['next'] => 'الرقم '.$number.' مستخدم بالفعل في '.$target[0].'. غيّر البداية أو البادئة أو الطول.',
+                    $definition['next'] => 'الرقم '.$prefix.str_pad((string) $next, $padding, '0', STR_PAD_LEFT).' مستخدم بالفعل في '.$target[0].'. غيّر البداية أو البادئة أو الطول.',
                 ]);
             }
         }
@@ -491,6 +506,7 @@ class SettingService
             'delivery' => ['prefix' => 'delivery_prefix', 'next' => 'delivery_next_number', 'padding' => 'delivery_padding'],
             'supplier_invoice' => ['prefix' => 'supplier_invoice_prefix', 'next' => 'supplier_invoice_next_number', 'padding' => 'supplier_invoice_padding'],
             'supplier_payment' => ['prefix' => 'supplier_payment_prefix',    'next' => 'supplier_payment_next_number',    'padding' => 'supplier_payment_padding'],
+            'movement' => ['prefix' => 'movement_prefix', 'next' => 'movement_next_number', 'padding' => 'movement_padding'],
             'shift' => ['prefix' => 'shift_prefix',               'next' => 'shift_next_number',               'padding' => 'shift_padding'],
             'pos_invoice' => ['prefix' => 'pos_invoice_prefix',      'next' => 'pos_invoice_next_number',      'padding' => 'pos_invoice_padding'],
             'expense' => ['prefix' => 'expense_prefix',             'next' => 'expense_next_number',             'padding' => 'expense_padding'],
@@ -534,11 +550,18 @@ class SettingService
             return null;
         }
 
+        if ($type === 'json') {
+            try {
+                return json_decode($value, true, 512, JSON_THROW_ON_ERROR);
+            } catch (JsonException) {
+                return null;
+            }
+        }
+
         return match ($type) {
             'boolean' => filter_var($value, FILTER_VALIDATE_BOOLEAN),
             'integer' => (int) $value,
             'float' => (float) $value,
-            'json' => json_decode($value, true, 512, JSON_THROW_ON_ERROR),
             default => $value,
         };
     }

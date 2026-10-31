@@ -39,6 +39,11 @@ final class UpdateBranch
                 abort(409, 'تم تعديل السجل بواسطة مستخدم آخر؛ أعد التحميل قبل الحفظ.');
             }
             $before = StaffAdministration::branchState($locked);
+            // city_id wins over free text so the two columns cannot drift.
+            if (array_key_exists('city_id', $data) && ! empty($data['city_id'])
+                && ($city = \App\Models\City::query()->find($data['city_id']))) {
+                $data['city'] = $city->name_ar ?: $city->name_en;
+            }
             if (array_key_exists('is_active', $data) && ! $data['is_active'] && (
                 StockLevel::query()->where('branch_id', $locked->id)->where('in_transit', '>', 0)->exists()
                 || StockTransfer::query()->where('to_branch_id', $locked->id)->where('status', 'shipped')->exists()
@@ -55,8 +60,18 @@ final class UpdateBranch
                     throw new BusinessException('لا يمكن تعطيل الفرع وخزائنه بها أرصدة؛ صفّرها أولًا.');
                 }
             }
+            // branch.deactivated is recorded only on a real true -> false transition.
+            $wasActive = (bool) $locked->is_active;
+            // Changing a branch into a warehouse while POS shifts are open is
+            // rejected: open shifts cannot be closed from a deactivated branch.
+            if (array_key_exists('type', $data) && (string) $locked->type->value === 'branch'
+                && (string) ($data['type'] instanceof \App\Enums\BranchType ? $data['type']->value : $data['type']) === 'warehouse'
+                && PosShift::query()->where('branch_id', $locked->id)->where('status', PosShiftStatus::Open->value)->exists()) {
+                throw new BusinessException('لا يمكن تحويل الفرع إلى مخزن وبه وردية POS مفتوحة؛ أغلقها أولًا.');
+            }
             $locked->update($data);
-            $action = (array_key_exists('is_active', $data) && ! $locked->is_active) ? 'branch.deactivated' : 'branch.updated';
+            $deactivated = array_key_exists('is_active', $data) && ! (bool) $data['is_active'] && $wasActive;
+            $action = $deactivated ? 'branch.deactivated' : 'branch.updated';
             StaffAdministration::audit($actor, $action, 'branch', $locked->id, array_keys($data), $before, StaffAdministration::branchState($locked), $via);
         });
 

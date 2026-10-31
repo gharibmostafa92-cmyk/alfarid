@@ -30,15 +30,25 @@ final class PendingActionService
         if ($action->tool === 'bulk_actions') {
             return $this->confirmBulk($actor, $action, $typed, $selectedItems);
         }
-        $result = DB::transaction(function () use ($actor, $action, $typed) {
-            StaffAdministration::lock();
-            $locked = AiPendingAction::query()->lockForUpdate()->findOrFail($action->id);
-            try {
-                return $this->confirmLocked($actor, $locked, $typed);
-            } catch (HttpExceptionInterface $e) {
-                return $e;
+        try {
+            $result = DB::transaction(function () use ($actor, $action, $typed) {
+                StaffAdministration::lock();
+                $locked = AiPendingAction::query()->lockForUpdate()->findOrFail($action->id);
+                try {
+                    return $this->confirmLocked($actor, $locked, $typed);
+                } catch (HttpExceptionInterface $e) {
+                    return $e;
+                }
+            });
+        } catch (\Throwable $e) {
+            // M-3: unexpected errors must not leave the proposal stuck in
+            // pending — record the failure outside the rolled-back transaction.
+            if (! $e instanceof HttpExceptionInterface) {
+                AiPendingAction::whereKey($action->id)->where('status', 'pending')
+                    ->update(['status' => 'failed', 'result' => ['message' => 'تعذّر التنفيذ بسبب خطأ غير متوقع؛ اطلب اقتراحًا جديدًا.']]);
             }
-        });
+            throw $e;
+        }
         if ($result instanceof \Throwable) {
             throw $result;
         }

@@ -56,7 +56,13 @@ final class CreateStaffUser
                 ['email' => $attrs['email'] ?? null],
                 ['email' => ['required', 'email', 'max:255', \Illuminate\Validation\Rule::unique('users', 'email'), new \App\Rules\EmailNotUsedByOtherAccountType('users')]]
             )->validate();
-            $user = User::create($attrs);
+            try {
+                $user = User::create($attrs);
+            } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'email' => 'هذا البريد مستخدم بحساب آخر في النظام.',
+                ]);
+            }
             $user->syncRoles($roles);
             StaffAdministration::audit($actor, 'user.created', 'user', $user->id, array_keys($attrs + ['roles' => $roles]), [], StaffAdministration::userState($user), $via);
 

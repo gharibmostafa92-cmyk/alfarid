@@ -203,7 +203,7 @@ final class StaffAdministration
             'target_type' => $targetType,
             'target_id' => $targetId,
             // Sensitive fields (passwords, tokens) are stripped; only allowed state keys are stored
-            'metadata' => json_encode(['fields' => array_values(array_diff($fields, ['current_password', 'expected_version'])),
+            'metadata' => json_encode(['fields' => array_values(array_diff($fields, ['password', 'current_password', 'expected_version'])),
                 'before' => $before, 'after' => $after,
                 'via' => array_intersect_key($via, array_flip(['channel', 'conversation_id', 'action_id'])),
                 'ip' => request()->ip(), 'method' => request()->method()], JSON_THROW_ON_ERROR),

@@ -27,6 +27,9 @@ final class SetLocationStatus
             if (! $active && ! (bool) $locked->is_active) {
                 return $locked;
             }
+            if ($active && ! (bool) \App\Models\Branch::query()->find($locked->branch_id)?->is_active) {
+                abort(422, 'لا يمكن تفعيل موقع داخل فرع متوقف.');
+            }
             if (! $active) {
                 $hasBalances = StockLevel::query()->where('location_id', $locked->id)->hasNonZeroBalance()->exists();
                 abort_unless(! $hasBalances, 422, 'لا يمكن تعطيل الموقع وهو عليه أرصدة غير صفرية.');

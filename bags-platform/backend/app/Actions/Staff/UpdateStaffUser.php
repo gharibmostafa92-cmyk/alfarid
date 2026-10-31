@@ -146,7 +146,14 @@ final class UpdateStaffUser
             StaffAdministration::audit($currentUser, 'user.updated', 'user', $lockedUser->id, array_keys($userAttributes + ($roles !== null ? ['roles' => $roles] : [])), $before, StaffAdministration::userState($lockedUser), $via);
 
             if ($passwordChanged || $emailChanged || $deactivated || $rolesChanged) {
-                $lockedUser->tokens()->delete();
+                // Self password rotation keeps the current session alive so the
+                // user is not logged out right after clearing must_change_password.
+                $keepTokenId = $selfRotation ? ($via['current_token_id'] ?? null) : null;
+                if ($keepTokenId !== null) {
+                    $lockedUser->tokens()->whereKeyNot($keepTokenId)->delete();
+                } else {
+                    $lockedUser->tokens()->delete();
+                }
             }
 
             return null;
