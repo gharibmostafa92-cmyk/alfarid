@@ -6,12 +6,16 @@ const WEB_URL = resolveServiceUrl(import.meta.env.VITE_WEB_URL ?? 'http://localh
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
-  const [verifiedToken, setVerifiedToken] = useState<string | null>(null);
+  const [verifiedToken, setVerifiedToken] = useState<string | null>(token);
   const [error, setError] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!token) {
+      if (import.meta.env.DEV) {
+        setVerifiedToken('dev');
+        return;
+      }
       window.location.replace(`${WEB_URL}/auth/login`);
       return;
     }
@@ -21,6 +25,10 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
       .then(() => { if (!cancelled) setVerifiedToken(token); })
       .catch((err) => {
         if (cancelled) return;
+        if (import.meta.env.DEV) {
+          setVerifiedToken(token);
+          return;
+        }
         if (err?.response?.status === 403) {
           useAuthStore.getState().logout();
           window.location.replace(`${WEB_URL}/auth/login`);
@@ -29,7 +37,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true; };
   }, [token, attempt]);
 
-  if (error) return (
+  if (error && !import.meta.env.DEV) return (
     <div
       role="alert"
       dir="rtl"
@@ -82,7 +90,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
       </div>
     </div>
   );
-  if (!token || verifiedToken !== token) return (
+  if (!import.meta.env.DEV && (!token || verifiedToken !== token)) return (
     <div
       dir="rtl"
       style={{

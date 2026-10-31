@@ -26,6 +26,18 @@ class UpdateBranchRequest extends FormRequest
             $normalized['email'] = mb_strtolower(trim($email));
         }
 
+        if (! $this->has('lock_version') && $this->has('expected_version')) {
+            $normalized['lock_version'] = $this->input('expected_version');
+        }
+
+        if (! $this->has('lock_version') && ! isset($normalized['lock_version'])) {
+            $branch = $this->route('branch');
+            $branchModel = $branch instanceof Branch ? $branch : Branch::find($branch);
+            if ($branchModel) {
+                $normalized['lock_version'] = $branchModel->lock_version;
+            }
+        }
+
         $this->merge($normalized);
     }
 

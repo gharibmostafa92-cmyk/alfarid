@@ -133,7 +133,10 @@ function BranchesScreen({ go }) {
           if ((next[k] ?? null) !== (cur[k] ?? null)) diff[k] = next[k] ?? null;
         });
         // PUT sends only changed fields, so an untouched unique code never re-triggers 422.
-        if (Object.keys(diff).length) await branchesApi.update(f.id, diff);
+        if (Object.keys(diff).length) {
+          diff.lock_version = cur.lock_version ?? f.lock_version ?? 0;
+          await branchesApi.update(f.id, diff);
+        }
       } else {
         await branchesApi.create(payload(f));
       }
@@ -158,7 +161,7 @@ function BranchesScreen({ go }) {
   const disableInstead = async () => {
     setDelBusy(true);
     try {
-      await branchesApi.update(del.id, { is_active: false });
+      await branchesApi.update(del.id, { is_active: false, lock_version: del.lock_version ?? 0 });
       setDel(null); setDelErr(null); reloadBranches(); toast('تم تعطيل «' + del.name + '» بدلًا من الحذف');
     } catch (e) {
       setDelErr(normalizeError(e).message);
