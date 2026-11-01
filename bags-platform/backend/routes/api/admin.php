@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\Admin\Ai\AiAdministrationController;
 use App\Http\Controllers\Api\V1\Admin\Ai\AiConversationController;
 use App\Http\Controllers\Api\V1\Admin\Ai\AiMentionController;
 use App\Http\Controllers\Api\V1\Admin\Ai\AiMessageController;
+use App\Http\Controllers\Api\V1\Admin\Ai\AiWelcomeController;
 use App\Http\Controllers\Api\V1\Admin\AuthController;
 use App\Http\Controllers\Api\V1\Admin\BannerController;
 use App\Http\Controllers\Api\V1\Admin\BranchController;
@@ -380,5 +381,6 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
             // M6: الزر بتاع mentions بيتنادى مع كل ضغطة بعد debounce — GAS
             // (AuditStaffAdministration) يعدّ POST بس ففلتر GET مش مغطّى.
             Route::get('mentions', [AiMentionController::class, 'search'])->middleware('throttle:60,1')->name('mentions');
+            Route::get('welcome', [AiWelcomeController::class, 'show'])->name('welcome');
         });
     });

@@ -38,8 +38,10 @@ export const ApplicationStatus = ({ onLogout, onEnter }) => {
   const d = api.data;
   const status = d?.status || 'pending';
   const s = APP_STATUS[status] || APP_STATUS.pending;
+  // 4.5: سبب رفض كل مستند (review_note) جاي من rejected_documents — بنربطه بالـ id.
+  const notes = Object.fromEntries((d?.rejected_documents || []).map((doc) => [doc.id, doc.review_note]));
   const docs = (d?.documents || []).map((doc) => ({
-    name: doc.original_name, type: DOC_TYPE[doc.document_type] || doc.document_type, status: DOC_ST[doc.status] || doc.status,
+    id: doc.id, name: doc.original_name, type: DOC_TYPE[doc.document_type] || doc.document_type, status: DOC_ST[doc.status] || doc.status, note: notes[doc.id] || null,
   }));
   const reason = status === 'rejected' ? d?.rejection_reason : status === 'suspended' ? d?.suspension_reason : null;
   const enter = async () => {
@@ -96,12 +98,13 @@ export const ApplicationStatus = ({ onLogout, onEnter }) => {
                 const [l, v] = DOC_STATUS[doc.status] || DOC_STATUS.pending;
                 const rej = status !== 'approved' && doc.status === 'rejected';
                 return (
-                  <li key={doc.name} className={rej ? 'is-rej' : ''}>
+                  <li key={doc.id ?? doc.name} className={rej ? 'is-rej' : ''}>
                     <span>
                       <i className={`fa-regular ${doc.name.endsWith('.pdf') ? 'fa-file-pdf' : 'fa-file-image'}`} />
                       <span><b>{doc.type}</b><small className="num">{doc.name}</small></span>
                     </span>
                     <span className={`badge ${v}`}>{l}</span>
+                    {rej && doc.note && <p className="luxury-form-error" role="note" style={{ flexBasis: '100%', margin: '6px 0 0' }}><b>سبب الرفض: </b>{doc.note}</p>}
                   </li>
                 );
               })}

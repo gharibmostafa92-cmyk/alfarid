@@ -67,6 +67,9 @@ class UpdateSettingsRequest extends FormRequest
             'ai_tool_result_max_chars' => ['sometimes', 'integer', 'min:1024', 'max:200000'],
             'ai_max_concurrent_sessions' => ['sometimes', 'integer', 'min:1', 'max:100'],
             'ai_credit_limit_confirm_threshold' => ['sometimes', 'integer', 'min:0', 'max:9999999999'],
+            'ai_dealer_review_sla_hours' => ['sometimes', 'integer', 'min:1', 'max:720'],
+            'ai_customer_tools_enabled' => ['sometimes', 'boolean'],
+            'ai_document_analysis_enabled' => ['sometimes', 'boolean'],
         ];
 
         $sequenceTypes = [

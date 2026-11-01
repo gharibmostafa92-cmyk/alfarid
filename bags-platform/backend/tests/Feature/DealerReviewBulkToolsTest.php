@@ -34,7 +34,7 @@ class DealerReviewBulkToolsTest extends TestCase
     {
         parent::setUp();
         $this->seed(SettingSeeder::class);
-        DB::table('settings')->where('key', 'ai_enabled')->update(['value' => '1']);
+        DB::table('settings')->whereIn('key', ['ai_enabled', 'ai_customer_tools_enabled'])->update(['value' => '1']);
         app(SettingService::class)->clearCache();
     }
 

@@ -46,6 +46,13 @@ const STARTERS: { icon: string; tag: string; text: string }[] = [
   { icon: 'user', tag: 'الموظفين', text: 'أضف موظف جديد في فرع ' },
   { icon: 'role', tag: 'الأدوار', text: 'قارن صلاحيات دور مدير فرع ودور أمين مخزن' },
 ];
+// 4.4: بداية سريعة لأدوات التجار (بتظهر لمن عنده customers.view)
+const CUSTOMER_STARTERS: { icon: string; tag: string; text: string }[] = [
+  { icon: 'store', tag: 'التجار', text: 'طلبات التجار المتأخرة' },
+  { icon: 'check', tag: 'الاعتماد', text: 'مين جاهز للاعتماد؟' },
+  { icon: 'chart', tag: 'الائتمان', text: 'تجار فوق حد الائتمان' },
+];
+const CUSTOMER_COMMANDS = ['/تجار-معلقين', '/راجع-تاجر', '/مجموعات-العملاء'];
 const QUICK_COMMANDS = ['/ملخص الفروع', '/موظفين بدون دور', '/صلاحيات حساسة', '/آخر التعديلات'];
 
 const dayKey = (iso: string | null) => {
@@ -65,7 +72,7 @@ const relTime = (iso: string | null) => {
 // props جديدة اختيارية (مش بتكسر الاستدعاء الحالي <AssistantPage can={can} />):
 // - theme: إجبار light/dark بدل prefers-color-scheme
 // - initialConversationId: فتح محادثة مباشرة (deep link)
-export default function AssistantPage({ can, theme, initialConversationId }: { can: (permission: string) => boolean; theme?: 'light' | 'dark'; initialConversationId?: number }) {
+export default function AssistantPage({ can, theme, initialConversationId, initialPrompt }: { can: (permission: string) => boolean; theme?: 'light' | 'dark'; initialConversationId?: number; initialPrompt?: { text: string; mentions?: Mention[] } }) {
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() => {
     if (theme) return theme;
     if (typeof document !== 'undefined') {
@@ -110,7 +117,19 @@ export default function AssistantPage({ can, theme, initialConversationId }: { c
   const [drawer, setDrawer] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
-  const [seed, setSeed] = useState<{ text: string; n: number }>();
+  const [seed, setSeed] = useState<{ text: string; n: number; mentions?: Mention[] }>();
+  const [welcomeBlock, setWelcomeBlock] = useState<UiBlock | null>(null);
+  const canCustomers = can('customers.view');
+  const starters = canCustomers ? [...STARTERS, ...CUSTOMER_STARTERS] : STARTERS;
+  const quickCommands = canCustomers ? [...QUICK_COMMANDS, ...CUSTOMER_COMMANDS] : QUICK_COMMANDS;
+  // 4.4: seed جاي من شاشة التجار (#/assistant?seed=…&mention_*=…) — يتستهلك مرة واحدة ويتنضف من الـ hash.
+  const consumedPrompt = useRef(false);
+  useEffect(() => {
+    if (!initialPrompt || consumedPrompt.current) return;
+    consumedPrompt.current = true;
+    setSeed({ text: initialPrompt.text, mentions: initialPrompt.mentions, n: Date.now() });
+    history.replaceState(null, '', '#/assistant');
+  }, [initialPrompt]);
   const [atBottom, setAtBottom] = useState(true);
   const [, tick] = useState(0);
   const feedRef = useRef<HTMLDivElement>(null);
@@ -133,6 +152,15 @@ export default function AssistantPage({ can, theme, initialConversationId }: { c
   }, [debouncedQuery]);
 
   useEffect(() => { void refreshList(); }, [refreshList]);
+
+  // 5.2: كارت الترحيب — بيتبني في السيرفر بدون Gemini، وبيظهر في المحادثة الجديدة لمن عنده customers.approve.
+  const canWelcome = can('customers.approve') && can('customers.view');
+  useEffect(() => {
+    if (!canWelcome || messages.length > 0) return;
+    let live = true;
+    assistantApi.welcome().then(block => { if (live) setWelcomeBlock(block); }).catch(() => { if (live) setWelcomeBlock(null); });
+    return () => { live = false; };
+  }, [canWelcome, currentId, messages.length]);
 
   // عدّاد زمن التفكير
   useEffect(() => {
@@ -413,8 +441,13 @@ export default function AssistantPage({ can, theme, initialConversationId }: { c
         <h3>{currentId ? 'محادثة جديدة — ابدأ بطلبك' : 'أهلاً، أقدر أساعدك في إيه النهارده؟'}</h3>
         <p>اسأل عن الفروع والموظفين والصلاحيات. أي تعديل بيظهر لك كمعاينة «قبل / بعد» ومبيتنفذش غير بعد تأكيدك.</p>
       </div>
+      {welcomeBlock && (
+        <div style={{ width: '100%', textAlign: 'start' }}>
+          <AssistantBlock block={welcomeBlock} busy={busy} execute={execute} onPick={() => undefined} onAction={() => undefined} onPrompt={text => setSeed({ text, n: Date.now() })} />
+        </div>
+      )}
       <div className="as-starters">
-        {STARTERS.map(s => (
+        {starters.map(s => (
           <button type="button" key={s.text} className="as-starter" disabled={busy} onClick={() => setSeed({ text: s.text, n: Date.now() })}>
             <span className="as-starter-top"><Icon name={s.icon} size={14} />{s.tag}</span>
             <span className="as-starter-text">{s.text}</span>
@@ -425,6 +458,7 @@ export default function AssistantPage({ can, theme, initialConversationId }: { c
         <span><span className="as-kbd">@</span> موظف</span>
         <span><span className="as-kbd">#</span> فرع</span>
         <span><span className="as-kbd">!</span> دور</span>
+        {canCustomers && <span><span className="as-kbd">$</span> عميل</span>}
         <span><span className="as-kbd">/</span> أمر سريع</span>
       </div>
     </div>
@@ -489,6 +523,7 @@ export default function AssistantPage({ can, theme, initialConversationId }: { c
                             execute={execute}
                             onPick={(entity, id, label) => void pick(entity, id, label)}
                             onAction={(kind, id, typed, selected) => void act(kind, id, typed, selected)}
+                            onPrompt={text => setSeed({ text, n: Date.now() })}
                           />
                         ))}
                       </div>
@@ -539,7 +574,7 @@ export default function AssistantPage({ can, theme, initialConversationId }: { c
       {error && <div className="as-error-dock">{errorAlert}</div>}
       <span className="as-sr" role="status">{status}</span>
       <div className="as-composer-wrap">
-        <AssistantComposer busy={busy} onSend={send} quickCommands={QUICK_COMMANDS} seed={seed} />
+        <AssistantComposer busy={busy} onSend={send} quickCommands={quickCommands} seed={seed} enableCustomers={canCustomers} />
       </div>
     </>
   );

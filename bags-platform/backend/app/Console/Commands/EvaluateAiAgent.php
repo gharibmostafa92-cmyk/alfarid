@@ -35,8 +35,8 @@ final class EvaluateAiAgent extends Command
             }
             $ids[] = $case['id'];
         }
-        if (count($ids) < 60) {
-            $this->error('At least 60 evaluation cases are required.');
+        if (count($ids) < 90) {
+            $this->error('At least 90 evaluation cases are required.');
 
             return self::FAILURE;
         }
@@ -150,8 +150,9 @@ final class EvaluateAiAgent extends Command
         }
         $key = match ($call['name']) {
             'list_branches' => 'branches', 'list_staff' => 'users', 'list_roles' => 'roles',
+            'list_customers' => 'customers', 'list_customer_groups' => 'customer_groups',
             'find_entities' => match ($call['args']['type'] ?? '') {
-                'branch' => 'branches', 'user' => 'users', 'role' => 'roles', 'location' => 'locations', default => ''
+                'branch' => 'branches', 'user' => 'users', 'role' => 'roles', 'location' => 'locations', 'customer' => 'customers', 'customer_group' => 'customer_groups', default => ''
             },
             'list_locations' => 'locations',
             default => '',
@@ -175,8 +176,13 @@ final class EvaluateAiAgent extends Command
         if ($key === 'locations' && isset($call['args']['branch_id'])) {
             $items = array_values(array_filter($items, fn ($item) => ($item['branch_id'] ?? null) === $call['args']['branch_id']));
         }
-        $items = array_values(array_filter($items, fn ($item) => $query === '' || str_contains($normalize($item['name'].' '.($item['code'] ?? '')), $query)));
-        $items = array_map(fn ($item) => ['id' => $item['id'], 'label' => $item['name'], 'meta' => $item['code'] ?? ''], $items);
+        // أرقام الموبايل العربية تتحوّل لإنجليزي قبل المطابقة (زي Customer::normalizePhone في الإنتاج).
+        $digits = preg_replace('/\D+/', '', strtr((string) ($call['args']['query'] ?? ''), ['٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4', '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9']));
+        $items = array_values(array_filter($items, fn ($item) => $query === ''
+            || str_contains($normalize($item['name'].' '.($item['code'] ?? '').' '.($item['company_name'] ?? '')), $query)
+            || ($digits !== '' && isset($item['phone']) && str_starts_with((string) $item['phone'], $digits))));
+        // فلاتر قائمة العملاء (status/pending_older_than_hours مش بتتحاكى في الـ fixture؛ التطابق على اسم الأداة والـ args).
+        $items = array_map(fn ($item) => ['id' => $item['id'], 'label' => isset($item['company_name']) ? $item['name'].' — '.$item['company_name'] : $item['name'], 'meta' => $item['code'] ?? ''], $items);
 
         return [$call['name'] === 'find_entities' ? 'results' : $key => $items];
     }

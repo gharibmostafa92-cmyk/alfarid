@@ -132,6 +132,7 @@ final class PendingActionService
         abort_unless($this->settings->getBool('ai_enabled', false), 403, 'المساعد مقفول.');
         $disabled = $this->settings->get('ai_disabled_tools', []);
         abort_if(is_array($disabled) && in_array($action->tool, $disabled, true), 403, 'الأداة مقفولة من الإعدادات.');
+        abort_if($this->registry->isCustomerTool($action->tool) && ! $this->registry->customerToolsEnabled(), 403, 'أدوات العملاء مقفولة من الإعدادات.');
         $def = $this->registry->definitions()[$action->tool] ?? null;
         abort_unless($def && $actor->is_active && $actor->can('ai_agent.use') && $actor->can('ai_agent.execute') && $actor->canAny($def['permissions']), 403);
         abort_unless($action->conversation()->exists(), 409, 'المحادثة اتحذفت.');

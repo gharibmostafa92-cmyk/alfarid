@@ -94,12 +94,23 @@ function AuthenticatedApp() {
     ? 'production'
     : adminActive;
 
+  // 4.4: seed جاهز من شاشة التجار — #/assistant?seed=…&mention_entity=customer&mention_id=…&mention_label=…
+  const assistantPrompt = (() => {
+    if (route !== '/assistant') return undefined;
+    const params = new URLSearchParams(routeWithQuery.split('?')[1] ?? '');
+    const text = params.get('seed');
+    if (!text) return undefined;
+    const id = Number(params.get('mention_id'));
+    const entity = params.get('mention_entity');
+    const label = params.get('mention_label');
+    return { text, mentions: entity === 'customer' && Number.isInteger(id) && id > 0 ? [{ entity, id, label: label || text }] : undefined };
+  })();
   const assistantNav = can('ai_agent.use') ? [{ id: 'assistant', label: 'المساعد الذكي', onOpen: () => { window.location.hash = '/assistant'; } }] : [];
   return <FinancialDashboard
     onLogout={logoutRemote}
     catalogActive={catalogActive}
     catalogPage={
-      route === '/assistant' ? <Suspense fallback={<div dir="rtl">جارٍ تحميل المساعد…</div>}><AssistantPage can={can} /></Suspense> : isOperation && operationsActive ? (
+      route === '/assistant' ? <Suspense fallback={<div dir="rtl">جارٍ تحميل المساعد…</div>}><AssistantPage can={can} initialPrompt={assistantPrompt} /></Suspense> : isOperation && operationsActive ? (
         !canViewOperation(operationsActive, can) ? (
           <div dir="rtl" className="p-6">ليس لديك صلاحية عرض هذه الصفحة.</div>
         ) : (

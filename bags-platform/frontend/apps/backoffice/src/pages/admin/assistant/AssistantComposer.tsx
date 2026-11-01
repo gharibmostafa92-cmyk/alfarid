@@ -9,10 +9,12 @@ interface Option extends Mention { meta?: string }
 // - seed: لملء الصندوق من الخارج (مثلاً من كروت البداية) — { text, n } و n بيتغير كل مرة.
 // - hint: نص مساعد تحت الصندوق.
 interface Props {
+  /** مفعّلة لو الأدمن عنده customers.view — بدونها علامة $ تفضل نص عادي. */
+  enableCustomers?: boolean;
   busy: boolean;
   onSend: (text: string, selection?: undefined, mentions?: Mention[]) => Promise<boolean>;
   quickCommands: string[];
-  seed?: { text: string; n: number };
+  seed?: { text: string; n: number; mentions?: Mention[] };
   hint?: string;
 }
 
@@ -21,6 +23,7 @@ const markerMeta: Record<string, { key: string; entity: string; title: string }>
   '@': { key: 'users', entity: 'user', title: 'الموظفين' },
   '#': { key: 'branches', entity: 'branch', title: 'الفروع' },
   '!': { key: 'roles', entity: 'role', title: 'الأدوار والصلاحيات' },
+  $: { key: 'customers', entity: 'customer', title: 'العملاء والتجار' },
 };
 
 function Highlight({ text, q }: { text: string; q: string }) {
@@ -30,7 +33,7 @@ function Highlight({ text, q }: { text: string; q: string }) {
   return <>{text.slice(0, i)}<mark>{text.slice(i, i + q.length)}</mark>{text.slice(i + q.length)}</>;
 }
 
-export default function AssistantComposer({ busy, onSend, quickCommands, seed, hint }: Props) {
+export default function AssistantComposer({ busy, onSend, quickCommands, seed, hint, enableCustomers = false }: Props) {
   const [text, setText] = useState('');
   const [mentions, setMentions] = useState<Mention[]>([]);
   const [options, setOptions] = useState<Option[]>([]);
@@ -41,8 +44,9 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
   const input = useRef<HTMLTextAreaElement>(null);
   const listId = 'as-mention-list';
 
-  const match = text.match(/(?:^|\s)([@#!])([^\s@#!]*)$/);
-  const marker = match?.[1], query = match?.[2];
+  const match = text.match(/(?:^|\s)([@#!$])([^\s@#!$]*)$/);
+  const marker = match && (match[1] !== '$' || enableCustomers) ? match[1] : undefined;
+  const query = marker ? match?.[2] : undefined;
   const slash = text.startsWith('/') && !text.includes('\n');
   const commands = slash ? quickCommands.filter(c => c.includes(text.slice(1).trim())) : [];
   const popKey = slash ? `/${text}` : marker ? `${marker}${query}` : '';
@@ -77,6 +81,7 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
   useEffect(() => {
     if (!seed) return;
     setText(seed.text);
+    setMentions(seed.mentions ?? []);
     requestAnimationFrame(() => { const el = input.current; if (el) { el.focus(); el.setSelectionRange(seed.text.length, seed.text.length); } });
   }, [seed?.n]);
 
@@ -92,7 +97,7 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
   };
 
   const pickMention = (o: Option) => {
-    setText(t => t.replace(/([@#!])([^\s@#!]*)$/, `${o.label} `));
+    setText(t => t.replace(/([@#!$])([^\s@#!$]*)$/, () => `${o.label} `));
     setMentions(items => [...items.filter(m => m.id !== o.id || m.entity !== o.entity), { entity: o.entity, id: o.id, label: o.label }]);
     input.current?.focus();
   };
@@ -199,13 +204,14 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
           disabled={busy}
           rows={1}
           onChange={e => { setText(e.target.value); if (dismissed && !e.target.value) setDismissed(''); }}
-          placeholder={busy ? 'المساعد بيجهّز الرد…' : 'اكتب طلبك… استخدم @ للموظفين، # للفروع، ! للأدوار، / للأوامر'}
+          placeholder={busy ? 'المساعد بيجهّز الرد…' : `اكتب طلبك… استخدم @ للموظفين، # للفروع، ! للأدوار،${enableCustomers ? ' $ للعملاء،' : ''} / للأوامر`}
           onKeyDown={onKeyDown}
         />
         <div className="as-composer-foot">
           <button type="button" className="as-trigger as-trigger--main" disabled={busy} onClick={() => insertMarker('@')} title="منشن موظف" aria-label="منشن موظف">@</button>
           <button type="button" className="as-trigger" disabled={busy} onClick={() => insertMarker('#')} title="منشن فرع" aria-label="منشن فرع">#</button>
           <button type="button" className="as-trigger" disabled={busy} onClick={() => insertMarker('!')} title="منشن دور" aria-label="منشن دور">!</button>
+          {enableCustomers && <button type="button" className="as-trigger" disabled={busy} onClick={() => insertMarker('$')} title="منشن عميل" aria-label="منشن عميل">$</button>}
           {quickCommands.length > 0 && <button type="button" className="as-trigger" disabled={busy} onClick={() => { setDismissed(''); setText('/'); input.current?.focus(); }} title="الأوامر السريعة" aria-label="الأوامر السريعة">/</button>}
           <span className="as-counter as-num" data-near={near}>{text.length > 0 ? `${text.length.toLocaleString('ar-EG')} / ${MAX.toLocaleString('ar-EG')}` : ''}</span>
           <button className="as-send" type="submit" disabled={busy || !text.trim()} data-busy={busy} aria-label={busy ? 'جارٍ الإرسال' : 'إرسال'}>

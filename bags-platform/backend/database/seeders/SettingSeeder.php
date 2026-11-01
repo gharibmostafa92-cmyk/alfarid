@@ -81,6 +81,9 @@ class SettingSeeder extends Seeder
         // 2.2: عتبة حد الائتمان — فوقها تعيين الحد يبقى عالي الخطورة
         // ويطلب تأكيدًا بالكتابة (حتى لو الزيادة نفسها أقل من 100%).
         ['group' => 'ai', 'key' => 'ai_credit_limit_confirm_threshold', 'value' => '100000', 'type' => 'integer'],
+        // 6.1: أدوات العملاء وتحليل المستندات مقفولة افتراضيًا (خطة الإطلاق).
+        ['group' => 'ai', 'key' => 'ai_customer_tools_enabled', 'value' => '0', 'type' => 'boolean'],
+        ['group' => 'ai', 'key' => 'ai_document_analysis_enabled', 'value' => '0', 'type' => 'boolean'],
     ];
 
     public function run(): void

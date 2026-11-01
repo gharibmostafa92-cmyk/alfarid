@@ -32,6 +32,7 @@ const paths: Record<string, string> = {
   lock: 'M7 11V8a5 5 0 0 1 10 0v3M5 11h14v9H5zM12 15v2',
   key: 'M8.5 14a4.5 4.5 0 1 1 3.9-6.8L20 7v3h-2v2h-2.5',
   layers: 'M12 4l9 5-9 5-9-5 9-5zM3 14l9 5 9-5',
+  store: 'M4 9l1.5-5h13L20 9M4 9v11h16V9M4 9c0 1.7 1.3 3 2.7 3S9.3 10.7 9.3 9c0 1.7 1.3 3 2.7 3s2.7-1.3 2.7-3c0 1.7 1.3 3 2.7 3S20 10.7 20 9M10 20v-5h4v5',
   bolt: 'M13 3L5 13h6l-1 8 8-10h-6l1-8z',
   minus: 'M6 12h12',
   info: 'M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM12 11v5M12 8v.01',
@@ -58,8 +59,8 @@ export function Icon({ name, size = 18, className }: { name: keyof typeof paths 
   );
 }
 
-export const entityIcon: Record<string, string> = { user: 'user', branch: 'branch', role: 'role', command: 'command' };
-export const entityLabel: Record<string, string> = { user: 'موظف', branch: 'فرع', role: 'دور', command: 'أمر' };
+export const entityIcon: Record<string, string> = { user: 'user', branch: 'branch', role: 'role', command: 'command', customer: 'store', customer_group: 'layers' };
+export const entityLabel: Record<string, string> = { user: 'موظف', branch: 'فرع', role: 'دور', command: 'أمر', customer: 'عميل', customer_group: 'مجموعة عملاء' };
 
 // حلقة عدّاد تنازلي — fraction من 0 لـ 1.
 export function Ring({ fraction, size = 22 }: { fraction: number; size?: number }) {

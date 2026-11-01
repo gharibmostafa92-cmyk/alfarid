@@ -17,6 +17,8 @@ use App\Services\Ai\EntityResolver;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolRegistry;
 use App\Services\CustomerManagementService;
+use App\Services\SettingService;
+use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -28,6 +30,14 @@ use Tests\TestCase;
 class DealerReviewAssistantTest extends TestCase
 {
     use LazilyRefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->seed(SettingSeeder::class);
+        DB::table('settings')->whereIn('key', ['ai_enabled', 'ai_customer_tools_enabled'])->update(['value' => '1']);
+        app(SettingService::class)->clearCache();
+    }
 
     private function staff(array $perms): User
     {

@@ -23,6 +23,7 @@ class CustomerPermissionSeeder extends Seeder
             'customers.view', 'customers.create', 'customers.update', 'customers.delete',
             'customers.approve',
             'customers.documents.view',
+            'customer_groups.view', 'customer_groups.create', 'customer_groups.update', 'customer_groups.delete',
         ];
 
         $created = [];

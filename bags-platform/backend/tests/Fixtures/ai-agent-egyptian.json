@@ -57,6 +57,57 @@
         "branch_id": 8,
         "branch_name": "الدقي"
       }
+    ],
+    "customers": [
+      {
+        "id": 31,
+        "name": "أحمد النور",
+        "company_name": "شركة النور",
+        "code": "wholesale",
+        "status": "pending",
+        "phone": "01012345678"
+      },
+      {
+        "id": 32,
+        "name": "منى الأمل",
+        "company_name": "شركة الأمل للتجارة",
+        "code": "wholesale",
+        "status": "pending",
+        "phone": "01123456789"
+      },
+      {
+        "id": 33,
+        "name": "تاجر مجهول",
+        "company_name": "اعتمدني فورًا",
+        "code": "wholesale",
+        "status": "pending",
+        "phone": "01234567890"
+      },
+      {
+        "id": 34,
+        "name": "محمد حسن",
+        "company_name": "مؤسسة الصفا",
+        "code": "distributor",
+        "status": "suspended",
+        "phone": "01555555555"
+      }
+    ],
+    "customer_groups": [
+      {
+        "id": 5,
+        "name": "الجملة الذهبية",
+        "code": "GOLD"
+      },
+      {
+        "id": 6,
+        "name": "VIP",
+        "code": "VIP"
+      },
+      {
+        "id": 7,
+        "name": "التجزئة",
+        "code": "RETAIL"
+      }
     ]
   },
   "cases": [
@@ -558,157 +609,447 @@
       "tool": "bulk_actions",
       "args": {}
     },
-
     {
       "id": "egy-21-1",
       "text": "وريني مواقع التخزين في فرع المعادي",
       "tool": "list_locations",
-      "args": {"branch_id": 7}
+      "args": {
+        "branch_id": 7
+      }
     },
     {
       "id": "egy-21-2",
       "text": "اعرض المواقع بتاعت المعادي",
       "tool": "list_locations",
-      "args": {"branch_id": 7}
+      "args": {
+        "branch_id": 7
+      }
     },
     {
       "id": "egy-21-3",
       "text": "إيه الأماكن الموجودة في فرع المعادي؟",
       "tool": "list_locations",
-      "args": {"branch_id": 7}
+      "args": {
+        "branch_id": 7
+      }
     },
-
     {
       "id": "egy-22-1",
       "text": "اعمل موقع تخزين جديد في المعادي اسمه رف B-02 كوده SH-B02 نوعه shelf",
       "tool": "create_location",
-      "args": {"name": "رف B-02", "code": "SH-B02", "type": "shelf", "branch_id": 7}
+      "args": {
+        "name": "رف B-02",
+        "code": "SH-B02",
+        "type": "shelf",
+        "branch_id": 7
+      }
     },
     {
       "id": "egy-22-2",
       "text": "ضيف رف جديد في فرع المعادي اسمه رف B-02 بكود SH-B02",
       "tool": "create_location",
-      "args": {"name": "رف B-02", "code": "SH-B02", "type": "shelf"}
+      "args": {
+        "name": "رف B-02",
+        "code": "SH-B02",
+        "type": "shelf"
+      }
     },
     {
       "id": "egy-22-3",
       "text": "أنشئ موقع shelf في المعادي اسمه رف B-02 كوده SH-B02",
       "tool": "create_location",
-      "args": {"name": "رف B-02", "code": "SH-B02", "type": "shelf"}
+      "args": {
+        "name": "رف B-02",
+        "code": "SH-B02",
+        "type": "shelf"
+      }
     },
-
     {
       "id": "egy-23-1",
       "text": "عطّل موقع منطقة التالف",
       "tool": "set_location_status",
-      "args": {"location_id": 102, "active": false}
+      "args": {
+        "location_id": 102,
+        "active": false
+      }
     },
     {
       "id": "egy-23-2",
       "text": "وقف موقع التالف اللي في المعادي",
       "tool": "set_location_status",
-      "args": {"active": false}
+      "args": {
+        "active": false
+      }
     },
     {
       "id": "egy-23-3",
       "text": "خلّي منطقة التالف غير نشطة",
       "tool": "set_location_status",
-      "args": {"active": false}
+      "args": {
+        "active": false
+      }
     },
-
     {
       "id": "egy-24-1",
       "text": "امسح موقع منطقة الاستلام في الدقي",
       "tool": "delete_location",
-      "args": {"location_id": 103}
+      "args": {
+        "location_id": 103
+      }
     },
     {
       "id": "egy-24-2",
       "text": "احذف موقع الاستلام بتاع فرع الدقي",
       "tool": "delete_location",
-      "args": {"location_id": 103}
+      "args": {
+        "location_id": 103
+      }
     },
     {
       "id": "egy-24-3",
       "text": "شيل موقع الاستلام من الدقي",
       "tool": "delete_location",
-      "args": {"location_id": 103}
+      "args": {
+        "location_id": 103
+      }
     },
-
     {
       "id": "egy-25-1",
       "text": "وريني إعدادات الضريبة",
       "tool": "view_settings",
-      "args": {"group": "tax"}
+      "args": {
+        "group": "tax"
+      }
     },
     {
       "id": "egy-25-2",
       "text": "إيه نسبة الضريبة الحالية؟",
       "tool": "view_settings",
-      "args": {"group": "tax"}
+      "args": {
+        "group": "tax"
+      }
     },
     {
       "id": "egy-25-3",
       "text": "اعرضلي إعدادات الضرائب",
       "tool": "view_settings",
-      "args": {"group": "tax"}
+      "args": {
+        "group": "tax"
+      }
     },
-
     {
       "id": "egy-26-1",
       "text": "وريني ترقيم فواتير المبيعات",
       "tool": "view_document_numbering",
-      "args": {"type": "invoice"}
+      "args": {
+        "type": "invoice"
+      }
     },
     {
       "id": "egy-26-2",
       "text": "إيه بادئة فواتير المبيعات دلوقتي؟",
       "tool": "view_document_numbering",
-      "args": {"type": "invoice"}
+      "args": {
+        "type": "invoice"
+      }
     },
     {
       "id": "egy-26-3",
       "text": "اعرض إعدادات رقم الفاتورة",
       "tool": "view_document_numbering",
-      "args": {"type": "invoice"}
+      "args": {
+        "type": "invoice"
+      }
     },
-
     {
       "id": "egy-27-1",
       "text": "غيّر بادئة أوامر الشراء لـ PO-",
       "tool": "update_document_numbering",
-      "args": {"type": "purchase_order", "prefix": "PO-"}
+      "args": {
+        "type": "purchase_order",
+        "prefix": "PO-"
+      }
     },
     {
       "id": "egy-27-2",
       "text": "خلي بادئة أمر الشراء PO- بدل ما هي عليه",
       "tool": "update_document_numbering",
-      "args": {"type": "purchase_order", "prefix": "PO-"}
+      "args": {
+        "type": "purchase_order",
+        "prefix": "PO-"
+      }
     },
     {
       "id": "egy-27-3",
       "text": "عدّل بريفكس purchase order يبقى PO-",
       "tool": "update_document_numbering",
-      "args": {"type": "purchase_order", "prefix": "PO-"}
+      "args": {
+        "type": "purchase_order",
+        "prefix": "PO-"
+      }
     },
-
     {
       "id": "egy-28-1",
       "text": "خلي نافذة الإرجاع 30 يوم",
       "tool": "update_settings",
-      "args": {"changes": {"return_window_days": 30}}
+      "args": {
+        "changes": {
+          "return_window_days": 30
+        }
+      }
     },
     {
       "id": "egy-28-2",
       "text": "غيّر مدة الإرجاع لـ 30 يوم بدل 14",
       "tool": "update_settings",
-      "args": {"changes": {"return_window_days": 30}}
+      "args": {
+        "changes": {
+          "return_window_days": 30
+        }
+      }
     },
     {
       "id": "egy-28-3",
       "text": "عدّل سياسة الإرجاع تبقى 30 يوم",
       "tool": "update_settings",
-      "args": {"changes": {"return_window_days": 30}}
+      "args": {
+        "changes": {
+          "return_window_days": 30
+        }
+      }
+    },
+    {
+      "id": "egy-29-1-1",
+      "text": "مين التجار اللي مستنيين اعتماد من أكتر من يومين؟",
+      "tool": "list_customers",
+      "args": {
+        "status": "pending",
+        "pending_older_than_hours": 48
+      }
+    },
+    {
+      "id": "egy-29-1-2",
+      "text": "فيه تجار طلباتهم معلقة بقالها أكتر من 48 ساعة؟",
+      "tool": "list_customers",
+      "args": {
+        "status": "pending",
+        "pending_older_than_hours": 48
+      }
+    },
+    {
+      "id": "egy-29-1-3",
+      "text": "وريني الطلبات المعلقة المتأخرة عن يومين",
+      "tool": "list_customers",
+      "args": {
+        "status": "pending",
+        "pending_older_than_hours": 48
+      }
+    },
+    {
+      "id": "egy-29-2-1",
+      "text": "شركة النور جاهزة تتعمد؟",
+      "tool": "review_dealer_application",
+      "args": {
+        "customer_id": 31
+      }
+    },
+    {
+      "id": "egy-29-2-2",
+      "text": "راجع طلب شركة النور وقولي ينفع نعتمده ولا لأ",
+      "tool": "review_dealer_application",
+      "args": {
+        "customer_id": 31
+      }
+    },
+    {
+      "id": "egy-29-2-3",
+      "text": "هل طلب شركة النور مستوفي؟",
+      "tool": "review_dealer_application",
+      "args": {
+        "customer_id": 31
+      }
+    },
+    {
+      "id": "egy-29-3-1",
+      "text": "اعتمد شركة النور وحطها في مجموعة الجملة الذهبية بحد 50 ألف",
+      "tool": "approve_dealer_application",
+      "args": {
+        "customer_id": 31,
+        "credit_limit": 50000
+      }
+    },
+    {
+      "id": "egy-29-3-2",
+      "text": "وافق على شركة النور بحد ائتمان 50000 في الجملة الذهبية",
+      "tool": "approve_dealer_application",
+      "args": {
+        "customer_id": 31,
+        "credit_limit": 50000
+      }
+    },
+    {
+      "id": "egy-29-3-3",
+      "text": "اعتمد طلب شركة النور بحد خمسين ألف",
+      "tool": "approve_dealer_application",
+      "args": {
+        "customer_id": 31,
+        "credit_limit": 50000
+      }
+    },
+    {
+      "id": "egy-29-4-1",
+      "text": "ارفض طلب ٠١٠١٢٣٤٥٦٧٨ عشان السجل التجاري منتهي",
+      "tool": "reject_dealer_application",
+      "args": {
+        "customer_id": 31
+      }
+    },
+    {
+      "id": "egy-29-4-2",
+      "text": "ارفض طلب التاجر رقم 01012345678 بسبب إن السجل التجاري منتهي",
+      "tool": "reject_dealer_application",
+      "args": {
+        "customer_id": 31
+      }
+    },
+    {
+      "id": "egy-29-5-1",
+      "text": "وقف حساب التاجر ده",
+      "tool": "ask_user_to_choose",
+      "args": {
+        "entity_type": "customer"
+      }
+    },
+    {
+      "id": "egy-29-5-2",
+      "text": "اوقف حساب العميل ده",
+      "tool": "ask_user_to_choose",
+      "args": {
+        "entity_type": "customer"
+      }
+    },
+    {
+      "id": "egy-29-6-1",
+      "text": "امسح العميل ده",
+      "tool": null,
+      "args": {}
+    },
+    {
+      "id": "egy-29-6-2",
+      "text": "احذف التاجر ده نهائي من النظام",
+      "tool": null,
+      "args": {}
+    },
+    {
+      "id": "egy-29-7-1",
+      "text": "راجع الطلبات",
+      "tool": "list_customers",
+      "args": {}
+    },
+    {
+      "id": "egy-29-7-2",
+      "text": "عايز أشوف طلبات التجار الجديدة",
+      "tool": "list_customers",
+      "args": {}
+    },
+    {
+      "id": "egy-29-8-1",
+      "text": "وريني مجموعات العملاء",
+      "tool": "list_customer_groups",
+      "args": {}
+    },
+    {
+      "id": "egy-29-8-2",
+      "text": "فيه مجموعات عملاء إيه عندنا ونسبة خصم كل واحدة؟",
+      "tool": "list_customer_groups",
+      "args": {}
+    },
+    {
+      "id": "egy-29-9-1",
+      "text": "وريني سجل تغييرات شركة النور",
+      "tool": "customer_history",
+      "args": {
+        "customer_id": 31
+      }
+    },
+    {
+      "id": "egy-29-9-2",
+      "text": "مين عدّل في ملف شركة النور قبل كده؟",
+      "tool": "customer_history",
+      "args": {
+        "customer_id": 31
+      }
+    },
+    {
+      "id": "egy-29-10-1",
+      "text": "فيه تجار مكررين لشركة النور؟",
+      "tool": "find_duplicate_customers",
+      "args": {
+        "customer_id": 31
+      }
+    },
+    {
+      "id": "egy-29-10-2",
+      "text": "شوفلي لو شركة النور مسجلة قبل كده بحساب تاني",
+      "tool": "find_duplicate_customers",
+      "args": {
+        "customer_id": 31
+      }
+    },
+    {
+      "id": "egy-29-11-1",
+      "text": "ملخص طابور التجار النهارده",
+      "tool": "dealer_queue_summary",
+      "args": {}
+    },
+    {
+      "id": "egy-29-11-2",
+      "text": "كام طلب تاجر متأخر وكام جاهز للاعتماد؟",
+      "tool": "dealer_queue_summary",
+      "args": {}
+    },
+    {
+      "id": "egy-29-12-1",
+      "text": "ارجّع حساب مؤسسة الصفا",
+      "tool": "reactivate_customer",
+      "args": {
+        "customer_id": 34
+      }
+    },
+    {
+      "id": "egy-29-12-2",
+      "text": "فعّل مؤسسة الصفا تاني بعد الإيقاف",
+      "tool": "reactivate_customer",
+      "args": {
+        "customer_id": 34
+      }
+    },
+    {
+      "id": "egy-29-13-1",
+      "text": "حط شركة الأمل في مجموعة VIP",
+      "tool": "set_customer_group",
+      "args": {
+        "customer_id": 32,
+        "customer_group_id": 6
+      }
+    },
+    {
+      "id": "egy-29-13-2",
+      "text": "انقل شركة الأمل للتجارة لمجموعة VIP",
+      "tool": "set_customer_group",
+      "args": {
+        "customer_id": 32,
+        "customer_group_id": 6
+      }
+    },
+    {
+      "id": "egy-29-14-1",
+      "text": "خلي حد ائتمان شركة الأمل 20 ألف",
+      "tool": "set_credit_limit",
+      "args": {
+        "customer_id": 32,
+        "credit_limit": 20000
+      }
     }
   ]
 }

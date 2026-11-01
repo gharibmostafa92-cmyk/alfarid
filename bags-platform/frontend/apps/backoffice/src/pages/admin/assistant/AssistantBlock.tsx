@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { isSensitive, permLabel } from '../admin-mock/api/permission-catalog';
+import { defaultApiClient } from '@alfarid/api-client';
 import type { UiBlock } from './api';
 import { Icon, Ring, entityIcon, entityLabel } from './icons';
 
@@ -10,14 +11,36 @@ interface Props {
   execute: boolean;
   onPick: (entity: string, id: string | number, label: string) => void;
   onAction: (kind: 'confirm' | 'cancel' | 'undo', id: string, typed?: string, selected?: string[]) => void;
+  /** يملأ صندوق الكتابة برسالة جاهزة (مثلاً زرار «جهّز الاعتماد»). */
+  onPrompt?: (text: string) => void;
 }
 
-const fieldLabels: Record<string, string> = { is_active: 'حالة التفعيل', name: 'الاسم', code: 'الكود', roles: 'الأدوار', permissions: 'الصلاحيات', email: 'البريد الإلكتروني', branch_id: 'الفرع', type: 'نوع الفرع', city: 'المدينة', phone: 'الهاتف' };
+const fieldLabels: Record<string, string> = { is_active: 'حالة التفعيل', name: 'الاسم', code: 'الكود', roles: 'الأدوار', permissions: 'الصلاحيات', email: 'البريد الإلكتروني', branch_id: 'الفرع', type: 'نوع الفرع', city: 'المدينة', phone: 'الهاتف', status: 'الحالة', credit_limit: 'حد الائتمان', used_credit: 'المستخدم من الائتمان', customer_group: 'المجموعة', customer_group_id: 'المجموعة', company: 'بيانات الشركة', company_name: 'اسم الشركة', tax_number: 'الرقم الضريبي', commercial_register: 'السجل التجاري', rejection_reason: 'سبب الرفض', suspension_reason: 'سبب الإيقاف', previous_status: 'الحالة السابقة', documents_to_reject: 'مستندات هتترفض' };
+const customerStatusLabels: Record<string, string> = { pending: 'قيد المراجعة', approved: 'معتمد', rejected: 'مرفوض', suspended: 'موقوف' };
+const customerTypeLabels: Record<string, string> = { retail: 'تجزئة', wholesale: 'جملة', distributor: 'موزّع' };
+const statusBadgeTone: Record<string, string> = { pending: 'warning', approved: 'success', rejected: 'danger', suspended: 'danger' };
+const verdictMeta: Record<string, { label: string; tone: string }> = { ready: { label: 'جاهز للاعتماد', tone: 'success' }, blocked: { label: 'متعطّل (blocked)', tone: 'danger' }, needs_attention: { label: 'محتاج انتباه', tone: 'warning' } };
+const severityRank: Record<string, number> = { blocker: 0, warning: 1, info: 2 };
+const severityLabel: Record<string, string> = { blocker: 'مانع', warning: 'تحذير', info: 'معلومة' };
+// الحقول اللي بتتعرض في أقسام مخصصة وماينفعش تتعرض كجدول قبل/بعد.
+const sectionOnlyKeys = ['documents_to_verify', 'suggestion'];
+function stripSections(v: unknown): unknown {
+  const r = asRecord(v);
+  if (!r) return v;
+  return Object.fromEntries(Object.entries(r).filter(([k]) => !sectionOnlyKeys.includes(k)));
+}
+const money = (n: unknown) => Number(n ?? 0).toLocaleString('ar-EG', { maximumFractionDigits: 2 });
 const statusLabels: Record<string, string> = { executed: 'تم التنفيذ', cancelled: 'تم الإلغاء', failed: 'فشل التنفيذ', expired: 'انتهت المهلة', undone: 'تم التراجع' };
 const statusTone: Record<string, string> = { executed: 'success', cancelled: '', failed: 'danger', expired: 'warning', undone: 'info' };
 
 function formatValue(key: string, item: unknown): string {
   if (key === 'is_active') return item ? 'نشط' : 'متوقف';
+  if (key === 'status' || key === 'previous_status') return customerStatusLabels[String(item)] ?? String(item ?? 'بدون');
+  if (key === 'credit_limit' || key === 'used_credit') return money(item);
+  if (item && typeof item === 'object' && !Array.isArray(item)) {
+    const parts = Object.entries(item as Record<string, unknown>).filter(([, v]) => v != null && v !== '').map(([k, v]) => `${fieldLabels[k] ?? k}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`);
+    return parts.join(' · ') || 'بدون';
+  }
   if (Array.isArray(item)) return item.map(String).map(v => (key === 'permissions' ? permLabel(v) : v)).join('، ') || 'بدون';
   if (item == null || item === '') return 'بدون';
   return String(item);
@@ -68,7 +91,16 @@ function DiffTable({ before, after }: { before: unknown; after: unknown }) {
 
 const fmtClock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
-export default function AssistantBlock({ block, busy, status, execute, onPick, onAction }: Props) {
+async function downloadDocument(url: string, name: string) {
+  const r = await defaultApiClient.get(url, { responseType: 'blob' });
+  const href = URL.createObjectURL(r.data as Blob);
+  const a = document.createElement('a');
+  a.href = href; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(href), 1000);
+}
+
+export default function AssistantBlock({ block, busy, status, execute, onPick, onAction, onPrompt }: Props) {
+  const [dlError, setDlError] = useState('');
   const [typed, setTyped] = useState('');
   const [query, setQuery] = useState('');
   const [now, setNow] = useState(Date.now());
@@ -86,6 +118,92 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
   }, [block.expires_at, block.undo_available_until]);
 
   const options = useMemo(() => (block.options ?? []) as { id: string | number; label: string; meta?: string; disabled?: string }[], [block.options]);
+
+  /* ---------------- Checklist (فحص طلب تاجر) ---------------- */
+  if (block.type === 'checklist') {
+    const checks = ((block.checks ?? []) as { key: string; ok: boolean; severity: string; message: string }[])
+      .map((c, i) => ({ ...c, i }))
+      .sort((a, b) => (Number(a.ok) - Number(b.ok)) || ((severityRank[a.severity] ?? 3) - (severityRank[b.severity] ?? 3)) || a.i - b.i);
+    const verdict = String(block.verdict ?? 'blocked');
+    const meta = verdictMeta[verdict] ?? verdictMeta.blocked;
+    const suggestion = asRecord(block.suggestion);
+    return (
+      <section className="as-block" aria-label="فحص طلب التاجر" data-verdict={verdict}>
+        <header className="as-block-head">
+          <span className="as-block-ic"><Icon name={verdict === 'ready' ? 'check' : verdict === 'blocked' ? 'alert' : 'shield'} /></span>
+          <div className="as-block-title"><h3>فحص طلب التاجر</h3><span>{checks.filter(c => !c.ok).length} ملاحظة من {checks.length} فحص</span></div>
+          <span className={`as-badge as-badge--${meta.tone}`}>{meta.label}</span>
+        </header>
+        <div className="as-block-body">
+          <ul className="as-result-list">
+            {checks.map(c => (
+              <li key={c.key} data-ok={c.ok}>
+                <Icon name={c.ok ? 'check' : c.severity === 'blocker' ? 'x' : 'alert'} size={15} />
+                <span>{c.message} {!c.ok && <span className={`as-badge as-badge--${c.severity === 'blocker' ? 'danger' : c.severity === 'warning' ? 'warning' : 'info'}`}>{severityLabel[c.severity] ?? c.severity}</span>}</span>
+              </li>
+            ))}
+          </ul>
+          {suggestion && typeof suggestion.source === 'string' && <div className="as-alert as-alert--info" role="note"><Icon name="info" size={16} /><div className="as-alert-body"><span>{suggestion.source}</span></div></div>}
+        </div>
+        {verdict === 'ready' && onPrompt && block.customer_id != null && (
+          <footer className="as-block-foot">
+            <button type="button" className="as-btn as-btn--primary" disabled={busy || !execute} onClick={() => onPrompt(`جهّز اعتماد التاجر رقم ${String(block.customer_id)}`)}><Icon name="check" size={16} />جهّز الاعتماد</button>
+          </footer>
+        )}
+      </section>
+    );
+  }
+
+  /* ---------------- Customer card ---------------- */
+  if (block.type === 'customer_card') {
+    const limit = Number(block.credit_limit ?? 0);
+    const used = Number(block.used_credit ?? 0);
+    const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+    const high = limit > 0 && used / limit > 0.9;
+    const docs = asRecord(block.documents_counts) ?? {};
+    const st = String(block.status ?? '');
+    const link = typeof block.deep_link === 'string' && /^\/(dealers|pricing)(\?|$)/.test(block.deep_link) ? block.deep_link : undefined;
+    return (
+      <section className="as-block" aria-label="كارت العميل">
+        <header className="as-block-head">
+          <span className="as-block-ic"><Icon name="store" /></span>
+          <div className="as-block-title"><h3>{String(block.name ?? '')}</h3><span>{String(block.company_name ?? 'بدون شركة')} · {customerTypeLabels[String(block.customer_type ?? block.type)] ?? String(block.customer_type ?? block.type ?? '')}</span></div>
+          <span className={`as-badge as-badge--${statusBadgeTone[st] ?? ''}`}>{customerStatusLabels[st] ?? st}</span>
+        </header>
+        <div className="as-block-body">
+          <dl className="as-diff"><div className="as-diff-row"><dt>المجموعة</dt><dd>{String(block.group ?? 'بدون')}</dd></div><div className="as-diff-row"><dt>المستندات</dt><dd>{String(docs.total ?? 0)} (موثّق {String(docs.verified ?? 0)} · معلّق {String(docs.pending ?? 0)} · مرفوض {String(docs.rejected ?? 0)})</dd></div></dl>
+          <div role="group" aria-label="استخدام حد الائتمان">
+            <div className="as-num" style={{ fontSize: '.82rem', marginBottom: '.25rem' }}>الائتمان: {money(used)} من {money(limit)} {limit > 0 ? `(${pct}%)` : ''}</div>
+            <div className="as-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}><span style={{ width: `${pct}%`, background: high ? 'var(--as-danger)' : undefined }} /></div>
+            {high && <span className="as-badge as-badge--danger" style={{ marginTop: '.3rem' }}><Icon name="alert" size={12} />فوق 90% من الحد</span>}
+          </div>
+        </div>
+        {link && <footer className="as-block-foot"><a className="as-btn as-btn--sm" href={`#${link}`} style={{ textDecoration: 'none' }}><Icon name="external" size={15} />افتح في شاشة التجار</a></footer>}
+      </section>
+    );
+  }
+
+  /* ---------------- Welcome card (ملخص طابور التجار — بدون Gemini) ---------------- */
+  if (block.type === 'welcome_card') {
+    const rows = (block.rows ?? []) as { label: string; value: number }[];
+    return (
+      <section className="as-block" aria-label="ملخص طابور التجار">
+        <header className="as-block-head">
+          <span className="as-block-ic"><Icon name="store" /></span>
+          <div className="as-block-title"><h3>{String(block.title ?? 'ملخص طابور التجار')}</h3><span>جاهز من غير أي تكلفة توكنز</span></div>
+        </header>
+        <div className="as-block-body">
+          <dl className="as-diff">{rows.map(r => <div className="as-diff-row" key={r.label}><dt>{r.label}</dt><dd className="as-num">{r.value}</dd></div>)}</dl>
+        </div>
+        {onPrompt && (
+          <footer className="as-block-foot">
+            <button type="button" className="as-btn as-btn--sm" onClick={() => onPrompt('طلبات التجار المتأخرة')}>المتأخرين</button>
+            <button type="button" className="as-btn as-btn--sm" onClick={() => onPrompt('مين جاهز للاعتماد؟')}>الجاهزين للاعتماد</button>
+          </footer>
+        )}
+      </section>
+    );
+  }
 
   /* ---------------- Entity picker ---------------- */
   if (block.type === 'entity_picker') {
@@ -159,6 +277,9 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
     const icon = block.type === 'permission_diff' ? 'key' : block.type === 'bulk_plan' ? 'layers' : 'shield';
     const kindLabel = block.type === 'permission_diff' ? 'تعديل صلاحيات' : block.type === 'bulk_plan' ? 'عملية جماعية' : 'تعديل يحتاج تأكيد';
     const allOn = selected.length === items.length;
+    const afterRec = asRecord(block.after);
+    const docsToVerify = (Array.isArray(afterRec?.documents_to_verify) ? afterRec!.documents_to_verify : []) as { id: number; name?: string; download_url?: string }[];
+    const afterSuggestion = asRecord(afterRec?.suggestion);
 
     return (
       <section className="as-block" aria-label="مراجعة وتأكيد العملية" data-state={state} data-sensitive={pending && !expired && sensitive}>
@@ -230,7 +351,25 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
             </fieldset>
           )}
 
-          {block.type === 'confirm_action' && Boolean(block.before || block.after) && <DiffTable before={block.before} after={block.after} />}
+          {block.type === 'confirm_action' && Boolean(block.before || block.after) && <DiffTable before={stripSections(block.before)} after={stripSections(block.after)} />}
+
+          {block.type === 'confirm_action' && docsToVerify.length > 0 && (
+            <div className="as-diff" aria-label="المستندات اللي هتتوثق">
+              <div className="as-diff-head"><span>المستندات اللي هتتوثق</span><span /></div>
+              <dl>
+                {docsToVerify.map(d => (
+                  <div className="as-diff-row" key={d.id}>
+                    <dt>{d.name || `مستند #${d.id}`}</dt>
+                    <dd>{d.download_url && <button type="button" className="as-btn as-btn--sm" disabled={busy} onClick={() => { setDlError(''); downloadDocument(d.download_url!, d.name || `document-${d.id}`).catch(() => setDlError('تعذّر تنزيل المستند.')); }}><Icon name="arrowDown" size={14} />تنزيل</button>}</dd>
+                  </div>
+                ))}
+              </dl>
+              {dlError && <div className="as-alert as-alert--danger" role="alert"><Icon name="alert" size={16} /><div className="as-alert-body"><span>{dlError}</span></div></div>}
+            </div>
+          )}
+          {block.type === 'confirm_action' && typeof afterSuggestion?.source === 'string' && (
+            <div className="as-alert as-alert--info" role="note"><Icon name="info" size={16} /><div className="as-alert-body"><span>{afterSuggestion.source}</span></div></div>
+          )}
 
           {warnings.map((w, i) => (
             <div className="as-alert as-alert--warning" role="note" key={i}>
@@ -290,7 +429,7 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
   /* ---------------- Result ---------------- */
   if (block.type === 'result') {
     // L7: روابط الفروع والمواقع كانت تُسقط — الـ regex يقبلها الآن.
-    const link = typeof block.deep_link === 'string' && /^\/(users|roles|settings|branches)(\?|$)/.test(block.deep_link) ? block.deep_link : undefined;
+    const link = typeof block.deep_link === 'string' && /^\/(users|roles|settings|branches|dealers|pricing)(\?|$)/.test(block.deep_link) ? block.deep_link : undefined;
     const undo = typeof block.undo_action_id === 'string' ? block.undo_action_id : undefined;
     const undoUntil = Date.parse(String(block.undo_available_until));
     const undoSec = Math.max(0, Math.ceil((undoUntil - now) / 1000));

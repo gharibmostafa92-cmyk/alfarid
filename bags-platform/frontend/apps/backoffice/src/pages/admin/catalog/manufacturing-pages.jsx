@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { defaultApiClient as api } from '@alfarid/api-client';
 import { formatCurrency, formatDate, CustomerStatusLabelsAr as statuses, CustomerTypeLabelsAr as types } from '@alfarid/utils';
 import { useApi } from './useApi';
@@ -11,7 +11,9 @@ const get = (path, params, signal) => api.get(base + path, { params, signal }).t
 export function DealersPage() {
   const { user: { can } } = useApp();
   const [q, setQ] = useQueryState({ search: '', type: '', status: '', page: 1, per_page: 15 });
-  const query = useApi(signal => get('/customers', { ...q, business_only: 1 }, signal), [JSON.stringify(q)]);
+  // 4.3: deep link من المساعد — #/dealers?customer={id} يفتح الـ drawer تلقائيًا (ومش بيتبعت للـ API كفلتر).
+  const { customer: deepLinkId, ...listQuery } = q;
+  const query = useApi(signal => get('/customers', { ...listQuery, business_only: 1 }, signal), [JSON.stringify(listQuery)]);
   const [draft, setDraft] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -19,6 +21,13 @@ export function DealersPage() {
   const [reason, setReason] = useState('');
   const detail = useApi(signal => draft?.id ? get('/customers/' + draft.id, {}, signal) : Promise.resolve(null), [draft?.id]);
   const set = (key, value) => setDraft(d => ({ ...d, [key]: value }));
+  useEffect(() => {
+    const id = Number(deepLinkId);
+    if (!Number.isInteger(id) || id <= 0) return;
+    let live = true;
+    get('/customers/' + id).then(res => { if (live && res?.data) { setError(null); setDraft({ ...res.data, password: '' }); } }).catch(() => { if (live) vtoast('تعذّر فتح حساب التاجر'); }).finally(() => { if (live) setQ({ customer: '' }); });
+    return () => { live = false; };
+  }, [deepLinkId]);
   const open = row => { setError(null); setDraft(row ? { ...row, password: '' } : { name: '', phone: '', email: '', password: '', type: 'wholesale', company_name: '', tax_number: '', commercial_register: '', credit_limit: '0' }); };
   const save = async () => {
     if (busy) return;
@@ -69,6 +78,7 @@ export function DealersPage() {
         {!draft.id && <Banner tone="amber">الحساب بيتسجل قيد المراجعة. الاعتماد بيتم بعد استكمال بيانات الشركة ومراجعة المستندات.</Banner>}
         {draft.id && detail.loading && <Spinner />}
         {draft.id && detail.error && <ErrorState title={detail.error.message} onRetry={detail.reload} />}
+        {draft.id && can('ai_agent.use') && <div><button type="button" className="btn btn-outline" onClick={() => { const name = draft.name || draft.company_name || ''; const params = new URLSearchParams({ seed: 'راجع طلب $' + name + ' وقولي جاهز للاعتماد ولا لأ', mention_entity: 'customer', mention_id: String(draft.id), mention_label: name }); window.location.hash = '/assistant?' + params.toString(); }}>اسأل المساعد</button></div>}
         {detail.data?.data && <>
           <div className="text-sm t-2">الحالة: {statuses[detail.data.data.status]}{detail.data.data.rejection_reason && ' — ' + detail.data.data.rejection_reason}{detail.data.data.suspension_reason && ' — ' + detail.data.data.suspension_reason}</div>
           {can('customers.documents.view') && <SectionCard title="مستندات التاجر">

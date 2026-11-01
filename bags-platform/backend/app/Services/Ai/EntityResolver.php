@@ -275,6 +275,9 @@ final class EntityResolver
         };
         abort_unless($model, 422, 'الاختيار مش موجود أو خارج نطاقك.');
 
-        return ['entity' => $type, 'id' => $type === 'permission' ? $model->name : $model->id, 'label' => $model->name];
+        // اسم العميل كتبه العميل بنفسه ورايح للنموذج كمرجع: نشيل رموز التحكم ونحدّ الطول.
+        $label = in_array($type, ['customer', 'customer_group'], true) ? mb_substr((string) preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string) $model->name), 0, 120) : $model->name;
+
+        return ['entity' => $type, 'id' => $type === 'permission' ? $model->name : $model->id, 'label' => $label];
     }
 }

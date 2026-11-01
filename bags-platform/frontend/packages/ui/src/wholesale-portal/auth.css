@@ -291,3 +291,4 @@
 .pill-btn-primary { white-space: nowrap; gap: 10px; }
 .as-docs small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
 .as-block-title { white-space: nowrap; }
+.as-docs li.is-rej { flex-wrap: wrap; }

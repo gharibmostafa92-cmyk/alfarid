@@ -37,5 +37,6 @@ export const assistantApi = {
     api.post<{ data: { ok: boolean; message: string; result: Record<string, unknown>; ui_block: UiBlock; status: string } }>(`${BASE}/actions/${actionId}/confirm`, { typed_confirmation, selected_items }).then(r => r.data.data),
   cancel: (actionId: string) => api.post<{ data: { status: string } }>(`${BASE}/actions/${actionId}/cancel`).then(r => r.data.data),
   undo: (actionId: string) => api.post<{ data: { ok: boolean; message: string; status: string } }>(`${BASE}/actions/${actionId}/undo`).then(r => r.data.data),
+  welcome: () => api.get<{ data: UiBlock | null }>(`${BASE}/welcome`).then(r => r.data.data),
   mentions: (q: string) => api.get<{ data: Record<string, { id: number | string; label: string; meta?: string }[]> }>(`${BASE}/mentions`, { params: { q } }).then(r => r.data.data),
 };
