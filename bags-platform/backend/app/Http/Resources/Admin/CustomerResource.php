@@ -45,6 +45,7 @@ class CustomerResource extends JsonResource
                 'mime_type' => $document->mime_type,
                 'reviewed_by' => $document->reviewed_by,
                 'reviewed_at' => $document->reviewed_at,
+                'review_note' => $document->review_note,
                 // تنزيل محمي بصلاحيات الأدمن من التخزين الخاص — لا رابط عام
                 'download_url' => route('admin.customers.documents.download', ['customer' => $this->id, 'document' => $document->id]),
                 'created_at' => $document->created_at,

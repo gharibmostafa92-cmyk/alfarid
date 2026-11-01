@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace App\Services\Ai;
 
 use App\Models\Branch;
+use App\Models\Customer;
+use App\Models\CustomerGroup;
 use App\Models\Location;
 use App\Models\User;
 use App\Services\BranchAccess;
 use App\Services\SearchTerm;
+use App\Services\StaffAdministration;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
@@ -46,6 +49,7 @@ final class EntityResolver
         if ($restricted === -1) {
             return [];
         }
+
         // M6/L5: الفلترة في SQL (ILIKE محمي بـ SearchTerm::escape) مع LIMIT —
         // استعلام بلا نتيجة ما يمسحش الجدول كله ولا يعمل ذاكرة lazy.
         return Branch::query()->withCount('users')
@@ -108,6 +112,7 @@ final class EntityResolver
         if ($restricted === -1) {
             return [];
         }
+
         // M1: قيد الفرع يطبق أولًا — مقيّد بفرع ما يقدرش يوجّه branch_id لفرع تاني.
         // M6/L5: نفس الفلترة السلكية المحمية مع LIMIT.
         return Location::query()
@@ -129,12 +134,95 @@ final class EntityResolver
 
     public function maskEmail(?string $email): string
     {
-        if (! $email || ! str_contains($email, '@')) {
-            return '';
-        }
-        [$local, $domain] = explode('@', $email, 2);
+        // مصدر واحد للقناع: StaffAdministration (حتى لا يتباين القناع
+        // بين التدقيق وعرض الكيانات).
+        return StaffAdministration::maskEmail($email);
+    }
 
-        return mb_substr($local, 0, 2).'***@'.$domain;
+    /** تقنيع رقم موبايل: 11 رقمًا يظهر أول 3 وآخر 3 فقط، غير كده ***. */
+    public static function maskPhone(?string $p): string
+    {
+        return $p && strlen($p) === 11 ? substr($p, 0, 3).'*****'.substr($p, -3) : '***';
+    }
+
+    /** تقنيع رقم ضريبي/سجل تجاري: أول حرفين وآخر حرفين فقط. */
+    public static function maskLegal(?string $v): ?string
+    {
+        if ($v === null || trim($v) === '') {
+            return null;
+        }
+        $v = trim($v);
+
+        return mb_strlen($v) <= 4 ? '***' : mb_substr($v, 0, 2).'***'.mb_substr($v, -2);
+    }
+
+    public static function statusLabel(string $status): string
+    {
+        return match ($status) {
+            'pending' => 'قيد المراجعة',
+            'approved' => 'معتمد',
+            'rejected' => 'مرفوض',
+            'suspended' => 'موقوف',
+            default => $status,
+        };
+    }
+
+    public static function typeLabel(string $type): string
+    {
+        return match ($type) {
+            'retail' => 'قطاعي',
+            'wholesale' => 'جملة',
+            'distributor' => 'موزع',
+            default => $type,
+        };
+    }
+
+    /**
+     * @return list<array{id:int,label:string,meta:string}>
+     *                                                      لا يوجد branch scoping هنا — مقصود، زي REST بالظبط
+     *                                                      (CustomerController مبيستخدمش BranchAccess).
+     */
+    public function customers(User $actor, string $query = '', array $filters = []): array
+    {
+        $q = Customer::query()
+            ->when(($filters['business_only'] ?? false), fn ($x) => $x->whereIn('type', ['wholesale', 'distributor']))
+            ->when(isset($filters['type']), fn ($x) => $x->where('type', $filters['type']))
+            ->when(isset($filters['status']), fn ($x) => $x->where('status', $filters['status']))
+            ->when(isset($filters['customer_group_id']), fn ($x) => $x->where('customer_group_id', $filters['customer_group_id']))
+            ->when(isset($filters['pending_older_than_hours']), fn ($x) => $x->where('status', 'pending')->where('created_at', '<', now()->subHours((int) $filters['pending_older_than_hours'])));
+        if (trim($query) !== '') {
+            // رقم موبايل (بما فيه الأرقام العربية) يُبحث بالبادئة بعد تطبيعه.
+            if (preg_match('/^[0-9٠-٩۰-۹\s().+-]+$/u', trim($query))) {
+                $q->whereLike('phone', SearchTerm::prefix(Customer::normalizePhone($query)), caseSensitive: false);
+            } else {
+                $q->whereLike('search_text', SearchTerm::pattern($query), caseSensitive: false);
+            }
+        }
+
+        return $q->orderBy('id')->limit(50)->get()
+            ->map(fn (Customer $c) => [
+                'id' => $c->id,
+                'label' => $c->company_name ? $c->name.' — '.$c->company_name : $c->name,
+                'meta' => self::maskPhone($c->phone).' · '.self::statusLabel($c->status->value).' · '.self::typeLabel($c->type->value),
+            ])
+            ->values()
+            ->all();
+    }
+
+    /** @return list<array{id:int,label:string,meta:string}> */
+    public function customerGroups(string $query = '', array $filters = []): array
+    {
+        return CustomerGroup::query()->withCount('customers')
+            ->when(array_key_exists('active', $filters), fn ($x) => $x->where('is_active', $filters['active']))
+            ->when(trim($query) !== '', fn ($x) => $x->where(fn ($w) => $w
+                ->where('name', 'ilike', SearchTerm::pattern($query))
+                ->orWhere('code', 'ilike', SearchTerm::pattern($query))))
+            ->orderBy('id')
+            ->limit(50)
+            ->get()
+            ->map(fn (CustomerGroup $g) => ['id' => $g->id, 'label' => $g->name.' ('.$g->code.')', 'meta' => 'خصم: '.$g->discount_percentage.'% · عملاء: '.$g->customers_count.($g->is_active ? '' : ' · متوقفة')])
+            ->values()
+            ->all();
     }
 
     /** @param list<string> $fields */
@@ -180,6 +268,9 @@ final class EntityResolver
             'role' => Role::query()->where('guard_name', 'staff')->find($id),
             'permission' => Permission::query()->where('guard_name', 'staff')->where('name', $id)->first(),
             'location' => Location::query()->when($branch !== null, fn ($q) => $q->where('branch_id', $branch))->find($id),
+            // العملاء بلا branch scoping — زي REST بالظبط.
+            'customer' => Customer::query()->find($id),
+            'customer_group' => CustomerGroup::query()->find($id),
             default => null,
         };
         abort_unless($model, 422, 'الاختيار مش موجود أو خارج نطاقك.');

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Api\V1\Admin;
 
+use App\Services\Ai\ToolRegistry;
 use App\Services\BranchAccess;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -58,7 +59,7 @@ class UpdateSettingsRequest extends FormRequest
             'ai_disabled_tools' => ['sometimes', 'array'],
             // L12: الأداة مقفولة مش تنسيق حر — الاسم لازم يكون في الـ registry
             // فعلًا، وإلا الغلطة الإملائية تعدي إعدادًا ميؤثر بلا سؤال.
-            'ai_disabled_tools.*' => ['string', 'max:100', Rule::in(array_keys(app(\App\Services\Ai\ToolRegistry::class)->definitions()))],
+            'ai_disabled_tools.*' => ['string', 'max:100', Rule::in(array_keys(app(ToolRegistry::class)->definitions()))],
             'ai_action_ttl_minutes' => ['sometimes', 'integer', 'min:1', 'max:1440'],
             'ai_retention_days' => ['sometimes', 'integer', 'min:1', 'max:3650'],
             'ai_bulk_max_items' => ['sometimes', 'integer', 'min:1', 'max:100'],

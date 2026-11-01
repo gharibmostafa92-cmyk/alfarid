@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
+use App\Actions\Locations\SetLocationStatus;
+use App\Enums\LocationType;
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Admin\StoreLocationRequest;
@@ -13,6 +15,7 @@ use App\Models\Branch;
 use App\Models\Location;
 use App\Models\StockLevel;
 use App\Services\BranchAccess;
+use App\Services\StaffAdministration;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
@@ -20,8 +23,6 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
-
-use App\Services\StaffAdministration;
 
 class LocationController extends Controller
 {
@@ -74,7 +75,7 @@ class LocationController extends Controller
         return LocationResource::make($location);
     }
 
-    public function update(UpdateLocationRequest $request, Branch $branch, Location $location, \App\Actions\Locations\SetLocationStatus $setStatus): LocationResource
+    public function update(UpdateLocationRequest $request, Branch $branch, Location $location, SetLocationStatus $setStatus): LocationResource
     {
         $this->authorizeLocation((int) $request->user()->id, $branch, $location);
         $validated = $request->validated();
@@ -87,35 +88,35 @@ class LocationController extends Controller
         // أرصدة — تغيير المعنى من غير تحذير أو سجل تدقيق.
         // M-1: سباق قيد فريد متزامن يُرجع 422 بدل 500.
         try {
-            $updated = DB::transaction(function () use ($request, $branch, $location, $validated): Location {
-            $locked = Location::query()->whereKey($location->getKey())->lockForUpdate()->firstOrFail();
-            $before = ['name' => $locked->name, 'code' => $locked->code, 'type' => $locked->type->value, 'is_active' => (bool) $locked->is_active];
-            $after = $before;
-            foreach (['name' => null, 'code' => null, 'is_active' => null] as $field => $_) {
-                if (array_key_exists($field, $validated)) {
-                    $after[$field] = $field === 'is_active' ? (bool) $validated[$field] : $validated[$field];
+            $updated = DB::transaction(function () use ($request, $location, $validated): Location {
+                $locked = Location::query()->whereKey($location->getKey())->lockForUpdate()->firstOrFail();
+                $before = ['name' => $locked->name, 'code' => $locked->code, 'type' => $locked->type->value, 'is_active' => (bool) $locked->is_active];
+                $after = $before;
+                foreach (['name' => null, 'code' => null, 'is_active' => null] as $field => $_) {
+                    if (array_key_exists($field, $validated)) {
+                        $after[$field] = $field === 'is_active' ? (bool) $validated[$field] : $validated[$field];
+                    }
                 }
-            }
-            if (isset($validated['type'])) {
-                $after['type'] = $validated['type'] instanceof \App\Enums\LocationType ? $validated['type']->value : (string) $validated['type'];
-                if ($after['type'] !== $before['type']) {
+                if (isset($validated['type'])) {
+                    $after['type'] = $validated['type'] instanceof LocationType ? $validated['type']->value : (string) $validated['type'];
+                    if ($after['type'] !== $before['type']) {
+                        $hasBalances = StockLevel::query()->where('location_id', $locked->getKey())->hasNonZeroBalance()->exists();
+                        abort_unless(! $hasBalances, 422, 'لا يمكن تغيير نوع الموقع وهو عليه أرصدة غير صفرية؛ صفّرها أولًا.');
+                    }
+                }
+                if (array_key_exists('is_active', $validated) && ! (bool) $validated['is_active']) {
                     $hasBalances = StockLevel::query()->where('location_id', $locked->getKey())->hasNonZeroBalance()->exists();
-                    abort_unless(! $hasBalances, 422, 'لا يمكن تغيير نوع الموقع وهو عليه أرصدة غير صفرية؛ صفّرها أولًا.');
+                    abort_unless(! $hasBalances, 422, 'لا يمكن تعطيل الموقع وهو عليه أرصدة غير صفرية.');
                 }
-            }
-            if (array_key_exists('is_active', $validated) && ! (bool) $validated['is_active']) {
-                $hasBalances = StockLevel::query()->where('location_id', $locked->getKey())->hasNonZeroBalance()->exists();
-                abort_unless(! $hasBalances, 422, 'لا يمكن تعطيل الموقع وهو عليه أرصدة غير صفرية.');
-            }
-            if (array_key_exists('is_active', $validated) && (bool) $validated['is_active']
-                && ! (bool) \App\Models\Branch::query()->find($locked->branch_id)?->is_active) {
-                abort(422, 'لا يمكن تفعيل موقع داخل فرع متوقف.');
-            }
-            $locked->update($validated);
-            StaffAdministration::audit($request->user('staff'), 'location.updated', 'location', $locked->getKey(),
-                array_keys($validated), $before, $after, via: ['channel' => 'rest']);
+                if (array_key_exists('is_active', $validated) && (bool) $validated['is_active']
+                    && ! (bool) Branch::query()->find($locked->branch_id)?->is_active) {
+                    abort(422, 'لا يمكن تفعيل موقع داخل فرع متوقف.');
+                }
+                $locked->update($validated);
+                StaffAdministration::audit($request->user('staff'), 'location.updated', 'location', $locked->getKey(),
+                    array_keys($validated), $before, $after, via: ['channel' => 'rest']);
 
-            return $locked;
+                return $locked;
             });
         } catch (UniqueConstraintViolationException) {
             abort(422, 'كود الموقع مستخدم بالفعل في هذا الفرع.');
@@ -130,6 +131,8 @@ class LocationController extends Controller
 
         try {
             $deleted = DB::transaction(function () use ($request, $branch, $location): bool {
+                // L-6: ترتيب القفل موحّد مع lockLevels (أرصدة أولًا ثم
+                // موقع بـ SHARE) — انظر DeleteBranch.
                 StockLevel::query()->where('location_id', $location->getKey())
                     ->orderBy('branch_id')
                     ->orderByRaw('location_id ASC NULLS FIRST')

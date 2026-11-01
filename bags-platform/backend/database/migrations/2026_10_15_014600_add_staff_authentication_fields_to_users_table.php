@@ -27,12 +27,22 @@ return new class extends Migration
 
     public function down(): void
     {
-        foreach (['phone', 'branch_id', 'is_active'] as $column) {
-            if (Schema::hasColumn('users', $column)) {
-                Schema::table('users', function (Blueprint $table) use ($column): void {
-                    $table->dropColumn($column);
-                });
+        // L-4: الـ up() يضيف الأعمدة بشرط hasColumn لأنها قد توجد
+        // أصلًا قبل الـ migration. الـ down() القديم كان يحذف الثلاثة
+        // من غير شرط، فيضيّع phone لو كان موجودًا قبلها (عمود بيانات
+        // قديم لا تملكه هذه الـ migration). phone لا يُحذف أبدًا هنا،
+        // وbranch_id/is_active يُحذفان فقط إن وُجدا.
+        Schema::table('users', function (Blueprint $table): void {
+            $drop = [];
+            if (Schema::hasColumn('users', 'branch_id')) {
+                $drop[] = 'branch_id';
             }
-        }
+            if (Schema::hasColumn('users', 'is_active')) {
+                $drop[] = 'is_active';
+            }
+            if ($drop !== []) {
+                $table->dropColumn($drop);
+            }
+        });
     }
 };

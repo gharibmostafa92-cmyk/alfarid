@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Ai;
 
-use App\Models\AiMessage;
 use App\Exceptions\BusinessException;
+use App\Models\AiMessage;
 use App\Models\AiPendingAction;
 use App\Models\Branch;
 use App\Models\User;
@@ -87,7 +87,13 @@ final class PendingActionService
         foreach ($claim['selected'] as $id) {
             $child = AiPendingAction::query()->where('conversation_id', $action->conversation_id)->where('user_id', $actor->id)->findOrFail($id);
             try {
-                $outcome = $this->confirm($actor, $child);
+                // M-5: set_branch_status خرج من الـ bulk نهائيًا (كان نص
+                // "تنفيذ" واحد يؤكد تعطيل فروع، والحماية بالكود المكتوب
+                // تُلغى من السيرفر بتعبئة تلقائية — residual risk M10).
+                // لا تعبئة تلقائية لأي نص تأكيد هنا: أي عنصر عالي الخطورة
+                // في مجموعة قديمة بلا نص مدخل من المستخدم يفشل برسالة
+                // واضحة بدل تنفيذه بتعبئة من السيرفر.
+                $outcome = $this->confirm($actor, $child, null);
                 $results[] = ['action_id' => $id, 'ok' => $outcome->type === 'result', 'message' => $outcome->message];
             } catch (QueryException $e) {
                 if (! $this->isRetryableLockFailure($e)) {
@@ -220,6 +226,37 @@ final class PendingActionService
                 throw $e;
             }
             throw $e;
+        } catch (AuthorizationException) {
+            // M-3: رفض التفويض (assertCentralAccess/assertBranch داخل
+            // CreateBranch/UpdateBranch/execCreateLocation) كان يفلت من
+            // الـ catch فيرجع 500 ويبقى الإجراء pending للأبد.
+            $this->markFailed($action, 'معندكش صلاحية تنفيذ الإجراء ده دلوقتي.');
+
+            return ToolOutcome::result(false, 'معندكش صلاحية تنفيذ الإجراء ده دلوقتي.');
+        } catch (ModelNotFoundException) {
+            // M-3: findOrFail (فرع اتحذف قبل التأكيد، موظف اتحذف) — نفس
+            // المصير: failed برسالة واضحة بدل 500 وpending معلّق.
+            $this->markFailed($action, 'الكيان المرتبط بالإجراء اتحذف؛ اطلب اقتراح جديد.');
+
+            return ToolOutcome::result(false, 'الكيان المرتبط بالإجراء اتحذف؛ اطلب اقتراح جديد.');
+        } catch (RoleAlreadyExists) {
+            // M-3: اسم الدور اتحجز بين الاقتراح والتأكيد.
+            $this->markFailed($action, 'اسم الدور اتحجز قبل التأكيد؛ اطلب اقتراح جديد.');
+
+            return ToolOutcome::result(false, 'اسم الدور اتحجز قبل التأكيد؛ اطلب اقتراح جديد.');
+        } catch (QueryException $e) {
+            // M-3: انتهاء مهلة القفل (55P03) أو deadlock (40P01) — 409 قابل
+            // لإعادة المحاولة من غير ما الإجراء يتعلّم failed، لأن الـ
+            // transaction الداخلية تراجعت وحدها ولا حالة اتغيرت.
+            // ملحوظة: الـ throw من داخل catch لا يمرّ على catch الـ Http
+            // الشقيق، فيوصل 409 كما هو من غير وسم failed.
+            $sqlState = $e->errorInfo[0] ?? null;
+            if (in_array($sqlState, ['55P03', '40P01'], true)) {
+                abort(409, 'النظام مشغول حالياً؛ حاول مرة أخرى.');
+            }
+            $this->markFailed($action, 'تعذّر التنفيذ بسبب خطأ في قاعدة البيانات؛ اطلب اقتراح جديد.');
+
+            return ToolOutcome::result(false, 'تعذّر التنفيذ بسبب خطأ في قاعدة البيانات؛ اطلب اقتراح جديد.');
         }
         $ok = $outcome->type === 'result';
         $storedResult = $outcome->data;
@@ -307,6 +344,16 @@ final class PendingActionService
     private function isRetryableLockFailure(QueryException $e): bool
     {
         return in_array((string) $e->getCode(), ['55P03', '40P01'], true);
+    }
+
+    /**
+     * M-3: وسم الإجراء failed برسالة واضحة + حدث نتيجة — بدل بقائه
+     * pending للأبد بعد استثناء غير مصنّف.
+     */
+    private function markFailed(AiPendingAction $action, string $message): void
+    {
+        $action->forceFill(['status' => 'failed', 'result' => ['message' => $message]])->save();
+        $this->event($action, 'result', $message, [['type' => 'result', 'ok' => false, 'message' => $message]]);
     }
 
     private function event(AiPendingAction $action, string $kind, string $text, array $blocks, bool $stripPassword = false): void

@@ -206,7 +206,7 @@ class PhaseFiveSixAuditTest extends TestCase
         $other = Customer::factory()->wholesale()->create();
         $this->withToken($token)->patchJson("/api/v1/admin/customers/{$other->id}/documents/{$document->id}", ['status' => 'rejected'])->assertNotFound();
         Auth::forgetGuards();
-        $this->withToken($token)->patchJson("/api/v1/admin/customers/{$customer->id}/documents/{$document->id}", ['status' => 'rejected'])
+        $this->withToken($token)->patchJson("/api/v1/admin/customers/{$customer->id}/documents/{$document->id}", ['status' => 'rejected', 'note' => 'المستند غير واضح'])
             ->assertOk()->assertJsonPath('data.status', 'rejected');
         $this->assertDatabaseHas('customer_documents', ['id' => $document->id, 'status' => 'rejected']);
         $customer->update(['status' => CustomerStatus::Rejected]);

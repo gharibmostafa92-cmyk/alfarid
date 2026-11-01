@@ -10,6 +10,7 @@ use App\Enums\StockBucket;
 use App\Enums\StockMovementType;
 use App\Enums\TreasuryTransactionType;
 use App\Exceptions\BusinessException;
+use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\Expense;
 use App\Models\Order;
@@ -44,11 +45,12 @@ class PosService
     /**
      * Opens a new POS shift and drawer for a cashier, transferring opening float from the branch main safe.
      *
-     * @param User $user Operating cashier
-     * @param int $branchId Operating branch ID
-     * @param int $treasuryId POS drawer treasury ID
-     * @param float $openingCash Declared opening float amount
+     * @param  User  $user  Operating cashier
+     * @param  int  $branchId  Operating branch ID
+     * @param  int  $treasuryId  POS drawer treasury ID
+     * @param  float  $openingCash  Declared opening float amount
      * @return PosShift Created open shift
+     *
      * @throws BusinessException If cashier or drawer already has an active shift, or float mismatch
      */
     public function openShift(User $user, int $branchId, int $treasuryId, float $openingCash): PosShift
@@ -147,10 +149,11 @@ class PosService
     /**
      * Closes an active POS shift, recalculates expected cash, and records cash difference.
      *
-     * @param PosShift $shift Active shift to close
-     * @param float $actualCash Physical cash count declared by cashier
-     * @param string|null $notes Optional closing remarks
+     * @param  PosShift  $shift  Active shift to close
+     * @param  float  $actualCash  Physical cash count declared by cashier
+     * @param  string|null  $notes  Optional closing remarks
      * @return PosShift Shift moved to pending approval
+     *
      * @throws BusinessException If shift is not open or amount is invalid
      */
     public function closeShift(PosShift $shift, float $actualCash, ?string $notes): PosShift
@@ -214,9 +217,10 @@ class PosService
     /**
      * Administratively approves a closed shift and sweeps drawer cash to the branch main safe.
      *
-     * @param PosShift $shift Closed shift awaiting approval
-     * @param User $approver Authorizing supervisor/admin
+     * @param  PosShift  $shift  Closed shift awaiting approval
+     * @param  User  $approver  Authorizing supervisor/admin
      * @return PosShift Approved shift instance
+     *
      * @throws BusinessException If shift is not in pending approval state
      */
     public function approveShift(PosShift $shift, User $approver): PosShift
@@ -247,7 +251,7 @@ class PosService
     /**
      * Creates an immediate delivered retail POS sale, deducting on-hand stock and registering payment.
      *
-     * @param PosShift $shift Active shift
+     * @param  PosShift  $shift  Active shift
      * @param array{
      *     items: array<array{product_variant_id: int, qty: int, unit_price?: float|null, discount_amount?: float}>,
      *     customer_id?: int|null,
@@ -258,6 +262,7 @@ class PosService
      *     override_price?: bool,
      * } $payload Sale parameters
      * @return Order Created delivered order
+     *
      * @throws BusinessException If shift is inactive, insufficient stock, or split payments mismatch
      */
     public function createSale(PosShift $shift, array $payload): Order
@@ -398,11 +403,12 @@ class PosService
     /**
      * Processes full or partial POS returns, restocking items and issuing cash/card refunds.
      *
-     * @param PosShift $shift Active shift
-     * @param Order $originalOrder Original POS delivered order
-     * @param array<array{product_variant_id: int, qty: int, return_to?: string}> $returnedItems Items to return
-     * @param array<array{product_variant_id: int, qty: int}> $exchangeItems Exchange items (must be empty; exchanges are separate sales)
+     * @param  PosShift  $shift  Active shift
+     * @param  Order  $originalOrder  Original POS delivered order
+     * @param  array<array{product_variant_id: int, qty: int, return_to?: string}>  $returnedItems  Items to return
+     * @param  array<array{product_variant_id: int, qty: int}>  $exchangeItems  Exchange items (must be empty; exchanges are separate sales)
      * @return array{return_order_id: int|null, exchange_order_id: null, refund_amount: float}
+     *
      * @throws BusinessException If order is unreturnable, quantities exceed sold units, or invalid shift
      */
     public function processReturn(
@@ -635,8 +641,8 @@ class PosService
     /**
      * Parks an in-progress sale payload to free the POS terminal.
      *
-     * @param PosShift $shift Active shift
-     * @param array<string, mixed> $payload Uncompleted cart payload
+     * @param  PosShift  $shift  Active shift
+     * @param  array<string, mixed>  $payload  Uncompleted cart payload
      * @return PosHeldSale Created held sale record
      */
     public function holdSale(PosShift $shift, array $payload): PosHeldSale
@@ -655,9 +661,9 @@ class PosService
     /**
      * High-speed product variant lookup matching barcode, SKU, or name with branch inventory availability.
      *
-     * @param string $query Search query term
-     * @param int $branchId Branch ID
-     * @param Customer|null $customer Optional customer for targeted pricing
+     * @param  string  $query  Search query term
+     * @param  int  $branchId  Branch ID
+     * @param  Customer|null  $customer  Optional customer for targeted pricing
      * @return array<int, array<string, mixed>> Matching variants with live price and stock
      */
     public function lookupProducts(string $query, int $branchId, ?Customer $customer = null): array
@@ -709,10 +715,10 @@ class PosService
     /**
      * Prepares sale item line totals and resolves pricing tiers.
      *
-     * @param PosShift $shift Active shift
-     * @param array<array{product_variant_id: int, qty: int, unit_price?: float|null, discount_amount?: float}> $rawItems Raw cart items
-     * @param Customer|null $customer Target customer
-     * @param bool $overridePrice Whether manual price override is enabled
+     * @param  PosShift  $shift  Active shift
+     * @param  array<array{product_variant_id: int, qty: int, unit_price?: float|null, discount_amount?: float}>  $rawItems  Raw cart items
+     * @param  Customer|null  $customer  Target customer
+     * @param  bool  $overridePrice  Whether manual price override is enabled
      * @return Collection<int, array<string, mixed>> Resolved item rows
      */
     private function resolveItems(
@@ -788,10 +794,11 @@ class PosService
     /**
      * Records a petty cash expense paid directly from the active shift cash drawer.
      *
-     * @param PosShift $shift Active shift
-     * @param array<string, mixed> $data Expense attributes
-     * @param int $userId Cashier/User recording the expense
+     * @param  PosShift  $shift  Active shift
+     * @param  array<string, mixed>  $data  Expense attributes
+     * @param  int  $userId  Cashier/User recording the expense
      * @return Expense Created expense record
+     *
      * @throws BusinessException If shift is not open
      */
     public function recordExpense(PosShift $shift, array $data, int $userId): Expense

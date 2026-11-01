@@ -238,6 +238,8 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
         Route::post('customers/{customer}/approve', [CustomerController::class, 'approve'])->name('customers.approve');
         Route::post('customers/{customer}/reject', [CustomerController::class, 'reject'])->name('customers.reject');
         Route::post('customers/{customer}/suspend', [CustomerController::class, 'suspend'])->name('customers.suspend');
+        Route::post('customers/{customer}/reactivate', [CustomerController::class, 'reactivate'])->name('customers.reactivate');
+        Route::get('customers/{customer}/history', [CustomerController::class, 'history'])->name('customers.history');
         Route::scopeBindings()->group(function (): void {
             Route::patch('customers/{customer}/documents/{document}', [CustomerController::class, 'reviewDocument'])
                 ->name('customers.documents.update');

@@ -25,6 +25,10 @@ final class DeleteBranch
             StaffAdministration::lock();
             StaffAdministration::authorize($actor, ['branches.delete', 'branches.manage']);
             $this->access->assertCentralAccess($actor);
+            // L-6: ترتيب القفل موحّد مع lockLevels (أرصدة أولًا ثم فرع
+            // بـ SHARE): قفل صفوف الأرصدة قبل صف الفرع، وإلا فحركة
+            // متزامنة تقفل الأرصدة وتنتظر SHARE على الفرع بينما الحذف
+            // يقفل الفرع وينتظر الأرصدة فيحصل 40P01.
             StockLevel::query()->where('branch_id', $branch->getKey())
                 ->orderBy('branch_id')
                 ->orderByRaw('location_id ASC NULLS FIRST')

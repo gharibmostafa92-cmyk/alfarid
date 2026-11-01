@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Enums\TreasuryTransactionType;
 use App\Enums\TreasuryTransferStatus;
 use App\Exceptions\BusinessException;
+use App\Models\Branch;
 use App\Models\PosShift;
 use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
@@ -37,6 +38,7 @@ class TreasuryService
      *     notes?: string|null,
      * } $data Transaction payload
      * @return TreasuryTransaction Created transaction record
+     *
      * @throws BusinessException If treasury is inactive or insufficient funds
      */
     public function record(array $data): TreasuryTransaction
@@ -83,9 +85,10 @@ class TreasuryService
     /**
      * Approves and executes a pending treasury transfer between two accounts.
      *
-     * @param TreasuryTransfer $transfer Transfer to approve
-     * @param int $approverId User approving the transfer
+     * @param  TreasuryTransfer  $transfer  Transfer to approve
+     * @param  int  $approverId  User approving the transfer
      * @return TreasuryTransfer Updated transfer record
+     *
      * @throws BusinessException If transfer is not pending, self-approved, or unauthorized
      */
     public function approveTransfer(TreasuryTransfer $transfer, int $approverId): TreasuryTransfer
@@ -135,8 +138,9 @@ class TreasuryService
     /**
      * Reconciles POS cash drawer variance and transfers closing cash to the branch main safe.
      *
-     * @param PosShift $shift Completed POS shift
-     * @param int $approverId Manager approving the shift settlement
+     * @param  PosShift  $shift  Completed POS shift
+     * @param  int  $approverId  Manager approving the shift settlement
+     *
      * @throws BusinessException If main safe is missing or unauthorized
      */
     public function settleShiftToMainSafe(PosShift $shift, int $approverId): void
@@ -199,9 +203,10 @@ class TreasuryService
     /**
      * Creates a pending transfer request between two treasuries.
      *
-     * @param array<string, mixed> $data Transfer parameters
-     * @param int $userId Creator identifier
+     * @param  array<string, mixed>  $data  Transfer parameters
+     * @param  int  $userId  Creator identifier
      * @return TreasuryTransfer Created pending transfer
+     *
      * @throws BusinessException If source equals destination or unauthorized
      */
     public function createTransfer(array $data, int $userId): TreasuryTransfer
@@ -233,9 +238,10 @@ class TreasuryService
     /**
      * Rejects a pending treasury transfer without altering account balances.
      *
-     * @param TreasuryTransfer $transfer Transfer to reject
-     * @param int $approverId User rejecting the transfer
+     * @param  TreasuryTransfer  $transfer  Transfer to reject
+     * @param  int  $approverId  User rejecting the transfer
      * @return TreasuryTransfer Updated transfer record
+     *
      * @throws BusinessException If transfer is not pending
      */
     public function rejectTransfer(TreasuryTransfer $transfer, int $approverId): TreasuryTransfer
@@ -255,8 +261,8 @@ class TreasuryService
     /**
      * Acquires pessimistic locks on specified treasuries in consistent primary key order to prevent deadlocks.
      *
-     * @param list<int> $ids Treasury identifiers
-     * @param int|null $userId User to verify branch access against
+     * @param  list<int>  $ids  Treasury identifiers
+     * @param  int|null  $userId  User to verify branch access against
      * @return Collection<int, Treasury> Locked treasuries keyed by ID
      */
     public function lockTreasuries(array $ids, ?int $userId = null): Collection

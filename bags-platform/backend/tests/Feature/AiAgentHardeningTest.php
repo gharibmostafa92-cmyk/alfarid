@@ -4,15 +4,23 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Actions\Staff\CreateStaffUser;
+use App\Actions\Staff\UpdateStaffUser;
+use App\Jobs\PruneAiConversations;
 use App\Models\AiConversation;
 use App\Models\AiPendingAction;
 use App\Models\Branch;
+use App\Models\Location;
 use App\Models\User;
+use App\Services\Ai\AgentOrchestrator;
 use App\Services\Ai\ToolRegistry;
 use App\Services\SettingService;
 use Database\Seeders\SettingSeeder;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
@@ -53,7 +61,7 @@ class AiAgentHardeningTest extends TestCase
 
     private function token(User $u): string
     {
-        \Illuminate\Support\Facades\Auth::forgetGuards();
+        Auth::forgetGuards();
 
         return $u->createToken('test')->plainTextToken;
     }
@@ -92,7 +100,7 @@ class AiAgentHardeningTest extends TestCase
     {
         $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'users.create', 'users.manage', 'branches.view', 'inventory.all_branches']);
         $branch = Branch::factory()->create();
-        $res = app(\App\Actions\Staff\CreateStaffUser::class)(
+        $res = app(CreateStaffUser::class)(
             $admin,
             ['name' => 'Temp Staff', 'email' => 'tempstaff@example.test', 'branch_id' => $branch->id, 'roles' => []],
             ['channel' => 'ai'],
@@ -121,8 +129,8 @@ class AiAgentHardeningTest extends TestCase
         $admin = $this->staff(['ai_agent.use', 'users.update', 'users.manage', 'inventory.all_branches']);
         $target = User::factory()->create();
         $this->assertFalse((bool) $target->must_change_password);
-        $failure = app(\App\Actions\Staff\UpdateStaffUser::class)(
-            $admin, $target, ['password' => \Illuminate\Support\Facades\Hash::make('AdminSet12345')]
+        $failure = app(UpdateStaffUser::class)(
+            $admin, $target, ['password' => Hash::make('AdminSet12345')]
         );
         $this->assertNull($failure);
         $this->assertTrue((bool) $target->fresh()->must_change_password);
@@ -143,8 +151,8 @@ class AiAgentHardeningTest extends TestCase
         ])->type);
         $this->assertSame(0, AiPendingAction::count());
 
-        $user->givePermissionTo(\Spatie\Permission\Models\Permission::findOrCreate('locations.delete', 'staff'));
-        \Illuminate\Support\Facades\Auth::forgetGuards();
+        $user->givePermissionTo(Permission::findOrCreate('locations.delete', 'staff'));
+        Auth::forgetGuards();
         $this->assertSame('proposal', $registry->dispatch($user->fresh(), $this->conv($user), [
             'name' => 'delete_location', 'args' => ['location_id' => $location->id],
         ])->type);
@@ -214,14 +222,15 @@ class AiAgentHardeningTest extends TestCase
     {
         // M10: sub-actions stay bulk_child until the bulk runs, so one item
         // can never be confirmed alone bypassing group review.
-        // M-5: set_branch_status is no longer bulk-eligible — same scenario
-        // with a permitted bulk tool.
-        $first = $this->staff([]);
-        $second = $this->staff([]);
-        $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'users.update', 'inventory.all_branches']);
+        // M-5: set_branch_status خرج من الـ bulk — الاختبار يستخدم
+        // set_location_status.
+        $branch = Branch::factory()->create();
+        $first = Location::factory()->create(['branch_id' => $branch->id]);
+        $second = Location::factory()->create(['branch_id' => $branch->id]);
+        $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'locations.update', 'inventory.all_branches']);
         $outcome = app(ToolRegistry::class)->dispatch($admin, $this->conv($admin), ['name' => 'bulk_actions', 'args' => ['items' => [
-            ['tool' => 'revoke_user_sessions', 'args' => ['user_id' => $first->id]],
-            ['tool' => 'revoke_user_sessions', 'args' => ['user_id' => $second->id]],
+            ['tool' => 'set_location_status', 'args' => ['location_id' => $first->id, 'active' => true]],
+            ['tool' => 'set_location_status', 'args' => ['location_id' => $second->id, 'active' => true]],
         ]]]);
         $this->assertSame('proposal', $outcome->type);
         $child = AiPendingAction::query()->where('status', 'bulk_child')->firstOrFail();
@@ -243,7 +252,7 @@ class AiAgentHardeningTest extends TestCase
             'risk' => 'high', 'status' => 'confirmed', 'expires_at' => now()->addMinutes(10),
         ]);
         $action->forceFill(['updated_at' => now()->subMinutes(10)])->save();
-        app(\App\Jobs\PruneAiConversations::class)->handle(app(SettingService::class));
+        app(PruneAiConversations::class)->handle(app(SettingService::class));
         $this->assertSame('failed', $action->fresh()->status);
     }
 
@@ -263,10 +272,10 @@ class AiAgentHardeningTest extends TestCase
     /** @return list<array{role:string,parts:list<array<string,mixed>>}> */
     private function agentHistory(AiConversation $conv): array
     {
-        $method = new \ReflectionMethod(\App\Services\Ai\AgentOrchestrator::class, 'history');
+        $method = new \ReflectionMethod(AgentOrchestrator::class, 'history');
         $method->setAccessible(true);
 
-        return $method->invoke(app(\App\Services\Ai\AgentOrchestrator::class), $conv);
+        return $method->invoke(app(AgentOrchestrator::class), $conv);
     }
 
     public function test_branch_restricted_admin_cannot_prepare_or_execute_role_tools(): void
@@ -294,7 +303,7 @@ class AiAgentHardeningTest extends TestCase
             'args_hash' => app(ToolRegistry::class)->hashArgs(['name' => 'H2 Probe']),
             'risk' => 'medium', 'status' => 'pending', 'expires_at' => now()->addMinutes(10),
         ])->save();
-        $this->expectException(\Illuminate\Auth\Access\AuthorizationException::class);
+        $this->expectException(AuthorizationException::class);
         $registry->executeWrite($admin, $action, ['channel' => 'ai']);
     }
 }

@@ -9,6 +9,7 @@ use App\Models\AiConversation;
 use App\Models\AiPendingAction;
 use App\Models\Branch;
 use App\Models\Location;
+use App\Models\ProductVariant;
 use App\Models\User;
 use App\Services\Ai\ToolRegistry;
 use App\Services\SettingService;
@@ -151,7 +152,7 @@ class P03ToolsTest extends TestCase
     {
         $branch = Branch::factory()->create();
         $loc = Location::factory()->for($branch)->create();
-        $variant = \App\Models\ProductVariant::factory()->create();
+        $variant = ProductVariant::factory()->create();
         $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'branches.delete', 'locations.delete', 'locations.manage', 'inventory.all_branches']);
         $registry = app(ToolRegistry::class);
         $conv = $this->conv($admin);
@@ -199,7 +200,7 @@ class P03ToolsTest extends TestCase
         // يرفض كما يرفض الـ REST، والحالة تبقى نشطة.
         $branch = Branch::factory()->create();
         $loc = Location::factory()->for($branch)->create(['is_active' => true]);
-        $variant = \App\Models\ProductVariant::factory()->create();
+        $variant = ProductVariant::factory()->create();
         DB::table('stock_levels')->insert([
             'location_id' => $loc->id,
             'product_variant_id' => $variant->id,
@@ -318,7 +319,7 @@ class P03ToolsTest extends TestCase
         $registry = app(ToolRegistry::class);
         $outcome = $registry->dispatch($admin, $this->conv($admin), ['name' => 'view_document_numbering', 'args' => ['type' => 'all']]);
         $this->assertSame('data', $outcome->type);
-        $this->assertCount(16, $outcome->data['numbering']);
+        $this->assertCount(17, $outcome->data['numbering']);
     }
 
     public function test_update_document_numbering_proposal(): void

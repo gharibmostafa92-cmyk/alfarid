@@ -374,6 +374,14 @@ class SettingService
             }
 
             $this->assertNumberingDoesNotCollide($settings, $after);
+            // M-4: تغيير البادئة أو الطول قد يعيد إصدار رقم صدر من قبل
+            // (مثال: INV- بطول 6 أصدر INV-001000، ثم بادئة INV-00 وطول 4
+            // يعيدان الرقم 1000 بصيغة INV-001000). التحقق الحالي يمنع
+            // تخفيض العداد فقط. بعد تطبيق القيم الجديدة وقبل التدقيق،
+            // نشيك أن الرقم التالي المُنسَّق غير موجود أصلًا في جدول
+            // المستند؛ والـ unique index على عمود الرقم هو خط الدفاع
+            // الأخير وقت التشغيل (موجود على كل أعمدة الأرقام).
+            $this->assertNoNumberingCollision(array_keys($settings));
 
             StaffAdministration::audit(request()->user('staff'), 'settings.updated', 'settings', null, array_keys($settings),
                 ['settings' => $this->auditableSettings($before)], ['settings' => $this->auditableSettings($after)], $via);
@@ -487,6 +495,63 @@ class SettingService
         $allowed = array_keys((new UpdateSettingsRequest)->rules());
 
         return array_intersect_key($settings, array_flip($allowed));
+    }
+
+    /**
+     * M-4: نوع المستند → [جدول، عمود الرقم] لفحص تصادم الترقيم.
+     * invoice وpos_invoice بلا جدول مستندات خاص (فواتير الجملة طلبات،
+     * وفواتير POS بلا عمود رقم مستقل) فيُتجاوزان من الفحص.
+     *
+     * @var array<string, array{0: string, 1: string}>
+     */
+    private const DOCUMENT_NUMBER_TARGETS = [
+        'order' => ['orders', 'order_number'],
+        'purchase_order' => ['purchase_orders', 'po_number'],
+        'quotation' => ['quotations', 'quotation_number'],
+        'transfer' => ['stock_transfers', 'transfer_number'],
+        'stocktake' => ['stocktakes', 'stocktake_number'],
+        'return' => ['return_requests', 'return_number'],
+        'purchase_request' => ['purchase_requests', 'request_number'],
+        'delivery' => ['supplier_deliveries', 'delivery_number'],
+        'supplier_invoice' => ['supplier_invoices', 'invoice_number'],
+        'supplier_payment' => ['supplier_payments', 'payment_number'],
+        'shift' => ['pos_shifts', 'shift_number'],
+        'expense' => ['expenses', 'expense_number'],
+        'treasury_transfer' => ['treasury_transfers', 'transfer_number'],
+        'payment_notice' => ['wholesale_payment_notices', 'notice_number'],
+        'movement' => ['stock_movements', 'reference_number'],
+    ];
+
+    /**
+     * M-4: لكل نوع مستند اتعدّلت بادئته أو طوله أو عداده، تأكد أن الرقم
+     * التالي المُنسَّق بالصيغة الجديدة غير موجود أصلًا في جدول المستند.
+     * استعلام exists واحد لكل نوع اتعدّل.
+     *
+     * @param  list<string>  $changedKeys
+     */
+    private function assertNoNumberingCollision(array $changedKeys): void
+    {
+        foreach (self::DOCUMENT_NUMBER_TARGETS as $type => [$table, $column]) {
+            // مفاتيح الترقيم بنمط ثابت {type}_prefix/_next_number/_padding
+            // (بما فيه movement، غير الموجود في numberingDefinitions()).
+            $keys = [$type.'_prefix', $type.'_next_number', $type.'_padding'];
+            if (array_intersect($keys, $changedKeys) === []) {
+                continue;
+            }
+            // قراءة طازجة داخل الـ transaction: المفاتيح المتعدّلة اتحفظت
+            // بالفعل في الحلقة أعلاه، وغيرها بقيمها الحالية.
+            $rows = Setting::query()->whereIn('key', $keys)->get()->keyBy('key');
+            if ($rows->count() !== count($keys)) {
+                continue;
+            }
+            $prefix = (string) $this->castValue($rows[$keys[0]]->value, $rows[$keys[0]]->type);
+            $next = (int) $this->castValue($rows[$keys[1]]->value, $rows[$keys[1]]->type);
+            $padding = (int) $this->castValue($rows[$keys[2]]->value, $rows[$keys[2]]->type);
+            $candidate = $prefix.str_pad((string) $next, $padding, '0', STR_PAD_LEFT);
+            if (DB::table($table)->where($column, $candidate)->exists()) {
+                throw ValidationException::withMessages([$keys[0] => "الرقم التالي المُنسَّق ({$candidate}) صدر من قبل لنوع {$type}؛ غيّر البادئة أو الطول أو ارفع العداد."]);
+            }
+        }
     }
 
     /**

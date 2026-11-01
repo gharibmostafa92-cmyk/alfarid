@@ -14,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * مستند تحقق تابع لعميل (سجل تجاري/بطاقة ضريبية/بطاقة رقم قومي).
  * الملفات نفسها في تخزين خاص (storage/app/private) — لا روابط عامة أبدًا.
  */
-#[Fillable(['customer_id', 'document_type', 'file_path', 'original_name', 'mime_type', 'status'])]
+#[Fillable(['customer_id', 'document_type', 'file_path', 'original_name', 'mime_type', 'status', 'review_note'])]
 class CustomerDocument extends Model
 {
     public static function safeName(string $name): string

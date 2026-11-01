@@ -36,8 +36,9 @@ class AiMessageController extends Controller
                 $reply = $orchestrator->handle($request->user('staff'), $conversation, $data, fn ($status) => $emit('status', ['message' => $status]));
                 $emit('reply', ['text' => $reply->text, 'ui_blocks' => $reply->blocks, 'message_id' => $reply->messageId]);
             } catch (\Throwable $e) {
-                // L-9: أخطاء التفويض والتحقق ليست HttpExceptionInterface —
-                // بدون تصنيف كانت تظهر كـ 502 مضللة.
+                // L-9: AuthorizationException وValidationException ليستا
+                // HttpExceptionInterface، فكانتا تُعرضان كـ 502 مع report().
+                // صنّفهما لرمزيهما الصحيحين بلا تقرير.
                 $status = match (true) {
                     $e instanceof HttpExceptionInterface => $e->getStatusCode(),
                     $e instanceof AuthorizationException => 403,

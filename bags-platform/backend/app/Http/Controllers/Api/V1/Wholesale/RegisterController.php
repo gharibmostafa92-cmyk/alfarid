@@ -68,6 +68,7 @@ class RegisterController extends Controller
                         'id' => $document->id,
                         'document_type' => $document->document_type,
                         'original_name' => $document->original_name,
+                        'review_note' => $document->review_note,
                     ])->values()->all(),
             ],
         ]);

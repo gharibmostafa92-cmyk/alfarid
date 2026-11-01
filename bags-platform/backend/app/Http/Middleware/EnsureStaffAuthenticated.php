@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Middleware;
 
+use App\Enums\StaffRole;
+use App\Models\Branch;
 use App\Models\User;
 use Closure;
 use Illuminate\Http\Request;
@@ -48,10 +50,10 @@ class EnsureStaffAuthenticated
         // except password rotation and logout, mirroring BranchAccess.
         if (! $this->isPasswordRotationRequest($request, $user)
             && ! $request->is('api/v1/admin/auth/logout') && ! $request->is('api/v1/auth/logout')
-            && ! $user->hasRole(\App\Enums\StaffRole::SuperAdmin->value, 'staff')
+            && ! $user->hasRole(StaffRole::SuperAdmin->value, 'staff')
             && ! $user->can('inventory.all_branches')
             && $user->branch_id !== null
-            && ! (bool) \App\Models\Branch::query()->find($user->branch_id)?->is_active) {
+            && ! (bool) Branch::query()->find($user->branch_id)?->is_active) {
             return response()->json(['message' => 'الفرع المرتبط بحسابك متوقف حالياً.'], 403);
         }
 
@@ -73,6 +75,12 @@ class EnsureStaffAuthenticated
         $routeUser = $request->route('user');
         $targetId = $routeUser instanceof User ? $routeUser->getKey() : $routeUser;
 
+        // L-1: عدّ الأجزاء كان 4 دائمًا، لكن مسار api/v1/admin/users/5
+        // فيه 5 أجزاء فالشرط عمره ما تحقق وأي تدوير عبر PUT users/{id}
+        // كان يأخذ 403 password_change_required. المطابقة باسم المسار
+        // أدق (users/{user} فقط — لا مسارات فرعية مثل users/{user}/roles).
+        // L-8: مطابقة المسار بدقة (users/{user} فقط) — لا أي مسار مستقبلي
+        // مثل users/{user}/roles يُستثنى تلقائيًا.
         return in_array($request->method(), ['PUT', 'PATCH'], true)
             && $request->routeIs('admin.users.update')
             && (int) $targetId === (int) $user->getKey();

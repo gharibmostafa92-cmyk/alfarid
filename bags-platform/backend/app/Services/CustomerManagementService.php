@@ -52,12 +52,22 @@ class CustomerManagementService
     }
 
     /**
+     * Merge the execution channel marker (AI vs REST) into audit metadata.
+     * REST calls pass an empty $via, so their recorded metadata stays
+     * byte-identical to before; AI calls carry channel/conversation/action.
+     */
+    private function viaMeta(array $via, array $meta = []): array
+    {
+        return $via === [] ? $meta : [...$meta, 'via' => $via];
+    }
+
+    /**
      * Create customer record from admin console.
      * Enforces Approved status for retail and Pending for wholesale accounts.
      *
      * @throws BusinessException If attempting to directly create an approved wholesale account
      */
-    public function create(array $data, ?int $actorId = null): Customer
+    public function create(array $data, ?int $actorId = null, array $via = []): Customer
     {
         $data['type'] ??= CustomerType::Retail->value;
         $data['credit_limit'] ??= 0;
@@ -72,13 +82,13 @@ class CustomerManagementService
             }
         }
 
-        return DB::transaction(function () use ($data, $actorId): Customer {
+        return DB::transaction(function () use ($data, $actorId, $via): Customer {
             if (in_array($data['status'], [CustomerStatus::Approved, CustomerStatus::Approved->value], true)) {
                 $data['approved_at'] = now();
                 $data['approved_by'] = $actorId;
             }
             $customer = Customer::query()->create($data);
-            CustomerAuditLog::record($customer, 'created', $actorId);
+            CustomerAuditLog::record($customer, 'created', $actorId, $this->viaMeta($via));
 
             return $customer->load('customerGroup');
         });
@@ -88,9 +98,9 @@ class CustomerManagementService
      * Update customer profile, credentials, and business identity.
      * Invalidates active sessions and reset tokens if credentials change.
      */
-    public function update(Customer $customer, array $data, ?int $actorId = null): Customer
+    public function update(Customer $customer, array $data, ?int $actorId = null, array $via = []): Customer
     {
-        return DB::transaction(function () use ($customer, $data, $actorId): Customer {
+        return DB::transaction(function () use ($customer, $data, $actorId, $via): Customer {
             $customer = Customer::query()->lockForUpdate()->findOrFail($customer->id);
             if (isset($data['type']) && $data['type'] !== $customer->type->value) {
                 throw new BusinessException('تغيير نوع الحساب المعتمد يتطلب استخدام مسار الاعتماد.');
@@ -118,9 +128,9 @@ class CustomerManagementService
                 DB::table('password_reset_tokens')->where('email', $customer->getEmailForPasswordReset())->delete();
             }
             $customer->save();
-            CustomerAuditLog::record($customer, $credentialsChanged ? 'credentials_changed' : 'updated', $actorId, ['fields' => array_keys($data)]);
+            CustomerAuditLog::record($customer, $credentialsChanged ? 'credentials_changed' : 'updated', $actorId, $this->viaMeta($via, ['fields' => array_keys($data)]));
             if ($businessIdentityChanged) {
-                CustomerAuditLog::record($customer, 'business_identity_changed', $actorId, ['fields' => array_keys(array_intersect_key($data, array_flip(['company_name', 'tax_number', 'commercial_register'])))]);
+                CustomerAuditLog::record($customer, 'business_identity_changed', $actorId, $this->viaMeta($via, ['fields' => array_keys(array_intersect_key($data, array_flip(['company_name', 'tax_number', 'commercial_register'])))]));
             }
 
             return $customer->load('customerGroup');
@@ -147,9 +157,9 @@ class CustomerManagementService
      *
      * @throws BusinessException If documents unverified or required legal info missing
      */
-    public function approve(Customer $customer, array $data, int $adminId): Customer
+    public function approve(Customer $customer, array $data, int $adminId, array $via = []): Customer
     {
-        return DB::transaction(function () use ($customer, $data, $adminId): Customer {
+        return DB::transaction(function () use ($customer, $data, $adminId, $via): Customer {
             $customer = Customer::query()->lockForUpdate()->findOrFail($customer->id);
             if ($customer->status === CustomerStatus::Approved && ($data['type'] ?? $customer->type->value) === $customer->type->value) {
                 throw new BusinessException('هذا الحساب معتمد بالفعل.');
@@ -181,7 +191,7 @@ class CustomerManagementService
                 'credit_limit' => $data['credit_limit'] ?? $customer->credit_limit,
                 'type' => $data['type'] ?? $customer->type,
             ]);
-            CustomerAuditLog::record($customer, 'approved', $adminId, ['type' => $customer->type->value, 'credit_limit' => $customer->credit_limit, 'customer_group_id' => $customer->customer_group_id]);
+            CustomerAuditLog::record($customer, 'approved', $adminId, $this->viaMeta($via, ['type' => $customer->type->value, 'credit_limit' => $customer->credit_limit, 'customer_group_id' => $customer->customer_group_id]));
 
             if ($customer->type !== CustomerType::Retail) {
                 WholesaleApplicationReviewed::dispatch($customer, 'approved');
@@ -196,9 +206,9 @@ class CustomerManagementService
      *
      * @throws BusinessException If customer is not in Pending status
      */
-    public function reject(Customer $customer, string $reason, ?int $actorId = null): Customer
+    public function reject(Customer $customer, string $reason, ?int $actorId = null, array $via = []): Customer
     {
-        return DB::transaction(function () use ($customer, $reason, $actorId): Customer {
+        return DB::transaction(function () use ($customer, $reason, $actorId, $via): Customer {
             $customer = Customer::query()->lockForUpdate()->findOrFail($customer->id);
             if ($customer->status !== CustomerStatus::Pending) {
                 throw new BusinessException('يمكن رفض الطلبات قيد المراجعة فقط؛ استخدم الإيقاف للحسابات المعتمدة.');
@@ -208,7 +218,7 @@ class CustomerManagementService
                 'status' => CustomerStatus::Rejected,
                 'rejection_reason' => $reason,
             ]);
-            CustomerAuditLog::record($customer, 'rejected', $actorId, ['reason' => $reason]);
+            CustomerAuditLog::record($customer, 'rejected', $actorId, $this->viaMeta($via, ['reason' => $reason]));
 
             if ($customer->type !== CustomerType::Retail) {
                 WholesaleApplicationReviewed::dispatch($customer, 'rejected', $reason);
@@ -221,9 +231,9 @@ class CustomerManagementService
     /**
      * Suspend customer account and revoke all active sessions immediately.
      */
-    public function suspend(Customer $customer, string $reason, ?int $actorId = null): Customer
+    public function suspend(Customer $customer, string $reason, ?int $actorId = null, array $via = []): Customer
     {
-        return DB::transaction(function () use ($customer, $reason, $actorId): Customer {
+        return DB::transaction(function () use ($customer, $reason, $actorId, $via): Customer {
             $customer = Customer::query()->lockForUpdate()->findOrFail($customer->id);
             if ($customer->status === CustomerStatus::Suspended) {
                 throw new BusinessException('هذا الحساب موقوف بالفعل.');
@@ -234,7 +244,7 @@ class CustomerManagementService
             ]);
             $customer->tokens()->delete();
             DB::table('password_reset_tokens')->where('email', $customer->getEmailForPasswordReset())->delete();
-            CustomerAuditLog::record($customer, 'suspended', $actorId, ['reason' => $reason]);
+            CustomerAuditLog::record($customer, 'suspended', $actorId, $this->viaMeta($via, ['reason' => $reason]));
 
             return $customer->load('customerGroup');
         });
@@ -243,15 +253,15 @@ class CustomerManagementService
     /**
      * Restore a soft-deleted customer account.
      */
-    public function restore(Customer $customer, ?int $actorId): Customer
+    public function restore(Customer $customer, ?int $actorId, array $via = []): Customer
     {
-        return DB::transaction(function () use ($customer, $actorId): Customer {
+        return DB::transaction(function () use ($customer, $actorId, $via): Customer {
             $customer = Customer::withTrashed()->lockForUpdate()->findOrFail($customer->id);
             if (! $customer->trashed()) {
                 throw new BusinessException('الحساب غير محذوف.');
             }
             $customer->restore();
-            CustomerAuditLog::record($customer, 'restored', $actorId);
+            CustomerAuditLog::record($customer, 'restored', $actorId, $this->viaMeta($via));
 
             return $customer->load('customerGroup');
         });
@@ -260,15 +270,37 @@ class CustomerManagementService
     /**
      * Review supporting customer verification document status (verified/rejected).
      */
-    public function reviewDocument(Customer $customer, CustomerDocument $document, string $status, int $actorId): CustomerDocument
+    public function reviewDocument(Customer $customer, CustomerDocument $document, string $status, int $actorId, ?string $note = null, array $via = []): CustomerDocument
     {
-        return DB::transaction(function () use ($customer, $document, $status, $actorId) {
+        return DB::transaction(function () use ($customer, $document, $status, $actorId, $note, $via) {
             $customer = Customer::query()->lockForUpdate()->findOrFail($customer->id);
             $document = $customer->documents()->whereKey($document->id)->lockForUpdate()->firstOrFail();
-            $document->forceFill(['status' => $status, 'reviewed_by' => $actorId, 'reviewed_at' => now()])->save();
-            CustomerAuditLog::record($customer, 'document_reviewed', $actorId, ['document_id' => $document->id, 'status' => $status]);
+            $document->forceFill(['status' => $status, 'reviewed_by' => $actorId, 'reviewed_at' => now(), 'review_note' => $note])->save();
+            CustomerAuditLog::record($customer, 'document_reviewed', $actorId, $this->viaMeta($via, ['document_id' => $document->id, 'status' => $status]));
 
             return $document;
+        });
+    }
+
+    /**
+     * 0.1: إعادة تفعيل تاجر موقوف — كان معتمدًا قبل الإيقاف يرجع معتمدًا،
+     * وإلا يرجع قيد المراجعة. قيد customers_approved_business يحمي من
+     * إعادة اعتماد تاجر ببيانات قانونية ناقصة.
+     */
+    public function reactivate(Customer $customer, ?int $actorId = null, array $via = []): Customer
+    {
+        return DB::transaction(function () use ($customer, $actorId, $via) {
+            $locked = Customer::query()->lockForUpdate()->findOrFail($customer->id);
+            if ($locked->status !== CustomerStatus::Suspended) {
+                throw new BusinessException('الحساب مش موقوف.');
+            }
+            // لو كان معتمد قبل كده يرجع Approved، غير كده يرجع Pending
+            $locked->status = $locked->approved_at ? CustomerStatus::Approved : CustomerStatus::Pending;
+            $locked->suspension_reason = null;
+            $locked->save(); // constraint customers_approved_business هيحمي لو البيانات القانونية ناقصة
+            CustomerAuditLog::record($locked, 'reactivated', $actorId, $this->viaMeta($via));
+
+            return $locked->fresh(['customerGroup']);
         });
     }
 

@@ -35,13 +35,13 @@ class CustomerController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('can:customers.view', only: ['index', 'show']),
+            new Middleware('can:customers.view', only: ['index', 'show', 'history']),
             new Middleware('can:customers.documents.view', only: ['downloadDocument', 'reviewDocument', 'storeDocument']),
             new Middleware('can:customers.update', only: ['storeDocument']),
             new Middleware('can:customers.create', only: ['store']),
             new Middleware('can:customers.update', only: ['update']),
             new Middleware('can:customers.delete', only: ['destroy', 'restore']),
-            new Middleware('can:customers.approve', only: ['approve', 'reject', 'suspend', 'reviewDocument']),
+            new Middleware('can:customers.approve', only: ['approve', 'reject', 'suspend', 'reactivate', 'reviewDocument']),
         ];
     }
 
@@ -108,6 +108,28 @@ class CustomerController extends Controller implements HasMiddleware
         return CustomerResource::make($customer)->additional(['message' => 'تم إيقاف الحساب وإنهاء جلساته']);
     }
 
+    public function reactivate(Request $request, Customer $customer): CustomerResource
+    {
+        $customer = $this->customers->reactivate($customer, $request->user()->id);
+
+        return CustomerResource::make($customer)->additional(['message' => 'تم إعادة تفعيل الحساب']);
+    }
+
+    /** سجل تغييرات العميل — الأحدث أولًا، 25 في الصفحة (P04-M01-F05). */
+    public function history(Customer $customer): JsonResponse
+    {
+        $logs = CustomerAuditLog::query()->where('customer_id', $customer->id)->with('actor:id,name')
+            ->orderByDesc('created_at')->orderByDesc('id')->paginate(25);
+        $logs->through(fn (CustomerAuditLog $log) => [
+            'action' => $log->action,
+            'actor' => $log->actor ? ['id' => $log->actor->id, 'name' => $log->actor->name] : null,
+            'metadata' => $log->metadata,
+            'created_at' => $log->created_at,
+        ]);
+
+        return response()->json($logs);
+    }
+
     /** تنزيل مستند تحقق من التخزين الخاص (scoped: المستند تابع لهذا العميل حصرًا). */
     public function downloadDocument(Customer $customer, CustomerDocument $document): StreamedResponse
     {
@@ -126,10 +148,11 @@ class CustomerController extends Controller implements HasMiddleware
     {
         $data = $request->validate([
             'status' => ['required', Rule::enum(CustomerDocumentStatus::class)],
+            'note' => ['nullable', 'string', 'max:500', 'required_if:status,rejected'],
         ]);
-        $document = $this->customers->reviewDocument($customer, $document, $data['status'], $request->user()->id);
+        $document = $this->customers->reviewDocument($customer, $document, $data['status'], $request->user()->id, $data['note'] ?? null);
 
-        return response()->json(['data' => ['id' => $document->id, 'status' => $document->status]]);
+        return response()->json(['data' => ['id' => $document->id, 'status' => $document->status, 'review_note' => $document->review_note]]);
     }
 
     public function storeDocument(Request $request, Customer $customer): JsonResponse

@@ -126,10 +126,14 @@ class OrderAllocationTest extends TestCase
         $variant = ProductVariant::factory()->create();
         $rich = Branch::factory()->create();
         $poor = Branch::factory()->create();
-        $inactive = Branch::factory()->create(['is_active' => false]);
+        $inactive = Branch::factory()->create();
         $this->giveStock($variant, $rich, 50);
         $this->giveStock($variant, $poor, 2);
         $this->giveStock($variant, $inactive, 50);
+        // الرصيد أُنشئ والفرع نشط ثم أُوقف — لأن lockLevels (M-11) يرفض
+        // إنشاء رصيد في فرع موقوف أصلًا؛ والاختبار يهمه أن الفرع الموقوف
+        // صاحب رصيد لا يُفرض، لا طريقة إنشاء الرصيد.
+        $inactive->update(['is_active' => false]);
 
         $service = app(OrderAllocationService::class);
 

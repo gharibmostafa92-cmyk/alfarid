@@ -8,6 +8,7 @@ use App\Enums\StaffRole;
 use App\Models\Branch;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Role;
@@ -30,7 +31,7 @@ final class StaffAdministration
         try {
             DB::statement("SET LOCAL lock_timeout = '5s'");
             DB::select('SELECT pg_advisory_xact_lock(79301, 1)');
-        } catch (\Illuminate\Database\QueryException $e) {
+        } catch (QueryException $e) {
             if (($e->errorInfo[0] ?? null) === '55P03') {
                 abort(409, 'النظام مشغول حاليًا؛ حاول مرة أخرى.');
             }
@@ -79,7 +80,11 @@ final class StaffAdministration
     public static function userState(User $user): array
     {
         return ['roles' => $user->roles()->orderBy('name')->pluck('name')->all(),
-            'branch_id' => $user->branch_id, 'is_active' => (bool) $user->is_active, 'email' => $user->email];
+            // L-5: البريد مقنّع (أول حرفين + النطاق) — تغيير بريد موظف
+            // هو الطريق الطبيعي للاستيلاء على حساب عبر استعادة كلمة
+            // المرور، فلا بد أن يظهر في before/after، لكن بلا قيمة كاملة.
+            'email' => self::maskEmail($user->email),
+            'branch_id' => $user->branch_id, 'is_active' => (bool) $user->is_active];
     }
 
     /**

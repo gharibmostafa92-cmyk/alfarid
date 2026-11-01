@@ -106,16 +106,21 @@ final class UpdateStaffUser
                 return 'insufficient_permissions';
             }
 
-            $emailChanged = isset($userAttributes['email']) && $userAttributes['email'] !== $lockedUser->email;
-            if ($emailChanged) {
+            // L-3: إعادة التحقق من تفرّد البريد تحت القفل، زي M-14 في
+            // CreateStaffUser. الفحص في الـ FormRequest يسبق القفل،
+            // فتعديلان متزامنان لنفس البريد يمرّان معًا ويضرب الثاني
+            // في الـ unique index فيرجع 500. هنا القفل العام
+            // (StaffAdministration::lock) يسلّسل كتابات الموظفين،
+            // فإعادة الفحص داخل الـ transaction كافية.
+            if (isset($userAttributes['email']) && $userAttributes['email'] !== $lockedUser->email) {
                 Validator::make(
                     ['email' => $userAttributes['email']],
-                    ['email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($lockedUser->id), new EmailNotUsedByOtherAccountType('users')]]
+                    ['email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($lockedUser->getKey()), new EmailNotUsedByOtherAccountType('users')]]
                 )->validate();
             }
+            $emailChanged = isset($userAttributes['email']) && $userAttributes['email'] !== $lockedUser->email;
             $passwordChanged = array_key_exists('password', $userAttributes);
-            if ($passwordChanged) {
-                // L8: تدوير ذاتي يُسقط الإجبار؛ تعيين إداري لكلمة سر موظف
+            if ($passwordChanged) {                // L8: تدوير ذاتي يُسقط الإجبار؛ تعيين إداري لكلمة سر موظف
                 // آخر يُشغّله (لم يخترها بنفسه).
                 $userAttributes['must_change_password'] = ! $currentUser->is($lockedUser);
             }

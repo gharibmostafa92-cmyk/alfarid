@@ -6,29 +6,40 @@ namespace App\Services\Ai;
 
 use App\Actions\Branches\CreateBranch;
 use App\Actions\Branches\UpdateBranch;
+use App\Actions\Locations\SetLocationStatus;
 use App\Actions\Staff\CreateRole;
 use App\Actions\Staff\CreateStaffUser;
 use App\Actions\Staff\DeleteRole;
 use App\Actions\Staff\UpdateRole;
 use App\Actions\Staff\UpdateStaffUser;
 use App\Enums\BranchType;
+use App\Enums\CustomerDocumentStatus;
+use App\Enums\CustomerDocumentType;
+use App\Enums\CustomerStatus;
+use App\Enums\LocationType;
 use App\Enums\StaffRole;
 use App\Http\Requests\Api\V1\Admin\StoreBranchRequest;
 use App\Http\Requests\Api\V1\Admin\StoreRoleRequest;
 use App\Http\Requests\Api\V1\Admin\StoreUserRequest;
-use App\Enums\LocationType;
 use App\Http\Requests\Api\V1\Admin\UpdateSettingsRequest;
 use App\Models\AiConversation;
 use App\Models\AiPendingAction;
 use App\Models\Branch;
+use App\Models\Customer;
+use App\Models\CustomerAuditLog;
+use App\Models\CustomerDocument;
+use App\Models\CustomerGroup;
 use App\Models\Location;
-use App\Models\Setting;
 use App\Models\StockLevel;
 use App\Models\User;
 use App\Services\BranchAccess;
 use App\Services\CostAccess;
+use App\Services\SearchTerm;
 use App\Services\SettingService;
 use App\Services\StaffAdministration;
+use App\Services\WholesalePaymentNoticeService;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -39,10 +50,14 @@ use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 final class ToolRegistry
 {
-    /** INFO: الـ definitions كانت تتبني من الصفر في كل نداء (عشرات المرات في الطلب) — تخزين على مستوى الطلب. */
-    private ?array $definitionsCache = null;
-
     public function __construct(private EntityResolver $resolver, private BranchAccess $branches, private SettingService $settings) {}
+
+    /** INFO: التعريفات تُبنى من الصفر في كل نداء وكانت تُستدعى عشرات
+     * المرات في الطلب الواحد (من declarationsFor وisWrite وdispatch
+     * وauthorizeTool وconfirmLocked، ومنها داخل rules() وauditableSettings()
+     * في UpdateSettingsRequest). خزّنها في property — لا حالة طلب
+     * داخلها، فهي ثوابت من الـ enums فقط. */
+    private ?array $definitionsCache = null;
 
     /** @return array<string, array{kind:ToolKind, permissions:list<string>, declaration:array<string,mixed>, risk:string}> */
     public function definitions(): array
@@ -63,7 +78,7 @@ final class ToolRegistry
 
         return [
             'bulk_actions' => ['kind' => ToolKind::Write, 'permissions' => ['branches.update', 'branches.manage', 'users.update', 'users.manage', 'roles.update', 'roles.manage', 'locations.update', 'locations.manage'], 'risk' => 'high', 'declaration' => ['name' => 'bulk_actions', 'description' => 'اقتراح مجموعة تعديلات مستقلة بكارت واحد. راجع كل عنصر قبل التأكيد؛ لا تنفذ أي تعديل فوراً.', 'parameters' => $obj(['items' => ['type' => 'ARRAY', 'minItems' => 2, 'items' => $obj(['tool' => ['type' => 'STRING', 'enum' => ['update_role_permissions', 'set_user_status', 'assign_roles', 'revoke_user_sessions', 'set_location_status', 'create_location']], 'args' => $obj(['branch_id' => $int, 'user_id' => $int, 'role_id' => $int, 'location_id' => $int, 'active' => $bool, 'add' => $strArr, 'remove' => $strArr, 'name' => $str, 'code' => $str, 'type' => $str])], ['tool', 'args'])]], ['items'])]],
-            'find_entities' => ['kind' => ToolKind::Read, 'permissions' => ['branches.view', 'branches.manage', 'users.view', 'users.manage', 'roles.view', 'roles.manage', 'permissions.view'], 'risk' => 'low', 'declaration' => ['name' => 'find_entities', 'description' => 'بحث عن فروع أو موظفين أو أدوار أو صلاحيات أو مواقع تخزين', 'parameters' => $obj(['type' => ['type' => 'STRING', 'enum' => ['branch', 'user', 'role', 'permission', 'location']], 'query' => $str, 'branch_id' => $int], ['type', 'query'])]],
+            'find_entities' => ['kind' => ToolKind::Read, 'permissions' => ['branches.view', 'branches.manage', 'users.view', 'users.manage', 'roles.view', 'roles.manage', 'permissions.view'], 'risk' => 'low', 'declaration' => ['name' => 'find_entities', 'description' => 'بحث عن فروع أو موظفين أو أدوار أو صلاحيات أو مواقع تخزين أو عملاء أو مجموعات عملاء', 'parameters' => $obj(['type' => ['type' => 'STRING', 'enum' => ['branch', 'user', 'role', 'permission', 'location', 'customer', 'customer_group']], 'query' => $str, 'branch_id' => $int], ['type', 'query'])]],
             'list_branches' => ['kind' => ToolKind::Read, 'permissions' => ['branches.view', 'branches.manage'], 'risk' => 'low', 'declaration' => ['name' => 'list_branches', 'description' => 'قائمة الفروع (active=false للمتوقفة)', 'parameters' => $obj(['active' => $bool, 'city' => $str, 'type' => ['type' => 'STRING', 'enum' => $branchTypes]])]],
             'list_permissions' => ['kind' => ToolKind::Read, 'permissions' => ['permissions.view', 'roles.view', 'roles.manage'], 'risk' => 'low', 'declaration' => ['name' => 'list_permissions', 'description' => 'كتالوج الصلاحيات المتاحة', 'parameters' => $obj([])]],
             'list_roles' => ['kind' => ToolKind::Read, 'permissions' => ['roles.view', 'roles.manage'], 'risk' => 'low', 'declaration' => ['name' => 'list_roles', 'description' => 'قائمة الأدوار', 'parameters' => $obj([])]],
@@ -72,7 +87,7 @@ final class ToolRegistry
             'who_can' => ['kind' => ToolKind::Read, 'permissions' => ['roles.view', 'roles.manage', 'permissions.view'], 'risk' => 'low', 'declaration' => ['name' => 'who_can', 'description' => 'مين معاه صلاحية معينة', 'parameters' => $obj(['permission' => $str], ['permission'])]],
             'compare_roles' => ['kind' => ToolKind::Read, 'permissions' => ['roles.view', 'roles.manage'], 'risk' => 'low', 'declaration' => ['name' => 'compare_roles', 'description' => 'مقارنة صلاحيات دورين', 'parameters' => $obj(['role_a' => $int, 'role_b' => $int], ['role_a', 'role_b'])]],
             'recent_audit' => ['kind' => ToolKind::Read, 'permissions' => ['users.view', 'users.manage'], 'risk' => 'low', 'declaration' => ['name' => 'recent_audit', 'description' => 'آخر أحداث سجل التدقيق الإداري', 'parameters' => $obj(['days' => $int])]],
-            'ask_user_to_choose' => ['kind' => ToolKind::Ui, 'permissions' => ['branches.view', 'branches.manage', 'users.view', 'users.manage', 'roles.view', 'roles.manage'], 'risk' => 'low', 'declaration' => ['name' => 'ask_user_to_choose', 'description' => 'اطلب من المستخدم اختيار كيان من قائمة حقيقية', 'parameters' => $obj(['entity_type' => ['type' => 'STRING', 'enum' => ['branch', 'user', 'role', 'location']], 'purpose' => $str, 'query' => $str], ['entity_type', 'purpose'])]],
+            'ask_user_to_choose' => ['kind' => ToolKind::Ui, 'permissions' => ['branches.view', 'branches.manage', 'users.view', 'users.manage', 'roles.view', 'roles.manage'], 'risk' => 'low', 'declaration' => ['name' => 'ask_user_to_choose', 'description' => 'اطلب من المستخدم اختيار كيان من قائمة حقيقية', 'parameters' => $obj(['entity_type' => ['type' => 'STRING', 'enum' => ['branch', 'user', 'role', 'location', 'customer', 'customer_group']], 'purpose' => $str, 'query' => $str], ['entity_type', 'purpose'])]],
             'create_branch' => ['kind' => ToolKind::Write, 'permissions' => ['branches.create', 'branches.manage'], 'risk' => 'low', 'declaration' => ['name' => 'create_branch', 'description' => 'إنشاء فرع جديد (يحتاج تأكيد)', 'parameters' => $obj(['name' => $str, 'code' => $str, 'type' => ['type' => 'STRING', 'enum' => $branchTypes], 'city' => $str, 'phone' => $str], ['name', 'code', 'type'])]],
             'set_branch_status' => ['kind' => ToolKind::Write, 'permissions' => ['branches.update', 'branches.manage'], 'risk' => 'high', 'declaration' => ['name' => 'set_branch_status', 'description' => 'تفعيل أو تعطيل فرع (يحتاج تأكيد)', 'parameters' => $obj(['branch_id' => $int, 'branch_query' => $str, 'active' => $bool], ['active'])]],
             'create_role' => ['kind' => ToolKind::Write, 'permissions' => ['roles.create', 'roles.manage'], 'risk' => 'medium', 'declaration' => ['name' => 'create_role', 'description' => 'إنشاء دور جديد (يحتاج تأكيد)', 'parameters' => $obj(['name' => $str, 'permissions' => $strArr], ['name'])]],
@@ -90,6 +105,17 @@ final class ToolRegistry
             'create_location' => ['kind' => ToolKind::Write, 'permissions' => ['locations.create', 'locations.manage'], 'risk' => 'low', 'declaration' => ['name' => 'create_location', 'description' => 'إنشاء موقع تخزين جديد في فرع (يحتاج تأكيد)', 'parameters' => $obj(['branch_id' => $int, 'branch_query' => $str, 'name' => $str, 'code' => $str, 'type' => ['type' => 'STRING', 'enum' => $locationTypes]], ['name', 'code', 'type'])]],
             'set_location_status' => ['kind' => ToolKind::Write, 'permissions' => ['locations.update', 'locations.manage'], 'risk' => 'medium', 'declaration' => ['name' => 'set_location_status', 'description' => 'تفعيل أو تعطيل موقع تخزين (يحتاج تأكيد)', 'parameters' => $obj(['location_id' => $int, 'active' => $bool], ['location_id', 'active'])]],
             'delete_location' => ['kind' => ToolKind::Write, 'permissions' => ['locations.delete', 'locations.manage'], 'risk' => 'high', 'declaration' => ['name' => 'delete_location', 'description' => 'حذف موقع تخزين (يحتاج تأكيد، ممنوع لو فيه رصيد أو حركات)', 'parameters' => $obj(['location_id' => $int], ['location_id'])]],
+
+            // ── P04 Customers (قراءة فقط — مساعد مراجِع تجار) ──────────────────
+            // لا توجد أدوات كتابة للعملاء في هذه المرحلة؛ الاعتماد والرفض
+            // والتعديلات الداخلية تأتي في مراحل لاحقة بنفس نمط propose→confirm→undo.
+            'list_customers' => ['kind' => ToolKind::Read, 'permissions' => ['customers.view'], 'risk' => 'low', 'declaration' => ['name' => 'list_customers', 'description' => 'قائمة العملاء/التجار مع فلاتر (بيانات مقنّعة للنموذج، وكاملة في كارت العرض للأدمن)', 'parameters' => $obj(['query' => $str, 'type' => ['type' => 'STRING', 'enum' => ['retail', 'wholesale', 'distributor']], 'status' => ['type' => 'STRING', 'enum' => ['pending', 'approved', 'rejected', 'suspended']], 'customer_group_id' => $int, 'business_only' => $bool, 'pending_older_than_hours' => $int, 'limit' => $int])]],
+            'get_customer_profile' => ['kind' => ToolKind::Read, 'permissions' => ['customers.view'], 'risk' => 'low', 'declaration' => ['name' => 'get_customer_profile', 'description' => 'ملف عميل كامل مقنّع: المستندات حسب الحالة، والمجموعة، وحد الائتمان، والمستخدم منه', 'parameters' => $obj(['customer_id' => $int], ['customer_id'])]],
+            'dealer_queue_summary' => ['kind' => ToolKind::Read, 'permissions' => ['customers.view'], 'risk' => 'low', 'declaration' => ['name' => 'dealer_queue_summary', 'description' => 'ملخص طابور مراجعة التجار: قيد المراجعة، المتأخر عن المهلة، الناقص مستندات، الجاهز للاعتماد', 'parameters' => $obj(['sla_hours' => $int])]],
+            'review_dealer_application' => ['kind' => ToolKind::Read, 'permissions' => ['customers.view', 'customers.documents.view'], 'risk' => 'low', 'declaration' => ['name' => 'review_dealer_application', 'description' => 'فحص طلب اعتماد تاجر قبل الاعتماد: نفس شروط approve() زائد تحذيرات، مع حكم وخطوات تالية', 'parameters' => $obj(['customer_id' => $int], ['customer_id'])]],
+            'customer_history' => ['kind' => ToolKind::Read, 'permissions' => ['customers.view'], 'risk' => 'low', 'declaration' => ['name' => 'customer_history', 'description' => 'سجل تغييرات ملف عميل من CustomerAuditLog (الأحدث أولًا)', 'parameters' => $obj(['customer_id' => $int, 'limit' => $int], ['customer_id'])]],
+            'find_duplicate_customers' => ['kind' => ToolKind::Read, 'permissions' => ['customers.view'], 'risk' => 'low', 'declaration' => ['name' => 'find_duplicate_customers', 'description' => 'تجار ممكن يكونوا نفس الشخص: تطابق ضريبي/سجل، تشابه اسم، أو نفس إيميل حساب محذوف', 'parameters' => $obj(['customer_id' => $int], ['customer_id'])]],
+            'list_customer_groups' => ['kind' => ToolKind::Read, 'permissions' => ['customer_groups.view'], 'risk' => 'low', 'declaration' => ['name' => 'list_customer_groups', 'description' => 'قائمة مجموعات العملاء مع نسبة الخصم وعدد العملاء', 'parameters' => $obj(['query' => $str, 'active' => $bool])]],
 
             // ── P03 Settings & Numbering ───────────────────────────────────────────
             'view_settings' => ['kind' => ToolKind::Read, 'permissions' => ['settings.view', 'settings.manage'], 'risk' => 'low', 'declaration' => ['name' => 'view_settings', 'description' => 'عرض إعدادات المؤسسة (هوية الشركة، الضرائب، السياسات، الترقيم)', 'parameters' => $obj(['group' => ['type' => 'STRING', 'enum' => ['company', 'tax', 'policy', 'numbering', 'store', 'purchases', 'ai', 'all']]])]],
@@ -179,6 +205,13 @@ final class ToolRegistry
                 'ask_user_to_choose' => $this->picker($actor, $args),
                 'bulk_actions' => $this->prepareBulk($actor, $conv, $args),
                 'list_locations' => $this->listLocations($actor, $args),
+                'list_customers' => $this->listCustomers($args),
+                'get_customer_profile' => $this->getCustomerProfile($args),
+                'dealer_queue_summary' => $this->dealerQueueSummary($args),
+                'review_dealer_application' => $this->reviewDealerApplication($args),
+                'customer_history' => $this->customerHistory($args),
+                'find_duplicate_customers' => $this->findDuplicateCustomers($args),
+                'list_customer_groups' => $this->listCustomerGroups($args),
                 'view_settings' => $this->viewSettings($actor, $args),
                 'view_document_numbering' => $this->viewDocumentNumbering($actor, $args),
                 default => $this->prepareWrite($actor, $conv, $name, $args),
@@ -273,6 +306,14 @@ final class ToolRegistry
         if ($name === 'create_role') {
             $rules = array_replace($rules, (new StoreRoleRequest)->rules());
         }
+        if ($name === 'create_location' && isset($rules['code'])) {
+            // L-8: كود الموقع max:100 في REST وmax:255 في المساعد — وحّدها
+            // على 100. قاعدة الـ unique الكاملة من StoreLocationRequest لا
+            // تُطبَّق هنا لأنها تحتاج route('branch') غير موجود في سياق
+            // المساعد؛ التفرد مضمون أصلًا بالـ unique index (branch_id, code)
+            // وتحذير prepCreateLocation.
+            $rules['code'] = ['required', 'string', 'max:100'];
+        }
         Validator::make($args, $rules)->validate();
         abort_if(array_diff(array_keys($args), array_keys((array) $schema['properties'])) !== [], 422, 'بيانات أداة غير مسموحة.');
     }
@@ -290,7 +331,9 @@ final class ToolRegistry
             'user' => ToolOutcome::data(['results' => $this->resolver->users($actor, $query)]),
             'role' => ToolOutcome::data(['results' => $this->resolver->roles($query)]),
             'location' => ToolOutcome::data(['results' => $this->resolver->locations($actor, $query, isset($args['branch_id']) ? (int) $args['branch_id'] : null)]),
-            'permission' => ToolOutcome::data(['results' => Permission::query()->where('guard_name', 'staff')->when($query !== '', fn ($q) => $q->where('name', 'ilike', \App\Services\SearchTerm::pattern($query)))->orderBy('name')->limit(50)->get()->map(fn ($p) => ['id' => $p->name, 'label' => $p->name, 'meta' => ''])->values()->all()]),
+            'customer' => ToolOutcome::data(['results' => $this->resolver->customers($actor, $query)]),
+            'customer_group' => ToolOutcome::data(['results' => $this->resolver->customerGroups($query)]),
+            'permission' => ToolOutcome::data(['results' => Permission::query()->where('guard_name', 'staff')->when($query !== '', fn ($q) => $q->where('name', 'ilike', SearchTerm::pattern($query)))->orderBy('name')->limit(50)->get()->map(fn ($p) => ['id' => $p->name, 'label' => $p->name, 'meta' => ''])->values()->all()]),
             default => ToolOutcome::denied('نوع كيان غير معروف.'),
         };
     }
@@ -322,6 +365,9 @@ final class ToolRegistry
             'role' => ['roles.view', 'roles.manage'],
             'permission' => ['permissions.view', 'roles.view', 'roles.manage'],
             'location' => ['locations.view', 'locations.manage'],
+            'customer' => ['customers.view'],
+            'customer_group' => ['customer_groups.view'],
+            'customer_document' => ['customers.documents.view'],
             default => [],
         };
 
@@ -370,7 +416,7 @@ final class ToolRegistry
             return ToolOutcome::denied('معندكش صلاحية عرض النوع ده.');
         }
         $options = match ($type) {
-            'branch' => $this->resolver->branches($actor, $query), 'user' => $this->resolver->users($actor, $query), 'role' => $this->resolver->roles($query), 'location' => $this->resolver->locations($actor, $query), default => []
+            'branch' => $this->resolver->branches($actor, $query), 'user' => $this->resolver->users($actor, $query), 'role' => $this->resolver->roles($query), 'location' => $this->resolver->locations($actor, $query), 'customer' => $this->resolver->customers($actor, $query), 'customer_group' => $this->resolver->customerGroups($query), default => []
         };
 
         return ToolOutcome::picker(['type' => 'entity_picker', 'entity' => $type, 'purpose' => (string) ($args['purpose'] ?? ''), 'multi' => false, 'options' => $options]);
@@ -379,6 +425,257 @@ final class ToolRegistry
     private function pickerFor(User $actor, string $entity, string $purpose, string $query = ''): ToolOutcome
     {
         return $this->picker($actor, ['entity_type' => $entity, 'purpose' => $purpose, 'query' => $query]);
+    }
+
+    // ── P04 Customers: طبقة القراءة ──────────────────────────────────────────
+    // قاعدة ثابتة: أي حقل كتبه التاجر بنفسه لا يدخل نتيجة الأداة إلا
+    // مغلّفًا بـ untrusted()، وأي قيمة كاملة (موبايل/ضريبي/سجل) لا تذهب
+    // للنموذج أبدًا — تظهر للأدمن فقط داخل الـ UI block، لأن
+    // asFunctionResponse يبعت data بس، والـ block يتخزن في ui_blocks.
+
+    /** 1.6: تغليف بيانات كتبها التاجر — لا تُنفَّذ ولا تُعتَبر سبب قرار. */
+    private function untrusted(?string $v, int $max = 120): array
+    {
+        $clean = mb_substr(preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string) $v), 0, $max);
+
+        return ['untrusted_text' => $clean];
+    }
+
+    private function findCustomer(array $args): ?Customer
+    {
+        return Customer::query()->find((int) ($args['customer_id'] ?? 0));
+    }
+
+    private function customerSearchQuery(array $args)
+    {
+        $query = (string) ($args['query'] ?? '');
+        $q = Customer::query()->with('customerGroup')
+            ->when($args['business_only'] ?? false, fn ($x) => $x->whereIn('type', ['wholesale', 'distributor']))
+            ->when(isset($args['type']), fn ($x) => $x->where('type', $args['type']))
+            ->when(isset($args['status']), fn ($x) => $x->where('status', $args['status']))
+            ->when(isset($args['customer_group_id']), fn ($x) => $x->where('customer_group_id', $args['customer_group_id']))
+            ->when(isset($args['pending_older_than_hours']), fn ($x) => $x->where('status', 'pending')->where('created_at', '<', now()->subHours((int) $args['pending_older_than_hours'])));
+        if (trim($query) !== '') {
+            if (preg_match('/^[0-9٠-٩۰-۹\s().+-]+$/u', trim($query))) {
+                $q->whereLike('phone', SearchTerm::prefix(Customer::normalizePhone($query)), caseSensitive: false);
+            } else {
+                $q->whereLike('search_text', SearchTerm::pattern($query), caseSensitive: false);
+            }
+        }
+
+        return $q;
+    }
+
+    private function listCustomers(array $args): ToolOutcome
+    {
+        $limit = min(20, max(1, (int) ($args['limit'] ?? 20)));
+        $rows = $this->customerSearchQuery($args)->orderBy('id')->limit($limit)->get();
+        $data = $rows->map(fn (Customer $c) => [
+            'id' => $c->id,
+            'name' => $this->untrusted($c->name),
+            'company_name' => $this->untrusted($c->company_name),
+            'phone_masked' => EntityResolver::maskPhone($c->phone),
+            'type' => $c->type->value,
+            'status' => $c->status->value,
+            'group' => $c->customerGroup?->name,
+            'age_hours' => $c->created_at->diffInHours(now()),
+        ])->all();
+
+        return ToolOutcome::data(['customers' => $data], ['type' => 'table', 'columns' => ['الاسم', 'الشركة', 'الحالة', 'النوع', 'المجموعة', 'عمر الطلب (ساعة)'], 'rows' => $rows->map(fn (Customer $c) => [$c->name, $c->company_name ?? '—', EntityResolver::statusLabel($c->status->value), EntityResolver::typeLabel($c->type->value), $c->customerGroup?->name ?? '—', $c->created_at->diffInHours(now())])->all()]);
+    }
+
+    private function getCustomerProfile(array $args): ToolOutcome
+    {
+        $customer = $this->findCustomer($args);
+        if (! $customer) {
+            return ToolOutcome::denied('العميل مش موجود.');
+        }
+        $customer->load(['customerGroup', 'documents']);
+        $counts = ['total' => $customer->documents->count(), 'pending' => 0, 'verified' => 0, 'rejected' => 0];
+        foreach ($customer->documents as $doc) {
+            $counts[$doc->status->value] = ($counts[$doc->status->value] ?? 0) + 1;
+        }
+        $used = app(WholesalePaymentNoticeService::class)->outstandingBalance($customer);
+        $data = [
+            'id' => $customer->id,
+            'name' => $this->untrusted($customer->name),
+            'company_name' => $this->untrusted($customer->company_name),
+            'email' => $this->untrusted($customer->email),
+            'phone_masked' => EntityResolver::maskPhone($customer->phone),
+            'tax_number_masked' => EntityResolver::maskLegal($customer->tax_number),
+            'commercial_register_masked' => EntityResolver::maskLegal($customer->commercial_register),
+            'type' => $customer->type->value,
+            'status' => $customer->status->value,
+            'group' => $customer->customerGroup ? ['id' => $customer->customerGroup->id, 'name' => $customer->customerGroup->name, 'discount_percentage' => $customer->customerGroup->discount_percentage] : null,
+            'credit_limit' => (float) $customer->credit_limit,
+            'used_credit' => $used,
+            'documents_counts' => $counts,
+            'pending_age_hours' => $customer->status === CustomerStatus::Pending ? $customer->created_at->diffInHours(now()) : null,
+            'created_at' => $customer->created_at,
+        ];
+
+        return ToolOutcome::data(['customer' => $data], ['type' => 'profile', 'id' => $customer->id, 'name' => $customer->name, 'company_name' => $customer->company_name, 'email' => $customer->email, 'phone' => $customer->phone, 'tax_number' => $customer->tax_number, 'commercial_register' => $customer->commercial_register, 'type' => $customer->type->value, 'status' => $customer->status->value, 'group' => $customer->customerGroup?->name, 'credit_limit' => (float) $customer->credit_limit, 'used_credit' => $used, 'documents_counts' => $counts]);
+    }
+
+    private function dealerQueueSummary(array $args): ToolOutcome
+    {
+        $sla = max(1, (int) ($args['sla_hours'] ?? $this->settings->get('ai_dealer_review_sla_hours', 48)));
+        $pending = Customer::query()->where('status', 'pending')->with('documents')->orderBy('id')->get();
+        $breachedAt = now()->subHours($sla);
+        $missing = $pending->filter(fn (Customer $c) => ! $c->documents->contains(fn ($d) => $d->status === CustomerDocumentStatus::Verified))->count();
+        $ready = $pending->filter(fn (Customer $c) => $this->reviewCustomer($c)['verdict'] === 'ready')->count();
+        $data = [
+            'pending_count' => $pending->count(),
+            'sla_breached_count' => $pending->filter(fn (Customer $c) => $c->created_at < $breachedAt)->count(),
+            'missing_documents_count' => $missing,
+            'ready_count' => $ready,
+            'sla_hours' => $sla,
+        ];
+
+        return ToolOutcome::data($data, ['type' => 'table', 'columns' => ['المؤشر', 'العدد'], 'rows' => [['قيد المراجعة', $data['pending_count']], ['متأخر عن المهلة', $data['sla_breached_count']], ['ناقص مستندات', $data['missing_documents_count']], ['جاهز للاعتماد', $data['ready_count']]]]);
+    }
+
+    private function reviewDealerApplication(array $args): ToolOutcome
+    {
+        $customer = $this->findCustomer($args);
+        if (! $customer) {
+            return ToolOutcome::denied('العميل مش موجود.');
+        }
+        $review = $this->reviewCustomer($customer);
+
+        return ToolOutcome::data(['customer_id' => $customer->id, 'checks' => $review['checks'], 'verdict' => $review['verdict'], 'next_steps' => $review['next_steps']], ['type' => 'checklist', 'customer_id' => $customer->id, 'verdict' => $review['verdict'], 'checks' => $review['checks']]);
+    }
+
+    /**
+     * 1.4: نفس فحوصات approve() قبل الاعتماد، زائد تحذيرات.
+     * الرسائل قوالب ثابتة — لا تحتوي أي قيمة كتبها التاجر.
+     *
+     * @return array{checks:list<array{key:string,ok:bool,severity:string,message:string}>,verdict:string,next_steps:list<string>}
+     */
+    private function reviewCustomer(Customer $customer): array
+    {
+        $docs = $customer->relationLoaded('documents') ? $customer->documents : $customer->documents()->get();
+        $sla = max(1, (int) $this->settings->get('ai_dealer_review_sla_hours', 48));
+        $legalNames = ['company_name' => 'اسم الشركة', 'tax_number' => 'الرقم الضريبي', 'commercial_register' => 'السجل التجاري'];
+        $missingLegal = array_values(array_filter(array_keys($legalNames), fn ($f) => blank($customer->{$f})));
+        $presentTypes = $docs->map(fn ($d) => $d->document_type->value)->all();
+        $missingTypes = array_values(array_diff([CustomerDocumentType::CommercialRegister->value, CustomerDocumentType::TaxCard->value], $presentTypes));
+        $typeNames = [CustomerDocumentType::CommercialRegister->value => 'سجل تجاري', CustomerDocumentType::TaxCard->value => 'بطاقة ضريبية'];
+        $duplicates = $this->duplicateCustomers($customer);
+        $checks = [
+            ['key' => 'legal_fields', 'ok' => $missingLegal === [], 'severity' => 'blocker', 'message' => $missingLegal === [] ? 'البيانات القانونية التلاتة موجودة.' : 'ناقص: '.implode('، ', array_map(fn ($f) => $legalNames[$f], $missingLegal)).'.'],
+            ['key' => 'documents_unverified', 'ok' => ! $docs->contains(fn ($d) => $d->status !== CustomerDocumentStatus::Verified), 'severity' => 'blocker', 'message' => $docs->contains(fn ($d) => $d->status !== CustomerDocumentStatus::Verified) ? 'في مستندات لسه مش verified.' : 'كل المستندات verified.'],
+            ['key' => 'no_verified_document', 'ok' => $docs->contains(fn ($d) => $d->status === CustomerDocumentStatus::Verified), 'severity' => 'blocker', 'message' => $docs->contains(fn ($d) => $d->status === CustomerDocumentStatus::Verified) ? 'في مستند verified واحد على الأقل.' : 'مفيش ولا مستند verified.'],
+            ['key' => 'status_not_pending', 'ok' => $customer->status === CustomerStatus::Pending, 'severity' => 'blocker', 'message' => $customer->status === CustomerStatus::Pending ? 'الطلب قيد المراجعة.' : 'الحالة الحالية مش pending.'],
+            ['key' => 'phone_unverified', 'ok' => $customer->phone_verified_at !== null, 'severity' => 'warning', 'message' => $customer->phone_verified_at !== null ? 'رقم الموبايل مؤكد.' : 'رقم الموبايل لسه مش مؤكد.'],
+            ['key' => 'duplicates_found', 'ok' => $duplicates === [], 'severity' => 'warning', 'message' => $duplicates === [] ? 'مفيش عملاء مشابهين.' : 'في عملاء مشابهين — راجعهم قبل الاعتماد.'],
+            ['key' => 'sla_breached', 'ok' => ! ($customer->status === CustomerStatus::Pending && $customer->created_at < now()->subHours($sla)), 'severity' => 'warning', 'message' => ($customer->status === CustomerStatus::Pending && $customer->created_at < now()->subHours($sla)) ? "الطلب أقدم من مهلة المراجعة ($sla ساعة)." : 'الطلب لسه جوه مهلة المراجعة.'],
+            ['key' => 'document_types_missing', 'ok' => $missingTypes === [], 'severity' => 'info', 'message' => $missingTypes === [] ? 'نوعا المستندات الأساسيين موجودين.' : 'ناقص مستند: '.implode('، ', array_map(fn ($t) => $typeNames[$t], $missingTypes)).'.'],
+        ];
+        $steps = [
+            'legal_fields' => 'كمّل البيانات القانونية الناقصة قبل الاعتماد.',
+            'documents_unverified' => 'راجع المستندات المعلقة: اعتمد السليم، وارفض غير السليم بسبب واضح.',
+            'no_verified_document' => 'لازم مستند موثّق واحد على الأقل قبل الاعتماد.',
+            'status_not_pending' => 'الطلب مش قيد المراجعة؛ راجع حالته الحالية قبل أي قرار.',
+            'phone_unverified' => 'اطلب من التاجر تأكيد رقم موبايله.',
+            'duplicates_found' => 'راجع العملاء المشابهين وتأكد إن ده مش حساب مكرر.',
+            'sla_breached' => 'الطلب متأخر عن مهلة المراجعة؛ اديله أولوية.',
+            'document_types_missing' => 'اطلب المستندات الناقصة من التاجر.',
+        ];
+        $nextSteps = [];
+        foreach ($checks as $check) {
+            if (! $check['ok']) {
+                $nextSteps[] = $steps[$check['key']];
+            }
+        }
+        $verdict = collect($checks)->contains(fn ($c) => $c['severity'] === 'blocker' && ! $c['ok']) ? 'blocked'
+            : (collect($checks)->contains(fn ($c) => $c['severity'] === 'warning' && ! $c['ok']) ? 'needs_attention' : 'ready');
+
+        return ['checks' => $checks, 'verdict' => $verdict, 'next_steps' => $nextSteps];
+    }
+
+    /**
+     * 1.5: كشف التكرار — تطابق تام ضريبي/سجل، تشابه trigram للاسم (> 0.6)،
+     * أو نفس إيميل حساب محذوف. أقصى 5 نتائج، وكل نتيجة معاها reason.
+     *
+     * @return list<array{id:int,name:array,company_name:array,status:string,type:string,reason:string}>
+     */
+    private function duplicateCustomers(Customer $customer): array
+    {
+        $found = [];
+        $add = function (Customer $other, string $reason) use (&$found): void {
+            if (! isset($found[$other->id])) {
+                $found[$other->id] = ['customer' => $other, 'reasons' => []];
+            }
+            if (! in_array($reason, $found[$other->id]['reasons'], true)) {
+                $found[$other->id]['reasons'][] = $reason;
+            }
+        };
+        $id = $customer->id;
+        if (trim((string) $customer->tax_number) !== '') {
+            Customer::query()->whereKeyNot($id)->whereRaw('TRIM(tax_number) = ?', [trim((string) $customer->tax_number)])->get()->each(fn (Customer $o) => $add($o, 'نفس الرقم الضريبي'));
+        }
+        if (trim((string) $customer->commercial_register) !== '') {
+            Customer::query()->whereKeyNot($id)->whereRaw('TRIM(commercial_register) = ?', [trim((string) $customer->commercial_register)])->get()->each(fn (Customer $o) => $add($o, 'نفس السجل التجاري'));
+        }
+        if (trim((string) $customer->company_name) !== '') {
+            Customer::query()->whereKeyNot($id)->whereRaw('similarity(company_name, ?) > 0.6', [trim((string) $customer->company_name)])->orderByRaw('similarity(company_name, ?) DESC', [trim((string) $customer->company_name)])->get()->each(fn (Customer $o) => $add($o, 'اسم شركة مشابه'));
+        }
+        if ($customer->email) {
+            Customer::onlyTrashed()->whereKeyNot($id)->where('email', mb_strtolower(trim($customer->email)))->get()->each(fn (Customer $o) => $add($o, 'نفس الإيميل (حساب محذوف)'));
+        }
+
+        return collect($found)->values()->take(5)->map(fn ($entry) => [
+            'id' => $entry['customer']->id,
+            'name' => $this->untrusted($entry['customer']->name),
+            'company_name' => $this->untrusted($entry['customer']->company_name),
+            'status' => $entry['customer']->status->value,
+            'type' => $entry['customer']->type->value,
+            'reason' => implode('، ', $entry['reasons']),
+        ])->all();
+    }
+
+    private function customerHistory(array $args): ToolOutcome
+    {
+        $customer = $this->findCustomer($args);
+        if (! $customer) {
+            return ToolOutcome::denied('العميل مش موجود.');
+        }
+        $limit = min(30, max(1, (int) ($args['limit'] ?? 20)));
+        $rows = CustomerAuditLog::query()->where('customer_id', $customer->id)->with('actor:id,name')
+            ->orderByDesc('created_at')->orderByDesc('id')->limit($limit)->get()
+            ->map(fn (CustomerAuditLog $log) => [
+                'action' => $log->action,
+                'actor' => $log->actor ? ['id' => $log->actor->id, 'name' => $log->actor->name] : null,
+                'metadata' => $log->metadata,
+                'created_at' => $log->created_at,
+            ])->all();
+
+        return ToolOutcome::data(['customer_id' => $customer->id, 'history' => $rows], ['type' => 'table', 'columns' => ['الإجراء', 'الموظف', 'التاريخ'], 'rows' => array_map(fn ($r) => [$r['action'], $r['actor']['name'] ?? '—', (string) $r['created_at']], $rows)]);
+    }
+
+    private function findDuplicateCustomers(array $args): ToolOutcome
+    {
+        $customer = $this->findCustomer($args);
+        if (! $customer) {
+            return ToolOutcome::denied('العميل مش موجود.');
+        }
+        $dups = $this->duplicateCustomers($customer);
+
+        return ToolOutcome::data(['customer_id' => $customer->id, 'duplicates' => $dups], ['type' => 'table', 'columns' => ['الاسم', 'الشركة', 'السبب'], 'rows' => array_map(fn ($d) => [$d['name']['untrusted_text'], $d['company_name']['untrusted_text'], $d['reason']], $dups)]);
+    }
+
+    private function listCustomerGroups(array $args): ToolOutcome
+    {
+        $groups = CustomerGroup::query()->withCount('customers')
+            ->when(array_key_exists('active', $args), fn ($x) => $x->where('is_active', $args['active']))
+            ->when(trim((string) ($args['query'] ?? '')) !== '', fn ($x) => $x->where(fn ($w) => $w
+                ->where('name', 'ilike', SearchTerm::pattern((string) $args['query']))
+                ->orWhere('code', 'ilike', SearchTerm::pattern((string) $args['query']))))
+            ->orderBy('id')->limit(50)->get();
+        $data = $groups->map(fn (CustomerGroup $g) => ['id' => $g->id, 'name' => $g->name, 'code' => $g->code, 'discount_percentage' => (float) $g->discount_percentage, 'is_active' => (bool) $g->is_active, 'customers_count' => $g->customers_count])->all();
+
+        return ToolOutcome::data(['groups' => $data], ['type' => 'table', 'columns' => ['الاسم', 'الكود', 'الخصم', 'العملاء'], 'rows' => $groups->map(fn (CustomerGroup $g) => [$g->name, $g->code, $g->discount_percentage.'%', $g->customers_count])->all()]);
     }
 
     public function hashArgs(array $args): string
@@ -767,6 +1064,32 @@ final class ToolRegistry
         return $this->hashArgs($branch->getRawOriginal());
     }
 
+    /**
+     * 0.6: بصمة نسخة للعميل — حقول مستقرة فقط. wallet_balance وupdated_at
+     * متعمد غيابهما: بيتغيروا مع كل طلب/حركة محفظة، ولو دخلوا في البصمة
+     * كل كارت تأكيد كان هيتلغي بـ 409 من غير سبب حقيقي.
+     */
+    private const CUSTOMER_VERSION_FIELDS = [
+        'status', 'type', 'customer_group_id', 'credit_limit', 'company_name',
+        'tax_number', 'commercial_register', 'email', 'phone', 'deleted_at',
+        'rejection_reason', 'suspension_reason',
+    ];
+
+    private function customerVersion(Customer $c): string
+    {
+        return $this->hashArgs(Arr::only($c->getRawOriginal(), self::CUSTOMER_VERSION_FIELDS));
+    }
+
+    private function documentVersion(CustomerDocument $d): string
+    {
+        return $this->hashArgs(Arr::only($d->getRawOriginal(), ['status', 'reviewed_at', 'customer_id']));
+    }
+
+    private function customerGroupVersion(CustomerGroup $g): string
+    {
+        return $this->hashArgs(Arr::only($g->getRawOriginal(), ['name', 'code', 'discount_percentage', 'is_active']));
+    }
+
     public function lockTargets(AiPendingAction $action): void
     {
         foreach ($action->expected_versions ?? [] as $key => $version) {
@@ -1037,9 +1360,9 @@ final class ToolRegistry
     {
         try {
             // H3: مصدر واحد لقاعدة "لا تعطيل لموقع عليه رصيد" عبر SetLocationStatus.
-            $location = app(\App\Actions\Locations\SetLocationStatus::class)(
+            $location = app(SetLocationStatus::class)(
                 $actor, Location::findOrFail($args['location_id']), (bool) $args['active'], $via);
-        } catch (\Illuminate\Database\QueryException $e) {
+        } catch (QueryException $e) {
             report($e);
 
             return ToolOutcome::result(false, 'تعذّر تحديث الموقع؛ حاول مرة أخرى.');
@@ -1088,6 +1411,7 @@ final class ToolRegistry
             $summary = DB::transaction(function () use ($actor, $args, $via): array {
                 // H3: قفل صف الموقع زي LocationController::destroy بالظبط —
                 // الحذف ضد حركة متزامنة بيرجع failed بدل QueryException/500.
+                // L-6: صفوف الأرصدة تُقفل قبل صف الموقع (ترتيب lockLevels).
                 StockLevel::query()->where('location_id', $args['location_id'])
                     ->orderBy('branch_id')
                     ->orderByRaw('location_id ASC NULLS FIRST')
@@ -1119,7 +1443,7 @@ final class ToolRegistry
 
                 return ['ok' => true, 'name' => $name, 'branch_id' => $locked->branch_id, 'branch_name' => $branch?->name ?? ''];
             });
-        } catch (\Illuminate\Database\QueryException $e) {
+        } catch (QueryException $e) {
             report($e);
 
             return ToolOutcome::result(false, 'تعذّر حذف الموقع؛ تربطه حكّة متزامنة. حاول مرة أخرى.');
@@ -1173,7 +1497,7 @@ final class ToolRegistry
 
         $allTypes = ['order', 'invoice', 'purchase_order', 'quotation', 'transfer', 'stocktake',
             'return', 'purchase_request', 'delivery', 'supplier_invoice', 'supplier_payment',
-            'shift', 'expense', 'treasury_transfer', 'payment_notice', 'movement'];
+            'shift', 'pos_invoice', 'expense', 'treasury_transfer', 'payment_notice', 'movement'];
 
         $type = (string) ($args['type'] ?? 'all');
 
@@ -1238,7 +1562,7 @@ final class ToolRegistry
         // التحقق إن المفاتيح موجودة ومسموحة
         // H1: مفاتيح expected/expected.* وai_disabled_tools.* ليست إعدادات قابلة للتعديل.
         $allowedKeys = array_values(array_filter(
-            array_keys((new \App\Http\Requests\Api\V1\Admin\UpdateSettingsRequest)->rules()),
+            array_keys((new UpdateSettingsRequest)->rules()),
             fn (string $key): bool => $key !== 'expected' && ! str_starts_with($key, 'expected.') && ! str_ends_with($key, '.*')
         ));
         $unknownKeys = array_diff(array_keys($changes), $allowedKeys);
@@ -1303,8 +1627,12 @@ final class ToolRegistry
     {
         $this->branches->assertCentralAccess($actor);
         StaffAdministration::authorize($actor, ['settings.manage']);
-        if (array_filter(array_keys($args['changes']), fn ($key) => str_starts_with($key, 'ai_')) !== []) {
-            StaffAdministration::authorize($actor, ['ai_agent.settings']);
+        // L-2: فحص ai_agent.settings كان في prep فقط؛ لو الصلاحية
+        // اتسحبت خلال الـ TTL (10 دقائق) كان التنفيذ يكمل عادي.
+        // إعادة الفحص هنا قبل أي كتابة.
+        $aiKeys = array_filter(array_keys($args['changes'] ?? []), fn ($k) => str_starts_with($k, 'ai_'));
+        if ($aiKeys !== [] && ! $actor->can('ai_agent.settings')) {
+            return ToolOutcome::result(false, 'تعديل إعدادات الذكاء الاصطناعي محتاج صلاحية ai_agent.settings.');
         }
         // H1: إعادة التحقق وقت التأكيد تحمي من args خزّنت قبل الإصلاح.
         $this->validateSettingChanges($args['changes']);
@@ -1425,7 +1753,7 @@ final class ToolRegistry
             }
             if ($tool === 'set_location_status' && isset($inv['is_active'])) {
                 // H3: التراجع يمر بنفس القاعدة المشتركة (مع قفل الصف داخل الـ action).
-                app(\App\Actions\Locations\SetLocationStatus::class)(
+                app(SetLocationStatus::class)(
                     $actor, Location::findOrFail($args['location_id']), (bool) $inv['is_active'], $via);
 
                 return ToolOutcome::result(true, 'تم التراجع.');

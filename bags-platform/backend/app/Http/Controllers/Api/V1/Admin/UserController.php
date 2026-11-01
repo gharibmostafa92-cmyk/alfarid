@@ -13,8 +13,10 @@ use App\Http\Requests\Api\V1\Admin\StoreUserRequest;
 use App\Http\Requests\Api\V1\Admin\UpdateUserRequest;
 use App\Http\Resources\Api\V1\Admin\UserResource;
 use App\Models\User;
+use App\Rules\PasswordByteLimit;
 use App\Services\BranchAccess;
 use App\Services\SearchTerm;
+use App\Services\StaffAdministration;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -22,8 +24,8 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\ValidationException;
-use App\Services\StaffAdministration;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
 
 class UserController extends Controller
@@ -133,7 +135,7 @@ class UserController extends Controller
         $validated = $request->validate([
             'expected_version' => ['required', 'integer', 'min:0'],
             'current_password' => ['required', 'string', 'max:255'],
-            'password' => ['required', 'string', \Illuminate\Validation\Rules\Password::min(12)->letters()->numbers(), 'max:255', new \App\Rules\PasswordByteLimit],
+            'password' => ['required', 'string', Password::min(12)->letters()->numbers(), 'max:255', new PasswordByteLimit],
         ]);
         $limitKey = 'staff:current-password:'.$user->id;
         if (RateLimiter::tooManyAttempts($limitKey, max(1, (int) config('auth.staff_current_password_failures', 5)))) {

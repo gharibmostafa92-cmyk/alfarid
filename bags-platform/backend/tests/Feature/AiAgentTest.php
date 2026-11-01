@@ -291,10 +291,10 @@ class AiAgentTest extends TestCase
 
     public function test_bulk_confirmation_keeps_successes_when_another_item_is_stale(): void
     {
-        // M-5: set_branch_status is no longer bulk-eligible — same stale-item
-        // scenario with a permitted bulk tool.
-        $first = $this->staff([]);
-        $second = $this->staff([]);
+        // M-5: set_branch_status خرج من الـ bulk — الاختبار يستخدم
+        // set_user_status بنفس فكرة التعارض (نسخة قديمة).
+        $first = User::factory()->create();
+        $second = User::factory()->create();
         $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'users.update', 'inventory.all_branches']);
         $conv = $this->conv($admin);
         $outcome = app(ToolRegistry::class)->dispatch($admin, $conv, ['name' => 'bulk_actions', 'args' => ['items' => [
@@ -303,7 +303,7 @@ class AiAgentTest extends TestCase
         ]]]);
         $this->assertSame('proposal', $outcome->type);
         $this->assertSame('bulk_plan', $outcome->uiBlock['type']);
-        $first->update(['name' => 'Changed after proposal']);
+        $first->forceFill(['lock_version' => $first->lock_version + 5])->save();
         $id = $outcome->data['pending_action_id'];
         $token = $this->token($admin);
         $this->withToken($token)->postJson("/api/v1/admin/ai/actions/{$id}/confirm", ['typed_confirmation' => 'تنفيذ'])->assertOk()->assertJsonPath('data.result.items.0.ok', false)->assertJsonPath('data.result.items.1.ok', true);
