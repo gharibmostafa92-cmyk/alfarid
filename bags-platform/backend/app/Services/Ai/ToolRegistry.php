@@ -86,7 +86,7 @@ final class ToolRegistry
         $locationTypes = array_column(LocationType::cases(), 'value');
 
         return [
-            'bulk_actions' => ['kind' => ToolKind::Write, 'permissions' => ['branches.update', 'branches.manage', 'users.update', 'users.manage', 'roles.update', 'roles.manage', 'locations.update', 'locations.manage'], 'risk' => 'high', 'declaration' => ['name' => 'bulk_actions', 'description' => 'اقتراح مجموعة تعديلات مستقلة بكارت واحد. راجع كل عنصر قبل التأكيد؛ لا تنفذ أي تعديل فوراً.', 'parameters' => $obj(['items' => ['type' => 'ARRAY', 'minItems' => 2, 'items' => $obj(['tool' => ['type' => 'STRING', 'enum' => ['update_role_permissions', 'set_user_status', 'assign_roles', 'revoke_user_sessions', 'set_location_status', 'create_location']], 'args' => $obj(['branch_id' => $int, 'user_id' => $int, 'role_id' => $int, 'location_id' => $int, 'active' => $bool, 'add' => $strArr, 'remove' => $strArr, 'name' => $str, 'code' => $str, 'type' => $str])], ['tool', 'args'])]], ['items'])]],
+            'bulk_actions' => ['kind' => ToolKind::Write, 'permissions' => ['branches.update', 'branches.manage', 'users.update', 'users.manage', 'roles.update', 'roles.manage', 'locations.update', 'locations.manage', 'customers.approve', 'customers.documents.view'], 'risk' => 'high', 'declaration' => ['name' => 'bulk_actions', 'description' => 'اقتراح مجموعة تعديلات مستقلة بكارت واحد. راجع كل عنصر قبل التأكيد؛ لا تنفذ أي تعديل فوراً. الاعتماد والرفض ممنوعان في الجماعي — كل قرار اعتماد أو رفض لازم يتراجع لوحده.', 'parameters' => $obj(['items' => ['type' => 'ARRAY', 'minItems' => 2, 'items' => $obj(['tool' => ['type' => 'STRING', 'enum' => ['update_role_permissions', 'set_user_status', 'assign_roles', 'revoke_user_sessions', 'set_location_status', 'create_location', 'set_customer_group', 'set_credit_limit', 'review_customer_document', 'suspend_customer', 'reactivate_customer']], 'args' => $obj(['branch_id' => $int, 'user_id' => $int, 'role_id' => $int, 'location_id' => $int, 'active' => $bool, 'add' => $strArr, 'remove' => $strArr, 'name' => $str, 'code' => $str, 'type' => $str, 'customer_id' => $int, 'customer_group_id' => $int, 'credit_limit' => ['type' => 'NUMBER'], 'document_id' => $int, 'status' => $str, 'note' => $str, 'reason' => $str])], ['tool', 'args'])]], ['items'])]],
             'find_entities' => ['kind' => ToolKind::Read, 'permissions' => ['branches.view', 'branches.manage', 'users.view', 'users.manage', 'roles.view', 'roles.manage', 'permissions.view'], 'risk' => 'low', 'declaration' => ['name' => 'find_entities', 'description' => 'بحث عن فروع أو موظفين أو أدوار أو صلاحيات أو مواقع تخزين أو عملاء أو مجموعات عملاء', 'parameters' => $obj(['type' => ['type' => 'STRING', 'enum' => ['branch', 'user', 'role', 'permission', 'location', 'customer', 'customer_group']], 'query' => $str, 'branch_id' => $int], ['type', 'query'])]],
             'list_branches' => ['kind' => ToolKind::Read, 'permissions' => ['branches.view', 'branches.manage'], 'risk' => 'low', 'declaration' => ['name' => 'list_branches', 'description' => 'قائمة الفروع (active=false للمتوقفة)', 'parameters' => $obj(['active' => $bool, 'city' => $str, 'type' => ['type' => 'STRING', 'enum' => $branchTypes]])]],
             'list_permissions' => ['kind' => ToolKind::Read, 'permissions' => ['permissions.view', 'roles.view', 'roles.manage'], 'risk' => 'low', 'declaration' => ['name' => 'list_permissions', 'description' => 'كتالوج الصلاحيات المتاحة', 'parameters' => $obj([])]],
@@ -281,7 +281,17 @@ final class ToolRegistry
             $args['email'] = mb_strtolower(trim($args['email']));
         }
         if ($name === 'bulk_actions') {
-            Validator::make($args, ['items' => ['required', 'array', 'min:2', 'max:'.max(1, (int) $this->settings->get('ai_bulk_max_items', 25))], 'items.*.tool' => ['required', Rule::in(['update_role_permissions', 'set_user_status', 'assign_roles', 'revoke_user_sessions', 'set_location_status', 'create_location'])], 'items.*.args' => ['required', 'array']])->validate();
+            // 3.1: الاعتماد والرفض ممنوعان في الجماعي صراحة — كل قرار
+            // بيبعت إشعار لعميل حقيقي، فلازم يتراجع لوحده. الرفض هنا
+            // برسالة عربية واضحة، مش برسالة Rule::in العامة.
+            if (is_array($args['items'] ?? null)) {
+                foreach ($args['items'] as $bulkItem) {
+                    if (in_array($bulkItem['tool'] ?? null, ['approve_dealer_application', 'reject_dealer_application'], true)) {
+                        throw ValidationException::withMessages(['items' => 'الاعتماد والرفض ممنوعان في العمليات الجماعية؛ كل قرار اعتماد أو رفض لازم يتراجع لوحده، لأنه بيبعت إشعار لعميل حقيقي.']);
+                    }
+                }
+            }
+            Validator::make($args, ['items' => ['required', 'array', 'min:2', 'max:'.max(1, (int) $this->settings->get('ai_bulk_max_items', 25))], 'items.*.tool' => ['required', Rule::in(['update_role_permissions', 'set_user_status', 'assign_roles', 'revoke_user_sessions', 'set_location_status', 'create_location', 'set_customer_group', 'set_credit_limit', 'review_customer_document', 'suspend_customer', 'reactivate_customer'])], 'items.*.args' => ['required', 'array']])->validate();
 
             return;
         }
@@ -772,6 +782,8 @@ final class ToolRegistry
         return DB::transaction(function () use ($actor, $conv, $args): ToolOutcome {
             $ids = [];
             $items = [];
+            $creditUnderUsed = 0;
+            $allSetCustomerGroup = $args['items'] !== [];
             foreach ($args['items'] as $item) {
                 $outcome = $this->dispatch($actor, $conv, ['name' => $item['tool'], 'args' => $item['args']]);
                 if ($outcome->type !== 'proposal') {
@@ -782,8 +794,39 @@ final class ToolRegistry
                 $id = $outcome->data['pending_action_id'];
                 $ids[] = $id;
                 $items[] = ['key' => $id, 'label' => $outcome->uiBlock['title'], 'change' => $item['tool'], 'before' => $outcome->uiBlock['before'] ?? null, 'after' => $outcome->uiBlock['after'] ?? null];
+                // 3.2: عدّ عناصر الائتمان اللي بتنزل تحت المستخدم — من
+                // preview العنصر نفسه (before: used_credit، after:
+                // credit_limit)، مش من إعادة حساب قد تتغير بعد الاقتراح.
+                if ($item['tool'] === 'set_credit_limit') {
+                    $before = $outcome->uiBlock['before'] ?? [];
+                    $after = $outcome->uiBlock['after'] ?? [];
+                    if (isset($before['used_credit'], $after['credit_limit']) && (float) $after['credit_limit'] < (float) $before['used_credit']) {
+                        $creditUnderUsed++;
+                    }
+                }
+                if ($item['tool'] !== 'set_customer_group') {
+                    $allSetCustomerGroup = false;
+                }
             }
-            $outcome = $this->makeProposal($actor, $conv, 'bulk_actions', ['action_ids' => $ids], [], ['title' => 'مراجعة '.count($ids).' عمليات', 'items' => $items, 'warnings' => ['كل عنصر بيتنفذ لوحده. راجع التغييرات واستبعد أي عنصر مش مطلوب.']], null, 'high');
+            // 3.2: لو كل عناصر المجموعة بلا تغيير أصلًا (المجموعة القديمة
+            // = المستهدفة في كل عنصر، من inverse المقترح نفسه)، مفيش
+            // عملية أصلًا — denied، والعناصر الفرعية تُلغى زي أي فشل prep.
+            if ($allSetCustomerGroup && $ids !== []) {
+                $noChange = AiPendingAction::whereIn('id', $ids)->get()->every(fn (AiPendingAction $child) => array_key_exists('customer_group_id', $child->inverse ?? []) && (int) $child->inverse['customer_group_id'] === (int) ($child->args['customer_group_id'] ?? -1) && (int) ($child->args['customer_group_id'] ?? -1) !== -1);
+                if ($noChange) {
+                    AiPendingAction::whereIn('id', $ids)->update(['status' => 'cancelled']);
+
+                    return ToolOutcome::denied('مفيش تغيير.');
+                }
+            }
+            $warnings = [];
+            // 3.2: تحذير مجمّع في أعلى الكارت لما أكتر من 30% من كل
+            // العناصر بتنزل حد الائتمان تحت المستخدم.
+            if ($creditUnderUsed > 0 && $ids !== [] && $creditUnderUsed / count($ids) > 0.3) {
+                $warnings[] = 'تحذير مجمّع: '.$creditUnderUsed.' من '.count($ids).' عناصر بيقللوا حد الائتمان تحت الرصيد المستخدم — التجار دول هيبقوا فوق الحد فورًا، وطلباتهم الآجلة الجاية هتترفض.';
+            }
+            $warnings[] = 'كل عنصر بيتنفذ لوحده. راجع التغييرات واستبعد أي عنصر مش مطلوب.';
+            $outcome = $this->makeProposal($actor, $conv, 'bulk_actions', ['action_ids' => $ids], [], ['title' => 'مراجعة '.count($ids).' عمليات', 'items' => $items, 'warnings' => $warnings], null, 'high');
             // M10: الأجراءات الفرعية بتبقى bulk_child لحد ما المجموعة تتأكد —
             // كده اصلی الـ confirm() المباشر لواحد منهم مرفوض من غير مراجعة.
             AiPendingAction::whereIn('id', $ids)->where('status', 'pending')->update(['status' => 'bulk_child']);
