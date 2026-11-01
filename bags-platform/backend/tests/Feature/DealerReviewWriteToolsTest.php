@@ -323,17 +323,20 @@ class DealerReviewWriteToolsTest extends TestCase
         // المستند المعلق مش في قائمة التوثيق → blocker بعد المحاكاة.
         $outcome = app(ToolRegistry::class)->dispatch($admin, $this->conv($admin), ['name' => 'approve_dealer_application', 'args' => ['customer_id' => $customer->id]]);
         $this->assertSame('denied', $outcome->type);
-        $this->assertStringContainsString('مستندات لسه مش verified', $outcome->message);
+        $this->assertStringContainsString('معلقة (pending)', $outcome->message);
     }
 
-    public function test_approve_dealer_application_denied_when_rejected_document_remains(): void
+    public function test_approve_dealer_application_succeeds_with_rejected_document_and_verified_document(): void
     {
         $admin = $this->admin();
-        $customer = $this->wholesaleCustomer();
-        $this->document($customer, ['status' => CustomerDocumentStatus::Rejected]);
-        $outcome = app(ToolRegistry::class)->dispatch($admin, $this->conv($admin), ['name' => 'approve_dealer_application', 'args' => ['customer_id' => $customer->id]]);
-        $this->assertSame('denied', $outcome->type);
-        $this->assertSame('فيه مستند مرفوض، لازم يتراجع أو يترفع بديل الأول.', $outcome->message);
+        $group = $this->group();
+        $customer = $this->wholesaleCustomer(['customer_group_id' => $group->id]);
+        $this->document($customer, ['status' => CustomerDocumentStatus::Verified, 'document_type' => CustomerDocumentType::CommercialRegister]);
+        $this->document($customer, ['status' => CustomerDocumentStatus::Rejected, 'document_type' => CustomerDocumentType::TaxCard]);
+
+        ['action' => $action, 'block' => $block] = $this->propose($admin, 'approve_dealer_application', ['customer_id' => $customer->id]);
+        $this->confirm($admin, $action, $block['typed_confirmation'])->assertOk()->assertJsonPath('data.ok', true);
+        $this->assertSame('approved', $customer->fresh()->status->value);
     }
 
     public function test_approve_dealer_application_rolls_back_when_new_document_appears(): void

@@ -293,13 +293,13 @@ class AiAgentTest extends TestCase
     {
         // M-5: set_branch_status خرج من الـ bulk — الاختبار يستخدم
         // set_user_status بنفس فكرة التعارض (نسخة قديمة).
-        $first = User::factory()->create();
-        $second = User::factory()->create();
+        $first = User::factory()->create(['is_active' => false]);
+        $second = User::factory()->create(['is_active' => false]);
         $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'users.update', 'inventory.all_branches']);
         $conv = $this->conv($admin);
         $outcome = app(ToolRegistry::class)->dispatch($admin, $conv, ['name' => 'bulk_actions', 'args' => ['items' => [
-            ['tool' => 'set_user_status', 'args' => ['user_id' => $first->id, 'active' => false]],
-            ['tool' => 'set_user_status', 'args' => ['user_id' => $second->id, 'active' => false]],
+            ['tool' => 'set_user_status', 'args' => ['user_id' => $first->id, 'active' => true]],
+            ['tool' => 'set_user_status', 'args' => ['user_id' => $second->id, 'active' => true]],
         ]]]);
         $this->assertSame('proposal', $outcome->type);
         $this->assertSame('bulk_plan', $outcome->uiBlock['type']);
@@ -307,8 +307,8 @@ class AiAgentTest extends TestCase
         $id = $outcome->data['pending_action_id'];
         $token = $this->token($admin);
         $this->withToken($token)->postJson("/api/v1/admin/ai/actions/{$id}/confirm", ['typed_confirmation' => 'تنفيذ'])->assertOk()->assertJsonPath('data.result.items.0.ok', false)->assertJsonPath('data.result.items.1.ok', true);
-        $this->assertTrue($first->fresh()->is_active);
-        $this->assertFalse($second->fresh()->is_active);
+        $this->assertFalse($first->fresh()->is_active);
+        $this->assertTrue($second->fresh()->is_active);
         $this->withToken($token)->postJson("/api/v1/admin/ai/actions/{$id}/confirm", ['typed_confirmation' => 'تنفيذ'])->assertOk();
         $this->assertSame(1, DB::table('staff_audit_logs')->where('action', 'user.updated')->where('target_id', $second->id)->count());
     }
@@ -327,7 +327,7 @@ class AiAgentTest extends TestCase
     public function test_conversations_hide_provider_parts_and_prevent_cross_user_mutations(): void
     {
         $owner = $this->staff(['ai_agent.use']);
-        $auditor = $this->staff(['ai_agent.use', 'ai_agent.logs.view']);
+        $auditor = $this->staff(['ai_agent.use', 'ai_agent.logs.view', 'customers.view']);
         $conv = $this->conv($owner);
         $conv->messages()->create(['role' => 'model', 'content' => 'رد', 'provider_parts' => [['text' => 'رد', 'thoughtSignature' => 'private-signature']]]);
         $token = $this->token($auditor);

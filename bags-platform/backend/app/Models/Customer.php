@@ -23,16 +23,12 @@ use Laravel\Sanctum\HasApiTokens;
     'phone',
     'password',
     'type',
-    'status',
     'customer_group_id',
     'company_name',
     'tax_number',
     'commercial_register',
-    'credit_limit',
     'rejection_reason',
     'suspension_reason',
-    'approved_at',
-    'approved_by',
     'phone_verified_at',
 ])]
 #[Hidden(['password', 'remember_token'])]
@@ -90,6 +86,9 @@ class Customer extends Authenticatable
 
     public static function normalizePhone(string $phone): string
     {
+        if (preg_match('/^legacy-[0-9]+$/', trim($phone))) {
+            return trim($phone); // L8: ما نبوّظش الـ placeholder
+        }
         $phone = strtr(trim($phone), self::ARABIC_PERSIAN_DIGITS_MAP);
         $phone = preg_replace('/[\s().-]+/u', '', $phone);
         if (preg_match('/^201[0125][0-9]{8}$/', $phone)) {

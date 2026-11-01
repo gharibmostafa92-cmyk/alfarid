@@ -143,6 +143,14 @@ export default function AssistantAdministration({ can }: { can: (permission: str
                   <span className="as-field-label"><strong>تفعيل المساعد</strong><small>إيقافه بيمنع كل المستخدمين من بدء محادثات جديدة.</small></span>
                   <input type="checkbox" role="switch" className="as-switch" checked={settings.ai_enabled} disabled={saving} onChange={e => setSettings({ ...settings, ai_enabled: e.target.checked })} />
                 </label>
+                <label className="as-field as-field--switch">
+                  <span className="as-field-label"><strong>تفعيل أدوات العملاء والتجار</strong><small>يسمح للمساعد بمراجعة طلبات التجار وعرض وإدارة ملفات العملاء.</small></span>
+                  <input type="checkbox" role="switch" className="as-switch" checked={!!settings.ai_customer_tools_enabled} disabled={saving} onChange={e => setSettings({ ...settings, ai_customer_tools_enabled: e.target.checked })} />
+                </label>
+                <label className="as-field as-field--switch">
+                  <span className="as-field-label"><strong>تحليل مستندات التجار بالذكاء الاصطناعي</strong><small>يسمح بفحص صور السجل التجاري والبطاقة الضريبية استشاريًا.</small></span>
+                  <input type="checkbox" role="switch" className="as-switch" checked={!!settings.ai_document_analysis_enabled} disabled={saving || !settings.ai_customer_tools_enabled} onChange={e => setSettings({ ...settings, ai_document_analysis_enabled: e.target.checked })} />
+                </label>
                 {NUMERIC_FIELDS.map(([key, label, help, min, max]) => (
                   <label className="as-field" key={key}>
                     <span className="as-field-label"><strong>{label}</strong><small>{help}</small></span>

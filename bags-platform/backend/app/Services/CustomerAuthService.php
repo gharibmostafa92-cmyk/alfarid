@@ -74,27 +74,40 @@ class CustomerAuthService
      */
     public function registerRetail(array $data): Customer
     {
-        return DB::transaction(function () use ($data): Customer {
-            $this->lockRegistrationEmail($data['email'] ?? null);
-            $verified = app(CustomerPhoneVerificationService::class)->consume($data);
+        try {
+            return DB::transaction(function () use ($data): Customer {
+                $this->lockRegistrationEmail($data['email'] ?? null);
+                $verified = app(CustomerPhoneVerificationService::class)->consume($data);
 
-            $customer = Customer::query()->create([
-                'name' => $data['name'],
-                'email' => $data['email'] ?? null,
-                'phone' => $data['phone'],
-                'password' => $data['password'],
-                'type' => CustomerType::Retail,
-                'status' => CustomerStatus::Approved,
-                'phone_verified_at' => $verified ? now() : null,
-                'approved_at' => now(),
-            ]);
-            CustomerAuditLog::record($customer, 'self_registered', null, ['channel' => 'store']);
+                $customer = Customer::query()->make([
+                    'name' => $data['name'],
+                    'email' => $data['email'] ?? null,
+                    'phone' => $data['phone'],
+                    'password' => $data['password'],
+                    'type' => CustomerType::Retail,
+                    'phone_verified_at' => $verified ? now() : null,
+                ]);
+                $customer->forceFill(['status' => CustomerStatus::Approved, 'approved_at' => now()])->save();
+                CustomerAuditLog::record($customer, 'self_registered', null, ['channel' => 'store']);
 
-            return $customer;
-        });
+                return $customer;
+            });
+        } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+            throw $this->translateRegistrationConflict($e);
+        }
     }
 
     /** Recheck registration rules while reserving the email until the surrounding transaction commits. */
+    /** M9: تسجيلين متزامنين بنفس الموبايل → 23505 من الـ unique index؛ نحوله لخطأ تحقق بدل 500. */
+    public function translateRegistrationConflict(\Throwable $e): \Throwable
+    {
+        if ($e instanceof \Illuminate\Database\UniqueConstraintViolationException && str_contains($e->getMessage(), 'phone')) {
+            return ValidationException::withMessages(['phone' => 'رقم الموبايل مسجل بالفعل.']);
+        }
+
+        return $e;
+    }
+
     public function lockRegistrationEmail(?string $email): void
     {
         if ($email === null || trim($email) === '') {
@@ -150,10 +163,16 @@ class CustomerAuthService
         if (Hash::needsRehash($customer->password)) {
             $original = $customer->password;
             $replacement = Hash::make($password);
-            if ($customer->newQuery()->whereKey($customer->id)->where('password', $original)->update(['password' => $replacement]) !== 1) {
-                throw new BusinessException('بيانات الدخول غير صحيحة.', [], 401);
+            if ($customer->newQuery()->whereKey($customer->id)->where('password', $original)->update(['password' => $replacement]) === 1) {
+                $customer->forceFill(['password' => $replacement])->syncOriginalAttribute('password');
+            } else {
+                // L2: جهاز تاني عمل rehash في نفس اللحظة — نتأكد من الـ hash الحالي بدل 401 غلط.
+                $fresh = $customer->newQuery()->whereKey($customer->id)->value('password');
+                if (! is_string($fresh) || ! Hash::check($password, $fresh)) {
+                    throw new BusinessException('بيانات الدخول غير صحيحة.', [], 401);
+                }
+                $customer->forceFill(['password' => $fresh])->syncOriginalAttribute('password');
             }
-            $customer->forceFill(['password' => $replacement])->syncOriginalAttribute('password');
         }
         CustomerAuditLog::record($customer, 'login_succeeded', null);
 

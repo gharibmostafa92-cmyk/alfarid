@@ -20,7 +20,7 @@ class AiConversationController extends Controller
         $actor = $request->user('staff');
         $data = $request->validate(['q' => ['nullable', 'string', 'max:100'], 'all' => ['sometimes', 'boolean']]);
         $query = AiConversation::query()->withCount('messages')->when(! empty($data['q']), fn ($q) => $q->where('title', 'ilike', \App\Services\SearchTerm::pattern($data['q'])))->orderByDesc('is_pinned')->orderByDesc('last_message_at')->orderByDesc('id');
-        if ($request->query('all') && $actor->can('ai_agent.logs.view')) {
+        if ($request->query('all') && $actor->can('ai_agent.logs.view') && $actor->can('customers.view')) { // M6
             // M11: عرض محادثات الآخرين بيفضح جداول موظفين وفروع — مين مقيّد بفرع مالوش وصول مركزي.
             $this->branchAccess->assertCentralAccess($actor);
         } else {
@@ -75,7 +75,7 @@ class AiConversationController extends Controller
         }
         // M-10: محادثة مستخدم آخر قد تحتوي جداول موظفين/فروع أخرى في
         // ui_blocks — تتطلب logs.view مع وصول مركزي، كما في index?all=1.
-        abort_unless($actor->can('ai_agent.logs.view'), 403);
+        abort_unless($actor->can('ai_agent.logs.view') && $actor->can('customers.view'), 403); // M6
         $this->branchAccess->assertCentralAccess($actor);
     }
 }

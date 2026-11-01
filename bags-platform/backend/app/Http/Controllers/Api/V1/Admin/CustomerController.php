@@ -52,7 +52,8 @@ class CustomerController extends Controller implements HasMiddleware
             'business_only' => ['nullable', 'boolean'],
             'status' => ['nullable', Rule::enum(CustomerStatus::class)],
             'customer_group_id' => ['nullable', 'integer', 'min:1'],
-            'search' => ['nullable', 'string', 'max:255'],
+            // L-2: أقل من 3 حروف trigram ما يستفيدش من الفهرس → full scan + COUNT(*).
+            'search' => ['nullable', 'string', 'min:3', 'max:255'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
             'trashed' => ['nullable', Rule::in(['only'])],
         ]);

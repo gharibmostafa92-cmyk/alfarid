@@ -126,7 +126,7 @@ class AiCustomerToolsTest extends TestCase
         $this->assertDoesNotMatchRegularExpression('/555666777/', $json);
         $this->assertDoesNotMatchRegularExpression('/888999000/', $json);
         $this->assertSame('customer_card', $outcome->uiBlock['type']);
-        $this->assertSame('01098765432', $outcome->uiBlock['phone']);
+        $this->assertSame(\App\Services\Ai\EntityResolver::maskPhone('01098765432'), $outcome->uiBlock['phone']);
         $this->assertSame('/dealers?customer='.$c->id, $outcome->uiBlock['deep_link']);
     }
 

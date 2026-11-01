@@ -96,6 +96,9 @@ class AppServiceProvider extends ServiceProvider
         if ($this->app->environment('production') && (! is_string($proxies) || trim($proxies) === '' || preg_match('/(?:^|,)\s*\*{1,2}\s*(?:,|$)/', $proxies))) {
             throw new \LogicException('Set TRUSTED_PROXIES to explicit proxy IPs/CIDRs, or none for direct access. Wildcards are not allowed in production.');
         }
+        if ($this->app->environment('production') && in_array(config('cache.default'), ['file', 'array'], true)) {
+            logger()->critical('AI agent locks require a shared atomic cache store (redis/database).');
+        }
         // F17: إعدادات افتراضية خطرة في الإنتاج — روابط ورموز الاستعادة
         // تُكتب في السجل مع mailer=log (استيلاء على الحسابات)، وsslmode=prefer
         // يسمح بالرجوع لاتصال غير مشفر. فشل مبكر كحراسة TRUSTED_PROXIES.

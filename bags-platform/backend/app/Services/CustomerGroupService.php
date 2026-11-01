@@ -6,9 +6,12 @@ namespace App\Services;
 
 use App\Exceptions\BusinessException;
 use App\Models\CustomerGroup;
+use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Manages customer groups and their wholesale discount configurations.
@@ -34,21 +37,44 @@ class CustomerGroupService
     /**
      * Create a new customer group record.
      */
-    public function create(array $data): CustomerGroup
+    public function create(array $data, ?User $actor = null, array $via = []): CustomerGroup
     {
         $data = array_filter($data, fn ($value, $key) => $value !== null || ! in_array($key, ['discount_percentage', 'is_active'], true), ARRAY_FILTER_USE_BOTH);
+        try {
+            return DB::transaction(function () use ($data, $actor, $via): CustomerGroup {
+                $group = CustomerGroup::query()->create($data);
+                // L-7: الخصم بيأثر على التسعير.
+                if ($actor !== null) {
+                    StaffAdministration::audit($actor, 'customer_group.created', 'customer_group', $group->id, array_keys($data), [], $group->only(array_keys($data)), $via);
+                }
 
-        return CustomerGroup::query()->create($data);
+                return $group;
+            });
+        } catch (UniqueConstraintViolationException) {
+            throw ValidationException::withMessages(['code' => 'كود المجموعة مستخدم بالفعل.']); // L-4
+        }
     }
 
     /**
      * Update customer group attributes.
      */
-    public function update(CustomerGroup $group, array $data): CustomerGroup
+    public function update(CustomerGroup $group, array $data, ?User $actor = null, array $via = []): CustomerGroup
     {
-        $group->update($data);
+        try {
+            return DB::transaction(function () use ($group, $data, $actor, $via): CustomerGroup {
+                $group = CustomerGroup::query()->lockForUpdate()->findOrFail($group->id);
+                $before = $group->only(array_keys($data));
+                $group->update($data);
+                // M13: مسار REST كان مش بيسجل؛ مسار المساعد بيسجل بنفسه فمش بيبعت actor.
+                if ($actor !== null) {
+                    StaffAdministration::audit($actor, 'customer_group.updated', 'customer_group', $group->id, array_keys($data), $before, $group->only(array_keys($data)), $via);
+                }
 
-        return $group;
+                return $group;
+            });
+        } catch (UniqueConstraintViolationException) {
+            throw ValidationException::withMessages(['code' => 'كود المجموعة مستخدم بالفعل.']); // L-4
+        }
     }
 
     /**
@@ -56,14 +82,15 @@ class CustomerGroupService
      *
      * @throws BusinessException If assigned to customers or price lists
      */
-    public function delete(CustomerGroup $group): void
+    public function delete(CustomerGroup $group, ?User $actor = null): void
     {
         try {
-            DB::transaction(function () use ($group): void {
+            DB::transaction(function () use ($group, $actor): void {
                 // Lock row before existence check to prevent concurrent customer assignment that would silently lose group via nullOnDelete
                 $group = CustomerGroup::query()->lockForUpdate()->findOrFail($group->id);
 
-                if ($group->customers()->exists()) {
+                // L-1: العملاء المحذوفين لما يترجعوا لازم يلاقوا مجموعتهم.
+                if ($group->customers()->withTrashed()->exists()) {
                     throw new BusinessException('لا يمكن حذف مجموعة مرتبطة بعملاء؛ انقل العملاء أولًا أو عطّل المجموعة.');
                 }
 
@@ -71,7 +98,11 @@ class CustomerGroupService
                     throw new BusinessException('لا يمكن حذف مجموعة مرتبطة بقوائم أسعار.');
                 }
 
+                $before = $group->only(['name', 'code', 'description', 'discount_percentage', 'is_active']);
                 $group->delete();
+                if ($actor !== null) {
+                    StaffAdministration::audit($actor, 'customer_group.deleted', 'customer_group', $group->id, array_keys($before), $before, [], []);
+                }
             });
         } catch (QueryException $e) {
             // Convert foreign key violation (PostgreSQL 23503) into friendly 422 business error

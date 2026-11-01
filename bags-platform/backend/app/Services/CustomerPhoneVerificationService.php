@@ -25,12 +25,12 @@ class CustomerPhoneVerificationService
      */
     public function send(string $phone, ?string $networkKey = null): void
     {
-        // Avoid sending verification codes to numbers already registered
+        // L9: سياسة موحّدة — التسجيل بيكشف وجود الرقم (UX). السكوت هنا لحماية رصيد الـ SMS، مش لمنع الكشف.
         if (Customer::withTrashed()->where('phone', $phone)->exists()) {
             return;
         }
         $code = (string) random_int(100000, 999999);
-        $key = hash('sha256', $phone);
+        $key = $this->phoneKey($phone);
         $created = DB::transaction(function () use ($key, $code, $networkKey): bool {
             DB::table('customer_phone_verifications')->insertOrIgnore([
                 'phone_key' => $key, 'code_hash' => '', 'created_at' => now()->subDay(), 'expires_at' => now()->subDay(),
@@ -69,7 +69,7 @@ class CustomerPhoneVerificationService
     public function verify(string $phone, string $code): string
     {
         $proof = DB::transaction(function () use ($phone, $code): ?string {
-            $key = hash('sha256', $phone);
+            $key = $this->phoneKey($phone);
             $row = DB::table('customer_phone_verifications')->where('phone_key', $key)->lockForUpdate()->first();
             if ($row === null || $row->attempts >= 5 || now()->gte($row->expires_at) || $row->verified_at !== null) {
                 return null;
@@ -116,9 +116,15 @@ class CustomerPhoneVerificationService
     /**
      * Verify phone ownership proof token against stored hash and check expiration.
      */
+    /** L3: HMAC بدل sha256 خام — نطاق أرقام الموبايل صغير وسهل عكسه. */
+    private function phoneKey(string $phone): string
+    {
+        return hash_hmac('sha256', $phone, (string) config('app.key'));
+    }
+
     private function validProof(string $phone, string $proof, bool $consume = false): bool
     {
-        $query = DB::table('customer_phone_verifications')->where('phone_key', hash('sha256', $phone));
+        $query = DB::table('customer_phone_verifications')->where('phone_key', $this->phoneKey($phone));
         $row = ($consume ? $query->lockForUpdate() : $query)->first();
         $stored = $row?->proof_hash ?? '';
         $matches = strlen($stored) === 64 ? hash_equals($stored, hash('sha256', $proof))
@@ -146,5 +152,17 @@ class CustomerPhoneVerificationService
         }
 
         return true;
+    }
+
+    /** L-10: فحص رخيص غير مستهلك قبل رفع الملفات لـ R2. */
+    public function assertProofPresent(array $data): void
+    {
+        if (! config('auth.require_phone_verification')) {
+            return;
+        }
+        $proof = $data['phone_verification_token'] ?? '';
+        if (! is_string($proof) || strlen($proof) !== 64 || ! $this->validProof($data['phone'], $proof)) {
+            throw new BusinessException('إثبات ملكية الهاتف غير صالح أو تم استخدامه.');
+        }
     }
 }

@@ -106,7 +106,7 @@ class WholesaleRegistrationTest extends TestCase
         // الإدارة ترفض الطلب وترفض مستندًا بعينه
         $customer = Customer::where('phone', '01022223333')->firstOrFail();
         $customer->documents()->firstOrFail()->update(['status' => CustomerDocumentStatus::Rejected]);
-        $customer->update(['status' => CustomerStatus::Rejected, 'rejection_reason' => 'السجل التجاري منتهي']);
+        $customer->forceFill(['status' => CustomerStatus::Rejected, 'rejection_reason' => 'السجل التجاري منتهي'])->save();
 
         Auth::forgetGuards();
         $response = $this->withToken($token)->getJson('/api/v1/wholesale/auth/application-status')
@@ -117,7 +117,7 @@ class WholesaleRegistrationTest extends TestCase
         $this->assertContains('rejected', $statuses);
 
         // ثم يُعتمد
-        $customer->update(['status' => CustomerStatus::Approved, 'rejection_reason' => null, 'approved_at' => now()]);
+        $customer->forceFill(['status' => CustomerStatus::Approved, 'rejection_reason' => null, 'approved_at' => now()])->save();
         Auth::forgetGuards();
         $this->withToken($token)->getJson('/api/v1/wholesale/auth/application-status')
             ->assertOk()

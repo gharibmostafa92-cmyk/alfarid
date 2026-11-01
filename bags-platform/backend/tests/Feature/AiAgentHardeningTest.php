@@ -262,10 +262,10 @@ class AiAgentHardeningTest extends TestCase
         // viewers are rejected even with logs.view.
         $owner = $this->staff(['ai_agent.use']);
         $this->conv($owner);
-        $restricted = $this->staff(['ai_agent.use', 'ai_agent.logs.view']);
+        $restricted = $this->staff(['ai_agent.use', 'ai_agent.logs.view', 'customers.view']);
         $restricted->forceFill(['branch_id' => Branch::factory()->create()->id])->save();
         $this->withToken($this->token($restricted))->getJson('/api/v1/admin/ai/conversations?all=1')->assertForbidden();
-        $central = $this->staff(['ai_agent.use', 'ai_agent.logs.view', 'inventory.all_branches']);
+        $central = $this->staff(['ai_agent.use', 'ai_agent.logs.view', 'customers.view', 'inventory.all_branches']);
         $this->withToken($this->token($central))->getJson('/api/v1/admin/ai/conversations?all=1')->assertOk();
     }
 

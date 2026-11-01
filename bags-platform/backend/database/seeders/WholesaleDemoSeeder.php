@@ -25,11 +25,19 @@ use Illuminate\Database\Seeder;
  */
 class WholesaleDemoSeeder extends Seeder
 {
+    private string $password;
+
     public function run(): void
     {
-        if (app()->isProduction()) {
-            throw new \RuntimeException('Wholesale demo data cannot be seeded in production.');
+        // M-7: نفس نمط UnifiedLoginDemoSeeder.
+        if (! app()->environment(['local', 'testing'])) {
+            throw new \LogicException('Wholesale demo data is only available locally.');
         }
+        $password = env('WHOLESALE_DEMO_PASSWORD');
+        if (! is_string($password) || strlen($password) < 12) {
+            throw new \LogicException('Set WHOLESALE_DEMO_PASSWORD to at least 12 characters.');
+        }
+        $this->password = $password;
 
         $branch = Branch::query()->where('is_active', true)->first()
             ?? Branch::factory()->create(['is_active' => true]);
@@ -114,19 +122,21 @@ class WholesaleDemoSeeder extends Seeder
 
     private function trader(array $attributes, int $groupId): Customer
     {
-        return Customer::updateOrCreate(
-            ['email' => $attributes['email']],
-            array_merge([
-                'name' => 'تاجر تجريبي',
-                'phone' => '010'.fake()->numerify('########'),
-                'password' => bcrypt('password'),
-                'type' => CustomerType::Wholesale,
-                'company_name' => 'شركة الاختبار للتجارة',
-                'tax_number' => fake()->unique()->numerify('#########'),
-                'commercial_register' => fake()->unique()->numerify('######'),
-                'customer_group_id' => $groupId,
-            ], $attributes),
-        );
+        $merged = array_merge([
+            'name' => 'تاجر تجريبي',
+            'phone' => '010'.fake()->numerify('########'),
+            'password' => $this->password,
+            'type' => CustomerType::Wholesale,
+            'company_name' => 'شركة الاختبار للتجارة',
+            'tax_number' => fake()->unique()->numerify('#########'),
+            'commercial_register' => fake()->unique()->numerify('######'),
+            'customer_group_id' => $groupId,
+        ], $attributes);
+
+        $customer = Customer::firstOrNew(['email' => $attributes['email']]);
+        $customer->forceFill($merged)->save();
+
+        return $customer;
     }
 
     private function order(Customer $customer, $variant, OrderStatus $status, string $method, string $pay): Order

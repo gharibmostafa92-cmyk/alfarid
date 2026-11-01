@@ -55,15 +55,19 @@ class UnifiedLoginDemoSeeder extends Seeder
             ['rejected', CustomerType::Distributor, CustomerStatus::Rejected, '01070000004'],
             ['suspended', CustomerType::Retail, CustomerStatus::Suspended, '01070000005'],
         ] as [$kind, $type, $status, $phone]) {
-            Customer::firstOrCreate(['email' => "unified-{$kind}@example.test"], [
-                'name' => "عميل اختبار {$kind}", 'phone' => $phone, 'password' => $password,
-                'type' => $type, 'status' => $status, 'email_verified_at' => now(),
-                'company_name' => $type === CustomerType::Retail ? null : 'شركة اختبار الدخول',
-                'tax_number' => $type === CustomerType::Retail ? null : '987654321',
-                'commercial_register' => $type === CustomerType::Retail ? null : '987654',
-                'rejection_reason' => $status === CustomerStatus::Rejected ? 'مستندات غير مكتملة' : null,
-                'suspension_reason' => $status === CustomerStatus::Suspended ? 'حساب اختبار موقوف' : null,
-            ]);
+            $c = Customer::firstOrNew(['email' => "unified-{$kind}@example.test"]);
+            if (! $c->exists) {
+                $c->fill([
+                    'name' => "عميل اختبار {$kind}", 'phone' => $phone, 'password' => $password,
+                    'type' => $type, 'email_verified_at' => now(),
+                    'company_name' => $type === CustomerType::Retail ? null : 'شركة اختبار الدخول',
+                    'tax_number' => $type === CustomerType::Retail ? null : '987654321',
+                    'commercial_register' => $type === CustomerType::Retail ? null : '987654',
+                    'rejection_reason' => $status === CustomerStatus::Rejected ? 'مستندات غير مكتملة' : null,
+                    'suspension_reason' => $status === CustomerStatus::Suspended ? 'حساب اختبار موقوف' : null,
+                ]);
+                $c->forceFill(['status' => $status])->save();
+            }
         }
     }
 }

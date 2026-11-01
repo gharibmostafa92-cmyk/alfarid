@@ -6,6 +6,7 @@ namespace App\Http\Middleware;
 
 use App\Enums\StaffRole;
 use App\Models\Branch;
+use Illuminate\Support\Facades\Cache;
 use App\Models\User;
 use Closure;
 use Illuminate\Http\Request;
@@ -53,11 +54,17 @@ class EnsureStaffAuthenticated
             && ! $user->hasRole(StaffRole::SuperAdmin->value, 'staff')
             && ! $user->can('inventory.all_branches')
             && $user->branch_id !== null
-            && ! (bool) Branch::query()->find($user->branch_id)?->is_active) {
+            && ! $this->branchIsActive((int) $user->branch_id)) {
             return response()->json(['message' => 'الفرع المرتبط بحسابك متوقف حالياً.'], 403);
         }
 
         return $next($request);
+    }
+
+    /** L6: كاش 30 ثانية؛ تعطيل الفرع بياخد لحد 30 ثانية عشان يسري. */
+    private function branchIsActive(int $branchId): bool
+    {
+        return (bool) Cache::remember('branch-active:'.$branchId, 30, fn () => (bool) Branch::query()->whereKey($branchId)->value('is_active'));
     }
 
     private function isPasswordRotationRequest(Request $request, User $user): bool

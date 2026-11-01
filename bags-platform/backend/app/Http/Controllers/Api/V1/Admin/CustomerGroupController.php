@@ -48,7 +48,7 @@ class CustomerGroupController extends Controller implements HasMiddleware
     public function store(StoreCustomerGroupRequest $request): JsonResponse
     {
         $this->branchAccess->assertCentralAccess($request->user());
-        $group = $this->groups->create($request->validated());
+        $group = $this->groups->create($request->validated(), $request->user());
 
         return CustomerGroupResource::make($group)
             ->additional(['message' => 'تم إنشاء مجموعة العملاء بنجاح'])
@@ -65,13 +65,13 @@ class CustomerGroupController extends Controller implements HasMiddleware
     {
         $this->branchAccess->assertCentralAccess($request->user());
 
-        return CustomerGroupResource::make($this->groups->update($customerGroup, $request->validated()));
+        return CustomerGroupResource::make($this->groups->update($customerGroup, $request->validated(), $request->user()));
     }
 
     public function destroy(Request $request, CustomerGroup $customerGroup): JsonResponse
     {
         $this->branchAccess->assertCentralAccess($request->user());
-        $this->groups->delete($customerGroup);
+        $this->groups->delete($customerGroup, $request->user());
 
         return response()->json(['message' => 'تم حذف مجموعة العملاء بنجاح']);
     }

@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace App\Http\Requests\Admin\Customer;
 
 use App\Http\Requests\Concerns\NormalizesCustomerInput;
+use App\Rules\EmailNotUsedByOtherAccountType;
+use App\Rules\PasswordByteLimit;
+use App\Rules\UniqueCustomerEmail;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -26,15 +29,15 @@ class UpdateCustomerRequest extends FormRequest
 
         return [
             'name' => ['sometimes', 'string', 'max:255'],
-            'email' => ['sometimes', 'nullable', 'email', 'max:255'],
+            'email' => ['sometimes', 'nullable', 'email', 'max:255', new EmailNotUsedByOtherAccountType('customers'), new UniqueCustomerEmail($customerId)],
             'phone' => ['sometimes', 'string', 'regex:/^01[0125][0-9]{8}$/', Rule::unique('customers', 'phone')->ignore($customerId)],
-            'password' => ['sometimes', 'string', 'min:8', 'max:255'],
+            'password' => ['sometimes', 'string', new PasswordByteLimit, 'min:12', 'max:72'],
             'type' => ['missing'],
             'status' => ['missing'],
             'company_name' => ['sometimes', 'nullable', 'string', 'max:255'],
             'tax_number' => ['sometimes', 'nullable', 'string', 'max:50'],
             'commercial_register' => ['sometimes', 'nullable', 'string', 'max:50'],
-            'customer_group_id' => ['sometimes', 'nullable', 'integer', Rule::exists('customer_groups', 'id')],
+            'customer_group_id' => ['sometimes', 'nullable', 'integer', Rule::exists('customer_groups', 'id')->where('is_active', true)],
             'credit_limit' => ['sometimes', 'numeric', 'min:0', 'max:9999999999.99'],
         ];
     }

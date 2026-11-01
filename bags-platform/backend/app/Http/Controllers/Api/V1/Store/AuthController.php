@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Store;
 
+use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Store\ForgotPasswordRequest;
 use App\Http\Requests\Store\LoginRequest;
@@ -12,13 +13,16 @@ use App\Http\Requests\Store\RegisterRequest;
 use App\Http\Requests\Store\ResetPasswordRequest;
 use App\Http\Resources\Store\CustomerResource;
 use App\Jobs\SendCustomerPhoneVerification;
-use App\Services\Auth\NetworkIdentity;
+use App\Models\Customer;
+use App\Rules\TurnstileToken;
 use App\Services\CartService;
 use App\Services\CustomerAuthService;
+use App\Services\CustomerMessageBudget;
 use App\Services\CustomerPhoneVerificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /** مصادقة المتجر القطاعي: تسجيل فوري معتمد، دخول، خروج، واستعادة كلمة المرور. */
 class AuthController extends Controller
@@ -94,10 +98,26 @@ class AuthController extends Controller
 
     public function sendPhoneVerification(PhoneVerificationRequest $request): JsonResponse
     {
-        SendCustomerPhoneVerification::dispatch($request->validated()['phone'], NetworkIdentity::key($request))
+        // H-2: تحدٍّ بشري على endpoint الإرسال بس.
+        $request->validate(['turnstile_token' => [new TurnstileToken($request->ip())]]);
+        $phone = $request->validated()['phone'];
+        $networkKey = CustomerMessageBudget::subnetKey($request->ip());
+        if ($networkKey === null) {
+            throw new BusinessException('تعذر التحقق من الشبكة، حاول مرة أخرى.');
+        }
+        // L-9: الإرسال في queue فأي خطأ جوه send() مش هيوصل للمستخدم — نوضح هنا.
+        // (التسجيل نفسه بيكشف وجود الرقم، فده مش كشف جديد.)
+        $existing = Customer::withTrashed()->where('phone', $phone)->first(['id', 'deleted_at']);
+        if ($existing !== null) {
+            throw ValidationException::withMessages(['phone' => $existing->trashed()
+                ? 'الرقم مرتبط بحساب محذوف؛ تواصل مع الدعم لاستعادته.'
+                : 'الرقم مسجل بالفعل؛ سجّل الدخول أو استخدم استعادة كلمة المرور.']);
+        }
+
+        SendCustomerPhoneVerification::dispatch($phone, $networkKey)
             ->onConnection(config('auth.customer_password_reset.connection', 'database'));
 
-        return response()->json(['message' => 'لو الرقم متاح للتسجيل، سيتم إرسال رمز التحقق إليه.']);
+        return response()->json(['message' => 'سيتم إرسال رمز التحقق إلى الرقم.']);
     }
 
     public function verifyPhone(PhoneVerificationRequest $request): JsonResponse

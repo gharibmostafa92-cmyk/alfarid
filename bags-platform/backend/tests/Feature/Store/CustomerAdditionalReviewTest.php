@@ -138,8 +138,9 @@ class CustomerAdditionalReviewTest extends TestCase
         Notification::fake();
         config(['auth.require_phone_verification' => true]);
         $phone = '01001234567';
+        $networkKey = \App\Services\CustomerMessageBudget::subnetKey('127.0.0.1');
         $service = app(CustomerPhoneVerificationService::class);
-        $service->send($phone);
+        $service->send($phone, $networkKey);
         $code = '';
         Notification::assertSentOnDemand(CustomerPhoneVerificationCode::class, function ($notification, $channels, $notifiable) use (&$code): bool {
             preg_match('/[0-9]{6}$/', $notification->toSms($notifiable), $matches);
@@ -150,7 +151,7 @@ class CustomerAdditionalReviewTest extends TestCase
         $proof = $service->verify($phone, $code);
         $this->travel(61)->seconds();
 
-        $service->send($phone);
+        $service->send($phone, $networkKey);
 
         Notification::assertSentOnDemandTimes(CustomerPhoneVerificationCode::class, 1);
         $this->postJson('/api/v1/store/auth/register', ['name' => 'Verified', 'phone' => $phone, 'password' => 'password', 'phone_verification_token' => $proof])->assertCreated();
@@ -186,7 +187,9 @@ class CustomerAdditionalReviewTest extends TestCase
         app(CustomerAuthService::class)->sendPasswordReset('OWNER@EXAMPLE.TEST', null);
         $token = '';
         Notification::assertSentTo($customer, CustomerPasswordReset::class, function ($notification) use (&$token): bool {
-            $token = str_replace('رمز استعادة كلمة المرور: ', '', $notification->toSms(Customer::factory()->make()));
+            $sms = $notification->toSms(Customer::factory()->make());
+            parse_str(parse_url($sms, PHP_URL_QUERY) ?? '', $query);
+            $token = $query['token'] ?? '';
 
             return true;
         });
@@ -286,7 +289,7 @@ class CustomerAdditionalReviewTest extends TestCase
         Http::fake(['https://sms.example.test/send' => Http::response(['success' => false], 200)]);
         Log::spy();
         try {
-            app(CustomerPhoneVerificationService::class)->send('01001234567');
+            app(CustomerPhoneVerificationService::class)->send('01001234567', \App\Services\CustomerMessageBudget::subnetKey('127.0.0.1'));
             $this->fail('Gateway refusal must fail delivery.');
         } catch (BusinessException) {
             Log::shouldHaveReceived('error')->once()->with('Customer OTP delivery failed.', ['exception' => BusinessException::class]);
@@ -389,7 +392,7 @@ class CustomerAdditionalReviewTest extends TestCase
     public function test_admin_creation_rejects_terminal_status_and_stamps_retail_approval(): void
     {
         $token = $this->staff(['customers.create']);
-        $payload = ['name' => 'New', 'phone' => '01001234567', 'password' => 'password'];
+        $payload = ['name' => 'New', 'phone' => '01001234567', 'password' => 'secure-password123'];
         $this->withToken($token)->postJson('/api/v1/admin/customers', [...$payload, 'status' => 'suspended'])->assertUnprocessable()->assertJsonValidationErrors('status');
         $this->withToken($token)->postJson('/api/v1/admin/customers', $payload)->assertCreated();
         $this->assertNotNull(Customer::where('phone', $payload['phone'])->firstOrFail()->approved_at);

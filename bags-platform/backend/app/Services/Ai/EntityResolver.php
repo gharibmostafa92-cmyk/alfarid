@@ -191,9 +191,13 @@ final class EntityResolver
             ->when(isset($filters['customer_group_id']), fn ($x) => $x->where('customer_group_id', $filters['customer_group_id']))
             ->when(isset($filters['pending_older_than_hours']), fn ($x) => $x->where('status', 'pending')->where('created_at', '<', now()->subHours((int) $filters['pending_older_than_hours'])));
         if (trim($query) !== '') {
-            // رقم موبايل (بما فيه الأرقام العربية) يُبحث بالبادئة بعد تطبيعه.
+            // L5: حرف أو اتنين مش بيستفيدوا من trigram.
+            if (mb_strlen(trim($query)) < 3) {
+                return [];
+            }
             if (preg_match('/^[0-9٠-٩۰-۹\s().+-]+$/u', trim($query))) {
-                $q->whereLike('phone', SearchTerm::prefix(Customer::normalizePhone($query)), caseSensitive: false);
+                // L5: LIKE مش ILIKE عشان يستخدم index الـ text_pattern_ops.
+                $q->whereLike('phone', SearchTerm::prefix(Customer::normalizePhone($query)), caseSensitive: true);
             } else {
                 $q->whereLike('search_text', SearchTerm::pattern($query), caseSensitive: false);
             }

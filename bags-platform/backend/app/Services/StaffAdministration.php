@@ -193,7 +193,7 @@ final class StaffAdministration
 
     public static function audit(?User $actor, string $action, string $targetType, int|string|null $targetId, array $fields, array $before = [], array $after = [], array $via = []): void
     {
-        $allowed = array_flip(['roles', 'permissions', 'name', 'branch_id', 'is_active', 'settings', 'code', 'type', 'is_active_branch', 'email']);
+        $allowed = array_flip(['roles', 'permissions', 'name', 'branch_id', 'is_active', 'settings', 'code', 'type', 'is_active_branch', 'email', 'discount_percentage', 'description']);
         $before = array_intersect_key($before, $allowed);
         $after = array_intersect_key($after, $allowed);
         if (array_key_exists('email', $before)) {

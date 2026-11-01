@@ -5,15 +5,18 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Wholesale;
 
 use App\Enums\CustomerDocumentStatus;
+use App\Enums\CustomerDocumentType;
 use App\Enums\CustomerStatus;
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Wholesale\WholesaleRegisterRequest;
 use App\Http\Resources\Store\CustomerResource;
 use App\Models\Customer;
+use App\Services\CustomerManagementService;
 use App\Services\WholesaleRegistrationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 /** تسجيل تجار الجملة ومتابعة حالة طلب الاعتماد. */
 class RegisterController extends Controller
@@ -72,5 +75,26 @@ class RegisterController extends Controller
                     ])->values()->all(),
             ],
         ]);
+    }
+
+    public function uploadDocument(Request $request, CustomerManagementService $customers): JsonResponse
+    {
+        $customer = $request->user();
+        if (! $customer instanceof Customer) {
+            throw new BusinessException('هذا المسار متاح للعملاء فقط.', [], 403);
+        }
+        $data = $request->validate([
+            'document' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
+            'document_type' => ['nullable', Rule::enum(CustomerDocumentType::class)],
+        ]);
+        $document = $customers->uploadDocument(
+            $customer,
+            $request->file('document'),
+            null,
+            isset($data['document_type']) ? CustomerDocumentType::from($data['document_type']) : null,
+            selfService: true,
+        );
+
+        return response()->json(['data' => ['id' => $document->id, 'status' => $document->status]], 201);
     }
 }

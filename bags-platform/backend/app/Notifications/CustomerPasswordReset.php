@@ -22,9 +22,17 @@ class CustomerPasswordReset extends Notification
         return [$this->channel ?? ($notifiable->email ? 'mail' : CustomerSmsChannel::class)];
     }
 
+    /** L-5: رابط بدل كتابة 64 حرف يدويًا؛ نص لاتيني (GSM-7 = 160 حرف) عشان رسالة واحدة. */
     public function toSms(Customer $notifiable): string
     {
-        return 'رمز استعادة كلمة المرور: '.$this->token;
+        return 'Password reset: '.$this->resetUrl($notifiable);
+    }
+
+    private function resetUrl(Customer $notifiable): string
+    {
+        $base = rtrim((string) config('app.frontend_url', config('app.url')), '/');
+
+        return $base.'/reset-password?'.http_build_query(['token' => $this->token, 'phone' => $notifiable->phone]);
     }
 
     public function toMail(Customer $notifiable): MailMessage

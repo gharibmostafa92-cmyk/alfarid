@@ -17,11 +17,38 @@ class NormalizeCustomerPhones extends Command
 
     public function handle(): int
     {
-        // Pin the temporary table to one connection under transaction pooling.
-        return DB::transaction(fn (): int => $this->normalize());
+        // M8: الخطة في transaction قصيرة (الجدول المؤقت ON COMMIT DROP على نفس الاتصال)
+        // وتتحمّل في الذاكرة؛ بعدين كل batch في transaction مستقلة فالأقفال تتساب دفعة بدفعة.
+        $plan = DB::transaction(fn (): ?array => $this->buildPlan());
+        if ($plan === null) {
+            return self::FAILURE;
+        }
+        $this->info(count($plan).' phone numbers need normalization.');
+        if (! $this->option('apply')) {
+            return self::SUCCESS;
+        }
+        $done = 0;
+        foreach (array_chunk($plan, 500) as $batch) {
+            DB::transaction(function () use ($batch): void {
+                foreach ($batch as $change) {
+                    $customer = Customer::withTrashed()->lockForUpdate()->findOrFail($change->id);
+                    if ($customer->phone !== $change->before) {
+                        throw new \RuntimeException('A customer changed during normalization; earlier batches are committed — rerun the command to continue.');
+                    }
+                    $customer->phone = $change->after;
+                    $customer->save();
+                    CustomerAuditLog::record($customer, 'phone_normalized', null);
+                }
+            });
+            $done += count($batch);
+            $this->line("Normalized {$done}/".count($plan));
+        }
+
+        return self::SUCCESS;
     }
 
-    private function normalize(): int
+    /** @return list<object>|null */
+    private function buildPlan(): ?array
     {
         DB::statement("CREATE TEMP TABLE customer_phone_normalization ON COMMIT DROP AS
             WITH cleaned AS (
@@ -43,27 +70,10 @@ class NormalizeCustomerPhones extends Command
             if ($invalid !== [] || $collisions !== []) {
                 $this->error('Manual repair required. Invalid customer IDs (first 20): '.json_encode($invalid).'; normalized collisions: '.count($collisions));
 
-                return self::FAILURE;
-            }
-            $changes = (clone $plan)->whereColumn('before', '!=', 'after');
-            $this->info((clone $changes)->count().' phone numbers need normalization.');
-            if ($this->option('apply')) {
-                foreach ($changes->orderBy('id')->lazyById(500)->chunk(500) as $batch) {
-                    DB::transaction(function () use ($batch): void {
-                        foreach ($batch as $change) {
-                            $customer = Customer::withTrashed()->lockForUpdate()->findOrFail($change->id);
-                            if ($customer->phone !== $change->before) {
-                                throw new \RuntimeException('A customer changed during normalization; rerun the preflight.');
-                            }
-                            $customer->phone = $change->after;
-                            $customer->save();
-                            CustomerAuditLog::record($customer, 'phone_normalized', null);
-                        }
-                    });
-                }
+                return null;
             }
 
-            return self::SUCCESS;
+            return (clone $plan)->whereColumn('before', '!=', 'after')->orderBy('id')->get(['id', 'before', 'after'])->all();
         } finally {
             DB::statement('DROP TABLE IF EXISTS customer_phone_normalization');
         }

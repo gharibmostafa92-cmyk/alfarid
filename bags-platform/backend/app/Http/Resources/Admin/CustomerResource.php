@@ -63,6 +63,7 @@ class CustomerResource extends JsonResource
             ])->all()),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
+            'deleted_at' => $this->deleted_at, // M11: تمييز المحذوف في trashed=only
         ];
     }
 }

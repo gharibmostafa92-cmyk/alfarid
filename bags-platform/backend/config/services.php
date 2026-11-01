@@ -14,10 +14,17 @@ return [
         'max_output_tokens' => (int) env('GEMINI_MAX_OUTPUT_TOKENS', 2048),
         'max_images' => 5,
         'max_image_bytes' => 4 * 1024 * 1024,
+        'retired_models' => array_values(array_filter(explode(',', (string) env('GEMINI_RETIRED_MODELS', '')))),
+        // M-6: سقف صلب أقل بوضوح من pm.max_children للـ pool اللي بيخدم المساعد.
+        'max_concurrent_sessions_cap' => (int) env('AI_MAX_CONCURRENT_SESSIONS_CAP', 20),
     ],
     'customer_sms' => [
         'url' => env('CUSTOMER_SMS_URL'),
         'token' => env('CUSTOMER_SMS_TOKEN'),
+    ],
+    'turnstile' => [
+        'site_key' => env('TURNSTILE_SITE_KEY'),
+        'secret_key' => env('TURNSTILE_SECRET_KEY'),
     ],
 
     /*

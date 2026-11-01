@@ -4,7 +4,7 @@ const BASE = '/api/v1/admin/ai';
 export interface UiBlock { type: string; [k: string]: unknown }
 export interface ConvMsg { id: number; role: string; content: string | null; ui_blocks: UiBlock[] | null; created_at: string }
 export interface Conv { id: number; user_id: number; is_pinned: boolean; title: string | null; model: string; total_tokens: number; last_message_at: string | null; messages?: ConvMsg[]; pending_actions?: { id: string; status: string; expires_at: string }[] }
-export interface AgentSettings { ai_enabled: boolean; ai_daily_token_budget_per_user: number; ai_disabled_tools: string[]; ai_action_ttl_minutes: number; ai_retention_days: number; ai_bulk_max_items: number }
+export interface AgentSettings { ai_enabled: boolean; ai_customer_tools_enabled?: boolean; ai_document_analysis_enabled?: boolean; ai_daily_token_budget_per_user: number; ai_disabled_tools: string[]; ai_action_ttl_minutes: number; ai_retention_days: number; ai_bulk_max_items: number; ai_dealer_review_sla_hours?: number; ai_credit_limit_confirm_threshold?: number }
 export const assistantApi = {
   list: () => api.get<{ data: Conv[] }>(`${BASE}/conversations`).then(r => r.data.data ?? (r.data as unknown as Conv[])),
   listPaginated: (page = 1, q = '', all = false) => api.get<{ data: Conv[]; last_page: number }>(`${BASE}/conversations`, { params: { page, per_page: 20, q, ...(all ? { all: 1 } : {}) } }).then(r => r.data),

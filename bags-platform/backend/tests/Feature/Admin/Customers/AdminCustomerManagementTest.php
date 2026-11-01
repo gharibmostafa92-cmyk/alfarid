@@ -73,7 +73,7 @@ class AdminCustomerManagementTest extends TestCase
         $group = CustomerGroup::create(['name' => 'ذهبي', 'code' => 'gold', 'discount_percentage' => 10]);
 
         $created = $this->api($token, 'POST', '/api/v1/admin/customers', [
-            'name' => 'جملة جديد', 'phone' => '01099990000', 'password' => 'password123',
+            'name' => 'جملة جديد', 'phone' => '01099990000', 'password' => 'secure-password123',
             'type' => 'wholesale', 'company_name' => 'شركة س', 'customer_group_id' => $group->id,
         ])->assertCreated()
             ->assertJsonPath('data.status', 'pending') // جملة من الأدمن: قيد المراجعة افتراضيًا
@@ -200,7 +200,7 @@ class AdminCustomerManagementTest extends TestCase
         $viewer = $this->staffToken(['customers.view']);
         $this->api($viewer, 'GET', '/api/v1/admin/customers')->assertOk();
         $this->api($viewer, 'POST', '/api/v1/admin/customers', [
-            'name' => 'X', 'phone' => '01000000001', 'password' => 'password123',
+            'name' => 'X', 'phone' => '01000000001', 'password' => 'secure-password123',
         ])->assertForbidden();
         $this->api($viewer, 'POST', "/api/v1/admin/customers/{$customer->id}/approve")->assertForbidden();
 

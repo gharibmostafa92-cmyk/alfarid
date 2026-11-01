@@ -7,7 +7,6 @@ namespace App\Http\Controllers\Api\V1\Admin\Ai;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Admin\UpdateSettingsRequest;
 use App\Models\AiMessage;
-use InvalidArgumentException;
 use App\Services\Ai\ToolRegistry;
 use App\Services\BranchAccess;
 use App\Services\SettingService;
@@ -15,6 +14,7 @@ use App\Services\StaffAdministration;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 
 class AiAdministrationController extends Controller
 {
@@ -64,7 +64,12 @@ class AiAdministrationController extends Controller
             if (! $all) {
                 $q->where('user_id', $actor->id);
             }
-        })->where('created_at', '>=', now()->subDays(30))->selectRaw('DATE(created_at) as day, SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens')->groupByRaw('DATE(created_at)')->orderByDesc('day')->get();
+        })->where('created_at', '>=', now(config('app.business_timezone', 'Africa/Cairo'))->startOfDay()->subDays(29)->setTimezone(config('app.timezone')))
+            // L-6: نفس يوم القاهرة اللي guard() بيحسب بيه الميزانية.
+            ->selectRaw('DATE((created_at AT TIME ZONE ?) AT TIME ZONE ?) as day, SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens', [
+                (string) config('app.timezone', 'UTC'), (string) config('app.business_timezone', 'Africa/Cairo'),
+            ])
+            ->groupBy('day')->orderByDesc('day')->get();
 
         return response()->json(['data' => $rows]);
     }

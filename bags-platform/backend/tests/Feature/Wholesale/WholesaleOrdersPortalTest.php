@@ -312,7 +312,7 @@ class WholesaleOrdersPortalTest extends TestCase
 
     public function test_credit_checkout_over_limit_is_rejected(): void
     {
-        $this->trader->update(['credit_limit' => 50]);
+        $this->trader->forceFill(['credit_limit' => 50])->save();
         $city = City::factory()->create(['is_active' => true, 'shipping_cost' => 0]);
 
         $this->asTrader($this->token)->postJson('/api/v1/store/cart/items', [

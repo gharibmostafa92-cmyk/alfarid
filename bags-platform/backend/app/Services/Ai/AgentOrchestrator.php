@@ -24,6 +24,9 @@ final class AgentOrchestrator
     /** H4/M13: حد زمني كلي لدورة الوكيل الواحدة في الثواني — أطول من كده تعرض الطلب/الـ worker للحجز. */
     private const MAX_CYCLE_SECONDS = 240;
 
+    /** M5: هامش لأطول استدعاء أداة (Gemini 20s × محاولتين + backoff). */
+    private const TOOL_CALL_RESERVE_SECONDS = 45;
+
     public function __construct(private GeminiClient $gemini, private ToolRegistry $registry, private SettingService $settings) {}
 
     public function guard(User $actor): void
@@ -38,8 +41,9 @@ final class AgentOrchestrator
             $used = (int) AiMessage::query()
                 ->join('ai_conversations as ai_conversations_budget', 'ai_conversations_budget.id', '=', 'ai_messages.conversation_id')
                 ->where('ai_conversations_budget.user_id', $actor->id)
-                ->where('ai_messages.created_at', '>=', today()->startOfDay())
-                ->where('ai_messages.created_at', '<', today()->addDay()->startOfDay())
+                // INFO: يوم العمل بتوقيت القاهرة، محوَّل لتوقيت التخزين.
+                ->where('ai_messages.created_at', '>=', $dayStart = now(config('app.business_timezone', 'Africa/Cairo'))->startOfDay()->setTimezone(config('app.timezone')))
+                ->where('ai_messages.created_at', '<', $dayStart->copy()->addDay())
                 ->sum(DB::raw('ai_messages.input_tokens + ai_messages.output_tokens'));
             abort_if($used >= $budget, 429, 'وصلت لحد التوكنز اليومي للمساعد.');
         }
@@ -98,7 +102,10 @@ final class AgentOrchestrator
         // العدّاد للأبد. القفل ذريّ الاستحواذ، ولا يُحرَّر إلا من مالكه،
         // وينتهي تلقائيًا بانتهاء TTL. عدد المحاولات ≤ maxConcurrent (≤100
         // بحكم UpdateSettingsRequest) وهو مهمل.
-        $maxConcurrent = max(1, (int) $this->settings->get('ai_max_concurrent_sessions', 10));
+        $maxConcurrent = max(1, min(
+            (int) config('services.gemini.max_concurrent_sessions_cap', 20),
+            (int) $this->settings->get('ai_max_concurrent_sessions', 10),
+        ));
         $ttl = self::MAX_CYCLE_SECONDS + 60;
         $attempts = max(1, min(100, $maxConcurrent * 3 + 10));
         $slot = null;
@@ -196,7 +203,12 @@ final class AgentOrchestrator
                 $progress('براجع الطلب والصلاحيات…');
             }
             try {
-                $res = $this->gemini->converse($history, $declarations, $system, $conv->model ?: null);
+                // L11: موديل اتلغى → نرجع للافتراضي بدل ما المحادثة تفشل للأبد.
+                $model = $conv->model ?: null;
+                if ($model !== null && in_array($model, (array) config('services.gemini.retired_models', []), true)) {
+                    $model = null;
+                }
+                $res = $this->gemini->converse($history, $declarations, $system, $model);
             } catch (GeminiException $failure) {
                 // M8/M7: توكنز الطلب الفاشل ("aborted tokens" — MAX_TOKENS أو
                 // فشل شبكة بعد الطلع من الـ provider) لازم تُخصم من العداد
@@ -246,7 +258,20 @@ final class AgentOrchestrator
             // ولا يملأ سجل التدقيق.
             $executedCalls = array_slice($res['calls'], 0, self::MAX_CALLS_PER_STEP);
             $excessCalls = array_slice($res['calls'], self::MAX_CALLS_PER_STEP);
+            $inspections = 0;
             foreach ($executedCalls as $call) {
+                // M5: فحص الوقت قبل كل استدعاء، مش أول الخطوة بس — set_time_limit مش بيحسب انتظار الشبكة.
+                if (microtime(true) - $cycleStartedAt >= self::MAX_CYCLE_SECONDS - self::TOOL_CALL_RESERVE_SECONDS) {
+                    $responses = array_merge($responses, ToolOutcome::denied('الوقت المسموح للطلب خلص؛ كمّل في رسالة جديدة.', auditable: false)->asFunctionResponse($call)['parts']);
+
+                    continue;
+                }
+                // M5: تحليل مستند واحد بس في الخطوة (كل واحد ممكن ياخد ~45 ثانية).
+                if ($call['name'] === 'inspect_customer_document' && ++$inspections > 1) {
+                    $responses = array_merge($responses, ToolOutcome::denied('تحليل مستند واحد بس في كل خطوة؛ اطلب الباقي بعدين.', auditable: false)->asFunctionResponse($call)['parts']);
+
+                    continue;
+                }
                 if ($progress) {
                     $progress($this->registry->isWrite($call['name']) ? 'بحسب التأثير وبجهز كارت المراجعة…' : 'بدوّر في البيانات المسموحة ليك…');
                 }

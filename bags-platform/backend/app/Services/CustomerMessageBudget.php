@@ -19,6 +19,18 @@ class CustomerMessageBudget
      * @param  string  $scope  Distinct scope identifier (e.g. "verify:<phone_hash>" or "reset:customer:<id>")
      * @param  bool  $sms  Whether this message consumes global SMS quota
      */
+    /** M10/H-2: مفتاح subnet (/24 لـ IPv4، /48 لـ IPv6) — الـ VPS بياخد /48 أو /56 فـ /64 كان سهل التدوير. */
+    public static function subnetKey(?string $ip): ?string
+    {
+        $bin = $ip ? @inet_pton($ip) : false;
+        if ($bin === false) {
+            return null;
+        }
+        $bin = strlen($bin) === 4 ? substr($bin, 0, 3)."\0" : substr($bin, 0, 6).str_repeat("\0", 10);
+
+        return hash_hmac('sha256', (string) inet_ntop($bin), (string) config('app.key'));
+    }
+
     public function claim(string $scope, bool $sms = true, ?string $networkKey = null): bool
     {
         $now = now(config('app.business_timezone', 'Africa/Cairo'));
@@ -31,9 +43,14 @@ class CustomerMessageBudget
             $fraction = max(0, min(0.6, (float) config('auth.customer_sms_verification_fraction', 0.6)));
             $budgets['sms:verify:day'] = (int) floor($budgets['sms:global:day'] * $fraction);
             $budgets['sms:verify:hour:'.$now->format('H')] = (int) floor($budgets['sms:global:hour:'.$now->format('H')] * $fraction);
-            if ($networkKey !== null) {
-                $budgets['sms:verify:network:'.$networkKey] = max(0, (int) config('auth.customer_sms_verification_network_daily_limit', 10));
+            // H-2: من غير مفتاح شبكة حد الشبكة بيتعطل بصمت — نرفض بدل ما نفتح الباب.
+            if ($networkKey === null) {
+                logger()->warning('Verification SMS claimed without network key.');
+
+                return false;
             }
+            $budgets['sms:verify:network:'.$networkKey] = max(0, (int) config('auth.customer_sms_verification_network_daily_limit', 10));
+            $budgets['sms:verify:network-hour:'.$now->format('H').':'.$networkKey] = max(0, (int) config('auth.customer_sms_verification_network_hourly_limit', 3));
         }
         $budgets[$scope] = (int) config('auth.customer_daily_messages', 5);
 
@@ -54,8 +71,11 @@ class CustomerMessageBudget
                 if (str_starts_with($scope, 'sms:') && $sends + 1 === $limit) {
                     DB::afterCommit(fn () => logger()->warning('Customer SMS budget exhausted.', ['scope' => $scope, 'date' => $date, 'limit' => $limit]));
                 }
-                if (str_starts_with($scope, 'sms:global:') && $sends < (int) ceil($limit * 0.8) && $sends + 1 >= (int) ceil($limit * 0.8)) {
-                    DB::afterCommit(fn () => logger()->warning('Customer SMS budget reached 80%.', ['scope' => $scope, 'date' => $date, 'limit' => $limit]));
+                foreach ([0.5, 0.8] as $ratio) {
+                    $mark = (int) ceil($limit * $ratio);
+                    if ((str_starts_with($scope, 'sms:global:') || str_starts_with($scope, 'sms:verify:day')) && $sends < $mark && $sends + 1 >= $mark) {
+                        DB::afterCommit(fn () => logger()->warning('Customer SMS budget reached '.($ratio * 100).'%.', ['scope' => $scope, 'date' => $date, 'limit' => $limit]));
+                    }
                 }
             }
 

@@ -42,6 +42,9 @@ class WholesaleRegistrationService
         $staged = [];
         $stagingDirectory = 'customer_documents/pending/'.Str::uuid();
 
+        // L-10: الاستهلاك الفعلي لسه جوه الـ transaction.
+        app(CustomerPhoneVerificationService::class)->assertProofPresent($data);
+
         try {
             foreach ($files as $i => $file) {
                 $filename = Str::uuid().'.'.($file->extension() ?: 'bin');
@@ -79,13 +82,12 @@ class WholesaleRegistrationService
                     'phone' => $data['phone'],
                     'password' => $data['password'],
                     'type' => CustomerType::Wholesale,
-                    'status' => CustomerStatus::Pending,
                     'phone_verified_at' => $verified ? now() : null,
                     'company_name' => $data['company_name'],
                     'tax_number' => $data['tax_number'],
                     'commercial_register' => $data['commercial_register'],
                 ]);
-                $customer->forceFill(['id' => $customerId])->save();
+                $customer->forceFill(['id' => $customerId, 'status' => CustomerStatus::Pending])->save();
 
                 foreach ($staged as $document) {
                     $customer->documents()->create([
@@ -129,7 +131,7 @@ class WholesaleRegistrationService
                 }
             }
 
-            throw $e;
+            throw $this->auth->translateRegistrationConflict($e); // M9 — الملفات اتمسحت فوق
         }
 
         try {

@@ -99,7 +99,7 @@ class AuthAuditRegressionTest extends TestCase
         Notification::fake();
         $service = app(CustomerPhoneVerificationService::class);
         $phone = '01012345678';
-        $key = hash('sha256', $phone);
+        $key = hash_hmac('sha256', $phone, (string) config('app.key'));
         $service->send($phone, 'network-a');
         $row = DB::table('customer_phone_verifications')->where('phone_key', $key)->first();
         $this->assertStringStartsWith('hmac:', $row->code_hash);
@@ -226,6 +226,7 @@ class AuthAuditRegressionTest extends TestCase
         $resetHash = Hash::make('reset-password');
         $replacement = Hash::make('old-password');
         Hash::shouldReceive('check')->with('old-password', $original)->andReturnTrue();
+        Hash::shouldReceive('check')->with('old-password', $resetHash)->andReturnFalse();
         Hash::shouldReceive('needsRehash')->with($original)->andReturnTrue();
         Hash::shouldReceive('make')->with('old-password')->andReturnUsing(function () use ($customer, $resetHash, $replacement): string {
             DB::table('customers')->where('id', $customer->id)->update(['password' => $resetHash]);

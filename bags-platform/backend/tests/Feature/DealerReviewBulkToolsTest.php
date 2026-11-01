@@ -115,9 +115,10 @@ class DealerReviewBulkToolsTest extends TestCase
         $admin = $this->admin();
         $defs = app(ToolRegistry::class)->definitions();
         $enum = $defs['bulk_actions']['declaration']['parameters']['properties']->items['items']['properties']->tool['enum'];
-        foreach (['set_customer_group', 'set_credit_limit', 'review_customer_document', 'suspend_customer', 'reactivate_customer'] as $tool) {
+        foreach (['set_customer_group', 'set_credit_limit', 'review_customer_document', 'reactivate_customer'] as $tool) {
             $this->assertContains($tool, $enum);
         }
+        $this->assertNotContains('suspend_customer', $enum);
         $this->assertNotContains('approve_dealer_application', $enum);
         $this->assertNotContains('reject_dealer_application', $enum);
 

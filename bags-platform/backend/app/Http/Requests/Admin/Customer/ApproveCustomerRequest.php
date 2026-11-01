@@ -20,7 +20,7 @@ class ApproveCustomerRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'customer_group_id' => ['nullable', 'integer', Rule::exists('customer_groups', 'id')],
+            'customer_group_id' => ['nullable', 'integer', Rule::exists('customer_groups', 'id')->where('is_active', true)],
             'credit_limit' => ['nullable', 'numeric', 'min:0', 'max:9999999999.99'],
             // الاعتماد يبقي النوع أو يرقّيه لموزع — لا يحوّل لقطاعي
             'type' => ['nullable', Rule::in(['wholesale', 'distributor'])],

@@ -21,6 +21,9 @@ Route::prefix('auth')->name('auth.')->group(function (): void {
     // متابعة حالة الطلب (يتطلب توكن عميل فقط، ولا يتطلب wholesale.approved)
     Route::middleware(['auth:sanctum', 'auth.customer'])->group(function (): void {
         Route::get('application-status', [RegisterController::class, 'applicationStatus'])->name('application-status');
+        // H-1: إعادة رفع بديل للمستند المرفوض لتاجر pending.
+        Route::post('documents', [RegisterController::class, 'uploadDocument'])
+            ->middleware('throttle:customer-registration')->name('documents.store');
     });
 });
 

@@ -301,6 +301,23 @@ class P03ToolsTest extends TestCase
         $this->assertSame(30, (int) app(SettingService::class)->get('return_window_days'));
     }
 
+    public function test_agent_cannot_update_ai_disabled_tools_or_guarded_settings(): void
+    {
+        $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'settings.manage', 'inventory.all_branches']);
+        $registry = app(ToolRegistry::class);
+        $outcome = $registry->dispatch($admin, $this->conv($admin), ['name' => 'update_settings', 'args' => [
+            'changes' => ['ai_disabled_tools' => ['approve_dealer_application']],
+        ]]);
+        $this->assertSame('denied', $outcome->type);
+        $this->assertStringContainsString('الإعدادات دي بتتعدل من شاشة الإعدادات بس', $outcome->message);
+
+        $outcome2 = $registry->dispatch($admin, $this->conv($admin), ['name' => 'update_settings', 'args' => [
+            'changes' => ['allow_self_approve_purchases' => true],
+        ]]);
+        $this->assertSame('denied', $outcome2->type);
+        $this->assertStringContainsString('الإعدادات دي بتتعدل من شاشة الإعدادات بس', $outcome2->message);
+    }
+
     // ── Document Numbering ───────────────────────────────────────────────────
 
     public function test_view_document_numbering_single_type(): void

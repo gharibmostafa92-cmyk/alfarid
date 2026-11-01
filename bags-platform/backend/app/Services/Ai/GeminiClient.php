@@ -69,7 +69,8 @@ class GeminiClient
             }
             if (($response->status() === 429 || $response->serverError()) && $attempt === 0) {
                 logger()->warning('gemini.request_retry', ['method' => 'generate', 'reason' => 'http_'.$response->status()]);
-                usleep(250000);
+                // L7: نحترم Retry-After (من ثانية لـ 5 ثواني) بدل 250ms.
+                usleep(min(5, max(1, (int) $response->header('Retry-After'))) * 1_000_000);
 
                 continue;
             }
@@ -78,6 +79,9 @@ class GeminiClient
             }
 
             $candidate = $response->json('candidates.0', []);
+            if (! is_array($candidate)) {
+                $candidate = [];
+            }
             if (($candidate['finishReason'] ?? null) !== 'STOP') {
                 throw new GeminiException('لم ترجع خدمة Gemini إجابة مكتملة.');
             }
@@ -163,7 +167,8 @@ class GeminiClient
             }
             if (($response->status() === 429 || $response->serverError()) && $attempt === 0) {
                 logger()->warning('gemini.request_retry', ['method' => 'converse', 'reason' => 'http_'.$response->status()]);
-                usleep(250000);
+                // L7: نحترم Retry-After (من ثانية لـ 5 ثواني) بدل 250ms.
+                usleep(min(5, max(1, (int) $response->header('Retry-After'))) * 1_000_000);
 
                 continue;
             }
@@ -171,6 +176,9 @@ class GeminiClient
                 throw new GeminiException('تعذّر تنفيذ طلب Gemini.', $response->status());
             }
             $candidate = $response->json('candidates.0', []);
+            if (! is_array($candidate)) {
+                $candidate = []; // L7: يرمي GeminiException تحت (finishReason فاضي) بدل TypeError
+            }
             $finish = (string) ($candidate['finishReason'] ?? '');
             $usage = $response->json('usageMetadata', []);
             // M7: حضّر قياس الاستخدام قبل أي باب خروج — الرد غير المكتمل

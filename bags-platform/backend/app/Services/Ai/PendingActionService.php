@@ -105,7 +105,10 @@ final class PendingActionService
                     continue;
                 }
                 AiPendingAction::whereKey($action->id)->where('status', 'confirmed')->update(['status' => 'pending']);
-                $message = 'السجل مشغول بتعديل تاني؛ مفيش حاجة اتأكدت. جرّب تأكيد الدفعة تاني بعد لحظة.';
+                $done = count(array_filter($results, fn ($item) => $item['ok']));
+                $message = $done === 0
+                    ? 'السجل مشغول بتعديل تاني؛ مفيش حاجة اتنفذت. جرّب تأكيد الدفعة تاني بعد لحظة.'
+                    : 'السجل مشغول بتعديل تاني؛ العناصر المنفذة: '.$done.' من '.count($claim['selected']).'. الباقي ما اتنفذش — جرّب تأكيد الدفعة تاني بعد لحظة.';
                 $this->event($action, 'result', $message, [['type' => 'result', 'ok' => false, 'message' => $message]]);
                 abort(409, $message);
             } catch (\Throwable $e) {
@@ -222,53 +225,30 @@ final class PendingActionService
                 $e instanceof ModelNotFoundException => 'السجل المطلوب لم يعد موجودًا؛ اطلب اقتراحًا جديدًا.',
                 default => trim((string) $e->getMessage()) !== '' ? $e->getMessage() : 'القيمة المطلوبة موجودة بالفعل؛ اطلب اقتراحًا جديدًا.',
             };
-            $action->forceFill(['status' => 'failed', 'result' => ['message' => $message]])->save();
-            $this->event($action, 'result', $message, [['type' => 'result', 'ok' => false, 'message' => $message]]);
+            $this->markFailed($action, $message);
 
             return ToolOutcome::result(false, $message);
         } catch (QueryException $e) {
-            if (! $this->isRetryableLockFailure($e)) {
-                throw $e;
+            // M1: كتلة QueryException واحدة. قفل/deadlock → 409 قابل لإعادة المحاولة من غير
+            // وسم failed (الـ savepoint اتراجع ومفيش حالة اتغيرت). غير كده → failed برسالة مفهومة.
+            if (in_array($e->errorInfo[0] ?? null, ['55P03', '40P01', '40001'], true) || $this->isRetryableLockFailure($e)) {
+                abort(409, 'السجل مشغول بتعديل تاني؛ مفيش حاجة اتنفذت. جرّب التأكيد تاني بعد لحظة.');
             }
-            abort(409, 'السجل مشغول بتعديل تاني؛ مفيش حاجة اتنفذت. جرّب التأكيد تاني بعد لحظة.');
+            report($e);
+            $message = match ($e->errorInfo[0] ?? null) {
+                '23514' => 'البيانات مش مستوفية لشروط الحفظ (مثلاً بيانات قانونية ناقصة)؛ كمّلها واطلب اقتراح جديد.',
+                '23503' => 'سجل مرتبط بالإجراء اتغير أو اتحذف؛ اطلب اقتراح جديد.',
+                default => 'تعذّر التنفيذ بسبب خطأ في قاعدة البيانات؛ اطلب اقتراح جديد.',
+            };
+            $this->markFailed($action, $message);
+
+            return ToolOutcome::result(false, $message);
         } catch (HttpExceptionInterface $e) {
             if ($e->getStatusCode() === 409) {
                 $action->forceFill(['status' => 'failed', 'result' => ['message' => 'حد عدّل السجل ده بعد الاقتراح. تحب أجهّز اقتراح جديد؟']])->save();
                 $this->event($action, 'result', 'حد عدّل السجل ده بعد الاقتراح.', [['type' => 'result', 'ok' => false, 'message' => 'حد عدّل السجل ده بعد الاقتراح.']]);
-                throw $e;
             }
             throw $e;
-        } catch (AuthorizationException) {
-            // M-3: رفض التفويض (assertCentralAccess/assertBranch داخل
-            // CreateBranch/UpdateBranch/execCreateLocation) كان يفلت من
-            // الـ catch فيرجع 500 ويبقى الإجراء pending للأبد.
-            $this->markFailed($action, 'معندكش صلاحية تنفيذ الإجراء ده دلوقتي.');
-
-            return ToolOutcome::result(false, 'معندكش صلاحية تنفيذ الإجراء ده دلوقتي.');
-        } catch (ModelNotFoundException) {
-            // M-3: findOrFail (فرع اتحذف قبل التأكيد، موظف اتحذف) — نفس
-            // المصير: failed برسالة واضحة بدل 500 وpending معلّق.
-            $this->markFailed($action, 'الكيان المرتبط بالإجراء اتحذف؛ اطلب اقتراح جديد.');
-
-            return ToolOutcome::result(false, 'الكيان المرتبط بالإجراء اتحذف؛ اطلب اقتراح جديد.');
-        } catch (RoleAlreadyExists) {
-            // M-3: اسم الدور اتحجز بين الاقتراح والتأكيد.
-            $this->markFailed($action, 'اسم الدور اتحجز قبل التأكيد؛ اطلب اقتراح جديد.');
-
-            return ToolOutcome::result(false, 'اسم الدور اتحجز قبل التأكيد؛ اطلب اقتراح جديد.');
-        } catch (QueryException $e) {
-            // M-3: انتهاء مهلة القفل (55P03) أو deadlock (40P01) — 409 قابل
-            // لإعادة المحاولة من غير ما الإجراء يتعلّم failed، لأن الـ
-            // transaction الداخلية تراجعت وحدها ولا حالة اتغيرت.
-            // ملحوظة: الـ throw من داخل catch لا يمرّ على catch الـ Http
-            // الشقيق، فيوصل 409 كما هو من غير وسم failed.
-            $sqlState = $e->errorInfo[0] ?? null;
-            if (in_array($sqlState, ['55P03', '40P01'], true)) {
-                abort(409, 'النظام مشغول حالياً؛ حاول مرة أخرى.');
-            }
-            $this->markFailed($action, 'تعذّر التنفيذ بسبب خطأ في قاعدة البيانات؛ اطلب اقتراح جديد.');
-
-            return ToolOutcome::result(false, 'تعذّر التنفيذ بسبب خطأ في قاعدة البيانات؛ اطلب اقتراح جديد.');
         }
         $ok = $outcome->type === 'result';
         $storedResult = $outcome->data;
