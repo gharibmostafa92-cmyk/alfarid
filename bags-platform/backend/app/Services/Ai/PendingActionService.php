@@ -8,6 +8,7 @@ use App\Exceptions\BusinessException;
 use App\Models\AiMessage;
 use App\Models\AiPendingAction;
 use App\Models\Branch;
+use App\Models\Customer;
 use App\Models\User;
 use App\Services\SettingService;
 use App\Services\StaffAdministration;
@@ -162,6 +163,7 @@ final class PendingActionService
             $title = $preview['title'] ?? '';
             // typed confirmation enforced when preview carries typed_confirmation via block reconstruction: check args
             $expectedTyped = null;
+            $typedInstruction = null;
             if ($action->tool === 'set_branch_status') {
                 $b = Branch::find($action->args['branch_id'] ?? null);
                 $expectedTyped = $b?->code;
@@ -170,13 +172,22 @@ final class PendingActionService
                 $r = Role::find($action->args['role_id'] ?? null);
                 $expectedTyped = $r?->name;
             }
+            // 2.3: أدوات العملاء عالية الخطورة — آخر 4 أرقام من موبايل
+            // التاجر، تُشتق من قاعدة البيانات وقت التأكيد (مش من الكارت).
+            if (in_array($action->tool, ['approve_dealer_application', 'reject_dealer_application', 'suspend_customer', 'set_credit_limit'], true)) {
+                $phone = Customer::withTrashed()->find($action->args['customer_id'] ?? null)?->phone;
+                $expectedTyped = $phone ? substr((string) $phone, -4) : null;
+                // التعليمة بس من غير الرقم نفسه — الرقم لا يتسرب في رسالة
+                // خطأ، والأدمن مضطر يبص في ملف التاجر فعلًا.
+                $typedInstruction = 'اكتب آخر 4 أرقام من موبايل التاجر.';
+            }
             // L-9: مطابقة متسامحة (trim + توحيد حالة) بدل الحرفية الصارمة.
             $norm = fn (?string $v): ?string => $v === null ? null : mb_strtolower(trim($v));
             if ($expectedTyped !== null && $typed !== null && $norm($typed) !== $norm($expectedTyped)) {
                 abort(422, 'نص التأكيد مش مطابق.');
             }
             if ($expectedTyped !== null && ($typed === null || trim($typed) === '')) {
-                abort(422, 'اكتب نص التأكيد المطلوب: '.$expectedTyped);
+                abort(422, $typedInstruction ?? 'اكتب نص التأكيد المطلوب: '.$expectedTyped);
             }
         }
         $via = ['channel' => 'ai', 'conversation_id' => $action->conversation_id, 'action_id' => $action->id];
@@ -276,7 +287,7 @@ final class PendingActionService
         } else {
             $blocks = [['type' => 'result', 'ok' => $ok, 'message' => $outcome->message ?? '']];
         }
-        $this->event($action, 'result', $outcome->message ?? '', $blocks, stripPassword: $action->tool === 'create_staff_user');
+        $this->event($action, 'result', $outcome->message ?? '', $blocks, stripPassword: in_array($action->tool, ['create_staff_user', 'create_customer'], true));
 
         return ToolOutcome::wrap($outcome->type, $outcome->data, $blocks[0] ?? null, $outcome->message);
     }
@@ -361,10 +372,11 @@ final class PendingActionService
         if ($stripPassword) {
             // L8: لا تعتمد على regex فوق صياغة عربية قد تتغير — المؤقتة
             // تُعرض مرة واحدة في رد التأكيد فقط، والمخزّن نص ثابت.
-            $text = 'تم إنشاء الموظف (الباسورد ظهر للأدمن مرة واحدة).';
-            $blocks = array_map(function ($b) {
+            $created = $action->tool === 'create_customer' ? 'العميل' : 'الموظف';
+            $text = "تم إنشاء {$created} (الباسورد ظهر للأدمن مرة واحدة).";
+            $blocks = array_map(function ($b) use ($created) {
                 if (isset($b['message'])) {
-                    $b['message'] = 'تم إنشاء الموظف.';
+                    $b['message'] = "تم إنشاء {$created}.";
                 }
                 if (isset($b['generated_password'])) {
                     unset($b['generated_password']);

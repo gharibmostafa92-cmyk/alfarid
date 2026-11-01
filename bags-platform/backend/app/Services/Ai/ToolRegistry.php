@@ -16,8 +16,14 @@ use App\Enums\BranchType;
 use App\Enums\CustomerDocumentStatus;
 use App\Enums\CustomerDocumentType;
 use App\Enums\CustomerStatus;
+use App\Enums\CustomerType;
 use App\Enums\LocationType;
 use App\Enums\StaffRole;
+use App\Http\Requests\Admin\Customer\ApproveCustomerRequest;
+use App\Http\Requests\Admin\Customer\StoreCustomerRequest;
+use App\Http\Requests\Admin\Customer\UpdateCustomerRequest;
+use App\Http\Requests\Admin\Pricing\StoreCustomerGroupRequest;
+use App\Http\Requests\Admin\Pricing\UpdateCustomerGroupRequest;
 use App\Http\Requests\Api\V1\Admin\StoreBranchRequest;
 use App\Http\Requests\Api\V1\Admin\StoreRoleRequest;
 use App\Http\Requests\Api\V1\Admin\StoreUserRequest;
@@ -34,6 +40,8 @@ use App\Models\StockLevel;
 use App\Models\User;
 use App\Services\BranchAccess;
 use App\Services\CostAccess;
+use App\Services\CustomerGroupService;
+use App\Services\CustomerManagementService;
 use App\Services\SearchTerm;
 use App\Services\SettingService;
 use App\Services\StaffAdministration;
@@ -42,6 +50,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Permission;
@@ -106,9 +115,10 @@ final class ToolRegistry
             'set_location_status' => ['kind' => ToolKind::Write, 'permissions' => ['locations.update', 'locations.manage'], 'risk' => 'medium', 'declaration' => ['name' => 'set_location_status', 'description' => 'تفعيل أو تعطيل موقع تخزين (يحتاج تأكيد)', 'parameters' => $obj(['location_id' => $int, 'active' => $bool], ['location_id', 'active'])]],
             'delete_location' => ['kind' => ToolKind::Write, 'permissions' => ['locations.delete', 'locations.manage'], 'risk' => 'high', 'declaration' => ['name' => 'delete_location', 'description' => 'حذف موقع تخزين (يحتاج تأكيد، ممنوع لو فيه رصيد أو حركات)', 'parameters' => $obj(['location_id' => $int], ['location_id'])]],
 
-            // ── P04 Customers (قراءة فقط — مساعد مراجِع تجار) ──────────────────
-            // لا توجد أدوات كتابة للعملاء في هذه المرحلة؛ الاعتماد والرفض
-            // والتعديلات الداخلية تأتي في مراحل لاحقة بنفس نمط propose→confirm→undo.
+            // ── P04 Customers (قراءة + كتابة — مساعد مراجِع تجار) ───────────
+            // أدوات القراءة السبع من المرحلة 1، وأدوات الكتابة من المرحلة 2
+            // بنفس نمط propose→confirm→undo؛ الاعتماد والرفض بلا تراجع
+            // تلقائي (التراجع فيهما قرار إداري جديد، مش undo).
             'list_customers' => ['kind' => ToolKind::Read, 'permissions' => ['customers.view'], 'risk' => 'low', 'declaration' => ['name' => 'list_customers', 'description' => 'قائمة العملاء/التجار مع فلاتر (بيانات مقنّعة للنموذج، وكاملة في كارت العرض للأدمن)', 'parameters' => $obj(['query' => $str, 'type' => ['type' => 'STRING', 'enum' => ['retail', 'wholesale', 'distributor']], 'status' => ['type' => 'STRING', 'enum' => ['pending', 'approved', 'rejected', 'suspended']], 'customer_group_id' => $int, 'business_only' => $bool, 'pending_older_than_hours' => $int, 'limit' => $int])]],
             'get_customer_profile' => ['kind' => ToolKind::Read, 'permissions' => ['customers.view'], 'risk' => 'low', 'declaration' => ['name' => 'get_customer_profile', 'description' => 'ملف عميل كامل مقنّع: المستندات حسب الحالة، والمجموعة، وحد الائتمان، والمستخدم منه', 'parameters' => $obj(['customer_id' => $int], ['customer_id'])]],
             'dealer_queue_summary' => ['kind' => ToolKind::Read, 'permissions' => ['customers.view'], 'risk' => 'low', 'declaration' => ['name' => 'dealer_queue_summary', 'description' => 'ملخص طابور مراجعة التجار: قيد المراجعة، المتأخر عن المهلة، الناقص مستندات، الجاهز للاعتماد', 'parameters' => $obj(['sla_hours' => $int])]],
@@ -116,6 +126,24 @@ final class ToolRegistry
             'customer_history' => ['kind' => ToolKind::Read, 'permissions' => ['customers.view'], 'risk' => 'low', 'declaration' => ['name' => 'customer_history', 'description' => 'سجل تغييرات ملف عميل من CustomerAuditLog (الأحدث أولًا)', 'parameters' => $obj(['customer_id' => $int, 'limit' => $int], ['customer_id'])]],
             'find_duplicate_customers' => ['kind' => ToolKind::Read, 'permissions' => ['customers.view'], 'risk' => 'low', 'declaration' => ['name' => 'find_duplicate_customers', 'description' => 'تجار ممكن يكونوا نفس الشخص: تطابق ضريبي/سجل، تشابه اسم، أو نفس إيميل حساب محذوف', 'parameters' => $obj(['customer_id' => $int], ['customer_id'])]],
             'list_customer_groups' => ['kind' => ToolKind::Read, 'permissions' => ['customer_groups.view'], 'risk' => 'low', 'declaration' => ['name' => 'list_customer_groups', 'description' => 'قائمة مجموعات العملاء مع نسبة الخصم وعدد العملاء', 'parameters' => $obj(['query' => $str, 'active' => $bool])]],
+
+            // ── P04-2 أدوات كتابة العملاء ─────────────────────────────────────
+            // الصلاحيات هنا canAny (أي واحدة تكفي)؛ والحقول القانونية في
+            // update_customer_profile تحتاج customers.approve زيادة (تُفحص
+            // في الـ prep). الممنوعات (حذف عميل، تغيير باسورد، تغيير نوع
+            // من غير اعتماد) مرفوضة صراحة في assertAiConstraints.
+            'create_customer' => ['kind' => ToolKind::Write, 'permissions' => ['customers.create'], 'risk' => 'low', 'declaration' => ['name' => 'create_customer', 'description' => 'إنشاء عميل جديد؛ الباسورد يتولد في السيرفر ويظهر مرة واحدة (يحتاج تأكيد). الجملة والموزع يتسجلون قيد المراجعة.', 'parameters' => $obj(['name' => $str, 'phone' => $str, 'email' => $str, 'type' => ['type' => 'STRING', 'enum' => ['retail', 'wholesale', 'distributor']], 'company_name' => $str, 'tax_number' => $str, 'commercial_register' => $str], ['name', 'phone'])]],
+            'update_customer_profile' => ['kind' => ToolKind::Write, 'permissions' => ['customers.update'], 'risk' => 'medium', 'declaration' => ['name' => 'update_customer_profile', 'description' => 'تعديل بيانات عميل (الاسم والإيميل والموبايل والبيانات القانونية فقط؛ النوع والحالة ممنوعان) (يحتاج تأكيد)', 'parameters' => $obj(['customer_id' => $int, 'name' => $str, 'email' => $str, 'phone' => $str, 'company_name' => $str, 'tax_number' => $str, 'commercial_register' => $str], ['customer_id'])]],
+            'set_customer_group' => ['kind' => ToolKind::Write, 'permissions' => ['customers.approve'], 'risk' => 'medium', 'declaration' => ['name' => 'set_customer_group', 'description' => 'تعيين مجموعة عميل (يحتاج تأكيد)', 'parameters' => $obj(['customer_id' => $int, 'customer_group_id' => $int], ['customer_id', 'customer_group_id'])]],
+            'set_credit_limit' => ['kind' => ToolKind::Write, 'permissions' => ['customers.approve'], 'risk' => 'medium', 'declaration' => ['name' => 'set_credit_limit', 'description' => 'تعيين حد ائتمان عميل (يحتاج تأكيد؛ يبقى عالي الخطورة ويطلب تأكيدًا بالكتابة لو فوق العتبة أو الزيادة أكتر من 100%)', 'parameters' => $obj(['customer_id' => $int, 'credit_limit' => ['type' => 'NUMBER']], ['customer_id', 'credit_limit'])]],
+            'review_customer_document' => ['kind' => ToolKind::Write, 'permissions' => ['customers.approve', 'customers.documents.view'], 'risk' => 'low', 'declaration' => ['name' => 'review_customer_document', 'description' => 'مراجعة مستند عميل: توثيق أو رفض (الملاحظة إلزامية عند الرفض) (يحتاج تأكيد)', 'parameters' => $obj(['customer_id' => $int, 'document_id' => $int, 'status' => ['type' => 'STRING', 'enum' => ['verified', 'rejected']], 'note' => $str], ['customer_id', 'document_id', 'status'])]],
+            'approve_dealer_application' => ['kind' => ToolKind::Write, 'permissions' => ['customers.approve'], 'risk' => 'high', 'declaration' => ['name' => 'approve_dealer_application', 'description' => 'اعتماد طلب تاجر: يوثّق المستندات المحددة ثم يعتمد في تأكيد واحد (يحتاج تأكيدًا بالكتابة، بلا تراجع تلقائي)', 'parameters' => $obj(['customer_id' => $int, 'verify_document_ids' => ['type' => 'ARRAY', 'items' => ['type' => 'INTEGER']], 'customer_group_id' => $int, 'credit_limit' => ['type' => 'NUMBER'], 'type' => ['type' => 'STRING', 'enum' => ['wholesale', 'distributor']]], ['customer_id'])]],
+            'reject_dealer_application' => ['kind' => ToolKind::Write, 'permissions' => ['customers.approve'], 'risk' => 'high', 'declaration' => ['name' => 'reject_dealer_application', 'description' => 'رفض طلب تاجر مع سبب مكتوب بالمصري المهذب (يحتاج تأكيدًا بالكتابة، بلا تراجع تلقائي)', 'parameters' => $obj(['customer_id' => $int, 'reason' => $str, 'reject_document_ids' => ['type' => 'ARRAY', 'items' => ['type' => 'INTEGER']], 'document_notes' => ['type' => 'OBJECT']], ['customer_id', 'reason'])]],
+            'suspend_customer' => ['kind' => ToolKind::Write, 'permissions' => ['customers.approve'], 'risk' => 'high', 'declaration' => ['name' => 'suspend_customer', 'description' => 'إيقاف حساب عميل وإنهاء كل جلساته فورًا (يحتاج تأكيدًا بالكتابة)', 'parameters' => $obj(['customer_id' => $int, 'reason' => $str], ['customer_id', 'reason'])]],
+            'reactivate_customer' => ['kind' => ToolKind::Write, 'permissions' => ['customers.approve'], 'risk' => 'medium', 'declaration' => ['name' => 'reactivate_customer', 'description' => 'إعادة تفعيل عميل موقوف (يرجع معتمدًا لو كان معتمدًا قبل الإيقاف، وإلا قيد المراجعة) (يحتاج تأكيد)', 'parameters' => $obj(['customer_id' => $int], ['customer_id'])]],
+            'restore_customer' => ['kind' => ToolKind::Write, 'permissions' => ['customers.delete'], 'risk' => 'medium', 'declaration' => ['name' => 'restore_customer', 'description' => 'استعادة حساب عميل محذوف (يحتاج تأكيد، بلا تراجع تلقائي)', 'parameters' => $obj(['customer_id' => $int], ['customer_id'])]],
+            'create_customer_group' => ['kind' => ToolKind::Write, 'permissions' => ['customer_groups.create'], 'risk' => 'low', 'declaration' => ['name' => 'create_customer_group', 'description' => 'إنشاء مجموعة عملاء جديدة (يحتاج تأكيد، بلا تراجع تلقائي)', 'parameters' => $obj(['name' => $str, 'code' => $str, 'description' => $str, 'discount_percentage' => ['type' => 'NUMBER'], 'is_active' => $bool], ['name', 'code'])]],
+            'update_customer_group' => ['kind' => ToolKind::Write, 'permissions' => ['customer_groups.update'], 'risk' => 'medium', 'declaration' => ['name' => 'update_customer_group', 'description' => 'تعديل مجموعة عملاء (يحتاج تأكيد؛ يبقى عالي الخطورة لو الخصم اتغير والمجموعة فيها عملاء)', 'parameters' => $obj(['customer_group_id' => $int, 'name' => $str, 'code' => $str, 'description' => $str, 'discount_percentage' => ['type' => 'NUMBER'], 'is_active' => $bool], ['customer_group_id'])]],
 
             // ── P03 Settings & Numbering ───────────────────────────────────────────
             'view_settings' => ['kind' => ToolKind::Read, 'permissions' => ['settings.view', 'settings.manage'], 'risk' => 'low', 'declaration' => ['name' => 'view_settings', 'description' => 'عرض إعدادات المؤسسة (هوية الشركة، الضرائب، السياسات، الترقيم)', 'parameters' => $obj(['group' => ['type' => 'STRING', 'enum' => ['company', 'tax', 'policy', 'numbering', 'store', 'purchases', 'ai', 'all']]])]],
@@ -295,6 +323,55 @@ final class ToolRegistry
             $userRules = (new StoreUserRequest)->rules();
             unset($userRules['password']);
             $rules = array_replace($rules, $userRules);
+        }
+        if (in_array($name, ['create_customer', 'update_customer_profile'], true) && is_string($args['phone'] ?? null)) {
+            // تطبيع الموبايل قبل الـ regex (أرقام عربية، +20/0020) — نفس
+            // ما يعمله الـ mutator عند الحفظ، لكن التحقق يسبق الحفظ.
+            $args['phone'] = Customer::normalizePhone($args['phone']);
+        }
+        if ($name === 'create_customer') {
+            // دمج قواعد REST لنفس الحقول المعلنة فقط؛ الباسورد مولّد في
+            // السيرفر وقت التنفيذ ومش من args أصلًا.
+            $customerRules = array_intersect_key((new StoreCustomerRequest)->rules(), array_flip(['name', 'phone', 'email', 'type', 'company_name', 'tax_number', 'commercial_register']));
+            $rules = array_replace($rules, $customerRules);
+        }
+        if ($name === 'update_customer_profile') {
+            $customerRules = array_intersect_key((new UpdateCustomerRequest)->rules(), array_flip(['name', 'email', 'phone', 'company_name', 'tax_number', 'commercial_register']));
+            // قاعدة REST تتجاهل route('customer') غير الموجود في سياق
+            // المساعد — التجاهل هنا هو عميل الأداة نفسه.
+            $customerRules['phone'] = ['sometimes', 'string', 'regex:/^01[0125][0-9]{8}$/', Rule::unique('customers', 'phone')->ignore((int) ($args['customer_id'] ?? 0))];
+            $rules = array_replace($rules, $customerRules);
+        }
+        if ($name === 'set_customer_group') {
+            $rules['customer_group_id'] = ['required', 'integer', Rule::exists('customer_groups', 'id')];
+        }
+        if ($name === 'set_credit_limit') {
+            $rules['credit_limit'] = ['required', 'numeric', 'min:0', 'max:9999999999.99'];
+        }
+        if ($name === 'review_customer_document') {
+            $rules['note'] = ['nullable', 'string', 'max:500', 'required_if:status,rejected'];
+        }
+        if ($name === 'approve_dealer_application') {
+            $approveRules = array_intersect_key((new ApproveCustomerRequest)->rules(), array_flip(['customer_group_id', 'credit_limit', 'type']));
+            $rules = array_replace($rules, $approveRules);
+            $rules['verify_document_ids.*'] = ['integer', 'distinct', 'min:1'];
+        }
+        if ($name === 'reject_dealer_application') {
+            $rules['reason'] = ['required', 'string', 'max:2000'];
+            $rules['reject_document_ids.*'] = ['integer', 'distinct', 'min:1'];
+        }
+        if ($name === 'suspend_customer') {
+            $rules['reason'] = ['required', 'string', 'max:2000'];
+        }
+        if ($name === 'create_customer_group') {
+            $rules = array_replace($rules, (new StoreCustomerGroupRequest)->rules());
+        }
+        if ($name === 'update_customer_group') {
+            $groupRules = (new UpdateCustomerGroupRequest)->rules();
+            // نفس مشكلة route() في UpdateCustomerRequest: التجاهل هو
+            // مجموعة الأداة نفسها.
+            $groupRules['code'] = ['sometimes', 'string', 'max:64', 'alpha_dash', Rule::unique('customer_groups', 'code')->ignore((int) ($args['customer_group_id'] ?? 0))];
+            $rules = array_replace($rules, $groupRules);
         }
         if (in_array($name, ['create_location', 'set_location_status'], true) && isset($rules['code'])) {
             // L-8: كود الموقع max:100 في الـ REST — توحيد الحد بين المسارين.
@@ -549,12 +626,17 @@ final class ToolRegistry
     /**
      * 1.4: نفس فحوصات approve() قبل الاعتماد، زائد تحذيرات.
      * الرسائل قوالب ثابتة — لا تحتوي أي قيمة كتبها التاجر.
+     * $treatVerifiedIds (من المرحلة 2): مستندات تُعامل كموثّقة لمحاكاة
+     * التوثيق في prepare الخاص بـ approve_dealer_application — أداة
+     * القراءة تستدعي من غيرها فيبقى السلوك مطابقًا.
      *
      * @return array{checks:list<array{key:string,ok:bool,severity:string,message:string}>,verdict:string,next_steps:list<string>}
      */
-    private function reviewCustomer(Customer $customer): array
+    private function reviewCustomer(Customer $customer, array $treatVerifiedIds = []): array
     {
         $docs = $customer->relationLoaded('documents') ? $customer->documents : $customer->documents()->get();
+        // الحالة الفعالة بعد المحاكاة: الموثّق فعلًا + المحدد للتوثيق.
+        $effective = $docs->map(fn ($d) => in_array($d->id, $treatVerifiedIds, true) ? CustomerDocumentStatus::Verified : $d->status);
         $sla = max(1, (int) $this->settings->get('ai_dealer_review_sla_hours', 48));
         $legalNames = ['company_name' => 'اسم الشركة', 'tax_number' => 'الرقم الضريبي', 'commercial_register' => 'السجل التجاري'];
         $missingLegal = array_values(array_filter(array_keys($legalNames), fn ($f) => blank($customer->{$f})));
@@ -564,8 +646,8 @@ final class ToolRegistry
         $duplicates = $this->duplicateCustomers($customer);
         $checks = [
             ['key' => 'legal_fields', 'ok' => $missingLegal === [], 'severity' => 'blocker', 'message' => $missingLegal === [] ? 'البيانات القانونية التلاتة موجودة.' : 'ناقص: '.implode('، ', array_map(fn ($f) => $legalNames[$f], $missingLegal)).'.'],
-            ['key' => 'documents_unverified', 'ok' => ! $docs->contains(fn ($d) => $d->status !== CustomerDocumentStatus::Verified), 'severity' => 'blocker', 'message' => $docs->contains(fn ($d) => $d->status !== CustomerDocumentStatus::Verified) ? 'في مستندات لسه مش verified.' : 'كل المستندات verified.'],
-            ['key' => 'no_verified_document', 'ok' => $docs->contains(fn ($d) => $d->status === CustomerDocumentStatus::Verified), 'severity' => 'blocker', 'message' => $docs->contains(fn ($d) => $d->status === CustomerDocumentStatus::Verified) ? 'في مستند verified واحد على الأقل.' : 'مفيش ولا مستند verified.'],
+            ['key' => 'documents_unverified', 'ok' => ! $effective->contains(fn ($s) => $s !== CustomerDocumentStatus::Verified), 'severity' => 'blocker', 'message' => $effective->contains(fn ($s) => $s !== CustomerDocumentStatus::Verified) ? 'في مستندات لسه مش verified.' : 'كل المستندات verified.'],
+            ['key' => 'no_verified_document', 'ok' => $effective->contains(fn ($s) => $s === CustomerDocumentStatus::Verified), 'severity' => 'blocker', 'message' => $effective->contains(fn ($s) => $s === CustomerDocumentStatus::Verified) ? 'في مستند verified واحد على الأقل.' : 'مفيش ولا مستند verified.'],
             ['key' => 'status_not_pending', 'ok' => $customer->status === CustomerStatus::Pending, 'severity' => 'blocker', 'message' => $customer->status === CustomerStatus::Pending ? 'الطلب قيد المراجعة.' : 'الحالة الحالية مش pending.'],
             ['key' => 'phone_unverified', 'ok' => $customer->phone_verified_at !== null, 'severity' => 'warning', 'message' => $customer->phone_verified_at !== null ? 'رقم الموبايل مؤكد.' : 'رقم الموبايل لسه مش مؤكد.'],
             ['key' => 'duplicates_found', 'ok' => $duplicates === [], 'severity' => 'warning', 'message' => $duplicates === [] ? 'مفيش عملاء مشابهين.' : 'في عملاء مشابهين — راجعهم قبل الاعتماد.'],
@@ -755,9 +837,24 @@ final class ToolRegistry
             $r = Role::find($args['role_id']);
             $typed = $r?->name;
         }
+        // 2.3: أدوات العملاء عالية الخطورة — التأكيد بآخر 4 أرقام من
+        // موبايل التاجر (يُشتق من قاعدة البيانات وقت الاقتراح، ويُعاد
+        // اشتقاقه وقت التأكيد في confirmLocked).
+        $typedHint = null;
+        if (in_array($tool, ['approve_dealer_application', 'reject_dealer_application', 'suspend_customer', 'set_credit_limit'], true) && isset($args['customer_id'])) {
+            $phone = Customer::withTrashed()->find($args['customer_id'])?->phone;
+            $typed = $phone ? substr((string) $phone, -4) : null;
+            $typedHint = 'آخر 4 أرقام من موبايل التاجر';
+        }
         $block = ['type' => 'confirm_action', 'action_id' => $action->id, 'tool' => $tool, 'risk' => $risk, 'title' => $preview['title'] ?? $tool, 'before' => $preview['before'] ?? null, 'after' => $preview['after'] ?? null, 'warnings' => $preview['warnings'] ?? [], 'expires_at' => $action->expires_at->toIso8601String()];
         if ($risk === 'high' && $typed) {
             $block['typed_confirmation'] = $typed;
+            if ($typedHint) {
+                // الواجهة تعرض التعليمة بس (من غير الرقم) — القيمة تفضل
+                // للمقارنة في حقل typed_confirmation، والزر يتقفل لحد ما
+                // المدخل يطابقه.
+                $block['typed_confirmation_hint'] = $typedHint;
+            }
         }
         if (isset($preview['permission_diff'])) {
             $block = array_merge($block, ['type' => 'permission_diff'] + $block + $preview['permission_diff']);
@@ -798,6 +895,18 @@ final class ToolRegistry
             'delete_location' => $this->prepDeleteLocation($actor, $conv, $args),
             'update_settings' => $this->prepUpdateSettings($actor, $conv, $args),
             'update_document_numbering' => $this->prepUpdateDocNumbering($actor, $conv, $args),
+            'create_customer' => $this->prepCreateCustomer($actor, $conv, $args),
+            'update_customer_profile' => $this->prepUpdateCustomerProfile($actor, $conv, $args),
+            'set_customer_group' => $this->prepSetCustomerGroup($actor, $conv, $args),
+            'set_credit_limit' => $this->prepSetCreditLimit($actor, $conv, $args),
+            'review_customer_document' => $this->prepReviewCustomerDocument($actor, $conv, $args),
+            'approve_dealer_application' => $this->prepApproveDealerApplication($actor, $conv, $args),
+            'reject_dealer_application' => $this->prepRejectDealerApplication($actor, $conv, $args),
+            'suspend_customer' => $this->prepSuspendCustomer($actor, $conv, $args),
+            'reactivate_customer' => $this->prepReactivateCustomer($actor, $conv, $args),
+            'restore_customer' => $this->prepRestoreCustomer($actor, $conv, $args),
+            'create_customer_group' => $this->prepCreateCustomerGroup($actor, $conv, $args),
+            'update_customer_group' => $this->prepUpdateCustomerGroup($actor, $conv, $args),
             default => ToolOutcome::denied('أداة كتابة غير معروفة.'),
         };
     }
@@ -983,6 +1092,289 @@ final class ToolRegistry
         return $this->makeProposal($actor, $conv, 'revoke_user_sessions', ['user_id' => $user->id], ['user:'.$user->id => (int) $user->lock_version], ['title' => 'تسجيل خروج '.$user->name.' من كل الأجهزة', 'warnings' => []], null, 'medium');
     }
 
+    // ── P04-2: prep أدوات كتابة العملاء ────────────────────────────────────
+
+    private function prepCreateCustomer(User $actor, AiConversation $conv, array $args): ToolOutcome
+    {
+        $type = $args['type'] ?? CustomerType::Retail->value;
+        $data = [
+            'name' => (string) $args['name'],
+            'phone' => (string) $args['phone'],
+            'email' => $args['email'] ?? null,
+            'type' => $type,
+            'company_name' => $args['company_name'] ?? null,
+            'tax_number' => $args['tax_number'] ?? null,
+            'commercial_register' => $args['commercial_register'] ?? null,
+        ];
+        $warnings = [];
+        if (in_array($type, [CustomerType::Wholesale->value, CustomerType::Distributor->value], true)) {
+            $warnings[] = 'هيتسجل قيد المراجعة.';
+        }
+        $risk = in_array($type, [CustomerType::Wholesale->value, CustomerType::Distributor->value], true) ? 'medium' : 'low';
+
+        return $this->makeProposal($actor, $conv, 'create_customer', $data, [], ['title' => 'إنشاء عميل '.$data['name'], 'after' => $data, 'warnings' => $warnings], null, $risk);
+    }
+
+    private function prepUpdateCustomerProfile(User $actor, AiConversation $conv, array $args): ToolOutcome
+    {
+        $customer = $this->findCustomer($args);
+        if (! $customer) {
+            return ToolOutcome::denied('العميل مش موجود.');
+        }
+        $data = ['customer_id' => $customer->id];
+        $before = [];
+        $after = [];
+        foreach (['name', 'email', 'phone', 'company_name', 'tax_number', 'commercial_register'] as $field) {
+            if (array_key_exists($field, $args) && $args[$field] != $customer->{$field}) {
+                $data[$field] = $args[$field];
+                $before[$field] = $customer->{$field};
+                $after[$field] = $args[$field];
+            }
+        }
+        if ($before === []) {
+            return ToolOutcome::denied('مفيش حقول للتعديل.');
+        }
+        $legalChanged = (bool) array_intersect_key($data, array_flip(['company_name', 'tax_number', 'commercial_register']));
+        if ($legalChanged && ! $actor->can('customers.approve')) {
+            return ToolOutcome::denied('تعديل البيانات القانونية محتاج صلاحية customers.approve.');
+        }
+        $warnings = [];
+        $credentialsChanged = collect(['email', 'phone'])->contains(fn ($f) => array_key_exists($f, $data));
+        if ($credentialsChanged) {
+            $warnings[] = 'هيتم تسجيل خروج التاجر من كل الأجهزة وإلغاء توثيق الموبايل.';
+        }
+        $risk = 'medium';
+        if ($legalChanged && $customer->status === CustomerStatus::Approved) {
+            $warnings[] = 'تغيير الهوية القانونية لتاجر معتمد.';
+            $risk = 'high';
+        }
+
+        return $this->makeProposal($actor, $conv, 'update_customer_profile', $data, ['customer:'.$customer->id => $this->customerVersion($customer)], ['title' => 'تعديل بيانات '.$customer->name, 'before' => $before, 'after' => $after, 'warnings' => $warnings], $before, $risk);
+    }
+
+    private function prepSetCustomerGroup(User $actor, AiConversation $conv, array $args): ToolOutcome
+    {
+        $customer = $this->findCustomer($args);
+        if (! $customer) {
+            return ToolOutcome::denied('العميل مش موجود.');
+        }
+        $group = CustomerGroup::find((int) $args['customer_group_id']);
+        if (! $group) {
+            return ToolOutcome::denied('المجموعة مش موجودة.');
+        }
+        $warnings = ! $group->is_active ? ['المجموعة مش مفعلة.'] : [];
+
+        return $this->makeProposal($actor, $conv, 'set_customer_group', ['customer_id' => $customer->id, 'customer_group_id' => $group->id], ['customer:'.$customer->id => $this->customerVersion($customer)], ['title' => 'تعيين مجموعة '.$customer->name, 'before' => ['customer_group' => $customer->customerGroup?->name], 'after' => ['customer_group' => $group->name], 'warnings' => $warnings], ['customer_group_id' => $customer->customer_group_id], 'medium');
+    }
+
+    private function prepSetCreditLimit(User $actor, AiConversation $conv, array $args): ToolOutcome
+    {
+        $customer = $this->findCustomer($args);
+        if (! $customer) {
+            return ToolOutcome::denied('العميل مش موجود.');
+        }
+        $current = (float) $customer->credit_limit;
+        $new = (float) $args['credit_limit'];
+        $used = (float) app(WholesalePaymentNoticeService::class)->outstandingBalance($customer);
+        $threshold = (float) $this->settings->get('ai_credit_limit_confirm_threshold', 100000);
+        $warnings = [];
+        if ($new < $used) {
+            $warnings[] = 'التاجر هيبقى فوق الحد فورًا، وطلباته الآجلة الجاية هتترفض.';
+        }
+        $increase = $current > 0 ? ($new - $current) / $current : ($new > 0 ? INF : 0.0);
+        $risk = ($new > $threshold || $increase > 1.0) ? 'high' : 'medium';
+
+        return $this->makeProposal($actor, $conv, 'set_credit_limit', ['customer_id' => $customer->id, 'credit_limit' => $args['credit_limit']], ['customer:'.$customer->id => $this->customerVersion($customer)], ['title' => 'تعيين حد ائتمان '.$customer->name, 'before' => ['credit_limit' => $current, 'used_credit' => $used], 'after' => ['credit_limit' => $new, 'used_credit' => $used], 'warnings' => $warnings], ['credit_limit' => $customer->credit_limit], $risk);
+    }
+
+    private function prepReviewCustomerDocument(User $actor, AiConversation $conv, array $args): ToolOutcome
+    {
+        $customer = $this->findCustomer($args);
+        if (! $customer) {
+            return ToolOutcome::denied('العميل مش موجود.');
+        }
+        $doc = $customer->documents()->whereKey((int) $args['document_id'])->first();
+        if (! $doc) {
+            return ToolOutcome::denied('المستند مش تابع للعميل ده.');
+        }
+        $status = (string) $args['status'];
+
+        return $this->makeProposal($actor, $conv, 'review_customer_document', ['customer_id' => $customer->id, 'document_id' => $doc->id, 'status' => $status, 'note' => $args['note'] ?? null], ['customer:'.$customer->id => $this->customerVersion($customer), 'customer_document:'.$doc->id => $this->documentVersion($doc)], ['title' => ($status === CustomerDocumentStatus::Verified->value ? 'توثيق مستند ' : 'رفض مستند ').$customer->name, 'before' => ['status' => $doc->status->value], 'after' => ['status' => $status], 'warnings' => []], ['status' => $doc->status->value], 'low');
+    }
+
+    private function prepApproveDealerApplication(User $actor, AiConversation $conv, array $args): ToolOutcome
+    {
+        $customer = $this->findCustomer($args);
+        if (! $customer) {
+            return ToolOutcome::denied('العميل مش موجود.');
+        }
+        $customer->load('documents');
+        $verifyIds = array_values(array_unique(array_map('intval', $args['verify_document_ids'] ?? [])));
+        sort($verifyIds);
+        $docs = $customer->documents->whereIn('id', $verifyIds);
+        if ($docs->count() !== count($verifyIds)) {
+            return ToolOutcome::denied('في مستند مش تابع للعميل ده.');
+        }
+        $review = $this->reviewCustomer($customer, $verifyIds);
+        if ($customer->documents->contains(fn ($d) => $d->status === CustomerDocumentStatus::Rejected && ! in_array($d->id, $verifyIds, true))) {
+            return ToolOutcome::denied('فيه مستند مرفوض، لازم يتراجع أو يترفع بديل الأول.', auditable: false);
+        }
+        $blockers = collect($review['checks'])->filter(fn ($c) => $c['severity'] === 'blocker' && ! $c['ok'])->values();
+        if ($blockers->isNotEmpty()) {
+            return ToolOutcome::denied('الاعتماد متعطل: '.implode(' ', $blockers->map(fn ($c) => $c['message'])->all()), auditable: false);
+        }
+        $warnings = collect($review['checks'])->filter(fn ($c) => $c['severity'] === 'warning' && ! $c['ok'])->map(fn ($c) => $c['message'])->values()->all();
+        $data = ['customer_id' => $customer->id];
+        if ($verifyIds !== []) {
+            $data['verify_document_ids'] = $verifyIds;
+        }
+        if (isset($args['customer_group_id'])) {
+            $data['customer_group_id'] = (int) $args['customer_group_id'];
+        }
+        if (isset($args['credit_limit'])) {
+            $data['credit_limit'] = $args['credit_limit'];
+        }
+        if (isset($args['type'])) {
+            $data['type'] = $args['type'];
+        }
+        $group = isset($data['customer_group_id']) ? CustomerGroup::find($data['customer_group_id']) : $customer->customerGroup;
+        $expected = ['customer:'.$customer->id => $this->customerVersion($customer)];
+        foreach ($verifyIds as $id) {
+            $expected['customer_document:'.$id] = $this->documentVersion($docs->firstWhere('id', $id));
+        }
+        $company = ['name' => $customer->name, 'company_name' => $customer->company_name, 'tax_number' => $customer->tax_number, 'commercial_register' => $customer->commercial_register, 'phone' => $customer->phone, 'email' => $customer->email];
+
+        return $this->makeProposal($actor, $conv, 'approve_dealer_application', $data, $expected, ['title' => 'اعتماد تاجر '.($customer->company_name ?? $customer->name), 'before' => ['status' => $customer->status->value, 'company' => $company, 'customer_group' => $customer->customerGroup?->name, 'credit_limit' => (float) $customer->credit_limit], 'after' => ['status' => CustomerStatus::Approved->value, 'company' => $company, 'documents_to_verify' => $docs->map(fn ($d) => ['id' => $d->id, 'type' => $d->document_type->value])->values()->all(), 'customer_group' => $group ? ['id' => $group->id, 'name' => $group->name, 'discount_percentage' => $group->discount_percentage] : null, 'credit_limit' => isset($data['credit_limit']) ? (float) $data['credit_limit'] : (float) $customer->credit_limit], 'warnings' => $warnings], null, 'high');
+    }
+
+    private function prepRejectDealerApplication(User $actor, AiConversation $conv, array $args): ToolOutcome
+    {
+        $customer = $this->findCustomer($args);
+        if (! $customer) {
+            return ToolOutcome::denied('العميل مش موجود.');
+        }
+        $rejectIds = array_values(array_unique(array_map('intval', $args['reject_document_ids'] ?? [])));
+        sort($rejectIds);
+        if ($rejectIds !== []) {
+            $count = $customer->documents()->whereIn('id', $rejectIds)->count();
+            if ($count !== count($rejectIds)) {
+                return ToolOutcome::denied('في مستند مش تابع للعميل ده.');
+            }
+        }
+        $notes = $args['document_notes'] ?? [];
+        foreach ($notes as $note) {
+            if (! is_string($note) || mb_strlen($note) > 500) {
+                return ToolOutcome::denied('ملاحظة المستند لازم تكون نصًا بحد أقصى 500 حرف.');
+            }
+        }
+        $data = ['customer_id' => $customer->id, 'reason' => $args['reason']];
+        if ($rejectIds !== []) {
+            $data['reject_document_ids'] = $rejectIds;
+        }
+        if ($notes !== []) {
+            $data['document_notes'] = $notes;
+        }
+        $expected = ['customer:'.$customer->id => $this->customerVersion($customer)];
+        foreach ($rejectIds as $id) {
+            $expected['customer_document:'.$id] = $this->documentVersion($customer->documents()->whereKey($id)->firstOrFail());
+        }
+
+        return $this->makeProposal($actor, $conv, 'reject_dealer_application', $data, $expected, ['title' => 'رفض طلب '.($customer->company_name ?? $customer->name), 'before' => ['status' => $customer->status->value], 'after' => ['status' => CustomerStatus::Rejected->value, 'rejection_reason' => $args['reason'], 'documents_to_reject' => $rejectIds], 'warnings' => []], null, 'high');
+    }
+
+    private function prepSuspendCustomer(User $actor, AiConversation $conv, array $args): ToolOutcome
+    {
+        $customer = $this->findCustomer($args);
+        if (! $customer) {
+            return ToolOutcome::denied('العميل مش موجود.');
+        }
+
+        return $this->makeProposal($actor, $conv, 'suspend_customer', ['customer_id' => $customer->id, 'reason' => $args['reason']], ['customer:'.$customer->id => $this->customerVersion($customer)], ['title' => 'إيقاف حساب '.$customer->name, 'before' => ['status' => $customer->status->value], 'after' => ['status' => CustomerStatus::Suspended->value], 'warnings' => ['هيتم إنهاء كل جلسات التاجر فورًا، والتراجع هيرجّع الحالة بس، مش الجلسات.']], ['suspension_reason' => null, 'previous_status' => $customer->status->value], 'high');
+    }
+
+    private function prepReactivateCustomer(User $actor, AiConversation $conv, array $args): ToolOutcome
+    {
+        $customer = $this->findCustomer($args);
+        if (! $customer) {
+            return ToolOutcome::denied('العميل مش موجود.');
+        }
+        if ($customer->status !== CustomerStatus::Suspended) {
+            return ToolOutcome::denied('الحساب مش موقوف.');
+        }
+
+        return $this->makeProposal($actor, $conv, 'reactivate_customer', ['customer_id' => $customer->id], ['customer:'.$customer->id => $this->customerVersion($customer)], ['title' => 'إعادة تفعيل '.$customer->name, 'before' => ['status' => CustomerStatus::Suspended->value], 'after' => ['status' => $customer->approved_at ? CustomerStatus::Approved->value : CustomerStatus::Pending->value], 'warnings' => []], ['suspension_reason' => $customer->suspension_reason], 'medium');
+    }
+
+    private function prepRestoreCustomer(User $actor, AiConversation $conv, array $args): ToolOutcome
+    {
+        $customer = Customer::withTrashed()->find((int) $args['customer_id']);
+        if (! $customer) {
+            return ToolOutcome::denied('العميل مش موجود.');
+        }
+        if (! $customer->trashed()) {
+            return ToolOutcome::denied('الحساب غير محذوف.');
+        }
+
+        return $this->makeProposal($actor, $conv, 'restore_customer', ['customer_id' => $customer->id], ['customer:'.$customer->id => $this->customerVersion($customer)], ['title' => 'استعادة حساب '.$customer->name, 'before' => ['deleted' => true], 'after' => ['deleted' => false], 'warnings' => []], null, 'medium');
+    }
+
+    private function prepCreateCustomerGroup(User $actor, AiConversation $conv, array $args): ToolOutcome
+    {
+        try {
+            $this->branches->assertCentralAccess($actor);
+        } catch (\Throwable) {
+            return ToolOutcome::denied('إدارة مجموعات العملاء محتاجة وصول مركزي.');
+        }
+        $data = ['name' => (string) $args['name'], 'code' => (string) $args['code']];
+        foreach (['description', 'discount_percentage', 'is_active'] as $field) {
+            if (array_key_exists($field, $args)) {
+                $data[$field] = $args[$field];
+            }
+        }
+
+        return $this->makeProposal($actor, $conv, 'create_customer_group', $data, [], ['title' => 'إنشاء مجموعة '.$data['name'], 'after' => $data, 'warnings' => []], null, 'low');
+    }
+
+    private function prepUpdateCustomerGroup(User $actor, AiConversation $conv, array $args): ToolOutcome
+    {
+        try {
+            $this->branches->assertCentralAccess($actor);
+        } catch (\Throwable) {
+            return ToolOutcome::denied('إدارة مجموعات العملاء محتاجة وصول مركزي.');
+        }
+        $group = CustomerGroup::find((int) $args['customer_group_id']);
+        if (! $group) {
+            return ToolOutcome::denied('المجموعة مش موجودة.');
+        }
+        $data = ['customer_group_id' => $group->id];
+        $before = [];
+        $after = [];
+        foreach (['name', 'code', 'description', 'discount_percentage', 'is_active'] as $field) {
+            if (! array_key_exists($field, $args)) {
+                continue;
+            }
+            $changed = match ($field) {
+                'discount_percentage' => (float) $args[$field] !== (float) $group->{$field},
+                'is_active' => (bool) $args[$field] !== (bool) $group->{$field},
+                default => $args[$field] != $group->{$field},
+            };
+            if ($changed) {
+                $data[$field] = $args[$field];
+                $before[$field] = $group->{$field};
+                $after[$field] = $args[$field];
+            }
+        }
+        if ($before === []) {
+            return ToolOutcome::denied('مفيش حقول للتعديل.');
+        }
+        $discountChanged = array_key_exists('discount_percentage', $data);
+        $hasCustomers = $group->customers()->exists();
+        $risk = ($discountChanged && $hasCustomers) ? 'high' : 'medium';
+        $warnings = ($discountChanged && $hasCustomers) ? ['المجموعة فيها عملاء — تغيير الخصم هيأثر عليهم.'] : [];
+
+        return $this->makeProposal($actor, $conv, 'update_customer_group', $data, ['customer_group:'.$group->id => $this->customerGroupVersion($group)], ['title' => 'تعديل مجموعة '.$group->name, 'before' => $before, 'after' => $after, 'warnings' => $warnings], $before, $risk);
+    }
+
     public function executeWrite(User $actor, AiPendingAction $action, array $via): ToolOutcome
     {
         $args = $action->args;
@@ -1005,6 +1397,18 @@ final class ToolRegistry
                 'delete_location' => $this->execDeleteLocation($actor, $args, $via, $action),
                 'update_settings' => $this->execUpdateSettings($actor, $args, $via, $action),
                 'update_document_numbering' => $this->execUpdateDocNumbering($actor, $args, $via, $action),
+                'create_customer' => $this->execCreateCustomer($actor, $args, $via, $action),
+                'update_customer_profile' => $this->execUpdateCustomerProfile($actor, $args, $via, $action),
+                'set_customer_group' => $this->execSetCustomerGroup($actor, $args, $via, $action),
+                'set_credit_limit' => $this->execSetCreditLimit($actor, $args, $via, $action),
+                'review_customer_document' => $this->execReviewCustomerDocument($actor, $args, $via, $action),
+                'approve_dealer_application' => $this->execApproveDealerApplication($actor, $args, $via, $action),
+                'reject_dealer_application' => $this->execRejectDealerApplication($actor, $args, $via, $action),
+                'suspend_customer' => $this->execSuspendCustomer($actor, $args, $via, $action),
+                'reactivate_customer' => $this->execReactivateCustomer($actor, $args, $via, $action),
+                'restore_customer' => $this->execRestoreCustomer($actor, $args, $via, $action),
+                'create_customer_group' => $this->execCreateCustomerGroup($actor, $args, $via, $action),
+                'update_customer_group' => $this->execUpdateCustomerGroup($actor, $args, $via, $action),
                 default => ToolOutcome::result(false, 'أداة غير معروفة.'),
             };
         } catch (HttpExceptionInterface $e) {
@@ -1041,6 +1445,17 @@ final class ToolRegistry
         if (in_array($action->tool, ['create_role', 'update_role_permissions', 'delete_role'], true)) {
             $this->branches->assertCentralAccess($actor);
         }
+        // 2.2: ممنوعات المساعد الصريحة — لا تعتمد على غياب الأداة من الـ
+        // registry، لأن prepareWrite/executeWrite ممكن يتنده عليهم مباشرة.
+        if ($action->tool === 'delete_customer') {
+            abort(403, 'حذف العملاء من المساعد ممنوع؛ استخدم شاشة العملاء.');
+        }
+        if ($action->tool === 'update_customer_profile' && (isset($args['password']) || isset($args['type']) || isset($args['status']))) {
+            abort(403, 'تغيير الباسورد أو النوع أو الحالة من المساعد ممنوع.');
+        }
+        if (in_array($action->tool, ['create_customer_group', 'update_customer_group'], true)) {
+            $this->branches->assertCentralAccess($actor);
+        }
         $roles = array_merge($args['add'] ?? [], $args['remove'] ?? [], $args['roles'] ?? []);
         if (in_array($action->tool, ['assign_roles', 'create_staff_user'], true)) {
             abort_if(in_array(StaffRole::SuperAdmin->value, $roles, true), 403);
@@ -1054,6 +1469,12 @@ final class ToolRegistry
         } elseif (str_starts_with($key, 'location:')) {
             // H3: الموقع نسختة lock هي بصمة الحالة، بتقارن كذا في قفل الصف.
             abort_if($this->hashArgs(['is_active' => (bool) $model->is_active]) !== $expected, 409, 'حد عدّل السجل ده بعد الاقتراح.');
+        } elseif (str_starts_with($key, 'customer_document:')) {
+            abort_if($this->documentVersion($model) !== $expected, 409, 'حد عدّل السجل ده بعد الاقتراح.');
+        } elseif (str_starts_with($key, 'customer_group:')) {
+            abort_if($this->customerGroupVersion($model) !== $expected, 409, 'حد عدّل السجل ده بعد الاقتراح.');
+        } elseif (str_starts_with($key, 'customer:')) {
+            abort_if($this->customerVersion($model) !== $expected, 409, 'حد عدّل السجل ده بعد الاقتراح.');
         } else {
             abort_if((int) $model->lock_version !== $expected, 409, 'حد عدّل السجل ده بعد الاقتراح.');
         }
@@ -1068,9 +1489,11 @@ final class ToolRegistry
      * 0.6: بصمة نسخة للعميل — حقول مستقرة فقط. wallet_balance وupdated_at
      * متعمد غيابهما: بيتغيروا مع كل طلب/حركة محفظة، ولو دخلوا في البصمة
      * كل كارت تأكيد كان هيتلغي بـ 409 من غير سبب حقيقي.
+     * 2.3: name دخلت مع أدوات الكتابة — update_customer_profile بيكتبها،
+     * وتعديلها من REST بين الاقتراح والتأكيد لازم يرفض بـ 409.
      */
     private const CUSTOMER_VERSION_FIELDS = [
-        'status', 'type', 'customer_group_id', 'credit_limit', 'company_name',
+        'name', 'status', 'type', 'customer_group_id', 'credit_limit', 'company_name',
         'tax_number', 'commercial_register', 'email', 'phone', 'deleted_at',
         'rejection_reason', 'suspension_reason',
     ];
@@ -1092,13 +1515,29 @@ final class ToolRegistry
 
     public function lockTargets(AiPendingAction $action): void
     {
-        foreach ($action->expected_versions ?? [] as $key => $version) {
+        // 2.3: ترتيب قفل ثابت — العميل أولًا ثم مستنداته (رقميًا) ثم
+        // المجموعة — يمنع الـ deadlock بين عمليتين متزامنتين على نفس
+        // العميل، وهو نفس الترتيب اللي reviewDocument بيستخدمه.
+        $keys = array_keys($action->expected_versions ?? []);
+        $rank = ['customer' => 0, 'customer_document' => 1, 'customer_group' => 2, 'branch' => 3, 'user' => 4, 'role' => 5, 'location' => 6];
+        usort($keys, function ($a, $b) use ($rank) {
+            [$ta, $ia] = explode(':', $a, 2);
+            [$tb, $ib] = explode(':', $b, 2);
+
+            return [$rank[$ta] ?? 99, (int) $ia] <=> [$rank[$tb] ?? 99, (int) $ib];
+        });
+        foreach ($keys as $key) {
+            $version = $action->expected_versions[$key];
             [$type, $id] = explode(':', $key, 2);
             $model = match ($type) {
-                'branch' => Branch::class, 'user' => User::class, 'role' => Role::class, 'location' => Location::class, default => null
+                'branch' => Branch::class, 'user' => User::class, 'role' => Role::class, 'location' => Location::class,
+                'customer' => Customer::class, 'customer_document' => CustomerDocument::class, 'customer_group' => CustomerGroup::class,
+                default => null
             };
             abort_unless($model, 409);
-            $record = $model::query()->lockForUpdate()->find($id);
+            $record = $type === 'customer'
+                ? Customer::withTrashed()->lockForUpdate()->find($id)
+                : $model::query()->lockForUpdate()->find($id);
             abort_unless($record, 409, 'السجل اتحذف.');
             if ($action->status === 'pending') {
                 $this->checkVersion($key, $version, $record);
@@ -1108,12 +1547,21 @@ final class ToolRegistry
 
     public function canUndo(AiPendingAction $action): bool
     {
-        return $action->inverse && in_array($action->tool, ['set_branch_status', 'update_role_permissions', 'set_user_status', 'assign_roles', 'set_location_status'], true);
+        return $action->inverse && in_array($action->tool, ['set_branch_status', 'update_role_permissions', 'set_user_status', 'assign_roles', 'set_location_status', 'update_customer_profile', 'set_customer_group', 'set_credit_limit', 'review_customer_document', 'suspend_customer', 'reactivate_customer', 'update_customer_group'], true);
     }
 
     public function targetState(AiPendingAction $action): string
     {
         $args = $action->args;
+        if (in_array($action->tool, ['update_customer_profile', 'set_customer_group', 'set_credit_limit', 'suspend_customer', 'reactivate_customer'], true) && isset($args['customer_id'])) {
+            return $this->customerVersion(Customer::withTrashed()->findOrFail($args['customer_id']));
+        }
+        if ($action->tool === 'review_customer_document' && isset($args['document_id'])) {
+            return $this->documentVersion(CustomerDocument::findOrFail($args['document_id']));
+        }
+        if ($action->tool === 'update_customer_group' && isset($args['customer_group_id'])) {
+            return $this->customerGroupVersion(CustomerGroup::findOrFail($args['customer_group_id']));
+        }
         if (isset($args['branch_id']) && $action->tool === 'set_branch_status') {
             return $this->branchVersion(Branch::findOrFail($args['branch_id']));
         }
@@ -1720,6 +2168,136 @@ final class ToolRegistry
                 'deep_link' => '/settings']);
     }
 
+    // ── P04-2: exec أدوات كتابة العملاء ─────────────────────────────────────
+    // كلها تمر على CustomerManagementService/CustomerGroupService زي
+    // الـ REST تمامًا (نفس القواعد، نفس التدقيق، نفس الإشعارات)، وتُنفذ
+    // داخل transaction التأكيد — فأي فشل يرجّع كل الخطوات.
+
+    private function execCreateCustomer(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
+    {
+        $plain = Str::password(16);
+        $data = Arr::only($args, ['name', 'phone', 'email', 'type', 'company_name', 'tax_number', 'commercial_register']);
+        $data['password'] = $plain;
+        $data['status'] = in_array($data['type'] ?? CustomerType::Retail->value, [CustomerType::Wholesale->value, CustomerType::Distributor->value], true)
+            ? CustomerStatus::Pending->value : CustomerStatus::Approved->value;
+        $customer = app(CustomerManagementService::class)->create($data, $actor->id, $via);
+        $action->forceFill(['inverse' => ['customer_id' => $customer->id]])->save();
+
+        // الباسورد يظهر مرة واحدة في رد التأكيد فقط (يُشال من النتيجة
+        // المخزنة ومن حدث المحادثة في confirmLocked، زي create_staff_user).
+        return ToolOutcome::result(true, 'تم إنشاء العميل.', ['customer_id' => $customer->id, 'generated_password' => $plain], ['type' => 'result', 'ok' => true, 'message' => 'تم إنشاء العميل. الباسورد المؤقت (يظهر مرة واحدة): '.$plain]);
+    }
+
+    private function execUpdateCustomerProfile(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
+    {
+        $customer = Customer::findOrFail($args['customer_id']);
+        app(CustomerManagementService::class)->update($customer, Arr::only($args, ['name', 'email', 'phone', 'company_name', 'tax_number', 'commercial_register']), $actor->id, $via);
+
+        return ToolOutcome::result(true, 'تم تعديل بيانات العميل.', ['customer_id' => $customer->id], ['type' => 'result', 'ok' => true, 'message' => 'تم تعديل بيانات العميل.']);
+    }
+
+    private function execSetCustomerGroup(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
+    {
+        $customer = Customer::findOrFail($args['customer_id']);
+        app(CustomerManagementService::class)->update($customer, ['customer_group_id' => $args['customer_group_id']], $actor->id, $via);
+
+        return ToolOutcome::result(true, 'تم تعيين مجموعة العميل.', ['customer_id' => $customer->id], ['type' => 'result', 'ok' => true, 'message' => 'تم تعيين مجموعة العميل.']);
+    }
+
+    private function execSetCreditLimit(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
+    {
+        $customer = Customer::findOrFail($args['customer_id']);
+        app(CustomerManagementService::class)->update($customer, ['credit_limit' => $args['credit_limit']], $actor->id, $via);
+
+        return ToolOutcome::result(true, 'تم تعيين حد الائتمان.', ['customer_id' => $customer->id], ['type' => 'result', 'ok' => true, 'message' => 'تم تعيين حد الائتمان.']);
+    }
+
+    private function execReviewCustomerDocument(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
+    {
+        $customer = Customer::findOrFail($args['customer_id']);
+        $doc = $customer->documents()->whereKey($args['document_id'])->firstOrFail();
+        app(CustomerManagementService::class)->reviewDocument($customer, $doc, $args['status'], $actor->id, $args['note'] ?? null, $via);
+
+        return ToolOutcome::result(true, 'تمت مراجعة المستند.', ['customer_id' => $customer->id, 'document_id' => $doc->id], ['type' => 'result', 'ok' => true, 'message' => 'تمت مراجعة المستند.']);
+    }
+
+    private function execApproveDealerApplication(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
+    {
+        $service = app(CustomerManagementService::class);
+        $customer = Customer::findOrFail($args['customer_id']);
+        foreach ($args['verify_document_ids'] ?? [] as $docId) {
+            $doc = $customer->documents()->whereKey($docId)->firstOrFail();
+            $service->reviewDocument($customer, $doc, CustomerDocumentStatus::Verified->value, $actor->id, null, $via);
+        }
+        $data = [];
+        foreach (['customer_group_id', 'credit_limit', 'type'] as $field) {
+            if (array_key_exists($field, $args)) {
+                $data[$field] = $args[$field];
+            }
+        }
+        $service->approve($customer, $data, $actor->id, $via);
+
+        return ToolOutcome::result(true, 'تم اعتماد التاجر.', ['customer_id' => $customer->id], ['type' => 'result', 'ok' => true, 'message' => 'تم اعتماد التاجر.']);
+    }
+
+    private function execRejectDealerApplication(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
+    {
+        $service = app(CustomerManagementService::class);
+        $customer = Customer::findOrFail($args['customer_id']);
+        $notes = $args['document_notes'] ?? [];
+        foreach ($args['reject_document_ids'] ?? [] as $docId) {
+            $doc = $customer->documents()->whereKey($docId)->firstOrFail();
+            $note = $notes[$docId] ?? $notes[(string) $docId] ?? null;
+            $service->reviewDocument($customer, $doc, CustomerDocumentStatus::Rejected->value, $actor->id, $note, $via);
+        }
+        $service->reject($customer, $args['reason'], $actor->id, $via);
+
+        return ToolOutcome::result(true, 'تم رفض الطلب.', ['customer_id' => $customer->id], ['type' => 'result', 'ok' => true, 'message' => 'تم رفض الطلب.']);
+    }
+
+    private function execSuspendCustomer(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
+    {
+        $customer = Customer::findOrFail($args['customer_id']);
+        app(CustomerManagementService::class)->suspend($customer, $args['reason'], $actor->id, $via);
+
+        return ToolOutcome::result(true, 'تم إيقاف الحساب.', ['customer_id' => $customer->id], ['type' => 'result', 'ok' => true, 'message' => 'تم إيقاف الحساب وإنهاء جلساته.']);
+    }
+
+    private function execReactivateCustomer(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
+    {
+        $customer = Customer::findOrFail($args['customer_id']);
+        app(CustomerManagementService::class)->reactivate($customer, $actor->id, $via);
+
+        return ToolOutcome::result(true, 'تمت إعادة التفعيل.', ['customer_id' => $customer->id], ['type' => 'result', 'ok' => true, 'message' => 'تمت إعادة تفعيل الحساب.']);
+    }
+
+    private function execRestoreCustomer(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
+    {
+        $customer = Customer::withTrashed()->findOrFail($args['customer_id']);
+        app(CustomerManagementService::class)->restore($customer, $actor->id, $via);
+
+        return ToolOutcome::result(true, 'تمت استعادة الحساب.', ['customer_id' => $customer->id], ['type' => 'result', 'ok' => true, 'message' => 'تمت استعادة الحساب.']);
+    }
+
+    private function execCreateCustomerGroup(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
+    {
+        $data = Arr::only($args, ['name', 'code', 'description', 'discount_percentage', 'is_active']);
+        $group = app(CustomerGroupService::class)->create($data);
+        StaffAdministration::audit($actor, 'customer_group.created', 'customer_group', $group->id, array_keys($data), [], $data, $via);
+
+        return ToolOutcome::result(true, 'تم إنشاء المجموعة.', ['customer_group_id' => $group->id], ['type' => 'result', 'ok' => true, 'message' => 'تم إنشاء المجموعة.']);
+    }
+
+    private function execUpdateCustomerGroup(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
+    {
+        $group = CustomerGroup::findOrFail($args['customer_group_id']);
+        $data = Arr::only($args, ['name', 'code', 'description', 'discount_percentage', 'is_active']);
+        app(CustomerGroupService::class)->update($group, $data);
+        StaffAdministration::audit($actor, 'customer_group.updated', 'customer_group', $group->id, array_keys($data), $action->inverse ?? [], $data, $via);
+
+        return ToolOutcome::result(true, 'تم تعديل المجموعة.', ['customer_group_id' => $group->id], ['type' => 'result', 'ok' => true, 'message' => 'تم تعديل المجموعة.']);
+    }
+
     public function executeUndo(User $actor, AiPendingAction $action, array $via): ToolOutcome
     {
         $inv = $action->inverse ?? [];
@@ -1758,6 +2336,41 @@ final class ToolRegistry
 
                 return ToolOutcome::result(true, 'تم التراجع.');
             }
+            // ── P04-2: تراجع أدوات العملاء ───────────────────────────────
+            if (in_array($tool, ['update_customer_profile', 'set_customer_group', 'set_credit_limit'], true) && $inv !== []) {
+                $c = Customer::findOrFail($args['customer_id']);
+                app(CustomerManagementService::class)->update($c, $inv, $actor->id, $via);
+
+                return ToolOutcome::result(true, 'تم التراجع.');
+            }
+            if ($tool === 'review_customer_document' && isset($inv['status'])) {
+                $c = Customer::findOrFail($args['customer_id']);
+                $d = $c->documents()->whereKey($args['document_id'])->firstOrFail();
+                app(CustomerManagementService::class)->reviewDocument($c, $d, $inv['status'], $actor->id, null, $via);
+
+                return ToolOutcome::result(true, 'تم التراجع.');
+            }
+            if ($tool === 'suspend_customer') {
+                // التراجع عن الإيقاف = إعادة تفعيل (ترجع معتمدًا لو كان
+                // معتمدًا قبل الإيقاف، وإلا قيد المراجعة)؛ الجلسات المنهية
+                // لا ترجع — التحذير ده كان في كارت التأكيد نفسه.
+                $c = Customer::findOrFail($args['customer_id']);
+                app(CustomerManagementService::class)->reactivate($c, $actor->id, $via);
+
+                return ToolOutcome::result(true, 'تم التراجع.');
+            }
+            if ($tool === 'reactivate_customer' && array_key_exists('suspension_reason', $inv)) {
+                $c = Customer::findOrFail($args['customer_id']);
+                app(CustomerManagementService::class)->suspend($c, $inv['suspension_reason'] ?? 'إيقاف من المساعد (تراجع عن إعادة التفعيل)', $actor->id, $via);
+
+                return ToolOutcome::result(true, 'تم التراجع.');
+            }
+            if ($tool === 'update_customer_group' && $inv !== []) {
+                $g = CustomerGroup::findOrFail($args['customer_group_id']);
+                app(CustomerGroupService::class)->update($g, $inv);
+
+                return ToolOutcome::result(true, 'تم التراجع.');
+            }
 
             return ToolOutcome::result(false, 'العملية دي مفيهاش تراجع تلقائي.');
         } catch (HttpExceptionInterface $e) {
@@ -1766,6 +2379,10 @@ final class ToolRegistry
             }
 
             return ToolOutcome::result(false, $e->getMessage() ?: 'فشل التراجع.');
+        } catch (QueryException $e) {
+            // فشل تراجع (كود مجموعة اتحجز مثلًا) — فشل مسجَّل بدل 500،
+            // والإجراء يفضل executed فيُعاد التراجع بعد حل التعارض.
+            return ToolOutcome::result(false, 'تعذّر التراجع؛ القيمة المطلوبة مستخدمة حاليًا.');
         }
     }
 }

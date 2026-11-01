@@ -66,6 +66,7 @@ class UpdateSettingsRequest extends FormRequest
             'ai_max_tokens_per_cycle' => ['sometimes', 'integer', 'min:1000', 'max:10000000'],
             'ai_tool_result_max_chars' => ['sometimes', 'integer', 'min:1024', 'max:200000'],
             'ai_max_concurrent_sessions' => ['sometimes', 'integer', 'min:1', 'max:100'],
+            'ai_credit_limit_confirm_threshold' => ['sometimes', 'integer', 'min:0', 'max:9999999999'],
         ];
 
         $sequenceTypes = [

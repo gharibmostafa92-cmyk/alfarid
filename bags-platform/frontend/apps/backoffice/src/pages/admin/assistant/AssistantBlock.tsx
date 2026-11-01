@@ -144,6 +144,10 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
     const expired = !Number.isFinite(expires) || seconds === 0;
     const pending = !status || status === 'pending';
     const required = typeof block.typed_confirmation === 'string' ? block.typed_confirmation : '';
+    // P04-2: تعليمة عرض فقط لأدوات العملاء عالية الخطورة — القيمة
+    // نفسها تفضل للمقارنة (typedOk) وللإرسال، لكن المعروض هو
+    // التعليمة من غير الرقم، عشان الأدمن يبص في ملف التاجر فعلًا.
+    const displayRequired = typeof block.typed_confirmation_hint === 'string' && block.typed_confirmation_hint ? block.typed_confirmation_hint : required;
     const disabled = busy || !execute || !pending || expired;
     const warnings = (block.warnings ?? []) as string[];
     const addList = (block.add ?? []) as string[];
@@ -237,9 +241,9 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
 
           {pending && !expired && required && (
             <div className="as-typed">
-              <label htmlFor={`typed-${String(block.action_id)}`}><Icon name="lock" size={15} />للتأكيد اكتب <b dir="ltr">{required}</b> في الخانة</label>
+              <label htmlFor={`typed-${String(block.action_id)}`}><Icon name="lock" size={15} />للتأكيد اكتب <b dir="ltr">{displayRequired}</b> في الخانة</label>
               <div className="as-typed-field" data-match={typed === required}>
-                <input id={`typed-${String(block.action_id)}`} className="as-input" value={typed} onChange={e => setTyped(e.target.value)} disabled={disabled} dir="ltr" autoComplete="off" spellCheck={false} placeholder={required} onPaste={e => e.preventDefault()} />
+                <input id={`typed-${String(block.action_id)}`} className="as-input" value={typed} onChange={e => setTyped(e.target.value)} disabled={disabled} dir="ltr" autoComplete="off" spellCheck={false} placeholder={displayRequired} onPaste={e => e.preventDefault()} />
                 {typed === required && <Icon name="check" size={16} />}
               </div>
             </div>

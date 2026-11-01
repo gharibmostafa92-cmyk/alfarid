@@ -78,6 +78,9 @@ class SettingSeeder extends Seeder
         ['group' => 'ai', 'key' => 'ai_tool_result_max_chars', 'value' => '16000', 'type' => 'integer'],
         ['group' => 'ai', 'key' => 'ai_max_concurrent_sessions', 'value' => '10', 'type' => 'integer'],
         ['group' => 'ai', 'key' => 'ai_dealer_review_sla_hours', 'value' => '48', 'type' => 'integer'],
+        // 2.2: عتبة حد الائتمان — فوقها تعيين الحد يبقى عالي الخطورة
+        // ويطلب تأكيدًا بالكتابة (حتى لو الزيادة نفسها أقل من 100%).
+        ['group' => 'ai', 'key' => 'ai_credit_limit_confirm_threshold', 'value' => '100000', 'type' => 'integer'],
     ];
 
     public function run(): void
