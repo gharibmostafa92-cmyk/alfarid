@@ -42,6 +42,15 @@ class SettingService
         }
     }
 
+    /** @var array<string, mixed> */
+    private const DEFAULTS = [
+        'ai_catalog_tools_enabled' => false,
+        'ai_catalog_vision_enabled' => false,
+        'ai_catalog_bulk_price_max_items' => 200,
+        'ai_catalog_copywriting_enabled' => false,
+        'ai_max_steps' => 6,
+    ];
+
     /** @var list<string> */
     public array $warnings = [];
 
@@ -228,6 +237,10 @@ class SettingService
             if (array_key_exists($key, $settings)) {
                 return $settings[$key];
             }
+        }
+
+        if ($default === null && array_key_exists($key, self::DEFAULTS)) {
+            return self::DEFAULTS[$key];
         }
 
         return $default;

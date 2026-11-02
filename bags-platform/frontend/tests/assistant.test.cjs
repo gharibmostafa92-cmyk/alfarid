@@ -19,3 +19,15 @@ test('SSE parser waits for complete frames and preserves Arabic status and reply
   assert.equal(events[1].data.message_id, 7);
   assert.deepEqual(parseAgentEvents('event: status\ndata: nope\n\n'), []);
 });
+test('incremental SSE parser matches one-shot parsing across awkward chunk splits', () => {
+  const { parseAgentEvents, createIncrementalSseParser } = load('stream.ts');
+  const full = 'event: status\n' + 'data: {"message":"one"}\n\n' + 'event: status\n' + 'data: {"message":"two"}\n\n' + 'event: reply\n' + 'data: {"text":"done","ui_blocks":[],"message_id":9}\n\n';
+  const parser = createIncrementalSseParser();
+  let got = [];
+  for (const cut of [7, 10, 25, 26, 47, 48, full.length - 1, full.length]) {
+    got = got.concat(parser.feed(full.slice(0, cut)));
+  }
+  assert.deepEqual(got, parseAgentEvents(full));
+  assert.equal(got.filter(e => e.event === 'status').at(-1).data.message, 'two');
+  assert.equal(got.find(e => e.event === 'reply').data.message_id, 9);
+});

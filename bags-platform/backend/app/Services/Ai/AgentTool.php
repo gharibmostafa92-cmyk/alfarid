@@ -15,4 +15,6 @@ interface AgentTool
     public function permissions(): array;
 
     public function kind(): ToolKind;
+
+    public function risk(): string;
 }

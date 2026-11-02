@@ -5,14 +5,13 @@ import { Icon, entityIcon, entityLabel } from './icons';
 interface Mention { entity: string; id: string | number; label: string }
 interface Option extends Mention { meta?: string }
 
-// Props الأصلية محفوظة (busy / onSend / quickCommands) + إضافات اختيارية:
-// - seed: لملء الصندوق من الخارج (مثلاً من كروت البداية) — { text, n } و n بيتغير كل مرة.
-// - hint: نص مساعد تحت الصندوق.
 interface Props {
-  /** مفعّلة لو الأدمن عنده customers.view — بدونها علامة $ تفضل نص عادي. */
+  /** مفعّلة لو الأدمن عنده customers.view — بدونها علامة $ للعملاء متظهرش. */
   enableCustomers?: boolean;
+  /** مفعّلة لو الأدمن عنده products.view أو categories.view — بتفعّل $ للمنتجات و & للأقسام ورفع الصور. */
+  enableCatalog?: boolean;
   busy: boolean;
-  onSend: (text: string, selection?: undefined, mentions?: Mention[]) => Promise<boolean>;
+  onSend: (text: string, selection?: undefined, mentions?: Mention[], files?: File[]) => Promise<boolean>;
   quickCommands: string[];
   seed?: { text: string; n: number; mentions?: Mention[] };
   hint?: string;
@@ -23,7 +22,16 @@ const markerMeta: Record<string, { key: string; entity: string; title: string }>
   '@': { key: 'users', entity: 'user', title: 'الموظفين' },
   '#': { key: 'branches', entity: 'branch', title: 'الفروع' },
   '!': { key: 'roles', entity: 'role', title: 'الأدوار والصلاحيات' },
-  $: { key: 'customers', entity: 'customer', title: 'العملاء والتجار' },
+  $: { key: 'customers', entity: 'customer', title: 'العملاء والمنتجات' },
+  '&': { key: 'categories', entity: 'category', title: 'الأقسام' },
+};
+
+const COMMAND_PROMPTS: Record<string, string> = {
+  '/منتج-جديد': 'اعمل منتج مسودة جديد باسم: ',
+  '/جاهزية P00042': 'افحص جاهزية المنتج لنشره: P00042',
+  '/صحة-الكتالوج': 'اعرض تقرير صحة الكتالوج والمنتجات الناقصة',
+  '/أسعار': 'عدّل أسعار تشكيلات منتج ',
+  '/قسم-جديد': 'أنشئ قسم جديد باسم: ',
 };
 
 function Highlight({ text, q }: { text: string; q: string }) {
@@ -33,26 +41,30 @@ function Highlight({ text, q }: { text: string; q: string }) {
   return <>{text.slice(0, i)}<mark>{text.slice(i, i + q.length)}</mark>{text.slice(i + q.length)}</>;
 }
 
-export default function AssistantComposer({ busy, onSend, quickCommands, seed, hint, enableCustomers = false }: Props) {
+export default function AssistantComposer({ busy, onSend, quickCommands, seed, hint, enableCustomers = false, enableCatalog = false }: Props) {
   const [text, setText] = useState('');
   const [mentions, setMentions] = useState<Mention[]>([]);
+  const [files, setFiles] = useState<File[]>([]);
   const [options, setOptions] = useState<Option[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchError, setSearchError] = useState('');
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState('');
+  const [dragOver, setDragOver] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const listId = 'as-mention-list';
 
-  const match = text.match(/(?:^|\s)([@#!$])([^\s@#!$]*)$/);
-  const marker = match && (match[1] !== '$' || enableCustomers) ? match[1] : undefined;
+  const canDollar = enableCustomers || enableCatalog;
+  const match = text.match(/(?:^|\s)([@#!$&])([^\s@#!$&]*)$/);
+  const rawMarker = match?.[1];
+  const marker = rawMarker && ((rawMarker !== '$' || canDollar) && (rawMarker !== '&' || enableCatalog)) ? rawMarker : undefined;
   const query = marker ? match?.[2] : undefined;
   const slash = text.startsWith('/') && !text.includes('\n');
   const commands = slash ? quickCommands.filter(c => c.includes(text.slice(1).trim())) : [];
   const popKey = slash ? `/${text}` : marker ? `${marker}${query}` : '';
   const popOpen = !!popKey && dismissed !== popKey && (slash ? quickCommands.length > 0 : true);
 
-  // نفس منطق البحث الأصلي (debounce 200ms) + حالة تحميل.
   useEffect(() => {
     setOptions([]); setSearchError(''); setActive(0);
     if (!marker) { setLoading(false); return; }
@@ -61,17 +73,28 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
     const timer = setTimeout(() => {
       assistantApi.mentions(query ?? '').then(result => {
         if (!live) return;
-        const { key, entity } = markerMeta[marker];
-        setOptions((result[key] ?? []).slice(0, 10).map(o => ({ entity, id: o.id, label: o.label, meta: o.meta })));
+        if (marker === '$') {
+          const combined: Option[] = [];
+          if (enableCatalog) {
+            for (const p of result.products ?? []) combined.push({ entity: 'product', id: p.id, label: p.label, meta: p.meta });
+            for (const v of result.variants ?? []) combined.push({ entity: 'variant', id: v.id, label: v.label, meta: v.meta });
+          }
+          if (enableCustomers) {
+            for (const c of result.customers ?? []) combined.push({ entity: 'customer', id: c.id, label: c.label, meta: c.meta });
+          }
+          setOptions(combined.slice(0, 12));
+        } else {
+          const { key, entity } = markerMeta[marker];
+          setOptions((result[key] ?? []).slice(0, 10).map(o => ({ entity, id: o.id, label: o.label, meta: o.meta })));
+        }
       }).catch(() => { if (live) setSearchError('تعذر تحميل الاقتراحات.'); })
         .finally(() => { if (live) setLoading(false); });
     }, 200);
     return () => { live = false; clearTimeout(timer); };
-  }, [marker, query]);
+  }, [marker, query, enableCatalog, enableCustomers]);
 
   useEffect(() => { setActive(0); }, [text.startsWith('/') ? text : '']);
 
-  // Auto-grow للـ textarea
   useLayoutEffect(() => {
     const el = input.current; if (!el) return;
     el.style.height = 'auto';
@@ -85,23 +108,38 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
     requestAnimationFrame(() => { const el = input.current; if (el) { el.focus(); el.setSelectionRange(seed.text.length, seed.text.length); } });
   }, [seed?.n]);
 
-  // رجّع الفوكس للصندوق بعد ما الرد يخلص
   const wasBusy = useRef(busy);
   useEffect(() => { if (wasBusy.current && !busy) input.current?.focus(); wasBusy.current = busy; }, [busy]);
 
+  const addFiles = (incoming: FileList | File[]) => {
+    const valid = Array.from(incoming).filter(f => /^image\/(jpeg|png|webp)$/.test(f.type));
+    if (!valid.length) return;
+    setFiles(prev => [...prev, ...valid].slice(0, 4));
+  };
+
   const submit = async () => {
-    if (busy || !text.trim()) return;
-    const draft = text; const refs = mentions; setText(''); setMentions([]); setOptions([]);
-    if (!await onSend(draft, undefined, refs)) { setText(draft); setMentions(refs); }
+    if (busy || (!text.trim() && files.length === 0)) return;
+    const draft = text.trim() || 'حلّل الصور المرفقة';
+    const refs = mentions;
+    const attached = files;
+    setText(''); setMentions([]); setFiles([]); setOptions([]);
+    if (!await onSend(draft, undefined, refs, attached.length ? attached : undefined)) {
+      setText(draft); setMentions(refs); setFiles(attached);
+    }
     input.current?.focus();
   };
 
   const pickMention = (o: Option) => {
-    setText(t => t.replace(/([@#!$])([^\s@#!$]*)$/, () => `${o.label} `));
+    setText(t => t.replace(/([@#!$&])([^\s@#!$&]*)$/, () => `${o.label} `));
     setMentions(items => [...items.filter(m => m.id !== o.id || m.entity !== o.entity), { entity: o.entity, id: o.id, label: o.label }]);
     input.current?.focus();
   };
-  const pickCommand = (c: string) => { setText(`${c} `); setDismissed(`//${c} `); input.current?.focus(); };
+  const pickCommand = (c: string) => {
+    const expanded = COMMAND_PROMPTS[c] ?? `${c} `;
+    setText(expanded);
+    setDismissed(`//${expanded}`);
+    input.current?.focus();
+  };
   const insertMarker = (m: string) => {
     setDismissed('');
     setText(t => (t === '' || /\s$/.test(t) ? `${t}${m}` : `${t} ${m}`));
@@ -127,7 +165,20 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
   const near = text.length > MAX * 0.9;
 
   return (
-    <form className="as-composer" data-disabled={busy} onSubmit={e => { e.preventDefault(); void submit(); }}>
+    <form
+      className="as-composer"
+      data-disabled={busy}
+      data-drag={dragOver}
+      onDragOver={e => { if (enableCatalog) { e.preventDefault(); setDragOver(true); } }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={e => {
+        if (!enableCatalog) return;
+        e.preventDefault();
+        setDragOver(false);
+        if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files);
+      }}
+      onSubmit={e => { e.preventDefault(); void submit(); }}
+    >
       {popOpen && (
         <div className="as-pop" role="dialog" aria-label={slash ? 'الأوامر السريعة' : 'اقتراحات المنشن'}>
           <div className="as-pop-head">
@@ -193,6 +244,17 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
             ))}
           </div>
         )}
+        {files.length > 0 && (
+          <div className="as-tags" aria-label="الصور المرفقة" style={{ gap: '.5rem', padding: '.4rem .6rem' }}>
+            {files.map((f, idx) => (
+              <span key={`${f.name}-${idx}`} className="as-tag" style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem' }}>
+                <Icon name="image" size={13} />
+                <span style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                <button type="button" disabled={busy} onClick={() => setFiles(list => list.filter((_, i) => i !== idx))} aria-label={`إزالة ${f.name}`}><Icon name="x" size={12} /></button>
+              </span>
+            ))}
+          </div>
+        )}
         <textarea
           ref={input}
           aria-label="رسالة المساعد"
@@ -204,17 +266,33 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
           disabled={busy}
           rows={1}
           onChange={e => { setText(e.target.value); if (dismissed && !e.target.value) setDismissed(''); }}
-          placeholder={busy ? 'المساعد بيجهّز الرد…' : `اكتب طلبك… استخدم @ للموظفين، # للفروع، ! للأدوار،${enableCustomers ? ' $ للعملاء،' : ''} / للأوامر`}
+          placeholder={busy ? 'المساعد بيجهّز الرد…' : `اكتب طلبك… استخدم @ للموظفين، # للفروع، ! للأدوار،${canDollar ? ' $ للمنتجات والعملاء،' : ''}${enableCatalog ? ' & للأقسام،' : ''} / للأوامر`}
           onKeyDown={onKeyDown}
         />
         <div className="as-composer-foot">
           <button type="button" className="as-trigger as-trigger--main" disabled={busy} onClick={() => insertMarker('@')} title="منشن موظف" aria-label="منشن موظف">@</button>
           <button type="button" className="as-trigger" disabled={busy} onClick={() => insertMarker('#')} title="منشن فرع" aria-label="منشن فرع">#</button>
           <button type="button" className="as-trigger" disabled={busy} onClick={() => insertMarker('!')} title="منشن دور" aria-label="منشن دور">!</button>
-          {enableCustomers && <button type="button" className="as-trigger" disabled={busy} onClick={() => insertMarker('$')} title="منشن عميل" aria-label="منشن عميل">$</button>}
+          {canDollar && <button type="button" className="as-trigger" disabled={busy} onClick={() => insertMarker('$')} title="منشن منتج أو عميل" aria-label="منشن منتج أو عميل">$</button>}
+          {enableCatalog && <button type="button" className="as-trigger" disabled={busy} onClick={() => insertMarker('&')} title="منشن قسم" aria-label="منشن قسم">&amp;</button>}
+          {enableCatalog && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                multiple
+                 hidden
+                onChange={e => { if (e.target.files?.length) addFiles(e.target.files); e.target.value = ''; }}
+              />
+              <button type="button" className="as-trigger" disabled={busy || files.length >= 4} onClick={() => fileInputRef.current?.click()} title="إرفاق صور منتج (حتى 4 صور)" aria-label="إرفاق صور منتج">
+                <Icon name="paperclip" size={14} />
+              </button>
+            </>
+          )}
           {quickCommands.length > 0 && <button type="button" className="as-trigger" disabled={busy} onClick={() => { setDismissed(''); setText('/'); input.current?.focus(); }} title="الأوامر السريعة" aria-label="الأوامر السريعة">/</button>}
           <span className="as-counter as-num" data-near={near}>{text.length > 0 ? `${text.length.toLocaleString('ar-EG')} / ${MAX.toLocaleString('ar-EG')}` : ''}</span>
-          <button className="as-send" type="submit" disabled={busy || !text.trim()} data-busy={busy} aria-label={busy ? 'جارٍ الإرسال' : 'إرسال'}>
+          <button className="as-send" type="submit" disabled={busy || (!text.trim() && files.length === 0)} data-busy={busy} aria-label={busy ? 'جارٍ الإرسال' : 'إرسال'}>
             {busy ? <span className="as-spin" /> : <Icon name="send" size={18} />}
           </button>
         </div>

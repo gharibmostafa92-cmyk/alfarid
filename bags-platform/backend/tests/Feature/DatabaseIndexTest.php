@@ -36,6 +36,37 @@ class DatabaseIndexTest extends TestCase
         );
     }
 
+    public function test_admin_search_trigram_indexes_exist(): void
+    {
+        // M10: name_ar/name_en ILIKE '%…%' in the backoffice/AI search is
+        // served by raw-column GIN trigram indexes; the lower() variants
+        // serve LOWER(col) LIKE storefront queries.
+        foreach ([
+            'products_name_ar_ilike_trgm',
+            'products_name_en_ilike_trgm',
+            'products_name_en_trgm',
+            'products_name_ar_trgm',
+            'product_variants_sku_trgm',
+        ] as $index) {
+            $this->assertTrue(
+                (bool) DB::selectOne(
+                    'SELECT 1 FROM pg_indexes WHERE indexname = ?', [$index]
+                ),
+                "Missing index {$index}"
+            );
+        }
+    }
+
+    public function test_product_create_key_partial_unique_index_exists(): void
+    {
+        // M6: idempotent product creation relies on this partial index.
+        $row = DB::selectOne(
+            "SELECT indexdef FROM pg_indexes WHERE indexname = 'products_creator_create_key_unique'"
+        );
+        $this->assertNotNull($row, 'Missing index products_creator_create_key_unique');
+        $this->assertStringContainsString('create_key IS NOT NULL', (string) $row->indexdef);
+    }
+
     public function test_case_insensitive_uniqueness_and_media_idempotency_indexes_exist(): void
     {
         // M2 functional unique indexes + M9 partial unique client_upload_id index.

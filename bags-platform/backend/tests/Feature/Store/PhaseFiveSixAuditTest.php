@@ -314,7 +314,8 @@ class PhaseFiveSixAuditTest extends TestCase
         $product = Product::factory()->create();
         $variant = ProductVariant::factory()->create(['product_id' => $product->id]);
 
-        $this->withToken($token)->putJson("/api/v1/admin/products/{$product->id}/variants/{$variant->id}", ['compare_at_price' => 300])
+        // M5: expected_version is required for variant updates.
+        $this->withToken($token)->putJson("/api/v1/admin/products/{$product->id}/variants/{$variant->id}", ['compare_at_price' => 300, 'expected_version' => $variant->fresh()->lock_version])
             ->assertOk()->assertJsonPath('data.compare_at_price', '300.00');
 
         $this->assertDatabaseHas('product_variants', ['id' => $variant->id, 'compare_at_price' => 300]);

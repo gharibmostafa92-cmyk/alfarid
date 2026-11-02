@@ -80,6 +80,26 @@ return [
             'report' => false,
         ],
 
+        // H3: private shared bucket for AI conversation attachments. Unlike
+        // `local`, every app server/worker behind the load balancer sees the
+        // same files, so prepare/execute/prune agree on every instance.
+        'ai_private' => [
+            'driver' => 's3',
+            'options' => ['CacheControl' => 'private, max-age=120'],
+            'key' => env('R2_ACCESS_KEY_ID'),
+            'secret' => env('R2_SECRET_ACCESS_KEY'),
+            'region' => 'auto',
+            'bucket' => env('AI_PRIVATE_BUCKET_NAME', env('R2_BUCKET_NAME')),
+            'endpoint' => env('R2_ENDPOINT'),
+            'root' => trim(env('AI_PRIVATE_KEY_PREFIX', env('R2_KEY_PREFIX', 'alfarid')), '/'),
+            'use_path_style_endpoint' => true,
+            'request_checksum_calculation' => 'when_required',
+            'response_checksum_validation' => 'when_required',
+            'http' => ['connect_timeout' => 5, 'timeout' => 30, 'verify' => env('INTEGRATIONS_CA_BUNDLE') ?: true],
+            'throw' => true,
+            'report' => false,
+        ],
+
         // H5: separate public bucket for catalog media only (products, variants,
         // categories, brands). Private documents stay on `r2`; enabling a public
         // URL must never expose customer_documents / supplier_invoices.

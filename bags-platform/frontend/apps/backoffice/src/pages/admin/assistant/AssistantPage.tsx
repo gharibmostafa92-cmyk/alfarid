@@ -13,8 +13,6 @@ interface Mention {
   label: string;
 }
 
-// L-1: مع responseType: 'text' تصل response.data نصًا — تُفقد رسائل
-// 429 (الميزانية) و423 (طلب جارٍ) و403. JSON.parse آمن داخل catch.
 function apiErrorMessage(e: unknown, fallback: string): string {
   const data = (e as { response?: { data?: unknown } }).response?.data;
   if (typeof data === 'string') {
@@ -30,7 +28,7 @@ function apiErrorMessage(e: unknown, fallback: string): string {
   }
   return fallback;
 }
-// تصنيف الخطأ عشان نعرض شكل مناسب (ميزانية / طلب جارٍ / صلاحية / مؤقت).
+
 function apiErrorKind(e: unknown): 'budget' | 'locked' | 'forbidden' | 'transient' {
   const code = (e as { response?: { status?: number } }).response?.status;
   if (code === 429) return 'budget';
@@ -46,13 +44,21 @@ const STARTERS: { icon: string; tag: string; text: string }[] = [
   { icon: 'user', tag: 'الموظفين', text: 'أضف موظف جديد في فرع ' },
   { icon: 'role', tag: 'الأدوار', text: 'قارن صلاحيات دور مدير فرع ودور أمين مخزن' },
 ];
-// 4.4: بداية سريعة لأدوات التجار (بتظهر لمن عنده customers.view)
+
 const CUSTOMER_STARTERS: { icon: string; tag: string; text: string }[] = [
   { icon: 'store', tag: 'التجار', text: 'طلبات التجار المتأخرة' },
   { icon: 'check', tag: 'الاعتماد', text: 'مين جاهز للاعتماد؟' },
   { icon: 'chart', tag: 'الائتمان', text: 'تجار فوق حد الائتمان' },
 ];
+
+const CATALOG_STARTERS: { icon: string; tag: string; text: string }[] = [
+  { icon: 'box', tag: 'الكتالوج', text: 'اعرض تقرير صحة الكتالوج والمنتجات الناقصة' },
+  { icon: 'folder', tag: 'الأقسام', text: 'اعرض شجرة الأقسام وعدد المنتجات في كل قسم' },
+  { icon: 'tag', tag: 'المنتجات', text: 'إيه المسودات اللي جاهزة للنشر دلوقتي؟' },
+];
+
 const CUSTOMER_COMMANDS = ['/تجار-معلقين', '/راجع-تاجر', '/مجموعات-العملاء'];
+const CATALOG_COMMANDS = ['/منتج-جديد', '/جاهزية P00042', '/صحة-الكتالوج', '/أسعار', '/قسم-جديد'];
 const QUICK_COMMANDS = ['/ملخص الفروع', '/موظفين بدون دور', '/صلاحيات حساسة', '/آخر التعديلات'];
 
 const dayKey = (iso: string | null) => {
@@ -69,9 +75,6 @@ const relTime = (iso: string | null) => {
   return dayKey(iso) === 'today' ? d.toLocaleTimeString('ar-EG', { hour: 'numeric', minute: '2-digit' }) : d.toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' });
 };
 
-// props جديدة اختيارية (مش بتكسر الاستدعاء الحالي <AssistantPage can={can} />):
-// - theme: إجبار light/dark بدل prefers-color-scheme
-// - initialConversationId: فتح محادثة مباشرة (deep link)
 export default function AssistantPage({ can, theme, initialConversationId, initialPrompt }: { can: (permission: string) => boolean; theme?: 'light' | 'dark'; initialConversationId?: number; initialPrompt?: { text: string; mentions?: Mention[] } }) {
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() => {
     if (theme) return theme;
@@ -120,9 +123,18 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
   const [seed, setSeed] = useState<{ text: string; n: number; mentions?: Mention[] }>();
   const [welcomeBlock, setWelcomeBlock] = useState<UiBlock | null>(null);
   const canCustomers = can('customers.view');
-  const starters = canCustomers ? [...STARTERS, ...CUSTOMER_STARTERS] : STARTERS;
-  const quickCommands = canCustomers ? [...QUICK_COMMANDS, ...CUSTOMER_COMMANDS] : QUICK_COMMANDS;
-  // 4.4: seed جاي من شاشة التجار (#/assistant?seed=…&mention_*=…) — يتستهلك مرة واحدة ويتنضف من الـ hash.
+  const canCatalog = can('products.view') || can('categories.view');
+  const starters = [
+    ...STARTERS,
+    ...(canCustomers ? CUSTOMER_STARTERS : []),
+    ...(canCatalog ? CATALOG_STARTERS : []),
+  ];
+  const quickCommands = [
+    ...QUICK_COMMANDS,
+    ...(canCustomers ? CUSTOMER_COMMANDS : []),
+    ...(canCatalog ? CATALOG_COMMANDS : []),
+  ];
+
   const consumedPrompt = useRef(false);
   useEffect(() => {
     if (!initialPrompt || consumedPrompt.current) return;
@@ -153,8 +165,8 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
 
   useEffect(() => { void refreshList(); }, [refreshList]);
 
-  // 5.2: كارت الترحيب — بيتبني في السيرفر بدون Gemini، وبيظهر في المحادثة الجديدة لمن عنده customers.approve.
-  const canWelcome = can('customers.approve') && can('customers.view');
+  // 5.2 / 5.4: كارت الترحيب — بيتبني في السيرفر بدون Gemini، وبيظهر في المحادثة الجديدة لمن عنده customers.approve أو products.view.
+  const canWelcome = (can('customers.approve') && can('customers.view')) || can('products.view');
   useEffect(() => {
     if (!canWelcome || messages.length > 0) return;
     let live = true;
@@ -162,21 +174,18 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
     return () => { live = false; };
   }, [canWelcome, currentId, messages.length]);
 
-  // عدّاد زمن التفكير
   useEffect(() => {
     if (!streaming) return;
     const t = setInterval(() => tick(n => n + 1), 1000);
     return () => clearInterval(t);
   }, [streaming]);
 
-  // scroll فوري (مش smooth) عشان أحداث الـ scroll الوسيطة متلغيش "atBottom".
   const scrollToBottom = useCallback(() => {
     const el = feedRef.current; if (!el) return;
     requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
   }, []);
   useEffect(() => { if (atBottom) scrollToBottom(); }, [messages, steps, pendingText, streaming, atBottom, scrollToBottom]);
 
-  // اختصارات لوحة المفاتيح: Ctrl/⌘+K بحث، Ctrl/⌘+Shift+O محادثة جديدة.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
@@ -212,7 +221,6 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
   useEffect(() => { if (initialConversationId) void openConversation(initialConversationId); }, [initialConversationId, openConversation]);
 
   const createConversation = useCallback(async () => {
-    // لو المحادثة الحالية فاضية أصلاً، مفيش داعي ننشئ واحدة جديدة.
     if (currentId && messages.length === 0) { setDrawer(false); setTab('chat'); return; }
     setBusy(true);
     setError(null);
@@ -231,7 +239,6 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
     }
   }, [currentId, messages.length]);
 
-  // حذف بتأكيد inline بدل window.confirm
   const deleteConversation = useCallback(async (id: number) => {
     setConfirmDelete(null);
     try {
@@ -253,7 +260,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
   }, []);
 
   const send = useCallback(
-    async (text: string, _selection?: undefined, mentions?: Mention[]): Promise<boolean> => {
+    async (text: string, _selection?: undefined, mentions?: Mention[], files?: File[]): Promise<boolean> => {
       let id = currentId;
       if (!id) {
         try {
@@ -268,16 +275,22 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
       }
       setBusy(true);
       setStreaming(true);
-      setStatus('ببعت الطلب…');
+      setStatus(files?.length ? 'برفع الصور…' : 'ببعت الطلب…');
       setSteps([]);
       setStartedAt(Date.now());
       setPendingText({ text, mentions: mentions ?? [] });
       setError(null);
       setAtBottom(true);
       try {
+        let attachmentIds: string[] | undefined;
+        if (files && files.length > 0) {
+          const uploaded = await assistantApi.uploadAttachments(id, files);
+          attachmentIds = uploaded.map(u => u.id);
+          setStatus('ببعت الطلب…');
+        }
         await assistantApi.stream(
           id,
-          { text, mentions: mentions?.map(m => ({ entity: m.entity, id: m.id })) },
+          { text, mentions: mentions?.map(m => ({ entity: m.entity, id: m.id })), attachments: attachmentIds },
           message => {
             setStatus(prev => {
               if (prev !== message && prev !== 'جاهز') setSteps(s => (s.at(-1) === prev ? s : [...s, prev].slice(-4)));
@@ -294,7 +307,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
         setError({
           message: apiErrorMessage(e, 'تعذر إتمام طلب المساعد. حاول مرة تانية.'),
           kind: apiErrorKind(e),
-          retry: apiErrorKind(e) === 'budget' ? undefined : () => { setCurrentId(convId); void send(text, undefined, mentions); },
+          retry: apiErrorKind(e) === 'budget' ? undefined : () => { setCurrentId(convId); void send(text, undefined, mentions, files); },
         });
         return false;
       } finally {
@@ -356,7 +369,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
         <span className="as-mark"><Icon name="spark" size={18} /></span>
         <div>
           <h1>مساعد الفريد</h1>
-          <p>الفروع، الموظفين، والصلاحيات</p>
+          <p>الكتالوج، التجار، الفروع، والصلاحيات</p>
         </div>
         <button type="button" className="as-iconbtn as-only-desktop" onClick={() => setCollapsed(true)} aria-label="إخفاء القائمة" title="إخفاء القائمة"><Icon name="sidebar" /></button>
         <button type="button" className="as-iconbtn as-only-mobile" onClick={() => setDrawer(false)} aria-label="إغلاق القائمة"><Icon name="x" /></button>
@@ -439,7 +452,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
       <span className="as-welcome-mark"><Icon name="spark" size={28} /></span>
       <div style={{ display: 'grid', gap: '.5rem', justifyItems: 'center' }}>
         <h3>{currentId ? 'محادثة جديدة — ابدأ بطلبك' : 'أهلاً، أقدر أساعدك في إيه النهارده؟'}</h3>
-        <p>اسأل عن الفروع والموظفين والصلاحيات. أي تعديل بيظهر لك كمعاينة «قبل / بعد» ومبيتنفذش غير بعد تأكيدك.</p>
+        <p>اسأل عن المنتجات والأقسام والأسعار والفروع والموظفين. أي تعديل بيظهر لك كمعاينة «قبل / بعد» ومبيتنفذش غير بعد تأكيدك.</p>
       </div>
       {welcomeBlock && (
         <div style={{ width: '100%', textAlign: 'start' }}>
@@ -458,7 +471,8 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
         <span><span className="as-kbd">@</span> موظف</span>
         <span><span className="as-kbd">#</span> فرع</span>
         <span><span className="as-kbd">!</span> دور</span>
-        {canCustomers && <span><span className="as-kbd">$</span> عميل</span>}
+        {(canCustomers || canCatalog) && <span><span className="as-kbd">$</span> منتج / عميل</span>}
+        {canCatalog && <span><span className="as-kbd">&amp;</span> قسم</span>}
         <span><span className="as-kbd">/</span> أمر سريع</span>
       </div>
     </div>
@@ -574,7 +588,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
       {error && <div className="as-error-dock">{errorAlert}</div>}
       <span className="as-sr" role="status">{status}</span>
       <div className="as-composer-wrap">
-        <AssistantComposer busy={busy} onSend={send} quickCommands={quickCommands} seed={seed} enableCustomers={canCustomers} />
+        <AssistantComposer busy={busy} onSend={send} quickCommands={quickCommands} seed={seed} enableCustomers={canCustomers} enableCatalog={canCatalog} />
       </div>
     </>
   );
@@ -591,7 +605,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
             {collapsed && <button type="button" className="as-iconbtn as-only-desktop" onClick={() => setCollapsed(false)} aria-label="إظهار القائمة" title="إظهار القائمة"><Icon name="sidebar" /></button>}
             <div className="as-topbar-title">
               <h2>{tab === 'admin' ? 'الاستهلاك والإعدادات' : current?.title ?? (currentId ? `محادثة ${currentId}` : 'محادثة جديدة')}</h2>
-              <span>{tab === 'admin' ? 'إدارة المساعد' : current ? `${(current.total_tokens || 0).toLocaleString('ar-EG')} توكن · ${current.model}` : 'اسأل عن الفروع والصلاحيات، وراجع أي تعديل قبل تنفيذه.'}</span>
+              <span>{tab === 'admin' ? 'إدارة المساعد' : current ? `${(current.total_tokens || 0).toLocaleString('ar-EG')} توكن · ${current.model}` : 'اسأل عن الكتالوج والفروع والصلاحيات، وراجع أي تعديل قبل تنفيذه.'}</span>
             </div>
             {tab === 'chat' && <span className="as-status-chip" data-busy={busy} role="status"><span className="as-status-txt">{busy ? (streaming ? 'بيفكر…' : 'جارٍ التحميل…') : 'جاهز'}</span></span>}
             <div className="as-tabs" role="tablist" aria-label="أقسام المساعد">

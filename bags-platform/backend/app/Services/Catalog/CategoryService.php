@@ -62,6 +62,8 @@ class CategoryService
 
     public function update(Category $category, array $data, ?UploadedFile $image): Category
     {
+        $expectedVersion = $data['expected_version'] ?? null;
+        unset($data['expected_version']);
         $removeImage = (bool) ($data['remove_image'] ?? false);
         unset($data['image'], $data['remove_image']);
         if (isset($data['parent_id'])) {
@@ -73,10 +75,13 @@ class CategoryService
                 unset($data[$field]);
             }
         }
-        $apply = function (bool $exclusive) use ($category, $data): ?Category {
-            return DB::transaction(function () use ($category, $data, $exclusive) {
+        $apply = function (bool $exclusive) use ($category, $data, $expectedVersion): ?Category {
+            return DB::transaction(function () use ($category, $data, $exclusive, $expectedVersion) {
                 CatalogLock::tree(shared: ! $exclusive);
                 $category = Category::whereKey($category->id)->lockForUpdate()->firstOrFail();
+                if ($expectedVersion !== null && (int) $expectedVersion !== (int) $category->lock_version) {
+                    throw new BusinessException('القسم تعدّل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
+                }
                 $parentChanged = array_key_exists('parent_id', $data) && $data['parent_id'] !== $category->parent_id;
                 $activeChanged = isset($data['is_active']) && (bool) $data['is_active'] !== $category->is_active;
                 if (($parentChanged || $activeChanged) && ! $exclusive) {

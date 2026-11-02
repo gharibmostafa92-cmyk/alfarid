@@ -31,7 +31,7 @@ class UpdateProductRequest extends FormRequest
     /**
      * @return array<string, array<mixed>|string|ValidationRule>
      */
-    public function rules(): array
+    public static function baseRules(int $productId): array
     {
         return [
             'category_id' => ['sometimes', 'required', 'integer', Rule::exists('categories', 'id')->whereNull('deleted_at')],
@@ -39,7 +39,7 @@ class UpdateProductRequest extends FormRequest
             'supplier_id' => ['prohibited'],
             'name_ar' => ['sometimes', 'required', 'string', 'max:255'],
             'name_en' => ['sometimes', 'required', 'string', 'max:255'],
-            'slug' => ['sometimes', 'nullable', 'alpha_dash:ascii', 'max:255', new UniqueCatalogIdentifier('products', 'slug', $this->route('product')->id)],
+            'slug' => ['sometimes', 'nullable', 'alpha_dash:ascii', 'max:255', new UniqueCatalogIdentifier('products', 'slug', $productId)],
             'description_ar' => ['sometimes', 'nullable', 'string'],
             'description_en' => ['sometimes', 'nullable', 'string'],
             'material_ar' => ['sometimes', 'nullable', 'string', 'max:150'],
@@ -63,5 +63,13 @@ class UpdateProductRequest extends FormRequest
             'expected_updated_at' => ['sometimes', 'nullable', 'date'],
             'expected_version' => ['required', 'integer', 'min:0'],
         ];
+    }
+
+    /**
+     * @return array<string, array<mixed>|string|ValidationRule>
+     */
+    public function rules(): array
+    {
+        return self::baseRules((int) $this->route('product')?->id);
     }
 }

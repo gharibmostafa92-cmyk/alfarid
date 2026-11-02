@@ -29,7 +29,7 @@ class StoreCategoryRequest extends FormRequest
     /**
      * @return array<string, array<mixed>|string|ValidationRule>
      */
-    public function rules(): array
+    public static function baseRules(): array
     {
         return [
             'parent_id' => ['nullable', 'integer', Rule::exists('categories', 'id')->whereNull('deleted_at')],
@@ -42,5 +42,13 @@ class StoreCategoryRequest extends FormRequest
             'is_active' => ['nullable', 'boolean'],
             'image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'extensions:jpg,jpeg,png,webp', 'max:4096', new MaxImagePixels],
         ];
+    }
+
+    /**
+     * @return array<string, array<mixed>|string|ValidationRule>
+     */
+    public function rules(): array
+    {
+        return self::baseRules();
     }
 }

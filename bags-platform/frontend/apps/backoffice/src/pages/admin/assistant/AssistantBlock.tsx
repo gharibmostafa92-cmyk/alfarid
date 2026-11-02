@@ -15,11 +15,11 @@ interface Props {
   onPrompt?: (text: string) => void;
 }
 
-const fieldLabels: Record<string, string> = { is_active: 'حالة التفعيل', name: 'الاسم', code: 'الكود', roles: 'الأدوار', permissions: 'الصلاحيات', email: 'البريد الإلكتروني', branch_id: 'الفرع', type: 'نوع الفرع', city: 'المدينة', phone: 'الهاتف', status: 'الحالة', credit_limit: 'حد الائتمان', used_credit: 'المستخدم من الائتمان', customer_group: 'المجموعة', customer_group_id: 'المجموعة', company: 'بيانات الشركة', company_name: 'اسم الشركة', tax_number: 'الرقم الضريبي', commercial_register: 'السجل التجاري', rejection_reason: 'سبب الرفض', suspension_reason: 'سبب الإيقاف', previous_status: 'الحالة السابقة', documents_to_reject: 'مستندات هتترفض' };
-const customerStatusLabels: Record<string, string> = { pending: 'قيد المراجعة', approved: 'معتمد', rejected: 'مرفوض', suspended: 'موقوف' };
-const customerTypeLabels: Record<string, string> = { retail: 'تجزئة', wholesale: 'جملة', distributor: 'موزّع' };
-const statusBadgeTone: Record<string, string> = { pending: 'warning', approved: 'success', rejected: 'danger', suspended: 'danger' };
-const verdictMeta: Record<string, { label: string; tone: string }> = { ready: { label: 'جاهز للاعتماد', tone: 'success' }, blocked: { label: 'متعطّل (blocked)', tone: 'danger' }, needs_attention: { label: 'محتاج انتباه', tone: 'warning' } };
+const fieldLabels: Record<string, string> = { is_active: 'حالة التفعيل', name: 'الاسم', name_ar: 'الاسم بالعربية', name_en: 'الاسم بالإنجليزية', slug: 'الرابط (slug)', parent_id: 'القسم الأب', sort_order: 'الترتيب', description_ar: 'الوصف بالعربية', description_en: 'الوصف بالإنجليزية', category_id: 'القسم', sales_channel: 'قناة البيع', is_featured: 'منتج مميز', min_wholesale_qty: 'أقل كمية جملة', sku: 'كود التشكيلة (SKU)', barcode: 'الباركود', color_ar: 'اللون (عربي)', color_en: 'اللون (إنجليزي)', color_hex: 'درجة اللون', size: 'المقاس', capacity: 'السعة', retail_price: 'سعر القطاعي', wholesale_price: 'سعر الجملة', compare_at_price: 'سعر قبل الخصم', cost_price: 'سعر التكلفة', weight_grams: 'الوزن (جرام)', code: 'الكود', roles: 'الأدوار', permissions: 'الصلاحيات', email: 'البريد الإلكتروني', branch_id: 'الفرع', type: 'نوع الفرع', city: 'المدينة', phone: 'الهاتف', status: 'الحالة', credit_limit: 'حد الائتمان', used_credit: 'المستخدم من الائتمان', customer_group: 'المجموعة', customer_group_id: 'المجموعة', company: 'بيانات الشركة', company_name: 'اسم الشركة', tax_number: 'الرقم الضريبي', commercial_register: 'السجل التجاري', rejection_reason: 'سبب الرفض', suspension_reason: 'سبب الإيقاف', previous_status: 'الحالة السابقة', documents_to_reject: 'مستندات هتترفض' };
+const customerStatusLabels: Record<string, string> = { pending: 'قيد المراجعة', approved: 'معتمد', rejected: 'مرفوض', suspended: 'موقوف', draft: 'مسودة', active: 'منشور / نشط', archived: 'مؤرشف', inactive: 'متوقف' };
+const customerTypeLabels: Record<string, string> = { retail: 'تجزئة', wholesale: 'جملة', distributor: 'موزّع', both: 'قطاعي وجملة' };
+const statusBadgeTone: Record<string, string> = { pending: 'warning', approved: 'success', rejected: 'danger', suspended: 'danger', draft: 'warning', active: 'success', archived: '', inactive: 'danger' };
+const verdictMeta: Record<string, { label: string; tone: string }> = { ready: { label: 'جاهز', tone: 'success' }, blocked: { label: 'متعطّل (blocked)', tone: 'danger' }, needs_attention: { label: 'محتاج انتباه', tone: 'warning' } };
 const severityRank: Record<string, number> = { blocker: 0, warning: 1, info: 2 };
 const severityLabel: Record<string, string> = { blocker: 'مانع', warning: 'تحذير', info: 'معلومة' };
 // الحقول اللي بتتعرض في أقسام مخصصة وماينفعش تتعرض كجدول قبل/بعد.
@@ -33,12 +33,85 @@ const money = (n: unknown) => Number(n ?? 0).toLocaleString('ar-EG', { maximumFr
 const statusLabels: Record<string, string> = { executed: 'تم التنفيذ', cancelled: 'تم الإلغاء', failed: 'فشل التنفيذ', expired: 'انتهت المهلة', undone: 'تم التراجع' };
 const statusTone: Record<string, string> = { executed: 'success', cancelled: '', failed: 'danger', expired: 'warning', undone: 'info' };
 
+interface CategoryTreeNode {
+  id: number;
+  name?: string;
+  name_ar?: string;
+  active?: boolean;
+  is_active?: boolean;
+  products_count?: number;
+  children?: CategoryTreeNode[];
+}
+
+function CategoryTreeView({ nodes, movedId }: { nodes: CategoryTreeNode[]; movedId?: number }) {
+  const [collapsedIds, setCollapsedIds] = useState<Record<number, boolean>>({});
+  const renderNode = (node: CategoryTreeNode, depth = 0) => {
+    const label = node.name ?? node.name_ar ?? `#${node.id}`;
+    const active = node.active ?? node.is_active ?? true;
+    const children = node.children ?? [];
+    const hasChildren = children.length > 0;
+    const isCollapsed = !!collapsedIds[node.id];
+    const isMoved = movedId != null && Number(node.id) === Number(movedId);
+    return (
+      <li key={node.id} style={{ listStyle: 'none', marginTop: '.25rem' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '.45rem',
+            padding: '.3rem .5rem',
+            paddingInlineStart: `${depth * 1.1 + 0.5}rem`,
+            borderRadius: 6,
+            opacity: active ? 1 : 0.55,
+            background: isMoved ? 'var(--as-accent-soft, rgba(59,130,246,.12))' : undefined,
+            border: isMoved ? '1px solid var(--as-accent, #3b82f6)' : '1px solid transparent',
+          }}
+        >
+          {hasChildren ? (
+            <button
+              type="button"
+              className="as-iconbtn as-iconbtn--sm"
+              aria-expanded={!isCollapsed}
+              onClick={() => setCollapsedIds(prev => ({ ...prev, [node.id]: !prev[node.id] }))}
+            >
+              <Icon name={isCollapsed ? 'chevronStart' : 'chevron'} size={14} />
+            </button>
+          ) : (
+            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon name="folder" size={14} /></span>
+          )}
+          <span style={{ fontWeight: isMoved ? 600 : 500 }}>{label}</span>
+          {!active && <span className="as-badge">متوقف</span>}
+          {isMoved && <span className="as-badge as-badge--info">منقول</span>}
+          {node.products_count != null && (
+            <span className="as-num" style={{ marginInlineStart: 'auto', fontSize: '.78rem', color: 'var(--as-muted)' }}>
+              {node.products_count} منتج
+            </span>
+          )}
+        </div>
+        {hasChildren && !isCollapsed && (
+          <ul style={{ margin: 0, padding: 0 }}>
+            {children.map(child => renderNode(child, depth + 1))}
+          </ul>
+        )}
+      </li>
+    );
+  };
+  return (
+    <ul style={{ margin: 0, padding: 0 }}>
+      {nodes.map(n => renderNode(n, 0))}
+    </ul>
+  );
+}
+
 function formatValue(key: string, item: unknown): string {
-  if (key === 'is_active') return item ? 'نشط' : 'متوقف';
+  if (key === 'is_active' || key === 'is_featured') return item ? 'نعم / نشط' : 'لا / متوقف';
   if (key === 'status' || key === 'previous_status') return customerStatusLabels[String(item)] ?? String(item ?? 'بدون');
-  if (key === 'credit_limit' || key === 'used_credit') return money(item);
+  if (key === 'sales_channel') return customerTypeLabels[String(item)] ?? String(item ?? 'بدون');
+  if (key === 'credit_limit' || key === 'used_credit' || key === 'retail_price' || key === 'wholesale_price' || key === 'compare_at_price' || key === 'cost_price') return item != null && item !== '' ? money(item) : 'بدون';
   if (item && typeof item === 'object' && !Array.isArray(item)) {
-    const parts = Object.entries(item as Record<string, unknown>).filter(([, v]) => v != null && v !== '').map(([k, v]) => `${fieldLabels[k] ?? k}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`);
+    const rec = item as Record<string, unknown>;
+    if ('untrusted_text' in rec) return String(rec.untrusted_text ?? 'بدون');
+    const parts = Object.entries(rec).filter(([, v]) => v != null && v !== '').map(([k, v]) => `${fieldLabels[k] ?? k}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`);
     return parts.join(' · ') || 'بدون';
   }
   if (Array.isArray(item)) return item.map(String).map(v => (key === 'permissions' ? permLabel(v) : v)).join('، ') || 'بدون';
@@ -99,12 +172,22 @@ async function downloadDocument(url: string, name: string) {
   setTimeout(() => URL.revokeObjectURL(href), 1000);
 }
 
+function normalizeDeepLink(raw: unknown): string | undefined {
+  if (typeof raw !== 'string' || !raw) return undefined;
+  const clean = raw.startsWith('#') ? raw.slice(1) : raw;
+  if (/^\/(users|roles|settings|branches|dealers|pricing|products|categories)(\/|\?|$)/.test(clean)) {
+    return `#${clean}`;
+  }
+  return undefined;
+}
+
 export default function AssistantBlock({ block, busy, status, execute, onPick, onAction, onPrompt }: Props) {
   const [dlError, setDlError] = useState('');
   const [typed, setTyped] = useState('');
   const [query, setQuery] = useState('');
   const [now, setNow] = useState(Date.now());
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [showAllPrices, setShowAllPrices] = useState(false);
   const items = (block.items ?? []) as { key: string; label: string; change: string; before?: unknown; after?: unknown; ok?: boolean; message?: string }[];
   const [selected, setSelected] = useState(() => items.map(item => item.key));
   // أول قيمة للمهلة المتبقية — بنستخدمها كـ "إجمالي" لحلقة العدّاد.
@@ -119,19 +202,174 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
 
   const options = useMemo(() => (block.options ?? []) as { id: string | number; label: string; meta?: string; disabled?: string }[], [block.options]);
 
-  /* ---------------- Checklist (فحص طلب تاجر) ---------------- */
+  /* ---------------- Category tree (B.1) ---------------- */
+  if (block.type === 'category_tree') {
+    const nodes = (block.nodes ?? []) as CategoryTreeNode[];
+    return (
+      <section className="as-block" aria-label="شجرة الأقسام">
+        <header className="as-block-head">
+          <span className="as-block-ic"><Icon name="folder" /></span>
+          <div className="as-block-title">
+            <h3>{String(block.title ?? 'شجرة الأقسام')}</h3>
+            <span>{nodes.length} قسم رئيسي</span>
+          </div>
+        </header>
+        <div className="as-block-body">
+          {nodes.length ? <CategoryTreeView nodes={nodes} /> : <p className="as-none">لا توجد أقسام</p>}
+        </div>
+      </section>
+    );
+  }
+
+  /* ---------------- Product card (B.3) ---------------- */
+  if (block.type === 'product_card') {
+    const st = String(block.status ?? 'draft');
+    const readiness = (block.readiness ?? []) as { key: string; ok: boolean; label: string; hint?: string }[];
+    const variantsList = (block.variants ?? []) as { id: number; sku: string; color_ar?: string; color_hex?: string; size?: string; retail_price?: number; wholesale_price?: number; status?: string }[];
+    const priceRange = asRecord(block.price_range);
+    const link = normalizeDeepLink(block.deep_link ?? (block.product_id ? `#/products/${String(block.product_id)}/edit` : undefined));
+    const thumb = typeof block.thumbnail_url === 'string' && block.thumbnail_url ? block.thumbnail_url : undefined;
+    return (
+      <section className="as-block" aria-label="كارت المنتج">
+        <header className="as-block-head">
+          {thumb ? (
+            <img src={thumb} alt={String(block.name_ar ?? '')} style={{ width: 42, height: 42, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--as-border)' }} />
+          ) : (
+            <span className="as-block-ic"><Icon name="box" /></span>
+          )}
+          <div className="as-block-title">
+            <h3>{String(block.name_ar ?? block.name ?? '')}</h3>
+            <span>
+              <code dir="ltr">{String(block.code ?? '')}</code>
+              {block.category_path ? ` · ${String(block.category_path)}` : ''}
+            </span>
+          </div>
+          <span className={`as-badge as-badge--${statusBadgeTone[st] ?? ''}`}>{customerStatusLabels[st] ?? st}</span>
+        </header>
+        <div className="as-block-body">
+          {priceRange && (
+            <dl className="as-diff">
+              <div className="as-diff-row">
+                <dt>نطاق القطاعي</dt>
+                <dd className="as-num">{priceRange.retail_min != null ? `${money(priceRange.retail_min)} – ${money(priceRange.retail_max)} ج.م` : 'غير محدد'}</dd>
+              </div>
+              <div className="as-diff-row">
+                <dt>نطاق الجملة</dt>
+                <dd className="as-num">{priceRange.wholesale_min != null ? `${money(priceRange.wholesale_min)} – ${money(priceRange.wholesale_max)} ج.م` : 'غير محدد'}</dd>
+              </div>
+            </dl>
+          )}
+          {variantsList.length > 0 && (
+            <div className="as-table-wrap" style={{ marginTop: '.5rem' }}>
+              <table className="as-table">
+                <thead>
+                  <tr><th>SKU</th><th>اللون / المقاس</th><th className="as-num">قطاعي</th><th className="as-num">جملة</th><th>الحالة</th></tr>
+                </thead>
+                <tbody>
+                  {variantsList.slice(0, 8).map(v => (
+                    <tr key={v.id}>
+                      <td><code dir="ltr">{v.sku}</code></td>
+                      <td>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem' }}>
+                          {v.color_hex && <i style={{ width: 12, height: 12, borderRadius: '50%', background: v.color_hex, display: 'inline-block', border: '1px solid var(--as-border)' }} />}
+                          {[v.color_ar, v.size].filter(Boolean).join(' · ') || '—'}
+                        </span>
+                      </td>
+                      <td className="as-num">{v.retail_price != null ? money(v.retail_price) : '—'}</td>
+                      <td className="as-num">{v.wholesale_price != null ? money(v.wholesale_price) : '—'}</td>
+                      <td><span className={`as-badge as-badge--${statusBadgeTone[String(v.status ?? '')] ?? ''}`}>{customerStatusLabels[String(v.status ?? '')] ?? v.status}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {readiness.length > 0 && (
+            <ul className="as-result-list" style={{ marginTop: '.5rem' }}>
+              {readiness.map(r => (
+                <li key={r.key} data-ok={r.ok}>
+                  <Icon name={r.ok ? 'check' : 'alert'} size={15} />
+                  <span>{r.label}{!r.ok && r.hint ? ` — ${r.hint}` : ''}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        {link && (
+          <footer className="as-block-foot">
+            <a className="as-btn as-btn--sm" href={link} style={{ textDecoration: 'none' }}>
+              <Icon name="external" size={15} />افتح في المنتجات
+            </a>
+          </footer>
+        )}
+      </section>
+    );
+  }
+
+  /* ---------------- Media gallery (B.6) ---------------- */
+  if (block.type === 'media_gallery') {
+    const galleryItems = (block.items ?? []) as { id: number; thumb_url?: string; url?: string; order?: number; sort_order?: number; variant_label?: string | null; is_cover?: boolean }[];
+    return (
+      <section className="as-block" aria-label="صور المنتج">
+        <header className="as-block-head">
+          <span className="as-block-ic"><Icon name="image" /></span>
+          <div className="as-block-title">
+            <h3>{String(block.title ?? 'معرض صور المنتج')}</h3>
+            <span>{galleryItems.length} صورة</span>
+          </div>
+        </header>
+        <div className="as-block-body">
+          {galleryItems.length ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '.65rem' }}>
+              {galleryItems.map((img, idx) => {
+                const isCover = img.is_cover ?? idx === 0;
+                const src = img.thumb_url ?? img.url ?? '';
+                return (
+                  <div key={img.id} style={{ border: isCover ? '2px solid var(--as-accent, #3b82f6)' : '1px solid var(--as-border)', borderRadius: 8, padding: '.35rem', display: 'grid', gap: '.3rem', position: 'relative' }}>
+                    {src ? (
+                      <img src={src} alt={`صورة #${img.id}`} style={{ width: '100%', height: 84, objectFit: 'cover', borderRadius: 6 }} />
+                    ) : (
+                      <div style={{ height: 84, display: 'grid', placeItems: 'center', background: 'var(--as-surface-2)', borderRadius: 6 }}><Icon name="image" size={22} /></div>
+                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '.75rem' }}>
+                      <code dir="ltr">#{img.id}</code>
+                      {isCover ? <span className="as-badge as-badge--success">غلاف</span> : <span className="as-num">ترتيب {(img.order ?? img.sort_order ?? idx) + 1}</span>}
+                    </div>
+                    {img.variant_label && <span style={{ fontSize: '.72rem', color: 'var(--as-muted)' }}>{img.variant_label}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="as-none">لا توجد صور مرفوعة لهذا المنتج.</p>
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  /* ---------------- Checklist (فحص طلب تاجر / جاهزية منتج) ---------------- */
   if (block.type === 'checklist') {
-    const checks = ((block.checks ?? []) as { key: string; ok: boolean; severity: string; message: string }[])
-      .map((c, i) => ({ ...c, i }))
+    const rawChecks = (block.checks ?? []) as { key: string; ok: boolean; severity?: string; message?: string; label?: string; hint?: string }[];
+    const checks = rawChecks
+      .map((c, i) => ({
+        key: c.key,
+        ok: c.ok,
+        severity: c.severity ?? (c.ok ? 'info' : 'blocker'),
+        message: c.message ?? (c.hint && !c.ok ? `${c.label ?? c.key} — ${c.hint}` : (c.label ?? c.key)),
+        i,
+      }))
       .sort((a, b) => (Number(a.ok) - Number(b.ok)) || ((severityRank[a.severity] ?? 3) - (severityRank[b.severity] ?? 3)) || a.i - b.i);
-    const verdict = String(block.verdict ?? 'blocked');
+    const verdict = String(block.verdict ?? (checks.every(c => c.ok) ? 'ready' : 'blocked'));
     const meta = verdictMeta[verdict] ?? verdictMeta.blocked;
     const suggestion = asRecord(block.suggestion);
+    const nextActions = (block.next_actions ?? []) as { label: string; prompt: string }[];
+    const title = String(block.title ?? 'فحص طلب التاجر');
     return (
-      <section className="as-block" aria-label="فحص طلب التاجر" data-verdict={verdict}>
+      <section className="as-block" aria-label={title} data-verdict={verdict}>
         <header className="as-block-head">
           <span className="as-block-ic"><Icon name={verdict === 'ready' ? 'check' : verdict === 'blocked' ? 'alert' : 'shield'} /></span>
-          <div className="as-block-title"><h3>فحص طلب التاجر</h3><span>{checks.filter(c => !c.ok).length} ملاحظة من {checks.length} فحص</span></div>
+          <div className="as-block-title"><h3>{title}</h3><span>{checks.filter(c => !c.ok).length} ملاحظة من {checks.length} فحص</span></div>
           <span className={`as-badge as-badge--${meta.tone}`}>{meta.label}</span>
         </header>
         <div className="as-block-body">
@@ -145,9 +383,16 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
           </ul>
           {suggestion && typeof suggestion.source === 'string' && <div className="as-alert as-alert--info" role="note"><Icon name="info" size={16} /><div className="as-alert-body"><span>{suggestion.source}</span></div></div>}
         </div>
-        {verdict === 'ready' && onPrompt && block.customer_id != null && (
-          <footer className="as-block-foot">
-            <button type="button" className="as-btn as-btn--primary" disabled={busy || !execute} onClick={() => onPrompt(`جهّز اعتماد التاجر رقم ${String(block.customer_id)}`)}><Icon name="check" size={16} />جهّز الاعتماد</button>
+        {onPrompt && (nextActions.length > 0 || (verdict === 'ready' && block.customer_id != null)) && (
+          <footer className="as-block-foot" style={{ flexWrap: 'wrap', gap: '.4rem' }}>
+            {verdict === 'ready' && block.customer_id != null && (
+              <button type="button" className="as-btn as-btn--primary" disabled={busy || !execute} onClick={() => onPrompt(`جهّز اعتماد التاجر رقم ${String(block.customer_id)}`)}><Icon name="check" size={16} />جهّز الاعتماد</button>
+            )}
+            {nextActions.map((act, idx) => (
+              <button key={idx} type="button" className="as-btn as-btn--sm" disabled={busy} onClick={() => onPrompt(act.prompt)}>
+                {act.label}
+              </button>
+            ))}
           </footer>
         )}
       </section>
@@ -183,11 +428,12 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
     );
   }
 
-  /* ---------------- Welcome card (ملخص طابور التجار — بدون Gemini) ---------------- */
+  /* ---------------- Welcome card (ملخص طابور التجار والكتالوج — بدون Gemini) ---------------- */
   if (block.type === 'welcome_card') {
     const rows = (block.rows ?? []) as { label: string; value: number }[];
+    const quickActions = (block.quick_actions ?? []) as { label: string; prompt: string }[];
     return (
-      <section className="as-block" aria-label="ملخص طابور التجار">
+      <section className="as-block" aria-label="ملخص اليوم">
         <header className="as-block-head">
           <span className="as-block-ic"><Icon name="store" /></span>
           <div className="as-block-title"><h3>{String(block.title ?? 'ملخص طابور التجار')}</h3><span>جاهز من غير أي تكلفة توكنز</span></div>
@@ -196,9 +442,17 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
           <dl className="as-diff">{rows.map(r => <div className="as-diff-row" key={r.label}><dt>{r.label}</dt><dd className="as-num">{r.value}</dd></div>)}</dl>
         </div>
         {onPrompt && (
-          <footer className="as-block-foot">
-            <button type="button" className="as-btn as-btn--sm" onClick={() => onPrompt('طلبات التجار المتأخرة')}>المتأخرين</button>
-            <button type="button" className="as-btn as-btn--sm" onClick={() => onPrompt('مين جاهز للاعتماد؟')}>الجاهزين للاعتماد</button>
+          <footer className="as-block-foot" style={{ flexWrap: 'wrap', gap: '.4rem' }}>
+            {quickActions.length > 0 ? (
+              quickActions.map((qa, i) => (
+                <button key={i} type="button" className="as-btn as-btn--sm" onClick={() => onPrompt(qa.prompt)}>{qa.label}</button>
+              ))
+            ) : (
+              <>
+                <button type="button" className="as-btn as-btn--sm" onClick={() => onPrompt('طلبات التجار المتأخرة')}>المتأخرين</button>
+                <button type="button" className="as-btn as-btn--sm" onClick={() => onPrompt('مين جاهز للاعتماد؟')}>الجاهزين للاعتماد</button>
+              </>
+            )}
           </footer>
         )}
       </section>
@@ -254,17 +508,21 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
     );
   }
 
-  /* ---------------- Confirm / permission diff / bulk ---------------- */
-  if (block.type === 'confirm_action' || block.type === 'permission_diff' || block.type === 'bulk_plan') {
+  /* ---------------- Confirm / permission diff / bulk / catalog confirm blocks ---------------- */
+  if (
+    block.type === 'confirm_action' ||
+    block.type === 'permission_diff' ||
+    block.type === 'bulk_plan' ||
+    block.type === 'category_tree_diff' ||
+    block.type === 'variant_matrix' ||
+    block.type === 'price_diff'
+  ) {
     const expires = Date.parse(String(block.expires_at));
     const seconds = Math.max(0, Math.ceil((expires - now) / 1000));
     if (ttlTotal.current === null && seconds > 0) ttlTotal.current = seconds;
     const expired = !Number.isFinite(expires) || seconds === 0;
     const pending = !status || status === 'pending';
     const required = typeof block.typed_confirmation === 'string' ? block.typed_confirmation : '';
-    // P04-2: تعليمة عرض فقط لأدوات العملاء عالية الخطورة — القيمة
-    // نفسها تفضل للمقارنة (typedOk) وللإرسال، لكن المعروض هو
-    // التعليمة من غير الرقم، عشان الأدمن يبص في ملف التاجر فعلًا.
     const displayRequired = typeof block.typed_confirmation_hint === 'string' && block.typed_confirmation_hint ? block.typed_confirmation_hint : required;
     const disabled = busy || !execute || !pending || expired;
     const warnings = (block.warnings ?? []) as string[];
@@ -274,8 +532,8 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
     const state = !pending ? status! : expired ? 'expired' : 'pending';
     const level = seconds <= 15 ? 'crit' : seconds <= 60 ? 'warn' : 'ok';
     const typedOk = !required || typed === required;
-    const icon = block.type === 'permission_diff' ? 'key' : block.type === 'bulk_plan' ? 'layers' : 'shield';
-    const kindLabel = block.type === 'permission_diff' ? 'تعديل صلاحيات' : block.type === 'bulk_plan' ? 'عملية جماعية' : 'تعديل يحتاج تأكيد';
+    const icon = block.type === 'permission_diff' ? 'key' : block.type === 'bulk_plan' ? 'layers' : block.type === 'category_tree_diff' ? 'folder' : block.type === 'variant_matrix' || block.type === 'price_diff' ? 'tag' : 'shield';
+    const kindLabel = block.type === 'permission_diff' ? 'تعديل صلاحيات' : block.type === 'bulk_plan' ? 'عملية جماعية' : block.type === 'category_tree_diff' ? 'تعديل شجرة الأقسام' : block.type === 'variant_matrix' ? 'مصفوفة التشكيلات' : block.type === 'price_diff' ? 'تعديل أسعار جماعي' : 'تعديل يحتاج تأكيد';
     const allOn = selected.length === items.length;
     const afterRec = asRecord(block.after);
     const docsToVerify = (Array.isArray(afterRec?.documents_to_verify) ? afterRec!.documents_to_verify : []) as { id: number; name?: string; download_url?: string }[];
@@ -319,6 +577,117 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
               <span className="as-affected"><Icon name="user" size={15} />الموظفين المتأثرين: <b className="as-num">{String(block.affected_users ?? 0)}</b></span>
             </>
           )}
+
+          {block.type === 'category_tree_diff' && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '.75rem' }}>
+              <div style={{ border: '1px solid var(--as-border)', borderRadius: 8, padding: '.6rem' }}>
+                <strong style={{ display: 'block', marginBottom: '.4rem', fontSize: '.82rem', color: 'var(--as-muted)' }}>قبل التعديل</strong>
+                {Array.isArray(block.before) ? (
+                  <CategoryTreeView nodes={block.before as CategoryTreeNode[]} movedId={block.moved_id ? Number(block.moved_id) : undefined} />
+                ) : (
+                  <DiffTable before={block.before} after={null} />
+                )}
+              </div>
+              <div style={{ border: '1px solid var(--as-border)', borderRadius: 8, padding: '.6rem' }}>
+                <strong style={{ display: 'block', marginBottom: '.4rem', fontSize: '.82rem', color: 'var(--as-muted)' }}>بعد التعديل</strong>
+                {Array.isArray(block.after) ? (
+                  <CategoryTreeView nodes={block.after as CategoryTreeNode[]} movedId={block.moved_id ? Number(block.moved_id) : undefined} />
+                ) : (
+                  <DiffTable before={null} after={block.after} />
+                )}
+              </div>
+            </div>
+          )}
+
+          {block.type === 'variant_matrix' && (() => {
+            const matrixRows = (block.rows ?? []) as { sku?: string; color?: string; color_ar?: string; color_hex?: string; size?: string; capacity?: string; retail?: number; retail_price?: number; wholesale?: number; wholesale_price?: number; status?: string; state?: string }[];
+            return (
+              <div className="as-table-wrap">
+                <table className="as-table">
+                  <thead>
+                    <tr><th>اللون</th><th>المقاس / السعة</th><th className="as-num">قطاعي</th><th className="as-num">جملة</th><th>الحالة</th></tr>
+                  </thead>
+                  <tbody>
+                    {matrixRows.map((r, i) => {
+                      const rowState = r.state ?? r.status ?? 'new';
+                      const isSkipped = rowState === 'skipped' || rowState === 'duplicate';
+                      return (
+                        <tr key={i} style={{ opacity: isSkipped ? 0.55 : 1 }}>
+                          <td>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem' }}>
+                              {r.color_hex && <i style={{ width: 13, height: 13, borderRadius: '50%', background: r.color_hex, display: 'inline-block', border: '1px solid var(--as-border)' }} />}
+                              <span>{r.color ?? r.color_ar ?? '—'}</span>
+                            </span>
+                          </td>
+                          <td>{[r.size, r.capacity].filter(Boolean).join(' · ') || '—'}</td>
+                          <td className="as-num">{money(r.retail ?? r.retail_price ?? 0)}</td>
+                          <td className="as-num">{money(r.wholesale ?? r.wholesale_price ?? 0)}</td>
+                          <td>
+                            <span className={`as-badge as-badge--${isSkipped ? 'warning' : 'success'}`}>
+                              {isSkipped ? 'موجود (هيتم تخطيه)' : 'جديد'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
+
+          {block.type === 'price_diff' && (() => {
+            const summary = asRecord(block.summary);
+            const allRows = (block.rows ?? []) as { variant_id?: number; sku: string; label?: string; product_name?: string; before_retail?: number; after_retail?: number; before_wholesale?: number; after_wholesale?: number }[];
+            const topRows = (block.top ?? allRows.slice(0, 10)) as typeof allRows;
+            const blockedRows = (block.blocked ?? []) as { sku: string; reason: string }[];
+            const displayRows = showAllPrices ? allRows : topRows;
+            return (
+              <div style={{ display: 'grid', gap: '.65rem' }}>
+                {summary && (
+                  <dl className="as-diff">
+                    {summary.count != null && <div className="as-diff-row"><dt>عدد التشكيلات المتأثرة</dt><dd className="as-num">{String(summary.count)}</dd></div>}
+                    {summary.field != null && <div className="as-diff-row"><dt>الحقل</dt><dd>{fieldLabels[String(summary.field)] ?? String(summary.field)}</dd></div>}
+                    {summary.min_delta != null && <div className="as-diff-row"><dt>أقل فرق</dt><dd className="as-num">{money(summary.min_delta)} ج.م</dd></div>}
+                    {summary.max_delta != null && <div className="as-diff-row"><dt>أكبر فرق</dt><dd className="as-num">{money(summary.max_delta)} ج.م</dd></div>}
+                  </dl>
+                )}
+                {displayRows.length > 0 && (
+                  <div className="as-table-wrap">
+                    <table className="as-table">
+                      <thead>
+                        <tr><th>SKU</th><th>التشكيلة</th><th className="as-num">قطاعي (قبل → بعد)</th><th className="as-num">جملة (قبل → بعد)</th></tr>
+                      </thead>
+                      <tbody>
+                        {displayRows.map((r, i) => (
+                          <tr key={r.variant_id ?? i}>
+                            <td><code dir="ltr">{r.sku}</code></td>
+                            <td>{r.label ?? r.product_name ?? '—'}</td>
+                            <td className="as-num">{r.before_retail != null ? `${money(r.before_retail)} ← ${money(r.after_retail)}` : '—'}</td>
+                            <td className="as-num">{r.before_wholesale != null ? `${money(r.before_wholesale)} ← ${money(r.after_wholesale)}` : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {allRows.length > topRows.length && (
+                  <button type="button" className="as-btn as-btn--sm" onClick={() => setShowAllPrices(s => !s)}>
+                    {showAllPrices ? 'إخفاء باقي الصفوف' : `اعرض كل الصفوف (${allRows.length})`}
+                  </button>
+                )}
+                {blockedRows.length > 0 && (
+                  <div className="as-alert as-alert--danger" role="alert">
+                    <Icon name="alert" size={16} />
+                    <div className="as-alert-body">
+                      <strong>صفوف مرفوضة ({blockedRows.length})</strong>
+                      <span>{blockedRows.map(b => `${b.sku}: ${b.reason}`).join(' · ')}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {block.type === 'bulk_plan' && (
             <fieldset disabled={disabled}>
@@ -428,8 +797,7 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
 
   /* ---------------- Result ---------------- */
   if (block.type === 'result') {
-    // L7: روابط الفروع والمواقع كانت تُسقط — الـ regex يقبلها الآن.
-    const link = typeof block.deep_link === 'string' && /^\/(users|roles|settings|branches|dealers|pricing)(\?|$)/.test(block.deep_link) ? block.deep_link : undefined;
+    const link = normalizeDeepLink(block.deep_link);
     const undo = typeof block.undo_action_id === 'string' ? block.undo_action_id : undefined;
     const undoUntil = Date.parse(String(block.undo_available_until));
     const undoSec = Math.max(0, Math.ceil((undoUntil - now) / 1000));
@@ -461,7 +829,7 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
           <>
             {undoLive && execute && <div className="as-undo-bar" aria-hidden="true"><span style={{ width: `${undoTotal.current ? (undoSec / undoTotal.current) * 100 : 100}%` }} /></div>}
             <footer className="as-block-foot">
-              {link && <a className="as-btn as-btn--sm" href={`#${link}`} style={{ textDecoration: 'none' }}><Icon name="external" size={15} />افتح في الشاشة</a>}
+              {link && <a className="as-btn as-btn--sm" href={link} style={{ textDecoration: 'none' }}><Icon name="external" size={15} />افتح في الشاشة</a>}
               <span className="as-spacer" />
               {undoLive && execute && (
                 <span className="as-undo">

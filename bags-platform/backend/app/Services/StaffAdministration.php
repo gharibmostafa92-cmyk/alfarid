@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Enums\StaffRole;
+use App\Exceptions\RetryableConflict;
 use App\Models\Branch;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
@@ -27,13 +28,14 @@ final class StaffAdministration
     public static function lock(): void
     {
         // L3: SET LOCAL يسري على الـ transaction كلها — 55P03 (lock timeout)
-        // تتحول لـ 409 قابلة لإعادة المحاولة بدل 500.
+        // تتحول لـ RetryableConflict (409 قابلة لإعادة المحاولة) بدل 500،
+        // وبدل failed نهائي في مسار confirmBulk.
         try {
             DB::statement("SET LOCAL lock_timeout = '5s'");
             DB::select('SELECT pg_advisory_xact_lock(79301, 1)');
         } catch (QueryException $e) {
             if (($e->errorInfo[0] ?? null) === '55P03') {
-                abort(409, 'النظام مشغول حاليًا؛ حاول مرة أخرى.');
+                throw new RetryableConflict('النظام مشغول حاليًا؛ حاول مرة أخرى.', $e);
             }
             throw $e;
         }
@@ -193,7 +195,7 @@ final class StaffAdministration
 
     public static function audit(?User $actor, string $action, string $targetType, int|string|null $targetId, array $fields, array $before = [], array $after = [], array $via = []): void
     {
-        $allowed = array_flip(['roles', 'permissions', 'name', 'branch_id', 'is_active', 'settings', 'code', 'type', 'is_active_branch', 'email', 'discount_percentage', 'description']);
+        $allowed = array_flip(['roles', 'permissions', 'name', 'branch_id', 'is_active', 'settings', 'code', 'type', 'is_active_branch', 'email', 'discount_percentage', 'description', 'name_ar', 'name_en', 'slug', 'parent_id', 'sort_order', 'category_id', 'status', 'sales_channel', 'is_featured', 'sku', 'barcode', 'color_name_ar', 'color_name_en', 'color_hex', 'size', 'capacity', 'retail_price', 'wholesale_price', 'count', 'media_ids', 'updated_count']);
         $before = array_intersect_key($before, $allowed);
         $after = array_intersect_key($after, $allowed);
         if (array_key_exists('email', $before)) {
@@ -208,9 +210,9 @@ final class StaffAdministration
             'target_type' => $targetType,
             'target_id' => $targetId,
             // Sensitive fields (passwords, tokens) are stripped; only allowed state keys are stored
-            'metadata' => json_encode(['fields' => array_values(array_diff($fields, ['password', 'current_password', 'expected_version'])),
+            'metadata' => json_encode(['fields' => array_values(array_diff($fields, ['password', 'current_password', 'expected_version', 'cost_price'])),
                 'before' => $before, 'after' => $after,
-                'via' => array_intersect_key($via, array_flip(['channel', 'conversation_id', 'action_id'])),
+                'via' => array_intersect_key($via, array_flip(['channel', 'tool', 'entity', 'conversation_id', 'action_id'])),
                 'ip' => request()->ip(), 'method' => request()->method()], JSON_THROW_ON_ERROR),
             'created_at' => now(),
         ]);

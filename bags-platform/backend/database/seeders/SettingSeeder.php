@@ -84,6 +84,11 @@ class SettingSeeder extends Seeder
         // 6.1: أدوات العملاء وتحليل المستندات مقفولة افتراضيًا (خطة الإطلاق).
         ['group' => 'ai', 'key' => 'ai_customer_tools_enabled', 'value' => '0', 'type' => 'boolean'],
         ['group' => 'ai', 'key' => 'ai_document_analysis_enabled', 'value' => '0', 'type' => 'boolean'],
+        ['group' => 'ai', 'key' => 'ai_catalog_tools_enabled', 'value' => '0', 'type' => 'boolean'],
+        ['group' => 'ai', 'key' => 'ai_catalog_vision_enabled', 'value' => '0', 'type' => 'boolean'],
+        ['group' => 'ai', 'key' => 'ai_catalog_bulk_price_max_items', 'value' => '200', 'type' => 'integer'],
+        ['group' => 'ai', 'key' => 'ai_catalog_copywriting_enabled', 'value' => '0', 'type' => 'boolean'],
+        ['group' => 'ai', 'key' => 'ai_max_steps', 'value' => '6', 'type' => 'integer'],
     ];
 
     public function run(): void

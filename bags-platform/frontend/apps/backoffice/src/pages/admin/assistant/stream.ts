@@ -11,3 +11,26 @@ export function parseAgentEvents(text: string): AgentEvent[] {
     catch { return []; }
   });
 }
+
+/**
+ * L6: incremental SSE parsing for onDownloadProgress. Each progress event
+ * carries the FULL responseText, so re-parsing from scratch every chunk is
+ * O(n^2) and freezes the UI on long replies. The parser remembers how many
+ * bytes it already consumed and only parses newly completed frames,
+ * buffering the trailing partial frame for the next chunk.
+ */
+export function createIncrementalSseParser(): { feed(responseText: string): AgentEvent[] } {
+  let cursor = 0;
+  let pending = '';
+  return {
+    feed(responseText: string): AgentEvent[] {
+      if (responseText.length < cursor) { cursor = 0; pending = ''; }
+      pending += responseText.slice(cursor).replace(/\r\n/g, '\n');
+      cursor = responseText.length;
+      const frames = pending.split('\n\n');
+      pending = frames.pop() ?? '';
+      if (frames.length === 0) return [];
+      return parseAgentEvents(frames.join('\n\n') + '\n\n');
+    },
+  };
+}

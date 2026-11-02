@@ -37,6 +37,11 @@ const paths: Record<string, string> = {
   minus: 'M6 12h12',
   info: 'M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM12 11v5M12 8v.01',
   settings: 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2-1.2L14.2 3h-4l-.4 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.5a7 7 0 0 0 0 2.4l-2 1.5 2 3.4 2.4-1a7 7 0 0 0 2 1.2l.4 2.6h4l.4-2.6a7 7 0 0 0 2-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z',
+  image: 'M4 5h16v14H4zM8.5 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM20 15l-4.5-4.5L7 19',
+  paperclip: 'M21.4 11.1l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5',
+  tag: 'M3 12V3h9l9 9-9 9-9-9zM7.5 7.5v.01',
+  box: 'M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zM12 12l8-4.5M12 12v9M12 12L4 7.5',
+  folder: 'M3 6h6l2 2h10v11H3V6z',
 };
 
 export function Icon({ name, size = 18, className }: { name: keyof typeof paths | string; size?: number; className?: string }) {
@@ -59,8 +64,8 @@ export function Icon({ name, size = 18, className }: { name: keyof typeof paths 
   );
 }
 
-export const entityIcon: Record<string, string> = { user: 'user', branch: 'branch', role: 'role', command: 'command', customer: 'store', customer_group: 'layers' };
-export const entityLabel: Record<string, string> = { user: 'موظف', branch: 'فرع', role: 'دور', command: 'أمر', customer: 'عميل', customer_group: 'مجموعة عملاء' };
+export const entityIcon: Record<string, string> = { user: 'user', branch: 'branch', role: 'role', command: 'command', customer: 'store', customer_group: 'layers', category: 'folder', product: 'box', variant: 'tag' };
+export const entityLabel: Record<string, string> = { user: 'موظف', branch: 'فرع', role: 'دور', command: 'أمر', customer: 'عميل', customer_group: 'مجموعة عملاء', category: 'قسم', product: 'منتج', variant: 'تشكيلة' };
 
 // حلقة عدّاد تنازلي — fraction من 0 لـ 1.
 export function Ring({ fraction, size = 22 }: { fraction: number; size?: number }) {

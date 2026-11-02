@@ -103,7 +103,9 @@ class CatalogAuditTest extends TestCase
         $created = $this->postJson("/api/v1/admin/products/{$product->id}/variants", ['cost_price' => 500])
             ->assertCreated();
         $id = $created->json('data.id');
-        $this->putJson("/api/v1/admin/products/{$product->id}/variants/{$id}", ['cost_price' => 700])
+        // M5: expected_version is required for variant updates.
+        $version = \App\Models\ProductVariant::findOrFail($id)->lock_version;
+        $this->putJson("/api/v1/admin/products/{$product->id}/variants/{$id}", ['cost_price' => 700, 'expected_version' => $version])
             ->assertOk();
         $this->assertDatabaseHas('product_variants', ['id' => $id, 'cost_price' => 0]);
     }

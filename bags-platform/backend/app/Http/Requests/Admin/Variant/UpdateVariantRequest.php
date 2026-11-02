@@ -43,9 +43,28 @@ class UpdateVariantRequest extends FormRequest
             $rules[$field] = $rule;
         }
 
-        $rules['expected_version'] = ['sometimes', 'integer', 'min:0'];
+        // M5: رقم الإصدار إلزامي — الكتابة فوق أسعار (retail/wholesale) برقم
+        // قديم دون 409 كانت تضيّع تعديلات أسعار حقيقية.
+        $rules['expected_version'] = ['required', 'integer', 'min:0'];
 
         return $rules;
+    }
+
+    /**
+     * M5: فترة انتقالية — العملاء القدامى الذين لا يرسلون رقم الإصدار
+     * يُرفضون بـ 422، مع تسجيل تحذير لقياس حجمهم قبل الإلزام الكامل.
+     */
+    protected function failedValidation(\Illuminate\Contracts\Validation\Validator $validator): void
+    {
+        if ($validator->errors()->has('expected_version')) {
+            \Illuminate\Support\Facades\Log::warning('variant.update_without_expected_version', [
+                'user_id' => $this->user()?->id,
+                'variant_id' => $this->route('variant')?->id,
+                'has_version' => $this->filled('expected_version'),
+            ]);
+        }
+
+        parent::failedValidation($validator);
     }
 
     public function after(): array

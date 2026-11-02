@@ -21,6 +21,8 @@ abstract class TestCase extends BaseTestCase
         // H5: catalog collections (products/variants/categories/brands) live on
         // the public bucket; fake it alongside the private one.
         Storage::fake('r2_public');
+        // H3: AI conversation attachments live on the shared private disk.
+        Storage::fake('ai_private');
 
         return $disk;
     }

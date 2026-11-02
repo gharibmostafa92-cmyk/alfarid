@@ -189,7 +189,8 @@ class CatalogReviewRoundTwoTest extends TestCase
     public function test_clearing_barcode_regenerates_the_internal_code(): void
     {
         $variant = ProductVariant::factory()->create(['barcode' => 'EXT-123']);
-        $this->patchJson("/api/v1/admin/products/{$variant->product_id}/variants/{$variant->id}", ['barcode' => null])
+        // M5: expected_version is required for variant updates.
+        $this->patchJson("/api/v1/admin/products/{$variant->product_id}/variants/{$variant->id}", ['barcode' => null, 'expected_version' => $variant->fresh()->lock_version])
             ->assertOk()->assertJsonPath('data.barcode', BarcodeGenerator::fromId($variant->id));
     }
 

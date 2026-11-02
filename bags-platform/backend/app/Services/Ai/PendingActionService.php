@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Ai;
 
 use App\Exceptions\BusinessException;
+use App\Exceptions\RetryableConflict;
 use App\Models\AiMessage;
 use App\Models\AiPendingAction;
 use App\Models\Branch;
@@ -31,9 +32,13 @@ final class PendingActionService
         if ($action->tool === 'bulk_actions') {
             return $this->confirmBulk($actor, $action, $typed, $selectedItems);
         }
+        $toolInstance = $this->registry->toolInstance($action->tool);
+        if ($toolInstance instanceof \App\Services\Ai\Contracts\ExecutesOutsideTransaction) {
+            return $this->confirmOutsideTransaction($actor, $action, $typed, $toolInstance);
+        }
         try {
             $result = DB::transaction(function () use ($actor, $action, $typed) {
-                StaffAdministration::lock();
+                $this->lockForAction($action->tool);
                 $locked = AiPendingAction::query()->lockForUpdate()->findOrFail($action->id);
                 try {
                     return $this->confirmLocked($actor, $locked, $typed);
@@ -55,6 +60,60 @@ final class PendingActionService
         }
 
         return $result;
+    }
+
+    private function confirmOutsideTransaction(User $actor, AiPendingAction $action, ?string $typed, WriteTool $tool): ToolOutcome
+    {
+        $claim = DB::transaction(function () use ($actor, $action, $typed) {
+            $this->lockForAction($action->tool);
+            $locked = AiPendingAction::query()->lockForUpdate()->findOrFail($action->id);
+            try {
+                return $this->confirmLocked($actor, $locked, $typed);
+            } catch (HttpExceptionInterface $e) {
+                return $e;
+            }
+        });
+        if ($claim instanceof \Throwable) {
+            throw $claim;
+        }
+        if ($claim instanceof ToolOutcome && $claim->type !== 'claimed') {
+            return $claim;
+        }
+
+        try {
+            $outcome = $tool->execute($actor, $action->fresh() ?? $action);
+        } catch (\Throwable $e) {
+            DB::transaction(function () use ($action, $e): void {
+                $locked = AiPendingAction::query()->lockForUpdate()->find($action->id);
+                if ($locked && $locked->status === 'confirmed') {
+                    $message = ($e instanceof BusinessException || $e instanceof ValidationException)
+                        ? ($e instanceof ValidationException ? collect($e->errors())->flatten()->implode(' ') : $e->getMessage())
+                        : 'تعذّر التنفيذ؛ راجع البيانات أو اطلب اقتراحًا جديدًا.';
+                    $this->markFailed($locked, $message ?: 'تعذّر التنفيذ؛ راجع البيانات أو اطلب اقتراحًا جديدًا.');
+                }
+            });
+            if ($e instanceof BusinessException && $e->status === 409) {
+                abort(409, $e->getMessage());
+            }
+            if ($e instanceof HttpExceptionInterface) {
+                throw $e;
+            }
+            if ($e instanceof BusinessException || $e instanceof ValidationException) {
+                $msg = $e instanceof ValidationException ? collect($e->errors())->flatten()->implode(' ') : $e->getMessage();
+
+                return ToolOutcome::result(false, $msg ?: 'تعذّر التنفيذ.');
+            }
+            throw $e;
+        }
+
+        return DB::transaction(function () use ($action, $outcome): ToolOutcome {
+            $locked = AiPendingAction::query()->lockForUpdate()->findOrFail($action->id);
+            if ($locked->status === 'confirmed') {
+                return $this->finalizeAction($locked, $outcome);
+            }
+
+            return ToolOutcome::wrap($outcome->type, $outcome->data, $outcome->uiBlock, $outcome->message);
+        });
     }
 
     private function confirmBulk(User $actor, AiPendingAction $action, ?string $typed, ?array $selectedItems): ToolOutcome
@@ -104,13 +163,11 @@ final class PendingActionService
 
                     continue;
                 }
-                AiPendingAction::whereKey($action->id)->where('status', 'confirmed')->update(['status' => 'pending']);
-                $done = count(array_filter($results, fn ($item) => $item['ok']));
-                $message = $done === 0
-                    ? 'السجل مشغول بتعديل تاني؛ مفيش حاجة اتنفذت. جرّب تأكيد الدفعة تاني بعد لحظة.'
-                    : 'السجل مشغول بتعديل تاني؛ العناصر المنفذة: '.$done.' من '.count($claim['selected']).'. الباقي ما اتنفذش — جرّب تأكيد الدفعة تاني بعد لحظة.';
-                $this->event($action, 'result', $message, [['type' => 'result', 'ok' => false, 'message' => $message]]);
-                abort(409, $message);
+                $this->retryBulkConflict($action, $claim, $results);
+            } catch (RetryableConflict $e) {
+                // H2: قفل/تايم-أوت من confirmLocked أو StaffAdministration::lock
+                // يصل هنا كاستثناء مخصص — نفس مسار إعادة المحاولة، لا failed.
+                $this->retryBulkConflict($action, $claim, $results);
             } catch (\Throwable $e) {
                 if (! $e instanceof HttpExceptionInterface && ! $e instanceof ValidationException) {
                     report($e);
@@ -122,11 +179,47 @@ final class PendingActionService
         $successes = count(array_filter($results, fn ($item) => $item['ok']));
         $ok = $successes === count($results);
         $message = 'تم تنفيذ '.$successes.' من '.count($results).' عمليات.';
-        $action->refresh()->forceFill(['status' => 'executed', 'executed_at' => now(), 'result' => ['ok' => $ok, 'message' => $message, 'items' => $results]])->save();
+        // L4: الأب الفاشل كليًا يُوسم failed لا executed — وإلا usage()
+        // والتقارير تحسبه نجاحًا.
+        $parentStatus = $successes === 0 ? 'failed' : 'executed';
+        $action->refresh()->forceFill(['status' => $parentStatus, 'executed_at' => now(), 'result' => ['ok' => $ok, 'message' => $message, 'items' => $results]])->save();
         $block = ['type' => 'result', 'ok' => $ok, 'message' => $message, 'items' => $results];
         $this->event($action, 'result', $message, [$block]);
 
         return ToolOutcome::result($ok, $message, ['items' => $results], $block);
+    }
+
+    /**
+     * H2: تعارض مؤقت أثناء تأكيد عنصر جماعي — الأب يرجع pending
+     * (قابل للتأكيد من جديد)، والعنصر الحالي يبقى pending، ولا شيء يوسم
+     * failed. تُرمى 409 دائمًا بعد تسجيل حدث النتيجة.
+     *
+     * @param  array{selected:list<string>,all:list<string>}  $claim
+     * @param  list<array{action_id:string,ok:bool,message:string}>  $results
+     */
+    private function retryBulkConflict(AiPendingAction $action, array $claim, array $results): never
+    {
+        AiPendingAction::whereKey($action->id)->where('status', 'confirmed')->update(['status' => 'pending']);
+        $done = count(array_filter($results, fn ($item) => $item['ok']));
+        $message = $done === 0
+            ? 'السجل مشغول بتعديل تاني؛ مفيش حاجة اتنفذت. جرّب تأكيد الدفعة تاني بعد لحظة.'
+            : 'السجل مشغول بتعديل تاني؛ العناصر المنفذة: '.$done.' من '.count($claim['selected']).'. الباقي ما اتنفذش — جرّب تأكيد الدفعة تاني بعد لحظة.';
+        $this->event($action, 'result', $message, [['type' => 'result', 'ok' => false, 'message' => $message]]);
+        abort(409, $message);
+    }
+
+    /**
+     * M7: القفل الاستشاري العام لأدوات إدارة الموظفين فقط. أدوات
+     * الكتالوج تعتمد على CatalogLock::tree + أقفال الصفوف (lockForUpdate)
+     * الموجودة أصلًا، فأخذ القفل العام عند تأكيدها كان يسلسل كل شيء
+     * خلف أثقل عملية كتالوج.
+     */
+    private function lockForAction(string $tool): void
+    {
+        if ($this->registry->isCatalogTool($tool)) {
+            return;
+        }
+        StaffAdministration::lock();
     }
 
     private function authorizeTool(User $actor, AiPendingAction $action): void
@@ -136,8 +229,9 @@ final class PendingActionService
         $disabled = $this->settings->get('ai_disabled_tools', []);
         abort_if(is_array($disabled) && in_array($action->tool, $disabled, true), 403, 'الأداة مقفولة من الإعدادات.');
         abort_if($this->registry->isCustomerTool($action->tool) && ! $this->registry->customerToolsEnabled(), 403, 'أدوات العملاء مقفولة من الإعدادات.');
+        abort_if($this->registry->toolHiddenByFlags($action->tool), 403, 'الأداة مقفولة من الإعدادات.');
         $def = $this->registry->definitions()[$action->tool] ?? null;
-        abort_unless($def && $actor->is_active && $actor->can('ai_agent.use') && $actor->can('ai_agent.execute') && $actor->canAny($def['permissions']), 403);
+        abort_unless($def && $actor->is_active && $actor->can('ai_agent.use') && $actor->can('ai_agent.execute') && $this->registry->actorHasToolPermissions($actor, $action->tool, $def), 403);
         abort_unless($action->conversation()->exists(), 409, 'المحادثة اتحذفت.');
         abort_unless(hash_equals($action->args_hash, $this->registry->hashArgs($action->args)), 409, 'بيانات الإجراء اتغيرت.');
     }
@@ -161,29 +255,15 @@ final class PendingActionService
         // re-check execute + original permission
         $defs = $this->registry->definitions();
         $def = $defs[$action->tool] ?? null;
-        abort_unless($def && $actor->can('ai_agent.execute') && $actor->canAny($def['permissions']), 403);
+        abort_unless($def && $actor->can('ai_agent.execute') && $this->registry->actorHasToolPermissions($actor, $action->tool, $def), 403);
         if ($action->risk === 'high') {
-            $preview = $action->preview;
-            $title = $preview['title'] ?? '';
-            // typed confirmation enforced when preview carries typed_confirmation via block reconstruction: check args
-            $expectedTyped = null;
+            $preview = $action->preview ?? [];
+            [$expectedTyped, $typedHint] = ProposalBuilder::resolveTypedConfirmation($action->tool, $action->args ?? [], $preview);
             $typedInstruction = null;
-            if ($action->tool === 'set_branch_status') {
-                $b = Branch::find($action->args['branch_id'] ?? null);
-                $expectedTyped = $b?->code;
-            }
-            if ($action->tool === 'delete_role') {
-                $r = Role::find($action->args['role_id'] ?? null);
-                $expectedTyped = $r?->name;
-            }
-            // 2.3: أدوات العملاء عالية الخطورة — آخر 4 أرقام من موبايل
-            // التاجر، تُشتق من قاعدة البيانات وقت التأكيد (مش من الكارت).
             if (in_array($action->tool, ['approve_dealer_application', 'reject_dealer_application', 'suspend_customer', 'set_credit_limit'], true)) {
-                $phone = Customer::withTrashed()->find($action->args['customer_id'] ?? null)?->phone;
-                $expectedTyped = $phone ? substr((string) $phone, -4) : null;
-                // التعليمة بس من غير الرقم نفسه — الرقم لا يتسرب في رسالة
-                // خطأ، والأدمن مضطر يبص في ملف التاجر فعلًا.
                 $typedInstruction = 'اكتب آخر 4 أرقام من موبايل التاجر.';
+            } elseif ($typedHint !== null && $typedHint !== '') {
+                $typedInstruction = 'اكتب '.$typedHint.': '.$expectedTyped;
             }
             // L-9: مطابقة متسامحة (trim + توحيد حالة) بدل الحرفية الصارمة.
             $norm = fn (?string $v): ?string => $v === null ? null : mb_strtolower(trim($v));
@@ -193,6 +273,11 @@ final class PendingActionService
             if ($expectedTyped !== null && ($typed === null || trim($typed) === '')) {
                 abort(422, $typedInstruction ?? 'اكتب نص التأكيد المطلوب: '.$expectedTyped);
             }
+        }
+        if ($this->registry->toolInstance($action->tool) instanceof \App\Services\Ai\Contracts\ExecutesOutsideTransaction) {
+            $action->forceFill(['status' => 'confirmed'])->save();
+
+            return ToolOutcome::wrap('claimed');
         }
         $via = ['channel' => 'ai', 'conversation_id' => $action->conversation_id, 'action_id' => $action->id];
         try {
@@ -209,6 +294,18 @@ final class PendingActionService
             $this->event($action, 'result', $message, [['type' => 'result', 'ok' => false, 'message' => $message]]);
             abort(409, $message);
         } catch (BusinessException|ValidationException $e) {
+            if ($e instanceof BusinessException && $e->status === 409) {
+                $message = $e->getMessage() ?: 'حد عدّل السجل ده بعد الاقتراح. تحب أجهّز اقتراح جديد؟';
+                $action->forceFill(['status' => 'failed', 'result' => ['message' => $message]])->save();
+                $this->event($action, 'result', $message, [['type' => 'result', 'ok' => false, 'message' => $message]]);
+                abort(409, $message);
+            }
+            if ($e instanceof BusinessException && $e->status === 403) {
+                $message = $e->getMessage() ?: 'صلاحيتك على السجل ده اتغيرت بعد الاقتراح؛ اطلب اقتراحًا جديدًا.';
+                $this->markFailed($action, $message);
+
+                return ToolOutcome::result(false, $message);
+            }
             // M-5: خطأ عمل مفهوم (تعطيل مرفوض/تحقق) يُحوَّل لفشل مسجَّل بدل
             // إلغاء الـ transaction الخارجية وبقاء الإجراء pending للأبد.
             $message = $e instanceof ValidationException
@@ -229,10 +326,11 @@ final class PendingActionService
 
             return ToolOutcome::result(false, $message);
         } catch (QueryException $e) {
-            // M1: كتلة QueryException واحدة. قفل/deadlock → 409 قابل لإعادة المحاولة من غير
-            // وسم failed (الـ savepoint اتراجع ومفيش حالة اتغيرت). غير كده → failed برسالة مفهومة.
+            // M1: كتلة QueryException واحدة. قفل/deadlock → RetryableConflict
+            // (409 قابل لإعادة المحاولة) من غير وسم failed (الـ savepoint
+            // اتراجع ومفيش حالة اتغيرت). غير كده → failed برسالة مفهومة.
             if (in_array($e->errorInfo[0] ?? null, ['55P03', '40P01', '40001'], true) || $this->isRetryableLockFailure($e)) {
-                abort(409, 'السجل مشغول بتعديل تاني؛ مفيش حاجة اتنفذت. جرّب التأكيد تاني بعد لحظة.');
+                throw new RetryableConflict('السجل مشغول بتعديل تاني؛ مفيش حاجة اتنفذت. جرّب التأكيد تاني بعد لحظة.', $e);
             }
             report($e);
             $message = match ($e->errorInfo[0] ?? null) {
@@ -245,11 +343,21 @@ final class PendingActionService
             return ToolOutcome::result(false, $message);
         } catch (HttpExceptionInterface $e) {
             if ($e->getStatusCode() === 409) {
-                $action->forceFill(['status' => 'failed', 'result' => ['message' => 'حد عدّل السجل ده بعد الاقتراح. تحب أجهّز اقتراح جديد؟']])->save();
-                $this->event($action, 'result', 'حد عدّل السجل ده بعد الاقتراح.', [['type' => 'result', 'ok' => false, 'message' => 'حد عدّل السجل ده بعد الاقتراح.']]);
+                // H2: التعارض القابل لإعادة المحاولة لا يوسم failed — مفيش
+                // حالة اتغيرت، وإعادة التأكيد بعد لحظة كافية.
+                if (! $e instanceof RetryableConflict) {
+                    $action->forceFill(['status' => 'failed', 'result' => ['message' => $e->getMessage() ?: 'حد عدّل السجل ده بعد الاقتراح. تحب أجهّز اقتراح جديد؟']])->save();
+                    $this->event($action, 'result', $e->getMessage() ?: 'حد عدّل السجل ده بعد الاقتراح.', [['type' => 'result', 'ok' => false, 'message' => $e->getMessage() ?: 'حد عدّل السجل ده بعد الاقتراح.']]);
+                }
             }
             throw $e;
         }
+
+        return $this->finalizeAction($action, $outcome);
+    }
+
+    private function finalizeAction(AiPendingAction $action, ToolOutcome $outcome): ToolOutcome
+    {
         $ok = $outcome->type === 'result';
         $storedResult = $outcome->data;
         unset($storedResult['generated_password']);
@@ -267,6 +375,10 @@ final class PendingActionService
             }
         } else {
             $blocks = [['type' => 'result', 'ok' => $ok, 'message' => $outcome->message ?? '']];
+            if ($ok && $this->registry->canUndo($action)) {
+                $blocks[0]['undo_available_until'] = now()->addMinutes(15)->toIso8601String();
+                $blocks[0]['undo_action_id'] = $action->id;
+            }
         }
         $this->event($action, 'result', $outcome->message ?? '', $blocks, stripPassword: in_array($action->tool, ['create_staff_user', 'create_customer'], true));
 
@@ -278,7 +390,7 @@ final class PendingActionService
         abort_unless($action->user_id === $actor->id, 403);
 
         return DB::transaction(function () use ($actor, $action): AiPendingAction {
-            StaffAdministration::lock();
+            $this->lockForAction($action->tool);
             $locked = AiPendingAction::query()->lockForUpdate()->findOrFail($action->id);
             if ($locked->status === 'pending') {
                 $locked->forceFill(['status' => 'cancelled'])->save();
@@ -299,7 +411,7 @@ final class PendingActionService
         abort_unless($action->user_id === $actor->id, 403);
 
         return DB::transaction(function () use ($actor, $action) {
-            StaffAdministration::lock();
+            $this->lockForAction($action->tool);
             $locked = AiPendingAction::query()->lockForUpdate()->findOrFail($action->id);
             abort_unless($locked->user_id === $actor->id, 403);
             $this->registry->lockTargets($locked);
@@ -319,6 +431,12 @@ final class PendingActionService
         $via = ['channel' => 'ai', 'conversation_id' => $action->conversation_id, 'action_id' => $action->id];
         try {
             $outcome = $this->registry->executeUndo($actor, $action, $via);
+        } catch (BusinessException $e) {
+            if ($e->status === 409) {
+                $this->event($action, 'result', 'التراجع اترفض عشان السجل اتعدل.', [['type' => 'result', 'ok' => false, 'message' => 'التراجع اترفض: السجل اتعدل بعد التنفيذ.']]);
+                abort(409, $e->getMessage());
+            }
+            return ToolOutcome::result(false, $e->getMessage() ?: 'فشل التراجع.');
         } catch (HttpExceptionInterface $e) {
             if ($e->getStatusCode() === 409) {
                 $this->event($action, 'result', 'التراجع اترفض عشان السجل اتعدل.', [['type' => 'result', 'ok' => false, 'message' => 'التراجع اترفض: السجل اتعدل بعد التنفيذ.']]);

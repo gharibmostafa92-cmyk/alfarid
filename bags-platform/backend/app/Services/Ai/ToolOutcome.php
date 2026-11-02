@@ -40,7 +40,7 @@ final class ToolOutcome
         return new self($ok ? 'result' : 'failed', $data, $block, $message);
     }
 
-    public static function wrap(string $type, array $data, ?array $block, ?string $message): self
+    public static function wrap(string $type, array $data = [], ?array $block = null, ?string $message = null): self
     {
         return new self($type, $data, $block, $message);
     }

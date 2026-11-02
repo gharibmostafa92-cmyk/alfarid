@@ -199,10 +199,12 @@ class CatalogImprovementReviewTest extends TestCase
     {
         $variant = ProductVariant::factory()->create(['color_name_en' => 'Black', 'color_name_ar' => 'أسود', 'color_hex' => '#000000']);
         $url = "/api/v1/admin/products/{$variant->product_id}/variants/{$variant->id}";
-        $this->patchJson($url, ['color_hex' => '#111111'])->assertOk();
-        $this->patchJson($url, ['color_name_en' => '0'])->assertOk();
-        $this->patchJson($url, ['color_hex' => '#222222'])->assertOk();
-        $this->patchJson($url, ['color_name_en' => null])->assertUnprocessable()->assertJsonValidationErrors('color_name_en');
+        // M5: expected_version is required for variant updates.
+        $patch = fn (array $payload) => $this->patchJson($url, $payload + ['expected_version' => $variant->fresh()->lock_version]);
+        $patch(['color_hex' => '#111111'])->assertOk();
+        $patch(['color_name_en' => '0'])->assertOk();
+        $patch(['color_hex' => '#222222'])->assertOk();
+        $patch(['color_name_en' => null])->assertUnprocessable()->assertJsonValidationErrors('color_name_en');
     }
 
     public function test_stale_variant_instance_does_not_reintroduce_duplicate_combinations(): void

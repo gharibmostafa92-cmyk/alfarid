@@ -33,9 +33,9 @@ class StoreProductRequest extends FormRequest
     /**
      * @return array<string, array<mixed>|string|ValidationRule>
      */
-    public function rules(): array
+    public static function baseRules(): array
     {
-        $rules = [
+        return [
             'category_id' => ['required', 'integer', Rule::exists('categories', 'id')->whereNull('deleted_at')],
             'brand_id' => ['prohibited'],
             'supplier_id' => ['prohibited'],
@@ -54,19 +54,28 @@ class StoreProductRequest extends FormRequest
             'warranty_details' => ['nullable', 'string', 'max:255'],
             'country_of_origin' => ['nullable', 'string', 'max:100'],
             'status' => ['nullable', Rule::in(['draft'])],
-            // F9: idempotency key for product creation — one UUID per creation
-            // session, reused across retries so a lost response cannot duplicate.
-            'create_key' => ['nullable', 'uuid'],
             'sales_channel' => ['required', Rule::enum(SalesChannel::class)],
             'is_featured' => ['nullable', 'boolean'],
             'occasions' => ['sometimes', 'nullable', 'array', 'max:4'],
             'occasions.*' => ['string', 'distinct', Rule::enum(Occasion::class)],
             'badge_en' => ['sometimes', 'nullable', 'string', 'max:30'],
             'badge_ar' => ['sometimes', 'nullable', 'string', 'max:30'],
+        ];
+    }
+
+    /**
+     * @return array<string, array<mixed>|string|ValidationRule>
+     */
+    public function rules(): array
+    {
+        $rules = array_merge(self::baseRules(), [
+            // F9: idempotency key for product creation — one UUID per creation
+            // session, reused across retries so a lost response cannot duplicate.
+            'create_key' => ['nullable', 'uuid'],
             // اختياري: متغيرات مع الإنشاء
             'variants' => ['nullable', 'array', 'max:100'],
             'variants.*' => ['array:'.implode(',', array_keys(VariantRules::base()))],
-        ];
+        ]);
 
         foreach (VariantRules::base(null, 'variants.*.') as $field => $rule) {
             if (in_array($field, ['sku', 'barcode'], true)) {

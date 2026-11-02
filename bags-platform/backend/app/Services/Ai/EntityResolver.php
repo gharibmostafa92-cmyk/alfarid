@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace App\Services\Ai;
 
 use App\Models\Branch;
+use App\Models\Category;
 use App\Models\Customer;
 use App\Models\CustomerGroup;
 use App\Models\Location;
+use App\Models\Product;
+use App\Models\ProductVariant;
 use App\Models\User;
 use App\Services\BranchAccess;
 use App\Services\SearchTerm;
@@ -18,6 +21,41 @@ use Spatie\Permission\Models\Role;
 final class EntityResolver
 {
     public function __construct(private BranchAccess $branches) {}
+
+    public static function normalizeDigits(string $value): string
+    {
+        return strtr($value, [
+            '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4',
+            '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
+            '۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4',
+            '۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9',
+        ]);
+    }
+
+    /** @return list<string> */
+    public static function expandCatalogSearchTerms(string $query): array
+    {
+        $clean = trim(self::normalizeDigits($query));
+        if ($clean === '') {
+            return [];
+        }
+        $terms = [$clean];
+        $norm = self::normalizeForSearch($clean);
+        if ($norm !== '' && $norm !== $clean) {
+            $terms[] = $norm;
+        }
+        $synonyms = (array) config('ai_catalog_synonyms', []);
+        foreach ($synonyms as $phrase => $expansions) {
+            $normPhrase = self::normalizeForSearch((string) $phrase);
+            if ($normPhrase !== '' && (str_contains($norm, $normPhrase) || str_contains(mb_strtolower($clean), mb_strtolower((string) $phrase)))) {
+                foreach ((array) $expansions as $exp) {
+                    $terms[] = (string) $exp;
+                }
+            }
+        }
+
+        return array_values(array_unique(array_filter($terms, fn ($t) => trim($t) !== '')));
+    }
 
     public static function normalize(string $value): string
     {
@@ -260,6 +298,184 @@ final class EntityResolver
         return Branch::find($opts[0]['id']);
     }
 
+    /** @return list<array{id:int,label:string,meta:string}> */
+    public function categories(User $actor, string $q = '', array $filters = []): array
+    {
+        $clean = trim(self::normalizeDigits($q));
+        $terms = self::expandCatalogSearchTerms($clean);
+
+        return Category::query()
+            ->with('parent:id,name_ar,name_en')
+            ->withCount('products')
+            ->when(array_key_exists('active', $filters), fn ($x) => $x->where('is_active', (bool) $filters['active']))
+            ->when(array_key_exists('parent_id', $filters), fn ($x) => $filters['parent_id'] === null ? $x->whereNull('parent_id') : $x->where('parent_id', (int) $filters['parent_id']))
+            ->when(! empty($filters['root_only']), fn ($x) => $x->whereNull('parent_id'))
+            ->when($terms !== [], function ($x) use ($terms): void {
+                $x->where(function ($w) use ($terms): void {
+                    foreach ($terms as $term) {
+                        $pattern = SearchTerm::pattern($term);
+                        $w->orWhereLike('name_ar', $pattern, caseSensitive: false)
+                            ->orWhereLike('name_en', $pattern, caseSensitive: false)
+                            ->orWhereLike('slug', $pattern, caseSensitive: false);
+                    }
+                });
+            })
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->limit(20)
+            ->get()
+            ->map(fn (Category $c) => [
+                'id' => $c->id,
+                'label' => $c->name_ar.' ('.$c->slug.')',
+                'meta' => ($c->is_active ? 'نشط' : 'معطّل').' · '.$c->products_count.' منتج'.($c->parent ? ' · أب: '.$c->parent->name_ar : ''),
+            ])
+            ->values()
+            ->all();
+    }
+
+    /** @return list<array{id:int,label:string,meta:string}> */
+    public function products(User $actor, string $q = '', array $filters = []): array
+    {
+        $clean = trim(self::normalizeDigits($q));
+
+        // أي query من غير مسافات وطوله 4 أو أكتر يتجرب الأول كـ SKU/barcode/code مضبوط (LOWER(sku) = LOWER(?)). لو لقى نتيجة واحدة يرجعها على طول.
+        if ($clean !== '' && ! preg_match('/\s/u', $clean) && mb_strlen($clean) >= 4) {
+            $exact = Product::query()
+                ->with('category:id,name_ar,name_en')
+                ->withCount('variants')
+                ->where(function ($w) use ($clean): void {
+                    $w->whereRaw('LOWER(code) = LOWER(?)', [$clean])
+                        ->orWhereIn('products.id', ProductVariant::query()->select('product_id')
+                            ->where(fn ($v) => $v->whereRaw('LOWER(sku) = LOWER(?)', [$clean])->orWhereRaw('LOWER(barcode) = LOWER(?)', [$clean])));
+                })
+                ->limit(2)
+                ->get();
+            if ($exact->count() === 1) {
+                $p = $exact->first();
+
+                return [[
+                    'id' => $p->id,
+                    'label' => $p->name_ar.' — '.$p->code,
+                    'meta' => $p->status->value.' · '.$p->variants_count.' متغير · '.($p->category?->name_ar ?? '—'),
+                ]];
+            }
+        }
+
+        $terms = self::expandCatalogSearchTerms($clean);
+        $query = Product::query()
+            ->with('category:id,name_ar,name_en')
+            ->withCount('variants')
+            ->when(isset($filters['status']), fn ($x) => $x->where('status', $filters['status']))
+            ->when(isset($filters['category_id']), function ($x) use ($filters): void {
+                $cat = Category::find((int) $filters['category_id']);
+                if ($cat) {
+                    $ids = ! empty($filters['include_children']) ? [$cat->id, ...$cat->descendantIds()] : [$cat->id];
+                    $x->whereIn('category_id', $ids);
+                } else {
+                    $x->where('category_id', (int) $filters['category_id']);
+                }
+            })
+            ->when(isset($filters['sales_channel']), fn ($x) => $x->where('sales_channel', $filters['sales_channel']))
+            ->when(($filters['missing'] ?? null) === 'images', function ($x): void {
+                $x->whereDoesntHave('media', fn ($m) => $m->where('collection_name', 'images'))
+                    ->whereDoesntHave('variants', fn ($v) => $v->where('is_active', true)->whereHas('media', fn ($m) => $m->where('collection_name', 'images')));
+            })
+            ->when(($filters['missing'] ?? null) === 'prices', function ($x): void {
+                $x->whereHas('variants', function ($v): void {
+                    $v->where('is_active', true)->where(function ($p): void {
+                        $p->where(fn ($r) => $r->whereIn('products.sales_channel', ['retail', 'both'])->where(fn ($w) => $w->whereNull('retail_price')->orWhere('retail_price', '<=', 0)))
+                            ->orWhere(fn ($r) => $r->whereIn('products.sales_channel', ['wholesale', 'both'])->where(fn ($w) => $w->whereNull('wholesale_price')->orWhere('wholesale_price', '<=', 0)));
+                    });
+                });
+            });
+
+        if ($terms !== []) {
+            $query->where(function ($w) use ($terms, $clean): void {
+                $w->whereRaw('LOWER(code) = LOWER(?)', [$clean])
+                    ->orWhereIn('products.id', ProductVariant::query()->select('product_id')
+                        ->where(fn ($v) => $v->whereRaw('LOWER(sku) = LOWER(?)', [$clean])->orWhereRaw('LOWER(barcode) = LOWER(?)', [$clean])));
+                foreach ($terms as $term) {
+                    $pattern = SearchTerm::pattern($term);
+                    $w->orWhereLike('name_ar', $pattern, caseSensitive: false)
+                        ->orWhereLike('name_en', $pattern, caseSensitive: false);
+                }
+            });
+        }
+
+        return $query->orderByDesc('id')
+            ->limit(20)
+            ->get()
+            ->map(fn (Product $p) => [
+                'id' => $p->id,
+                'label' => $p->name_ar.' — '.$p->code,
+                'meta' => $p->status->value.' · '.$p->variants_count.' متغير · '.($p->category?->name_ar ?? '—'),
+            ])
+            ->values()
+            ->all();
+    }
+
+    /** @return list<array{id:int,label:string,meta:string}> */
+    public function variants(User $actor, string $q = '', ?int $productId = null): array
+    {
+        $clean = trim(self::normalizeDigits($q));
+        if ($clean !== '' && ! preg_match('/\s/u', $clean) && mb_strlen($clean) >= 4 && $productId === null) {
+            $exact = $this->exactVariantByCode($clean);
+            if ($exact) {
+                $exact->loadMissing('product:id,name_ar,code');
+
+                return [[
+                    'id' => $exact->id,
+                    'label' => ($exact->product?->name_ar ?? '').' — '.$exact->sku,
+                    'meta' => trim(implode(' · ', array_filter([$exact->color_name_ar ?: $exact->color_name_en, $exact->size, $exact->capacity, $exact->is_active ? 'نشط' : 'معطّل']))),
+                ]];
+            }
+        }
+
+        $terms = self::expandCatalogSearchTerms($clean);
+
+        return ProductVariant::query()
+            ->with('product:id,name_ar,name_en,code')
+            ->when($productId !== null, fn ($x) => $x->where('product_id', $productId))
+            ->when($terms !== [], function ($x) use ($terms, $clean): void {
+                $x->where(function ($w) use ($terms, $clean): void {
+                    $w->whereRaw('LOWER(sku) = LOWER(?)', [$clean])
+                        ->orWhereRaw('LOWER(barcode) = LOWER(?)', [$clean]);
+                    foreach ($terms as $term) {
+                        $pattern = SearchTerm::pattern($term);
+                        $w->orWhereLike('sku', $pattern, caseSensitive: false)
+                            ->orWhereLike('color_name_ar', $pattern, caseSensitive: false)
+                            ->orWhereLike('color_name_en', $pattern, caseSensitive: false)
+                            ->orWhereLike('size', $pattern, caseSensitive: false)
+                            ->orWhereHas('product', fn ($p) => $p->whereLike('name_ar', $pattern, caseSensitive: false)->orWhereLike('name_en', $pattern, caseSensitive: false)->orWhereLike('code', $pattern, caseSensitive: false));
+                    }
+                });
+            })
+            ->orderBy('id')
+            ->limit(20)
+            ->get()
+            ->map(fn (ProductVariant $v) => [
+                'id' => $v->id,
+                'label' => ($v->product?->name_ar ?? '').' — '.$v->sku,
+                'meta' => trim(implode(' · ', array_filter([$v->color_name_ar ?: $v->color_name_en, $v->size, $v->capacity, $v->is_active ? 'نشط' : 'معطّل']))),
+            ])
+            ->values()
+            ->all();
+    }
+
+    public function exactVariantByCode(string $code): ?ProductVariant
+    {
+        $clean = trim(self::normalizeDigits($code));
+        if ($clean === '') {
+            return null;
+        }
+        $matches = ProductVariant::query()
+            ->where(fn ($q) => $q->whereRaw('LOWER(sku) = LOWER(?)', [$clean])->orWhereRaw('LOWER(barcode) = LOWER(?)', [$clean]))
+            ->limit(2)
+            ->get();
+
+        return $matches->count() === 1 ? $matches->first() : null;
+    }
+
     public function reference(User $actor, array $reference): array
     {
         $type = $reference['entity'] ?? '';
@@ -275,12 +491,22 @@ final class EntityResolver
             // العملاء بلا branch scoping — زي REST بالظبط.
             'customer' => Customer::query()->find($id),
             'customer_group' => CustomerGroup::query()->find($id),
+            'category' => Category::query()->find($id),
+            'product' => Product::query()->find($id),
+            'variant' => ProductVariant::query()->with('product:id,name_ar,code')->find($id),
             default => null,
         };
         abort_unless($model, 422, 'الاختيار مش موجود أو خارج نطاقك.');
 
-        // اسم العميل كتبه العميل بنفسه ورايح للنموذج كمرجع: نشيل رموز التحكم ونحدّ الطول.
-        $label = in_array($type, ['customer', 'customer_group'], true) ? mb_substr((string) preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string) $model->name), 0, 120) : $model->name;
+        $rawLabel = match ($type) {
+            'category', 'product' => (string) $model->name_ar,
+            'variant' => (($model->product?->name_ar ?? '').' — '.$model->sku),
+            default => (string) $model->name,
+        };
+        // اسم العميل أو المنتج/القسم كتبه بشر ورايح للنموذج كمرجع: نشيل رموز التحكم ونحدّ الطول.
+        $label = in_array($type, ['customer', 'customer_group', 'category', 'product', 'variant'], true)
+            ? mb_substr((string) preg_replace('/[\x00-\x1F\x7F]/u', ' ', $rawLabel), 0, 120)
+            : $rawLabel;
 
         return ['entity' => $type, 'id' => $type === 'permission' ? $model->name : $model->id, 'label' => $label];
     }

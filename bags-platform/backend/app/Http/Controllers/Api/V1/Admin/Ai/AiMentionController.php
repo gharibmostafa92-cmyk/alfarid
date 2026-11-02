@@ -14,7 +14,7 @@ class AiMentionController extends Controller
 {
     public function search(Request $request, EntityResolver $resolver, ToolRegistry $registry): JsonResponse
     {
-        $data = $request->validate(['q' => ['nullable', 'string', 'max:100'], 'entity' => ['nullable', 'in:branch,user,role,customer']]);
+        $data = $request->validate(['q' => ['nullable', 'string', 'max:100'], 'entity' => ['nullable', 'in:branch,user,role,customer,category,product,variant']]);
         $actor = $request->user('staff');
         $q = (string) ($data['q'] ?? '');
         $entity = $data['entity'] ?? null;
@@ -32,6 +32,15 @@ class AiMentionController extends Controller
         // العملاء بلا branch scoping عمدًا — زي REST (CustomerController مبيستخدمش BranchAccess).
         if ((! $entity || $entity === 'customer') && $registry->canReadEntity($actor, 'customer')) {
             $out['customers'] = $resolver->customers($actor, $q);
+        }
+        if ((! $entity || $entity === 'category') && $registry->canReadEntity($actor, 'category')) {
+            $out['categories'] = $resolver->categories($actor, $q);
+        }
+        if ((! $entity || $entity === 'product') && $registry->canReadEntity($actor, 'product')) {
+            $out['products'] = $resolver->products($actor, $q);
+        }
+        if ((! $entity || $entity === 'variant') && $registry->canReadEntity($actor, 'variant')) {
+            $out['variants'] = $resolver->variants($actor, $q);
         }
 
         return response()->json(['data' => $out]);

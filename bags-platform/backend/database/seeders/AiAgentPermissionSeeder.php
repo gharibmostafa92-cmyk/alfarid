@@ -14,7 +14,7 @@ class AiAgentPermissionSeeder extends Seeder
 {
     public function run(): void
     {
-        $permissions = array_map(fn ($name) => Permission::findOrCreate('ai_agent.'.$name, 'staff'), ['use', 'execute', 'logs.view', 'settings']);
+        $permissions = array_map(fn ($name) => Permission::findOrCreate('ai_agent.'.$name, 'staff'), ['use', 'execute', 'logs.view', 'settings', 'catalog.vision']);
         $superAdmin = Role::query()->where('guard_name', 'staff')->where('name', StaffRole::SuperAdmin->value)->first();
         $superAdmin?->givePermissionTo($permissions);
         app(PermissionRegistrar::class)->forgetCachedPermissions();

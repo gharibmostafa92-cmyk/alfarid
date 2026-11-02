@@ -70,6 +70,11 @@ class UpdateSettingsRequest extends FormRequest
             'ai_dealer_review_sla_hours' => ['sometimes', 'integer', 'min:1', 'max:720'],
             'ai_customer_tools_enabled' => ['sometimes', 'boolean'],
             'ai_document_analysis_enabled' => ['sometimes', 'boolean'],
+            'ai_catalog_tools_enabled' => ['sometimes', 'boolean'],
+            'ai_catalog_vision_enabled' => ['sometimes', 'boolean'],
+            'ai_catalog_bulk_price_max_items' => ['sometimes', 'integer', 'min:1', 'max:1000'],
+            'ai_catalog_copywriting_enabled' => ['sometimes', 'boolean'],
+            'ai_max_steps' => ['sometimes', 'integer', 'min:1', 'max:10'],
         ];
 
         $sequenceTypes = [

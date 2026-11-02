@@ -35,8 +35,8 @@ final class EvaluateAiAgent extends Command
             }
             $ids[] = $case['id'];
         }
-        if (count($ids) < 90) {
-            $this->error('At least 90 evaluation cases are required.');
+        if (count($ids) < 140) {
+            $this->error('At least 140 evaluation cases are required.');
 
             return self::FAILURE;
         }
@@ -151,8 +151,9 @@ final class EvaluateAiAgent extends Command
         $key = match ($call['name']) {
             'list_branches' => 'branches', 'list_staff' => 'users', 'list_roles' => 'roles',
             'list_customers' => 'customers', 'list_customer_groups' => 'customer_groups',
+            'list_categories' => 'categories', 'search_products' => 'products',
             'find_entities' => match ($call['args']['type'] ?? '') {
-                'branch' => 'branches', 'user' => 'users', 'role' => 'roles', 'location' => 'locations', 'customer' => 'customers', 'customer_group' => 'customer_groups', default => ''
+                'branch' => 'branches', 'user' => 'users', 'role' => 'roles', 'location' => 'locations', 'customer' => 'customers', 'customer_group' => 'customer_groups', 'category' => 'categories', 'product' => 'products', 'variant' => 'variants', default => ''
             },
             'list_locations' => 'locations',
             default => '',

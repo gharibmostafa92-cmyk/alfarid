@@ -14,6 +14,8 @@ return [
         'max_output_tokens' => (int) env('GEMINI_MAX_OUTPUT_TOKENS', 2048),
         'max_images' => 5,
         'max_image_bytes' => 4 * 1024 * 1024,
+        // L1: سقف المرفقات غير المستهلكة لكل مستخدم (حماية التخزين المشترك).
+        'max_pending_attachments_per_user' => (int) env('AI_MAX_PENDING_ATTACHMENTS_PER_USER', 40),
         'retired_models' => array_values(array_filter(explode(',', (string) env('GEMINI_RETIRED_MODELS', '')))),
         // M-6: سقف صلب أقل بوضوح من pm.max_children للـ pool اللي بيخدم المساعد.
         'max_concurrent_sessions_cap' => (int) env('AI_MAX_CONCURRENT_SESSIONS_CAP', 20),
