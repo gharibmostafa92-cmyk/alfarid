@@ -42,7 +42,7 @@ class CustomerGroupService
         $data = array_filter($data, fn ($value, $key) => $value !== null || ! in_array($key, ['discount_percentage', 'is_active'], true), ARRAY_FILTER_USE_BOTH);
         try {
             return DB::transaction(function () use ($data, $actor, $via): CustomerGroup {
-                $group = CustomerGroup::query()->create($data);
+                $group = CustomerGroup::query()->create($data)->refresh();
                 // L-7: الخصم بيأثر على التسعير.
                 if ($actor !== null) {
                     StaffAdministration::audit($actor, 'customer_group.created', 'customer_group', $group->id, array_keys($data), [], $group->only(array_keys($data)), $via);

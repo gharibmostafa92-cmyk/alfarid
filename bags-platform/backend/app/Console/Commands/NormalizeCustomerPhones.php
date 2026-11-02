@@ -52,12 +52,14 @@ class NormalizeCustomerPhones extends Command
     {
         DB::statement("CREATE TEMP TABLE customer_phone_normalization ON COMMIT DROP AS
             WITH cleaned AS (
-                SELECT id, phone AS before, regexp_replace(translate(TRIM(phone),
-                    '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789'), '[[:space:]().-]+', '', 'g') AS value
+                SELECT id, phone AS before,
+                    regexp_replace(TRIM(phone), '^[[:space:]\u{00A0}\u{1680}\u{2000}-\u{200A}\u{2028}\u{2029}\u{202F}\u{205F}\u{3000}]+|[[:space:]\u{00A0}\u{1680}\u{2000}-\u{200A}\u{2028}\u{2029}\u{202F}\u{205F}\u{3000}]+$', '', 'g') AS trimmed,
+                    regexp_replace(translate(TRIM(phone),
+                        '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789'), '[[:space:]\u{00A0}\u{1680}\u{2000}-\u{200A}\u{2028}\u{2029}\u{202F}\u{205F}\u{3000}().-]+', '', 'g') AS value
                 FROM customers
             )
             SELECT id, before, CASE
-                WHEN before ~ '^legacy-[0-9]+$' THEN before
+                WHEN trimmed ~ '^legacy-[0-9]+$' THEN trimmed
                 WHEN value ~ '^201[0125][0-9]{8}$' THEN '0' || SUBSTRING(value FROM 3)
                 WHEN value LIKE '+20%' THEN '0' || SUBSTRING(value FROM 4)
                 WHEN value LIKE '0020%' THEN '0' || SUBSTRING(value FROM 5)

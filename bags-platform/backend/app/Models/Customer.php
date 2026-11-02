@@ -86,10 +86,11 @@ class Customer extends Authenticatable
 
     public static function normalizePhone(string $phone): string
     {
-        if (preg_match('/^legacy-[0-9]+$/', trim($phone))) {
-            return trim($phone); // L8: ما نبوّظش الـ placeholder
+        $trimmed = preg_replace('/^\s+|\s+$/u', '', $phone) ?? trim($phone);
+        if (preg_match('/^legacy-[0-9]+$/', $trimmed)) {
+            return $trimmed; // L8: ما نبوّظش الـ placeholder
         }
-        $phone = strtr(trim($phone), self::ARABIC_PERSIAN_DIGITS_MAP);
+        $phone = strtr($trimmed, self::ARABIC_PERSIAN_DIGITS_MAP);
         $phone = preg_replace('/[\s().-]+/u', '', $phone);
         if (preg_match('/^201[0125][0-9]{8}$/', $phone)) {
             return '0'.substr($phone, 2);

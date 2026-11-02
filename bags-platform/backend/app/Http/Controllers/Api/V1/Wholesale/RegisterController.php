@@ -84,7 +84,7 @@ class RegisterController extends Controller
             throw new BusinessException('هذا المسار متاح للعملاء فقط.', [], 403);
         }
         $data = $request->validate([
-            'document' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
+            'document' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'mimetypes:application/pdf,image/jpeg,image/png', 'max:5120'],
             'document_type' => ['nullable', Rule::enum(CustomerDocumentType::class)],
         ]);
         $document = $customers->uploadDocument(

@@ -158,7 +158,7 @@ class CustomerController extends Controller implements HasMiddleware
 
     public function storeDocument(Request $request, Customer $customer): JsonResponse
     {
-        $request->validate(['document' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120']]);
+        $request->validate(['document' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'mimetypes:application/pdf,image/jpeg,image/png', 'max:5120']]);
         $document = $this->customers->uploadDocument($customer, $request->file('document'), (int) $request->user()->id);
 
         return response()->json(['data' => ['id' => $document->id, 'status' => $document->status]], 201);

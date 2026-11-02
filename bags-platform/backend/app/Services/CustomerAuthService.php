@@ -98,11 +98,17 @@ class CustomerAuthService
     }
 
     /** Recheck registration rules while reserving the email until the surrounding transaction commits. */
-    /** M9: تسجيلين متزامنين بنفس الموبايل → 23505 من الـ unique index؛ نحوله لخطأ تحقق بدل 500. */
+    /** M9: تسجيلين متزامنين بنفس الموبايل أو البريد → 23505 من الـ unique index؛ نحوله لخطأ تحقق بدل 500. */
     public function translateRegistrationConflict(\Throwable $e): \Throwable
     {
-        if ($e instanceof \Illuminate\Database\UniqueConstraintViolationException && str_contains($e->getMessage(), 'phone')) {
-            return ValidationException::withMessages(['phone' => 'رقم الموبايل مسجل بالفعل.']);
+        if ($e instanceof \Illuminate\Database\UniqueConstraintViolationException) {
+            $message = $e->getMessage();
+            if (str_contains($message, 'phone')) {
+                return ValidationException::withMessages(['phone' => 'رقم الموبايل مسجل بالفعل.']);
+            }
+            if (str_contains($message, 'email')) {
+                return ValidationException::withMessages(['email' => 'البريد الإلكتروني مستخدم بالفعل.']);
+            }
         }
 
         return $e;
@@ -259,7 +265,7 @@ class CustomerAuthService
         DB::transaction(function () use ($data, $dummyHash): void {
             $customer = Customer::query()
                 ->when(! empty($data['email']), fn ($q) => $q->whereNotNull('email_verified_at')->whereRaw('LOWER(email) = ?', [mb_strtolower(trim($data['email']))]),
-                    fn ($q) => $q->where('phone', $data['phone']))
+                    fn ($q) => $q->where('phone', Customer::normalizePhone((string) ($data['phone'] ?? ''))))
                 ->lockForUpdate()->first();
             $key = $customer?->getEmailForPasswordReset();
             $row = DB::table('password_reset_tokens')->where('email', $key)->lockForUpdate()->first();
