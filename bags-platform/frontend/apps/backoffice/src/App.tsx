@@ -103,7 +103,7 @@ function AuthenticatedApp() {
     const id = Number(params.get('mention_id'));
     const entity = params.get('mention_entity');
     const label = params.get('mention_label');
-    return { text, mentions: entity === 'customer' && Number.isInteger(id) && id > 0 ? [{ entity, id, label: label || text }] : undefined };
+    return { text, mentions: (entity === 'customer' || entity === 'transfer' || entity === 'stocktake') && Number.isInteger(id) && id > 0 ? [{ entity, id, label: label || text }] : undefined };
   })();
   const assistantNav = can('ai_agent.use') ? [{ id: 'assistant', label: 'المساعد الذكي', onOpen: () => { window.location.hash = '/assistant'; } }] : [];
   return <FinancialDashboard

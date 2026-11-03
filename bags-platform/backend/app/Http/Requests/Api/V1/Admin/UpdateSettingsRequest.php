@@ -74,6 +74,11 @@ class UpdateSettingsRequest extends FormRequest
             'ai_catalog_vision_enabled' => ['sometimes', 'boolean'],
             'ai_catalog_bulk_price_max_items' => ['sometimes', 'integer', 'min:1', 'max:1000'],
             'ai_catalog_copywriting_enabled' => ['sometimes', 'boolean'],
+            'ai_inventory_tools_enabled' => ['sometimes', 'boolean'],
+            'ai_inventory_vision_enabled' => ['sometimes', 'boolean'],
+            'ai_inventory_share_cost_with_model' => ['sometimes', 'boolean'],
+            'ai_inventory_high_risk_value' => ['sometimes', 'integer', 'min:0', 'max:9999999999'],
+            'ai_inventory_proactive_enabled' => ['sometimes', 'boolean'],
             'ai_max_steps' => ['sometimes', 'integer', 'min:1', 'max:10'],
         ];
 

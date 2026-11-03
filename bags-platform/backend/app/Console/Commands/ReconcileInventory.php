@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Models\InventoryReconcileRun;
 use App\Services\StatementBudget;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -105,6 +106,15 @@ SQL, $sql);
         }
         $bindings = array_fill(0, $incremental ? 6 : 4, $branch);
         $result = DB::selectOne($sql, $bindings);
+
+        // آخر نتيجة محفوظة لأداة inventory_health (المطابقة الكاملة أثقل من
+        // حد زمن الأدوات، فالأداة تقرأ آخر تشغيل مجدول بدل تشغيل الفحص).
+        InventoryReconcileRun::query()->create([
+            'branch_id' => $branch !== null ? (int) $branch : null,
+            'checked' => (int) $result->checked,
+            'problem_count' => (int) $result->problem_count,
+            'samples' => json_decode((string) $result->samples, true) ?? [],
+        ]);
 
         if ((int) $result->problem_count > 0) {
             $samples = json_decode($result->samples, true, flags: JSON_THROW_ON_ERROR);

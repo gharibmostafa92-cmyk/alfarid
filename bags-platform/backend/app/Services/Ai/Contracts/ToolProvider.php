@@ -17,4 +17,8 @@ interface ToolProvider
     public function canReadEntity(User $actor, string $type): ?bool; // null = مش بتاعي
 
     public function systemPromptSection(User $actor): ?string;
+
+    public function domain(): string;
+
+    public function usesGlobalAdminLock(): bool;
 }

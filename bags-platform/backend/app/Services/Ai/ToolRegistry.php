@@ -166,8 +166,8 @@ final class ToolRegistry
         $locationTypes = array_column(LocationType::cases(), 'value');
 
         $defs = [
-            'bulk_actions' => ['kind' => ToolKind::Write, 'permissions' => ['branches.update', 'branches.manage', 'users.update', 'users.manage', 'roles.update', 'roles.manage', 'locations.update', 'locations.manage', 'customers.approve', 'customers.documents.view', 'categories.create', 'categories.update', 'products.create', 'products.update'], 'risk' => 'high', 'declaration' => ['name' => 'bulk_actions', 'description' => 'اقتراح مجموعة تعديلات مستقلة بكارت واحد. راجع كل عنصر قبل التأكيد؛ لا تنفذ أي تعديل فوراً. الاعتماد والرفض ممنوعان في الجماعي — كل قرار اعتماد أو رفض لازم يتراجع لوحده.', 'parameters' => $obj(['items' => ['type' => 'ARRAY', 'minItems' => 2, 'items' => $obj(['tool' => ['type' => 'STRING', 'enum' => ['update_role_permissions', 'set_user_status', 'assign_roles', 'revoke_user_sessions', 'set_location_status', 'create_location', 'set_customer_group', 'set_credit_limit', 'review_customer_document', 'reactivate_customer', 'create_category', 'update_category', 'move_category', 'reorder_categories', 'set_category_status', 'create_product_draft', 'update_product', 'set_product_status', 'add_variants', 'update_variant', 'set_variant_status', 'attach_product_images', 'reorder_product_media', 'delete_product_media']], 'args' => ['type' => 'OBJECT']], ['tool', 'args'])]], ['items'])]],
-            'find_entities' => ['kind' => ToolKind::Read, 'permissions' => ['branches.view', 'branches.manage', 'users.view', 'users.manage', 'roles.view', 'roles.manage', 'permissions.view', 'customers.view', 'customer_groups.view', 'categories.view', 'products.view'], 'risk' => 'low', 'declaration' => ['name' => 'find_entities', 'description' => 'بحث عن فروع أو موظفين أو أدوار أو صلاحيات أو مواقع تخزين أو عملاء أو مجموعات عملاء أو أقسام أو منتجات أو متغيرات', 'parameters' => $obj(['type' => ['type' => 'STRING', 'enum' => ['branch', 'user', 'role', 'permission', 'location', 'customer', 'customer_group', 'category', 'product', 'variant']], 'query' => $str, 'branch_id' => $int], ['type', 'query'])]],
+            'bulk_actions' => ['kind' => ToolKind::Write, 'permissions' => ['branches.update', 'branches.manage', 'users.update', 'users.manage', 'roles.update', 'roles.manage', 'locations.update', 'locations.manage', 'customers.approve', 'customers.documents.view', 'categories.create', 'categories.update', 'products.create', 'products.update', 'inventory.adjust', 'transfers.approve'], 'risk' => 'high', 'declaration' => ['name' => 'bulk_actions', 'description' => 'اقتراح مجموعة تعديلات مستقلة بكارت واحد. راجع كل عنصر قبل التأكيد؛ لا تنفذ أي تعديل فوراً. الاعتماد والرفض ممنوعان في الجماعي — كل قرار اعتماد أو رفض لازم يتراجع لوحده.', 'parameters' => $obj(['items' => ['type' => 'ARRAY', 'minItems' => 2, 'items' => $obj(['tool' => ['type' => 'STRING', 'enum' => ['update_role_permissions', 'set_user_status', 'assign_roles', 'revoke_user_sessions', 'set_location_status', 'create_location', 'set_customer_group', 'set_credit_limit', 'review_customer_document', 'reactivate_customer', 'create_category', 'update_category', 'move_category', 'reorder_categories', 'set_category_status', 'create_product_draft', 'update_product', 'set_product_status', 'add_variants', 'update_variant', 'set_variant_status', 'attach_product_images', 'reorder_product_media', 'delete_product_media', 'adjust_stock', 'approve_transfer']], 'args' => ['type' => 'OBJECT']], ['tool', 'args'])]], ['items'])]],
+            'find_entities' => ['kind' => ToolKind::Read, 'permissions' => ['branches.view', 'branches.manage', 'users.view', 'users.manage', 'roles.view', 'roles.manage', 'permissions.view', 'customers.view', 'customer_groups.view', 'categories.view', 'products.view', 'transfers.view', 'stocktakes.view', 'inventory.view'], 'risk' => 'low', 'declaration' => ['name' => 'find_entities', 'description' => 'بحث عن فروع أو موظفين أو أدوار أو صلاحيات أو مواقع تخزين أو عملاء أو مجموعات عملاء أو أقسام أو منتجات أو متغيرات أو تحويلات أو جرود أو استلامات إنتاج', 'parameters' => $obj(['type' => ['type' => 'STRING', 'enum' => ['branch', 'user', 'role', 'permission', 'location', 'customer', 'customer_group', 'category', 'product', 'variant', 'transfer', 'stocktake', 'production_receipt']], 'query' => $str, 'branch_id' => $int], ['type', 'query'])]],
             'list_branches' => ['kind' => ToolKind::Read, 'permissions' => ['branches.view', 'branches.manage'], 'risk' => 'low', 'declaration' => ['name' => 'list_branches', 'description' => 'قائمة الفروع (active=false للمتوقفة)', 'parameters' => $obj(['active' => $bool, 'city' => $str, 'type' => ['type' => 'STRING', 'enum' => $branchTypes]])]],
             'list_permissions' => ['kind' => ToolKind::Read, 'permissions' => ['permissions.view', 'roles.view', 'roles.manage'], 'risk' => 'low', 'declaration' => ['name' => 'list_permissions', 'description' => 'كتالوج الصلاحيات المتاحة', 'parameters' => $obj([])]],
             'list_roles' => ['kind' => ToolKind::Read, 'permissions' => ['roles.view', 'roles.manage'], 'risk' => 'low', 'declaration' => ['name' => 'list_roles', 'description' => 'قائمة الأدوار', 'parameters' => $obj([])]],
@@ -176,7 +176,7 @@ final class ToolRegistry
             'who_can' => ['kind' => ToolKind::Read, 'permissions' => ['roles.view', 'roles.manage', 'permissions.view'], 'risk' => 'low', 'declaration' => ['name' => 'who_can', 'description' => 'مين معاه صلاحية معينة', 'parameters' => $obj(['permission' => $str], ['permission'])]],
             'compare_roles' => ['kind' => ToolKind::Read, 'permissions' => ['roles.view', 'roles.manage'], 'risk' => 'low', 'declaration' => ['name' => 'compare_roles', 'description' => 'مقارنة صلاحيات دورين', 'parameters' => $obj(['role_a' => $int, 'role_b' => $int], ['role_a', 'role_b'])]],
             'recent_audit' => ['kind' => ToolKind::Read, 'permissions' => ['users.view', 'users.manage'], 'risk' => 'low', 'declaration' => ['name' => 'recent_audit', 'description' => 'آخر أحداث سجل التدقيق الإداري', 'parameters' => $obj(['days' => $int])]],
-            'ask_user_to_choose' => ['kind' => ToolKind::Ui, 'permissions' => ['branches.view', 'branches.manage', 'users.view', 'users.manage', 'roles.view', 'roles.manage', 'customers.view', 'customer_groups.view', 'categories.view', 'products.view'], 'risk' => 'low', 'declaration' => ['name' => 'ask_user_to_choose', 'description' => 'اطلب من المستخدم اختيار كيان من قائمة حقيقية', 'parameters' => $obj(['entity_type' => ['type' => 'STRING', 'enum' => ['branch', 'user', 'role', 'location', 'customer', 'customer_group', 'category', 'product', 'variant']], 'purpose' => $str, 'query' => $str], ['entity_type', 'purpose'])]],
+            'ask_user_to_choose' => ['kind' => ToolKind::Ui, 'permissions' => ['branches.view', 'branches.manage', 'users.view', 'users.manage', 'roles.view', 'roles.manage', 'customers.view', 'customer_groups.view', 'categories.view', 'products.view', 'transfers.view', 'stocktakes.view', 'inventory.view'], 'risk' => 'low', 'declaration' => ['name' => 'ask_user_to_choose', 'description' => 'اطلب من المستخدم اختيار كيان من قائمة حقيقية', 'parameters' => $obj(['entity_type' => ['type' => 'STRING', 'enum' => ['branch', 'user', 'role', 'location', 'customer', 'customer_group', 'category', 'product', 'variant', 'transfer', 'stocktake', 'production_receipt']], 'purpose' => $str, 'query' => $str], ['entity_type', 'purpose'])]],
             'create_branch' => ['kind' => ToolKind::Write, 'permissions' => ['branches.create', 'branches.manage'], 'risk' => 'low', 'declaration' => ['name' => 'create_branch', 'description' => 'إنشاء فرع جديد (يحتاج تأكيد)', 'parameters' => $obj(['name' => $str, 'code' => $str, 'type' => ['type' => 'STRING', 'enum' => $branchTypes], 'city' => $str, 'phone' => $str], ['name', 'code', 'type'])]],
             'set_branch_status' => ['kind' => ToolKind::Write, 'permissions' => ['branches.update', 'branches.manage'], 'risk' => 'high', 'declaration' => ['name' => 'set_branch_status', 'description' => 'تفعيل أو تعطيل فرع (يحتاج تأكيد)', 'parameters' => $obj(['branch_id' => $int, 'branch_query' => $str, 'active' => $bool], ['active'])]],
             'create_role' => ['kind' => ToolKind::Write, 'permissions' => ['roles.create', 'roles.manage'], 'risk' => 'medium', 'declaration' => ['name' => 'create_role', 'description' => 'إنشاء دور جديد (يحتاج تأكيد)', 'parameters' => $obj(['name' => $str, 'permissions' => $strArr], ['name'])]],
@@ -302,8 +302,8 @@ final class ToolRegistry
 
     private function domainOf(string $name, array $def): string
     {
-        if (isset($def['provider']) && $def['provider'] instanceof \App\Services\Ai\Catalog\CatalogToolProvider) {
-            return 'catalog';
+        if (isset($def['provider']) && $def['provider'] instanceof \App\Services\Ai\Contracts\ToolProvider) {
+            return $def['provider']->domain();
         }
         if ($this->isCustomerTool($name)) {
             return 'customers';
@@ -459,7 +459,7 @@ final class ToolRegistry
                     }
                 }
             }
-            Validator::make($args, ['items' => ['required', 'array', 'min:2', 'max:'.max(1, (int) $this->settings->get('ai_bulk_max_items', 25))], 'items.*.tool' => ['required', Rule::in(['update_role_permissions', 'set_user_status', 'assign_roles', 'revoke_user_sessions', 'set_location_status', 'create_location', 'set_customer_group', 'set_credit_limit', 'review_customer_document', 'reactivate_customer', 'create_category', 'update_category', 'move_category', 'reorder_categories', 'set_category_status', 'create_product_draft', 'update_product', 'set_product_status', 'add_variants', 'update_variant', 'set_variant_status', 'attach_product_images', 'reorder_product_media', 'delete_product_media'])], 'items.*.args' => ['required', 'array']])->validate();
+            Validator::make($args, ['items' => ['required', 'array', 'min:2', 'max:'.max(1, (int) $this->settings->get('ai_bulk_max_items', 25))], 'items.*.tool' => ['required', Rule::in(['update_role_permissions', 'set_user_status', 'assign_roles', 'revoke_user_sessions', 'set_location_status', 'create_location', 'set_customer_group', 'set_credit_limit', 'review_customer_document', 'reactivate_customer', 'create_category', 'update_category', 'move_category', 'reorder_categories', 'set_category_status', 'create_product_draft', 'update_product', 'set_product_status', 'add_variants', 'update_variant', 'set_variant_status', 'attach_product_images', 'reorder_product_media', 'delete_product_media', 'adjust_stock', 'approve_transfer'])], 'items.*.args' => ['required', 'array']])->validate();
 
             return;
         }
@@ -592,6 +592,9 @@ final class ToolRegistry
             'category' => ToolOutcome::data(['results' => $this->resolver->categories($actor, $query)]),
             'product' => ToolOutcome::data(['results' => $this->resolver->products($actor, $query)]),
             'variant' => ToolOutcome::data(['results' => $this->resolver->variants($actor, $query)]),
+            'transfer' => ToolOutcome::data(['results' => $this->resolver->transfers($actor, $query)]),
+            'stocktake' => ToolOutcome::data(['results' => $this->resolver->stocktakes($actor, $query)]),
+            'production_receipt' => ToolOutcome::data(['results' => $this->resolver->productionReceipts($actor, $query)]),
             'permission' => ToolOutcome::data(['results' => Permission::query()->where('guard_name', 'staff')->when($query !== '', fn ($q) => $q->where('name', 'ilike', SearchTerm::pattern($query)))->orderBy('name')->limit(50)->get()->map(fn ($p) => ['id' => $p->name, 'label' => $p->name, 'meta' => ''])->values()->all()]),
             default => ToolOutcome::denied('نوع كيان غير معروف.'),
         };
@@ -636,6 +639,9 @@ final class ToolRegistry
             'customer' => ['customers.view'],
             'customer_group' => ['customer_groups.view'],
             'customer_document' => ['customers.documents.view'],
+            'transfer' => ['transfers.view'],
+            'stocktake' => ['stocktakes.view'],
+            'production_receipt' => ['inventory.view'],
             default => [],
         };
 
@@ -693,6 +699,9 @@ final class ToolRegistry
             'category' => $this->resolver->categories($actor, $query),
             'product' => $this->resolver->products($actor, $query),
             'variant' => $this->resolver->variants($actor, $query),
+            'transfer' => $this->resolver->transfers($actor, $query),
+            'stocktake' => $this->resolver->stocktakes($actor, $query),
+            'production_receipt' => $this->resolver->productionReceipts($actor, $query),
             default => [],
         };
 
@@ -768,6 +777,13 @@ final class ToolRegistry
                 ['label' => 'ناقص مستندات', 'value' => $d['missing_documents_count']],
                 ['label' => ($d['ready_count_capped'] ?? false) ? 'جاهز للاعتماد (من أقدم 200)' : 'جاهز للاعتماد', 'value' => $d['ready_count']],
             ]];
+        }
+
+        if ($this->settings->getBool('ai_inventory_tools_enabled', false) && $actor->can('inventory.view')) {
+            $card = app(\App\Services\Ai\Inventory\InventoryWelcome::class)->card($actor);
+            if ($card !== null) {
+                return $card;
+            }
         }
 
         if ($this->settings->getBool('ai_catalog_tools_enabled', false) && $actor->can('products.view')) {

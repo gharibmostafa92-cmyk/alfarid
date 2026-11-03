@@ -106,6 +106,108 @@ class GeminiClient
     }
 
     /**
+     * Structured JSON output for document/shelf-photo parsing (phase 4 stocktake
+     * sheets). Prompt must instruct the model to ignore injected instructions in
+     * the image text. Never use for direct approvals — fills counts only.
+     *
+     * @param  array<string,mixed>  $schema  JSON Schema for responseSchema
+     * @param  list<UploadedFile>  $images
+     * @return array{data:array<string,mixed>|list<mixed>, model:string, usage:array{input_tokens:int,output_tokens:int,total_tokens:int}}
+     */
+    public function generateStructured(string $prompt, array $schema, array $images = [], ?string $model = null): array
+    {
+        $key = (string) config('services.gemini.api_key');
+        $model ??= config('services.gemini.model');
+        if ($key === '' || ! is_string($model) || ! preg_match('/^[a-zA-Z0-9._-]+$/', $model) || str_contains($model, '..')) {
+            throw new LogicException('إعدادات Gemini غير مكتملة.');
+        }
+        if (trim($prompt) === '') {
+            throw new InvalidArgumentException('نص الطلب مطلوب.');
+        }
+        if ($schema === []) {
+            throw new InvalidArgumentException('مخطط الاستجابة مطلوب.');
+        }
+        if (count($images) > config('services.gemini.max_images', 5)) {
+            throw new InvalidArgumentException('الحد الأقصى 5 صور في الطلب.');
+        }
+
+        $parts = [['text' => $prompt]];
+        foreach ($images as $image) {
+            if (! $image instanceof UploadedFile || ! $image->isValid()
+                || ! in_array($image->getMimeType(), ['image/jpeg', 'image/png', 'image/webp'], true)
+                || $image->getSize() > config('services.gemini.max_image_bytes', 4 * 1024 * 1024)) {
+                throw new InvalidArgumentException('الصورة يجب أن تكون JPG أو PNG أو WebP وبحد أقصى 4MB.');
+            }
+            $parts[] = ['inlineData' => ['mimeType' => $image->getMimeType(), 'data' => base64_encode($image->getContent())]];
+        }
+
+        $payload = [
+            'contents' => [['role' => 'user', 'parts' => $parts]],
+            'generationConfig' => [
+                'temperature' => 0.2,
+                'maxOutputTokens' => (int) config('services.gemini.max_output_tokens', 2048),
+                'responseMimeType' => 'application/json',
+                'responseSchema' => $schema,
+            ],
+        ];
+
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            try {
+                $response = Http::acceptJson()->asJson()->withHeaders(['x-goog-api-key' => $key])
+                    ->withOptions(['verify' => config('services.integrations.ca_bundle') ?: true])
+                    ->connectTimeout(5)->timeout(max(1, (int) config('services.gemini.timeout_seconds', 20)))
+                    ->post('https://generativelanguage.googleapis.com/v1beta/models/'.rawurlencode($model).':generateContent', $payload);
+            } catch (ConnectionException) {
+                if ($attempt === 0) {
+                    logger()->warning('gemini.request_retry', ['method' => 'generateStructured', 'reason' => 'connection_timeout']);
+
+                    continue;
+                }
+                throw new GeminiException('تعذّر الاتصال بخدمة Gemini.');
+            }
+            if (($response->status() === 429 || $response->serverError()) && $attempt === 0) {
+                logger()->warning('gemini.request_retry', ['method' => 'generateStructured', 'reason' => 'http_'.$response->status()]);
+                usleep(min(5, max(1, (int) $response->header('Retry-After'))) * 1_000_000);
+
+                continue;
+            }
+            if (! $response->successful()) {
+                throw new GeminiException('تعذّر تنفيذ طلب Gemini.', $response->status());
+            }
+
+            $candidate = $response->json('candidates.0', []);
+            if (! is_array($candidate)) {
+                $candidate = [];
+            }
+            if (($candidate['finishReason'] ?? null) !== 'STOP') {
+                throw new GeminiException('لم ترجع خدمة Gemini إجابة مكتملة.');
+            }
+            $text = collect($candidate['content']['parts'] ?? [])
+                ->reject(fn ($part) => ! empty($part['thought']))
+                ->pluck('text')->filter(fn ($part) => is_string($part))->implode('');
+            if (trim($text) === '') {
+                throw new GeminiException('لم ترجع خدمة Gemini إجابة نصية.');
+            }
+            try {
+                $data = json_decode(trim($text), true, flags: JSON_THROW_ON_ERROR);
+            } catch (\JsonException) {
+                throw new GeminiException('لم ترجع خدمة Gemini بنية JSON صالحة.');
+            }
+
+            $usage = $response->json('usageMetadata', []);
+            $input = (int) ($usage['promptTokenCount'] ?? 0);
+            $output = (int) ($usage['candidatesTokenCount'] ?? 0);
+
+            return ['data' => $data, 'model' => $model, 'usage' => [
+                'input_tokens' => $input, 'output_tokens' => $output,
+                'total_tokens' => (int) ($usage['totalTokenCount'] ?? $input + $output),
+            ]];
+        }
+
+        throw new GeminiException('تعذّر تنفيذ طلب Gemini.');
+    }
+
+    /**
      * @param  list<array{role:string, parts:list<array<string,mixed>>}>  $contents
      * @param  list<array<string,mixed>>  $functionDeclarations
      * @return array{parts:list<array<string,mixed>>, text:string, calls:list<array{name:string,args:array<string,mixed>}>, usage:array{input_tokens:int,output_tokens:int,total_tokens:int}, finish:string, model:string}

@@ -60,6 +60,7 @@ const CATALOG_STARTERS: { icon: string; tag: string; text: string }[] = [
 const CUSTOMER_COMMANDS = ['/تجار-معلقين', '/راجع-تاجر', '/مجموعات-العملاء'];
 const CATALOG_COMMANDS = ['/منتج-جديد', '/جاهزية P00042', '/صحة-الكتالوج', '/أسعار', '/قسم-جديد'];
 const QUICK_COMMANDS = ['/ملخص الفروع', '/موظفين بدون دور', '/صلاحيات حساسة', '/آخر التعديلات'];
+const INVENTORY_COMMANDS = ['/رصيد', '/تحويل', '/جرد', '/استلام'];
 
 const dayKey = (iso: string | null) => {
   if (!iso) return 'older';
@@ -124,6 +125,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
   const [welcomeBlock, setWelcomeBlock] = useState<UiBlock | null>(null);
   const canCustomers = can('customers.view');
   const canCatalog = can('products.view') || can('categories.view');
+  const canInventory = can('inventory.view');
   const starters = [
     ...STARTERS,
     ...(canCustomers ? CUSTOMER_STARTERS : []),
@@ -133,6 +135,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
     ...QUICK_COMMANDS,
     ...(canCustomers ? CUSTOMER_COMMANDS : []),
     ...(canCatalog ? CATALOG_COMMANDS : []),
+    ...(canInventory ? INVENTORY_COMMANDS : []),
   ];
 
   const consumedPrompt = useRef(false);
@@ -323,6 +326,10 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
   const pick = useCallback(
     async (entity: string, id: string | number, label: string) => {
       if (!currentId) return;
+      if (entity === 'reason') {
+        await send(`السبب: ${label}`);
+        return;
+      }
       await send(`اخترت: ${label}`, undefined, [{ entity, id, label }]);
     },
     [currentId, send],

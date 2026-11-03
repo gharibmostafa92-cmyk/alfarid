@@ -87,6 +87,16 @@ final class CatalogToolProvider implements ToolProvider
         return $this->settings->getBool('ai_catalog_tools_enabled', false);
     }
 
+    public function domain(): string
+    {
+        return 'catalog';
+    }
+
+    public function usesGlobalAdminLock(): bool
+    {
+        return false;
+    }
+
     public function isToolHidden(string $name): bool
     {
         if (! $this->enabled()) {

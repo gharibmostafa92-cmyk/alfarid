@@ -1,0 +1,203 @@
+المرحلة 0: الأساس (لازم تتعمل الأول)
+0.1 كل provider يعلن الـ domain بتاعه
+نضيف للـ ToolProvider contract:
+
+Copypublic function domain(): string;          // 'inventory'
+public function usesGlobalAdminLock(): bool; // false للمخزون
+بعدها نعدّل حاجتين:
+
+DomainRouter::toolDomain() يقرا provider->domain() بدل fallback الـ admin.
+PendingActionService::lockForAction() يسأل usesGlobalAdminLock() بدل isCatalogTool(). أدوات المخزون أصلًا بتقفل الصفوف بترتيب ثابت عن طريق InventoryService::lockLevels()، وده كفاية.
+0.2 domain جديد اسمه inventory في الـ DomainRouter
+نضيف كلمات زي: مخزون، رصيد، متاح، محجوز، تالف، حركة، تسوية، عجز، زيادة، تحويل، نقل بضاعة، شحن، استلام، جرد، عد، فروقات، دفعة إنتاج، استلام إنتاج، تكلفة، راكد، ناقص، stock، transfer، stocktake، batch.
+
+لازم نراعي 3 حاجات:
+
+كلمة "مخزن" معمولة دلوقتي على admin، لأنها الفرع اللي نوعه warehouse. أما "مخزون" فمختلفة ومش substring منها، فمفيش تعارض. بس جملة زي "رصيد المخزن الرئيسي" لازم تطلّع الاتنين admin وinventory، وده بيحصل طبيعي لأن الـ router بيجمع الـ domains.
+الـ mentions/selection: نضيف entities جديدة هي transfer وstocktake وproduction_receipt، ونربطها بـ inventory في الـ match.
+variant مربوطة دلوقتي بـ catalog. لما الجملة فيها variant وكلمة مخزون، الـ router لازم يرجّع ['catalog','inventory']، وده هيحصل تلقائيًا من الكلمات.
+0.3 الصلاحيات والإعدادات
+مش هنعمل صلاحيات مخزون جديدة. هنستخدم الموجودة في InventoryPermissionSeeder: inventory.view/adjust/all_branches/view_cost وtransfers.* وstocktakes.*. وفوقها بوابة الـ AI الموجودة ai_agent.use/execute.
+
+إعدادات جديدة في SettingSeeder (مجموعة ai)، وكلها مقفولة افتراضيًا زي الموجود:
+
+المفتاح	الافتراضي	الغرض
+ai_inventory_tools_enabled	0	المفتاح الرئيسي لأدوات المخزون
+ai_inventory_vision_enabled	0	قراءة صور أوراق الجرد وأذون الاستلام
+ai_inventory_share_cost_with_model	0	هل التكلفة توصل لـ Gemini أصلًا؟
+ai_inventory_high_risk_value	50000	فوق القيمة دي (كمية × تكلفة) التأكيد يبقى بالكتابة
+ai_inventory_proactive_enabled	0	الاقتراحات الاستباقية
+ليه share_cost_with_model مهم: CostAccess::canView بيحمي التكلفة في الـ API. لكن نتيجة أي tool بتتبعت لـ Google كـ functionResponse. فحتى لو المستخدم عنده صلاحية يشوف التكلفة، الإدارة ممكن ماتكونش عايزة بيانات التكلفة تطلع لطرف خارجي. الحل: الأداة تحسب الأرقام في PHP، وتبعت للنموذج قيم نسبية زي "التكلفة زادت 4.2%". والأرقام الفعلية تروح للـ ui_block بس، ومن غير ما تتبعت للنموذج خالص.
+
+0.4 الـ EntityResolver
+transfers() وstocktakes(): بحث برقم المستند (TRF-00012) أو بالفرعين ("التحويل اللي من المخزن لفرع مدينة نصر امبارح").
+locations(): نضيف بحث بكود الموقع (A-03-2).
+الـ variants بتدعم SKU/barcode بالفعل. بس محتاجين نضيف صيغة "اللون + الموديل" للمتغيرات من غير SKU ("الشنطة الكروس البني").
+0.5 Structured Output في GeminiClient
+Copypublic function generateStructured(string $prompt, array $schema, array $images = [], ?string $model = null): array
+// generationConfig: responseMimeType=application/json, responseSchema=$schema
+هنحتاجها في المرحلة 4 لقراءة صور أوراق الجرد، وممكن كمان نرجّع AnalyzeProductPhotosTool يستخدمها بدل الـ regex.
+
+0.6 تجهيز التقييم من البداية
+ai:evaluate بيطلب 140 حالة على الأقل في tests/Fixtures/ai-agent-egyptian.json. هنضيف 80 حالة مخزون بلهجة مصرية، ونوسّع fixtureResponse() بمفاتيح levels وmovements وtransfers وstocktakes. أي أداة جديدة ماتدخلش من غير حالات تقييم ليها.
+
+معيار القبول للمرحلة 0: النظام بيشتغل زي ما هو بالظبط، وai:evaluate --check بيعدي، وinventory بيظهر في الـ routing.
+
+المرحلة 1: أدوات قراءة وتحليل (P06-M01 قراءة)
+دي أدوات Read بس، فمخاطرها صفر، والمستخدم هيلاحظ فرقها على طول. ننشئ App\Services\Ai\Inventory\InventoryToolProvider ونعمله tag في AppServiceProvider جنب الكتالوج.
+
+الأداة	الوظيفة	الصلاحية
+get_stock_levels	رصيد variant أو منتج حسب الفرع والموقع، بالـ 4 buckets والمتاح	inventory.view
+stock_matrix	مصفوفة متغيرات × فروع لمنتج كامل	inventory.view
+list_movements	دفتر الحركات بفلاتر (نوع، تاريخ، مستخدم، مرجع) مع cursor	inventory.view
+explain_balance	يحكي إزاي الرصيد وصل للرقم ده	inventory.view
+low_stock_list	قائمة الأصناف تحت حد إعادة الطلب	inventory.view
+dead_stock	يغلّف ReportService::inventoryReport($deadDays)	inventory.view
+inventory_valuation	قيمة المخزون حسب الفرع	inventory.view_cost
+list_transfers / get_transfer	التحويلات وحالتها	transfers.view
+list_stocktakes / get_stocktake	جلسات الجرد وتقدم العد	stocktakes.view
+list_production_receipts	الاستلامات ودفعاتها	inventory.view (والتكلفة مشروطة بـ CostAccess)
+inventory_health	آخر نتيجة مطابقة الأرصدة مع الدفتر	inventory.view
+أهم 3 أدوات:
+
+explain_balance: دي أكتر أداة هتوفر وقت الدعم. المستخدم يسأل "ليه رصيد الشنطة دي في فرع المعادي 3 والسيستم كان قايل 10؟". الأداة تسحب آخر N حركة للـ key ده، وتجمّعها حسب النوع والمرجع، وترجّع حاجة زي: "10 ← اتباع منها 4 (3 فواتير POS) ← تسوية عجز 2 عملها أحمد يوم 28 بسبب 'تالف' ← تحويل خارج 1 (TRF-00041) = 3". وكل سطر فيها لينك للمستند. البيانات دي موجودة بالفعل، لأن balance_before/balance_after متسجلين في كل حركة.
+
+low_stock_list: ReportService بيحسب low_stock_count جوه الـ dashboard بس، ومفيش قائمة. هنستخدم نفس المعادلة COALESCE(NULLIF(sl.reorder_level,0), pv.reorder_level, 0)، ونضيف عليها أيام التغطية = المتاح ÷ متوسط البيع اليومي من حركات sale آخر 30 يوم. الترتيب يبقى بأيام التغطية، مش بالكمية، لأن صنف رصيده 5 وبيتباع 1 في الأسبوع ماينفعش يتعامل زي صنف رصيده 5 وبيتباع 10 في اليوم.
+
+inventory_health: أمر inventory:reconcile عنده StatementBudget بـ 300 ثانية، ووضع --incremental بيمسح صفوف من inventory_reconcile_work. يعني ماينفعش نشغله جوه tool عنده حد زمني 45 ثانية (TOOL_CALL_RESERVE_SECONDS). الحل: الأمر المجدول يحفظ نتيجته (problem_count والعينات) في جدول inventory_reconcile_runs، والأداة تقرا آخر تشغيل وتقول "آخر مطابقة كانت من ساعتين ومفيش فروقات".
+
+ونضيف قسم للـ system prompt من systemPromptSection()، فيه الحاجات دي:
+
+المتاح = on_hand − reserved − damaged، وده نفس المنطق اللي بيتأكد منه StocktakeService::approve. والـ in_transit مش متاح للبيع.
+حالات التحويل Draft ← Approved ← Shipped ← Received، والشحنة اللي اتشحنت مابتتلغيش.
+ماتقولش أي رقم تكلفة غير اللي جاي من نتيجة أداة.
+الكميات للأصناف المعدودة لازم تكون أعداد صحيحة (DiscreteQuantity).
+قاموس وحدات: دستة = 12، ونص دستة = 6، و"كرتونة" تتسأل عنها لأنها بتختلف حسب الصنف.
+المرحلة 2: التسويات واستلام الإنتاج (P06-M01-F04 وP06-M02)
+2.1 adjust_stock (WriteTool + LocksTargets + UndoableTool)
+Copyfinal class AdjustStockTool implements WriteTool, LocksTargets, UndoableTool
+{
+    public function prepare(User $actor, array $args): ToolOutcome
+    {
+        // 1) resolve variant/branch/location + BranchAccess::assertBranch
+        // 2) قراءة الرصيد الحالي (levelFor) + فحص إن الخروج مايوقعش تحت reserved+damaged
+        // 3) احسب القيمة = qty × cost_price → risk = high لو > ai_inventory_high_risk_value
+        // 4) expected_versions = آخر movement id لكل key (للكشف عن التغيير قبل التأكيد)
+        // 5) ProposalBuilder->make(... block_type: 'stock_diff', before/after لكل bucket)
+    }
+
+    public function execute(User $actor, AiPendingAction $action): ToolOutcome
+    {
+        // idempotency key = "ai:{$action->id}" ← المسموح [A-Za-z0-9._:-]
+        $movements = $this->inventory->applyAdjustments($payload, $actor->id, 'ai:'.$action->id);
+        // ...
+    }
+}
+تفاصيل مهمة:
+
+مفتاح عدم التكرار = ULID الاقتراح. لو الـ worker وقع بعد الـ commit والمستخدم ضغط تأكيد تاني، applyAdjustments هيرجّع نفس الحركات من inventory_idempotency_keys ومش هيطبّقها مرتين. يعني بنستخدم حماية موجودة أصلًا من غير ما نكتب كود جديد.
+التراجع = حركات عكسية، مش حذف. الدفتر ماينفعش يتعدل. targetState() يرجّع hash لآخر movement id في كل key اتأثر. لو حصل بيع بعد التسوية، الـ hash يتغير والتراجع يترفض بالرسالة الموجودة ("السجل اتعدل بعد التنفيذ"). ده نفس آلية الأمان اللي عندك حاليًا، ومفيش منطق جديد.
+سبب التسوية إجباري، ويتختار من قائمة (تالف، فقد، خطأ إدخال، عينة، هدية). وطلب زي "اخصم 3 وخلاص" يرجّع picker بالأسباب بدل ما يخمّن.
+2.2 receive_production مع معاينة متوسط التكلفة
+الحتة دي هي أكتر حاجة مفيدة في المرحلة دي. قبل التأكيد، الأداة تحسب متوسط التكلفة المرجح الجديد بنفس معادلة ProductionReceiptService بالظبط: (on_hand + in_transit) على كل الفروع، وbcmath، والتقريب نص لفوق على 4 أرقام عشرية. وتعرض للمستخدم بطاقة زي دي:
+
+شنطة كروس بني: التكلفة الحالية 182.50 ← بعد الاستلام 189.37 (+3.8%) ⚠️ تكلفة الوحدة في الدفعة دي أعلى بنسبة 22% من آخر استلام (155.00)
+
+تحذيرات ذكية في prepare:
+
+رقم الدفعة مكرر: نتأكد قبل الاقتراح (case-insensitive، بنفس منطق الـ 409 في الـ service) بدل ما المستخدم يتفاجئ بالفشل بعد ما يأكد.
+تكلفة شاذة: لو التكلفة خارج ±30% من last_cost_price، يظهر تحذير، ويحتمل يكون فيه صفر زيادة أو ناقص.
+variant مكرر في نفس الطلب: ندمج الكميات في سطر واحد قبل الاقتراح علشان البطاقة تبقى واضحة.
+التكلفة مخفية: لو المستخدم معندوش صلاحية CostAccess، الأداة ترفض من الأول، لأن الـ endpoint نفسه بيطلب الصلاحية دي.
+مفتاح عدم التكرار هنا = "ai-".$action->id، لأن receive() بياخد key إجباري.
+
+ماينفعش نعمل تراجع لاستلام الإنتاج. متوسط التكلفة اتعدل، والرجوع فيه مش آمن حسابيًا لو حصل بعده بيع. علشان كده الـ risk يبقى high فوق القيمة المحددة، والتأكيد بكتابة رقم الدفعة.
+
+المرحلة 3: دورة التحويلات (P06-M03)
+الأداة	الحالة المطلوبة	التراجع
+create_transfer_draft	—	✅ حذف المسودة
+update_transfer_draft	Draft	❌
+approve_transfer	Draft	✅ إلغاء، وبيفك الحجز تلقائيًا من cancel()
+ship_transfer	Approved	❌ (الشحنة اللي اتشحنت مابتتلغيش)
+receive_transfer	Shipped	❌
+cancel_transfer	Draft/Approved	❌
+تفاصيل مهمة:
+
+التزامن: الـ prepare بيسجل $transfer->version في expected_versions، والـ execute بيبعته كـ expectedVersion. لو حد تاني عدّل التحويل من الشاشة، الـ 409 بيتحول لـ conflict_409 تلقائيًا ويظهر في إحصائيات usage().
+الاستلام بالكلام: المستخدم يقول "استلمت التحويل 41، كله تمام ما عدا الشنطة السودا جالي 8 بدل 10". الأداة تحوّل الكلام ده لـ itemsPayload (رقم البند ← الكمية)، وتعرض الفرق (عجز 2) قبل التأكيد. الـ service هو اللي بيسجل TransferShortage تلقائيًا.
+الاعتماد الجزئي: "اعتمد نصهم بس" تتحسب على كل بند، والأداة تتأكد إن الكمية بين صفر والمطلوب قبل ما تقترح.
+حالة غلط: لو المستخدم طلب يلغي تحويل حالته Shipped، النموذج مايقولش "مش هينفع" وخلاص. يرد: "التحويل اتشحن، مش هينفع يتلغي. تحب أعمل استلام بكمية صفر وأسجله عجز، ولا تعمل تحويل عكسي؟"، ويطلع زرارين.
+بلوك جديد اسمه transfer_timeline: خط زمني للمراحل الأربع، وجنب كل مرحلة مين عملها وامتى، والكميات (مطلوب، معتمد، مشحون، مستلم)، وأي فرق يتلوّن.
+
+المرحلة 4: الجرد والمطابقة (P06-M04)
+4.1 الأدوات
+create_stocktake وrecord_counts (بتلف على upsertSomeItems) وstocktake_variance وapprove_stocktake وcancel_stocktake.
+
+4.2 تقرير الفروقات قبل الاعتماد
+بدل ما المستخدم يعتمد على عمى، stocktake_variance بيطلع:
+
+أكبر 10 فروق بالقيمة، مش بالكمية.
+الفروق المشبوهة: صنف عليه فرق عجز في آخر 3 جرود متتالية في نفس الموقع. ده غالبًا سرقة أو خطأ في تسجيل البيع، مش خطأ في العد.
+أصناف اتعدت صفر وليها حركة بيع امبارح، وده احتمال كبير يكون خطأ عد.
+الأصناف المحتاجة إعادة عد: لو السياسة reject والاعتماد فشل، الـ service بيرجّع recount_item_ids وrecount_variant_ids في الـ error. الأداة تحوّل القائمة دي لـ checklist بلوك (موجود بالفعل في الـ frontend)، والموظف يعيد عد الأصناف دي بس، مش الجلسة كلها.
+approve_stocktake بيبقى high risk دايمًا، والتأكيد بكتابة رقم الجرد. ومالوش تراجع.
+
+4.3 الجرد بالصورة
+الموظف يصوّر ورقة جرد مكتوبة بخط اليد، أو شاشة ميزان، أو رف عليه بطاقات أسعار. بعدها:
+
+generateStructured مع schema على شكل [{sku_or_text, qty, confidence}].
+كل سطر يتطابق مع الـ variants عن طريق EntityResolver (SKU، باركود، وصف).
+الناتج اقتراح record_counts في جدول يقدر المستخدم يعدّل فيه. السطور اللي الـ confidence بتاعها أقل من 0.8 تتلوّن أصفر وتحتاج مراجعة.
+ماينفعش يحصل اعتماد مباشر من صورة. الصورة بتعبّي العد بس.
+وزي AnalyzeProductPhotosTool، الـ prompt لازم يقول للنموذج يتجاهل أي نص في الصورة بيحاول يدي أوامر.
+
+4.4 شاشة POS
+endpoint المسح /pos/stocktakes/{id}/scan موجود. هنضيف وضع "عد صوتي" في الـ composer: الموظف يقول "اتنين وعشرين" بعد ما يمسح الباركود، والرقم يتحول (مع تحويل الأرقام العربي/الهندي، وده موجود في normalizeDigits). ونحافظ على قاعدة إن system_qty مايظهرش غير لصاحب stocktakes.approve، علشان العد مايبقاش متحيز. المساعد كمان مايقولش الرصيد المتوقع للموظف وهو بيعد.
+
+المرحلة 5: الذكاء الاستباقي
+5.1 اقتراح إعادة التوزيع: لما StockLowDetected يحصل (مع ملاحظة إن SendLowStockAlert بيبعت database notification بس حاليًا)، نضيف listener تاني (بشرط ai_inventory_proactive_enabled) بيدور على فرع أو مخزن فيه نفس الصنف بأيام تغطية أكبر من 60 يوم. لو لقى، يعمل اقتراح تحويل جاهز يظهر في الإشعار نفسه: "فرع المعادي فاضل له يومين من الشنطة X، والمخزن الرئيسي عنده تغطية 90 يوم. أجهزلك تحويل 12 قطعة؟". ضغطة واحدة تفتح المساعد والمسودة جاهزة. ده محسوب بالكامل في PHP، يعني من غير tokens.
+
+5.2 الملخص الصباحي: بطاقة في AiWelcomeController (من غير Gemini، زي welcomeBlock الحالي) فيها:
+
+تحويلات مستنية اعتمادك من أكتر من 24 ساعة.
+أصناف هتخلص خلال 3 أيام.
+جرود مفتوحة من أسبوع.
+نتيجة آخر مطابقة للأرصدة.
+الراكد اللي قيمته أعلى من حد معين.
+وكل سطر جنبه زرار "اتصرف" بيبعت prompt جاهز.
+
+5.3 كشف الأنماط الغريبة: job أسبوعي يعلّم على الحالات دي:
+
+مستخدم نسبة تسويات الخصم بتاعته أعلى من غيره بكتير.
+موقع العجز بيتكرر فيه.
+استلامات تحويل بعجز متكرر من نفس المصدر.
+النتايج بتظهر للي معاه ai_agent.logs.view بس، كـ"ملاحظات للمراجعة"، مش اتهامات.
+
+5.4 "ماذا لو": المستخدم يسأل "لو استلمت 200 قطعة بـ 170 جنيه، التكلفة هتبقى كام؟". الأداة تحسب من غير ما تكتب حاجة. فيه نفس السؤال مع تحويل: "لو نقلت 30 للمعادي، المخزن هيفضل له تغطية كام يوم؟".
+
+المرحلة 6: تجربة المستخدم في الواجهة
+بلوكات جديدة في AssistantBlock.tsx. الموجود حاليًا 15 نوع:
+
+البلوك	الشكل
+stock_matrix	heatmap متغيرات × فروع، والألوان حسب أيام التغطية، والضغط على خلية يعرض الحركات
+stock_diff	قبل/بعد لكل bucket في التسويات، بنفس روح price_diff
+balance_story	خط زمني لحركات explain_balance مع لينكات المستندات
+transfer_timeline	المراحل الأربع والكميات والفروق
+count_sheet	جدول عد قابل للتعديل، فيه علامات confidence من الصورة
+cost_impact	بطاقة متوسط التكلفة قبل/بعد مع تحذير الشذوذ
+تفاصيل صغيرة بس بتفرق:
+
+المساعد يعرف إنت فاتح أنهي شاشة: لو فتحته من صفحة تحويل، يتبعت selection: {entity:'transfer', id} تلقائيًا، وتقدر تكتب "اعتمده" وخلاص. محتاجين نوسّع validation الـ selection في AiMessageController بالـ entities الجديدة.
+لينكات تفتح الشاشة الصح: كل result block فيه زرار "افتح في الشاشة" يروح لـ #/inventory/... أو #/production والفلاتر مظبوطة.
+أوامر سريعة: /رصيد و/تحويل و/جرد و/استلام في الـ composer.
+منشن بالباركود: إنك تكتب @ وتمسح باركود بالـ scanner يضيف الـ variant كـ mention على طول.
+الرسائل بتشرح الخطأ: بدل "Insufficient stock"، الرسالة تبقى "المتاح 3 بس، لأن فيه 2 محجوزين لتحويل TRF-41 و1 تالف. تحب أفك الحجز؟".
+عداد التراجع: شريط بيخلص في 15 دقيقة على كارت التسوية بعد تنفيذها، علشان المستخدم يعرف إن التراجع لسه متاح.
+المرحلة 7: الجودة والإطلاق
+التقييم: نرفع الحد الأدنى للحالات لـ 220، منها 80 للمخزون، وفيها حالات صعبة زي "نقل" (تحويل ولا نقل موقع؟) و"اخصم" (تسوية ولا خصم سعر؟). والقاعدة الموجودة إن أي write غلط بيبوظ الحالة فضلت زي ما هي.
+المتابعة: usage() بيطلع cancel_rate لكل أداة وneeds_attention لو النسبة أعلى من 40%. أي أداة مخزون توصل للحد ده يتراجع الـ prompt أو الـ schema بتاعها.
+الإطلاق على مراحل: أول أسبوعين أدوات القراءة بس. بعدها التسويات لفرع واحد كتجربة. وبعدها التحويلات، ثم الجرد. وفي الآخر الصور والذكاء الاستباقي.
+حماية الـ cycle: maxSteps = 6 كفاية لأي عملية مخزون (بحث ← رصيد ← اقتراح). الاستعلامات التقيلة لازم يبقى ليها LIMIT وتخلص في أقل من 5 ثواني.
+bulk_actions: نضيف adjust_stock وapprove_transfer للـ enum بتاعه، علشان "اعتمد كل التحويلات المعلقة لفرع المعادي" تبقى خطة واحدة المستخدم يختار منها.
+
+

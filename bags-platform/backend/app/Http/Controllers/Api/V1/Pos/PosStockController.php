@@ -178,9 +178,19 @@ class PosStockController extends Controller
         $data = $request->validate([
             'barcode' => ['required', 'string', 'max:100'],
             'qty' => ['nullable', 'numeric', 'decimal:0,4', 'min:0.0001', 'max:99999'],
+            'qty_words' => ['nullable', 'string', 'max:50'],
         ]);
 
-        $qty = (float) ($data['qty'] ?? 1);
+        // وضع العد الصوتي: الموظف يمسح الباركود ويقول الرقم ("اتنين وعشرين").
+        // system_qty يفضل محجوبًا عن غير المصرح لهم بالاعتماد (نفس القاعدة أدناه).
+        $qty = isset($data['qty']) ? (float) $data['qty'] : 1;
+        if (! isset($data['qty']) && isset($data['qty_words'])) {
+            $spoken = \App\Services\SpokenQuantity::parse($data['qty_words']);
+            if ($spoken === null || $spoken < 1) {
+                return response()->json(['message' => 'العدد المنطوق مش واضح؛ قوله تاني أو اكتبه رقمًا.'], 422);
+            }
+            $qty = $spoken;
+        }
 
         $variant = ProductVariant::query()
             ->where('barcode', $data['barcode'])

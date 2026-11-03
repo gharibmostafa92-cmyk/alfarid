@@ -77,6 +77,9 @@ Schedule::command('inventory:prune-idempotency-keys')->dailyAt('03:00')
 Schedule::command('operations:prune-idempotency-keys')->dailyAt('03:10')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer()
     ->onFailure(fn () => logger()->error('Scheduled operation idempotency cleanup failed.'));
+Schedule::command('inventory:detect-anomalies')->weeklyOn(1, '06:00')
+    ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer()
+    ->onFailure(fn () => logger()->error('Scheduled inventory anomaly detection failed.'));
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());

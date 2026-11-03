@@ -88,6 +88,11 @@ class SettingSeeder extends Seeder
         ['group' => 'ai', 'key' => 'ai_catalog_vision_enabled', 'value' => '0', 'type' => 'boolean'],
         ['group' => 'ai', 'key' => 'ai_catalog_bulk_price_max_items', 'value' => '200', 'type' => 'integer'],
         ['group' => 'ai', 'key' => 'ai_catalog_copywriting_enabled', 'value' => '0', 'type' => 'boolean'],
+        ['group' => 'ai', 'key' => 'ai_inventory_tools_enabled', 'value' => '0', 'type' => 'boolean'],
+        ['group' => 'ai', 'key' => 'ai_inventory_vision_enabled', 'value' => '0', 'type' => 'boolean'],
+        ['group' => 'ai', 'key' => 'ai_inventory_share_cost_with_model', 'value' => '0', 'type' => 'boolean'],
+        ['group' => 'ai', 'key' => 'ai_inventory_high_risk_value', 'value' => '50000', 'type' => 'integer'],
+        ['group' => 'ai', 'key' => 'ai_inventory_proactive_enabled', 'value' => '0', 'type' => 'boolean'],
         ['group' => 'ai', 'key' => 'ai_max_steps', 'value' => '6', 'type' => 'integer'],
     ];
 

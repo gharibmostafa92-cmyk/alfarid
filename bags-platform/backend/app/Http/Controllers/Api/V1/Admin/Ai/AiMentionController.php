@@ -14,7 +14,7 @@ class AiMentionController extends Controller
 {
     public function search(Request $request, EntityResolver $resolver, ToolRegistry $registry): JsonResponse
     {
-        $data = $request->validate(['q' => ['nullable', 'string', 'max:100'], 'entity' => ['nullable', 'in:branch,user,role,customer,category,product,variant']]);
+        $data = $request->validate(['q' => ['nullable', 'string', 'max:100'], 'entity' => ['nullable', 'in:branch,user,role,customer,category,product,variant,transfer,stocktake,production_receipt']]);
         $actor = $request->user('staff');
         $q = (string) ($data['q'] ?? '');
         $entity = $data['entity'] ?? null;
@@ -41,6 +41,15 @@ class AiMentionController extends Controller
         }
         if ((! $entity || $entity === 'variant') && $registry->canReadEntity($actor, 'variant')) {
             $out['variants'] = $resolver->variants($actor, $q);
+        }
+        if ((! $entity || $entity === 'transfer') && $registry->canReadEntity($actor, 'transfer')) {
+            $out['transfers'] = $resolver->transfers($actor, $q);
+        }
+        if ((! $entity || $entity === 'stocktake') && $registry->canReadEntity($actor, 'stocktake')) {
+            $out['stocktakes'] = $resolver->stocktakes($actor, $q);
+        }
+        if ((! $entity || $entity === 'production_receipt') && $registry->canReadEntity($actor, 'production_receipt')) {
+            $out['production_receipts'] = $resolver->productionReceipts($actor, $q);
         }
 
         return response()->json(['data' => $out]);

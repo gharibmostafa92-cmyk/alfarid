@@ -210,13 +210,15 @@ final class PendingActionService
 
     /**
      * M7: القفل الاستشاري العام لأدوات إدارة الموظفين فقط. أدوات
-     * الكتالوج تعتمد على CatalogLock::tree + أقفال الصفوف (lockForUpdate)
-     * الموجودة أصلًا، فأخذ القفل العام عند تأكيدها كان يسلسل كل شيء
-     * خلف أثقل عملية كتالوج.
+     * الكتالوج والمخزون تعتمد على أقفالها الخاصة (CatalogLock::tree +
+     * أقفال الصفوف، أو InventoryService::lockLevels بترتيب ثابت)، فأخذ
+     * القفل العام عند تأكيدها كان يسلسل كل شيء خلف أثقل عملية.
      */
     private function lockForAction(string $tool): void
     {
-        if ($this->registry->isCatalogTool($tool)) {
+        $def = $this->registry->definitions()[$tool] ?? null;
+        $provider = $def['provider'] ?? null;
+        if ($provider instanceof \App\Services\Ai\Contracts\ToolProvider && ! $provider->usesGlobalAdminLock()) {
             return;
         }
         StaffAdministration::lock();
@@ -361,6 +363,9 @@ final class PendingActionService
         $ok = $outcome->type === 'result';
         $storedResult = $outcome->data;
         unset($storedResult['generated_password']);
+        // الأدوات قد تحفظ مراجع أنشأتها أثناء التنفيذ (مثل مسودة تحويل)
+        // في expected_versions — حدّث النسخة قبل حساب حالة التراجع.
+        $action->refresh();
         if ($ok && $this->registry->canUndo($action)) {
             $storedResult['undo_state'] = $this->registry->targetState($action);
         }

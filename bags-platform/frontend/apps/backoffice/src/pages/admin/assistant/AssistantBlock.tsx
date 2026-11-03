@@ -175,7 +175,7 @@ async function downloadDocument(url: string, name: string) {
 function normalizeDeepLink(raw: unknown): string | undefined {
   if (typeof raw !== 'string' || !raw) return undefined;
   const clean = raw.startsWith('#') ? raw.slice(1) : raw;
-  if (/^\/(users|roles|settings|branches|dealers|pricing|products|categories)(\/|\?|$)/.test(clean)) {
+  if (/^\/(users|roles|settings|branches|dealers|pricing|products|categories|transfers|stocktakes|production|inventory)(\/|\?|$)/.test(clean)) {
     return `#${clean}`;
   }
   return undefined;
@@ -791,6 +791,242 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
           </footer>
         )}
         <span className="as-sr" role="status">{!pending ? statusLabels[status!] ?? status : expired ? 'انتهت صلاحية التأكيد؛ اطلب اقتراح جديد.' : ''}</span>
+      </section>
+    );
+  }
+
+  /* ---------------- Reason picker (inventory) ---------------- */
+  if (block.type === 'reason_picker') {
+    const options = (block.options ?? []) as { id: string; label: string }[];
+    return (
+      <section className="as-block" aria-label="اختيار سبب">
+        <header className="as-block-head">
+          <span className="as-block-ic"><Icon name="tag" /></span>
+          <div className="as-block-title">
+            <h3>{String(block.purpose ?? 'اختار السبب')}</h3>
+            <span>{options.length} أسباب متاحة · اختار واحد للمتابعة</span>
+          </div>
+        </header>
+        <ul className="as-pick">
+          {options.map(o => (
+            <li key={o.id}>
+              <button type="button" className="as-pickbtn" disabled={busy} onClick={() => onPick('reason', o.id, o.label)}>
+                <span className="as-pickmain"><strong>{o.label}</strong></span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </section>
+    );
+  }
+
+  /* ---------------- Stock matrix (variant x branch heatmap) ---------------- */
+  if (block.type === 'stock_matrix') {
+    const columns = (block.columns ?? []) as string[];
+    const rows = (block.rows ?? []) as (string | number)[][];
+    const link = normalizeDeepLink(block.deep_link);
+    const max = rows.reduce((m, r) => Math.max(m, ...r.slice(1).map(v => Number(v) || 0)), 0);
+    return (
+      <section className="as-block" aria-label="مصفوفة المخزون">
+        <header className="as-block-head">
+          <span className="as-block-ic"><Icon name="box" /></span>
+          <div className="as-block-title"><h3>توزيع الأصناف على الفروع</h3><span>{rows.length} أصناف</span></div>
+          {link ? <a className="as-linkbtn" href={link}>فتح في الشاشة</a> : null}
+        </header>
+        <div className="as-tablewrap" role="region" aria-label="مصفوفة المخزون" tabIndex={0}>
+          <table className="as-table as-num">
+            <thead><tr>{columns.map((c, i) => <th key={i} scope="col">{c}</th>)}</tr></thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i}>
+                  {r.map((v, j) => {
+                    if (j === 0) return <th key={j} scope="row">{v}</th>;
+                    const n = Number(v) || 0;
+                    const heat = max > 0 ? 0.08 + 0.5 * (n / max) : 0;
+                    return <td key={j} style={n > 0 ? { backgroundColor: `rgba(180, 120, 40, ${heat.toFixed(2)})` } : undefined}>{n === 0 ? 'صفر' : v}</td>;
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    );
+  }
+
+  /* ---------------- Stock diff (before/after buckets) ---------------- */
+  if (block.type === 'stock_diff') {
+    const before = (block.before ?? {}) as Record<string, unknown>;
+    const after = (block.after ?? {}) as Record<string, unknown>;
+    const keys = Array.from(new Set([...Object.keys(before), ...Object.keys(after)]));
+    return (
+      <section className="as-block" aria-label="فرق الرصيد">
+        <header className="as-block-head">
+          <span className="as-block-ic"><Icon name="layers" /></span>
+          <div className="as-block-title"><h3>قبل وبعد التسوية</h3></div>
+        </header>
+        <div className="as-tablewrap">
+          <table className="as-table as-num">
+            <thead><tr><th scope="col">البند</th><th scope="col">قبل</th><th scope="col">بعد</th></tr></thead>
+            <tbody>
+              {keys.map(k => (
+                <tr key={k}>
+                  <th scope="row">{k}</th>
+                  <td>{String(before[k] ?? '—')}</td>
+                  <td><strong>{String(after[k] ?? '—')}</strong></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    );
+  }
+
+  /* ---------------- Balance story (grouped movements + timeline) ---------------- */
+  if (block.type === 'balance_story') {
+    const groups = (block.groups ?? []) as { type: string; reference_number?: string; reference_link?: string; count: number; quantity_total: number }[];
+    const timeline = (block.timeline ?? []) as { id: number; created_at?: string; type: string; quantity: number; balance_after: number; reference_number?: string; reference_link?: string }[];
+    const start = block.start_balance;
+    return (
+      <section className="as-block" aria-label="قصة الرصيد">
+        <header className="as-block-head">
+          <span className="as-block-ic"><Icon name="clock" /></span>
+          <div className="as-block-title"><h3>إزاي الرصيد وصل لكده</h3>{start !== undefined && start !== null ? <span>بداية الفترة: {String(start)}</span> : null}</div>
+        </header>
+        {groups.length > 0 ? (
+          <ul className="as-list">
+            {groups.map((g, i) => (
+              <li key={i}>
+                <span>{g.type} × {g.count}</span>
+                <span className="as-num">{g.quantity_total}</span>
+                {g.reference_link && normalizeDeepLink(g.reference_link) ? <a className="as-linkbtn" href={normalizeDeepLink(g.reference_link)!}>{g.reference_number ?? 'المستند'}</a> : <span>{g.reference_number ?? ''}</span>}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {timeline.length > 0 ? (
+          <div className="as-tablewrap">
+            <table className="as-table as-num">
+              <thead><tr><th scope="col">#</th><th scope="col">التاريخ</th><th scope="col">النوع</th><th scope="col">الكمية</th><th scope="col">الرصيد بعد</th><th scope="col">المرجع</th></tr></thead>
+              <tbody>
+                {timeline.map(t => (
+                  <tr key={t.id}>
+                    <td>{t.id}</td><td>{t.created_at ? new Date(t.created_at).toLocaleString('ar-EG') : '—'}</td>
+                    <td>{t.type}</td><td>{t.quantity}</td><td>{t.balance_after}</td>
+                    <td>{t.reference_link && normalizeDeepLink(t.reference_link) ? <a className="as-linkbtn" href={normalizeDeepLink(t.reference_link)!}>{t.reference_number ?? 'فتح'}</a> : (t.reference_number ?? '—')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </section>
+    );
+  }
+
+  /* ---------------- Transfer timeline (4 stages + item qtys) ---------------- */
+  if (block.type === 'transfer_timeline') {
+    const stages = (block.stages ?? []) as { stage: string; done: boolean; at?: string }[];
+    const items = (block.items ?? []) as { sku?: string; requested_qty?: number; approved_qty?: number; shipped_qty?: number; received_qty?: number; shortage?: number }[];
+    const link = normalizeDeepLink(block.deep_link);
+    const stageLabel: Record<string, string> = { draft: 'مسودة', approved: 'معتمد', shipped: 'مشحون', received: 'مستلم' };
+    return (
+      <section className="as-block" aria-label="مراحل التحويل">
+        <header className="as-block-head">
+          <span className="as-block-ic"><Icon name="refresh" /></span>
+          <div className="as-block-title"><h3>مسار التحويل</h3></div>
+          {link ? <a className="as-linkbtn" href={link}>فتح في الشاشة</a> : null}
+        </header>
+        {stages.length > 0 ? (
+          <ol className="as-steps">
+            {stages.map((s, i) => (
+              <li key={i} data-done={s.done ? '1' : '0'}>
+                <span className="as-stepdot" aria-hidden="true" />
+                <span>{stageLabel[s.stage] ?? s.stage}</span>
+                {s.at ? <time className="as-num">{new Date(s.at).toLocaleString('ar-EG')}</time> : null}
+              </li>
+            ))}
+          </ol>
+        ) : null}
+        {items.length > 0 ? (
+          <div className="as-tablewrap">
+            <table className="as-table as-num">
+              <thead><tr><th scope="col">الصنف</th><th scope="col">مطلوب</th><th scope="col">معتمد</th><th scope="col">مشحون</th><th scope="col">مستلم</th><th scope="col">عجز</th></tr></thead>
+              <tbody>
+                {items.map((it, i) => (
+                  <tr key={i}>
+                    <th scope="row">{it.sku ?? '—'}</th>
+                    <td>{it.requested_qty ?? '—'}</td><td>{it.approved_qty ?? '—'}</td>
+                    <td>{it.shipped_qty ?? '—'}</td><td>{it.received_qty ?? '—'}</td>
+                    <td>{it.shortage != null && it.shortage !== 0 ? <strong>{it.shortage}</strong> : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </section>
+    );
+  }
+
+  /* ---------------- Count sheet (parsed counts + confidence) ---------------- */
+  if (block.type === 'count_sheet') {
+    const rows = (block.rows ?? []) as { sku?: string; variant_id?: number; counted_qty?: number; system_qty?: number; difference?: number; confidence?: number }[];
+    return (
+      <section className="as-block" aria-label="ورقة العد">
+        <header className="as-block-head">
+          <span className="as-block-ic"><Icon name="check" /></span>
+          <div className="as-block-title"><h3>بنود العد</h3><span>{rows.length} بنود</span></div>
+        </header>
+        <div className="as-tablewrap">
+          <table className="as-table as-num">
+            <thead><tr><th scope="col">الصنف</th><th scope="col">العد</th><th scope="col">النظام</th><th scope="col">الفرق</th><th scope="col">الثقة</th></tr></thead>
+            <tbody>
+              {rows.map((r, i) => {
+                const low = (r.confidence ?? 1) < 0.8;
+                return (
+                  <tr key={i} data-low={low ? '1' : '0'}>
+                    <th scope="row">{r.sku ?? (r.variant_id ? `#${r.variant_id}` : '—')}</th>
+                    <td><strong>{r.counted_qty ?? '—'}</strong></td>
+                    <td>{r.system_qty ?? '—'}</td>
+                    <td>{r.difference ?? '—'}</td>
+                    <td>{r.confidence != null ? `${Math.round(r.confidence * 100)}%${low ? ' — راجع' : ''}` : '—'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    );
+  }
+
+  /* ---------------- Cost impact (WAC before/after) ---------------- */
+  if (block.type === 'cost_impact') {
+    const rows = (block.rows ?? []) as { sku?: string; quantity?: number; unit_cost?: number; cost_before?: number; cost_after?: number; change_pct?: number }[];
+    return (
+      <section className="as-block" aria-label="أثر التكلفة">
+        <header className="as-block-head">
+          <span className="as-block-ic"><Icon name="chart" /></span>
+          <div className="as-block-title"><h3>أثر التكلفة</h3></div>
+        </header>
+        <div className="as-tablewrap">
+          <table className="as-table as-num">
+            <thead><tr><th scope="col">الصنف</th><th scope="col">الكمية</th><th scope="col">التكلفة قبل</th><th scope="col">التكلفة بعد</th><th scope="col">التغير</th></tr></thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i}>
+                  <th scope="row">{r.sku ?? '—'}</th>
+                  <td>{r.quantity ?? '—'}</td>
+                  <td>{r.cost_before ?? '—'}</td>
+                  <td><strong>{r.cost_after ?? '—'}</strong></td>
+                  <td>{r.change_pct != null ? `${r.change_pct >= 0 ? '+' : ''}${r.change_pct}%` : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
     );
   }

@@ -10,7 +10,10 @@ use App\Models\Customer;
 use App\Models\CustomerGroup;
 use App\Models\Location;
 use App\Models\Product;
+use App\Models\ProductionReceipt;
 use App\Models\ProductVariant;
+use App\Models\Stocktake;
+use App\Models\StockTransfer;
 use App\Models\User;
 use App\Services\BranchAccess;
 use App\Services\SearchTerm;
@@ -150,6 +153,22 @@ final class EntityResolver
         if ($restricted === -1) {
             return [];
         }
+        $cleanCode = trim(self::normalizeDigits($query));
+        // مسار سريع: كود موقع مضبوط (A-03-2).
+        if ($cleanCode !== '' && ! preg_match('/\s/u', $cleanCode)) {
+            $exact = Location::query()
+                ->when($restricted !== null, fn ($q) => $q->where('branch_id', $restricted), fn ($q) => $q->when($branchId !== null, fn ($w) => $w->where('branch_id', $branchId)))
+                ->whereRaw('LOWER(code) = LOWER(?)', [$cleanCode])->limit(2)->get();
+            if ($exact->count() === 1) {
+                $l = $exact->first();
+
+                return [[
+                    'id' => $l->id,
+                    'label' => $l->name.' ('.$l->code.')',
+                    'meta' => trim(($l->type?->value ?? '').' · '.($l->is_active ? 'نشط' : 'معطّل').' · فرع: '.$l->branch_id),
+                ]];
+            }
+        }
 
         // M1: قيد الفرع يطبق أولًا — مقيّد بفرع ما يقدرش يوجّه branch_id لفرع تاني.
         // M6/L5: نفس الفلترة السلكية المحمية مع LIMIT.
@@ -168,6 +187,144 @@ final class EntityResolver
             ])
             ->values()
             ->all();
+    }
+
+    /** @return list<array{id:int,label:string,meta:string}> */
+    public function transfers(User $actor, string $query = '', array $filters = []): array
+    {
+        $restricted = $this->restricted($actor);
+        if ($restricted === -1) {
+            return [];
+        }
+        $scope = fn ($x) => $restricted !== null
+            ? $x->where(fn ($w) => $w->where('from_branch_id', $restricted)->orWhere('to_branch_id', $restricted))
+            : $x;
+        $clean = trim(self::normalizeDigits($query));
+
+        // مسار سريع: رقم مستند مضبوط (TRF-00012).
+        if ($clean !== '' && preg_match('/^[A-Za-z]+-\d+$/', $clean)) {
+            $exact = StockTransfer::query()->with(['fromBranch:id,name', 'toBranch:id,name'])
+                ->tap($scope)->whereRaw('LOWER(transfer_number) = LOWER(?)', [$clean])->limit(2)->get();
+            if ($exact->count() === 1) {
+                return $this->mapTransfers($exact)->all();
+            }
+        }
+
+        return $this->mapTransfers(StockTransfer::query()->with(['fromBranch:id,name', 'toBranch:id,name'])
+            ->tap($scope)
+            ->when(isset($filters['status']), fn ($x) => $x->where('status', $filters['status']))
+            ->when(self::mentionsYesterday($clean), fn ($x) => $x->whereDate('created_at', today()->subDay()))
+            ->when(self::mentionsToday($clean), fn ($x) => $x->whereDate('created_at', today()))
+            ->when($clean !== '', function ($x) use ($clean): void {
+                $pattern = SearchTerm::pattern($clean);
+                $x->where(fn ($w) => $w
+                    ->where('transfer_number', 'ilike', $pattern)
+                    ->orWhere('notes', 'ilike', $pattern)
+                    ->orWhereHas('fromBranch', fn ($b) => $b->where('name', 'ilike', $pattern))
+                    ->orWhereHas('toBranch', fn ($b) => $b->where('name', 'ilike', $pattern)));
+            })
+            ->orderByDesc('id')
+            ->limit(20)
+            ->get())->all();
+    }
+
+    /** @return list<array{id:int,label:string,meta:string}> */
+    public function stocktakes(User $actor, string $query = '', array $filters = []): array
+    {
+        $restricted = $this->restricted($actor);
+        if ($restricted === -1) {
+            return [];
+        }
+        $clean = trim(self::normalizeDigits($query));
+
+        if ($clean !== '' && preg_match('/^[A-Za-z]+-\d+$/', $clean)) {
+            $exact = Stocktake::query()->with('branch:id,name')
+                ->when($restricted !== null, fn ($x) => $x->where('branch_id', $restricted))
+                ->whereRaw('LOWER(stocktake_number) = LOWER(?)', [$clean])->limit(2)->get();
+            if ($exact->count() === 1) {
+                return $this->mapStocktakes($exact)->all();
+            }
+        }
+
+        return $this->mapStocktakes(Stocktake::query()->with('branch:id,name')
+            ->when($restricted !== null, fn ($x) => $x->where('branch_id', $restricted))
+            ->when(isset($filters['status']), fn ($x) => $x->where('status', $filters['status']))
+            ->when(self::mentionsYesterday($clean), fn ($x) => $x->whereDate('created_at', today()->subDay()))
+            ->when(self::mentionsToday($clean), fn ($x) => $x->whereDate('created_at', today()))
+            ->when($clean !== '', function ($x) use ($clean): void {
+                $pattern = SearchTerm::pattern($clean);
+                $x->where(fn ($w) => $w
+                    ->where('stocktake_number', 'ilike', $pattern)
+                    ->orWhere('notes', 'ilike', $pattern)
+                    ->orWhereHas('branch', fn ($b) => $b->where('name', 'ilike', $pattern)));
+            })
+            ->orderByDesc('id')
+            ->limit(20)
+            ->get())->all();
+    }
+
+    /** @return list<array{id:int,label:string,meta:string}> */
+    public function productionReceipts(User $actor, string $query = '', ?int $branchId = null): array
+    {
+        $restricted = $this->restricted($actor);
+        if ($restricted === -1) {
+            return [];
+        }
+        $clean = trim(self::normalizeDigits($query));
+
+        return ProductionReceipt::query()->with('branch:id,name')
+            ->when($restricted !== null, fn ($x) => $x->where('branch_id', $restricted), fn ($x) => $x->when($branchId !== null, fn ($w) => $w->where('branch_id', $branchId)))
+            ->when($clean !== '', function ($x) use ($clean): void {
+                $pattern = SearchTerm::pattern($clean);
+                $x->where(fn ($w) => $w
+                    ->whereRaw('LOWER(batch_number) = LOWER(?)', [$clean])
+                    ->orWhere('batch_number', 'ilike', $pattern)
+                    ->orWhere('notes', 'ilike', $pattern));
+            })
+            ->orderByDesc('id')
+            ->limit(20)
+            ->get()
+            ->map(fn (ProductionReceipt $r) => [
+                'id' => $r->id,
+                'label' => $r->batch_number.' ('.($r->branch?->name ?? '—').')',
+                'meta' => ($r->created_at?->format('Y-m-d') ?? '').' · '.mb_substr((string) $r->notes, 0, 60),
+            ])
+            ->values()
+            ->all();
+    }
+
+    private static function mentionsYesterday(string $query): bool
+    {
+        $norm = self::normalizeForSearch($query);
+
+        return str_contains($norm, 'مبارح') || preg_match('/(^|\s)امس($|\s)/u', $norm) === 1;
+    }
+
+    private static function mentionsToday(string $query): bool
+    {
+        $norm = self::normalizeForSearch($query);
+
+        return str_contains($norm, 'نهارده') || preg_match('/(^|\s)يوم($|\s)/u', $norm) === 1;
+    }
+
+    /** @param \Illuminate\Support\Collection<int, StockTransfer> $items */
+    private function mapTransfers($items): \Illuminate\Support\Collection
+    {
+        return $items->map(fn (StockTransfer $t) => [
+            'id' => $t->id,
+            'label' => $t->transfer_number.' · '.($t->fromBranch?->name ?? '—').' ← '.($t->toBranch?->name ?? '—'),
+            'meta' => $t->status->value.' · '.($t->created_at?->format('Y-m-d') ?? ''),
+        ])->values();
+    }
+
+    /** @param \Illuminate\Support\Collection<int, Stocktake> $items */
+    private function mapStocktakes($items): \Illuminate\Support\Collection
+    {
+        return $items->map(fn (Stocktake $s) => [
+            'id' => $s->id,
+            'label' => $s->stocktake_number.' ('.($s->branch?->name ?? '—').')',
+            'meta' => $s->status->value.' · '.($s->created_at?->format('Y-m-d') ?? ''),
+        ])->values();
     }
 
     public function maskEmail(?string $email): string
@@ -439,7 +596,8 @@ final class EntityResolver
             ->when($terms !== [], function ($x) use ($terms, $clean): void {
                 $x->where(function ($w) use ($terms, $clean): void {
                     $w->whereRaw('LOWER(sku) = LOWER(?)', [$clean])
-                        ->orWhereRaw('LOWER(barcode) = LOWER(?)', [$clean]);
+                        ->orWhereRaw('LOWER(barcode) = LOWER(?)', [$clean])
+                        ->orWhereLike('barcode', SearchTerm::pattern($clean), caseSensitive: false);
                     foreach ($terms as $term) {
                         $pattern = SearchTerm::pattern($term);
                         $w->orWhereLike('sku', $pattern, caseSensitive: false)
@@ -447,6 +605,23 @@ final class EntityResolver
                             ->orWhereLike('color_name_en', $pattern, caseSensitive: false)
                             ->orWhereLike('size', $pattern, caseSensitive: false)
                             ->orWhereHas('product', fn ($p) => $p->whereLike('name_ar', $pattern, caseSensitive: false)->orWhereLike('name_en', $pattern, caseSensitive: false)->orWhereLike('code', $pattern, caseSensitive: false));
+                    }
+                    // صيغة "اللون + الموديل" من غير SKU ("الشنطة الكروس البني"):
+                    // كل توكن يطابق حقلًا ما، بدل تطابق العبارة كاملة في حقل واحد.
+                    $tokens = array_values(array_filter(preg_split('/\s+/u', self::normalizeForSearch($clean)) ?: [], fn ($t) => mb_strlen($t) >= 2));
+                    if (count($tokens) > 1) {
+                        $w->orWhere(function ($and) use ($tokens): void {
+                            foreach ($tokens as $token) {
+                                $pattern = SearchTerm::pattern($token);
+                                $and->where(fn ($ww) => $ww
+                                    ->whereLike('sku', $pattern, caseSensitive: false)
+                                    ->orWhereLike('color_name_ar', $pattern, caseSensitive: false)
+                                    ->orWhereLike('color_name_en', $pattern, caseSensitive: false)
+                                    ->orWhereLike('size', $pattern, caseSensitive: false)
+                                    ->orWhereLike('capacity', $pattern, caseSensitive: false)
+                                    ->orWhereHas('product', fn ($p) => $p->whereLike('name_ar', $pattern, caseSensitive: false)->orWhereLike('name_en', $pattern, caseSensitive: false)->orWhereLike('code', $pattern, caseSensitive: false)));
+                            }
+                        });
                     }
                 });
             })
@@ -494,6 +669,9 @@ final class EntityResolver
             'category' => Category::query()->find($id),
             'product' => Product::query()->find($id),
             'variant' => ProductVariant::query()->with('product:id,name_ar,code')->find($id),
+            'transfer' => StockTransfer::query()->when($branch !== null, fn ($q) => $q->where(fn ($w) => $w->where('from_branch_id', $branch)->orWhere('to_branch_id', $branch)))->find($id),
+            'stocktake' => Stocktake::query()->when($branch !== null, fn ($q) => $q->where('branch_id', $branch))->find($id),
+            'production_receipt' => ProductionReceipt::query()->when($branch !== null, fn ($q) => $q->where('branch_id', $branch))->find($id),
             default => null,
         };
         abort_unless($model, 422, 'الاختيار مش موجود أو خارج نطاقك.');
@@ -501,6 +679,9 @@ final class EntityResolver
         $rawLabel = match ($type) {
             'category', 'product' => (string) $model->name_ar,
             'variant' => (($model->product?->name_ar ?? '').' — '.$model->sku),
+            'transfer' => (string) $model->transfer_number,
+            'stocktake' => (string) $model->stocktake_number,
+            'production_receipt' => (string) $model->batch_number,
             default => (string) $model->name,
         };
         // اسم العميل أو المنتج/القسم كتبه بشر ورايح للنموذج كمرجع: نشيل رموز التحكم ونحدّ الطول.

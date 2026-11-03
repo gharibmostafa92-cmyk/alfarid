@@ -5,9 +5,15 @@ declare(strict_types=1);
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ProductionReceipt extends Model
 {
+    public function branch(): BelongsTo
+    {
+        return $this->belongsTo(Branch::class);
+    }
+
     protected $fillable = ['batch_number', 'branch_id', 'location_id', 'created_by', 'idempotency_key', 'request_hash', 'items', 'notes'];
 
     protected $hidden = ['idempotency_key', 'request_hash'];

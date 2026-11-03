@@ -48,6 +48,11 @@ class SettingService
         'ai_catalog_vision_enabled' => false,
         'ai_catalog_bulk_price_max_items' => 200,
         'ai_catalog_copywriting_enabled' => false,
+        'ai_inventory_tools_enabled' => false,
+        'ai_inventory_vision_enabled' => false,
+        'ai_inventory_share_cost_with_model' => false,
+        'ai_inventory_high_risk_value' => 50000,
+        'ai_inventory_proactive_enabled' => false,
         'ai_max_steps' => 6,
     ];
 

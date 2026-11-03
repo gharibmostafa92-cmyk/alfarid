@@ -394,6 +394,39 @@ class PosEndpointsTest extends TestCase
         $scan2->assertOk()->assertJsonPath('counted_qty', '3.0000');
     }
 
+    public function test_pos_stocktake_scan_accepts_spoken_quantity(): void
+    {
+        foreach (['stocktakes.update'] as $name) {
+            $this->cashier->givePermissionTo(Permission::findOrCreate($name, 'staff'));
+        }
+        $hq = User::create([
+            'name' => 'HQ Voice', 'email' => 'hq-voice@example.com', 'phone' => '+201099988878',
+            'password' => Hash::make('secret123'), 'branch_id' => null, 'is_active' => true,
+        ]);
+        foreach (['inventory.all_branches', 'stocktakes.create'] as $name) {
+            $hq->givePermissionTo(Permission::findOrCreate($name, 'staff'));
+        }
+        $token = $this->cashier->createToken('pos', ['pos'])->plainTextToken;
+        $this->withToken($token)->postJson('/api/v1/pos/shifts/open', [
+            'treasury_id' => $this->posDrawer->id, 'opening_cash' => 100.00,
+        ])->assertCreated();
+
+        $stocktake = app(StocktakeService::class)->create([
+            'branch_id' => $this->branch->id, 'items' => [],
+        ], $hq->id);
+
+        // وضع العد الصوتي: مسح + "اتنين وعشرين".
+        $scan = $this->withToken($token)->postJson("/api/v1/pos/stocktakes/{$stocktake->id}/scan", [
+            'barcode' => '6221234567890', 'qty_words' => 'اتنين وعشرين',
+        ]);
+        $scan->assertOk()->assertJsonPath('counted_qty', '22.0000');
+
+        // الصوت الغامض يترفض برسالة واضحة بدل العد الغلط.
+        $this->withToken($token)->postJson("/api/v1/pos/stocktakes/{$stocktake->id}/scan", [
+            'barcode' => '6221234567890', 'qty_words' => 'كلام فاضي',
+        ])->assertStatus(422);
+    }
+
     public function json($method, $uri, array $data = [], array $headers = [], $options = 0)
     {
         if (strtoupper($method) === 'POST' && str_ends_with($uri, '/pos/sales') && ! isset($headers['Idempotency-Key']) && ! isset($this->defaultHeaders['Idempotency-Key'])) {

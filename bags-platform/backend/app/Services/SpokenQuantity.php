@@ -1,0 +1,95 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Services;
+
+use App\Services\Ai\EntityResolver;
+
+/**
+ * Parses spoken Arabic quantities ("اتنين وعشرين") into numbers for the
+ * POS voice-count mode. Fractions are not supported — counts are integers.
+ */
+final class SpokenQuantity
+{
+    /** @var array<string, float> */
+    private const WORDS = [
+        'صفر' => 0, 'واحد' => 1, 'واحده' => 1, 'اتنين' => 2, 'اثنين' => 2,
+        'اثنان' => 2, 'تنين' => 2, 'تلاته' => 3, 'ثلاثه' => 3, 'اربعه' => 4,
+        'خمسه' => 5, 'سته' => 6, 'سبعه' => 7, 'تمانيه' => 8, 'ثمانيه' => 8,
+        'تسعه' => 9, 'عشره' => 10, 'عشر' => 10, 'حداشر' => 11, 'احد عشر' => 11,
+        'اتناشر' => 12, 'اطناشر' => 12, 'اثنا عشر' => 12, 'تلتاشر' => 13,
+        'اربعتاشر' => 14, 'خمستاشر' => 15, 'ستاشر' => 16, 'سبعتاشر' => 17,
+        'تمنتاشر' => 18, 'تسعتاشر' => 19, 'عشرين' => 20, 'تلاتين' => 30,
+        'اربعين' => 40, 'خمسين' => 50, 'ستين' => 60, 'سبعين' => 70,
+        'تمانين' => 80, 'تسعين' => 90, 'ميه' => 100, 'ميت' => 100,
+        'مايه' => 100, 'مائه' => 100, 'ميتين' => 200, 'الف' => 1000, 'دسته' => 12,
+    ];
+
+    /** @var list<string> */
+    private const FILLER = ['قطعه', 'قطع', 'حبه', 'حبات', 'علبه', 'علب', 'كرتونه'];
+
+    public static function parse(?string $input): ?float
+    {
+        if ($input === null) {
+            return null;
+        }
+        $clean = trim(EntityResolver::normalizeDigits($input));
+        if ($clean === '') {
+            return null;
+        }
+        if (is_numeric($clean)) {
+            $v = (float) $clean;
+            if ($v >= 0 && $v <= 999999 && floor($v) == $v) {
+                return $v;
+            }
+
+            return null;
+        }
+
+        $norm = EntityResolver::normalize($clean);
+        if (isset(self::WORDS[$norm])) {
+            return self::WORDS[$norm];
+        }
+
+        $spaced = str_replace(' و ', ' ', ' '.$norm.' ');
+        $tokens = preg_split('/\s+/u', trim($spaced)) ?: [];
+        $total = 0.0;
+        $group = 0.0;
+        $matched = 0;
+        foreach ($tokens as $i => $token) {
+            if ($token === '' || $token === 'و') {
+                continue;
+            }
+            // عطف متصل: "وعشرين" — الواو الأولى تُحذف لغير أول توكن.
+            if ($i > 0 && mb_substr($token, 0, 1) === 'و' && mb_strlen($token) > 1 && ! isset(self::WORDS[$token])) {
+                $token = mb_substr($token, 1);
+                if ($token === '' || $token === 'و') {
+                    continue;
+                }
+            }
+            if (in_array($token, self::FILLER, true)) {
+                continue;
+            }
+            if (! isset(self::WORDS[$token])) {
+                return null;
+            }
+            $matched++;
+            $v = self::WORDS[$token];
+            if ($v === 1000.0 || $v === 100.0) {
+                $group = ($group > 0 ? $group : 1) * $v;
+                $total += $group;
+                $group = 0.0;
+            } elseif ($v === 200.0) {
+                $total += $v;
+            } else {
+                $group += $v;
+            }
+        }
+        if ($matched === 0) {
+            return null;
+        }
+
+        return $total + $group;
+    }
+}

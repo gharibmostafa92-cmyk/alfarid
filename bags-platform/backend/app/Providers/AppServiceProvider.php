@@ -57,7 +57,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->scoped(PricingService::class);
         $this->app->scoped(CatalogRetailPriceObserver::class);
         $this->app->scoped(\App\Services\Ai\ProposalBuilder::class);
-        $this->app->tag([\App\Services\Ai\Catalog\CatalogToolProvider::class], 'ai.tool_providers');
+        $this->app->tag([\App\Services\Ai\Catalog\CatalogToolProvider::class, \App\Services\Ai\Inventory\InventoryToolProvider::class], 'ai.tool_providers');
         $this->app->scoped(\App\Services\Ai\ToolRegistry::class, function ($app) {
             return new \App\Services\Ai\ToolRegistry(
                 $app->make(\App\Services\Ai\EntityResolver::class),

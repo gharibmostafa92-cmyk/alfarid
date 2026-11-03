@@ -33,6 +33,13 @@ final class DomainRouter
             'صلاحية', 'صلاحيات', 'موقع تخزين', 'مواقع تخزين', 'رف', 'جلسات', 'تدقيق',
             'branch', 'role', 'staff', 'permission', 'location',
         ],
+        'inventory' => [
+            'مخزون', 'رصيد', 'متاح', 'محجوز', 'تالف', 'حركة', 'حركات', 'تسوية', 'تسويات',
+            'عجز', 'زيادة', 'تحويل', 'تحويلات', 'نقل بضاعة', 'شحن', 'مشحون', 'استلام',
+            'جرد', 'جرود', 'عد', 'فروقات', 'فرق الجرد', 'دفعة إنتاج', 'دفعات الإنتاج',
+            'استلام إنتاج', 'تكلفة', 'التكلفة', 'راكد', 'ناقص', 'stock', 'transfer',
+            'stocktake', 'stocktakes', 'batch', 'valuation', 'reconcile',
+        ],
     ];
 
     public function __construct(private ToolRegistry $registry) {}
@@ -66,6 +73,7 @@ final class DomainRouter
                 'category', 'product', 'variant' => 'catalog',
                 'customer', 'customer_group' => 'customers',
                 'branch', 'user', 'role', 'permission', 'location' => 'admin',
+                'transfer', 'stocktake', 'production_receipt' => 'inventory',
                 default => null,
             };
             if ($mapped !== null) {
@@ -133,8 +141,8 @@ final class DomainRouter
         if (! $def) {
             return null;
         }
-        if (isset($def['provider']) && $def['provider'] instanceof \App\Services\Ai\Catalog\CatalogToolProvider) {
-            return 'catalog';
+        if (isset($def['provider']) && $def['provider'] instanceof \App\Services\Ai\Contracts\ToolProvider) {
+            return $def['provider']->domain();
         }
         if ($this->registry->isCustomerTool($toolName)) {
             return 'customers';
