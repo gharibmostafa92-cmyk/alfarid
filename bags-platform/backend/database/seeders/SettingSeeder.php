@@ -69,7 +69,7 @@ class SettingSeeder extends Seeder
         ['group' => 'purchases', 'key' => 'allow_self_approve_purchases', 'value' => '0', 'type' => 'boolean'],
 
         ['group' => 'ai', 'key' => 'ai_enabled', 'value' => '0', 'type' => 'boolean'],
-        ['group' => 'ai', 'key' => 'ai_daily_token_budget_per_user', 'value' => '200000', 'type' => 'integer'],
+        ['group' => 'ai', 'key' => 'ai_daily_token_budget_per_user', 'value' => '1000000', 'type' => 'integer'],
         ['group' => 'ai', 'key' => 'ai_disabled_tools', 'value' => '[]', 'type' => 'json'],
         ['group' => 'ai', 'key' => 'ai_action_ttl_minutes', 'value' => '10', 'type' => 'integer'],
         ['group' => 'ai', 'key' => 'ai_retention_days', 'value' => '180', 'type' => 'integer'],

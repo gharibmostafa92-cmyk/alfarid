@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use Database\Factories\BrandFactory;
+use App\Support\CatalogMedia;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -30,7 +31,7 @@ class Brand extends Model implements HasMedia
 
     public function registerMediaCollections(): void
     {
-        $this->addMediaCollection('logo')->singleFile()->useDisk('r2_public')->storeConversionsOnDisk('r2_public')
+        $this->addMediaCollection('logo')->singleFile()->useDisk(CatalogMedia::disk())->storeConversionsOnDisk(CatalogMedia::disk())
             ->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp']);
     }
 

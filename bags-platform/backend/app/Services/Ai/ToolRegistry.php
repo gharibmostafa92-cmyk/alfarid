@@ -412,6 +412,12 @@ final class ToolRegistry
             report($e);
 
             return ToolOutcome::denied('حصل خطأ أثناء تنفيذ الأداة.', auditable: false);
+        } catch (\InvalidArgumentException $e) {
+            // task.txt §2-19: input-shape problems with a clear message
+            // (e.g. vision image over 4MB) must reach the user instead of
+            // a generic denial — the message carries no secrets by
+            // construction, and stays non-auditable.
+            return ToolOutcome::denied($e->getMessage() ?: 'مرفوض.', auditable: false);
         } catch (\Throwable $e) {
             report($e);
 

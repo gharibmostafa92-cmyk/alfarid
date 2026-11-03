@@ -56,6 +56,7 @@ class CatalogHardeningTest extends TestCase
 
         $this->requestWithToken($token, 'PUT', "/api/v1/admin/products/{$productId}/variants/{$variantId}", [
             'retail_price' => 150,
+            'expected_version' => ProductVariant::find($variantId)->lock_version,
         ])->assertOk()
             ->assertJsonPath('data.retail_price', '150.00');
     }
@@ -258,6 +259,7 @@ class CatalogHardeningTest extends TestCase
         // إعادة إرسال نفس الباركود المولّد للمتغير نفسه (فورم كامل) مسموحة
         $this->requestWithToken($token, 'PUT', "/api/v1/admin/products/{$product->id}/variants/{$variantId}", [
             'barcode' => $generated,
+            'expected_version' => ProductVariant::find($variantId)->lock_version,
         ])->assertOk();
 
         // لكن باركود داخلي الصيغة بتاع متغير تاني مرفوض

@@ -33,14 +33,14 @@ return [
      * The disk on which to store added files and derived images by default. Choose
      * one or more of the disks you've configured in config/filesystems.php.
      */
-    'disk_name' => 'r2',
+    'disk_name' => env('MEDIA_DISK', 'r2'),
 
     /*
      * The disk on which to store conversions (thumbnails, etc.) and responsive images
      * when no disk is specified explicitly on the media collection or via
      * `storingConversionsOnDisk()`. Originals and derivatives must both use R2.
      */
-    'conversions_disk_name' => 'r2',
+    'conversions_disk_name' => env('MEDIA_CONVERSIONS_DISK', env('MEDIA_DISK', 'r2')),
 
     /*
      * The maximum file size of an item in bytes.

@@ -20,7 +20,7 @@ class GeminiClient
     {
         $key = (string) config('services.gemini.api_key');
         $model ??= config('services.gemini.model');
-        if ($key === '' || ! is_string($model) || ! preg_match('/^[a-zA-Z0-9._-]+$/', $model)) {
+        if ($key === '' || ! is_string($model) || ! preg_match('/^[a-zA-Z0-9._-]+$/', $model) || str_contains($model, '..')) {
             throw new LogicException('إعدادات Gemini غير مكتملة.');
         }
         if (trim($prompt) === '') {
@@ -114,7 +114,7 @@ class GeminiClient
     {
         $key = (string) config('services.gemini.api_key');
         $model ??= config('services.gemini.model');
-        if ($key === '' || ! is_string($model) || ! preg_match('/^[a-zA-Z0-9._-]+$/', $model)) {
+        if ($key === '' || ! is_string($model) || ! preg_match('/^[a-zA-Z0-9._-]+$/', $model) || str_contains($model, '..')) {
             throw new LogicException('إعدادات Gemini غير مكتملة.');
         }
         if ($contents === []) {

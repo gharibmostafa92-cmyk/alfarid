@@ -75,8 +75,10 @@ final class DraftProductCopyTool implements AgentTool
             return ToolOutcome::denied('المنتج مش موجود.', auditable: false);
         }
 
-        $tone = in_array($args['tone'] ?? 'practical', ['premium', 'casual', 'practical'], true) ? (string) $args['tone'] : 'practical';
-        $length = in_array($args['length'] ?? 'medium', ['short', 'medium'], true) ? (string) $args['length'] : 'medium';
+        $tone = (string) ($args['tone'] ?? 'practical');
+        $tone = in_array($tone, ['premium', 'casual', 'practical'], true) ? $tone : 'practical';
+        $length = (string) ($args['length'] ?? 'medium');
+        $length = in_array($length, ['short', 'medium'], true) ? $length : 'medium';
         $languages = array_values(array_intersect(['ar', 'en'], (array) ($args['languages'] ?? ['ar', 'en']))) ?: ['ar', 'en'];
 
         $contextPayload = [

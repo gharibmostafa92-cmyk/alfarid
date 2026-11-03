@@ -34,7 +34,7 @@ final class AgentOrchestrator
         abort_unless($this->settings->getBool('ai_enabled', false), 403, 'المساعد الذكي مقفول حالياً.');
         $actor->refresh();
         abort_unless($actor->is_active && $actor->can('ai_agent.use'), 403);
-        $budget = (int) $this->settings->get('ai_daily_token_budget_per_user', 200000);
+        $budget = (int) $this->settings->get('ai_daily_token_budget_per_user', 1000000);
         if ($budget > 0) {
             // M6/M7: join مباشر + نطاق timestamp بدل whereDate + whereHas
             // (سايقل وفهرس على البادئة بدل مسح جدول كامل بليفة ملبّضة).

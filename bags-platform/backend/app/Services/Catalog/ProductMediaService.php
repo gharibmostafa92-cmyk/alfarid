@@ -15,6 +15,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use App\Support\CatalogMedia;
 use Spatie\MediaLibrary\Conversions\FileManipulator;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
@@ -45,7 +46,7 @@ class ProductMediaService
 
             // Upload first; serialize only the short replacement so concurrent
             // uploads cannot delete each other's new single-file video.
-            $media = $product->addMedia($file)->toMediaCollection('video_staging', 'r2_public');
+            $media = $product->addMedia($file)->toMediaCollection('video_staging', CatalogMedia::disk());
             try {
                 DB::transaction(function () use ($product, $media): void {
                     $fresh = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();

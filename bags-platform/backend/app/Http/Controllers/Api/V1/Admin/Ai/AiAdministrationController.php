@@ -88,6 +88,11 @@ class AiAdministrationController extends Controller
         $totalExecuted = 0;
         $totalCancelled = 0;
         $totalFailed = 0;
+        // task.txt §2-27: failed_409_count must count 409-conflict failures
+        // only (cards whose result carries conflict_409), not every failed
+        // card (validation/permission/DB failures are failed, not 409s).
+        $totalConflicts = (int) (clone $actionsQuery)->where('status', 'failed')
+            ->whereRaw("(result->>'conflict_409') = 'true'")->count();
 
         foreach ($actionRows as $r) {
             $t = (string) $r->tool;
@@ -132,10 +137,10 @@ class AiAdministrationController extends Controller
                 'total_proposals' => $totalProposals,
                 'executed_count' => $totalExecuted,
                 'cancelled_count' => $totalCancelled,
-                'failed_409_count' => $totalFailed,
+                'failed_409_count' => $totalConflicts,
                 'confirm_rate' => $decidedTotal > 0 ? round(($totalExecuted / $decidedTotal) * 100, 1) : 0.0,
                 'cancel_rate' => $decidedTotal > 0 ? round(($totalCancelled / $decidedTotal) * 100, 1) : 0.0,
-                'conflict_409_rate' => $totalProposals > 0 ? round(($totalFailed / $totalProposals) * 100, 1) : 0.0,
+                'conflict_409_rate' => $totalProposals > 0 ? round(($totalConflicts / $totalProposals) * 100, 1) : 0.0,
                 'tools' => $toolMetrics,
             ],
         ]);

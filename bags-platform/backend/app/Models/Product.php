@@ -7,6 +7,7 @@ namespace App\Models;
 use App\Enums\ProductStatus;
 use App\Enums\SalesChannel;
 use App\Models\Concerns\TracksEditVersion;
+use App\Support\CatalogMedia;
 use Database\Factories\ProductFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -62,13 +63,13 @@ class Product extends Model implements HasMedia
 
     public function registerMediaCollections(): void
     {
-        $this->addMediaCollection('images')->useDisk('r2_public')->storeConversionsOnDisk('r2_public')
+        $this->addMediaCollection('images')->useDisk(CatalogMedia::disk())->storeConversionsOnDisk(CatalogMedia::disk())
             ->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp']);
-        $this->addMediaCollection('images_staging')->useDisk('r2_public')->storeConversionsOnDisk('r2_public')
+        $this->addMediaCollection('images_staging')->useDisk(CatalogMedia::disk())->storeConversionsOnDisk(CatalogMedia::disk())
             ->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp']);
-        $this->addMediaCollection('video')->singleFile()->useDisk('r2_public')->storeConversionsOnDisk('r2_public')
+        $this->addMediaCollection('video')->singleFile()->useDisk(CatalogMedia::disk())->storeConversionsOnDisk(CatalogMedia::disk())
             ->acceptsMimeTypes(['video/mp4', 'video/webm', 'video/quicktime']);
-        $this->addMediaCollection('video_staging')->useDisk('r2_public')->storeConversionsOnDisk('r2_public')
+        $this->addMediaCollection('video_staging')->useDisk(CatalogMedia::disk())->storeConversionsOnDisk(CatalogMedia::disk())
             ->acceptsMimeTypes(['video/mp4', 'video/webm', 'video/quicktime']);
     }
 

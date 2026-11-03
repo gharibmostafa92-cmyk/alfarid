@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Models\Concerns\TracksEditVersion;
+use App\Support\CatalogMedia;
 use Database\Factories\ProductVariantFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -71,8 +72,8 @@ class ProductVariant extends Model implements HasMedia
     // صور خاصة باللون ده
     public function registerMediaCollections(): void
     {
-        $this->addMediaCollection('images')->useDisk('r2_public')->storeConversionsOnDisk('r2_public')->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp']);
-        $this->addMediaCollection('images_staging')->useDisk('r2_public')->storeConversionsOnDisk('r2_public')->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp']);
+        $this->addMediaCollection('images')->useDisk(CatalogMedia::disk())->storeConversionsOnDisk(CatalogMedia::disk())->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp']);
+        $this->addMediaCollection('images_staging')->useDisk(CatalogMedia::disk())->storeConversionsOnDisk(CatalogMedia::disk())->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp']);
     }
 
     public function registerMediaConversions(?Media $media = null): void

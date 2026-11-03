@@ -290,13 +290,13 @@ final class PendingActionService
             // M14: 23505 بتصل برا الـ savepoint — الإجراء يتاخد failed برسالة
             // مفهومة بدل 500 والإجراء يتعلق pending للأبد.
             $message = 'قيمة مشتركة (كود فرع أو موقع/بريد) اتحجزت لحظة الحفظ. اطلب اقتراح جديد.';
-            $action->forceFill(['status' => 'failed', 'result' => ['message' => $message]])->save();
+            $action->forceFill(['status' => 'failed', 'result' => ['message' => $message, 'conflict_409' => true]])->save();
             $this->event($action, 'result', $message, [['type' => 'result', 'ok' => false, 'message' => $message]]);
             abort(409, $message);
         } catch (BusinessException|ValidationException $e) {
             if ($e instanceof BusinessException && $e->status === 409) {
                 $message = $e->getMessage() ?: 'حد عدّل السجل ده بعد الاقتراح. تحب أجهّز اقتراح جديد؟';
-                $action->forceFill(['status' => 'failed', 'result' => ['message' => $message]])->save();
+                $action->forceFill(['status' => 'failed', 'result' => ['message' => $message, 'conflict_409' => true]])->save();
                 $this->event($action, 'result', $message, [['type' => 'result', 'ok' => false, 'message' => $message]]);
                 abort(409, $message);
             }
@@ -346,7 +346,7 @@ final class PendingActionService
                 // H2: التعارض القابل لإعادة المحاولة لا يوسم failed — مفيش
                 // حالة اتغيرت، وإعادة التأكيد بعد لحظة كافية.
                 if (! $e instanceof RetryableConflict) {
-                    $action->forceFill(['status' => 'failed', 'result' => ['message' => $e->getMessage() ?: 'حد عدّل السجل ده بعد الاقتراح. تحب أجهّز اقتراح جديد؟']])->save();
+                    $action->forceFill(['status' => 'failed', 'result' => ['message' => $e->getMessage() ?: 'حد عدّل السجل ده بعد الاقتراح. تحب أجهّز اقتراح جديد؟', 'conflict_409' => true]])->save();
                     $this->event($action, 'result', $e->getMessage() ?: 'حد عدّل السجل ده بعد الاقتراح.', [['type' => 'result', 'ok' => false, 'message' => $e->getMessage() ?: 'حد عدّل السجل ده بعد الاقتراح.']]);
                 }
             }

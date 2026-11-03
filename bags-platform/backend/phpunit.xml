@@ -22,6 +22,7 @@
         <env name="APP_ENV" value="testing"/>
         <env name="MEDIA_DISK" value="r2" force="true"/>
         <env name="MEDIA_CONVERSIONS_DISK" value="r2" force="true"/>
+        <env name="MEDIA_CATALOG_DISK" value="r2_public" force="true"/>
         <env name="APP_LOCALE" value="ar"/>
         <!-- Compatibility endpoints are explicitly enabled only for their regression suite. -->
         <env name="LEGACY_LOGIN_ENABLED" value="true" force="true"/>

@@ -218,7 +218,12 @@ class ProductService
             if (StockLevel::query()->whereIn('product_variant_id', $lockedIds)->hasNonZeroBalance()->exists()) {
                 throw new BusinessException('لا يمكن حذف منتج له متغيرات برصيد مخزون؛ صفِّ الأرصدة أولًا.');
             }
-            $product->variants()->delete();  // soft
+            // Soft-delete variants one model at a time so the deleted event
+            // fires (ProductVariant::booted removes dangling cart items);
+            // a mass query delete would silently skip it.
+            foreach ($product->variants()->orderBy('id')->get() as $variant) {
+                $variant->delete();
+            }
             $product->delete();              // soft
         });
         // TODO مرحلة الطلبات: منع الحذف لو المنتج عليه طلبات، وبدل كده يتعمل archived

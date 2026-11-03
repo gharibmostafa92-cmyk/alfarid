@@ -156,7 +156,7 @@ class AiAgentAuditFixesTest extends TestCase
         $response->assertOk();
         $this->assertFalse($response->json('data.ok'));
         $this->assertSame('failed', $response->json('data.status'));
-        $this->assertStringContainsString('اتحذف', $response->json('data.message'));
+        $this->assertStringContainsString('لم يعد موجودًا', $response->json('data.message'));
         $this->assertSame('failed', AiPendingAction::query()->find($outcome->data['pending_action_id'])->status);
     }
 
@@ -172,7 +172,7 @@ class AiAgentAuditFixesTest extends TestCase
         $response->assertOk();
         $this->assertFalse($response->json('data.ok'));
         $this->assertSame('failed', $response->json('data.status'));
-        $this->assertStringContainsString('اتحجز', $response->json('data.message'));
+        $this->assertStringContainsString('مستخدم بالفعل', $response->json('data.message'));
     }
 
     public function test_m3_revoked_central_access_marks_action_failed_not_500(): void
@@ -194,6 +194,7 @@ class AiAgentAuditFixesTest extends TestCase
         DB::table('settings')->where('key', 'order_prefix')->update(['value' => 'ORD-']);
         DB::table('settings')->where('key', 'order_padding')->update(['value' => '6']);
         DB::table('settings')->where('key', 'order_next_number')->update(['value' => '5000']);
+        DB::statement("SELECT setval('document_order_number_seq', 5000, false)");
         app(SettingService::class)->clearCache();
         Order::factory()->create(['order_number' => 'ORD-005000']);
 
@@ -230,11 +231,12 @@ class AiAgentAuditFixesTest extends TestCase
         $admin = $this->staff(['inventory.all_branches']);
         $drawer = Treasury::create(['name' => 'درج', 'code' => 'DR-1', 'branch_id' => $branch->id, 'type' => TreasuryType::PosDrawer, 'current_balance' => 0, 'is_active' => true]);
 
+        // M4 fail-closed: inactive branch refuses with 403, not 422.
         try {
             app(PosService::class)->openShift($admin, $branch->id, $drawer->id, 0.0);
-            $this->fail('Expected 422 for an inactive branch.');
-        } catch (HttpExceptionInterface $e) {
-            $this->assertSame(422, $e->getStatusCode());
+            $this->fail('Expected AuthorizationException for an inactive branch.');
+        } catch (AuthorizationException $e) {
+            $this->assertStringContainsString('متوقف', $e->getMessage());
         }
     }
 
@@ -245,11 +247,12 @@ class AiAgentAuditFixesTest extends TestCase
         $branchSafe = Treasury::create(['name' => 'خزنة فرع', 'code' => 'BR-SAFE', 'branch_id' => $branch->id, 'type' => TreasuryType::MainSafe, 'current_balance' => 100, 'is_active' => true]);
         $central = Treasury::create(['name' => 'بنك مركزي', 'code' => 'BANK-1', 'branch_id' => null, 'type' => TreasuryType::BankAccount, 'current_balance' => 0, 'is_active' => true]);
 
+        // M4 fail-closed: inactive branch treasury refuses with 403, not 422.
         try {
             app(TreasuryService::class)->record(['treasury_id' => $branchSafe->id, 'type' => TreasuryTransactionType::CustomerReceipt, 'amount' => 50, 'created_by' => $admin->id]);
-            $this->fail('Expected 422 for an inactive branch treasury.');
-        } catch (HttpExceptionInterface $e) {
-            $this->assertSame(422, $e->getStatusCode());
+            $this->fail('Expected AuthorizationException for an inactive branch treasury.');
+        } catch (AuthorizationException $e) {
+            $this->assertStringContainsString('متوقف', $e->getMessage());
         }
 
         $tx = app(TreasuryService::class)->record(['treasury_id' => $central->id, 'type' => TreasuryTransactionType::CustomerReceipt, 'amount' => 50, 'created_by' => $admin->id]);
@@ -275,16 +278,18 @@ class AiAgentAuditFixesTest extends TestCase
 
     public function test_l2_ai_settings_rechecked_at_execution(): void
     {
+        // update_settings proposals only accept company/tax keys (ai_* keys
+        // are denied at prepare), so the recheck uses company_name and the
+        // tool permission settings.manage revoked before confirm.
         $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'ai_agent.settings', 'settings.manage', 'inventory.all_branches']);
-        $outcome = app(ToolRegistry::class)->dispatch($admin, $this->conv($admin), ['name' => 'update_settings', 'args' => ['changes' => ['ai_enabled' => false]]]);
+        $outcome = app(ToolRegistry::class)->dispatch($admin, $this->conv($admin), ['name' => 'update_settings', 'args' => ['changes' => ['company_name' => 'New Name']]]);
         $this->assertSame('proposal', $outcome->type);
-        $admin->revokePermissionTo('ai_agent.settings');
+        $admin->revokePermissionTo('settings.manage');
 
         $response = $this->confirmAction($admin, $outcome->data['pending_action_id']);
-        $response->assertOk();
-        $this->assertFalse($response->json('data.ok'));
-        $this->assertSame('failed', $response->json('data.status'));
-        $this->assertSame('1', DB::table('settings')->where('key', 'ai_enabled')->value('value'));
+        $response->assertStatus(403);
+        $this->assertSame('pending', AiPendingAction::query()->find($outcome->data['pending_action_id'])->status);
+        $this->assertNotSame('New Name', DB::table('settings')->where('key', 'company_name')->value('value'));
     }
 
     public function test_l9_stream_maps_authorization_to_403_not_502(): void

@@ -17,6 +17,11 @@ return [
 
     'banners_disk' => env('BANNERS_DISK', 'r2'),
 
+    // Catalog media (products, variants, categories, brands). Production uses
+    // the public R2 bucket; local dev without R2 sets MEDIA_CATALOG_DISK=public
+    // (files then live in storage/app/public, served via `storage:link`).
+    'catalog_disk' => env('MEDIA_CATALOG_DISK', 'r2_public'),
+
     /*
     |--------------------------------------------------------------------------
     | Filesystem Disks
