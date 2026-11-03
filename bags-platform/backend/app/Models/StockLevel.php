@@ -49,6 +49,39 @@ class StockLevel extends Model
             ->orWhere('in_transit', '<>', 0));
     }
 
+    /**
+     * L6: rows currently in an alert state — mirrors the two
+     * StockLowDetected triggers in InventoryService::recordMovement:
+     * a set row threshold compares against the row, while an unset row
+     * threshold falls back to the variant threshold compared against the
+     * branch-wide total (not the single row).
+     *
+     * @param  Builder<StockLevel>  $query
+     * @return Builder<StockLevel>
+     */
+    public function scopeWhereLowStock(Builder $query): Builder
+    {
+        return $query
+            ->join('product_variants as pv_low', 'pv_low.id', '=', 'stock_levels.product_variant_id')
+            ->leftJoinSub(
+                self::query()->selectRaw('branch_id, product_variant_id, COALESCE(SUM(on_hand - reserved - damaged), 0) AS branch_available')
+                    ->groupBy('branch_id', 'product_variant_id'),
+                'branch_totals',
+                fn ($join) => $join
+                    ->on('branch_totals.branch_id', '=', 'stock_levels.branch_id')
+                    ->on('branch_totals.product_variant_id', '=', 'stock_levels.product_variant_id')
+            )
+            ->where(fn (Builder $q) => $q
+                ->where(fn (Builder $row) => $row
+                    ->where('stock_levels.reorder_level', '>', 0)
+                    ->whereRaw('stock_levels.available <= stock_levels.reorder_level'))
+                ->orWhere(fn (Builder $variant) => $variant
+                    ->whereRaw('COALESCE(stock_levels.reorder_level, 0) = 0')
+                    ->where('pv_low.reorder_level', '>', 0)
+                    ->whereRaw('COALESCE(branch_totals.branch_available, 0) <= pv_low.reorder_level')))
+            ->select('stock_levels.*');
+    }
+
     public function variant(): BelongsTo
     {
         return $this->belongsTo(ProductVariant::class, 'product_variant_id')->withTrashed();

@@ -343,11 +343,11 @@ class InventoryExecutionReviewTest extends TestCase
             'items' => [['product_variant_id' => $variant->id, 'to_location_id' => $location->id, 'requested_qty' => 2]],
         ], $this->staff->id);
         $location->update(['is_active' => false]);
-        $this->api('POST', "transfers/{$transfer->id}/approve")->assertUnprocessable();
+        $this->api('POST', "transfers/{$transfer->id}/approve", ['expected_version' => $transfer->fresh()->version])->assertUnprocessable();
         $location->update(['is_active' => true]);
-        $this->api('POST', "transfers/{$transfer->id}/approve")->assertOk();
+        $this->api('POST', "transfers/{$transfer->id}/approve", ['expected_version' => $transfer->fresh()->version])->assertOk();
         $location->update(['is_active' => false]);
-        $this->api('POST', "transfers/{$transfer->id}/ship")->assertUnprocessable();
+        $this->api('POST', "transfers/{$transfer->id}/ship", ['expected_version' => $transfer->fresh()->version])->assertUnprocessable();
         $this->assertSame('approved', $transfer->fresh()->status->value);
         $this->assertSame('5.0000', StockLevel::where('branch_id', $from->id)->firstOrFail()->on_hand);
     }
@@ -364,7 +364,7 @@ class InventoryExecutionReviewTest extends TestCase
         ], $this->staff->id);
         app(TransferService::class)->approve($transfer, [], $this->staff->id);
         $variant->update(['is_active' => false]);
-        $this->api('POST', "transfers/{$transfer->id}/ship")->assertUnprocessable();
+        $this->api('POST', "transfers/{$transfer->id}/ship", ['expected_version' => $transfer->fresh()->version])->assertUnprocessable();
         $this->assertSame('approved', $transfer->fresh()->status->value);
     }
 

@@ -99,7 +99,7 @@ class InventoryPricingAuditTest extends TestCase
             'items' => [['product_variant_id' => $variant->id, 'requested_qty' => 5]],
         ], $this->staff->id);
         $service->approve($transfer, [], $this->staff->id);
-        $this->api('POST', "transfers/{$transfer->id}/ship", ['items' => [['id' => $transfer->items->first()->id, 'shipped_qty' => 0]]])->assertUnprocessable();
+        $this->api('POST', "transfers/{$transfer->id}/ship", ['expected_version' => $transfer->fresh()->version, 'items' => [['id' => $transfer->items->first()->id, 'shipped_qty' => 0]]])->assertUnprocessable();
         $this->assertSame('5.0000', StockLevel::where('branch_id', $from->id)->firstOrFail()->reserved);
         $service->cancel($transfer, $this->staff->id);
         $level = StockLevel::where('branch_id', $from->id)->firstOrFail();
@@ -133,8 +133,8 @@ class InventoryPricingAuditTest extends TestCase
             'items' => [['product_variant_id' => ProductVariant::factory()->create()->id, 'requested_qty' => 1]],
         ], $this->staff->id);
         $id = $transfer->items->first()->id;
-        $this->api('POST', "transfers/{$transfer->id}/approve", ['items' => [['id' => $id]]])->assertUnprocessable();
-        $this->api('POST', "transfers/{$transfer->id}/approve", ['items' => [
+        $this->api('POST', "transfers/{$transfer->id}/approve", ['expected_version' => $transfer->fresh()->version, 'items' => [['id' => $id]]])->assertUnprocessable();
+        $this->api('POST', "transfers/{$transfer->id}/approve", ['expected_version' => $transfer->fresh()->version, 'items' => [
             ['id' => $id, 'approved_qty' => 0], ['id' => $id, 'approved_qty' => 0],
         ]])->assertUnprocessable();
     }

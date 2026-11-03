@@ -62,7 +62,9 @@ class InventoryReviewCompletionTest extends TestCase
         $this->assertGreaterThan($created['version'], $updated['version']);
         $this->assertSame($created['updated_at'], $updated['updated_at']);
         $this->api('POST', "transfers/{$created['id']}/approve", ['expected_version' => $created['version']])->assertConflict();
-        $this->api('POST', "transfers/{$created['id']}/approve", ['expected_updated_at' => $created['updated_at']])->assertConflict();
+        // M3: a missing version is now a 422 validation rejection (the
+        // legacy 409-for-missing-version service rule is unreachable via HTTP).
+        $this->api('POST', "transfers/{$created['id']}/approve", ['expected_updated_at' => $created['updated_at']])->assertUnprocessable();
         $this->assertSame('0.0000', StockLevel::where('branch_id', $from->id)->firstOrFail()->reserved);
         $this->api('POST', "transfers/{$created['id']}/approve", ['expected_version' => $updated['version']])->assertOk();
         $this->assertSame('4.0000', StockLevel::where('branch_id', $from->id)->firstOrFail()->reserved);
@@ -95,10 +97,11 @@ class InventoryReviewCompletionTest extends TestCase
         $this->assertDatabaseCount('stock_movements', 2);
     }
 
-    public function test_transfer_receipt_into_inactive_location_succeeds(): void
+    public function test_transfer_receipt_into_inactive_location_is_rejected(): void
     {
-        // H3: البضاعة خرجت فعلًا من المصدر فيجب استلامها أينما كانت —
-        // الرفض القديم كان يعلق التحويل في Shipped بلا مخرج إلا الشطب الوهمي.
+        // task.txt §27: الموقع المعطّل لا يقبل أي حركة — حتى استلام بضاعة
+        // خرجت فعلًا من المصدر. المخرج التشغيلي هو إعادة تفعيل الموقع ثم
+        // الاستلام، لا القيد في موقع متوقف.
         $from = Branch::factory()->create();
         $to = Branch::factory()->create();
         $location = Location::factory()->create(['branch_id' => $to->id]);
@@ -111,11 +114,13 @@ class InventoryReviewCompletionTest extends TestCase
         app(TransferService::class)->approve($transfer, [], $this->staff->id);
         app(TransferService::class)->ship($transfer, [], $this->staff->id);
         $location->update(['is_active' => false]);
-        $this->api('POST', "transfers/{$transfer->id}/receive")->assertOk();
-        $this->assertSame('received', $transfer->fresh()->status->value);
+        $this->api('POST', "transfers/{$transfer->id}/receive", ['expected_version' => $transfer->fresh()->version])
+            ->assertUnprocessable()
+            ->assertJsonPath('message', 'الموقع متوقف حالياً ولا يقبل حركات مخزنية.');
+        $this->assertSame('shipped', $transfer->fresh()->status->value);
         $destination = StockLevel::where('branch_id', $to->id)->firstOrFail();
-        $this->assertSame('0.0000', $destination->in_transit);
-        $this->assertSame('2.0000', $destination->on_hand);
+        $this->assertSame('2.0000', $destination->in_transit);
+        $this->assertSame('0.0000', $destination->on_hand);
     }
 
     public function test_apply_difference_policy_rejects_second_overlapping_stocktake(): void
@@ -237,17 +242,17 @@ class InventoryReviewCompletionTest extends TestCase
         $variant = ProductVariant::factory()->create();
         $this->movement($variant, $from, 5);
         $transfer = $this->transfer($variant, $from);
-        $this->api('POST', "transfers/{$transfer->id}/approve")->assertOk();
-        $shipped = $this->api('POST', "transfers/{$transfer->id}/ship")->assertOk()->json('data');
+        $this->api('POST', "transfers/{$transfer->id}/approve", ['expected_version' => $transfer->fresh()->version])->assertOk();
+        $shipped = $this->api('POST', "transfers/{$transfer->id}/ship", ['expected_version' => $transfer->fresh()->version])->assertOk()->json('data');
         $before = StockMovement::count();
-        $this->api('POST', "transfers/{$transfer->id}/ship")->assertOk()->assertJsonPath('data.version', $shipped['version']);
+        $this->api('POST', "transfers/{$transfer->id}/ship", ['expected_version' => $transfer->fresh()->version])->assertOk()->assertJsonPath('data.version', $shipped['version']);
         $this->assertSame($before, StockMovement::count());
-        $this->api('POST', "transfers/{$transfer->id}/ship", ['items' => [
+        $this->api('POST', "transfers/{$transfer->id}/ship", ['expected_version' => $transfer->fresh()->version, 'items' => [
             ['id' => $transfer->items->first()->id, 'shipped_qty' => 1],
         ]])->assertConflict();
-        $this->api('POST', "transfers/{$transfer->id}/receive")->assertOk();
+        $this->api('POST', "transfers/{$transfer->id}/receive", ['expected_version' => $transfer->fresh()->version])->assertOk();
         $before = StockMovement::count();
-        $this->api('POST', "transfers/{$transfer->id}/receive")->assertOk();
+        $this->api('POST', "transfers/{$transfer->id}/receive", ['expected_version' => $transfer->fresh()->version])->assertOk();
         $this->assertSame($before, StockMovement::count());
     }
 

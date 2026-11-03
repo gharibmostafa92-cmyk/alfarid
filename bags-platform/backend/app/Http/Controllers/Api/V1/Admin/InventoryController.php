@@ -56,14 +56,8 @@ class InventoryController extends Controller implements HasMiddleware
             ->when($filters['location_id'] ?? null, fn ($q, $v) => $q->where('stock_levels.location_id', $v))
             ->when($filters['product_variant_id'] ?? null, fn ($q, $v) => $q->where('stock_levels.product_variant_id', $v))
             ->when($filters['product_id'] ?? null, fn ($q, $v) => $q->whereHas('variant', fn ($vq) => $vq->where('product_id', $v)))
-            // حد إعادة الطلب الفعّال: مستوى الصف إن ضُبط (> 0)، وإلا مستوى المتغير نفسه
-            ->when($filters['low_stock'] ?? null, fn ($q) => $q
-                ->join('product_variants', 'product_variants.id', '=', 'stock_levels.product_variant_id')
-                ->whereRaw('stock_levels.available <= COALESCE(NULLIF(stock_levels.reorder_level, 0), product_variants.reorder_level, 0)')
-                // صف بلا حد إعادة طلب فعّال ليس "منخفضًا": صفوف صفرية ينشئها
-                // lockLevels كأثر جانبي كانت تملأ الفلتر وهميًا (L-4).
-                ->whereRaw('COALESCE(NULLIF(stock_levels.reorder_level, 0), product_variants.reorder_level, 0) > 0')
-                ->select('stock_levels.*'))
+            // L6: نفس شرط التنبيهات — حد الصف على الصف، وحد الصنف على إجمالي الفرع.
+            ->when($filters['low_stock'] ?? null, fn ($q) => $q->whereLowStock())
             ->orderBy('stock_levels.branch_id')
             ->orderBy('stock_levels.product_variant_id')
             ->orderBy('stock_levels.id')

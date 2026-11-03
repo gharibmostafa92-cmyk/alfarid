@@ -27,6 +27,7 @@ use Laravel\Sanctum\HasApiTokens;
     'company_name',
     'tax_number',
     'commercial_register',
+    'status',
     'rejection_reason',
     'suspension_reason',
     'phone_verified_at',

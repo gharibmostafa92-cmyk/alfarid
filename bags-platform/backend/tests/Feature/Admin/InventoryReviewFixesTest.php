@@ -149,12 +149,14 @@ class InventoryReviewFixesTest extends TestCase
             'items' => [['product_variant_id' => $variant->id, 'requested_qty' => 2]],
         ], $this->staff->id);
         $this->api('GET', "transfers/{$transfer->id}", [], $unrelated)->assertForbidden();
-        $this->api('POST', "transfers/{$transfer->id}/approve", [], $destinationStaff)->assertForbidden();
-        $this->api('POST', "transfers/{$transfer->id}/approve", [], $sourceStaff)->assertOk();
-        $this->api('POST', "transfers/{$transfer->id}/ship", [], $destinationStaff)->assertForbidden();
-        $this->api('POST', "transfers/{$transfer->id}/ship", [], $sourceStaff)->assertOk();
-        $this->api('POST', "transfers/{$transfer->id}/receive", [], $sourceStaff)->assertForbidden();
-        $this->api('POST', "transfers/{$transfer->id}/receive", [], $destinationStaff)->assertOk();
+        // M3: FormRequest validation runs before the service branch check,
+        // so forbidden callers must still send a well-formed version.
+        $this->api('POST', "transfers/{$transfer->id}/approve", ['expected_version' => $transfer->fresh()->version], $destinationStaff)->assertForbidden();
+        $this->api('POST', "transfers/{$transfer->id}/approve", ['expected_version' => $transfer->fresh()->version], $sourceStaff)->assertOk();
+        $this->api('POST', "transfers/{$transfer->id}/ship", ['expected_version' => $transfer->fresh()->version], $destinationStaff)->assertForbidden();
+        $this->api('POST', "transfers/{$transfer->id}/ship", ['expected_version' => $transfer->fresh()->version], $sourceStaff)->assertOk();
+        $this->api('POST', "transfers/{$transfer->id}/receive", ['expected_version' => $transfer->fresh()->version], $sourceStaff)->assertForbidden();
+        $this->api('POST', "transfers/{$transfer->id}/receive", ['expected_version' => $transfer->fresh()->version], $destinationStaff)->assertOk();
         $this->assertSame(1, StockMovement::where('type', 'transfer_in')->count());
         $this->assertSame(1, StockMovement::where('type', 'transfer_in_transit')->count());
         $this->assertSame(1, StockMovement::where('type', 'transfer_transit_release')->count());
@@ -196,7 +198,7 @@ class InventoryReviewFixesTest extends TestCase
             'items' => [['product_variant_id' => ProductVariant::factory()->create()->id, 'requested_qty' => 1]],
         ];
         $transfer = app(TransferService::class)->create($payload, $this->staff->id);
-        $this->api('POST', "transfers/{$transfer->id}/approve", ['items' => [['id' => $transfer->items->first()->id, 'approved_qty' => 0]]])->assertUnprocessable();
+        $this->api('POST', "transfers/{$transfer->id}/approve", ['expected_version' => $transfer->fresh()->version, 'items' => [['id' => $transfer->items->first()->id, 'approved_qty' => 0]]])->assertUnprocessable();
         $payload['items'][] = $payload['items'][0];
         $this->api('POST', 'transfers', $payload)->assertUnprocessable();
         $this->api('PATCH', "transfers/{$transfer->id}", ['items' => $payload['items']])->assertUnprocessable();
@@ -294,8 +296,8 @@ class InventoryReviewFixesTest extends TestCase
             'items' => [['product_variant_id' => $variant->id, 'requested_qty' => 1]],
         ], $this->staff->id);
         $variant->delete();
-        $this->api('POST', "transfers/{$transfer->id}/approve")->assertOk();
-        $this->api('POST', "transfers/{$transfer->id}/ship")->assertOk();
+        $this->api('POST', "transfers/{$transfer->id}/approve", ['expected_version' => $transfer->fresh()->version])->assertOk();
+        $this->api('POST', "transfers/{$transfer->id}/ship", ['expected_version' => $transfer->fresh()->version])->assertOk();
         $this->assertSame('12.5000', StockMovement::where('type', 'transfer_out')->firstOrFail()->unit_cost);
         $this->adjust($branch, $variant, 'increase', 1)->assertUnprocessable();
         $list = PriceList::create(['name' => 'Retail', 'type' => 'retail']);

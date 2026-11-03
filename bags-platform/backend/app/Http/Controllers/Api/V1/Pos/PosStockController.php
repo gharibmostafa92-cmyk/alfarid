@@ -49,6 +49,10 @@ class PosStockController extends Controller
         /** @var User $user */
         $user = $request->user('staff');
 
+        // L7 (documented non-control, not a blind count): on_hand stays
+        // visible to counters because the same handset sells from it — the
+        // session relies on the snapshot/stale-movement guards at approve
+        // time (StocktakeService) instead of balance secrecy.
         $levels = StockLevel::query()
             ->where('branch_id', $user->branch_id)
             ->with(['variant.product', 'location'])
@@ -62,12 +66,8 @@ class PosStockController extends Controller
                         ->where('name_ar', 'LIKE', $like)
                         ->orWhere('name_en', 'LIKE', $like)));
             })
-            ->when($filters['low_stock'] ?? null, fn ($q) => $q
-                ->join('product_variants', 'product_variants.id', '=', 'stock_levels.product_variant_id')
-                ->whereRaw('stock_levels.available <= COALESCE(NULLIF(stock_levels.reorder_level, 0), product_variants.reorder_level, 0)')
-                ->whereRaw('COALESCE(NULLIF(stock_levels.reorder_level, 0), product_variants.reorder_level, 0) > 0')
-                ->select('stock_levels.*')
-            )
+            // L6: نفس شرط التنبيهات — حد الصف على الصف، وحد الصنف على إجمالي الفرع.
+            ->when($filters['low_stock'] ?? null, fn ($q) => $q->whereLowStock())
             ->orderBy('product_variant_id')
             ->paginate($filters['per_page'] ?? 15);
 
@@ -92,7 +92,9 @@ class PosStockController extends Controller
                 Rule::notIn([$user->branch_id]),
             ],
             'items' => ['required', 'array', 'min:1', 'max:100'],
-            'items.*.product_variant_id' => ['required', 'integer', 'min:1', 'distinct', Rule::exists('product_variants', 'id')],
+            // L9: reject inactive variants here instead of failing later at approve time.
+            'items.*.product_variant_id' => ['required', 'integer', 'min:1', 'distinct',
+                Rule::exists('product_variants', 'id')->where('is_active', true)],
             'items.*.from_location_id' => ['nullable', 'integer', 'min:1',
                 Rule::exists('locations', 'id')->where('branch_id', (int) $request->input('from_branch_id')),
             ],
@@ -179,6 +181,7 @@ class PosStockController extends Controller
             'barcode' => ['required', 'string', 'max:100'],
             'qty' => ['nullable', 'numeric', 'decimal:0,4', 'min:0.0001', 'max:99999'],
             'qty_words' => ['nullable', 'string', 'max:50'],
+            'scan_id' => ['nullable', 'uuid'],
         ]);
 
         // وضع العد الصوتي: الموظف يمسح الباركود ويقول الرقم ("اتنين وعشرين").
@@ -204,7 +207,9 @@ class PosStockController extends Controller
             ], 404);
         }
 
-        $stocktake = $this->stocktakes->incrementItemCount($stocktake, $variant->id, $qty, $user->id);
+        $before = $stocktake->items->firstWhere('product_variant_id', $variant->id)?->counted_qty;
+
+        $stocktake = $this->stocktakes->incrementItemCount($stocktake, $variant->id, $qty, $user->id, $data['scan_id'] ?? null);
 
         $item = $stocktake->items->firstWhere('product_variant_id', $variant->id);
 
@@ -214,6 +219,9 @@ class PosStockController extends Controller
             'sku' => $variant->sku,
             'counted_qty' => $item?->counted_qty,
         ];
+        if (($data['scan_id'] ?? null) !== null && (float) ($item?->counted_qty ?? 0) === (float) ($before ?? 0)) {
+            $response['duplicate'] = true;
+        }
         if ($user->can('stocktakes.approve')) {
             $response['system_qty'] = $item?->system_qty;
         }

@@ -75,7 +75,8 @@ final class SpokenQuantity
                 return null;
             }
             $matched++;
-            $v = self::WORDS[$token];
+            // WORDS holds ints; strict float comparisons below need a float.
+            $v = (float) self::WORDS[$token];
             if ($v === 1000.0 || $v === 100.0) {
                 $group = ($group > 0 ? $group : 1) * $v;
                 $total += $group;

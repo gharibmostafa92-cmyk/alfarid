@@ -25,8 +25,10 @@ return [
     |
     | M3: بلا سقف كانت الجلسة الكبيرة تتجاوز حد معاملات PostgreSQL
     | (65535) وتمسك آلاف الأقفال في معاملة واحدة فتشل المبيعات.
+    | M10: الافتراضي 500 — اعتماد جلسة بألفي بند يقفل ألفي صف رصيد
+    | دفعة واحدة؛ للجرد الكبير قسّم حسب الموقع أو اعتمد خارج الذروة.
     |
     */
-    'stocktake_max_items' => (int) env('STOCKTAKE_MAX_ITEMS', 2000),
+    'stocktake_max_items' => (int) env('STOCKTAKE_MAX_ITEMS', 500),
     'pos_max_discount_percent' => (float) env('POS_MAX_DISCOUNT_PERCENT', 100),
 ];

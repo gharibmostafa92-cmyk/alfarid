@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Exceptions\BusinessException;
+use App\Exceptions\RetryableConflict;
 use App\Models\CustomerWalletTransaction;
 use App\Models\ProductionReceipt;
 use App\Models\SupplierDelivery;
@@ -12,6 +13,7 @@ use App\Models\SupplierInvoice;
 use App\Models\SupplierPayment;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -53,10 +55,19 @@ class OperationIdempotencyService
         return DB::transaction(function () use ($scope, $hash, $execute): Model {
             $previousTimeout = DB::selectOne("SELECT current_setting('lock_timeout') AS value")->value;
             DB::statement("SET LOCAL lock_timeout = '3s'");
-            $inserted = DB::table('operation_idempotency_keys')->insertOrIgnore([
-                ...$scope, 'request_hash' => $hash, 'created_at' => now(),
-            ]);
-            $record = DB::table('operation_idempotency_keys')->where($scope)->lockForUpdate()->first();
+            try {
+                $inserted = DB::table('operation_idempotency_keys')->insertOrIgnore([
+                    ...$scope, 'request_hash' => $hash, 'created_at' => now(),
+                ]);
+                $record = DB::table('operation_idempotency_keys')->where($scope)->lockForUpdate()->first();
+            } catch (QueryException $e) {
+                // L3: insertOrIgnore may wait on a concurrent uncommitted key
+                // and hit the 3s lock timeout (55P03) — retryable, not a 500.
+                if (($e->errorInfo[0] ?? null) === '55P03') {
+                    throw new RetryableConflict('العملية مشغولة؛ أعد المحاولة بنفس المفتاح.', $e);
+                }
+                throw $e;
+            }
             DB::selectOne("SELECT set_config('lock_timeout', ?, true)", [$previousTimeout]);
             if ($record === null) {
                 throw new BusinessException('العملية مشغولة؛ أعد المحاولة بنفس المفتاح.', [], 409);

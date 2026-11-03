@@ -16,10 +16,13 @@ final class InventoryCoverage
 {
     public static function avgDailySale(int $variantId, ?int $branchId = null, int $days = 30): float
     {
+        // L5: net sales — customer returns (positive sale_return quantities)
+        // offset gross sales, otherwise velocity (and transfer suggestions)
+        // are overstated.
         $sold = (float) DB::table('stock_movements')
             ->where('product_variant_id', $variantId)
             ->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
-            ->where('type', StockMovementType::Sale->value)
+            ->whereIn('type', [StockMovementType::Sale->value, StockMovementType::SaleReturn->value])
             ->where('created_at', '>=', now()->subDays($days))
             ->sum(DB::raw('-quantity'));
 

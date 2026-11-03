@@ -62,7 +62,7 @@ Schedule::command('queue:monitor '.config('media-library.queue_connection_name',
 Schedule::command('inventory:reconcile --incremental --limit=1000')->everyFifteenMinutes()
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(30)->onOneServer()
     ->onFailure(fn () => logger()->error('Incremental inventory reconciliation failed.'));
-Schedule::command('inventory:reconcile')->weeklyOn(0, '02:00')
+Schedule::command('inventory:reconcile --all-branches')->weeklyOn(0, '02:00')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(360)->onOneServer()
     ->onFailure(fn () => logger()->error('Scheduled inventory reconciliation failed.'));
 Schedule::command('orders:expire-pending')->everyFifteenMinutes()

@@ -13,6 +13,21 @@ use LogicException;
 class GeminiClient
 {
     /**
+     * M9: Laravel throws ConnectionException for both connect failures and
+     * read timeouts. Retrying a read timeout can double-bill tokens — the
+     * provider may have processed the first attempt. Retry connect/DNS
+     * failures only; a timeout fails fast instead.
+     */
+    private static function isConnectFailure(ConnectionException $e): bool
+    {
+        $message = strtolower($e->getMessage());
+
+        return ! str_contains($message, 'timed out')
+            && ! str_contains($message, 'timeout')
+            && ! str_contains($message, 'cURL error 28');
+    }
+
+    /**
      * @param  list<UploadedFile>  $images
      * @return array{text: string, model: string, usage: array{input_tokens: int, output_tokens: int, total_tokens: int}}
      */
@@ -57,11 +72,11 @@ class GeminiClient
                     ->withOptions(['verify' => config('services.integrations.ca_bundle') ?: true])
                     ->connectTimeout(5)->timeout(max(1, (int) config('services.gemini.timeout_seconds', 20)))
                     ->post('https://generativelanguage.googleapis.com/v1beta/models/'.rawurlencode($model).':generateContent', $payload);
-            } catch (ConnectionException) {
-                if ($attempt === 0) {
-                    // L-10: إعادة المحاولة بعد timeout قد تُحاسَب مرتين لدى
-                    // المزود — تُسجَّل هنا بدل الصمت.
-                    logger()->warning('gemini.request_retry', ['method' => 'generate', 'reason' => 'connection_timeout']);
+            } catch (ConnectionException $e) {
+                // M9: retry connect failures only — a read timeout may have
+                // executed server-side, so retrying would double-bill tokens.
+                if ($attempt === 0 && self::isConnectFailure($e)) {
+                    logger()->warning('gemini.request_retry', ['method' => 'generate', 'reason' => 'connect_failure']);
 
                     continue;
                 }
@@ -157,9 +172,10 @@ class GeminiClient
                     ->withOptions(['verify' => config('services.integrations.ca_bundle') ?: true])
                     ->connectTimeout(5)->timeout(max(1, (int) config('services.gemini.timeout_seconds', 20)))
                     ->post('https://generativelanguage.googleapis.com/v1beta/models/'.rawurlencode($model).':generateContent', $payload);
-            } catch (ConnectionException) {
-                if ($attempt === 0) {
-                    logger()->warning('gemini.request_retry', ['method' => 'generateStructured', 'reason' => 'connection_timeout']);
+            } catch (ConnectionException $e) {
+                // M9: retry connect failures only (see generate()).
+                if ($attempt === 0 && self::isConnectFailure($e)) {
+                    logger()->warning('gemini.request_retry', ['method' => 'generateStructured', 'reason' => 'connect_failure']);
 
                     continue;
                 }
@@ -257,11 +273,10 @@ class GeminiClient
                     ->withOptions(['verify' => config('services.integrations.ca_bundle') ?: true])
                     ->connectTimeout(5)->timeout(max(1, (int) config('services.gemini.timeout_seconds', 20)))
                     ->post('https://generativelanguage.googleapis.com/v1beta/models/'.rawurlencode($model).':generateContent', $payload);
-            } catch (ConnectionException) {
-                if ($attempt === 0) {
-                    // L-10: إعادة المحاولة بعد timeout قد تُحاسَب مرتين لدى
-                    // المزود — تُسجَّل هنا بدل الصمت.
-                    logger()->warning('gemini.request_retry', ['method' => 'converse', 'reason' => 'connection_timeout']);
+            } catch (ConnectionException $e) {
+                // M9: retry connect failures only (see generate()).
+                if ($attempt === 0 && self::isConnectFailure($e)) {
+                    logger()->warning('gemini.request_retry', ['method' => 'converse', 'reason' => 'connect_failure']);
 
                     continue;
                 }

@@ -740,6 +740,55 @@ class InventoryAiToolsTest extends TestCase
         app(SettingService::class)->clearCache();
     }
 
+    public function test_detect_anomalies_scopes_digests_by_branch(): void
+    {
+        DB::table('settings')->where('key', 'ai_inventory_proactive_enabled')->update(['value' => '1']);
+        app(SettingService::class)->clearCache();
+        try {
+            $branchA = Branch::factory()->create();
+            $branchB = Branch::factory()->create();
+            $variant = ProductVariant::factory()->create();
+            $scopedA = $this->staff(['ai_agent.logs.view']);
+            $scopedA->update(['branch_id' => $branchA->id]);
+            $scopedB = $this->staff(['ai_agent.logs.view']);
+            $scopedB->update(['branch_id' => $branchB->id]);
+
+            // Heavy adjustment activity in branch B only, with baseline users for a median.
+            foreach (range(1, 3) as $k) {
+                $base = User::factory()->create();
+                for ($i = 0; $i < 5; $i++) {
+                    \App\Models\StockMovement::create([
+                        'reference_number' => "L8-{$k}-{$i}", 'product_variant_id' => $variant->id, 'branch_id' => $branchB->id,
+                        'type' => \App\Enums\StockMovementType::AdjustmentOut, 'affected_bucket' => \App\Enums\StockBucket::OnHand,
+                        'quantity' => -1, 'balance_before' => 100, 'balance_after' => 99, 'created_by' => $base->id,
+                    ]);
+                }
+            }
+            $heavy = User::factory()->create();
+            for ($i = 0; $i < 60; $i++) {
+                \App\Models\StockMovement::create([
+                    'reference_number' => 'L8-H-'.$i, 'product_variant_id' => $variant->id, 'branch_id' => $branchB->id,
+                    'type' => \App\Enums\StockMovementType::AdjustmentOut, 'affected_bucket' => \App\Enums\StockBucket::OnHand,
+                    'quantity' => -1, 'balance_before' => 100, 'balance_after' => 99, 'created_by' => $heavy->id,
+                ]);
+            }
+
+            $this->artisan('inventory:detect-anomalies')->assertExitCode(0);
+
+            $for = fn (User $u) => \Illuminate\Notifications\DatabaseNotification::query()
+                ->where('notifiable_type', $u->getMorphClass())->where('notifiable_id', $u->id)
+                ->where('type', \App\Notifications\InventoryAnomalyDigestNotification::class)->get();
+            $this->assertTrue($for($scopedB)->isNotEmpty(), 'branch B holder sees branch B notes');
+            $this->assertTrue($for($scopedA)->isEmpty(), 'branch A holder must not see branch B notes');
+            foreach ($for($scopedB) as $notification) {
+                $this->assertArrayNotHasKey('branch_ids', $notification->data['notes'][0]);
+            }
+        } finally {
+            DB::table('settings')->where('key', 'ai_inventory_proactive_enabled')->update(['value' => '0']);
+            app(SettingService::class)->clearCache();
+        }
+    }
+
     public function test_what_if_tools_compute_without_writing(): void
     {
         $rich = $this->staff(['ai_agent.use', 'inventory.view', 'inventory.view_cost', 'inventory.all_branches']);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Models\Branch;
 use App\Models\InventoryReconcileRun;
 use App\Services\StatementBudget;
 use Illuminate\Console\Command;
@@ -20,16 +21,11 @@ use Illuminate\Support\Facades\Log;
  */
 class ReconcileInventory extends Command
 {
-    protected $signature = 'inventory:reconcile {--branch_id= : قصر الفحص على فرع واحد} {--incremental : فحص المفاتيح المتغيرة فقط} {--limit=1000 : أقصى عدد مفاتيح في الدفعة التراكمية}';
+    protected $signature = 'inventory:reconcile {--branch_id= : قصر الفحص على فرع واحد} {--all-branches : الفحص الكامل فرعًا فرعًا بنفس الاستعلام (وضع الجدولة الأسبوعية)} {--incremental : فحص المفاتيح المتغيرة فقط} {--limit=1000 : أقصى عدد مفاتيح في الدفعة التراكمية}';
 
     protected $description = 'مطابقة أرصدة المخزون مع دفتر الحركات وكشف أي كتابة مباشرة';
 
     public function handle(): int
-    {
-        return StatementBudget::run(300000, fn (): int => $this->reconcile());
-    }
-
-    private function reconcile(): int
     {
         $branch = $this->option('branch_id');
         if ($branch !== null && filter_var($branch, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) === false) {
@@ -37,6 +33,36 @@ class ReconcileInventory extends Command
 
             return self::INVALID;
         }
+
+        // M6: فحص شامل واحد يمسح الدفتر كاملًا ويحمل أقفالًا واسعة وقت الذروة —
+        // وضع الجدولة يمر على الفروع النشطة واحدًا واحدًا بنفس الاستعلام.
+        if ((bool) $this->option('all-branches')) {
+            if ($branch !== null) {
+                $this->error('مرر branch_id أو all-branches وليس الاثنين معًا.');
+
+                return self::INVALID;
+            }
+            $failures = 0;
+            foreach (Branch::query()->where('is_active', true)->orderBy('id')->pluck('id') as $branchId) {
+                $this->info("فحص الفرع {$branchId}...");
+                if (StatementBudget::run(300000, fn (): int => $this->reconcile((int) $branchId)) !== self::SUCCESS) {
+                    $failures++;
+                }
+            }
+            if ($failures > 0) {
+                $this->error("فشلت المطابقة في {$failures} من الفروع.");
+
+                return self::FAILURE;
+            }
+
+            return self::SUCCESS;
+        }
+
+        return StatementBudget::run(300000, fn (): int => $this->reconcile($branch === null ? null : (int) $branch));
+    }
+
+    private function reconcile(?int $branch): int
+    {
 
         $incremental = (bool) $this->option('incremental');
         $limit = filter_var($this->option('limit'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 10000]]);
@@ -74,13 +100,13 @@ WITH levels AS (
         COALESCE(m.balance_after, 0), b.balance
     FROM buckets b LEFT JOIN ledger m ON m.recency = 1
         AND m.branch_id = b.branch_id AND m.product_variant_id = b.product_variant_id
-        AND m.location_id IS NOT DISTINCT FROM b.location_id AND m.affected_bucket = b.bucket
+        AND COALESCE(m.location_id, 0) = COALESCE(b.location_id, 0) AND m.affected_bucket = b.bucket
     WHERE b.balance <> COALESCE(m.balance_after, 0)
     UNION ALL
     SELECT 'missing_level', m.id, m.branch_id, m.location_id, m.product_variant_id,
         m.affected_bucket, m.balance_after, NULL::numeric
     FROM ledger m LEFT JOIN levels l ON l.branch_id = m.branch_id
-        AND l.product_variant_id = m.product_variant_id AND l.location_id IS NOT DISTINCT FROM m.location_id
+        AND l.product_variant_id = m.product_variant_id AND COALESCE(l.location_id, 0) = COALESCE(m.location_id, 0)
     WHERE m.recency = 1 AND l.id IS NULL
 )
 SELECT (SELECT COUNT(*) FROM levels) AS checked, (SELECT COUNT(*) FROM problems) AS problem_count,
@@ -89,8 +115,10 @@ SQL;
         if ($incremental) {
             // Revision comparison survives concurrent commits. A simple MAX(id) cursor
             // would skip a lower sequence ID committed after the reconciliation snapshot.
-            $matches = fn (string $alias): string => "EXISTS (SELECT 1 FROM chosen c WHERE c.branch_id = {$alias}.branch_id AND c.product_variant_id = {$alias}.product_variant_id AND c.location_id IS NOT DISTINCT FROM {$alias}.location_id)";
-            $sql = str_replace('WITH levels AS (', "WITH chosen AS MATERIALIZED (SELECT * FROM inventory_reconcile_work WHERE (?::bigint IS NULL OR branch_id = ?::bigint) ORDER BY key LIMIT {$limit}), levels AS (", $sql);
+            $matches = fn (string $alias): string => "EXISTS (SELECT 1 FROM chosen c WHERE c.branch_id = {$alias}.branch_id AND c.product_variant_id = {$alias}.product_variant_id AND COALESCE(c.location_id, 0) = COALESCE({$alias}.location_id, 0))";
+            // L13: prefer least-recently-checked keys so a permanently-broken
+            // key cannot occupy the LIMIT window forever and starve the rest.
+            $sql = str_replace('WITH levels AS (', "WITH chosen AS MATERIALIZED (SELECT * FROM inventory_reconcile_work WHERE (?::bigint IS NULL OR branch_id = ?::bigint) ORDER BY checked_at NULLS FIRST, key LIMIT {$limit}), levels AS (", $sql);
             $sql = str_replace('SELECT * FROM stock_levels WHERE', 'SELECT * FROM stock_levels WHERE '.$matches('stock_levels').' AND', $sql);
             $sql = str_replace('FROM stock_movements WHERE', 'FROM stock_movements WHERE '.$matches('stock_movements').' AND', $sql);
             $sql = str_replace("\nSELECT (SELECT COUNT(*) FROM levels)", <<<'SQL'
@@ -98,14 +126,28 @@ SQL;
     DELETE FROM inventory_reconcile_work w USING chosen c
     WHERE w.key = c.key AND w.revision = c.revision
         AND NOT EXISTS (SELECT 1 FROM problems p WHERE p.branch_id = c.branch_id
-            AND p.product_variant_id = c.product_variant_id AND p.location_id IS NOT DISTINCT FROM c.location_id)
+            AND p.product_variant_id = c.product_variant_id AND COALESCE(p.location_id, 0) = COALESCE(c.location_id, 0))
     RETURNING w.key
 )
 SELECT (SELECT COUNT(*) FROM levels)
 SQL, $sql);
+            $sql = str_replace(
+                "COALESCE((SELECT json_agg(p) FROM (SELECT * FROM problems ORDER BY branch_id, product_variant_id, id LIMIT 100) p), '[]'::json) AS samples",
+                "COALESCE((SELECT json_agg(p) FROM (SELECT * FROM problems ORDER BY branch_id, product_variant_id, id LIMIT 100) p), '[]'::json) AS samples, (SELECT COALESCE(json_agg(key), '[]'::json) FROM chosen) AS examined",
+                $sql
+            );
         }
         $bindings = array_fill(0, $incremental ? 6 : 4, $branch);
         $result = DB::selectOne($sql, $bindings);
+
+        if ($incremental) {
+            // L13: mark everything just examined — permanent problems sink
+            // below unchecked keys on the next run instead of starving them.
+            $examined = json_decode((string) ($result->examined ?? '[]'), true) ?? [];
+            if ($examined !== []) {
+                DB::table('inventory_reconcile_work')->whereIn('key', $examined)->update(['checked_at' => now()]);
+            }
+        }
 
         // آخر نتيجة محفوظة لأداة inventory_health (المطابقة الكاملة أثقل من
         // حد زمن الأدوات، فالأداة تقرأ آخر تشغيل مجدول بدل تشغيل الفحص).
@@ -115,6 +157,10 @@ SQL, $sql);
             'problem_count' => (int) $result->problem_count,
             'samples' => json_decode((string) $result->samples, true) ?? [],
         ]);
+
+        // L11: التشغيل التراكمي كل 15 دقيقة يخلف ~96 صفًا يوميًا — إبقاء
+        // أسبوعين فقط من سجل التشغيلات.
+        InventoryReconcileRun::query()->where('created_at', '<', now()->subDays(14))->delete();
 
         if ((int) $result->problem_count > 0) {
             $samples = json_decode($result->samples, true, flags: JSON_THROW_ON_ERROR);

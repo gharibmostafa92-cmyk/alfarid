@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Models\Order;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -17,6 +18,9 @@ class ReportService
 {
     /** @var list<string> */
     private const SALES_STATUSES = ['confirmed', 'processing', 'shipped', 'delivered'];
+
+    /** M7: cap on inventory valuation rows returned per report. */
+    public const INVENTORY_VALUATION_ROW_LIMIT = 500;
 
     /**
      * Aggregates key management KPIs and top performers for the dashboard.
@@ -213,13 +217,43 @@ class ReportService
     /**
      * Computes inventory valuation and identifies dead stock without physical movement within a threshold.
      *
+     * M7: results are cached for 5 minutes per (branch, dead-days, cost
+     * visibility) — branch-scoped managers must never share a cached payload
+     * with each other, and cost-blind callers must never hit a cache entry
+     * that contains unit-cost fields.
+     *
      * @param  int  $deadDays  Inactivity threshold in days
      * @param  int|null  $branchId  Branch filter
-     * @return array{valuation: list<array<string, mixed>>, total_value: float, dead_stock: list<array<string, mixed>>, dead_stock_days: int}
+     * @param  bool  $withCosts  Whether the caller may see unit-cost fields
+     * @param  int  $statementBudgetMs  Statement budget (HTTP callers should pass a lower cap)
+     * @return array{valuation: list<array<string, mixed>>, total_value?: float, dead_stock: list<array<string, mixed>>, dead_stock_days: int}
      */
-    public function inventoryReport(int $deadDays = 90, ?int $branchId = null): array
+    public function inventoryReport(int $deadDays = 90, ?int $branchId = null, bool $withCosts = true, int $statementBudgetMs = 150000): array
     {
-        return StatementBudget::run(150000, fn (): array => $this->calculateInventoryReport($deadDays, $branchId));
+        $deadDays = max(1, min(3650, $deadDays));
+        $cacheKey = 'report.inventory.'.md5(($branchId ?? 'all').'|'.$deadDays.'|'.($withCosts ? 'cost' : 'nocost'));
+
+        return Cache::remember($cacheKey, 300, function () use ($deadDays, $branchId, $withCosts, $statementBudgetMs): array {
+            $data = StatementBudget::run(
+                $statementBudgetMs,
+                fn (): array => $this->calculateInventoryReport($deadDays, $branchId)
+            );
+            if (! $withCosts) {
+                unset($data['total_value']);
+                $data['valuation'] = array_map(function (array $row): array {
+                    unset($row['total_value']);
+
+                    return $row;
+                }, $data['valuation']);
+                $data['dead_stock'] = array_map(function (array $row): array {
+                    unset($row['tied_value']);
+
+                    return $row;
+                }, $data['dead_stock']);
+            }
+
+            return $data;
+        });
     }
 
     private function calculateInventoryReport(int $deadDays = 90, ?int $branchId = null): array
@@ -230,6 +264,9 @@ class ReportService
             ->selectRaw('sl.branch_id, b.name AS branch_name, COUNT(DISTINCT sl.product_variant_id) AS variants_count, COALESCE(SUM(sl.on_hand), 0) AS total_qty, COALESCE(SUM(sl.on_hand * COALESCE(pv.cost_price, 0)), 0) AS total_value')
             ->groupBy('sl.branch_id', 'b.name')
             ->orderByDesc('total_value')
+            // M7: cap the payload at hundreds of rows (ordered by value) so a
+            // catalog of thousands of variants cannot blow the response.
+            ->limit(self::INVENTORY_VALUATION_ROW_LIMIT + 1)
             ->get()
             ->map(fn ($row): array => [
                 'branch_id' => (int) $row->branch_id,
@@ -238,6 +275,8 @@ class ReportService
                 'total_qty' => (float) $row->total_qty,
                 'total_value' => (float) $row->total_value,
             ])->all();
+        $valuationTruncated = count($valuation) > self::INVENTORY_VALUATION_ROW_LIMIT;
+        $valuation = array_slice($valuation, 0, self::INVENTORY_VALUATION_ROW_LIMIT);
 
         $totalValue = (float) (DB::table('stock_levels as sl')->when($branchId !== null, fn ($q) => $q->where('sl.branch_id', $branchId))
             ->join('product_variants as pv', 'pv.id', '=', 'sl.product_variant_id')
@@ -273,6 +312,7 @@ class ReportService
 
         return [
             'valuation' => $valuation,
+            'valuation_truncated' => $valuationTruncated,
             'total_value' => $totalValue,
             'dead_stock' => $deadStock,
             'dead_stock_days' => $deadDays,

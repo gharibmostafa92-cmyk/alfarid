@@ -49,6 +49,36 @@ class GeminiClientTest extends TestCase
         Http::assertSentCount(2);
     }
 
+    public function test_connect_failure_is_retried_once(): void
+    {
+        $calls = 0;
+        Http::fake(['generativelanguage.googleapis.com/*' => function () use (&$calls) {
+            if ($calls++ === 0) {
+                throw new \Illuminate\Http\Client\ConnectionException('cURL error 7: Failed to connect to generativelanguage.googleapis.com');
+            }
+
+            return Http::response($this->completion());
+        }]);
+        $this->assertSame('OK', app(GeminiClient::class)->generate('Hello')['text']);
+        // Thrown stubs bypass Http::assertSentCount — the call counter proves the retry.
+        $this->assertSame(2, $calls);
+    }
+
+    public function test_read_timeout_is_not_retried_to_avoid_double_billing(): void
+    {
+        $calls = 0;
+        Http::fake(['generativelanguage.googleapis.com/*' => function () use (&$calls): never {
+            $calls++;
+            throw new \Illuminate\Http\Client\ConnectionException('cURL error 28: Operation timed out after 20001 milliseconds with 0 bytes received');
+        }]);
+        try {
+            app(GeminiClient::class)->converse([['role' => 'user', 'parts' => [['text' => 'hi']]]]);
+            $this->fail('Expected a provider exception.');
+        } catch (GeminiException) {
+            $this->assertSame(1, $calls);
+        }
+    }
+
     public function test_provider_errors_do_not_expose_provider_bodies_or_credentials(): void
     {
         Http::fake(['generativelanguage.googleapis.com/*' => Http::response(['error' => ['message' => 'private-prompt test-key']], 403)]);

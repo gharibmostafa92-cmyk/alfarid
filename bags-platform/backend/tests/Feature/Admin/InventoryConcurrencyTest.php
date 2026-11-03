@@ -190,6 +190,10 @@ PHP;
         $contender .= <<<'PHP'
     touch($prefix.'.right');
     throw new RuntimeException('Expected a lock conflict');
+} catch (App\Exceptions\RetryableConflict $exception) {
+    touch($prefix.'.right');
+    if ($exception->getStatusCode() !== 409) { throw new RuntimeException('Expected status 409'); }
+    throw $exception;
 } catch (App\Exceptions\BusinessException $exception) {
     touch($prefix.'.right');
     if ($exception->status !== 409) { throw new RuntimeException('Expected status 409'); }
@@ -227,7 +231,10 @@ PHP;
         $writer .= 'app(App\Services\InventoryService::class)->recordMovement('.var_export($data, true).'); touch($prefix.".right");';
         $this->race([$holder, $writer]);
         $this->assertDatabaseCount('stock_movements', 1);
-        $this->assertStringEndsWith('20000', app(SettingService::class)->generateNextNumber('movement'));
+        // M-2: the counter sync raises the shared sequence inside the holder
+        // transaction (never blocks writers), so the concurrent movement already
+        // consumed 20000 and the next number is 20001 — monotonic, never reused.
+        $this->assertStringEndsWith('20001', app(SettingService::class)->generateNextNumber('movement'));
     }
 
     private function data(ProductVariant $variant, Branch $branch): array
@@ -265,6 +272,8 @@ PHP;
                 $script .= <<<'PHP'
 echo "OK\n";
 } catch (App\Exceptions\BusinessException $exception) {
+    echo "REJECTED\n";
+} catch (App\Exceptions\RetryableConflict $exception) {
     echo "REJECTED\n";
 } catch (Throwable $exception) {
     fwrite(STDERR, get_class($exception).': '.$exception->getMessage());

@@ -7,10 +7,12 @@ namespace App\Services;
 use App\Enums\StockBucket;
 use App\Enums\StockMovementType;
 use App\Exceptions\BusinessException;
+use App\Exceptions\RetryableConflict;
 use App\Models\Branch;
 use App\Models\ProductionReceipt;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
@@ -113,6 +115,14 @@ class ProductionReceiptService
             }
             if (ProductionReceipt::whereRaw('LOWER(batch_number) = ?', [mb_strtolower($data['batch_number'])])->exists()) {
                 throw new BusinessException('رقم دفعة الإنتاج مسجل بالفعل؛ راجع سجل الاستلام.', [], 409);
+            }
+            throw $exception;
+        } catch (QueryException $exception) {
+            // L3: SET LOCAL lock_timeout makes sharedLock/lockForUpdate throw
+            // raw 55P03 (Laravel does not treat it as a deadlock) — surface a
+            // retryable 409 instead of a 500.
+            if (($exception->errorInfo[0] ?? null) === '55P03') {
+                throw new RetryableConflict('المخزون مشغول بعملية أخرى الآن؛ أعد المحاولة بعد لحظات.', $exception);
             }
             throw $exception;
         }

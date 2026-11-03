@@ -43,7 +43,9 @@ class StockLevelResource extends JsonResource
             'available' => number_format($this->available, 4, '.', ''),
             // حد إعادة الطلب الفعّال: مستوى الصف إن ضُبط (> 0)، وإلا مستوى المتغير
             'reorder_level' => $this->effectiveReorderLevel(),
-            // بلا حد فعّال (> 0) لا معنى لـ "منخفض" — نفس شرط فلتر low_stock (L-4)
+            // إشارة تشغيلية على مستوى الصف (L-4: صف بلا حد فعّال ليس "منخفضًا").
+            // فلتر low_stock في القوائم أوسع: يطابق حالة التنبيه
+            // (حد الصنف يُقارن بإجمالي الفرع) — راجع StockLevel::whereLowStock.
             'is_low_stock' => $this->effectiveReorderLevel() > 0 && $this->available <= $this->effectiveReorderLevel(),
             'updated_at' => $this->updated_at,
         ];

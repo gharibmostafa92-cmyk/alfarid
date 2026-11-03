@@ -8,6 +8,7 @@ use App\Enums\StockBucket;
 use App\Enums\StockMovementType;
 use App\Events\StockLowDetected;
 use App\Exceptions\BusinessException;
+use App\Exceptions\RetryableConflict;
 use App\Models\Branch;
 use App\Models\InventoryIdempotencyKey;
 use App\Models\Location;
@@ -461,10 +462,12 @@ class InventoryService
                 }
             }
         } catch (QueryException $e) {
-            // Keep deadlocks as database exceptions so the outer transaction
-            // can retry them. The API exception handler returns 409 if exhausted.
+            // M1: lock timeouts are retryable conflicts, not terminal failures.
+            // RetryableConflict extends ConflictHttpException, so REST callers
+            // still see 409, while PendingActionService::confirmLocked retries
+            // instead of marking the action failed.
             if (($e->errorInfo[0] ?? $e->getCode()) === '55P03') {
-                throw new BusinessException('المخزون مشغول بعملية أخرى الآن؛ أعد المحاولة بعد لحظات.', [], 409);
+                throw new RetryableConflict('المخزون مشغول بعملية أخرى الآن؛ أعد المحاولة بعد لحظات.', $e);
             }
 
             throw $e;
@@ -503,6 +506,10 @@ class InventoryService
             }
 
             return $locationId;
+        }
+        // Branches that never used locations post returns to the branch-level row.
+        if (! Location::query()->where('branch_id', $branchId)->exists()) {
+            return null;
         }
         // Damaged locations are never eligible as receiving locations.
         $id = (clone $query)->where('type', '!=', 'damaged')

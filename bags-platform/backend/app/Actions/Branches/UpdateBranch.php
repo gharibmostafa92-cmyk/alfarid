@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Actions\Branches;
 
 use App\Enums\PosShiftStatus;
+use App\Enums\TransferStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;
 use App\Models\PosShift;
@@ -44,11 +45,21 @@ final class UpdateBranch
                 && ($city = \App\Models\City::query()->find($data['city_id']))) {
                 $data['city'] = $city->name_ar ?: $city->name_en;
             }
-            if (array_key_exists('is_active', $data) && ! $data['is_active'] && (
-                StockLevel::query()->where('branch_id', $locked->id)->where('in_transit', '>', 0)->exists()
-                || StockTransfer::query()->where('to_branch_id', $locked->id)->where('status', 'shipped')->exists()
-            )) {
-                throw new BusinessException('لا يمكن تعطيل الفرع قبل استلام التحويلات المشحونة إليه.');
+            // M4: same rule as SetLocationStatus — an approved transfer from a
+            // disabled branch can never be cancelled (release path is locked),
+            // and a shipped transfer to it can never be received (goods stay
+            // "in transit" forever). Non-zero balances would freeze too.
+            if (array_key_exists('is_active', $data) && ! $data['is_active']) {
+                $hasOpenTransfers = StockTransfer::query()
+                    ->where(fn ($q) => $q->where('from_branch_id', $locked->id)->orWhere('to_branch_id', $locked->id))
+                    ->whereIn('status', [TransferStatus::Approved->value, TransferStatus::Shipped->value])
+                    ->exists();
+                if ($hasOpenTransfers) {
+                    throw new BusinessException('لا يمكن تعطيل الفرع وبه تحويلات معتمدة أو مشحونة لم تُستلم؛ ألغها أو أكمل استلامها أولًا.');
+                }
+                if (StockLevel::query()->where('branch_id', $locked->id)->hasNonZeroBalance()->exists()) {
+                    throw new BusinessException('لا يمكن تعطيل الفرع وبه أرصدة غير صفرية؛ صفّرها أولًا.');
+                }
             }
             // M-12: وردية POS مفتوحة أو خزينة بها رصيد — موظفو الفرع المعطّل
             // ممنوعون من أي وصول (fail-closed) فلن يستطيعوا إغلاقها بعده.

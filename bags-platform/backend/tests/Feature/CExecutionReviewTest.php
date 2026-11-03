@@ -260,18 +260,26 @@ class CExecutionReviewTest extends TestCase
         $this->getJson('/api/v1/admin/treasuries')->assertOk()->assertJsonCount(2, 'data');
     }
 
-    public function test_incremental_count_keeps_first_snapshot_after_intervening_movement(): void
+    public function test_incremental_count_rejects_rescan_after_intervening_movement_until_recount(): void
     {
+        // M2: a rescan after an intervening movement must not silently stack
+        // counted quantities on a stale snapshot (the difference would be
+        // applied twice at approve time) — it is rejected until recount.
         $this->stock();
         $stocktake = app(StocktakeService::class)->create(['branch_id' => $this->branch->id], $this->cashier->id);
         app(StocktakeService::class)->incrementItemCount($stocktake, $this->variant->id, 1, $this->cashier->id);
         $before = $stocktake->items()->firstOrFail();
         $this->stock(2);
-        app(StocktakeService::class)->incrementItemCount($stocktake, $this->variant->id, 1, $this->cashier->id);
+        try {
+            app(StocktakeService::class)->incrementItemCount($stocktake, $this->variant->id, 1, $this->cashier->id);
+            $this->fail('Expected a stale-scan rejection.');
+        } catch (BusinessException $e) {
+            $this->assertStringContainsString('أعد عدّه', $e->getMessage());
+        }
         $after = $before->fresh();
         $this->assertSame($before->snapshot_movement_id, $after->snapshot_movement_id);
         $this->assertSame($before->system_qty, $after->system_qty);
-        $this->assertSame('2.0000', $after->counted_qty);
+        $this->assertSame('1.0000', $after->counted_qty);
     }
 
     public function test_ipv6_rotating_addresses_share_daily_checkout_quota(): void

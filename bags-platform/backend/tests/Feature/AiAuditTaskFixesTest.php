@@ -646,6 +646,16 @@ final class ThrowingPrepareProvider implements ToolProvider
         return ['set_customer_group' => new ThrowingPrepareTool];
     }
 
+    public function domain(): string
+    {
+        return 'test';
+    }
+
+    public function usesGlobalAdminLock(): bool
+    {
+        return false;
+    }
+
     public function enabled(): bool
     {
         return true;
@@ -713,6 +723,16 @@ final class FailingBulkChildProvider implements ToolProvider
         return ['set_location_status' => new FailingBulkChildTool];
     }
 
+    public function domain(): string
+    {
+        return 'test';
+    }
+
+    public function usesGlobalAdminLock(): bool
+    {
+        return false;
+    }
+
     public function enabled(): bool
     {
         return true;
@@ -773,6 +793,16 @@ final class ThrowingBulkChildProvider implements ToolProvider
     public function tools(): array
     {
         return ['set_location_status' => new ThrowingBulkChildTool];
+    }
+
+    public function domain(): string
+    {
+        return 'test';
+    }
+
+    public function usesGlobalAdminLock(): bool
+    {
+        return false;
     }
 
     public function enabled(): bool

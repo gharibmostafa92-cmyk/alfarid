@@ -112,6 +112,7 @@ class SecurityReviewRound5Test extends TestCase
 
         // الاعتماد بالطابع القديم يُرفض: البنود المعتمدة لم يراجعها أحد بهذا الطابع
         $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transferId}/approve", [
+            'expected_version' => $created->json('data.version'),
             'expected_updated_at' => Carbon::parse($seenUpdatedAt)->format('Y-m-d H:i:s'),
         ])->assertStatus(409);
 

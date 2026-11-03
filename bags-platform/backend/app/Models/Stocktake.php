@@ -11,6 +11,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Stocktake extends Model
 {
+    public function scans(): HasMany
+    {
+        return $this->hasMany(StocktakeScan::class);
+    }
+
     protected $fillable = [
         'stocktake_number', 'branch_id', 'location_id', 'status',
         'created_by', 'approved_by', 'approved_at', 'notes',

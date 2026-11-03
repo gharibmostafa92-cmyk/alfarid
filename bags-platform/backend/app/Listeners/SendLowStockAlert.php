@@ -9,6 +9,7 @@ use App\Models\ProductVariant;
 use App\Notifications\LowStockAlertNotification;
 use App\Notifications\StaffRecipients;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 
@@ -17,6 +18,14 @@ class SendLowStockAlert implements ShouldQueue
 {
     public function handle(StockLowDetected $event): void
     {
+        // L4: balance oscillation around the threshold (sale → return → sale)
+        // re-crosses on every pass, and row-level + variant-level checks can
+        // fire two events for one movement — one alert per variant/branch
+        // every 6 hours is enough for a restock signal.
+        if (! Cache::add("low-stock:{$event->productVariantId}:{$event->branchId}", 1, now()->addHours(6))) {
+            return;
+        }
+
         $recipients = StaffRecipients::withAnyPermission(['purchases.view'], [$event->branchId])
             ->merge(StaffRecipients::branchManagers($event->branchId))
             ->unique('id');

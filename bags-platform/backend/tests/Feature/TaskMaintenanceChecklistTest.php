@@ -137,7 +137,24 @@ class TaskMaintenanceChecklistTest extends TestCase
             ['inventory:reconcile --limit=0', 2],
             ['inventory:reconcile --limit=10001', 2],
             ['inventory:reconcile --branch_id=0', 2],
+            ['inventory:reconcile --all-branches --branch_id=1', 2],
         ];
+    }
+
+    public function test_all_branches_reconcile_runs_once_per_active_branch_and_prunes_old_runs(): void
+    {
+        $oldId = DB::table('inventory_reconcile_runs')->insertGetId([
+            'branch_id' => null, 'checked' => 0, 'problem_count' => 0, 'samples' => '[]',
+            'created_at' => now()->subDays(15),
+        ]);
+        $branches = \App\Models\Branch::factory()->count(2)->create(['is_active' => true]);
+
+        $this->artisan('inventory:reconcile --all-branches')->assertSuccessful();
+
+        foreach ($branches as $branch) {
+            $this->assertDatabaseHas('inventory_reconcile_runs', ['branch_id' => $branch->id]);
+        }
+        $this->assertDatabaseMissing('inventory_reconcile_runs', ['id' => $oldId]);
     }
 
     public function test_every_scheduled_event_has_a_finite_overlap_lock_and_single_server_guard(): void

@@ -10,6 +10,7 @@ use App\Models\Location;
 use App\Models\Order;
 use App\Models\PosShift;
 use App\Models\PriceList;
+use App\Models\ProductionReceipt;
 use App\Models\PriceListItem;
 use App\Models\ProductVariant;
 use App\Models\PurchaseOrder;
@@ -188,6 +189,7 @@ class AppServiceProvider extends ServiceProvider
         // إعادة تسمية/نقل الكلاسات لاحقًا لا تكسر أثر التدقيق التاريخي.
         // الصفوف القديمة المخزنة باسم الكلاس الكامل تظل قابلة للقراءة.
         Relation::morphMap([
+            'production_receipt' => ProductionReceipt::class,
             'stock_transfer' => StockTransfer::class,
             'stocktake' => Stocktake::class,
             'order' => Order::class,

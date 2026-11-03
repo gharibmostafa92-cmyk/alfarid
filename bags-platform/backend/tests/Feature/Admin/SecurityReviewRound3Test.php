@@ -277,7 +277,7 @@ class SecurityReviewRound3Test extends TestCase
             'items' => [['product_variant_id' => $variant->id, 'requested_qty' => 4]],
         ])->assertCreated()->json('data');
 
-        $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$created['id']}/approve", [])->assertOk();
+        $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$created['id']}/approve", ['expected_version' => $created['version']])->assertOk();
         $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$created['id']}/cancel", [])->assertOk();
 
         // له حركتا حجز وفك حجز في الدفتر: الحذف يقطع أثر التدقيق

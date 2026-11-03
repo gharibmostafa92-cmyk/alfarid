@@ -158,6 +158,12 @@ class StocktakeService
                 'notes' => array_key_exists('notes', $data) ? $data['notes'] : $stocktake->notes,
             ])->save();
 
+            if (($stocktake->status === StocktakeStatus::Cancelled)
+                && DB::table('stocktake_scans')->where('stocktake_id', $stocktake->id)->exists()) {
+                // H2: cancelled sessions release their per-scan idempotency rows.
+                DB::table('stocktake_scans')->where('stocktake_id', $stocktake->id)->delete();
+            }
+
             if (isset($data['items'])) {
                 if ($scopeChanged) {
                     $data['items'] = array_map(fn ($item) => [...$item, 'recount' => true], $data['items']);
@@ -272,6 +278,9 @@ class StocktakeService
                 'approved_at' => now(),
             ]);
 
+            // H2: the session is closed; drop per-scan idempotency rows (audit served its purpose).
+            DB::table('stocktake_scans')->where('stocktake_id', $stocktake->id)->delete();
+
             return $stocktake->load(['items.variant', 'branch', 'location']);
         }));
     }
@@ -364,21 +373,61 @@ class StocktakeService
     /**
      * Adds counted quantity to a stocktake item under row lock (e.g. for barcode scanning).
      *
+     * H2: when the client supplies a scan UUID, the scan is recorded in
+     * stocktake_scans with a unique (stocktake_id, scan_id) key inside the
+     * same transaction. A retried request replays the stored state instead of
+     * double-counting (exactly-once per scan at the database level).
+     *
      * @param Stocktake $stocktake Target stocktake
      * @param int $variantId Scanned variant ID
      * @param float $quantity Scanned quantity increment
      * @param int $userId Scanning user ID
+     * @param string|null $scanId Client-generated scan UUID for idempotency
      * @return Stocktake Updated stocktake
      * @throws BusinessException If session is locked or quantity is invalid
      */
-    public function incrementItemCount(Stocktake $stocktake, int $variantId, float $quantity, int $userId): Stocktake
+    public function incrementItemCount(Stocktake $stocktake, int $variantId, float $quantity, int $userId, ?string $scanId = null): Stocktake
     {
-        return DB::transaction(function () use ($stocktake, $variantId, $quantity, $userId): Stocktake {
+        return DB::transaction(function () use ($stocktake, $variantId, $quantity, $userId, $scanId): Stocktake {
             $stocktake = Stocktake::query()->lockForUpdate()->findOrFail($stocktake->id);
             $this->assertEditable($stocktake);
             app(BranchAccess::class)->assertBranch($userId, $stocktake->branch_id);
 
+            if ($scanId !== null) {
+                $recorded = DB::table('stocktake_scans')->insertOrIgnore([
+                    'stocktake_id' => $stocktake->id,
+                    'scan_id' => $scanId,
+                    'product_variant_id' => $variantId,
+                    'qty' => $quantity,
+                    'created_by' => $userId,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+                if ($recorded === 0) {
+                    // Duplicate delivery of an already-applied scan: replay state, do not count again.
+                    return $stocktake->load(['items.variant', 'branch', 'location', 'creator']);
+                }
+            }
+
             $existing = $stocktake->items()->where('product_variant_id', $variantId)->first();
+            if ($existing !== null && $existing->counted_qty !== null && (int) $existing->snapshot_movement_id > 0) {
+                // M2: a previously-counted variant rescanned after an on_hand
+                // movement on the same key would silently double-apply the
+                // difference at approve time. Reject the scan and ask for a
+                // recount, which refreshes system_qty and the snapshot cursor.
+                // Uses stock_movements_stale_check_index
+                // (branch_id, location_id, affected_bucket, product_variant_id, id).
+                $moved = StockMovement::query()
+                    ->where('branch_id', $stocktake->branch_id)
+                    ->where('location_id', $stocktake->location_id)
+                    ->where('affected_bucket', StockBucket::OnHand->value)
+                    ->where('product_variant_id', $variantId)
+                    ->where('id', '>', (int) $existing->snapshot_movement_id)
+                    ->exists();
+                if ($moved) {
+                    throw new BusinessException('تغيّر رصيد هذا الصنف أثناء العد؛ أعد عدّه من جديد قبل المتابعة.');
+                }
+            }
             $counted = (float) ($existing?->counted_qty ?? 0);
             $total = round($counted + $quantity, 4);
             if (! is_finite($quantity) || $quantity <= 0 || $total > 99999999.9999) {
@@ -466,7 +515,7 @@ class StocktakeService
 
     private function assertItemLimit(int $count): void
     {
-        $maxItems = max(1, (int) config('inventory.stocktake_max_items', 2000));
+        $maxItems = max(1, (int) config('inventory.stocktake_max_items', 500));
         if ($count > $maxItems) {
             throw new BusinessException("تجاوزت الجلسة الحد الأقصى للبنود ({$maxItems})؛ قسّم الجرد إلى جلسات حسب الموقع.");
         }

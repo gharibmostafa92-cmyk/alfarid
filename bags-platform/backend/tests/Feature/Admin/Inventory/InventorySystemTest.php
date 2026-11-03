@@ -224,13 +224,13 @@ class InventorySystemTest extends TestCase
         $transferId = $transfer['id'];
 
         // الاعتماد: حجز 8 عند المرسل
-        $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transferId}/approve", [])->assertOk();
+        $approved = $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transferId}/approve", ['expected_version' => $transfer['version']])->assertOk()->json('data');
         $levelFrom = $this->level($variant->id, $from->id);
         $this->assertSame('8.0000', $levelFrom->reserved);
         $this->assertSame(12.0, $levelFrom->available);
 
         // الشحن: خروج فعلي وفك حجز و in_transit عند المستلم
-        $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transferId}/ship", [])->assertOk();
+        $shipped = $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transferId}/ship", ['expected_version' => $approved['version']])->assertOk()->json('data');
         $levelFrom = $this->level($variant->id, $from->id);
         $this->assertSame('12.0000', $levelFrom->on_hand);
         $this->assertSame('0.0000', $levelFrom->reserved);
@@ -239,6 +239,7 @@ class InventorySystemTest extends TestCase
         // الاستلام بعجز: شُحن 8 واستُلم 6
         $itemId = $transfer['items'][0]['id'];
         $response = $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transferId}/receive", [
+            'expected_version' => $shipped['version'],
             'items' => [['id' => $itemId, 'received_qty' => 6]],
         ])->assertOk();
 
@@ -272,10 +273,11 @@ class InventorySystemTest extends TestCase
             'items' => [['product_variant_id' => $variant->id, 'requested_qty' => 10]],
         ])->assertCreated()->json('data');
 
-        $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/approve", [])->assertOk();
+        $approved2 = $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/approve", ['expected_version' => $transfer['version']])->assertOk()->json('data');
 
         $itemId = $transfer['items'][0]['id'];
         $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/ship", [
+            'expected_version' => $approved2['version'],
             'items' => [['id' => $itemId, 'shipped_qty' => 4]],
         ])->assertOk();
 
@@ -302,14 +304,14 @@ class InventorySystemTest extends TestCase
         ])->assertCreated()->json('data');
         $id = $transfer['id'];
 
-        // شحن قبل الاعتماد ممنوع
-        $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$id}/ship", [])->assertUnprocessable();
+        // شحن قبل الاعتماد ممنوع (النسخة صحيحة لكن الحالة draft)
+        $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$id}/ship", ['expected_version' => $transfer['version']])->assertUnprocessable();
 
-        $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$id}/approve", [])->assertOk();
+        $approved3 = $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$id}/approve", ['expected_version' => $transfer['version']])->assertOk()->json('data');
         $this->assertSame('5.0000', $this->level($variant->id, $from->id)->reserved);
 
         // اعتماد مرتين ممنوع، وتعديل المعتمد ممنوع
-        $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$id}/approve", [])->assertUnprocessable();
+        $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$id}/approve", ['expected_version' => $approved3['version']])->assertUnprocessable();
         $this->requestWithToken($token, 'PUT', "/api/v1/admin/transfers/{$id}", ['notes' => 'x'])->assertUnprocessable();
 
         // الإلغاء يفك الحجز
