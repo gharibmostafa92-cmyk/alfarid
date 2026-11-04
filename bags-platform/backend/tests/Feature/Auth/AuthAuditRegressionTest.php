@@ -46,12 +46,14 @@ class AuthAuditRegressionTest extends TestCase
 
     public function test_verification_cannot_consume_reserved_recovery_budget(): void
     {
-        config(['auth.customer_sms_hourly_limit' => 5, 'auth.customer_sms_daily_limit' => 5]);
+        config(['auth.customer_sms_hourly_limit' => 5, 'auth.customer_sms_daily_limit' => 5,
+            'auth.customer_sms_verification_fraction' => 0.6]);
         $budget = app(CustomerMessageBudget::class);
+        $this->assertFalse($budget->claim('verify:missing-network'));
         for ($i = 0; $i < 3; $i++) {
-            $this->assertTrue($budget->claim('verify:'.$i));
+            $this->assertTrue($budget->claim('verify:'.$i, networkKey: 'verification-test-network-'.$i));
         }
-        $this->assertFalse($budget->claim('verify:fourth'));
+        $this->assertFalse($budget->claim('verify:fourth', networkKey: 'verification-test-network-fourth'));
         $this->assertTrue($budget->claim('reset:customer:1'));
         $this->assertTrue($budget->claim('reset:customer:2'));
         $this->assertFalse($budget->claim('reset:customer:3'));

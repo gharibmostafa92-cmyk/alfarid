@@ -115,7 +115,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
     },
     logoutRemote: async () => {
       try {
-        await authEndpoints.logout();
+        await authEndpoints.staffLogout();
       } catch {
         // Continue local cleanup even if remote invalidation fails
       }
@@ -127,7 +127,8 @@ export const useAuthStore = create<AuthState>((set, get) => {
       if (!currentToken) return;
 
       try {
-        const rawUser = await authEndpoints.me();
+        const rawUser = await authEndpoints.staffMe();
+        if (get().token !== currentToken || localStorage.getItem('backoffice_token') !== currentToken) return;
         const staffUser = toStaffUser(rawUser);
         if (staffUser) {
           set({ user: staffUser, isAuthenticated: true });
@@ -146,6 +147,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
           get().logout();
         }
       } catch (err) {
+        if (get().token !== currentToken || localStorage.getItem('backoffice_token') !== currentToken) return;
         if (import.meta.env.DEV) {
           set({
             user: {
@@ -165,3 +167,10 @@ export const useAuthStore = create<AuthState>((set, get) => {
     },
   };
 });
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.storageArea !== localStorage || (event.key !== 'backoffice_token' && event.key !== null)) return;
+    if (localStorage.getItem('backoffice_token') !== useAuthStore.getState().token) window.location.reload();
+  });
+}

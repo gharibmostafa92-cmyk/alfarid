@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "turbo dev",
     "dev:storefront": "pnpm --filter @alfarid/storefront dev",
-    "dev:backoffice": "turbo dev --filter=@alfarid/backoffice",
+    "dev:backoffice": "pnpm --filter @alfarid/backoffice dev",
     "dev:pos": "turbo dev --filter=@alfarid/pos",
     "build": "turbo build",
     "lint": "turbo lint",

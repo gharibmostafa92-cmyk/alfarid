@@ -397,9 +397,10 @@ class CustomerAbuseProtectionTest extends TestCase
     public function test_phone_verification_has_a_durable_daily_budget(): void
     {
         $this->travelTo(now()->startOfDay()->addHours(12));
+        config(['auth.customer_sms_verification_network_hourly_limit' => 10]);
         Notification::fake();
         for ($i = 0; $i < 6; $i++) {
-            app(CustomerPhoneVerificationService::class)->send('01001234567');
+            app(CustomerPhoneVerificationService::class)->send('01001234567', networkKey: 'daily-budget-test-network');
             $this->travel(61)->seconds();
         }
         Notification::assertSentOnDemandTimes(CustomerPhoneVerificationCode::class, 5);

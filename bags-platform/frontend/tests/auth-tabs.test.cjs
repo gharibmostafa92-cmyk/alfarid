@@ -58,6 +58,16 @@ function load(relative, env, api = {}, extra = {}) {
 }
 
 const staffStore = 'apps/backoffice/src/stores/auth.store.ts';
+test('staff bootstrap loads the authenticated staff identity', async () => {
+  const env = browser('first');
+  const { useAuthStore } = load(staffStore, env, {
+    authEndpoints: { staffMe: async () => ({ id: 1 }) },
+  });
+  await useAuthStore.getState().bootstrap();
+  assert.equal(useAuthStore.getState().user.id, 1);
+  assert.equal(useAuthStore.getState().isAuthenticated, true);
+});
+
 test('staff tabs reload on account replacement and logout, not unrelated storage writes', () => {
   const env = browser('first');
   load(staffStore, env);
@@ -82,6 +92,19 @@ test('a delayed staff identity response cannot overwrite a newly selected accoun
   assert.equal(useAuthStore.getState().user.id, 2);
 });
 
+test('a failed staff identity request cannot log out a newly selected account', async () => {
+  let fail;
+  const env = browser('first');
+  const { useAuthStore } = load(staffStore, env, {
+    authEndpoints: { staffMe: () => new Promise((resolve, reject) => { fail = reject; }) },
+  });
+  const request = useAuthStore.getState().bootstrap();
+  useAuthStore.getState().login('second', { id: 2 });
+  fail(new Error('expired old session')); await request;
+  assert.equal(useAuthStore.getState().token, 'second');
+  assert.equal(useAuthStore.getState().user.id, 2);
+});
+
 test('web tabs reload only when the persisted session changes', () => {
   const env = browser();
   const { useAuthStore } = load('apps/storefront/src/store/auth.store.ts', env, {}, {
@@ -94,6 +117,18 @@ test('web tabs reload only when the persisted session changes', () => {
   env.change('alfarid_web_auth'); assert.equal(env.state.reloads, 1);
   env.localStorage.removeItem('alfarid_web_auth'); env.change(null);
   assert.equal(env.state.reloads, 2);
+});
+
+test('staff logout invalidates the staff session endpoint and clears local identity', async () => {
+  let calls = 0;
+  const env = browser('first');
+  const { useAuthStore } = load(staffStore, env, {
+    authEndpoints: { staffLogout: async () => { calls++; } },
+  });
+  await useAuthStore.getState().logoutRemote();
+  assert.equal(calls, 1);
+  assert.equal(useAuthStore.getState().token, null);
+  assert.equal(env.localStorage.getItem('backoffice_token'), null);
 });
 
 async function probe(env, get) {

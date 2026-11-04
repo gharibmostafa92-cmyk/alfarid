@@ -412,6 +412,8 @@ class AiAgentTest extends TestCase
 
     public function test_deleting_a_conversation_does_not_reset_daily_token_usage(): void
     {
+        DB::table('settings')->where('key', 'ai_daily_token_budget_per_user')->update(['value' => '200000']);
+        app(SettingService::class)->clearCache();
         $admin = $this->staff(['ai_agent.use']);
         $old = $this->conv($admin);
         $old->messages()->create(['role' => 'model', 'content' => 'Previous answer', 'input_tokens' => 200000, 'output_tokens' => 0]);

@@ -11,4 +11,10 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
  * (lock timeout / deadlock / serialization failure), nothing was written.
  * Unlike other 409s it must never flip an action to failed.
  */
-final class RetryableConflict extends ConflictHttpException {}
+final class RetryableConflict extends ConflictHttpException
+{
+    public function __construct(string $message = '', ?\Throwable $previous = null, int $code = 0, array $headers = [])
+    {
+        parent::__construct($message, $previous, $code, array_replace(['Retry-After' => '1'], $headers));
+    }
+}

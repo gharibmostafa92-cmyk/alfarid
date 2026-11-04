@@ -227,12 +227,23 @@ class PhaseFiveSixAuditTest extends TestCase
         $this->postJson('/api/v1/store/auth/forgot-password', ['phone' => $customer->phone])->assertOk();
 
         $row = DB::table('password_reset_tokens')->where('email', 'customer:'.$customer->id)->first();
-        Http::assertSent(fn (Request $request) => $request['to'] === $customer->phone
-            && hash_equals($row->token, hash('sha256', str_replace('رمز استعادة كلمة المرور: ', '', $request['message']))));
+        Http::assertSent(function (Request $request) use ($customer, $row): bool {
+            $prefix = 'Password reset: ';
+            if (! str_starts_with($request['message'], $prefix)) {
+                return false;
+            }
+            parse_str((string) parse_url(substr($request['message'], strlen($prefix)), PHP_URL_QUERY), $query);
+
+            return $request['to'] === $customer->phone
+                && ($query['phone'] ?? null) === $customer->phone
+                && hash_equals($row->token, hash('sha256', (string) ($query['token'] ?? '')));
+        });
     }
 
     public function test_customer_migration_handles_legacy_blocked_accounts_and_nullable_email_rollback(): void
     {
+        $branchCityMigration = require database_path('migrations/2026_11_03_000001_add_branches_city_id_fk.php');
+        $branchCityMigration->down();
         $identityMigration = require database_path('migrations/2026_10_16_115322_normalize_customer_identity.php');
         $identityMigration->down();
         $migration = require database_path('migrations/2026_10_16_000001_complete_customers_structure.php');
@@ -248,6 +259,7 @@ class PhaseFiveSixAuditTest extends TestCase
         $this->assertDatabaseHas('customers', ['id' => $id, 'status' => 'blocked']);
         $migration->up();
         $identityMigration->up();
+        $branchCityMigration->up();
     }
 
     public function test_active_flag_tracks_publication_and_wholesale_defaults_to_pending(): void
