@@ -80,7 +80,18 @@ Schedule::command('operations:prune-idempotency-keys')->dailyAt('03:10')
 Schedule::command('inventory:detect-anomalies')->weeklyOn(1, '06:00')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer()
     ->onFailure(fn () => logger()->error('Scheduled inventory anomaly detection failed.'));
+Schedule::command('finance:reconcile')->dailyAt('02:30')
+    ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer()
+    ->onFailure(fn () => logger()->error('Scheduled finance reconciliation failed.'));
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
+
+// Test-only worker for multi-process concurrency tests. Never registered
+// outside the testing environment so production has no test helpers.
+if (app()->environment('testing')) {
+    Artisan::command('race:worker {--file=}', function (string $file): int {
+        return app(\App\Console\Commands\RaceWorkerCommand::class)->runJob($file);
+    })->purpose('Test-only concurrency worker');
+}

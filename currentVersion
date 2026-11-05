@@ -1,0 +1,14 @@
+bags-platform/backend/app\Services\Ai\Finance\Tools\ApproveTreasuryTransferTool.php:95:            $topUp = $from ? $this->guards->suggestTopUp($from->branch_id, $from->id, $shortfall, (string) $from->name) : null;
+bags-platform/backend/app\Services\Ai\Finance\Tools\ApproveTreasuryTransferTool.php:143:                $topUp = $from ? $this->guards->suggestTopUp($from->branch_id, $from->id, $shortfall, (string) $from->name) : null;
+bags-platform/backend/app\Services\Ai\Finance\Tools\CreateExpenseTool.php:178:            $topUp = $this->guards->suggestTopUp($treasury->branch_id, $treasury->id, $shortfall, (string) $treasury->name);
+bags-platform/backend/app\Services\Ai\Finance\Tools\CreateExpenseTool.php:274:        $topUp = $this->guards->suggestTopUp($treasury->branch_id, $treasury->id, $shortfall, (string) $treasury->name);
+bags-platform/backend/app\Services\Ai\Finance\Tools\CreateTreasuryTool.php:94:            $blocker = $this->guards->creationBlocker($actor, $branchId, $type);
+bags-platform/backend/app\Services\Ai\Finance\Tools\CreateTreasuryTool.php:129:        $blocker = $this->guards->creationBlocker($actor, $a['branch_id'] ?? null, (string) $a['type']);
+bags-platform/backend/app\Services\Ai\Finance\Tools\DeleteTreasuryTool.php:92:            expectedVersions: [$this->guards->versionKey($treasury) => $this->guards->currentVersion($treasury)],
+bags-platform/backend/app\Services\Ai\Finance\Tools\DeleteTreasuryTool.php:107:        $expected = $action->expected_versions[$this->guards->versionKey($treasury)] ?? null;
+bags-platform/backend/app\Services\Ai\Finance\Tools\UpdateTreasuryTool.php:106:            expectedVersions: [$this->guards->versionKey($treasury) => $this->guards->currentVersion($treasury)],
+bags-platform/backend/app\Services\Ai\Finance\Tools\UpdateTreasuryTool.php:120:        $expected = $action->expected_versions[$this->guards->versionKey($treasury)] ?? null;
+bags-platform/backend/app\Services\Ai\Finance\Tools\SetTreasuryStatusTool.php:87:            $blockers = $this->guards->deactivationBlockers($treasury);
+bags-platform/backend/app\Services\Ai\Finance\Tools\SetTreasuryStatusTool.php:106:            expectedVersions: [$this->guards->versionKey($treasury) => $this->guards->currentVersion($treasury)],
+bags-platform/backend/app\Services\Ai\Finance\Tools\SetTreasuryStatusTool.php:121:        $expected = $action->expected_versions[$this->guards->versionKey($treasury)] ?? null;
+bags-platform/backend/app\Services\Ai\Finance\Tools\SetTreasuryStatusTool.php:127:            $blockers = $this->guards->deactivationBlockers($treasury);

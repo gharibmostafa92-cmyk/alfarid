@@ -60,7 +60,7 @@ import {
 const today = () => toDate(new Date().toISOString());
 const mockPage = <T,>(data: T[], page = 1): Paginated<T> => ({ data: data.slice((page - 1) * 20, page * 20), meta: { current_page: page, last_page: Math.max(1, Math.ceil(data.length / 20)), per_page: 20, total: data.length, from: data.length ? (page - 1) * 20 + 1 : null, to: data.length ? Math.min(page * 20, data.length) : null } });
 export const mapTreasury = (t: Treasury): TreasuryRow & { branchId: number | null } => ({ id: t.id, code: t.code, name: t.name, type: treasuryToUI(t.type), branch: t.branch?.name ?? null, branchId: t.branch_id, balance: num(t.current_balance), active: t.is_active });
-export const mapExpense = (e: Expense): ExpenseRow => ({ id: e.id, no: e.expense_number, branch: e.branch?.name ?? '', tr: e.treasury_id, cat: e.category, amount: num(e.amount), date: e.expense_date?.slice(0, 10) ?? '', by: e.creator?.name ?? '', shift: e.shift_id ? `#${e.shift_id}` : null, notes: e.notes ?? '', voidedAt: e.voided_at ?? null, voidReason: e.void_reason ?? null });
+export const mapExpense = (e: Expense): ExpenseRow => ({ id: e.id, no: e.expense_number, branch: e.branch?.name ?? '', tr: e.treasury_id, cat: e.category, amount: num(e.amount), date: e.expense_date?.slice(0, 10) ?? '', by: e.creator?.name ?? '', shift: e.shift_id ? `#${e.shift_id}` : null, notes: e.notes ?? '', voidedAt: e.voided_at ?? null, voidReason: e.void_reason ?? null, hasAttachment: Boolean(e.attachment_path) });
 export const mapShift = (s: PosShift): ShiftRow => ({ id: s.id, no: s.shift_number, cashier: s.cashier?.name ?? '', branch: s.branch?.name ?? '', tr: s.treasury_id, open: s.opened_at, close: s.closed_at, status: s.status === 'closed_pending_approval' ? 'closed' : s.status, exp: s.expected_closing_cash === null ? null : num(s.expected_closing_cash), act: s.actual_closing_cash === null ? null : num(s.actual_closing_cash) });
 const quoteStatus = (s: string) => s === 'priced_by_admin' ? 'priced' : s === 'converted_to_order' ? 'converted' : s;
 export const mapQuote = (q: Quotation): QuoteRow => ({ id: q.id, no: q.quotation_number, company: q.customer?.company_name || q.customer?.name || '—', cust: q.customer?.name ?? '', status: quoteStatus(q.status), total: q.status === 'draft' || q.status === 'requested' ? null : num(q.grand_total), valid: q.valid_until, date: q.created_at.slice(0, 10), order: q.converted_order_id ? `#${q.converted_order_id}` : undefined });
@@ -81,7 +81,7 @@ function RemoteNote({ remote }: { remote: { loading: boolean; error: { message: 
 }
 
 /* ---------------- FINANCE PAGE ---------------- */
-export function FinancePage({ sub = 'tr', can = () => true }: { sub?: string; can?: (permission: string) => boolean }) {
+export function FinancePage({ sub = 'tr', id, can = () => true }: { sub?: string; id?: string | number; can?: (permission: string) => boolean }) {
   const [tab, setTab] = useState(sub);
   useEffect(() => setTab(sub), [sub]);
   const tabs = [
@@ -90,6 +90,8 @@ export function FinancePage({ sub = 'tr', can = () => true }: { sub?: string; ca
     { value: 'trf', label: 'تحويلات الخزائن', icon: 'swap', permission: 'treasury_transfers.view' },
   ].filter(t => can(t.permission));
   const activeTab = tabs.some(t => t.value === tab) ? tab : tabs[0]?.value;
+  const numericId = Number(id);
+  const recordId = activeTab === sub && Number.isSafeInteger(numericId) && numericId > 0 ? numericId : undefined;
 
   return (
     <div className="space-y-5">
@@ -99,9 +101,10 @@ export function FinancePage({ sub = 'tr', can = () => true }: { sub?: string; ca
         onChange={(v: any) => setTab(v)}
         tabs={tabs}
       />
-      {activeTab === 'tr' && <TreasuriesTab />}
-      {activeTab === 'exp' && <ExpensesTab can={can} />}
-      {activeTab === 'trf' && <TransfersTab />}
+      {recordId && <button type="button" className="btn btn-soft" onClick={() => { window.location.hash = `/finance?tab=${activeTab}`; }}>عرض كل السجلات</button>}
+      {activeTab === 'tr' && <TreasuriesTab key={recordId} recordId={recordId} />}
+      {activeTab === 'exp' && <ExpensesTab key={recordId} recordId={recordId} can={can} />}
+      {activeTab === 'trf' && <TransfersTab key={recordId} recordId={recordId} />}
     </div>
   );
 }
@@ -207,7 +210,7 @@ export function TreasuryForm({ row, onClose, onSaved }: { row: any; onClose: () 
   );
 }
 
-export function TreasuriesTab() {
+export function TreasuriesTab({ recordId }: { recordId?: number } = {}) {
   const toast = useToast();
   const { run } = useAction();
   const [br, setBr] = useState('');
@@ -217,7 +220,9 @@ export function TreasuriesTab() {
   const [del, setDel] = useState<TreasuryRow | null>(null);
   const [page, setPage] = useState(1);
   useEffect(() => setPage(1), [br, ty, act]);
-  const list = useRemote((s) => treasuriesApi.list({ page, per_page: 20, branch_id: br || undefined, type: ty ? treasuryToBackend(ty) : undefined, is_active: act ? act === 'true' : undefined }, s).then((p) => ({ ...p, data: p.data.map(mapTreasury) })), [page, br, ty, act], { mock: () => mockPage(TREASURIES) });
+  const list = useRemote((s) => recordId
+    ? treasuriesApi.show(recordId, s).then((record) => mockPage([mapTreasury(record)]))
+    : treasuriesApi.list({ page, per_page: 20, branch_id: br || undefined, type: ty ? treasuryToBackend(ty) : undefined, is_active: act ? act === 'true' : undefined }, s).then((p) => ({ ...p, data: p.data.map(mapTreasury) })), [recordId, page, br, ty, act], { mock: () => mockPage(TREASURIES.filter((row) => !recordId || row.id === recordId)) });
   const branches = useRemote((s) => allPages((page) => opsApi.get('/api/v1/admin/branches', { params: { page, per_page: 100 }, signal: s }).then((r) => asPage<{ id: number; name: string }>(r))), []);
   const rows = list.data?.data ?? [];
   const sum = (k: string) => rows.filter((t) => t.type === k).reduce((a, t) => a + t.balance, 0);
@@ -372,7 +377,7 @@ export function TreasuriesTab() {
   );
 }
 
-export function ExpensesTab({ can = () => true }: { can?: (permission: string) => boolean } = {}) {
+export function ExpensesTab({ recordId, can = () => true }: { recordId?: number; can?: (permission: string) => boolean } = {}) {
   const toast = useToast();
   const { busy, run } = useAction();
   const [br, setBr] = useState('');
@@ -385,7 +390,9 @@ export function ExpensesTab({ can = () => true }: { can?: (permission: string) =
   const categories = ['نظافة', 'صيانة', 'نقل وتحميل', 'إيجار', 'ضيافة', 'أدوات مكتبية', 'أخرى'];
   const [page, setPage] = useState(1);
   useEffect(() => setPage(1), [br, tr, cat]);
-  const list = useRemote((s) => expensesApi.list({ page, per_page: 20, branch_id: br || undefined, treasury_id: tr || undefined, category: cat || undefined }, s).then((p) => ({ ...p, data: p.data.map(mapExpense) })), [page, br, tr, cat], { mock: () => mockPage(EXPENSES) });
+  const list = useRemote((s) => recordId
+    ? expensesApi.show(recordId, s).then((record) => mockPage([mapExpense(record)]))
+    : expensesApi.list({ page, per_page: 20, branch_id: br || undefined, treasury_id: tr || undefined, category: cat || undefined }, s).then((p) => ({ ...p, data: p.data.map(mapExpense) })), [recordId, page, br, tr, cat], { mock: () => mockPage(EXPENSES.filter((row) => !recordId || row.id === recordId)) });
   const treasures = useRemote((s) => allPages((page) => treasuriesApi.list({ page, per_page: 100 }, s)), []);
   const branches = useRemote((s) => allPages((page) => opsApi.get('/api/v1/admin/branches', { params: { page, per_page: 100 }, signal: s }).then((r) => asPage<{ id: number; name: string }>(r))), []);
   const rows = list.data?.data ?? [];
@@ -463,6 +470,11 @@ export function ExpensesTab({ can = () => true }: { can?: (permission: string) =
               h: 'ملاحظات',
               r: (e: ExpenseRow) => <span className="text-[11.5px] tx2 clamp1">{e.voidReason || e.notes || '—'}</span>,
             },
+            { h: 'الإيصال', r: (e: ExpenseRow) => e.hasAttachment ? (
+              <button type="button" className="btn btn-soft btn-sm" onClick={() => {
+                void expensesApi.openAttachment(e.id).catch((error) => toast(parseApiError(error).message, 'red'));
+              }}>📎 فتح الإيصال</button>
+            ) : null },
             { h: '', r: (e: ExpenseRow) => !e.voidedAt && !e.shift && can('expenses.delete') ? <button className="btn btn-soft btn-sm" onClick={() => { setVoiding(e); setVoidReason(''); }}>إلغاء المصروف</button> : null },
           ]}
         />
@@ -484,7 +496,7 @@ export function ExpensesTab({ can = () => true }: { can?: (permission: string) =
   );
 }
 
-export function TransfersTab() {
+export function TransfersTab({ recordId }: { recordId?: number } = {}) {
   const toast = useToast();
   const { busy, run } = useAction();
   const [st, setSt] = useState('');
@@ -503,18 +515,20 @@ export function TransfersTab() {
   useEffect(() => setPage(1), [st, tr]);
   const list = useRemote(async (s) => {
     // The server supports separate source/destination filters, not an OR filter.
-    const result = tr
+    const result = recordId
+      ? mockPage([await treasuryTransfersApi.show(recordId, s)])
+      : tr
       ? mockPage((await allPages((page) => treasuryTransfersApi.list({ page, per_page: 100, status: st || undefined }, s))).filter((x) => String(x.from_treasury_id) === tr || String(x.to_treasury_id) === tr), page)
       : await treasuryTransfersApi.list({ page, per_page: 20, status: st || undefined }, s);
     return { ...result, data: result.data.map((x): TreasuryTransfer => ({
       id: x.id, from: x.from_treasury_id, to: x.to_treasury_id, amount: num(x.amount),
       status: x.status, date: (x.created_at ?? '').slice(0, 10), by: x.creator?.name ?? '', appr: x.approver?.name ?? null, notes: x.notes,
     })) };
-  }, [page, st, tr], { mock: () => mockPage(TRANSFERS.filter((x) => (!st || x.status === st) && (!tr || String(x.from) === tr || String(x.to) === tr)), page) });
+  }, [recordId, page, st, tr], { mock: () => mockPage(TRANSFERS.filter((x) => recordId ? x.id === recordId : (!st || x.status === st) && (!tr || String(x.from) === tr || String(x.to) === tr)), page) });
   const treasures = useRemote((s) => allPages((page) => treasuriesApi.list({ page, per_page: 100 }, s)), []);
   const nameOf = (id: number) => (treasures.data ?? []).find((t) => t.id === id)?.name ?? (USE_MOCK ? trName(id) : `#${id}`);
   const rows = (list.data?.data ?? []).filter(
-    (x) => (!st || x.status === st) && (!tr || String(x.from) === tr || String(x.to) === tr)
+    (x) => recordId || ((!st || x.status === st) && (!tr || String(x.from) === tr || String(x.to) === tr))
   );
   const approve = async (id: number) => {
     if (list.usingMock) return toast('البيانات المعروضة تجريبية — لم يتم الحفظ', 'red');

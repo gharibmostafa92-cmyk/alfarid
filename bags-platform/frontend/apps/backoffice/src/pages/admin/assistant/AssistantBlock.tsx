@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { isSensitive, permLabel } from '../admin-mock/api/permission-catalog';
-import { defaultApiClient } from '@alfarid/api-client';
+import { defaultApiClient, priceListsApi } from '@alfarid/api-client';
 import type { UiBlock } from './api';
 import { Icon, Ring, entityIcon, entityLabel } from './icons';
 
@@ -13,7 +13,7 @@ interface Props {
   onPick: (entity: string, id: string | number, label: string) => void;
   onAction: (kind: 'confirm' | 'cancel' | 'undo', id: string, typed?: string, selected?: string[]) => void;
   /** يملأ صندوق الكتابة برسالة جاهزة (مثلاً زرار «جهّز الاعتماد»). */
-  onPrompt?: (text: string) => void;
+  onPrompt?: (text: string, submit?: boolean) => void;
 }
 
 const fieldLabels: Record<string, string> = { is_active: 'حالة التفعيل', name: 'الاسم', name_ar: 'الاسم بالعربية', name_en: 'الاسم بالإنجليزية', slug: 'الرابط (slug)', parent_id: 'القسم الأب', sort_order: 'الترتيب', description_ar: 'الوصف بالعربية', description_en: 'الوصف بالإنجليزية', category_id: 'القسم', sales_channel: 'قناة البيع', is_featured: 'منتج مميز', min_wholesale_qty: 'أقل كمية جملة', sku: 'كود التشكيلة (SKU)', barcode: 'الباركود', color_ar: 'اللون (عربي)', color_en: 'اللون (إنجليزي)', color_hex: 'درجة اللون', size: 'المقاس', capacity: 'السعة', retail_price: 'سعر القطاعي', wholesale_price: 'سعر الجملة', compare_at_price: 'سعر قبل الخصم', cost_price: 'سعر التكلفة', weight_grams: 'الوزن (جرام)', code: 'الكود', roles: 'الأدوار', permissions: 'الصلاحيات', email: 'البريد الإلكتروني', branch_id: 'الفرع', type: 'نوع الفرع', city: 'المدينة', phone: 'الهاتف', status: 'الحالة', credit_limit: 'حد الائتمان', used_credit: 'المستخدم من الائتمان', customer_group: 'المجموعة', customer_group_id: 'المجموعة', company: 'بيانات الشركة', company_name: 'اسم الشركة', tax_number: 'الرقم الضريبي', commercial_register: 'السجل التجاري', rejection_reason: 'سبب الرفض', suspension_reason: 'سبب الإيقاف', previous_status: 'الحالة السابقة', documents_to_reject: 'مستندات هتترفض' };
@@ -188,6 +188,7 @@ function normalizeDeepLink(raw: unknown): string | undefined {
 }
 
 export default function AssistantBlock({ block, busy, status, execute, confirmationBlocked, onPick, onAction, onPrompt }: Props) {
+  const quickActions = (block.quick_actions ?? []) as { label: string; prompt: string; submit?: boolean }[];
   const [dlError, setDlError] = useState('');
   const [typed, setTyped] = useState('');
   const [query, setQuery] = useState('');
@@ -197,7 +198,8 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
   const [countEdits, setCountEdits] = useState<Record<number, string>>({});
   const [countsReviewed, setCountsReviewed] = useState(false);
   const items = (block.items ?? []) as { key: string; label: string; change: string; before?: unknown; after?: unknown; ok?: boolean; message?: string }[];
-  const [selected, setSelected] = useState(() => items.map(item => item.key));
+  const selectableItems = items.filter(item => item.ok !== false);
+  const [selected, setSelected] = useState(() => selectableItems.map(item => item.key));
   // أول قيمة للمهلة المتبقية — بنستخدمها كـ "إجمالي" لحلقة العدّاد.
   const ttlTotal = useRef<number | null>(null);
   const undoTotal = useRef<number | null>(null);
@@ -471,7 +473,6 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
   /* ---------------- Welcome card (ملخص طابور التجار والكتالوج — بدون Gemini) ---------------- */
   if (block.type === 'welcome_card') {
     const rows = (block.rows ?? []) as { label: string; value: number }[];
-    const quickActions = (block.quick_actions ?? []) as { label: string; prompt: string }[];
     return (
       <section className="as-block" aria-label="ملخص اليوم">
         <header className="as-block-head">
@@ -548,6 +549,78 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
     );
   }
 
+  if (block.type === 'price_waterfall') {
+    const steps = (block.steps ?? []) as { layer: string; status: string; reason: string; price?: number }[];
+    const labels: Record<string, string> = {
+      customer_specific: 'قائمة العميل', customer_group: 'قائمة المجموعة', channel: 'قائمة القناة',
+      retail_fallback: 'القطاعي', base_price: 'السعر الأساسي', group_discount: 'خصم المجموعة',
+    };
+    const statuses: Record<string, string> = { won: 'تم الاختيار', skipped: 'تم التجاوز', not_eligible: 'غير مؤهلة', no_match: 'لا يوجد سعر مطابق' };
+    const link = normalizeDeepLink(block.deep_link);
+    return (
+      <section className="as-block" aria-label="تفاصيل حساب السعر">
+        <div className="as-block-body">
+          <h3>تفاصيل حساب السعر</h3>
+          <ol>{steps.map(step => (
+            <li key={step.layer}>
+              <strong>{labels[step.layer] ?? step.layer}</strong> · {statuses[step.status] ?? step.status}
+              {step.price != null && <> · {money(step.price)} ج.م</>}
+              <div>{step.reason}</div>
+            </li>
+          ))}</ol>
+          {((block.notes ?? []) as string[]).map((note, index) => <p key={index}>{note}</p>)}
+          <strong>السعر النهائي للوحدة {money(block.final_price)} ج.م</strong>
+          {link && <p><a href={link}>افتح قائمة الأسعار المطبّقة</a></p>}
+        </div>
+      </section>
+    );
+  }
+
+  if (block.type === 'price_list_export') {
+    const id = Number(block.price_list_id);
+    if (!Number.isSafeInteger(id) || id < 1) return null;
+    return (
+      <section className="as-block">
+        <div className="as-block-body">
+          <button type="button" className="as-btn" onClick={async () => {
+            setDlError('');
+            try {
+              await priceListsApi.exportCsv(id, `price-list-${id}`);
+            } catch {
+              setDlError('تعذر تنزيل قائمة الأسعار.');
+            }
+          }}>تنزيل قائمة الأسعار (CSV)</button>
+          {dlError && <p role="alert">{dlError}</p>}
+        </div>
+      </section>
+    );
+  }
+
+  if (block.type === 'coupon_batch' && !block.action_id) {
+    const codes = (block.codes ?? []) as string[];
+    const csv = ['code', ...codes.map(code => {
+      const safe = /^[=+@\-\t\r\n]/.test(code) ? "'" + code : code;
+      return '"' + safe.replaceAll('"', '""') + '"';
+    })].join('\r\n');
+    return (
+      <section className="as-block" aria-label="الأكواد التي تم إنشاؤها">
+        <div className="as-block-body">
+          <ul>{codes.map(code => <li key={code}><code dir="ltr">{code}</code></li>)}</ul>
+          <button type="button" className="as-btn" onClick={async () => {
+            setDlError('');
+            try {
+              await navigator.clipboard.writeText(codes.join('\n'));
+            } catch {
+              setDlError('تعذر نسخ الأكواد.');
+            }
+          }}>نسخ الكل</button>
+          <a className="as-btn" href={`data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`} download="coupons.csv">تحميل CSV</a>
+          {dlError && <p role="alert">{dlError}</p>}
+        </div>
+      </section>
+    );
+  }
+
   /* ---------------- Confirm / permission diff / bulk / catalog confirm blocks ---------------- */
   if (
     block.type === 'confirm_action' ||
@@ -555,7 +628,8 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
     block.type === 'bulk_plan' ||
     block.type === 'category_tree_diff' ||
     block.type === 'variant_matrix' ||
-    block.type === 'price_diff'
+    block.type === 'price_diff' ||
+    block.type === 'coupon_batch'
   ) {
     const expires = Date.parse(String(block.expires_at));
     const seconds = Math.max(0, Math.ceil((expires - now) / 1000));
@@ -564,6 +638,8 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
     const pending = !status || status === 'pending';
     const required = typeof block.typed_confirmation === 'string' ? block.typed_confirmation : '';
     const displayRequired = typeof block.typed_confirmation_hint === 'string' && block.typed_confirmation_hint ? block.typed_confirmation_hint : required;
+    const financeTypedAmount = (() => { const r = asRecord(block.after); return r && typeof r.amount === 'number' ? r.amount : null; })();
+    const financeTypedHint = financeTypedAmount !== null && String(required).trim() !== '' && Number(String(required).replace(/[^0-9.]/g, '')) === financeTypedAmount ? 'اكتب المبلغ بالأرقام للتأكيد' : null;
     const disabled = busy || !execute || !pending || expired;
     const warnings = (block.warnings ?? []) as string[];
     const addList = (block.add ?? []) as string[];
@@ -574,7 +650,7 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
     const typedOk = !required || typed.trim().toLocaleLowerCase() === required.trim().toLocaleLowerCase();
     const icon = block.type === 'permission_diff' ? 'key' : block.type === 'bulk_plan' ? 'layers' : block.type === 'category_tree_diff' ? 'folder' : block.type === 'variant_matrix' || block.type === 'price_diff' ? 'tag' : 'shield';
     const kindLabel = block.type === 'permission_diff' ? 'تعديل صلاحيات' : block.type === 'bulk_plan' ? 'عملية جماعية' : block.type === 'category_tree_diff' ? 'تعديل شجرة الأقسام' : block.type === 'variant_matrix' ? 'مصفوفة التشكيلات' : block.type === 'price_diff' ? 'تعديل أسعار جماعي' : 'تعديل يحتاج تأكيد';
-    const allOn = selected.length === items.length;
+    const allOn = selectableItems.length > 0 && selected.length === selectableItems.length;
     const afterRec = asRecord(block.after);
     const docsToVerify = (Array.isArray(afterRec?.documents_to_verify) ? afterRec!.documents_to_verify : []) as { id: number; name?: string; download_url?: string }[];
     const afterSuggestion = asRecord(afterRec?.suggestion);
@@ -678,10 +754,11 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
 
           {block.type === 'price_diff' && (() => {
             const summary = asRecord(block.summary);
-            const allRows = (block.rows ?? []) as { variant_id: number; sku: string; product_name?: string; old_price: number | null; new_price: number; delta: number; delta_pct: number | null }[];
+            const allRows = (block.rows ?? []) as { variant_id: number; sku: string; product_name?: string; min_qty?: number; old_price: number | null; new_price: number; delta: number; delta_pct: number | null }[];
             const topRows = (block.top ?? allRows.slice(0, 10)) as typeof allRows;
             const blockedRows = (block.blocked ?? []) as { sku: string; reason: string }[];
             const displayRows = showAllPrices ? allRows : topRows;
+            const hasMinQty = displayRows.some(row => row.min_qty != null);
             return (
               <div style={{ display: 'grid', gap: '.65rem' }}>
                 {summary && (
@@ -696,13 +773,14 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
                   <div className="as-table-wrap">
                     <table className="as-table">
                       <thead>
-                        <tr><th>SKU</th><th>المنتج</th><th className="as-num">السعر (قبل → بعد)</th><th className="as-num">التغيير</th></tr>
+                        <tr><th>SKU</th><th>المنتج</th>{hasMinQty && <th>الحد الأدنى للكمية</th>}<th className="as-num">السعر (قبل → بعد)</th><th className="as-num">التغيير</th></tr>
                       </thead>
                       <tbody>
                         {displayRows.map((r, i) => (
-                          <tr key={r.variant_id ?? i}>
+                          <tr key={`${r.variant_id}:${r.min_qty ?? i}`}>
                             <td><code dir="ltr">{r.sku}</code></td>
                             <td>{r.product_name ?? '—'}</td>
+                            {hasMinQty && <td className="as-num">{r.min_qty ?? '—'}</td>}
                             <td className="as-num" dir="ltr">{r.old_price != null ? money(r.old_price) : '—'} → {money(r.new_price)}</td>
                             <td className="as-num">{money(r.delta)} ج.م{r.delta_pct != null ? ` (${money(r.delta_pct)}٪)` : ''}</td>
                           </tr>
@@ -734,7 +812,7 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
               <legend className="as-sr">العناصر المشمولة بالعملية</legend>
               <div className="as-bulk-bar" style={{ marginBottom: '.6rem' }}>
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer' }}>
-                  <input type="checkbox" className="as-check" checked={allOn} ref={el => { if (el) el.indeterminate = selected.length > 0 && !allOn; }} onChange={() => setSelected(allOn ? [] : items.map(i => i.key))} />
+                  <input type="checkbox" className="as-check" checked={allOn} ref={el => { if (el) el.indeterminate = selected.length > 0 && !allOn; }} onChange={() => setSelected(allOn ? [] : selectableItems.map(i => i.key))} />
                   تحديد الكل
                 </label>
                 <span className="as-progress" aria-hidden="true"><span style={{ width: `${items.length ? (selected.length / items.length) * 100 : 0}%` }} /></span>
@@ -746,8 +824,8 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
                   return (
                     <div className="as-bulk-item" key={item.key} data-on={on}>
                       <label className="as-bulk-item-head">
-                        <input type="checkbox" className="as-check" checked={on} onChange={e => setSelected(ids => (e.target.checked ? [...ids, item.key] : ids.filter(id => id !== item.key)))} />
-                        <span>{item.label}{item.change && <small style={{ display: 'block', color: 'var(--as-muted)', fontWeight: 400, fontSize: '.76rem' }}>{item.change}</small>}</span>
+                        <input type="checkbox" className="as-check" checked={on} disabled={item.ok === false} onChange={e => setSelected(ids => (e.target.checked ? [...ids, item.key] : ids.filter(id => id !== item.key)))} />
+                        <span>{item.label}{item.change && <small style={{ display: 'block', color: 'var(--as-muted)', fontWeight: 400, fontSize: '.76rem' }}>{item.change}</small>}{item.message && <small style={{ display: 'block', color: 'var(--as-danger)' }}>{item.message}</small>}</span>
                         <button type="button" className="as-iconbtn" aria-expanded={!!open[item.key]} aria-label={`عرض تفاصيل ${item.label}`} onClick={e => { e.preventDefault(); setOpen(o => ({ ...o, [item.key]: !o[item.key] })); }}>
                           <Icon name="chevron" size={16} />
                         </button>
@@ -761,6 +839,22 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
           )}
 
           {block.type === 'confirm_action' && Boolean(block.before || block.after) && <DiffTable before={stripSections(block.before)} after={stripSections(block.after)} />}
+          {block.type === 'confirm_action' && (() => {
+            const after = asRecord(block.after); const before = asRecord(block.before);
+            const amt = after && typeof after.amount === 'number' ? after.amount : null;
+            if (amt === null || !before || typeof before.from_balance !== 'number' || typeof before.to_balance !== 'number') return null;
+            const srcAfter = before.from_balance - amt;
+            return (
+              <div className="as-diff" aria-label="ملخص التحويل المالي">
+                <div className="as-diff-head"><span>المبلغ</span><span /></div>
+                <div style={{ fontSize: "1.6rem", fontWeight: 800 }} className="as-num" role="status">{amt.toLocaleString("ar-EG")} <small style={{ fontSize: ".8rem", fontWeight: 400 }}>ج.م</small></div>
+                <dl>
+                  <div className="as-diff-row"><dt>رصيد المصدر قبل</dt><dd className="as-num" style={{ color: srcAfter <= 0 ? "var(--as-danger)" : undefined }}><strong>{before.from_balance.toLocaleString("ar-EG")}</strong></dd></div>
+                  <div className="as-diff-row"><dt><span aria-hidden="true">←</span> رصيد الوجهة قبل</dt><dd className="as-num"><strong>{before.to_balance.toLocaleString("ar-EG")}</strong></dd></div>
+                </dl>
+              </div>
+            );
+          })()}
 
           {block.type === 'confirm_action' && docsToVerify.length > 0 && (
             <div className="as-diff" aria-label="المستندات اللي هتتوثق">
@@ -789,7 +883,7 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
 
           {pending && !expired && required && (
             <div className="as-typed">
-              <label htmlFor={`typed-${String(block.action_id)}`}><Icon name="lock" size={15} />للتأكيد اكتب <b dir="ltr">{displayRequired}</b> في الخانة</label>
+              <label htmlFor={`typed-${String(block.action_id)}`}><Icon name="lock" size={15} />للتأكيد اكتب <b dir="ltr">{financeTypedHint ?? displayRequired}</b> في الخانة{financeTypedHint ? <span> ({financeTypedHint})</span> : null}</label>
               <div className="as-typed-field" data-match={typedOk}>
                 <input id={`typed-${String(block.action_id)}`} className="as-input" value={typed} onChange={e => setTyped(e.target.value)} disabled={disabled} dir="ltr" autoComplete="off" spellCheck={false} placeholder={displayRequired} onPaste={e => e.preventDefault()} />
                 {typedOk && <Icon name="check" size={16} />}
@@ -1106,11 +1200,12 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
             </ul>
           </div>
         )}
-        {(link || (undoLive && execute)) && (
+        {(link || (undoLive && execute) || (onPrompt && execute && quickActions.length > 0)) && (
           <>
             {undoLive && execute && <div className="as-undo-bar" aria-hidden="true"><span style={{ width: `${undoTotal.current ? (undoSec / undoTotal.current) * 100 : 100}%` }} /></div>}
             <footer className="as-block-foot">
               {link && <a className="as-btn as-btn--sm" href={link} style={{ textDecoration: 'none' }}><Icon name="external" size={15} />افتح في الشاشة</a>}
+              {onPrompt && execute && quickActions.map(action => <button key={action.prompt} type="button" className="as-btn as-btn--sm" disabled={busy} onClick={() => onPrompt(action.prompt, action.submit)}>{action.label}</button>)}
               <span className="as-spacer" />
               {undoLive && execute && (
                 <span className="as-undo">
@@ -1125,8 +1220,124 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
     );
   }
 
+  /* ---------------- Finance: treasury card ---------------- */
+  if (block.type === 'treasury_card') {
+    const txs = (block.last_transactions ?? []) as { at?: string; type_label?: string; amount?: number; balance_after?: number; reference_label?: string | null; reference_link?: string | null }[];
+    const pending = (block.pending_transfers ?? []) as { number?: string; direction?: string; amount?: number }[];
+    const blockers = (block.delete_blockers ?? []) as string[];
+    const openShift = (block.open_shift ?? null) as { shift_number?: string; opened_at?: string } | null;
+    const link = normalizeDeepLink(block.deep_link);
+    return (
+      <section className="as-block" aria-label="بطاقة الخزنة">
+        <header className="as-block-head">
+          <span className="as-block-ic"><Icon name="branch" /></span>
+          <div className="as-block-title"><h3>{String(block.name ?? "خزنة")}</h3><span>{[block.code, block.type_label ?? block.type, block.branch].filter(Boolean).join(" · ")}</span></div>
+          {link ? <a className="as-linkbtn" href={link}>فتح في الشاشة</a> : null}
+        </header>
+        <div className="as-block-body">
+          <div style={{ fontSize: "1.5rem", fontWeight: 800 }} className="as-num" role="status">{typeof block.current_balance === "number" ? block.current_balance.toLocaleString("ar-EG", { maximumFractionDigits: 2 }) : "—"} <small style={{ fontSize: ".8rem", fontWeight: 400 }}>ج.م</small></div>
+          <ul className="as-list">
+            <li><span>وارد اليوم</span><span className="as-num" style={{ color: "var(--as-success)" }}>{typeof block.today_in === "number" ? block.today_in.toLocaleString("ar-EG") : "—"}</span></li>
+            <li><span>صادر اليوم</span><span className="as-num" style={{ color: "var(--as-danger)" }}>{typeof block.today_out === "number" ? block.today_out.toLocaleString("ar-EG") : "—"}</span></li>
+            {openShift ? <li><span>وردية مفتوحة</span><span>{openShift.shift_number}{openShift.opened_at ? ` · ${new Date(openShift.opened_at).toLocaleString("ar-EG")}` : ""}</span></li> : null}
+            <li><span>الحذف</span><span>{block.can_delete ? "متاح" : `ممنوع: ${blockers.join("، ")}`}</span></li>
+          </ul>
+          {pending.length > 0 ? (
+            <><h4>تحويلات معلقة ({pending.length})</h4>
+            <ul className="as-list">{pending.map((x, i) => <li key={i}><span>{x.number} · {x.direction}</span><span className="as-num">{typeof x.amount === "number" ? x.amount.toLocaleString("ar-EG") : "—"}</span></li>)}</ul></>
+          ) : null}
+          {txs.length > 0 ? (
+            <div className="as-tablewrap"><table className="as-table as-num">
+              <thead><tr><th scope="col">التاريخ</th><th scope="col">النوع</th><th scope="col">المبلغ</th><th scope="col">الرصيد بعد</th><th scope="col">المرجع</th></tr></thead>
+              <tbody>{txs.map((x, i) => {
+                const rl = normalizeDeepLink(x.reference_link);
+                return <tr key={i}><td>{x.at ? new Date(x.at).toLocaleString("ar-EG") : "—"}</td><td>{x.type_label ?? "—"}</td>
+                  <td style={{ color: (x.amount ?? 0) < 0 ? "var(--as-danger)" : "var(--as-success)" }}><strong>{typeof x.amount === "number" ? x.amount.toLocaleString("ar-EG") : "—"}</strong></td>
+                  <td>{typeof x.balance_after === "number" ? x.balance_after.toLocaleString("ar-EG") : "—"}</td>
+                  <td>{rl ? <a className="as-linkbtn" href={rl}>{x.reference_label ?? "فتح"}</a> : (x.reference_label ?? "—")}</td></tr>;
+              })}</tbody>
+            </table></div>
+          ) : null}
+        </div>
+      </section>
+    );
+  }
+
+  /* ---------------- Finance: cash position ---------------- */
+  if (block.type === 'cash_position') {
+    const branches = (block.branches ?? []) as { branch?: string; cash?: number; bank?: number; pending_in?: number; pending_out?: number; projected?: number }[];
+    const totals = (block.totals ?? {}) as { cash?: number; bank?: number; pending_in?: number; pending_out?: number; projected?: number };
+    return (
+      <section className="as-block" aria-label="السيولة">
+        <header className="as-block-head">
+          <span className="as-block-ic"><Icon name="chart" /></span>
+          <div className="as-block-title"><h3>السيولة حسب الفرع</h3>{block.as_of ? <span>بتاريخ {new Date(String(block.as_of)).toLocaleString("ar-EG")}</span> : null}</div>
+        </header>
+        <div className="as-tablewrap"><table className="as-table as-num">
+          <thead><tr><th scope="col">الفرع</th><th scope="col">كاش</th><th scope="col">بنك</th><th scope="col">وارد معلق</th><th scope="col">صادر معلق</th><th scope="col">المتوقع</th></tr></thead>
+          <tbody>
+            {branches.map((b, i) => <tr key={i}><th scope="row">{b.branch ?? "—"}</th><td>{b.cash?.toLocaleString("ar-EG") ?? "—"}</td><td>{b.bank?.toLocaleString("ar-EG") ?? "—"}</td><td>{b.pending_in?.toLocaleString("ar-EG") ?? "—"}</td><td>{b.pending_out?.toLocaleString("ar-EG") ?? "—"}</td><td><strong>{b.projected?.toLocaleString("ar-EG") ?? "—"}</strong></td></tr>)}
+            {branches.length > 0 ? <tr><th scope="row">الإجمالي</th><td><strong>{totals.cash?.toLocaleString("ar-EG") ?? "—"}</strong></td><td><strong>{totals.bank?.toLocaleString("ar-EG") ?? "—"}</strong></td><td>{totals.pending_in?.toLocaleString("ar-EG") ?? "—"}</td><td>{totals.pending_out?.toLocaleString("ar-EG") ?? "—"}</td><td><strong>{totals.projected?.toLocaleString("ar-EG") ?? "—"}</strong></td></tr> : null}
+          </tbody>
+        </table></div>
+      </section>
+    );
+  }
+
+  /* ---------------- Finance: wallet card ---------------- */
+  if (block.type === 'wallet_card') {
+    const customer = (block.customer ?? {}) as { id?: number; name?: string; phone_masked?: string };
+    const txs = (block.transactions ?? []) as { at?: string; type_label?: string; amount?: number; balance_after?: number; reference_label?: string | null; reference_link?: string | null }[];
+    return (
+      <section className="as-block" aria-label="بطاقة المحفظة">
+        <header className="as-block-head">
+          <span className="as-block-ic"><Icon name="user" /></span>
+          <div className="as-block-title"><h3>{String(customer.name ?? "محفظة عميل")}</h3>{customer.phone_masked ? <span dir="ltr">{customer.phone_masked}</span> : null}</div>
+        </header>
+        <div className="as-block-body">
+          <div style={{ fontSize: "1.5rem", fontWeight: 800 }} className="as-num" role="status">{typeof block.current_balance === "number" ? block.current_balance.toLocaleString("ar-EG", { maximumFractionDigits: 2 }) : "—"} <small style={{ fontSize: ".8rem", fontWeight: 400 }}>ج.م</small></div>
+          {txs.length > 0 ? (
+            <div className="as-tablewrap"><table className="as-table as-num">
+              <thead><tr><th scope="col">التاريخ</th><th scope="col">النوع</th><th scope="col">المبلغ</th><th scope="col">الرصيد بعد</th><th scope="col">المرجع</th></tr></thead>
+              <tbody>{txs.map((x, i) => {
+                const rl = normalizeDeepLink(x.reference_link);
+                return <tr key={i}><td>{x.at ? new Date(x.at).toLocaleString("ar-EG") : "—"}</td><td>{x.type_label ?? "—"}</td>
+                  <td style={{ color: (x.amount ?? 0) < 0 ? "var(--as-danger)" : "var(--as-success)" }}><strong>{typeof x.amount === "number" ? x.amount.toLocaleString("ar-EG") : "—"}</strong></td>
+                  <td>{typeof x.balance_after === "number" ? x.balance_after.toLocaleString("ar-EG") : "—"}</td>
+                  <td>{rl ? <a className="as-linkbtn" href={rl}>{x.reference_label ?? "فتح"}</a> : (x.reference_label ?? "—")}</td></tr>;
+              })}</tbody>
+            </table></div>
+          ) : <p className="as-none">لا توجد حركات</p>}
+        </div>
+      </section>
+    );
+  }
+
+  /* ---------------- Finance: money trail ---------------- */
+  if (block.type === 'money_trail') {
+    const order = (block.order ?? {}) as { number?: string; total?: number; payment_status?: string; payment_method?: string };
+    const wallet = (block.wallet ?? []) as { at?: string; type?: string; amount?: number; reference_label?: string }[];
+    const treasury = (block.treasury ?? []) as { at?: string; treasury_id?: number; treasury_name?: string; type?: string; type_label?: string; amount?: number }[];
+    const explanation = (block.explanation ?? {}) as { untrusted_text?: string };
+    const warnings = (block.consistency_warnings ?? []) as string[];
+    return (
+      <section className="as-block" aria-label="المسار المالي للطلب">
+        <header className="as-block-head">
+          <span className="as-block-ic"><Icon name="refresh" /></span>
+          <div className="as-block-title"><h3>المسار المالي {order.number ? `#${order.number}` : ""}</h3><span>{[order.payment_status, order.payment_method].filter(Boolean).join(" · ")}{typeof order.total === "number" ? ` · ${order.total.toLocaleString("ar-EG")} ج.م` : ""}</span></div>
+        </header>
+        <div className="as-block-body">
+          {explanation.untrusted_text ? <p>{explanation.untrusted_text}</p> : null}
+          {warnings.map((w, i) => <div className="as-alert as-alert--warning" role="note" key={i}><Icon name="alert" size={16} /><div className="as-alert-body"><span>{w}</span></div></div>)}
+          {wallet.length > 0 ? (<><h4>حركات المحفظة</h4><ul className="as-list">{wallet.map((x, i) => <li key={i}><span>{x.type} · {x.at ? new Date(x.at).toLocaleDateString("ar-EG") : "—"} · {x.reference_label ?? ""}</span><span className="as-num" style={{ color: (x.amount ?? 0) < 0 ? "var(--as-danger)" : "var(--as-success)" }}>{typeof x.amount === "number" ? x.amount.toLocaleString("ar-EG") : "—"}</span></li>)}</ul></>) : null}
+          {treasury.length > 0 ? (<><h4>حركات الخزينة</h4><ul className="as-list">{treasury.map((x, i) => <li key={i}><span>{x.treasury_name ?? `#${x.treasury_id ?? ""}`} · {x.type_label ?? x.type} · {x.at ? new Date(x.at).toLocaleDateString("ar-EG") : "—"}</span><span className="as-num" style={{ color: (x.amount ?? 0) < 0 ? "var(--as-danger)" : "var(--as-success)" }}>{typeof x.amount === "number" ? x.amount.toLocaleString("ar-EG") : "—"}</span></li>)}</ul></>) : null}
+        </div>
+      </section>
+    );
+  }
+
   /* ---------------- Table ---------------- */
-  if (block.type === 'table') {
+  if (block.type === 'table' || block.type === 'tier_ladder') {
     const columns = (block.columns ?? []) as string[];
     const rows = (block.rows ?? []) as (string | number | null)[][];
     return (
@@ -1138,6 +1349,11 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
             {!rows.length && <tr><td colSpan={columns.length || 1} style={{ textAlign: 'center', color: 'var(--as-muted)' }}>لا توجد بيانات</td></tr>}
           </tbody>
         </table>
+        {onPrompt && execute && quickActions.length > 0 && (
+          <footer className="as-block-foot">
+            {quickActions.map(action => <button key={action.prompt} type="button" className="as-btn as-btn--sm" disabled={busy} onClick={() => onPrompt(action.prompt, action.submit)}>{action.label}</button>)}
+          </footer>
+        )}
       </div>
     );
   }

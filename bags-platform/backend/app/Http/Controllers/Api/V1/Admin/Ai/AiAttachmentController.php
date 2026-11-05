@@ -14,6 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class AiAttachmentController extends Controller
 {
@@ -27,14 +28,27 @@ class AiAttachmentController extends Controller
 
         $request->validate([
             'files' => ['required', 'array', 'min:1', 'max:4'],
-            'files.*' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'extensions:jpg,jpeg,png,webp', 'max:5120', new MaxImagePixels],
+            'files.*' => Rule::forEach(static function ($file): array {
+                if ($file instanceof UploadedFile && in_array(strtolower($file->getClientOriginalExtension()), ['csv', 'txt'], true)) {
+                    return ['bail', 'required', 'file', 'mimes:csv,txt', 'mimetypes:text/csv,text/plain', 'max:1024',
+                        static function (string $attribute, UploadedFile $value, \Closure $fail): void {
+                            $content = $value->getContent();
+                            if (str_contains($content, "\0") || preg_match('/^(?:\xEF\xBB\xBF)?\s*<\?(?:php\b|=)/i', $content)) {
+                                $fail('المرفق لازم يكون ملف أسعار نصي صالح.');
+                            }
+                        },
+                    ];
+                }
+
+                return ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'extensions:jpg,jpeg,png,webp', 'max:5120', new MaxImagePixels];
+            }),
         ]);
 
         // L1: حصة مرفقات غير مستهلكة لكل مستخدم — الرفع بلا سقف كان يتيح
         // ملء التخزين المشترك (4 ملفات × 5MB كل دقيقة لكل مستخدم).
         $quota = max(1, (int) config('services.gemini.max_pending_attachments_per_user', 40));
         $pending = AiAttachment::query()->where('user_id', $user->id)->whereNull('consumed_at')->count();
-        abort_if($pending >= $quota, 429, 'وصلت للحد الأقصى من الصور المرفقة غير المستخدمة؛ استخدمها أو احذف المحادثة أولًا.');
+        abort_if($pending + count($request->file('files')) > $quota, 429, 'وصلت للحد الأقصى من المرفقات غير المستخدمة؛ استخدمها أو احذف المحادثة أولًا.');
 
         /** @var list<UploadedFile> $files */
         $files = array_values((array) $request->file('files', []));

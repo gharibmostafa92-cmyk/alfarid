@@ -299,7 +299,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
       }
       setBusy(true);
       setStreaming(true);
-      setStatus(files?.length ? 'برفع الصور…' : 'ببعت الطلب…');
+      setStatus(files?.length ? 'برفع المرفقات…' : 'ببعت الطلب…');
       setSteps([]);
       setStartedAt(Date.now());
       setPendingText({ text, mentions: mentions ?? [] });
@@ -570,7 +570,10 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
                             execute={execute}
                             onPick={(entity, id, label) => { if (!showLogs) void pick(entity, id, label); }}
                             onAction={(kind, id, typed, selected) => { if (!showLogs) void act(kind, id, typed, selected); }}
-                            onPrompt={showLogs ? undefined : text => setSeed({ text, n: Date.now() })}
+                            onPrompt={showLogs ? undefined : (text, submit) => {
+                              if (submit) void send(text);
+                              else setSeed({ text, n: Date.now() });
+                            }}
                           />
                         ))}
                       </div>
@@ -621,7 +624,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
       {error && <div className="as-error-dock">{errorAlert}</div>}
       <span className="as-sr" role="status">{status}</span>
       {showLogs ? <div className="as-alert as-alert--info" role="note">سجل الموظفين للقراءة فقط؛ التأكيد والإلغاء والتراجع متاحين لصاحب المحادثة.</div> : <div className="as-composer-wrap">
-        <AssistantComposer busy={busy} onSend={send} quickCommands={quickCommands} seed={seed} enableCustomers={canCustomers} enableCatalog={canCatalog} enableInventory={can('inventory.view') || can('stocktakes.update')} />
+        <AssistantComposer busy={busy} onSend={send} quickCommands={quickCommands} seed={seed} enableCustomers={canCustomers} enableCatalog={canCatalog} enableInventory={can('inventory.view') || can('stocktakes.update')} enablePricing={can('price_lists.update') && can('ai_agent.execute')} />
       </div>}
     </>
   );

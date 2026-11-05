@@ -46,7 +46,7 @@ class PricingVisionImportTest extends TestCase
     private function admin(): User
     {
         $u = User::factory()->create();
-        foreach (['ai_agent.use', 'ai_agent.execute', 'price_lists.view', 'price_lists.create', 'price_lists.update', 'customers.view', 'inventory.all_branches'] as $p) {
+        foreach (['ai_agent.use', 'ai_agent.execute', 'ai_agent.catalog.vision', 'price_lists.view', 'price_lists.create', 'price_lists.update', 'customers.view', 'inventory.all_branches'] as $p) {
             $u->givePermissionTo(Permission::findOrCreate($p, 'staff'));
         }
 
@@ -110,6 +110,7 @@ class PricingVisionImportTest extends TestCase
                     ['sku' => $variant->sku, 'price' => 90, 'min_qty' => 1, 'confidence' => 0.95],
                     ['sku' => 'لاشيء', 'price' => 10, 'min_qty' => 1, 'confidence' => 0.9],
                     ['sku' => $variant->sku, 'price' => 0, 'min_qty' => 1, 'confidence' => 0.99],
+                    ['sku' => $variant->sku, 'price' => 70, 'min_qty' => 2, 'confidence' => 0.6],
                 ]],
                 'model' => 'gemini-test',
                 'usage' => ['input_tokens' => 10, 'output_tokens' => 5],
@@ -140,7 +141,7 @@ class PricingVisionImportTest extends TestCase
         $variant = $this->variant();
         $list = PriceList::query()->create(['name' => 'List', 'type' => PriceListType::Retail]);
         Storage::fake('ai_private');
-        Storage::disk('ai_private')->put('import.csv', "sku,price,min_qty\n".$variant->sku.",95,1\nUNKNOWN-SKU,50,2\n");
+        Storage::disk('ai_private')->put('import.csv', "\xEF\xBB\xBF"."variant_id,min_qty,price\n".$variant->id.",1,95\n99999999,2,50\n");
         $att = $this->attach($conv, $admin, 'import.csv', 'text/csv');
 
         $out = app(ToolRegistry::class)->dispatch($admin, $conv, [

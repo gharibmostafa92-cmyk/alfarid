@@ -8,6 +8,9 @@ use App\Enums\CustomerStatus;
 use App\Enums\CustomerType;
 use App\Enums\PriceListType;
 use App\Enums\ProductStatus;
+use App\Exceptions\BusinessException;
+use App\Models\Customer;
+use App\Models\CustomerGroup;
 use App\Models\PriceList;
 use App\Models\PriceListItem;
 use App\Models\Product;
@@ -74,11 +77,7 @@ final class PricingHealthReportTool implements AgentTool
         if ($scope instanceof ToolOutcome) {
             return $scope;
         }
-        $branchKey = $scope['branchId'] ?? 'all';
-
-        $report = Cache::remember('ai:pricing-health:'.$actor->id.':'.$branchKey, 120, function () use ($actor, $scope): array {
-            return $this->buildReport($actor, $scope['branchId']);
-        });
+        $report = $this->report($actor, $scope['branchId']);
 
         $items = array_map(fn ($check) => [
             'key' => $check['key'],
@@ -89,6 +88,15 @@ final class PricingHealthReportTool implements AgentTool
         ], $report['checks']);
 
         return $this->presenter->present($actor, $report, $this->presenter->checklist($items));
+    }
+
+    public function report(User $actor, ?int $branchId): array
+    {
+        $branchKey = $branchId ?? 'all';
+        $costKey = CostAccess::canView($actor) ? 'cost' : 'public';
+
+        return Cache::remember('ai:pricing-health:'.$actor->id.':'.$branchKey.':'.$costKey, 120,
+            fn () => $this->buildReport($actor, $branchId));
     }
 
     /** @return array{checks: list<array<string,mixed>>, score: int} */
@@ -152,7 +160,7 @@ final class PricingHealthReportTool implements AgentTool
         $checks[] = ['key' => 'scheduled', 'label' => 'قوائم مجدولة هتبدأ خلال 7 أيام', 'severity' => 'info', 'count' => $scheduled->count(), 'list_ids' => $scheduled->take(10)->pluck('id')->all()];
 
         // 5. Below cost.
-        $belowCost = $this->findBelowCost($allItems, $canViewCost);
+        $belowCost = $this->findBelowCost($allItems, $listById, $branchId, $canViewCost);
         $checks[] = [
             'key' => 'below_cost',
             'label' => 'بنود تحت التكلفة',
@@ -206,7 +214,7 @@ final class PricingHealthReportTool implements AgentTool
         ];
 
         // 9. SQL vs PHP drift.
-        $drift = $this->findDrift($branchId);
+        $drift = $this->findDrift();
         $checks[] = [
             'key' => 'store_price_drift',
             'label' => 'انحراف سعر المتجر (SQL) عن سعر السلة (PHP)',
@@ -329,19 +337,36 @@ final class PricingHealthReportTool implements AgentTool
      * @param  \Illuminate\Support\Collection<int, PriceListItem>  $items
      * @return array{count: int, detail: string|null, item_ids: list<int>}
      */
-    private function findBelowCost($items, bool $canViewCost): array
+    private function findBelowCost($items, $lists, ?int $branchId, bool $canViewCost): array
     {
-        $maxDiscount = (float) (\App\Models\CustomerGroup::query()->where('is_active', true)->max('discount_percentage') ?? 0);
-        $factor = max(0.0, 1.0 - $maxDiscount / 100.0);
-
         $flagged = [];
         foreach ($items as $item) {
             $cost = $item->variant?->cost_price !== null ? (float) $item->variant->cost_price : null;
             if ($cost === null || $cost <= 0) {
                 continue;
             }
-            if ((float) $item->price < $cost || (float) $item->price * $factor < $cost) {
+            if ((float) $item->price < $cost) {
                 $flagged[] = (int) $item->id;
+            }
+        }
+        $groups = CustomerGroup::query()->where('is_active', true)->where('discount_percentage', '>', 0)
+            ->orderByDesc('discount_percentage')->orderBy('id')->limit(5)->get();
+        $candidates = $items->filter(fn ($item) => $item->variant?->cost_price > 0
+            && in_array($lists->get($item->price_list_id)?->type, [PriceListType::Retail, PriceListType::Wholesale, PriceListType::Distributor], true))
+            ->take(30);
+        foreach ($groups as $group) {
+            foreach ($candidates as $item) {
+                $type = CustomerType::from($lists->get($item->price_list_id)->type->value);
+                $customer = new Customer(['type' => $type, 'status' => CustomerStatus::Approved]);
+                $customer->setRelation('customerGroup', $group);
+                try {
+                    $resolved = $this->pricing->resolve($item->variant, $customer, (float) $item->min_qty, $branchId);
+                } catch (BusinessException) {
+                    continue;
+                }
+                if ($resolved['price_list_id'] === $item->price_list_id && $resolved['unit_price'] < (float) $item->variant->cost_price) {
+                    $flagged[] = (int) $item->id;
+                }
             }
         }
         $flagged = array_values(array_unique($flagged));
@@ -385,10 +410,10 @@ final class PricingHealthReportTool implements AgentTool
     }
 
     /** @return list<string> */
-    private function findDrift(?int $branchId): array
+    private function findDrift(): array
     {
-        $variantIds = ProductVariant::query()->where('is_active', true)->orderBy('id')->limit(30)->pluck('id')->all();
-        if ($variantIds === []) {
+        $variants = ProductVariant::query()->where('is_active', true)->orderBy('id')->limit(30)->get();
+        if ($variants->isEmpty()) {
             return [];
         }
 
@@ -404,17 +429,18 @@ final class PricingHealthReportTool implements AgentTool
 
         $mismatches = [];
         foreach ($legs as $legName => $customer) {
-            $storePrices = $this->pricing->withStorePrice(ProductVariant::query()->whereIn('product_variants.id', $variantIds), $customer)
+            $storePrices = $this->pricing->withStorePrice(ProductVariant::query()->whereKey($variants->modelKeys()), $customer)
                 ->pluck('store_price', 'id');
-            foreach ($variantIds as $variantId) {
+            foreach ($variants as $variant) {
+                $variantId = $variant->id;
                 try {
-                    $resolved = $this->pricing->resolve(ProductVariant::query()->findOrFail($variantId), $customer, 1, $branchId)['unit_price'];
-                } catch (\Throwable) {
-                    continue;
+                    $resolved = $this->pricing->resolve($variant, $customer)['unit_price'];
+                } catch (BusinessException) {
+                    $resolved = null;
                 }
                 $store = isset($storePrices[$variantId]) ? round((float) $storePrices[$variantId], 2) : null;
-                if ($store !== null && abs($store - round((float) $resolved, 2)) > 0.009) {
-                    $mismatches[] = "متغير #{$variantId} ({$legName}): المتجر {$store} ≠ السلة {$resolved}";
+                if ($store !== $resolved) {
+                    $mismatches[] = "متغير #{$variantId} ({$legName}): المتجر ".($store ?? 'غير مسعّر').' ≠ السلة '.($resolved ?? 'غير مسعّر');
                     if (count($mismatches) >= 10) {
                         return $mismatches;
                     }

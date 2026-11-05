@@ -41,6 +41,18 @@ test('commerce reuses the established brands API instead of publishing a second 
   assert.equal(load({}).opsBrandsApi, undefined);
 });
 
+test('price list percentage uses one bulk request and surfaces the server failure', async () => {
+  const calls = [];
+  const failure = new Error('Server rejected the price change');
+  const { priceListsApi } = load({ post: async (url, body) => {
+    calls.push({ url, body });
+    throw failure;
+  } });
+
+  await assert.rejects(priceListsApi.applyPercentage(17, 10), failure);
+  assert.deepEqual(calls, [{ url: '/api/v1/admin/price-lists/17/apply-percentage', body: { percent: 10 } }]);
+});
+
 function loadView(api) {
   const filename = path.resolve(__dirname, '../apps/backoffice/src/pages/admin/operations-mock/commerce.tsx');
   const compiled = new Module(filename, module);
@@ -60,6 +72,16 @@ function loadView(api) {
       useAction: () => ({ busy: false, run: async fn => { try { return await fn(); } catch { return undefined; } } }),
     };
     if (name === './api/mappers') return { promoToBackend: () => 'fixed_discount', couponToBackend: () => 'percentage' };
+    if (name === './priceListPercent') {
+      const helperFile = path.resolve(__dirname, '../apps/backoffice/src/pages/admin/operations-mock/priceListPercent.ts');
+      const helper = new Module(helperFile, module);
+      helper.filename = helperFile; helper.paths = Module._nodeModulePaths(path.dirname(helperFile));
+      helper.require = dep => { throw Error('Unexpected dependency ' + dep); };
+      helper._compile(ts.transpileModule(fs.readFileSync(helperFile, 'utf8'), {
+        compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+      }).outputText, helperFile);
+      return helper.exports;
+    }
     throw Error('Unexpected dependency ' + name);
   };
   compiled._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {

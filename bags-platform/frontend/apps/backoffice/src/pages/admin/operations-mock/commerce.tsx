@@ -704,25 +704,46 @@ export function PriceImportModal({ open, priceListId, onClose, onSaved }: { open
   const [file, setFile] = useState<File | null>(null);
   const [report, setReport] = useState<PriceListImportReport | null>(null);
   if (!open) return null;
-  const doImport = async () => {
+  const submit = async (dryRun: boolean) => {
     if (!file) return toast('اختر ملف CSV', 'red');
     if (file.size > 10 * 1024 * 1024) return toast('حجم الملف يتجاوز 10MB', 'red');
-    const r = await run(() => priceListsApi.import(priceListId, file), { toast, success: 'تم الاستيراد' });
-    if (r) { setReport((r as any).data ?? (r as any)); onSaved(); }
+    const r = await run(() => priceListsApi.import(priceListId, file, dryRun), { toast, success: dryRun ? undefined : 'تم الاستيراد' });
+    if (r) {
+      setReport(r.data);
+      if (!dryRun) {
+        setFile(null);
+        onSaved();
+      }
+    }
   };
   return (
     <Modal open onClose={onClose} title="استيراد قوائم الأسعار" icon="upload" width={540}
-      footer={<><button className="btn btn-soft" onClick={onClose}>إغلاق</button><button className="btn btn-dark" disabled={busy || !file} onClick={doImport}>رفع واستيراد</button></>}>
+      footer={<>
+        <button className="btn btn-soft" onClick={onClose}>إغلاق</button>
+        <button className="btn btn-dark" disabled={busy || !file || report?.diff?.length === 0} onClick={() => void submit(!report?.diff)}>
+          {report?.diff ? 'تأكيد الاستيراد' : 'معاينة الملف'}
+        </button>
+      </>}>
       <div className="space-y-4">
-        <Dropzone accept=".csv" max="10MB" label="اسحب ملف CSV هنا" onFile={setFile} />
+        <Dropzone accept=".csv" max="10MB" label="اسحب ملف CSV هنا" onFile={(next) => { setFile(next); setReport(null); }} />
         {report && (
           <div>
-            <div className="lbl mb-2">نتيجة الاستيراد</div>
+            <div className="lbl mb-2">{report.diff ? 'معاينة الاستيراد' : 'نتيجة الاستيراد'}</div>
             <div className="grid grid-cols-3 gap-2 mb-2">
               <div className="v-sub p-3"><div className="text-[11px] tx2">صفوف ناجحة</div><div className="font-display text-[20px] font-bold num c-green">{report.created}</div></div>
               <div className="v-sub p-3"><div className="text-[11px] tx2">تم تحديثها</div><div className="font-display text-[20px] font-bold num tx1">{report.updated}</div></div>
               <div className="v-sub p-3"><div className="text-[11px] tx2">أخطاء</div><div className="font-display text-[20px] font-bold num c-red">{report.errors.length}</div></div>
             </div>
+            {!!report.diff?.length && (
+              <div className="v-sub p-1 max-h-[200px] overflow-y-auto mb-2">
+                <table className="tbl compact">
+                  <thead><tr><th>الصف</th><th>المتغير</th><th>الكمية</th><th>السعر الحالي</th><th>السعر الجديد</th></tr></thead>
+                  <tbody>{report.diff.map((row) => (
+                    <tr key={row.line}><td>{row.line}</td><td>#{row.variant_id}</td><td>{row.min_qty}</td><td>{row.old_price ?? '—'}</td><td>{row.new_price}</td></tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            )}
             {!!report.errors.length && (
               <div className="v-sub p-1 max-h-[160px] overflow-y-auto">
                 <table className="tbl compact"><tbody>
@@ -962,13 +983,7 @@ export function PriceListDetail({ id, go }: { id: number; go: (r: { m: string; i
   };
   const applyPercent = async (pctVal: number) => {
     if (pctVal < -100) return toast('النسبة لا تقل عن -100%', 'red');
-    const result = await run(async () => {
-      for (const r of items) {
-        const price = Number((Number(r.price) * (1 + pctVal / 100)).toFixed(4));
-        await itemsApi.update(r.id, { product_variant_id: r.variantId, min_qty: Number(r.min), price, starts_at: r.from || null, ends_at: r.to || null });
-      }
-      return true;
-    }, { toast, success: 'تم تطبيق التعديل' });
+    const result = await run(() => priceListsApi.applyPercentage(id, pctVal), { toast, success: 'تم تطبيق التعديل' });
     remoteItems.reload();
     if (result) setPct('');
   };
@@ -1109,7 +1124,7 @@ export function PriceListDetail({ id, go }: { id: number; go: (r: { m: string; i
           ]}
         />
       </Card>
-      <PriceImportModal open={imp} priceListId={id} onClose={() => setImp(false)} onSaved={() => { remoteItems.reload(); pl.reload(); }} />
+      {imp && <PriceImportModal key={id} open priceListId={id} onClose={() => setImp(false)} onSaved={() => { remoteItems.reload(); pl.reload(); }} />}
       {editRow && (
         <AddPriceItemModal priceListId={id} onClose={() => setEditRow(null)} onSaved={() => { remoteItems.reload(); pl.reload(); }} />
       )}

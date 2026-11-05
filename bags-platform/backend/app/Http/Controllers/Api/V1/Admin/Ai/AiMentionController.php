@@ -14,7 +14,7 @@ class AiMentionController extends Controller
 {
     public function search(Request $request, EntityResolver $resolver, ToolRegistry $registry): JsonResponse
     {
-        $data = $request->validate(['q' => ['nullable', 'string', 'max:100'], 'entity' => ['nullable', 'in:branch,user,role,customer,category,product,variant,transfer,stocktake,production_receipt']]);
+        $data = $request->validate(['q' => ['nullable', 'string', 'max:100'], 'entity' => ['nullable', 'in:branch,user,role,customer,category,product,variant,transfer,stocktake,production_receipt,treasury,treasury_transfer,expense']]);
         $actor = $request->user('staff');
         $q = (string) ($data['q'] ?? '');
         $entity = $data['entity'] ?? null;
@@ -50,6 +50,15 @@ class AiMentionController extends Controller
         }
         if ((! $entity || $entity === 'production_receipt') && $registry->canReadEntity($actor, 'production_receipt')) {
             $out['production_receipts'] = $resolver->productionReceipts($actor, $q);
+        }
+        if ((! $entity || $entity === 'treasury') && $registry->canReadEntity($actor, 'treasury')) {
+            $out['treasuries'] = $resolver->treasuries($actor, $q);
+        }
+        if ((! $entity || $entity === 'treasury_transfer') && $registry->canReadEntity($actor, 'treasury_transfer')) {
+            $out['treasury_transfers'] = $resolver->treasuryTransfers($actor, $q);
+        }
+        if ((! $entity || $entity === 'expense') && $registry->canReadEntity($actor, 'expense')) {
+            $out['expenses'] = $resolver->expenses($actor, $q);
         }
 
         return response()->json(['data' => $out]);

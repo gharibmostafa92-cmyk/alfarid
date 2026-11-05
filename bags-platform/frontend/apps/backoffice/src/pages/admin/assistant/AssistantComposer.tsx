@@ -11,6 +11,7 @@ interface Props {
   /** مفعّلة لو الأدمن عنده products.view أو categories.view — بتفعّل $ للمنتجات و & للأقسام ورفع الصور. */
   enableCatalog?: boolean;
   enableInventory?: boolean;
+  enablePricing?: boolean;
   busy: boolean;
   onSend: (text: string, selection?: undefined, mentions?: Mention[], files?: File[]) => Promise<boolean>;
   quickCommands: string[];
@@ -46,7 +47,8 @@ function Highlight({ text, q }: { text: string; q: string }) {
   return <>{text.slice(0, i)}<mark>{text.slice(i, i + q.length)}</mark>{text.slice(i + q.length)}</>;
 }
 
-export default function AssistantComposer({ busy, onSend, quickCommands, seed, hint, enableCustomers = false, enableCatalog = false, enableInventory = false }: Props) {
+export default function AssistantComposer({ busy, onSend, quickCommands, seed, hint, enableCustomers = false, enableCatalog = false, enableInventory = false, enablePricing = false }: Props) {
+  const canAttach = enableCatalog || enableInventory || enablePricing;
   const [text, setText] = useState('');
   const [mentions, setMentions] = useState<Mention[]>([]);
   const [files, setFiles] = useState<File[]>([]);
@@ -121,14 +123,15 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
   useEffect(() => { if (wasBusy.current && !busy) input.current?.focus(); wasBusy.current = busy; }, [busy]);
 
   const addFiles = (incoming: FileList | File[]) => {
-    const valid = Array.from(incoming).filter(f => /^image\/(jpeg|png|webp)$/.test(f.type));
+    const valid = Array.from(incoming).filter(f => /^image\/(jpeg|png|webp)$/.test(f.type)
+      || (enablePricing && /\.(csv|txt)$/i.test(f.name)));
     if (!valid.length) return;
     setFiles(prev => [...prev, ...valid].slice(0, 4));
   };
 
   const submit = async () => {
     if (busy || (!text.trim() && files.length === 0)) return;
-    const draft = text.trim() || 'حلّل الصور المرفقة';
+    const draft = text.trim() || (files.some(f => /\.(csv|txt)$/i.test(f.name)) ? 'عاين ملف استيراد أسعار المرفق' : 'حلّل الصور المرفقة');
     const refs = mentions;
     const attached = files;
     setText(''); setMentions([]); setFiles([]); setOptions([]);
@@ -187,10 +190,10 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
       className="as-composer"
       data-disabled={busy}
       data-drag={dragOver}
-      onDragOver={e => { if (enableCatalog || enableInventory) { e.preventDefault(); setDragOver(true); } }}
+      onDragOver={e => { if (canAttach) { e.preventDefault(); setDragOver(true); } }}
       onDragLeave={() => setDragOver(false)}
       onDrop={e => {
-        if (!enableCatalog && !enableInventory) return;
+        if (!canAttach) return;
         e.preventDefault();
         setDragOver(false);
         if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files);
@@ -293,17 +296,17 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
           <button type="button" className="as-trigger" disabled={busy} onClick={() => insertMarker('!')} title="منشن دور" aria-label="منشن دور">!</button>
           {canDollar && <button type="button" className="as-trigger" disabled={busy} onClick={() => insertMarker('$')} title="منشن منتج أو عميل" aria-label="منشن منتج أو عميل">$</button>}
           {enableCatalog && <button type="button" className="as-trigger" disabled={busy} onClick={() => insertMarker('&')} title="منشن قسم" aria-label="منشن قسم">&amp;</button>}
-          {(enableCatalog || enableInventory) && (
+          {canAttach && (
             <>
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/jpeg,image/png,image/webp"
+                accept={`image/jpeg,image/png,image/webp${enablePricing ? ',.csv,.txt' : ''}`}
                 multiple
                  hidden
                 onChange={e => { if (e.target.files?.length) addFiles(e.target.files); e.target.value = ''; }}
               />
-              <button type="button" className="as-trigger" disabled={busy || files.length >= 4} onClick={() => fileInputRef.current?.click()} title="إرفاق صور منتج (حتى 4 صور)" aria-label="إرفاق صور منتج">
+              <button type="button" className="as-trigger" disabled={busy || files.length >= 4} onClick={() => fileInputRef.current?.click()} title="إرفاق ملفات (حتى 4)" aria-label="إرفاق ملفات">
                 <Icon name="paperclip" size={14} />
               </button>
             </>

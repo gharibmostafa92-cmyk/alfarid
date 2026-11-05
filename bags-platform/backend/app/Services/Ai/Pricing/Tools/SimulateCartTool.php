@@ -60,6 +60,7 @@ final class SimulateCartTool implements AgentTool
                 'properties' => (object) [
                     'items' => ['type' => 'ARRAY', 'items' => ['type' => 'OBJECT']],
                     'customer_id' => ['type' => 'INTEGER'],
+                    'customer_query' => ['type' => 'STRING'],
                     'coupon_code' => ['type' => 'STRING'],
                     'branch_id' => ['type' => 'INTEGER'],
                 ],
@@ -78,17 +79,11 @@ final class SimulateCartTool implements AgentTool
             return ToolOutcome::denied('السلة لازم يكون فيها من 1 لـ 50 بند.', auditable: false);
         }
 
-        $customer = null;
-        if (! empty($args['customer_id'])) {
-            if (! $actor->can('customers.view')) {
-                return ToolOutcome::denied('معندكش صلاحية عرض العملاء.');
-            }
-            $customerResolved = PricingArgs::resolveCustomer($actor, $this->resolver, $args);
-            if ($customerResolved instanceof ToolOutcome) {
-                return $customerResolved;
-            }
-            $customer = $customerResolved['customer'];
+        $customerResolved = PricingArgs::resolveCustomer($actor, $this->resolver, $args);
+        if ($customerResolved instanceof ToolOutcome) {
+            return $customerResolved;
         }
+        $customer = $customerResolved['customer'];
 
         $couponCode = trim((string) ($args['coupon_code'] ?? ''));
         if ($couponCode !== '' && ! $actor->can('coupons.view')) {
@@ -149,13 +144,18 @@ final class SimulateCartTool implements AgentTool
         $couponRejection = null;
         $discount = 0.0;
         if ($couponCode !== '') {
-            $coupon = Coupon::query()->where('code', mb_strtoupper($couponCode))->first();
+            $coupon = Coupon::query()->whereRaw('upper(code) = ?', [mb_strtoupper($couponCode)])->first();
             if ($coupon === null) {
                 $couponRejection = 'الكوبون مش موجود.';
             } else {
                 $couponRejection = $this->adminRejectionReason($coupon, $subtotal);
                 if ($couponRejection === null) {
-                    $discount = $this->coupons->discountFor($coupon, $subtotal);
+                    try {
+                        $coupon = $this->coupons->redeemableById($coupon->id, $subtotal, $customer);
+                        $discount = $this->coupons->discountFor($coupon, $subtotal);
+                    } catch (BusinessException) {
+                        $couponRejection = 'الكوبون غير متاح لهذا العميل أو تغيّرت صلاحيته أثناء المحاكاة.';
+                    }
                 }
             }
         }
@@ -163,14 +163,17 @@ final class SimulateCartTool implements AgentTool
         $notes = [];
         if ($couponRejection !== null) {
             $notes[] = 'الكوبون مرفوض: '.$couponRejection;
+        } elseif ($coupon?->type === 'free_shipping') {
+            $notes[] = 'كوبون الشحن المجاني يخصم من الشحن عند الدفع. الإجمالي هنا للبضاعة.';
         }
         $now = Carbon::now();
-        $promotions = Promotion::query()
+        $promotions = $actor->can('promotions.view') ? Promotion::query()
             ->where('is_active', true)
             ->where(fn ($q) => $q->whereNull('starts_at')->orWhere('starts_at', '<=', $now))
             ->where(fn ($q) => $q->whereNull('ends_at')->orWhere('ends_at', '>=', $now))
+            ->where(fn ($q) => $q->whereNull('min_order_amount')->orWhere('min_order_amount', '<=', $subtotal))
             ->limit(50)
-            ->get(['id', 'name', 'applies_to', 'target_ids']);
+            ->get(['id', 'name', 'applies_to', 'target_ids']) : [];
         foreach ($promotions as $promotion) {
             if ($this->promotionMatches($promotion, $variantIds, $categoryIds, $brandIds)) {
                 $notes[] = "العرض {$promotion->name} ينطبق نظريًا لكنه لن يُطبَّق في الدفع حاليًا.";

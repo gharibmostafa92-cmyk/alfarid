@@ -78,15 +78,21 @@ export interface PriceListParams {
 }
 export interface PriceListImportReport {
   created: number; updated: number; skipped: number; errors: { line: number; message: string }[];
+  diff?: { line: number; variant_id: number; min_qty: string; old_price: string | null; new_price: string }[];
 }
 const PL = `${ADMIN}/price-lists`;
 export const priceListsApi = {
   ...crud<PriceListApi, PriceListPayload, PriceListParams>(PL),
-  import: (id: Id, file: File) => {
+  import: (id: Id, file: File, dryRun = false) => {
     const fd = new FormData(); fd.append('file', file);
-    return api.post<{ message: string; data: PriceListImportReport }>(`${PL}/${id}/import`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data);
+    return api.post<{ message: string; data: PriceListImportReport }>(`${PL}/${id}/import`, fd, {
+      params: dryRun ? { dry_run: 1 } : undefined,
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data);
   },
   exportCsv: (id: Id, name: string) => downloadFile(`${PL}/${id}/export`, `${name}.csv`),
+  applyPercentage: (id: Id, percent: number) =>
+    api.post<{ data: { updated: number } }>(`${PL}/${id}/apply-percentage`, { percent }).then((response) => response.data.data),
 };
 
 export interface PriceListItemApi {

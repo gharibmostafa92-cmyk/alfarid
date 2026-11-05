@@ -18,6 +18,7 @@ class TreasuryTransfer extends Model
         'status',
         'created_by',
         'approved_by',
+        'rejection_reason',
         'notes',
     ];
 

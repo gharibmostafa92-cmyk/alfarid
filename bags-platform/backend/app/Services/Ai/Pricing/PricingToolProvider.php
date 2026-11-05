@@ -49,6 +49,7 @@ final class PricingToolProvider implements ToolProvider
 
         // Phase 4: Import (CSV → single upsert proposal)
         \App\Services\Ai\Pricing\Tools\ImportPriceListItemsTool::class,
+        \App\Services\Ai\Pricing\Tools\ExportPriceListTool::class,
 
         // Phase 3: Coupon & promotion write tools
         \App\Services\Ai\Pricing\Tools\CreateCouponsTool::class,
@@ -57,6 +58,9 @@ final class PricingToolProvider implements ToolProvider
         \App\Services\Ai\Pricing\Tools\CreatePromotionTool::class,
         \App\Services\Ai\Pricing\Tools\UpdatePromotionTool::class,
         \App\Services\Ai\Pricing\Tools\SetPromotionStatusTool::class,
+        \App\Services\Ai\Pricing\Tools\CouponPerformanceTool::class,
+        \App\Services\Ai\Pricing\Tools\WhatIfPriceChangeTool::class,
+        \App\Services\Ai\Pricing\Tools\MarginRiskReportTool::class,
         // Phase 1: Read tools (explain_price, quote_price, ...).
         // Phase 2: Price-list write tools (upsert_price_list_items, ...).
         // Phase 3: Coupon & promotion tools (create_coupons, ...).
@@ -89,6 +93,17 @@ final class PricingToolProvider implements ToolProvider
         return $this->settings->getBool('ai_pricing_tools_enabled', false);
     }
 
+    public function isToolHidden(string $name): bool
+    {
+        return match ($name) {
+            'parse_price_sheet' => ! $this->settings->getBool('ai_pricing_vision_enabled', false),
+            'list_coupons', 'get_coupon', 'create_coupons', 'update_coupon', 'set_coupon_status',
+            'list_promotions', 'create_promotion', 'update_promotion', 'set_promotion_status',
+            'coupon_performance', 'simulate_cart', 'margin_risk_report' => ! $this->settings->getBool('ai_promotions_tools_enabled', false),
+            default => false,
+        };
+    }
+
     public function domain(): string
     {
         return 'pricing';
@@ -110,8 +125,8 @@ final class PricingToolProvider implements ToolProvider
 
         return match ($type) {
             'price_list' => $actor->can('price_lists.view'),
-            'coupon' => $actor->can('coupons.view'),
-            'promotion' => $actor->can('promotions.view'),
+            'coupon' => ! $this->isToolHidden('get_coupon') && $actor->can('coupons.view'),
+            'promotion' => ! $this->isToolHidden('list_promotions') && $actor->can('promotions.view'),
             default => false,
         };
     }

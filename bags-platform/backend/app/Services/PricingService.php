@@ -416,7 +416,7 @@ class PricingService
      *
      * @return list<array{min_qty: float, unit_price: float}>
      */
-    public function tiersFor(ProductVariant $variant, Customer $customer, ?array $ctx = null): array
+    public function tiersFor(ProductVariant $variant, ?Customer $customer, ?array $ctx = null, ?int $branchId = null): array
     {
         $now = Carbon::now();
         // F17: reuse the preloaded per-customer context when available.
@@ -425,9 +425,9 @@ class PricingService
         $eligible = $ctx['eligible'];
         $groupId = $ctx['group']?->id;
 
-        $breakpoints = isset($ctx['items'])
+        $breakpoints = isset($ctx['items']) && $branchId === null
             ? ($ctx['items'][$variant->id] ?? collect())->pluck('min_qty')->map(fn ($v) => (float) $v)
-            : $this->eligibleItems($variant, PHP_FLOAT_MAX, null, $now)
+            : $this->eligibleItems($variant, PHP_FLOAT_MAX, $branchId, $now)
                 ->where(function ($q) use ($eligible, $customer, $groupId, $channel): void {
                     $q->where('price_lists.type', $channel->value)
                         ->orWhere('price_lists.type', PriceListType::Retail->value);
@@ -451,7 +451,7 @@ class PricingService
         return $points
             ->map(fn (float $minQty) => [
                 'min_qty' => $minQty,
-                'unit_price' => $this->resolve($variant, $customer, max(1.0, $minQty), null, $ctx)['unit_price'],
+                'unit_price' => $this->resolve($variant, $customer, max(1.0, $minQty), $branchId, $ctx)['unit_price'],
             ])
             ->values()
             ->all();

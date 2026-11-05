@@ -17,6 +17,9 @@ const pageOf=(data,page=1,total=data.length)=>({data,meta:{current_page:page,las
  try {
   const context=await browser.newContext({viewport:mobile ? {width:390,height:844} : {width:1440,height:1000}}),page=await context.newPage();page.setDefaultTimeout(12000);page.setDefaultNavigationTimeout(60000);
   const errors=[],calls=[],mutations=[];page.on('pageerror',e=>errors.push(e.message));
+  user.permissions.push('customers.view','customers.wallet.view','customers.wallet.adjust');
+  const walletAttempts=[];
+  let walletBalance='50.00';
   let notes=[{id:'uuid-order',type:'AdminOrderCreatedNotification',data:{order_id:71,order_number:'ORD-RUNTIME',message:'إشعار طلب حقيقي'},read_at:null,created_at:'2026-10-27T08:00:00Z'}], failRead=false,failOrder=false;
   let expense={id:51,expense_number:'EXP-RUNTIME',branch_id:7,branch:{name:'فرع الاختبار'},treasury_id:11,category:'صيانة',amount:'125.50',expense_date:'2026-10-28',shift_id:null,creator:{name:'موظف الاختبار'},voided_at:null};
   await context.route('**/api/v1/**',async route=>{
@@ -43,6 +46,7 @@ const pageOf=(data,page=1,total=data.length)=>({data,meta:{current_page:page,las
    if(p.endsWith('/returns/81/refund')){mutations.push({p,body});ret={...ret,status:'refunded',refund_method:body.refund_method};return one(ret);}
    if(p.endsWith('/treasuries'))return json(pageOf([treasury]));
    if(p.endsWith('/expenses/51/void')){mutations.push({p,body});expense={...expense,voided_at:'2026-10-28T12:00:00Z',void_reason:body.void_reason};return one(expense);}
+   if(p.endsWith('/expenses/51'))return one({...expense,attachment_path:'expense-receipts/51/receipt.jpg'});
    if(p.endsWith('/expenses'))return json(pageOf([expense]));
    if(p.endsWith('/treasury-transfers'))return json(pageOf([]));
    if(p.endsWith('/shifts'))return json(pageOf([shift]));
@@ -52,6 +56,14 @@ const pageOf=(data,page=1,total=data.length)=>({data,meta:{current_page:page,las
    if(p.endsWith('/payment-notices'))return json(pageOf([]));
    if(p.endsWith('/users'))return json(pageOf([user]));
    if(p.endsWith('/customers'))return json(pageOf([{id:1,name:'عميل الجملة'}]));
+   if(p.endsWith('/customers/1'))return one({id:1,name:'عميل الجملة',phone:'01000000000',type:'wholesale',status:'approved'});
+   if(p.endsWith('/customers/1/wallet'))return json({balance:walletBalance,transactions:{current_page:1,last_page:1,data:walletBalance==='50.00'?[]:[{id:1,type_label:'تعديل من الإدارة',amount:'10.00',created_at:'2026-10-28T10:00:00Z'}]}});
+   if(p.endsWith('/customers/1/wallet/adjustments')){
+    walletAttempts.push({body,key:r.headers()['idempotency-key']});
+    if(walletAttempts.length===1)return json({message:'تعذر التسجيل مؤقتًا'},503);
+    walletBalance='60.00';
+    return json({data:{id:1}},201);
+   }
    if(p.endsWith('/shipping-companies'))return json(pageOf([{id:1,name:'شركة الشحن',code:'SHIP',is_active:true,tracking_url_template:null,has_api_credentials:false}]));
    if(p.endsWith('/shipping-zones'))return json(pageOf([]));
    if(p.endsWith('/shipping-rates'))return json(pageOf([]));
@@ -87,6 +99,22 @@ const pageOf=(data,page=1,total=data.length)=>({data,meta:{current_page:page,las
   await page.goto(base+'/#/finance?sub=exp');await op().getByText('EXP-RUNTIME',{exact:true}).waitFor();await op().getByRole('button',{name:'إلغاء المصروف',exact:true}).click();
   const voidModal=op().locator('.modal');await voidModal.locator('textarea').fill('سند مسجل بالخطأ');await voidModal.getByRole('button',{name:'تأكيد الإلغاء',exact:true}).click();await op().getByText('ملغى',{exact:true}).waitFor();
   assert.deepEqual(mutations.find(m=>m.p.endsWith('/expenses/51/void')).body,{void_reason:'سند مسجل بالخطأ'});assert.equal(await op().getByRole('button',{name:'إلغاء المصروف',exact:true}).count(),0);
+  await page.goto(base+'/#/finance?tab=exp&id=51');
+  await op().getByRole('button',{name:'فتح الإيصال'}).waitFor();
+  assert.ok(calls.some(c=>c.p.endsWith('/expenses/51') && c.method==='GET'));
+  await op().getByRole('button',{name:'عرض كل السجلات',exact:true}).click();
+  await op().getByRole('button',{name:'فتح الإيصال'}).waitFor({state:'hidden'});
+  await page.goto(base+'/#/dealers?customer=1&tab=wallet');
+  await page.getByText('لا توجد حركات في المحفظة.',{exact:true}).waitFor();
+  await page.getByLabel('المبلغ بالجنيه').fill('10');
+  await page.getByLabel('سبب التعديل').fill('تسوية اختبار');
+  await page.getByRole('button',{name:'تسجيل التعديل',exact:true}).click();
+  await page.getByRole('alert').filter({hasText:'تعذر التسجيل مؤقتًا'}).waitFor();
+  await page.getByRole('button',{name:'تسجيل التعديل',exact:true}).click();
+  await page.getByText('تعديل من الإدارة',{exact:true}).waitFor();
+  assert.ok(walletAttempts[0].key);
+  assert.deepEqual(walletAttempts[0],walletAttempts[1]);
+  assert.deepEqual(walletAttempts[1].body,{kind:'adjustment',direction:'credit',amount:'10',reason:'تسوية اختبار'});
   await page.goto(base+'/#/shifts');await op().getByText('SH-RUNTIME',{exact:true}).waitFor();await op().getByText('SH-RUNTIME',{exact:true}).click();await op().getByText('الكاشير الفعلي',{exact:true}).first().waitFor();
   await page.goto(base+'/#/wholesale');await op().getByText('QT-RUNTIME',{exact:true}).waitFor();
   for(const route of ['shipping','pricing','promos']){await page.goto(base+'/#/'+route);await op().waitFor();await page.waitForTimeout(300);}

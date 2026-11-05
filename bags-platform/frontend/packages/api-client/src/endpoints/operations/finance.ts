@@ -12,12 +12,13 @@ export const treasuriesApi = crud<Treasury, TreasuryPayload>(`${ADMIN}/treasurie
 export interface Expense {
   id: number; expense_number: string; branch_id: number; branch?: Named; treasury?: Named; creator?: Named;
   shift_id: number | null; amount: string; category: string; notes: string | null;
-  treasury_id: number; expense_date: string;
+  treasury_id: number; expense_date: string; attachment_path?: string | null;
   voided_at?: string | null; voided_by?: number | null; void_reason?: string | null;
 }
 export interface ExpensePayload { branch_id: number; amount: number; category: string; notes?: string | null; treasury_id: number; expense_date: string }
 export const expensesApi = {
   ...crud<Expense, ExpensePayload>(`${ADMIN}/expenses`),
+  openAttachment: (id: Id) => openProtectedFile(`${ADMIN}/expenses/${id}/attachment`),
   create: (body: ExpensePayload, idempotencyKey: string) =>
     api.post(`${ADMIN}/expenses`, body, { headers: { 'Idempotency-Key': idempotencyKey } }).then((r) => one<Expense>(r)),
   void: (id: Id, void_reason: string) => api.post(`${ADMIN}/expenses/${id}/void`, { void_reason }).then((r) => one<Expense>(r)),

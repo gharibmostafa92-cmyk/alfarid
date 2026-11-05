@@ -55,7 +55,7 @@ final class ParsePriceSheetTool implements AgentTool
 
     public function permissions(): array
     {
-        return ['price_lists.update'];
+        return ['price_lists.update', 'ai_agent.catalog.vision', 'ai_agent.execute'];
     }
 
     public function declaration(): array
@@ -271,7 +271,9 @@ PROMPT,
         }
         $conf = (float) ($row['confidence'] ?? 0);
         if ($conf < 0.8) {
-            $warnings[] = $fallbackSource.": السطر {$code} ثقته منخفضة (".round($conf, 2).') — اتأكد منه.';
+            $warnings[] = $fallbackSource.": السطر {$code} ثقته منخفضة (".round($conf, 2).') — اتساب للمراجعة اليدوية.';
+
+            return;
         }
 
         $sender = trim((string) ($row['sender_name'] ?? ''));

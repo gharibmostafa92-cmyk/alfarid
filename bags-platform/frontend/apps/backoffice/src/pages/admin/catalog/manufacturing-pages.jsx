@@ -12,9 +12,10 @@ export function DealersPage() {
   const { user: { can } } = useApp();
   const [q, setQ] = useQueryState({ search: '', type: '', status: '', page: 1, per_page: 15 });
   // 4.3: deep link من المساعد — #/dealers?customer={id} يفتح الـ drawer تلقائيًا (ومش بيتبعت للـ API كفلتر).
-  const { customer: deepLinkId, ...listQuery } = q;
+  const { customer: deepLinkId, tab: deepLinkTab, ...listQuery } = q;
   const query = useApi(signal => get('/customers', { ...listQuery, business_only: 1 }, signal), [JSON.stringify(listQuery)]);
   const [draft, setDraft] = useState(null);
+  const [tab, setTab] = useState('details');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [action, setAction] = useState(null);
@@ -25,10 +26,12 @@ export function DealersPage() {
     const id = Number(deepLinkId);
     if (!Number.isInteger(id) || id <= 0) return;
     let live = true;
-    get('/customers/' + id).then(res => { if (live && res?.data) { setError(null); setDraft({ ...res.data, password: '' }); } }).catch(() => { if (live) vtoast('تعذّر فتح حساب التاجر'); }).finally(() => { if (live) setQ({ customer: '' }); });
+    get('/customers/' + id).then(res => { if (live && res?.data) { setError(null); setTab(deepLinkTab === 'wallet' ? 'wallet' : 'details'); setDraft({ ...res.data, password: '' }); } }).catch(() => { if (live) vtoast('تعذّر فتح حساب التاجر'); }).finally(() => { if (live) setQ({ customer: '', tab: '' }); });
     return () => { live = false; };
-  }, [deepLinkId]);
-  const open = row => { setError(null); setDraft(row ? { ...row, password: '' } : { name: '', phone: '', email: '', password: '', type: 'wholesale', company_name: '', tax_number: '', commercial_register: '', credit_limit: '0' }); };
+  }, [deepLinkId, deepLinkTab]);
+  const open = row => { setError(null); setTab('details'); setDraft(row ? { ...row, password: '' } : { name: '', phone: '', email: '', password: '', type: 'wholesale', company_name: '', tax_number: '', commercial_register: '', credit_limit: '0' }); };
+  const canUseWallet = draft?.id && (can('customers.wallet.view') || can('customers.wallet.adjust'));
+  const walletOpen = canUseWallet && tab === 'wallet';
   const save = async () => {
     if (busy) return;
     setBusy(true); setError(null);
@@ -59,8 +62,13 @@ export function DealersPage() {
         { key: 'credit', label: 'حد البيع الآجل', render: r => formatCurrency(r.credit_limit) },
         { key: 'actions', label: '', render: r => <button className="btn btn-soft" onClick={() => open(r)}>فتح الحساب</button> },
       ]} />
-    <Drawer open={!!draft} onClose={() => { if (!busy) setDraft(null); }} title={draft?.id ? 'حساب التاجر' : 'إضافة تاجر'} width={620} footer={<><button className="btn btn-soft" disabled={busy} onClick={() => setDraft(null)}>إغلاق</button>{(!draft?.id || can('customers.update')) && <button className="btn btn-ink" disabled={busy} onClick={save}>{busy ? 'جارٍ الحفظ…' : 'حفظ البيانات'}</button>}</>}>
-      {draft && <div className="space-y-4">
+    <Drawer open={!!draft} onClose={() => { if (!busy) setDraft(null); }} title={draft?.id ? 'حساب التاجر' : 'إضافة تاجر'} width={620} footer={<><button className="btn btn-soft" disabled={busy} onClick={() => setDraft(null)}>إغلاق</button>{!walletOpen && (!draft?.id || can('customers.update')) && <button className="btn btn-ink" disabled={busy} onClick={save}>{busy ? 'جارٍ الحفظ…' : 'حفظ البيانات'}</button>}</>}>
+      {canUseWallet && <div className="flex gap-2 mb-4">
+        <button type="button" className="btn btn-soft" aria-pressed={!walletOpen} disabled={busy} onClick={() => setTab('details')}>بيانات الحساب</button>
+        <button type="button" className="btn btn-soft" aria-pressed={!!walletOpen} disabled={busy} onClick={() => setTab('wallet')}>المحفظة</button>
+      </div>}
+      {walletOpen && <DealerWallet key={draft.id} customerId={draft.id} canView={can('customers.wallet.view')} canAdjust={can('customers.wallet.adjust')} busy={busy} setBusy={setBusy} />}
+      {draft && !walletOpen && <div className="space-y-4">
         {error && <div role="alert"><Banner tone="red">{error.message}</Banner></div>}
         <fieldset disabled={busy || (!!draft.id && !can('customers.update'))} className="space-y-4">
           {field('name', 'اسم التاجر', { required: true })}
@@ -94,6 +102,72 @@ export function DealersPage() {
       </div>}
     </Drawer>
     <ConfirmDialog open={!!action} onClose={() => setAction(null)} title={action?.label || ''} message={action?.kind === 'approve' ? 'تأكد من حفظ بيانات الشركة وتوثيق المستندات قبل الاعتماد.' : <Field label="السبب" required><Input aria-label="سبب تغيير حالة الحساب" value={reason} onChange={e => setReason(e.target.value)} /></Field>} confirmLabel="تأكيد" onConfirm={async () => { if (action.kind !== 'approve' && !reason.trim()) throw new Error('اكتب السبب أولًا'); await api.post(base + `/customers/${draft.id}/${action.kind}`, action.kind === 'approve' ? {} : { reason }); setDraft(null); query.reload(); vtoast('تم تحديث حالة الحساب'); }} />
+  </div>;
+}
+
+function DealerWallet({ customerId, canView, canAdjust, busy, setBusy }) {
+  const [page, setPage] = useState(1);
+  const [form, setForm] = useState({ direction: 'credit', amount: '', reason: '' });
+  const [error, setError] = useState(null);
+  const pending = useRef(false);
+  const request = useRef(null);
+  const path = `/customers/${customerId}/wallet`;
+  const wallet = useApi(signal => canView ? get(path, { page }, signal) : Promise.resolve(null), [path, page, canView]);
+  const ledger = wallet.data?.transactions;
+
+  const adjust = async event => {
+    event.preventDefault();
+    if (pending.current || !form.reason.trim()) return;
+    pending.current = true;
+    setBusy(true);
+    setError(null);
+    const payload = { ...form, kind: 'adjustment', reason: form.reason.trim() };
+    const hash = JSON.stringify(payload);
+    try {
+      if (request.current?.hash !== hash) request.current = { hash, key: crypto.randomUUID() };
+      await api.post(base + path + '/adjustments', payload, { headers: { 'Idempotency-Key': request.current.key } });
+      request.current = null;
+      setForm({ direction: 'credit', amount: '', reason: '' });
+      if (page === 1) wallet.reload();
+      else setPage(1);
+      vtoast('تم تسجيل تعديل المحفظة');
+    } catch (e) {
+      setError(normalizeError(e));
+    } finally {
+      pending.current = false;
+      setBusy(false);
+    }
+  };
+
+  return <div className="space-y-4">
+    {canView && <SectionCard title="دفتر المحفظة" subtitle={wallet.data ? `الرصيد ${formatCurrency(wallet.data.balance)}` : undefined}>
+      {wallet.loading ? <Spinner /> : wallet.error ? <ErrorState title={wallet.error.message} onRetry={wallet.reload} /> : <>
+        {ledger?.data.length ? <ul className="divide-y">
+          {ledger.data.map(entry => <li key={entry.id} className="py-2 flex justify-between gap-3">
+            <div><div>{entry.type_label}</div><div className="t-2 text-sm">{formatDate(entry.created_at)}{entry.reference_label && ` · ${entry.reference_label}`}</div></div>
+            <div dir="ltr" className={Number(entry.amount) < 0 ? 'text-red-700' : 'text-emerald-700'}>{formatCurrency(entry.amount)}</div>
+          </li>)}
+        </ul> : <p className="t-2">لا توجد حركات في المحفظة.</p>}
+        {ledger?.last_page > 1 && <div className="flex items-center gap-2 mt-3">
+          <button type="button" className="btn btn-soft" disabled={page <= 1} onClick={() => setPage(page - 1)}>السابق</button>
+          <span>{page} / {ledger.last_page}</span>
+          <button type="button" className="btn btn-soft" disabled={page >= ledger.last_page} onClick={() => setPage(page + 1)}>التالي</button>
+        </div>}
+      </>}
+    </SectionCard>}
+    {canAdjust && <SectionCard title="تعديل الرصيد">
+      <form onSubmit={adjust} className="space-y-3">
+        {error && <div role="alert"><Banner tone="red">{error.message}</Banner></div>}
+        <fieldset disabled={busy} className="space-y-3">
+          <Field label="اتجاه التعديل"><select className="inp" aria-label="اتجاه التعديل" value={form.direction} onChange={e => setForm({ ...form, direction: e.target.value })}>
+            <option value="credit">إضافة</option><option value="debit">خصم</option>
+          </select></Field>
+          <Field label="المبلغ بالجنيه" required><Input aria-label="المبلغ بالجنيه" type="number" min="0.01" max="99999999" step="0.01" required value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} /></Field>
+          <Field label="سبب التعديل" required><Input aria-label="سبب التعديل" required maxLength={500} value={form.reason} onChange={e => setForm({ ...form, reason: e.target.value })} /></Field>
+          <button type="submit" className="btn btn-ink" disabled={!form.reason.trim()}>{busy ? 'جارٍ التسجيل…' : 'تسجيل التعديل'}</button>
+        </fieldset>
+      </form>
+    </SectionCard>}
   </div>;
 }
 

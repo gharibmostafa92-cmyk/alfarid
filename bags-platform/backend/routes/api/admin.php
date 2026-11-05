@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\V1\Admin\CategoryController;
 use App\Http\Controllers\Api\V1\Admin\CouponController;
 use App\Http\Controllers\Api\V1\Admin\CustomerController;
 use App\Http\Controllers\Api\V1\Admin\CustomerGroupController;
+use App\Http\Controllers\Api\V1\Admin\CustomerWalletController;
 use App\Http\Controllers\Api\V1\Admin\DashboardController;
 use App\Http\Controllers\Api\V1\Admin\ExpenseController;
 use App\Http\Controllers\Api\V1\Admin\InventoryController;
@@ -228,6 +229,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
         Route::apiResource('price-lists', PriceListController::class);
         Route::post('price-lists/{price_list}/import', [PriceListController::class, 'import'])->name('price-lists.import');
         Route::get('price-lists/{price_list}/export', [PriceListController::class, 'export'])->name('price-lists.export');
+        Route::post('price-lists/{price_list}/apply-percentage', [PriceListController::class, 'applyPercentage'])->name('price-lists.apply-percentage');
 
         Route::scopeBindings()->group(function () {
             Route::apiResource('price-lists.items', PriceListItemController::class);
@@ -242,6 +244,11 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
         Route::post('customers/{customer}/suspend', [CustomerController::class, 'suspend'])->name('customers.suspend');
         Route::post('customers/{customer}/reactivate', [CustomerController::class, 'reactivate'])->name('customers.reactivate');
         Route::get('customers/{customer}/history', [CustomerController::class, 'history'])->name('customers.history');
+        Route::get('customers/{customer}/wallet', [CustomerWalletController::class, 'show'])->name('customers.wallet.show');
+        Route::get('customers/{customer}/wallet/summary', [CustomerWalletController::class, 'summary'])->name('customers.wallet.summary');
+        Route::get('customers/{customer}/wallet/adjustments', [CustomerWalletController::class, 'adjustments'])->name('customers.wallet.adjustments.index');
+        Route::post('customers/{customer}/wallet/adjustments', [CustomerWalletController::class, 'storeAdjustment'])->name('customers.wallet.adjustments.store');
+        Route::delete('wallet-adjustments/{adjustment}', [CustomerWalletController::class, 'reverseAdjustment'])->name('wallet.adjustments.reverse');
         Route::scopeBindings()->group(function (): void {
             Route::patch('customers/{customer}/documents/{document}', [CustomerController::class, 'reviewDocument'])
                 ->name('customers.documents.update');
@@ -348,6 +355,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
         Route::apiResource('treasuries', TreasuryController::class);
 
         Route::apiResource('expenses', ExpenseController::class);
+        Route::get('expenses/{expense}/attachment', [ExpenseController::class, 'attachment'])->name('expenses.attachment');
         Route::post('expenses/{expense}/void', [ExpenseController::class, 'void'])->name('expenses.void');
 
         Route::apiResource('treasury-transfers', TreasuryTransferController::class)

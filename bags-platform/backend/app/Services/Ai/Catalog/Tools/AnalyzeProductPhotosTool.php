@@ -143,6 +143,13 @@ PROMPT;
             }
         }
 
+        // Mark analyzed attachments consumed so the pending quota and the
+        // 24h prune sweep treat analyzed images like attached ones.
+        AiAttachment::query()
+            ->whereIn('id', $rawIds)
+            ->whereNull('consumed_at')
+            ->update(['consumed_at' => now()]);
+
         // $conv مضمونة هنا (الرفض أعلاه) — التوكنز تدخل الميزانية
         // اليومية وسقف الدورة عبر صفوف ai_messages.
         AiMessage::create([

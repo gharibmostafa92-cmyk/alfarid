@@ -19,7 +19,7 @@ use Illuminate\Console\Command;
 
 final class EvaluateAiAgent extends Command
 {
-    protected $signature = 'ai:evaluate {--actor= : Staff ID to evaluate permissions for} {--model=} {--case=* : Evaluate selected case IDs} {--rpm=10 : Maximum provider requests per minute during evaluation} {--check : Validate the dataset without contacting Gemini} {--toolsets : Route declarations by domain to compare with the full tool list} {--min-accuracy=0.85}';
+    protected $signature = 'ai:evaluate {--finance : Evaluate the finance benchmark} {--actor= : Staff ID to evaluate permissions for} {--model=} {--case=* : Evaluate selected case IDs} {--rpm=10 : Maximum provider requests per minute during evaluation} {--check : Validate the dataset without contacting Gemini} {--toolsets : Route declarations by domain to compare with the full tool list} {--min-accuracy=}';
 
     private float $lastRequestAt = 0;
 
@@ -27,7 +27,9 @@ final class EvaluateAiAgent extends Command
 
     public function handle(GeminiClient $gemini, ToolRegistry $registry, AgentOrchestrator $orchestrator): int
     {
-        $dataset = json_decode(file_get_contents(base_path('tests/Fixtures/ai-agent-egyptian.json')), true, flags: JSON_THROW_ON_ERROR);
+        $finance = $this->option('finance');
+        $fixture = $finance ? 'ai-agent-finance.json' : 'ai-agent-egyptian.json';
+        $dataset = json_decode(file_get_contents(base_path('tests/Fixtures/'.$fixture)), true, flags: JSON_THROW_ON_ERROR);
         $definitions = $registry->definitions();
         $ids = [];
         foreach ($dataset['cases'] as $case) {
@@ -45,8 +47,9 @@ final class EvaluateAiAgent extends Command
                 return self::FAILURE;
             }
         }
-        if (count($ids) < 220) {
-            $this->error('At least 220 evaluation cases are required.');
+        $requiredCases = $finance ? 60 : 220;
+        if (count($ids) < $requiredCases) {
+            $this->error("At least {$requiredCases} evaluation cases are required.");
 
             return self::FAILURE;
         }
@@ -65,7 +68,7 @@ final class EvaluateAiAgent extends Command
             }
             $ids = array_column($cases, 'id');
         }
-        $minimum = (float) $this->option('min-accuracy');
+        $minimum = (float) ($this->option('min-accuracy') ?? ($finance ? 0.95 : 0.85));
         if (! ctype_digit((string) $this->option('rpm')) || (int) $this->option('rpm') < 1) {
             $this->error('rpm must be a positive integer.');
 
@@ -78,8 +81,18 @@ final class EvaluateAiAgent extends Command
         }
         $actor = $this->option('actor') ? User::findOrFail($this->option('actor')) : User::role(StaffRole::SuperAdmin->value, 'staff')->where('is_active', true)->firstOrFail();
         $declarations = $registry->declarationsFor($actor);
+        if ($finance) {
+            $missing = array_diff(array_unique(array_filter(array_column($cases, 'tool'))), array_column($declarations, 'name'));
+            if ($missing !== []) {
+                $this->error('Evaluation actor or feature flags hide expected tools: '.implode(', ', $missing));
+
+                return self::FAILURE;
+            }
+        }
         $system = $orchestrator->systemPrompt($actor)."\nبيانات محاكاة مرجعية موثوقة لاختبار اختيار الأدوات. يمكنك طلب أدوات البحث قبل اقتراح التعديل؛ لا تؤكد تنفيذ أي تعديل: ".json_encode($dataset['context'], JSON_UNESCAPED_UNICODE);
         $passed = 0;
+        $pricingTotal = count(array_filter($cases, fn ($case) => str_starts_with($case['id'], 'pricing-')));
+        $pricingPassed = 0;
         $errors = 0;
         foreach ($cases as $case) {
             try {
@@ -89,6 +102,9 @@ final class EvaluateAiAgent extends Command
                     : $declarations;
                 $match = $this->evaluateCase($gemini, $registry, $caseDeclarations, $system, $dataset['context'], $case, $observed);
                 $passed += $match ? 1 : 0;
+                if ($match && str_starts_with($case['id'], 'pricing-')) {
+                    $pricingPassed++;
+                }
                 $this->line($case['id'].': '.($match ? 'PASS' : 'FAIL').' ('.implode(' → ', $observed).')');
             } catch (\Throwable $exception) {
                 report($exception);
@@ -103,7 +119,12 @@ final class EvaluateAiAgent extends Command
             $this->warn($errors.' cases could not complete because of provider errors.');
         }
 
-        return $accuracy >= $minimum ? self::SUCCESS : self::FAILURE;
+        $pricingAccuracy = $pricingTotal > 0 ? $pricingPassed / $pricingTotal : null;
+        if ($pricingAccuracy !== null) {
+            $this->info(sprintf('Pricing accuracy: %.1f%% (%d/%d); required 90.0%%', $pricingAccuracy * 100, $pricingPassed, $pricingTotal));
+        }
+
+        return $accuracy >= $minimum && ($pricingAccuracy === null || $pricingAccuracy >= 0.9) ? self::SUCCESS : self::FAILURE;
     }
 
     private function evaluateCase(GeminiClient $gemini, ToolRegistry $registry, array $declarations, string $system, array $context, array $case, array &$observed): bool
@@ -141,9 +162,14 @@ final class EvaluateAiAgent extends Command
                         $args['branch_id'] = $results[0]['id'];
                     }
                 }
+                $expected = $case['args'];
+                if ($this->option('finance') && $call['name'] === $case['tool']) {
+                    $args = $this->normalizeFinanceArgs($context, $args);
+                    $expected = $this->normalizeFinanceArgs($context, $expected);
+                }
                 $correct = $call['name'] === $case['tool'] && $this->containsArgs(
                     $this->normalizeCatalogEvaluationArgs($context, $call['name'], $args),
-                    $this->normalizeCatalogEvaluationArgs($context, $case['tool'] ?? '', $case['args']),
+                    $this->normalizeCatalogEvaluationArgs($context, $case['tool'] ?? '', $expected),
                 );
                 // Never call dispatch/execute here. An unexpected write invalidates the case.
                 if ($registry->isWrite($call['name']) && ! $correct) {
@@ -177,8 +203,16 @@ final class EvaluateAiAgent extends Command
             'list_movements' => 'movements',
             'list_transfers' => 'transfers', 'get_transfer' => 'transfers',
             'list_stocktakes' => 'stocktakes', 'get_stocktake' => 'stocktakes',
+            'list_price_lists', 'get_price_list' => 'price_lists',
+            'list_coupons', 'get_coupon' => 'coupons',
+            'list_promotions' => 'promotions',
+            'list_treasuries', 'get_treasury' => 'treasuries',
+            'list_treasury_transfers', 'get_treasury_transfer', 'my_approval_queue' => 'treasury_transfers',
+            'list_expenses' => 'expenses',
             'find_entities' => match ($call['args']['type'] ?? '') {
-                'branch' => 'branches', 'user' => 'users', 'role' => 'roles', 'location' => 'locations', 'customer' => 'customers', 'customer_group' => 'customer_groups', 'category' => 'categories', 'product' => 'products', 'variant' => 'variants', 'transfer' => 'transfers', 'stocktake' => 'stocktakes', default => ''
+                'branch' => 'branches', 'user' => 'users', 'role' => 'roles', 'location' => 'locations', 'customer' => 'customers', 'customer_group' => 'customer_groups', 'category' => 'categories', 'product' => 'products', 'variant' => 'variants', 'transfer' => 'transfers', 'stocktake' => 'stocktakes',
+                'price_list' => 'price_lists', 'coupon' => 'coupons', 'promotion' => 'promotions', 'treasury' => 'treasuries',
+                'treasury_transfer' => 'treasury_transfers', 'expense' => 'expenses', default => '',
             },
             'list_locations' => 'locations',
             default => '',
@@ -216,6 +250,34 @@ final class EvaluateAiAgent extends Command
         $items = array_map(fn ($item) => ['id' => $item['id'], 'label' => isset($item['company_name']) ? $item['name'].' — '.$item['company_name'] : $item['name'], 'meta' => $item['code'] ?? ''], $items);
 
         return [$call['name'] === 'find_entities' ? 'results' : $key => $items];
+    }
+
+    private function normalizeFinanceArgs(array $context, array $args): array
+    {
+        if (isset($args['amount'])) {
+            try {
+                $args['amount'] = \App\Services\Ai\Finance\FinanceArgs::parseAmount($args['amount']);
+            } catch (\Illuminate\Validation\ValidationException) {
+                // An unparseable amount cannot match a valid expected value.
+            }
+        }
+        if (is_string($args['category'] ?? null)) {
+            $category = $args['category'];
+            $args['category'] = EntityResolver::normalizeForSearch(config('ai_finance_expense_categories')[$category] ?? $category);
+        }
+        if (isset($args['treasury_id'])) {
+            $args['treasury_id'] = (int) $args['treasury_id'];
+        } elseif (is_string($args['treasury_query'] ?? null)) {
+            $query = EntityResolver::normalizeForSearch($args['treasury_query']);
+            $matches = array_values(array_filter($context['treasuries'] ?? [], fn ($row) => $query !== ''
+                && str_contains(EntityResolver::normalizeForSearch($row['name']), $query)));
+            if (count($matches) === 1) {
+                unset($args['treasury_query']);
+                $args['treasury_id'] = $matches[0]['id'];
+            }
+        }
+
+        return $args;
     }
 
     private function containsArgs(array $actual, array $expected): bool

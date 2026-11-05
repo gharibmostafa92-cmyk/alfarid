@@ -79,9 +79,6 @@ final class ExplainPriceTool implements AgentTool
             return $customerResolved;
         }
         $customer = $customerResolved['customer'];
-        if ($customer !== null && ! $actor->can('customers.view')) {
-            return ToolOutcome::denied('معندكش صلاحية عرض العملاء.');
-        }
 
         $qty = isset($args['qty']) ? (float) $args['qty'] : 1.0;
         if (! is_finite($qty) || $qty <= 0) {

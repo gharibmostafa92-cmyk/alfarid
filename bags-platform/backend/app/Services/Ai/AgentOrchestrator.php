@@ -219,6 +219,15 @@ final class AgentOrchestrator
         }
         $conv->forceFill(['last_message_at' => now()])->save();
 
+        if ($shortcut = $this->financeShortcut($text)) {
+            $outcome = $this->registry->dispatch($actor, $conv, $shortcut);
+            $blocks = $outcome->uiBlock ? [$outcome->uiBlock] : [];
+            $reply = $outcome->message ?? ($outcome->type === 'proposal' ? 'راجع الاقتراح قبل التأكيد.' : '');
+            $message = AiMessage::create(['conversation_id' => $conv->id, 'role' => 'model', 'content' => $reply, 'ui_blocks' => $blocks]);
+
+            return new AgentReply($reply, $blocks, $message->id);
+        }
+
         // If selection present, feed it as explicit context to model
         $history = $this->history($conv);
         $domains = class_exists(DomainRouter::class) ? app(DomainRouter::class)->route($text, $mentions, $selection, $conv, $attachments) : null;
@@ -362,6 +371,24 @@ final class AgentOrchestrator
         $msg = AiMessage::create(['conversation_id' => $conv->id, 'role' => 'model', 'content' => 'محتاج توضيح أكتر عشان أكمل.']);
 
         return new AgentReply('محتاج توضيح أكتر عشان أكمل.', [], $msg->id);
+    }
+
+    /** @return array{name:string,args:array<string,mixed>}|null */
+    private function financeShortcut(string $text): ?array
+    {
+        if (preg_match('/\Aجهّز دفعة تحويل فائض الأدراج للرئيسية(?: للفرع رقم ([1-9][0-9]{0,17}))?\z/u', $text, $matches)) {
+            $args = ['drawer_surplus' => true];
+            if (isset($matches[1])) {
+                $args['branch_id'] = (int) $matches[1];
+            }
+
+            return ['name' => 'bulk_actions', 'args' => $args];
+        }
+        if (preg_match('/\Aجهّز تحويل خزينة عكسي للتحويل المعتمد رقم ([1-9][0-9]{0,17})\z/u', $text, $matches)) {
+            return ['name' => 'create_treasury_transfer', 'args' => ['reverse_transfer_id' => (int) $matches[1]]];
+        }
+
+        return null;
     }
 
     /**

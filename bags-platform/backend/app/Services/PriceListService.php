@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Enums\PriceListType;
 use App\Exceptions\BusinessException;
+use App\Jobs\RefreshCatalogRetailPrices;
 use App\Models\PriceList;
 use App\Models\PriceListItem;
 use App\Models\ProductVariant;
@@ -242,6 +243,34 @@ class PriceListService
         });
     }
 
+    public function applyPercentage(PriceList $priceList, float $percent, User $user): int
+    {
+        return DB::transaction(function () use ($priceList, $percent, $user): int {
+            $locked = PriceList::query()->lockForUpdate()->findOrFail($priceList->id);
+            $this->assertListAccess($user, $locked);
+
+            $items = $locked->items();
+            $factor = 1 + $percent / 100;
+            $outOfRange = (clone $items)->whereRaw('round(price * ?::numeric, 4) > ?', [$factor, '99999999.9999'])->exists();
+            if ($outOfRange) {
+                throw new BusinessException('أحد الأسعار بعد التعديل يتجاوز الحد المسموح.');
+            }
+
+            $productIds = ProductVariant::query()->withTrashed()
+                ->whereIn('id', (clone $items)->select('product_variant_id'))
+                ->distinct()->pluck('product_id')->map(fn ($id) => (int) $id)->all();
+            $updated = DB::update(
+                'UPDATE price_list_items SET price = round(price * ?::numeric, 4), updated_at = ? WHERE price_list_id = ?',
+                [$factor, now(), $locked->id],
+            );
+            if ($productIds !== []) {
+                DB::afterCommit(static fn () => RefreshCatalogRetailPrices::dispatch($productIds));
+            }
+
+            return $updated;
+        });
+    }
+
     /**
      * Guards against duplicate variant tiers with identical minimum quantities in the same list.
      */
@@ -317,9 +346,9 @@ class PriceListService
     /**
      * Imports CSV rows into price list items using batched upserts.
      *
-     * @return array{created: int, updated: int, skipped: int, errors: list<array{line: int, message: string}>}
+     * @return array{created: int, updated: int, skipped: int, errors: list<array{line: int, message: string}>, diff?: list<array>, row_count?: int}
      */
-    public function importCsv(PriceList $priceList, UploadedFile $file, ?User $user = null): array
+    public function importCsv(PriceList $priceList, UploadedFile $file, ?User $user = null, bool $dryRun = false): array
     {
         $this->assertListAccess($user, $priceList);
         $handle = fopen($file->getRealPath(), 'r');
@@ -362,27 +391,44 @@ class PriceListService
 
         $ids = array_values(array_filter(array_map(fn ($row) => filter_var($row['variant_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]), $rows)));
         $skus = [];
+        $upperSkus = [];
         foreach ($rows as $row) {
             // Match SKUs case-insensitively to prevent import failures from casing discrepancies.
             $skus[] = $row['sku'];
             $skus[] = $this->unescapeCsvText($row['sku']);
             $skus[] = strtoupper($row['sku']);
             $skus[] = strtoupper($this->unescapeCsvText($row['sku']));
+            $upperSkus[] = strtoupper($this->unescapeCsvText($row['sku']));
         }
+        $upperSkus = array_values(array_unique(array_filter($upperSkus, fn ($sku) => $sku !== '')));
         $variants = ProductVariant::query()->where('is_active', true)
-            ->where(fn ($q) => $q->whereIn('id', $ids)->orWhereIn('sku', array_unique($skus)))->get();
+            ->where(fn ($q) => $q->whereIn('id', $ids)->orWhereIn('sku', array_unique($skus))
+                ->when($upperSkus !== [], fn ($q) => $q->orWhereIn(DB::raw('UPPER(sku)'), $upperSkus)))->get();
         $byId = $variants->keyBy('id');
         $bySku = $variants->keyBy('sku');
+        $bySkuUpper = $variants->groupBy(fn (ProductVariant $variant) => strtoupper($variant->sku));
         $report = ['created' => 0, 'updated' => 0, 'skipped' => 0, 'errors' => []];
+        if ($dryRun) {
+            $report['row_count'] = count($rows);
+        }
         $valid = [];
         foreach ($rows as $row) {
             try {
+                $normalizedSku = $this->unescapeCsvText($row['sku']);
+                $foldedMatches = $bySkuUpper->get(strtoupper($normalizedSku));
                 $variant = $row['variant_id'] !== ''
                     ? $byId->get(filter_var($row['variant_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?: 0)
-                    : ($bySku->get($row['sku']) ?? $bySku->get($this->unescapeCsvText($row['sku']))
-                        ?? $bySku->get(strtoupper($row['sku'])) ?? $bySku->get(strtoupper($this->unescapeCsvText($row['sku']))));
-                if ($variant === null || ($row['sku'] !== '' && $row['sku'] !== $variant->sku && strtoupper($row['sku']) !== $variant->sku && $row['sku'] !== $this->csvText($variant->sku) && strtoupper($row['sku']) !== $this->csvText($variant->sku))) {
+                    : ($bySku->get($row['sku']) ?? $bySku->get($normalizedSku)
+                        ?? ($foldedMatches?->count() === 1 ? $foldedMatches->first() : null));
+                if ($variant === null) {
                     throw new BusinessException('الصنف غير موجود أو يوجد تعارض بين sku وvariant_id.');
+                }
+                if ($row['sku'] !== '') {
+                    $rowSku = strtoupper($this->unescapeCsvText($row['sku']));
+                    $matches = $rowSku === strtoupper($variant->sku) || $rowSku === strtoupper($this->csvText($variant->sku));
+                    if (! $matches) {
+                        throw new BusinessException('الصنف غير موجود أو يوجد تعارض بين sku وvariant_id.');
+                    }
                 }
                 $validator = Validator::make($row, [
                     'price' => ['required', 'numeric', 'decimal:0,4', 'min:0', 'max:99999999.9999'],
@@ -395,7 +441,7 @@ class PriceListService
                 $row['starts_at'] = $this->parseDate($row['starts_at'] ?? '');
                 $row['ends_at'] = $this->parseDate($row['ends_at'] ?? '');
                 $this->validateDates($row);
-                $valid[] = [...$row, 'product_variant_id' => $variant->id];
+                $valid[] = [...$row, 'product_variant_id' => $variant->id, 'resolved_sku' => $variant->sku];
             } catch (BusinessException $exception) {
                 $report['skipped']++;
                 $report['errors'][] = ['line' => $row['line'], 'message' => $exception->getMessage()];
@@ -408,23 +454,41 @@ class PriceListService
         }
         $valid = array_values($deduped);
 
-        DB::transaction(function () use ($valid, $priceList, $user, &$report): void {
-            $locked = PriceList::query()->lockForUpdate()->findOrFail($priceList->id);
+        DB::transaction(function () use ($valid, $priceList, $user, $dryRun, &$report): void {
+            $locked = PriceList::query()
+                ->when(! $dryRun, fn ($query) => $query->lockForUpdate())
+                ->findOrFail($priceList->id);
             $this->assertListAccess($user, $locked);
 
             // Batch existing lookup and upsert to avoid thousands of per-row queries while holding row lock.
             $existing = PriceListItem::query()
                 ->where('price_list_id', $priceList->id)
                 ->whereIn('product_variant_id', array_column($valid, 'product_variant_id'))
-                ->get(['product_variant_id', 'min_qty'])
-                ->map(fn ($item) => $item->product_variant_id.':'.number_format((float) $item->min_qty, 4, '.', ''))
-                ->flip();
+                ->get(['product_variant_id', 'min_qty', 'price'])
+                ->keyBy(fn ($item) => $item->product_variant_id.':'.number_format((float) $item->min_qty, 4, '.', ''));
 
             $rows = [];
+            if ($dryRun) {
+                $report['diff'] = [];
+            }
             $now = now();
             foreach ($valid as $row) {
                 $key = $row['product_variant_id'].':'.number_format((float) $row['min_qty'], 4, '.', '');
                 $existing->has($key) ? $report['updated']++ : $report['created']++;
+                if ($dryRun) {
+                    $report['diff'][] = [
+                        'line' => $row['line'],
+                        'variant_id' => $row['product_variant_id'],
+                        'sku' => $row['resolved_sku'],
+                        'min_qty' => $row['min_qty'],
+                        'old_price' => $existing->get($key)?->price,
+                        'new_price' => $row['price'],
+                        'starts_at' => $row['starts_at'],
+                        'ends_at' => $row['ends_at'],
+                    ];
+
+                    continue;
+                }
                 $rows[] = [
                     'price_list_id' => $priceList->id,
                     'product_variant_id' => $row['product_variant_id'],
@@ -437,8 +501,26 @@ class PriceListService
                 ];
             }
 
+            if ($rows === []) {
+                return;
+            }
             foreach (array_chunk($rows, 500) as $chunk) {
                 PriceListItem::query()->upsert($chunk, ['price_list_id', 'product_variant_id', 'min_qty'], ['price', 'starts_at', 'ends_at', 'updated_at']);
+            }
+
+            // Query-builder upsert fires no Eloquent events, so the catalog
+            // snapshot observer never sees these writes. Refresh the affected
+            // products explicitly, mirroring the AI upsert path.
+            $productIds = ProductVariant::query()
+                ->whereIn('id', array_column($valid, 'product_variant_id'))
+                ->distinct()
+                ->pluck('product_id')
+                ->all();
+            if ($productIds !== []) {
+                $ids = array_values(array_unique(array_map('intval', $productIds)));
+                DB::afterCommit(static function () use ($ids): void {
+                    RefreshCatalogRetailPrices::dispatch($ids);
+                });
             }
         });
 

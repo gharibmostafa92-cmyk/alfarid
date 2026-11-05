@@ -7,14 +7,13 @@ namespace App\Http\Controllers\Api\V1\Admin;
 use App\Enums\TreasuryType;
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
-use App\Models\PosShift;
 use App\Models\Treasury;
 use App\Services\BranchAccess;
+use App\Services\TreasuryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 /**
@@ -32,7 +31,10 @@ class TreasuryController extends Controller implements HasMiddleware
         ];
     }
 
-    public function __construct(private readonly BranchAccess $branchAccess) {}
+    public function __construct(
+        private readonly BranchAccess $branchAccess,
+        private readonly TreasuryService $treasuryService,
+    ) {}
 
     /**
      * Lists paginated treasuries scoped by user branch restrictions and filters.
@@ -78,8 +80,7 @@ class TreasuryController extends Controller implements HasMiddleware
             'is_active' => ['nullable', 'boolean'],
         ]);
 
-        $this->assertBranch($request, $data['branch_id'] ?? null);
-        $treasury = Treasury::create($data + ['current_balance' => 0]);
+        $treasury = $this->treasuryService->createAccount($data, $request->user());
 
         return response()->json([
             'message' => 'تم إنشاء الخزينة بنجاح.',
@@ -119,26 +120,7 @@ class TreasuryController extends Controller implements HasMiddleware
             'is_active' => ['nullable', 'boolean'],
         ]);
 
-        $this->branchAccess->assertTreasury($request->user()->id, $treasury);
-        if (array_key_exists('branch_id', $data)) {
-            $this->assertBranch($request, $data['branch_id']);
-        }
-        DB::transaction(function () use ($treasury, $data): void {
-            $locked = Treasury::query()->lockForUpdate()->findOrFail($treasury->id);
-            // Treasury account types represent fundamental ledger entities and are immutable after creation.
-            if (isset($data['type']) && $data['type'] !== $locked->type->value) {
-                throw new BusinessException('نوع الخزينة غير قابل للتغيير.');
-            }
-            $unsettled = PosShift::query()->where('treasury_id', $locked->id)->whereIn('status', ['open', 'closed_pending_approval'])->exists();
-            if (($unsettled || bccomp((string) $locked->current_balance, '0', 2) !== 0 || DB::table('treasury_transactions')->where('treasury_id', $locked->id)->exists()) && array_key_exists('branch_id', $data) && $data['branch_id'] != $locked->branch_id) {
-                throw new BusinessException('لا يمكن نقل خزينة لها رصيد أو سجل حركات إلى فرع آخر.');
-            }
-            if ($unsettled && array_key_exists('is_active', $data) && ! $data['is_active']) {
-                throw new BusinessException('لا يمكن تعطيل درج له وردية لم تُسوَّ.');
-            }
-            $locked->update($data);
-        });
-        $treasury->refresh();
+        $treasury = $this->treasuryService->updateAccount($treasury, $data, $request->user());
 
         return response()->json([
             'message' => 'تم تحديث الخزينة بنجاح.',
@@ -156,26 +138,9 @@ class TreasuryController extends Controller implements HasMiddleware
      */
     public function destroy(Request $request, Treasury $treasury): JsonResponse
     {
-        $this->branchAccess->assertTreasury($request->user()->id, $treasury);
-        DB::transaction(function () use ($treasury): void {
-            $locked = Treasury::query()->lockForUpdate()->findOrFail($treasury->id);
-            if (bccomp((string) $locked->current_balance, '0', 2) !== 0 || DB::table('treasury_transactions')->where('treasury_id', $locked->id)->exists()
-                || PosShift::query()->where('treasury_id', $locked->id)->exists()) {
-                throw new BusinessException('لا يمكن حذف خزينة لها رصيد أو سجل حركات أو ورديات.');
-            }
-            $locked->delete();
-        });
+        $this->treasuryService->deleteAccount($treasury, $request->user());
 
         return response()->json(['message' => 'تم حذف الخزينة.']);
-    }
-
-    private function assertBranch(Request $request, ?int $branchId): void
-    {
-        if ($branchId === null) {
-            $this->branchAccess->assertCentralAccess($request->user());
-        } else {
-            $this->branchAccess->assertBranch($request->user()->id, $branchId);
-        }
     }
 
     private function treasuryData(Treasury $treasury): Treasury

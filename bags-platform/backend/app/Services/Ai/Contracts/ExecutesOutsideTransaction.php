@@ -4,4 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Contracts;
 
-interface ExecutesOutsideTransaction {} // marker للأدوات اللي فيها رفع ملفات
+use App\Models\AiPendingAction;
+
+interface ExecutesOutsideTransaction
+{
+    public function executesOutsideTransaction(AiPendingAction $action): bool;
+}

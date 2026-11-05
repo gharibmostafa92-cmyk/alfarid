@@ -29,7 +29,7 @@ class PriceListController extends Controller implements HasMiddleware
         return [
             new Middleware('can:price_lists.view', only: ['index', 'show']),
             new Middleware('can:price_lists.create', only: ['store']),
-            new Middleware('can:price_lists.update', only: ['update']),
+            new Middleware('can:price_lists.update', only: ['update', 'applyPercentage']),
             new Middleware('can:price_lists.delete', only: ['destroy']),
             new Middleware('can:price_lists.import', only: ['import']),
             new Middleware('can:price_lists.export', only: ['export']),
@@ -81,12 +81,21 @@ class PriceListController extends Controller implements HasMiddleware
     /** استيراد أسعار من CSV (updateOrCreate على القائمة/المتغير/حد الكمية). */
     public function import(ImportPriceListItemsRequest $request, PriceList $priceList): JsonResponse
     {
-        $report = $this->priceLists->importCsv($priceList, $request->file('file'), $request->user());
+        $dryRun = $request->boolean('dry_run');
+        $report = $this->priceLists->importCsv($priceList, $request->file('file'), $request->user(), $dryRun);
 
         return response()->json([
-            'message' => 'تم تنفيذ الاستيراد',
+            'message' => $dryRun ? 'معاينة الاستيراد' : 'تم تنفيذ الاستيراد',
             'data' => $report,
         ]);
+    }
+
+    public function applyPercentage(Request $request, PriceList $priceList): JsonResponse
+    {
+        $data = $request->validate(['percent' => ['required', 'numeric', 'min:-100', 'max:1000000']]);
+        $updated = $this->priceLists->applyPercentage($priceList, (float) $data['percent'], $request->user());
+
+        return response()->json(['data' => ['updated' => $updated]]);
     }
 
     /** تصدير عناصر القائمة كملف CSV قابل لإعادة الاستيراد. */

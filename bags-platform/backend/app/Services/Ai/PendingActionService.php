@@ -32,15 +32,15 @@ final class PendingActionService
             return $this->confirmBulk($actor, $action, $typed, $selectedItems);
         }
         $toolInstance = $this->registry->toolInstance($action->tool);
-        if ($toolInstance instanceof ExecutesOutsideTransaction) {
+        if ($toolInstance instanceof ExecutesOutsideTransaction && $toolInstance->executesOutsideTransaction($action)) {
             return $this->confirmOutsideTransaction($actor, $action, $typed, $toolInstance);
         }
         try {
-            $result = DB::transaction(function () use ($actor, $action, $typed) {
+            $result = DB::transaction(function () use ($actor, $action, $typed, $selectedItems) {
                 $this->lockForAction($action->tool);
                 $locked = AiPendingAction::query()->lockForUpdate()->findOrFail($action->id);
                 try {
-                    return $this->confirmLocked($actor, $locked, $typed);
+                    return $this->confirmLocked($actor, $locked, $typed, $selectedItems);
                 } catch (HttpExceptionInterface $e) {
                     return $e;
                 }
@@ -237,7 +237,7 @@ final class PendingActionService
         abort_unless(hash_equals($action->args_hash, $this->registry->hashArgs($action->args)), 409, 'بيانات الإجراء اتغيرت.');
     }
 
-    private function confirmLocked(User $actor, AiPendingAction $action, ?string $typed): ToolOutcome
+    private function confirmLocked(User $actor, AiPendingAction $action, ?string $typed, ?array $selectedItems = null): ToolOutcome
     {
         abort_unless($action->user_id === $actor->id, 403);
         $this->authorizeTool($actor, $action);
@@ -263,6 +263,8 @@ final class PendingActionService
             $typedInstruction = null;
             if (in_array($action->tool, ['approve_dealer_application', 'reject_dealer_application', 'suspend_customer', 'set_credit_limit'], true)) {
                 $typedInstruction = 'اكتب آخر 4 أرقام من موبايل التاجر.';
+            } elseif ($action->tool === 'adjust_customer_wallet') {
+                $typedInstruction = 'اكتب آخر 4 أرقام من موبايل العميل.';
             } elseif ($typedHint !== null && $typedHint !== '') {
                 $typedInstruction = 'اكتب '.$typedHint.': '.$expectedTyped;
             }
@@ -275,17 +277,18 @@ final class PendingActionService
                 abort(422, $typedInstruction ?? 'اكتب نص التأكيد المطلوب: '.$expectedTyped);
             }
         }
-        if ($this->registry->toolInstance($action->tool) instanceof ExecutesOutsideTransaction) {
+        $tool = $this->registry->toolInstance($action->tool);
+        if ($tool instanceof ExecutesOutsideTransaction && $tool->executesOutsideTransaction($action)) {
             $action->forceFill(['status' => 'confirmed'])->save();
 
             return ToolOutcome::wrap('claimed');
         }
         $via = ['channel' => 'ai', 'conversation_id' => $action->conversation_id, 'action_id' => $action->id];
         try {
-            $outcome = DB::transaction(function () use ($actor, $action, $via) {
+            $outcome = DB::transaction(function () use ($actor, $action, $via, $selectedItems) {
                 $this->registry->lockTargets($action);
 
-                return $this->registry->executeWrite($actor, $action, $via);
+                return $this->registry->executeWrite($actor, $action, $via, $selectedItems);
             });
         } catch (UniqueConstraintViolationException) {
             // M14: 23505 بتصل برا الـ savepoint — الإجراء يتاخد failed برسالة

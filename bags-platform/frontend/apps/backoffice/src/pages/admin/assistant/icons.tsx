@@ -64,8 +64,8 @@ export function Icon({ name, size = 18, className }: { name: keyof typeof paths 
   );
 }
 
-export const entityIcon: Record<string, string> = { user: 'user', branch: 'branch', role: 'role', command: 'command', customer: 'store', customer_group: 'layers', category: 'folder', product: 'box', variant: 'tag' };
-export const entityLabel: Record<string, string> = { user: 'موظف', branch: 'فرع', role: 'دور', command: 'أمر', customer: 'عميل', customer_group: 'مجموعة عملاء', category: 'قسم', product: 'منتج', variant: 'تشكيلة' };
+export const entityIcon: Record<string, string> = { user: 'user', branch: 'branch', role: 'role', command: 'command', customer: 'store', customer_group: 'layers', category: 'folder', product: 'box', variant: 'tag', treasury: 'pin', treasury_transfer: 'refresh', expense: 'chart' };
+export const entityLabel: Record<string, string> = { user: 'موظف', branch: 'فرع', role: 'دور', command: 'أمر', customer: 'عميل', customer_group: 'مجموعة عملاء', category: 'قسم', product: 'منتج', variant: 'تشكيلة', treasury: 'خزينة', treasury_transfer: 'تحويل خزينة', expense: 'مصروف' };
 
 // حلقة عدّاد تنازلي — fraction من 0 لـ 1.
 export function Ring({ fraction, size = 22 }: { fraction: number; size?: number }) {

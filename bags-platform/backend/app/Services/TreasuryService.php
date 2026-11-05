@@ -12,6 +12,7 @@ use App\Models\PosShift;
 use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
 use App\Models\TreasuryTransfer;
+use App\Models\User;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Illuminate\Support\Collection;
@@ -23,6 +24,74 @@ use Illuminate\Support\Facades\DB;
 class TreasuryService
 {
     public function __construct(private readonly SettingService $settings) {}
+
+    public function createAccount(array $data, User $actor, string $opening = '0.00'): Treasury
+    {
+        $this->assertAccountBranch($actor, isset($data['branch_id']) ? (int) $data['branch_id'] : null);
+
+        return DB::transaction(function () use ($data, $actor, $opening): Treasury {
+            $treasury = Treasury::create($data + ['current_balance' => '0.00']);
+            if (bccomp($opening, '0', 2) !== 0) {
+                $this->record([
+                    'treasury_id' => $treasury->id,
+                    'type' => TreasuryTransactionType::OpeningBalance,
+                    'amount' => $opening,
+                    'created_by' => $actor->id,
+                    'notes' => "رصيد افتتاحي #{$treasury->code}",
+                ]);
+            }
+
+            return $treasury->refresh();
+        });
+    }
+
+    public function updateAccount(Treasury $treasury, array $data, User $actor): Treasury
+    {
+        if (array_key_exists('branch_id', $data)) {
+            $this->assertAccountBranch($actor, isset($data['branch_id']) ? (int) $data['branch_id'] : null);
+        }
+
+        return DB::transaction(function () use ($treasury, $data, $actor): Treasury {
+            $locked = Treasury::query()->lockForUpdate()->findOrFail($treasury->id);
+            app(BranchAccess::class)->assertTreasury($actor->id, $locked);
+            if (isset($data['type']) && $data['type'] !== $locked->type->value) {
+                throw new BusinessException('نوع الخزينة غير قابل للتغيير.');
+            }
+            $unsettled = $locked->shifts()->whereIn('status', ['open', 'closed_pending_approval'])->exists();
+            if (array_key_exists('branch_id', $data) && $data['branch_id'] != $locked->branch_id
+                && ($unsettled || bccomp($locked->current_balance, '0', 2) !== 0 || $locked->transactions()->exists())) {
+                throw new BusinessException('لا يمكن نقل خزينة لها رصيد أو سجل حركات إلى فرع آخر.');
+            }
+            if ($unsettled && array_key_exists('is_active', $data) && ! $data['is_active']) {
+                throw new BusinessException('لا يمكن تعطيل درج له وردية لم تُسوَّ.');
+            }
+            $locked->update($data);
+
+            return $locked;
+        });
+    }
+
+    public function deleteAccount(Treasury $treasury, User $actor): void
+    {
+        DB::transaction(function () use ($treasury, $actor): void {
+            $locked = Treasury::query()->lockForUpdate()->findOrFail($treasury->id);
+            app(BranchAccess::class)->assertTreasury($actor->id, $locked);
+            if (bccomp($locked->current_balance, '0', 2) !== 0 || $locked->transactions()->exists() || $locked->shifts()->exists()) {
+                throw new BusinessException('لا يمكن حذف خزينة لها رصيد أو سجل حركات أو ورديات.');
+            }
+            $locked->delete();
+        });
+    }
+
+    private function assertAccountBranch(User $actor, ?int $branchId): void
+    {
+        $branches = app(BranchAccess::class);
+        if ($branchId === null) {
+            $branches->assertCentralAccess($actor);
+        } else {
+            $branches->assertBranch($actor->id, $branchId);
+        }
+    }
 
     /**
      * Records a financial transaction and updates treasury balance under a row lock.
@@ -240,19 +309,20 @@ class TreasuryService
      *
      * @param  TreasuryTransfer  $transfer  Transfer to reject
      * @param  int  $approverId  User rejecting the transfer
+     * @param  string|null  $reason  Optional audit reason (kept for the AI finance tools)
      * @return TreasuryTransfer Updated transfer record
      *
      * @throws BusinessException If transfer is not pending
      */
-    public function rejectTransfer(TreasuryTransfer $transfer, int $approverId): TreasuryTransfer
+    public function rejectTransfer(TreasuryTransfer $transfer, int $approverId, ?string $reason = null): TreasuryTransfer
     {
-        return DB::transaction(function () use ($transfer, $approverId): TreasuryTransfer {
+        return DB::transaction(function () use ($transfer, $approverId, $reason): TreasuryTransfer {
             $transfer = TreasuryTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
             if ($transfer->status !== TreasuryTransferStatus::Pending) {
                 throw new BusinessException('يمكن رفض التحويلات المعلقة فقط.');
             }
             // Rejections carry no financial movement, avoiding unnecessary row locking contention.
-            $transfer->update(['status' => TreasuryTransferStatus::Rejected, 'approved_by' => $approverId]);
+            $transfer->update(['status' => TreasuryTransferStatus::Rejected, 'approved_by' => $approverId, 'rejection_reason' => $reason]);
 
             return $transfer->fresh();
         }, 3);

@@ -389,7 +389,14 @@ export const NoticeDetail = ({ id }) => {
 /* ---------- 23. Wallet ---------- */
 export const Wallet = () => {
   const [page, setPage] = useState(1);
-  const api = useApi(() => accountEndpoints.wallet(page), [page]);
+  const { go } = useApp();
+  const [direction, setDirection] = useState('all');
+  const [days, setDays] = useState('all');
+  const fromDate = days === 'all' ? undefined : (() => { const d = new Date(); d.setDate(d.getDate() - Number(days)); return d.toISOString().slice(0, 10); })();
+  const api = useApi(() => accountEndpoints.wallet(page, {
+    ...(direction === 'all' ? {} : { direction }),
+    ...(fromDate ? { from: fromDate } : {}),
+  }), [page, direction, days]);
   const balance = num(api.data?.balance) ?? 0;
   const txs = (api.data?.transactions?.data || []).map(mapWalletTx);
   const tMeta = api.data?.transactions ? pageMeta(api.data.transactions) : { page: 1, pages: 1, total: txs.length, per: 20 };
@@ -403,13 +410,17 @@ export const Wallet = () => {
       </div>
       <section className="panel mt-24">
         <div className="panel-head" style={{ paddingBottom: 6 }}><h2 className="panel-title">الحركات</h2><span className="panel-en">TRANSACTIONS</span></div>
+        <div className="toolbar">
+          <Seg value={direction} onChange={(v) => { setDirection(v); setPage(1); }} options={[{ value: 'all', label: 'الكل' }, { value: 'credit', label: 'إضافة' }, { value: 'debit', label: 'خصم' }]} />
+          <Seg value={days} onChange={(v) => { setDays(v); setPage(1); }} options={[{ value: 'all', label: 'كل الفترات' }, { value: '7', label: 'آخر 7 أيام' }, { value: '30', label: 'آخر 30 يوم' }]} />
+        </div>
         <DataBoundary api={api}>
           <Async rows={4} cols={5} isEmpty={!txs.length} empty={<Empty icon="fa-wallet" title="مفيش حركات على المحفظة" />}>
             <div className="tbl-wrap"><table className="tbl">
               <thead><tr><th>النوع</th><th>المرجع</th><th>التاريخ</th><th className="t-end">المبلغ</th><th className="t-end">الرصيد بعد الحركة</th></tr></thead>
               <tbody>{txs.map((t) => (
                 <tr key={t.id}><td><div className="row" style={{ gap: 10 }}><span className={`wtx-ic${t.amount < 0 ? ' neg' : ''}`}><i className={`fa-solid ${t.amount < 0 ? 'fa-arrow-up' : 'fa-arrow-down'}`} /></span><span className="strong">{t.label}</span></div></td>
-                  <td className="sku">{t.ref}</td><td className="num">{t.date}</td>
+                  <td className="sku">{t.refLink ? <button type="button" className="btn-link num" onClick={() => go(t.refLink[0], t.refLink[1])}>{t.ref}</button> : t.ref}</td><td className="num">{t.date}</td>
                   <td className="t-end num strong" style={{ color: t.amount < 0 ? '#b91c1c' : 'var(--teal)' }}>{t.amount > 0 ? '+' : '−'}{fmt(Math.abs(t.amount ?? 0))}</td>
                   <td className="t-end num">{fmt(t.after)}</td></tr>))}</tbody>
             </table></div>

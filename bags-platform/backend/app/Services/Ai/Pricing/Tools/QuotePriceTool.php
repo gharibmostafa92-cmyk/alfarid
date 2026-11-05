@@ -102,17 +102,18 @@ final class QuotePriceTool implements AgentTool
             return ToolOutcome::denied('حد أقصى 20 كمية في عرض السعر الواحد.', auditable: false);
         }
 
-        $tiers = [];
-        foreach ($quantities as $qty) {
-            try {
-                $unit = $this->pricing->resolve($variant, $customer, max(1.0, $qty), $scope['branchId'])['unit_price'];
-            } catch (BusinessException $e) {
-                return ToolOutcome::denied($e->getMessage(), auditable: false);
-            }
-            $tiers[] = ['min_qty' => $qty, 'unit_price' => $unit];
+        try {
+            $tiers = empty($args['quantities'])
+                ? $this->pricing->tiersFor($variant, $customer, branchId: $scope['branchId'])
+                : array_map(fn (float $qty) => [
+                    'min_qty' => $qty,
+                    'unit_price' => $this->pricing->resolve($variant, $customer, $qty, $scope['branchId'])['unit_price'],
+                ], $quantities);
+        } catch (BusinessException $e) {
+            return ToolOutcome::denied($e->getMessage(), auditable: false);
         }
 
-        $base = $tiers[0]['unit_price'];
+        $base = collect($tiers)->firstWhere('min_qty', 1.0)['unit_price'];
         $rows = [];
         foreach ($tiers as $tier) {
             $saving = $base > 0 ? round((($base - $tier['unit_price']) / $base) * 100, 2) : 0.0;

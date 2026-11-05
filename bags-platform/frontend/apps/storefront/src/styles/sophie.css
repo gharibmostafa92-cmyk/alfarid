@@ -2052,6 +2052,8 @@
 .store-account .checkout-success-actions { justify-content: space-between; }
 .store-account .profile-identity-email { overflow-wrap: anywhere; }
 .store-account .checkout-banner { flex-wrap: wrap; gap: 12px; }
+.store-account .wallet-credit { color: #159a8c; }
+.store-account .wallet-debit { color: #dc2626; }
 
 .site-footer-wrap footer { color: #a4abba; }
 .site-footer-wrap footer p { font-size: 14px; line-height: 1.8; }

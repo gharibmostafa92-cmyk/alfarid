@@ -27,15 +27,29 @@ class WholesalePriceListExport implements FromArray, ShouldAutoSize, WithHeading
     public function array(): array
     {
         return collect($this->rows)->map(fn (array $row) => [
-            $row['sku'],
-            $row['barcode'],
-            $row['product_name'],
+            self::cellText($row['sku']),
+            self::cellText($row['barcode']),
+            self::cellText($row['product_name']),
             $row['base_price'],
             $row['wholesale_price'],
             collect($row['tier_prices'])
                 ->map(fn (array $tier) => rtrim(rtrim(number_format($tier['min_qty'], 2, '.', ''), '0'), '.').'+: '.number_format($tier['unit_price'], 2, '.', ''))
                 ->implode(' | '),
         ])->all();
+    }
+
+    /**
+     * Neutralizes CSV/Excel formula injection: PhpSpreadsheet evaluates
+     * strings starting with =, +, - or @ as formulas. Prefixing with a
+     * single quote forces a plain-text cell, mirroring the CSV exporter.
+     */
+    public static function cellText(mixed $value): mixed
+    {
+        if (! is_string($value) || $value === '') {
+            return $value;
+        }
+
+        return preg_match('/^[\s]*[=+@\-\t\r\n]/u', $value) ? "'".$value : $value;
     }
 
     public function styles(Worksheet $sheet): array

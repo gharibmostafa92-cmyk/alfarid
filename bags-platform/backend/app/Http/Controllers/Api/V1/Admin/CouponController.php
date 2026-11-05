@@ -10,11 +10,14 @@ use App\Http\Requests\Admin\Promotion\CouponRequest;
 use App\Http\Resources\Admin\CouponResource;
 use App\Models\Cart;
 use App\Models\Coupon;
+use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /** إدارة كوبونات الخصم. */
 class CouponController extends Controller implements HasMiddleware
@@ -39,7 +42,13 @@ class CouponController extends Controller implements HasMiddleware
         $data = $this->withoutNulls($request->validated());
         $data['value'] ??= 0;
         $data['usage_limit_per_customer'] ??= 1;
-        $coupon = Coupon::create($data);
+        try {
+            $coupon = Coupon::create($data);
+        } catch (UniqueConstraintViolationException) {
+            // Two concurrent creates with the same code both pass validation;
+            // the loser must get 422, not 500.
+            throw ValidationException::withMessages(['code' => 'رمز الكوبون مستخدم بالفعل.']);
+        }
 
         return CouponResource::make($coupon)->response()->setStatusCode(201);
     }
@@ -58,16 +67,30 @@ class CouponController extends Controller implements HasMiddleware
 
     public function destroy(Coupon $coupon): JsonResponse
     {
-        // سجل الاستخدام تاريخ مالي: كوبون مُستخدَم لا يُحذف، يُعطَّل (M9)
-        if ($coupon->usages()->exists()) {
-            throw new BusinessException('لا يمكن حذف كوبون له استخدامات مسجلة؛ عطّله بدلًا من حذفه.');
-        }
+        // سجل الاستخدام تاريخ مالي: كوبون مُستخدَم لا يُحذف، يُعطَّل (M9).
+        // The existence check runs inside the transaction under an exclusive
+        // row lock: a usage committed between check and delete must refuse the
+        // delete (409/422) instead of cascade-deleting the financial record,
+        // and a delete committed first makes the racing recordUsage fail safe.
+        try {
+            DB::transaction(function () use ($coupon): void {
+                $locked = Coupon::query()->lockForUpdate()->findOrFail($coupon->id);
+                if ($locked->usages()->exists()) {
+                    throw new BusinessException('لا يمكن حذف كوبون له استخدامات مسجلة؛ عطّله بدلًا من حذفه.');
+                }
+                // فكّ ارتباط السلال المعلقة حتى لا يتعطل إتمام شرائها (M9)
+                Cart::query()->where('coupon_id', $locked->id)->update(['coupon_id' => null]);
+                $locked->delete();
+            });
+        } catch (QueryException $e) {
+            // A usage committed after our check on another connection trips the
+            // restrict FK: refuse with 422 instead of leaking a 500.
+            if (($e->errorInfo[0] ?? $e->getCode()) === '23503') {
+                throw new BusinessException('لا يمكن حذف كوبون له استخدامات مسجلة؛ عطّله بدلًا من حذفه.');
+            }
 
-        DB::transaction(function () use ($coupon): void {
-            // فكّ ارتباط السلال المعلقة حتى لا يتعطل إتمام شرائها (M9)
-            Cart::query()->where('coupon_id', $coupon->id)->update(['coupon_id' => null]);
-            $coupon->delete();
-        });
+            throw $e;
+        }
 
         return response()->json(['message' => 'تم حذف الكوبون']);
     }

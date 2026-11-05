@@ -8,6 +8,7 @@ use App\Enums\TreasuryType;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Treasury extends Model
 {
@@ -38,7 +39,13 @@ class Treasury extends Model
     /** @return HasMany<TreasuryTransaction, $this> */
     public function transactions(): HasMany
     {
-        return $this->hasMany(TreasuryTransaction::class)->latestOfMany('id');
+        return $this->hasMany(TreasuryTransaction::class);
+    }
+
+    /** @return HasOne<TreasuryTransaction, $this> */
+    public function latestTransaction(): HasOne
+    {
+        return $this->hasOne(TreasuryTransaction::class)->latestOfMany('id');
     }
 
     /** @return HasMany<PosShift, $this> */

@@ -44,7 +44,9 @@ const user = { id: 1, name: 'مراجع المساعد', email: 'assistant@examp
         const body = request.postDataJSON(); sent.push(body);
         if (body.text === 'طلب فاشل') return json({ message: 'فشل اختباري مؤقت' }, 502);
         const id = conv.messages.length + 1;
-        const block = body.text === 'جماعي' ? { ...confirmation, type: 'bulk_plan', action_id: 'bulk-1', typed_confirmation: 'تنفيذ', items: [{ key: 'item-1', label: 'تعطيل المعادي', before: { is_active: true }, after: { is_active: false } }, { key: 'item-2', label: 'تعطيل الدقي', before: { is_active: true }, after: { is_active: false } }] } : confirmation;
+        const block = body.text === 'جماعي' ? { ...confirmation, type: 'bulk_plan', action_id: 'bulk-1', typed_confirmation: 'تنفيذ', items: [{ key: 'item-1', label: 'تعطيل المعادي', before: { is_active: true }, after: { is_active: false } }, { key: 'item-2', label: 'تعطيل الدقي', before: { is_active: true }, after: { is_active: false } }, { key: 'item-3', label: 'تحويل معلق', ok: false, message: 'رصيد المصدر غير كافٍ' }] }
+          : body.text === 'قفلة المالية' ? { type: 'table', columns: ['البند'], rows: [['فائض الأدراج']], quick_actions: [{ label: 'راجع تحويل فائض الأدراج', prompt: 'جهّز دفعة تحويل فائض الأدراج للرئيسية للفرع رقم 9', submit: true }] }
+          : confirmation;
         conv.messages.push({ id, role: 'user', content: body.text, ui_blocks: null });
         conv.messages.push({ id: id + 1, role: 'model', content: '**راجع التغيير**\n<script>window.injected=true</script>\n![tracking](https://example.invalid/tracker.png)', ui_blocks: [block] });
         conv.pending_actions = [{ id: 'action-1', status: state }];
@@ -91,10 +93,18 @@ const user = { id: 1, name: 'مراجع المساعد', email: 'assistant@examp
     await assistant.getByRole('textbox', { name: 'رسالة المساعد' }).fill('جماعي');
     await assistant.getByRole('textbox', { name: 'رسالة المساعد' }).press('Enter');
     const bulk = assistant.getByRole('region', { name: 'مراجعة وتأكيد العملية' }).last();
+    const blocked = bulk.getByRole('checkbox', { name: /تحويل معلق/ });
+    assert.equal(await blocked.isDisabled(), true);
+    assert.equal(await blocked.isChecked(), false);
     await bulk.getByRole('checkbox', { name: /تعطيل المعادي/ }).uncheck();
     await bulk.getByRole('textbox', { name: /للتأكيد اكتب تنفيذ/ }).fill('تنفيذ');
     await bulk.getByRole('button', { name: 'تنفيذ على 1' }).click();
     await bulk.getByText('تم التنفيذ', { exact: true }).first().waitFor();
+    await assistant.getByRole('textbox', { name: 'رسالة المساعد' }).fill('قفلة المالية');
+    await assistant.getByRole('textbox', { name: 'رسالة المساعد' }).press('Enter');
+    await assistant.getByRole('button', { name: 'راجع تحويل فائض الأدراج' }).click();
+    await assistant.locator('.as-feed[aria-busy="false"]').waitFor();
+    assert.equal(sent.at(-1).text, 'جهّز دفعة تحويل فائض الأدراج للرئيسية للفرع رقم 9');
     await assistant.getByRole('textbox', { name: 'رسالة المساعد' }).fill('طلب فاشل');
     await assistant.getByRole('textbox', { name: 'رسالة المساعد' }).press('Enter');
     await assistant.getByRole('alert').getByText('فشل اختباري مؤقت').waitFor();

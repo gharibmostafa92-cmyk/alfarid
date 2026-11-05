@@ -19,6 +19,10 @@ class FinancialPermissionSeeder extends Seeder
         foreach (['pos.override_price', 'pos.discount', 'purchases.approve', 'purchases.receive', 'purchase_requests.approve', 'supplier_payments.create', 'supplier_payments.update', 'supplier_payments.delete', 'supplier_invoices.post', 'supplier_invoices.cancel', 'returns.approve', 'returns.receive', 'returns.refund'] as $permission) {
             $role->givePermissionTo(Permission::findOrCreate($permission, 'staff'));
         }
+        // Finance module (treasuries, expenses, treasury transfers) + AI finance domain.
+        foreach (['treasuries.view', 'treasuries.create', 'treasuries.update', 'treasuries.delete', 'expenses.view', 'expenses.create', 'expenses.update', 'expenses.delete', 'treasury_transfers.view', 'treasury_transfers.create', 'treasury_transfers.approve', 'customers.wallet.view', 'customers.wallet.adjust', 'finance.reports.view', 'ai_agent.finance'] as $permission) {
+            $role->givePermissionTo(Permission::findOrCreate($permission, 'staff'));
+        }
         app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
 }

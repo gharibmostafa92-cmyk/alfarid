@@ -194,7 +194,7 @@ export default function OperationsMockPage({
       case 'promos':
         return <PromosPage />;
       case 'finance':
-        return <FinancePage sub={sub} can={can} />;
+        return <FinancePage sub={sub} id={route.id} can={can} />;
       case 'shifts':
         return <ShiftsPage />;
       case 'wholesale':

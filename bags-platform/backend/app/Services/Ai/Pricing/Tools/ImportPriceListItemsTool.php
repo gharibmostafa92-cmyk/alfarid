@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Services\Ai\Pricing\Tools;
 
 use App\Enums\PriceListType;
+use App\Exceptions\BusinessException;
 use App\Models\AiAttachment;
 use App\Models\PriceListItem;
+use App\Models\ProductVariant;
 use App\Models\User;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\EntityResolver;
@@ -21,6 +23,7 @@ use App\Services\CostAccess;
 use App\Services\PriceListService;
 use App\Services\SettingService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 
 final class ImportPriceListItemsTool implements AgentTool
@@ -51,7 +54,7 @@ final class ImportPriceListItemsTool implements AgentTool
 
     public function permissions(): array
     {
-        return ['price_lists.update'];
+        return ['price_lists.update', 'ai_agent.execute'];
     }
 
     public function declaration(): array
@@ -112,6 +115,7 @@ final class ImportPriceListItemsTool implements AgentTool
         $rows = [];
         $blocked = [];
         $warnings = [];
+        $processed = 0;
         foreach ($rawIds as $attId) {
             /** @var AiAttachment $att */
             $att = $attachments->get($attId);
@@ -125,17 +129,42 @@ final class ImportPriceListItemsTool implements AgentTool
             if ($disk->size($att->path) > 10 * 1024 * 1024) {
                 return ToolOutcome::denied('الملف أكبر من 10MB.', auditable: false);
             }
-            $lines = preg_split('/\r\n|\r|\n/', (string) $disk->get($att->path));
+            $content = (string) $disk->get($att->path);
+            $lines = preg_split('/\r\n|\r|\n/', $content);
+            $header = str_getcsv((string) preg_replace('/^\xEF\xBB\xBF/', '', $lines[0] ?? ''), escape: '');
+            $columns = array_map(fn ($column) => strtolower(trim((string) $column)), $header);
+            if (in_array('price', $columns, true) && array_intersect(['sku', 'variant_id'], $columns) !== []) {
+                try {
+                    $preview = $this->previewCsv($list, $actor, $content, basename($att->path));
+                } catch (BusinessException $exception) {
+                    return ToolOutcome::denied($exception->getMessage(), auditable: false);
+                }
+                $processed += $preview['row_count'];
+                if ($processed > $maxItems) {
+                    return ToolOutcome::denied("الملف أكبر من الحد ({$maxItems} صف) — قسّم الملف.", auditable: false);
+                }
+                foreach ($preview['errors'] as $error) {
+                    $blocked[] = ['sku' => '?', 'reason' => basename($att->path).' · سطر '.$error['line'].': '.$error['message']];
+                }
+                $variants = ProductVariant::query()->whereIn('id', array_column($preview['diff'], 'variant_id'))->get()->keyBy('id');
+                foreach ($preview['diff'] as $row) {
+                    $source = basename($att->path).' · سطر '.$row['line'];
+                    $this->consumeLine($actor, [$row['sku'], $row['new_price'], $row['min_qty'], $row['starts_at'], $row['ends_at']],
+                        $current, $rows, $blocked, $warnings, $canViewCost, $belowCostPolicy, $isWholesaleList, $source, $variants->get($row['variant_id']));
+                }
+
+                continue;
+            }
             foreach ($lines as $lineIndex => $line) {
                 $line = trim($line);
                 if ($line === '') {
                     continue;
                 }
-                $parts = str_getcsv($line);
+                $parts = str_getcsv($line, escape: '');
                 if ($lineIndex === 0 && $this->looksLikeHeader($parts)) {
                     continue;
                 }
-                if (count($rows) + count($blocked) >= $maxItems) {
+                if (++$processed > $maxItems) {
                     return ToolOutcome::denied("الملف أكبر من الحد ({$maxItems} صف) — قسّم الملف.", auditable: false);
                 }
                 $this->consumeLine($actor, $parts, $current, $rows, $blocked, $warnings, $canViewCost, $belowCostPolicy, $isWholesaleList, basename($att->path).' · سطر '.($lineIndex + 1));
@@ -145,6 +174,7 @@ final class ImportPriceListItemsTool implements AgentTool
         if ($rows === []) {
             return ToolOutcome::denied('كل الصفوف تم استبعادها بواسطة الحراس — راجع blocked.', auditable: false);
         }
+        $rows = collect($rows)->keyBy(fn ($row) => $row['variant_id'].':'.number_format($row['min_qty'], 4, '.', ''))->values()->all();
 
         $minPct = null;
         foreach ($rows as $row) {
@@ -180,6 +210,23 @@ final class ImportPriceListItemsTool implements AgentTool
         );
     }
 
+    private function previewCsv(\App\Models\PriceList $list, User $actor, string $content, string $name): array
+    {
+        $path = tempnam(sys_get_temp_dir(), 'ai-price-csv-');
+        if ($path === false) {
+            throw new BusinessException('تعذرت قراءة ملف الاستيراد.');
+        }
+        try {
+            if (file_put_contents($path, $content) === false) {
+                throw new BusinessException('تعذرت قراءة ملف الاستيراد.');
+            }
+
+            return $this->lists->importCsv($list, new UploadedFile($path, $name, test: true), $actor, dryRun: true);
+        } finally {
+            unlink($path);
+        }
+    }
+
     /** @param list<string|null> $parts */
     private function looksLikeHeader(array $parts): bool
     {
@@ -196,14 +243,14 @@ final class ImportPriceListItemsTool implements AgentTool
      * @param  list<array<string,mixed>>  $blocked
      * @param  list<string>  $warnings
      */
-    private function consumeLine(User $actor, array $parts, $current, array &$rows, array &$blocked, array &$warnings, bool $canViewCost, string $belowCostPolicy, bool $isWholesaleList, string $sourceRow): void
+    private function consumeLine(User $actor, array $parts, $current, array &$rows, array &$blocked, array &$warnings, bool $canViewCost, string $belowCostPolicy, bool $isWholesaleList, string $sourceRow, ?ProductVariant $variant = null): void
     {
         $code = trim((string) ($parts[0] ?? ''));
         if ($code === '') {
             $blocked[] = ['sku' => '?', 'reason' => $sourceRow.': سطر من غير كود.'];
             return;
         }
-        $variant = $this->resolver->exactVariantByCode($code);
+        $variant ??= $this->resolver->exactVariantByCode($code);
         if (! $variant) {
             $options = $this->resolver->variants($actor, $code);
             $variant = count($options) === 1 ? \App\Models\ProductVariant::query()->find($options[0]['id']) : null;

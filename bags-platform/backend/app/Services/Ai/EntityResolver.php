@@ -11,6 +11,7 @@ use App\Models\Coupon;
 use App\Models\Customer;
 use App\Models\CustomerGroup;
 use App\Models\Location;
+use App\Models\Expense;
 use App\Models\PriceList;
 use App\Models\Product;
 use App\Models\ProductionReceipt;
@@ -18,6 +19,8 @@ use App\Models\ProductVariant;
 use App\Models\Promotion;
 use App\Models\Stocktake;
 use App\Models\StockTransfer;
+use App\Models\Treasury;
+use App\Models\TreasuryTransfer;
 use App\Models\User;
 use App\Services\BranchAccess;
 use App\Services\SearchTerm;
@@ -313,6 +316,161 @@ final class EntityResolver
             ])
             ->values()
             ->all();
+    }
+
+    /** @return list<array{id:int,label:string,meta:string}> */
+    public function treasuries(User $actor, string $query = '', array $filters = []): array
+    {
+        $restricted = $this->restricted($actor);
+        if ($restricted === -1) {
+            return [];
+        }
+        $clean = trim(self::normalizeDigits($query));
+
+        // مسار سريع: كود خزينة مضبوط.
+        if ($clean !== '' && preg_match('/^[A-Za-z]+-\d+$/', $clean)) {
+            $exact = Treasury::query()->with('branch:id,name')
+                ->when($restricted !== null, fn ($x) => $x->where('branch_id', $restricted))
+                ->whereRaw('LOWER(code) = LOWER(?)', [$clean])->limit(2)->get();
+            if ($exact->count() === 1) {
+                return $this->mapTreasuries($exact, $actor)->all();
+            }
+        }
+
+        return $this->mapTreasuries(Treasury::query()->with('branch:id,name')
+            ->when($restricted !== null, fn ($x) => $x->where('branch_id', $restricted))
+            ->when($restricted === null && isset($filters['branch_id']), fn ($x) => $x->where('branch_id', (int) $filters['branch_id']))
+            ->when(isset($filters['type']), fn ($x) => $x->where('type', $filters['type']))
+            ->when(array_key_exists('active', $filters), fn ($x) => $x->where('is_active', (bool) $filters['active']))
+            ->when($clean !== '', function ($x) use ($clean): void {
+                $pattern = SearchTerm::pattern($clean);
+                $x->where(fn ($w) => $w
+                    ->where('name', 'ilike', $pattern)
+                    ->orWhere('code', 'ilike', $pattern));
+            })
+            ->orderBy('id')
+            ->limit(20)
+            ->get(), $actor)->all();
+    }
+
+    /** @return list<array{id:int,label:string,meta:string}> */
+    public function treasuryTransfers(User $actor, string $query = '', array $filters = []): array
+    {
+        $restricted = $this->restricted($actor);
+        if ($restricted === -1) {
+            return [];
+        }
+        $clean = trim(self::normalizeDigits($query));
+
+        // مسار سريع: رقم تحويل مضبوط (TRF-00012).
+        if ($clean !== '' && preg_match('/^[A-Za-z]+-\d+$/', $clean)) {
+            $exact = TreasuryTransfer::query()->with(['fromTreasury.branch:id,name', 'toTreasury.branch:id,name'])
+                ->when($restricted !== null, fn ($x) => $x->where(fn ($w) => $w
+                    ->whereHas('fromTreasury', fn ($t) => $t->where('branch_id', $restricted))
+                    ->orWhereHas('toTreasury', fn ($t) => $t->where('branch_id', $restricted))))
+                ->whereRaw('LOWER(transfer_number) = LOWER(?)', [$clean])->limit(2)->get();
+            if ($exact->count() === 1) {
+                return $this->mapTreasuryTransfers($exact)->all();
+            }
+        }
+
+        return $this->mapTreasuryTransfers(TreasuryTransfer::query()->with(['fromTreasury.branch:id,name', 'toTreasury.branch:id,name'])
+            ->when($restricted !== null, fn ($x) => $x->where(fn ($w) => $w
+                ->whereHas('fromTreasury', fn ($t) => $t->where('branch_id', $restricted))
+                ->orWhereHas('toTreasury', fn ($t) => $t->where('branch_id', $restricted))))
+            ->when(isset($filters['status']), fn ($x) => $x->where('status', $filters['status']))
+            ->when(self::mentionsYesterday($clean), fn ($x) => $x->whereDate('created_at', today()->subDay()))
+            ->when(self::mentionsToday($clean), fn ($x) => $x->whereDate('created_at', today()))
+            ->when($clean !== '', function ($x) use ($clean): void {
+                $pattern = SearchTerm::pattern($clean);
+                $x->where(fn ($w) => $w
+                    ->where('transfer_number', 'ilike', $pattern)
+                    ->orWhere('notes', 'ilike', $pattern));
+            })
+            ->orderByDesc('id')
+            ->limit(20)
+            ->get())->all();
+    }
+
+    /** @return list<array{id:int,label:string,meta:string}> */
+    public function expenses(User $actor, string $query = '', array $filters = []): array
+    {
+        $restricted = $this->restricted($actor);
+        if ($restricted === -1) {
+            return [];
+        }
+        $clean = trim(self::normalizeDigits($query));
+
+        // مسار سريع: رقم مصروف مضبوط (EXP-00012).
+        if ($clean !== '' && preg_match('/^[A-Za-z]+-\d+$/', $clean)) {
+            $exact = Expense::query()->with(['branch:id,name', 'treasury:id,name'])
+                ->when($restricted !== null, fn ($x) => $x->where('branch_id', $restricted))
+                ->whereRaw('LOWER(expense_number) = LOWER(?)', [$clean])->limit(2)->get();
+            if ($exact->count() === 1) {
+                return $this->mapExpenses($exact)->all();
+            }
+        }
+
+        return $this->mapExpenses(Expense::query()->with(['branch:id,name', 'treasury:id,name'])
+            ->when($restricted !== null, fn ($x) => $x->where('branch_id', $restricted))
+            ->when($restricted === null && isset($filters['branch_id']), fn ($x) => $x->where('branch_id', (int) $filters['branch_id']))
+            ->when(isset($filters['category']), function ($x) use ($filters): void {
+                $x->where('category', 'ilike', SearchTerm::pattern((string) $filters['category']));
+            })
+            ->when(self::mentionsYesterday($clean), fn ($x) => $x->whereDate('expense_date', today()->subDay()))
+            ->when(self::mentionsToday($clean), fn ($x) => $x->whereDate('expense_date', today()))
+            ->when($clean !== '', function ($x) use ($clean): void {
+                $pattern = SearchTerm::pattern($clean);
+                $x->where(fn ($w) => $w
+                    ->where('expense_number', 'ilike', $pattern)
+                    ->orWhere('category', 'ilike', $pattern)
+                    ->orWhere('notes', 'ilike', $pattern));
+            })
+            ->orderByDesc('id')
+            ->limit(20)
+            ->get())->all();
+    }
+
+    /** @param \Illuminate\Support\Collection<int, Treasury> $items */
+    private function mapTreasuries($items, User $actor): \Illuminate\Support\Collection
+    {
+        $canViewBalance = $actor->can('treasuries.view');
+
+        return $items->map(fn (Treasury $t) => [
+            'id' => $t->id,
+            'label' => $t->name.' ('.$t->code.')',
+            'meta' => trim(($t->branch?->name ?? 'مركزية').' · '.self::treasuryTypeLabel($t->type instanceof \BackedEnum ? $t->type->value : (string) $t->type).' · '.($t->is_active ? 'نشطة' : 'متوقفة').($canViewBalance ? ' · رصيد: '.number_format((float) $t->current_balance, 2) : '')),
+        ])->values();
+    }
+
+    /** @param \Illuminate\Support\Collection<int, TreasuryTransfer> $items */
+    private function mapTreasuryTransfers($items): \Illuminate\Support\Collection
+    {
+        return $items->map(fn (TreasuryTransfer $t) => [
+            'id' => $t->id,
+            'label' => $t->transfer_number.' · '.($t->fromTreasury?->name ?? '—').' ← '.($t->toTreasury?->name ?? '—'),
+            'meta' => ($t->status instanceof \BackedEnum ? $t->status->value : (string) $t->status).' · '.number_format((float) $t->amount, 2).' · '.($t->created_at?->format('Y-m-d') ?? ''),
+        ])->values();
+    }
+
+    /** @param \Illuminate\Support\Collection<int, Expense> $items */
+    private function mapExpenses($items): \Illuminate\Support\Collection
+    {
+        return $items->map(fn (Expense $e) => [
+            'id' => $e->id,
+            'label' => $e->expense_number.' · '.$e->category,
+            'meta' => trim(($e->branch?->name ?? '—').' · '.($e->treasury?->name ?? '—').' · '.($e->voided_at !== null ? 'ملغي' : 'ساري')),
+        ])->values();
+    }
+
+    public static function treasuryTypeLabel(string $type): string
+    {
+        return match ($type) {
+            'main_safe' => 'خزينة رئيسية',
+            'pos_drawer' => 'درج كاشير',
+            'bank_account' => 'حساب بنك',
+            default => $type,
+        };
     }
 
     private static function mentionsYesterday(string $query): bool
@@ -770,6 +928,11 @@ final class EntityResolver
             'transfer' => StockTransfer::query()->when($branch !== null, fn ($q) => $q->where(fn ($w) => $w->where('from_branch_id', $branch)->orWhere('to_branch_id', $branch)))->find($id),
             'stocktake' => Stocktake::query()->when($branch !== null, fn ($q) => $q->where('branch_id', $branch))->find($id),
             'production_receipt' => ProductionReceipt::query()->when($branch !== null, fn ($q) => $q->where('branch_id', $branch))->find($id),
+            'treasury' => Treasury::query()->when($branch !== null, fn ($q) => $q->where('branch_id', $branch))->find($id),
+            'treasury_transfer' => TreasuryTransfer::query()->when($branch !== null, fn ($q) => $q->where(fn ($w) => $w
+                ->whereHas('fromTreasury', fn ($t) => $t->where('branch_id', $branch))
+                ->orWhereHas('toTreasury', fn ($t) => $t->where('branch_id', $branch))))->find($id),
+            'expense' => Expense::query()->when($branch !== null, fn ($q) => $q->where('branch_id', $branch))->find($id),
             default => null,
         };
         abort_unless($model, 422, 'الاختيار مش موجود أو خارج نطاقك.');
@@ -780,10 +943,12 @@ final class EntityResolver
             'transfer' => (string) $model->transfer_number,
             'stocktake' => (string) $model->stocktake_number,
             'production_receipt' => (string) $model->batch_number,
+            'treasury_transfer' => (string) $model->transfer_number,
+            'expense' => (string) $model->expense_number,
             default => (string) $model->name,
         };
         // اسم العميل أو المنتج/القسم كتبه بشر ورايح للنموذج كمرجع: نشيل رموز التحكم ونحدّ الطول.
-        $label = in_array($type, ['customer', 'customer_group', 'category', 'product', 'variant'], true)
+        $label = in_array($type, ['customer', 'customer_group', 'category', 'product', 'variant', 'treasury'], true)
             ? mb_substr((string) preg_replace('/[\x00-\x1F\x7F]/u', ' ', $rawLabel), 0, 120)
             : $rawLabel;
 

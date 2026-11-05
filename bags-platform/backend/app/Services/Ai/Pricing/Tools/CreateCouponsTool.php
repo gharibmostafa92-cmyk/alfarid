@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Pricing\Tools;
 
+use App\Enums\CustomerStatus;
+use App\Enums\CustomerType;
+use App\Exceptions\BusinessException;
 use App\Models\AiPendingAction;
 use App\Models\Coupon;
+use App\Models\Customer;
 use App\Models\ProductVariant;
 use App\Models\User;
 use App\Services\Ai\AgentTool;
@@ -15,7 +19,10 @@ use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
+use App\Services\BranchAccess;
 use App\Services\CostAccess;
+use App\Services\CouponService;
+use App\Services\PricingService;
 use App\Services\SettingService;
 use App\Services\StaffAdministration;
 use Carbon\Carbon;
@@ -29,6 +36,9 @@ final class CreateCouponsTool implements WriteTool
         private ProposalBuilder $proposals,
         private PricingPresenter $presenter,
         private SettingService $settings,
+        private PricingService $pricing,
+        private CouponService $coupons,
+        private BranchAccess $branches,
     ) {}
 
     public function name(): string
@@ -168,10 +178,13 @@ final class CreateCouponsTool implements WriteTool
         if ($type === 'percentage' && $value !== null && $value >= 20 && ! isset($args['max_discount_amount'])) {
             $warnings[] = 'النسبة كبيرة من غير سقف — اقترح max_discount_amount يحمي الهامش.';
         }
-        $conflictCount = $type === 'percentage' && $value !== null ? $this->countNearCostVariants($value, isset($args['max_discount_amount']) ? (float) $args['max_discount_amount'] : null) : 0;
+        $scope = PricingArgs::scopeBranchId($actor, $this->branches, []);
+        $conflictCount = $type === 'percentage' && $value !== null && is_array($scope)
+            ? $this->countNearCostVariants($value, isset($args['max_discount_amount']) ? (float) $args['max_discount_amount'] : null, $scope['branchId'])
+            : 0;
         if ($conflictCount > 0) {
             $warnings[] = $canViewCost
-                ? "{$conflictCount} صنف قد يتباع تحت التكلفة مع هذا الكوبون في أسوأ حالة."
+                ? "{$conflictCount} صنف في العينة قد يتباع تحت التكلفة مع هذا الكوبون."
                 : "{$conflictCount} صنف قد تتأثر هوامشها (أسباب تسعير محمية).";
         }
 
@@ -276,27 +289,30 @@ final class CreateCouponsTool implements WriteTool
         }
     }
 
-    private function countNearCostVariants(float $percent, ?float $maxDiscount): int
+    private function countNearCostVariants(float $percent, ?float $maxDiscount, ?int $branchId): int
     {
-        $factor = max(0.0, 1.0 - $percent / 100.0);
-
-        return ProductVariant::query()
+        $coupon = new Coupon(['type' => 'percentage', 'value' => $percent, 'max_discount_amount' => $maxDiscount]);
+        $variants = ProductVariant::query()
             ->where('is_active', true)
-            ->whereNotNull('cost_price')
             ->where('cost_price', '>', 0)
-            ->whereNotNull('retail_price')
-            ->where('retail_price', '>', 0)
-            ->orderBy('retail_price')
-            ->limit(50)
-            ->get(['retail_price', 'cost_price'])
-            ->filter(function ($v) use ($factor, $maxDiscount): bool {
-                $retail = (float) $v->retail_price;
-                $discount = $retail * (1.0 - $factor);
-                if ($maxDiscount !== null) {
-                    $discount = min($discount, $maxDiscount);
+            ->orderByRaw('COALESCE(LEAST(retail_price, wholesale_price), 0) - cost_price')
+            ->orderBy('id')->limit(50)->get();
+        $flagged = [];
+        foreach (CustomerType::cases() as $channel) {
+            $customer = new Customer(['type' => $channel, 'status' => CustomerStatus::Approved]);
+            $context = $this->pricing->contextFor($customer, $branchId === null ? $variants->modelKeys() : null);
+            foreach ($variants as $variant) {
+                try {
+                    $price = $this->pricing->resolve($variant, $customer, 1, $branchId, $context)['unit_price'];
+                } catch (BusinessException) {
+                    continue;
                 }
+                if ($price - $this->coupons->discountFor($coupon, $price) < (float) $variant->cost_price) {
+                    $flagged[$variant->id] = true;
+                }
+            }
+        }
 
-                return $retail - $discount < (float) $v->cost_price;
-            })->count();
+        return count($flagged);
     }
 }

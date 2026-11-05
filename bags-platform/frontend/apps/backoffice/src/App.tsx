@@ -62,10 +62,12 @@ function AuthenticatedApp() {
   const opMatch = route.match(/^\/(orders|returns|wholesale|shipping|pricing|promos|brands|suppliers|purchasing|finance|shifts|reports|notifications)(?:\/([^/?#]+))?$/);
   const isOperation = Boolean(opMatch);
   const operationsActive = opMatch ? opMatch[1] : null;
-  const operationsId = opMatch ? opMatch[2] : undefined;
+  // AI deep links use ?tab= + ?id= (e.g. #/finance?tab=trf&id=12); the legacy ?sub= form keeps working.
+  const operationsQuery = new URLSearchParams(routeWithQuery.split('?')[1] ?? '');
+  const operationsId = opMatch?.[2] ?? (opMatch?.[1] === 'finance' ? operationsQuery.get('id') || undefined : undefined);
   const operationsSub = (() => {
     const raw = routeWithQuery.split('?')[1] ?? '';
-    return new URLSearchParams(raw).get('sub') || undefined;
+    return new URLSearchParams(raw).get('sub') || new URLSearchParams(raw).get('tab') || undefined;
   })();
 
   useEffect(() => {

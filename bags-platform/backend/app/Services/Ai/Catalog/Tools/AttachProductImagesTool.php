@@ -24,6 +24,11 @@ use Illuminate\Validation\ValidationException;
 
 final class AttachProductImagesTool implements ExecutesOutsideTransaction, WriteTool
 {
+    public function executesOutsideTransaction(AiPendingAction $action): bool
+    {
+        return true;
+    }
+
     public function __construct(
         private ProductMediaService $media,
         private ProposalBuilder $proposals,

@@ -16,6 +16,8 @@ const NUMERIC_FIELDS = [
   ['ai_max_steps', 'الحد الأقصى لخطوات المساعد', 'عدد خطوات البحث والتجهيز في الطلب الواحد', 1, 10],
   ['ai_pricing_max_items_per_action', 'الحد الأقصى لبنود التسعير', 'عدد البنود في اقتراح التسعير الواحد', 1, 1000],
   ['ai_coupon_high_risk_percent', 'عتبة خطورة الكوبون %', 'النسبة اللي فوقها الكوبون عالي الخطورة', 0, 100],
+  ['ai_finance_high_risk_amount', 'حد المبلغ المالي عالي الخطورة', 'فوق المبلغ ده التأكيد بالكتابة مطلوب', 0, 9999999999],
+  ['ai_wallet_adjust_max_amount', 'الحد الأقصى لتعديل المحفظة', 'أي تعديل فوق المبلغ ده مرفوض من المساعد', 0, 9999999999],
 ] as const;
 
 export default function AssistantAdministration({ can }: { can: (permission: string) => boolean }) {
@@ -68,7 +70,7 @@ export default function AssistantAdministration({ can }: { can: (permission: str
           </div>
         </div>
 
-        {notice && !dirty && (
+        {notice && (!dirty || notice.tone === 'danger') && (
           <div className={`as-alert as-alert--${notice.tone}`} role="status">
             <Icon name={notice.tone === 'success' ? 'check' : notice.tone === 'danger' ? 'alert' : 'info'} size={16} />
             <div className="as-alert-body"><span>{notice.text}</span></div>
@@ -227,10 +229,21 @@ export default function AssistantAdministration({ can }: { can: (permission: str
                     <input type="checkbox" role="switch" className="as-switch" checked={!!settings[key]} disabled={saving || (key !== 'ai_inventory_tools_enabled' && !settings.ai_inventory_tools_enabled)} onChange={e => setSettings({ ...settings, [key]: e.target.checked })} />
                   </label>
                 ))}
+                {([
+                  ['ai_finance_tools_enabled', 'تفعيل أدوات المالية', 'الخزائن والتحويلات والمصروفات والمحفظة وفق صلاحيات الموظف.'],
+                  ['ai_finance_wallet_tools_enabled', 'تعديلات المحفظة من المساعد', 'مقفولة لو أدوات المالية الرئيسية مقفولة.'],
+                  ['ai_finance_receipt_vision_enabled', 'قراءة صور الإيصالات', 'الصورة تجهّز المصروف للمراجعة قبل تسجيله. مقفولة لو أدوات المالية الرئيسية مقفولة.'],
+                  ['ai_finance_proactive_enabled', 'اقتراحات المالية الاستباقية', 'فحص الأرصدة والشواذ والتوقعات وملخص القفلة.'],
+                ] as const).map(([key, label, help]) => (
+                  <label className="as-field as-field--switch" key={key}>
+                    <span className="as-field-label"><strong>{label}</strong><small>{help}</small></span>
+                    <input type="checkbox" role="switch" className="as-switch" checked={!!settings[key]} disabled={saving || (key !== 'ai_finance_tools_enabled' && !settings.ai_finance_tools_enabled)} onChange={e => setSettings({ ...settings, [key]: e.target.checked })} />
+                  </label>
+                ))}
                 {NUMERIC_FIELDS.map(([key, label, help, min, max]) => (
                   <label className="as-field" key={key}>
                     <span className="as-field-label"><strong>{label}</strong><small>{help}</small></span>
-                    <input className="as-input" type="number" inputMode="numeric" min={min} max={max} required value={settings[key] ?? (key === 'ai_inventory_high_risk_value' ? 50000 : key === 'ai_max_steps' ? 6 : key === 'ai_catalog_bulk_price_max_items' ? 200 : '')} disabled={saving} onChange={e => setSettings({ ...settings, [key]: Number(e.target.value) })} />
+                    <input className="as-input" type="number" inputMode="numeric" min={min} max={max} required value={settings[key] ?? (key === 'ai_inventory_high_risk_value' ? 50000 : key === 'ai_max_steps' ? 6 : key === 'ai_catalog_bulk_price_max_items' ? 200 : key === 'ai_finance_high_risk_amount' ? 20000 : key === 'ai_wallet_adjust_max_amount' ? 5000 : '')} disabled={saving} onChange={e => setSettings({ ...settings, [key]: Number(e.target.value) })} />
                   </label>
                 ))}
                 <fieldset disabled={saving} style={{ borderBottom: '1px solid var(--as-border)' }}>

@@ -131,6 +131,11 @@ final class PricingArgs
      */
     public static function resolveCustomer(User $actor, EntityResolver $resolver, array $args): array|ToolOutcome
     {
+        $query = trim((string) ($args['customer_query'] ?? ''));
+        if ((! empty($args['customer_id']) || $query !== '') && ! $actor->can('customers.view')) {
+            return ToolOutcome::denied('معندكش صلاحية عرض العملاء.');
+        }
+
         if (! empty($args['customer_id'])) {
             $customer = Customer::query()->find((int) $args['customer_id']);
             if (! $customer) {
@@ -139,7 +144,6 @@ final class PricingArgs
 
             return ['customer' => $customer];
         }
-        $query = trim((string) ($args['customer_query'] ?? ''));
         if ($query === '') {
             return ['customer' => null];
         }

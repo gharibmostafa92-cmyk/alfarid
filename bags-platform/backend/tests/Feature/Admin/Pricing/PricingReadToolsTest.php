@@ -12,20 +12,25 @@ use App\Models\Branch;
 use App\Models\Category;
 use App\Models\Coupon;
 use App\Models\Customer;
+use App\Models\Order;
 use App\Models\PriceList;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Promotion;
 use App\Models\User;
 use App\Services\Ai\Pricing\Tools\CompareCustomerPricesTool;
+use App\Services\Ai\Pricing\Tools\CouponPerformanceTool;
 use App\Services\Ai\Pricing\Tools\ExplainPriceTool;
+use App\Services\Ai\Pricing\Tools\ExportPriceListTool;
 use App\Services\Ai\Pricing\Tools\GetCouponTool;
 use App\Services\Ai\Pricing\Tools\ListCouponsTool;
 use App\Services\Ai\Pricing\Tools\ListPriceListsTool;
 use App\Services\Ai\Pricing\Tools\ListPromotionsTool;
+use App\Services\Ai\Pricing\Tools\MarginRiskReportTool;
 use App\Services\Ai\Pricing\Tools\PricingHealthReportTool;
 use App\Services\Ai\Pricing\Tools\QuotePriceTool;
 use App\Services\Ai\Pricing\Tools\SimulateCartTool;
+use App\Services\Ai\Pricing\Tools\WhatIfPriceChangeTool;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Spatie\Permission\Models\Permission;
@@ -36,6 +41,61 @@ class PricingReadToolsTest extends TestCase
     use LazilyRefreshDatabase;
 
     private const ALL = ['price_lists.view', 'customers.view', 'coupons.view', 'promotions.view', 'inventory.all_branches'];
+
+    public function test_export_tool_returns_download_route_without_file_contents(): void
+    {
+        $actor = $this->staff(['price_lists.export', 'inventory.all_branches']);
+        $list = $this->priceList(PriceListType::Retail);
+
+        $out = app(ExportPriceListTool::class)->handle($actor, ['price_list_id' => $list->id]);
+
+        $this->assertSame(['deep_link' => "/api/v1/admin/price-lists/{$list->id}/export"], $out->data);
+    }
+
+    public function test_what_if_prices_are_resolved_without_persisting_changes(): void
+    {
+        $actor = $this->staff(self::ALL);
+        $list = $this->priceList(PriceListType::Retail);
+        $item = $list->items()->create(['product_variant_id' => $this->variant()->id, 'min_qty' => 1, 'price' => 50]);
+
+        $out = app(WhatIfPriceChangeTool::class)->handle($actor, ['price_list_id' => $list->id, 'percent' => 20]);
+
+        $this->assertSame(50.0, $out->data['sample'][0][3]);
+        $this->assertSame(60.0, $out->data['sample'][0][4]);
+        $this->assertSame(50.0, (float) $item->fresh()->price);
+    }
+
+    public function test_coupon_performance_counts_released_cancelled_orders(): void
+    {
+        $actor = $this->staff([...self::ALL, 'orders.view']);
+        $coupon = Coupon::factory()->create();
+        $order = Order::factory()->create(['coupon_id' => $coupon->id, 'status' => 'confirmed', 'grand_total' => 75]);
+        Order::factory()->create(['coupon_id' => $coupon->id, 'status' => 'cancelled']);
+        $coupon->usages()->create(['order_id' => $order->id, 'discount_amount' => 25]);
+
+        $out = app(CouponPerformanceTool::class)->handle($actor, ['code' => strtolower($coupon->code)]);
+
+        $this->assertSame(1, $out->data['uses']);
+        $this->assertSame(25.0, $out->data['discount_total']);
+        $this->assertSame(75.0, $out->data['order_average']);
+        $this->assertSame(50.0, $out->data['cancellation_percent']);
+    }
+
+    public function test_margin_report_resolves_list_price_and_coupon_discount(): void
+    {
+        $actor = $this->staff([...self::ALL, 'products.view_cost']);
+        $variant = $this->variant();
+        $variant->update(['cost_price' => 70]);
+        $list = $this->priceList(PriceListType::Retail);
+        $list->items()->create(['product_variant_id' => $variant->id, 'min_qty' => 1, 'price' => 80]);
+        Coupon::factory()->create(['type' => 'percentage', 'value' => 25, 'min_order_amount' => 0, 'max_discount_amount' => null]);
+
+        $out = app(MarginRiskReportTool::class)->handle($actor, []);
+
+        $this->assertSame(80.0, $out->data['rows'][0]['unit_price']);
+        $this->assertSame(20.0, $out->data['rows'][0]['coupon_discount']);
+        $this->assertSame(-10.0, $out->data['rows'][0]['margin']);
+    }
 
     public function test_explain_price_returns_waterfall_with_winning_reason(): void
     {

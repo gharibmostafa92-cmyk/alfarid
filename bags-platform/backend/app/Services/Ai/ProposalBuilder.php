@@ -147,7 +147,7 @@ final class ProposalBuilder
             'expires_at' => $action->expires_at->toIso8601String(),
         ];
 
-        foreach (['moved_id', 'rows', 'summary', 'top', 'blocked', 'stages', 'items', 'deep_link', 'stocktake_id', 'stocktake_number'] as $extraKey) {
+        foreach (['moved_id', 'rows', 'summary', 'top', 'blocked', 'stages', 'items', 'deep_link', 'stocktake_id', 'stocktake_number', 'recent_movements'] as $extraKey) {
             if (array_key_exists($extraKey, $preview)) {
                 $block[$extraKey] = $preview[$extraKey];
             }
@@ -190,6 +190,10 @@ final class ProposalBuilder
             $phone = Customer::withTrashed()->find($args['customer_id'])?->phone;
             $typed = $phone ? substr((string) $phone, -4) : null;
             $typedHint = 'آخر 4 أرقام من موبايل التاجر';
+        } elseif ($tool === 'adjust_customer_wallet' && isset($args['customer_id'])) {
+            $phone = Customer::withTrashed()->find($args['customer_id'])?->phone;
+            $typed = $phone ? substr((string) $phone, -4) : null;
+            $typedHint = 'آخر 4 أرقام من موبايل العميل';
         } elseif (in_array($tool, ['set_category_status', 'delete_category'], true) && isset($args['category_id'])) {
             $cat = Category::withTrashed()->find($args['category_id']);
             $typed = $cat?->slug;

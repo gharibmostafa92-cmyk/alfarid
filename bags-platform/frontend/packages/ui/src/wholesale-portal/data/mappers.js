@@ -96,9 +96,11 @@ export const mapReturn = (r) => ({
 });
 
 export const mapWalletTx = (t) => ({
-  id: t.id, type: num(t.amount) < 0 ? 'debit' : 'credit', label: WALLET_TYPE[t.type] || t.type,
+  id: t.id, type: num(t.amount) < 0 ? 'debit' : 'credit', label: t.type_label || WALLET_TYPE[t.type] || t.type,
   amount: num(t.amount), after: num(t.balance_after), date: day(t.created_at),
-  ref: t.reference_type ? `${t.reference_type} #${t.reference_id}` : '—',
+  ref: t.reference_label || (t.reference_type ? `${t.reference_type} #${t.reference_id}` : '—'),
+  refLink: t.reference_type === 'order' && t.reference_id ? ['order', t.reference_id]
+    : t.reference_type === 'return_request' && t.reference_id ? ['return', t.reference_id] : null,
 });
 
 export const mapNotif = (n) => ({
