@@ -8,9 +8,9 @@ use App\Exceptions\BusinessException;
 use App\Exceptions\RetryableConflict;
 use App\Models\AiMessage;
 use App\Models\AiPendingAction;
-use App\Models\Branch;
-use App\Models\Customer;
 use App\Models\User;
+use App\Services\Ai\Contracts\ExecutesOutsideTransaction;
+use App\Services\Ai\Contracts\ToolProvider;
 use App\Services\SettingService;
 use App\Services\StaffAdministration;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -20,7 +20,6 @@ use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Exceptions\RoleAlreadyExists;
-use Spatie\Permission\Models\Role;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 final class PendingActionService
@@ -33,7 +32,7 @@ final class PendingActionService
             return $this->confirmBulk($actor, $action, $typed, $selectedItems);
         }
         $toolInstance = $this->registry->toolInstance($action->tool);
-        if ($toolInstance instanceof \App\Services\Ai\Contracts\ExecutesOutsideTransaction) {
+        if ($toolInstance instanceof ExecutesOutsideTransaction) {
             return $this->confirmOutsideTransaction($actor, $action, $typed, $toolInstance);
         }
         try {
@@ -218,7 +217,7 @@ final class PendingActionService
     {
         $def = $this->registry->definitions()[$tool] ?? null;
         $provider = $def['provider'] ?? null;
-        if ($provider instanceof \App\Services\Ai\Contracts\ToolProvider && ! $provider->usesGlobalAdminLock()) {
+        if ($provider instanceof ToolProvider && ! $provider->usesGlobalAdminLock()) {
             return;
         }
         StaffAdministration::lock();
@@ -276,7 +275,7 @@ final class PendingActionService
                 abort(422, $typedInstruction ?? 'اكتب نص التأكيد المطلوب: '.$expectedTyped);
             }
         }
-        if ($this->registry->toolInstance($action->tool) instanceof \App\Services\Ai\Contracts\ExecutesOutsideTransaction) {
+        if ($this->registry->toolInstance($action->tool) instanceof ExecutesOutsideTransaction) {
             $action->forceFill(['status' => 'confirmed'])->save();
 
             return ToolOutcome::wrap('claimed');
@@ -435,12 +434,13 @@ final class PendingActionService
         abort_unless($actor->can('ai_agent.execute'), 403);
         $via = ['channel' => 'ai', 'conversation_id' => $action->conversation_id, 'action_id' => $action->id];
         try {
-            $outcome = $this->registry->executeUndo($actor, $action, $via);
+            $outcome = DB::transaction(fn () => $this->registry->executeUndo($actor, $action, $via));
         } catch (BusinessException $e) {
             if ($e->status === 409) {
                 $this->event($action, 'result', 'التراجع اترفض عشان السجل اتعدل.', [['type' => 'result', 'ok' => false, 'message' => 'التراجع اترفض: السجل اتعدل بعد التنفيذ.']]);
                 abort(409, $e->getMessage());
             }
+
             return ToolOutcome::result(false, $e->getMessage() ?: 'فشل التراجع.');
         } catch (HttpExceptionInterface $e) {
             if ($e->getStatusCode() === 409) {

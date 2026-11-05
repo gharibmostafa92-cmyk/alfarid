@@ -3,11 +3,14 @@
 1. Install Composer dependencies with the `bcmath` PHP extension enabled. Run the
    catalog, inventory and manufacturing tests against PostgreSQL; SQLite cannot
    verify advisory locks or row lock races.
-2. Keep `R2_BUCKET_NAME` private. Configure a different bucket in
+2. Keep `R2_BUCKET_NAME` private. For stable public catalog URLs, configure a different bucket in
    `R2_PUBLIC_BUCKET_NAME`, and set `R2_PUBLIC_URL` to its CDN URL including
    `R2_PUBLIC_KEY_PREFIX`. Never enable public access on the document bucket.
    Catalog originals, including draft images, are public assets; UUID paths are
-   not an access-control mechanism.
+   not an access-control mechanism. Alternatively, explicitly select
+   `MEDIA_CATALOG_DISK=r2` to use the existing private bucket with signed catalog
+   URLs. `uploads:migrate-to-r2 --catalog-only` respects this selected R2 mode
+   and preserves local sources unless `--delete-source` is requested.
 3. In a maintenance window, run `php artisan migrate --force`. The cost column
    precision migration rewrites `product_variants` under an exclusive lock.
    New lookup/unique indexes use `CONCURRENTLY` outside a migration transaction.

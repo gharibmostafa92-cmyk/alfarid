@@ -53,6 +53,12 @@ class SettingService
         'ai_inventory_share_cost_with_model' => false,
         'ai_inventory_high_risk_value' => 50000,
         'ai_inventory_proactive_enabled' => false,
+        'ai_pricing_tools_enabled' => false,
+        'ai_promotions_tools_enabled' => false,
+        'ai_pricing_max_items_per_action' => 200,
+        'ai_coupon_high_risk_percent' => 30,
+        'ai_price_below_cost_policy' => 'block',
+        'ai_pricing_vision_enabled' => false,
         'ai_max_steps' => 6,
     ];
 

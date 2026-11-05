@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\Route;
 
 // مسارات المصادقة للعميل القطاعي
 Route::prefix('auth')->name('auth.')->group(function (): void {
+    Route::get('registration-options', [AuthController::class, 'registrationOptions'])->middleware('throttle:store-branding')->name('registration-options');
     Route::post('register', [AuthController::class, 'register'])->middleware('throttle:customer-registration')->name('register');
     Route::post('phone-verification/send', [AuthController::class, 'sendPhoneVerification'])->middleware('throttle:customer-phone-send')->name('phone-verification.send');
     Route::post('phone-verification/verify', [AuthController::class, 'verifyPhone'])->middleware('throttle:customer-phone-verify')->name('phone-verification.verify');

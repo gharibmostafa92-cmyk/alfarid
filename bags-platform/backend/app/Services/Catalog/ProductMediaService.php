@@ -8,6 +8,7 @@ use App\Enums\ProductStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Support\CatalogMedia;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\UploadedFile;
@@ -15,7 +16,6 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use App\Support\CatalogMedia;
 use Spatie\MediaLibrary\Conversions\FileManipulator;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
@@ -163,10 +163,19 @@ class ProductMediaService
         }
     }
 
-    public function reorder(Product $product, array $ids): void
+    public function reorder(Product $product, array $ids, ?array $expectedIds = null): void
     {
-        $this->withMediaLock($product->id, fn () => DB::transaction(function () use ($product, $ids): void {
+        $this->withMediaLock($product->id, fn () => DB::transaction(function () use ($product, $ids, $expectedIds): void {
             $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
+            if ($expectedIds !== null) {
+                $first = Media::query()->whereIn('id', $ids)->first();
+                $currentIds = $first ? Media::query()->where('model_type', $first->model_type)
+                    ->where('model_id', $first->model_id)->where('collection_name', $first->collection_name)
+                    ->orderBy('order_column')->orderBy('id')->pluck('id')->map(fn ($id) => (int) $id)->all() : [];
+                if ($currentIds !== array_map('intval', $expectedIds)) {
+                    throw new BusinessException('ترتيب الصور اتغير أثناء المراجعة؛ اطلب اقتراحًا جديدًا.', [], 409);
+                }
+            }
             $this->assertMediaBelongs($product, $ids);
             // L6: a partial id list duplicates order_column across the
             // product/variant scope — require the complete owner-collection

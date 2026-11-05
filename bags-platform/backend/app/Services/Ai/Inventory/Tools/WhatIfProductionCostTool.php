@@ -4,15 +4,16 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Inventory\Tools;
 
+use App\Exceptions\BusinessException;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
 use App\Models\User;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\EntityResolver;
 use App\Services\Ai\Inventory\InventoryArgs;
+use App\Services\Ai\Inventory\InventoryPresenter;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
-use App\Services\BranchAccess;
 use App\Services\CostAccess;
 use App\Services\DiscreteQuantity;
 use Illuminate\Support\Facades\DB;
@@ -21,6 +22,7 @@ final class WhatIfProductionCostTool implements AgentTool
 {
     public function __construct(
         private EntityResolver $resolver,
+        private InventoryPresenter $presenter,
     ) {}
 
     public function name(): string
@@ -76,13 +78,17 @@ final class WhatIfProductionCostTool implements AgentTool
         }
         try {
             DiscreteQuantity::assert($args['quantity'] ?? null);
-        } catch (\App\Exceptions\BusinessException $e) {
+            if (floor((float) $args['quantity']) !== (float) $args['quantity']) {
+                throw new BusinessException('كمية استلام الإنتاج لازم تكون عددًا صحيحًا.');
+            }
+        } catch (BusinessException $e) {
             return ToolOutcome::denied($e->getMessage(), auditable: false);
         }
         $unit = $args['unit_cost'] ?? null;
-        if (! is_numeric($unit) || (float) $unit < 0) {
+        if (! is_numeric($unit) || ! is_finite((float) $unit) || (float) $unit < 0 || (float) $unit > 99999999.9999 || abs((float) $unit - round((float) $unit, 4)) > 1e-9) {
             return ToolOutcome::denied('تكلفة الوحدة غير سليمة.', auditable: false);
         }
+        $unit = number_format((float) $unit, 4, '.', '');
         $variant = ProductVariant::find($resolved['variant']->id);
         $qty = (int) $args['quantity'];
 
@@ -94,7 +100,7 @@ final class WhatIfProductionCostTool implements AgentTool
         $newAvg = bccomp($denominator, '0', 4) === 0 ? $costStr : bcadd(bcdiv($total, $denominator, 5), '0.00005', 4);
         $pct = $variant->cost_price > 0 ? round(((float) $newAvg - (float) $variant->cost_price) / (float) $variant->cost_price * 100, 1) : null;
 
-        return ToolOutcome::data([
+        return $this->presenter->present($actor, [
             'variant' => ['id' => $variant->id, 'sku' => $variant->sku],
             'quantity' => $qty,
             'unit_cost' => (float) $unit,

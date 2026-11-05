@@ -42,6 +42,10 @@ use App\Models\User;
 use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Rules\UniqueCustomerEmail;
 use App\Services\Ai\Catalog\CatalogToolProvider;
+use App\Services\Ai\Contracts\LocksTargets;
+use App\Services\Ai\Contracts\ToolProvider;
+use App\Services\Ai\Contracts\UndoableTool;
+use App\Services\Ai\Inventory\InventoryWelcome;
 use App\Services\BranchAccess;
 use App\Services\CostAccess;
 use App\Services\CustomerGroupService;
@@ -69,7 +73,7 @@ final class ToolRegistry
     private ProposalBuilder $proposals;
 
     /**
-     * @param  iterable<\App\Services\Ai\Contracts\ToolProvider>  $providers
+     * @param  iterable<ToolProvider>  $providers
      */
     public function __construct(
         private EntityResolver $resolver,
@@ -81,7 +85,7 @@ final class ToolRegistry
         $this->proposals = $proposals ?? new ProposalBuilder($this->settings);
     }
 
-    /** @return iterable<\App\Services\Ai\Contracts\ToolProvider> */
+    /** @return iterable<ToolProvider> */
     public function providers(): iterable
     {
         return $this->providers;
@@ -302,7 +306,7 @@ final class ToolRegistry
 
     private function domainOf(string $name, array $def): string
     {
-        if (isset($def['provider']) && $def['provider'] instanceof \App\Services\Ai\Contracts\ToolProvider) {
+        if (isset($def['provider']) && $def['provider'] instanceof ToolProvider) {
             return $def['provider']->domain();
         }
         if ($this->isCustomerTool($name)) {
@@ -621,11 +625,18 @@ final class ToolRegistry
 
     public function canReadEntity(User $actor, string $type): bool
     {
+        $handled = false;
         foreach ($this->providers as $p) {
             $res = $p->canReadEntity($actor, $type);
             if ($res !== null) {
-                return $res;
+                $handled = true;
+                if ($res) {
+                    return true;
+                }
             }
+        }
+        if ($handled) {
+            return false;
         }
         if (in_array($type, ['customer', 'customer_group', 'customer_document'], true) && ! $this->customerToolsEnabled()) {
             return false;
@@ -780,7 +791,7 @@ final class ToolRegistry
         }
 
         if ($this->settings->getBool('ai_inventory_tools_enabled', false) && $actor->can('inventory.view')) {
-            $card = app(\App\Services\Ai\Inventory\InventoryWelcome::class)->card($actor);
+            $card = app(InventoryWelcome::class)->card($actor);
             if ($card !== null) {
                 return $card;
             }
@@ -2025,7 +2036,7 @@ final class ToolRegistry
 
     public function lockTargets(AiPendingAction $action): void
     {
-        if (($providerTool = $this->toolInstance($action->tool)) instanceof \App\Services\Ai\Contracts\LocksTargets) {
+        if (($providerTool = $this->toolInstance($action->tool)) instanceof LocksTargets) {
             $providerTool->lockTargets($action);
 
             return;
@@ -2063,7 +2074,7 @@ final class ToolRegistry
     public function canUndo(AiPendingAction $action): bool
     {
         if (($providerTool = $this->toolInstance($action->tool)) !== null) {
-            return $providerTool instanceof \App\Services\Ai\Contracts\UndoableTool && $providerTool->canUndo($action);
+            return $providerTool instanceof UndoableTool && $providerTool->canUndo($action);
         }
 
         return $action->inverse && in_array($action->tool, ['set_branch_status', 'update_role_permissions', 'set_user_status', 'assign_roles', 'set_location_status', 'update_customer_profile', 'set_customer_group', 'set_credit_limit', 'review_customer_document', 'suspend_customer', 'reactivate_customer', 'update_customer_group'], true);
@@ -2071,7 +2082,7 @@ final class ToolRegistry
 
     public function targetState(AiPendingAction $action): string
     {
-        if (($providerTool = $this->toolInstance($action->tool)) instanceof \App\Services\Ai\Contracts\UndoableTool) {
+        if (($providerTool = $this->toolInstance($action->tool)) instanceof UndoableTool) {
             return $providerTool->targetState($action);
         }
         $args = $action->args;
@@ -2828,7 +2839,7 @@ final class ToolRegistry
         $tool = $action->tool;
         $args = $action->args;
         try {
-            if (($providerTool = $this->toolInstance($tool)) instanceof \App\Services\Ai\Contracts\UndoableTool) {
+            if (($providerTool = $this->toolInstance($tool)) instanceof UndoableTool) {
                 return $providerTool->undo($actor, $action);
             }
             $this->assertAiConstraints($actor, $action);

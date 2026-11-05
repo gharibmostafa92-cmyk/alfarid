@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Services\Ai\Inventory\Tools;
 
 use App\Enums\StocktakeStatus;
+use App\Exceptions\BusinessException;
 use App\Models\AiAttachment;
 use App\Models\AiMessage;
+use App\Models\ProductVariant;
 use App\Models\User;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\EntityResolver;
@@ -167,7 +169,7 @@ PROMPT;
             if (! $variant) {
                 $options = $this->resolver->variants($actor, $code);
                 $variant = count($options) === 1
-                    ? \App\Models\ProductVariant::find($options[0]['id'])
+                    ? ProductVariant::find($options[0]['id'])
                     : null;
             }
             if (! $variant) {
@@ -177,13 +179,13 @@ PROMPT;
             }
             try {
                 DiscreteQuantity::assert($qty, allowZero: true);
-            } catch (\App\Exceptions\BusinessException) {
+            } catch (BusinessException) {
                 $warnings[] = "كمية {$code} غير سليمة — راجعها يدويًا.";
 
                 continue;
             }
             if ($conf < 0.8) {
-                $warnings[] = "السطر {$code} ثقته منخفضة (".round($conf, 2).") — اتأكد منه.";
+                $warnings[] = "السطر {$code} ثقته منخفضة (".round($conf, 2).') — اتأكد منه.';
             }
             $rows[] = ['product_variant_id' => $variant->id, 'sku' => $variant->sku, 'counted_qty' => (float) $qty, 'confidence' => round($conf, 2)];
         }
@@ -200,7 +202,7 @@ PROMPT;
             before: ['source' => 'صورة مرفقة'],
             after: ['counts' => array_map(fn ($r) => $r['sku'].': '.$r['counted_qty'], $rows)],
             warnings: $warnings,
-            extraPreview: ['block_type' => 'count_sheet', 'rows' => $rows],
+            extraPreview: ['block_type' => 'count_sheet', 'rows' => $rows, 'stocktake_id' => $stocktake->id, 'stocktake_number' => $stocktake->stocktake_number],
         );
     }
 }

@@ -169,14 +169,16 @@ final class AgentOrchestrator
                 }
             });
         }
+        $previousTimeLimit = (int) ini_get('max_execution_time');
+        $previousIgnoreUserAbort = ignore_user_abort(true);
         try {
             // H4: قطع اتصال السحب من غير ignore_user_abort بينهي الدورة في
             // نصها وسيب رسالة ناقصة من غير ردّ أدوات.
-            ignore_user_abort(true);
-
             return $this->handleLocked($actor, $conv, $turn, $progress);
         } finally {
             $lock->release();
+            ignore_user_abort((bool) $previousIgnoreUserAbort);
+            set_time_limit($previousTimeLimit);
         }
     }
 
@@ -220,6 +222,11 @@ final class AgentOrchestrator
         // If selection present, feed it as explicit context to model
         $history = $this->history($conv);
         $domains = class_exists(DomainRouter::class) ? app(DomainRouter::class)->route($text, $mentions, $selection, $conv, $attachments) : null;
+        // The live catalog benchmark fell from 96.8% to 91.9% with routing,
+        // exceeding the allowed two-point regression. Keep the full tool list.
+        if (in_array('catalog', $domains ?? [], true)) {
+            $domains = null;
+        }
         $declarations = $this->registry->declarationsFor($actor, $domains);
         $system = $this->systemPrompt($actor);
         $readBlocks = [];

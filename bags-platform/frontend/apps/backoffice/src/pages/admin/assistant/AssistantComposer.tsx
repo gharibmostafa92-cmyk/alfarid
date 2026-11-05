@@ -10,6 +10,7 @@ interface Props {
   enableCustomers?: boolean;
   /** مفعّلة لو الأدمن عنده products.view أو categories.view — بتفعّل $ للمنتجات و & للأقسام ورفع الصور. */
   enableCatalog?: boolean;
+  enableInventory?: boolean;
   busy: boolean;
   onSend: (text: string, selection?: undefined, mentions?: Mention[], files?: File[]) => Promise<boolean>;
   quickCommands: string[];
@@ -45,7 +46,7 @@ function Highlight({ text, q }: { text: string; q: string }) {
   return <>{text.slice(0, i)}<mark>{text.slice(i, i + q.length)}</mark>{text.slice(i + q.length)}</>;
 }
 
-export default function AssistantComposer({ busy, onSend, quickCommands, seed, hint, enableCustomers = false, enableCatalog = false }: Props) {
+export default function AssistantComposer({ busy, onSend, quickCommands, seed, hint, enableCustomers = false, enableCatalog = false, enableInventory = false }: Props) {
   const [text, setText] = useState('');
   const [mentions, setMentions] = useState<Mention[]>([]);
   const [files, setFiles] = useState<File[]>([]);
@@ -87,6 +88,10 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
             for (const c of result.customers ?? []) combined.push({ entity: 'customer', id: c.id, label: c.label, meta: c.meta });
           }
           setOptions(combined.slice(0, 12));
+        } else if (marker === '@' && enableInventory) {
+          const variants: Option[] = (result.variants ?? []).map(o => ({ entity: 'variant', id: o.id, label: o.label, meta: o.meta }));
+          const users: Option[] = (result.users ?? []).map(o => ({ entity: 'user', id: o.id, label: o.label, meta: o.meta }));
+          setOptions([...variants, ...users].slice(0, 10));
         } else {
           const { key, entity } = markerMeta[marker];
           setOptions((result[key] ?? []).slice(0, 10).map(o => ({ entity, id: o.id, label: o.label, meta: o.meta })));
@@ -95,7 +100,7 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
         .finally(() => { if (live) setLoading(false); });
     }, 200);
     return () => { live = false; clearTimeout(timer); };
-  }, [marker, query, enableCatalog, enableCustomers]);
+  }, [marker, query, enableCatalog, enableCustomers, enableInventory]);
 
   useEffect(() => { setActive(0); }, [text.startsWith('/') ? text : '']);
 
@@ -152,6 +157,15 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
 
   const count = slash ? commands.length : options.length;
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey && marker === '@' && enableInventory && /^[0-9٠-٩۰-۹]{6,}$/.test(query ?? '')) {
+      e.preventDefault();
+      void assistantApi.mentions(query ?? '').then(result => {
+        const variants: Option[] = (result.variants ?? []).map(o => ({ entity: 'variant', id: o.id, label: o.label, meta: o.meta }));
+        if (variants.length === 1) pickMention(variants[0]);
+        else { setOptions(variants); if (!variants.length) setSearchError('مفيش صنف بالباركود ده.'); }
+      }).catch(() => setSearchError('تعذر البحث بالباركود؛ جرّب تاني.'));
+      return;
+    }
     if (popOpen && count > 0) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setActive(a => (a + 1) % count); return; }
       if (e.key === 'ArrowUp') { e.preventDefault(); setActive(a => (a - 1 + count) % count); return; }
@@ -173,10 +187,10 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
       className="as-composer"
       data-disabled={busy}
       data-drag={dragOver}
-      onDragOver={e => { if (enableCatalog) { e.preventDefault(); setDragOver(true); } }}
+      onDragOver={e => { if (enableCatalog || enableInventory) { e.preventDefault(); setDragOver(true); } }}
       onDragLeave={() => setDragOver(false)}
       onDrop={e => {
-        if (!enableCatalog) return;
+        if (!enableCatalog && !enableInventory) return;
         e.preventDefault();
         setDragOver(false);
         if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files);
@@ -279,7 +293,7 @@ export default function AssistantComposer({ busy, onSend, quickCommands, seed, h
           <button type="button" className="as-trigger" disabled={busy} onClick={() => insertMarker('!')} title="منشن دور" aria-label="منشن دور">!</button>
           {canDollar && <button type="button" className="as-trigger" disabled={busy} onClick={() => insertMarker('$')} title="منشن منتج أو عميل" aria-label="منشن منتج أو عميل">$</button>}
           {enableCatalog && <button type="button" className="as-trigger" disabled={busy} onClick={() => insertMarker('&')} title="منشن قسم" aria-label="منشن قسم">&amp;</button>}
-          {enableCatalog && (
+          {(enableCatalog || enableInventory) && (
             <>
               <input
                 ref={fileInputRef}

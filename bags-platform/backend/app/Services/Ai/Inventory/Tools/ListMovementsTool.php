@@ -14,6 +14,7 @@ use App\Services\Ai\Inventory\InventoryPresenter;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\BranchAccess;
+use App\Services\CostAccess;
 
 final class ListMovementsTool implements AgentTool
 {
@@ -58,6 +59,9 @@ final class ListMovementsTool implements AgentTool
                     'branch_id' => ['type' => 'INTEGER'],
                     'branch_query' => ['type' => 'STRING'],
                     'user_id' => ['type' => 'INTEGER'],
+                    'reference_type' => ['type' => 'STRING'],
+                    'reference_id' => ['type' => 'INTEGER'],
+                    'reference_number' => ['type' => 'STRING'],
                     'from' => ['type' => 'STRING'],
                     'to' => ['type' => 'STRING'],
                     'cursor' => ['type' => 'INTEGER'],
@@ -90,6 +94,9 @@ final class ListMovementsTool implements AgentTool
             ->when($variantId !== null, fn ($q) => $q->where('product_variant_id', $variantId))
             ->when($args['type'] ?? null, fn ($q, $v) => $q->where('type', $v))
             ->when($args['user_id'] ?? null, fn ($q, $v) => $q->where('created_by', (int) $v))
+            ->when($args['reference_type'] ?? null, fn ($q, $v) => $q->where('reference_type', $v))
+            ->when($args['reference_id'] ?? null, fn ($q, $v) => $q->where('reference_id', (int) $v))
+            ->when($args['reference_number'] ?? null, fn ($q, $v) => $q->where('reference_number', $v))
             ->when($args['from'] ?? null, fn ($q, $v) => $q->where('created_at', '>=', $v))
             ->when($args['to'] ?? null, fn ($q, $v) => $q->where('created_at', '<=', $v))
             ->when($args['cursor'] ?? null, fn ($q, $v) => $q->where('id', '<', (int) $v))
@@ -114,7 +121,7 @@ final class ListMovementsTool implements AgentTool
             'created_at' => $m->created_at?->toIso8601String(),
         ])->values()->all();
 
-        $showCost = \App\Services\CostAccess::canView($actor);
+        $showCost = CostAccess::canView($actor);
         $table = array_map(fn ($i) => array_merge([
             (string) $i['id'], $i['reference_number'] ?? '—', $i['sku'] ?? '—',
             $i['type'], (string) $i['quantity'], (string) $i['balance_after'],

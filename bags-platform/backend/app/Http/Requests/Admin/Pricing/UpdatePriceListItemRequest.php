@@ -24,7 +24,7 @@ class UpdatePriceListItemRequest extends FormRequest
             'min_qty' => ['sometimes', 'numeric', 'decimal:0,4', 'gt:0', 'max:99999999.9999'],
             'price' => ['sometimes', 'numeric', 'decimal:0,4', 'min:0', 'max:99999999.9999'],
             'starts_at' => ['sometimes', 'nullable', 'date'],
-            'ends_at' => ['sometimes', 'nullable', 'date'],
+            'ends_at' => ['sometimes', 'nullable', 'date', 'after_or_equal:starts_at'],
         ];
     }
 }

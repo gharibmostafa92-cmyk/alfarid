@@ -10,12 +10,13 @@ use App\Models\Branch;
 use App\Models\ProductionReceipt;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
+use App\Models\StockMovement;
 use App\Models\User;
+use App\Services\Ai\Contracts\LocksTargets;
 use App\Services\Ai\EntityResolver;
 use App\Services\Ai\Inventory\InventoryArgs;
 use App\Services\Ai\Inventory\InventoryPresenter;
 use App\Services\Ai\ProposalBuilder;
-use App\Services\Ai\Contracts\LocksTargets;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
@@ -131,20 +132,23 @@ final class ReceiveProductionTool implements LocksTargets, WriteTool
             }
             try {
                 DiscreteQuantity::assert($raw['quantity'] ?? null);
+                if (floor((float) $raw['quantity']) !== (float) $raw['quantity']) {
+                    throw new BusinessException('كمية استلام الإنتاج لازم تكون عددًا صحيحًا.');
+                }
             } catch (BusinessException $e) {
                 return ToolOutcome::denied($e->getMessage(), auditable: false);
             }
             $unit = $raw['unit_cost'] ?? null;
-            if (! is_numeric($unit) || (float) $unit < 0 || (float) $unit > 99999999.9999) {
+            if (! is_numeric($unit) || ! is_finite((float) $unit) || (float) $unit < 0 || (float) $unit > 99999999.9999 || abs((float) $unit - round((float) $unit, 4)) > 1e-9) {
                 return ToolOutcome::denied("تكلفة البند {$variant->sku} غير سليمة.", auditable: false);
             }
             $grouped[$variant->id]['variant'] = $variant;
             $grouped[$variant->id]['quantity'] = ($grouped[$variant->id]['quantity'] ?? 0) + (int) $raw['quantity'];
-            // متوسط مرجح لو نفس المتغير اتكرر بتكلفة مختلفة.
-            $prev = $grouped[$variant->id]['unit_cost'] ?? null;
-            $grouped[$variant->id]['unit_cost'] = $prev === null || abs($prev - (float) $unit) < 1e-9
-                ? (float) $unit
-                : round(($prev * ($grouped[$variant->id]['quantity'] - (int) $raw['quantity']) + (float) $unit * (int) $raw['quantity']) / $grouped[$variant->id]['quantity'], 4);
+            if ($grouped[$variant->id]['quantity'] > 99999999) {
+                return ToolOutcome::denied('إجمالي كمية الصنف بعد دمج البنود أكبر من الحد المسموح.', auditable: false);
+            }
+            $unitString = number_format((float) $unit, 4, '.', '');
+            $grouped[$variant->id]['total_cost'] = bcadd($grouped[$variant->id]['total_cost'] ?? '0', bcmul((string) (int) $raw['quantity'], $unitString, 8), 8);
         }
 
         $warnings = [];
@@ -153,14 +157,16 @@ final class ReceiveProductionTool implements LocksTargets, WriteTool
         }
 
         $rows = [];
+        $stockVersions = [];
         $totalValue = 0.0;
         foreach ($grouped as $g) {
             /** @var ProductVariant $variant */
             $variant = $g['variant'];
             $qty = $g['quantity'];
-            $unit = $g['unit_cost'];
+            $unit = (float) bcadd(bcdiv($g['total_cost'], (string) $qty, 5), '0.00005', 4);
             $totalValue += $qty * $unit;
 
+            $stockVersions[$variant->id] = (int) StockMovement::where('product_variant_id', $variant->id)->max('id');
             $onHand = (string) StockLevel::where('product_variant_id', $variant->id)->sum(DB::raw('on_hand + in_transit'));
             $onHand = bccomp($onHand, '0', 4) < 0 ? '0' : $onHand;
             $costStr = (string) $variant->cost_price;
@@ -202,6 +208,7 @@ final class ReceiveProductionTool implements LocksTargets, WriteTool
         $expected = [];
         foreach ($grouped as $id => $g) {
             $expected['variant:'.$id] = (int) $g['variant']->lock_version;
+            $expected['stock:'.$id] = $stockVersions[$id];
         }
 
         // قبل/بعد نسبية للنموذج، والأرقام الفعلية في كارت العرض فقط.
@@ -239,6 +246,9 @@ final class ReceiveProductionTool implements LocksTargets, WriteTool
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
     {
+        if (! CostAccess::canView($actor)) {
+            throw new BusinessException('صلاحية رؤية التكلفة اتغيرت بعد الاقتراح.', [], 403);
+        }
         $a = $action->args;
         foreach ($a['items'] as $item) {
             $variant = ProductVariant::find((int) $item['product_variant_id']);
@@ -247,6 +257,9 @@ final class ReceiveProductionTool implements LocksTargets, WriteTool
             }
             if ((int) $variant->lock_version !== (int) ($action->expected_versions['variant:'.$variant->id] ?? -1)) {
                 throw new BusinessException('حد عدّل بيانات صنف بعد الاقتراح. اطلب اقتراحًا جديدًا.', [], 409);
+            }
+            if ((int) StockMovement::where('product_variant_id', $variant->id)->max('id') !== (int) ($action->expected_versions['stock:'.$variant->id] ?? -1)) {
+                throw new BusinessException('رصيد الصنف اتغير بعد معاينة متوسط التكلفة. اطلب معاينة جديدة قبل الاستلام.', [], 409);
             }
         }
         if (ProductionReceipt::whereRaw('LOWER(batch_number) = ?', [mb_strtolower((string) $a['batch_number'])])->exists()) {

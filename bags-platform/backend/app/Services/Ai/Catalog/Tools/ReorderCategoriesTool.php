@@ -10,6 +10,7 @@ use App\Models\Category;
 use App\Models\User;
 use App\Services\Ai\Catalog\CatalogArgs;
 use App\Services\Ai\Catalog\CatalogPresenter;
+use App\Services\Ai\Catalog\CatalogUndoGuard;
 use App\Services\Ai\Contracts\LocksTargets;
 use App\Services\Ai\Contracts\UndoableTool;
 use App\Services\Ai\ProposalBuilder;
@@ -152,7 +153,9 @@ final class ReorderCategoriesTool implements LocksTargets, UndoableTool, WriteTo
 
     public function lockTargets(AiPendingAction $action): void
     {
-        CatalogLock::tree(shared: true);
+        $before = array_column((array) ($action->inverse['items'] ?? []), 'parent_id', 'id');
+        $moves = collect((array) ($action->args['items'] ?? []))->contains(fn ($item) => ($item['parent_id'] ?? null) !== ($before[$item['id']] ?? null));
+        CatalogLock::tree(shared: ! $moves);
     }
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome
@@ -167,6 +170,7 @@ final class ReorderCategoriesTool implements LocksTargets, UndoableTool, WriteTo
             }
         }
 
+        $items = array_map(fn ($item) => $item + ['expected_version' => $action->expected_versions['category:'.$item['id']] ?? null], $items);
         $this->categories->reorder($items);
 
         StaffAdministration::audit(
@@ -204,7 +208,11 @@ final class ReorderCategoriesTool implements LocksTargets, UndoableTool, WriteTo
 
     public function undo(User $actor, AiPendingAction $action): ToolOutcome
     {
-        $this->categories->reorder((array) $action->inverse['items']);
+        $items = (array) $action->inverse['items'];
+        $versions = Category::whereIn('id', array_column($items, 'id'))->pluck('lock_version', 'id');
+        CatalogUndoGuard::assertUnchanged($this, $action);
+        $items = array_map(fn ($item) => $item + ['expected_version' => (int) $versions[$item['id']]], $items);
+        $this->categories->reorder($items);
 
         return ToolOutcome::result(true, 'تم التراجع عن ترتيب الأقسام.', [
             'deep_link' => '#/categories',

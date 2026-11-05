@@ -10,6 +10,7 @@ use App\Models\Category;
 use App\Models\User;
 use App\Services\Ai\Catalog\CatalogArgs;
 use App\Services\Ai\Catalog\CatalogPresenter;
+use App\Services\Ai\Catalog\CatalogUndoGuard;
 use App\Services\Ai\Contracts\LocksTargets;
 use App\Services\Ai\Contracts\UndoableTool;
 use App\Services\Ai\ProposalBuilder;
@@ -178,7 +179,9 @@ final class MoveCategoryTool implements LocksTargets, UndoableTool, WriteTool
     public function undo(User $actor, AiPendingAction $action): ToolOutcome
     {
         $category = Category::findOrFail((int) $action->args['category_id']);
+        CatalogUndoGuard::assertUnchanged($this, $action);
         $updated = $this->categories->update($category, [
+            'expected_version' => (int) $category->lock_version,
             'parent_id' => $action->inverse['parent_id'] ?? null,
             'sort_order' => $action->inverse['sort_order'] ?? $category->sort_order,
         ], null);

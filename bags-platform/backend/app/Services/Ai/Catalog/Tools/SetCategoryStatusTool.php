@@ -11,6 +11,7 @@ use App\Models\Product;
 use App\Models\User;
 use App\Services\Ai\Catalog\CatalogArgs;
 use App\Services\Ai\Catalog\CatalogPresenter;
+use App\Services\Ai\Catalog\CatalogUndoGuard;
 use App\Services\Ai\Contracts\LocksTargets;
 use App\Services\Ai\Contracts\UndoableTool;
 use App\Services\Ai\ProposalBuilder;
@@ -165,8 +166,10 @@ final class SetCategoryStatusTool implements LocksTargets, UndoableTool, WriteTo
     public function undo(User $actor, AiPendingAction $action): ToolOutcome
     {
         $category = Category::findOrFail((int) $action->args['category_id']);
+        CatalogUndoGuard::assertUnchanged($this, $action);
         $updated = $this->categories->update($category, [
             'is_active' => (bool) $action->inverse['is_active'],
+            'expected_version' => (int) $category->lock_version,
         ], null);
 
         return ToolOutcome::result(true, "تم التراجع عن تغيير حالة القسم «{$updated->name_ar}».", [

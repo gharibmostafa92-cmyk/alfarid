@@ -83,13 +83,22 @@ final class ExplainBalanceTool implements AgentTool
         $variant = $resolved['variant'];
         $branchId = $scope['branch']->id;
         $locationId = isset($args['location_id']) ? (int) $args['location_id'] : null;
+        if (! array_key_exists('location_id', $args)) {
+            $locations = StockLevel::where('product_variant_id', $variant->id)->where('branch_id', $branchId)
+                ->distinct()->limit(2)->pluck('location_id');
+            if ($locations->count() > 1) {
+                return ToolOutcome::denied('الصنف موجود في أكتر من موقع؛ حدد الموقع علشان أشرح رصيده بدقة.', auditable: false);
+            }
+            $locationId = $locations->first();
+        }
 
         $level = $this->inventory->levelFor($variant->id, $branchId, $locationId);
         $movements = StockMovement::query()
             ->where('product_variant_id', $variant->id)
             ->where('branch_id', $branchId)
-            ->when($locationId !== null, fn ($q) => $q->where('location_id', $locationId))
-            ->orderByDesc('id')->limit(100)->get();
+            ->where('location_id', $locationId)
+            ->where('affected_bucket', 'on_hand')
+            ->orderByDesc('id')->limit(20)->get();
 
         $groups = [];
         foreach ($movements as $m) {
@@ -108,7 +117,7 @@ final class ExplainBalanceTool implements AgentTool
         }
 
         $start = $movements->isNotEmpty() ? (float) $movements->last()->balance_before : 0.0;
-        $timeline = $movements->take(20)->map(fn (StockMovement $m) => [
+        $timeline = $movements->reverse()->values()->map(fn (StockMovement $m) => [
             'id' => $m->id,
             'created_at' => $m->created_at?->toIso8601String(),
             'type' => $m->type->value,

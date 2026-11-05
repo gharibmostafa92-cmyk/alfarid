@@ -7,16 +7,19 @@ namespace App\Console\Commands;
 use App\Enums\StaffRole;
 use App\Models\User;
 use App\Services\Ai\AgentOrchestrator;
+use App\Services\Ai\Catalog\CatalogToolProvider;
+use App\Services\Ai\DomainRouter;
 use App\Services\Ai\EntityResolver;
 use App\Services\Ai\GeminiClient;
 use App\Services\Ai\GeminiException;
+use App\Services\Ai\Inventory\InventoryToolProvider;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\ToolRegistry;
 use Illuminate\Console\Command;
 
 final class EvaluateAiAgent extends Command
 {
-    protected $signature = 'ai:evaluate {--actor= : Staff ID to evaluate permissions for} {--model=} {--case=* : Evaluate selected case IDs} {--rpm=10 : Maximum provider requests per minute during evaluation} {--check : Validate the dataset without contacting Gemini} {--min-accuracy=0.85}';
+    protected $signature = 'ai:evaluate {--actor= : Staff ID to evaluate permissions for} {--model=} {--case=* : Evaluate selected case IDs} {--rpm=10 : Maximum provider requests per minute during evaluation} {--check : Validate the dataset without contacting Gemini} {--toolsets : Route declarations by domain to compare with the full tool list} {--min-accuracy=0.85}';
 
     private float $lastRequestAt = 0;
 
@@ -34,6 +37,13 @@ final class EvaluateAiAgent extends Command
                 return self::FAILURE;
             }
             $ids[] = $case['id'];
+            $definition = $definitions[$case['tool'] ?? ''] ?? null;
+            if ((($definition['provider'] ?? null) instanceof CatalogToolProvider || ($definition['provider'] ?? null) instanceof InventoryToolProvider)
+                && ! $this->matchesDeclaration($case['args'], $definition['declaration']['parameters'])) {
+                $this->error('Invalid tool arguments in evaluation case '.$case['id'].'.');
+
+                return self::FAILURE;
+            }
         }
         if (count($ids) < 220) {
             $this->error('At least 220 evaluation cases are required.');
@@ -74,7 +84,10 @@ final class EvaluateAiAgent extends Command
         foreach ($cases as $case) {
             try {
                 $observed = [];
-                $match = $this->evaluateCase($gemini, $registry, $declarations, $system, $dataset['context'], $case, $observed);
+                $caseDeclarations = $this->option('toolsets')
+                    ? $registry->declarationsFor($actor, app(DomainRouter::class)->route($case['text']))
+                    : $declarations;
+                $match = $this->evaluateCase($gemini, $registry, $caseDeclarations, $system, $dataset['context'], $case, $observed);
                 $passed += $match ? 1 : 0;
                 $this->line($case['id'].': '.($match ? 'PASS' : 'FAIL').' ('.implode(' → ', $observed).')');
             } catch (\Throwable $exception) {
@@ -113,6 +126,9 @@ final class EvaluateAiAgent extends Command
             foreach ($response['calls'] as $call) {
                 $observed[] = $call['name'];
                 $args = $call['args'];
+                if ($this->output->isVerbose()) {
+                    $this->line(json_encode($call, JSON_UNESCAPED_UNICODE));
+                }
                 if ($call['name'] === 'set_branch_status' && ! isset($args['branch_id']) && isset($args['branch_query'])) {
                     $results = $this->fixtureResponse($context, ['name' => 'find_entities', 'args' => ['type' => 'branch', 'query' => $args['branch_query']]])['results'];
                     if (count($results) === 1) {
@@ -125,7 +141,10 @@ final class EvaluateAiAgent extends Command
                         $args['branch_id'] = $results[0]['id'];
                     }
                 }
-                $correct = $call['name'] === $case['tool'] && $this->containsArgs($args, $case['args']);
+                $correct = $call['name'] === $case['tool'] && $this->containsArgs(
+                    $this->normalizeCatalogEvaluationArgs($context, $call['name'], $args),
+                    $this->normalizeCatalogEvaluationArgs($context, $case['tool'] ?? '', $case['args']),
+                );
                 // Never call dispatch/execute here. An unexpected write invalidates the case.
                 if ($registry->isWrite($call['name']) && ! $correct) {
                     return false;
@@ -169,6 +188,7 @@ final class EvaluateAiAgent extends Command
         }
         if ($call['name'] === 'view_document_numbering' || $call['name'] === 'update_document_numbering') {
             $type = $call['args']['type'] ?? 'invoice';
+
             return ['numbering' => ['type' => $type, 'prefix' => 'INV-', 'next_number' => 1, 'padding' => 5], 'executed' => $call['name'] === 'update_document_numbering'];
         }
         if (in_array($call['name'], ['create_location', 'set_location_status', 'delete_location'])) {
@@ -179,6 +199,9 @@ final class EvaluateAiAgent extends Command
         }
         $query = $normalize($call['args']['query'] ?? '');
         $items = $context[$key] ?? [];
+        if ($key === 'variants') {
+            $items = $this->inventoryVariants($context);
+        }
         // For locations, filter by branch_id if provided
         if ($key === 'locations' && isset($call['args']['branch_id'])) {
             $items = array_values(array_filter($items, fn ($item) => ($item['branch_id'] ?? null) === $call['args']['branch_id']));
@@ -186,7 +209,8 @@ final class EvaluateAiAgent extends Command
         // أرقام الموبايل العربية تتحوّل لإنجليزي قبل المطابقة (زي Customer::normalizePhone في الإنتاج).
         $digits = preg_replace('/\D+/', '', strtr((string) ($call['args']['query'] ?? ''), ['٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4', '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9']));
         $items = array_values(array_filter($items, fn ($item) => $query === ''
-            || str_contains($normalize($item['name'].' '.($item['code'] ?? '').' '.($item['company_name'] ?? '')), $query)
+            || str_contains($normalize($item['name'].' '.($item['code'] ?? '').' '.($item['sku'] ?? '').' '.($item['barcode'] ?? '').' '.($item['company_name'] ?? '')), $query)
+            || ($key === 'variants' && $this->matchesInventoryDescription($item, $query))
             || ($digits !== '' && isset($item['phone']) && str_starts_with((string) $item['phone'], $digits))));
         // فلاتر قائمة العملاء (status/pending_older_than_hours مش بتتحاكى في الـ fixture؛ التطابق على اسم الأداة والـ args).
         $items = array_map(fn ($item) => ['id' => $item['id'], 'label' => isset($item['company_name']) ? $item['name'].' — '.$item['company_name'] : $item['name'], 'meta' => $item['code'] ?? ''], $items);
@@ -207,8 +231,10 @@ final class EvaluateAiAgent extends Command
                     }
                     $left = $actual[$key];
                     $right = $value;
-                    sort($left);
-                    sort($right);
+                    if ($key !== 'ids') {
+                        sort($left);
+                        sort($right);
+                    }
                     if ($left !== $right) {
                         return false;
                     }
@@ -224,5 +250,114 @@ final class EvaluateAiAgent extends Command
         }
 
         return true;
+    }
+
+    /** Expected arguments are partial assertions, but their keys and enums must exist in the tool contract. */
+    private function matchesDeclaration(array $args, array $schema): bool
+    {
+        if (($schema['type'] ?? null) === 'ARRAY') {
+            foreach ($args as $value) {
+                if (is_array($value) && ! $this->matchesDeclaration($value, $schema['items'] ?? [])) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        $properties = (array) ($schema['properties'] ?? []);
+        foreach ($args as $key => $value) {
+            if (! array_key_exists($key, $properties)) {
+                return false;
+            }
+            $property = $properties[$key];
+            if (isset($property['enum']) && ! in_array($value, $property['enum'], true)) {
+                return false;
+            }
+            if (is_array($value) && ! $this->matchesDeclaration($value, $property)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** Compare equivalent inputs the catalog tools support, without accepting unknown aliases. */
+    private function normalizeCatalogEvaluationArgs(array $context, string $tool, array $args): array
+    {
+        foreach (['transfer' => 'transfers', 'stocktake' => 'stocktakes'] as $entity => $collection) {
+            $numberKey = $entity.'_number';
+            if (isset($args[$numberKey])) {
+                foreach ($context[$collection] ?? [] as $item) {
+                    if (mb_strtolower((string) ($item['code'] ?? '')) === mb_strtolower((string) $args[$numberKey])) {
+                        $args[$entity.'_id'] = $item['id'];
+                        unset($args[$numberKey]);
+                        break;
+                    }
+                }
+            }
+        }
+        if (in_array($tool, ['get_stock_levels', 'list_movements', 'explain_balance', 'adjust_stock', 'what_if_production_cost', 'what_if_transfer_coverage'], true)) {
+            if (! isset($args['variant_id'])) {
+                $query = (string) ($args['sku'] ?? $args['barcode'] ?? $args['query'] ?? '');
+                $matches = array_values(array_filter($this->inventoryVariants($context), fn ($item) => $this->matchesInventoryDescription($item, $query)));
+                if (count($matches) === 1) {
+                    $args['variant_id'] = $matches[0]['id'];
+                    unset($args['sku'], $args['barcode'], $args['query']);
+                }
+            }
+        }
+        if (in_array($tool, ['get_product', 'check_publishability'], true) && ! isset($args['product_id']) && isset($args['code'])) {
+            $code = mb_strtolower(EntityResolver::normalizeDigits(trim((string) $args['code'])));
+            foreach ($context['products'] ?? [] as $product) {
+                if (mb_strtolower($product['code']) === $code) {
+                    $args['product_id'] = $product['id'];
+                    unset($args['code']);
+                    break;
+                }
+            }
+        }
+        if ($tool === 'reorder_categories' && isset($args['items']) && is_array($args['items'])) {
+            $parents = array_column($context['categories'] ?? [], 'parent_id', 'id');
+            usort($args['items'], fn ($a, $b) => ($a['sort_order'] ?? 0) <=> ($b['sort_order'] ?? 0));
+            $ranks = [];
+            foreach ($args['items'] as &$item) {
+                if (! array_key_exists('parent_id', $item)) {
+                    $item['parent_id'] = $parents[$item['id']] ?? null;
+                }
+                $parent = $item['parent_id'] ?? 'root';
+                $item['sort_order'] = $ranks[$parent] ?? 0;
+                $ranks[$parent] = $item['sort_order'] + 1;
+                ksort($item);
+            }
+            unset($item);
+        }
+
+        return $args;
+    }
+
+    private function inventoryVariants(array $context): array
+    {
+        $items = [];
+        foreach (array_merge($context['variants'] ?? [], $context['levels'] ?? []) as $item) {
+            $code = $item['sku'] ?? $item['code'] ?? null;
+            if ($code !== null && ! isset($items[$code])) {
+                $items[$code] = $item + ['sku' => $code];
+            }
+        }
+
+        return array_values($items);
+    }
+
+    private function matchesInventoryDescription(array $item, string $query): bool
+    {
+        $normalize = function (string $text): array {
+            $words = preg_split('/\s+/u', EntityResolver::normalizeForSearch($text), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+            return array_map(fn ($word) => preg_replace('/^ال/u', '', $word), $words);
+        };
+        $needle = $normalize($query);
+        $haystack = $normalize(implode(' ', array_filter([$item['name'] ?? '', $item['sku'] ?? '', $item['barcode'] ?? '', $item['code'] ?? ''])));
+
+        return $needle !== [] && array_diff($needle, $haystack) === [];
     }
 }

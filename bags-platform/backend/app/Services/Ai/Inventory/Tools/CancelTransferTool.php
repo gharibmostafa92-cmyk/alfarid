@@ -14,7 +14,7 @@ use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
 
-final class CancelTransferTool extends TransferToolBase implements WriteTool, AgentTool
+final class CancelTransferTool extends TransferToolBase implements AgentTool, WriteTool
 {
     public function name(): string
     {
@@ -60,9 +60,18 @@ final class CancelTransferTool extends TransferToolBase implements WriteTool, Ag
             return $resolved;
         }
         $transfer = $resolved['transfer'];
+        if ($transfer->status === TransferStatus::Shipped) {
+            $outcome = ToolOutcome::denied("التحويل {$transfer->transfer_number} اتشحن، مش هينفع يتلغى. راجع الاستلام أو التحويل العكسي.", auditable: false);
+            $outcome->uiBlock = ['type' => 'checklist', 'title' => 'بدائل إلغاء التحويل المشحون', 'checks' => [], 'next_actions' => [
+                ['label' => 'راجع استلام صفر بعجز كامل', 'prompt' => "جهز اقتراح استلام التحويل {$transfer->transfer_number} بكمية صفر لكل البنود مع عرض العجز قبل التأكيد"],
+                ['label' => 'راجع تحويلًا عكسيًا', 'prompt' => "راجع التحويل {$transfer->transfer_number} وخطة تحويل عكسي بعد تسوية استلامه، واعرض المعاينة قبل أي تنفيذ"],
+            ]];
+
+            return $outcome;
+        }
         if (! in_array($transfer->status, [TransferStatus::Draft, TransferStatus::Approved], true)) {
             return ToolOutcome::denied(
-                "التحويل {$transfer->transfer_number} اتشحن، مش هينفع يتلغى. تحب أعمل استلام بكمية صفر وأسجله عجز، ولا أعمل تحويل عكسي؟",
+                "التحويل {$transfer->transfer_number} مش قابل للإلغاء في حالته الحالية ({$transfer->status->value}).",
                 auditable: false,
             );
         }

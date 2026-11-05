@@ -4,8 +4,15 @@ const BASE = '/api/v1/admin/ai';
 export interface UiBlock { type: string; [k: string]: unknown }
 export interface ConvMsg { id: number; role: string; content: string | null; ui_blocks: UiBlock[] | null; created_at: string }
 export interface Conv { id: number; user_id: number; is_pinned: boolean; title: string | null; model: string; total_tokens: number; last_message_at: string | null; messages?: ConvMsg[]; pending_actions?: { id: string; status: string; expires_at: string }[] }
-export interface AgentSettings { ai_enabled: boolean; ai_customer_tools_enabled?: boolean; ai_document_analysis_enabled?: boolean; ai_catalog_tools_enabled?: boolean; ai_catalog_vision_enabled?: boolean; ai_catalog_copywriting_enabled?: boolean; ai_catalog_bulk_price_max_items?: number; ai_max_steps?: number; ai_daily_token_budget_per_user: number; ai_disabled_tools: string[]; ai_action_ttl_minutes: number; ai_retention_days: number; ai_bulk_max_items: number; ai_dealer_review_sla_hours?: number; ai_credit_limit_confirm_threshold?: number }
-export interface ToolStatRow { tool: string; total: number; executed: number; cancelled: number; failed_409: number; confirm_rate: number; cancel_rate: number; needs_attention: boolean }
+export interface AgentSettings { ai_enabled: boolean; ai_customer_tools_enabled?: boolean; ai_document_analysis_enabled?: boolean; ai_catalog_tools_enabled?: boolean; ai_catalog_vision_enabled?: boolean; ai_catalog_copywriting_enabled?: boolean; ai_catalog_bulk_price_max_items?: number; ai_pricing_tools_enabled?: boolean; ai_promotions_tools_enabled?: boolean; ai_pricing_max_items_per_action?: number; ai_coupon_high_risk_percent?: number; ai_price_below_cost_policy?: string; ai_pricing_vision_enabled?: boolean; ai_max_steps?: number; ai_daily_token_budget_per_user: number; ai_disabled_tools: string[]; ai_action_ttl_minutes: number; ai_retention_days: number; ai_bulk_max_items: number; ai_dealer_review_sla_hours?: number; ai_credit_limit_confirm_threshold?: number }
+export interface AgentSettings {
+  ai_inventory_tools_enabled?: boolean;
+  ai_inventory_vision_enabled?: boolean;
+  ai_inventory_share_cost_with_model?: boolean;
+  ai_inventory_proactive_enabled?: boolean;
+  ai_inventory_high_risk_value?: number;
+}
+export interface ToolStatRow { tool: string; total: number; executed: number; cancelled: number; failed: number; pending: number; confirm_rate: number; cancel_rate: number; needs_attention: boolean }
 export interface ToolStatsSummary { total_proposals: number; executed_count: number; cancelled_count: number; failed_409_count: number; confirm_rate: number; cancel_rate: number; conflict_409_rate: number; tools: ToolStatRow[] }
 export interface UploadedAttachment { id: string; filename: string; mime: string; size: number; thumb_url: string }
 export const assistantApi = {

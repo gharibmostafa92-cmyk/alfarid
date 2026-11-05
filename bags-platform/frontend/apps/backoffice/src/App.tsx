@@ -5,7 +5,7 @@ import AuthCallbackPage from './pages/auth/AuthCallbackPage';
 import LoginPage from './pages/auth/LoginPage';
 import SessionProbePage from './pages/auth/SessionProbePage';
 import { FinancialDashboard } from '@alfarid/ui';
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useAuthStore } from './stores/auth.store';
 import CategoriesMockPage from './pages/admin/categories-mock/CategoriesMockPage';
 import PosPage from './pages/pos/PosPage';
@@ -31,6 +31,14 @@ function AuthenticatedApp() {
     || window.location.pathname + window.location.search;
   const [routeWithQuery, setRouteWithQuery] = useState(readRoute);
   const route = routeWithQuery.split('?')[0];
+  const inventorySelection = useRef<{ entity: string; id: number } | undefined>(undefined);
+  useEffect(() => {
+    if (route === '/assistant') return;
+    const params = new URLSearchParams(routeWithQuery.split('?')[1] ?? '');
+    const entity = route === '/inventory/transfer' ? 'transfer' : route === '/inventory/count' ? 'stocktake' : route === '/production' ? 'production_receipt' : undefined;
+    const id = Number(params.get('id') ?? params.get('receipt_id'));
+    inventorySelection.current = entity && Number.isSafeInteger(id) && id > 0 ? { entity, id } : undefined;
+  }, [routeWithQuery, route]);
   const can = useCallback((permission: string) =>
     hasPermission(user?.permissions, permission), [user]);
   const cashierOnly = (user?.roles ?? []).includes('cashier') && ![
@@ -110,7 +118,7 @@ function AuthenticatedApp() {
     onLogout={logoutRemote}
     catalogActive={catalogActive}
     catalogPage={
-      route === '/assistant' ? <Suspense fallback={<div dir="rtl">جارٍ تحميل المساعد…</div>}><AssistantPage can={can} initialPrompt={assistantPrompt} /></Suspense> : isOperation && operationsActive ? (
+      route === '/assistant' ? <Suspense fallback={<div dir="rtl">جارٍ تحميل المساعد…</div>}><AssistantPage can={can} initialPrompt={assistantPrompt} initialSelection={inventorySelection.current} /></Suspense> : isOperation && operationsActive ? (
         !canViewOperation(operationsActive, can) ? (
           <div dir="rtl" className="p-6">ليس لديك صلاحية عرض هذه الصفحة.</div>
         ) : (

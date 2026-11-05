@@ -244,7 +244,175 @@ class PricingService
     }
 
     /**
+     * Resolves the effective unit price with a per-layer explanation waterfall.
+     *
+     * @return array{final: array, layers: list<array>, notes: list<string>}
+     */
+    public function trace(ProductVariant $variant, ?Customer $customer = null, float $qty = 1, ?int $branchId = null, ?array $ctx = null): array
+    {
+        if (! is_finite($qty) || $qty <= 0) {
+            throw new BusinessException('كمية التسعير يجب أن تكون موجبة.');
+        }
+        $now = Carbon::now();
+        $ctx ??= $this->contextFor($customer);
+        $baseQuery = $this->eligibleItems($variant, $qty, $branchId, $now);
+        $channel = $ctx['channel'];
+        $eligibleCustomer = $ctx['eligible'];
+        $group = $ctx['group'];
+        $layers = [];
+        $notes = [];
+
+        if ($customer !== null
+            && in_array($customer->type, [CustomerType::Wholesale, CustomerType::Distributor], true)
+            && $customer->status !== CustomerStatus::Approved) {
+            $notes[] = 'العميل جملة لكنه مش معتمد، فاتسعّر قطاعي.';
+        }
+
+        $pick = function (PriceListType $type, ?string $ownerField = null, ?int $ownerId = null) use ($ctx, $variant, $qty, $baseQuery, $branchId): ?PriceListItem {
+            if (isset($ctx['items']) && $branchId === null) {
+                return ($ctx['items'][$variant->id] ?? collect())
+                    ->filter(fn ($item) => $item->pricing_type === $type->value && (float) $item->min_qty <= $qty)
+                    ->sort(function ($a, $b): int {
+                        return (($a->pricing_branch_id === null) <=> ($b->pricing_branch_id === null))
+                            ?: ((float) $b->min_qty <=> (float) $a->min_qty)
+                            ?: ((int) $b->pricing_priority <=> (int) $a->pricing_priority)
+                            ?: BigDecimal::of($a->price)->compareTo(BigDecimal::of($b->price))
+                            ?: ((int) $a->id <=> (int) $b->id);
+                    })->first();
+            }
+
+            return $this->ordered((clone $baseQuery)->where('price_lists.type', $type)
+                ->when($ownerField !== null, fn ($q) => $q->where('price_lists.'.$ownerField, $ownerId)))->first();
+        };
+
+        $tieNote = function (PriceListType $type, ?string $ownerField, ?int $ownerId, ?PriceListItem $winner) use ($ctx, $variant, $qty, $baseQuery, $branchId, &$notes): void {
+            if ($winner === null || (isset($ctx['items']) && $branchId === null)) {
+                return;
+            }
+            $top = $this->ordered((clone $baseQuery)->where('price_lists.type', $type)
+                ->when($ownerField !== null, fn ($q) => $q->where('price_lists.'.$ownerField, $ownerId)))
+                ->limit(2)->get(['price_list_items.id', 'price_list_items.min_qty', 'price_list_items.price', 'price_lists.priority', 'price_lists.branch_id']);
+            if ($top->count() === 2
+                && (int) $top[0]->priority === (int) $top[1]->priority
+                && (float) $top[0]->min_qty === (float) $top[1]->min_qty
+                && ($top[0]->branch_id === null) === ($top[1]->branch_id === null)
+                && (float) $top[0]->price !== (float) $top[1]->price) {
+                $notes[] = 'فيه قائمتين بنفس الأولوية، فكسبت الأرخص.';
+            }
+        };
+
+        $skippedRest = function (array $names) use (&$layers): void {
+            foreach ($names as $n) {
+                $layers[] = ['layer' => $n, 'status' => 'skipped', 'reason' => 'طبقة أعلى كسبت.'];
+            }
+        };
+
+        if (! $eligibleCustomer) {
+            $layers[] = ['layer' => 'customer_specific', 'status' => 'not_eligible', 'reason' => 'العميل مش معتمد أو زائر، فقوائم العملاء الخاصة مش بتتطبق.', 'price_list_id' => null, 'price' => null, 'min_qty' => null];
+            if ($customer !== null) {
+                $specificId = PriceList::query()->where('type', PriceListType::CustomerSpecific)->where('customer_id', $customer->id)->orderByDesc('id')->value('id');
+                if ($specificId !== null) {
+                    $notes[] = "عنده قائمة خاصة رقم {$specificId}، بس العميل مش approved، فالقائمة دي مش بتتطبق.";
+                }
+            }
+        } else {
+            $item = $pick(PriceListType::CustomerSpecific, 'customer_id', $customer->id);
+            if ($item !== null) {
+                $tieNote(PriceListType::CustomerSpecific, 'customer_id', $customer->id, $item);
+                $layers[] = ['layer' => 'customer_specific', 'status' => 'won', 'reason' => 'قائمة العميل الخاصة كسبت.', 'price_list_id' => (int) $item->price_list_id, 'price' => (float) $item->price, 'min_qty' => (float) $item->min_qty];
+                $skippedRest(['customer_group', 'channel', 'retail_fallback', 'base_price']);
+                $layers[] = ['layer' => 'group_discount', 'status' => 'skipped', 'reason' => 'خصم المجموعة 10% ماتطبقش لأن السعر جه من قائمة المجموعة نفسها.'];
+                $final = $this->formatResponse($item->price, PriceListType::CustomerSpecific->value, (int) $item->price_list_id, $variant, $channel);
+
+                return ['final' => $final, 'layers' => $layers, 'notes' => $notes];
+            }
+            $layers[] = ['layer' => 'customer_specific', 'status' => 'no_match', 'reason' => 'مفيش بند مطابق في قائمة العميل الخاصة.', 'price_list_id' => null, 'price' => null, 'min_qty' => null];
+        }
+
+        if ($group === null) {
+            $layers[] = ['layer' => 'customer_group', 'status' => 'not_eligible', 'reason' => 'العميل مش في مجموعة نشطة، فقوائم المجموعات مش بتتطبق.', 'price_list_id' => null, 'price' => null, 'min_qty' => null];
+        } else {
+            $item = $pick(PriceListType::CustomerGroup, 'customer_group_id', $group->id);
+            if ($item !== null) {
+                $tieNote(PriceListType::CustomerGroup, 'customer_group_id', $group->id, $item);
+                $layers[] = ['layer' => 'customer_group', 'status' => 'won', 'reason' => 'قائمة المجموعة كسبت.', 'price_list_id' => (int) $item->price_list_id, 'price' => (float) $item->price, 'min_qty' => (float) $item->min_qty];
+                $skippedRest(['channel', 'retail_fallback', 'base_price']);
+                $layers[] = ['layer' => 'group_discount', 'status' => 'skipped', 'reason' => 'خصم المجموعة 10% ماتطبقش لأن السعر جه من قائمة المجموعة نفسها.'];
+                $final = $this->formatResponse($item->price, PriceListType::CustomerGroup->value, (int) $item->price_list_id, $variant, $channel);
+
+                return ['final' => $final, 'layers' => $layers, 'notes' => $notes];
+            }
+            $layers[] = ['layer' => 'customer_group', 'status' => 'no_match', 'reason' => 'مفيش بند مطابق في قائمة المجموعة.', 'price_list_id' => null, 'price' => null, 'min_qty' => null];
+        }
+
+        $item = $pick($channel);
+        $channelWon = false;
+        $channelPrice = null;
+        $channelListId = null;
+        $channelSource = $channel->value;
+        if ($item !== null) {
+            $tieNote($channel, null, null, $item);
+            $channelWon = true;
+            $channelPrice = (string) $item->price;
+            $channelListId = (int) $item->price_list_id;
+            $layers[] = ['layer' => 'channel', 'status' => 'won', 'reason' => "قائمة القناة ({$channel->value}) كسبت.", 'price_list_id' => $channelListId, 'price' => (float) $item->price, 'min_qty' => (float) $item->min_qty];
+        } else {
+            $layers[] = ['layer' => 'channel', 'status' => 'no_match', 'reason' => "مفيش بند مطابق في قائمة القناة ({$channel->value}).", 'price_list_id' => null, 'price' => null, 'min_qty' => null];
+        }
+
+        if (! $channelWon && $channel !== PriceListType::Retail) {
+            $retailItem = $pick(PriceListType::Retail);
+            if ($retailItem !== null) {
+                $tieNote(PriceListType::Retail, null, null, $retailItem);
+                $channel = PriceListType::Retail;
+                $channelWon = true;
+                $channelPrice = (string) $retailItem->price;
+                $channelListId = (int) $retailItem->price_list_id;
+                $channelSource = $channel->value;
+                $layers[] = ['layer' => 'retail_fallback', 'status' => 'won', 'reason' => 'القناة وقعت على قائمة قطاعي بديلة.', 'price_list_id' => $channelListId, 'price' => (float) $retailItem->price, 'min_qty' => (float) $retailItem->min_qty];
+            } else {
+                $layers[] = ['layer' => 'retail_fallback', 'status' => 'no_match', 'reason' => 'مفيش بند قطاعي بديل.', 'price_list_id' => null, 'price' => null, 'min_qty' => null];
+            }
+        } else {
+            $layers[] = ['layer' => 'retail_fallback', 'status' => 'skipped', 'reason' => $channelWon ? 'القناة كسبت، فمش محتاج بديل قطاعي.' : 'القناة قطاعي بالفعل.', 'price_list_id' => null, 'price' => null, 'min_qty' => null];
+        }
+
+        if (! $channelWon) {
+            $base = $this->basePrice($variant, $channel);
+            if ($base === null) {
+                throw new BusinessException('الصنف غير مُسعَّر: لا توجد قائمة أسعار مطابقة ولا سعر قطاعي للمتغير.');
+            }
+            $channelPrice = $base;
+            $channelListId = null;
+            $channelSource = 'base_price';
+            $layers[] = ['layer' => 'base_price', 'status' => 'won', 'reason' => 'مفيش قوائم مطابقة، فاتسعّر بالسعر الأساسي.', 'price_list_id' => null, 'price' => (float) $base, 'min_qty' => null];
+        } else {
+            $layers[] = ['layer' => 'base_price', 'status' => 'skipped', 'reason' => 'قائمة كسبت، فالسعر الأساسي مش مستخدم.', 'price_list_id' => null, 'price' => null, 'min_qty' => null];
+        }
+
+        if ($group !== null && (float) $group->discount_percentage > 0) {
+            $layers[] = ['layer' => 'group_discount', 'status' => 'won', 'reason' => "خصم المجموعة {$group->discount_percentage}% اتطبق على سعر القناة/الأساسي.", 'price_list_id' => $channelListId, 'price' => null, 'min_qty' => null];
+            $final = $this->formatResponse(
+                (string) BigDecimal::of($channelPrice)->multipliedBy($this->discountFactor($group->discount_percentage)),
+                'customer_group_discount',
+                $channelListId,
+                $variant,
+                $channel,
+            );
+
+            return ['final' => $final, 'layers' => $layers, 'notes' => $notes];
+        }
+
+        $layers[] = ['layer' => 'group_discount', 'status' => 'skipped', 'reason' => 'مفيش خصم مجموعة يتطبق.', 'price_list_id' => null, 'price' => null, 'min_qty' => null];
+        $final = $this->formatResponse($channelPrice, $channelSource, $channelListId, $variant, $channel);
+
+        return ['final' => $final, 'layers' => $layers, 'notes' => $notes];
+    }
+
+    /**
      * Returns the step-ladder volume pricing tiers applicable to a customer for a variant.
+     *
+     * @return list<array{min_qty: float, unit_price: float}>}
      *
      * @return list<array{min_qty: float, unit_price: float}>
      */

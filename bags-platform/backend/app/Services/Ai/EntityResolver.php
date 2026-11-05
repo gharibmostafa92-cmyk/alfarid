@@ -5,13 +5,17 @@ declare(strict_types=1);
 namespace App\Services\Ai;
 
 use App\Models\Branch;
+use App\Models\Brand;
 use App\Models\Category;
+use App\Models\Coupon;
 use App\Models\Customer;
 use App\Models\CustomerGroup;
 use App\Models\Location;
+use App\Models\PriceList;
 use App\Models\Product;
 use App\Models\ProductionReceipt;
 use App\Models\ProductVariant;
+use App\Models\Promotion;
 use App\Models\Stocktake;
 use App\Models\StockTransfer;
 use App\Models\User;
@@ -210,13 +214,22 @@ final class EntityResolver
             }
         }
 
+        $search = $this->inventoryDocumentSearch($clean);
+        $route = null;
+        if (preg_match('/(?:^|\s)من\s+(.+?)\s+(?:إلى|الى|لـ?|لفرع)\s*(.+)$/u', $search, $parts)) {
+            $route = [$this->inventoryDocumentSearch($parts[1]), $this->inventoryDocumentSearch($parts[2])];
+        }
+
         return $this->mapTransfers(StockTransfer::query()->with(['fromBranch:id,name', 'toBranch:id,name'])
             ->tap($scope)
             ->when(isset($filters['status']), fn ($x) => $x->where('status', $filters['status']))
             ->when(self::mentionsYesterday($clean), fn ($x) => $x->whereDate('created_at', today()->subDay()))
             ->when(self::mentionsToday($clean), fn ($x) => $x->whereDate('created_at', today()))
-            ->when($clean !== '', function ($x) use ($clean): void {
-                $pattern = SearchTerm::pattern($clean);
+            ->when($route !== null, fn ($x) => $x
+                ->whereHas('fromBranch', fn ($b) => $b->where('name', 'ilike', SearchTerm::pattern($route[0])))
+                ->whereHas('toBranch', fn ($b) => $b->where('name', 'ilike', SearchTerm::pattern($route[1]))))
+            ->when($route === null && $search !== '', function ($x) use ($search): void {
+                $pattern = SearchTerm::pattern($search);
                 $x->where(fn ($w) => $w
                     ->where('transfer_number', 'ilike', $pattern)
                     ->orWhere('notes', 'ilike', $pattern)
@@ -246,13 +259,15 @@ final class EntityResolver
             }
         }
 
+        $search = $this->inventoryDocumentSearch($clean);
+
         return $this->mapStocktakes(Stocktake::query()->with('branch:id,name')
             ->when($restricted !== null, fn ($x) => $x->where('branch_id', $restricted))
             ->when(isset($filters['status']), fn ($x) => $x->where('status', $filters['status']))
             ->when(self::mentionsYesterday($clean), fn ($x) => $x->whereDate('created_at', today()->subDay()))
             ->when(self::mentionsToday($clean), fn ($x) => $x->whereDate('created_at', today()))
-            ->when($clean !== '', function ($x) use ($clean): void {
-                $pattern = SearchTerm::pattern($clean);
+            ->when($search !== '', function ($x) use ($search): void {
+                $pattern = SearchTerm::pattern($search);
                 $x->where(fn ($w) => $w
                     ->where('stocktake_number', 'ilike', $pattern)
                     ->orWhere('notes', 'ilike', $pattern)
@@ -261,6 +276,13 @@ final class EntityResolver
             ->orderByDesc('id')
             ->limit(20)
             ->get())->all();
+    }
+
+    private function inventoryDocumentSearch(string $query): string
+    {
+        $query = preg_replace('/(?:^|\s)(?:التحويل|تحويل|اللي|جرد|الجرد|بتاع|فرع|امبارح|أمس|النهارده|اليوم)(?=\s|$)/u', ' ', $query) ?? $query;
+
+        return trim(preg_replace('/\s+/u', ' ', $query) ?? $query);
     }
 
     /** @return list<array{id:int,label:string,meta:string}> */
@@ -424,6 +446,86 @@ final class EntityResolver
             ->all();
     }
 
+    /** @return list<array{id:int,label:string,meta:string}> */
+    public function priceLists(User $actor, string $query = '', array $filters = []): array
+    {
+        $restricted = $this->restricted($actor);
+        if ($restricted === -1) {
+            return [];
+        }
+
+        return PriceList::query()
+            ->when($restricted !== null, fn ($x) => $x->where('branch_id', $restricted))
+            ->when(array_key_exists('active', $filters), fn ($x) => $x->where('is_active', $filters['active']))
+            ->when(isset($filters['type']), fn ($x) => $x->where('type', $filters['type']))
+            ->when(trim($query) !== '', fn ($x) => $x->where('name', 'ilike', SearchTerm::pattern($query)))
+            ->orderBy('id')
+            ->limit(50)
+            ->get()
+            ->map(fn (PriceList $l) => ['id' => $l->id, 'label' => $l->name.' ('.$l->type->value.')', 'meta' => ($l->is_active ? 'نشطة' : 'متوقفة').' · أولوية: '.$l->priority.($l->branch_id ? ' · فرع: '.$l->branch_id : '')])
+            ->values()
+            ->all();
+    }
+
+    /** @return list<array{id:int,label:string,meta:string}> */
+    public function brands(string $query = '', array $filters = []): array
+    {
+        $clean = trim(self::normalizeDigits($query));
+        $terms = self::expandCatalogSearchTerms($clean);
+
+        return Brand::query()
+            ->when(array_key_exists('active', $filters), fn ($x) => $x->where('is_active', $filters['active']))
+            ->when($terms !== [], function ($x) use ($terms): void {
+                $x->where(function ($w) use ($terms): void {
+                    foreach ($terms as $term) {
+                        $pattern = SearchTerm::pattern($term);
+                        $w->orWhereLike('name_ar', $pattern, caseSensitive: false)
+                            ->orWhereLike('name_en', $pattern, caseSensitive: false)
+                            ->orWhereLike('slug', $pattern, caseSensitive: false);
+                    }
+                });
+            })
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->limit(20)
+            ->get()
+            ->map(fn (Brand $b) => ['id' => $b->id, 'label' => $b->name_ar.' ('.$b->slug.')', 'meta' => $b->is_active ? 'نشطة' : 'معطّلة'])
+            ->values()
+            ->all();
+    }
+
+    /** @return list<array{id:int,label:string,meta:string}> */
+    public function coupons(string $query = '', array $filters = []): array
+    {
+        $clean = trim(self::normalizeDigits($query));
+
+        return Coupon::query()
+            ->when(array_key_exists('active', $filters), fn ($x) => $x->where('is_active', $filters['active']))
+            ->when($clean !== '', fn ($x) => $x->whereRaw('UPPER(code) LIKE ?', [SearchTerm::pattern(mb_strtoupper($clean))]))
+            ->orderBy('id')
+            ->limit(50)
+            ->get()
+            ->map(fn (Coupon $c) => ['id' => $c->id, 'label' => $c->code.' ('.$c->type.')', 'meta' => 'قيمة: '.$c->value.($c->usage_limit !== null ? ' · مستخدم: '.$c->used_count.'/'.$c->usage_limit : ' · مستخدم: '.$c->used_count).($c->is_active ? '' : ' · متوقف')])
+            ->values()
+            ->all();
+    }
+
+    /** @return list<array{id:int,label:string,meta:string}> */
+    public function promotions(string $query = '', array $filters = []): array
+    {
+        $clean = trim(self::normalizeDigits($query));
+
+        return Promotion::query()
+            ->when(array_key_exists('active', $filters), fn ($x) => $x->where('is_active', $filters['active']))
+            ->when($clean !== '', fn ($x) => $x->where('name', 'ilike', SearchTerm::pattern($clean)))
+            ->orderBy('id')
+            ->limit(50)
+            ->get()
+            ->map(fn (Promotion $p) => ['id' => $p->id, 'label' => $p->name.' ('.$p->type.')', 'meta' => ($p->is_active ? 'نشط' : 'متوقف').' · غير مُطبَّق تلقائيًا'])
+            ->values()
+            ->all();
+    }
+
     /** @param list<string> $fields */
     public function matches(string $query, array $fields): bool
     {
@@ -495,29 +597,6 @@ final class EntityResolver
     {
         $clean = trim(self::normalizeDigits($q));
 
-        // أي query من غير مسافات وطوله 4 أو أكتر يتجرب الأول كـ SKU/barcode/code مضبوط (LOWER(sku) = LOWER(?)). لو لقى نتيجة واحدة يرجعها على طول.
-        if ($clean !== '' && ! preg_match('/\s/u', $clean) && mb_strlen($clean) >= 4) {
-            $exact = Product::query()
-                ->with('category:id,name_ar,name_en')
-                ->withCount('variants')
-                ->where(function ($w) use ($clean): void {
-                    $w->whereRaw('LOWER(code) = LOWER(?)', [$clean])
-                        ->orWhereIn('products.id', ProductVariant::query()->select('product_id')
-                            ->where(fn ($v) => $v->whereRaw('LOWER(sku) = LOWER(?)', [$clean])->orWhereRaw('LOWER(barcode) = LOWER(?)', [$clean])));
-                })
-                ->limit(2)
-                ->get();
-            if ($exact->count() === 1) {
-                $p = $exact->first();
-
-                return [[
-                    'id' => $p->id,
-                    'label' => $p->name_ar.' — '.$p->code,
-                    'meta' => $p->status->value.' · '.$p->variants_count.' متغير · '.($p->category?->name_ar ?? '—'),
-                ]];
-            }
-        }
-
         $terms = self::expandCatalogSearchTerms($clean);
         $query = Product::query()
             ->with('category:id,name_ar,name_en')
@@ -545,6 +624,25 @@ final class EntityResolver
                     });
                 });
             });
+
+        // Exact identifiers have priority within the same filtered scope.
+        if ($clean !== '' && ! preg_match('/\s/u', $clean) && mb_strlen($clean) >= 4) {
+            $exact = (clone $query)
+                ->where(function ($w) use ($clean): void {
+                    $w->whereRaw('LOWER(code) = LOWER(?)', [$clean])
+                        ->orWhereIn('products.id', ProductVariant::query()->select('product_id')
+                            ->where(fn ($v) => $v->whereRaw('LOWER(sku) = LOWER(?)', [$clean])->orWhereRaw('LOWER(barcode) = LOWER(?)', [$clean])));
+                })->limit(2)->get();
+            if ($exact->count() === 1) {
+                $p = $exact->first();
+
+                return [[
+                    'id' => $p->id,
+                    'label' => $p->name_ar.' — '.$p->code,
+                    'meta' => $p->status->value.' · '.$p->variants_count.' متغير · '.($p->category?->name_ar ?? '—'),
+                ]];
+            }
+        }
 
         if ($terms !== []) {
             $query->where(function ($w) use ($terms, $clean): void {

@@ -142,11 +142,14 @@ class CategoryService
         }
     }
 
-    public function delete(Category $category): void
+    public function delete(Category $category, ?int $expectedVersion = null): void
     {
-        DB::transaction(function () use ($category): void {
+        DB::transaction(function () use ($category, $expectedVersion): void {
             $this->lockTree();
             $locked = Category::whereKey($category->id)->lockForUpdate()->firstOrFail();
+            if ($expectedVersion !== null && (int) $locked->lock_version !== $expectedVersion) {
+                throw new BusinessException('القسم تعدّل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
+            }
 
             if ($locked->children()->exists()) {
                 throw new BusinessException('لا يمكن حذف قسم يحتوي على أقسام فرعية');
@@ -178,6 +181,9 @@ class CategoryService
                     if (! $category) {
                         throw new BusinessException('القسم غير موجود', ['items' => ['أحد الأقسام لم يعد متاحًا']]);
                     }
+                    if (isset($item['expected_version']) && (int) $item['expected_version'] !== (int) $category->lock_version) {
+                        throw new BusinessException('القسم تعدّل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
+                    }
                     $parentId = $item['parent_id'] === null ? null : (int) $item['parent_id'];
                     $moved = $moved || $parentId !== $category->parent_id;
                     $nodes[$category->id]['parent_id'] = $parentId;
@@ -192,8 +198,17 @@ class CategoryService
                 // M11: apply row updates in id order so concurrent order-only
                 // requests acquire row locks in the same order (no deadlock).
                 $ordered = collect($items)->sortBy('id')->values()->all();
+                $hasExpectedVersions = collect($ordered)->contains(fn ($item) => isset($item['expected_version']));
+                $lockedCategories = $hasExpectedVersions
+                    ? Category::whereIn('id', array_column($ordered, 'id'))->orderBy('id')->lockForUpdate()->get()->keyBy('id')
+                    : $categories;
                 foreach ($ordered as $item) {
-                    $categories->get($item['id'])->update(['parent_id' => $nodes[$item['id']]['parent_id'], 'sort_order' => $item['sort_order']]);
+                    $locked = $lockedCategories->get($item['id'])
+                        ?? throw new BusinessException('القسم لم يعد متاحًا؛ اطلب اقتراحًا جديدًا.', [], 409);
+                    if (isset($item['expected_version']) && (int) $item['expected_version'] !== (int) $locked->lock_version) {
+                        throw new BusinessException('القسم تعدّل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
+                    }
+                    $locked->update(['parent_id' => $nodes[$item['id']]['parent_id'], 'sort_order' => $item['sort_order']]);
                 }
 
                 return true;

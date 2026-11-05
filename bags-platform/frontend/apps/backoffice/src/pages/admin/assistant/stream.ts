@@ -25,9 +25,9 @@ export function createIncrementalSseParser(): { feed(responseText: string): Agen
   return {
     feed(responseText: string): AgentEvent[] {
       if (responseText.length < cursor) { cursor = 0; pending = ''; }
-      pending += responseText.slice(cursor).replace(/\r\n/g, '\n');
+      pending += responseText.slice(cursor);
       cursor = responseText.length;
-      const frames = pending.split('\n\n');
+      const frames = pending.split(/\r?\n\r?\n/);
       pending = frames.pop() ?? '';
       if (frames.length === 0) return [];
       return parseAgentEvents(frames.join('\n\n') + '\n\n');

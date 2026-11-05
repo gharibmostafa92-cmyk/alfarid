@@ -121,7 +121,7 @@ final class DeleteVariantTool implements LocksTargets, WriteTool
         $id = $variant->id;
         $before = ['sku' => $variant->sku, 'barcode' => $variant->barcode];
 
-        $this->variants->delete($variant);
+        $this->variants->delete($variant, $expected === null ? null : (int) $expected);
 
         StaffAdministration::audit(
             $actor,

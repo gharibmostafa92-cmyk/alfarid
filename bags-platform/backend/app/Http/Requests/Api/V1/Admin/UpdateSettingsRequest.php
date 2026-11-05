@@ -79,6 +79,12 @@ class UpdateSettingsRequest extends FormRequest
             'ai_inventory_share_cost_with_model' => ['sometimes', 'boolean'],
             'ai_inventory_high_risk_value' => ['sometimes', 'integer', 'min:0', 'max:9999999999'],
             'ai_inventory_proactive_enabled' => ['sometimes', 'boolean'],
+            'ai_pricing_tools_enabled' => ['sometimes', 'boolean'],
+            'ai_promotions_tools_enabled' => ['sometimes', 'boolean'],
+            'ai_pricing_max_items_per_action' => ['sometimes', 'integer', 'min:1', 'max:1000'],
+            'ai_coupon_high_risk_percent' => ['sometimes', 'numeric', 'min:0', 'max:100'],
+            'ai_price_below_cost_policy' => ['sometimes', 'string', Rule::in(['block', 'warn'])],
+            'ai_pricing_vision_enabled' => ['sometimes', 'boolean'],
             'ai_max_steps' => ['sometimes', 'integer', 'min:1', 'max:10'],
         ];
 

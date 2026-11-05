@@ -9,6 +9,7 @@ interface Props {
   busy: boolean;
   status?: string;
   execute: boolean;
+  confirmationBlocked?: boolean;
   onPick: (entity: string, id: string | number, label: string) => void;
   onAction: (kind: 'confirm' | 'cancel' | 'undo', id: string, typed?: string, selected?: string[]) => void;
   /** يملأ صندوق الكتابة برسالة جاهزة (مثلاً زرار «جهّز الاعتماد»). */
@@ -16,9 +17,9 @@ interface Props {
 }
 
 const fieldLabels: Record<string, string> = { is_active: 'حالة التفعيل', name: 'الاسم', name_ar: 'الاسم بالعربية', name_en: 'الاسم بالإنجليزية', slug: 'الرابط (slug)', parent_id: 'القسم الأب', sort_order: 'الترتيب', description_ar: 'الوصف بالعربية', description_en: 'الوصف بالإنجليزية', category_id: 'القسم', sales_channel: 'قناة البيع', is_featured: 'منتج مميز', min_wholesale_qty: 'أقل كمية جملة', sku: 'كود التشكيلة (SKU)', barcode: 'الباركود', color_ar: 'اللون (عربي)', color_en: 'اللون (إنجليزي)', color_hex: 'درجة اللون', size: 'المقاس', capacity: 'السعة', retail_price: 'سعر القطاعي', wholesale_price: 'سعر الجملة', compare_at_price: 'سعر قبل الخصم', cost_price: 'سعر التكلفة', weight_grams: 'الوزن (جرام)', code: 'الكود', roles: 'الأدوار', permissions: 'الصلاحيات', email: 'البريد الإلكتروني', branch_id: 'الفرع', type: 'نوع الفرع', city: 'المدينة', phone: 'الهاتف', status: 'الحالة', credit_limit: 'حد الائتمان', used_credit: 'المستخدم من الائتمان', customer_group: 'المجموعة', customer_group_id: 'المجموعة', company: 'بيانات الشركة', company_name: 'اسم الشركة', tax_number: 'الرقم الضريبي', commercial_register: 'السجل التجاري', rejection_reason: 'سبب الرفض', suspension_reason: 'سبب الإيقاف', previous_status: 'الحالة السابقة', documents_to_reject: 'مستندات هتترفض' };
-const customerStatusLabels: Record<string, string> = { pending: 'قيد المراجعة', approved: 'معتمد', rejected: 'مرفوض', suspended: 'موقوف', draft: 'مسودة', active: 'منشور / نشط', archived: 'مؤرشف', inactive: 'متوقف' };
+const customerStatusLabels: Record<string, string> = { pending: 'قيد المراجعة', approved: 'معتمد', rejected: 'مرفوض', suspended: 'موقوف', draft: 'مسودة', active: 'منشور / نشط', published: 'منشور', archived: 'مؤرشف', inactive: 'متوقف' };
 const customerTypeLabels: Record<string, string> = { retail: 'تجزئة', wholesale: 'جملة', distributor: 'موزّع', both: 'قطاعي وجملة' };
-const statusBadgeTone: Record<string, string> = { pending: 'warning', approved: 'success', rejected: 'danger', suspended: 'danger', draft: 'warning', active: 'success', archived: '', inactive: 'danger' };
+const statusBadgeTone: Record<string, string> = { pending: 'warning', approved: 'success', rejected: 'danger', suspended: 'danger', draft: 'warning', active: 'success', published: 'success', archived: '', inactive: 'danger' };
 const verdictMeta: Record<string, { label: string; tone: string }> = { ready: { label: 'جاهز', tone: 'success' }, blocked: { label: 'متعطّل (blocked)', tone: 'danger' }, needs_attention: { label: 'محتاج انتباه', tone: 'warning' } };
 const severityRank: Record<string, number> = { blocker: 0, warning: 1, info: 2 };
 const severityLabel: Record<string, string> = { blocker: 'مانع', warning: 'تحذير', info: 'معلومة' };
@@ -72,6 +73,7 @@ function CategoryTreeView({ nodes, movedId }: { nodes: CategoryTreeNode[]; moved
               type="button"
               className="as-iconbtn as-iconbtn--sm"
               aria-expanded={!isCollapsed}
+              aria-label={`${isCollapsed ? 'فتح' : 'طي'} قسم ${label}`}
               onClick={() => setCollapsedIds(prev => ({ ...prev, [node.id]: !prev[node.id] }))}
             >
               <Icon name={isCollapsed ? 'chevronStart' : 'chevron'} size={14} />
@@ -133,7 +135,7 @@ function DiffTable({ before, after }: { before: unknown; after: unknown }) {
         <dl>
           {keys.map(key => (
             <div className="as-diff-row" key={key}>
-              <dt>{fieldLabels[key] ?? key}</dt>
+              <dt>{fieldLabels[key] ?? inventoryBucketLabels[key] ?? key}</dt>
               <dd className="as-after">{formatValue(key, a[key])}</dd>
             </div>
           ))}
@@ -151,7 +153,7 @@ function DiffTable({ before, after }: { before: unknown; after: unknown }) {
           const changed = !!a && key in a && (!b || bv !== av);
           return (
             <div className="as-diff-row" role="row" key={key} data-changed={changed}>
-              <dt role="cell">{fieldLabels[key] ?? key}</dt>
+              <dt role="cell">{fieldLabels[key] ?? inventoryBucketLabels[key] ?? key}</dt>
               <dd role="cell" className="as-before">{b ? <span className={bv === 'بدون' ? 'as-empty-val' : ''}>{bv}</span> : <span className="as-empty-val">جديد</span>}</dd>
               <dd role="cell" className="as-after"><span className={av === 'بدون' ? 'as-empty-val' : ''}>{av}</span></dd>
             </div>
@@ -163,6 +165,7 @@ function DiffTable({ before, after }: { before: unknown; after: unknown }) {
 }
 
 const fmtClock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+const inventoryBucketLabels: Record<string, string> = { on_hand: 'الرصيد الفعلي', reserved: 'المحجوز', damaged: 'التالف', in_transit: 'في الطريق', available: 'المتاح' };
 
 async function downloadDocument(url: string, name: string) {
   const r = await defaultApiClient.get(url, { responseType: 'blob' });
@@ -174,20 +177,25 @@ async function downloadDocument(url: string, name: string) {
 
 function normalizeDeepLink(raw: unknown): string | undefined {
   if (typeof raw !== 'string' || !raw) return undefined;
-  const clean = raw.startsWith('#') ? raw.slice(1) : raw;
+  let clean = raw.startsWith('#') ? raw.slice(1) : raw;
+  clean = clean.replace(/^\/transfers\/(\d+)$/, '/inventory/transfer?id=$1')
+    .replace(/^\/stocktakes\/(\d+)$/, '/inventory/count?id=$1')
+    .replace(/^\/production\/(\d+)$/, '/production?receipt_id=$1');
   if (/^\/(users|roles|settings|branches|dealers|pricing|products|categories|transfers|stocktakes|production|inventory)(\/|\?|$)/.test(clean)) {
     return `#${clean}`;
   }
   return undefined;
 }
 
-export default function AssistantBlock({ block, busy, status, execute, onPick, onAction, onPrompt }: Props) {
+export default function AssistantBlock({ block, busy, status, execute, confirmationBlocked, onPick, onAction, onPrompt }: Props) {
   const [dlError, setDlError] = useState('');
   const [typed, setTyped] = useState('');
   const [query, setQuery] = useState('');
   const [now, setNow] = useState(Date.now());
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [showAllPrices, setShowAllPrices] = useState(false);
+  const [countEdits, setCountEdits] = useState<Record<number, string>>({});
+  const [countsReviewed, setCountsReviewed] = useState(false);
   const items = (block.items ?? []) as { key: string; label: string; change: string; before?: unknown; after?: unknown; ok?: boolean; message?: string }[];
   const [selected, setSelected] = useState(() => items.map(item => item.key));
   // أول قيمة للمهلة المتبقية — بنستخدمها كـ "إجمالي" لحلقة العدّاد.
@@ -201,6 +209,38 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
   }, [block.expires_at, block.undo_available_until]);
 
   const options = useMemo(() => (block.options ?? []) as { id: string | number; label: string; meta?: string; disabled?: string }[], [block.options]);
+
+  // Inventory previews use the same authorization, expiry and typed-confirmation
+  // controls as every other proposal. Read-only cards have no action_id.
+  if (block.action_id && ['stock_diff', 'count_sheet', 'cost_impact', 'transfer_timeline'].includes(block.type)) {
+    const props = { busy, status, execute, onPick, onAction, onPrompt };
+    const counts = block.type === 'count_sheet' ? (block.rows ?? []) as { product_variant_id?: number; variant_id?: number; sku?: string; counted_qty?: number; confidence?: number }[] : [];
+    const needsReview = counts.some(r => (r.confidence ?? 1) < 0.8);
+    const edited = Object.keys(countEdits).length > 0;
+    return (
+      <div>
+        <AssistantBlock {...props} block={{ ...block, action_id: undefined }} />
+        {counts.length > 0 && (!status || status === 'pending') && (
+          <fieldset className="as-block as-block-body" disabled={busy || !execute}>
+            <legend>مراجعة وتعديل العد</legend>
+            {counts.map((row, i) => (
+              <label className="as-field" key={i}>
+                <span>{row.sku ?? `صنف ${i + 1}`}</span>
+                <input className="as-input" type="number" min="0" step="1" aria-label={`تعديل عد ${row.sku ?? i + 1}`} value={countEdits[i] ?? row.counted_qty ?? ''} onChange={e => setCountEdits(current => ({ ...current, [i]: e.target.value }))} />
+              </label>
+            ))}
+            {needsReview && <label><input type="checkbox" checked={countsReviewed} onChange={e => setCountsReviewed(e.target.checked)} /> راجعت السطور ذات الثقة المنخفضة</label>}
+            {edited && onPrompt && <button type="button" className="as-btn" disabled={counts.some((r, i) => { const n = Number(countEdits[i] ?? r.counted_qty); return (countEdits[i] === '') || !Number.isSafeInteger(n) || n < 0; })} onClick={() => {
+              const rows = counts.map((row, i) => `${row.sku ?? `variant_id=${row.product_variant_id ?? row.variant_id}`}: ${countEdits[i] ?? row.counted_qty}`).join('، ');
+              onAction('cancel', String(block.action_id));
+              onPrompt(`جهز اقتراح تسجيل عد جديد للجرد ${block.stocktake_number ?? block.stocktake_id ?? ''} بالكميات المعدلة: ${rows}`);
+            }}>جهز اقتراحًا بالعد المعدّل</button>}
+          </fieldset>
+        )}
+        <AssistantBlock {...props} confirmationBlocked={edited || (needsReview && !countsReviewed)} block={{ ...block, type: 'confirm_action', before: block.type === 'transfer_timeline' ? block.before : undefined, after: block.type === 'transfer_timeline' ? block.after : undefined }} />
+      </div>
+    );
+  }
 
   /* ---------------- Category tree (B.1) ---------------- */
   if (block.type === 'category_tree') {
@@ -224,11 +264,11 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
   /* ---------------- Product card (B.3) ---------------- */
   if (block.type === 'product_card') {
     const st = String(block.status ?? 'draft');
-    const readiness = (block.readiness ?? []) as { key: string; ok: boolean; label: string; hint?: string }[];
-    const variantsList = (block.variants ?? []) as { id: number; sku: string; color_ar?: string; color_hex?: string; size?: string; retail_price?: number; wholesale_price?: number; status?: string }[];
+    const readiness = (asRecord(block.readiness)?.checks ?? []) as { key: string; ok: boolean; label: string; hint?: string }[];
+    const variantsList = (block.variants ?? []) as { id: number; sku: string; color_name_ar?: string; color_hex?: string; size?: string; retail_price?: number; wholesale_price?: number; is_active: boolean }[];
     const priceRange = asRecord(block.price_range);
     const link = normalizeDeepLink(block.deep_link ?? (block.product_id ? `#/products/${String(block.product_id)}/edit` : undefined));
-    const thumb = typeof block.thumbnail_url === 'string' && block.thumbnail_url ? block.thumbnail_url : undefined;
+    const thumb = typeof block.thumb_url === 'string' && block.thumb_url ? block.thumb_url : undefined;
     return (
       <section className="as-block" aria-label="كارت المنتج">
         <header className="as-block-head">
@@ -241,7 +281,7 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
             <h3>{String(block.name_ar ?? block.name ?? '')}</h3>
             <span>
               <code dir="ltr">{String(block.code ?? '')}</code>
-              {block.category_path ? ` · ${String(block.category_path)}` : ''}
+              {block.category_name ? ` · ${String(block.category_name)}` : ''}
             </span>
           </div>
           <span className={`as-badge as-badge--${statusBadgeTone[st] ?? ''}`}>{customerStatusLabels[st] ?? st}</span>
@@ -251,11 +291,11 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
             <dl className="as-diff">
               <div className="as-diff-row">
                 <dt>نطاق القطاعي</dt>
-                <dd className="as-num">{priceRange.retail_min != null ? `${money(priceRange.retail_min)} – ${money(priceRange.retail_max)} ج.م` : 'غير محدد'}</dd>
+                <dd className="as-num">{priceRange.min_retail != null ? `${money(priceRange.min_retail)} – ${money(priceRange.max_retail)} ج.م` : 'غير محدد'}</dd>
               </div>
               <div className="as-diff-row">
                 <dt>نطاق الجملة</dt>
-                <dd className="as-num">{priceRange.wholesale_min != null ? `${money(priceRange.wholesale_min)} – ${money(priceRange.wholesale_max)} ج.م` : 'غير محدد'}</dd>
+                <dd className="as-num">{priceRange.min_wholesale != null ? `${money(priceRange.min_wholesale)} – ${money(priceRange.max_wholesale)} ج.م` : 'غير محدد'}</dd>
               </div>
             </dl>
           )}
@@ -272,12 +312,12 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
                       <td>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem' }}>
                           {v.color_hex && <i style={{ width: 12, height: 12, borderRadius: '50%', background: v.color_hex, display: 'inline-block', border: '1px solid var(--as-border)' }} />}
-                          {[v.color_ar, v.size].filter(Boolean).join(' · ') || '—'}
+                          {[v.color_name_ar, v.size].filter(Boolean).join(' · ') || '—'}
                         </span>
                       </td>
                       <td className="as-num">{v.retail_price != null ? money(v.retail_price) : '—'}</td>
                       <td className="as-num">{v.wholesale_price != null ? money(v.wholesale_price) : '—'}</td>
-                      <td><span className={`as-badge as-badge--${statusBadgeTone[String(v.status ?? '')] ?? ''}`}>{customerStatusLabels[String(v.status ?? '')] ?? v.status}</span></td>
+                      <td><span className={`as-badge as-badge--${v.is_active ? 'success' : 'danger'}`}>{v.is_active ? 'نشط' : 'متوقف'}</span></td>
                     </tr>
                   ))}
                 </tbody>
@@ -333,7 +373,7 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
                     )}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '.75rem' }}>
                       <code dir="ltr">#{img.id}</code>
-                      {isCover ? <span className="as-badge as-badge--success">غلاف</span> : <span className="as-num">ترتيب {(img.order ?? img.sort_order ?? idx) + 1}</span>}
+                      {isCover ? <span className="as-badge as-badge--success">غلاف</span> : <span className="as-num">ترتيب {img.order ?? img.sort_order ?? (idx + 1)}</span>}
                     </div>
                     {img.variant_label && <span style={{ fontSize: '.72rem', color: 'var(--as-muted)' }}>{img.variant_label}</span>}
                   </div>
@@ -531,7 +571,7 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
     const sensitive = !!required || warnings.length > 0 || addList.some(isSensitive);
     const state = !pending ? status! : expired ? 'expired' : 'pending';
     const level = seconds <= 15 ? 'crit' : seconds <= 60 ? 'warn' : 'ok';
-    const typedOk = !required || typed === required;
+    const typedOk = !required || typed.trim().toLocaleLowerCase() === required.trim().toLocaleLowerCase();
     const icon = block.type === 'permission_diff' ? 'key' : block.type === 'bulk_plan' ? 'layers' : block.type === 'category_tree_diff' ? 'folder' : block.type === 'variant_matrix' || block.type === 'price_diff' ? 'tag' : 'shield';
     const kindLabel = block.type === 'permission_diff' ? 'تعديل صلاحيات' : block.type === 'bulk_plan' ? 'عملية جماعية' : block.type === 'category_tree_diff' ? 'تعديل شجرة الأقسام' : block.type === 'variant_matrix' ? 'مصفوفة التشكيلات' : block.type === 'price_diff' ? 'تعديل أسعار جماعي' : 'تعديل يحتاج تأكيد';
     const allOn = selected.length === items.length;
@@ -638,7 +678,7 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
 
           {block.type === 'price_diff' && (() => {
             const summary = asRecord(block.summary);
-            const allRows = (block.rows ?? []) as { variant_id?: number; sku: string; label?: string; product_name?: string; before_retail?: number; after_retail?: number; before_wholesale?: number; after_wholesale?: number }[];
+            const allRows = (block.rows ?? []) as { variant_id: number; sku: string; product_name?: string; old_price: number | null; new_price: number; delta: number; delta_pct: number | null }[];
             const topRows = (block.top ?? allRows.slice(0, 10)) as typeof allRows;
             const blockedRows = (block.blocked ?? []) as { sku: string; reason: string }[];
             const displayRows = showAllPrices ? allRows : topRows;
@@ -646,25 +686,25 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
               <div style={{ display: 'grid', gap: '.65rem' }}>
                 {summary && (
                   <dl className="as-diff">
-                    {summary.count != null && <div className="as-diff-row"><dt>عدد التشكيلات المتأثرة</dt><dd className="as-num">{String(summary.count)}</dd></div>}
+                    {summary.updated_count != null && <div className="as-diff-row"><dt>عدد التشكيلات المتأثرة</dt><dd className="as-num">{String(summary.updated_count)}</dd></div>}
                     {summary.field != null && <div className="as-diff-row"><dt>الحقل</dt><dd>{fieldLabels[String(summary.field)] ?? String(summary.field)}</dd></div>}
-                    {summary.min_delta != null && <div className="as-diff-row"><dt>أقل فرق</dt><dd className="as-num">{money(summary.min_delta)} ج.م</dd></div>}
-                    {summary.max_delta != null && <div className="as-diff-row"><dt>أكبر فرق</dt><dd className="as-num">{money(summary.max_delta)} ج.م</dd></div>}
+                    {summary.average_delta != null && <div className="as-diff-row"><dt>متوسط التغيير</dt><dd className="as-num">{money(summary.average_delta)} ج.م</dd></div>}
+                    {summary.total_delta != null && <div className="as-diff-row"><dt>إجمالي التغيير</dt><dd className="as-num">{money(summary.total_delta)} ج.م</dd></div>}
                   </dl>
                 )}
                 {displayRows.length > 0 && (
                   <div className="as-table-wrap">
                     <table className="as-table">
                       <thead>
-                        <tr><th>SKU</th><th>التشكيلة</th><th className="as-num">قطاعي (قبل → بعد)</th><th className="as-num">جملة (قبل → بعد)</th></tr>
+                        <tr><th>SKU</th><th>المنتج</th><th className="as-num">السعر (قبل → بعد)</th><th className="as-num">التغيير</th></tr>
                       </thead>
                       <tbody>
                         {displayRows.map((r, i) => (
                           <tr key={r.variant_id ?? i}>
                             <td><code dir="ltr">{r.sku}</code></td>
-                            <td>{r.label ?? r.product_name ?? '—'}</td>
-                            <td className="as-num">{r.before_retail != null ? `${money(r.before_retail)} ← ${money(r.after_retail)}` : '—'}</td>
-                            <td className="as-num">{r.before_wholesale != null ? `${money(r.before_wholesale)} ← ${money(r.after_wholesale)}` : '—'}</td>
+                            <td>{r.product_name ?? '—'}</td>
+                            <td className="as-num" dir="ltr">{r.old_price != null ? money(r.old_price) : '—'} → {money(r.new_price)}</td>
+                            <td className="as-num">{money(r.delta)} ج.م{r.delta_pct != null ? ` (${money(r.delta_pct)}٪)` : ''}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -750,9 +790,9 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
           {pending && !expired && required && (
             <div className="as-typed">
               <label htmlFor={`typed-${String(block.action_id)}`}><Icon name="lock" size={15} />للتأكيد اكتب <b dir="ltr">{displayRequired}</b> في الخانة</label>
-              <div className="as-typed-field" data-match={typed === required}>
+              <div className="as-typed-field" data-match={typedOk}>
                 <input id={`typed-${String(block.action_id)}`} className="as-input" value={typed} onChange={e => setTyped(e.target.value)} disabled={disabled} dir="ltr" autoComplete="off" spellCheck={false} placeholder={displayRequired} onPaste={e => e.preventDefault()} />
-                {typed === required && <Icon name="check" size={16} />}
+                {typedOk && <Icon name="check" size={16} />}
               </div>
             </div>
           )}
@@ -776,7 +816,7 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
             <button
               type="button"
               className="as-btn as-btn--primary"
-              disabled={disabled || !typedOk || (block.type === 'bulk_plan' && !selected.length)}
+              disabled={disabled || confirmationBlocked || !typedOk || (block.type === 'bulk_plan' && !selected.length)}
               onClick={() => onAction('confirm', String(block.action_id), required ? typed : undefined, block.type === 'bulk_plan' ? selected : undefined)}
             >
               <Icon name="check" size={16} />
@@ -825,7 +865,7 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
     const columns = (block.columns ?? []) as string[];
     const rows = (block.rows ?? []) as (string | number)[][];
     const link = normalizeDeepLink(block.deep_link);
-    const max = rows.reduce((m, r) => Math.max(m, ...r.slice(1).map(v => Number(v) || 0)), 0);
+    const cells = (block.cell_meta ?? []) as { variant_id: number; branch_id: number; coverage_days: number | null }[][];
     return (
       <section className="as-block" aria-label="مصفوفة المخزون">
         <header className="as-block-head">
@@ -842,8 +882,12 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
                   {r.map((v, j) => {
                     if (j === 0) return <th key={j} scope="row">{v}</th>;
                     const n = Number(v) || 0;
-                    const heat = max > 0 ? 0.08 + 0.5 * (n / max) : 0;
-                    return <td key={j} style={n > 0 ? { backgroundColor: `rgba(180, 120, 40, ${heat.toFixed(2)})` } : undefined}>{n === 0 ? 'صفر' : v}</td>;
+                    const cell = cells[i]?.[j - 1];
+                    const coverage = cell?.coverage_days;
+                    const color = coverage != null ? coverage < 3 ? 'rgba(200, 55, 55, .2)' : coverage < 7 ? 'rgba(180, 120, 40, .2)' : coverage > 60 ? 'rgba(45, 135, 95, .2)' : undefined : undefined;
+                    return <td key={j} style={{ backgroundColor: color }}>
+                      {cell && onPrompt ? <button type="button" className="as-linkbtn" title={coverage != null ? `تغطية ${coverage} يوم — اعرض الحركات` : 'بلا مبيعات مسجلة — اعرض الحركات'} onClick={() => onPrompt(`اعرض حركات الصنف variant_id=${cell.variant_id} في الفرع branch_id=${cell.branch_id}`)}>{n === 0 ? 'صفر' : v}</button> : n === 0 ? 'صفر' : v}
+                    </td>;
                   })}
                 </tr>
               ))}
@@ -871,7 +915,7 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
             <tbody>
               {keys.map(k => (
                 <tr key={k}>
-                  <th scope="row">{k}</th>
+                  <th scope="row">{inventoryBucketLabels[k] ?? k}</th>
                   <td>{String(before[k] ?? '—')}</td>
                   <td><strong>{String(after[k] ?? '—')}</strong></td>
                 </tr>
@@ -927,7 +971,7 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
 
   /* ---------------- Transfer timeline (4 stages + item qtys) ---------------- */
   if (block.type === 'transfer_timeline') {
-    const stages = (block.stages ?? []) as { stage: string; done: boolean; at?: string }[];
+    const stages = (block.stages ?? []) as { stage: string; done: boolean; at?: string; actor?: string }[];
     const items = (block.items ?? []) as { sku?: string; requested_qty?: number; approved_qty?: number; shipped_qty?: number; received_qty?: number; shortage?: number }[];
     const link = normalizeDeepLink(block.deep_link);
     const stageLabel: Record<string, string> = { draft: 'مسودة', approved: 'معتمد', shipped: 'مشحون', received: 'مستلم' };
@@ -944,6 +988,7 @@ export default function AssistantBlock({ block, busy, status, execute, onPick, o
               <li key={i} data-done={s.done ? '1' : '0'}>
                 <span className="as-stepdot" aria-hidden="true" />
                 <span>{stageLabel[s.stage] ?? s.stage}</span>
+                {s.actor ? <span>{s.actor}</span> : null}
                 {s.at ? <time className="as-num">{new Date(s.at).toLocaleString('ar-EG')}</time> : null}
               </li>
             ))}

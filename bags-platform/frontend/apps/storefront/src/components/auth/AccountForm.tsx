@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent, type InputHTMLAttributes } from 'r
 import { useRouter } from 'next/navigation';
 import { useBranding } from '@alfarid/ui/branding';
 import { registerWeb, requestPasswordReset, resetWebPassword } from '@/services/auth.service';
+import { PhoneVerification, type PhoneProof } from './PhoneVerification';
 
 export type AuthView = 'login' | 'register' | 'wholesale-register' | 'forgot-password' | 'reset-password';
 type AccountView = Exclude<AuthView, 'login'>;
@@ -122,6 +123,8 @@ export function AccountForm({
   const [taxNumber, setTaxNumber] = useState('');
   const [commercialRegister, setCommercialRegister] = useState('');
   const [documents, setDocuments] = useState<File[]>([]);
+  const [phoneProof, setPhoneProof] = useState<PhoneProof>({ token: '', ready: false });
+  const [verificationAttempt, setVerificationAttempt] = useState(0);
 
   useEffect(() => {
     if (wholesale && businessStep) document.getElementById('auth-company_name')?.focus();
@@ -150,6 +153,12 @@ export function AccountForm({
     if (response?.status === 422) {
       const fields = response.data?.errors ?? {};
       setErrors(fields);
+      if (fields.phone_verification_token) {
+        setFormError(fields.phone_verification_token[0]);
+        setPhoneProof({ token: '', ready: false });
+        setVerificationAttempt(value => value + 1);
+        setBusinessStep(false);
+      }
       if (wholesale && ['name', 'phone', 'email', 'password'].some((key) => fields[key])) setBusinessStep(false);
       if (Object.keys(fields).length === 0) setFormError(response.data?.message ?? text('راجع البيانات وحاول مرة أخرى.', 'Check your details and try again.'));
     } else if (response?.status === 429) {
@@ -166,6 +175,10 @@ export function AccountForm({
     setErrors({});
     setFormError('');
     setNotice('');
+    if (!recovery && !phoneProof.ready) {
+      setFormError(text('أكّد رقم الموبايل أولًا.', 'Verify your mobile number first.'));
+      return;
+    }
     if ((!recovery || resetStep) && password !== confirmation) {
       setErrors({ password_confirmation: [text('كلمتا المرور غير متطابقتين.', 'The passwords do not match.')] });
       return;
@@ -199,6 +212,7 @@ export function AccountForm({
             phone: phone.trim(),
             email: email.trim() || undefined,
             password,
+            ...(phoneProof.token ? { phone_verification_token: phoneProof.token } : {}),
             ...(wholesale ? { company_name: company.trim(), tax_number: taxNumber.trim(), commercial_register: commercialRegister.trim() } : {}),
           },
           wholesale,
@@ -464,7 +478,10 @@ export function AccountForm({
                     dir="ltr"
                     placeholder={text('01xxxxxxxxx', '+201xxxxxxxxx')}
                     value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
+                    onChange={(e) => {
+                      setPhone(e.target.value);
+                      setPhoneProof({ token: '', ready: false });
+                    }}
                     error={errors.phone?.[0]}
                   />
                 </div>
@@ -486,6 +503,7 @@ export function AccountForm({
               </>
             )}
           </fieldset>
+          {!recovery && <PhoneVerification key={verificationAttempt} phone={phone} lang={lang} disabled={busy} onChange={setPhoneProof} onBusyChange={setBusy} />}
           {notice && (
             <div className="luxury-success" role="status">
               {notice}
@@ -496,7 +514,7 @@ export function AccountForm({
               {formError}
             </p>
           )}
-          <button type="submit" className="pill-btn-primary" disabled={busy}>
+          <button type="submit" className="pill-btn-primary" disabled={busy || (!recovery && !phoneProof.ready)}>
             {busy
               ? text('جارٍ التنفيذ…', 'Please wait…')
               : recovery

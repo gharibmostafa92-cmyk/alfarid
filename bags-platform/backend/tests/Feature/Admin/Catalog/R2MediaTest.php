@@ -14,6 +14,35 @@ class R2MediaTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
+    public function test_explicit_private_catalog_mode_uses_signed_urls_without_a_public_bucket(): void
+    {
+        config(['filesystems.catalog_disk' => 'r2', 'filesystems.disks.r2.key' => 'test-key',
+            'filesystems.disks.r2.secret' => 'test-secret', 'filesystems.disks.r2.bucket' => 'private-catalog',
+            'filesystems.disks.r2.endpoint' => 'https://r2.example.test', 'filesystems.disks.r2.root' => 'alfarid',
+            'filesystems.disks.r2_public.bucket' => null, 'filesystems.disks.r2_public.url' => null,
+            'services.gemini.api_key' => 'test-gemini', 'services.gemini.model' => 'test-model']);
+        $category = Category::factory()->create();
+        $media = $category->addMedia(UploadedFile::fake()->image('private-catalog.png'))->toMediaCollection('image');
+        $this->assertSame('r2', $media->disk);
+        $this->assertStringContainsString('?signed=1', $media->getUrl());
+        $this->artisan('integrations:check')->assertSuccessful();
+    }
+
+    public function test_catalog_only_migration_uses_the_selected_r2_disk_and_preserves_local_sources(): void
+    {
+        Storage::fake('public');
+        config(['filesystems.catalog_disk' => 'public']);
+        $category = Category::factory()->create();
+        $media = $category->addMedia(UploadedFile::fake()->image('existing-catalog.png'))->toMediaCollection('image');
+        $path = $media->getPathRelativeToRoot();
+        $original = Storage::disk('public')->get($path);
+        config(['filesystems.catalog_disk' => 'r2']);
+        $this->artisan('uploads:migrate-to-r2', ['--catalog-only' => true])->assertSuccessful();
+        $this->assertSame('r2', $media->fresh()->disk);
+        $this->assertSame($original, Storage::disk('r2')->get($path));
+        Storage::disk('public')->assertExists($path);
+    }
+
     public function test_r2_images_receive_private_signed_urls_and_use_the_configured_media_disk(): void
     {
         $disk = Storage::fake('r2');

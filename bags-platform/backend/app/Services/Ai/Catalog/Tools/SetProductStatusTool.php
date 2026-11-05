@@ -11,6 +11,7 @@ use App\Models\Product;
 use App\Models\User;
 use App\Services\Ai\Catalog\CatalogArgs;
 use App\Services\Ai\Catalog\CatalogPresenter;
+use App\Services\Ai\Catalog\CatalogUndoGuard;
 use App\Services\Ai\Contracts\LocksTargets;
 use App\Services\Ai\Contracts\UndoableTool;
 use App\Services\Ai\ProposalBuilder;
@@ -166,7 +167,7 @@ final class SetProductStatusTool implements LocksTargets, UndoableTool, WriteToo
 
         $oldStatus = $product->status->value;
         $targetStatus = ProductStatus::from((string) $action->args['status']);
-        $this->products->changeStatus($product, $targetStatus, $actor);
+        $this->products->changeStatus($product, $targetStatus, $actor, $expected === null ? null : (int) $expected);
 
         StaffAdministration::audit(
             $actor,
@@ -220,7 +221,8 @@ final class SetProductStatusTool implements LocksTargets, UndoableTool, WriteToo
         }
 
         $targetStatus = ProductStatus::from((string) $action->inverse['status']);
-        $this->products->changeStatus($product, $targetStatus, $actor);
+        CatalogUndoGuard::assertUnchanged($this, $action);
+        $this->products->changeStatus($product, $targetStatus, $actor, (int) $product->lock_version);
 
         return ToolOutcome::result(true, "تم التراجع ورجوع حالة المنتج {$product->code} إلى {$product->status->value}.", [
             'product_id' => $product->id,

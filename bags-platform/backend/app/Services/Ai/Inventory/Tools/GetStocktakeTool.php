@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Inventory\Tools;
 
+use App\Enums\StocktakeStatus;
 use App\Models\Stocktake;
 use App\Models\StocktakeItem;
 use App\Models\User;
@@ -100,6 +101,15 @@ final class GetStocktakeTool implements AgentTool
             'difference' => $i->difference !== null ? (float) $i->difference : null,
         ])->values()->all();
 
+        $reveal = $stocktake->status === StocktakeStatus::Approved || $actor->can('stocktakes.approve');
+        if (! $reveal) {
+            $items = array_map(function ($item) {
+                unset($item['system_qty'], $item['difference']);
+
+                return $item;
+            }, $items);
+        }
+
         return $this->presenter->present($actor, [
             'stocktake' => [
                 'id' => $stocktake->id,
@@ -111,11 +121,11 @@ final class GetStocktakeTool implements AgentTool
             'items' => $items,
             'items_truncated' => $total > 100,
             'deep_link' => '#/stocktakes/'.$stocktake->id,
-        ], ['type' => 'table', 'columns' => ['الصنف', 'النظام', 'العد', 'الفرق'], 'rows' => array_map(fn ($i) => [
+        ], ['type' => 'table', 'columns' => $reveal ? ['الصنف', 'النظام', 'العد', 'الفرق'] : ['الصنف', 'العد'], 'rows' => array_map(fn ($i) => $reveal ? [
             $i['sku'] ?? (string) $i['variant_id'],
             $i['system_qty'] !== null ? (string) $i['system_qty'] : '—',
             $i['counted_qty'] !== null ? (string) $i['counted_qty'] : '—',
             $i['difference'] !== null ? (string) $i['difference'] : '—',
-        ], $items)]);
+        ] : [$i['sku'] ?? (string) $i['variant_id'], $i['counted_qty'] !== null ? (string) $i['counted_qty'] : '—'], $items)]);
     }
 }

@@ -65,28 +65,29 @@ final class LowStockListTool implements AgentTool
         }
         $branchId = $scope['branch']?->id;
 
+        $sales = DB::table('stock_movements')
+            ->selectRaw('product_variant_id, branch_id, GREATEST(0, SUM(-quantity)) AS sold')
+            ->whereIn('type', ['sale', 'sale_return'])
+            ->where('created_at', '>=', now()->subDays(30))
+            ->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
+            ->groupBy('product_variant_id', 'branch_id');
+        $limit = min(50, max(1, (int) ($args['limit'] ?? 20)));
         $rows = DB::table('stock_levels as sl')
             ->join('product_variants as pv', 'pv.id', '=', 'sl.product_variant_id')
             ->leftJoin('products as p', 'p.id', '=', 'pv.product_id')
             ->leftJoin('branches as b', 'b.id', '=', 'sl.branch_id')
+            ->leftJoinSub($sales, 'sales', fn ($join) => $join
+                ->on('sales.product_variant_id', '=', 'sl.product_variant_id')->on('sales.branch_id', '=', 'sl.branch_id'))
             ->when($branchId !== null, fn ($q) => $q->where('sl.branch_id', $branchId))
-            ->whereRaw('COALESCE(NULLIF(sl.reorder_level, 0), pv.reorder_level, 0) > 0')
-            ->whereRaw('sl.available <= COALESCE(NULLIF(sl.reorder_level, 0), pv.reorder_level, 0)')
-            ->selectRaw('sl.product_variant_id, sl.branch_id, b.name AS branch_name, pv.sku, p.name_ar AS product_name, sl.available, COALESCE(NULLIF(sl.reorder_level, 0), pv.reorder_level, 0) AS threshold')
-            ->orderBy('sl.available')
-            ->limit(200)->get();
+            ->selectRaw('sl.product_variant_id, sl.branch_id, b.name AS branch_name, pv.sku, p.name_ar AS product_name, SUM(sl.available) AS available, MAX(COALESCE(NULLIF(sl.reorder_level, 0), pv.reorder_level, 0)) AS threshold, COALESCE(sales.sold, 0) AS sold')
+            ->groupBy('sl.product_variant_id', 'sl.branch_id', 'b.name', 'pv.sku', 'p.name_ar', 'pv.reorder_level', 'sales.sold')
+            ->havingRaw('(pv.reorder_level > 0 AND SUM(sl.available) <= pv.reorder_level) OR BOOL_OR(sl.reorder_level > 0 AND sl.available <= sl.reorder_level)')
+            ->orderByRaw('SUM(sl.available) / NULLIF(COALESCE(sales.sold, 0) / 30.0, 0) ASC NULLS LAST')
+            ->orderBy('sl.product_variant_id')->orderBy('sl.branch_id')
+            ->limit($limit)->get();
 
-        $sales = DB::table('stock_movements')
-            ->selectRaw('product_variant_id, branch_id, SUM(-quantity) AS sold')
-            ->where('type', 'sale')
-            ->where('created_at', '>=', now()->subDays(30))
-            ->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
-            ->whereIn('product_variant_id', $rows->pluck('product_variant_id')->all())
-            ->groupBy('product_variant_id', 'branch_id')
-            ->get()->keyBy(fn ($r) => $r->product_variant_id.':'.$r->branch_id);
-
-        $items = $rows->map(function ($r) use ($sales): array {
-            $sold = (float) ($sales->get($r->product_variant_id.':'.$r->branch_id)?->sold ?? 0);
+        $items = $rows->map(function ($r): array {
+            $sold = (float) $r->sold;
             $daily = $sold / 30;
             $coverage = $daily > 0 ? round((float) $r->available / $daily, 1) : null;
 

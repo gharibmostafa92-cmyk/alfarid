@@ -66,13 +66,13 @@ export const PL_TYPES: Record<string, string> = {
 export const PROMO_TYPES: Record<string, string> = {
   percent: 'خصم نسبة',
   amount: 'خصم مبلغ',
-  bxgy: 'اشترِ X واحصل على Y',
   free_ship: 'شحن مجاني',
 };
 
 export const SCOPES: Record<string, string> = {
   all: 'الكل',
   categories: 'أقسام',
+  brands: 'ماركات',
   variants: 'متغيرات منتجات',
 };
 

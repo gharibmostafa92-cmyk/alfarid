@@ -111,8 +111,17 @@ export async function resetWebPassword(login: string, token: string, password: s
   });
 }
 
-export async function sendPhoneVerification(phone: string) {
-  const response = await defaultApiClient.post<{ message: string }>('/api/v1/store/auth/phone-verification/send', { phone });
+export async function getRegistrationOptions() {
+  const response = await defaultApiClient.get<{ data: { phone_verification_required: boolean; turnstile_site_key: string | null } }>(
+    '/api/v1/store/auth/registration-options',
+  );
+  return response.data.data;
+}
+
+export async function sendPhoneVerification(phone: string, turnstileToken: string) {
+  const response = await defaultApiClient.post<{ message: string }>('/api/v1/store/auth/phone-verification/send', {
+    phone, turnstile_token: turnstileToken,
+  });
   return response.data;
 }
 

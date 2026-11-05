@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Observers\CatalogRetailPriceObserver;
 use App\Services\Ai\Catalog\CatalogArgs;
 use App\Services\Ai\Catalog\CatalogPresenter;
+use App\Services\Ai\Catalog\CatalogUndoGuard;
 use App\Services\Ai\Contracts\LocksTargets;
 use App\Services\Ai\Contracts\UndoableTool;
 use App\Services\Ai\ProposalBuilder;
@@ -416,13 +417,16 @@ final class BulkUpdatePricesTool implements LocksTargets, UndoableTool, WriteToo
     {
         $field = (string) $action->inverse['field'];
         $prices = (array) $action->inverse['prices'];
+        $variants = ProductVariant::whereIn('id', array_keys($prices))->get()->keyBy('id');
+        CatalogUndoGuard::assertUnchanged($this, $action);
 
-        app(CatalogRetailPriceObserver::class)->batch(function () use ($prices, $field): void {
+        app(CatalogRetailPriceObserver::class)->batch(function () use ($prices, $field, $variants): void {
             ksort($prices, SORT_NUMERIC);
             foreach ($prices as $variantId => $oldPrice) {
-                $variant = ProductVariant::findOrFail((int) $variantId);
+                $variant = $variants->get((int) $variantId);
                 $this->variants->update($variant, [
                     $field => $oldPrice !== null ? (float) $oldPrice : null,
+                    'expected_version' => (int) $variant->lock_version,
                 ]);
             }
         });

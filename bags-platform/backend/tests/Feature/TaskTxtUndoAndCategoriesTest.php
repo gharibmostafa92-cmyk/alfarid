@@ -191,6 +191,7 @@ class TaskTxtUndoAndCategoriesTest extends TestCase
     // ── task 14a: undo window boundaries ──
     public function test_task14a_undo_window_boundaries(): void
     {
+        $this->freezeTime();
         [$admin, $variant, $action] = $this->undoFixture();
         $token = $this->token($admin);
 
@@ -203,6 +204,7 @@ class TaskTxtUndoAndCategoriesTest extends TestCase
 
     public function test_task14b_undo_after_window_rejected(): void
     {
+        $this->freezeTime();
         [$admin, $variant, $action] = $this->undoFixture();
         $token = $this->token($admin);
 

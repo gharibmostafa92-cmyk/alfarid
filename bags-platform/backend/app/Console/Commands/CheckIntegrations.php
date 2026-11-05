@@ -28,8 +28,9 @@ class CheckIntegrations extends Command
                 return self::FAILURE;
             }
         }
-        if (! config('filesystems.disks.r2_public.bucket') || ! config('filesystems.disks.r2_public.url')
-            || config('filesystems.disks.r2_public.bucket') === config('filesystems.disks.r2.bucket')) {
+        if (config('filesystems.catalog_disk', 'r2_public') !== 'r2'
+            && (! config('filesystems.disks.r2_public.bucket') || ! config('filesystems.disks.r2_public.url')
+                || config('filesystems.disks.r2_public.bucket') === config('filesystems.disks.r2.bucket'))) {
             $this->error('Catalog R2 requires a separate public bucket and its public URL.');
 
             return self::FAILURE;

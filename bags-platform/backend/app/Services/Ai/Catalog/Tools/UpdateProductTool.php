@@ -12,6 +12,7 @@ use App\Models\Product;
 use App\Models\User;
 use App\Services\Ai\Catalog\CatalogArgs;
 use App\Services\Ai\Catalog\CatalogPresenter;
+use App\Services\Ai\Catalog\CatalogUndoGuard;
 use App\Services\Ai\Catalog\CatalogWarnings;
 use App\Services\Ai\Contracts\LocksTargets;
 use App\Services\Ai\Contracts\UndoableTool;
@@ -233,7 +234,8 @@ final class UpdateProductTool implements LocksTargets, UndoableTool, WriteTool
     public function undo(User $actor, AiPendingAction $action): ToolOutcome
     {
         $product = Product::findOrFail((int) $action->args['product_id']);
-        $updated = $this->products->update($product, (array) $action->inverse, $actor);
+        CatalogUndoGuard::assertUnchanged($this, $action);
+        $updated = $this->products->update($product, (array) $action->inverse + ['expected_version' => (int) $product->lock_version], $actor);
 
         return ToolOutcome::result(true, "تم التراجع عن تعديل المنتج {$updated->code}.", [
             'product_id' => $updated->id,

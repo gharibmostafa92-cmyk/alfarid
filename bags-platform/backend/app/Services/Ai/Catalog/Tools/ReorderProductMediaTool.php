@@ -165,7 +165,7 @@ final class ReorderProductMediaTool implements LocksTargets, UndoableTool, Write
     {
         $product = Product::findOrFail((int) $action->args['product_id']);
         $ids = array_map('intval', (array) $action->args['ids']);
-        $this->media->reorder($product, $ids);
+        $this->media->reorder($product, $ids, array_map('intval', (array) $action->inverse['ids']));
 
         StaffAdministration::audit(
             $actor,
@@ -202,7 +202,7 @@ final class ReorderProductMediaTool implements LocksTargets, UndoableTool, Write
     {
         $product = Product::findOrFail((int) $action->args['product_id']);
         $oldIds = array_map('intval', (array) $action->inverse['ids']);
-        $this->media->reorder($product, $oldIds);
+        $this->media->reorder($product, $oldIds, array_map('intval', (array) $action->args['ids']));
 
         return ToolOutcome::result(true, "تم التراجع عن ترتيب صور المنتج {$product->code}.", [
             'product_id' => $product->id,

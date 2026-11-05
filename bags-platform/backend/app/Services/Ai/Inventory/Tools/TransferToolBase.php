@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace App\Services\Ai\Inventory\Tools;
 
 use App\Exceptions\BusinessException;
+use App\Models\AiPendingAction;
 use App\Models\StockTransfer;
 use App\Models\User;
+use App\Services\Ai\Contracts\LocksTargets;
 use App\Services\Ai\EntityResolver;
 use App\Services\Ai\Inventory\InventoryArgs;
+use App\Services\Ai\Inventory\TransferTimeline;
 use App\Services\Ai\ProposalBuilder;
-use App\Services\Ai\Contracts\LocksTargets;
 use App\Services\Ai\ToolOutcome;
 use App\Services\BranchAccess;
 use App\Services\DiscreteQuantity;
@@ -60,7 +62,7 @@ abstract class TransferToolBase implements LocksTargets
 
     /**
      * @param  list<array{item_id?:int,quantity?:mixed}>  $rawItems
-     * @return array<int,float>|ToolOutcome  item_id => quantity
+     * @return array<int,float>|ToolOutcome item_id => quantity
      */
     protected function itemsPayload(StockTransfer $transfer, ?array $rawItems, string $capField): array|ToolOutcome
     {
@@ -152,15 +154,7 @@ abstract class TransferToolBase implements LocksTargets
     /** @return array{stages:list<array<string,mixed>>} */
     protected function timeline(StockTransfer $transfer): array
     {
-        $rank = ['draft' => 0, 'approved' => 1, 'shipped' => 2, 'received' => 3, 'cancelled' => -1];
-        $stage = $rank[$transfer->status->value] ?? 0;
-
-        return ['stages' => [
-            ['stage' => 'draft', 'done' => true, 'at' => $transfer->created_at?->toIso8601String()],
-            ['stage' => 'approved', 'done' => $stage >= 1, 'at' => null],
-            ['stage' => 'shipped', 'done' => $stage >= 2, 'at' => $transfer->shipped_at?->toIso8601String()],
-            ['stage' => 'received', 'done' => $stage >= 3, 'at' => $transfer->received_at?->toIso8601String()],
-        ]];
+        return ['deep_link' => '#/transfers/'.$transfer->id, ...$this->itemsView($transfer), 'stages' => TransferTimeline::build($transfer)];
     }
 
     /** @return array{items:list<array<string,mixed>>} */
@@ -177,8 +171,11 @@ abstract class TransferToolBase implements LocksTargets
         ])->values()->all()];
     }
 
-    public function lockTargets(\App\Models\AiPendingAction $action): void
+    public function lockTargets(AiPendingAction $action): void
     {
-        StockTransfer::query()->whereKey((int) ($action->args['transfer_id'] ?? 0))->lockForUpdate()->first();
+        $transfer = StockTransfer::query()->whereKey((int) ($action->args['transfer_id'] ?? 0))->lockForUpdate()->first();
+        if ($action->status === 'pending' && $transfer && (int) ($action->expected_versions[$this->versionKey($transfer)] ?? 0) !== (int) $transfer->version) {
+            throw new BusinessException('التحويل اتعدل بعد الاقتراح؛ اطلب اقتراحًا جديدًا.', [], 409);
+        }
     }
 }

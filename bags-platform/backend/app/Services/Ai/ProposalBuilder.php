@@ -147,7 +147,7 @@ final class ProposalBuilder
             'expires_at' => $action->expires_at->toIso8601String(),
         ];
 
-        foreach (['moved_id', 'rows', 'summary', 'top', 'blocked'] as $extraKey) {
+        foreach (['moved_id', 'rows', 'summary', 'top', 'blocked', 'stages', 'items', 'deep_link', 'stocktake_id', 'stocktake_number'] as $extraKey) {
             if (array_key_exists($extraKey, $preview)) {
                 $block[$extraKey] = $preview[$extraKey];
             }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Inventory\Tools;
 
+use App\Exceptions\BusinessException;
 use App\Models\User;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\EntityResolver;
@@ -73,7 +74,7 @@ final class WhatIfTransferCoverageTool implements AgentTool
         }
         try {
             DiscreteQuantity::assert($args['quantity'] ?? null);
-        } catch (\App\Exceptions\BusinessException $e) {
+        } catch (BusinessException $e) {
             return ToolOutcome::denied($e->getMessage(), auditable: false);
         }
         $variant = $resolved['variant'];
@@ -88,7 +89,7 @@ final class WhatIfTransferCoverageTool implements AgentTool
         } catch (\Throwable) {
             return ToolOutcome::denied('النطاق غير مسموح.', auditable: false);
         }
-        if ($restricted !== null && $from !== $restricted && $to !== $restricted) {
+        if ($restricted !== null && $from !== $restricted) {
             return ToolOutcome::denied('الفرع خارج نطاقك.', auditable: false);
         }
 

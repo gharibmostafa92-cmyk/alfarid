@@ -122,7 +122,7 @@ final class DeleteProductTool implements LocksTargets, WriteTool
         $id = $product->id;
         $before = ['code' => $product->code, 'name_ar' => $product->name_ar, 'status' => $product->status->value];
 
-        $this->products->delete($product, $actor);
+        $this->products->delete($product, $actor, $expected === null ? null : (int) $expected);
 
         StaffAdministration::audit(
             $actor,

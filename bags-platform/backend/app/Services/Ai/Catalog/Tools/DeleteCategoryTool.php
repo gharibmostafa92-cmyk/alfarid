@@ -126,7 +126,7 @@ final class DeleteCategoryTool implements LocksTargets, WriteTool
         $id = $category->id;
         $before = ['name_ar' => $category->name_ar, 'name_en' => $category->name_en, 'slug' => $category->slug];
 
-        $this->categories->delete($category);
+        $this->categories->delete($category, $expected === null ? null : (int) $expected);
 
         StaffAdministration::audit(
             $actor,

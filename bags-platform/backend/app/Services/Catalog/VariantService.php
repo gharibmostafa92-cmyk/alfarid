@@ -17,7 +17,7 @@ class VariantService
 {
     public function __construct(private ProductPublishabilityChecker $publishability) {}
 
-    public function create(Product $product, array $data): ProductVariant
+    public function create(Product $product, array $data, ?int $expectedProductVersion = null): ProductVariant
     {
         $data = array_filter($data, fn ($value) => $value !== null);
 
@@ -25,8 +25,11 @@ class VariantService
         $autoSku = empty($data['sku']);
         for ($attempt = 0; ; $attempt++) {
             try {
-                return DB::transaction(function () use ($product, $data) {
+                return DB::transaction(function () use ($product, $data, $expectedProductVersion) {
                     $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail(); // منع تكرار الترقيم
+                    if ($expectedProductVersion !== null && (int) $product->lock_version !== $expectedProductVersion) {
+                        throw new BusinessException('المنتج تعدّل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
+                    }
                     $this->assertUniqueCombination($product, $data);
 
                     if (empty($data['sku'])) {
@@ -101,15 +104,18 @@ class VariantService
         }
     }
 
-    public function delete(ProductVariant $variant): void
+    public function delete(ProductVariant $variant, ?int $expectedVersion = null): void
     {
-        DB::transaction(function () use ($variant): void {
+        DB::transaction(function () use ($variant, $expectedVersion): void {
             $product = Product::whereKey($variant->product_id)->lockForUpdate()->firstOrFail();
             // H3: lock the variant rows (id-ordered) before the balance check so a
             // concurrent receipt serializes here; in READ COMMITTED the check then
             // sees its committed movement instead of a phantom zero.
             ProductVariant::whereKey($variant->id)->orderBy('id')->lockForUpdate()->firstOrFail();
             $variant = $product->variants()->whereKey($variant->id)->firstOrFail();
+            if ($expectedVersion !== null && (int) $variant->lock_version !== $expectedVersion) {
+                throw new BusinessException('المتغير تعدّل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
+            }
             $this->assertNotLastActiveOfPublished($variant);
             // متغير له رصيد في أي وعاء لا يُحذف: الحذف الناعم كان يحبس الرصيد
             // لأن فحوص وجود المتغير تستبعد المحذوف (M-9). صفِّ الرصيد أولًا.

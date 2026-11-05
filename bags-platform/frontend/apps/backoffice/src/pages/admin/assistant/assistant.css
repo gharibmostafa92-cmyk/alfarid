@@ -60,7 +60,7 @@
   container: as / inline-size;
   position: relative;
   height: var(--as-height, calc(100dvh - 3rem));
-  min-height: 32rem;
+  min-height: min(32rem, var(--as-height, 32rem));
   color: var(--as-text);
   background: var(--as-bg);
   font-family: var(--as-font);
@@ -662,3 +662,4 @@
 @media (prefers-reduced-motion: reduce) {
   .assistant *, .assistant *::before, .assistant *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
+.as-table tr[data-low="1"] > th, .as-table tr[data-low="1"] > td { background: rgba(180, 120, 40, .16); }

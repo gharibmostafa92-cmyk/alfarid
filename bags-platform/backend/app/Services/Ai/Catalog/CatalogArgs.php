@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Catalog;
 
-use App\Http\Requests\Admin\Variant\VariantRules;
-use App\Models\ProductVariant;
 use App\Services\Ai\EntityResolver;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
@@ -79,7 +77,7 @@ final class CatalogArgs
                 } elseif ($key === 'slug') {
                     $args[$key] = strtolower(trim($converted));
                 } else {
-                    $args[$key] = $value;
+                    $args[$key] = is_int($key) ? $converted : $value;
                 }
             } elseif (is_array($value)) {
                 $args[$key] = self::normalizeDigitsInArray($value);

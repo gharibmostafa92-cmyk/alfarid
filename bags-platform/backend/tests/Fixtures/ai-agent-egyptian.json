@@ -168,7 +168,7 @@
                 "name_ar": "شنطة ضهر لابتوب كلاسيك",
                 "name_en": "Classic Laptop Backpack",
                 "code": "P00043",
-                "status": "active",
+                "status": "published",
                 "category_id": 204,
                 "sales_channel": "both"
             },
@@ -1315,7 +1315,7 @@
             "tool": "move_category",
             "args": {
                 "category_id": 202,
-                "new_parent_id": 201
+                "parent_id": 201
             }
         },
         {
@@ -1323,10 +1323,19 @@
             "text": "رتّب الأقسام الرئيسية خلي كروس بادي الأول وبعده شنط ضهر وبعده شنط سفر",
             "tool": "reorder_categories",
             "args": {
-                "ordered_ids": [
-                    202,
-                    201,
-                    203
+                "items": [
+                    {
+                        "id": 202,
+                        "sort_order": 0
+                    },
+                    {
+                        "id": 201,
+                        "sort_order": 1
+                    },
+                    {
+                        "id": 203,
+                        "sort_order": 2
+                    }
                 ]
             }
         },
@@ -1474,11 +1483,10 @@
         },
         {
             "id": "prd-17",
-            "text": "انشر المنتج P00042 وخليه active",
-            "tool": "set_product_status",
+            "text": "انشر المنتج P00042",
+            "tool": "check_publishability",
             "args": {
-                "product_id": 301,
-                "status": "active"
+                "product_id": 301
             }
         },
         {
@@ -1496,8 +1504,10 @@
             "tool": "add_variants",
             "args": {
                 "product_id": 301,
-                "retail_price": 450,
-                "wholesale_price": 320
+                "default_prices": {
+                    "retail_price": 450,
+                    "wholesale_price": 320
+                }
             }
         },
         {
@@ -1515,7 +1525,7 @@
             "tool": "set_variant_status",
             "args": {
                 "variant_id": 402,
-                "status": "inactive"
+                "is_active": false
             }
         },
         {
@@ -1571,7 +1581,7 @@
             "tool": "reorder_product_media",
             "args": {
                 "product_id": 301,
-                "ordered_ids": [
+                "ids": [
                     12,
                     11
                 ]
@@ -1617,19 +1627,15 @@
         },
         {
             "id": "prd-32",
-            "text": "جهّز خطة إصلاح للمنتج P00042 عشان يجهز للنشر",
+            "text": "جهز خطة إصلاح للكتالوج عشان المسودات تجهز للنشر",
             "tool": "plan_catalog_fixes",
-            "args": {
-                "product_id": 301
-            }
+            "args": []
         },
         {
             "id": "prd-33",
-            "text": "إيه اللي ناقص في قسم كروس بادي عشان منتجاته تتنشر؟",
+            "text": "رتبلي إصلاح مشاكل الكتالوج حسب الأولوية",
             "tool": "plan_catalog_fixes",
-            "args": {
-                "category_id": 202
-            }
+            "args": []
         },
         {
             "id": "prd-34",
@@ -1642,7 +1648,7 @@
             "text": "وريني المنتجات المنشورة في قسم شنط لابتوب",
             "tool": "search_products",
             "args": {
-                "status": "active",
+                "status": "published",
                 "category_id": 204
             }
         },
@@ -1661,10 +1667,8 @@
         {
             "id": "neg-07",
             "text": "عدّل التشكيلة P00042-BLK وحط باركود ميزان يبدأ بـ 2 طوله 13 رقم 2001234567890 من غير التحقق",
-            "tool": "update_variant",
-            "args": {
-                "variant_id": 401
-            }
+            "tool": null,
+            "args": []
         },
         {
             "id": "neg-08",
@@ -2341,11 +2345,8 @@
         {
             "id": "egy-inv-88",
             "text": "لو استلمت 200 قطعة بـ 170 جنيه التكلفة هتبقى كام؟",
-            "tool": "what_if_production_cost",
-            "args": {
-                "quantity": 200,
-                "unit_cost": 170
-            }
+            "tool": null,
+            "args": []
         },
         {
             "id": "egy-inv-89",
@@ -2518,32 +2519,135 @@
         {
             "id": "egy-inv-112",
             "text": "لو استلمت 50 قطعة بـ 200 جنيه للشنطة الكروس، التكلفة هتبقى كام؟",
-            "tool": "what_if_production_cost",
-            "args": {
-                "quantity": 50
-            }
+            "tool": null,
+            "args": []
         },
         {
             "id": "egy-inv-113",
             "text": "لو نقلت 30 قطعة للمعادي من المخزن، المخزن هيفضل له تغطية كام يوم؟",
-            "tool": "what_if_transfer_coverage",
-            "args": {
-                "quantity": 30
-            }
+            "tool": null,
+            "args": []
         },
         {
             "id": "egy-inv-114",
             "text": "احسبلي تغطية فرع المهندسين لو حولت له 10 قطع",
-            "tool": "what_if_transfer_coverage",
-            "args": {
-                "quantity": 10
-            }
+            "tool": null,
+            "args": []
         },
         {
             "id": "egy-inv-115",
             "text": "النقل ده آمن على فرع الإرسال ولا هيخليه مهدد؟",
-            "tool": "what_if_transfer_coverage",
+            "tool": null,
             "args": []
+        },
+        {
+            "id": "egy-inv-116",
+            "text": "لو استلمت 200 قطعة من الصنف P00042-BLK بـ 170 جنيه للوحدة التكلفة هتبقى كام؟",
+            "tool": "what_if_production_cost",
+            "args": { "variant_id": 401, "quantity": 200, "unit_cost": 170 }
+        },
+        {
+            "id": "egy-inv-117",
+            "text": "لو نقلت 30 قطعة من P00042-BLK من المعادي للدقي، المعادي هيفضل له تغطية كام يوم؟",
+            "tool": "what_if_transfer_coverage",
+            "args": { "variant_id": 401, "from_branch_id": 7, "to_branch_id": 8, "quantity": 30 }
+        },
+        {
+            "id": "prd-read-01",
+            "text": "وريني المنتجات اللي ناقصها باركود",
+            "tool": "search_products",
+            "args": {
+                "missing": "barcode"
+            }
+        },
+        {
+            "id": "prd-read-02",
+            "text": "اعرض منتجات قناة الجملة بس",
+            "tool": "search_products",
+            "args": {
+                "sales_channel": "wholesale"
+            }
+        },
+        {
+            "id": "prd-read-03",
+            "text": "وريني المنتجات المميزة",
+            "tool": "search_products",
+            "args": {
+                "is_featured": true
+            }
+        },
+        {
+            "id": "prd-read-04",
+            "text": "وريني منتجات قسم شنط ضهر وكل الأقسام اللي تحته",
+            "tool": "search_products",
+            "args": {
+                "category_id": 201,
+                "include_children": true
+            }
+        },
+        {
+            "id": "prd-read-05",
+            "text": "وريني كارت المنتج P00044",
+            "tool": "get_product",
+            "args": {
+                "product_id": 303
+            }
+        },
+        {
+            "id": "prd-read-06",
+            "text": "الكود P00042-CML ده يخص أنهي منتج؟",
+            "tool": "lookup_code",
+            "args": {
+                "code": "P00042-CML"
+            }
+        },
+        {
+            "id": "prd-read-07",
+            "text": "افحص جاهزية المنتج P00043 قبل النشر",
+            "tool": "check_publishability",
+            "args": {
+                "product_id": 302
+            }
+        },
+        {
+            "id": "prd-read-08",
+            "text": "اعرض شجرة الأقسام النشطة بس",
+            "tool": "list_categories",
+            "args": {
+                "only_active": true
+            }
+        },
+        {
+            "id": "prd-read-09",
+            "text": "وريني شجرة القسم 201",
+            "tool": "list_categories",
+            "args": {
+                "parent_id": 201
+            }
+        },
+        {
+            "id": "prd-read-10",
+            "text": "هات تفاصيل القسم رقم 203",
+            "tool": "get_category",
+            "args": {
+                "category_id": 203
+            }
+        },
+        {
+            "id": "prd-read-11",
+            "text": "اعرض تقرير صحة الكتالوج والمسودات الأقدم من 30 يوم",
+            "tool": "catalog_health_report",
+            "args": {
+                "draft_older_than_days": 30
+            }
+        },
+        {
+            "id": "prd-read-12",
+            "text": "اعرض كل صور المنتج P00044",
+            "tool": "list_product_media",
+            "args": {
+                "product_id": 303
+            }
         }
     ]
 }

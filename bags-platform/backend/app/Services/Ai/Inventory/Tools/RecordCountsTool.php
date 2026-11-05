@@ -16,7 +16,7 @@ use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
 use App\Services\DiscreteQuantity;
 
-final class RecordCountsTool extends StocktakeToolBase implements WriteTool, AgentTool
+final class RecordCountsTool extends StocktakeToolBase implements AgentTool, WriteTool
 {
     public function name(): string
     {
@@ -110,7 +110,7 @@ final class RecordCountsTool extends StocktakeToolBase implements WriteTool, Age
             title: "تسجيل عد — {$stocktake->stocktake_number}",
             before: ['counted' => $stocktake->items->whereNotNull('counted_qty')->count(), 'total' => $stocktake->items->count()],
             after: ['counts' => array_map(fn ($i) => $i['sku'].': '.$i['counted_qty'], $items)],
-            extraPreview: ['block_type' => 'count_sheet', 'rows' => $items],
+            extraPreview: ['block_type' => 'count_sheet', 'rows' => $items, 'stocktake_id' => $stocktake->id, 'stocktake_number' => $stocktake->stocktake_number],
         );
     }
 

@@ -1,10 +1,11 @@
 # Uploaded files
 
-All persistent uploads use the `r2` disk: catalog images, generated image sizes,
-product videos, customer verification documents, return evidence, supplier
-attachments and payment receipts. The filesystem default and Media Library
-defaults are fixed to R2. Explicit Media Library uploads to another disk are
-rejected. An unavailable R2 connection fails the upload; there is no local fallback.
+Private business uploads use the `r2` disk. Catalog images, generated sizes and
+product videos use `MEDIA_CATALOG_DISK`: the default `r2_public` provides stable
+URLs from a separate public bucket, while an explicit `r2` selection uses the
+existing private bucket with signed URLs. Production rejects uploads to local
+disks. Local development may explicitly select `public`; a failed R2 upload
+never silently falls back to local storage.
 
 Set the R2 credentials and endpoint in the server's `.env`. Keep the `alfarid`
 key prefix when sharing a bucket with another application. Credentials must never
@@ -12,8 +13,8 @@ be exposed through frontend environment variables. `INTEGRATIONS_CA_BUNDLE` may
 point to a trusted local certificate bundle when required by the PHP installation;
 TLS verification stays enabled.
 
-Catalog resources generate temporary signed URLs when no R2 public CDN URL is
-configured. Private business attachments are streamed through their existing
+Catalog resources on `r2` generate temporary signed URLs. Resources on
+`r2_public` use its configured public URL. Private business attachments use their existing
 authenticated, authorized download endpoints. Keep the bucket private, including
 when configuring a CDN; do not expose the private attachment prefixes publicly.
 
@@ -30,6 +31,10 @@ application certificates and runtime files in place. Repeating the command is
 safe; conflicting content or a missing media original stops migration and
 preserves the source. Run migration while old upload workers are stopped, then
 restart long-running workers with the new application code.
+
+Use `--catalog-only` to migrate catalog media without processing private
+attachments or orphan files. The migration respects an explicit private `r2`
+catalog destination; the public destination still requires a separate bucket.
 
 Local/public disks remain defined for legacy migration. Temporary upload buffers,
 image processing work files, bundled interface assets and test fixtures are not

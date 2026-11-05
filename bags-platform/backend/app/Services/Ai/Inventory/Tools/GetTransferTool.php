@@ -11,6 +11,7 @@ use App\Services\Ai\AgentTool;
 use App\Services\Ai\EntityResolver;
 use App\Services\Ai\Inventory\InventoryArgs;
 use App\Services\Ai\Inventory\InventoryPresenter;
+use App\Services\Ai\Inventory\TransferTimeline;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\BranchAccess;
@@ -99,14 +100,7 @@ final class GetTransferTool implements AgentTool
             'shortage' => $i->shipped_qty !== null && $i->received_qty !== null ? round((float) $i->shipped_qty - (float) $i->received_qty, 4) : null,
         ])->values()->all();
 
-        $rank = ['draft' => 0, 'approved' => 1, 'shipped' => 2, 'received' => 3, 'cancelled' => -1];
-        $stage = $rank[$transfer->status->value] ?? 0;
-        $timeline = [
-            ['stage' => 'draft', 'done' => true, 'at' => $transfer->created_at?->toIso8601String()],
-            ['stage' => 'approved', 'done' => $stage >= 1 && $stage !== -1, 'at' => null],
-            ['stage' => 'shipped', 'done' => $stage >= 2, 'at' => $transfer->shipped_at?->toIso8601String()],
-            ['stage' => 'received', 'done' => $stage >= 3, 'at' => $transfer->received_at?->toIso8601String()],
-        ];
+        $timeline = TransferTimeline::build($transfer);
 
         return $this->presenter->present($actor, [
             'transfer' => [

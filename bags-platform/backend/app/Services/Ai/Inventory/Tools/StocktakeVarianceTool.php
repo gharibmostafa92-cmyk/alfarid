@@ -10,18 +10,22 @@ use App\Models\StockMovement;
 use App\Models\Stocktake;
 use App\Models\User;
 use App\Services\Ai\AgentTool;
+use App\Services\Ai\EntityResolver;
 use App\Services\Ai\Inventory\InventoryArgs;
 use App\Services\Ai\Inventory\InventoryPresenter;
+use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
+use App\Services\BranchAccess;
+use App\Services\StocktakeService;
 
 final class StocktakeVarianceTool extends StocktakeToolBase implements AgentTool
 {
     public function __construct(
-        \App\Services\Ai\EntityResolver $resolver,
-        \App\Services\BranchAccess $branches,
-        \App\Services\StocktakeService $stocktakes,
-        \App\Services\Ai\ProposalBuilder $proposals,
+        EntityResolver $resolver,
+        BranchAccess $branches,
+        StocktakeService $stocktakes,
+        ProposalBuilder $proposals,
         private InventoryPresenter $presenter,
     ) {
         parent::__construct($resolver, $branches, $stocktakes, $proposals);
@@ -71,6 +75,9 @@ final class StocktakeVarianceTool extends StocktakeToolBase implements AgentTool
             return $resolved;
         }
         $stocktake = $this->stocktakes->find($resolved['stocktake']->id);
+        if ($stocktake->status !== StocktakeStatus::Approved && ! $actor->can('stocktakes.approve')) {
+            return ToolOutcome::denied('فروقات الجرد المفتوح متاحة لصاحب صلاحية الاعتماد فقط.');
+        }
         $stocktake->loadMissing(['items.variant']);
 
         $rows = [];
@@ -94,9 +101,10 @@ final class StocktakeVarianceTool extends StocktakeToolBase implements AgentTool
 
         // فروق مشبوهة: عجز نفس الصنف في آخر 3 جرود معتمدة بنفس الموقع.
         $prior = Stocktake::query()->where('branch_id', $stocktake->branch_id)
+            ->where('id', '!=', $stocktake->id)
             ->where('location_id', $stocktake->location_id)
             ->where('status', StocktakeStatus::Approved)
-            ->orderByDesc('id')->limit(3)->with('items')->get();
+            ->orderByDesc('id')->limit(2)->with('items')->get();
         $shortCounts = [];
         foreach ($prior as $s) {
             foreach ($s->items as $item) {
@@ -118,6 +126,7 @@ final class StocktakeVarianceTool extends StocktakeToolBase implements AgentTool
         $zeroIds = array_values(array_filter(array_map(fn ($r) => $r['counted_qty'] === 0.0 ? $r['variant_id'] : null, $rows)));
         if ($zeroIds !== []) {
             $soldYesterday = StockMovement::query()->where('branch_id', $stocktake->branch_id)
+                ->where('location_id', $stocktake->location_id)
                 ->whereIn('product_variant_id', $zeroIds)
                 ->where('type', StockMovementType::Sale)
                 ->whereDate('created_at', today()->subDay())

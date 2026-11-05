@@ -7,6 +7,35 @@ namespace App\Services\Ai\Inventory;
 use App\Models\User;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\Contracts\ToolProvider;
+use App\Services\Ai\Inventory\Tools\AdjustStockTool;
+use App\Services\Ai\Inventory\Tools\ApproveStocktakeTool;
+use App\Services\Ai\Inventory\Tools\ApproveTransferTool;
+use App\Services\Ai\Inventory\Tools\CancelStocktakeTool;
+use App\Services\Ai\Inventory\Tools\CancelTransferTool;
+use App\Services\Ai\Inventory\Tools\CreateStocktakeTool;
+use App\Services\Ai\Inventory\Tools\CreateTransferDraftTool;
+use App\Services\Ai\Inventory\Tools\DeadStockTool;
+use App\Services\Ai\Inventory\Tools\ExplainBalanceTool;
+use App\Services\Ai\Inventory\Tools\GetStockLevelsTool;
+use App\Services\Ai\Inventory\Tools\GetStocktakeTool;
+use App\Services\Ai\Inventory\Tools\GetTransferTool;
+use App\Services\Ai\Inventory\Tools\InventoryHealthTool;
+use App\Services\Ai\Inventory\Tools\InventoryValuationTool;
+use App\Services\Ai\Inventory\Tools\ListMovementsTool;
+use App\Services\Ai\Inventory\Tools\ListProductionReceiptsTool;
+use App\Services\Ai\Inventory\Tools\ListStocktakesTool;
+use App\Services\Ai\Inventory\Tools\ListTransfersTool;
+use App\Services\Ai\Inventory\Tools\LowStockListTool;
+use App\Services\Ai\Inventory\Tools\ParseCountSheetTool;
+use App\Services\Ai\Inventory\Tools\ReceiveProductionTool;
+use App\Services\Ai\Inventory\Tools\ReceiveTransferTool;
+use App\Services\Ai\Inventory\Tools\RecordCountsTool;
+use App\Services\Ai\Inventory\Tools\ShipTransferTool;
+use App\Services\Ai\Inventory\Tools\StockMatrixTool;
+use App\Services\Ai\Inventory\Tools\StocktakeVarianceTool;
+use App\Services\Ai\Inventory\Tools\UpdateTransferDraftTool;
+use App\Services\Ai\Inventory\Tools\WhatIfProductionCostTool;
+use App\Services\Ai\Inventory\Tools\WhatIfTransferCoverageTool;
 use App\Services\SettingService;
 
 /**
@@ -21,39 +50,39 @@ final class InventoryToolProvider implements ToolProvider
     /** @var list<class-string<AgentTool>> */
     private const TOOL_CLASSES = [
         // Phase 1: read tools
-        \App\Services\Ai\Inventory\Tools\GetStockLevelsTool::class,
-        \App\Services\Ai\Inventory\Tools\StockMatrixTool::class,
-        \App\Services\Ai\Inventory\Tools\ListMovementsTool::class,
-        \App\Services\Ai\Inventory\Tools\ExplainBalanceTool::class,
-        \App\Services\Ai\Inventory\Tools\LowStockListTool::class,
-        \App\Services\Ai\Inventory\Tools\DeadStockTool::class,
-        \App\Services\Ai\Inventory\Tools\InventoryValuationTool::class,
-        \App\Services\Ai\Inventory\Tools\ListTransfersTool::class,
-        \App\Services\Ai\Inventory\Tools\GetTransferTool::class,
-        \App\Services\Ai\Inventory\Tools\ListStocktakesTool::class,
-        \App\Services\Ai\Inventory\Tools\GetStocktakeTool::class,
-        \App\Services\Ai\Inventory\Tools\ListProductionReceiptsTool::class,
-        \App\Services\Ai\Inventory\Tools\InventoryHealthTool::class,
+        GetStockLevelsTool::class,
+        StockMatrixTool::class,
+        ListMovementsTool::class,
+        ExplainBalanceTool::class,
+        LowStockListTool::class,
+        DeadStockTool::class,
+        InventoryValuationTool::class,
+        ListTransfersTool::class,
+        GetTransferTool::class,
+        ListStocktakesTool::class,
+        GetStocktakeTool::class,
+        ListProductionReceiptsTool::class,
+        InventoryHealthTool::class,
         // Phase 2: write tools
-        \App\Services\Ai\Inventory\Tools\AdjustStockTool::class,
-        \App\Services\Ai\Inventory\Tools\ReceiveProductionTool::class,
+        AdjustStockTool::class,
+        ReceiveProductionTool::class,
         // Phase 3: transfer lifecycle
-        \App\Services\Ai\Inventory\Tools\CreateTransferDraftTool::class,
-        \App\Services\Ai\Inventory\Tools\UpdateTransferDraftTool::class,
-        \App\Services\Ai\Inventory\Tools\ApproveTransferTool::class,
-        \App\Services\Ai\Inventory\Tools\ShipTransferTool::class,
-        \App\Services\Ai\Inventory\Tools\ReceiveTransferTool::class,
-        \App\Services\Ai\Inventory\Tools\CancelTransferTool::class,
+        CreateTransferDraftTool::class,
+        UpdateTransferDraftTool::class,
+        ApproveTransferTool::class,
+        ShipTransferTool::class,
+        ReceiveTransferTool::class,
+        CancelTransferTool::class,
         // Phase 4: stocktake + vision
-        \App\Services\Ai\Inventory\Tools\CreateStocktakeTool::class,
-        \App\Services\Ai\Inventory\Tools\RecordCountsTool::class,
-        \App\Services\Ai\Inventory\Tools\StocktakeVarianceTool::class,
-        \App\Services\Ai\Inventory\Tools\ApproveStocktakeTool::class,
-        \App\Services\Ai\Inventory\Tools\CancelStocktakeTool::class,
-        \App\Services\Ai\Inventory\Tools\ParseCountSheetTool::class,
+        CreateStocktakeTool::class,
+        RecordCountsTool::class,
+        StocktakeVarianceTool::class,
+        ApproveStocktakeTool::class,
+        CancelStocktakeTool::class,
+        ParseCountSheetTool::class,
         // Phase 5: proactive + what-if
-        \App\Services\Ai\Inventory\Tools\WhatIfProductionCostTool::class,
-        \App\Services\Ai\Inventory\Tools\WhatIfTransferCoverageTool::class,
+        WhatIfProductionCostTool::class,
+        WhatIfTransferCoverageTool::class,
     ];
 
     public function __construct(private SettingService $settings) {}
@@ -102,6 +131,9 @@ final class InventoryToolProvider implements ToolProvider
 
     public function canReadEntity(User $actor, string $type): ?bool
     {
+        if ($type === 'variant' && $this->enabled()) {
+            return $actor->can('inventory.view') || $actor->can('stocktakes.update');
+        }
         if (! in_array($type, ['transfer', 'stocktake', 'production_receipt'], true)) {
             return null;
         }
@@ -133,6 +165,8 @@ final class InventoryToolProvider implements ToolProvider
             '— وانت بتعد في الجرد، ماتقولش الرصيد المتوقع (system_qty) للموظف.',
             '— ماتقولش أي رقم تكلفة غير اللي جاي من نتيجة أداة.',
             '— الكميات للأصناف المعدودة أعداد صحيحة.',
+            '— "اخصم بسبب تالف" تسوية decrease بسبب تالف؛ "سجلهم تالف" mark_damaged؛ "اشطب التالف" write_off_damaged.',
+            '— سؤال ماذا لو عن التكلفة أو التحويل يحتاج صنفًا محددًا؛ لو مفيش صنف أو selection اسأل عنه قبل الحساب.',
             '— وحدات: دستة = 12، نص دستة = 6. "كرتونة" بتختلف حسب الصنف فاسأل عنها.',
         ]);
     }

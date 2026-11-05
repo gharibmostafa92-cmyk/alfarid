@@ -33,6 +33,16 @@ class AuthController extends Controller
         private readonly CustomerPhoneVerificationService $phoneVerification,
     ) {}
 
+    public function registrationOptions(): JsonResponse
+    {
+        $required = (bool) config('auth.require_phone_verification');
+
+        return response()->json(['data' => [
+            'phone_verification_required' => $required,
+            'turnstile_site_key' => $required ? config('services.turnstile.site_key') : null,
+        ]])->header('Cache-Control', 'no-store, private');
+    }
+
     public function register(RegisterRequest $request): JsonResponse
     {
         [$customer, $token] = DB::transaction(function () use ($request): array {

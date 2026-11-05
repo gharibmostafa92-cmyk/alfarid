@@ -167,12 +167,15 @@ class ProductService
         return $product->fresh(['category.media', 'variants.media', 'media']);
     }
 
-    public function changeStatus(Product $product, ProductStatus $status, User $user): void
+    public function changeStatus(Product $product, ProductStatus $status, User $user, ?int $expectedVersion = null): void
     {
-        DB::transaction(function () use ($product, $status, $user): void {
+        DB::transaction(function () use ($product, $status, $user, $expectedVersion): void {
             CatalogLock::tree(shared: true);
             // قفل صف المنتج وقسمه قبل الفحص والنشر، عشان مفيش تعديل متزامن يعدي بين الفحص والحفظ
             $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
+            if ($expectedVersion !== null && (int) $product->lock_version !== $expectedVersion) {
+                throw new BusinessException('المنتج تعدّل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
+            }
             if ($product->category_id) {
                 $this->lockReference(Category::class, (int) $product->category_id, 'category_id');
             }
@@ -204,12 +207,15 @@ class ProductService
         }
     }
 
-    public function delete(Product $product, ?User $user = null): void
+    public function delete(Product $product, ?User $user = null, ?int $expectedVersion = null): void
     {
-        DB::transaction(function () use ($product, $user): void {
+        DB::transaction(function () use ($product, $user, $expectedVersion): void {
             $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
             if ($user && $product->status === ProductStatus::Published && ! $user->can('products.publish')) {
                 throw new BusinessException('حذف منتج منشور يتطلب صلاحية النشر.', [], 403);
+            }
+            if ($expectedVersion !== null && (int) $product->lock_version !== $expectedVersion) {
+                throw new BusinessException('المنتج تعدّل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
             }
             // H3: lock every variant row (id-ordered) before the balance check so
             // concurrent receipts serialize here instead of slipping underneath it.

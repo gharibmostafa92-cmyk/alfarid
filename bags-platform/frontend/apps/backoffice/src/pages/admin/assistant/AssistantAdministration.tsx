@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { assistantApi, type AgentSettings } from './api';
+import { assistantApi, type AgentSettings, type ToolStatsSummary } from './api';
 import { Icon } from './icons';
 
 type UsageRow = { day: string; input_tokens: number; output_tokens: number };
@@ -7,10 +7,15 @@ const fmt = (n: number) => Number(n).toLocaleString('ar-EG');
 const compact = (n: number) => new Intl.NumberFormat('ar-EG', { notation: 'compact', maximumFractionDigits: 1 }).format(n);
 
 const NUMERIC_FIELDS = [
+  ['ai_inventory_high_risk_value', 'حد قيمة عملية المخزون عالية الخطورة', 'فوق القيمة دي التأكيد بالكتابة مطلوب', 0, 9999999999],
   ['ai_daily_token_budget_per_user', 'حد التوكنز اليومي لكل مستخدم', '0 = بلا حد', 0, 10000000],
   ['ai_action_ttl_minutes', 'مهلة التأكيد', 'بالدقائق — بعدها الاقتراح بينتهي', 1, 1440],
   ['ai_retention_days', 'مدة الاحتفاظ بالمحادثات', 'بالأيام', 1, 3650],
   ['ai_bulk_max_items', 'الحد الأقصى للعملية الجماعية', 'عدد العناصر في العملية الواحدة', 1, 100],
+  ['ai_catalog_bulk_price_max_items', 'الحد الأقصى لتعديل أسعار الكتالوج', 'عدد المتغيرات في الاقتراح الواحد', 1, 1000],
+  ['ai_max_steps', 'الحد الأقصى لخطوات المساعد', 'عدد خطوات البحث والتجهيز في الطلب الواحد', 1, 10],
+  ['ai_pricing_max_items_per_action', 'الحد الأقصى لبنود التسعير', 'عدد البنود في اقتراح التسعير الواحد', 1, 1000],
+  ['ai_coupon_high_risk_percent', 'عتبة خطورة الكوبون %', 'النسبة اللي فوقها الكوبون عالي الخطورة', 0, 100],
 ] as const;
 
 export default function AssistantAdministration({ can }: { can: (permission: string) => boolean }) {
@@ -18,6 +23,7 @@ export default function AssistantAdministration({ can }: { can: (permission: str
   const [original, setOriginal] = useState<AgentSettings>();
   const [tools, setTools] = useState<string[]>([]);
   const [usage, setUsage] = useState<UsageRow[]>([]);
+  const [toolStats, setToolStats] = useState<ToolStatsSummary>();
   const [usageLoading, setUsageLoading] = useState(true);
   const [notice, setNotice] = useState<{ tone: 'success' | 'danger' | 'info'; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -28,8 +34,8 @@ export default function AssistantAdministration({ can }: { can: (permission: str
 
   useEffect(() => {
     let live = true;
-    assistantApi.usage(allUsers)
-      .then(data => { if (live) setUsage(data); })
+    assistantApi.usageWithStats(allUsers)
+      .then(result => { if (live) { setUsage(result.data); setToolStats(result.tool_stats); } })
       .catch(() => { if (live) setNotice({ tone: 'danger', text: 'تعذر تحميل الاستهلاك.' }); })
       .finally(() => { if (live) setUsageLoading(false); });
     if (canSettings) assistantApi.settings()
@@ -109,6 +115,34 @@ export default function AssistantAdministration({ can }: { can: (permission: str
           </div>
         </div>
 
+        {toolStats && (
+          <section className="as-card" aria-label="أداء الأدوات">
+            <div className="as-card-head"><h3>أداء الأدوات</h3><span className="as-badge as-num">{fmt(toolStats.total_proposals)} اقتراح</span></div>
+            <div className="as-card-body">
+              <p>التأكيد <b className="as-num">{fmt(toolStats.confirm_rate)}٪</b> · الإلغاء <b className="as-num">{fmt(toolStats.cancel_rate)}٪</b> · تعارضات 409 <b className="as-num">{fmt(toolStats.conflict_409_rate)}٪</b></p>
+              <p>لما إلغاء أداة يتجاوز ٤٠٪، راجع تعليماتها ومعاينة التعديل.</p>
+            </div>
+            <div className="as-table-wrap" style={{ border: 0, borderRadius: 0 }}>
+              <table className="as-table">
+                <caption className="as-sr">استخدام الأدوات ونسب التأكيد والإلغاء خلال آخر ٣٠ يوم</caption>
+                <thead><tr><th scope="col">الأداة</th><th scope="col">الاقتراحات</th><th scope="col">التأكيد</th><th scope="col">الإلغاء</th><th scope="col">المتابعة</th></tr></thead>
+                <tbody>
+                  {toolStats.tools.map(tool => (
+                    <tr key={tool.tool}>
+                      <th scope="row"><code dir="ltr">{tool.tool}</code></th>
+                      <td className="as-num">{fmt(tool.total)}</td>
+                      <td className="as-num">{fmt(tool.confirm_rate)}٪</td>
+                      <td className="as-num">{fmt(tool.cancel_rate)}٪</td>
+                      <td>{tool.needs_attention ? <span className="as-badge as-badge--warning">إلغاء مرتفع — راجع المعاينة</span> : '—'}</td>
+                    </tr>
+                  ))}
+                  {!toolStats.tools.length && <tr><td colSpan={5}>مفيش اقتراحات مسجّلة لسه.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
         <div className="as-admin-grid">
           <div className="as-card">
             <div className="as-card-head"><h3>السجل اليومي</h3><span className="as-badge as-num">{fmt(usage.length)} يوم</span></div>
@@ -151,10 +185,52 @@ export default function AssistantAdministration({ can }: { can: (permission: str
                   <span className="as-field-label"><strong>تحليل مستندات التجار بالذكاء الاصطناعي</strong><small>يسمح بفحص صور السجل التجاري والبطاقة الضريبية استشاريًا.</small></span>
                   <input type="checkbox" role="switch" className="as-switch" checked={!!settings.ai_document_analysis_enabled} disabled={saving || !settings.ai_customer_tools_enabled} onChange={e => setSettings({ ...settings, ai_document_analysis_enabled: e.target.checked })} />
                 </label>
+                <label className="as-field as-field--switch">
+                  <span className="as-field-label"><strong>تفعيل أدوات الكتالوج</strong><small>بحث وإدارة الأقسام والمنتجات، مع مراجعة أي تعديل قبل تأكيده.</small></span>
+                  <input type="checkbox" role="switch" className="as-switch" checked={!!settings.ai_catalog_tools_enabled} disabled={saving} onChange={e => setSettings({ ...settings, ai_catalog_tools_enabled: e.target.checked })} />
+                </label>
+                <label className="as-field as-field--switch">
+                  <span className="as-field-label"><strong>تحليل صور المنتجات</strong><small>اقتراح بيانات المنتج من الصور بعد مراجعتها، مع احتساب التوكنز.</small></span>
+                  <input type="checkbox" role="switch" className="as-switch" checked={!!settings.ai_catalog_vision_enabled} disabled={saving || !settings.ai_catalog_tools_enabled} onChange={e => setSettings({ ...settings, ai_catalog_vision_enabled: e.target.checked })} />
+                </label>
+                <label className="as-field as-field--switch">
+                  <span className="as-field-label"><strong>كتابة أوصاف المنتجات</strong><small>توليد مسودة للوصف والشارة تراجعها قبل الحفظ.</small></span>
+                  <input type="checkbox" role="switch" className="as-switch" checked={!!settings.ai_catalog_copywriting_enabled} disabled={saving || !settings.ai_catalog_tools_enabled} onChange={e => setSettings({ ...settings, ai_catalog_copywriting_enabled: e.target.checked })} />
+                </label>
+                <label className="as-field as-field--switch">
+                  <span className="as-field-label"><strong>تفعيل أدوات التسعير</strong><small>يسمح للمساعد بشرح الأسعار وفحص صحة التسعير وإدارة قوائم الأسعار.</small></span>
+                  <input type="checkbox" role="switch" className="as-switch" checked={!!settings.ai_pricing_tools_enabled} disabled={saving} onChange={e => setSettings({ ...settings, ai_pricing_tools_enabled: e.target.checked })} />
+                </label>
+                <label className="as-field as-field--switch">
+                  <span className="as-field-label"><strong>تفعيل أدوات العروض والكوبونات</strong><small>يسمح للمساعد بإنشاء وإدارة الكوبونات والعروض الترويجية.</small></span>
+                  <input type="checkbox" role="switch" className="as-switch" checked={!!settings.ai_promotions_tools_enabled} disabled={saving || !settings.ai_pricing_tools_enabled} onChange={e => setSettings({ ...settings, ai_promotions_tools_enabled: e.target.checked })} />
+                </label>
+                <label className="as-field as-field--switch">
+                  <span className="as-field-label"><strong>قراءة صور شيتات الأسعار</strong><small>يسمح للمساعد بقراءة صور شيتات أسعار الموردين.</small></span>
+                  <input type="checkbox" role="switch" className="as-switch" checked={!!settings.ai_pricing_vision_enabled} disabled={saving || !settings.ai_pricing_tools_enabled} onChange={e => setSettings({ ...settings, ai_pricing_vision_enabled: e.target.checked })} />
+                </label>
+                <label className="as-field">
+                  <span className="as-field-label"><strong>سياسة السعر تحت التكلفة</strong><small>منع (block) أو تحذير فقط (warn) عند سعر تحت التكلفة.</small></span>
+                  <select className="as-input" value={settings.ai_price_below_cost_policy ?? 'block'} disabled={saving} onChange={e => setSettings({ ...settings, ai_price_below_cost_policy: e.target.value })}>
+                    <option value="block">منع</option>
+                    <option value="warn">تحذير فقط</option>
+                  </select>
+                </label>
+                {([
+                  ['ai_inventory_tools_enabled', 'تفعيل أدوات المخزون', 'الأرصدة والتحويلات والجرد واستلام الإنتاج وفق صلاحيات الموظف.'],
+                  ['ai_inventory_vision_enabled', 'قراءة صور أوراق الجرد', 'الصورة تجهّز العد للمراجعة قبل تسجيله.'],
+                  ['ai_inventory_share_cost_with_model', 'مشاركة التكلفة مع نموذج الذكاء الاصطناعي', 'عند الإيقاف تظهر التكلفة للمصرح لهم في الكارت فقط.'],
+                  ['ai_inventory_proactive_enabled', 'اقتراحات المخزون الاستباقية', 'اقتراح إعادة توزيع البضاعة وملاحظات المراجعة.'],
+                ] as const).map(([key, label, help]) => (
+                  <label className="as-field as-field--switch" key={key}>
+                    <span className="as-field-label"><strong>{label}</strong><small>{help}</small></span>
+                    <input type="checkbox" role="switch" className="as-switch" checked={!!settings[key]} disabled={saving || (key !== 'ai_inventory_tools_enabled' && !settings.ai_inventory_tools_enabled)} onChange={e => setSettings({ ...settings, [key]: e.target.checked })} />
+                  </label>
+                ))}
                 {NUMERIC_FIELDS.map(([key, label, help, min, max]) => (
                   <label className="as-field" key={key}>
                     <span className="as-field-label"><strong>{label}</strong><small>{help}</small></span>
-                    <input className="as-input" type="number" inputMode="numeric" min={min} max={max} required value={settings[key]} disabled={saving} onChange={e => setSettings({ ...settings, [key]: Number(e.target.value) })} />
+                    <input className="as-input" type="number" inputMode="numeric" min={min} max={max} required value={settings[key] ?? (key === 'ai_inventory_high_risk_value' ? 50000 : key === 'ai_max_steps' ? 6 : key === 'ai_catalog_bulk_price_max_items' ? 200 : '')} disabled={saving} onChange={e => setSettings({ ...settings, [key]: Number(e.target.value) })} />
                   </label>
                 ))}
                 <fieldset disabled={saving} style={{ borderBottom: '1px solid var(--as-border)' }}>

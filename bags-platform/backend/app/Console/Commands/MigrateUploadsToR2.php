@@ -18,7 +18,7 @@ use Throwable;
 
 class MigrateUploadsToR2 extends Command
 {
-    protected $signature = 'uploads:migrate-to-r2 {--delete-source : Remove local copies only after SHA-256 verification}';
+    protected $signature = 'uploads:migrate-to-r2 {--delete-source : Remove local copies only after SHA-256 verification} {--catalog-only : Copy catalog media only, excluding other uploads and orphan files}';
 
     protected $description = 'Move existing catalog media and private uploads to R2 with content verification';
 
@@ -28,6 +28,7 @@ class MigrateUploadsToR2 extends Command
         $failures = [];
         $catalogPrefixes = [];
         Media::query()
+            ->when($this->option('catalog-only'), fn ($query) => $query->whereIn('model_type', [Product::class, ProductVariant::class, Category::class, Brand::class]))
             ->chunkById(100, function ($items) use ($migration, &$count, &$failures, &$catalogPrefixes): void {
                 foreach ($items as $item) {
                     if ($this->targetDiskFor($item) === 'r2_public') {
@@ -86,7 +87,7 @@ class MigrateUploadsToR2 extends Command
 
         // Include orphaned uploads, excluding certificates and application internals.
         $directories = ['customer_documents', 'return_requests', 'supplier_deliveries', 'supplier_invoices', 'wholesale_payment_notices'];
-        foreach (['public', 'local'] as $disk) {
+        foreach ($this->option('catalog-only') ? [] : ['public', 'local'] as $disk) {
             try {
                 $paths = $disk === 'public' ? Storage::disk($disk)->allFiles() : collect($directories)
                     ->flatMap(fn ($directory) => Storage::disk($disk)->allFiles($directory))->all();
@@ -131,9 +132,10 @@ class MigrateUploadsToR2 extends Command
 
     private function targetDiskFor(Media $media): string
     {
-        // H5: catalog models land on the public bucket; everything else stays private.
+        // Catalog may explicitly use private R2 signed URLs. Local dev disks
+        // still migrate to the standard public catalog destination by default.
         return in_array($media->model_type, [Product::class, ProductVariant::class, Category::class, Brand::class], true)
-            ? 'r2_public'
+            ? (config('filesystems.catalog_disk') === 'r2' ? 'r2' : 'r2_public')
             : 'r2';
     }
 

@@ -6,7 +6,6 @@ namespace App\Listeners;
 
 use App\Events\StockLowDetected;
 use App\Models\ProductVariant;
-use App\Models\StockLevel;
 use App\Notifications\StaffRecipients;
 use App\Notifications\TransferSuggestionNotification;
 use App\Services\Ai\Inventory\InventoryCoverage;
@@ -38,13 +37,15 @@ class SuggestTransferRedistribution implements ShouldQueue
         }
 
         // متبرع: نفس الصنف في فرع آخر بتغطية أكبر من 60 يوم.
-        $donor = StockLevel::query()
+        $donor = DB::table('stock_levels')
+            ->selectRaw('branch_id, SUM(on_hand - reserved - damaged) AS available')
             ->where('product_variant_id', $event->productVariantId)
             ->where('branch_id', '!=', $event->branchId)
-            ->whereRaw('(on_hand - reserved - damaged) > 0')
-            ->orderByDesc(DB::raw('on_hand - reserved - damaged'))
+            ->groupBy('branch_id')
+            ->havingRaw('SUM(on_hand - reserved - damaged) > 0')
+            ->orderByDesc('available')
             ->limit(10)->get()
-            ->map(fn ($l) => ['branch_id' => (int) $l->branch_id, 'available' => (float) $l->on_hand - (float) $l->reserved - (float) $l->damaged])
+            ->map(fn ($l) => ['branch_id' => (int) $l->branch_id, 'available' => (float) $l->available])
             ->first(function ($c) use ($event): bool {
                 $cov = InventoryCoverage::coverageDays($event->productVariantId, $c['branch_id']);
 

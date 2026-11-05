@@ -31,3 +31,19 @@ test('incremental SSE parser matches one-shot parsing across awkward chunk split
   assert.equal(got.filter(e => e.event === 'status').at(-1).data.message, 'two');
   assert.equal(got.find(e => e.event === 'reply').data.message_id, 9);
 });
+
+test('incremental SSE parser preserves CRLF delimiters split across network chunks and resets for a new response', () => {
+  const { parseAgentEvents, createIncrementalSseParser } = load('stream.ts');
+  const full = 'event: status\r\ndata: {"message":"شغال"}\r\n\r\nevent: reply\r\ndata: {"text":"تم"}\r\n\r\n';
+  for (let chunkSize = 1; chunkSize <= 17; chunkSize++) {
+    const parser = createIncrementalSseParser();
+    let got = [];
+    for (let cut = chunkSize; cut < full.length; cut += chunkSize) {
+      got.push(...parser.feed(full.slice(0, cut)));
+    }
+    got.push(...parser.feed(full));
+    assert.deepEqual(got, parseAgentEvents(full), `chunk size ${chunkSize}`);
+    const next = 'event: reply\r\ndata: {"text":"جديد"}\r\n\r\n';
+    assert.deepEqual(parser.feed(next), parseAgentEvents(next));
+  }
+});

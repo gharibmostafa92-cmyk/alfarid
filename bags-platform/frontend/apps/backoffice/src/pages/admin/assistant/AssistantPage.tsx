@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { assistantApi, type Conv, type ConvMsg, type UiBlock } from './api';
 import AssistantBlock from './AssistantBlock';
 import AssistantComposer from './AssistantComposer';
@@ -76,7 +76,26 @@ const relTime = (iso: string | null) => {
   return dayKey(iso) === 'today' ? d.toLocaleTimeString('ar-EG', { hour: 'numeric', minute: '2-digit' }) : d.toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' });
 };
 
-export default function AssistantPage({ can, theme, initialConversationId, initialPrompt }: { can: (permission: string) => boolean; theme?: 'light' | 'dark'; initialConversationId?: number; initialPrompt?: { text: string; mentions?: Mention[] } }) {
+export default function AssistantPage({ can, theme, initialConversationId, initialPrompt, initialSelection }: { can: (permission: string) => boolean; theme?: 'light' | 'dark'; initialConversationId?: number; initialPrompt?: { text: string; mentions?: Mention[] }; initialSelection?: { entity: string; id: number } }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const navigation = (container.getRootNode() as Document | ShadowRoot).querySelector<HTMLElement>('.v-mobile-nav');
+    const fitViewport = () => {
+      const viewportBottom = window.visualViewport ? window.visualViewport.offsetTop + window.visualViewport.height : window.innerHeight;
+      const navigationTop = navigation && getComputedStyle(navigation).display !== 'none' ? navigation.getBoundingClientRect().top : viewportBottom;
+      const height = Math.max(160, Math.min(viewportBottom, navigationTop) - container.getBoundingClientRect().top - 16);
+      container.style.setProperty('--as-height', `${height}px`);
+    };
+    fitViewport();
+    window.addEventListener('resize', fitViewport);
+    window.visualViewport?.addEventListener('resize', fitViewport);
+    return () => {
+      window.removeEventListener('resize', fitViewport);
+      window.visualViewport?.removeEventListener('resize', fitViewport);
+    };
+  }, []);
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() => {
     if (theme) return theme;
     if (typeof document !== 'undefined') {
@@ -118,6 +137,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
   const [copied, setCopied] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [tab, setTab] = useState<'chat' | 'admin'>('chat');
+  const [showLogs, setShowLogs] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
@@ -149,7 +169,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
   const [, tick] = useState(0);
   const feedRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-  const execute = can('ai_agent.execute');
+  const execute = can('ai_agent.execute') && !showLogs;
   const current = conversations.find(c => c.id === currentId);
 
   useEffect(() => { const t = setTimeout(() => setDebouncedQuery(searchQuery), 250); return () => clearTimeout(t); }, [searchQuery]);
@@ -157,14 +177,14 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
   const refreshList = useCallback(async () => {
     setListLoading(true);
     try {
-      const page = await assistantApi.listPaginated(1, debouncedQuery);
+      const page = await assistantApi.listPaginated(1, debouncedQuery, showLogs);
       setConversations(page.data);
     } catch {
       setError({ message: 'تعذر تحميل المحادثات.', kind: 'transient', retry: () => void refreshList() });
     } finally {
       setListLoading(false);
     }
-  }, [debouncedQuery]);
+  }, [debouncedQuery, showLogs]);
 
   useEffect(() => { void refreshList(); }, [refreshList]);
 
@@ -224,6 +244,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
   useEffect(() => { if (initialConversationId) void openConversation(initialConversationId); }, [initialConversationId, openConversation]);
 
   const createConversation = useCallback(async () => {
+    if (showLogs) return;
     if (currentId && messages.length === 0) { setDrawer(false); setTab('chat'); return; }
     setBusy(true);
     setError(null);
@@ -240,7 +261,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
     } finally {
       setBusy(false);
     }
-  }, [currentId, messages.length]);
+  }, [currentId, messages.length, showLogs]);
 
   const deleteConversation = useCallback(async (id: number) => {
     setConfirmDelete(null);
@@ -293,7 +314,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
         }
         await assistantApi.stream(
           id,
-          { text, mentions: mentions?.map(m => ({ entity: m.entity, id: m.id })), attachments: attachmentIds },
+          { text, selection: initialSelection, mentions: mentions?.map(m => ({ entity: m.entity, id: m.id })), attachments: attachmentIds },
           message => {
             setStatus(prev => {
               if (prev !== message && prev !== 'جاهز') setSteps(s => (s.at(-1) === prev ? s : [...s, prev].slice(-4)));
@@ -320,7 +341,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
         setStatus('جاهز');
       }
     },
-    [currentId, openConversation],
+    [currentId, openConversation, initialSelection],
   );
 
   const pick = useCallback(
@@ -382,7 +403,12 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
         <button type="button" className="as-iconbtn as-only-mobile" onClick={() => setDrawer(false)} aria-label="إغلاق القائمة"><Icon name="x" /></button>
       </div>
       <div className="as-sidebar-tools">
-        <button type="button" className="as-btn as-btn--primary as-btn--block" onClick={() => void createConversation()} disabled={busy}>
+        {can('ai_agent.logs.view') && can('inventory.all_branches') && (
+          <button type="button" className="as-btn as-btn--block" disabled={busy} aria-pressed={showLogs} onClick={() => { setShowLogs(value => !value); setCurrentId(null); setMessages([]); setActionStatus({}); setTab('chat'); }}>
+            <Icon name="eye" size={16} />{showLogs ? 'محادثاتي' : 'سجل الموظفين'}
+          </button>
+        )}
+        <button type="button" className="as-btn as-btn--primary as-btn--block" onClick={() => void createConversation()} disabled={busy || showLogs}>
           <Icon name="plus" size={16} />محادثة جديدة
         </button>
         <div className="as-searchfield">
@@ -419,10 +445,10 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
                             {pc > 0 && <><span className="as-dot" />{pc} بانتظار التأكيد</>}
                           </span>
                         </button>
-                        <div className="as-conv-actions">
+                        {!showLogs && <div className="as-conv-actions">
                           <button type="button" className="as-iconbtn as-iconbtn--sm" aria-pressed={c.is_pinned} aria-label={c.is_pinned ? 'إلغاء التثبيت' : 'تثبيت المحادثة'} title={c.is_pinned ? 'إلغاء التثبيت' : 'تثبيت'} onClick={() => void togglePin(c)}><Icon name="pin" size={15} /></button>
                           <button type="button" className="as-iconbtn as-iconbtn--sm" disabled={busy} aria-label="حذف المحادثة" title="حذف" onClick={() => setConfirmDelete(c.id)}><Icon name="trash" size={15} /></button>
-                        </div>
+                        </div>}
                       </>
                     )}
                   </div>
@@ -539,12 +565,12 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
                           <AssistantBlock
                             key={`${m.id}-${i}`}
                             block={block}
-                            busy={busy}
+                            busy={busy || showLogs}
                             status={actionStatus[String(block.action_id ?? block.undo_action_id ?? '')]}
                             execute={execute}
-                            onPick={(entity, id, label) => void pick(entity, id, label)}
-                            onAction={(kind, id, typed, selected) => void act(kind, id, typed, selected)}
-                            onPrompt={text => setSeed({ text, n: Date.now() })}
+                            onPick={(entity, id, label) => { if (!showLogs) void pick(entity, id, label); }}
+                            onAction={(kind, id, typed, selected) => { if (!showLogs) void act(kind, id, typed, selected); }}
+                            onPrompt={showLogs ? undefined : text => setSeed({ text, n: Date.now() })}
                           />
                         ))}
                       </div>
@@ -594,14 +620,14 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
       )}
       {error && <div className="as-error-dock">{errorAlert}</div>}
       <span className="as-sr" role="status">{status}</span>
-      <div className="as-composer-wrap">
-        <AssistantComposer busy={busy} onSend={send} quickCommands={quickCommands} seed={seed} enableCustomers={canCustomers} enableCatalog={canCatalog} />
-      </div>
+      {showLogs ? <div className="as-alert as-alert--info" role="note">سجل الموظفين للقراءة فقط؛ التأكيد والإلغاء والتراجع متاحين لصاحب المحادثة.</div> : <div className="as-composer-wrap">
+        <AssistantComposer busy={busy} onSend={send} quickCommands={quickCommands} seed={seed} enableCustomers={canCustomers} enableCatalog={canCatalog} enableInventory={can('inventory.view') || can('stocktakes.update')} />
+      </div>}
     </>
   );
 
   return (
-    <div className="assistant" dir="rtl" data-theme={resolvedTheme}>
+    <div ref={containerRef} className="assistant" dir="rtl" data-theme={resolvedTheme}>
       <style>{assistantStyles}</style>
       <div className="as-shell" data-collapsed={collapsed} data-drawer={drawer}>
         {sidebar}

@@ -6,15 +6,15 @@ namespace App\Services\Ai\Inventory\Tools;
 
 use App\Exceptions\BusinessException;
 use App\Models\AiPendingAction;
-use App\Models\StockLevel;
+use App\Models\ProductVariant;
 use App\Models\StockMovement;
 use App\Models\User;
+use App\Services\Ai\Contracts\LocksTargets;
+use App\Services\Ai\Contracts\UndoableTool;
 use App\Services\Ai\EntityResolver;
 use App\Services\Ai\Inventory\InventoryArgs;
 use App\Services\Ai\Inventory\InventoryPresenter;
 use App\Services\Ai\ProposalBuilder;
-use App\Services\Ai\Contracts\LocksTargets;
-use App\Services\Ai\Contracts\UndoableTool;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
@@ -33,7 +33,7 @@ final class AdjustStockTool implements LocksTargets, UndoableTool, WriteTool
         'decrease' => [['increase']],
         'mark_damaged' => [['restore_damaged']],
         'restore_damaged' => [['mark_damaged']],
-        'write_off_damaged' => [['mark_damaged'], ['increase']],
+        'write_off_damaged' => [['increase'], ['mark_damaged']],
     ];
 
     public function __construct(
@@ -136,7 +136,10 @@ final class AdjustStockTool implements LocksTargets, UndoableTool, WriteTool
         ];
 
         // الخروج مايوقعش تحت المحجوز + التالف.
-        if (in_array($type, ['decrease', 'write_off_damaged', 'mark_damaged'], true) && $qty > $before['available']) {
+        if (in_array($type, ['write_off_damaged', 'restore_damaged'], true) && $qty > $before['damaged']) {
+            return ToolOutcome::denied("التالف {$before['damaged']} بس؛ كمية التسوية أكبر من التالف.", auditable: false);
+        }
+        if (in_array($type, ['decrease', 'mark_damaged'], true) && $qty > $before['available']) {
             return ToolOutcome::denied(
                 "المتاح {$before['available']} بس، لأن فيه {$before['reserved']} محجوزين و{$before['damaged']} تالف. تحب أفك الحجز؟",
                 auditable: false,
@@ -163,7 +166,7 @@ final class AdjustStockTool implements LocksTargets, UndoableTool, WriteTool
             $warnings[] = 'مفيش تكلفة مسجلة للصنف — القيمة محسوبة بصفر.';
         }
         if ($risk === 'high') {
-            $warnings[] = "قيمة التسوية {$value} فوق العتبة {$threshold}.";
+            $warnings[] = 'قيمة التسوية فوق الحد المسموح — التأكيد بالكتابة مطلوب.';
         }
 
         $key = $this->versionKey($variant->id, $branchId, $locationId);
@@ -185,6 +188,7 @@ final class AdjustStockTool implements LocksTargets, UndoableTool, WriteTool
             after: $after,
             warnings: $warnings,
             expectedVersions: [$key => $this->lastMovementId($variant->id, $branchId, $locationId)],
+            typedConfirmation: $risk === 'high' ? 'تنفيذ' : null,
             extraPreview: ['block_type' => 'stock_diff', 'sku' => $variant->sku],
         );
     }
@@ -219,7 +223,7 @@ final class AdjustStockTool implements LocksTargets, UndoableTool, WriteTool
             ]],
         ], $actor->id, 'ai:'.$action->id);
 
-        $variant = \App\Models\ProductVariant::find((int) $a['variant_id']);
+        $variant = ProductVariant::find((int) $a['variant_id']);
         $level = $this->inventory->levelFor((int) $a['variant_id'], (int) $a['branch_id'], $a['location_id'] ?? null);
 
         return ToolOutcome::result(true, "تمت تسوية {$a['reason']} للصنف {$variant?->sku}.", [

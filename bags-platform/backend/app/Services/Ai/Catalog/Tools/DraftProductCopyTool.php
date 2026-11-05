@@ -15,6 +15,7 @@ use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\SettingService;
+use Illuminate\Validation\ValidationException;
 
 final class DraftProductCopyTool implements AgentTool
 {
@@ -69,6 +70,11 @@ final class DraftProductCopyTool implements AgentTool
             return ToolOutcome::denied('ميزة كتابة الأوصاف بالـ AI مقفولة من الإعدادات.', auditable: false);
         }
 
+        $conv = $this->proposals->conversation();
+        if (! $conv) {
+            throw ValidationException::withMessages(['product_id' => ['كتابة الأوصاف متاحة من داخل المحادثة فقط لتسجيل الاستهلاك.']]);
+        }
+
         $args = CatalogArgs::normalizeDigitsInArray($args);
         $product = Product::with(['category', 'variants'])->find((int) ($args['product_id'] ?? 0));
         if (! $product) {
@@ -94,9 +100,9 @@ final class DraftProductCopyTool implements AgentTool
                 'weight_kg' => $product->weight_kg,
             ],
             'occasions' => $product->occasions ?? [],
-            'colors' => $product->variants->pluck('color_name_ar')->filter()->unique()->values()->all(),
-            'sizes' => $product->variants->pluck('size')->filter()->unique()->values()->all(),
-            'capacities' => $product->variants->pluck('capacity')->filter()->unique()->values()->all(),
+            'colors' => $product->variants->pluck('color_name_ar')->filter()->unique()->map(fn ($value) => $this->presenter->untrusted($value, 150))->values()->all(),
+            'sizes' => $product->variants->pluck('size')->filter()->unique()->map(fn ($value) => $this->presenter->untrusted($value, 150))->values()->all(),
+            'capacities' => $product->variants->pluck('capacity')->filter()->unique()->map(fn ($value) => $this->presenter->untrusted($value, 150))->values()->all(),
             'current_description_ar' => $product->description_ar ? $this->presenter->untrusted($product->description_ar, 300) : null,
             'current_description_en' => $product->description_en ? $this->presenter->untrusted($product->description_en, 300) : null,
         ];
@@ -111,17 +117,14 @@ final class DraftProductCopyTool implements AgentTool
 
         $response = $this->gemini->generate($prompt);
 
-        $conv = $this->proposals->conversation();
-        if ($conv) {
-            AiMessage::create([
-                'conversation_id' => $conv->id,
-                'role' => 'event',
-                'content' => "توليد وصف للمنتج {$product->code}",
-                'model' => $response['model'] ?? null,
-                'input_tokens' => (int) ($response['usage']['input_tokens'] ?? 0),
-                'output_tokens' => (int) ($response['usage']['output_tokens'] ?? 0),
-            ]);
-        }
+        AiMessage::create([
+            'conversation_id' => $conv->id,
+            'role' => 'event',
+            'content' => "توليد وصف للمنتج {$product->code}",
+            'model' => $response['model'] ?? null,
+            'input_tokens' => (int) ($response['usage']['input_tokens'] ?? 0),
+            'output_tokens' => (int) ($response['usage']['output_tokens'] ?? 0),
+        ]);
 
         $rawText = trim((string) ($response['text'] ?? ''));
         $cleanJson = preg_replace('/^```(?:json)?\s*|\s*```$/i', '', $rawText);

@@ -10,6 +10,7 @@ use App\Models\ProductVariant;
 use App\Models\User;
 use App\Services\Ai\Catalog\CatalogArgs;
 use App\Services\Ai\Catalog\CatalogPresenter;
+use App\Services\Ai\Catalog\CatalogUndoGuard;
 use App\Services\Ai\Catalog\CatalogWarnings;
 use App\Services\Ai\Contracts\LocksTargets;
 use App\Services\Ai\Contracts\UndoableTool;
@@ -155,8 +156,10 @@ final class SetVariantStatusTool implements LocksTargets, UndoableTool, WriteToo
     public function undo(User $actor, AiPendingAction $action): ToolOutcome
     {
         $variant = ProductVariant::findOrFail((int) $action->args['variant_id']);
+        CatalogUndoGuard::assertUnchanged($this, $action);
         $updated = $this->variants->update($variant, [
             'is_active' => (bool) $action->inverse['is_active'],
+            'expected_version' => (int) $variant->lock_version,
         ]);
 
         return ToolOutcome::result(true, "تم التراجع عن تغيير حالة المتغير {$updated->sku}.", [

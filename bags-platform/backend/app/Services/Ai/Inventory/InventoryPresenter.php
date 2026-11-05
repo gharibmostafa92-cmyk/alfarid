@@ -51,7 +51,7 @@ final class InventoryPresenter
         return ToolOutcome::data($data, $uiBlock, $message);
     }
 
-    private const COST_KEYS = ['cost_price', 'cost', 'unit_cost', 'total_value', 'tied_value'];
+    private const COST_KEYS = ['cost_price', 'cost', 'unit_cost', 'total_value', 'tied_value', 'value_impact', 'cost_before', 'cost_after'];
 
     /** @return array<string,mixed> */
     public function stripCost(array $payload): array
@@ -74,6 +74,7 @@ final class InventoryPresenter
         foreach ($payload as $key => $value) {
             if (in_array($key, self::COST_KEYS, true)) {
                 $out[$key] = null;
+
                 continue;
             }
             $out[$key] = is_array($value) ? $this->maskActuals($value) : $value;

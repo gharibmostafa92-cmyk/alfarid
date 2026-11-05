@@ -19,7 +19,7 @@ export function middleware(request: NextRequest) {
     "font-src 'self' https://fonts.gstatic.com",
     "img-src 'self' https: data: blob:" + (development ? ` http://localhost:8000 http://127.0.0.1:8000${api.protocol === 'http:' ? ` ${api.origin}` : ''}` : ''),
     `connect-src 'self' ${api.origin} ${socket}${development ? ' ws: wss:' : ''}`,
-    `frame-src 'self' ${office.origin}`,
+    `frame-src 'self' ${office.origin} https://challenges.cloudflare.com`,
     "object-src 'none'", "base-uri 'self'", "form-action 'self'", "frame-ancestors 'none'",
   ].join('; ');
   const headers = new Headers(request.headers);

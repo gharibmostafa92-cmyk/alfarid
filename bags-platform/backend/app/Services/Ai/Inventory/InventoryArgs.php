@@ -22,8 +22,10 @@ final class InventoryArgs
         foreach ($args as $key => $value) {
             if (is_string($value)) {
                 $converted = EntityResolver::normalizeDigits($value);
-                if (in_array($key, ['variant_id', 'product_id', 'branch_id', 'location_id', 'user_id', 'transfer_id', 'stocktake_id', 'limit', 'cursor', 'dead_days', 'days'], true) && is_numeric($converted)) {
+                if (in_array($key, ['variant_id', 'product_variant_id', 'product_id', 'branch_id', 'from_branch_id', 'to_branch_id', 'location_id', 'from_location_id', 'to_location_id', 'item_id', 'reference_id', 'user_id', 'transfer_id', 'stocktake_id', 'limit', 'cursor', 'dead_days', 'days'], true) && is_numeric($converted)) {
                     $args[$key] = (int) $converted;
+                } elseif (in_array($key, ['quantity', 'counted_qty', 'unit_cost'], true)) {
+                    $args[$key] = str_replace('٫', '.', $converted);
                 } elseif (in_array($key, ['sku', 'barcode'], true)) {
                     $args[$key] = strtoupper(trim($converted));
                 } else {
