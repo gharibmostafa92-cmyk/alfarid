@@ -6,9 +6,12 @@ namespace App\Actions\Staff;
 
 use App\Enums\StaffRole;
 use App\Models\User;
+use App\Services\Ai\WhatsApp\WhatsAppIdentityService;
 use App\Services\BranchAccess;
 use App\Services\StaffAdministration;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Role;
 
 final class UpdateRole
@@ -43,14 +46,17 @@ final class UpdateRole
                 $locked->name = $data['name'];
                 try {
                     $locked->save();
-                } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
-                    throw \Illuminate\Validation\ValidationException::withMessages([
+                } catch (UniqueConstraintViolationException $e) {
+                    throw ValidationException::withMessages([
                         'name' => 'اسم الدور مستخدم بالفعل؛ أعد التحميل ثم حاول مرة أخرى.',
                     ]);
                 }
             }
             if ($permissions !== null) {
                 $locked->syncPermissions($permissions);
+                if (in_array('ai_agent.whatsapp', $before['permissions'], true) && ! in_array('ai_agent.whatsapp', $permissions, true)) {
+                    app(WhatsAppIdentityService::class)->revokeUsersOfRole($locked);
+                }
             }
             StaffAdministration::advanceVersion($locked);
             StaffAdministration::audit($actor, 'role.updated', 'role', $locked->id, array_keys($data), $before, StaffAdministration::roleState($locked), $via);

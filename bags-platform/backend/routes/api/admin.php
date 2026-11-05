@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\Admin\Ai\AiConversationController;
 use App\Http\Controllers\Api\V1\Admin\Ai\AiMentionController;
 use App\Http\Controllers\Api\V1\Admin\Ai\AiMessageController;
 use App\Http\Controllers\Api\V1\Admin\Ai\AiWelcomeController;
+use App\Http\Controllers\Api\V1\Admin\Ai\WhatsAppAdminController;
 use App\Http\Controllers\Api\V1\Admin\AuthController;
 use App\Http\Controllers\Api\V1\Admin\BannerController;
 use App\Http\Controllers\Api\V1\Admin\BranchController;
@@ -377,6 +378,17 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
             Route::get('settings', [AiAdministrationController::class, 'settings'])->middleware('permission:ai_agent.settings')->name('settings');
             Route::put('settings', [AiAdministrationController::class, 'updateSettings'])->middleware('permission:ai_agent.settings')->name('settings.update');
             Route::get('usage', [AiAdministrationController::class, 'usage'])->name('usage');
+            Route::middleware('permission:ai_agent.settings')->group(function (): void {
+                Route::get('whatsapp/status', [WhatsAppAdminController::class, 'status'])->name('whatsapp.status');
+                Route::get('whatsapp/qr', [WhatsAppAdminController::class, 'qr'])->name('whatsapp.qr');
+                Route::post('whatsapp/logout', [WhatsAppAdminController::class, 'logout'])->name('whatsapp.logout');
+                Route::get('whatsapp/identities', [WhatsAppAdminController::class, 'identities'])->name('whatsapp.identities');
+                Route::post('whatsapp/identities', [WhatsAppAdminController::class, 'storeIdentity'])->name('whatsapp.identities.store');
+                Route::post('whatsapp/identities/{identity}/link', [WhatsAppAdminController::class, 'link'])->name('whatsapp.identities.link');
+                Route::post('whatsapp/identities/{identity}/revoke', [WhatsAppAdminController::class, 'revoke'])->name('whatsapp.identities.revoke');
+                Route::get('whatsapp/staff', [WhatsAppAdminController::class, 'staff'])->name('whatsapp.staff');
+                Route::get('whatsapp/monitor', [WhatsAppAdminController::class, 'monitor'])->name('whatsapp.monitor');
+            });
             Route::patch('conversations/{conversation}/pin', [AiConversationController::class, 'pin'])->name('conversations.pin');
             Route::post('conversations/{conversation}/stream', [AiMessageController::class, 'stream'])->middleware('throttle:ai-chat')->name('conversations.stream');
             Route::get('conversations', [AiConversationController::class, 'index'])->name('conversations.index');

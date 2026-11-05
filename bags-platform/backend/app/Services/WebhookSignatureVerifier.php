@@ -16,11 +16,6 @@ class WebhookSignatureVerifier
 {
     /**
      * Verify standard HMAC-SHA256 signature against raw request body.
-     *
-     * @param  string|null  $secret
-     * @param  string  $rawBody
-     * @param  string|null  $signature
-     * @return bool
      */
     public function verify(?string $secret, string $rawBody, ?string $signature): bool
     {
@@ -38,16 +33,32 @@ class WebhookSignatureVerifier
     }
 
     /**
+     * HMAC-SHA256 over "{timestamp}.{rawBody}" with a 5-minute replay window.
+     * The plain verify() method does not check a timestamp.
+     */
+    public function verifyTimestamped(?string $secret, string $rawBody, ?string $signature, ?string $timestamp, int $maxSkewSeconds = 300): bool
+    {
+        if ($secret === null || $secret === '' || $signature === null || $signature === '' || $timestamp === null || $timestamp === '') {
+            return false;
+        }
+        if (! ctype_digit($timestamp) || abs(time() - (int) $timestamp) > $maxSkewSeconds) {
+            return false;
+        }
+        if (str_starts_with($signature, 'sha256=')) {
+            $signature = substr($signature, 7);
+        }
+
+        $expected = hash_hmac('sha256', $timestamp.'.'.$rawBody, $secret);
+
+        return hash_equals($expected, strtolower(trim($signature)));
+    }
+
+    /**
      * Dispatch signature validation to gateway-specific verifier.
      *
-     * @param  string  $driver
-     * @param  string|null  $secret
-     * @param  string  $rawBody
      * @param  array<string, string|null>  $headers  Lowercase header map
      * @param  array<string, mixed>  $query
      * @param  array<string, mixed>  $payload
-     * @param  string|null  $signatureHeader
-     * @return bool
      */
     public function verifyGateway(string $driver, ?string $secret, string $rawBody, array $headers, array $query, array $payload, ?string $signatureHeader = null): bool
     {

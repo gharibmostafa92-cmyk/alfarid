@@ -11,6 +11,7 @@ use App\Models\AiPendingAction;
 use App\Models\User;
 use App\Services\Ai\Contracts\ExecutesOutsideTransaction;
 use App\Services\Ai\Contracts\ToolProvider;
+use App\Services\Ai\WhatsApp\WhatsAppActorContext;
 use App\Services\SettingService;
 use App\Services\StaffAdministration;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -235,6 +236,11 @@ final class PendingActionService
         abort_unless($def && $actor->is_active && $actor->can('ai_agent.use') && $actor->can('ai_agent.execute') && $this->registry->actorHasToolPermissions($actor, $action->tool, $def), 403);
         abort_unless($action->conversation()->exists(), 409, 'المحادثة اتحذفت.');
         abort_unless(hash_equals($action->args_hash, $this->registry->hashArgs($action->args)), 409, 'بيانات الإجراء اتغيرت.');
+        $mode = app(WhatsAppActorContext::class)->mode();
+        if (in_array($mode, ['confirm', 'undo'], true) && $def) {
+            $risk = (string) ($action->risk ?: $def['risk']);
+            abort_if($this->registry->blockedOnWhatsapp($action->tool, $def['kind'], $risk), 403, 'الأداة دي مش متاحة من واتساب.');
+        }
     }
 
     private function confirmLocked(User $actor, AiPendingAction $action, ?string $typed, ?array $selectedItems = null): ToolOutcome
@@ -283,7 +289,7 @@ final class PendingActionService
 
             return ToolOutcome::wrap('claimed');
         }
-        $via = ['channel' => 'ai', 'conversation_id' => $action->conversation_id, 'action_id' => $action->id];
+        $via = $this->via($action);
         try {
             $outcome = DB::transaction(function () use ($actor, $action, $via, $selectedItems) {
                 $this->registry->lockTargets($action);
@@ -435,7 +441,7 @@ final class PendingActionService
         abort_unless(isset($action->result['undo_state']) && hash_equals($action->result['undo_state'], $this->registry->targetState($action)), 409, 'السجل اتعدل بعد التنفيذ؛ التراجع مش آمن.');
         abort_unless($action->status === 'executed' && $action->executed_at && $action->executed_at->copy()->addMinutes(15)->isFuture(), 409, 'التراجع مش متاح.');
         abort_unless($actor->can('ai_agent.execute'), 403);
-        $via = ['channel' => 'ai', 'conversation_id' => $action->conversation_id, 'action_id' => $action->id];
+        $via = $this->via($action);
         try {
             $outcome = DB::transaction(fn () => $this->registry->executeUndo($actor, $action, $via));
         } catch (BusinessException $e) {
@@ -472,6 +478,17 @@ final class PendingActionService
     {
         $action->forceFill(['status' => 'failed', 'result' => ['message' => $message]])->save();
         $this->event($action, 'result', $message, [['type' => 'result', 'ok' => false, 'message' => $message]]);
+    }
+
+    /** @return array{channel:string,conversation_id:mixed,action_id:mixed,source:string} */
+    private function via(AiPendingAction $action): array
+    {
+        return [
+            'channel' => 'ai',
+            'conversation_id' => $action->conversation_id,
+            'action_id' => $action->id,
+            'source' => (string) ($action->conversation()->value('channel') ?: 'web'),
+        ];
     }
 
     private function event(AiPendingAction $action, string $kind, string $text, array $blocks, bool $stripPassword = false): void

@@ -60,6 +60,13 @@ class SettingService
         'ai_price_below_cost_policy' => 'block',
         'ai_pricing_vision_enabled' => false,
         'ai_max_steps' => 6,
+        'ai_whatsapp_enabled' => false,
+        'ai_whatsapp_allow_writes' => false,
+        'ai_whatsapp_max_risk' => 'medium',
+        'ai_whatsapp_disabled_tools' => ['create_staff_user', 'create_role', 'update_role_permissions', 'delete_role', 'assign_roles', 'revoke_user_sessions', 'update_settings', 'update_document_numbering'],
+        'ai_whatsapp_idle_rotate_hours' => 12,
+        'ai_whatsapp_link_token_ttl_minutes' => 10,
+        'ai_whatsapp_pin_required' => false,
     ];
 
     /** @var list<string> */

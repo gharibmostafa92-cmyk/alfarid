@@ -1,5 +1,6 @@
 <?php
 
+use App\Console\Commands\RaceWorkerCommand;
 use App\Services\Catalog\RetailPriceSnapshot;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -26,6 +27,7 @@ Schedule::command('queue:prune-failed --hours=168')->dailyAt('03:45')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer();
 Schedule::command('staff:prune-audit-logs')->dailyAt('04:45')->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer();
 Schedule::command('ai:prune-conversations')->dailyAt('05:10')->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer();
+Schedule::command('whatsapp:watch-connection')->everyFiveMinutes()->withoutOverlapping(10)->onOneServer();
 Schedule::command('customers:prune-artifacts')->hourly()->withoutOverlapping(120)->onOneServer();
 Schedule::command('media:prune-orphans --disk=r2_public --older-than=60')->dailyAt('04:30')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer()
@@ -92,6 +94,6 @@ Artisan::command('inspire', function () {
 // outside the testing environment so production has no test helpers.
 if (app()->environment('testing')) {
     Artisan::command('race:worker {--file=}', function (string $file): int {
-        return app(\App\Console\Commands\RaceWorkerCommand::class)->runJob($file);
+        return app(RaceWorkerCommand::class)->runJob($file);
     })->purpose('Test-only concurrency worker');
 }

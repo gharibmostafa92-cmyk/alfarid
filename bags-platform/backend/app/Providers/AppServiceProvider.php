@@ -10,8 +10,8 @@ use App\Models\Location;
 use App\Models\Order;
 use App\Models\PosShift;
 use App\Models\PriceList;
-use App\Models\ProductionReceipt;
 use App\Models\PriceListItem;
+use App\Models\ProductionReceipt;
 use App\Models\ProductVariant;
 use App\Models\PurchaseOrder;
 use App\Models\ReturnRequest;
@@ -22,6 +22,14 @@ use App\Models\TreasuryTransfer;
 use App\Models\User;
 use App\Models\WholesalePaymentNotice;
 use App\Observers\CatalogRetailPriceObserver;
+use App\Services\Ai\Catalog\CatalogToolProvider;
+use App\Services\Ai\EntityResolver;
+use App\Services\Ai\Finance\FinanceToolProvider;
+use App\Services\Ai\Inventory\InventoryToolProvider;
+use App\Services\Ai\Pricing\PricingToolProvider;
+use App\Services\Ai\ProposalBuilder;
+use App\Services\Ai\ToolRegistry;
+use App\Services\Ai\WhatsApp\WhatsAppActorContext;
 use App\Services\Auth\NetworkIdentity;
 use App\Services\BranchAccess;
 use App\Services\PricingService;
@@ -57,15 +65,16 @@ class AppServiceProvider extends ServiceProvider
         $this->app->scoped(StoreCatalogService::class);
         $this->app->scoped(PricingService::class);
         $this->app->scoped(CatalogRetailPriceObserver::class);
-        $this->app->scoped(\App\Services\Ai\ProposalBuilder::class);
-        $this->app->tag([\App\Services\Ai\Catalog\CatalogToolProvider::class, \App\Services\Ai\Inventory\InventoryToolProvider::class, \App\Services\Ai\Pricing\PricingToolProvider::class, \App\Services\Ai\Finance\FinanceToolProvider::class], 'ai.tool_providers');
-        $this->app->scoped(\App\Services\Ai\ToolRegistry::class, function ($app) {
-            return new \App\Services\Ai\ToolRegistry(
-                $app->make(\App\Services\Ai\EntityResolver::class),
+        $this->app->scoped(ProposalBuilder::class);
+        $this->app->scoped(WhatsAppActorContext::class);
+        $this->app->tag([CatalogToolProvider::class, InventoryToolProvider::class, PricingToolProvider::class, FinanceToolProvider::class], 'ai.tool_providers');
+        $this->app->scoped(ToolRegistry::class, function ($app) {
+            return new ToolRegistry(
+                $app->make(EntityResolver::class),
                 $app->make(BranchAccess::class),
                 $app->make(SettingService::class),
                 $app->tagged('ai.tool_providers'),
-                $app->make(\App\Services\Ai\ProposalBuilder::class),
+                $app->make(ProposalBuilder::class),
             );
         });
     }

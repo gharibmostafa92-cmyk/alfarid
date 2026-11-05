@@ -42,11 +42,14 @@ use App\Models\User;
 use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Rules\UniqueCustomerEmail;
 use App\Services\Ai\Catalog\CatalogToolProvider;
+use App\Services\Ai\Contracts\ExecutesSelectedItems;
 use App\Services\Ai\Contracts\LocksTargets;
 use App\Services\Ai\Contracts\ToolProvider;
-use App\Services\Ai\Contracts\ExecutesSelectedItems;
 use App\Services\Ai\Contracts\UndoableTool;
+use App\Services\Ai\Finance\FinanceWelcome;
+use App\Services\Ai\Finance\Tools\DailyCloseBriefingTool;
 use App\Services\Ai\Inventory\InventoryWelcome;
+use App\Services\Ai\Pricing\PricingWelcome;
 use App\Services\BranchAccess;
 use App\Services\CostAccess;
 use App\Services\CustomerGroupService;
@@ -55,6 +58,7 @@ use App\Services\SearchTerm;
 use App\Services\SettingService;
 use App\Services\StaffAdministration;
 use App\Services\WholesalePaymentNoticeService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Arr;
@@ -255,7 +259,7 @@ final class ToolRegistry
     }
 
     /** @return list<array<string,mixed>> */
-    public function declarationsFor(User $actor, ?array $domains = null): array
+    public function declarationsFor(User $actor, ?array $domains = null, ?string $channel = null): array
     {
         $disabled = $this->settings->get('ai_disabled_tools', []);
         if (! is_array($disabled)) {
@@ -264,6 +268,9 @@ final class ToolRegistry
         $out = [];
         foreach ($this->definitions() as $name => $def) {
             if (in_array($name, $disabled, true) || $this->toolHiddenByFlags($name)) {
+                continue;
+            }
+            if ($channel === 'whatsapp' && $this->blockedOnWhatsapp($name, $def['kind'], (string) $def['risk'])) {
                 continue;
             }
             if ($domains !== null && ! in_array($name, ['find_entities', 'ask_user_to_choose', 'bulk_actions'], true)) {
@@ -336,6 +343,11 @@ final class ToolRegistry
         return 'admin';
     }
 
+    public function blockedOnWhatsapp(string $name, ToolKind $kind, string $risk): bool
+    {
+        return (new WhatsApp\WhatsAppChannelPolicy($this->settings))->blocks($name, $kind, $risk);
+    }
+
     public function isWrite(string $name): bool
     {
         return ($this->definitions()[$name]['kind'] ?? null) === ToolKind::Write;
@@ -348,7 +360,7 @@ final class ToolRegistry
         // L11: سجل denied لرفض الصلاحيات فقط — أخطاء التحقق و"مش موجود"
         // من prompt injection كانت تملأ سجل التدقيق (6 خطوات × أدوات).
         if ($outcome->type === 'denied' && $outcome->auditable) {
-            StaffAdministration::audit($actor, 'administration.denied', 'ai_conversation', $conv->id, [], via: ['channel' => 'ai', 'conversation_id' => $conv->id]);
+            StaffAdministration::audit($actor, 'administration.denied', 'ai_conversation', $conv->id, [], via: ['channel' => 'ai', 'conversation_id' => $conv->id, 'source' => (string) ($conv->channel ?: 'web')]);
         }
 
         return $outcome;
@@ -368,6 +380,9 @@ final class ToolRegistry
         }
         if ($this->toolHiddenByFlags($name)) {
             return ToolOutcome::denied('الأداة دي مقفولة من الإعدادات.', auditable: false);
+        }
+        if (($conv->channel ?: 'web') === 'whatsapp' && $this->blockedOnWhatsapp($name, $defs[$name]['kind'], (string) $defs[$name]['risk'])) {
+            return ToolOutcome::denied('الأداة دي مش متاحة من واتساب.', auditable: false);
         }
         if ($defs[$name]['kind'] === ToolKind::Write && ! $actor->can('ai_agent.execute')) {
             return ToolOutcome::denied('محتاج صلاحية ai_agent.execute لتنفيذ تعديلات.');
@@ -829,7 +844,7 @@ final class ToolRegistry
             && $this->settings->getBool('ai_finance_proactive_enabled', true)
             && $actor->can('ai_agent.finance')
             && ($actor->can('treasury_transfers.approve') || $actor->can('treasuries.view') || $actor->can('expenses.view'))) {
-            $card = app(\App\Services\Ai\Finance\FinanceWelcome::class)->card($actor);
+            $card = app(FinanceWelcome::class)->card($actor);
             if ($card !== null) {
                 return $card;
             }
@@ -846,7 +861,7 @@ final class ToolRegistry
             return $this->catalogWelcomeBlock($actor);
         }
 
-        return app(\App\Services\Ai\Pricing\PricingWelcome::class)->card($actor);
+        return app(PricingWelcome::class)->card($actor);
     }
 
     /**
@@ -1310,8 +1325,8 @@ final class ToolRegistry
         $validated = Validator::make($args, ['branch_id' => ['nullable', 'integer', 'min:1']])->validate();
         $branchId = isset($validated['branch_id']) ? (int) $validated['branch_id'] : null;
         try {
-            $rows = app(\App\Services\Ai\Finance\Tools\DailyCloseBriefingTool::class)->surplusTransfers($actor, $branchId);
-        } catch (\Illuminate\Auth\Access\AuthorizationException) {
+            $rows = app(DailyCloseBriefingTool::class)->surplusTransfers($actor, $branchId);
+        } catch (AuthorizationException) {
             return ToolOutcome::denied('الفرع خارج نطاقك.');
         }
         if ($rows === []) {

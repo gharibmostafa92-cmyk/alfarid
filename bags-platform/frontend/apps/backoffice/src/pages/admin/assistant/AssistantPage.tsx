@@ -441,6 +441,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
                         <button type="button" className="as-conv-open" disabled={busy} aria-current={c.id === currentId ? 'page' : undefined} onClick={() => void openConversation(c.id)}>
                           <span className="as-conv-title">{c.title ?? `محادثة ${c.id}`}</span>
                           <span className="as-conv-meta">
+                            {c.channel === 'whatsapp' && <span className="as-badge as-badge--info">واتساب</span>}
                             {relTime(c.last_message_at) || 'جديدة'}
                             {pc > 0 && <><span className="as-dot" />{pc} بانتظار التأكيد</>}
                           </span>

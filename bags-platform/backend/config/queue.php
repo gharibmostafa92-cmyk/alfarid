@@ -79,6 +79,18 @@ return [
             'after_commit' => false,
         ],
 
+        // مهلة أطول من دورة المساعد (240ث) ومن timeout الجوب (300ث)،
+        // وإلا الـ worker التاني ياخد نفس الرسالة وهي لسه بتتنفذ.
+        'whatsapp' => [
+            'driver' => 'database',
+            // Enqueue in the same transaction as the inbound deduplication row.
+            'connection' => null,
+            'table' => env('DB_QUEUE_TABLE', 'jobs'),
+            'queue' => 'whatsapp-ai',
+            'retry_after' => (int) env('WA_QUEUE_RETRY_AFTER', 420),
+            'after_commit' => false,
+        ],
+
         'redis' => [
             'driver' => 'redis',
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),

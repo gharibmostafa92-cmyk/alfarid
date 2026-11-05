@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\Webhook\PaymentWebhookController;
 use App\Http\Controllers\Api\V1\Webhook\ShippingWebhookController;
+use App\Http\Controllers\Api\V1\Webhook\WhatsAppInboundController;
 use Illuminate\Support\Facades\Route;
 
 // روابط خارجية (بوابات دفع وشركات شحن): لا مصادقة Sanctum —
@@ -15,4 +16,5 @@ Route::middleware('throttle:webhooks')->group(function (): void {
         ->where('gateway', '[a-z0-9_-]{1,40}')->name('payment');
     Route::post('shipping/{company}', [ShippingWebhookController::class, 'handle'])
         ->where('company', '[A-Za-z0-9_-]{1,40}')->name('shipping');
+    Route::post('whatsapp/inbound', [WhatsAppInboundController::class, 'handle'])->name('whatsapp.inbound');
 });

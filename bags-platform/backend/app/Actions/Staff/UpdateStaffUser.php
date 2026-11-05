@@ -8,6 +8,7 @@ use App\Enums\StaffRole;
 use App\Models\Branch;
 use App\Models\User;
 use App\Rules\EmailNotUsedByOtherAccountType;
+use App\Services\Ai\WhatsApp\WhatsAppIdentityService;
 use App\Services\BranchAccess;
 use App\Services\StaffAdministration;
 use Illuminate\Support\Arr;
@@ -15,6 +16,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Spatie\Permission\Exceptions\PermissionDoesNotExist;
 
 final class UpdateStaffUser
 {
@@ -67,6 +69,7 @@ final class UpdateStaffUser
             abort_if($branch !== null && (int) $lockedUser->branch_id !== $branch, 403);
             StaffAdministration::assertVersion($lockedUser, isset($validated['expected_version']) ? (int) $validated['expected_version'] : null);
             $before = StaffAdministration::userState($lockedUser);
+            $originalPhone = (string) ($lockedUser->phone ?? '');
             $ownCredentialsChanged = $currentUser->is($lockedUser) && (isset($userAttributes['password'])
                 || (isset($userAttributes['email']) && $userAttributes['email'] !== $lockedUser->email));
             if ($ownCredentialsChanged && ($verifiedPasswordHash === null
@@ -149,6 +152,20 @@ final class UpdateStaffUser
                 && ! (bool) $userAttributes['is_active'];
 
             StaffAdministration::audit($currentUser, 'user.updated', 'user', $lockedUser->id, array_keys($userAttributes + ($roles !== null ? ['roles' => $roles] : [])), $before, StaffAdministration::userState($lockedUser), $via);
+
+            $phoneChanged = array_key_exists('phone', $userAttributes)
+                && (string) ($lockedUser->phone ?? '') !== $originalPhone;
+            $lockedUser->unsetRelation('roles');
+            $lockedUser->unsetRelation('permissions');
+            $whatsappAllowed = false;
+            try {
+                $whatsappAllowed = $lockedUser->can('ai_agent.whatsapp');
+            } catch (PermissionDoesNotExist) {
+                $whatsappAllowed = false;
+            }
+            if ($phoneChanged || ! $lockedUser->is_active || ! $whatsappAllowed) {
+                app(WhatsAppIdentityService::class)->revoke($lockedUser);
+            }
 
             if ($passwordChanged || $emailChanged || $deactivated || $rolesChanged) {
                 // Self password rotation keeps the current session alive so the

@@ -10,10 +10,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-#[Fillable(['user_id', 'title', 'model', 'total_tokens', 'last_message_at'])]
+#[Fillable(['user_id', 'title', 'model', 'total_tokens', 'last_message_at', 'channel'])]
 class AiConversation extends Model
 {
     use SoftDeletes;
+
+    protected $attributes = [
+        'channel' => 'web',
+    ];
 
     public function user(): BelongsTo
     {

@@ -61,10 +61,15 @@ class AiAdministrationController extends Controller
             $branches->assertCentralAccess($actor);
         }
         $since = now(config('app.business_timezone', 'Africa/Cairo'))->startOfDay()->subDays(29)->setTimezone(config('app.timezone'));
-        $rows = AiMessage::query()->whereHas('conversation', function ($q) use ($actor, $all): void {
+        $channel = $request->query('channel');
+        $channel = in_array($channel, ['web', 'whatsapp'], true) ? $channel : null;
+        $rows = AiMessage::query()->whereHas('conversation', function ($q) use ($actor, $all, $channel): void {
             $q->withTrashed();
             if (! $all) {
                 $q->where('user_id', $actor->id);
+            }
+            if ($channel !== null) {
+                $q->where('channel', $channel);
             }
         })->where('created_at', '>=', $since)
             // L-6: نفس يوم القاهرة اللي guard() بيحسب بيه الميزانية.
@@ -76,7 +81,8 @@ class AiAdministrationController extends Controller
         // 6.3: إحصائيات الأدوات ونسبة التأكيد/الإلغاء ونسبة الـ 409
         $actionsQuery = AiPendingAction::query()
             ->where('created_at', '>=', $since)
-            ->when(! $all, fn ($q) => $q->where('user_id', $actor->id));
+            ->when(! $all, fn ($q) => $q->where('user_id', $actor->id))
+            ->when($channel !== null, fn ($q) => $q->whereHas('conversation', fn ($conversation) => $conversation->where('channel', $channel)));
 
         $actionRows = (clone $actionsQuery)
             ->selectRaw('tool, status, COUNT(*) as count')

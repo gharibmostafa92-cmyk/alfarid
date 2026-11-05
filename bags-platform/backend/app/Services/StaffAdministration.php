@@ -212,7 +212,7 @@ final class StaffAdministration
             // Sensitive fields (passwords, tokens) are stripped; only allowed state keys are stored
             'metadata' => json_encode(['fields' => array_values(array_diff($fields, ['password', 'current_password', 'expected_version', 'cost_price'])),
                 'before' => $before, 'after' => $after,
-                'via' => array_intersect_key($via, array_flip(['channel', 'tool', 'entity', 'conversation_id', 'action_id'])),
+                'via' => array_intersect_key($via, array_flip(['channel', 'tool', 'entity', 'conversation_id', 'action_id', 'source'])),
                 'ip' => request()->ip(), 'method' => request()->method()], JSON_THROW_ON_ERROR),
             'created_at' => now(),
         ]);

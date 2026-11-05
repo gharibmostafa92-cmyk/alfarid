@@ -107,6 +107,13 @@ class SettingSeeder extends Seeder
         ['group' => 'ai', 'key' => 'ai_wallet_adjust_max_amount', 'value' => '5000', 'type' => 'integer'],
         ['group' => 'ai', 'key' => 'ai_finance_share_balances_with_model', 'value' => '1', 'type' => 'boolean'],
         ['group' => 'ai', 'key' => 'ai_max_steps', 'value' => '6', 'type' => 'integer'],
+        ['group' => 'ai', 'key' => 'ai_whatsapp_enabled', 'value' => '0', 'type' => 'boolean'],
+        ['group' => 'ai', 'key' => 'ai_whatsapp_allow_writes', 'value' => '0', 'type' => 'boolean'],
+        ['group' => 'ai', 'key' => 'ai_whatsapp_max_risk', 'value' => 'medium', 'type' => 'string'],
+        ['group' => 'ai', 'key' => 'ai_whatsapp_disabled_tools', 'value' => '["create_staff_user","create_role","update_role_permissions","delete_role","assign_roles","revoke_user_sessions","update_settings","update_document_numbering"]', 'type' => 'json'],
+        ['group' => 'ai', 'key' => 'ai_whatsapp_idle_rotate_hours', 'value' => '12', 'type' => 'integer'],
+        ['group' => 'ai', 'key' => 'ai_whatsapp_link_token_ttl_minutes', 'value' => '10', 'type' => 'integer'],
+        ['group' => 'ai', 'key' => 'ai_whatsapp_pin_required', 'value' => '0', 'type' => 'boolean'],
     ];
 
     public function run(): void

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { assistantApi, type AgentSettings, type ToolStatsSummary } from './api';
 import { Icon } from './icons';
+import WhatsAppPanel from './WhatsAppPanel';
 
 type UsageRow = { day: string; input_tokens: number; output_tokens: number };
 const fmt = (n: number) => Number(n).toLocaleString('ar-EG');
@@ -33,10 +34,12 @@ export default function AssistantAdministration({ can }: { can: (permission: str
   const [toolQuery, setToolQuery] = useState('');
   const canSettings = can('ai_agent.settings');
   const allUsers = can('ai_agent.logs.view');
+  const [section, setSection] = useState<'usage' | 'whatsapp'>('usage');
+  const [channel, setChannel] = useState<'' | 'web' | 'whatsapp'>('');
 
   useEffect(() => {
     let live = true;
-    assistantApi.usageWithStats(allUsers)
+    assistantApi.usageWithStats(allUsers, channel || undefined)
       .then(result => { if (live) { setUsage(result.data); setToolStats(result.tool_stats); } })
       .catch(() => { if (live) setNotice({ tone: 'danger', text: 'تعذر تحميل الاستهلاك.' }); })
       .finally(() => { if (live) setUsageLoading(false); });
@@ -44,7 +47,7 @@ export default function AssistantAdministration({ can }: { can: (permission: str
       .then(result => { if (live) { setSettings(result.data); setOriginal(result.data); setTools(result.tools); } })
       .catch(() => { if (live) setNotice({ tone: 'info', text: 'إعدادات المساعد متاحة للإدارة المركزية فقط.' }); });
     return () => { live = false; };
-  }, [can, canSettings, allUsers]);
+  }, [can, canSettings, allUsers, channel]);
 
   const stats = useMemo(() => {
     const input = usage.reduce((s, d) => s + Number(d.input_tokens), 0);
@@ -68,7 +71,14 @@ export default function AssistantAdministration({ can }: { can: (permission: str
             <h2>الاستهلاك والإعدادات</h2>
             <p>استهلاك آخر ٣٠ يوم {allUsers ? 'لجميع الموظفين' : 'لحسابك'}</p>
           </div>
+          <div role="tablist" aria-label="أقسام الإدارة" style={{ display: 'flex', gap: '.4rem' }}>
+            <button type="button" role="tab" className="as-tab" aria-selected={section === 'usage'} onClick={() => setSection('usage')}>الاستهلاك</button>
+            {canSettings && <button type="button" role="tab" className="as-tab" aria-selected={section === 'whatsapp'} onClick={() => setSection('whatsapp')}>واتساب</button>}
+          </div>
         </div>
+
+        {section === 'whatsapp' && canSettings ? <WhatsAppPanel /> : null}
+        {section === 'usage' && <>
 
         {notice && (!dirty || notice.tone === 'danger') && (
           <div className={`as-alert as-alert--${notice.tone}`} role="status">
@@ -88,6 +98,14 @@ export default function AssistantAdministration({ can }: { can: (permission: str
         <div className="as-card">
           <div className="as-card-head">
             <h3>الاستهلاك اليومي</h3>
+            <label className="as-field" style={{ minWidth: 140 }}>
+              <span className="as-sr">القناة</span>
+              <select className="as-input" aria-label="فلتر القناة" value={channel} onChange={e => setChannel(e.target.value as '' | 'web' | 'whatsapp')}>
+                <option value="">كل القنوات</option>
+                <option value="web">الويب</option>
+                <option value="whatsapp">واتساب</option>
+              </select>
+            </label>
             <span style={{ display: 'flex', gap: '.9rem', fontSize: '.76rem', color: 'var(--as-muted)' }}>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem' }}><i className="as-legend-in" />إخراج</span>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem' }}><i className="as-legend-out" />إدخال</span>
@@ -284,6 +302,7 @@ export default function AssistantAdministration({ can }: { can: (permission: str
             <div className="as-card"><div className="as-list-empty"><span className="as-empty-icon"><Icon name="lock" size={20} /></span><strong>الإعدادات للإدارة المركزية</strong><span>تقدر تشوف استهلاكك بس. تواصل مع الإدارة لتعديل حدود المساعد.</span></div></div>
           )}
         </div>
+        </>}
       </section>
     </div>
   );

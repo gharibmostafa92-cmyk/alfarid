@@ -93,6 +93,14 @@ class UpdateSettingsRequest extends FormRequest
             'ai_price_below_cost_policy' => ['sometimes', 'string', Rule::in(['block', 'warn'])],
             'ai_pricing_vision_enabled' => ['sometimes', 'boolean'],
             'ai_max_steps' => ['sometimes', 'integer', 'min:1', 'max:10'],
+            'ai_whatsapp_enabled' => ['sometimes', 'boolean'],
+            'ai_whatsapp_allow_writes' => ['sometimes', 'boolean'],
+            'ai_whatsapp_max_risk' => ['sometimes', 'string', Rule::in(['low', 'medium', 'high'])],
+            'ai_whatsapp_disabled_tools' => ['sometimes', 'array'],
+            'ai_whatsapp_disabled_tools.*' => ['string', 'max:100', Rule::in(array_keys(app(ToolRegistry::class)->definitions()))],
+            'ai_whatsapp_idle_rotate_hours' => ['sometimes', 'integer', 'min:1', 'max:168'],
+            'ai_whatsapp_link_token_ttl_minutes' => ['sometimes', 'integer', 'min:1', 'max:60'],
+            'ai_whatsapp_pin_required' => ['sometimes', 'boolean'],
         ];
 
         $sequenceTypes = [
