@@ -1,0 +1,124 @@
+.admin-overview { color: var(--text-primary); text-align: start; }
+.admin-overview h1, .admin-overview h2, .admin-overview h3 { overflow-wrap: anywhere; }
+.admin-overview p, .admin-overview-muted { color: var(--text-secondary); }
+.admin-overview ul { margin: 0; padding: 0; list-style: none; }
+.admin-overview bdi { font-variant-numeric: tabular-nums; }
+.admin-overview .v-card, .admin-overview .v-subcard { min-width: 0; }
+.admin-overview .wallet-card { border-radius: 13px; overflow-wrap: anywhere; }
+.admin-overview .wallet-card svg { flex-shrink: 0; }
+
+.admin-overview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-overview-button, .admin-overview-period button, .admin-ranking-search {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 44px;
+  padding-inline: 12px;
+  border-radius: 999px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.admin-overview-period button[aria-pressed='true'] {
+  background: var(--pill-active-bg);
+  color: var(--pill-active-text);
+}
+
+.admin-overview :is(a, button, input):focus-visible {
+  outline: 2px solid var(--accent-orange);
+  outline-offset: 2px;
+}
+
+.admin-sales-total, .admin-metric-value { overflow-wrap: anywhere; }
+.admin-vortix-metrics { grid-template-rows: repeat(2, minmax(0, 1fr)); }
+.admin-vortix-metrics .v-orange-earnings { color: white; }
+.admin-vortix-metrics .v-orange-earnings .v-icon-well { background: rgb(255 255 255 / 18%); }
+.admin-metric-value { font-size: clamp(18px, 2.3vw, 32px); line-height: 1.2; }
+.admin-metric-link { font-size: 11px; text-decoration: none; color: inherit; min-height: 24px; }
+.admin-metric-link:hover { text-decoration: underline; }
+
+.admin-comparison-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.admin-comparison-legend li { display: flex; align-items: center; gap: 5px; }
+.admin-comparison-legend span { width: 9px; height: 9px; border-radius: 3px; }
+.admin-net-bar { background: var(--bar-loss); }
+.theme-dark .admin-net-bar { background: var(--text-secondary); }
+
+.admin-chart {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+}
+
+.admin-chart-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 156px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.admin-comparison-columns {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  text-align: center;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.admin-comparison-bars {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 3px;
+  height: 156px;
+  margin-block-end: 6px;
+  border-block-end: 1px solid var(--divider-color);
+  background: repeating-linear-gradient(to top, transparent 0 calc(20% - 1px), var(--divider-color) calc(20% - 1px) 20%);
+}
+
+.admin-comparison-bars span { flex-shrink: 1; width: min(76%, 26px); border-radius: 6px; }
+.admin-sales-share { background: var(--accent-orange); }
+
+.admin-ranking-search input {
+  width: clamp(60px, 12vw, 132px);
+  background: transparent;
+  color: inherit;
+}
+
+.admin-ranking-table { border-collapse: collapse; text-align: start; font-size: 12.5px; }
+.admin-ranking-table :is(th, td) { padding: 12px; text-align: start; }
+.admin-ranking-table thead th { font-size: 11.5px; font-weight: 600; }
+.admin-ranking-table thead th:first-child { border-start-start-radius: 12px; border-end-start-radius: 12px; }
+.admin-ranking-table thead th:last-child { border-start-end-radius: 12px; border-end-end-radius: 12px; }
+.admin-ranking-table tbody tr + tr { border-top: 1px solid var(--divider-color); }
+.admin-ranking-name { display: flex; align-items: center; gap: 8px; }
+.admin-ranking-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: var(--accent-orange-light);
+  color: var(--accent-orange);
+}
+
+@media (min-width: 1024px) {
+  .admin-vortix-grid { min-height: 406px; }
+}

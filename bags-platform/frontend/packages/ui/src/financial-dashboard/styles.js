@@ -435,7 +435,7 @@ video {
       font-family: 'Inter', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
       background-color: var(--bg-canvas);
       color: var(--text-primary);
-      overflow-x: hidden;
+      overflow-x: clip;
     }
 
     h1, h2, h3, .font-display {
@@ -1769,6 +1769,36 @@ video {
   transform: scale(0.95);
 }
 
+.v-shell-header #brand-home-btn,
+.v-header-tools,
+.v-header-account {
+  min-inline-size: 0;
+}
+.v-shell-header #brand-home-btn > div,
+.v-header-tools > :first-child {
+  flex-shrink: 0;
+}
+.v-header-account {
+  flex-shrink: 1;
+}
+.v-desktop-menu {
+  color: var(--text-primary);
+}
+
+.v-shell-header .top-nav-btn {
+  padding-inline: 12px;
+}
+
+@media (768px <= width < 1360px) {
+  .v-shell-header .top-nav-btn {
+    display: none;
+    padding-inline: 10px;
+  }
+  .v-shell-header .top-nav-btn:is([data-nav="overview"], [data-nav="orders"], [data-nav="inventory"], [data-nav="products"], [aria-current="page"]) {
+    display: block;
+  }
+}
+
 /* P&L Bar touch & focus tooltip visibility */
 .v-pnl-col[data-selected="true"] .v-pnl-tooltip,
 .v-pnl-col:focus-visible .v-pnl-tooltip {
@@ -1800,6 +1830,10 @@ video {
 
 /* One-Handed Mobile Layout & Sticky Bottom Navigation (< 768px) */
 @media (max-width: 767px) {
+  #app-viewport {
+    --admin-bottom-nav-space: calc(70px + env(safe-area-inset-bottom, 0px));
+  }
+
   .v-shell-container {
     padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)) !important;
   }
@@ -1808,6 +1842,11 @@ video {
     gap: 0.5rem !important;
     margin-bottom: 1rem !important;
   }
+  .v-header-tools .v-desktop-menu { display: none; }
+  .v-header-tools { max-inline-size: 56%; }
+  .v-shell-header #brand-home-btn { flex-shrink: 1; }
+  .v-header-tools .v-header-account { padding-inline: 8px; }
+  .v-mobile-nav button { overflow-wrap: anywhere; }
 
   .v-shell-layout {
     flex-direction: column !important;
@@ -1894,12 +1933,21 @@ video {
 }
 .v-modal-card input { font-size: 16px; }
 .v-mobile-menu nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.v-mobile-menu nav + nav { margin-block-start: 16px; }
+.v-mobile-menu nav h3 {
+  grid-column: 1 / -1;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
 .v-mobile-menu nav button {
   display: flex; align-items: center; gap: 10px; text-align: start;
   min-height: 48px; padding: 10px 12px; border-radius: 12px;
   color: var(--text-primary); background: var(--bg-subcard); font-size: 14px;
 }
 .v-mobile-menu nav button svg { flex-shrink: 0; }
+.v-mobile-menu nav button span { min-width: 0; overflow-wrap: anywhere; }
 .v-mobile-menu nav button[aria-current="page"] { background: var(--pill-active-bg); color: var(--pill-active-text); }
 .v-mobile-menu-tools { margin-top: 16px; padding-top: 8px; border-top: 1px solid var(--border-subtle); }
 .v-mobile-menu-tools button {

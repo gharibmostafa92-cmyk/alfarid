@@ -16,6 +16,13 @@ class ShippingZoneRequest extends FormRequest
         return true;
     }
 
+    protected function prepareForValidation(): void
+    {
+        if ($this->exists('is_active') && $this->input('is_active') === null) {
+            $this->merge(['is_active' => true]);
+        }
+    }
+
     /**
      * @return array<string, mixed>
      */

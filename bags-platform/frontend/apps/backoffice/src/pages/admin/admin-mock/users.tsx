@@ -1,3 +1,4 @@
+import { AnimatedNumber } from '@alfarid/ui';
 import React, { useState, useEffect, useRef, ReactNode } from 'react';
 import {
   Icon,
@@ -50,7 +51,7 @@ function KpiCard({ label, value, icon, foot, accent, delay, loading, bar }: KpiC
         </span>
       </div>
       {loading ? <Skeleton className="h-9 w-20 my-3 rounded-xl" style={accent ? { background: 'rgba(255,255,255,.25)' } : null} />
-        : <div className="font-display text-[34px] font-bold tracking-tight my-2 tabular-nums" style={accent ? undefined : { color: 'var(--text-primary)' }}>{value}</div>}
+        : <div className="font-display text-[34px] font-bold tracking-tight my-2 tabular-nums" style={accent ? undefined : { color: 'var(--text-primary)' }}>{typeof value === 'number' ? <AnimatedNumber value={value} /> : value}</div>}
       {bar != null && (
         <div className="h-3 w-full rounded-full overflow-hidden flex items-center gap-1 p-0.5 mb-2">
           <div className="h-full rounded-full transition-all duration-700" style={{ width: `${bar}%`, background: accent ? '#fff' : 'var(--accent-orange)' }} />

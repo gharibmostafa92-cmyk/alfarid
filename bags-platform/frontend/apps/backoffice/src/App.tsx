@@ -1,3 +1,4 @@
+import { AdminLoading } from './components/admin/AdminLoading';
 import { hasPermission } from '@alfarid/utils';
 import { defaultApiClient, resolveServiceUrl } from '@alfarid/api-client';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
@@ -11,8 +12,9 @@ import CategoriesMockPage from './pages/admin/categories-mock/CategoriesMockPage
 import PosPage from './pages/pos/PosPage';
 import CatalogMockPage from './pages/admin/catalog-mock/CatalogMockPage';
 import AdminMockPage from './pages/admin/admin-mock/AdminMockPage';
+import AdminOverview from './pages/admin/overview/AdminOverview';
 const AssistantPage = lazy(() => import('./pages/admin/assistant/AssistantPage'));
-import OperationsMockPage, { canViewOperation } from './pages/admin/operations-mock/OperationsMockPage';
+import OperationsMockPage, { canViewOperation, NAV_GROUPS } from './pages/admin/operations-mock/OperationsMockPage';
 const InventoryPage = lazy(() => import('./pages/admin/inventory-mock/InventoryPage'));
 
 defaultApiClient.defaults.baseURL = resolveServiceUrl(import.meta.env.VITE_API_URL ?? 'http://localhost:8000');
@@ -118,9 +120,16 @@ function AuthenticatedApp() {
   const assistantNav = can('ai_agent.use') ? [{ id: 'assistant', label: 'المساعد الذكي', onOpen: () => { window.location.hash = '/assistant'; } }] : [];
   return <FinancialDashboard
     onLogout={logoutRemote}
+    account={user}
+    overviewPage={<AdminOverview key={user?.id} can={can} name={user?.name} />}
+    additionalNavigation={cashierOnly ? [] : NAV_GROUPS.map(group => ({
+      label: group.label,
+      items: group.items.filter(item => canViewOperation(item.m, can))
+        .map(item => ({ id: item.m, label: item.label, onOpen: () => { window.location.hash = '/' + item.m; } })),
+    })).filter(group => group.items.length > 0)}
     catalogActive={catalogActive}
     catalogPage={
-      route === '/assistant' ? <Suspense fallback={<div dir="rtl">جارٍ تحميل المساعد…</div>}><AssistantPage can={can} initialPrompt={assistantPrompt} initialSelection={inventorySelection.current} /></Suspense> : isOperation && operationsActive ? (
+      route === '/assistant' ? <Suspense fallback={<AdminLoading label="جارٍ تحميل المساعد" />}><AssistantPage can={can} initialPrompt={assistantPrompt} initialSelection={inventorySelection.current} /></Suspense> : isOperation && operationsActive ? (
         !canViewOperation(operationsActive, can) ? (
           <div dir="rtl" className="p-6">ليس لديك صلاحية عرض هذه الصفحة.</div>
         ) : (
@@ -134,7 +143,7 @@ function AuthenticatedApp() {
         )
       ) : inventoryActive ? (
         can('inventory.view') ? (
-          <Suspense fallback={<div dir="rtl" className="p-6">جارٍ تحميل المخزون…</div>}>
+          <Suspense fallback={<AdminLoading label="جارٍ تحميل المخزون" />}>
             <InventoryPage can={can}/>
           </Suspense>
         ) : (
@@ -152,7 +161,7 @@ function AuthenticatedApp() {
       )
     }
     catalogNav={!cashierOnly ? [
-      { id: 'orders', label: 'الطلبات', onOpen: () => { window.location.hash = '/orders'; } },
+      ...(canViewOperation('orders', can) ? [{ id: 'orders', label: 'الطلبات', onOpen: () => { window.location.hash = '/orders'; } }] : []),
       ...(can('inventory.view') ? [{ id: 'inventory', label: 'المخزون', onOpen: () => { window.location.hash = '/inventory/stock'; } }] : []),
       ...(can('products.view') ? [{ id: 'products', label: 'المنتجات', onOpen: () => { window.location.hash = '/products'; } }] : []),
       ...(can('customers.view') ? [{ id: 'dealers', label: 'التجار والموزعون', onOpen: () => { window.location.hash = '/dealers'; } }] : []),

@@ -11,6 +11,11 @@ module.exports = async function adminRoutes(context) {
     state.requests.push({resource,method,body,params:url.searchParams});
     const fail=(status,message,errors) => route.fulfill({status,json:{message,errors}});
     if(resource === 'me') return route.fulfill({json:state.me});
+    if(resource === 'dashboard') return route.fulfill({json:{data:{
+      today: { sales_total: 0, sales_by_channel: {}, new_orders_count: 0 },
+      month: { sales_total: 0, sales_by_channel: {} },
+      low_stock_count: 0, pending_wholesale_applications: 0, top_products: [], top_branches: [],
+    }}});
     if(resource === 'permissions' || resource === 'branches') return state.restricted ? fail(403,'لا تملك صلاحية عرض هذه القائمة') : route.fulfill({json:fixture(resource)});
     if(resource === 'settings') {
       if(method === 'PUT') {

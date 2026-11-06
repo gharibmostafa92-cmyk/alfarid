@@ -1,4 +1,5 @@
 export * from './components/badge';
+export * from './components/animated-number';
 export * from './components/button';
 export * from './components/card';
 export * from './components/data-table';

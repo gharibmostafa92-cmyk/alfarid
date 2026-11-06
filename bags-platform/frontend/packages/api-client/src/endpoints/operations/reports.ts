@@ -1,6 +1,18 @@
 import { api, ADMIN, cleanParams, SLOW_REQUEST_TIMEOUT, type PageMeta } from './http';
 
 type Money = number | string;
+export interface DashboardSummary {
+  today: DashboardSales & { new_orders_count: number };
+  month: DashboardSales;
+  low_stock_count: number;
+  pending_wholesale_applications: number;
+  top_products: { product_variant_id: number; product_name: string | null; sku: string | null; qty_sold: number; revenue: Money }[];
+  top_branches: { branch_id: number; branch_name: string | null; orders_count: number; revenue: Money }[];
+}
+interface DashboardSales {
+  sales_total: Money;
+  sales_by_channel: Record<'store' | 'wholesale' | 'pos', Money>;
+}
 export interface ReportPeriod { from?: string; to?: string }
 export interface SalesReportParams extends ReportPeriod { granularity?: 'daily' | 'monthly'; group_by?: 'branch' | 'channel' | 'cashier' | 'payment_method' }
 export interface InventoryReportParams { dead_days?: number }
@@ -18,6 +30,8 @@ export interface ShiftReportData { rows: ShiftReportRow[]; totals: { shifts_coun
 const report = <T>(name: string, p: object, signal?: AbortSignal): Promise<T> =>
   api.get<{ data: T }>(`${ADMIN}/reports/${name}`, { params: cleanParams(p), signal, timeout: SLOW_REQUEST_TIMEOUT }).then((r) => r.data.data);
 export const reportsApi = {
+  dashboard: (signal?: AbortSignal) =>
+    api.get<{ data: DashboardSummary }>(`${ADMIN}/dashboard`, { signal, timeout: SLOW_REQUEST_TIMEOUT }).then((r) => r.data.data),
   sales: (p: SalesReportParams = {}, signal?: AbortSignal) => report<SalesReportData>('sales', p, signal),
   profit: (p: ReportPeriod = {}, signal?: AbortSignal) => report<ProfitReportData>('profit', p, signal),
   inventory: (p: InventoryReportParams = {}, signal?: AbortSignal) => report<InventoryReportData>('inventory', p, signal),

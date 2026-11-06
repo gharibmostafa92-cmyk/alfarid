@@ -224,13 +224,13 @@ export default function OperationsMockPage({
                 {/* Operations Top Sub-Header & Navigation Bar */}
                 <div className="flex flex-wrap items-center justify-between gap-4 mb-6 pb-4 border-b border-[var(--border-subtle)]">
                   {/* Secondary Navigation Pills */}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <div className="v-pill p-1 flex items-center gap-1 flex-wrap">
+                  <div className="flex min-w-0 items-center gap-2 flex-wrap">
+                    <div className="v-pill p-1 hidden sm:flex items-center gap-1 flex-wrap">
                       {navGroups.map((g) => (
                         <button
                           key={g.key}
                           onClick={() => go({ m: g.items[0].m })}
-                          className="px-4 py-1.5 rounded-full text-[12.5px] font-medium transition"
+                          className="min-h-[44px] px-3 py-1.5 rounded-full text-[12.5px] font-medium transition"
                           style={
                             curGroup === g.key
                               ? {
@@ -248,14 +248,15 @@ export default function OperationsMockPage({
 
                     {/* Sub-items in current group */}
                     {activeGroupObj && activeGroupObj.items.length > 1 && (
-                      <div className="flex items-center gap-1.5 v-sub px-3 py-1 rounded-full text-[12px]">
+                      <nav aria-label={activeGroupObj.label} className="flex flex-wrap min-w-0 items-center gap-1.5 v-sub p-1 rounded-xl text-[12px]">
                         {activeGroupObj.items.map((it) => {
                           const active = route.m === it.m;
                           return (
                             <button
                               key={it.m}
                               onClick={() => go({ m: it.m })}
-                              className={`px-2.5 py-1 rounded-full transition flex items-center gap-1.5 ${
+                              aria-current={active ? 'page' : undefined}
+                              className={`min-h-[44px] px-2.5 py-1 rounded-full transition flex items-center gap-1.5 ${
                                 active
                                   ? 'bg-[var(--accent)] text-white font-semibold shadow-xs'
                                   : 'tx2 hover:tx1'
@@ -266,7 +267,7 @@ export default function OperationsMockPage({
                             </button>
                           );
                         })}
-                      </div>
+                      </nav>
                     )}
                   </div>
 

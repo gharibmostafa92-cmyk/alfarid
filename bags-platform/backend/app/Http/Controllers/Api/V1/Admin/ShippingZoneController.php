@@ -39,7 +39,7 @@ class ShippingZoneController extends Controller implements HasMiddleware
         $data = $request->validated();
         $zone = DB::transaction(function () use ($data): ShippingZone {
             $zone = ShippingZone::create($data);
-            $zone->cities()->sync($data['city_ids'] ?? []);
+            $zone->cities()->sync($this->cityIds($data));
 
             return $zone;
         });
@@ -58,7 +58,7 @@ class ShippingZoneController extends Controller implements HasMiddleware
         DB::transaction(function () use ($shippingZone, $data): void {
             $shippingZone->update($data);
             if (array_key_exists('city_ids', $data)) {
-                $shippingZone->cities()->sync($data['city_ids'] ?? []);
+                $shippingZone->cities()->sync($this->cityIds($data));
             }
         });
 
@@ -70,6 +70,17 @@ class ShippingZoneController extends Controller implements HasMiddleware
         $shippingZone->delete();
 
         return response()->json(['message' => 'تم حذف منطقة الشحن']);
+    }
+
+    /**
+     * Repeated city ids must not hit the composite primary key twice.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<int, int>
+     */
+    private function cityIds(array $data): array
+    {
+        return array_values(array_unique(array_map(intval(...), $data['city_ids'] ?? [])));
     }
 
     private function zoneResource(ShippingZone $zone): ShippingZoneResource

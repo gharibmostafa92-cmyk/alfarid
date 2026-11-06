@@ -8,10 +8,12 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Shipping\ShippingRateRequest;
 use App\Http\Resources\Admin\ShippingRateResource;
 use App\Models\ShippingRate;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Validation\ValidationException;
 
 /** إدارة أسعار الشحن (شركة × منطقة). */
 class ShippingRateController extends Controller implements HasMiddleware
@@ -35,7 +37,7 @@ class ShippingRateController extends Controller implements HasMiddleware
 
     public function store(ShippingRateRequest $request): JsonResponse
     {
-        $rate = ShippingRate::create($request->validated());
+        $rate = $this->persist(fn () => ShippingRate::create($request->validated()));
 
         return $this->rateResource($rate)->response()->setStatusCode(201);
     }
@@ -47,7 +49,11 @@ class ShippingRateController extends Controller implements HasMiddleware
 
     public function update(ShippingRateRequest $request, ShippingRate $shippingRate): ShippingRateResource
     {
-        $shippingRate->update($request->validated());
+        $this->persist(function () use ($request, $shippingRate): ShippingRate {
+            $shippingRate->update($request->validated());
+
+            return $shippingRate;
+        });
 
         return $this->rateResource($shippingRate);
     }
@@ -57,6 +63,23 @@ class ShippingRateController extends Controller implements HasMiddleware
         $shippingRate->delete();
 
         return response()->json(['message' => 'تم حذف سعر الشحن']);
+    }
+
+    /**
+     * The unique (company, zone) index is the race backstop. Surface it as 422
+     * instead of an unhandled constraint error.
+     *
+     * @param  callable(): ShippingRate  $write
+     */
+    private function persist(callable $write): ShippingRate
+    {
+        try {
+            return $write();
+        } catch (UniqueConstraintViolationException) {
+            throw ValidationException::withMessages([
+                'shipping_zone_id' => 'يوجد سعر شحن بالفعل لهذه الشركة والمنطقة.',
+            ]);
+        }
     }
 
     private function rateResource(ShippingRate $rate): ShippingRateResource

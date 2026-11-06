@@ -14,6 +14,18 @@ class ShippingCompanyRequest extends FormRequest
         return true;
     }
 
+    protected function prepareForValidation(): void
+    {
+        $input = $this->all();
+        if (array_key_exists('is_active', $input) && $input['is_active'] === null) {
+            $input['is_active'] = true;
+        }
+        if (isset($input['code']) && is_string($input['code'])) {
+            $input['code'] = strtolower(trim($input['code']));
+        }
+        $this->replace($input);
+    }
+
     /** @return array<string, mixed> */
     public function rules(): array
     {
@@ -21,7 +33,8 @@ class ShippingCompanyRequest extends FormRequest
 
         return [
             'name' => ['required', 'string', 'max:255'],
-            'code' => ['required', 'string', 'max:50', Rule::unique('shipping_companies', 'code')->ignore($company)],
+            // Same alphabet and length as the public webhook path, so a saved code can receive events.
+            'code' => ['required', 'string', 'regex:/^[A-Za-z0-9_-]{1,40}$/', Rule::unique('shipping_companies', 'code')->ignore($company)],
             'api_credentials' => ['nullable', 'array'],
             // قالب رابط تتبع آمن (F-25): https فقط (يمنع javascript: ونحوه
             // كـ XSS مخزّن) ويجب أن يحوي العنصر النائب {awb}. لا نستخدم قاعدة

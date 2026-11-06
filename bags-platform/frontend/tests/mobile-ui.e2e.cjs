@@ -2,6 +2,7 @@ const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const adminPermissions = require('../apps/backoffice/src/pages/admin/admin-mock/api/__fixtures__/me.json').data.permissions;
 
 const office = process.env.E2E_BACKOFFICE_URL || 'http://127.0.0.1:5173';
 const web = process.env.E2E_WEB_URL || 'http://localhost:3000';
@@ -15,22 +16,28 @@ fs.mkdirSync(output, { recursive: true });
       const context = await browser.newContext({ viewport: { width, height: 844 }, hasTouch: width < 768, reducedMotion: 'reduce' });
       await context.addInitScript(() => localStorage.setItem('backoffice_token', 'mobile-ui-review'));
       await context.route('**/api/v1/admin/**', route => route.fulfill({ json: route.request().url().endsWith('/me') ? { data: {
-        id: 1, name: 'Mobile review', roles: ['super_admin'], permissions: ['*'], is_active: true,
+        id: 1, name: 'Mobile review', roles: ['super_admin'], permissions: adminPermissions, is_active: true,
+      } } : route.request().url().endsWith('/dashboard') ? { data: {
+        today: { sales_total: 0, sales_by_channel: {}, new_orders_count: 0 },
+        month: { sales_total: 0, sales_by_channel: {} },
+        low_stock_count: 0, pending_wholesale_applications: 0, top_products: [], top_branches: [],
       } } : { data: [], meta: { current_page: 1, last_page: 1, total: 0 } } }));
       const page = await context.newPage();
       const errors = [];
       page.on('pageerror', error => errors.push(error.message));
       await page.goto(office + '/dashboard');
-      await page.locator('#brand-home-btn').waitFor();
+      await page.getByText('Mobile review', { exact: true }).waitFor();
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `No document overflow at ${width}`);
       if (width < 768) {
         const nav = page.getByRole('navigation', { name: 'التنقل الرئيسي على الموبايل', exact: true });
-        assert.equal(await nav.getByRole('button').count(), 5);
+        assert.equal(await nav.getByRole('button').count(), 6);
         assert.ok(await nav.evaluate(element => element.scrollWidth <= element.clientWidth));
         for (const button of await nav.getByRole('button').all()) {
           const bounds = await button.boundingBox();
           assert.ok(bounds.width >= 44 && bounds.height >= 44);
         }
+        await nav.locator('[data-mobile-nav="orders"]').tap();
+        await page.waitForURL(url => url.hash === '#/orders');
         await nav.locator('[data-mobile-nav="products"]').tap();
         await page.waitForURL(url => url.hash === '#/products');
         assert.equal(await nav.locator('[data-mobile-nav="products"]').getAttribute('aria-current'), 'page');
@@ -53,7 +60,7 @@ fs.mkdirSync(output, { recursive: true });
         await page.waitForURL(url => url.hash === '#/production');
         assert.equal(await dialog.isVisible(), false);
         await nav.getByRole('button', { name: 'الرئيسية', exact: true }).tap();
-        await page.locator('#btn-open-transfer').tap();
+        await nav.getByRole('button', { name: 'المزيد', exact: true }).tap();
         await page.setViewportSize({ width, height: 300 });
         const bounds = await page.locator('.v-modal-card').boundingBox();
         assert.ok(bounds.y >= 0 && bounds.y + bounds.height <= 301, 'Sheet stays within a short viewport');
@@ -62,6 +69,10 @@ fs.mkdirSync(output, { recursive: true });
       } else {
         assert.equal(await page.locator('.v-mobile-nav').isVisible(), false);
         assert.equal(await page.locator('.v-aside-nav').isVisible(), true);
+        await page.getByRole('button', { name: 'كل الأقسام' }).click();
+        await page.getByRole('dialog').locator('[data-menu-nav="shipping"]').click();
+        await page.waitForURL(url => url.hash === '#/shipping');
+        await page.locator('#brand-home-btn').click();
       }
       await page.screenshot({ path: path.join(output, `dashboard-${width}.png`), fullPage: true });
       assert.deepEqual(errors, []);
@@ -76,10 +87,10 @@ fs.mkdirSync(output, { recursive: true });
     } } : { data: [], meta: { current_page: 1, last_page: 1, total: 0 } } }));
     const staffPage = await restricted.newPage();
     await staffPage.goto(office + '/dashboard');
-    await staffPage.locator('.v-mobile-nav').waitFor();
-    assert.equal(await staffPage.locator('[data-mobile-nav="products"], [data-mobile-nav="categories"]').count(), 0);
+    await staffPage.getByText('Branch staff', { exact: true }).waitFor();
+    assert.equal(await staffPage.locator('[data-mobile-nav="products"], [data-mobile-nav="categories"], [data-mobile-nav="orders"]').count(), 0);
     await staffPage.locator('[data-mobile-nav="more"]').click();
-    assert.equal(await staffPage.locator('[data-menu-nav="products"], [data-menu-nav="categories"], [data-menu-nav="dealers"]').count(), 0);
+    assert.equal(await staffPage.locator('[data-menu-nav="products"], [data-menu-nav="categories"], [data-menu-nav="dealers"], [data-menu-nav="shipping"]').count(), 0);
     await restricted.close();
 
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });

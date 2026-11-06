@@ -594,11 +594,11 @@
   .as-shell, .as-shell[data-collapsed='true'] { grid-template-columns: minmax(0, 1fr); }
   .as-sidebar {
     position: absolute; inset-block: 0; inset-inline-start: 0; z-index: 30;
-    width: min(86%, 320px); visibility: visible !important;
+    width: min(86%, 320px); visibility: hidden;
     translate: 100% 0; transition: translate .25s cubic-bezier(.2, .8, .2, 1);
     box-shadow: var(--as-shadow-lg); border-inline-end: 0;
   }
-  .as-shell[data-drawer='true'] .as-sidebar { translate: 0 0; }
+  .as-shell[data-drawer='true'] .as-sidebar { visibility: visible; translate: 0 0; }
   .as-drawer-scrim { display: block; position: absolute; inset: 0; z-index: 29; background: #120c0866; opacity: 0; pointer-events: none; transition: opacity .2s; }
   .as-shell[data-drawer='true'] .as-drawer-scrim { opacity: 1; pointer-events: auto; }
   .as-conv-actions { opacity: 1; }

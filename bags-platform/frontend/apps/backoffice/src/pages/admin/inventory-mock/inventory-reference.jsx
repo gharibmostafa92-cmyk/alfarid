@@ -1,3 +1,4 @@
+import { AnimatedNumber } from '@alfarid/ui';
 import React, {useState,useEffect,useRef,useMemo,useContext,createContext,Fragment} from 'react';
 import { useApi } from '../catalog/useApi';
 import { normalizeError } from '../catalog/errors';
@@ -1076,9 +1077,9 @@ function StockScreen({ go, params }) {
         actions={canAdjust && <button className="btn btn-dark" onClick={() => go('adjust')}><Icon n="sliders" s={14} /> تسوية جديدة</button>} />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 stagger-item stagger-2">
-        <KPI hot label="المتاح" icon="box" value={phase === 'ready' ? formatQty(sum('available')) : '—'} sub={`${rows.length} سطر رصيد · في الصفحة الحالية`} />
-        <KPI label="المحجوز" icon="lock" value={phase === 'ready' ? formatQty(sum('reserved')) : '—'} sub="لطلبات مفتوحة" />
-        <KPI label="قيد النقل" icon="truck" value={phase === 'ready' ? formatQty(sum('in_transit')) : '—'} sub="في تحويلات مشحونة" />
+        <KPI hot label="المتاح" icon="box" value={phase === 'ready' ? sum('available') : '—'} format={formatQty} sub={`${rows.length} سطر رصيد · في الصفحة الحالية`} />
+        <KPI label="المحجوز" icon="lock" value={phase === 'ready' ? sum('reserved') : '—'} format={formatQty} sub="لطلبات مفتوحة" />
+        <KPI label="قيد النقل" icon="truck" value={phase === 'ready' ? sum('in_transit') : '—'} format={formatQty} sub="في تحويلات مشحونة" />
         <button onClick={() => set({ low: f.low ? undefined : '1' })} className="text-right">
           <KPI label="تحت حد إعادة الطلب" icon="alert" value={phase === 'ready' ? rows.filter(r => r.is_low_stock).length : '—'} sub={f.low ? 'الفلتر مفعّل · اضغط للإلغاء' : 'اضغط لعرضها فقط'} />
         </button>
@@ -2322,14 +2323,14 @@ function NumInput({ value, onChange, decimals = 4, integer, small, placeholder =
   );
 }
 
-function KPI({ label, value, icon, hot, sub }) {
+function KPI({ label, value, icon, hot, sub, format }) {
   return (
     <div className={`${hot ? 'v-orange-card' : 'v-subcard'} rounded-[18px] p-4 flex flex-col justify-between min-h-[112px]`}>
       <div className="flex items-center justify-between">
         <span className={`text-[12.5px] font-medium ${hot ? 'text-white/90' : 'c-secondary'}`}>{label}</span>
         <span className={`w-7 h-7 rounded-full flex items-center justify-center ${hot ? 'bg-white/15 text-white' : 'v-icon-well'}`}><Icon n={icon} s={14} w={2} /></span>
       </div>
-      <div className={`font-display text-[28px] font-bold tracking-tight mt-2 num text-right ${hot ? '' : 'c-primary'}`}>{value}</div>
+      <div className={`font-display text-[28px] font-bold tracking-tight mt-2 num text-right ${hot ? '' : 'c-primary'}`}>{typeof value === "number" ? <AnimatedNumber value={value} format={format} /> : value}</div>
       {sub && <div className={`text-[11px] ${hot ? 'text-white/80' : 'c-muted'}`}>{sub}</div>}
     </div>
   );
@@ -2344,6 +2345,7 @@ function readInventoryRoute() {
 }
 export function InventoryReference({can,isDark}) {
  const [nav,setNav]=useState(readInventoryRoute);
+ const navigationRef = useRef(null);
  const [toastMsg,setToastMsg]=useState(null), [reloadKey,setReloadKey]=useState(0);
  const variantCache = useRef(new Map());
  const locationCache = useRef(new Map());
@@ -2354,6 +2356,15 @@ export function InventoryReference({can,isDark}) {
  const branchesQuery = useApi(signal => fetchAllBranches(signal), [branchesTick]);
  const reloadBranches = () => { locationCache.current.clear(); setBranchesTick(t => t + 1); };
  const timer=useRef();
+ useEffect(() => {
+   const navigation = navigationRef.current;
+   const current = navigation?.querySelector('[aria-current="page"]');
+   if (!current) return;
+   const viewport = navigation.getBoundingClientRect();
+   const tab = current.getBoundingClientRect();
+   if (tab.left < viewport.left) navigation.scrollLeft += tab.left - viewport.left;
+   else if (tab.right > viewport.right) navigation.scrollLeft += tab.right - viewport.right;
+ }, [nav.route]);
  useEffect(()=>{
    const markDirty = e => { dirtyNavigation.current = Boolean(e.detail); };
    const changed=()=>{
@@ -2371,8 +2382,14 @@ export function InventoryReference({can,isDark}) {
  const Screen=SCREENS[nav.route];
  return <InvCtx.Provider value={{toast,can,go,reloadKey,reload:()=>setReloadKey(k=>k+1),variantCache:variantCache.current,locationCache:locationCache.current,branchesQuery,reloadBranches}}>
   <div className={'inventory-surface '+(isDark?'theme-dark':'theme-light')} dir="rtl" lang="ar">
-   <nav aria-label="شاشات المخزون" className="flex gap-2 overflow-x-auto pb-2 mb-5">
-    {INV_NAV.map(item=><button key={item.id} type="button" onClick={() => { if (item.id === 'banners') { window.location.hash = '/settings?tab=store'; return; } go(item.id); }} className={'btn shrink-0 '+(item.match.includes(nav.route)?'btn-dark':'btn-soft')}><Icon n={item.icon} s={15}/>{item.label}</button>)}
+   <nav ref={navigationRef} aria-label="شاشات المخزون" className="flex gap-2 overflow-x-auto pb-2 mb-5">
+    {INV_NAV.map(item => {
+      const active = item.match.includes(nav.route);
+      return <button key={item.id} type="button" aria-current={active ? 'page' : undefined} onClick={() => {
+        if (item.id === 'banners') window.location.hash = '/settings?tab=store';
+        else go(item.id);
+      }} className={'btn shrink-0 ' + (active ? 'btn-dark' : 'btn-soft')}><Icon n={item.icon} s={15}/>{item.label}</button>;
+    })}
    </nav>
    <main data-inventory-screen={nav.route}><Screen key={nav.route+JSON.stringify(nav.params)} go={go} params={nav.params}/></main>
    <Toast toast={toastMsg}/>

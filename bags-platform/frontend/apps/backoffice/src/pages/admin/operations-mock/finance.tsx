@@ -1,3 +1,4 @@
+import { AdminLoading } from '../../../components/admin/AdminLoading';
 import React, { useState, useEffect } from 'react';
 import { parseApiError } from '@alfarid/api-client';
 import { treasuriesApi, expensesApi, treasuryTransfersApi, shiftsApi, quotationsApi, paymentNoticesApi, asPage, newIdempotencyKey, type TreasuryType, type Treasury, type Expense, type PosShift, type Quotation, type PaymentNotice, type Paginated } from '@alfarid/api-client';
@@ -76,7 +77,7 @@ async function allPages<T>(request: (page: number) => Promise<Paginated<T>>): Pr
 function RemoteNote({ remote }: { remote: { loading: boolean; error: { message: string } | null; usingMock: boolean; reload: () => void } }) {
   if (remote.usingMock && !USE_MOCK) return <Note tone="red">تعذّر الاتصال بالخادم؛ البيانات المعروضة تجريبية.</Note>;
   if (remote.error) return <><Empty icon="alert" title={remote.error.message} /><button className="btn btn-soft" onClick={remote.reload}>إعادة المحاولة</button></>;
-  if (remote.loading) return <Note>جارٍ التحميل…</Note>;
+  if (remote.loading) return <AdminLoading />;
   return null;
 }
 

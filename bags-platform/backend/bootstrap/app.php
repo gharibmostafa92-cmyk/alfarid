@@ -97,7 +97,10 @@ return Application::configure(basePath: dirname(__DIR__))
             // و409 للكتابة حتى لا تُعاد طفرة بلا idempotency تلقائيًا.
             if (($request->is('api/*') || $request->expectsJson())
                 && in_array($e->errorInfo[0] ?? $e->getCode(), ['55P03', '40P01', '40001'], true)) {
-                return response()->json(['message' => 'العملية مشغولة بطلب آخر؛ أعد المحاولة بعد لحظات.'], $request->isMethodSafe() ? 503 : 409)->header('Retry-After', '1');
+                // Carrier webhooks are idempotent and must be retried. A 409 would be treated as a final client error.
+                $status = $request->isMethodSafe() || $request->is('api/v1/webhooks/*') ? 503 : 409;
+
+                return response()->json(['message' => 'العملية مشغولة بطلب آخر؛ أعد المحاولة بعد لحظات.'], $status)->header('Retry-After', '1');
             }
 
             // M4: حذف مورد له مستخدمون (restrictOnDelete) يرمي 23503 — رد 409

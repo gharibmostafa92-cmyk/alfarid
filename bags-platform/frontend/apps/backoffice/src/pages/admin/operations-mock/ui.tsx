@@ -1,3 +1,4 @@
+import { AnimatedNumber } from '@alfarid/ui';
 import React, {
   useState,
   useEffect,
@@ -597,6 +598,7 @@ export function KPI({
   hero,
   foot,
   small,
+  format,
 }: {
   label: ReactNode;
   value: ReactNode;
@@ -604,7 +606,9 @@ export function KPI({
   hero?: boolean;
   foot?: ReactNode;
   small?: boolean;
+  format?: (value: number) => string;
 }) {
+  const metric = typeof value === 'number' ? <AnimatedNumber value={value} format={format} /> : value;
   if (hero)
     return (
       <div className="v-orange rounded-[18px] p-4 flex flex-col justify-between min-h-[118px]">
@@ -617,7 +621,7 @@ export function KPI({
           )}
         </div>
         <div className={'font-display font-bold tracking-tight my-2.5 num ' + (small ? 'text-[22px]' : 'text-[28px]')}>
-          {value}
+          {metric}
         </div>
         {foot && <div className="text-[11px] text-white/80">{foot}</div>}
       </div>
@@ -633,7 +637,7 @@ export function KPI({
         )}
       </div>
       <div className={'font-display font-bold tracking-tight my-2.5 tx1 num ' + (small ? 'text-[22px]' : 'text-[28px]')}>
-        {value}
+        {metric}
       </div>
       {foot && <div className="text-[11px] tx3">{foot}</div>}
     </div>

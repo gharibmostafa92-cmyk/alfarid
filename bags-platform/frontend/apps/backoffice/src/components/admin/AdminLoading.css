@@ -1,0 +1,54 @@
+.admin-loading {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  box-sizing: border-box;
+  min-block-size: 124px;
+  padding: clamp(16px, 3vw, 24px);
+  border: 1px solid var(--border-subtle, #e8e3e9);
+  border-radius: 16px;
+  background: var(--bg-card, #fff);
+}
+
+.admin-loading--compact {
+  justify-content: center;
+  min-block-size: 48px;
+  padding: 12px;
+  border: 0;
+  background: transparent;
+}
+
+.admin-loading-spinner {
+  box-sizing: border-box;
+  flex: none;
+  inline-size: 24px;
+  block-size: 24px;
+  border: 2px solid var(--bg-subcard-hover, #ebe6ed);
+  border-block-start-color: var(--accent-orange, var(--accent, #e0491f));
+  border-radius: 50%;
+  animation: admin-loading-spin 0.75s linear infinite;
+}
+
+.admin-loading-lines {
+  display: grid;
+  flex: 1;
+  min-inline-size: 0;
+  max-inline-size: 28rem;
+  gap: 10px;
+  padding-block-start: 4px;
+}
+
+.admin-loading-lines span {
+  block-size: 12px;
+  border-radius: 6px;
+  background: var(--bg-subcard-hover, #ebe6ed);
+}
+
+.admin-loading-lines span:first-child { inline-size: 42%; block-size: 16px; }
+.admin-loading-lines span:last-child { inline-size: 72%; }
+
+@keyframes admin-loading-spin { to { transform: rotate(1turn); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-loading-spinner { animation: none; }
+}

@@ -1,8 +1,6 @@
+import { AdminLoading } from '../../../components/admin/AdminLoading';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  SHIP_COMPANIES,
-  SHIP_ZONES,
-  SHIP_RATES,
   CUSTOMER_GROUPS,
   PRICE_LISTS,
   PROMOS,
@@ -87,9 +85,9 @@ export function ShippingPage() {
   const [tab, setTab] = useState<'companies' | 'zones' | 'rates'>('companies');
   const [edit, setEditState] = useState<{ kind: 'companies' | 'zones' | 'rates'; row: any } | null>(null);
   const toast = useToast();
-  const companies = useRemote((s) => shippingCompaniesApi.all(s).then((rows) => rows.map(mapShipCompany)), [], { mock: () => SHIP_COMPANIES });
-  const zones = useRemote((s) => shippingZonesApi.all(s).then((rows) => rows.map(mapShipZone)), [], { mock: () => SHIP_ZONES as any });
-  const rates = useRemote((s) => shippingRatesApi.all(s).then((rows) => rows.map(mapShipRate)), [], { mock: () => SHIP_RATES as any });
+  const companies = useRemote((s) => shippingCompaniesApi.all(s).then((rows) => rows.map(mapShipCompany)), []);
+  const zones = useRemote((s) => shippingZonesApi.all(s).then((rows) => rows.map(mapShipZone)), []);
+  const rates = useRemote((s) => shippingRatesApi.all(s).then((rows) => rows.map(mapShipRate)), []);
   const C = companies.data ?? [], Z = zones.data ?? [], RT = rates.data ?? [];
   const setEdit = (next: typeof edit) => {
     if (next && (companies.usingMock || zones.usingMock || rates.usingMock)) return toast('البيانات تجريبية — لا يمكن الحفظ', 'red');
@@ -587,7 +585,7 @@ export function PricingPage({ go }: { go: (r: { m: string; id?: any; sub?: any }
           </div>
           <DataTable
             rows={lists.loading ? [] : rows}
-            empty={lists.loading ? 'جارٍ التحميل…' : undefined}
+            empty={lists.loading ? <AdminLoading compact /> : undefined}
             onRow={(p: PriceListRow) => lists.usingMock ? toast('البيانات تجريبية — لا يمكن التعديل', 'red') : go({ m: 'pricing', id: p.id })}
             cols={[
               { h: 'الاسم', r: (p: PriceListRow) => <span className="font-semibold tx1">{p.name}</span> },

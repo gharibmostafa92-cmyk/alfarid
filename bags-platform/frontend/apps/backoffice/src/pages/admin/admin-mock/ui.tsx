@@ -437,11 +437,10 @@ export function StickyBar({ show, onSave, onReset, saving, message = 'لديك �
   count?: number | null;
 }) {
   return (
-    <div className={`fixed bottom-6 inset-x-0 z-40 flex justify-center pointer-events-none transition-all duration-300 ${show ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'}`}>
-      <div className={`v-sticky-bar rounded-full ps-5 pe-1.5 py-1.5 flex items-center gap-4 ${show ? 'pointer-events-auto' : ''}`}>
-        <span className="w-2 h-2 rounded-full bg-[var(--accent-orange)] v-pulse" />
-        <span className="text-[13px] font-medium whitespace-nowrap">{message}{count ? <span className="opacity-60"> · {count} تعديل</span> : null}</span>
-        <div className="flex items-center gap-1.5">
+    <div inert={!show} style={{ bottom: 'calc(16px + var(--admin-bottom-nav-space, 0px))' }} className={`fixed inset-x-0 z-40 flex justify-center px-3 pointer-events-none transition-all duration-300 ${show ? 'opacity-100 translate-y-0' : 'invisible opacity-0 translate-y-6'}`}>
+      <div className={`v-sticky-bar max-w-full rounded-xl p-2 flex flex-wrap items-center gap-x-4 gap-y-1 ${show ? 'pointer-events-auto' : ''}`}>
+        <span className="flex items-center gap-2 px-2 text-[13px] font-medium"><span className="w-2 h-2 shrink-0 rounded-full bg-[var(--accent-orange)] v-pulse" />{message}{count ? <span className="opacity-60">· {count} تعديل</span> : null}</span>
+        <div className="flex flex-wrap items-center gap-1.5">
           <button type="button" onClick={onReset} className="h-9 px-4 rounded-full text-[12.5px] font-semibold flex items-center gap-1.5 hover:bg-white/10 transition v-sticky-ghost">
             <Icon name="undo" className="w-3.5 h-3.5" /> تراجع
           </button>
@@ -538,7 +537,7 @@ export function Drawer({ open, onClose, children, width = 520 }: { open: boolean
   }, [open, onClose]);
 
   return (
-    <div className={`fixed inset-0 z-50 ${open ? '' : 'pointer-events-none'}`}>
+    <div inert={!open} className={`fixed inset-0 z-50 ${open ? '' : 'invisible pointer-events-none'}`}>
       <div onClick={onClose} className={`absolute inset-0 v-scrim transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0'}`} />
       <div className={`absolute top-3 bottom-3 start-3 v-card v-drawer flex flex-col transition-transform duration-[420ms] ${open ? 'translate-x-0' : 'translate-x-[calc(100%+24px)]'}`}
         style={{ width: `min(${width}px, calc(100vw - 24px))`, transitionTimingFunction: 'cubic-bezier(0.22,1,0.36,1)' }}>

@@ -1,3 +1,4 @@
+import { AdminLoading } from '../../../components/admin/AdminLoading';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ORDER_STATUS,
@@ -268,7 +269,7 @@ export function OrdersList({ go }: { go: (route: { m: string; id?: number | stri
         </div>
         <DataTable
           rows={loading ? [] : rows}
-          empty={loading ? 'جارٍ التحميل…' : error && !usingMock
+          empty={loading ? <AdminLoading compact /> : error && !usingMock
             ? <Empty icon="alert" title="تعذّر تحميل الطلبات" text={error.message}
                 action={<button className="btn btn-soft btn-sm" onClick={reload}>إعادة المحاولة</button>} />
             : undefined}
@@ -926,7 +927,7 @@ export function ReturnsList({ go }: { go: (route: { m: string; id?: number | str
         <DataTable
           onRow={(r: ReturnRow) => go({ m: 'returns', id: r.id })}
           rows={loading ? [] : rows}
-          empty={loading ? 'جارٍ التحميل…' : error && !usingMock
+          empty={loading ? <AdminLoading compact /> : error && !usingMock
             ? <Empty icon="alert" title="تعذّر تحميل المرتجعات" text={error.message}
                 action={<button className="btn btn-soft btn-sm" onClick={reload}>إعادة المحاولة</button>} />
             : undefined}

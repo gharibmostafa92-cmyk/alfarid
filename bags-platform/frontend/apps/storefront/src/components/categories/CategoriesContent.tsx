@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { StoreOccasion } from '@alfarid/api-client';
+import { AnimatedNumber } from '@alfarid/ui';
 import { useCatalogFilters, useSimilarProducts, useStoreCategories, useStoreProduct, useStoreProducts } from '@/hooks/use-store-catalog';
 import { buildSearch, parseFilters, toApiParams, toFacetParams, type CatalogFilterState } from '@/lib/catalog-query';
 import { DEFAULT_HERO, OCCASION_LABELS, SORT_OPTIONS } from '@/lib/catalog-labels';
@@ -198,7 +199,7 @@ export function CategoriesContent() {
                     <span>{isSidebarOpen ? 'Hide Filters' : 'Show Filters'}</span>
                   </button>
                   <span className="filter-count-badge">
-                    Showing {total} pieces
+                    Showing <AnimatedNumber value={total} /> pieces
                   </span>
                 </div>
 
@@ -273,7 +274,7 @@ export function CategoriesContent() {
                           onClick={() => updateFilters({ category: null })}
                         >
                           <span>All Collections</span>
-                          <span className="count">{allCount}</span>
+                          <span className="count"><AnimatedNumber value={allCount} /></span>
                         </button>
                         {roots.map((c) => (
                           <React.Fragment key={c.slug}>
@@ -282,7 +283,7 @@ export function CategoriesContent() {
                               onClick={() => updateFilters({ category: c.slug })}
                             >
                               <span>{pick(c.name_en, c.name_ar)}</span>
-                              <span className="count">{c.products_count}</span>
+                              <span className="count"><AnimatedNumber value={c.products_count} /></span>
                             </button>
                             {(c.children ?? []).map((child) => (
                               <button type="button"
@@ -292,7 +293,7 @@ export function CategoriesContent() {
                                 onClick={() => updateFilters({ category: child.slug })}
                               >
                                 <span>{pick(child.name_en, child.name_ar)}</span>
-                                <span className="count">{child.products_count}</span>
+                                <span className="count"><AnimatedNumber value={child.products_count} /></span>
                               </button>
                             ))}
                           </React.Fragment>

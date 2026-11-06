@@ -1,3 +1,4 @@
+import { AdminLoading } from '../../../components/admin/AdminLoading';
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { reportsApi, validatePeriod } from '@alfarid/api-client';
@@ -232,7 +233,7 @@ export function SalesReport({ from, to, setFrom, setTo }: PeriodProps) {
           value={<span className="ltr">{(tot('net') / 1e6).toFixed(2)}M</span>}
           foot="بعد الخصومات"
         />
-        <KPI label="الطلبات المكتملة" icon="orders" value={fmtInt(tot('orders'))} />
+        <KPI label="الطلبات المكتملة" icon="orders" value={tot('orders')} format={fmtInt} />
         <KPI
           label="متوسط قيمة الطلب"
           icon="tag"
@@ -311,8 +312,8 @@ export function InventoryReport() {
           value={<span className="ltr">{totV >= 1e6 ? (totV / 1e6).toFixed(2) + 'M' : fmtInt(totV)}</span>}
           foot="EGP بسعر التكلفة"
         />
-        <KPI label="عدد المتغيرات بالفروع" value={fmtInt(br.reduce((a, x) => a + x.variants, 0))} />
-        <KPI label="إجمالي الكميات" value={fmtInt(br.reduce((a, x) => a + x.qty, 0))} />
+        <KPI label="عدد المتغيرات بالفروع" value={br.reduce((a, x) => a + x.variants, 0)} format={fmtInt} />
+        <KPI label="إجمالي الكميات" value={br.reduce((a, x) => a + x.qty, 0)} format={fmtInt} />
         <KPI
           label="أصناف راكدة"
           value={live.data?.dead_stock.length ?? 0}
@@ -850,7 +851,7 @@ export function NotificationsPage({
       />
       <Card stg={2} pad="p-3">
         <button className="btn btn-soft" onClick={onReadAll} disabled={!unread}>تعليم المحمّل كمقروء</button>
-        {loading && <Note>جارٍ تحميل الإشعارات…</Note>}
+        {loading && <AdminLoading compact label="جارٍ تحميل الإشعارات" />}
         {!loading && !items.length && <Empty title="لا توجد إشعارات" />}
         <div className="space-y-1">
           {items.map((n) => (

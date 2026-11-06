@@ -31,6 +31,17 @@ class ShippingCompany extends Model
         ];
     }
 
+    /**
+     * Whether credentials are stored, without decrypting them.
+     * A rotated APP_KEY must not turn the company index into a 500.
+     */
+    public function hasApiCredentials(): bool
+    {
+        $raw = $this->getRawOriginal('api_credentials');
+
+        return is_string($raw) && $raw !== '';
+    }
+
     /** @return HasMany<ShippingRate, $this> */
     public function rates(): HasMany
     {

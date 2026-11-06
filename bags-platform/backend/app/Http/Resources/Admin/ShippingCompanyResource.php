@@ -17,7 +17,7 @@ class ShippingCompanyResource extends JsonResource
             'name' => $this->name,
             'code' => $this->code,
             // بيانات الاعتماد لا تُعرض أبدًا — مؤشر وجود فقط
-            'has_api_credentials' => ! empty($this->api_credentials),
+            'has_api_credentials' => $this->hasApiCredentials(),
             'tracking_url_template' => $this->tracking_url_template,
             'is_active' => $this->is_active,
             'created_at' => $this->created_at,

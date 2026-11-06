@@ -17,6 +17,7 @@ const pageOf=(data,page=1,total=data.length)=>({data,meta:{current_page:page,las
  try {
   const context=await browser.newContext({viewport:mobile ? {width:390,height:844} : {width:1440,height:1000}}),page=await context.newPage();page.setDefaultTimeout(12000);page.setDefaultNavigationTimeout(60000);
   const errors=[],calls=[],mutations=[];page.on('pageerror',e=>errors.push(e.message));
+  let failShippingCompanies = true;
   user.permissions.push('customers.view','customers.wallet.view','customers.wallet.adjust');
   const walletAttempts=[];
   let walletBalance='50.00';
@@ -64,7 +65,10 @@ const pageOf=(data,page=1,total=data.length)=>({data,meta:{current_page:page,las
     walletBalance='60.00';
     return json({data:{id:1}},201);
    }
-   if(p.endsWith('/shipping-companies'))return json(pageOf([{id:1,name:'شركة الشحن',code:'SHIP',is_active:true,tracking_url_template:null,has_api_credentials:false}]));
+   if(p.endsWith('/shipping-companies')){
+    if(failShippingCompanies)return json({message:'تعذّر تحميل شركات الشحن'},500);
+    return json(pageOf([{id:1,name:'شركة الشحن',code:'SHIP',is_active:true,tracking_url_template:null,has_api_credentials:false}]));
+   }
    if(p.endsWith('/shipping-zones'))return json(pageOf([]));
    if(p.endsWith('/shipping-rates'))return json(pageOf([]));
    if(p.endsWith('/customer-groups'))return json(pageOf([]));
@@ -117,7 +121,13 @@ const pageOf=(data,page=1,total=data.length)=>({data,meta:{current_page:page,las
   assert.deepEqual(walletAttempts[1].body,{kind:'adjustment',direction:'credit',amount:'10',reason:'تسوية اختبار'});
   await page.goto(base+'/#/shifts');await op().getByText('SH-RUNTIME',{exact:true}).waitFor();await op().getByText('SH-RUNTIME',{exact:true}).click();await op().getByText('الكاشير الفعلي',{exact:true}).first().waitFor();
   await page.goto(base+'/#/wholesale');await op().getByText('QT-RUNTIME',{exact:true}).waitFor();
-  for(const route of ['shipping','pricing','promos']){await page.goto(base+'/#/'+route);await op().waitFor();await page.waitForTimeout(300);}
+  await page.goto(base+'/#/shipping');
+  await op().getByText('تعذّر تحميل شركات الشحن',{exact:true}).waitFor();
+  assert.equal(await op().locator('tbody tr.clickable').count(),0,'shipping must not show demo carriers on API failure');
+  failShippingCompanies = false;
+  await op().getByRole('button',{name:'إعادة المحاولة',exact:true}).click();
+  await op().getByText('SHIP',{exact:true}).waitFor();
+  for(const route of ['pricing','promos']){await page.goto(base+'/#/'+route);await op().waitFor();await page.waitForTimeout(300);}
   for(const route of ['suppliers','purchasing','brands']){const n=calls.length;await page.goto(base+'/#/'+route);await op().getByText('هذا القسم متوقف',{exact:true}).waitFor();assert.equal(calls.slice(n).filter(c=>new RegExp('/'+route+'(?:/|$)').test(c.p)).length,0);}
   user.permissions=[];await page.goto(base+'/#/orders/71');await page.reload();await page.getByText('ليس لديك صلاحية عرض هذه الصفحة.',{exact:true}).waitFor();
   user.permissions=['orders.view'];await page.reload();await op().getByText('ORD-RUNTIME',{exact:true}).waitFor();

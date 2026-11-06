@@ -1,3 +1,4 @@
+import { AnimatedNumber } from '@alfarid/ui';
 // Categories design retained from task.txt; catalog data comes from the authenticated API.
 import React, { useState, useEffect, useRef, useMemo, useCallback, useId } from 'react';
 import { categoriesApi } from '@alfarid/api-client';
@@ -630,8 +631,8 @@ export function CategoriesReferencePage() {
                 </div>
                 <div className="text-[11.5px] t-3 mt-3 flex items-center gap-1 flex-wrap">{flat.find((f) => f.id === sel).path.map((p, i, a) => <React.Fragment key={i}><span className={i === a.length - 1 ? 't-1 font-semibold' : ''}>{p}</span>{i < a.length - 1 && <Icon name="chevLeft" size={11} />}</React.Fragment>)}</div>
                 <div className="grid grid-cols-2 gap-2.5 mt-4">
-                  <div className="v-subcard p-3"><div className="text-[11px] t-3">أقسام فرعية</div><div className="font-display text-[20px] font-bold t-1 num">{(selected.node.children || []).length}</div></div>
-                  <div className="v-subcard p-3"><div className="text-[11px] t-3">منتجات</div><div className="font-display text-[20px] font-bold t-1 num">{sumProducts(selected.node)}</div></div>
+                  <div className="v-subcard p-3"><div className="text-[11px] t-3">أقسام فرعية</div><div className="font-display text-[20px] font-bold t-1 num"><AnimatedNumber value={(selected.node.children || []).length} /></div></div>
+                  <div className="v-subcard p-3"><div className="text-[11px] t-3">منتجات</div><div className="font-display text-[20px] font-bold t-1 num"><AnimatedNumber value={sumProducts(selected.node)} /></div></div>
                 </div>
                 {selected.node.createdAt && <div className="text-[11.5px] t-3 mt-2">{new Intl.DateTimeFormat('ar-EG', { dateStyle: 'medium' }).format(new Date(selected.node.createdAt))}</div>}
                 {perms.update && <>

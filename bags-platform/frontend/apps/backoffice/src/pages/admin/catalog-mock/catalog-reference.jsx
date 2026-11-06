@@ -1,3 +1,4 @@
+import { AnimatedNumber } from '@alfarid/ui';
 import { productsApi, categoriesApi, productMediaApi } from '@alfarid/api-client';
 import { useApi } from '../catalog/useApi';
 import { DealersPage, ProductionPage } from '../catalog/manufacturing-pages';
@@ -66,7 +67,7 @@ function ProductsPage() {
           return (
             <button key={k} onClick={() => setQ({ status: k, page: 1 })} className={cx('rounded-[22px] p-5 text-start transition', on ? 'v-orange shadow-sm' : 'v-card hover:shadow-sm')}>
               <div className={cx('flex items-center justify-between text-[12.5px] font-medium', on ? 'text-white/90' : 't-2')}>{l}<span className={cx('w-7 h-7 rounded-full flex items-center justify-center', on ? 'bg-white/15' : 'v-well')}><Icon name={ic} size={14} /></span></div>
-              <div className={cx('font-display text-[32px] font-bold mt-3 num', !on && 't-1')}>{n}</div>
+              <div className={cx('font-display text-[32px] font-bold mt-3 num', !on && 't-1')}><AnimatedNumber value={n} /></div>
               <div className={cx('mt-2 h-1.5 rounded-full overflow-hidden', on ? 'bg-white/20' : 'hatched-track')}><div className={cx('h-full rounded-full', on ? 'bg-white' : 'hatched-acc')} style={{ width: `${(counts.all ? n / counts.all : 0) * 100}%` }} /></div>
             </button>
           );
@@ -94,7 +95,7 @@ function ProductsPage() {
               </div>
               {activeFilters > 0 && (
                 <div className="flex items-center gap-2 text-[12px] pop">
-                  <span className="t-3"><span className="num font-semibold t-1">{res.meta?.total}</span> نتيجة ·</span>
+                  <span className="t-3"><span className="num font-semibold t-1"><AnimatedNumber value={res.meta.total} /></span> نتيجة ·</span>
                   <button className="font-semibold t-acc" onClick={() => setQ({ search: '', category: '', status: '', channel: '', featured: '', page: 1 })}>مسح الفلاتر ({activeFilters})</button>
                   <span className="t-3 ms-auto hidden md:flex items-center gap-1"><Icon name="link" size={12} />الفلاتر محفوظة في الرابط</span>
                 </div>
@@ -1297,13 +1298,13 @@ function DropZone({ onFiles, title = 'اسحب الملفات هنا أو اضغ
 // Single image field (category/brand logo)
 function StickyBar({ children, dirty, note }) {
   return (
-    <div className="sticky bottom-4 z-30 mt-6">
-      <div className="v-card px-4 py-3 flex flex-wrap items-center justify-between gap-3" style={{ boxShadow: 'var(--shadow-pop)', borderRadius: 999 }}>
+    <div className="catalog-save-bar sticky z-30 mt-6" style={{ bottom: 'calc(12px + var(--admin-bottom-nav-space, 0px))' }}>
+      <div className="v-card px-4 py-3 flex flex-wrap items-center justify-between gap-3" style={{ boxShadow: 'var(--shadow-pop)', borderRadius: 16 }}>
         <div className="flex items-center gap-2.5 ps-2 text-[12.5px]">
           {dirty ? <><span className="w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse" /><span className="font-semibold t-1">تغييرات غير محفوظة</span></> : <><Icon name="checkCircle" size={15} style={{ color: 'var(--badge-green-text)' }} /><span className="t-2">كل التغييرات محفوظة</span></>}
           {note && <span className="t-3 hidden md:inline">· {note}</span>}
         </div>
-        <div className="flex items-center gap-2">{children}</div>
+        <div className="catalog-save-actions flex min-w-0 flex-wrap items-center gap-2">{children}</div>
       </div>
     </div>
   );

@@ -60,11 +60,7 @@ class ShippingWebhookService
     /**
      * Process an inbound carrier tracking webhook event.
      *
-     * @param  string  $companyCode
      * @param  array<string, mixed>  $payload
-     * @param  string  $rawBody
-     * @param  string|null  $signature
-     * @param  string|null  $ip
      * @return array{http: int, body: array<string, mixed>}
      */
     public function handle(string $companyCode, array $payload, string $rawBody, ?string $signature, ?string $ip): array
@@ -79,7 +75,9 @@ class ShippingWebhookService
             return ['http' => 413, 'body' => ['received' => false, 'message' => 'payload too large']];
         }
 
-        $company = ShippingCompany::query()->where('code', $companyCode)->first();
+        $company = ShippingCompany::query()
+            ->whereRaw('lower(code) = ?', [strtolower($companyCode)])
+            ->first();
         if ($company === null || ! $company->is_active) {
             // Generic 403 response prevents carrier code enumeration via distinct HTTP response codes
             $this->slimLog($provider, $preVerifyKey, 'failed', 'شركة شحن غير معروفة أو معطّلة', $ip);
@@ -161,14 +159,19 @@ class ShippingWebhookService
                 $order = $shipment->order;
                 if ($order !== null && $order->status === OrderStatus::Shipped) {
                     try {
-                        // Order delivery transitions settle cash-on-delivery payments automatically
-                        $this->orders->changeStatus($order, OrderStatus::Delivered, null, 'تم التسليم — إشعار شركة الشحن');
+                        // Nested transaction is a savepoint. A constraint failure inside
+                        // changeStatus aborts only that savepoint, so the order can still
+                        // be flagged and the carrier event is not lost (25P02).
+                        DB::transaction(function () use ($order): void {
+                            $this->orders->changeStatus($order, OrderStatus::Delivered, null, 'تم التسليم — إشعار شركة الشحن');
+                        });
                     } catch (Throwable $e) {
                         // Re-throw transient database exceptions so the webhook provider retries delivery
                         if ($this->isTransient($e)) {
                             throw $e;
                         }
                         // Non-transient errors flag the order for staff intervention without dropping the event
+                        $order->refresh();
                         $order->update(['needs_attention' => true]);
                         $failed = true;
                         $note = 'تم تسليم البوليصة لكن تحويل الطلب فشل: '.$e->getMessage();

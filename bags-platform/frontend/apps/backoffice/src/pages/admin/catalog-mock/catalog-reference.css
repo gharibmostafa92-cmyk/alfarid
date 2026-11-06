@@ -135,6 +135,13 @@ textarea.v-input { height: auto; padding: 11px 14px; line-height: 1.6; resize: v
 .btn-ink:hover { opacity: .9; }
 .btn-acc { background: var(--accent); color: #fff; box-shadow: 0 6px 16px -6px rgba(224,73,31,.55); }
 .btn-acc:hover { opacity: .92; }
+
+@media (max-width: 479px) {
+  .catalog-save-bar > .v-card { padding: 8px; gap: 6px; }
+  .catalog-save-actions { width: 100%; gap: 4px; }
+  .catalog-save-actions .btn { flex: 1 0 auto; min-height: 44px; padding-inline: 8px; font-size: 12px; }
+  .catalog-save-actions .btn svg { display: none; }
+}
 .btn-soft { background: var(--bg-subcard); color: var(--text-primary); }
 .btn-soft:hover { background: var(--bg-subcard-hover); }
 .btn-ghost { background: transparent; color: var(--text-secondary); }
@@ -176,8 +183,8 @@ textarea.v-input { height: auto; padding: 11px 14px; line-height: 1.6; resize: v
 .skel { border-radius: 8px; background: linear-gradient(90deg, var(--bg-subcard) 0%, var(--bg-subcard-hover) 50%, var(--bg-subcard) 100%); background-size: 200% 100%; animation: shimmer 1.4s infinite linear; }
 
 /* Motion */
-@keyframes blurFadeIn { 0% { opacity: 0; filter: blur(10px); transform: translateY(8px); } 100% { opacity: 1; filter: blur(0); transform: none; } }
-.stagger { animation: blurFadeIn .48s cubic-bezier(.22,1,.36,1) both; }
+@keyframes contentIn { from { opacity: .7; } to { opacity: 1; } }
+.stagger { animation: contentIn .22s ease both; }
 .s1 { animation-delay: .03s; } .s2 { animation-delay: .09s; } .s3 { animation-delay: .15s; } .s4 { animation-delay: .21s; } .s5 { animation-delay: .27s; }
 @keyframes popIn { from { opacity: 0; transform: translateY(6px) scale(.98); } to { opacity: 1; transform: none; } }
 .pop { animation: popIn .22s cubic-bezier(.22,1,.36,1) both; }

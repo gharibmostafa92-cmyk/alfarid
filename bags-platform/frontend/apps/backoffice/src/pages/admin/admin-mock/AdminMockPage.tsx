@@ -141,7 +141,7 @@ export default function AdminMockPage({ page, can, darkMode, theme, initialTab }
             <div className={`admin-mock-surface ${isDark ? 'theme-dark' : 'theme-light'} p-4 sm:p-6 lg:p-8 space-y-6`} dir="rtl" lang="ar">
               {/* Top Linking Bar between the 3 Administrative Screens */}
               <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b" style={{ borderColor: 'var(--divider-color)' }}>
-                <div className="inline-flex p-1 rounded-full v-subcard" role="tablist">
+                <div className="admin-section-tabs flex flex-wrap max-w-full gap-1 p-1 rounded-xl v-subcard" role="tablist" aria-label="إدارة النظام">
                   {navItems.map((item) => {
                     const active = page === item.id;
                     return (
@@ -151,7 +151,7 @@ export default function AdminMockPage({ page, can, darkMode, theme, initialTab }
                         role="tab"
                         aria-selected={active}
                         onClick={() => handleNavigate(item.id as any)}
-                        className={`px-4 py-2 rounded-full text-[13px] font-semibold flex items-center gap-2 transition-all duration-150 ${
+                        className={`min-h-[44px] px-3 py-2 rounded-lg text-[13px] font-semibold flex items-center gap-2 transition-all duration-150 ${
                           active ? 'shadow-xs' : 'hover:opacity-80'
                         }`}
                         style={{
@@ -163,7 +163,7 @@ export default function AdminMockPage({ page, can, darkMode, theme, initialTab }
                         <span>{item.label}</span>
                         {item.count != null && (
                           <span
-                            className="px-2 py-0.5 rounded-full text-[11px] font-medium"
+                            className="admin-tab-count px-2 py-0.5 rounded-full text-[11px] font-medium"
                             style={{
                               background: active ? 'rgba(255, 255, 255, 0.2)' : 'var(--bg-card)',
                               color: active ? 'inherit' : 'var(--text-muted)',

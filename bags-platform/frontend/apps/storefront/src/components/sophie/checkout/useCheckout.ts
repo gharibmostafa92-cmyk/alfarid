@@ -76,6 +76,26 @@ export function buildAddressLine(
     .join(', ');
 }
 
+/** Works on http pages where crypto.randomUUID is missing. */
+export function newIdempotencyKey(): string {
+  const generator = globalThis.crypto?.randomUUID;
+  if (typeof generator === 'function') {
+    return generator.call(globalThis.crypto);
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+/** Checkout can submit only these methods. Anything else (card, bitcoin) is dropped. */
+export function checkoutPaymentMethods(methods: readonly string[]): Array<'cod' | 'wallet' | 'credit'> {
+  return methods.filter((method): method is 'cod' | 'wallet' | 'credit' =>
+    method === 'cod' || method === 'wallet' || method === 'credit');
+}
+
+/** The price on screen belongs to the latest quote key, and only after the cart settles. */
+export function shownQuote<T>(quote: T | null, quotedFor: string, quoteKey: string, cartBusy: boolean, cartLoading: boolean): T | null {
+  return quotedFor === quoteKey && !cartBusy && !cartLoading ? quote : null;
+}
+
 export function useCheckout() {
   const router = useRouter();
   const params = useSearchParams();
@@ -100,11 +120,7 @@ export function useCheckout() {
   const pending = useRef<{ body: CheckoutPayload; session: string | null } | null>(null);
   const [promoInput, setPromoInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const keyRef = useRef<string>(
-    typeof crypto !== 'undefined' && 'randomUUID' in crypto
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random()}`,
-  );
+  const keyRef = useRef<string>(newIdempotencyKey());
   const promoTried = useRef(false);
 
   const items = useCartStore((s) => s.items);
@@ -133,7 +149,7 @@ export function useCheckout() {
     items,
     quoteRevision,
   ]);
-  const liveQuote = quotedFor === quoteKey && !cartBusy && !cartLoading ? quote : null;
+  const liveQuote = shownQuote(quote, quotedFor, quoteKey, cartBusy, cartLoading);
 
   // A reload after a lost response must recover the same attempt, never create a second order.
   useEffect(() => {
@@ -267,9 +283,7 @@ export function useCheckout() {
         )
         .then((res) => {
           if (!current) return;
-          const allowed = res.payment_methods.filter((m) =>
-            ['cod', 'wallet', 'credit'].includes(m),
-          );
+          const allowed = checkoutPaymentMethods(res.payment_methods);
           if (!allowed.includes(form.paymentMethod) && allowed.length) {
             setForm((f) => ({ ...f, paymentMethod: allowed[0] as CheckoutPaymentMethod }));
             return;
@@ -500,7 +514,7 @@ export function useCheckout() {
           /* Optional storage. */
         }
         setUncertain(false);
-        keyRef.current = crypto.randomUUID();
+        keyRef.current = newIdempotencyKey();
       } else {
         setUncertain(true);
         const retryAfter = (e as { response?: { headers?: Record<string, string> } }).response

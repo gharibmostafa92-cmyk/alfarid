@@ -17,6 +17,14 @@ class ShippingRateRequest extends FormRequest
         return true;
     }
 
+    protected function prepareForValidation(): void
+    {
+        // The admin form sends null when the COD field is left empty.
+        if ($this->exists('cod_fee') && $this->input('cod_fee') === null) {
+            $this->merge(['cod_fee' => 0]);
+        }
+    }
+
     /**
      * @return array<string, mixed>
      */

@@ -30,6 +30,22 @@ test('fallback is explicitly flagged only for network/server failures',async()=>
  h.render(()=>h.hook.useRemote(async()=>{throw {status:500,message:'Unavailable'};},[],{mock:()=>[{id:999}]}));await tick();
  assert.deepEqual(h.slots[0],[{id:999}]);assert.equal(h.slots[3],true);assert.equal(h.slots[2].status,500);h.unmount();
 });
+test('a failed shipping list exposes the server error without fixture rows', async () => {
+ const h = harness('useRemote.ts', { USE_MOCK: false, FALLBACK_ON_ERROR: true });
+ const fetchCompanies = async () => { throw { status: 500, message: 'Shipping companies unavailable' }; };
+ try {
+  h.render(() => h.hook.useRemote(fetchCompanies, []));
+  await tick();
+  const state = h.render(() => h.hook.useRemote(fetchCompanies, []));
+  assert.equal(state.loading, false);
+  assert.equal(state.data, null);
+  assert.equal(state.usingMock, false);
+  assert.equal(state.error.status, 500);
+  assert.equal(state.error.message, 'Shipping companies unavailable');
+ } finally {
+  h.unmount();
+ }
+});
 test('mutations reject double clicks synchronously and retain 422 field errors',async()=>{
  const h=harness('useRemote.ts');const {run}=h.render(()=>h.hook.useAction());let release,requests=0,fields,toast=[];
  const first=run(()=>{requests++;return new Promise(resolve=>{release=resolve;});},{toast:(...x)=>toast.push(x),success:'Saved'});

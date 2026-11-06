@@ -160,16 +160,16 @@ export function SettingsScreen({ onNavigate, can, initialTab }: { onNavigate?: (
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
         {/* Tabs rail */}
-        <nav className="lg:col-span-3 v-card p-2 stagger-item stagger-2 lg:sticky lg:top-5">
+        <nav aria-label="أقسام الإعدادات" className="settings-nav lg:col-span-3 v-card p-2 stagger-item stagger-2 lg:sticky lg:top-5">
           {SETTINGS_TABS.map((t) => {
             const active = tab === t.key;
             return (
-              <button type="button" key={t.key} onClick={() => setTab(t.key)}
+              <button type="button" key={t.key} onClick={() => setTab(t.key)} aria-current={active ? 'true' : undefined}
                 className={`w-full flex items-center gap-3 p-3 rounded-2xl text-start transition ${active ? 'v-tab-active' : 'v-tab'}`}>
                 <span className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${active ? 'text-white v-accent-btn' : 'v-icon-well'}`}><Icon name={t.icon} className="w-4 h-4" /></span>
                 <div className="flex-1 min-w-0">
                   <div className="text-[13px] font-semibold" style={{ color: 'var(--text-primary)' }}>{t.label}</div>
-                  <div className="text-[11px] truncate" style={{ color: 'var(--text-muted)' }}>{t.desc}</div>
+                  <div className="settings-nav-description text-[11px] truncate" style={{ color: 'var(--text-muted)' }}>{t.desc}</div>
                 </div>
                 {dirtyGroups.has(t.key) && <span className="w-2 h-2 rounded-full shrink-0" style={{ background: 'var(--accent-orange)' }} title="تعديلات غير محفوظة" />}
               </button>
@@ -177,11 +177,11 @@ export function SettingsScreen({ onNavigate, can, initialTab }: { onNavigate?: (
           })}
         </nav>
 
-        <div className="lg:col-span-9 stagger-item stagger-3" key={tab}>
+        <div className="min-w-0 lg:col-span-9 stagger-item stagger-3" key={tab}>
           {tab === 'store' ? (
             <StoreManagementTab can={can} />
           ) : (!s || !server || loading) ? <SettingsSkeleton /> : (
-            <fieldset disabled={!editable || saving} className="v-tab-in space-y-5">
+            <fieldset disabled={!editable || saving} className="min-w-0 v-tab-in space-y-5">
               {tab === 'company' && <CompanyTab errors={fieldErrors} v={s.company} set={(k, val) => set('company', k, val)} />}
               {tab === 'tax' && <TaxTab errors={fieldErrors} v={s.tax} set={(k, val) => set('tax', k, val)} />}
               {tab === 'numbering' && <NumberingTab errors={fieldErrors} v={s.numbering} server={server.numbering} setNum={setNum} />}
@@ -221,7 +221,7 @@ function CompanyTab({ errors, v, set }: { errors: Record<string,string[]>; v: Ad
           {v.company_logo && !logoErr ? <img src={v.company_logo} onError={() => setLogoErr(true)} className="w-full h-full object-contain p-2" alt="Logo" />
             : <div className="flex flex-col items-center gap-1" style={{ color: 'var(--text-muted)' }}><Icon name="image" className="w-6 h-6" strokeWidth={1.6} /><span className="text-[10px]">{logoErr ? 'رابط غير صالح' : 'لا يوجد شعار'}</span></div>}
         </div>
-        <div className="flex-1 min-w-[240px]">
+        <div className="flex-1" style={{ minWidth: 'min(100%, 240px)' }}>
           <Field label="رابط شعار المنشأة" hint="PNG أو SVG بخلفية شفافة، يُفضّل 512×512 بكسل." error={errors.company_logo?.[0] || (logoErr ? 'تعذّر تحميل الصورة من هذا الرابط' : null)}>
             <TextInput value={v.company_logo} onChange={x => set('company_logo', x)} icon="link" dir="ltr" placeholder="https://cdn.company.com/logo.png" error={logoErr} />
           </Field>
@@ -245,7 +245,7 @@ function CompanyTab({ errors, v, set }: { errors: Record<string,string[]>; v: Ad
     {/* Invoice header preview */}
     <SectionCard title="معاينة ترويسة الفاتورة" subtitle="هكذا ستظهر بيانات الشركة أعلى المستندات المطبوعة.">
       <div className="v-paper rounded-2xl p-6">
-        <div className="flex items-start justify-between gap-6 pb-5" style={{ borderBottom: '1.5px dashed rgba(24,21,28,.14)' }}>
+        <div className="flex flex-wrap items-start justify-between gap-4 pb-5" style={{ borderBottom: '1.5px dashed rgba(24,21,28,.14)' }}>
           <div className="flex items-start gap-4">
             <div className="w-14 h-14 rounded-xl flex items-center justify-center overflow-hidden shrink-0" style={{ background: '#f5f2f6' }}>
               {v.company_logo && !logoErr ? <img src={v.company_logo} className="w-full h-full object-contain p-1" alt="Logo preview" /> :
@@ -256,13 +256,13 @@ function CompanyTab({ errors, v, set }: { errors: Record<string,string[]>; v: Ad
               <div className="text-[11.5px] text-[#78737e] mt-1 whitespace-pre-line leading-relaxed">{v.company_address}</div>
             </div>
           </div>
-          <div className="text-[11.5px] text-[#78737e] space-y-1 text-end shrink-0">
+          <div className="text-[11.5px] text-[#78737e] space-y-1 text-start break-all">
             <div dir="ltr">{v.company_phone}</div>
             <div dir="ltr">{v.company_email}</div>
             <div>س.ت: <span className="text-[#18151c] font-semibold">{v.commercial_register}</span></div>
           </div>
         </div>
-        <div className="flex items-center justify-between pt-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-4">
           <span className="font-display text-[22px] font-bold text-[#18151c] tracking-tight">فاتورة ضريبية</span>
           <span className="font-mono text-[12px] font-semibold px-3 py-1 rounded-full" style={{ background: '#fde8e1', color: '#c2410c' }}>INV-001042</span>
         </div>
