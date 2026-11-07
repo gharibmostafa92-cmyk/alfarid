@@ -9,7 +9,9 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Notification;
 
-/** طلب تسجيل تاجر جملة جديد بانتظار المراجعة — للإدارة. */
+/**
+ * Alerts management staff of a new wholesale registration requiring verification.
+ */
 class WholesaleApplicationSubmittedNotification extends Notification implements ShouldQueue
 {
     use Queueable;

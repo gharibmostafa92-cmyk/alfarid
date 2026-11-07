@@ -128,7 +128,7 @@ export interface ReturnRequestItem {
   item_reason?: string | null;
 }
 
-/** مطابق حرفياً لـ ReturnRequestResource::toArray */
+/** Maps directly to backend ReturnRequestResource payload. */
 export interface ReturnRequest {
   id: number;
   return_number: string;

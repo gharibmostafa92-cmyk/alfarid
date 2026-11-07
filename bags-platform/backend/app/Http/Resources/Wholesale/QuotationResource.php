@@ -7,6 +7,9 @@ namespace App\Http\Resources\Wholesale;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
+/**
+ * Wholesale quotation resource representation including pricing breakdown and conversion link.
+ */
 class QuotationResource extends JsonResource
 {
     /** @return array<string, mixed> */
@@ -22,7 +25,11 @@ class QuotationResource extends JsonResource
                 'company_name' => $this->customer->company_name,
             ]),
             'status' => $this->status->value,
+            'revision' => $this->revision,
+            'source' => $this->source?->value ?? $this->source,
             'valid_until' => $this->valid_until?->toDateString(),
+            'priced_at' => $this->priced_at?->toIso8601String(),
+            'priced_by' => $this->priced_by,
             'subtotal' => $this->subtotal,
             'discount_amount' => $this->discount_amount,
             'tax_amount' => $this->tax_amount,

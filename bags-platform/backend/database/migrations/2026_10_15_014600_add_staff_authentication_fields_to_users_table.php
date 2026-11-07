@@ -10,8 +10,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        // H4: هذه الأعمدة قد توجد أصلًا (النظام كان يستخدم Sanctum والفروع قبل
-        // هذا التاريخ)، فاحمِ الإضافة حتى لا يفشل migrate في الإنتاج.
+        // Guard against duplicate column errors if existing environments pre-created staff columns.
         Schema::table('users', function (Blueprint $table): void {
             if (! Schema::hasColumn('users', 'phone')) {
                 $table->string('phone')->nullable()->after('email');
@@ -27,11 +26,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        // L-4: الـ up() يضيف الأعمدة بشرط hasColumn لأنها قد توجد
-        // أصلًا قبل الـ migration. الـ down() القديم كان يحذف الثلاثة
-        // من غير شرط، فيضيّع phone لو كان موجودًا قبلها (عمود بيانات
-        // قديم لا تملكه هذه الـ migration). phone لا يُحذف أبدًا هنا،
-        // وbranch_id/is_active يُحذفان فقط إن وُجدا.
+        // Drop conditionally to protect existing columns (such as pre-existing phone) from accidental drop.
         Schema::table('users', function (Blueprint $table): void {
             $drop = [];
             if (Schema::hasColumn('users', 'branch_id')) {

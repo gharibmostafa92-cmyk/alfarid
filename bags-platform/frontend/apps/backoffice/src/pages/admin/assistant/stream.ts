@@ -13,7 +13,7 @@ export function parseAgentEvents(text: string): AgentEvent[] {
 }
 
 /**
- * L6: incremental SSE parsing for onDownloadProgress. Each progress event
+ * Incremental SSE parsing for onDownloadProgress. Each progress event
  * carries the FULL responseText, so re-parsing from scratch every chunk is
  * O(n^2) and freezes the UI on long replies. The parser remembers how many
  * bytes it already consumed and only parses newly completed frames,

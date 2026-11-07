@@ -6,6 +6,9 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
+/**
+ * Audit trail of automated financial ledger reconciliation jobs.
+ */
 class FinanceReconcileRun extends Model
 {
     public const UPDATED_AT = null;

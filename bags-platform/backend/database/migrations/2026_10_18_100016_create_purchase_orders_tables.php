@@ -8,9 +8,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * المرحلة 10 — أوامر الشراء الموجهة للموردين وبنودها.
- * الاستلام (كلي/جزئي) يحدّث متوسط التكلفة المرجح ويغذي المخزون
- * عبر ProcurementService + InventoryService حصرًا.
+ * Supplier purchase orders and line items.
+ * Stock receipts recalculate weighted average unit costs and credit inventory ledger balances.
  */
 return new class extends Migration
 {

@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    // F11: CONCURRENTLY — فهارس الألوان على جدول يكتب فيه المخزون والطلبات.
+    // Build color indexes concurrently outside transactions to avoid locking write-heavy catalog tables.
     public $withinTransaction = false;
 
     public function up(): void
@@ -28,7 +28,7 @@ return new class extends Migration
         // Preserve valid long links when rolling back the indexes.
     }
 
-    /** F11: CONCURRENTLY في النشر فقط — انظر هجرة حقول الواجهة. */
+    /** Apply CONCURRENTLY outside test transactions to build indexes without exclusive locks. */
     private function concurrently(): string
     {
         if (app()->environment('testing') || DB::transactionLevel() > 0) {

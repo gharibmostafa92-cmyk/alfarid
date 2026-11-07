@@ -10,7 +10,7 @@ return new class extends Migration
     public $withinTransaction = false;
 
     /**
-     * M8: stock_transfer_items keeps approval math in the application layer,
+     * Database check constraints on stock transfer items ensuring received and damaged quantities do not exceed approved amounts.
      * but the database should still reject nonsense and duplicate rows.
      * NOT VALID + VALIDATE keeps existing-traffic tables lock-free; the FK
      * guards for variants/branches/locations stay as defined at creation.

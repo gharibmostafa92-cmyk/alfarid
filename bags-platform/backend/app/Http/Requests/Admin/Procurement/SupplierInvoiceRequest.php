@@ -7,8 +7,7 @@ namespace App\Http\Requests\Admin\Procurement;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
- * إنشاء/تعديل فاتورة مورد (مسودة): الإجمالي يُحسب خادميًا (subtotal + tax)،
- * والاستحقاق الافتراضي من أجل سداد المورد عند غيابه.
+ * Create or update supplier invoice draft. Grand total is computed server-side (subtotal + tax).
  */
 class SupplierInvoiceRequest extends FormRequest
 {

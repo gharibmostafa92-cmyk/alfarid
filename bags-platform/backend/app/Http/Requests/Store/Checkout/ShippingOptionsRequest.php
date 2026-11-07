@@ -19,8 +19,7 @@ class ShippingOptionsRequest extends FormRequest
     {
         return [
             'city_id' => ['required', 'integer', 'exists:cities,id'],
-            // لا subtotal ولا وزن من العميل (F-29): الإجمالي يُحسب من السلة
-            // على الخادم، وطريقة الدفع تحدد رسوم COD المعروضة
+            // Weight and subtotal are calculated server-side from cart items; payment_method determines applicable COD surcharge.
             'payment_method' => ['nullable', Rule::in(['cod', 'card', 'wallet', 'bank_transfer', 'credit'])],
         ];
     }

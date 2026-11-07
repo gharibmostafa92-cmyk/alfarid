@@ -10,8 +10,8 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
- * حلّ مستلمي إشعارات الطاقم: مستخدمون نشطون يملكون أيًا من الصلاحيات
- * المعطاة، إضافة إلى حاملي دور Super Admin دائمًا.
+ * Resolves staff notification recipients based on active status,
+ * permissions, branch assignment, and Super Admin privileges.
  */
 final class StaffRecipients
 {
@@ -43,7 +43,7 @@ final class StaffRecipients
             })->values();
     }
 
-    /** مديرو فرع معين: نشطون مقيدون بالفرع ويملكون صلاحية المخزون أو Super Admin. */
+    /** Active branch managers assigned to the specified branch with inventory permissions or Super Admin role. */
     public static function branchManagers(int $branchId): Collection
     {
         return User::query()

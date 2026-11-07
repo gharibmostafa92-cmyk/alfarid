@@ -138,7 +138,7 @@ class AiAgentHardeningTest extends TestCase
 
     public function test_location_tools_require_locations_permissions_not_branches(): void
     {
-        // H3: branches.delete must not grant location deletion; locations.*
+        // Branches.delete must not grant location deletion; locations.*
         // is the only gate, matching the REST routes.
         $branch = Branch::factory()->create();
         $location = $branch->locations()->create(['name' => 'Shelf', 'code' => 'SH-1', 'type' => 'shelf']);
@@ -160,7 +160,7 @@ class AiAgentHardeningTest extends TestCase
 
     public function test_location_status_audit_records_true_before_value(): void
     {
-        // H3: the audit trail must store the real pre-change state.
+        // The audit trail must store the real pre-change state.
         $branch = Branch::factory()->create();
         $location = $branch->locations()->create(['name' => 'Bin', 'code' => 'BIN-1', 'type' => 'bin', 'is_active' => true]);
         $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'locations.update', 'inventory.all_branches']);
@@ -181,7 +181,7 @@ class AiAgentHardeningTest extends TestCase
 
     public function test_interrupted_function_call_is_repaired_in_history(): void
     {
-        // H4: a model message with an orphan functionCall (process died before
+        // A model message with an orphan functionCall (process died before
         // the tool reply was stored) must be paired with an interrupted stub,
         // otherwise Gemini rejects every later message with 400.
         $admin = $this->staff(['ai_agent.use']);
@@ -220,9 +220,9 @@ class AiAgentHardeningTest extends TestCase
 
     public function test_bulk_child_cannot_be_confirmed_directly(): void
     {
-        // M10: sub-actions stay bulk_child until the bulk runs, so one item
+        // Sub-actions stay bulk_child until the bulk runs, so one item
         // can never be confirmed alone bypassing group review.
-        // M-5: set_branch_status خرج من الـ bulk — الاختبار يستخدم
+        // Bulk batch conflict test: verify optimistic locking rejection when an entity version changes concurrently
         // set_location_status.
         $branch = Branch::factory()->create();
         $first = Location::factory()->create(['branch_id' => $branch->id]);
@@ -241,7 +241,7 @@ class AiAgentHardeningTest extends TestCase
 
     public function test_stuck_confirmed_bulk_is_failed_by_pruning(): void
     {
-        // M10: a bulk stuck in confirmed (process died mid-execution) is
+        // A bulk stuck in confirmed (process died mid-execution) is
         // closed by the periodic job instead of hanging forever.
         $admin = $this->staff(['ai_agent.use']);
         $conv = $this->conv($admin);
@@ -258,7 +258,7 @@ class AiAgentHardeningTest extends TestCase
 
     public function test_conversation_all_view_requires_central_access(): void
     {
-        // M11: ?all=1 exposes every user's conversations, so branch-restricted
+        // ?all=1 exposes every user's conversations, so branch-restricted
         // viewers are rejected even with logs.view.
         $owner = $this->staff(['ai_agent.use']);
         $this->conv($owner);

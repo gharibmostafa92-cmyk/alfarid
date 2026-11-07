@@ -505,7 +505,7 @@ class ReturnService
             throw new BusinessException('لا يوجد سجل تسليم موثوق لحساب فترة الاسترجاع.');
         }
 
-        if ($deliveredAt !== null && $deliveredAt->copy()->addDays($windowDays)->isPast()) {
+        if ($deliveredAt->copy()->addDays($windowDays)->isPast()) {
             throw new BusinessException("انتهت فترة الاسترجاع المسموحة ({$windowDays} يومًا من التسليم) لهذا الطلب.");
         }
     }

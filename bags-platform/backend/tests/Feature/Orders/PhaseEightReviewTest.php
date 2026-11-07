@@ -161,7 +161,7 @@ class PhaseEightReviewTest extends TestCase
             $buyAsGuest('+201012345678');
             $this->fail('تجاوز حد الكوبون برقم الهاتف نفسه كان يجب أن يُرفض');
         } catch (BusinessException $e) {
-            $this->assertSame('coupon_invalid', $e->errorCode); // H8: رمز مميز
+            $this->assertSame('coupon_invalid', $e->errorCode); // Distinct error code.
             $this->assertSame(1, Order::query()->count());
             $this->assertSame(1, Coupon::query()->sole()->used_count);
         }

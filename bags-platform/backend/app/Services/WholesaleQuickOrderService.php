@@ -217,6 +217,10 @@ class WholesaleQuickOrderService
         $skus = collect($lines)->pluck('sku')->filter()->unique()->all();
         $barcodes = collect($lines)->pluck('barcode')->filter()->unique()->all();
 
+        if ($skus === [] && $barcodes === []) {
+            return collect();
+        }
+
         $variants = ProductVariant::query()->with(['product.media', 'media'])
             ->where('is_active', true)
             ->whereHas('product', fn ($q) => $q->where('status', 'published'))

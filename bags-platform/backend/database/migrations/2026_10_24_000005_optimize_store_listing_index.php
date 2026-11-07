@@ -8,7 +8,7 @@ return new class extends Migration
     public $withinTransaction = false;
 
     /**
-     * F20: every storefront listing filters by status, so the plain index
+     * Optimizes storefront catalog index filtering on published status, so the plain index
      * on the generated products.is_active column only taxes writes.
      * Drop the index (keep the column) and add the partial index that
      * actually serves the store's newest-first listing order.

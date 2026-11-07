@@ -1,6 +1,9 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { formatStorePrice } from '@alfarid/utils';
+import { StoreImage } from '../StoreImage';
+
 const FALLBACK_USER = {
   name: 'My account',
   initials: 'MA',
@@ -13,8 +16,6 @@ const FALLBACK_USER = {
     { id: 'signout', label: 'Sign out', icon: 'fa-solid fa-arrow-from-bracket', isSignOut: true, type: 'item' },
   ],
 };
-import { formatStorePrice } from '@alfarid/utils';
-import { StoreImage } from '../StoreImage';
 
 /**
  * SophieProfileDropdown Component

@@ -36,9 +36,8 @@ class ShippingCompanyRequest extends FormRequest
             // Same alphabet and length as the public webhook path, so a saved code can receive events.
             'code' => ['required', 'string', 'regex:/^[A-Za-z0-9_-]{1,40}$/', Rule::unique('shipping_companies', 'code')->ignore($company)],
             'api_credentials' => ['nullable', 'array'],
-            // قالب رابط تتبع آمن (F-25): https فقط (يمنع javascript: ونحوه
-            // كـ XSS مخزّن) ويجب أن يحوي العنصر النائب {awb}. لا نستخدم قاعدة
-            // url لأنها ترفض الأقواس المعقوفة في القالب نفسه
+            // Secure tracking URL template: HTTPS only to block javascript: schemes (stored XSS)
+            // and must contain {awb} placeholder. Standard 'url' rule is avoided due to curly braces.
             'tracking_url_template' => ['nullable', 'string', 'max:500', 'starts_with:https://', 'regex:/\{awb\}/'],
             'is_active' => ['nullable', 'boolean'],
         ];

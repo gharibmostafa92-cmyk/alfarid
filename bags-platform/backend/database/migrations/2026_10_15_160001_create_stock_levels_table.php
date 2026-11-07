@@ -27,7 +27,7 @@ return new class extends Migration
             $table->index('location_id');
         });
 
-        // قيد فريد مركب: ‏NULLS NOT DISTINCT عشان صفوف "من غير موقع" متتكررش (PostgreSQL 15+)
+        // NULLS NOT DISTINCT prevents duplicate null location records for the same variant and branch (PostgreSQL 15+)
         DB::statement('CREATE UNIQUE INDEX stock_levels_variant_branch_location_unique
             ON stock_levels (product_variant_id, branch_id, location_id) NULLS NOT DISTINCT');
     }

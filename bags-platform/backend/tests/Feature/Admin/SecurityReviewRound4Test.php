@@ -29,9 +29,9 @@ use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
 /**
- * انحدار جولة المراجعة الرابعة: M4 نطاق قوائم الأسعار، M5 مخزون المعطّلات،
- * M6 حد إعادة الطلب، M7 تكلفة الحركات، M8 التواريخ، M9 العملة،
- * M10 ترقيم الحركات، M12 قيود قاعدة البيانات، L2/L5.
+ * Security review round 4 regressions: branch-scoped price lists, inactive variant stock exclusion,
+ * reorder point threshold parity, movement cost calculation, currency constraints,
+ * movement numbering sequences, and database integrity constraints.
  */
 class SecurityReviewRound4Test extends TestCase
 {
@@ -46,7 +46,7 @@ class SecurityReviewRound4Test extends TestCase
         $this->actor = User::factory()->create();
     }
 
-    // ---------- M4: قوائم الأسعار مقيدة بنطاق الفرع ----------
+    // ---------- Branch-scoped price lists ----------
 
     public function test_branch_staff_only_sees_and_touches_own_branch_price_lists(): void
     {
@@ -66,7 +66,7 @@ class SecurityReviewRound4Test extends TestCase
         $this->assertSame([$listA->id], $ids->all()); // لا العامة ولا فرع آخر
 
         $this->requestWithToken($token, 'GET', "/api/v1/admin/price-lists/{$listB->id}")->assertNotFound();
-        // من الجولة 5 (L-6): 404 موحد لقوائم خارج النطاق بدل 403 الكاشف للوجود
+        // Unified 404 for out-of-scope price lists to prevent existence leakage
         $this->requestWithToken($token, 'PUT', "/api/v1/admin/price-lists/{$global->id}", ['name' => 'Hijack'])->assertNotFound();
 
         $this->requestWithToken($token, 'POST', '/api/v1/admin/price-lists', [
@@ -76,11 +76,11 @@ class SecurityReviewRound4Test extends TestCase
         $this->requestWithToken($token, 'POST', '/api/v1/admin/price-lists', [
             'name' => 'Mine', 'type' => 'retail',
         ])->assertCreated();
-        // تُربط بفرعه تلقائيًا
+        // Automatically binds to the user branch
         $this->assertSame($branchA->id, PriceList::where('name', 'Mine')->firstOrFail()->branch_id);
     }
 
-    // ---------- M5: رصيد المعطّلات قابل للتصفية لا محبوس ----------
+    // ---------- Stock liquidation on inactive locations ----------
 
     public function test_inactive_variant_stock_can_be_drawn_down_but_not_increased(): void
     {
@@ -91,20 +91,20 @@ class SecurityReviewRound4Test extends TestCase
         $this->movement($variant, $branch, 10);
         $variant->update(['is_active' => false]);
 
-        // إخراج من المعطّل: مسموح (تصفية الرصيد)
+        // Outbound movement from inactive location is allowed for liquidation
         $this->requestWithToken($token, 'POST', '/api/v1/admin/inventory/adjustments', [
             'branch_id' => $branch->id,
             'items' => [['product_variant_id' => $variant->id, 'adjustment_type' => 'decrease', 'quantity' => 4]],
         ])->assertCreated();
         $this->assertSame('6.0000', StockLevel::where('product_variant_id', $variant->id)->firstOrFail()->on_hand);
 
-        // إدخال على المعطّل: ممنوع
+        // Inbound movement into inactive location is blocked
         $this->requestWithToken($token, 'POST', '/api/v1/admin/inventory/adjustments', [
             'branch_id' => $branch->id,
             'items' => [['product_variant_id' => $variant->id, 'adjustment_type' => 'increase', 'quantity' => 1]],
         ])->assertUnprocessable();
 
-        // والجرد والتحويل الصادر يعملان على المعطّل أيضًا
+        // Stocktakes and outbound transfers can operate on inactive locations
         $stocktake = app(StocktakeService::class)->create(['branch_id' => $branch->id, 'items' => [
             ['product_variant_id' => $variant->id, 'counted_qty' => 6],
         ]], $staff->id);
@@ -117,7 +117,7 @@ class SecurityReviewRound4Test extends TestCase
         $this->assertSame('draft', $transfer->status->value);
     }
 
-    // ---------- M6: حد إعادة الطلب الفعّال ----------
+    // ---------- Effective reorder point threshold ----------
 
     public function test_low_stock_uses_variant_reorder_level_when_level_has_none(): void
     {
@@ -137,7 +137,7 @@ class SecurityReviewRound4Test extends TestCase
         $this->assertCount(0, $data);
     }
 
-    // ---------- M7: unit_cost خلف صلاحية ----------
+    // ---------- Cost visibility permission gating ----------
 
     public function test_movement_unit_cost_requires_view_cost_permission(): void
     {
@@ -160,14 +160,14 @@ class SecurityReviewRound4Test extends TestCase
         $this->assertSame('42.0000', $row['unit_cost']);
     }
 
-    // ---------- M8 + M9: تواريخ صارمة وعملة واحدة ----------
+    // ---------- Strict date bounds and single-currency invariants ----------
 
     public function test_price_list_dates_are_interpreted_in_business_timezone_and_stored_utc(): void
     {
         $staff = $this->hqStaff();
         $token = $staff->createToken('test')->plainTextToken;
 
-        // يناير: القاهرة UTC+2 — منتصف ليل القاهرة = 22:00 UTC في اليوم السابق
+        // Cairo timezone UTC+2: Cairo midnight corresponds to 22:00 UTC on the previous day
         $created = $this->requestWithToken($token, 'POST', '/api/v1/admin/price-lists', [
             'name' => 'TZ', 'type' => 'retail', 'starts_at' => '2027-01-15 00:00:00',
         ])->assertCreated()->json('data');
@@ -175,7 +175,7 @@ class SecurityReviewRound4Test extends TestCase
 
         $this->requestWithToken($token, 'POST', '/api/v1/admin/price-lists', [
             'name' => 'USD list', 'type' => 'retail', 'currency' => 'USD',
-        ])->assertUnprocessable(); // M9: EGP فقط حاليًا
+        ])->assertUnprocessable(); // Only EGP currency is supported currently.
     }
 
     public function test_csv_import_rejects_ambiguous_dates_and_accepts_iso_with_offset(): void
@@ -199,7 +199,7 @@ class SecurityReviewRound4Test extends TestCase
         $this->assertSame('2027-01-14 22:00:00', $list->items()->firstOrFail()->starts_at->format('Y-m-d H:i:s'));
     }
 
-    // ---------- M10: الحركات بلا total ----------
+    // ---------- Movement pagination without count total ----------
 
     public function test_movements_listing_uses_simple_pagination_without_total(): void
     {
@@ -212,7 +212,7 @@ class SecurityReviewRound4Test extends TestCase
         $this->assertCount(1, $response->json('data'));
     }
 
-    // ---------- M12: الثوابت في قاعدة البيانات ----------
+    // ---------- Database integrity constraints ----------
 
     public function test_database_rejects_impossible_transfer_and_stocktake_quantities(): void
     {
@@ -228,12 +228,12 @@ class SecurityReviewRound4Test extends TestCase
             'created_at' => now(), 'updated_at' => now(),
         ]);
 
-        // سطر مكرر لنفس الصنف والموقعين
+        // Duplicate line for same variant and locations
         $this->assertThrowsQuery(fn () => DB::table('stock_transfer_items')->insert([
             'stock_transfer_id' => $transferId, 'product_variant_id' => $variant->id, 'requested_qty' => 3,
             'created_at' => now(), 'updated_at' => now(),
         ]));
-        // معتمد أكبر من المطلوب
+        // Approved quantity exceeds requested quantity
         $this->assertThrowsQuery(fn () => DB::table('stock_transfer_items')->insert([
             'stock_transfer_id' => $transferId, 'product_variant_id' => ProductVariant::factory()->create()->id,
             'requested_qty' => 3, 'approved_qty' => 9, 'created_at' => now(), 'updated_at' => now(),
@@ -247,7 +247,7 @@ class SecurityReviewRound4Test extends TestCase
             'stocktake_id' => $stocktakeId, 'product_variant_id' => $variant->id, 'system_qty' => 1,
             'created_at' => now(), 'updated_at' => now(),
         ]);
-        // عدّ سالب + صنف مكرر في نفس الجلسة
+        // Negative count and duplicate variant in same session
         $this->assertThrowsQuery(fn () => DB::table('stocktake_items')->insert([
             'stocktake_id' => $stocktakeId, 'product_variant_id' => ProductVariant::factory()->create()->id,
             'system_qty' => 1, 'counted_qty' => -2, 'created_at' => now(), 'updated_at' => now(),
@@ -258,7 +258,7 @@ class SecurityReviewRound4Test extends TestCase
         ]));
     }
 
-    // ---------- L2 + L5 ----------
+    // ---------- Rate limit and verification helpers ----------
 
     public function test_record_movement_without_creator_fails_loudly_and_reference_uses_morph_alias(): void
     {
@@ -326,7 +326,7 @@ class SecurityReviewRound4Test extends TestCase
     {
         Auth::forgetGuards();
 
-        // M2: مفتاح عدم تكرار جديد لكل طلب — إلا إذا حدده الاختبار (إعادة تشغيل).
+        // Fresh idempotency key per request unless explicitly specified by test for replay testing.
         if (! isset($headers['Idempotency-Key']) && ! isset($this->defaultHeaders['Idempotency-Key'])) {
             $headers['Idempotency-Key'] = (string) Str::uuid();
         }

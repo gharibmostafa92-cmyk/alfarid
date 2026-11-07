@@ -8,9 +8,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * الطلبات وعناصرها وسجل حالاتها.
- * المعادلة المالية الإلزامية: grand_total = (subtotal − discount_amount) + shipping_cost + tax_amount
- * ملحوظة: orders.coupon_id بلا قيد FK حاليًا — جدول الكوبونات لم يُبنَ بعد.
+ * Orders, order items, and status transition audit histories.
+ * Financial formula: grand_total = (subtotal - discount_amount) + shipping_cost + tax_amount.
+ * Foreign key for coupon_id is deferred until the coupons table is created.
  */
 return new class extends Migration
 {
@@ -20,17 +20,16 @@ return new class extends Migration
             $table->id();
             $table->string('order_number')->unique();
             $table->string('channel')->default('store');
-            // nullable لدعم الشراء كزائر
+            // Nullable to support guest checkout
             $table->foreignId('customer_id')->nullable()->constrained()->nullOnDelete();
             $table->string('guest_name')->nullable();
             $table->string('guest_phone', 50)->nullable();
             $table->string('guest_email')->nullable();
-            // بلا FK عمدًا: تراجع هجرة المرحلة 5.1 يُسقط جدول cities، والطلب
-            // سجل تاريخي يحتفظ بمعرّف المدينة كمرجع (مثل coupon_id بالأسفل)
+            // Intentionally unconstrained: preserves city historical reference even if cities are modified
             $table->unsignedBigInteger('city_id')->nullable()->index();
             $table->string('shipping_address_line')->nullable();
             $table->string('shipping_notes')->nullable();
-            // الفرع الرئيسي المنفذ (عند تنفيذ الطلب كاملًا من فرع واحد)
+            // Primary fulfillment branch when order is entirely fulfilled from one location
             $table->foreignId('allocated_branch_id')->nullable()->constrained('branches')->nullOnDelete();
             $table->string('status')->default('pending');
             $table->string('payment_method')->nullable();
@@ -61,7 +60,7 @@ return new class extends Migration
             $table->foreignId('product_variant_id')->constrained();
             $table->string('product_name_snapshot');
             $table->string('sku_snapshot');
-            // فرع تنفيذ هذا الصنف (لدعم تقسيم الطلب على أكثر من فرع)
+            // Line-level fulfillment branch to support split fulfillment across branches
             $table->foreignId('allocated_branch_id')->nullable()->constrained('branches')->nullOnDelete();
             $table->decimal('qty', 12, 4);
             $table->decimal('unit_price', 12, 2);

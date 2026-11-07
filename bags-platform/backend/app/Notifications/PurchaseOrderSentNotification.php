@@ -9,7 +9,9 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Notification;
 
-/** أمر شراء جديد في بوابة المورد. */
+/**
+ * Notifies supplier portal users of a newly issued purchase order.
+ */
 class PurchaseOrderSentNotification extends Notification implements ShouldQueue
 {
     use Queueable;

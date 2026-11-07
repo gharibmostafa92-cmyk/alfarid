@@ -22,7 +22,7 @@ class ApproveCustomerRequest extends FormRequest
         return [
             'customer_group_id' => ['nullable', 'integer', Rule::exists('customer_groups', 'id')->where('is_active', true)],
             'credit_limit' => ['nullable', 'numeric', 'min:0', 'max:9999999999.99'],
-            // الاعتماد يبقي النوع أو يرقّيه لموزع — لا يحوّل لقطاعي
+            // Approval maintains current merchant tier or upgrades to distributor; never downgrades to retail.
             'type' => ['nullable', Rule::in(['wholesale', 'distributor'])],
             'company_name' => ['sometimes', 'string', 'max:255'],
             'tax_number' => ['sometimes', 'string', 'max:50'],

@@ -17,6 +17,9 @@ use Spatie\Permission\Traits\HasRoles;
 
 #[Fillable(['name', 'email', 'phone', 'password', 'branch_id', 'is_active', 'must_change_password'])]
 #[Hidden(['password', 'remember_token'])]
+/**
+ * Staff employee account with role-based permissions, branch constraints, and activity tracking.
+ */
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */

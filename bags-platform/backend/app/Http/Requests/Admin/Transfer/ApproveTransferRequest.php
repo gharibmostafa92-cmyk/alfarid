@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Transfer;
 
+/**
+ * Validates stock transfer approval quantities against the inspected version.
+ */
 class ApproveTransferRequest extends TransferItemsQtyRequest
 {
     protected string $qtyField = 'approved_qty';
@@ -11,8 +14,7 @@ class ApproveTransferRequest extends TransferItemsQtyRequest
     /** @return array<string, mixed> */
     public function rules(): array
     {
-        // M3: approving unseen edits is a real hazard — the approver must
-        // name the version they reviewed.
+        // Enforce version locking so the approval applies strictly to the inspected revision.
         return array_merge(parent::rules(), [
             'expected_version' => ['required', 'integer', 'min:1'],
         ]);

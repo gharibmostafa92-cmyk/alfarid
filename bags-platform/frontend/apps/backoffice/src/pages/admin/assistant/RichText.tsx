@@ -1,9 +1,8 @@
 import { useState, type ReactNode } from 'react';
 import { Icon } from './icons';
 
-// H6 (محفوظ): لا dangerouslySetInnerHTML نهائيًا. ده Markdown parser صغير بيبني
-// React elements مباشرة، فأي HTML جوه أسماء الفروع/الموظفين يتعرض كنص عادي.
-// بيدعم: فقرات، عناوين (#)، قوائم (- / 1.)، اقتباس (>)، كود (``` و `inline`)، **bold**.
+// XSS mitigation: avoids dangerouslySetInnerHTML by directly constructing React elements from Markdown tokens.
+// Supports paragraphs, headings (#), lists (- / 1.), blockquotes (>), code blocks, and bold formatting.
 
 function inline(text: string, key: string): ReactNode[] {
   const out: ReactNode[] = [];

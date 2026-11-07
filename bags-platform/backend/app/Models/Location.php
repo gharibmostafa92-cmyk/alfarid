@@ -12,6 +12,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable(['branch_id', 'name', 'code', 'type', 'is_active'])]
+/**
+ * Specific storage area, aisle, or bin within a physical branch.
+ */
 class Location extends Model
 {
     /** @use HasFactory<LocationFactory> */

@@ -1,7 +1,7 @@
 'use client';
 import { useAuthStore } from '@/store/auth.store';
 
-/** لقطة الجلسة الحالية لتطبيق الويب (التوكن يُدار في api-client عبر setAuthToken). */
+/** Current web application session snapshot. Tokens are managed via api-client. */
 export function getWebSession() {
   const { token, actorType, destination, home, user } = useAuthStore.getState();
   return { token, actorType, destination, home, user };

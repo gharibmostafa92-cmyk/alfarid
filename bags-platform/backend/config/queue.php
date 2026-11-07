@@ -41,15 +41,11 @@ return [
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
             'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 180),
-            // F8: الإرسال داخل معاملة يُنفَّذ بعد الـ commit — قبل ذلك قد
-            // يقرأ Job بيانات قديمة أو يُنفَّذ لعملية تم التراجع عنها.
+            // Dispatch after commit to prevent workers from reading uncommitted or rolled-back state.
             'after_commit' => true,
         ],
 
-        // M8: dedicated media connection with a long visibility timeout.
-        // Video/image conversions run up to --timeout=600 on the media
-        // worker; with retry_after=90 a second worker would pick the same
-        // job after 90s and run it twice. 900s keeps one owner.
+        // Dedicated media connection with 900s visibility timeout to avoid dual processing during heavy video/image encoding.
         'database-media' => [
             'driver' => 'database',
             'connection' => env('DB_QUEUE_CONNECTION'),
@@ -79,8 +75,7 @@ return [
             'after_commit' => false,
         ],
 
-        // مهلة أطول من دورة المساعد (240ث) ومن timeout الجوب (300ث)،
-        // وإلا الـ worker التاني ياخد نفس الرسالة وهي لسه بتتنفذ.
+        // Retry timeout (420s) exceeds agent cycle (240s) and job timeout (300s) to avoid double-processing.
         'whatsapp' => [
             'driver' => 'database',
             // Enqueue in the same transaction as the inbound deduplication row.
@@ -97,7 +92,7 @@ return [
             'queue' => env('REDIS_QUEUE', 'default'),
             'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 90),
             'block_for' => null,
-            // F8: same after-commit rule as the database connection.
+            // Dispatch jobs only after database transaction successfully commits.
             'after_commit' => true,
         ],
 
@@ -131,8 +126,7 @@ return [
     */
 
     'batching' => [
-        // F17: الافتراضي sqlite بينما قاعدة البيانات pgsql — فشل تسجيل
-        // الدفعات كان يفشل بصمت. يتبع اتصال قاعدة البيانات الافتراضي.
+        // Default to application database connection rather than sqlite so batch tables are reached correctly.
         'database' => env('DB_CONNECTION', 'pgsql'),
         'table' => 'job_batches',
     ],
@@ -152,7 +146,7 @@ return [
 
     'failed' => [
         'driver' => env('QUEUE_FAILED_DRIVER', 'database-uuids'),
-        // F17: same pgsql-following default as batching above.
+        // Follow application database connection for failed job records.
         'database' => env('DB_CONNECTION', 'pgsql'),
         'table' => 'failed_jobs',
     ],

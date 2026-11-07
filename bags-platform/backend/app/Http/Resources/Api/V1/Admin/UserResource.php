@@ -9,6 +9,9 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Spatie\Permission\Models\Permission;
 
+/**
+ * Administrative staff user resource representation with role/permission resolution and password rotation state.
+ */
 class UserResource extends JsonResource
 {
     /**
@@ -27,7 +30,7 @@ class UserResource extends JsonResource
                 ? null
                 : ['id' => $this->branch->id, 'name' => $this->branch->name]),
             'is_active' => $this->is_active,
-            // L8: ليعرف الفرونت أن المستخدم مطالب بتدوير كلمة المرور.
+            // Informs the frontend that immediate password rotation is enforced for this account.
             'must_change_password' => (bool) $this->must_change_password,
             'roles' => $this->whenLoaded(
                 'roles',

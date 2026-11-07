@@ -9,6 +9,9 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Line item on an internal departmental replenishment request prior to purchase order creation.
+ */
 class PurchaseRequestItem extends Model
 {
     /** @use HasFactory<PurchaseRequestItemFactory> */

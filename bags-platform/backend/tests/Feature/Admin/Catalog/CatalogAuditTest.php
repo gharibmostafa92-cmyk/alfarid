@@ -103,7 +103,7 @@ class CatalogAuditTest extends TestCase
         $created = $this->postJson("/api/v1/admin/products/{$product->id}/variants", ['cost_price' => 500])
             ->assertCreated();
         $id = $created->json('data.id');
-        // M5: expected_version is required for variant updates.
+        // Expected_version is required for variant updates.
         $version = \App\Models\ProductVariant::findOrFail($id)->lock_version;
         $this->putJson("/api/v1/admin/products/{$product->id}/variants/{$id}", ['cost_price' => 700, 'expected_version' => $version])
             ->assertOk();
@@ -112,7 +112,7 @@ class CatalogAuditTest extends TestCase
 
     public function test_create_with_invalid_media_keeps_row_and_reports_clearly(): void
     {
-        // F2: network I/O runs outside the tree/row lock, so the data write is
+        // Network I/O runs outside the tree/row lock, so the data write is
         // no longer atomic with the upload — a failed upload keeps the saved
         // row (imageless) and reports a clear message instead of rolling back.
         foreach ([CategoryService::class => Category::class, BrandService::class => Brand::class] as $service => $model) {
@@ -131,7 +131,7 @@ class CatalogAuditTest extends TestCase
 
     public function test_update_with_invalid_media_keeps_data_changes_and_no_media(): void
     {
-        // F2: same trade-off as create — the data change persists, the image
+        // Same trade-off as create — the data change persists, the image
         // change is fully rolled back, and the caller gets a clear message.
         foreach ([CategoryService::class => Category::class, BrandService::class => Brand::class] as $service => $model) {
             $record = $model::factory()->create(['name_en' => 'Original']);

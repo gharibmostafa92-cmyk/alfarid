@@ -10,7 +10,9 @@ use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
 
-/** صلاحيات بوابة الجملة المتقدمة (المرحلة 12) — تسعير عروض الأسعار ومراجعة إشعارات السداد بصلاحيات مستقلة. */
+/**
+ * Wholesale portal administrative permissions (quotation pricing and payment notice reviews).
+ */
 class WholesalePortalPermissionSeeder extends Seeder
 {
     public function run(): void
@@ -20,6 +22,7 @@ class WholesalePortalPermissionSeeder extends Seeder
         $permissions = [
             'quotations.view', 'quotations.price',
             'payment_notices.view', 'payment_notices.approve', 'payment_notices.reject',
+            'ai_agent.wholesale',
         ];
 
         $created = [];

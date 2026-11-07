@@ -7,8 +7,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * سجل طلبات الويب هوك الواردة — يُكتب قبل أي معالجة، وهو أساس
- * عدم تكرار المعالجة (Idempotency) عبر (provider, event_id).
+ * Inbound webhook audit log recorded prior to execution to enforce idempotent event processing.
  */
 return new class extends Migration
 {
@@ -25,7 +24,7 @@ return new class extends Migration
             $table->string('ip_address', 45)->nullable();
             $table->timestamps();
 
-            // ملاحظة: لا قيد فريد — سطر السجل نفسه جزء من الأثر، والتكرار يُكتشف ويُعلَّم duplicate في الخدمة
+            // Intentionally not unique: audit trail preserves every delivery attempt, with duplicate detection handled in service logic
             $table->index(['provider', 'event_id']);
             $table->index('created_at');
         });

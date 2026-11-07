@@ -6,7 +6,9 @@ namespace App\Http\Requests\Supplier\Account;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-/** كشف حساب المورد: فترة اختيارية (افتراضيًا من إنشاء المورد حتى اليوم). */
+/**
+ * Supplier statement inquiry with optional date range (defaults to account inception to present).
+ */
 class StatementRequest extends FormRequest
 {
     public function authorize(): bool

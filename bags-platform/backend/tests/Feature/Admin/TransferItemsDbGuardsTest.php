@@ -14,7 +14,7 @@ use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Tests\TestCase;
 
 /**
- * M8: the database itself rejects negative transfer quantities and
+ * The database itself rejects negative transfer quantities and
  * duplicate (transfer, variant, locations) lines.
  */
 class TransferItemsDbGuardsTest extends TestCase

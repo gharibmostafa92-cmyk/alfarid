@@ -7,8 +7,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * المرحلة 9 — رصيد محفظة العميل: الاسترداد بطريقة wallet يُضاف هنا
- * (لم يكن للعملاء أي رصيد محفظة قبل هذه المرحلة).
+ * Adds wallet_balance column to customers to support store credit refunds and in-app wallet balances.
  */
 return new class extends Migration
 {

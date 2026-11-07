@@ -61,7 +61,7 @@ class CatalogImprovementReviewTest extends TestCase
         } catch (RuntimeException $exception) {
             $this->assertSame('Conversion failed after writing files', $exception->getMessage());
         }
-        // H2: one short transaction per file — the first file stays committed
+        // One short transaction per file — the first file stays committed
         // with its files, while the failing file rolls back fully (no row, no
         // orphan files outside the surviving media's uuid prefix).
         $this->assertDatabaseCount('media', 1);
@@ -81,7 +81,7 @@ class CatalogImprovementReviewTest extends TestCase
             $record = $model::factory()->create(['name_en' => 'Original']);
             $old = $record->addMedia(UploadedFile::fake()->image('old.jpg'))->toMediaCollection($collection);
             $oldPath = $old->getPathRelativeToRoot();
-            // H5: brand/category media live on the public bucket.
+            // Brand/category media live on the public bucket.
             $before = Storage::disk('r2_public')->allFiles();
             $this->mock(FileManipulator::class)->shouldReceive('createDerivedFiles')->once()->andThrow(new RuntimeException('Disk failure'));
             try {
@@ -90,7 +90,7 @@ class CatalogImprovementReviewTest extends TestCase
             } catch (BusinessException $exception) {
                 $this->assertSame(422, $exception->status);
             }
-            // F2: the data write is no longer atomic with the upload — the
+            // The data write is no longer atomic with the upload — the
             // rename persists, while the media change (clear + add) is fully
             // rolled back, leaving the old file untouched and no orphans.
             $this->assertSame('Changed', $record->fresh()->name_en);
@@ -159,7 +159,7 @@ class CatalogImprovementReviewTest extends TestCase
     {
         $product = Product::factory()->create();
         $media = $product->addMedia(UploadedFile::fake()->image('legacy.jpg'))->toMediaCollection('images');
-        // H5: product media live on the public bucket.
+        // Product media live on the public bucket.
         foreach (Storage::disk('r2_public')->allFiles($media->uuid) as $file) {
             Storage::disk('r2_public')->move($file, $media->id.substr($file, strlen($media->uuid)));
         }
@@ -199,7 +199,7 @@ class CatalogImprovementReviewTest extends TestCase
     {
         $variant = ProductVariant::factory()->create(['color_name_en' => 'Black', 'color_name_ar' => 'أسود', 'color_hex' => '#000000']);
         $url = "/api/v1/admin/products/{$variant->product_id}/variants/{$variant->id}";
-        // M5: expected_version is required for variant updates.
+        // Expected_version is required for variant updates.
         $patch = fn (array $payload) => $this->patchJson($url, $payload + ['expected_version' => $variant->fresh()->lock_version]);
         $patch(['color_hex' => '#111111'])->assertOk();
         $patch(['color_name_en' => '0'])->assertOk();

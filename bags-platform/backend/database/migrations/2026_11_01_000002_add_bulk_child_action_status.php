@@ -8,8 +8,7 @@ use Illuminate\Support\Facades\DB;
 return new class extends Migration
 {
     /**
-     * M10: حالة bulk_child تمنع التأكيد المنفرد للإجراءات الفرعية.
-     * (VARCHAR + CHECK — تعمل داخل transaction بما فيها بيئة الاختبار.)
+     * Adds bulk_child status to prevent standalone execution of operations that belong to an atomic batch.
      */
     public function up(): void
     {

@@ -8,16 +8,20 @@ use App\Models\Cart;
 use Illuminate\Console\Command;
 
 /**
- * تنظيف سلال الزوار القديمة (F-29): سلات الزوار (customer_id = null)
- * لا تُستهلك بإتمام الشراء تتراكم بلا حد، وتُبقي بنودها متغيرات المنتجات
- * مرهونة. الحذف على دفعات؛ بنود السلة تُحذف بالتسلسل (cart_id cascade).
+ * Prunes abandoned guest carts (customer_id = null) older than the retention window.
+ * Deletion is batched (1000 per chunk); cart items are purged via database foreign key cascade.
  */
 class PruneGuestCarts extends Command
 {
-    protected $signature = 'carts:prune-guests {--days=7 : الاحتفاظ بسلال الزوار بعدد الأيام هذا}';
+    protected $signature = 'carts:prune-guests {--days=7 : Retention window in days}';
 
     protected $description = 'Delete abandoned guest carts older than the retention window';
 
+    /**
+     * Executes the guest carts deletion routine.
+     *
+     * @return int Command exit code (0 for success).
+     */
     public function handle(): int
     {
         $days = max(1, (int) $this->option('days'));

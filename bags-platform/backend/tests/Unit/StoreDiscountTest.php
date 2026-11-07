@@ -8,8 +8,7 @@ use App\Services\StoreCatalogService;
 use PHPUnit\Framework\TestCase;
 
 /**
- * F23: معادلة الخصم الوحيدة — التقريب بعد الضرب في 100، فخصم 30%
- * يبقى 30 (لا يُسقطه تقريب مبكر قبل الضرب).
+ * Storefront discount percentage rounding: multiply by 100 before rounding to preserve exact integer percentages.
  */
 class StoreDiscountTest extends TestCase
 {
@@ -23,7 +22,7 @@ class StoreDiscountTest extends TestCase
     {
         $this->assertNull(StoreCatalogService::discountPercentage(100.0, 100.0));
         $this->assertNull(StoreCatalogService::discountPercentage(120.0, 100.0));
-        // F20 family: a custom price above the base never yields a discount.
+        // Custom price above base price never yields a discount.
         $this->assertNull(StoreCatalogService::discountPercentage(99.99, 100.0));
     }
 }

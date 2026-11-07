@@ -11,7 +11,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // H4: قد يوجد الجدول أصلًا (Sanctum كان مستخدمًا قبل هذا التاريخ).
+        // Skip creation if the table already exists from an existing Sanctum installation.
         if (Schema::hasTable('personal_access_tokens')) {
             return;
         }

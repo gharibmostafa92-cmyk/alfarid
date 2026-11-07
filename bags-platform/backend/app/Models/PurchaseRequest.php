@@ -11,7 +11,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-/** طلب شراء داخلي من فرع — دورته وانتقالاته في ProcurementService. */
+/**
+ * Internal branch purchase requisition model; lifecycle handled in ProcurementService.
+ */
 class PurchaseRequest extends Model
 {
     /** @use HasFactory<PurchaseRequestFactory> */

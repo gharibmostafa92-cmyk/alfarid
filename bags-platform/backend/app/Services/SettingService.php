@@ -70,6 +70,18 @@ class SettingService
         'ai_whatsapp_idle_rotate_hours' => 12,
         'ai_whatsapp_link_token_ttl_minutes' => 10,
         'ai_whatsapp_pin_required' => false,
+        'ai_wholesale_tools_enabled' => false,
+        'ai_wholesale_receipt_vision_enabled' => false,
+        'ai_quote_high_risk_discount_percent' => 15,
+        'ai_quote_high_risk_total' => 100000,
+        'ai_wholesale_shadow_mode' => true,
+        'ai_wholesale_quote_sla_hours' => 24,
+        'ai_wholesale_notice_sla_hours' => 24,
+        'ai_wholesale_reminder_weekly_cap' => 3,
+        'ai_whatsapp_allow_notice_approval' => false,
+        'ai_whatsapp_quote_max_discount_percent' => 5,
+        'wholesale_fifo_mode' => 'strict',
+        'wholesale_default_payment_terms_days' => 30,
     ];
 
     /** @var list<string> */
@@ -143,7 +155,7 @@ class SettingService
     ];
 
     /**
-     * M9: تصفير الحالة الداخلية للخدمة (نفسها snapshot/عداد/عداد الوكيل).
+     * Resets in-memory cached state (snapshots, counters, proxy counters).
      */
     public function forgetMemoryState(): void
     {
@@ -514,9 +526,8 @@ class SettingService
     }
 
     /**
-     * M-4: نوع المستند → [جدول، عمود الرقم] لفحص تصادم الترقيم.
-     * invoice وpos_invoice بلا جدول مستندات خاص (فواتير الجملة طلبات،
-     * وفواتير POS بلا عمود رقم مستقل) فيُتجاوزان من الفحص.
+     * Document type to [table, column] mapping for sequence collision detection.
+     * Types without dedicated tables (such as pos_invoice) are excluded.
      *
      * @var array<string, array{0: string, 1: string}>
      */
@@ -539,10 +550,7 @@ class SettingService
     ];
 
     /**
-     * M-4: لكل نوع مستند اتعدّلت بادئته أو طوله أو عداده، تأكد أن الرقم
-     * التالي المُنسَّق بالصيغة الجديدة غير موجود أصلًا في جدول المستند.
-    /**
-     * Assert that formatted next number does not collide with existing document rows.
+     * Assert that formatted next number does not collide with existing document rows when prefix/padding/number changes.
      *
      * @param  list<string>  $changedKeys
      */

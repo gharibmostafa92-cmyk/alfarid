@@ -16,4 +16,12 @@ enum ShipmentStatus: string
     case Delivered = 'delivered';
     case Failed = 'failed';
     case Returned = 'returned';
+
+    /**
+     * Determine whether the status represents a final terminal delivery lifecycle state.
+     */
+    public function isTerminal(): bool
+    {
+        return in_array($this, [self::Delivered, self::Returned], true);
+    }
 }

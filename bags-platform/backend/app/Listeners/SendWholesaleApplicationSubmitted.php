@@ -11,7 +11,9 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 
-/** تنبيه الإدارة (حاملي customers.approve) بتسجيل تاجر جديد. */
+/**
+ * Alerts staff members with customers.approve permission when a wholesale registration is submitted.
+ */
 class SendWholesaleApplicationSubmitted implements ShouldQueue
 {
     public function handle(WholesaleApplicationSubmitted $event): void

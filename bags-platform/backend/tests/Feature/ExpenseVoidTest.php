@@ -23,8 +23,8 @@ use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 /**
- * C1: حذف المصروف صار إلغاءً (void) يعكس الحركة بدل الحذف الفعلي،
- * مع مفتاح عدم تكرار إلزامي على الإنشاء.
+ * Expense void workflow: expense cancellation voids the transaction and reverses treasury balances,
+ * with mandatory idempotency key on creation.
  */
 class ExpenseVoidTest extends TestCase
 {
@@ -96,7 +96,7 @@ class ExpenseVoidTest extends TestCase
         $expenseId = (int) $create->json('data.id');
         $this->assertSame('900.00', number_format((float) $treasury->fresh()->current_balance, 2, '.', ''));
 
-        // نفس المفتاح + نفس الحمولة يعيد نفس السجل بلا خصم ثانٍ
+        // Same idempotency key with identical payload replays existing record without duplicate debit
         $retry = $this->withToken($this->token)->postJson(
             '/api/v1/admin/expenses',
             $payload,
@@ -126,7 +126,7 @@ class ExpenseVoidTest extends TestCase
         $report = app(ReportService::class)->profitReport(now()->toDateString(), now()->toDateString(), $treasury->branch_id);
         $this->assertSame(0.0, $report['total_expenses']);
 
-        // إلغاء مزدوج مرفوض
+        // Duplicate void request is rejected
         $again = $this->withToken($this->token)->deleteJson("/api/v1/admin/expenses/{$expenseId}");
         $again->assertStatus(422);
     }
@@ -225,8 +225,8 @@ class ExpenseVoidTest extends TestCase
 
     public function test_delete_requires_void_reason(): void
     {
-        // M2: مسار DELETE يشترط السبب كمسار void — بلا سبب يُرفض بـ 422
-        // ولا يُعكس أي قيد في الخزينة.
+        // DELETE route requires void reason; rejects with 422 when reason is missing.
+        // No transaction is posted to the treasury ledger.
         $treasury = $this->treasury();
         $expense = $this->createExpense($treasury);
 
@@ -242,8 +242,8 @@ class ExpenseVoidTest extends TestCase
 
     public function test_void_reversal_uses_expense_reversal_type(): void
     {
-        // L6: قيد العكس بنوع مستقل حتى لا يُقرأ "مصروفًا موجبًا" في
-        // أي تجميع حسب النوع.
+        // Reversal tracked as dedicated type to prevent interpreting as positive expense.
+        // Category breakdown aggregation.
         $treasury = $this->treasury();
         $expense = $this->createExpense($treasury);
 

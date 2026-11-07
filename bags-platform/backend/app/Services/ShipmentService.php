@@ -43,9 +43,7 @@ class ShipmentService
             // Pessimistic lock serializes concurrent manifest requests and prevents duplicate AWBs.
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             // Active shipments cannot be duplicated; only previously failed or returned attempts permit re-shipment.
-            $hasActiveShipment = $order->shipments()
-                ->whereNotIn('status', [ShipmentStatus::Failed->value, ShipmentStatus::Returned->value])
-                ->exists();
+            $hasActiveShipment = $order->shipments()->active()->exists();
             if ($hasActiveShipment) {
                 throw new BusinessException('توجد بوليصة نشطة لهذا الطلب بالفعل.');
             }
@@ -67,12 +65,8 @@ class ShipmentService
             }
 
             $rate = $this->rateFor($order, $company->id);
-            $shippingCost = $rate !== null ? (float) $rate->base_cost : (float) $order->shipping_cost;
-            // Waive shipping charge when net merchandise subtotal meets the carrier's free shipping threshold.
-            if ($rate !== null && $rate->free_shipping_threshold !== null
-                && ((float) $order->subtotal - (float) $order->discount_amount) >= (float) $rate->free_shipping_threshold) {
-                $shippingCost = 0.0;
-            }
+            $netMerchandise = (float) $order->subtotal - (float) $order->discount_amount;
+            $shippingCost = $rate !== null ? $rate->effectiveCost($netMerchandise) : (float) $order->shipping_cost;
 
             $shipment = Shipment::create([
                 'order_id' => $order->id,
@@ -108,11 +102,8 @@ class ShipmentService
         }
 
         return ShippingRate::query()
-            ->join('shipping_zones', 'shipping_zones.id', '=', 'shipping_rates.shipping_zone_id')
-            ->join('shipping_zone_cities', 'shipping_zone_cities.shipping_zone_id', '=', 'shipping_zones.id')
+            ->forCity((int) $order->city_id)
             ->where('shipping_rates.shipping_company_id', $companyId)
-            ->where('shipping_zone_cities.city_id', $order->city_id)
-            ->where('shipping_zones.is_active', true)
             ->orderBy('shipping_rates.id')
             ->select('shipping_rates.*')
             ->first();

@@ -9,7 +9,9 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-/** بند مرتجع: مطلوب ← معتمد ← مستلم (سليم/تالف) بأسعار رد مجمدة من لقطة الشراء. */
+/**
+ * Return request line item tracking requested, approved, and received quantities with snapshot refund pricing.
+ */
 class ReturnRequestItem extends Model
 {
     /** @use HasFactory<ReturnRequestItemFactory> */

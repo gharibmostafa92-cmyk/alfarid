@@ -9,6 +9,11 @@ use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
 
+/**
+ * Validates updates to a product variant.
+ *
+ * Enforces optimistic version concurrency checks and ensures English color names accompany localized color data.
+ */
 class UpdateVariantRequest extends FormRequest
 {
     use NormalizesCatalogInput;
@@ -43,16 +48,14 @@ class UpdateVariantRequest extends FormRequest
             $rules[$field] = $rule;
         }
 
-        // M5: رقم الإصدار إلزامي — الكتابة فوق أسعار (retail/wholesale) برقم
-        // قديم دون 409 كانت تضيّع تعديلات أسعار حقيقية.
+        // Require optimistic lock version to prevent concurrent price or stock attribute overwrites.
         $rules['expected_version'] = ['required', 'integer', 'min:0'];
 
         return $rules;
     }
 
     /**
-     * M5: فترة انتقالية — العملاء القدامى الذين لا يرسلون رقم الإصدار
-     * يُرفضون بـ 422، مع تسجيل تحذير لقياس حجمهم قبل الإلزام الكامل.
+     * Log warnings when expected_version is omitted to monitor API client compliance before rejection.
      */
     protected function failedValidation(\Illuminate\Contracts\Validation\Validator $validator): void
     {

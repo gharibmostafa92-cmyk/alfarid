@@ -189,7 +189,7 @@ class CatalogReviewRoundTwoTest extends TestCase
     public function test_clearing_barcode_regenerates_the_internal_code(): void
     {
         $variant = ProductVariant::factory()->create(['barcode' => 'EXT-123']);
-        // M5: expected_version is required for variant updates.
+        // Expected_version is required for variant updates.
         $this->patchJson("/api/v1/admin/products/{$variant->product_id}/variants/{$variant->id}", ['barcode' => null, 'expected_version' => $variant->fresh()->lock_version])
             ->assertOk()->assertJsonPath('data.barcode', BarcodeGenerator::fromId($variant->id));
     }
@@ -197,7 +197,7 @@ class CatalogReviewRoundTwoTest extends TestCase
     public function test_prices_with_more_than_two_decimal_places_are_rejected_in_both_write_paths(): void
     {
         $product = Product::factory()->create();
-        // H4: retail/wholesale stay at 2 decimals, but cost_price accepts 4 to
+        // Retail/wholesale stay at 2 decimals, but cost_price accepts 4 to
         // match the weighted-average receipt precision (numeric(14,4)).
         $this->postJson("/api/v1/admin/products/{$product->id}/variants", ['retail_price' => '10.999', 'wholesale_price' => '8.999', 'cost_price' => '5.99999'])
             ->assertUnprocessable()->assertJsonValidationErrors(['retail_price', 'wholesale_price', 'cost_price']);
@@ -292,7 +292,7 @@ class CatalogReviewRoundTwoTest extends TestCase
         } catch (\RuntimeException $exception) {
             $this->assertSame('Conversion failure', $exception->getMessage());
         }
-        // H2: one short transaction per file — the first file stays committed
+        // One short transaction per file — the first file stays committed
         // while the failing file rolls back fully.
         $this->assertDatabaseCount('media', 1);
         $kept = Media::firstOrFail();

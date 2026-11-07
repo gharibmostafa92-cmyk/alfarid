@@ -24,7 +24,7 @@ class DatabaseIndexTest extends TestCase
 
     public function test_catalog_foreign_key_and_sort_indexes_exist(): void
     {
-        // H1: products.category_id/brand_id were Seq Scans on Postgres; the
+        // Products.category_id/brand_id were Seq Scans on Postgres; the
         // variants relation orders by (product_id, sort_order).
         $this->assertTrue(Schema::hasIndex('products', ['category_id']));
         $this->assertTrue(Schema::hasIndex('products', ['brand_id']));
@@ -38,7 +38,7 @@ class DatabaseIndexTest extends TestCase
 
     public function test_admin_search_trigram_indexes_exist(): void
     {
-        // M10: name_ar/name_en ILIKE '%…%' in the backoffice/AI search is
+        // Name_ar/name_en ILIKE '%…%' in the backoffice/AI search is
         // served by raw-column GIN trigram indexes; the lower() variants
         // serve LOWER(col) LIKE storefront queries.
         foreach ([
@@ -59,7 +59,7 @@ class DatabaseIndexTest extends TestCase
 
     public function test_product_create_key_partial_unique_index_exists(): void
     {
-        // M6: idempotent product creation relies on this partial index.
+        // Idempotent product creation relies on this partial index.
         $row = DB::selectOne(
             "SELECT indexdef FROM pg_indexes WHERE indexname = 'products_creator_create_key_unique'"
         );
@@ -69,7 +69,7 @@ class DatabaseIndexTest extends TestCase
 
     public function test_case_insensitive_uniqueness_and_media_idempotency_indexes_exist(): void
     {
-        // M2 functional unique indexes + M9 partial unique client_upload_id index.
+        // Functional unique indexes and partial unique client_upload_id index.
         foreach ([
             ['products_slug_lower_unique'],
             ['categories_slug_lower_unique'],

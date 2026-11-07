@@ -49,7 +49,7 @@ class R2MediaTest extends TestCase
         $disk->buildTemporaryUrlsUsing(fn ($path, $expiration, $options) => 'https://storage.example.test/'.rawurlencode($path).'?signed=1');
         config(['media-library.disk_name' => 'r2', 'filesystems.disks.r2.url' => null]);
         $category = Category::factory()->create();
-        // H5: catalog collections live on the public bucket with stable public
+        // Catalog collections live on the public bucket with stable public
         // URLs; private documents stay on `r2` with signed URLs.
         $public = Storage::fake('r2_public');
         $media = $category->addMedia(UploadedFile::fake()->image('category.png'))->toMediaCollection('image');

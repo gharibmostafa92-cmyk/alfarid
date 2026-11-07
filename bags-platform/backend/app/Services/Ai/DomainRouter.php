@@ -67,6 +67,11 @@ final class DomainRouter
             'رسوم التوصيل', 'تكلفة التوصيل', 'رسوم التحصيل', 'مدينة التوصيل', 'مدن الشحن',
             'shipping company', 'shipping zone', 'shipping rate',
         ],
+        'wholesale' => [
+            'عرض سعر', 'عروض اسعار', 'تسعيرة', 'تسعير عرض', 'اشعار سداد', 'إشعار سداد',
+            'كشف حساب', 'مديونية', 'مديونيه', 'آجل', 'اجل', 'تاجر', 'تجار',
+            'q-', 'pn-',
+        ],
         'storefront' => [
             'بانر', 'سلايدر', 'الصفحة الرئيسية', 'السلة', 'كوبون السلة', 'إتمام الشراء', 'اتمام الشراء',
             'checkout', 'storefront',
@@ -113,6 +118,7 @@ final class DomainRouter
                 'price_list', 'coupon', 'promotion' => 'pricing',
                 'treasury', 'treasury_transfer', 'expense' => 'finance',
                 'shipping_company', 'shipping_zone', 'shipping_rate' => 'shipping',
+                'quotation', 'payment_notice', 'wholesale_payment_notice' => 'wholesale',
                 'banner', 'cart' => 'storefront',
                 default => null,
             };
@@ -301,6 +307,20 @@ final class DomainRouter
             $keep('pricing');
             $drop(['shipping', 'inventory']);
         }
+        // "تحويل" alone is treasury cash or stock. Next to a receipt, bank transfer, or payment notice it is wholesale.
+        if ($transferWord && $hasAny(['ايصال', 'اشعار', 'سداد'])) {
+            $keep('wholesale');
+            if (! $goodsCtx) {
+                $drop(['inventory']);
+            }
+            if (! $hasAny(['خزنة', 'خزينه', 'درج'])) {
+                $drop(['finance']);
+            }
+        } elseif ($transferWord && $has('بنك') && ! $hasAny(['خزنة', 'خزينه', 'درج', 'بضاعه', 'صنف', 'شنطه'])) {
+            $keep('wholesale');
+            $drop(['inventory', 'finance']);
+        }
+
         if ($shippingCtx) {
             $keep('shipping');
             if (! $hasAny(['جرد', 'رصيد صنف', 'تحويل'])) {

@@ -124,7 +124,7 @@ class UserController extends Controller
     }
 
     /**
-     * L8: self-service password rotation — no users.update required, so a
+     * Self-service password rotation — no users.update required, so a
      * flagged newcomer can always comply. Only the own password may change
      * here, and only with the verified current password.
      */

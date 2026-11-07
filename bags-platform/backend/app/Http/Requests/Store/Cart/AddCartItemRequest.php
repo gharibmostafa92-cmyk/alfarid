@@ -19,8 +19,7 @@ class AddCartItemRequest extends FormRequest
     {
         return [
             'product_variant_id' => ['required', 'integer', 'exists:product_variants,id'],
-            // البيع بالقطعة: كميات صحيحة فقط — الكسور كانت تنتج أسطرًا
-            // بقيمة صفر أو كميات تُخزَّن صفرًا فتُشحن قطعة كاملة (F-03)
+            // Retail unit sales enforce integer quantities to prevent fractional rounding errors or zero-quantity line persistence.
             'qty' => ['required', 'integer', 'min:1', 'max:'.CartService::MAX_REQUEST_QTY],
         ];
     }

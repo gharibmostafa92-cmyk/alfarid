@@ -202,10 +202,8 @@ class ProcurementService
                 throw new BusinessException('حدد فرع/مخزن استلام أمر الشراء.');
             }
 
-            if (! Supplier::query()->whereKey($data['supplier_id'])->where('is_active', true)->exists()
-                || ! Branch::query()->whereKey($branchId)->where('is_active', true)->exists()) {
-                throw new BusinessException('المورد وفرع الاستلام يجب أن يكونا نشطين.');
-            }
+            $this->assertActiveSupplier((int) $data['supplier_id']);
+            $this->assertActiveBranch($branchId);
             $po = PurchaseOrder::create([
                 'po_number' => $this->settings->generateNextNumber('purchase_order'),
                 'supplier_id' => (int) $data['supplier_id'],
@@ -254,11 +252,11 @@ class ProcurementService
             if (array_intersect(['supplier_id', 'branch_id', 'items', 'discount_amount', 'expected_delivery_date'], array_keys($data))) {
                 $data['approved_by'] = null;
             }
-            if (isset($data['supplier_id']) && ! Supplier::query()->whereKey($data['supplier_id'])->where('is_active', true)->exists()) {
-                throw new BusinessException('المورد غير نشط.');
+            if (isset($data['supplier_id'])) {
+                $this->assertActiveSupplier((int) $data['supplier_id']);
             }
-            if (isset($data['branch_id']) && ! Branch::query()->whereKey($data['branch_id'])->where('is_active', true)->exists()) {
-                throw new BusinessException('فرع الاستلام غير نشط.');
+            if (isset($data['branch_id'])) {
+                $this->assertActiveBranch((int) $data['branch_id']);
             }
             $po->update(array_intersect_key($data, array_flip([
                 'supplier_id', 'branch_id', 'expected_delivery_date', 'discount_amount', 'approved_by',
@@ -320,9 +318,7 @@ class ProcurementService
             if ($po->items()->count() === 0) {
                 throw new BusinessException('لا يمكن إرسال أمر شراء بلا بنود.');
             }
-            if (! Supplier::query()->whereKey($po->supplier_id)->where('is_active', true)->exists()) {
-                throw new BusinessException('المورد غير نشط.');
-            }
+            $this->assertActiveSupplier((int) $po->supplier_id);
             $po->update(['status' => PurchaseOrderStatus::SentToSupplier, 'supplier_change_notes' => null]);
 
             $sent = $po->fresh(['items']);
@@ -500,9 +496,7 @@ class ProcurementService
                 throw new BusinessException("لا يمكن استلام بضاعة لأمر شراء في حالة ({$po->status->value}).");
             }
             // Re-verify branch status at intake time to prevent crediting stock to an inactive branch
-            if (! Branch::query()->whereKey($po->branch_id)->where('is_active', true)->exists()) {
-                throw new BusinessException('فرع استلام أمر الشراء غير نشط.');
-            }
+            $this->assertActiveBranch((int) $po->branch_id, 'فرع استلام أمر الشراء غير نشط.');
 
             if ($supplierDeliveryId === null && $po->deliveries()->where('status', SupplierDeliveryStatus::PendingReceipt)->exists()) {
                 throw new BusinessException('حدد إشعار التوريد المعلق عند الاستلام لمنع احتساب كمياته مرتين.');
@@ -568,10 +562,7 @@ class ProcurementService
                     ->sum(DB::raw('on_hand + in_transit'));
                 $oldCost = (string) $variant->cost_price;
                 $newUnitCost = bcadd(bcmul((string) $poItem->unit_cost, $costFactor, 5), '0.00005', 4);
-
-                $safeCurrentStock = bccomp($currentTotalOnHand, '0', 4) < 0 ? '0' : $currentTotalOnHand;
-                $totalCost = bcadd(bcmul($safeCurrentStock, $oldCost, 8), bcmul((string) $qtyToReceive, $newUnitCost, 8), 8);
-                $newAverageCost = bcadd(bcdiv($totalCost, bcadd($safeCurrentStock, (string) $qtyToReceive, 4), 5), '0.00005', 4);
+                $newAverageCost = InventoryService::calculateWeightedAverageCost($currentTotalOnHand, $oldCost, $qtyToReceive, $newUnitCost);
 
                 $variant->update([
                     'cost_price' => $newAverageCost,
@@ -778,6 +769,20 @@ class ProcurementService
     {
         if ((int) $po->supplier_id !== (int) $user->supplier_id) {
             throw new BusinessException('أمر الشراء غير موجود.', [], 404);
+        }
+    }
+
+    private function assertActiveSupplier(int $supplierId): void
+    {
+        if (! Supplier::query()->whereKey($supplierId)->where('is_active', true)->exists()) {
+            throw new BusinessException('المورد غير نشط.');
+        }
+    }
+
+    private function assertActiveBranch(int $branchId, string $message = 'فرع الاستلام غير نشط.'): void
+    {
+        if (! Branch::query()->whereKey($branchId)->where('is_active', true)->exists()) {
+            throw new BusinessException($message);
         }
     }
 }

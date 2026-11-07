@@ -9,6 +9,8 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
+ * Supplier portal user resource representation.
+ *
  * @mixin SupplierUser
  */
 class SupplierUserResource extends JsonResource
@@ -24,8 +26,7 @@ class SupplierUserResource extends JsonResource
             'email' => $this->email,
             'phone' => $this->phone,
             'supplier_id' => $this->supplier_id,
-            // M4: المورد قد يكون محذوفًا (supplier_id بلا FK قابل للتنفيذ على
-            // بيانات قديمة) — لا تفترض وجوده.
+            // Handle null supplier safely in case the parent entity was removed.
             'supplier' => $this->whenLoaded('supplier', fn () => $this->supplier ? [
                 'id' => $this->supplier->id,
                 'name' => $this->supplier->name,

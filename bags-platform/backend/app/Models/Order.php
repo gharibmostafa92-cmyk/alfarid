@@ -39,6 +39,7 @@ class Order extends Model
         'status',
         'payment_method',
         'payment_status',
+        'due_at',
         'requires_refund',
         'needs_attention',
         'cod_fee',
@@ -59,17 +60,18 @@ class Order extends Model
     protected function casts(): array
     {
         return [
-            'status'          => OrderStatus::class,
-            'subtotal'        => 'decimal:2',
+            'status' => OrderStatus::class,
+            'subtotal' => 'decimal:2',
             'discount_amount' => 'decimal:2',
-            'shipping_cost'   => 'decimal:2',
-            'cod_fee'         => 'decimal:2',
-            'tax_amount'      => 'decimal:2',
-            'grand_total'     => 'decimal:2',
-            'cash_amount'     => 'decimal:2',
-            'card_amount'     => 'decimal:2',
+            'shipping_cost' => 'decimal:2',
+            'cod_fee' => 'decimal:2',
+            'tax_amount' => 'decimal:2',
+            'grand_total' => 'decimal:2',
+            'cash_amount' => 'decimal:2',
+            'card_amount' => 'decimal:2',
             'requires_refund' => 'boolean',
             'needs_attention' => 'boolean',
+            'due_at' => 'datetime',
         ];
     }
 

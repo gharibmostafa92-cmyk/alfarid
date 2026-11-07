@@ -8,8 +8,8 @@ return new class extends Migration
     public $withinTransaction = false;
 
     /**
-     * H1: product_variants(product_id, sort_order) — variants() orders by sort_order.
-     * M2: functional case-insensitive uniqueness for slugs/sku/barcode so the
+     * Composite index on product_variants(product_id, sort_order) for catalog ordering.
+     * Functional case-insensitive uniqueness for slugs/sku/barcode so the
      * application-level LOWER() checks are index-backed and race-safe at the DB level.
      */
     public function up(): void

@@ -10,11 +10,13 @@ use App\Services\StoreCatalogService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
-/** صفحة منتج كاملة: كل متغير بسعره النهائي ومتاحه أونلاين. */
+/**
+ * Full product detail resource for the storefront, mapping variants, pricing tiers, media, and stock.
+ */
 class StoreProductResource extends JsonResource
 {
     /**
-     * خريطة متاح المتغيرات (يضبطها المتحكم من StoreCatalogService).
+     * Map of variant stock availability injected by the controller from StoreCatalogService.
      *
      * @var array<int, float>
      */
@@ -50,7 +52,7 @@ class StoreProductResource extends JsonResource
             'images' => $this->resource->catalogImages()->map(fn ($media) => [
                 'id' => $media->id,
                 'url' => $media->getUrl(),
-                // F6: fall back to the original until the queued conversion exists.
+                // Conversions generate asynchronously; fall back to original until thumbnail is ready.
                 'thumb' => $media->hasGeneratedConversion('thumb') ? $media->getUrl('thumb') : $media->getUrl(),
             ])->all(),
             'variants' => $this->variants->map(function ($variant) use ($pricing, $customer, $carts) {
@@ -58,7 +60,7 @@ class StoreProductResource extends JsonResource
                 try {
                     $resolved = $pricing->variantPrice($variant, $customer);
                 } catch (BusinessException) {
-                    // متغير غير مُسعَّر: يظهر بلا سعر بدل كسر صفحة المنتج
+                    // Omit price when pricing cannot be resolved so the product page remains functional.
                 }
                 $available = (float) ($this->availability[$variant->id] ?? $variant->store_available ?? 0);
 
@@ -76,7 +78,7 @@ class StoreProductResource extends JsonResource
                         'thumb' => $media->hasGeneratedConversion('thumb') ? $media->getUrl('thumb') : $media->getUrl(),
                     ])->values()->all(),
                     'price' => $resolved !== null ? (float) $resolved['unit_price'] : null,
-                    // F23: نفس معادلة البطاقة عبر StoreCatalogService::discountPercentage.
+                    // Derive old price consistently with card display via discountPercentage comparison.
                     'old_price' => $resolved !== null && StoreCatalogService::discountPercentage((float) $resolved['unit_price'], max((float) $variant->compare_at_price, (float) $resolved['base_price'])) !== null
                         ? max((float) $variant->compare_at_price, (float) $resolved['base_price']) : null,
                     'in_stock' => $available > 0,

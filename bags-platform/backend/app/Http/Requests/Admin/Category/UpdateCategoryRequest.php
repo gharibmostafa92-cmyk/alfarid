@@ -4,32 +4,17 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Category;
 
-use App\Http\Requests\Admin\Concerns\NormalizesCatalogInput;
 use App\Rules\MaxImagePixels;
 use App\Rules\UniqueCatalogIdentifier;
 use Illuminate\Contracts\Validation\ValidationRule;
-use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
-class UpdateCategoryRequest extends FormRequest
+class UpdateCategoryRequest extends StoreCategoryRequest
 {
-    use NormalizesCatalogInput;
-
-    protected function prepareForValidation(): void
-    {
-        parent::prepareForValidation();
-        $this->normalizeCatalogIdentifiers();
-    }
-
-    public function authorize(): bool
-    {
-        return $this->user() !== null;
-    }
-
     /**
      * @return array<string, array<mixed>|string|ValidationRule>
      */
-    public static function baseRules(?int $ignoreId): array
+    public static function baseRules(?int $ignoreId = null): array
     {
         return [
             'parent_id' => ['sometimes', 'nullable', 'integer', Rule::exists('categories', 'id')->whereNull('deleted_at')],

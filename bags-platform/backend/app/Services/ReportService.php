@@ -19,7 +19,7 @@ class ReportService
     /** @var list<string> */
     private const SALES_STATUSES = ['confirmed', 'processing', 'shipped', 'delivered'];
 
-    /** M7: cap on inventory valuation rows returned per report. */
+    /** Maximum cap on inventory valuation rows returned per report. */
     public const INVENTORY_VALUATION_ROW_LIMIT = 500;
 
     /**
@@ -217,7 +217,7 @@ class ReportService
     /**
      * Computes inventory valuation and identifies dead stock without physical movement within a threshold.
      *
-     * M7: results are cached for 5 minutes per (branch, dead-days, cost
+     * Results are cached for 5 minutes per (branch, dead-days, cost
      * visibility) — branch-scoped managers must never share a cached payload
      * with each other, and cost-blind callers must never hit a cache entry
      * that contains unit-cost fields.

@@ -8,9 +8,8 @@ use Illuminate\Support\Facades\DB;
 return new class extends Migration
 {
     /**
-     * L10: PostgreSQL لا ينشئ index تلقائيًا لأعمدة FK، وفهرس
-     * ai_messages(conversation_id,id) لا يخدم استعلامات النطاق الزمني
-     * وعدّ التوكنز اليومي.
+     * Adds foreign key and timestamp indexes for AI conversation messages and pending action queries,
+     * accelerating time-range filtering and daily token usage aggregations.
      */
     public function up(): void
     {

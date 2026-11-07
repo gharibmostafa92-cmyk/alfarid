@@ -14,6 +14,7 @@ use App\Notifications\Channels\CustomerSmsChannel;
 use App\Notifications\CustomerPasswordReset;
 use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Rules\UniqueCustomerEmail;
+use App\Services\Auth\StaffTokenService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -43,8 +44,8 @@ class CustomerAuthService
         $contacts = $query->limit(2)->get();
         $customer = $contacts->count() === 1 ? $contacts->first() : null;
 
-        return $customer !== null && in_array($customer->type, [CustomerType::Wholesale, CustomerType::Distributor], true)
-                ? $customer : null;
+        return $customer !== null && $customer->isCommercialTier()
+            ? $customer : null;
     }
 
     /**
@@ -279,8 +280,7 @@ class CustomerAuthService
                 || now()->lt($row->created_at) || ! $validToken) {
                 throw new BusinessException('رمز الاستعادة غير صالح أو انتهت صلاحيته.');
             }
-            if (in_array($customer->type, [CustomerType::Wholesale, CustomerType::Distributor], true)
-                && mb_strlen($data['password']) < 12) {
+            if ($customer->isCommercialTier() && mb_strlen($data['password']) < 12) {
                 throw ValidationException::withMessages(['password' => 'كلمة المرور يجب أن تكون 12 حرفًا على الأقل.']);
             }
             $customer->forceFill(['password' => $data['password'], 'remember_token' => Str::random(60)])->save();
@@ -304,14 +304,7 @@ class CustomerAuthService
                 throw new BusinessException('هذا الحساب موقوف.', [], 403);
             }
 
-            $expiry = config('sanctum.expiration');
-            $customer->tokens()->where(fn ($q) => $q->where('expires_at', '<=', now())
-                ->when($expiry, fn ($q) => $q->orWhere('created_at', '<=', now()->subMinutes((int) $expiry))))->delete();
-            $limit = max(1, (int) config('auth.customer_max_tokens', 10));
-            $old = $customer->tokens()->orderByDesc('id')->skip($limit - 1)->pluck('id');
-            if ($old->isNotEmpty()) {
-                $customer->tokens()->whereIn('id', $old)->delete();
-            }
+            StaffTokenService::pruneAndCap($customer, (int) config('auth.customer_max_tokens', 10));
 
             $token = $customer->createToken($name, ['*'], now()->addMinutes(max(1, (int) config('auth.customer_token_minutes', 86400))));
             CustomerAuditLog::record($customer, 'token_issued', null, ['token_id' => $token->accessToken->id, 'channel' => $name]);

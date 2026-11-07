@@ -6,6 +6,9 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
+/**
+ * Audit trail of inventory ledger reconciliations between stock movements and on-hand balances.
+ */
 class InventoryReconcileRun extends Model
 {
     public const UPDATED_AT = null;

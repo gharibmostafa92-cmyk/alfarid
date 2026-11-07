@@ -73,15 +73,13 @@ export const useCartStore = create<CartState>((set, get) => {
       volatileSession = cart.cart_token;
       try { localStorage.setItem('cart_session', cart.cart_token); } catch { /* Keep this tab functional without storage. */ }
     } else if (cart.customer_id !== null) {
-      // F22: سلة عميل — جلسة الزائر تُمسح حتى لا تُرسل لاحقًا ولا يرثها
-      // زائر تالٍ على جهاز مشترك.
+      // Authenticated customer cart: clear guest session token to prevent cross-session leakage on shared devices.
       clearGuestCartSession();
     }
     set({
       items: cart.items.map(item => ({ id: item.id, productId: item.product_id, variantId: item.product_variant_id,
         name: item.product_name || item.product_name_en || item.sku || 'Product', price: item.unit_price,
-        // L7: the backend ceiling (min of sellable stock and the identity
-        // line cap); fall back to available for older responses.
+        // Max purchasable quantity (lower of available stock and customer limit); fall back to available for backward compatibility.
         quantity: Number(item.qty), available: Number(item.max_qty ?? item.available),
         image: item.image ?? null, slug: item.product_slug ?? null,
         color: item.color ?? null, size: item.size ?? null,

@@ -62,7 +62,7 @@ class InventoryReviewCompletionTest extends TestCase
         $this->assertGreaterThan($created['version'], $updated['version']);
         $this->assertSame($created['updated_at'], $updated['updated_at']);
         $this->api('POST', "transfers/{$created['id']}/approve", ['expected_version' => $created['version']])->assertConflict();
-        // M3: a missing version is now a 422 validation rejection (the
+        // A missing version is now a 422 validation rejection (the
         // legacy 409-for-missing-version service rule is unreachable via HTTP).
         $this->api('POST', "transfers/{$created['id']}/approve", ['expected_updated_at' => $created['updated_at']])->assertUnprocessable();
         $this->assertSame('0.0000', StockLevel::where('branch_id', $from->id)->firstOrFail()->reserved);
@@ -84,7 +84,7 @@ class InventoryReviewCompletionTest extends TestCase
 
     public function test_stocktake_gain_on_inactive_variant_is_recorded(): void
     {
-        // H3: الفائض بضاعة موجودة فعلًا فيُسجَّل ولو عُطّل الصنف — المنع
+        // Surplus stock records physical inventory even if variant is deactivated.
         // القديم كان يحبس الجرد كاملًا بسبب صنف واحد.
         $branch = Branch::factory()->create();
         $variant = ProductVariant::factory()->create();
@@ -314,7 +314,7 @@ class InventoryReviewCompletionTest extends TestCase
     {
         Auth::forgetGuards();
 
-        // M2: مفتاح عدم تكرار جديد لكل طلب — إلا إذا حدده الاختبار (إعادة تشغيل).
+        // Fresh idempotency key per request unless explicitly specified by test for replay testing.
         if (! isset($headers['Idempotency-Key']) && ! isset($this->defaultHeaders['Idempotency-Key'])) {
             $headers['Idempotency-Key'] = (string) Str::uuid();
         }

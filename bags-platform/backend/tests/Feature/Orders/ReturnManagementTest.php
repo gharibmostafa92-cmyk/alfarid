@@ -374,7 +374,7 @@ class ReturnManagementTest extends TestCase
 
     public function test_reject_via_update_requires_returns_approve_permission(): void
     {
-        // M8: الرفض عبر update قرار اعتماد — returns.update وحده لا يكفي.
+        // Rejection via update is an approval decision; returns.update alone is insufficient.
         $return = ReturnRequest::factory()->create(['status' => 'pending', 'branch_id' => $this->branch->id]);
 
         // موظف فرع بنطاق صحيح حتى يصل لفحص الصلاحية لا لحاجز الفروع

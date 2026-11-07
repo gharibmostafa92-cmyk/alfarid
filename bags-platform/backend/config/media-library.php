@@ -137,7 +137,7 @@ return [
     /*
      * The class that contains the strategy for determining a media file's path.
      */
-    // مسارات بالـ uuid بدل الـ id المتسلسل عشان روابط صور المسودات متتخمنش
+    // UUID-based storage paths instead of sequential IDs to prevent enumeration of unpublished draft images
     'path_generator' => UuidPathGenerator::class,
 
     /*
@@ -299,7 +299,7 @@ return [
          * Supported by S3: CacheControl, Expires, StorageClass,
          * ServerSideEncryption, Metadata, ACL, ContentEncoding
          *
-         * L11: catalog conversions land on the public bucket (long public
+         * Catalog conversions land on the public bucket (long public
          * cache is correct there), but private documents on the r2 disk must
          * never be cacheable by shared caches — AttachmentController serves
          * them via short-lived signed URLs with private, no-store.

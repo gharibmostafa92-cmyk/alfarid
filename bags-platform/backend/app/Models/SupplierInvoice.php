@@ -12,8 +12,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * فاتورة مورد: اعتمادها (posted) يثبت الاستحقاق في رصيد المورد،
- * وسدادها يتحرك عبر SupplierPayment — الآثار كلها في SupplierFinanceService.
+ * Supplier invoice model.
+ * Posting confirms accounts payable liability and increments supplier current_balance in SupplierFinanceService.
  */
 class SupplierInvoice extends Model
 {

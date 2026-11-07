@@ -9,8 +9,10 @@ use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-/** راجعت الإدارة طلب تاجر: decision = approved|rejected. */
-class WholesaleApplicationReviewed implements ShouldDispatchAfterCommit // M4
+/**
+ * Dispatched after transaction commit when staff reviews a merchant application (approved or rejected).
+ */
+class WholesaleApplicationReviewed implements ShouldDispatchAfterCommit
 {
     use Dispatchable, SerializesModels;
 

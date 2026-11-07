@@ -6,7 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
 /**
- * H1: enforce a per-statement budget at the DB role level.
+ * Enforces a per-statement budget at the DB role level to prevent runaway queries.
  *
  * Works with PgBouncer transaction pooling. Transaction-local overrides may
  * increase the budget explicitly; bare SET must not leak into pooled sessions.

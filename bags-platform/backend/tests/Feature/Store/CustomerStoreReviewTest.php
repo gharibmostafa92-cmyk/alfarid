@@ -465,7 +465,7 @@ class CustomerStoreReviewTest extends TestCase
         $parentQueries = array_filter($queries, fn ($sql) => str_contains($sql, 'from "products"'));
         $this->assertCount(1, $parentQueries);
         Auth::forgetGuards();
-        // M5: expected_version is required for variant updates.
+        // Expected_version is required for variant updates.
         $firstVariant = $variants->first()->fresh();
         $this->withToken($token)->putJson('/api/v1/admin/products/'.$product->id.'/variants/'.$firstVariant->id, ['weight_kg' => 3, 'expected_version' => $firstVariant->lock_version])
             ->assertOk()->assertJsonPath('data.images', []);

@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
-    // M-5: CONCURRENTLY مينفعش جوه transaction.
+    // CONCURRENTLY index creation cannot run inside a database transaction block.
     public $withinTransaction = false;
 
     private const STATUSES = "'pending', 'confirmed', 'executed', 'failed', 'cancelled', 'expired', 'undone'";
@@ -16,10 +16,10 @@ return new class extends Migration
     {
         DB::transaction(function (): void {
             DB::statement("SET LOCAL lock_timeout = '5s'");
-            // H3
+            // Allow bulk_child status in pending actions constraint
             DB::statement('ALTER TABLE ai_pending_actions DROP CONSTRAINT IF EXISTS ai_pending_actions_status_check');
             DB::statement('ALTER TABLE ai_pending_actions ADD CONSTRAINT ai_pending_actions_status_check CHECK (status IN ('.self::STATUSES.", 'bulk_child'))");
-            // M12
+            // Preserve prior status when customer is temporarily suspended
             DB::statement('ALTER TABLE customers ADD COLUMN IF NOT EXISTS pre_suspension_status VARCHAR(20) NULL');
         });
 
@@ -45,7 +45,7 @@ return new class extends Migration
         });
     }
 
-    /** الاختبارات اللي بتلف الـ migrations في transaction تاخد الشكل العادي. */
+    /** Disables CONCURRENTLY inside wrapped test transactions to allow regular DDL execution. */
     private function concurrently(): string
     {
         return DB::transactionLevel() === 0 ? 'CONCURRENTLY ' : '';
@@ -54,7 +54,7 @@ return new class extends Migration
     private function index(string $name, string $definition): void
     {
         $c = $this->concurrently();
-        // بناء CONCURRENTLY فاشل بيسيب فهرس INVALID وIF NOT EXISTS هيتخطاه.
+        // A failed CONCURRENTLY build leaves behind an INVALID index; drop it first so IF NOT EXISTS can rebuild it cleanly.
         $invalid = DB::selectOne('SELECT 1 AS x FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid WHERE c.relname = ? AND NOT i.indisvalid', [$name]);
         if ($invalid) {
             DB::statement("DROP INDEX {$c}IF EXISTS {$name}");

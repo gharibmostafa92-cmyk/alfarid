@@ -8,6 +8,9 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Line item on a wholesale quotation request detailing requested quantity and target pricing.
+ */
 class QuotationItem extends Model
 {
     use HasFactory;

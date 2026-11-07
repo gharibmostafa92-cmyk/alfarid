@@ -128,8 +128,7 @@ class StaffSettingsCommitTest extends TestCase
 
     public function test_sequence_sync_failure_rolls_back_settings_without_silent_warning(): void
     {
-        // M-2: المزامنة داخل الـ transaction — فشلها يُفشل الحفظ كله
-        // (rollback) بدل حفظ الإعدادات مع "warning" وعداد قديم يُكرر الأرقام.
+        // Numbering sequence sync runs inside transaction so failures roll back settings update.
         $this->seed(SettingSeeder::class);
         $actor = User::factory()->create();
         $actor->givePermissionTo(Permission::findOrCreate('settings.manage', 'staff'));

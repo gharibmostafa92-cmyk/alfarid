@@ -8,6 +8,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * Manual administrative adjustment applied to a customer wallet balance.
+ */
 class WalletAdjustment extends Model
 {
     public $timestamps = false;

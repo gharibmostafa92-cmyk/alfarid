@@ -17,6 +17,9 @@ use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\ToolRegistry;
 use Illuminate\Console\Command;
 
+/**
+ * Offline evaluation benchmark for AI tool calling accuracy against Egyptian Arabic test datasets.
+ */
 final class EvaluateAiAgent extends Command
 {
     protected $signature = 'ai:evaluate {--finance : Evaluate the finance benchmark} {--actor= : Staff ID to evaluate permissions for} {--model=} {--case=* : Evaluate selected case IDs} {--rpm=10 : Maximum provider requests per minute during evaluation} {--check : Validate the dataset without contacting Gemini} {--toolsets : Route declarations by domain to compare with the full tool list} {--min-accuracy=}';
@@ -240,13 +243,13 @@ final class EvaluateAiAgent extends Command
         if ($key === 'locations' && isset($call['args']['branch_id'])) {
             $items = array_values(array_filter($items, fn ($item) => ($item['branch_id'] ?? null) === $call['args']['branch_id']));
         }
-        // أرقام الموبايل العربية تتحوّل لإنجليزي قبل المطابقة (زي Customer::normalizePhone في الإنتاج).
+        // Convert Arabic-Indic digits to standard ASCII before matching phone numbers, mirroring Customer::normalizePhone.
         $digits = preg_replace('/\D+/', '', strtr((string) ($call['args']['query'] ?? ''), ['٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4', '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9']));
         $items = array_values(array_filter($items, fn ($item) => $query === ''
             || str_contains($normalize($item['name'].' '.($item['code'] ?? '').' '.($item['sku'] ?? '').' '.($item['barcode'] ?? '').' '.($item['company_name'] ?? '')), $query)
             || ($key === 'variants' && $this->matchesInventoryDescription($item, $query))
             || ($digits !== '' && isset($item['phone']) && str_starts_with((string) $item['phone'], $digits))));
-        // فلاتر قائمة العملاء (status/pending_older_than_hours مش بتتحاكى في الـ fixture؛ التطابق على اسم الأداة والـ args).
+        // Customer list filters (e.g. status) are not simulated in test fixtures; assertion evaluates tool name and args.
         $items = array_map(fn ($item) => ['id' => $item['id'], 'label' => isset($item['company_name']) ? $item['name'].' — '.$item['company_name'] : $item['name'], 'meta' => $item['code'] ?? ''], $items);
 
         return [$call['name'] === 'find_entities' ? 'results' : $key => $items];

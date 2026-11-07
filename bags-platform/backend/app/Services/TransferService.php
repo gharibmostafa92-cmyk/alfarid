@@ -187,7 +187,7 @@ class TransferService
                 }
 
                 // Collect quantity updates into a single batch upsert to minimize lock holding duration.
-                $qtyUpdates[] = [...$item->only(['id', 'stock_transfer_id', 'product_variant_id', 'from_location_id', 'to_location_id', 'requested_qty', 'approved_qty', 'shipped_qty', 'received_qty', 'created_at']), 'approved_qty' => $approvedQty, 'updated_at' => now()];
+                $qtyUpdates[] = $this->itemUpsertRow($item, 'approved_qty', $approvedQty);
 
                 if ($approvedQty > 0) {
                     $this->move([
@@ -257,7 +257,7 @@ class TransferService
                     throw new BusinessException('الكمية المشحونة يجب أن تكون بين صفر والكمية المعتمدة.');
                 }
 
-                $qtyUpdates[] = [...$item->only(['id', 'stock_transfer_id', 'product_variant_id', 'from_location_id', 'to_location_id', 'requested_qty', 'approved_qty', 'shipped_qty', 'received_qty', 'created_at']), 'shipped_qty' => $shippedQty, 'updated_at' => now()];
+                $qtyUpdates[] = $this->itemUpsertRow($item, 'shipped_qty', $shippedQty);
 
                 if ($shippedQty <= 0) {
                     if ((float) $item->approved_qty > 0) {
@@ -382,7 +382,7 @@ class TransferService
                     throw new BusinessException('الكمية المستلمة يجب أن تكون بين صفر والكمية المشحونة.');
                 }
 
-                $qtyUpdates[] = [...$item->only(['id', 'stock_transfer_id', 'product_variant_id', 'from_location_id', 'to_location_id', 'requested_qty', 'approved_qty', 'shipped_qty', 'received_qty', 'created_at']), 'received_qty' => $receivedQty, 'updated_at' => now()];
+                $qtyUpdates[] = $this->itemUpsertRow($item, 'received_qty', $receivedQty);
 
                 if ($shippedQty <= 0) {
                     continue;
@@ -656,6 +656,22 @@ class TransferService
         ]));
 
         $this->inventory->recordMovement($data, $level);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function itemUpsertRow(StockTransferItem $item, string $qtyField, float $qty): array
+    {
+        return [
+            ...$item->only([
+                'id', 'stock_transfer_id', 'product_variant_id',
+                'from_location_id', 'to_location_id', 'requested_qty',
+                'approved_qty', 'shipped_qty', 'received_qty', 'created_at',
+            ]),
+            $qtyField => $qty,
+            'updated_at' => now(),
+        ];
     }
 
     private function lockTransferLevels(StockTransfer $transfer, bool $source, bool $destination): Collection

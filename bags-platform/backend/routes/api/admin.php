@@ -57,7 +57,7 @@ use App\Http\Controllers\Api\V1\Shared\NotificationController;
 use App\Http\Middleware\AuditStaffAdministration;
 use Illuminate\Support\Facades\Route;
 
-// معرّفات الكتالوج رقمية بس: أي قيمة غير رقمية تبقى 404 بدل ما Postgres يرمي خطأ نوع ويرجع 500
+// Enforce numeric route patterns: non-numeric segments yield 404 instead of Postgres type errors (500).
 Route::pattern('category', '[0-9]{1,18}');
 Route::pattern('brand', '[0-9]{1,18}');
 Route::pattern('product', '[0-9]{1,18}');
@@ -87,15 +87,13 @@ Route::pattern('purchase_request', '[0-9]{1,18}');
 Route::pattern('purchase_order', '[0-9]{1,18}');
 Route::pattern('supplier_invoice', '[0-9]{1,18}');
 Route::pattern('supplier_payment', '[0-9]{1,18}');
-// L4: معاملات المساعد مقيدة النمط — المحادثة integer والفعل ULID.
-// قيمة رمزية خارج النمط تفضي لـ 404 بدل 22P02 في Postgres.
-// (كانا UUID خطأً فكسرا كل مسارات المساعد: 404 دائم.)
+// Constrain AI route parameters: conversation IDs are numeric and action IDs are 26-char ULIDs,
+// failing cleanly with 404 rather than triggering PostgreSQL syntax casting errors (22P02).
 Route::pattern('conversation', '[0-9]{1,18}');
 Route::pattern('action', '[0-9A-Za-z]{26}');
 
 // Public admin authentication endpoint (legacy — prefer /api/v1/auth/login).
-// M5: تُعطَّل بضبط LEGACY_LOGIN_ENABLED=false حتى لا تتضاعف ميزانية التخمين
-// عبر limiters مستقلة ولا يظهر توكن موظف على دومين الويب.
+// Disabled when LEGACY_LOGIN_ENABLED=false to avoid splitting brute-force rate limits across endpoints.
 if (config('auth.legacy_login_enabled', false)) {
     Route::post('auth/login', [AuthController::class, 'login'])
         ->middleware('throttle:admin-login')
@@ -115,8 +113,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
             Route::get('suppliers', [ReportController::class, 'suppliers'])->name('suppliers');
             Route::get('shifts', [ReportController::class, 'shifts'])->name('shifts');
         });
-        // M3: notifications.id is uuid — non-uuid values stay 404 instead of
-        // throwing Postgres 22P02 (500 + log spam) via findOrFail.
+        // Constrain notification IDs to UUIDs so malformed identifiers return 404 rather than casting exceptions.
         Route::post('notifications/{id}/read', [NotificationController::class, 'markAsRead'])->whereUuid('id')->name('notifications.read');
         Route::post('notifications/read-all', [NotificationController::class, 'readAll'])->name('notifications.read-all');
 
@@ -151,8 +148,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
                 ->middleware('permission:locations.delete|locations.manage');
         });
 
-        // L8: self-service rotation for flagged temp passwords — no
-        // users.update required (defined before the resource routes).
+        // Allow self-service rotation for flagged temporary passwords without requiring users.update permission.
         Route::put('me/password', [UserController::class, 'updateOwnPassword'])->name('me.password');
         Route::apiResource('users', UserController::class)
             ->only(['index', 'show'])
@@ -185,7 +181,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
             ->name('permissions.index');
 
         // Catalog: authorization is handled in the controllers via can:* middleware.
-        // مهم: reorder قبل apiResource عشان ميتقريش كأنه {category}
+        // Place custom categories/reorder before apiResource to prevent matching {category} parameter.
         Route::put('categories/reorder', [CategoryController::class, 'reorder'])->name('categories.reorder');
         Route::apiResource('categories', CategoryController::class);
 
@@ -196,13 +192,11 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
 
         Route::put('products/{product}/media/reorder', [ProductMediaController::class, 'reorder'])->name('products.media.reorder');
         Route::get('products/{product}/media', [ProductMediaController::class, 'index'])->name('products.media.index');
-        // F18: each image spawns two GD conversions in-request and the UI
-        // fires two uploads in parallel — throttle the admin upload path so
-        // one account cannot saturate every PHP worker.
+        // Throttle product media uploads to prevent CPU saturation from synchronous image processing.
         Route::post('products/{product}/media', [ProductMediaController::class, 'store'])->middleware('throttle:30,1')->name('products.media.store');
         Route::delete('products/{product}/media/{media}', [ProductMediaController::class, 'destroy'])->name('products.media.destroy');
 
-        // ================== المرحلة 3: المخزون ==================
+        // Inventory management
         Route::get('production-receipts/options', [ProductionReceiptController::class, 'options'])->name('production-receipts.options');
         Route::get('production-receipts', [ProductionReceiptController::class, 'index'])->name('production-receipts.index');
         Route::post('production-receipts', [ProductionReceiptController::class, 'store'])->name('production-receipts.store');
@@ -212,19 +206,19 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
             Route::post('/adjustments', [InventoryController::class, 'adjustments'])->name('adjustments');
         });
 
-        // التحويلات المخزنية
+        // Stock transfers
         Route::apiResource('transfers', TransferController::class);
         Route::post('transfers/{transfer}/approve', [TransferController::class, 'approve'])->name('transfers.approve');
         Route::post('transfers/{transfer}/ship', [TransferController::class, 'ship'])->name('transfers.ship');
         Route::post('transfers/{transfer}/receive', [TransferController::class, 'receive'])->name('transfers.receive');
         Route::post('transfers/{transfer}/cancel', [TransferController::class, 'cancel'])->name('transfers.cancel');
 
-        // الجرد المخزني
+        // Stocktake sessions
         Route::apiResource('stocktakes', StocktakeController::class);
         Route::patch('stocktakes/{stocktake}/items', [StocktakeController::class, 'updateItems'])->name('stocktakes.items.update');
         Route::post('stocktakes/{stocktake}/approve', [StocktakeController::class, 'approve'])->name('stocktakes.approve');
 
-        // ================== المرحلة 4: الأسعار ==================
+        // Pricing and customer groups
         Route::apiResource('customer-groups', CustomerGroupController::class);
 
         Route::apiResource('price-lists', PriceListController::class);
@@ -236,7 +230,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
             Route::apiResource('price-lists.items', PriceListItemController::class);
         });
 
-        // ================== المرحلة 5: العملاء ==================
+        // Customer management
         Route::apiResource('customers', CustomerController::class);
         Route::post('customers/{customer}/documents', [CustomerController::class, 'storeDocument'])->name('customers.documents.store');
         Route::post('customers/{customer}/restore', [CustomerController::class, 'restore'])->withTrashed()->name('customers.restore');
@@ -257,30 +251,30 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
                 ->name('customers.documents.download');
         });
 
-        // ================== المرحلة 7: الطلبات ==================
+        // Order management
         Route::get('orders', [OrderController::class, 'index'])->name('orders.index');
         Route::get('orders/stats', [OrderController::class, 'stats'])->name('orders.stats');
         Route::get('orders/{order}', [OrderController::class, 'show'])->name('orders.show');
         Route::patch('orders/{order}/status', [OrderController::class, 'updateStatus'])->name('orders.update-status');
         Route::post('orders/{order}/payment', [OrderController::class, 'updatePayment'])->name('orders.update-payment');
         Route::post('orders/{order}/allocate', [OrderController::class, 'allocate'])->name('orders.allocate');
-        // M5: فك التوزيع — كانت رسالة allocate توجّه لعملية غير موجودة
+        // Releases allocated branch stock for an order back into available inventory.
         Route::post('orders/{order}/deallocate', [OrderController::class, 'deallocate'])->name('orders.deallocate');
         Route::post('orders/{order}/shipment', [OrderController::class, 'createShipment'])->name('orders.shipment');
 
-        // ================== المرحلة 8: الشحن ==================
+        // Shipping carriers, zones, and rates
         Route::apiResource('shipping-companies', ShippingCompanyController::class);
         Route::apiResource('shipping-zones', ShippingZoneController::class);
         Route::apiResource('shipping-rates', ShippingRateController::class);
 
-        // ================== المرحلة 8: العروض والكوبونات ==================
+        // Promotions and coupons
         Route::apiResource('promotions', PromotionController::class);
         Route::apiResource('coupons', CouponController::class);
 
         Route::get('return-items/{return_item}/attachments/{attachment}', [AttachmentController::class, 'returnFile'])->whereNumber(['return_item', 'attachment'])->name('return-items.attachments.show');
         Route::get('supplier-invoices/{invoice}/attachment', [AttachmentController::class, 'invoice'])->whereNumber('invoice')->name('supplier-invoices.attachment');
         Route::get('supplier-deliveries/{delivery}/invoice', [AttachmentController::class, 'delivery'])->whereNumber('delivery')->name('deliveries.invoice');
-        // ================== المرحلة 12: بوابة الجملة المتقدمة ==================
+        // Wholesale quotations and payment notices
         Route::get('quotations', [QuotationController::class, 'index'])->name('quotations.index');
         Route::get('quotations/{quotation}', [QuotationController::class, 'show'])->whereNumber('quotation')->name('quotations.show');
         Route::post('quotations/{quotation}/price', [QuotationController::class, 'price'])->whereNumber('quotation')->name('quotations.price');
@@ -291,13 +285,13 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
         Route::post('payment-notices/{payment_notice}/reject', [WholesalePaymentNoticeController::class, 'reject'])->whereNumber('payment_notice')->name('payment-notices.reject');
         Route::get('payment-notices/{notice}/receipt', [AttachmentController::class, 'paymentNotice'])->whereNumber('notice')->name('payment-notices.receipt');
 
-        // ================== المرحلة 9: المرتجعات ==================
+        // Return requests (RMA)
         Route::apiResource('returns', ReturnController::class)->parameters(['returns' => 'return_request']);
         Route::post('returns/{return_request}/approve', [ReturnController::class, 'approve'])->name('returns.approve');
         Route::post('returns/{return_request}/receive', [ReturnController::class, 'receive'])->name('returns.receive');
         Route::post('returns/{return_request}/refund', [ReturnController::class, 'refund'])->name('returns.refund');
 
-        // ================== المرحلة 10: المشتريات والموردين ==================
+        // Procurement, suppliers, and purchase orders
         Route::apiResource('suppliers', SupplierController::class);
         Route::get('suppliers/{supplier}/users', [SupplierController::class, 'users'])->name('suppliers.users.index');
         Route::post('suppliers/{supplier}/users', [SupplierController::class, 'storeUser'])->name('suppliers.users.store');
@@ -347,7 +341,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
             ->middleware('permission:settings.update|settings.manage')
             ->name('settings.update');
 
-        // ================== المرحلة 11: الخزائن، المصروفات، تحويلات الخزائن، الورديات ==================
+        // Treasuries, expenses, transfers, and shifts
         Route::pattern('treasury', '[0-9]{1,18}');
         Route::pattern('expense', '[0-9]{1,18}');
         Route::pattern('treasury_transfer', '[0-9]{1,18}');
@@ -392,7 +386,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
             Route::patch('conversations/{conversation}/pin', [AiConversationController::class, 'pin'])->name('conversations.pin');
             Route::post('conversations/{conversation}/stream', [AiMessageController::class, 'stream'])->middleware('throttle:ai-chat')->name('conversations.stream');
             Route::get('conversations', [AiConversationController::class, 'index'])->name('conversations.index');
-            // L5: إنشاء المحادثات مكلف (سجل + عنوان أول) فمقيّد مثل الرفع.
+            // Throttle conversation creation to rate-limit conversation record and initial title setup.
             Route::post('conversations', [AiConversationController::class, 'store'])->middleware('throttle:30,1')->name('conversations.store');
             Route::get('conversations/{conversation}', [AiConversationController::class, 'show'])->name('conversations.show');
             Route::delete('conversations/{conversation}', [AiConversationController::class, 'destroy'])->name('conversations.destroy');
@@ -401,8 +395,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
             Route::post('actions/{action}/confirm', [AiActionController::class, 'confirm'])->middleware('permission:ai_agent.execute')->name('actions.confirm');
             Route::post('actions/{action}/cancel', [AiActionController::class, 'cancel'])->name('actions.cancel');
             Route::post('actions/{action}/undo', [AiActionController::class, 'undo'])->middleware('permission:ai_agent.execute')->name('actions.undo');
-            // M6: الزر بتاع mentions بيتنادى مع كل ضغطة بعد debounce — GAS
-            // (AuditStaffAdministration) يعدّ POST بس ففلتر GET مش مغطّى.
+            // Throttle debounced autocomplete queries on staff and product mentions.
             Route::get('mentions', [AiMentionController::class, 'search'])->middleware('throttle:60,1')->name('mentions');
             Route::get('welcome', [AiWelcomeController::class, 'show'])->name('welcome');
         });

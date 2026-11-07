@@ -6,6 +6,9 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
+/**
+ * Ledger entry for customer store credit balances, deposits, and order settlements.
+ */
 class CustomerWalletTransaction extends Model
 {
     public $timestamps = false;

@@ -9,6 +9,9 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Line item on a supplier purchase order detailing requested quantity and agreed unit cost.
+ */
 class PurchaseOrderItem extends Model
 {
     /** @use HasFactory<PurchaseOrderItemFactory> */

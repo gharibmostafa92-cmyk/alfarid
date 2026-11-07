@@ -2,19 +2,19 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Api\V1\Webhook\CustomerWhatsAppWebhookController;
 use App\Http\Controllers\Api\V1\Webhook\PaymentWebhookController;
 use App\Http\Controllers\Api\V1\Webhook\ShippingWebhookController;
 use App\Http\Controllers\Api\V1\Webhook\WhatsAppInboundController;
 use Illuminate\Support\Facades\Route;
 
-// روابط خارجية (بوابات دفع وشركات شحن): لا مصادقة Sanctum —
-// التحقق من التوقيع الرقمي HMAC داخل كل متحكم، وكل طلب يُسجل في webhook_logs.
+// External inbound webhooks (payment gateways & shipping carriers): authenticated via HMAC signatures and logged to webhook_logs.
 Route::middleware('throttle:webhooks')->group(function (): void {
-    // قيود طول/نمط على المعاملات: اسم بوابة/شركة طويل كان يتجاوز عمود
-    // provider في سجل الويب هوك فيحوّل الطلب لـ 500 بدل 404 نظيف (F-07)
+    // Constrain gateway/company slug length to 40 chars matching provider database column width, returning 404 on overflow.
     Route::post('payment/{gateway}', [PaymentWebhookController::class, 'handle'])
         ->where('gateway', '[a-z0-9_-]{1,40}')->name('payment');
     Route::post('shipping/{company}', [ShippingWebhookController::class, 'handle'])
         ->where('company', '[A-Za-z0-9_-]{1,40}')->name('shipping');
     Route::post('whatsapp/inbound', [WhatsAppInboundController::class, 'handle'])->name('whatsapp.inbound');
+    Route::post('whatsapp/customers', [CustomerWhatsAppWebhookController::class, 'handle'])->name('whatsapp.customers');
 });

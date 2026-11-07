@@ -18,7 +18,7 @@ class CreateShipmentRequest extends FormRequest
     {
         return [
             'shipping_company_id' => ['required', 'integer', 'exists:shipping_companies,id'],
-            // اختياري: بدونه يُولّد رقم بوليصة داخلي
+            // Optional: when omitted, an internal tracking number is automatically generated.
             'awb_number' => ['nullable', 'string', 'max:100', 'unique:shipments,awb_number'],
         ];
     }

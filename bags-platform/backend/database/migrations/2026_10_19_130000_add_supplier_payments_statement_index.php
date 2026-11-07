@@ -6,9 +6,8 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
 /**
- * فهرس كشف حساب المورد (L6): استعلامات الرصيد الافتتاحي وحركات الفترة في
- * SupplierFinanceService::statement تفرز بـ (supplier_id, payment_date)،
- * فتُنشأ خارج المعاملة وبـ CONCURRENTLY كبقية فهارس 120002.
+ * Adds composite index on (supplier_id, payment_date) CONCURRENTLY outside a transaction
+ * to accelerate supplier statement balance calculations and date-range queries.
  */
 return new class extends Migration
 {

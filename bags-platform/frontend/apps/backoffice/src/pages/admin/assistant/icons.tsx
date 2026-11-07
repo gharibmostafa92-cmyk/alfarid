@@ -1,5 +1,5 @@
-// أيقونات خطية خفيفة (inline SVG) — بلا مكتبات خارجية.
-// كلها بنفس السُمك والحجم عشان التناسق البصري.
+// Lightweight inline SVG icons avoiding external icon dependencies.
+// Standardized stroke width and 24x24 viewport for visual alignment.
 const paths: Record<string, string> = {
   plus: 'M12 5v14M5 12h14',
   search: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-3.5-3.5',
@@ -67,7 +67,7 @@ export function Icon({ name, size = 18, className }: { name: keyof typeof paths 
 export const entityIcon: Record<string, string> = { user: 'user', branch: 'branch', role: 'role', command: 'command', customer: 'store', customer_group: 'layers', category: 'folder', product: 'box', variant: 'tag', treasury: 'pin', treasury_transfer: 'refresh', expense: 'chart' };
 export const entityLabel: Record<string, string> = { user: 'موظف', branch: 'فرع', role: 'دور', command: 'أمر', customer: 'عميل', customer_group: 'مجموعة عملاء', category: 'قسم', product: 'منتج', variant: 'تشكيلة', treasury: 'خزينة', treasury_transfer: 'تحويل خزينة', expense: 'مصروف' };
 
-// حلقة عدّاد تنازلي — fraction من 0 لـ 1.
+// Circular progress indicator ring with normalized fraction between 0 and 1.
 export function Ring({ fraction, size = 22 }: { fraction: number; size?: number }) {
   const r = 9;
   const c = 2 * Math.PI * r;

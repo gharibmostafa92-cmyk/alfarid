@@ -9,7 +9,7 @@ return new class extends Migration
     public $withinTransaction = false;
 
     /**
-     * F9: product creation idempotency. The backoffice keeps the product
+     * Product creation idempotency: the backoffice keeps the product
      * form alive across a lost response, so a retried "save" must replay
      * the existing row instead of creating a slug ...-2 duplicate.
      * Nullable so legacy rows stay untouched; Postgres treats NULLs as

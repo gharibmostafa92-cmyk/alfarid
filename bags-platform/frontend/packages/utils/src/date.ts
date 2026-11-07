@@ -27,10 +27,13 @@ export function formatDate(
   dateInput: string | number | Date | null | undefined,
   options: FormatDateOptions = {}
 ): string {
-  if (!dateInput) return '-';
+  if (dateInput === null || dateInput === undefined || dateInput === '') return '-';
 
-  const date = typeof dateInput === 'object' && dateInput instanceof Date ? dateInput : new Date(dateInput);
-  if (isNaN(date.getTime())) return '-';
+  const date =
+    dateInput instanceof Date
+      ? dateInput
+      : new Date(typeof dateInput === 'string' ? dateInput.trim() : dateInput);
+  if (Number.isNaN(date.getTime())) return '-';
 
   const {
     locale = 'ar-EG',

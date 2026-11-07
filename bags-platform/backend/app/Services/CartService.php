@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Enums\CustomerStatus;
-use App\Enums\CustomerType;
 use App\Exceptions\BusinessException;
 use App\Models\Cart;
 use App\Models\CartItem;
@@ -300,20 +298,12 @@ class CartService
                 continue;
             }
             // Retain inactive variants in response with null prices so shoppers can view and remove them from cart.
+            $qty = (float) $item->qty;
             if (! in_array($variant->id, $purchasableIds, true)) {
-                $lines[] = [
-                    'item_id' => $item->id,
-                    'variant' => $variant,
-                    'qty' => (float) $item->qty,
-                    'unit_price' => null,
-                    'base_price' => null,
-                    'line_discount' => 0.0,
-                    'line_total' => 0.0,
-                ];
+                $lines[] = $this->unpricedLine($item->id, $variant, $qty);
 
                 continue;
             }
-            $qty = (float) $item->qty;
             try {
                 $resolved = $this->pricing->resolve($variant, $customer, $qty, ctx: $context);
                 $unit = (float) $resolved['unit_price'];
@@ -329,15 +319,7 @@ class CartService
                     'line_total' => BigDecimal::of((string) $unit)->multipliedBy((string) $qty)->toScale(2, RoundingMode::HalfUp)->toFloat(),
                 ];
             } catch (BusinessException) {
-                $lines[] = [
-                    'item_id' => $item->id,
-                    'variant' => $variant,
-                    'qty' => $qty,
-                    'unit_price' => null,
-                    'base_price' => null,
-                    'line_discount' => 0.0,
-                    'line_total' => 0.0,
-                ];
+                $lines[] = $this->unpricedLine($item->id, $variant, $qty);
             }
         }
 
@@ -534,7 +516,7 @@ class CartService
      *
      * @throws BusinessException If requested quantity exceeds user cap
      */
-    private function assertLineQty(?Customer $customer, float $qty): void
+    public function assertLineQty(?Customer $customer, float $qty): void
     {
         $cap = $this->lineQtyCap($customer);
         if ($cap > 0 && $qty > $cap) {
@@ -555,8 +537,7 @@ class CartService
         if ($customer === null) {
             return (float) config('store.guest_max_line_qty', 10);
         }
-        if ($customer->status === CustomerStatus::Approved
-            && in_array($customer->type, [CustomerType::Wholesale, CustomerType::Distributor], true)) {
+        if ($customer->isWholesaleApproved()) {
             return 0.0;
         }
 
@@ -619,5 +600,21 @@ class CartService
     private function assertPriced(ProductVariant $variant, ?Customer $customer, float $qty): void
     {
         $this->pricing->resolve($variant, $customer, $qty);
+    }
+
+    /**
+     * @return array{item_id: int, variant: ProductVariant, qty: float, unit_price: null, base_price: null, line_discount: float, line_total: float}
+     */
+    private function unpricedLine(int $itemId, ProductVariant $variant, float $qty): array
+    {
+        return [
+            'item_id' => $itemId,
+            'variant' => $variant,
+            'qty' => $qty,
+            'unit_price' => null,
+            'base_price' => null,
+            'line_discount' => 0.0,
+            'line_total' => 0.0,
+        ];
     }
 }

@@ -7,6 +7,9 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Product variant line item within a stocktake session comparing expected and counted quantities.
+ */
 class StocktakeItem extends Model
 {
     protected $fillable = [

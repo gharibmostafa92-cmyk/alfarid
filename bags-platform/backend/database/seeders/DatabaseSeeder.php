@@ -43,7 +43,7 @@ class DatabaseSeeder extends Seeder
                 $testUser->getAttributes(),
             );
 
-            // بيانات الكتالوج التجريبية للبيئات المحلية والاختبار بس
+            // Demo catalog data for local and test environments only.
             $this->call(CatalogSeeder::class);
         }
     }

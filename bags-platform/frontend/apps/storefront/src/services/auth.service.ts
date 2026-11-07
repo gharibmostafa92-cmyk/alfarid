@@ -17,11 +17,9 @@ export async function loginUnified(login: string, password: string, redirect?: s
   await revokePreviousSession(res.token);
 
   if (res.redirect.app === 'backoffice') {
-    // M9: جلسة عميل/مورد قائمة توكنها يبقى صالحًا 24 ساعة بعد clear المحلي —
-    // أبطلها في الخادم أولًا (best-effort) قبل مسح الجلسة المحلية.
+    // Clear local state after revoking previous active session when switching to backoffice.
     useAuthStore.getState().clear();
-    // M7: الكود في الـ fragment لا في الـ query — الـ fragment لا يُرسل
-    // للخادم ولا يظهر في الـ Referer أو سجلات nginx.
+    // Pass single-use handoff code in URL fragment to prevent exposure in HTTP logs or Referers.
     const url = `${resolveServiceUrl(process.env.NEXT_PUBLIC_BACKOFFICE_URL ?? 'http://localhost:5173')}/auth/callback#code=${encodeURIComponent(res.handoff_code!)}`;
     window.location.assign(url);
     return null;
@@ -31,8 +29,7 @@ export async function loginUnified(login: string, password: string, redirect?: s
     token: res.token!, actorType: res.actor.type as 'customer' | 'supplier',
     destination: res.actor.subtype, home: res.redirect.path, user: res.data,
   });
-  // M10: الدمج قد يفشل في الخادم (cart_merged=false) — أبقِ cart_session
-  // ليُعاد دمجه لاحقًا بدل حذفه مع توكن يتيم جديد.
+  // Retain guest cart session if server cart merge failed so it can be retried.
   if (res.actor.type === 'customer') {
     if (res.cart_merged === false && guestSession) restoreGuestCartSession(guestSession);
     else clearGuestCartSession();

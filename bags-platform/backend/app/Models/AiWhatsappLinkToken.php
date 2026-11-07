@@ -7,6 +7,9 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Short-lived single-use verification token for pairing a WhatsApp account with staff identity.
+ */
 class AiWhatsappLinkToken extends Model
 {
     protected $fillable = [

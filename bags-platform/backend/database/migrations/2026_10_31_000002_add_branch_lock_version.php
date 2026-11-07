@@ -7,8 +7,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * M3: تعديل الفرع من الشاشة كان بلا قفل توافقي — آخر واحد بيكسب.
- * آدينا lock_version زي الموظفين، إلزامي في UpdateBranchRequest.
+ * Adds lock_version column to branches for optimistic locking during concurrent administrative updates.
  */
 return new class extends Migration
 {

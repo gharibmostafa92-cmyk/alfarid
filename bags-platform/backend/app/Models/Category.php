@@ -9,6 +9,7 @@ use App\Enums\SalesChannel;
 use App\Models\Concerns\TracksEditVersion;
 use App\Support\CatalogMedia;
 use Database\Factories\CategoryFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -49,8 +50,22 @@ class Category extends Model implements HasMedia
     /** Active retail products for storefront category counters. */
     public function activeProducts(): HasMany
     {
-        return $this->hasMany(Product::class)->where('status', ProductStatus::Published)
-            ->whereIn('sales_channel', [SalesChannel::Retail, SalesChannel::Both]);
+        return $this->hasMany(Product::class)->publishedForRetail();
+    }
+
+    /**
+     * Scope to categories that are active and whose ancestor path (up to 3 levels) is active.
+     *
+     * @param  Builder<Category>  $query
+     * @return Builder<Category>
+     */
+    public function scopeActiveHierarchy(Builder $query): Builder
+    {
+        return $query->where('is_active', true)
+            ->where(fn ($path) => $path->whereNull('parent_id')
+                ->orWhereHas('parent', fn ($parent) => $parent->where('is_active', true)
+                    ->where(fn ($path) => $path->whereNull('parent_id')
+                        ->orWhereHas('parent', fn ($ancestor) => $ancestor->where('is_active', true)->whereNull('parent_id')))));
     }
 
     public function registerMediaCollections(): void

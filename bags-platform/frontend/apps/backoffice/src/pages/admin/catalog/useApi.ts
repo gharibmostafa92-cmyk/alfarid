@@ -7,7 +7,7 @@ export function useApi<T>(fn: (signal: AbortSignal) => Promise<T>, deps: unknown
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const ac = new AbortController();
-    set(s => ({ ...s, loading: true, error: undefined }));   // خلي الداتا القديمة ظاهرة أثناء التحميل
+    set(s => ({ ...s, loading: true, error: undefined }));   // Retains previous data during background re-fetching to prevent UI flicker
     fn(ac.signal).then(data => { if (!ac.signal.aborted) set({ data, loading: false }); })
       .catch(e => { if (!ac.signal.aborted && !isAxiosCancel(e)) set(s => ({ ...s, loading: false, error: normalizeError(e) })); });
     return () => ac.abort();

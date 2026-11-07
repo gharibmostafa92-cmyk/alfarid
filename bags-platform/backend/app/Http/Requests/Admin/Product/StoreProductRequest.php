@@ -16,6 +16,11 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Unique;
 
+/**
+ * Validates product creation and nested variant definitions.
+ *
+ * Enforces uniqueness across slugs, SKUs, and barcodes, supporting idempotent retries via create_key.
+ */
 class StoreProductRequest extends FormRequest
 {
     use LimitsArrayInput;
@@ -69,10 +74,9 @@ class StoreProductRequest extends FormRequest
     public function rules(): array
     {
         $rules = array_merge(self::baseRules(), [
-            // F9: idempotency key for product creation — one UUID per creation
-            // session, reused across retries so a lost response cannot duplicate.
+            // Client-supplied idempotency key reused across retries to prevent duplicate product creations.
             'create_key' => ['nullable', 'uuid'],
-            // اختياري: متغيرات مع الإنشاء
+            // Optional nested variants array created atomically alongside the product.
             'variants' => ['nullable', 'array', 'max:100'],
             'variants.*' => ['array:'.implode(',', array_keys(VariantRules::base()))],
         ]);

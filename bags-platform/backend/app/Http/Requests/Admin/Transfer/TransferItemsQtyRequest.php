@@ -8,8 +8,8 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
- * طلبات مراحل التحويل (اعتماد/شحن/استلام): كميات اختيارية لكل عنصر،
- * وغياب عنصر يعني استخدام الكمية الافتراضية للمرحلة السابقة.
+ * Transfer stage item quantity requests (approval, shipment, receipt).
+ * Items are optional; omitted items default to previous stage quantities.
  */
 class TransferItemsQtyRequest extends FormRequest
 {
@@ -18,7 +18,7 @@ class TransferItemsQtyRequest extends FormRequest
         return true;
     }
 
-    /** حقل الكمية الخاص بالمرحلة الحالية — بيتحدد في الكلاس الفرعي. */
+    /** Quantity field name for the active transfer stage (specialized in child classes). */
     protected string $qtyField = 'approved_qty';
 
     /**
@@ -41,7 +41,7 @@ class TransferItemsQtyRequest extends FormRequest
     }
 
     /**
-     * خريطة [معرّف العنصر => الكمية] جاهزة للخدمة.
+     * Map of [item_id => quantity] formatted for service execution.
      *
      * @return array<int, float>
      */

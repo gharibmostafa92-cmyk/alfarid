@@ -9,8 +9,9 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * بطاقة منتج في المتجر: السعر النهائي عبر PricingService للعميل الحالي
- * (زائر = قناة قطاعي، وعميل بتوكن = مجموعته/أسعاره الخاصة تسرى عليه).
+ * Storefront product card resource.
+ *
+ * Resolves context-aware customer pricing (guest retail vs authenticated customer group tier) and stock availability.
  */
 class StoreProductCardResource extends JsonResource
 {
@@ -33,8 +34,7 @@ class StoreProductCardResource extends JsonResource
             'name_ar' => $this->name_ar,
             'name_en' => $this->name_en,
             'slug' => $this->slug,
-            // F6: conversions render on the queue — fall back to the original
-            // until the thumb exists instead of emitting a broken CDN link.
+            // Conversions render asynchronously; fall back to original until thumb exists.
             'image' => ($media = $this->resource->catalogImages()->first()) && $media->hasGeneratedConversion('thumb') ? $media->getUrl('thumb') : ($media?->getUrl() ?: null),
             'brand' => null,
             'category' => $this->whenLoaded('category', fn () => $this->category ? [
@@ -47,8 +47,7 @@ class StoreProductCardResource extends JsonResource
                 ? $display['compare_at'] : null,
             'discount_percentage' => $display['discount_percentage'] ?? null,
             'is_featured' => (bool) $this->is_featured,
-            // F19: لا نكشف أرقام المبيعات الدقيقة للعامة — الواجهة لا
-            // تستخدمها (toCardVM يتجاهلها).
+            // Expose binary stock presence rather than exact inventory counts to public storefront clients.
             'in_stock' => $available > 0,
             'is_new' => $this->published_at !== null
                 && $this->published_at->gte(now()->subDays((int) config('storefront.new_days', 30))),

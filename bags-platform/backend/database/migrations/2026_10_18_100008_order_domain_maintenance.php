@@ -8,17 +8,16 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * صيانة نطاق الطلبات (F-29):
- * - سقوط فهرس carts.customer_id غير الفريد المكرر مع القيد الفريد اللاحق.
- * - قيد تفرد على coupon_usages(coupon_id, order_id) يمنع تسجيل الاستخدام مرتين.
- * - cart_items.product_variant_id: فهرس + حذف متسلسل حتى لا تمنع السلال
- *   المهجورة حذف المتغيرات.
+ * Order domain maintenance:
+ * - Drops redundant non-unique index on carts.customer_id superseded by the unique constraint.
+ * - Adds composite uniqueness on coupon_usages(coupon_id, order_id) to prevent duplicate recordings.
+ * - Cascades deletion on cart_items.product_variant_id so abandoned carts do not block variant deletions.
  */
 return new class extends Migration
 {
     public function up(): void
     {
-        // فهرس عادي مكرر مع carts_customer_id_unique (يُضيفه _100002)
+        // Redundant index superseded by carts_customer_id_unique
         Schema::table('carts', fn (Blueprint $table) => $table->dropIndex(['customer_id']));
 
         Schema::table('cart_items', function (Blueprint $table): void {
@@ -29,7 +28,7 @@ return new class extends Migration
             $table->index('product_variant_id');
         });
 
-        // إزالة أي تكرار قديم قبل فرض القيد (يبقي أصغر id لكل زوج)
+        // Deduplicate existing usage rows prior to enforcing composite unique constraint
         DB::statement('DELETE FROM coupon_usages a USING coupon_usages b
             WHERE a.id > b.id AND a.coupon_id = b.coupon_id AND a.order_id = b.order_id');
         Schema::table('coupon_usages', fn (Blueprint $table) => $table->unique(['coupon_id', 'order_id']));

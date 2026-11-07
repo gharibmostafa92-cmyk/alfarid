@@ -262,7 +262,7 @@ class CExecutionReviewTest extends TestCase
 
     public function test_incremental_count_rejects_rescan_after_intervening_movement_until_recount(): void
     {
-        // M2: a rescan after an intervening movement must not silently stack
+        // A rescan after an intervening movement must not silently stack
         // counted quantities on a stale snapshot (the difference would be
         // applied twice at approve time) — it is rejected until recount.
         $this->stock();
@@ -295,7 +295,7 @@ class CExecutionReviewTest extends TestCase
         }
         $this->assertSame($keys[0], $keys[1]);
         $this->assertNotSame($keys[0], $keys[2]);
-        // H5: per-IP buckets collapse IPv6 to /64, so two addresses in the
+        // Per-IP buckets collapse IPv6 to /64, so two addresses in the
         // same /64 share the per-IP daily key (rotating the low 64 bits no
         // longer dodges the bucket); a different /64 gets a different key.
         $this->assertSame($ipKeys[0], $ipKeys[1]);

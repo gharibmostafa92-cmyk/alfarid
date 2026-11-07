@@ -17,7 +17,7 @@ use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
 /**
- * M4: disabling a branch with approved/shipped transfers to or from it, or
+ * Disabling a branch with approved/shipped transfers to or from it, or
  * with non-zero balances, must be refused — otherwise reservations freeze
  * (cancel path locked) and goods stay "in transit" forever.
  */

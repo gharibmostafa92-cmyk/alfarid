@@ -12,7 +12,7 @@ interface Props {
   confirmationBlocked?: boolean;
   onPick: (entity: string, id: string | number, label: string) => void;
   onAction: (kind: 'confirm' | 'cancel' | 'undo', id: string, typed?: string, selected?: string[]) => void;
-  /** يملأ صندوق الكتابة برسالة جاهزة (مثلاً زرار «جهّز الاعتماد»). */
+  /** Populates composer with suggested action message on prompt click. */
   onPrompt?: (text: string, submit?: boolean) => void;
 }
 
@@ -23,7 +23,7 @@ const statusBadgeTone: Record<string, string> = { pending: 'warning', approved: 
 const verdictMeta: Record<string, { label: string; tone: string }> = { ready: { label: 'جاهز', tone: 'success' }, blocked: { label: 'متعطّل (blocked)', tone: 'danger' }, needs_attention: { label: 'محتاج انتباه', tone: 'warning' } };
 const severityRank: Record<string, number> = { blocker: 0, warning: 1, info: 2 };
 const severityLabel: Record<string, string> = { blocker: 'مانع', warning: 'تحذير', info: 'معلومة' };
-// الحقول اللي بتتعرض في أقسام مخصصة وماينفعش تتعرض كجدول قبل/بعد.
+// Fields rendered in dedicated sections rather than generic diff tables.
 const sectionOnlyKeys = ['documents_to_verify', 'suggestion'];
 function stripSections(v: unknown): unknown {
   const r = asRecord(v);
@@ -122,12 +122,12 @@ function formatValue(key: string, item: unknown): string {
 }
 const asRecord = (v: unknown): Record<string, unknown> | null => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
 
-// جدول مقارنة قبل/بعد — بيعلّم الحقول اللي اتغيرت فعلاً.
+// Comparison table highlighting actually changed attributes.
 function DiffTable({ before, after }: { before: unknown; after: unknown }) {
   const b = asRecord(before); const a = asRecord(after);
   if (!b && !a) return null;
   const keys = Array.from(new Set([...Object.keys(b ?? {}), ...Object.keys(a ?? {})]));
-  // عنصر جديد (مفيش «قبل») — نعرض القيم بس بدل عمود فاضي.
+  // Newly created item: show incoming values without redundant empty before column.
   if (!b && a) {
     return (
       <div className="as-diff as-diff--new" aria-label="بيانات العنصر الجديد">
@@ -200,7 +200,7 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
   const items = (block.items ?? []) as { key: string; label: string; change: string; before?: unknown; after?: unknown; ok?: boolean; message?: string }[];
   const selectableItems = items.filter(item => item.ok !== false);
   const [selected, setSelected] = useState(() => selectableItems.map(item => item.key));
-  // أول قيمة للمهلة المتبقية — بنستخدمها كـ "إجمالي" لحلقة العدّاد.
+  // Initial remaining timeout stored as denominator for progress ring calculation.
   const ttlTotal = useRef<number | null>(null);
   const undoTotal = useRef<number | null>(null);
 
@@ -390,7 +390,7 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
     );
   }
 
-  /* ---------------- Checklist (فحص طلب تاجر / جاهزية منتج) ---------------- */
+  /* ---------------- Checklist (Merchant application or product readiness) ---------------- */
   if (block.type === 'checklist') {
     const rawChecks = (block.checks ?? []) as { key: string; ok: boolean; severity?: string; message?: string; label?: string; hint?: string }[];
     const checks = rawChecks
@@ -470,7 +470,7 @@ export default function AssistantBlock({ block, busy, status, execute, confirmat
     );
   }
 
-  /* ---------------- Welcome card (ملخص طابور التجار والكتالوج — بدون Gemini) ---------------- */
+  /* ---------------- Welcome card (Summary queue card rendered locally without LLM call) ---------------- */
   if (block.type === 'welcome_card') {
     const rows = (block.rows ?? []) as { label: string; value: number }[];
     return (

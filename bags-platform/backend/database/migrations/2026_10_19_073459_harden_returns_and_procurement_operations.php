@@ -11,8 +11,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // نسخ مرفقات المرتجعات من القرص العام إلى الخاص يُنفَّذ بأمر
-        // returns:privatize-attachments خارج هذه المعاملة حتى لا يطيل قفل الهجرة.
+        // Moving return attachments to private storage is deferred to an artisan command to minimize DDL lock time.
         DB::statement('ALTER TABLE product_variants ALTER COLUMN cost_price TYPE numeric(14, 4)');
         Schema::create('operation_idempotency_keys', function (Blueprint $table): void {
             $table->id();
@@ -75,6 +74,6 @@ return new class extends Migration
             $table->dropColumn('refund_amount');
         });
         Schema::dropIfExists('operation_idempotency_keys');
-        // لا نُرجع cost_price إلى numeric(12,2): التخفيض يفقد الدقة بصمت.
+        // Preserving cost_price precision: do not revert to numeric(12,2) to avoid data truncation.
     }
 };

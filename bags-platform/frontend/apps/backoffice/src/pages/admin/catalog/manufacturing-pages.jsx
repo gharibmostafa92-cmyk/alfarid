@@ -11,7 +11,7 @@ const get = (path, params, signal) => api.get(base + path, { params, signal }).t
 export function DealersPage() {
   const { user: { can } } = useApp();
   const [q, setQ] = useQueryState({ search: '', type: '', status: '', page: 1, per_page: 15 });
-  // 4.3: deep link من المساعد — #/dealers?customer={id} يفتح الـ drawer تلقائيًا (ومش بيتبعت للـ API كفلتر).
+  // Deep link from assistant (#/dealers?customer={id}) opens the drawer without appending to API filter parameters.
   const { customer: deepLinkId, tab: deepLinkTab, ...listQuery } = q;
   const query = useApi(signal => get('/customers', { ...listQuery, business_only: 1 }, signal), [JSON.stringify(listQuery)]);
   const [draft, setDraft] = useState(null);

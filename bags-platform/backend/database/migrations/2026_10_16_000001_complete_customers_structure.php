@@ -8,23 +8,23 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * المرحلة 5.1: استكمال بنية العملاء.
- * - customers: حالة suspended بدل blocked، بريد nullable، هاتف unique وإلزامي،
- *   وبيانات الجملة والاعتماد (شركة/ائتمان/أسباب/اعتماد) + حذف ناعم.
- * - جداول جديدة: customer_documents وcities وcustomer_addresses.
+ * Completes customer domain structure:
+ * - Migrates 'blocked' customer status to 'suspended', makes email nullable, and requires unique phone numbers.
+ * - Adds wholesale vetting fields, credit limits, approval timestamps, and soft deletes.
+ * - Creates customer_documents, cities, and customer_addresses tables.
  */
 return new class extends Migration
 {
     public function up(): void
     {
-        // --- customers: الحالة suspended بدل blocked (بيانات قديمة تُرحَّل) ---
+        // Migrate legacy 'blocked' statuses to 'suspended' before updating CHECK constraint
         DB::statement('ALTER TABLE customers DROP CONSTRAINT IF EXISTS customers_status_check');
         DB::statement("UPDATE customers SET status = 'suspended' WHERE status = 'blocked'");
         DB::statement("ALTER TABLE customers ADD CONSTRAINT customers_status_check CHECK (status IN ('pending', 'approved', 'rejected', 'suspended'))");
-        // الافتراضي العام approved؛ تسجيل الجملة يفرض pending برمجيًا (مهمة 5.3)
+        // General default is 'approved'; wholesale onboarding programmatically sets 'pending'
         DB::statement("ALTER TABLE customers ALTER COLUMN status SET DEFAULT 'approved'");
 
-        // --- البريد يصبح اختياريًا، والهاتف هو المعرّف الإلزامي الفريد ---
+        // Phone number replaces email as the required unique identifier
         DB::statement('ALTER TABLE customers ALTER COLUMN email DROP NOT NULL');
         DB::statement("UPDATE customers SET phone = 'legacy-' || id WHERE phone IS NULL");
         DB::statement('ALTER TABLE customers ALTER COLUMN phone SET NOT NULL');

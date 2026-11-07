@@ -9,10 +9,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * M4: supplier_users.supplier_id كان رقمًا بلا قيد قابل للتنفيذ على بيانات
- * قديمة (المورد المحذوف يترك supplier_id يتيمًا فيسبب 500 عند الدخول وفي /me).
- * - قيّده بـ restrictOnDelete حتى لا يُحذف مورد له مستخدمون بصمت.
- * - فهرس صريح لأن عمود unsignedBigInteger اليدوي بلا فهرس.
+ * Constrains supplier_users.supplier_id foreign key with RESTRICT on delete to prevent accidental cascades on active users.
+ * Disallows silent deletion of suppliers with linked portal accounts and indexes the foreign key column.
  */
 return new class extends Migration
 {
@@ -29,9 +27,8 @@ return new class extends Migration
 
         DB::statement('CREATE INDEX IF NOT EXISTS supplier_users_supplier_id_index ON supplier_users (supplier_id)');
 
-        // H2: أي صفوف يتيمة (supplier_id لا يشير لمورد موجود) ستفشل ADD FOREIGN KEY
-        // بخطأ 23503 وتوقف الـ deploy. نعزلها أولًا: تعطيل الحساب وإلغاء توكناته
-        // (نفس معاملة مستخدم المورد المحذوف في UnifiedAuthService) قبل إضافة القيد.
+        // Deactivate orphan supplier accounts and revoke their tokens prior to adding the foreign
+        // key constraint, preventing migration failure due to missing referenced records (23503).
         $orphanIds = DB::table('supplier_users as su')
             ->leftJoin('suppliers as s', 's.id', '=', 'su.supplier_id')
             ->whereNotNull('su.supplier_id')

@@ -6,13 +6,8 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
 /**
- * H3: فهارس تعبيرية LOWER(email) على users وsupplier_users.
- * - على PostgreSQL لا يستخدم index عادي مع whereRaw('LOWER(email) = ?')، فكانت
- *   كل محاولة دخول بالإيميل sequential scan.
- * - الـ unique الحالي حساس لحالة الأحرف، فيسمح بتكرار Admin@x.com/admin@x.com
- *   عبر أي مسار كتابة لا يمر بالـ FormRequest. الفهرس التعبيري الفريد يمنع ذلك
- *   على مستوى قاعدة البيانات.
- * customers مغطاة أصلًا (customers_verified_email_unique الجزئي).
+ * Functional expression indexes on LOWER(email) for users and supplier_users.
+ * Avoids sequential scans on case-insensitive login queries and enforces case-insensitive email uniqueness.
  */
 return new class extends Migration
 {

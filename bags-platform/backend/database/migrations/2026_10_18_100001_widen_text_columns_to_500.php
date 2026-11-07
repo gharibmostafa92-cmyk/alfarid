@@ -7,8 +7,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * توحيد أطوال الحقول مع التحقق (M1): التحقق كان يسمح بـ 500 حرف بينما
- * الأعمدة varchar(255) — فأي قيمة بين 256 و500 كانت تنهار بـ 22001/500.
+ * Expands text columns to 500 characters to match validation rules and avoid string data truncation exceptions.
  */
 return new class extends Migration
 {

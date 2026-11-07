@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\DB;
 return new class extends Migration
 {
     /**
-     * M3: the old function took a session-level exclusive advisory lock for
+     * Relaxes session-level exclusive advisory locks for
      * every movement, serializing all inventory writes behind one global
      * mutex even though nextval() is concurrency-safe by itself.
      * The hot path (minimum IS NULL) now takes a transaction-scoped SHARED

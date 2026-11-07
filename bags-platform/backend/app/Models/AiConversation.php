@@ -11,6 +11,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 #[Fillable(['user_id', 'title', 'model', 'total_tokens', 'last_message_at', 'channel'])]
+/**
+ * Represents an administrative chat conversation session with the AI agent.
+ */
 class AiConversation extends Model
 {
     use SoftDeletes;

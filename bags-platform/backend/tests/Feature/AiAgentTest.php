@@ -291,8 +291,7 @@ class AiAgentTest extends TestCase
 
     public function test_bulk_confirmation_keeps_successes_when_another_item_is_stale(): void
     {
-        // M-5: set_branch_status خرج من الـ bulk — الاختبار يستخدم
-        // set_user_status بنفس فكرة التعارض (نسخة قديمة).
+        // Verify optimistic locking conflict detection when user version changes concurrently.
         $first = User::factory()->create(['is_active' => false]);
         $second = User::factory()->create(['is_active' => false]);
         $admin = $this->staff(['ai_agent.use', 'ai_agent.execute', 'users.update', 'inventory.all_branches']);
@@ -331,7 +330,7 @@ class AiAgentTest extends TestCase
         $conv = $this->conv($owner);
         $conv->messages()->create(['role' => 'model', 'content' => 'رد', 'provider_parts' => [['text' => 'رد', 'thoughtSignature' => 'private-signature']]]);
         $token = $this->token($auditor);
-        // M-10: مدقق بلا وصول مركزي يُمنع من محادثات الفروع الأخرى.
+        // Auditor without central access is restricted from other branch conversations.
         $this->withToken($token)->getJson("/api/v1/admin/ai/conversations/{$conv->id}")->assertForbidden();
         $auditor->givePermissionTo(Permission::findOrCreate('inventory.all_branches', 'staff'));
         Auth::forgetGuards();
@@ -393,8 +392,7 @@ class AiAgentTest extends TestCase
 
     public function test_failed_model_usage_is_recorded_and_counts_toward_budget(): void
     {
-        // H-4: توكنز الطلب الفاشل (MAX_TOKENS) تُسجَّل على رسالة الـ event
-        // نفسها فيُحصيها guard() — لا تكلفة بلا سقف.
+        // Token consumption on failed requests (e.g. MAX_TOKENS) is recorded to enforce usage budgets.
         $admin = $this->staff(['ai_agent.use']);
         $token = $this->token($admin);
         $conv = $this->conv($admin);

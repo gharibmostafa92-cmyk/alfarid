@@ -1,10 +1,10 @@
 <?php
 
 return [
-    'new_days' => 30,          // المنتج يعتبر NEW لو published_at خلال المدة دي
+    'new_days' => 30,          // Products published within this day count receive the 'new' badge
     'showcase_limit' => 6,
     'max_per_page' => 48,
-    // الحدود شاملة (>= و <=) عشان كده ما فيش تداخل
+    // Inclusive range bounds (>= and <=) prevent gap and overlap ambiguities
     'price_ranges' => [
         ['id' => 'under-800', 'min' => null,    'max' => 799.99],
         ['id' => '800-1500',  'min' => 800,     'max' => 1500],

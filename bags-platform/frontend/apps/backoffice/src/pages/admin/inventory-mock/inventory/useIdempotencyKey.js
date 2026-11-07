@@ -4,11 +4,8 @@ import { useRef, useCallback } from 'react';
 // Golden rule: never mint a new key when the user retries the SAME payload.
 // A new key is minted only when the payload changes or after a success (reset).
 //
-// L12: crypto.randomUUID exists only in secure contexts (HTTPS/localhost).
-// Fall back to getRandomValues-based UUID v4, then to a process-unique
-// counter string. Note: the last fallback is NOT a valid UUID — it is fine
-// for idempotency headers but must not be sent to endpoints that validate
-// `uuid` (e.g. POS scan_id); serve those pages over a secure context.
+// crypto.randomUUID exists only in secure contexts (HTTPS/localhost).
+// Fall back across crypto.randomUUID, getRandomValues UUID v4, and unique counter string.
 function newKey() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();

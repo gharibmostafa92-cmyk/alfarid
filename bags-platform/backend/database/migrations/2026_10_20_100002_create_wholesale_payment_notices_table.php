@@ -24,7 +24,7 @@ return new class extends Migration
             $table->enum('status', ['pending_review', 'approved', 'rejected'])->default('pending_review');
             $table->foreignId('reviewed_by')->nullable()->constrained('users')->nullOnDelete();
             $table->text('admin_notes')->nullable();
-            // أثر الاعتماد المحاسبي: الخزينة وحركة القبض الناتجة (تتبّع وتدقيق)
+            // Accounting audit trail: tracks destination treasury and resulting receipt transaction upon approval
             $table->foreignId('treasury_id')->nullable()->constrained('treasuries')->nullOnDelete();
             $table->foreignId('treasury_transaction_id')->nullable()->constrained('treasury_transactions')->nullOnDelete();
             $table->timestamps();

@@ -8,7 +8,9 @@ use App\Enums\RefundMethod;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
-/** إتمام الاسترداد المالي لمرتجع مستلم: طريقة الرد (إن لم تُحدد عند الإنشاء) ومرجع العملية. */
+/**
+ * Complete financial refund for inspected return items: refund method and external reference.
+ */
 class RefundReturnRequest extends FormRequest
 {
     public function authorize(): bool

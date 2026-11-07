@@ -7,9 +7,8 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * M4: جدول تخصيص الإشعارات الحرة على الطلبات (FIFO) — حتى تُخصم
- * المبالغ الموزِّعة من الائتمان الحر مرة واحدة ولا تُحسب مرتين
- * (تسوية الطلب + بقاؤها دائنًا).
+ * Creates wholesale payment allocations table to track FIFO payment distribution across orders
+ * and prevent unallocated customer credit from double-counting.
  */
 return new class extends Migration
 {

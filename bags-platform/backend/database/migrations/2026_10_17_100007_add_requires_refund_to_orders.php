@@ -7,8 +7,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * علم "يحتاج استردادًا": يُرفع عندما يصل دفع ناجح لطلب ملغي
- * (المال قُبض ولا بضاعة ستُشحن) حتى يراجعه فريق الحسابات.
+ * Flags orders where payment succeeded after cancellation for manual finance team review and refund.
  */
 return new class extends Migration
 {

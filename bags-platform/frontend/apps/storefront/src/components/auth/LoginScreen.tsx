@@ -79,7 +79,7 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
     };
   }, [view, token]);
 
-  // لو المستخدم داخل بالفعل، ارجع للصفحة التي جاء منها (redirect) أو لصفحته الرئيسية
+  // If already authenticated, redirect to the intended destination or default home path.
   useEffect(() => {
     if (!token || !home) return;
     const r = params.get('redirect');

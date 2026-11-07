@@ -75,8 +75,8 @@ return [
     | Business Timezone
     |--------------------------------------------------------------------------
     |
-    | المنطقة الزمنية التي تُفسَّر بها التواريخ المُدخلة من الإدارة (CSV وواجهات
-    | الأسعار) وحدود أيام فلاتر التقارير. التخزين والتشغيل يظلان UTC دائمًا.
+    | Timezone used to interpret business dates, CSV imports, and report boundary
+    | calculations; internal database storage and scheduling remain UTC.
     |
     */
 

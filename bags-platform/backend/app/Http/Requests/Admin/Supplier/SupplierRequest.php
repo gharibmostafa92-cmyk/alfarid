@@ -7,7 +7,9 @@ namespace App\Http\Requests\Admin\Supplier;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
-/** إنشاء/تعديل مورد — الرصيد الجاري لا يدخل من هنا إطلاقًا (تحدده حركات المالية). */
+/**
+ * Create or update supplier profile. current_balance is immutable via REST and updated only by ledger movements.
+ */
 class SupplierRequest extends FormRequest
 {
     public function authorize(): bool

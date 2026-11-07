@@ -12,7 +12,7 @@ use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Tests\TestCase;
 
 /**
- * M6: عدّادات الطلبات باستعلام واحد + تعليم كل الإشعارات كمقروءة بتحديث واحد.
+ * Aggregates order metrics in a single query and marks all notifications as read in a single update.
  */
 class OrderStatsNotificationTest extends TestCase
 {

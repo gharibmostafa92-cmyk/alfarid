@@ -7,6 +7,9 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Security audit record capturing customer authentication, token issuance, and credential updates.
+ */
 class CustomerAuditLog extends Model
 {
     protected $guarded = [];

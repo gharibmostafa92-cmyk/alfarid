@@ -8,7 +8,9 @@ use App\Rules\EmailNotUsedByOtherAccountType;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
-/** إنشاء حساب موظف مورد (بوابة المورد) من إدارة المورد. */
+/**
+ * Create supplier portal user account under administrative control.
+ */
 class StoreSupplierUserRequest extends FormRequest
 {
     public function authorize(): bool

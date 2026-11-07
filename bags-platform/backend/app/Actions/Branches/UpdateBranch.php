@@ -21,6 +21,9 @@ use Illuminate\Support\Facades\DB;
 /**
  * Updates branch metadata, enforces optimistic concurrency, and validates deactivation blockers.
  */
+/**
+ * Updates branch metadata, verifying open shifts, in-transit transfers, and active stock before deactivation.
+ */
 final class UpdateBranch
 {
     public function __construct(private BranchAccess $access) {}

@@ -10,6 +10,9 @@ use App\Services\BranchAccess;
 use App\Services\StaffAdministration;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Deactivates a staff member, terminates active sessions, and revokes access privileges.
+ */
 final class DeactivateStaffUser
 {
     public function __construct(private BranchAccess $branches) {}

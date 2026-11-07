@@ -9,7 +9,9 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Notification;
 
-/** تحويلة مخزون جديدة بانتظار الاعتماد. */
+/**
+ * Alerts managers of a newly requested inter-branch stock transfer awaiting review.
+ */
 class TransferPendingApprovalNotification extends Notification implements ShouldQueue
 {
     use Queueable;

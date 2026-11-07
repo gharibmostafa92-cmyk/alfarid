@@ -8,6 +8,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * Maps an authorized staff WhatsApp phone number and PIN to an internal User account.
+ */
 class AiWhatsappIdentity extends Model
 {
     protected $fillable = [

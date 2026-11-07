@@ -4,21 +4,17 @@ declare(strict_types=1);
 
 return [
     /*
-     * حساب الموظف المنسوبة إليه حركات المخزون التلقائية (M19):
-     * تأكيد الطلبات المدفوعة عبر الويب هوك وحركات إلغاء/إرجاع العملاء.
-     * يُنشأ بحساب مخصص (هجرة إنشاء مستخدم النظام) بدل أول Super Admin.
+     * Dedicated background user email for attributing automated inventory movements
+     * (e.g. webhook payment confirmations, customer cancellations).
      */
     'system_user_email' => env('ORDER_SYSTEM_USER_EMAIL', 'system@alfarid.local'),
 
     /*
-     * انتهاء الطلبات المعلقة (F-01): الحجز الفوري عند الشراء يعني أن الطلب
-     * المهجور يحبس مخزونًا — فيُلغى تلقائيًا (ويُفك حجزه) بعد هذه المدد.
-     * الإلكتروني غير المدفوع: دقائق؛ والدفع عند الاستلام: ساعات يحددها النشاط.
+     * Pending order expiration intervals: releases reserved inventory when checkout is abandoned.
      */
-    // 3DS والمحافظ والتحويلات قد تتأخر أكثر من 30 دقيقة فيصل الدفع بعد الإلغاء
-    // (M8): المهلة 90 دقيقة تعطيها مجالًا بلا استردادات ولا بيع مخزون محجوز
+    // 90 minutes provides a safe window for 3DS authentication and wallet callbacks before cancellation
     'pending_online_expire_minutes' => (int) env('ORDER_PENDING_ONLINE_EXPIRE_MINUTES', 90),
     'pending_cod_expire_hours' => (int) env('ORDER_PENDING_COD_EXPIRE_HOURS', 72),
-    // طلبات الزوار المؤكدة بالهاتف فقط أسرع انتهاءً (F5/H2): لا تحبس المخزون طويلًا بلا التزام
+    // Guest COD orders expire faster (12h) to prevent unverified carts from tying up inventory
     'pending_guest_cod_expire_hours' => (int) env('ORDER_PENDING_GUEST_COD_EXPIRE_HOURS', 12),
 ];

@@ -38,22 +38,22 @@ return Application::configure(basePath: dirname(__DIR__))
                 ->prefix('api/v1/wholesale')
                 ->name('wholesale.')
                 ->group(base_path('routes/api/wholesale.php'));
-            // بوابة المورد: مصادقة supplier_users وكل الاستعلامات مقيدة بمورد المستخدم
+            // Supplier portal: authenticate supplier_users; queries scoped to user supplier
             Route::middleware('api')
                 ->prefix('api/v1/supplier')
                 ->name('supplier.')
                 ->group(base_path('routes/api/supplier.php'));
-            // ويب هوكس خارجية: بلا مصادقة — الحماية بالتوقيع الرقمي داخل المتحكمات
+            // External webhooks: unauthenticated; protected by HMAC signature verification in controllers
             Route::middleware('api')
                 ->prefix('api/v1/webhooks')
                 ->name('webhooks.')
                 ->group(base_path('routes/api/webhooks.php'));
-            // بوابة الـ POS: كاشير الفرع — توكن موظف + وردية مفتوحة لعمليات البيع
+            // POS portal: branch cashier; staff token + active shift required for sales operations
             Route::middleware('api')
                 ->prefix('api/v1/pos')
                 ->name('pos.')
                 ->group(base_path('routes/api/pos.php'));
-            // الدخول الموحد: users ← supplier_users ← customers + handoff للموظفين
+            // Unified authentication: users -> supplier_users -> customers with staff session handoff
             Route::middleware('api')
                 ->prefix('api/v1/auth')
                 ->name('unified-auth.')
@@ -92,9 +92,8 @@ return Application::configure(basePath: dirname(__DIR__))
                 return response()->json(['message' => 'الخدمة غير متاحة مؤقتًا؛ أعد المحاولة بعد لحظات.'], 503)
                     ->header('Retry-After', '1');
             }
-            // F7: أخطاء القفل والتزامن (مهلة قفل 55P03، جمود 40P01، فشل
-            // تسلسل 40001) رد مضبوط: 503 للاستعلام الآمن مع Retry-After،
-            // و409 للكتابة حتى لا تُعاد طفرة بلا idempotency تلقائيًا.
+            // Map concurrency errors (lock timeout 55P03, deadlock 40P01, serialization 40001):
+            // return 503 with Retry-After for safe methods and webhooks, 409 for non-idempotent writes.
             if (($request->is('api/*') || $request->expectsJson())
                 && in_array($e->errorInfo[0] ?? $e->getCode(), ['55P03', '40P01', '40001'], true)) {
                 // Carrier webhooks are idempotent and must be retried. A 409 would be treated as a final client error.
@@ -103,8 +102,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 return response()->json(['message' => 'العملية مشغولة بطلب آخر؛ أعد المحاولة بعد لحظات.'], $status)->header('Retry-After', '1');
             }
 
-            // M4: حذف مورد له مستخدمون (restrictOnDelete) يرمي 23503 — رد 409
-            // مفهوم بدل 500 في لوحة الإدارة.
+            // Return 409 instead of 500 when foreign key delete restrictions (23503) are violated by related records.
             if (($request->is('api/*') || $request->expectsJson())
                 && in_array($e->errorInfo[0] ?? $e->getCode(), ['23503'], true)) {
                 return response()->json(['message' => 'تعذر تنفيذ العملية لوجود سجلات مرتبطة أو لتغيّر السجل المرجعي؛ حدّث البيانات وأعد المحاولة.'], 409);
@@ -128,7 +126,7 @@ return Application::configure(basePath: dirname(__DIR__))
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
 
-        // سباق على قيد unique (فحص exists وبعده إدخال متزامن): القيد سليم، فالرد يبقى 409 متحكم فيه بدل 500
+        // Concurrent unique constraint violation: map 23505 collision to 409 conflict instead of 500
         $exceptions->render(function (UniqueConstraintViolationException $e, Request $request) {
             if ($request->is('api/*') || $request->expectsJson()) {
                 return response()->json(['message' => 'توجد بيانات متعارضة. أعد المحاولة'], 409);

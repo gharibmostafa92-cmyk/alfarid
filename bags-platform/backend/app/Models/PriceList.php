@@ -9,6 +9,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * Custom pricing schedule assigned to customer groups, wholesale merchants, or promotional campaigns.
+ */
 class PriceList extends Model
 {
     protected $fillable = [

@@ -9,6 +9,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable(['customer_id', 'city_id', 'address_line', 'building_no', 'floor_no', 'apartment_no', 'is_default'])]
+/**
+ * Stored delivery address book entry for customer checkout and fulfillment.
+ */
 class CustomerAddress extends Model
 {
     public function customer(): BelongsTo

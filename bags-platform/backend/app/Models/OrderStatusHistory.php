@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 /**
- * سجل تغييرات حالة الطلب — يُكتب فقط من OrderService::changeStatus().
+ * Append-only order status transition history; created exclusively by OrderService::changeStatus().
  */
 class OrderStatusHistory extends Model
 {

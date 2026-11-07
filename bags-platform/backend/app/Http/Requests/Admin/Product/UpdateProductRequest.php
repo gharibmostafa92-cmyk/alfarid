@@ -13,6 +13,11 @@ use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
+/**
+ * Validates product metadata and categorization updates.
+ *
+ * Enforces optimistic version concurrency checks to prevent concurrent administrative overwrites.
+ */
 class UpdateProductRequest extends FormRequest
 {
     use NormalizesCatalogInput;
@@ -58,8 +63,7 @@ class UpdateProductRequest extends FormRequest
             'occasions.*' => ['string', 'distinct', Rule::enum(Occasion::class)],
             'badge_en' => ['sometimes', 'nullable', 'string', 'max:30'],
             'badge_ar' => ['sometimes', 'nullable', 'string', 'max:30'],
-            // M8: optimistic locking is mandatory — silent last-write-wins on a
-            // published product loses prices and descriptions.
+            // Enforce optimistic concurrency control to prevent silent overwrite of concurrent edits.
             'expected_updated_at' => ['sometimes', 'nullable', 'date'],
             'expected_version' => ['required', 'integer', 'min:0'],
         ];

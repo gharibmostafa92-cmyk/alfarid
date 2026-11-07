@@ -53,14 +53,14 @@ export function useRemote<T>(
   return { data, loading, error, usingMock, reload, setData };
 }
 
-/** تأخير قيمة البحث 350ms */
+/** Debounces query input with a 350ms delay to avoid excessive API requests. */
 export function useDebounced<T>(value: T, ms = 350): T {
   const [v, setV] = useState(value);
   useEffect(() => { const t = setTimeout(() => setV(value), ms); return () => clearTimeout(t); }, [value, ms]);
   return v;
 }
 
-/** تنفيذ mutation مع حالة busy وtoast */
+/** Executes an asynchronous mutation with busy state and toast notifications. */
 export function useAction() {
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);

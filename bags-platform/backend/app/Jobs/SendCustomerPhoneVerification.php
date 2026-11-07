@@ -9,6 +9,9 @@ use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 
+/**
+ * Queued encrypted notification job sending customer OTP verification codes with rate limiting.
+ */
 class SendCustomerPhoneVerification implements ShouldBeEncrypted, ShouldQueue
 {
     use Queueable;

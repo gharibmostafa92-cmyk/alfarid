@@ -14,7 +14,7 @@ use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 
 /**
- * بيانات كتالوج تجريبية: أقسام وبراندات ومنتجات مسودة (من غير صور، فمبتتنشرش).
+ * Demo catalog seed data: categories, brands, and draft products without media.
  */
 class CatalogSeeder extends Seeder
 {
@@ -88,7 +88,7 @@ class CatalogSeeder extends Seeder
     private function seedProducts(array $categories, array $brands): void
     {
         if (Product::query()->exists()) {
-            return; // البيانات التجريبية بتتزرع مرة واحدة بس
+            return; // Seed demo catalog once only.
         }
 
         $author = User::query()->first();

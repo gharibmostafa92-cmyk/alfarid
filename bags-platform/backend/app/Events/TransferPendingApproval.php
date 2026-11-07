@@ -10,10 +10,8 @@ use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
 /**
- * أُنشئت تحويلة مخزون جديدة بانتظار الاعتماد.
- *
- * M1: بعد الـ commit فقط — داخل معاملة الإنشاء كان العامل قد يلتقط
- * المهمة قبل الحفظ فيفشل بـ ModelNotFoundException.
+ * Dispatched after transaction commit when a new stock transfer requires manager approval,
+ * preventing race conditions and ModelNotFoundException in async queue workers.
  */
 class TransferPendingApproval implements ShouldDispatchAfterCommit
 {

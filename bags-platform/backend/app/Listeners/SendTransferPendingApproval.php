@@ -11,7 +11,9 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 
-/** تنبيه من يملكون اعتماد التحويلات (transfers.approve) بتحويلة جديدة. */
+/**
+ * Alerts authorized staff members with transfers.approve permission of a newly created pending transfer.
+ */
 class SendTransferPendingApproval implements ShouldQueue
 {
     public function handle(TransferPendingApproval $event): void

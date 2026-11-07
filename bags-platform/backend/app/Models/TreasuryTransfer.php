@@ -8,6 +8,9 @@ use App\Enums\TreasuryTransferStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Monitored monetary fund transfer between two treasury repositories.
+ */
 class TreasuryTransfer extends Model
 {
     protected $fillable = [

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { formatStorePrice } from '@alfarid/utils';
+import { formatShippingPrice } from '@alfarid/utils';
 import type { CheckoutVM } from './useCheckout';
 
 export function DeliverySection({ vm }: { vm: CheckoutVM }) {
@@ -67,7 +67,7 @@ export function DeliverySection({ vm }: { vm: CheckoutVM }) {
                     </span>
                   </span>
                   <span className={`radio-price${opt.cost === 0 ? ' is-free' : ''}`}>
-                    {opt.cost === 0 ? 'Free' : formatStorePrice(opt.cost)}
+                    {formatShippingPrice(opt.cost)}
                   </span>
                 </label>
               </div>

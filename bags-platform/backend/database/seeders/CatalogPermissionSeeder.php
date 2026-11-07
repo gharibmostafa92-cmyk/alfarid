@@ -25,8 +25,8 @@ class CatalogPermissionSeeder extends Seeder
                 'categories.view', 'categories.create', 'categories.update', 'categories.delete',
                 'brands.view', 'brands.create', 'brands.update', 'brands.delete',
                 'products.view', 'products.create', 'products.update', 'products.delete',
-                'products.view_cost',     // يشوف سعر التكلفة
-                'products.publish',       // ينشر المنتج
+                'products.view_cost',     // View unit cost prices
+                'products.publish',       // Publish products to channels
             ];
 
             $created = [];

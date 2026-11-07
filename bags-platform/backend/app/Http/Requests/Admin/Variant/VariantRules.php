@@ -9,7 +9,7 @@ use App\Rules\UniqueCatalogIdentifier;
 use Closure;
 use Illuminate\Validation\Rule;
 
-// قواعد الـ validation المشتركة لمتغيرات المنتج — تُستخدم في إنشاء/تعديل المتغير وفي variants.* عند إنشاء منتج.
+// Shared validation rules for product variants across single updates and bulk creation.
 class VariantRules
 {
     /**
@@ -20,7 +20,7 @@ class VariantRules
         return [
             'sku' => ['nullable', 'string', 'max:64', 'alpha_dash:ascii', new UniqueCatalogIdentifier('product_variants', 'sku', $ignoreId)],
             'barcode' => ['nullable', 'string', 'max:32', 'regex:/^[0-9A-Za-z\-]+$/', Rule::unique('product_variants', 'barcode')->ignore($ignoreId),
-                // صيغة 2 + 12 رقم محجوزة للباركود الداخلي اللي النظام بيولّده من id المتغير (M3)
+                // 13-digit EAN starting with 2 is reserved for internally generated variant barcodes.
                 function (string $attribute, mixed $value, Closure $fail) use ($ignoreId): void {
                     if (is_string($value) && preg_match('/^2\d{12}$/', $value) === 1) {
                         $current = $ignoreId !== null
@@ -33,7 +33,7 @@ class VariantRules
                 },
             ],
             'color_name_ar' => ['nullable', 'string', 'max:50'],
-            // اسم اللون الإنجليزي هو مفتاح منع التكرار، فبيبقى مطلوب لو أي بيانات لون تانية موجودة
+            // English color name serves as the canonical deduplication key when color attributes are present.
             'color_name_en' => ['nullable', 'string', 'max:50', 'required_with:'.$prefix.'color_name_ar,'.$prefix.'color_hex'],
             'color_hex' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
             'size' => ['nullable', 'string', 'max:50'],

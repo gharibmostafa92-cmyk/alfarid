@@ -373,7 +373,7 @@ class StocktakeService
     /**
      * Adds counted quantity to a stocktake item under row lock (e.g. for barcode scanning).
      *
-     * H2: when the client supplies a scan UUID, the scan is recorded in
+     * When the client supplies a scan UUID, the scan is recorded in
      * stocktake_scans with a unique (stocktake_id, scan_id) key inside the
      * same transaction. A retried request replays the stored state instead of
      * double-counting (exactly-once per scan at the database level).
@@ -410,18 +410,9 @@ class StocktakeService
             }
 
             $existing = $stocktake->items()->where('product_variant_id', $variantId)->first();
-            if ($existing !== null && $existing->counted_qty !== null && (int) $existing->snapshot_movement_id > 0) {
+            if ($existing !== null && $existing->counted_qty !== null) {
                 // Reject scans when intervening stock movements occurred to prevent corrupting variance calculations.
-                $moved = StockMovement::query()
-                    ->where('branch_id', $stocktake->branch_id)
-                    ->where('location_id', $stocktake->location_id)
-                    ->where('affected_bucket', StockBucket::OnHand->value)
-                    ->where('product_variant_id', $variantId)
-                    ->where('id', '>', (int) $existing->snapshot_movement_id)
-                    ->exists();
-                if ($moved) {
-                    throw new BusinessException('تغيّر رصيد هذا الصنف أثناء العد؛ أعد عدّه من جديد قبل المتابعة.');
-                }
+                $this->assertNoInterveningMovement($stocktake, $variantId, (int) $existing->snapshot_movement_id);
             }
             $counted = (float) ($existing?->counted_qty ?? 0);
             $total = round($counted + $quantity, 4);
@@ -477,15 +468,13 @@ class StocktakeService
 
             if (array_key_exists('counted_qty', $item)) {
                 $updates['counted_qty'] = $item['counted_qty'];
+            }
 
-                $countChanged = $item['counted_qty'] !== null
-                    && ($row->counted_qty === null || (float) $item['counted_qty'] !== (float) $row->counted_qty);
+            $countChanged = array_key_exists('counted_qty', $item)
+                && $item['counted_qty'] !== null
+                && ($row->counted_qty === null || (float) $item['counted_qty'] !== (float) $row->counted_qty);
 
-                if ($countChanged || ! empty($item['recount'])) {
-                    $updates['system_qty'] = $currentOnHand;
-                    $updates['snapshot_movement_id'] = $snapshotMovementId;
-                }
-            } elseif (! empty($item['recount'])) {
+            if ($countChanged || ! empty($item['recount'])) {
                 $updates['system_qty'] = $currentOnHand;
                 $updates['snapshot_movement_id'] = $snapshotMovementId;
             }
@@ -513,6 +502,25 @@ class StocktakeService
         $maxItems = max(1, (int) config('inventory.stocktake_max_items', 500));
         if ($count > $maxItems) {
             throw new BusinessException("تجاوزت الجلسة الحد الأقصى للبنود ({$maxItems})؛ قسّم الجرد إلى جلسات حسب الموقع.");
+        }
+    }
+
+    private function assertNoInterveningMovement(Stocktake $stocktake, int $variantId, int $snapshotMovementId): void
+    {
+        if ($snapshotMovementId <= 0) {
+            return;
+        }
+
+        $moved = StockMovement::query()
+            ->where('branch_id', $stocktake->branch_id)
+            ->where('location_id', $stocktake->location_id)
+            ->where('affected_bucket', StockBucket::OnHand->value)
+            ->where('product_variant_id', $variantId)
+            ->where('id', '>', $snapshotMovementId)
+            ->exists();
+
+        if ($moved) {
+            throw new BusinessException('تغيّر رصيد هذا الصنف أثناء العد؛ أعد عدّه من جديد قبل المتابعة.');
         }
     }
 }

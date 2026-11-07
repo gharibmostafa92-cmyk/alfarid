@@ -49,7 +49,7 @@ export interface AdminCategory {
   sort_order: number;
   is_active: boolean;
   image_url: string | null;
-  products_count?: number;      // مباشر فقط (مش شامل الأقسام الفرعية)
+  products_count?: number;      // Direct category products count only (excludes subcategories)
   children?: AdminCategory[];
   parent?: AdminCategory;
   created_at: string;
@@ -64,8 +64,8 @@ export interface CategoryPayload {
   description_en?: string | null;
   sort_order?: number;
   is_active?: boolean;
-  image?: File | null;          // ملف جديد فقط
-  remove_image?: boolean;       // في التعديل فقط
+  image?: File | null;          // Upload payload for newly selected file
+  remove_image?: boolean;       // Flag to delete existing image on update
 }
 
 export interface CategoryReorderItem {
@@ -103,7 +103,7 @@ export interface AdminVariant {
   color: { name_ar: string | null; name_en: string | null; hex: string | null };
   color_name_ar?: string | null; color_name_en?: string | null; color_hex?: string | null;
   size: string | null; capacity: string | null;
-  cost_price?: string | null;          // بيختفي من غير products.view_cost
+  cost_price?: string | null;          // Populated only when caller has products.view_cost permission
   retail_price: string | null; wholesale_price: string | null; compare_at_price: string | null;
   reorder_level: number | null; weight_kg: string | null; sort_order: number; is_active: boolean;
   media?: AdminMedia[];
@@ -126,20 +126,20 @@ export interface AdminProduct {
   variants?: AdminVariant[]; created_at: string; updated_at: string;
 }
 
-// نفس حقول الكتابة اللي في Store/Update Requests
+// Mirrors backend StoreBrandRequest and UpdateBrandRequest attributes
 export interface BrandPayload {
   name_ar?: string; name_en?: string; slug?: string | null;
   description_ar?: string | null; description_en?: string | null;
   sort_order?: number; is_active?: boolean;
-  logo?: File | null;                 // ملف جديد فقط
-  remove_logo?: boolean;              // في التعديل فقط
+  logo?: File | null;                 // Newly uploaded logo file
+  remove_logo?: boolean; // Update requests only
 }
 
 export interface ProductPayload {
   expected_version?: number;
   expected_updated_at?: string;
   category_id?: number; brand_id?: number | null; supplier_id?: number | null;
-  create_key?: string; // F9: idempotency key for product creation
+  create_key?: string; // Client-side idempotency key for product creation
   name_ar?: string; name_en?: string; slug?: string | null;
   description_ar?: string | null; description_en?: string | null;
   material_ar?: string | null; material_en?: string | null;
@@ -269,7 +269,7 @@ export interface StoreProductCard {
   old_price: number | string | null;
   discount_percentage: number | null;
   is_featured: boolean;
-  /** F19: removed from the API payload; kept optional for stale caches. */
+  /** Removed from the active API payload; kept optional for backwards compatibility with cached payloads. */
   sales_count?: number;
   in_stock: boolean;
   is_new?: boolean; badge_en?: string | null; badge_ar?: string | null; colors?: StoreColor[];

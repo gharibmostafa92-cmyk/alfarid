@@ -9,9 +9,9 @@ use App\Notifications\OrderConfirmationNotification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 
 /**
- * تأكيد الطلب للعميل فقط.
+ * Dispatches order confirmation notification directly to the customer.
  *
- * L8: staff fan-out lives in SendStaffOrderNotification (separate queued
+ * Staff fan-out lives in SendStaffOrderNotification (separate queued
  * listener) so a staff-notify failure never re-sends this confirmation.
  */
 class SendOrderConfirmation implements ShouldQueue

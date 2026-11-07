@@ -8,9 +8,8 @@ return new class extends Migration
     public $withinTransaction = false;
 
     /**
-     * F4: فهارس جزئية لفرز featured وbest_selling — أكثر طلبات الكتالوج
-     * شيوعًا (الواجهة ترسل featured افتراضيًا) كانت تفرز كل المنتجات
-     * المنشورة بلا فهرس. CONCURRENTLY حتى لا يقفل الكتابة أثناء النشر.
+     * Partial indexes for featured and best_selling catalog sorting:
+     * Accelerates storefront collection queries across published retail products without blocking writes.
      */
     public function up(): void
     {
@@ -26,7 +25,7 @@ return new class extends Migration
         DB::statement("DROP INDEX {$c}IF EXISTS products_store_featured_index");
     }
 
-    /** F11: CONCURRENTLY في النشر فقط — انظر هجرة حقول الواجهة. */
+    /** CONCURRENTLY index creation applies in production deployment only. */
     private function concurrently(): string
     {
         if (app()->environment('testing') || DB::transactionLevel() > 0) {

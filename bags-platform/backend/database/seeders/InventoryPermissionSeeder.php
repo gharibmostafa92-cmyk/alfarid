@@ -20,10 +20,10 @@ class InventoryPermissionSeeder extends Seeder
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
         $permissions = [
-            'inventory.view',         // عرض الأرصدة وحركات المخزون
-            'inventory.adjust',       // عمل تسويات يدوية
-            'inventory.all_branches', // الوصول لكل الفروع (امتياز صريح — بدونه الموظف بلا فرع مرفوض)
-            'inventory.view_cost',    // رؤية تكلفة الشراء في حركات الدفتر
+            'inventory.view',         // View stock balances and movements
+            'inventory.adjust',       // Perform manual stock adjustments
+            'inventory.all_branches', // Multi-branch access authority
+            'inventory.view_cost',    // View unit cost in ledger movements
             'transfers.view', 'transfers.create', 'transfers.update', 'transfers.delete',
             'transfers.approve', 'transfers.ship', 'transfers.receive',
             'stocktakes.view', 'stocktakes.create', 'stocktakes.update', 'stocktakes.delete',

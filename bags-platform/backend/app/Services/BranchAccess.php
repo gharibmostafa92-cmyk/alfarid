@@ -152,7 +152,7 @@ class BranchAccess
     public function assertTreasury(int $userId, Treasury $treasury): void
     {
         if ($treasury->branch_id === null) {
-            $this->assertCentralAccess(User::findOrFail($userId));
+            $this->assertCentralAccess($this->usersById[$userId] ??= User::findOrFail($userId));
         } else {
             $this->assertBranch($userId, (int) $treasury->branch_id);
         }

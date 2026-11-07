@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Transfer;
 
+/**
+ * Validates stock transfer shipment quantities against the current transfer version.
+ */
 class ShipTransferRequest extends TransferItemsQtyRequest
 {
     protected string $qtyField = 'shipped_qty';
@@ -11,7 +14,7 @@ class ShipTransferRequest extends TransferItemsQtyRequest
     /** @return array<string, mixed> */
     public function rules(): array
     {
-        // M3: see ApproveTransferRequest.
+        // Enforce version match to prevent shipping quantities against outdated transfer states.
         return array_merge(parent::rules(), [
             'expected_version' => ['required', 'integer', 'min:1'],
         ]);

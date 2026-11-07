@@ -308,7 +308,11 @@ class WholesalePortalTest extends TestCase
         $this->submitNotice(['amount' => 100, 'reference_number' => 'SHARED-REFERENCE']);
         $this->trader = Customer::factory()->wholesale()->create(['status' => 'approved']);
         $this->traderToken = $this->trader->createToken('other')->plainTextToken;
-        $this->submitNotice(['amount' => 100, 'reference_number' => 'SHARED-REFERENCE']);
+        $this->submitNotice([
+            'amount' => 200,
+            'reference_number' => 'SHARED-REFERENCE',
+            'receipt' => UploadedFile::fake()->image('other_receipt.jpg', 200, 200),
+        ]);
         $this->assertDatabaseCount('wholesale_payment_notices', 2);
     }
 
@@ -341,7 +345,7 @@ class WholesalePortalTest extends TestCase
 
     public function test_cancel_blocked_with_approved_notice_and_credit_survives_explicit_cancel(): void
     {
-        // H1: طلب آجل 1000 عليه إشعار معتمد 400 ثم إلغاء — الائتمان لا يضيع.
+        // Credit order with approved payment notice retains credit upon cancellation.
         $this->bankTreasury();
         $order = Order::factory()->create([
             'customer_id' => $this->trader->id,
@@ -373,7 +377,7 @@ class WholesalePortalTest extends TestCase
 
     public function test_free_notice_settles_oldest_open_orders_fifo_with_audit_history(): void
     {
-        // M4: إشعار حر معتمد يوزع على أقدم الطلبات المفتوحة مع سجل تدقيق.
+        // Approved unlinked payment notice distributes across oldest open orders with audit trail.
         $this->bankTreasury();
         $old = Order::factory()->create([
             'customer_id' => $this->trader->id,

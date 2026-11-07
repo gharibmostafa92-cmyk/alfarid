@@ -19,9 +19,9 @@ use App\Models\StockLevel;
 use Illuminate\Database\Seeder;
 
 /**
- * بيانات اختبار بوابة الجملة (task 0.3):
- * تاجر معتمد + تاجر pending + تاجر مرفوض، وقائمة أسعار بشرائح،
- * ومنتجات منشورة لقناة الجملة مع مخزون، وطلبات بحالات مختلفة.
+ * Wholesale portal demo dataset for local and testing environments.
+ * Seeds approved, pending, and rejected merchants, tiered price lists,
+ * published wholesale catalog items with stock, and representative orders.
  */
 class WholesaleDemoSeeder extends Seeder
 {
@@ -29,7 +29,7 @@ class WholesaleDemoSeeder extends Seeder
 
     public function run(): void
     {
-        // M-7: نفس نمط UnifiedLoginDemoSeeder.
+        // Restrict execution to local and testing environments.
         if (! app()->environment(['local', 'testing'])) {
             throw new \LogicException('Wholesale demo data is only available locally.');
         }
@@ -75,8 +75,7 @@ class WholesaleDemoSeeder extends Seeder
             'rejection_reason' => 'المستندات غير مكتملة — أعد رفع السجل التجاري.',
         ], $group->id);
 
-        // both بدل wholesale فقط: سلة الـ store تقبل retail/both فقط،
-        // والكتالوج يعرض wholesale/both معًا.
+        // SalesChannel::Both permits catalog listing on wholesale while allowing store cart testing.
         $products = Product::factory()->count(4)->published()->create([
             'sales_channel' => SalesChannel::Both,
         ]);

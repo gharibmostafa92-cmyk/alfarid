@@ -6,9 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
 /**
- * المرحلة 10 — زرع ترقيمات مستندات المشتريات في قواعد قائمة (insertOrIgnore):
- * طلب شراء داخلي PR-، إشعار توريد DLV-، فاتورة مورد SIN-، دفعة مورد SPY-.
- * (ترقيم أمر الشراء PO- موجود منذ المرحلة 1.) نفس القيم في SettingSeeder.
+ * Seeds document numbering settings for procurement documents (PR-, DLV-, SIN-, and SPY-).
  */
 return new class extends Migration
 {
@@ -32,8 +30,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        // L1: قائمة مفاتيح صريحة — wildcard بيقع على إعدادات تانية
-        // (delivery_fee، approved_expenses...) ملهاش علاقة بالترقيم.
+        // Delete explicit numbering keys to avoid unintended deletion of unrelated settings sharing prefixes.
         $keys = [];
         foreach (['purchase_request', 'delivery', 'supplier_invoice', 'supplier_payment'] as $type) {
             $keys[] = "{$type}_prefix";

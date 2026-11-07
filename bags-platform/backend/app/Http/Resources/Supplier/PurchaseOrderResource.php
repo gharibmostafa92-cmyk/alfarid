@@ -9,7 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * أمر شراء كما يراه المورد في بوابته (بلا حقول الإدارة الداخلية).
+ * Supplier purchase order presentation for supplier portal without internal admin fields.
  *
  * @mixin PurchaseOrder
  */

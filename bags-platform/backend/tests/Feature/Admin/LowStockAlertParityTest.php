@@ -16,7 +16,7 @@ use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
 /**
- * L6: the low_stock list filter must match alert conditions — a variant
+ * The low_stock list filter must match alert conditions — a variant
  * threshold compares against the branch total, not each row.
  */
 class LowStockAlertParityTest extends TestCase

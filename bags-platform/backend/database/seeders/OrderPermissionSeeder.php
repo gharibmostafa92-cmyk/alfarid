@@ -21,7 +21,7 @@ class OrderPermissionSeeder extends Seeder
 
         $permissions = [
             'orders.view', 'orders.update', 'orders.allocate',
-            // صلاحية مالية منفصلة (H4): تعديل حالة الدفع لا يمنحه مجرّد orders.update
+            // Distinct financial authority: mutating payment state requires orders.payment rather than generic orders.update.
             'orders.payment',
         ];
 

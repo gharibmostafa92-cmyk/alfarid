@@ -7,6 +7,9 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Suspended point-of-sale register sale parked for later resumption.
+ */
 class PosHeldSale extends Model
 {
     public $timestamps = false;

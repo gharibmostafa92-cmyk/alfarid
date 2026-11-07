@@ -2,7 +2,7 @@ import { useAuthStore } from '../../stores/auth.store';
 import { useCan } from '../../hooks/useCan';
 import StocktakeVoiceCount from './StocktakeVoiceCount';
 
-/** نقطة البيع: متاحة لدور الكاشير أو صلاحية pos.access فقط. */
+/** Point of Sale page: restricted to cashier roles or pos.access permission. */
 export function PosPage() {
   const user = useAuthStore((s) => s.user);
   const canPos = useCan('pos.access');

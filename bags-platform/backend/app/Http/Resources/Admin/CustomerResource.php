@@ -7,7 +7,9 @@ namespace App\Http\Resources\Admin;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
-/** تمثيل العميل في لوحة الإدارة — كامل البيانات التشغيلية بما فيها الاعتماد والمستندات. */
+/**
+ * Administrative customer resource representation, including approval status and verification documents.
+ */
 class CustomerResource extends JsonResource
 {
     /**
@@ -46,7 +48,7 @@ class CustomerResource extends JsonResource
                 'reviewed_by' => $document->reviewed_by,
                 'reviewed_at' => $document->reviewed_at,
                 'review_note' => $document->review_note,
-                // تنزيل محمي بصلاحيات الأدمن من التخزين الخاص — لا رابط عام
+                // Staff-authenticated private storage download endpoint; avoids public exposure.
                 'download_url' => route('admin.customers.documents.download', ['customer' => $this->id, 'document' => $document->id]),
                 'created_at' => $document->created_at,
             ])->all()),
@@ -63,7 +65,7 @@ class CustomerResource extends JsonResource
             ])->all()),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
-            'deleted_at' => $this->deleted_at, // M11: تمييز المحذوف في trashed=only
+            'deleted_at' => $this->deleted_at, // Identifies soft-deleted records when queried with trashed filters
         ];
     }
 }

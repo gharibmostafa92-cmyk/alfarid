@@ -10,7 +10,7 @@ return new class extends Migration
     public $withinTransaction = false;
 
     /**
-     * L13: the incremental queue previously scanned ORDER BY key, so a key
+     * Adds checked_at timestamp to reconcile work queue to prevent starvation of older ledger rows.
      * with a permanent problem occupied the LIMIT window forever and nearby
      * keys starved. checked_at lets the picker prefer least-recently-checked
      * keys; NULLS FIRST keeps brand-new keys first.

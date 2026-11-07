@@ -8,7 +8,9 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Notification;
 
-/** ملاحظات مراجعة أسبوعية لأنماط المخزون الغريبة — مش اتهامات. */
+/**
+ * Weekly digest highlighting anomalous inventory patterns for management review.
+ */
 class InventoryAnomalyDigestNotification extends Notification implements ShouldQueue
 {
     use Queueable;

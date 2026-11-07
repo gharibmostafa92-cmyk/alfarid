@@ -7,8 +7,7 @@ namespace App\Http\Requests\Supplier\Delivery;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
- * إشعار توريد (ASN) من بوابة المورد: كميات مشحونة فعليًا لكل بند
- * + فاتورة مبدئية مرفوعة (PDF/صورة) ورقمها الورقي اختياريًا.
+ * Advance Shipping Notice (ASN) registration: shipped quantities per line with optional proforma invoice upload.
  */
 class StoreDeliveryRequest extends FormRequest
 {

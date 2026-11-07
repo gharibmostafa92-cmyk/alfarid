@@ -20,7 +20,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        // L1: المفاتيح المزروعة في up() فقط — بلا wildcard.
+        // Delete only the explicit payment notice numbering keys.
         DB::table('settings')->whereIn('key', [
             'payment_notice_prefix', 'payment_notice_next_number', 'payment_notice_padding',
         ])->delete();

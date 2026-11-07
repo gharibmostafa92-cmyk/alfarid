@@ -8,9 +8,8 @@ use Illuminate\Support\Facades\DB;
 return new class extends Migration
 {
     /**
-     * M-13: فهارس جزئية لاستعلامات التنظيف — الفهرس (user_id,status)
-     * لا يخدم status='pending' AND expires_at<now، وشرط
-     * COALESCE(last_message_at, created_at) لا يستفيد من أي فهرس.
+     * Partial indexes on AI conversations and pending actions to accelerate background retention cleanup jobs.
+     * Indexes expires_at for pending actions and COALESCE(last_message_at, created_at) for idle conversations.
      */
     public function up(): void
     {

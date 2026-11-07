@@ -9,9 +9,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * هاتف الزائر الموحد محفوظًا على سجل الاستخدام نفسه (F-04): فحص حد
- * الكوبون للزائر يصير count() مفهرسًا بدل مسح كل الاستخدامات بذاكرة PHP
- * أثناء إمساك قفل صف الكوبون. البيانات القديمة تُملأ من هاتف الطلب.
+ * Denormalizes normalized guest phone onto coupon usages so guest usage limits can be checked
+ * via an indexed count query instead of in-memory collection scans while holding coupon row locks.
  */
 return new class extends Migration
 {

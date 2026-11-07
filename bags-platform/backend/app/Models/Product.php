@@ -9,6 +9,7 @@ use App\Enums\SalesChannel;
 use App\Models\Concerns\TracksEditVersion;
 use App\Support\CatalogMedia;
 use Database\Factories\ProductFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -62,6 +63,18 @@ class Product extends Model implements HasMedia
     {
         // Chaperone back-populates product relationship on variants to avoid N+1 lazy queries.
         return $this->hasMany(ProductVariant::class)->orderBy('sort_order')->chaperone();
+    }
+
+    /**
+     * Scope to published products available on the retail storefront.
+     *
+     * @param  Builder<Product>  $query
+     * @return Builder<Product>
+     */
+    public function scopePublishedForRetail(Builder $query): Builder
+    {
+        return $query->where('status', ProductStatus::Published)
+            ->whereIn('sales_channel', [SalesChannel::Retail, SalesChannel::Both]);
     }
 
     public function registerMediaCollections(): void

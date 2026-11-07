@@ -63,8 +63,7 @@ class OrderAllocationService
                 throw new BusinessException('التوزيع غير متاح على هذه الحالة.');
             }
 
-            if ($order->allocated_branch_id !== null
-                || $order->items->contains(fn (OrderItem $item): bool => $item->allocated_branch_id !== null)) {
+            if ($this->isAllocated($order)) {
                 throw new BusinessException('الطلب مُوزّع على الفروع من قبل؛ ألغِ التوزيع الحالي أولًا قبل إعادة التوزيع.');
             }
 
@@ -342,15 +341,5 @@ class OrderAllocationService
         if ($remaining > 0) {
             throw new BusinessException('الرصيد المتاح تغير أثناء الحجز.', errorCode: 'insufficient_stock');
         }
-    }
-
-    private function usableLevels(int $variantId, ?int $branchId = null): Builder
-    {
-        return StockLevel::query()
-            ->where('product_variant_id', $variantId)
-            ->when($branchId !== null, fn (Builder $q): Builder => $q->where('branch_id', $branchId))
-            ->where(fn (Builder $q): Builder => $q
-                ->whereNull('location_id')
-                ->orWhereHas('location', fn (Builder $l): Builder => $l->where('is_active', true)));
     }
 }

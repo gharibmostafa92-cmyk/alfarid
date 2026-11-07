@@ -10,6 +10,9 @@ use App\Services\BranchAccess;
 use App\Services\StaffAdministration;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Creates a new physical store or warehouse branch under central administrative control.
+ */
 final class CreateBranch
 {
     public function __construct(private BranchAccess $access) {}

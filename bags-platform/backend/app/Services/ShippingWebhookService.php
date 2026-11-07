@@ -215,7 +215,7 @@ class ShippingWebhookService
             return true;
         }
         // Terminal states cannot transition further
-        if (in_array($current, [ShipmentStatus::Delivered, ShipmentStatus::Returned], true)) {
+        if ($current->isTerminal()) {
             return false;
         }
         // Failed shipments may resume progression on redelivery attempts

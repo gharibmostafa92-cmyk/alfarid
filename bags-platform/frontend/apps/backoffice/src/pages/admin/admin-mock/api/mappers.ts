@@ -10,9 +10,9 @@ export const toAdminUser = (u: ApiUser, meId?: number): AdminUser => ({
   email: u.email,
   phone: u.phone,
   branch_id: u.branch_id,
-  branch_name: u.branch?.name ?? null,      // حقل جديد
+  branch_name: u.branch?.name ?? null,
   roles: (u.roles ?? []).map(r => r.id),
-  role_names: (u.roles ?? []).map(r => r.name), // حقل جديد
+  role_names: (u.roles ?? []).map(r => r.name),
   is_active: u.is_active,
   created_at: u.created_at,
   me: meId === u.id,
@@ -25,7 +25,7 @@ export const toAdminRole = (r: ApiRole): AdminRole => ({
   name: r.name,
   system: r.is_system ?? r.name === SUPER_ADMIN,
   perms: r.permissions ?? [],
-  users_count: r.users_count ?? 0,          // حقل جديد
+  users_count: r.users_count ?? 0,
 });
 
 export const roleIdsToNames = (ids: number[], roles: AdminRole[]) =>
@@ -65,7 +65,7 @@ export function toAdminSettings(g: ApiSettingsGrouped): AdminSettings {
   };
 }
 
-/** بيرجّع flat map فيه المفاتيح اللي اتغيرت بس. ده اللي بيتبعت في PUT */
+/** Returns a flat map of changed keys only for partial updates. */
 export function settingsPatch(current: AdminSettings, server: AdminSettings): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   (['company', 'tax', 'orders', 'purchases'] as const).forEach(g => {

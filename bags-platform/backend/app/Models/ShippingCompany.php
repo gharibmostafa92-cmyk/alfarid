@@ -9,6 +9,9 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * Logistics service provider or courier integrated for order delivery.
+ */
 class ShippingCompany extends Model
 {
     /** @use HasFactory<ShippingCompanyFactory> */
@@ -25,7 +28,7 @@ class ShippingCompany extends Model
     protected function casts(): array
     {
         return [
-            // بيانات اعتماد واجهة الشركة — مشفرة في قاعدة البيانات
+            // Carrier API credentials stored encrypted at rest.
             'api_credentials' => 'encrypted:array',
             'is_active' => 'boolean',
         ];

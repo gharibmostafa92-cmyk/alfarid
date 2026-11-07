@@ -91,14 +91,6 @@ class CustomerManagementService
     }
 
     /**
-     * Map database unique index collisions to user-friendly validation exceptions.
-     */
-    private function translateUniqueViolation(UniqueConstraintViolationException $e): \Throwable
-    {
-        return Customer::translateUniqueViolation($e);
-    }
-
-    /**
      * Assert that the specified customer group exists and is currently active.
      */
     private function assertActiveGroup(?int $groupId): void
@@ -144,7 +136,7 @@ class CustomerManagementService
                 return $customer->load('customerGroup');
             });
         } catch (UniqueConstraintViolationException $e) {
-            throw $this->translateUniqueViolation($e);
+            throw Customer::translateUniqueViolation($e);
         }
     }
 
@@ -196,6 +188,12 @@ class CustomerManagementService
                         $financial['customer_group_id'] = ['before' => $old, 'after' => $new];
                     }
                 }
+                if (array_key_exists('whatsapp_opt_in', $data)) {
+                    $data['whatsapp_opt_in_at'] = $data['whatsapp_opt_in']
+                        ? ($customer->whatsapp_opt_in_at ?? now())
+                        : null;
+                    unset($data['whatsapp_opt_in']);
+                }
                 $customer->fill(Arr::except($data, ['credit_limit']));
                 if (array_key_exists('credit_limit', $data)) {
                     $customer->forceFill(['credit_limit' => $data['credit_limit']]);
@@ -214,7 +212,7 @@ class CustomerManagementService
                 return $customer->load('customerGroup');
             });
         } catch (UniqueConstraintViolationException $e) {
-            throw $this->translateUniqueViolation($e);
+            throw Customer::translateUniqueViolation($e);
         }
     }
 

@@ -28,18 +28,26 @@ class StoreBrandRequest extends FormRequest
     /**
      * @return array<string, array<mixed>|string|ValidationRule>
      */
-    public function rules(): array
+    public static function baseRules(?int $ignoreId = null): array
     {
         return [
             'name_ar' => ['required', 'string', 'max:150'],
             'name_en' => ['required', 'string', 'max:150'],
-            'slug' => ['nullable', 'string', 'max:180', 'alpha_dash:ascii', new UniqueCatalogIdentifier('brands', 'slug')],
+            'slug' => ['nullable', 'string', 'max:180', 'alpha_dash:ascii', new UniqueCatalogIdentifier('brands', 'slug', $ignoreId)],
             'description_ar' => ['nullable', 'string'],
             'description_en' => ['nullable', 'string'],
             'sort_order' => ['nullable', 'integer', 'min:0', 'max:2147483647'],
             'is_active' => ['nullable', 'boolean'],
-            // من غير SVG: بيتنفذ كسكريبت على نفس الـ origin (Stored XSS)
+            // Exclude SVG uploads to prevent stored cross-site scripting (XSS) attacks on same-origin assets.
             'logo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'extensions:jpg,jpeg,png,webp', 'max:4096', new MaxImagePixels],
         ];
+    }
+
+    /**
+     * @return array<string, array<mixed>|string|ValidationRule>
+     */
+    public function rules(): array
+    {
+        return self::baseRules();
     }
 }

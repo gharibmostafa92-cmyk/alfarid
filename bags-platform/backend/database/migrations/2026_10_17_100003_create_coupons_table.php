@@ -8,8 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * كوبونات الخصم — أساس مبسط تستند إليه carts.coupon_id وorders.coupon_id
- * (ربط الكوبون بالسلة والتحقق منه في CouponService؛ إدارة الكوبونات CRUD لاحقًا).
+ * Discount coupons table providing validation foundations for carts.coupon_id and orders.coupon_id.
  */
 return new class extends Migration
 {

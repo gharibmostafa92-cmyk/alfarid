@@ -11,13 +11,19 @@ use App\Rules\UniqueCustomerEmail;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
+/**
+ * Validates updates to customer profiles.
+ *
+ * Restricts modifications to sensitive financial, wholesale, or contact fields to staff with the 'customers.approve' permission.
+ * Lifecycle status and account type transitions are prohibited and must use dedicated state-machine workflows.
+ */
 class UpdateCustomerRequest extends FormRequest
 {
     use NormalizesCustomerInput;
 
     public function authorize(): bool
     {
-        return ! $this->hasAny(['credit_limit', 'customer_group_id', 'password', 'email', 'phone', 'company_name', 'tax_number', 'commercial_register']) || $this->user()->can('customers.approve');
+        return ! $this->hasAny(['credit_limit', 'customer_group_id', 'password', 'email', 'phone', 'company_name', 'tax_number', 'commercial_register', 'payment_terms_days', 'whatsapp_phone', 'whatsapp_opt_in', 'preferred_contact_hours']) || $this->user()->can('customers.approve');
     }
 
     /**
@@ -39,6 +45,12 @@ class UpdateCustomerRequest extends FormRequest
             'commercial_register' => ['sometimes', 'nullable', 'string', 'max:50'],
             'customer_group_id' => ['sometimes', 'nullable', 'integer', Rule::exists('customer_groups', 'id')->where('is_active', true)],
             'credit_limit' => ['sometimes', 'numeric', 'min:0', 'max:9999999999.99'],
+            'payment_terms_days' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:365'],
+            'whatsapp_phone' => ['sometimes', 'nullable', 'string', 'regex:/^01[0125][0-9]{8}$/'],
+            'whatsapp_opt_in' => ['sometimes', 'boolean'],
+            'preferred_contact_hours' => ['sometimes', 'nullable', 'array'],
+            'preferred_contact_hours.from' => ['required_with:preferred_contact_hours', 'date_format:H:i'],
+            'preferred_contact_hours.to' => ['required_with:preferred_contact_hours', 'date_format:H:i'],
         ];
     }
 }

@@ -106,7 +106,7 @@ function AuthenticatedApp() {
     ? 'production'
     : adminActive;
 
-  // 4.4: seed جاهز من شاشة التجار — #/assistant?seed=…&mention_entity=customer&mention_id=…&mention_label=…
+  // Pre-populates assistant prompt and entity mentions when deep-linked from dealer views (#/assistant?seed=...)
   const assistantPrompt = (() => {
     if (route !== '/assistant') return undefined;
     const params = new URLSearchParams(routeWithQuery.split('?')[1] ?? '');

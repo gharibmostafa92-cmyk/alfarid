@@ -10,7 +10,9 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-/** دفعة مسددة لمورد: تخفض رصيده الدائن وتُحدّث فاتورتها المرتبطة إن وجدت. */
+/**
+ * Supplier payment record: reduces supplier payable balance and updates invoice settlement status.
+ */
 class SupplierPayment extends Model
 {
     /** @use HasFactory<SupplierPaymentFactory> */

@@ -8,12 +8,9 @@ use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
- * انخفض المتاح لمتغير في فرع إلى حد إعادة الطلب أو دونه — يُطلق من
- * InventoryService::recordMovement عند عبور الحد نزولًا فقط (لا تكرار
- * مع كل حركة لاحقة والرصيد تحت الحد أصلًا).
- *
- * M1: بعد الـ commit فقط — إطلاقه داخل المعاملة كان يدخل مهامًا للطابور
- * عن حركات قد تتراجع، ويفشل التسلسل لو التقطها العامل قبل الـ commit.
+ * Dispatched when variant availability crosses to or below its reorder point.
+ * Emitted strictly on boundary crossing to avoid duplicate alerts on subsequent movements.
+ * Dispatched after transaction commit to ensure queue workers never read uncommitted ledger rows.
  */
 class StockLowDetected implements ShouldDispatchAfterCommit
 {

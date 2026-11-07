@@ -8,25 +8,25 @@ import type {
   VariantPayload,
 } from '@alfarid/api-client';
 
-// الملف الوحيد اللي يعرف الشكلين: شكل الـ UI (الـ mock) وشكل الـ API (قراءة وكتابة).
+// Bidirectional mapping between backoffice UI forms and REST API resources.
 //
-// ملاحظة على شكل الـ VariantResource الحقيقي:
-// - اللون بيرجع nested تحت `color: { name_ar, name_en, hex }` مش flat.
-// - صور المتغير بترجع تحت مفتاح `images` (MediaResource) مش `media`.
-// الدوال هنا بتقبل الشكلين وبتوحّدهم على الـ flat/admin types.
+// VariantResource structure notes:
+// - Color payload is nested under `color: { name_ar, name_en, hex }`
+// - Variant assets return under `images` (MediaResource)
+// Mappers accept both forms and normalize to flat backoffice types.
 
 export interface UiColor { ar: string; en: string; hex: string }
 
 export interface UiVariantRow {
   lock_version?: number;
   _id: string;
-  serverId?: number;                    // ضيفه علشان تعرف ده update ولا create
+  serverId?: number;                    // Database ID distinguishing updates from newly added client rows
   color: UiColor | null;
   size: string; capacity: string;
   sku: string; barcode: string;
   retail: string; wholesale: string; cost: string; compare: string;
   weight: string; reorder: string;
-  order: number;                        // 1-based زي الـ mock
+  order: number;                        // 1-based sort order index
   status: 'active' | 'inactive';
 }
 
@@ -68,7 +68,7 @@ export interface UiBrand {
   ar: string; en: string; slug: string;
   desc_ar: string; desc_en: string;
   order: number; status: 'active' | 'inactive';
-  logo: string | null;                  // رابط المعاينة
+  logo: string | null;                  // Remote preview URL
   products?: number;
 }
 
@@ -93,7 +93,7 @@ function nullIfEmpty(v: string): string | null {
   return t === '' ? null : v;
 }
 
-// ---------- البراند ----------
+// ---------- Brands ----------
 
 export function brandFromApi(b: AdminBrand): UiBrand {
   return {
@@ -111,18 +111,18 @@ export function brandToPayload(u: UiBrandForm): BrandPayload {
   const p: BrandPayload = {
     name_ar: u.ar,
     name_en: u.en,
-    slug: u.slug.trim() === '' ? null : u.slug,   // فاضي = null والسيرفر يولّده
+    slug: u.slug.trim() === '' ? null : u.slug,   // Empty string serialized as null so backend generates slug automatically
     description_ar: u.desc_ar,
     description_en: u.desc_en,
     sort_order: u.order,
     is_active: u.status === 'active',
   };
   if (u.logoFile) p.logo = u.logoFile;
-  else if (u.removeLogo) p.remove_logo = true;    // شال اللوجو من غير رفع جديد
-  return p;                                       // من غير لوجو جديد ماتبعتش logo خالص
+  else if (u.removeLogo) p.remove_logo = true;    // Clears existing logo when user unsets image without selecting a replacement
+  return p;
 }
 
-// ---------- المنتج: قراءة ----------
+// ---------- Products: Read Mappings ----------
 
 interface ApiVariantLike {
   lock_version?: number;
@@ -171,11 +171,11 @@ export function productFromApi(
     };
   });
 
-  // mode عند التحميل: متغير واحد من غير لون ولا مقاس ولا سعة = single
+  // Initial form mode: a single variant with no color/size/capacity defaults to single
   const single = rows.length === 1 && rows[0].color === null && rows[0].size === '' && rows[0].capacity === '';
   const mode: 'single' | 'matrix' = single ? 'single' : 'matrix';
 
-  // axes من القيم الفريدة: الألوان unique بـ color_name_en من غير حساسية حروف
+  // Unique axes: colors deduplicated by case-insensitive color_name_en
   const seenColors = new Set<string>();
   const colors: UiColor[] = [];
   const sizes: string[] = [];
@@ -250,7 +250,7 @@ export function productFromApi(
   };
 }
 
-// ---------- المنتج: كتابة ----------
+// ---------- Products: Write Mappings ----------
 
 export function productToPayload(basic: UiBasic): ProductPayload {
   const numOrNull = (v: string): string | null => (v.trim() === '' ? null : v);
@@ -277,7 +277,7 @@ export function variantToPayload(
 ): VariantPayload {
   const p: VariantPayload = {};
 
-  // sku: فاضي في الإنشاء = ماتبعتوش (السيرفر يولّده). وفي التعديل ماتبعتش فاضي أبدًا.
+  // SKU: omit on creation to trigger auto-generation; never send empty string on updates
   if (row.sku.trim() !== '') p.sku = row.sku;
   if (row.barcode.trim() !== '') p.barcode = row.barcode;
 
@@ -295,7 +295,7 @@ export function variantToPayload(
   p.size = nullIfEmpty(row.size);
   p.capacity = nullIfEmpty(row.capacity);
 
-  // التكلفة: لو معندوش الصلاحية ماتحطش cost_price خالص (الـ backend بيشيله أصلًا بس ماتعتمدش على ده)
+  // Cost price: omit if caller lacks view_cost permissions
   if (opts.canViewCost) p.cost_price = nullIfEmpty(row.cost);
 
   p.retail_price = nullIfEmpty(row.retail);
@@ -309,9 +309,9 @@ export function variantToPayload(
   return p;
 }
 
-// ---------- أخطاء variants.* العكسية ----------
+// ---------- Variant Form Error Mapping ----------
 
-// مفتاح السيرفر -> حقل الـ UI
+// API field error key -> UI input field path
 export const VARIANT_SERVER_KEY_TO_UI: Record<string, string> = {
   retail_price: 'retail',
   wholesale_price: 'wholesale',
@@ -337,7 +337,7 @@ export function splitVariantErrorKey(serverKey: string): { index: number; uiFiel
   return { index: Number(m[1]), uiField: VARIANT_SERVER_KEY_TO_UI[field] ?? field };
 }
 
-// مفاتيح الـ basic العكسية
+// Reverse basic product attribute error keys
 export const BASIC_SERVER_KEY_TO_UI: Record<string, string> = {
   name_ar: 'ar', name_en: 'en', slug: 'slug',
   category_id: 'category', brand_id: 'brand', supplier_id: 'supplier',

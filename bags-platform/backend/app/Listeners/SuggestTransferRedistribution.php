@@ -15,8 +15,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 
 /**
- * 5.1: اقتراح إعادة التوزيع الاستباقي — من غير توكنز (محسوب في PHP بالكامل).
- * يعمل بشرط ai_inventory_proactive_enabled.
+ * Proactive stock redistribution suggestions computed deterministically in PHP (0 LLM tokens).
+ * Evaluated when ai_inventory_proactive_enabled setting is active.
  */
 class SuggestTransferRedistribution implements ShouldQueue
 {
@@ -27,7 +27,7 @@ class SuggestTransferRedistribution implements ShouldQueue
         }
 
         $lowCoverage = InventoryCoverage::coverageDays($event->productVariantId, $event->branchId);
-        // مهدد بالنفاد فعلًا: تغطية 7 أيام أو أقل (أو صفر متاح).
+        // Only trigger when target branch coverage is critically low (<= 7 days or zero stock).
         if ($lowCoverage !== null && $lowCoverage > 7) {
             return;
         }
@@ -36,7 +36,7 @@ class SuggestTransferRedistribution implements ShouldQueue
             return;
         }
 
-        // متبرع: نفس الصنف في فرع آخر بتغطية أكبر من 60 يوم.
+        // Identify donor branch holding surplus stock (> 60 days coverage).
         $donor = DB::table('stock_levels')
             ->selectRaw('branch_id, SUM(on_hand - reserved - damaged) AS available')
             ->where('product_variant_id', $event->productVariantId)

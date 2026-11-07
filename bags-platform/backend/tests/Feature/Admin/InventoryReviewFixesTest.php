@@ -149,7 +149,7 @@ class InventoryReviewFixesTest extends TestCase
             'items' => [['product_variant_id' => $variant->id, 'requested_qty' => 2]],
         ], $this->staff->id);
         $this->api('GET', "transfers/{$transfer->id}", [], $unrelated)->assertForbidden();
-        // M3: FormRequest validation runs before the service branch check,
+        // FormRequest validation runs before the service branch check,
         // so forbidden callers must still send a well-formed version.
         $this->api('POST', "transfers/{$transfer->id}/approve", ['expected_version' => $transfer->fresh()->version], $destinationStaff)->assertForbidden();
         $this->api('POST', "transfers/{$transfer->id}/approve", ['expected_version' => $transfer->fresh()->version], $sourceStaff)->assertOk();
@@ -456,7 +456,7 @@ class InventoryReviewFixesTest extends TestCase
     {
         Auth::forgetGuards();
 
-        // M2: مفتاح عدم تكرار جديد لكل طلب — إلا إذا حدده الاختبار (إعادة تشغيل).
+        // Fresh idempotency key per request unless explicitly specified by test for replay testing.
         if (! isset($headers['Idempotency-Key']) && ! isset($this->defaultHeaders['Idempotency-Key'])) {
             $headers['Idempotency-Key'] = (string) Str::uuid();
         }

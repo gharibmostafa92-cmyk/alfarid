@@ -12,8 +12,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
 
 /**
- * سلة تسوق: للزائر عبر cart_token أو للعميل المسجل عبر customer_id.
- * عند تسجيل دخول الزائر تُدمج سلة الزائر في سلة حسابه (CartService — مرحلة السلة).
+ * Shopping cart model for guest users (via cart_token) or registered customers (via customer_id).
+ * Guest carts are merged into customer carts upon authentication via CartService.
  */
 class Cart extends Model
 {

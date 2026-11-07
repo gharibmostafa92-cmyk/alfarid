@@ -11,6 +11,9 @@ use App\Services\StaffAdministration;
 use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Models\Role;
 
+/**
+ * Removes an unassigned custom staff role. System-defined roles cannot be deleted.
+ */
 final class DeleteRole
 {
     public function __construct(private BranchAccess $access) {}

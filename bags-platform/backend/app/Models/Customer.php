@@ -26,6 +26,11 @@ use Laravel\Sanctum\HasApiTokens;
     'name',
     'email',
     'phone',
+    'whatsapp_phone',
+    'whatsapp_opt_in_at',
+    'preferred_contact_hours',
+    'payment_terms_days',
+    'credit_limit',
     'password',
     'type',
     'customer_group_id',
@@ -38,6 +43,9 @@ use Laravel\Sanctum\HasApiTokens;
     'phone_verified_at',
 ])]
 #[Hidden(['password', 'remember_token'])]
+/**
+ * Customer account entity supporting retail guests, registered shoppers, and wholesale merchants.
+ */
 class Customer extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
@@ -48,7 +56,7 @@ class Customer extends Authenticatable
         static::creating(function (Customer $customer): void {
             if (! array_key_exists('status', $customer->getAttributes())) {
                 // Wholesale and distributor accounts require commercial vetting before order placement.
-                $customer->status = in_array($customer->type, [CustomerType::Wholesale, CustomerType::Distributor], true)
+                $customer->status = $customer->isCommercialTier()
                     ? CustomerStatus::Pending : CustomerStatus::Approved;
             }
         });
@@ -67,6 +75,22 @@ class Customer extends Authenticatable
     public function canShop(): bool
     {
         return ! in_array($this->status, [CustomerStatus::Suspended, CustomerStatus::Rejected], true);
+    }
+
+    /**
+     * Check if the account belongs to wholesale or distributor commercial tiers.
+     */
+    public function isCommercialTier(): bool
+    {
+        return in_array($this->type, [CustomerType::Wholesale, CustomerType::Distributor], true);
+    }
+
+    /**
+     * Check if the account has approved commercial status (wholesale or distributor).
+     */
+    public function isWholesaleApproved(): bool
+    {
+        return $this->status === CustomerStatus::Approved && $this->isCommercialTier();
     }
 
     public function getEmailForPasswordReset(): string
@@ -95,6 +119,12 @@ class Customer extends Authenticatable
     public function setPhoneAttribute(string $phone): void
     {
         $this->attributes['phone'] = self::normalizePhone($phone);
+    }
+
+    public function setWhatsappPhoneAttribute(?string $phone): void
+    {
+        $trimmed = $phone === null ? '' : trim($phone);
+        $this->attributes['whatsapp_phone'] = $trimmed === '' ? null : self::normalizePhone($trimmed);
     }
 
     /**
@@ -203,7 +233,10 @@ class Customer extends Authenticatable
             'status' => CustomerStatus::class,
             'credit_limit' => 'decimal:2',
             'wallet_balance' => 'decimal:2',
+            'payment_terms_days' => 'integer',
+            'preferred_contact_hours' => 'array',
             'approved_at' => 'datetime',
+            'whatsapp_opt_in_at' => 'datetime',
             'phone_verified_at' => 'datetime',
             'email_verified_at' => 'datetime',
         ];

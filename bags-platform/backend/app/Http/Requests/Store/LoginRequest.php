@@ -22,7 +22,7 @@ class LoginRequest extends FormRequest
     public function rules(): array
     {
         return [
-            // معرّف واحد: بريد إلكتروني أو رقم هاتف
+            // Unified identifier: accepts either email address or phone number.
             'login' => ['required', 'string', 'max:255'],
             'password' => ['required', 'string', 'max:255'],
         ];

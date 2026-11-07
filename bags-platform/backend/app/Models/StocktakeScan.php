@@ -7,6 +7,9 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Individual barcode scan record captured during a physical stocktake.
+ */
 class StocktakeScan extends Model
 {
     protected $fillable = [

@@ -13,8 +13,7 @@ export function RequireActor({ allow, children }: { allow: Destination[]; childr
   const [verificationFailed, setVerificationFailed] = useState(false);
   const [retry, setRetry] = useState(0);
   useEffect(() => setHydrated(true), []);
-  // M2: الوجهة المحفوظة لحظة الدخول قد تقدم (اعتماد/إيقاف) — أعد التحقق
-  // من الجلسة عند الـ hydration وحدّث الوجهة من redirect الحالي.
+  // Re-verify the session on hydration to refresh redirect destination if approval or status changed.
   useEffect(() => {
     if (!hydrated || !token) return;
     let cancelled = false;
@@ -38,15 +37,14 @@ export function RequireActor({ allow, children }: { allow: Destination[]; childr
       }
     }).catch((error: { response?: { status?: number } }) => {
       if (cancelled || useAuthStore.getState().token !== token) return;
-      // L1: الـ 403 (موقوف/معطّل) لا يمسحها handler الـ 401 العام — امسح
-      // الجلسة المحلية القديمة وحوّل للدخول بدل حبس المستخدم في بوابة ميتة.
+      // Clear local session on 401/403 (e.g. suspended account) and redirect to login to avoid deadlocked navigation.
       if (error?.response?.status === 401 || error?.response?.status === 403) {
         useAuthStore.getState().clear();
         router.replace(`/auth/login?redirect=${encodeURIComponent(pathname)}`);
       } else {
         setVerificationFailed(true);
       }
-      /* الـ 401 يمسحها الـ handler العام */
+      
     });
     return () => { cancelled = true; };
   }, [hydrated, token, pathname, router, retry]);

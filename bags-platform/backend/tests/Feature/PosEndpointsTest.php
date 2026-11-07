@@ -312,7 +312,7 @@ class PosEndpointsTest extends TestCase
 
     public function test_pos_stock_search_transfer_request_receive_and_scan(): void
     {
-        // H4: واجهة POS الرقيقة — بحث سليم، طلب تحويل من فرع الوجهة،
+        // Thin POS interface: catalog search and destination-branch transfer requests.
         // استلام بالشكل الصحيح، ومسح باركود بلقطة من نطاق الجلسة.
         foreach (['transfers.create', 'transfers.receive', 'stocktakes.update'] as $name) {
             $this->cashier->givePermissionTo(Permission::findOrCreate($name, 'staff'));

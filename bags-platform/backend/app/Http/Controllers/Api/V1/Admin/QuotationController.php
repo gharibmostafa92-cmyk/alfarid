@@ -16,6 +16,9 @@ use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Validation\Rule;
 
+/**
+ * Backoffice wholesale price quotations administration: reviewing customer RFQs, pricing, and expiration.
+ */
 class QuotationController extends Controller implements HasMiddleware
 {
     public function __construct(private readonly QuotationService $service) {}
@@ -28,6 +31,9 @@ class QuotationController extends Controller implements HasMiddleware
         ];
     }
 
+    /**
+     * List paginated wholesale quotations with customer and status filters.
+     */
     public function index(Request $request): JsonResponse
     {
         $filters = $request->validate([
@@ -46,6 +52,9 @@ class QuotationController extends Controller implements HasMiddleware
         return QuotationResource::collection($quotations)->response();
     }
 
+    /**
+     * Retrieve quotation details with items and variants.
+     */
     public function show(int $quotation): JsonResponse
     {
         $model = Quotation::query()->with(['customer', 'items.variant.product'])->findOrFail($quotation);
@@ -53,13 +62,25 @@ class QuotationController extends Controller implements HasMiddleware
         return QuotationResource::make($model)->response();
     }
 
+    /**
+     * Price a quotation with line-item discounts, custom prices, and expiration deadline.
+     */
     public function price(PriceQuotationRequest $request, int $quotation): JsonResponse
     {
         $model = Quotation::query()->findOrFail($quotation);
+        $priced = $this->service->price($model, [
+            ...$request->validated(),
+            'priced_by' => $request->user()?->id,
+        ]);
 
-        return QuotationResource::make($this->service->price($model, $request->validated()))->response();
+        return QuotationResource::make($priced)
+            ->additional(['acceptance_warnings' => $this->service->acceptanceWarnings($priced)])
+            ->response();
     }
 
+    /**
+     * Expire a quotation that passed its validity window.
+     */
     public function expire(int $quotation): JsonResponse
     {
         $model = Quotation::query()->findOrFail($quotation);

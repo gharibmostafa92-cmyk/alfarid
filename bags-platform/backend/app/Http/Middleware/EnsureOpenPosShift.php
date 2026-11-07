@@ -12,11 +12,14 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * يتحقق من أن الكاشير لديه وردية مفتوحة في الفرع المسجل دخوله.
- * يُحقن الوردية في الطلب تحت المفتاح 'pos_shift' لاستخدامها في المتحكمات.
+ * Ensures the authenticated cashier has an active, open shift at their assigned branch.
+ * Injects the open shift model into request attributes under 'pos_shift'.
  */
 class EnsureOpenPosShift
 {
+    /**
+     * Handle incoming POS request and verify active shift presence.
+     */
     public function handle(Request $request, Closure $next): Response
     {
         $user = $request->user('staff');

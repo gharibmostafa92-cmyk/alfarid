@@ -11,6 +11,9 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 #[Fillable(['title', 'image_path', 'link_type', 'link_value', 'position', 'sort_order', 'starts_at', 'ends_at', 'is_active', 'kicker', 'headline', 'headline_bold', 'description', 'cta_label', 'bg_color'])]
+/**
+ * Storefront promotional hero slider and advertising banner configuration.
+ */
 class Banner extends Model
 {
     use HasFactory;

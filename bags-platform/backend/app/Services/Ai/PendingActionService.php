@@ -59,7 +59,7 @@ final class PendingActionService
                 }
             });
         } catch (\Throwable $e) {
-            // M-3: unexpected errors must not leave the proposal stuck in
+            // Unexpected errors must not leave the proposal stuck in
             // pending — record the failure outside the rolled-back transaction.
             if (! $e instanceof HttpExceptionInterface) {
                 AiPendingAction::whereKey($action->id)->where('status', 'pending')

@@ -10,9 +10,7 @@ return new class extends Migration
     {
         Schema::create('stock_movements', function (Blueprint $table): void {
             $table->id();
-            // الأعمدة التالية nullable/defaulted عشان عقد اختبارات الفروع/المواقع من المرحلة 1
-            // (إدخال صف بحقول branch_id/location_id فقط). الاكتمال مضمون تطبيقيًا لأن
-            // الكتابة الوحيدة للدفتر بتتم عبر InventoryService اللي بيملأ كل الحقول دائمًا.
+            // Columns are nullable to satisfy legacy branch test fixtures; complete ledger records are strictly enforced by InventoryService.
             $table->string('reference_number')->nullable()->unique();
             $table->foreignId('product_variant_id')->nullable()->constrained()->restrictOnDelete();
             $table->foreignId('branch_id')->nullable()->constrained()->restrictOnDelete();

@@ -16,7 +16,7 @@ use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Tests\TestCase;
 
 /**
- * H1: the retail cart enforces the storefront published rule — wholesale-only
+ * The retail cart enforces the storefront published rule — wholesale-only
  * products and products under a disabled category cannot be purchased even
  * though they are active + published + non-deleted.
  */

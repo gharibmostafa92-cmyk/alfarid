@@ -8,25 +8,10 @@ use App\Enums\LocationType;
 use App\Models\Branch;
 use App\Models\Location;
 use Illuminate\Contracts\Validation\ValidationRule;
-use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
-class UpdateLocationRequest extends FormRequest
+class UpdateLocationRequest extends StoreLocationRequest
 {
-    protected function prepareForValidation(): void
-    {
-        $code = $this->input('code');
-
-        if (is_string($code)) {
-            $this->merge(['code' => mb_strtoupper(trim($code))]);
-        }
-    }
-
-    public function authorize(): bool
-    {
-        return $this->user() !== null;
-    }
-
     /**
      * @return array<string, array<mixed>|string|ValidationRule>
      */

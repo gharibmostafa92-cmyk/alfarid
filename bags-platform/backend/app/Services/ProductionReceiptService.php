@@ -85,11 +85,7 @@ class ProductionReceiptService
                     // Include in-transit stock in company inventory to avoid skewing average cost during pending transfers.
                     $onHandStr = (string) StockLevel::whereIn('id', $lockedLevelIds)
                         ->sum(DB::raw('on_hand + in_transit'));
-                    $onHandStr = bccomp($onHandStr, '0', 4) < 0 ? '0' : $onHandStr;
-                    $costStr = (string) $variant->cost_price;
-                    $unitStr = $unitCost;
-                    $total = bcadd(bcmul($onHandStr, $costStr, 8), bcmul((string) $quantity, $unitStr, 8), 8);
-                    $average = bcadd(bcdiv($total, bcadd($onHandStr, (string) $quantity, 4), 5), '0.00005', 4);
+                    $average = InventoryService::calculateWeightedAverageCost($onHandStr, (string) $variant->cost_price, $quantity, $unitCost);
                     $variant->update(['cost_price' => $average, 'last_cost_price' => $unitCost]);
                     $this->inventory->recordMovement([
                         'product_variant_id' => $variant->id,

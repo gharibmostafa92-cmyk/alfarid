@@ -7,6 +7,9 @@ namespace App\Http\Resources\Store;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
+/**
+ * Public storefront brand resource representation with optimized thumbnail fallback.
+ */
 class StoreBrandResource extends JsonResource
 {
     /**
@@ -14,8 +17,7 @@ class StoreBrandResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
-        // F6: conversions render on the queue — a thumb URL emitted before the
-        // worker finishes is a broken CDN link. Fall back to the original.
+        // Conversions generate asynchronously; fall back to the original image until thumb exists.
         $logo = $this->getFirstMedia('logo');
 
         return [

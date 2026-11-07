@@ -6,8 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
 /**
- * L6: نوع دفتر مستقل لعكس المصروف (expense_reversal) حتى لا تُقرأ
- * العكوس الموجبة كمصروفات في أي تجميع حسب النوع.
+ * Dedicated ledger type for expense reversals (expense_reversal) to distinguish voided transactions from standard expense outflows.
  */
 return new class extends Migration
 {

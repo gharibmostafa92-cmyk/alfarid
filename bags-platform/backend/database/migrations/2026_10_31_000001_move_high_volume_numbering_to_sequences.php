@@ -6,10 +6,8 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
 /**
- * H5: عدادات نقاط البيع داخل الـ transactions بتقفل صف واحد في settings
- * لحد ما الـ transaction الأم تعمل commit — في الضغط ده بيعمل اختناق.
- * ننقل shift/pos_invoice/expense/treasury_transfer/payment_notice
- * لـ PostgreSQL sequences زي باقي المستندات (في فجوات لما تعمل rollback).
+ * Migrates high-volume document numbering from settings table row locks to database sequences to eliminate lock contention.
+ * Moves shift, pos_invoice, expense, treasury_transfer, and payment_notice to dedicated sequences to prevent commit bottlenecks.
  */
 return new class extends Migration
 {
@@ -85,7 +83,7 @@ SQL);
 
         $this->createFunction(array_merge(self::LEGAL_INVOICE_TYPES, self::NEW_TYPES));
 
-        // H1: نوع legal invoice بيفضل قفل الصف لأن الترقيم المتصل شرط قانوني.
+        // Legal invoice types retain pessimistic row locking because strictly gapless contiguous numbering is legally required.
         DB::table('settings')
             ->where(function ($q): void {
                 $q->whereIn('key', collect(self::NEW_TYPES)->map(fn (string $t): string => $t.'_next_number')->all());
@@ -97,9 +95,7 @@ SQL);
     {
         $this->createFunction(self::LEGAL_INVOICE_TYPES);
         foreach (self::NEW_TYPES as $type) {
-            // M-3: قبل الحذف تُكتب last_value + is_called في settings — صفوف
-            // settings لم تتقدم منذ الـ migration، وبدون هذا يعود الترقيم
-            // من قيم قديمة فيُنتج أرقامًا مكررة.
+            // Persist the latest sequence value into settings before dropping sequences to prevent duplicate document numbers.
             try {
                 $row = DB::selectOne("SELECT last_value, is_called FROM document_{$type}_number_seq");
                 if ($row) {
@@ -107,7 +103,7 @@ SQL);
                     DB::table('settings')->where('key', $this->meta()[$type]['setting'])->update(['value' => (string) max(1, $next)]);
                 }
             } catch (\Throwable) {
-                // الـ sequence غير موجود أصلًا — لا شيء يُحفظ.
+                // Sequence does not exist; nothing to persist during rollback.
             }
             DB::statement("DROP SEQUENCE IF EXISTS document_{$type}_number_seq");
         }

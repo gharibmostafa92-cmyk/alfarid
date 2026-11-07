@@ -35,19 +35,26 @@ final class StaffTokenService
                 throw new BusinessException('رابط الدخول غير صالح أو انتهت صلاحيته.', [], 401);
             }
 
-            // Prune expired tokens to prevent unbounded session table growth.
-            $expiry = config('sanctum.expiration');
-            $user->tokens()->where(fn ($query) => $query->where('expires_at', '<=', now())
-                ->when($expiry, fn ($query) => $query->orWhere('created_at', '<=', now()->subMinutes((int) $expiry))))->delete();
-
-            // FIFO token cap terminates oldest sessions to prevent credential accumulation across devices.
-            $limit = max(1, (int) config('auth.staff_max_tokens', 20));
-            $old = $user->tokens()->orderByDesc('id')->skip($limit - 1)->pluck('id');
-            if ($old->isNotEmpty()) {
-                $user->tokens()->whereIn('id', $old)->delete();
-            }
+            // Prune expired tokens and enforce FIFO token cap to prevent unbounded session table growth.
+            self::pruneAndCap($user, (int) config('auth.staff_max_tokens', 20));
 
             return $user->createToken('staff-token', ['*'], now()->addMinutes(max(1, (int) config('auth.staff_token_minutes', 43200))))->plainTextToken;
         });
+    }
+
+    /**
+     * Prune expired personal access tokens and enforce a FIFO session cap for the given tokenable model.
+     */
+    public static function pruneAndCap(object $tokenable, int $maxTokens): void
+    {
+        $expiry = config('sanctum.expiration');
+        $tokenable->tokens()->where(fn ($query) => $query->where('expires_at', '<=', now())
+            ->when($expiry, fn ($query) => $query->orWhere('created_at', '<=', now()->subMinutes((int) $expiry))))->delete();
+
+        $limit = max(1, $maxTokens);
+        $old = $tokenable->tokens()->orderByDesc('id')->skip($limit - 1)->pluck('id');
+        if ($old->isNotEmpty()) {
+            $tokenable->tokens()->whereIn('id', $old)->delete();
+        }
     }
 }

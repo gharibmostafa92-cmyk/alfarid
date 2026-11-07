@@ -8,10 +8,9 @@ use App\Models\ProductVariant;
 use Illuminate\Validation\Validator;
 
 /**
- * تحقق وجود المتغيرات باستعلام واحد مجمّع (whereIn) بدل Rule::exists لكل عنصر —
- * جرد/تحويل من 500 صنف كان ينفذ 500 استعلام قبل بدء العمل أصلًا (M11).
- * النشاط (is_active) لا يُفحص هنا: عمليات الإخراج مسموحة على المعطّل (M5)،
- * والإدخال يُحظر في الخدمة نفسها.
+ * Bulk variant existence verification using a single whereIn query instead of individual Rule::exists checks.
+ * Avoids N+1 query overhead on 500+ line stocktakes or transfers.
+ * Active status checks are omitted here so outbound liquidation of inactive items remains possible.
  */
 trait BulkVariantExists
 {
@@ -37,9 +36,8 @@ trait BulkVariantExists
                 return;
             }
 
-            // withTrashed: متغير محذوف ناعمًا وله رصيد لا يجب أن يُحبس رصيده —
-            // عمليات الإخراج (تسوية/جرد/تحويل) تظل ممكنة عليه لتصفيته (M-9)،
-            // والإدخال عليه محظور في InventoryService لأنه يعامل كمعطّل.
+            // withTrashed: allow outbound operations (adjustment/count/transfer) on soft-deleted variants
+            // to permit liquidating existing balances; inbound movements remain guarded in InventoryService.
             $query = ProductVariant::query()->whereIn('id', $ids);
             if ($activeOnly) {
                 $query->where('is_active', true)->whereHas('product');

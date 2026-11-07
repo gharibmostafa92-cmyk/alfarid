@@ -1,10 +1,10 @@
-// أرقام عربية/فارسية → لاتيني (لما المستخدم يكتب ٣ في خانة الترتيب)
+// Normalizes Arabic-Indic and Eastern digits to standard ASCII numerals (e.g. when typing ٣ in sort order)
 export const toLatinDigits = (s) =>
   String(s ?? '')
     .replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d))
     .replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d));
 
-// تطبيع للبحث: يشيل التشكيل والتطويل ويوحّد الألف والياء والتاء المربوطة
+// Normalizes Arabic search text: strips diacritics, tatweel, and unifies alef, yaa, and taa marbuta
 export const normalizeSearch = (s) =>
   String(s ?? '')
     .toLowerCase()
@@ -14,10 +14,10 @@ export const normalizeSearch = (s) =>
     .replace(/ة/g, 'ه')
     .trim();
 
-// الاسم المعروض مع fallback لو لغة فاضية
+// Resolves display name with fallback to alternate locale if primary is empty
 export const displayName = (n, lang = 'ar') =>
   (lang === 'ar' ? n.ar || n.en : n.en || n.ar) || '—';
 
-// slug تلقائي من الإنجليزي فقط (لو الناتج فاضي → نسيبه null والباك يولّد)
+// Generates URL slug from English name; leaves null if empty so backend auto-generates
 export const autoSlug = (en) =>
   String(en ?? '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');

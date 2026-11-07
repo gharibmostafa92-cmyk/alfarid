@@ -24,7 +24,7 @@ export default function CategoriesMockPage({ can, forceState = null, embedded = 
   const perms = useMemo(() => ({
     view:   can('categories.view'),
     create: can('categories.create'),
-    update: can('categories.update'),   // يشمل الترتيب والتفعيل والتعطيل
+    update: can('categories.update'),   // Covers reordering, toggling status, and edits
     delete: can('categories.delete'),
   }), [can]);
   const context = useMemo(() => ({

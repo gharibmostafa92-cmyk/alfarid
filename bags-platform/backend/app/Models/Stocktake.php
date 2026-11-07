@@ -9,6 +9,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * Physical stock count session for verifying inventory accuracy at a branch.
+ */
 class Stocktake extends Model
 {
     public function scans(): HasMany

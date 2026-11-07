@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Transfer;
 
+/**
+ * Validates stock transfer receipt quantities against the current transfer version.
+ */
 class ReceiveTransferRequest extends TransferItemsQtyRequest
 {
     protected string $qtyField = 'received_qty';
@@ -11,7 +14,7 @@ class ReceiveTransferRequest extends TransferItemsQtyRequest
     /** @return array<string, mixed> */
     public function rules(): array
     {
-        // M3: see ApproveTransferRequest.
+        // Require explicit transfer version to protect against receipt of modified line items.
         return array_merge(parent::rules(), [
             'expected_version' => ['required', 'integer', 'min:1'],
         ]);

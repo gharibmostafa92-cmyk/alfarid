@@ -7,7 +7,9 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-/** مفتاح عدم تكرار لطلب تسوية يدوية — يُنشأ ويُستهلك داخل InventoryService فقط. */
+/**
+ * Idempotency key tracking for manual stock adjustments; created and consumed within InventoryService.
+ */
 class InventoryIdempotencyKey extends Model
 {
     protected $fillable = ['user_id', 'key', 'request_hash', 'response', 'status_code'];

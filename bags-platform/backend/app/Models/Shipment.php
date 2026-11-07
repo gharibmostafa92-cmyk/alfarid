@@ -6,10 +6,14 @@ namespace App\Models;
 
 use App\Enums\ShipmentStatus;
 use Database\Factories\ShipmentFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Carrier tracking and dispatch manifest for fulfilled customer orders.
+ */
 class Shipment extends Model
 {
     /** @use HasFactory<ShipmentFactory> */
@@ -48,7 +52,18 @@ class Shipment extends Model
         return $this->belongsTo(ShippingCompany::class, 'shipping_company_id');
     }
 
-    /** رابط تتبع عام من قالب الشركة إن وُجد. */
+    /**
+     * Scope a query to active shipments that have not terminated in failure or return.
+     *
+     * @param  Builder<self>  $query
+     * @return Builder<self>
+     */
+    public function scopeActive(Builder $query): Builder
+    {
+        return $query->whereNotIn('status', [ShipmentStatus::Failed->value, ShipmentStatus::Returned->value]);
+    }
+
+    /** Public tracking URL built from carrier template if configured. */
     public function trackingUrl(): ?string
     {
         $template = $this->company?->tracking_url_template;
@@ -56,7 +71,7 @@ class Shipment extends Model
             return null;
         }
 
-        // رقم البوليصة قد يحمل محارف خاصة من إدخال الأدمن — تُرمَّز (L4)
+        // URL-encode AWB numbers to safely handle special characters in tracking URL templates.
         return str_replace('{awb}', rawurlencode((string) $this->awb_number), $template);
     }
 }

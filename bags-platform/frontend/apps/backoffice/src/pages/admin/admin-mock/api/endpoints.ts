@@ -8,7 +8,7 @@ function userParams(p: UserListParams): Record<string, string | number> {
   const out: Record<string, string | number> = { page: p.page ?? 1, per_page: p.per_page ?? 8 };
   if (p.search?.trim()) out.search = p.search.trim();
   if (p.role) out.role = p.role;
-  // axios بيشيل أي null، فبنبعت '' عشان Laravel يحوّله null ويفلتر على "من غير فرع"
+  // Axios strips null query values; pass empty string so Laravel converts to null for branchless filtering.
   if (p.branch_id === 'none') out.branch_id = '';
   else if (typeof p.branch_id === 'number') out.branch_id = p.branch_id;
   if (typeof p.is_active === 'boolean') out.is_active = p.is_active ? 1 : 0;
@@ -31,7 +31,7 @@ export const adminApi = {
     api.get<Paginated<ApiUser>>(`${BASE}/users`, { params: { ...userParams(p), per_page: 1 }, signal })
       .then(r => r.data.meta.total),
 
-  // Roles (بنلف على كل الصفحات)
+  // Fetch all role pages sequentially for complete role assignment choices.
   listRoles: async (signal?: AbortSignal): Promise<ApiRole[]> => {
     const all: ApiRole[] = [];
     let page = 1, last = 1;

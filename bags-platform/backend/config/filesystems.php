@@ -85,9 +85,7 @@ return [
             'report' => false,
         ],
 
-        // H3: private shared bucket for AI conversation attachments. Unlike
-        // `local`, every app server/worker behind the load balancer sees the
-        // same files, so prepare/execute/prune agree on every instance.
+        // Shared bucket for AI conversation attachments, ensuring multi-node worker consistency across prepare, execute, and prune.
         'ai_private' => [
             'driver' => 's3',
             'options' => ['CacheControl' => 'private, max-age=120'],
@@ -105,9 +103,7 @@ return [
             'report' => false,
         ],
 
-        // H5: separate public bucket for catalog media only (products, variants,
-        // categories, brands). Private documents stay on `r2`; enabling a public
-        // URL must never expose customer_documents / supplier_invoices.
+        // Dedicated public bucket for catalog media only, isolating public assets from private documents.
         'r2_public' => [
             'driver' => 's3',
             'options' => ['CacheControl' => env('MEDIA_REMOTE_CACHE_CONTROL', 'public, max-age=604800')],

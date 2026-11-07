@@ -36,7 +36,7 @@ class R2UploadMigrationTest extends TestCase
 
         $this->artisan('uploads:migrate-to-r2')->assertSuccessful();
 
-        // H5: catalog media migrate to the public bucket with stable public URLs.
+        // Catalog media migrate to the public bucket with stable public URLs.
         $this->assertSame('r2_public', $media->fresh()->disk);
         $this->assertSame('r2_public', $media->fresh()->conversions_disk);
         $this->assertSame($path, $media->fresh()->getPathRelativeToRoot());

@@ -137,22 +137,11 @@ class OrderService
             }
 
             // Enforce maximum quantity caps per line and pending orders cap to prevent inventory hoarding.
-            $isWholesale = $this->isWholesaleApproved($customer);
-            if (! $isWholesale) {
-                $lineCap = $customer === null
-                    ? (float) config('store.guest_max_line_qty', 10)
-                    : (float) config('store.retail_max_line_qty', 50);
-                if ($lineCap > 0) {
-                    foreach ($lines as $line) {
-                        if ((float) $line['qty'] > $lineCap) {
-                            throw new BusinessException($customer === null
-                                ? "سقف كمية البند الواحد للزوار ({$lineCap}) — سجّل الدخول للكميات الأكبر."
-                                : "سقف كمية البند الواحد ({$lineCap}) — للكميات الأكبر تواصل مع مسار الجملة.");
-                        }
-                    }
-                }
+            foreach ($lines as $line) {
+                $this->cartService->assertLineQty($customer, (float) $line['qty']);
             }
 
+            $isWholesale = $this->isWholesaleApproved($customer);
             if ($customer === null) {
                 $pendingCap = (int) config('store.guest_pending_orders_cap', 3);
                 if ($pendingCap > 0 && $guestPhoneNormalized !== null) {
@@ -536,7 +525,16 @@ class OrderService
                 }
             }
 
-            $order->update(['status' => $to]);
+            $updates = ['status' => $to];
+            if ($to === OrderStatus::Confirmed && $order->payment_method === 'credit' && $order->due_at === null && $order->customer_id !== null) {
+                $terms = Customer::query()->whereKey($order->customer_id)->value('payment_terms_days');
+                $days = $terms === null
+                    ? (int) $this->settings->get('wholesale_default_payment_terms_days', 30)
+                    : (int) $terms;
+                $updates['due_at'] = now()->addDays(max(0, $days));
+            }
+
+            $order->update($updates);
 
             // Auto-settle COD payment status upon delivery.
             if ($to === OrderStatus::Delivered
@@ -590,9 +588,7 @@ class OrderService
      */
     private function isWholesaleApproved(?Customer $customer): bool
     {
-        return $customer !== null
-            && $customer->status === CustomerStatus::Approved
-            && in_array($customer->type, [CustomerType::Wholesale, CustomerType::Distributor], true);
+        return $customer !== null && $customer->isWholesaleApproved();
     }
 
     /**

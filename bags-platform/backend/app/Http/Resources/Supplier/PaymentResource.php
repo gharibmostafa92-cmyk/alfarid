@@ -9,7 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * دفعة مستلمة كما تظهر للمورد في لوحته وكشف حسابه.
+ * Supplier payment receipt presentation for portal dashboard and account statements.
  *
  * @mixin SupplierPayment
  */

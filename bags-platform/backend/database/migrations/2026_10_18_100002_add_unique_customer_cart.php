@@ -8,16 +8,14 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * سلة واحدة لكل عميل مسجل (M6): بلا هذا القيد، ‏firstOrCreate تحت التزامن
- * ينشئ سلتين للعميل وتتوزع البنود بينهما. ‏NULLs متعددة مسموحة (سلال الزوار).
- * ملحوظة إنتاج: تُدمج أي سلال مكررة موجودة قبل تطبيق القيد.
+ * Enforces one cart per authenticated customer while permitting multiple null customer_id guest carts.
+ * Merges legacy duplicate customer carts before applying the unique index constraint.
  */
 return new class extends Migration
 {
     public function up(): void
     {
-        // دمج السلال المكررة قبل القيد (F13): على بيانات إنتاج فيها أكثر من
-        // سلة لعميل، إضافة القيد بلا دمج تفشل. البنود تُجمع والكوبون يُنقل
+        // Consolidate duplicate carts before applying unique index to avoid constraint violation
         $this->mergeDuplicateCustomerCarts();
 
         Schema::table('carts', function (Blueprint $table): void {
@@ -31,7 +29,7 @@ return new class extends Migration
             return;
         }
 
-        // 1) تجميع بنود السلال المكررة في السلة المُبقاة بلا تكرار صف
+        // 1) Consolidate items from duplicate carts into the keeper cart
         DB::statement(<<<'SQL'
             WITH keepers AS (
                 SELECT customer_id, MIN(id) AS keep_id
@@ -51,7 +49,7 @@ return new class extends Migration
             DO UPDATE SET qty = cart_items.qty + EXCLUDED.qty, updated_at = NOW()
             SQL);
 
-        // 2) نقل كوبون مكرر إلى السلة المُبقاة إن كانت بلا كوبون
+        // 2) Carry over applied coupon to keeper cart if currently empty
         DB::statement(<<<'SQL'
             WITH keepers AS (
                 SELECT customer_id, MIN(id) AS keep_id
@@ -73,7 +71,7 @@ return new class extends Migration
             WHERE k.id = kk.keep_id AND k.coupon_id IS NULL
             SQL);
 
-        // 3) حذف السلال المكررة (بنودها انتقلت)
+        // 3) Delete redundant duplicate cart records
         DB::statement(<<<'SQL'
             WITH keepers AS (
                 SELECT customer_id, MIN(id) AS keep_id

@@ -13,12 +13,8 @@ Artisan::command('store:refresh-retail-prices', function (RetailPriceSnapshot $s
 })->purpose('Refresh public retail sorting prices, including stock and timed price lists');
 // Single scheduler container runs these (docker-compose), plus onOneServer() as
 // extra protection when the cache store is shared (Redis in production).
-// H4: every withoutOverlapping() carries an explicit expiry. The default is
-// 1440 minutes — a SIGKILL during deploy (Docker waits only 10s by default)
-// would leave the lock in Redis for 24h and silently skip the job, because a
-// skipped overlap never fires onFailure. Expiry is set just above the worst
-// measured runtime of each cadence (5min -> 10, 15min -> 30, hourly/daily ->
-// 120, weekly full reconcile -> 360).
+// Each withoutOverlapping() carries an explicit expiry calibrated to worst-case execution time,
+// preventing 24-hour locks caused by abrupt container termination.
 Schedule::command('store:refresh-retail-prices')->everyFiveMinutes()->withoutOverlapping(10)->onOneServer();
 
 Schedule::command('sanctum:prune-expired --hours=24')->dailyAt('03:30')
@@ -34,14 +30,11 @@ Schedule::command('media:prune-orphans --disk=r2_public --older-than=60')->daily
     ->onFailure(fn () => logger()->error('Scheduled orphan media cleanup failed.'));
 Schedule::command('media:prune-orphans --disk=r2_public --older-than=60 --staging-only')->hourly()->withoutOverlapping(120)->onOneServer()
     ->onFailure(fn () => logger()->error('Scheduled staging media cleanup failed.'));
-// M6: the private disk holds uuid/ orphan folders (H2 fallout, interrupted
-// uploads) that the public-disk sweep never touches. Same uuid-only matcher,
-// so customer_documents/ and other prefixes are never affected.
+// Clean orphaned UUID directories from private R2 disk without affecting customer documents or invoices.
 Schedule::command('media:prune-orphans --disk=r2 --older-than=120')->dailyAt('04:35')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer()
     ->onFailure(fn () => logger()->error('Scheduled private-disk orphan media cleanup failed.'));
-// M4: notifications table grows ~200k rows/day (10k orders x 20 staff) with no
-// prior cleanup. Batched delete keeps the unread-count query fast.
+// Prune read notifications older than 90 days to prevent high table cardinality from degrading unread count queries.
 Schedule::command('notifications:prune-read --days=90')->dailyAt('04:50')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer();
 Schedule::command('attachments:prune-orphans --hours=24')->dailyAt('05:00')
@@ -55,7 +48,7 @@ Schedule::call(function (): void {
             ->table(config('cache.stores.database.lock_table') ?? 'cache_locks')->where('expiration', '<', now()->timestamp)->delete();
     }
 })->name('cache:prune-expired')->hourly()->withoutOverlapping(120)->onOneServer();
-// L9: cover the media queue too — the default-only monitor missed it.
+// Monitor both default and dedicated media queues for backlog accumulation.
 Schedule::command('queue:monitor '.config('queue.default', 'database').':default --max=100')
     ->everyFiveMinutes()->withoutOverlapping(10)->onOneServer();
 Schedule::command('queue:monitor '.config('media-library.queue_connection_name', 'database-media').':'.(config('media-library.queue_name') ?: 'media').' --max=1000')
@@ -67,6 +60,30 @@ Schedule::command('inventory:reconcile --incremental --limit=1000')->everyFiftee
 Schedule::command('inventory:reconcile --all-branches')->weeklyOn(0, '02:00')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(360)->onOneServer()
     ->onFailure(fn () => logger()->error('Scheduled inventory reconciliation failed.'));
+Schedule::command('quotations:expire')->hourly()
+    ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer()
+    ->onFailure(fn () => logger()->error('Scheduled quotation expiry failed.'));
+Schedule::command('wholesale:quote-expiry-reminders')->hourly()
+    ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer()
+    ->onFailure(fn () => logger()->error('Scheduled quotation expiry reminders failed.'));
+Schedule::command('wholesale:mark-overdue')->dailyAt('08:00')
+    ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer()
+    ->onFailure(fn () => logger()->error('Scheduled wholesale overdue marking failed.'));
+Schedule::command('wholesale:daily-briefing')->dailyAt('09:00')
+    ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer()
+    ->onFailure(fn () => logger()->error('Scheduled wholesale daily briefing failed.'));
+Schedule::command('wholesale:escalate-stale')->hourly()
+    ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer()
+    ->onFailure(fn () => logger()->error('Scheduled wholesale escalation failed.'));
+Schedule::command('wholesale:payment-reminders')->dailyAt('10:00')
+    ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer()
+    ->onFailure(fn () => logger()->error('Scheduled wholesale payment reminders failed.'));
+Schedule::command('wholesale:monthly-statements')->monthlyOn(1, '09:30')
+    ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer()
+    ->onFailure(fn () => logger()->error('Scheduled wholesale monthly statements failed.'));
+Schedule::command('wholesale:collection-digest')->dailyAt('09:15')
+    ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer()
+    ->onFailure(fn () => logger()->error('Scheduled wholesale collection digest failed.'));
 Schedule::command('orders:expire-pending')->everyFifteenMinutes()
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(30)->onOneServer();
 Schedule::command('webhooks:prune-logs')->dailyAt('04:00')

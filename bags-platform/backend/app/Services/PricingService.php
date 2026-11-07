@@ -64,7 +64,7 @@ class PricingService
     }
 
     /**
-     * F17: preload the per-customer pricing context once per listing and pass
+     * Preloads the per-customer pricing context once per listing and passes
      * it down — resolve()/tiersFor() otherwise re-query the customer group on
      * every variant (15 products x variants x calls per page).
      *
@@ -165,22 +165,8 @@ class PricingService
         $baseQuery = $this->eligibleItems($variant, $qty, $branchId, $now);
         $channel = $ctx['channel'];
         $eligibleCustomer = $ctx['eligible'];
-        $pick = function (PriceListType $type, ?string $ownerField = null, ?int $ownerId = null) use ($ctx, $variant, $qty, $baseQuery, $branchId): ?PriceListItem {
-            if (isset($ctx['items']) && $branchId === null) {
-                return ($ctx['items'][$variant->id] ?? collect())
-                    ->filter(fn ($item) => $item->pricing_type === $type->value && (float) $item->min_qty <= $qty)
-                    ->sort(function ($a, $b): int {
-                        return (($a->pricing_branch_id === null) <=> ($b->pricing_branch_id === null))
-                            ?: ((float) $b->min_qty <=> (float) $a->min_qty)
-                            ?: ((int) $b->pricing_priority <=> (int) $a->pricing_priority)
-                            ?: BigDecimal::of($a->price)->compareTo(BigDecimal::of($b->price))
-                            ?: ((int) $a->id <=> (int) $b->id);
-                    })->first();
-            }
-
-            return $this->ordered((clone $baseQuery)->where('price_lists.type', $type)
-                ->when($ownerField !== null, fn ($q) => $q->where('price_lists.'.$ownerField, $ownerId)))->first();
-        };
+        $pick = fn (PriceListType $type, ?string $ownerField = null, ?int $ownerId = null): ?PriceListItem =>
+            $this->pickWinningItem($type, $ownerField, $ownerId, $variant, $qty, $branchId, $baseQuery, $ctx);
 
         // Priority 1: Customer-specific pricing.
         if ($eligibleCustomer) {
@@ -261,27 +247,13 @@ class PricingService
         $notes = [];
 
         if ($customer !== null
-            && in_array($customer->type, [CustomerType::Wholesale, CustomerType::Distributor], true)
+            && $customer->isCommercialTier()
             && $customer->status !== CustomerStatus::Approved) {
             $notes[] = 'العميل جملة لكنه مش معتمد، فاتسعّر قطاعي.';
         }
 
-        $pick = function (PriceListType $type, ?string $ownerField = null, ?int $ownerId = null) use ($ctx, $variant, $qty, $baseQuery, $branchId): ?PriceListItem {
-            if (isset($ctx['items']) && $branchId === null) {
-                return ($ctx['items'][$variant->id] ?? collect())
-                    ->filter(fn ($item) => $item->pricing_type === $type->value && (float) $item->min_qty <= $qty)
-                    ->sort(function ($a, $b): int {
-                        return (($a->pricing_branch_id === null) <=> ($b->pricing_branch_id === null))
-                            ?: ((float) $b->min_qty <=> (float) $a->min_qty)
-                            ?: ((int) $b->pricing_priority <=> (int) $a->pricing_priority)
-                            ?: BigDecimal::of($a->price)->compareTo(BigDecimal::of($b->price))
-                            ?: ((int) $a->id <=> (int) $b->id);
-                    })->first();
-            }
-
-            return $this->ordered((clone $baseQuery)->where('price_lists.type', $type)
-                ->when($ownerField !== null, fn ($q) => $q->where('price_lists.'.$ownerField, $ownerId)))->first();
-        };
+        $pick = fn (PriceListType $type, ?string $ownerField = null, ?int $ownerId = null): ?PriceListItem =>
+            $this->pickWinningItem($type, $ownerField, $ownerId, $variant, $qty, $branchId, $baseQuery, $ctx);
 
         $tieNote = function (PriceListType $type, ?string $ownerField, ?int $ownerId, ?PriceListItem $winner) use ($ctx, $variant, $qty, $baseQuery, $branchId, &$notes): void {
             if ($winner === null || (isset($ctx['items']) && $branchId === null)) {
@@ -460,9 +432,7 @@ class PricingService
      */
     private function channelFor(?Customer $customer): PriceListType
     {
-        if ($customer !== null
-            && in_array($customer->type, [CustomerType::Wholesale, CustomerType::Distributor], true)
-            && $customer->status === CustomerStatus::Approved) {
+        if ($customer?->isWholesaleApproved()) {
             return PriceListType::from($customer->type->value);
         }
 
@@ -521,6 +491,35 @@ class PricingService
                     $q->orWhere('price_lists.branch_id', $branchId);
                 }
             });
+    }
+
+    /**
+     * Pick the winning price list item matching the specified type and ownership scope.
+     */
+    private function pickWinningItem(
+        PriceListType $type,
+        ?string $ownerField,
+        ?int $ownerId,
+        ProductVariant $variant,
+        float $qty,
+        ?int $branchId,
+        Builder $baseQuery,
+        array $ctx,
+    ): ?PriceListItem {
+        if (isset($ctx['items']) && $branchId === null) {
+            return ($ctx['items'][$variant->id] ?? collect())
+                ->filter(fn ($item) => $item->pricing_type === $type->value && (float) $item->min_qty <= $qty)
+                ->sort(function ($a, $b): int {
+                    return (($a->pricing_branch_id === null) <=> ($b->pricing_branch_id === null))
+                        ?: ((float) $b->min_qty <=> (float) $a->min_qty)
+                        ?: ((int) $b->pricing_priority <=> (int) $a->pricing_priority)
+                        ?: BigDecimal::of($a->price)->compareTo(BigDecimal::of($b->price))
+                        ?: ((int) $a->id <=> (int) $b->id);
+                })->first();
+        }
+
+        return $this->ordered((clone $baseQuery)->where('price_lists.type', $type)
+            ->when($ownerField !== null, fn ($q) => $q->where('price_lists.'.$ownerField, $ownerId)))->first();
     }
 
     /**

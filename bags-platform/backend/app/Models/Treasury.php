@@ -10,6 +10,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
+/**
+ * Cash drawer, bank account, or safe representing a monetary fund repository.
+ */
 class Treasury extends Model
 {
     protected $fillable = [

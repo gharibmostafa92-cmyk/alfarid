@@ -22,6 +22,9 @@ use Illuminate\Validation\ValidationException;
 /**
  * Creates staff users with role scoping, password generation, and cross-channel uniqueness checks.
  */
+/**
+ * Provisions a new staff user with branch bindings, role assignments, and audit logging.
+ */
 final class CreateStaffUser
 {
     public function __construct(private BranchAccess $branches) {}

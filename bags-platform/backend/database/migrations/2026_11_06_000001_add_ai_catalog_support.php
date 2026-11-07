@@ -24,7 +24,7 @@ return new class extends Migration
                 $t->string('path');
                 $t->string('mime', 50);
                 $t->unsignedInteger('size');
-                $t->char('sha256', 64);              // عشان نكشف الصور المكررة
+                $t->char('sha256', 64);              // Content digest to detect and deduplicate duplicate image uploads
                 $t->timestamp('consumed_at')->nullable();
                 $t->timestamps();
                 $t->index(['conversation_id', 'created_at']);

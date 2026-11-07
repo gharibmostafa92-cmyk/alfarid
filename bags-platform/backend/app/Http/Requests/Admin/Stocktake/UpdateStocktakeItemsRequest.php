@@ -9,8 +9,8 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
 
 /**
- * تحديث جزئي لعناصر جرد (M-4): العناصر المرسلة تُحدَّث/تُنشأ فقط، والغائبة
- * تبقى كما هي — بعكس PUT الكامل الذي يستبدل القائمة كلها.
+ * Incremental upsert of stocktake items: supplied items are inserted or updated,
+ * leaving unmentioned counted items intact (unlike full list replacement).
  */
 class UpdateStocktakeItemsRequest extends FormRequest
 {

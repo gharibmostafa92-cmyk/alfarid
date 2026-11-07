@@ -8,7 +8,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
 /**
- * M4: notifications table grows ~200k rows/day (10k orders x ~20 staff with
+ * The notifications table grows ~200k rows/day (10k orders x ~20 staff with
  * orders.view) with a text data column. Delete READ notifications past the
  * retention window in 1000-row batches. Unread notifications have a longer,
  * finite retention window so abandoned accounts cannot grow the table forever.

@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Auth;
 use Tests\TestCase;
 
 /**
- * H1: inventory report must not leak unit-cost-derived fields to staff
+ * Inventory report must not leak unit-cost-derived fields to staff
  * without products.view_cost / inventory.view_cost.
  */
 class InventoryReportCostGatingTest extends TestCase

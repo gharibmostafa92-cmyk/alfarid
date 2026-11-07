@@ -9,7 +9,9 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
-/** تقديم طلب إرجاع من حساب العميل — مع صور عيوب اختيارية لكل بند. */
+/**
+ * Customer return request submission with optional defect photos per item.
+ */
 class StoreReturnRequest extends FormRequest
 {
     public function authorize(): bool
@@ -61,7 +63,7 @@ class StoreReturnRequest extends FormRequest
     }
 
     /**
-     * الحمولة الجاهزة للخدمة: البيانات المتحقق منها + ملفات كل بند.
+     * Return request payload formatted for ReturnService, pairing validated inputs with uploaded item files.
      *
      * @return array<string, mixed>
      */

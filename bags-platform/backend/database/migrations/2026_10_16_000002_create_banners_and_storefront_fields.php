@@ -7,11 +7,10 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * المرحلة 6.1: جداول وحقول واجهة المتجر.
- * - banners: بانرات تسويقية بمواضع ونطاقات زمنية.
- * - products.sales_count: عدّاد مبيعات لأقسام «الأكثر مبيعًا» (يُحدَّث مع الطلبات لاحقًا).
- * - product_variants.compare_at_price: السعر قبل الخصم لاكتشاف المنتجات المخفضة.
- * ملحوظة: «منتج نشط» في المتجر = status منشور (لا يوجد is_active على المنتجات أصلًا).
+ * Storefront fields and promotional banners:
+ * - banners: promotional banners with placement types and scheduling windows.
+ * - products.sales_count: denormalized sales counter for best-seller rankings.
+ * - product_variants.compare_at_price: strike-through pricing for sale badges.
  */
 return new class extends Migration
 {

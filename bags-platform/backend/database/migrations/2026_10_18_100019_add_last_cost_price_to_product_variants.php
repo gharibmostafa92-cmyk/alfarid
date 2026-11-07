@@ -7,8 +7,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * المرحلة 10 — آخر سعر شراء فعلي للمتغير: يكتبه استلام أوامر الشراء
- * بجانب متوسط التكلفة المرجح (cost_price).
+ * Records the latest purchase unit cost per variant alongside moving weighted average cost_price.
  */
 return new class extends Migration
 {

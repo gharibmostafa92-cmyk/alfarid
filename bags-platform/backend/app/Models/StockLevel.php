@@ -9,8 +9,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * رصيد مخزون حالي لمتغير في فرع/موقع. ممنوع التعديل المباشر:
- * أي تغيير بيتم حصرًا عن طريق InventoryService::recordMovement (قاعدة المرحلة 3 الصارمة).
+ * Current inventory balance per variant, branch, and location.
+ * Direct mutation is prohibited; all updates occur exclusively via InventoryService::recordMovement.
  */
 class StockLevel extends Model
 {
@@ -28,14 +28,14 @@ class StockLevel extends Model
         'available' => 'decimal:4',
     ];
 
-    /** المتاح للبيع = الفعلي − المحجوز − التالف (نفس معادلة العمود المولّد في القاعدة). */
+    /** Sellable available inventory = on_hand - reserved - damaged (mirrors database generated column). */
     public function getAvailableAttribute(): float
     {
         return round((float) $this->on_hand - (float) $this->reserved - (float) $this->damaged, 4);
     }
 
     /**
-     * نطاق للأرصدة غير الصفرية في أي وعاء مخزني (فعلي، محجوز، تالف، قيد النقل).
+     * Scope query to rows with non-zero balance across on_hand, reserved, damaged, or in_transit.
      *
      * @param  Builder<StockLevel>  $query
      * @return Builder<StockLevel>
@@ -50,7 +50,7 @@ class StockLevel extends Model
     }
 
     /**
-     * L6: rows currently in an alert state — mirrors the two
+     * Filters rows currently in an alert state — mirrors the two
      * StockLowDetected triggers in InventoryService::recordMovement:
      * a set row threshold compares against the row, while an unset row
      * threshold falls back to the variant threshold compared against the

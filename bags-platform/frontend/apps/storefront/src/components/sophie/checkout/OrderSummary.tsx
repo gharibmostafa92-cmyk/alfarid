@@ -3,7 +3,7 @@
 import React, { useRef, useState } from 'react';
 import { useCartStore } from '@/stores/cart-store';
 import Link from 'next/link';
-import { formatStorePrice } from '@alfarid/utils';
+import { formatShippingPrice, formatStorePrice } from '@alfarid/utils';
 import type { CheckoutVM } from './useCheckout';
 import { StoreProductImage } from '../StoreProductImage';
 import { StoreImage } from '@/components/StoreImage';
@@ -322,9 +322,7 @@ export function OrderSummary({
               ? vm.quoteLoading
                 ? 'جاري الحساب...'
                 : 'اختار المدينة'
-              : shownShipping === 0
-                ? 'Free'
-                : formatStorePrice(shownShipping)}
+              : formatShippingPrice(shownShipping)}
           </strong>
         </div>
         {shownCod > 0 && (

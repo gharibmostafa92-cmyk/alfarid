@@ -8,7 +8,7 @@ use App\Exceptions\BusinessException;
 use App\Services\DiscreteQuantity;
 use PHPUnit\Framework\TestCase;
 
-/** L10: assistant quantities accept REST-grade 4-decimal precision. */
+/** Assistant quantities accept REST-grade 4-decimal precision. */
 class DiscreteQuantityTest extends TestCase
 {
     public function test_accepts_integers_and_four_decimal_fractions(): void

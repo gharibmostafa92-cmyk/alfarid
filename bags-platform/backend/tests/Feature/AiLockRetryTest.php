@@ -27,7 +27,7 @@ use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Tests\TestCase;
 
 /**
- * M1: a lock-timeout (55P03) escaping InventoryService::lockLevels must
+ * A lock-timeout (55P03) escaping InventoryService::lockLevels must
  * surface as RetryableConflict — REST still sees 409, while
  * PendingActionService::confirmLocked retries instead of failing the action.
  */
@@ -102,7 +102,7 @@ class AiLockRetryTest extends TestCase
     }
 }
 
-/** M1 fixture: lockTargets throws what lockLevels throws on 55P03. */
+/** Test fixture: lockTargets throws what lockLevels throws on 55P03 lock timeout. */
 final class LockTimeoutProvider implements ToolProvider
 {
     public function tools(): array

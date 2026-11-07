@@ -9,6 +9,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable(['conversation_id', 'role', 'content', 'ui_blocks', 'provider_parts', 'input_tokens', 'output_tokens'])]
+/**
+ * Individual message entry within an AI conversation, supporting text, tool calls, and UI blocks.
+ */
 class AiMessage extends Model
 {
     protected $hidden = ['provider_parts'];

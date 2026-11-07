@@ -8,6 +8,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Supplier\Auth\LoginRequest;
 use App\Http\Resources\Admin\SupplierUserResource;
 use App\Models\SupplierUser;
+use App\Services\Auth\StaffTokenService;
+use App\Services\CustomerAuthService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -26,7 +28,7 @@ class AuthController extends Controller
     {
         $email = mb_strtolower(trim($request->validated('email')));
         $user = SupplierUser::query()->whereRaw('lower(btrim(email)) = ?', [$email])->first();
-        $passwordMatches = Hash::check($request->validated('password'), $user?->password ?? self::dummyHash());
+        $passwordMatches = Hash::check($request->validated('password'), $user?->password ?? CustomerAuthService::dummyHash());
 
         if ($user === null || ! $passwordMatches) {
             throw ValidationException::withMessages([
@@ -58,16 +60,6 @@ class AuthController extends Controller
     }
 
     /**
-     * Generates or returns static dummy hash to ensure constant-time password verification on nonexistent emails.
-     */
-    private static function dummyHash(): string
-    {
-        static $hash;
-
-        return $hash ??= Hash::make('not-a-supplier-password');
-    }
-
-    /**
      * Prunes expired tokens, enforces FIFO token cap under row lock, and issues a new Sanctum token.
      *
      * @param  SupplierUser  $user  Target authenticated supplier user
@@ -77,14 +69,7 @@ class AuthController extends Controller
     {
         return DB::transaction(function () use ($user): string {
             $user = SupplierUser::query()->lockForUpdate()->findOrFail($user->id);
-            $expiry = config('sanctum.expiration');
-            $user->tokens()->where(fn ($q) => $q->where('expires_at', '<=', now())
-                ->when($expiry, fn ($q) => $q->orWhere('created_at', '<=', now()->subMinutes((int) $expiry))))->delete();
-            $limit = max(1, (int) config('auth.supplier_max_tokens', 5));
-            $old = $user->tokens()->orderByDesc('id')->skip($limit - 1)->pluck('id');
-            if ($old->isNotEmpty()) {
-                $user->tokens()->whereIn('id', $old)->delete();
-            }
+            StaffTokenService::pruneAndCap($user, (int) config('auth.supplier_max_tokens', 5));
 
             return $user->createToken('supplier-token')->plainTextToken;
         });

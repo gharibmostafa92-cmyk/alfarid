@@ -5,8 +5,9 @@ declare(strict_types=1);
 namespace App\Enums;
 
 /**
- * حالات فاتورة المورد: draft لا تؤثر في رصيده؛ posted تُثبت الاستحقاق
- * (تزيد current_balance)؛ ثم partially_paid/paid عبر الدفعات؛ cancelled ملغاة.
+ * Supplier invoice lifecycle:
+ * draft (no ledger effect) -> posted (accrues payable in current_balance)
+ * -> partially_paid / paid via supplier payments, or cancelled.
  */
 enum SupplierInvoiceStatus: string
 {

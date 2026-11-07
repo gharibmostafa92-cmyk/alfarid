@@ -4,18 +4,17 @@ declare(strict_types=1);
 
 /*
 |--------------------------------------------------------------------------
-| إعدادات المتجر
+| Store Configuration
 |--------------------------------------------------------------------------
-| طرق الدفع المقبولة في إتمام شراء المتجر. لا تُفتح طريقة دفع إلكترونية
-| قبل ربط بوابتها فعليًا. الدفع الآجل (credit) ليس في القائمة أبدًا:
-| يُسمح به برمجيًا لعملاء الجملة المعتمدين فقط (انظر CheckoutRequest).
+| Supported payment methods for retail checkout. Trade credit is reserved
+| exclusively for vetted wholesale accounts via dedicated wholesale workflows.
 */
 
 return [
-    // صفحة الهوم لعميل التجزئة بعد تسجيل الدخول بلا redirect آمن.
+    // Fallback route for retail customers after login when no safe redirect is provided.
     'retail_home' => env('STORE_RETAIL_HOME', '/shop'),
 
-    // التحويل اليدوي متاح فقط عند ضبط عنوان InstaPay صالح.
+    // Manual bank transfer available only when a valid InstaPay recipient is configured.
     'instapay_address' => env('STORE_INSTAPAY_ADDRESS'),
 
     'payment_methods' => array_values(array_filter(array_map(
@@ -24,40 +23,32 @@ return [
     ))),
 
     /*
-     * سقف عدد بنود السلة: كل بند يعني تسعيرًا منفصلًا، وعند الشراء إدراجًا
-     * وحجزًا وأقفالًا. سلة بآلاف الأصناف تُثقل كل عرض وكل معاملة (F15).
+     * Maximum line items permitted in a single cart to constrain calculation and lock costs.
      */
     'max_cart_lines' => (int) env('STORE_MAX_CART_LINES', 50),
 
     /*
-     * سقف كمية البند الواحد للزوار (H2): الزائر بلا تحقق من الهاتف لا يُترك
-     * ليحجز كميات ضخمة بطلبات وهمية. أقل من سقف التجزئة للمسجّلين.
+     * Maximum item quantity per cart line for unverified guests to prevent inventory lockup.
      */
     'guest_max_line_qty' => (float) env('STORE_GUEST_MAX_LINE_QTY', 10),
 
     /*
-     * سقف كمية البند الواحد لعملاء التجزئة المسجّلين (H2): 10000 قطعة لكل
-     * بند مبالغ فيه ويسمح بحجز مخزون ضخم. لا يُطبّق على عملاء الجملة/التوزيع
-     * المعتمدين (مسار الجملة يغطي الكميات الكبيرة).
+     * Maximum item quantity per cart line for retail customers; vetted wholesale accounts are exempt.
      */
     'retail_max_line_qty' => (float) env('STORE_RETAIL_MAX_LINE_QTY', 50),
 
     /*
-     * سقف الطلبات المعلّقة (COD) لكل هاتف زائر مُوحَّد (F5): يحدّ حجز مخزون
-     * حقيقي بطلبات وهمية برقم واحد. 0 = بلا سقف.
+     * Maximum active pending COD orders allowed per normalized guest phone number (0 = uncapped).
      */
     'guest_pending_orders_cap' => (int) env('STORE_GUEST_PENDING_ORDERS_CAP', 3),
 
     /*
-     * سقف الطلبات المعلّقة للعميل المسجّل (H2): الحساب الواحد كان بلا أي
-     * سقف، فيراكم طلبات COD معلّقة تحبس المخزون. يُستثنى منه عملاء الجملة/
-     * التوزيع المعتمدون. 0 = بلا سقف.
+     * Maximum active pending COD orders allowed per retail customer account (0 = uncapped).
      */
     'customer_pending_orders_cap' => (int) env('STORE_CUSTOMER_PENDING_ORDERS_CAP', 5),
 
     /*
-     * حد معدّل تطبيق الكوبون لكل (كوبون + IP) في الدقيقة (H3): بديل آمن عن
-     * السقف العالمي للزوار الذي كان مهاجم واحد يُعطّل به الحملة على الجميع.
+     * Rate limit for coupon code validations per (coupon + client IP) per minute.
      */
     'coupon_apply_per_minute' => (int) env('STORE_COUPON_APPLY_PER_MINUTE', 20),
 ];

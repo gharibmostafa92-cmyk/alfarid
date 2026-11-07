@@ -28,7 +28,7 @@ use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 /**
- * H2: retried POS scans with the same scan_id must count exactly once.
+ * Retried POS scans with the same scan_id must count exactly once.
  */
 class StocktakeScanIdempotencyTest extends TestCase
 {

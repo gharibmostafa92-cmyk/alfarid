@@ -1,7 +1,7 @@
 import { IMG } from './categories.mock';
 import { toLatinDigits } from './i18n-utils';
 
-// API → شكل الـ UI (نفس أسماء الـ mock عشان الكومبوننتس متتغيرش)
+// Maps API category resource to UI presentation schema
 export function toUiNode(c, rootIndex = 0) {
   return {
     id: c.id,
@@ -15,7 +15,7 @@ export function toUiNode(c, rootIndex = 0) {
     status: c.is_active ? 'active' : 'inactive',
     products: c.products_count ?? 0,
     imageUrl: c.image_url,
-    // الـ mock بيستخدم img كـ CSS background → نحافظ على نفس الشكل
+    // Preserve image URL mapping for CSS background display
     img: c.image_url
       ? `url("${c.image_url}") center / cover no-repeat`
       : (c.parent_id === null ? IMG[rootIndex % IMG.length] : undefined),
@@ -26,13 +26,13 @@ export function toUiNode(c, rootIndex = 0) {
 
 export const toUiTree = (list) => list.map((c, i) => toUiNode(c, i));
 
-// UI form → payload للـ API
+// Maps UI category form state to API mutation payload
 export function toPayload(v, { isEdit } = {}) {
   const p = {
     name_ar: v.ar.trim(),
     name_en: v.en.trim(),
     parent_id: v.parentId ?? null,
-    slug: v.slug?.trim() ? v.slug.trim().toLowerCase() : null, // فاضي → الباك يولّده
+    slug: v.slug?.trim() ? v.slug.trim().toLowerCase() : null, // When empty, null triggers backend slug generation
     description_ar: v.desc_ar?.trim() || null,
     description_en: v.desc_en?.trim() || null,
     sort_order: Number(toLatinDigits(v.order ?? 0)) || 0,

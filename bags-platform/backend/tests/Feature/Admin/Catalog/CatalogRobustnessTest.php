@@ -173,7 +173,7 @@ class CatalogRobustnessTest extends TestCase
         $token = $this->adminToken();
 
         Auth::forgetGuards();
-        // F7: the guard is a total pixel budget (25M), not an edge cap — a
+        // The guard is a total pixel budget (25M), not an edge cap — a
         // 6001x40 strip is harmless and now passes, while a 6000x5000
         // (30M pixels) decompression bomb is still rejected.
         $this->withToken($token)->post('/api/v1/admin/categories', [

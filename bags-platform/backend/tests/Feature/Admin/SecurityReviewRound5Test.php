@@ -37,11 +37,9 @@ use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
 /**
- * انحدار جولة المراجعة الخامسة: C-1 تصعيد قائمة الفرع لعامة، H-1 تجاوز
- * expected_updated_at، M-1 سقوط الجملة لأسعار retail، M-3 تكرار البنود،
- * M-4 تحديث جزئي لعناصر الجرد، M-5 سياسة لقطة الجرد، M-6 استيراد مجمّع،
- * M-7 ترقيم مؤشر، M-8 مطابقة الدفتر، M-9 رصيد المحذوف ناعمًا،
- * L-2 بصمة عدم التكرار والتنظيف، L-4 مخزون منخفض وهمي، L-5 CSV، L-7 إعادة المحاولة.
+ * Security review round 5 regressions: branch escalation safeguards, expected_updated_at concurrency,
+ * wholesale fallback to retail price lists, item line deduplication, partial stocktake counts,
+ * stock snapshot policies, batch imports, sequence numbering, and reconciliation verification.
  */
 class SecurityReviewRound5Test extends TestCase
 {
@@ -56,7 +54,7 @@ class SecurityReviewRound5Test extends TestCase
         $this->actor = User::factory()->create();
     }
 
-    // ---------- C-1: branch_id = null لا يحوّل قائمة الفرع لعامة ----------
+    // ---------- Branch-scoped price list cannot be escalated to global by unsetting branch_id ----------
 
     public function test_restricted_staff_cannot_make_own_list_global_via_null_branch(): void
     {
@@ -74,14 +72,14 @@ class SecurityReviewRound5Test extends TestCase
         $this->assertSame($branchA->id, $list->branch_id);
         $this->assertSame(5, $list->priority);
 
-        // التحكم الإيجابي: إبقاء فرعه صراحة مسموح
+        // Retaining explicit branch assignment is permitted
         $this->requestWithToken($token, 'PUT', "/api/v1/admin/price-lists/{$list->id}", [
             'branch_id' => $branchA->id, 'priority' => 7,
         ])->assertOk();
         $this->assertSame(7, $list->refresh()->priority);
     }
 
-    // ---------- H-1: استبدال البنود وحده يحرّك updated_at ----------
+    // ---------- Item replacement touches parent updated_at timestamp ----------
 
     public function test_items_only_update_invalidates_expected_updated_at(): void
     {
@@ -102,7 +100,7 @@ class SecurityReviewRound5Test extends TestCase
         $transferId = $created->json('data.id');
         $seenUpdatedAt = $created->json('data.updated_at');
 
-        // بعد خمس ثوانٍ: استبدال البنود فقط بنفس قيم الرأس حرفيًا
+        // Item replacement with identical header values touches timestamp
         Carbon::setTestNow('2026-10-15 10:00:05');
         $this->requestWithToken($token, 'PUT', "/api/v1/admin/transfers/{$transferId}", [
             'from_branch_id' => $from->id, 'to_branch_id' => $to->id,
@@ -110,7 +108,7 @@ class SecurityReviewRound5Test extends TestCase
         ])->assertOk();
         $this->assertNotSame($seenUpdatedAt, StockTransfer::findOrFail($transferId)->updated_at->toIso8601String());
 
-        // الاعتماد بالطابع القديم يُرفض: البنود المعتمدة لم يراجعها أحد بهذا الطابع
+        // Approval with stale timestamp is rejected to prevent unreviewed mutations
         $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transferId}/approve", [
             'expected_version' => $created->json('data.version'),
             'expected_updated_at' => Carbon::parse($seenUpdatedAt)->format('Y-m-d H:i:s'),
@@ -119,7 +117,7 @@ class SecurityReviewRound5Test extends TestCase
         Carbon::setTestNow();
     }
 
-    // ---------- M-1: قناة الجملة ترجع لقائمة retail قبل السعر الأساسي ----------
+    // ---------- Wholesale channel falls back to retail price list before base price ----------
 
     public function test_wholesale_customer_falls_back_to_retail_list_before_base_price(): void
     {
@@ -137,7 +135,7 @@ class SecurityReviewRound5Test extends TestCase
         $this->assertSame(80.0, $resolved['unit_price']);
         $this->assertSame('retail', $resolved['source']);
 
-        // عند وجود عنصر في قائمة الجملة نفسها يبقى هو السعر
+        // Wholesale price list entry takes precedence when present
         $wholesaleList = PriceList::create(['name' => 'WS', 'type' => 'wholesale', 'is_active' => true]);
         $wholesaleList->items()->create(['product_variant_id' => $variant->id, 'min_qty' => 1, 'price' => 90]);
         $resolved = app(PricingService::class)->resolve($variant, $wholesale);
@@ -145,7 +143,7 @@ class SecurityReviewRound5Test extends TestCase
         $this->assertSame('wholesale', $resolved['source']);
     }
 
-    // ---------- M-3: بنود تحويل مكررة = 422 لا 500 ----------
+    // ---------- Duplicate transfer items return 422 instead of 500 error ----------
 
     public function test_duplicate_transfer_items_are_a_validation_error_not_a_server_error(): void
     {
@@ -166,7 +164,7 @@ class SecurityReviewRound5Test extends TestCase
         $this->assertSame(0, StockTransfer::count());
     }
 
-    // ---------- M-4: تحديث جزئي لعناصر الجرد بلا حذف الغائبين ----------
+    // ---------- Partial update of stocktake items without deleting unmentioned lines ----------
 
     public function test_partial_stocktake_items_update_keeps_absent_items(): void
     {
@@ -184,13 +182,13 @@ class SecurityReviewRound5Test extends TestCase
         ])->assertCreated();
         $stocktakeId = $created->json('data.id');
 
-        // دفعة جزئية بصنف آخر فقط: الصنف الأول يبقى بعدّاده
+        // Partial batch with second variant retains initial count of first variant
         $response = $this->requestWithToken($token, 'PATCH', "/api/v1/admin/stocktakes/{$stocktakeId}/items", [
             'items' => [['product_variant_id' => $b->id, 'counted_qty' => 18]],
         ])->assertOk();
         $this->assertCount(2, $response->json('data.items'));
 
-        // وتحديث عدّ الأول وحده لا يمس الثاني
+        // Updating first variant count does not affect second variant
         $this->requestWithToken($token, 'PATCH', "/api/v1/admin/stocktakes/{$stocktakeId}/items", [
             'items' => [['product_variant_id' => $a->id, 'counted_qty' => 8]],
         ])->assertOk();
@@ -199,12 +197,11 @@ class SecurityReviewRound5Test extends TestCase
         $this->assertSame('18.0000', $items[$b->id]->counted_qty);
     }
 
-    // ---------- M-5: سياسة apply_difference (بضبط صريح) تحفظ الحركات البينية ----------
+    // ---------- Explicit apply_difference snapshot policy reconciles intervening movements ----------
 
     public function test_stocktake_approval_applies_difference_despite_intervening_movements(): void
     {
-        // الافتراضي reject (يمنع ازدواج الفرق مع جردين متداخلين)؛ هنا نتحقق من
-        // وضع apply_difference الاختياري لحالة الجلسة الواحدة.
+        // Default reject policy blocks overlapping counts; verifying explicit apply_difference policy.
         config(['inventory.stocktake_stale_policy' => 'apply_difference']);
         $staff = $this->hqStaff();
         $branch = Branch::factory()->create();
@@ -216,17 +213,17 @@ class SecurityReviewRound5Test extends TestCase
             ['product_variant_id' => $variant->id, 'counted_qty' => 12],
         ]], $staff->id);
 
-        // بيع 3 بعد العد
+        // Intervening sale of 3 units after count
         $this->movement($variant, $branch, -3, StockMovementType::AdjustmentOut);
         $this->assertSame('7.0000', StockLevel::where('product_variant_id', $variant->id)->firstOrFail()->on_hand);
 
-        // الاعتماد ينجح: فرق +2 فوق الرصيد الحالي = 9 (المعدود 12 − البيع البيني 3)
+        // Approval succeeds: variance +2 on current balance yields 9 (counted 12 minus 3 sold)
         $service->approve($stocktake, $staff->id);
         $this->assertSame('9.0000', StockLevel::where('product_variant_id', $variant->id)->firstOrFail()->on_hand);
         $this->assertSame('2.0000', StockMovement::where('type', StockMovementType::StocktakeGain)->firstOrFail()->quantity);
     }
 
-    // ---------- M-6/L-5: استيراد مجمّع، وSKU بلا حساسية لحالة الأحرف ----------
+    // ---------- Bulk import and case-insensitive SKU lookup ----------
 
     public function test_import_upserts_in_bulk_and_matches_sku_case_insensitively(): void
     {
@@ -250,7 +247,7 @@ class SecurityReviewRound5Test extends TestCase
         $this->assertSame(2, $list->items()->count());
     }
 
-    // ---------- M-7: ترقيم الحركات بالمؤشر ----------
+    // ---------- Stock movement cursor-based pagination and numbering ----------
 
     public function test_movements_listing_uses_cursor_pagination(): void
     {
@@ -273,7 +270,7 @@ class SecurityReviewRound5Test extends TestCase
         $this->assertNotSame($page1->json('data.0.id'), $page2->json('data.0.id'));
     }
 
-    // ---------- M-8: أمر المطابقة يكشف الكتابة المباشرة ----------
+    // ---------- Ledger reconciliation command flags manual direct updates ----------
 
     public function test_reconcile_command_detects_direct_balance_writes(): void
     {
@@ -288,7 +285,7 @@ class SecurityReviewRound5Test extends TestCase
         $this->artisan('inventory:reconcile')->assertExitCode(1);
     }
 
-    // ---------- M-9: حذف متغير/منتج له رصيد ممنوع، والمحذوف قسرًا يُصفّى ولا يُزاد ----------
+    // ---------- Active balance deletion guard: force-deleted items can be liquidated but not increased ----------
 
     public function test_variant_with_stock_cannot_be_deleted_and_trashed_variant_can_be_drawn_down(): void
     {
@@ -304,7 +301,7 @@ class SecurityReviewRound5Test extends TestCase
             ->assertStatus(422);
         $this->assertNotNull(ProductVariant::find($variant->id));
 
-        // حذف قسري قديم (قبل الحارس): الرصيد لا يُحبس — إخراج مسموح وإدخال ممنوع
+        // Legacy force-deleted item allows liquidation but prevents inbound restock
         $variant->delete();
         $this->assertNull(ProductVariant::find($variant->id));
 
@@ -320,7 +317,7 @@ class SecurityReviewRound5Test extends TestCase
         ])->assertStatus(422);
     }
 
-    // ---------- L-2: البصمة تطابق "5" و5، والتنظيف يحذف القديم ----------
+    // ---------- Idempotency fingerprint matches integer and string variants ----------
 
     public function test_idempotency_hash_normalizes_number_forms_and_prune_removes_old_keys(): void
     {
@@ -354,7 +351,7 @@ class SecurityReviewRound5Test extends TestCase
         $this->assertSame(1, InventoryIdempotencyKey::where('key', 'fresh-key')->count());
     }
 
-    // ---------- L-4: صف بلا حد إعادة طلب ليس مخزونًا منخفضًا ----------
+    // ---------- Stock level row without reorder threshold is excluded from low stock alerts ----------
 
     public function test_zero_rows_without_reorder_level_are_not_low_stock(): void
     {
@@ -363,7 +360,7 @@ class SecurityReviewRound5Test extends TestCase
         $branch = Branch::factory()->create();
         $variant = ProductVariant::factory()->create(['reorder_level' => 0]);
 
-        // صف رصيد صفري كأثر جانبي لأقفال lockLevels (صف وجهة تحويل مثلًا)
+        // Zero stock row initialized as a side effect of lockLevels destination locking
         DB::table('stock_levels')->insert([
             'product_variant_id' => $variant->id, 'branch_id' => $branch->id, 'location_id' => null,
             'on_hand' => 0, 'reserved' => 0, 'damaged' => 0, 'in_transit' => 5,
@@ -379,7 +376,7 @@ class SecurityReviewRound5Test extends TestCase
         $this->assertCount(0, $low->json('data'));
     }
 
-    // ---------- L-7: إعادة محاولة إنشاء تحويل/جرد بنفس المفتاح لا تكرر ----------
+    // ---------- Idempotent retry of transfer/stocktake creation with same key does not duplicate ----------
 
     public function test_store_endpoints_honor_idempotency_key(): void
     {
@@ -449,7 +446,7 @@ class SecurityReviewRound5Test extends TestCase
     {
         Auth::forgetGuards();
 
-        // M2: مفتاح عدم تكرار جديد لكل طلب — إلا إذا حدده الاختبار (إعادة تشغيل).
+        // Fresh idempotency key per request unless explicitly specified by test for replay testing.
         if (! isset($headers['Idempotency-Key']) && ! isset($this->defaultHeaders['Idempotency-Key'])) {
             $headers['Idempotency-Key'] = (string) Str::uuid();
         }

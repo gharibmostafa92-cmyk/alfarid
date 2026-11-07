@@ -7,10 +7,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * فهارس للمفاتيح الأجنبية في المسارات الساخنة (H7):
- * ‏foreignId()->constrained() على PostgreSQL ينشئ قيد FK فقط بلا فهرس،
- * فبدون هذه الفهارس تتحول قوائم الطلبات والسلة والحذف المتسلسل إلى مسوحات كاملة.
- * (في الإنتاج على جداول ضخمة تُنشأ بـ CREATE INDEX CONCURRENTLY خارج أي transaction.)
+ * Foreign key indexes on high-throughput query paths to prevent table scans during joins and cascade deletions.
  */
 return new class extends Migration
 {

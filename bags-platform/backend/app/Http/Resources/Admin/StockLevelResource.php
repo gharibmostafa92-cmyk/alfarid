@@ -7,6 +7,9 @@ namespace App\Http\Resources\Admin;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
+/**
+ * Administrative stock level resource representation detailing on-hand, reserved, and low-stock indicators.
+ */
 class StockLevelResource extends JsonResource
 {
     /**
@@ -41,17 +44,16 @@ class StockLevelResource extends JsonResource
             'damaged' => $this->damaged,
             'in_transit' => $this->in_transit,
             'available' => number_format($this->available, 4, '.', ''),
-            // حد إعادة الطلب الفعّال: مستوى الصف إن ضُبط (> 0)، وإلا مستوى المتغير
+            // Effective reorder threshold: row-level threshold if set (> 0), falling back to variant-level threshold.
             'reorder_level' => $this->effectiveReorderLevel(),
-            // إشارة تشغيلية على مستوى الصف (L-4: صف بلا حد فعّال ليس "منخفضًا").
-            // فلتر low_stock في القوائم أوسع: يطابق حالة التنبيه
-            // (حد الصنف يُقارن بإجمالي الفرع) — راجع StockLevel::whereLowStock.
+            // Row-level low stock indicator: rows without an effective threshold (> 0) are not marked as low.
+            // For branch-aggregated low stock filtering, refer to StockLevel::whereLowStock.
             'is_low_stock' => $this->effectiveReorderLevel() > 0 && $this->available <= $this->effectiveReorderLevel(),
             'updated_at' => $this->updated_at,
         ];
     }
 
-    /** حد إعادة الطلب الفعّال (نفس صيغة فلتر low_stock في الكنترولر). */
+    /** Resolve effective reorder threshold (row-specific override or variant default). */
     private function effectiveReorderLevel(): float
     {
         if ((float) $this->reorder_level > 0) {

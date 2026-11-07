@@ -7,6 +7,9 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Tracks coupon code redemptions per order and customer.
+ */
 class CouponUsage extends Model
 {
     public const UPDATED_AT = null;

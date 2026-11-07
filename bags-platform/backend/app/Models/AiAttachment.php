@@ -8,6 +8,9 @@ use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Stores file attachments uploaded for AI assistant conversation context (images, price sheets).
+ */
 class AiAttachment extends Model
 {
     use HasUlids;

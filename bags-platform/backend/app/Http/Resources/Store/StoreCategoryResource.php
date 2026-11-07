@@ -7,6 +7,9 @@ namespace App\Http\Resources\Store;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
+/**
+ * Public storefront category resource representation including recursive descendant product counts.
+ */
 class StoreCategoryResource extends JsonResource
 {
     /**
@@ -15,8 +18,7 @@ class StoreCategoryResource extends JsonResource
     public function toArray(Request $request): array
     {
         $children = $this->relationLoaded('children') ? self::collection($this->children)->resolve($request) : [];
-        // F6: conversions render on the queue — a thumb URL emitted before the
-        // worker finishes is a broken CDN link. Fall back to the original.
+        // Conversions generate asynchronously; fall back to original until thumb exists.
         $image = $this->getFirstMedia('image');
 
         return [

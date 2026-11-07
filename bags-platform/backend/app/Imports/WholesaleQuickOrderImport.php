@@ -7,8 +7,8 @@ namespace App\Imports;
 use Maatwebsite\Excel\Concerns\ToArray;
 
 /**
- * قراءة خام لملف الطلب السريع (sku, qty): تُخزَّن صفوف أول ورقة في
- * الخاصية rows — التطبيع والتحقق في QuickOrderController والخدمة.
+ * Raw importer for quick order sheets (SKU, qty).
+ * First worksheet rows are captured in $rows; normalization and validation are handled downstream.
  */
 class WholesaleQuickOrderImport implements ToArray
 {

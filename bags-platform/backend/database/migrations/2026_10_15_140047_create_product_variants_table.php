@@ -25,7 +25,7 @@ return new class extends Migration
             $table->decimal('retail_price', 12, 2)->nullable();
             $table->decimal('wholesale_price', 12, 2)->nullable();
             $table->unsignedInteger('reorder_level')->default(0);
-            $table->decimal('weight_kg', 8, 3)->nullable();         // لو فاضي ياخد وزن المنتج
+            $table->decimal('weight_kg', 8, 3)->nullable();         // Falls back to parent product weight when null
             $table->unsignedInteger('sort_order')->default(0);
             $table->boolean('is_active')->default(true);
             $table->timestamps();

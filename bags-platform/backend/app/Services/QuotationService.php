@@ -5,15 +5,22 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Enums\OrderStatus;
+use App\Enums\QuotationSource;
 use App\Enums\QuotationStatus;
 use App\Events\OrderCreated;
+use App\Events\QuotationAccepted;
+use App\Events\QuotationExpired;
+use App\Events\QuotationPriced;
+use App\Events\QuotationSubmitted;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\OrderStatusHistory;
 use App\Models\ProductVariant;
 use App\Models\Quotation;
+use App\Models\StockLevel;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -42,10 +49,12 @@ class QuotationService
     public function create(Customer $customer, array $data): Quotation
     {
         return DB::transaction(function () use ($customer, $data): Quotation {
+            $source = QuotationSource::tryFrom((string) ($data['source'] ?? 'portal')) ?? QuotationSource::Portal;
             $quotation = Quotation::create([
                 'quotation_number' => $this->settings->generateNextNumber('quotation'),
                 'customer_id' => $customer->id,
                 'status' => QuotationStatus::Draft,
+                'source' => $source,
                 'customer_notes' => $data['customer_notes'] ?? null,
             ]);
 
@@ -79,6 +88,7 @@ class QuotationService
             if (isset($data['items'])) {
                 $quotation->items()->delete();
                 $this->syncItems($quotation, $quotation->customer, $data['items']);
+                $quotation->increment('revision');
             }
 
             $this->recalculate($quotation);
@@ -106,6 +116,7 @@ class QuotationService
         }
 
         $quotation->update(['status' => QuotationStatus::Requested]);
+        QuotationSubmitted::dispatch($quotation);
 
         return $quotation->load('items.variant.product');
     }
@@ -145,11 +156,16 @@ class QuotationService
                 'admin_notes' => $data['admin_notes'] ?? $quotation->admin_notes,
                 'discount_amount' => $data['discount_amount'] ?? $quotation->discount_amount,
                 'tax_amount' => $data['tax_amount'] ?? $quotation->tax_amount,
+                'priced_at' => now(),
+                'priced_by' => $data['priced_by'] ?? $quotation->priced_by,
+                'revision' => $quotation->priced_at === null ? (int) $quotation->revision : (int) $quotation->revision + 1,
             ]);
 
             $this->recalculate($quotation);
+            $quotation = $quotation->load('items.variant.product');
+            QuotationPriced::dispatch($quotation);
 
-            return $quotation->load('items.variant.product');
+            return $quotation;
         });
     }
 
@@ -250,6 +266,7 @@ class QuotationService
             ]);
 
             OrderCreated::dispatch($order->fresh());
+            QuotationAccepted::dispatch($quotation);
 
             return $quotation->load(['items.variant.product', 'convertedOrder']);
         });
@@ -305,8 +322,108 @@ class QuotationService
         }
 
         $quotation->update(['status' => QuotationStatus::Expired]);
+        QuotationExpired::dispatch($quotation);
 
         return $quotation->load('items.variant.product');
+    }
+
+    /**
+     * Move a priced quotation's validity forward.
+     *
+     * @throws BusinessException If the quotation is not priced or the date is in the past.
+     */
+    public function extendValidity(Quotation $quotation, string $validUntil): Quotation
+    {
+        if ($quotation->status !== QuotationStatus::PricedByAdmin) {
+            throw new BusinessException('لا يمكن تمديد الصلاحية إلا لعرض مسعّر.');
+        }
+
+        $date = Carbon::parse($validUntil)->startOfDay();
+        if ($date->lt(now()->startOfDay())) {
+            throw new BusinessException('تاريخ الصلاحية لازم يكون النهارده أو بعد كده.');
+        }
+
+        $quotation->update(['valid_until' => $date->toDateString()]);
+
+        return $quotation->fresh(['items.variant.product']);
+    }
+
+    /**
+     * Restores a priced quotation to the snapshot taken before an AI price action.
+     *
+     * @param  array{valid_until: ?string, discount_amount: string, tax_amount: string, items: list<array{id: int, offered_unit_price: string}>}  $snapshot
+     *
+     * @throws BusinessException If the trader already accepted the quotation.
+     */
+    public function restorePricedSnapshot(Quotation $quotation, array $snapshot): Quotation
+    {
+        if ($quotation->status !== QuotationStatus::PricedByAdmin) {
+            throw new BusinessException('التراجع متاح فقط لو العرض لسه مسعّر والتاجر ماقبلهوش.');
+        }
+
+        return DB::transaction(function () use ($quotation, $snapshot): Quotation {
+            $quotation = Quotation::query()->lockForUpdate()->findOrFail($quotation->id);
+            if ($quotation->status !== QuotationStatus::PricedByAdmin) {
+                throw new BusinessException('التراجع متاح فقط لو العرض لسه مسعّر والتاجر ماقبلهوش.');
+            }
+            foreach ($snapshot['items'] as $row) {
+                $item = $quotation->items()->whereKey($row['id'])->first();
+                if ($item === null) {
+                    throw new BusinessException('بند التسعير لم يعد موجودًا.');
+                }
+                $item->update([
+                    'offered_unit_price' => $row['offered_unit_price'],
+                    'line_total' => round((float) $row['offered_unit_price'] * (float) $item->qty, 2),
+                ]);
+            }
+            $quotation->update([
+                'status' => QuotationStatus::Requested,
+                'valid_until' => $snapshot['valid_until'],
+                'discount_amount' => $snapshot['discount_amount'],
+                'tax_amount' => $snapshot['tax_amount'],
+                'priced_at' => null,
+                'priced_by' => null,
+            ]);
+            $this->recalculate($quotation);
+
+            return $quotation->fresh(['items']);
+        });
+    }
+
+    /**
+     * Credit and stock problems that would otherwise appear only when the trader accepts.
+     *
+     * @return list<string>
+     */
+    public function acceptanceWarnings(Quotation $quotation): array
+    {
+        $quotation->loadMissing(['customer', 'items.variant']);
+        $warnings = [];
+        $customer = $quotation->customer;
+        if ($customer !== null) {
+            $outstanding = app(WholesalePaymentNoticeService::class)->outstandingBalance($customer);
+            $over = round($outstanding + (float) $quotation->grand_total - (float) $customer->credit_limit, 2);
+            if ($over > 0) {
+                $warnings[] = 'العرض ده لو اتقبل هيعدّي حد الائتمان بـ '.number_format($over, 2, '.', ',').'. التاجر هيشوف خطأ وقت القبول.';
+            }
+        }
+
+        $short = false;
+        foreach ($quotation->items as $item) {
+            $available = (float) StockLevel::query()
+                ->where('product_variant_id', $item->product_variant_id)
+                ->sum(DB::raw('COALESCE(on_hand, 0) - COALESCE(reserved, 0) - COALESCE(damaged, 0)'));
+            if ($available + 0.00001 < (float) $item->qty) {
+                $short = true;
+                $sku = $item->variant?->sku ?? '#'.$item->product_variant_id;
+                $warnings[] = "الصنف {$sku} متاح منه ".number_format($available, 2, '.', '').' والمطلوب '.number_format((float) $item->qty, 2, '.', '').'. القبول هيفشل لو مفيش توريد.';
+            }
+        }
+        if ($short) {
+            $warnings[] = 'لو المخزون مش هيتعوّض قبل القبول، قصّر مدة صلاحية العرض.';
+        }
+
+        return $warnings;
     }
 
     /**
@@ -349,7 +466,6 @@ class QuotationService
     /**
      * Recalculate quotation subtotal and grand total.
      *
-     * @param  Quotation  $quotation
      *
      * @throws BusinessException If discount exceeds gross total resulting in a negative total.
      */

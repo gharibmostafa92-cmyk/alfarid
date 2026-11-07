@@ -7,7 +7,9 @@ namespace App\Http\Resources\Admin;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
-/** تمثيل طلب للإدارة (قائمة وتفاصيل). */
+/**
+ * Administrative order presentation for index and detail views.
+ */
 class AdminOrderResource extends JsonResource
 {
     /** @return array<string, mixed> */

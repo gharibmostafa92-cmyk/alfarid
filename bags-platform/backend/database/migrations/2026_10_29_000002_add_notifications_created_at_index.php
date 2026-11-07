@@ -6,7 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-/** M4: index created_at so the read-notification retention sweep stays batched and fast. */
+/** Indexes created_at so the read-notification retention sweep stays batched and fast. */
 return new class extends Migration
 {
     public function up(): void

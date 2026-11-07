@@ -7,8 +7,8 @@ namespace App\Http\Requests\Admin\Procurement;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
- * إنشاء/تعديل أمر شراء: بنود صريحة، أو ربط بطلب داخلي معتمد تُنسخ بنوده
- * (عندها branch_id والبنود اختيارية وتُستكمل من الطلب).
+ * Create or update purchase order: explicit line items or linked approved purchase request.
+ * When linked to a purchase request, branch_id and items are populated from the requisition.
  */
 class PurchaseOrderRequest extends FormRequest
 {

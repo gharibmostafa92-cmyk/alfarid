@@ -7,6 +7,9 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Inward stock receipt batch generated from internal manufacturing and bag assembly.
+ */
 class ProductionReceipt extends Model
 {
     public function branch(): BelongsTo

@@ -8,6 +8,11 @@ use App\Enums\StocktakeStatus;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
+/**
+ * Administrative stocktake resource representation.
+ *
+ * Enforces blind counting by masking expected inventory quantities and variances until approval or authorized inspection.
+ */
 class StocktakeResource extends JsonResource
 {
     /**
@@ -35,8 +40,7 @@ class StocktakeResource extends JsonResource
             'approved_by' => $this->approved_by,
             'approved_at' => $this->approved_at,
             'notes' => $this->notes,
-            // M6: الجرد "الأعمى" — الرصيد الدفتري والفرق للمعتمِد فقط (أو بعد
-            // الاعتماد)، فمن يعدّ لا يرى ما يُخفي به العجز.
+            // Blind stocktake: hide expected book qty and variance from counters until approved or inspected by approvers.
             'items' => $this->whenLoaded('items', function () use ($request) {
                 $reveal = $this->status === StocktakeStatus::Approved
                     || $request->user()?->can('stocktakes.approve');

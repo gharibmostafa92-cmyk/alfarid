@@ -1,9 +1,9 @@
-// توحيد أخطاء axios الحقيقية — نفس منطق parseApiError اللي في الـ mock بس على response فعلي.
+// Standardizes Axios HTTP error responses into a consistent ApiError interface.
 export interface ApiError {
-  status: number;                       // 0 = مشكلة شبكة
+  status: number;                       // 0 = network or connection failure
   message: string;
-  fields: Record<string, string[]>;     // كل المفاتيح ما عدا 'status'
-  summary: string[];                    // errors.status (أسباب رفض النشر)
+  fields: Record<string, string[]>;     // Validation errors mapped by field, excluding status
+  summary: string[];                    // Publication blocker or status rejection reasons
 }
 
 interface RawErrorBody {

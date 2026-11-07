@@ -14,6 +14,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Role;
 
+/**
+ * Modifies an existing staff role name and permissions, maintaining system role invariants.
+ */
 final class UpdateRole
 {
     public function __construct(private BranchAccess $access) {}

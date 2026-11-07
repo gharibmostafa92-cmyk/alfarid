@@ -8,9 +8,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * المرحلة 10 — فواتير الموردين ودفعاتهم:
- * اعتماد الفاتورة (posted) يرفع رصيد المورد الدائن، والدفعة تخفضه
- * وتُحدّث paid_amount على فاتورتها المرتبطة (SupplierFinanceService).
+ * Supplier billing invoices and payment disbursement records.
+ * Posting an invoice increases the supplier liability balance, while payments reduce open balances.
  */
 return new class extends Migration
 {

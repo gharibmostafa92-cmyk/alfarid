@@ -8,8 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * المرحلة 10 — طلبات الشراء الداخلية (نواقص الفروع) وبنودها:
- * draft ← pending ← approved/rejected، والاعتماد يتيح التحويل لأمر شراء.
+ * Internal branch purchase requests (stock replenishment requests) and item specifications.
  */
 return new class extends Migration
 {

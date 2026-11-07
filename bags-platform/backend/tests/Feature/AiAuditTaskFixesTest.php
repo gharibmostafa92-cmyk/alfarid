@@ -638,7 +638,7 @@ class AiAuditTaskFixesTest extends TestCase
     }
 }
 
-/** M1 fixture: a provider whose prepare() blows up with a SQL error. */
+/** Test fixture: a provider whose prepare() fails with a SQL error. */
 final class ThrowingPrepareProvider implements ToolProvider
 {
     public function tools(): array
@@ -715,7 +715,7 @@ final class ThrowingPrepareTool implements WriteTool
     }
 }
 
-/** L4 fixture: a provider whose child execute() fails non-retryably. */
+/** Test fixture: a provider whose child execute() fails non-retryably. */
 final class FailingBulkChildProvider implements ToolProvider
 {
     public function tools(): array
@@ -787,7 +787,7 @@ final class FailingBulkChildTool implements WriteTool
     }
 }
 
-/** H2 fixture: a provider whose child execute() hits a lock conflict. */
+/** Test fixture: a provider whose child execute() hits a lock conflict. */
 final class ThrowingBulkChildProvider implements ToolProvider
 {
     public function tools(): array

@@ -9,7 +9,9 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Notification;
 
-/** تنبيه طاقم الإدارة بطلب جديد. */
+/**
+ * Alerts management staff of a newly placed customer order.
+ */
 class AdminOrderCreatedNotification extends Notification implements ShouldQueue
 {
     use Queueable;

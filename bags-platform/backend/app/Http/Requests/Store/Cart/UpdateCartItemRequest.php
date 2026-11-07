@@ -18,7 +18,7 @@ class UpdateCartItemRequest extends FormRequest
     public function rules(): array
     {
         return [
-            // البند يُعرّف من مسار الرابط {item} — هنا الكمية فقط، وصفر يعني الإزالة
+            // Item ID is resolved from route parameter {item}; qty = 0 indicates item removal.
             'qty' => ['required', 'integer', 'min:0', 'max:'.CartService::MAX_REQUEST_QTY],
         ];
     }

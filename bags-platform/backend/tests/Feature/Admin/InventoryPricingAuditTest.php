@@ -275,7 +275,7 @@ class InventoryPricingAuditTest extends TestCase
     {
         Auth::forgetGuards();
 
-        // M2: مفتاح عدم تكرار جديد لكل طلب — إلا إذا حدده الاختبار (إعادة تشغيل).
+        // Fresh idempotency key per request unless explicitly specified by test for replay testing.
         if (! isset($headers['Idempotency-Key']) && ! isset($this->defaultHeaders['Idempotency-Key'])) {
             $headers['Idempotency-Key'] = (string) Str::uuid();
         }

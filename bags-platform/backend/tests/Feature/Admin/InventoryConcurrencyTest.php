@@ -231,7 +231,7 @@ PHP;
         $writer .= 'app(App\Services\InventoryService::class)->recordMovement('.var_export($data, true).'); touch($prefix.".right");';
         $this->race([$holder, $writer]);
         $this->assertDatabaseCount('stock_movements', 1);
-        // M-2: the counter sync raises the shared sequence inside the holder
+        // The counter sync raises the shared sequence inside the holder
         // transaction (never blocks writers), so the concurrent movement already
         // consumed 20000 and the next number is 20001 — monotonic, never reused.
         $this->assertStringEndsWith('20001', app(SettingService::class)->generateNextNumber('movement'));

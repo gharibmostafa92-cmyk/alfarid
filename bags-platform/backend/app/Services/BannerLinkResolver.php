@@ -25,10 +25,8 @@ final class BannerLinkResolver
      */
     public function attach(Collection $banners): Collection
     {
-        $productIds = $banners->filter(fn ($b) => $b->link_type === BannerLinkType::Product)
-            ->pluck('link_value')->filter()->map(fn ($v) => (int) $v)->unique()->values()->all();
-        $categoryIds = $banners->filter(fn ($b) => $b->link_type === BannerLinkType::Category)
-            ->pluck('link_value')->filter()->map(fn ($v) => (int) $v)->unique()->values()->all();
+        $productIds = $this->extractTargetIds($banners, BannerLinkType::Product);
+        $categoryIds = $this->extractTargetIds($banners, BannerLinkType::Category);
 
         // Batch-resolve slugs for published products and active categories only
         $productSlugs = $productIds === [] ? collect() : $this->catalog->publishedQuery()
@@ -41,11 +39,37 @@ final class BannerLinkResolver
                 BannerLinkType::Product => ($s = $productSlugs->get((int) $b->link_value)) ? '/products/'.rawurlencode($s) : null,
                 BannerLinkType::Category => ($s = $categorySlugs->get((int) $b->link_value)) ? '/shop?category='.rawurlencode($s) : null,
                 // Only allow secure HTTPS external links to prevent protocol exploitation
-                BannerLinkType::External => filter_var($b->link_value, FILTER_VALIDATE_URL)
-                    && strtolower((string) parse_url($b->link_value, PHP_URL_SCHEME)) === 'https' ? $b->link_value : null,
+                BannerLinkType::External => $this->sanitizeExternalUrl($b->link_value),
                 default => null,
             };
             $b->setAttribute('resolved_href', $href);
         });
+    }
+
+    /**
+     * @param Collection<int, Banner> $banners
+     * @return list<int>
+     */
+    private function extractTargetIds(Collection $banners, BannerLinkType $type): array
+    {
+        return $banners->where('link_type', $type)
+            ->pluck('link_value')
+            ->filter()
+            ->map(fn ($v) => (int) $v)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Only allow secure HTTPS external links to prevent protocol exploitation.
+     */
+    private function sanitizeExternalUrl(mixed $url): ?string
+    {
+        if (! is_string($url) || filter_var($url, FILTER_VALIDATE_URL) === false) {
+            return null;
+        }
+
+        return strtolower((string) parse_url($url, PHP_URL_SCHEME)) === 'https' ? $url : null;
     }
 }

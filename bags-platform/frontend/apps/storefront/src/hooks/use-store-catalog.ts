@@ -8,9 +8,8 @@ import { storeRetry, storeRetryDelay } from '@/lib/query-retry';
 import { viewerKey } from '@/lib/viewer-key';
 
 const common = { retry: storeRetry, retryDelay: storeRetryDelay };
-// F22: لا يُخزَّن توكن Bearer الخام في مفاتيح الاستعلام — يظهر في DevTools
-// وفي أي تخزين لكاش React Query. بصمة غير عكسية تكفي كمفتاح تمييز.
-const useViewer = () => viewerKey(useAuthStore((s) => s.token)); // الأسعار مخصّصة لكل عميل
+// Avoid storing raw Bearer tokens in React Query keys to prevent credential exposure in DevTools; use a one-way fingerprint.
+const useViewer = () => viewerKey(useAuthStore((s) => s.token));
 
 export function useStoreCategories() {
   return useQuery({ queryKey: ['store', 'categories'], queryFn: ({ signal }) => storeEndpoints.categories(signal), staleTime: 5 * 60_000, ...common });

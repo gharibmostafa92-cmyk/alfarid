@@ -11,8 +11,8 @@ use Maatwebsite\Excel\Concerns\WithStyles;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
 /**
- * قائمة أسعار جملة التاجر (Excel) — الصفوف تُبنى في WholesalePriceListService
- * وتُمرَّر جاهزة حتى يطابق ملف PDF الصادر من نفس المصدر.
+ * Merchant wholesale price list export (Excel) — rows are constructed in
+ * WholesalePriceListService to guarantee exact parity with the PDF price list export.
  */
 class WholesalePriceListExport implements FromArray, ShouldAutoSize, WithHeadings, WithStyles
 {

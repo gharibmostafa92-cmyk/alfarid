@@ -29,7 +29,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        // L1: المفاتيح المزروعة في up() فقط — بلا wildcard يقطع إعدادات تانية.
+        // Delete only seeded numbering keys without wildcards to avoid affecting other settings.
         $keys = [];
         foreach (['shift', 'pos_invoice', 'expense', 'treasury_transfer'] as $type) {
             $keys[] = "{$type}_prefix";

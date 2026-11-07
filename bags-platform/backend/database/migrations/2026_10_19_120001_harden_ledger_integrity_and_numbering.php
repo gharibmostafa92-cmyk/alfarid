@@ -8,9 +8,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * سلامة الدفتر والترقيم (مراجعة المرتجعات والمشتريات):
- * تسلسلات أرقام المستندات الداخلية، إلغاء الدفعات بدل الحذف، قيود CHECK،
- * تفرد مرجع الرد وبريد المورد بلا حساسية حالة.
+ * Hardens ledger integrity and document numbering:
+ * Replaces row-locked counters with PostgreSQL sequences, introduces payment cancellation status,
+ * adds CHECK constraints, and enforces case-insensitive supplier email and refund reference uniqueness.
  */
 return new class extends Migration
 {

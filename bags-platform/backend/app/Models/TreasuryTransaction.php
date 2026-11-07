@@ -9,6 +9,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 
+/**
+ * Immutable financial ledger movement recording receipts, payments, and transfers.
+ */
 class TreasuryTransaction extends Model
 {
     public $timestamps = false;

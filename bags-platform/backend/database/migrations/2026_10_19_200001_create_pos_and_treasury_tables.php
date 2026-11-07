@@ -10,7 +10,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        // ===== الخزائن المالية =====
+        // Financial treasuries
         Schema::create('treasuries', function (Blueprint $table): void {
             $table->id();
             $table->string('name');
@@ -26,7 +26,7 @@ return new class extends Migration
             $table->index('is_active');
         });
 
-        // ===== ورديات الكاشير =====
+        // POS cashier shifts
         Schema::create('pos_shifts', function (Blueprint $table): void {
             $table->id();
             $table->string('shift_number')->unique();
@@ -35,13 +35,11 @@ return new class extends Migration
             $table->foreignId('treasury_id')->constrained('treasuries');
             $table->enum('status', ['open', 'closed_pending_approval', 'approved'])->default('open');
 
-            // التوقيتات
             $table->timestamp('opened_at');
             $table->timestamp('closed_at')->nullable();
             $table->timestamp('approved_at')->nullable();
             $table->foreignId('approved_by')->nullable()->constrained('users')->nullOnDelete();
 
-            // الأرقام المالية
             $table->decimal('opening_cash', 12, 2)->default(0);
             $table->decimal('cash_sales_total', 12, 2)->default(0);
             $table->decimal('card_sales_total', 12, 2)->default(0);
@@ -62,7 +60,7 @@ return new class extends Migration
             $table->index(['treasury_id', 'status']);
         });
 
-        // ===== حركات الخزينة (دفتر أستاذ مالي) =====
+        // Treasury financial ledger movements
         Schema::create('treasury_transactions', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('treasury_id')->constrained('treasuries');
@@ -77,7 +75,7 @@ return new class extends Migration
                 'supplier_payment',
                 'customer_receipt',
             ]);
-            $table->decimal('amount', 14, 2); // موجب للقبض، سالب للصرف
+            $table->decimal('amount', 14, 2); // Positive for inflows/receipts, negative for disbursements/expenses
             $table->decimal('balance_after', 14, 2);
             $table->nullableMorphs('reference');  // reference_type, reference_id
             $table->foreignId('created_by')->constrained('users');
@@ -89,7 +87,7 @@ return new class extends Migration
             $table->index(['treasury_id', 'created_at']);
         });
 
-        // ===== المصروفات =====
+        // Branch operational expenses
         Schema::create('expenses', function (Blueprint $table): void {
             $table->id();
             $table->string('expense_number')->unique();
@@ -110,7 +108,7 @@ return new class extends Migration
             $table->index('expense_date');
         });
 
-        // ===== تحويلات الخزائن =====
+        // Inter-treasury cash transfers
         Schema::create('treasury_transfers', function (Blueprint $table): void {
             $table->id();
             $table->string('transfer_number')->unique();
@@ -128,7 +126,7 @@ return new class extends Migration
             $table->index('status');
         });
 
-        // ===== الفواتير المعلقة =====
+        // POS held cart orders
         Schema::create('pos_held_sales', function (Blueprint $table): void {
             $table->id();
             $table->string('hold_reference')->unique();

@@ -7,6 +7,9 @@ namespace App\Http\Resources\Admin;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
+/**
+ * Administrative promotion and discount campaign resource representation.
+ */
 class PromotionResource extends JsonResource
 {
     /** @return array<string, mixed> */
@@ -23,7 +26,7 @@ class PromotionResource extends JsonResource
             'starts_at' => $this->starts_at,
             'ends_at' => $this->ends_at,
             'is_active' => $this->is_active,
-            // العروض تُدار فقط حاليًا ولا تُطبق تلقائيًا عند الشراء (M12)
+            // Campaigns are currently managed administratively; automatic checkout application is pending.
             'auto_applied' => false,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,

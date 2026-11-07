@@ -49,15 +49,11 @@ class SupplierFinanceService
             $subtotal = round((float) $data['subtotal'], 2);
             $tax = round((float) ($data['tax_amount'] ?? 0), 2);
             $this->assertInvoiceDoesNotExceedOrder($poId, round($subtotal + $tax, 2));
-            $issueDate = Carbon::parse($data['issue_date']);
-            // Default due date: issue date plus supplier credit terms
-            $dueDate = ! empty($data['due_date'])
-                ? Carbon::parse($data['due_date'])
-                : $issueDate->copy()->addDays((int) $supplier->payment_terms_days);
-
-            if ($dueDate->lt($issueDate)) {
-                throw new BusinessException('تاريخ الاستحقاق يجب ألا يسبق تاريخ الإصدار.');
-            }
+            [$issueDate, $dueDate] = $this->resolveInvoiceDates(
+                $data['issue_date'],
+                $data['due_date'] ?? null,
+                $supplier
+            );
             $invoice = SupplierInvoice::create([
                 'invoice_number' => $this->settings->generateNextNumber('supplier_invoice'),
                 'supplier_invoice_no' => $data['supplier_invoice_no'],
@@ -106,12 +102,13 @@ class SupplierFinanceService
                 );
             }
             $this->assertInvoiceNumberAvailable($supplier->id, $data['supplier_invoice_no'] ?? $invoice->supplier_invoice_no, $invoice->id);
-            $issue = Carbon::parse($data['issue_date'] ?? $invoice->issue_date);
-            if (array_key_exists('due_date', $data) && $data['due_date'] === null) {
-                $data['due_date'] = $issue->copy()->addDays((int) $supplier->payment_terms_days)->toDateString();
-            }
-            if (Carbon::parse($data['due_date'] ?? $invoice->due_date)->lt($issue)) {
-                throw new BusinessException('تاريخ الاستحقاق يجب ألا يسبق تاريخ الإصدار.');
+            [$issue, $due] = $this->resolveInvoiceDates(
+                $data['issue_date'] ?? $invoice->issue_date,
+                array_key_exists('due_date', $data) ? $data['due_date'] : $invoice->due_date,
+                $supplier
+            );
+            if (array_key_exists('due_date', $data) && empty($data['due_date'])) {
+                $data['due_date'] = $due->toDateString();
             }
             $updates = array_intersect_key($data, array_flip([
                 'supplier_invoice_no', 'purchase_order_id', 'issue_date', 'due_date', 'subtotal', 'tax_amount',
@@ -433,6 +430,25 @@ class SupplierFinanceService
             $paid > 0 => SupplierInvoiceStatus::PartiallyPaid,
             default => SupplierInvoiceStatus::Posted,
         }]);
+    }
+
+    /**
+     * Resolve and validate invoice issue and due dates against supplier credit terms.
+     *
+     * @return array{0: Carbon, 1: Carbon}
+     */
+    private function resolveInvoiceDates(mixed $issueRaw, mixed $dueRaw, Supplier $supplier): array
+    {
+        $issue = Carbon::parse($issueRaw);
+        $due = ! empty($dueRaw)
+            ? Carbon::parse($dueRaw)
+            : $issue->copy()->addDays((int) $supplier->payment_terms_days);
+
+        if ($due->lt($issue)) {
+            throw new BusinessException('تاريخ الاستحقاق يجب ألا يسبق تاريخ الإصدار.');
+        }
+
+        return [$issue, $due];
     }
 
     private function assertInvoiceNumberAvailable(int $supplierId, string $number, ?int $exceptId = null): void

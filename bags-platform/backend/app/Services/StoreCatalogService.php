@@ -30,7 +30,7 @@ class StoreCatalogService
 {
     public const HOME_CACHE_KEY = 'store_home_data:v2';
 
-    /** L4: per-request memo so facets/index resolve the category only once. */
+    /** Per-request memo so facets/index resolve the category only once. */
     private array $categoryMemo = [];
 
     private array $descendantMemo = [];
@@ -158,13 +158,8 @@ class StoreCatalogService
     public function publishedQuery(): Builder
     {
         $query = Product::query()
-            ->where('status', ProductStatus::Published)
-            ->whereIn('sales_channel', [SalesChannel::Retail, SalesChannel::Both])
-            ->whereHas('category', fn ($q) => $q->where('is_active', true)
-                ->where(fn ($path) => $path->whereNull('parent_id')
-                    ->orWhereHas('parent', fn ($parent) => $parent->where('is_active', true)
-                        ->where(fn ($path) => $path->whereNull('parent_id')
-                            ->orWhereHas('parent', fn ($ancestor) => $ancestor->where('is_active', true)->whereNull('parent_id'))))))
+            ->publishedForRetail()
+            ->whereHas('category', fn ($q) => $q->activeHierarchy())
             ->with([
                 'category', 'media',
                 'variants' => fn ($q) => $this->withVariantAvailability($this->pricing->withStorePrice($q->getQuery(), $this->customer()))
@@ -296,7 +291,7 @@ class StoreCatalogService
     // ------------------------------------------------------------------ Display Pricing
 
     /**
-     * F23: Compute storefront discount percentage against compare_at basis price.
+     * Computes storefront discount percentage against compare_at basis price.
      */
     public static function discountPercentage(float $unitPrice, float $basis): ?int
     {
@@ -444,7 +439,7 @@ class StoreCatalogService
     }
 
     /**
-     * H2: normalize the category to its id so slug/id spellings of the same
+     * Normalizes the category to its ID so slug/id spellings of the same
      * category share one cache entry instead of exploding the key space.
      */
     private function facetsCacheKey(array $filters): string

@@ -10,7 +10,9 @@ use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
 
-/** صلاحيات إدارة المرتجعات (المرحلة 9) — الاعتماد والاستلام والاسترداد بصلاحيات مستقلة. */
+/**
+ * Return request permissions (approval, inspection receipt, and financial refund).
+ */
 class ReturnPermissionSeeder extends Seeder
 {
     public function run(): void

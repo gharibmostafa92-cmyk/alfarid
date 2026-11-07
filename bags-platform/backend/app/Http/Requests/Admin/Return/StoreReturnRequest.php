@@ -8,7 +8,9 @@ use App\Enums\RefundMethod;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
-/** إنشاء مرتجع يدوي من خدمة العملاء لطلب مُسلَّم (عميل مسجل أو زائر). */
+/**
+ * Staff-initiated return request creation for delivered retail or guest orders.
+ */
 class StoreReturnRequest extends FormRequest
 {
     public function authorize(): bool

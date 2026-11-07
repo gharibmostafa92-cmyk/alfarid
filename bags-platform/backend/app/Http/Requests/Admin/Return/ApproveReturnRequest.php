@@ -6,7 +6,9 @@ namespace App\Http\Requests\Admin\Return;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-/** الموافقة المبدئية على مرتجع: فرع الاستلام + كميات معتمدة اختيارية لكل بند (الافتراضي: كامل المطلوب). */
+/**
+ * Initial return approval: receiving branch and optional approved quantities (defaults to full requested).
+ */
 class ApproveReturnRequest extends FormRequest
 {
     public function authorize(): bool

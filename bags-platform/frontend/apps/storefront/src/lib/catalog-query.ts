@@ -10,7 +10,7 @@ const OCC: StoreOccasion[] = ['casual', 'work', 'weekend', 'evening'];
 const num = (v: string | null) => (v !== null && v !== '' && Number.isFinite(Number(v)) ? Number(v) : null);
 
 export function parseFilters(sp: URLSearchParams): CatalogFilterState {
-  const rawSort = (sp.get('sort') ?? '').replace('-', '_') as StoreSort; // يقبل price-asc كمان
+  const rawSort = (sp.get('sort') ?? '').replace('-', '_') as StoreSort; // Normalizes kebab-case sort parameters
   return {
     category: sp.get('category') || null,
     color: sp.get('color')?.toLowerCase() || null,
@@ -45,7 +45,7 @@ export function toApiParams(s: CatalogFilterState, perPage = 24): StoreProductLi
   };
 }
 
-/** الـ facets ما بتعتمدش على اللون والسعر */
+/** Category facets exclude color and price filters to preserve unconstrained option counts. */
 export const toFacetParams = (s: CatalogFilterState): StoreProductListParams => ({
   category: s.category ?? undefined, occasions: s.occasions.length ? s.occasions : undefined,
   search: s.search || undefined, in_stock: s.inStock ? 1 : undefined,

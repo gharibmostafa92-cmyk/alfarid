@@ -7,9 +7,8 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * سلة التسوق: تعمل للزائر (cart_token) وللعميل المسجل (customer_id) معًا.
- * ملحوظة: coupon_id بلا قيد FK حاليًا — جدول الكوبونات لم يُبنَ بعد
- * (سيُضاف القيد مع مرحلة الكوبونات، مثلما حدث مع products.supplier_id).
+ * Shopping carts supporting guest visitors (cart_token) and authenticated customers (customer_id).
+ * Foreign key for coupon_id is deferred until the coupons table is created in a subsequent migration.
  */
 return new class extends Migration
 {

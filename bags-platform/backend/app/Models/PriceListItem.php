@@ -7,6 +7,9 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Specific product variant price override within a price list.
+ */
 class PriceListItem extends Model
 {
     protected $fillable = [

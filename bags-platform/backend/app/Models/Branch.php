@@ -13,6 +13,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable(['name', 'code', 'type', 'phone', 'email', 'address', 'city', 'city_id', 'is_active'])]
+/**
+ * Physical retail store or warehouse location with operational, staffing, and inventory scopes.
+ */
 class Branch extends Model
 {
     /** @use HasFactory<BranchFactory> */

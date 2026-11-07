@@ -8,6 +8,9 @@ use App\Http\Resources\MediaResource;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
+/**
+ * Administrative product resource representation including variants, media, and pricing range.
+ */
 class ProductResource extends JsonResource
 {
     /**
@@ -40,8 +43,7 @@ class ProductResource extends JsonResource
             'category' => new CategoryResource($this->whenLoaded('category')),
             'brand' => null,
             'supplier_id' => null,
-            // F6: conversions render on the queue — fall back to the original
-            // until the thumb exists instead of emitting a broken CDN link.
+            // Conversions render asynchronously via queue; fall back to original until thumb is generated.
             'main_image' => ($media = $this->getFirstMedia('images')) && $media->hasGeneratedConversion('thumb') ? $media->getUrl('thumb') : ($media?->getUrl() ?: null),
             'images' => $this->when($includeGallery, fn () => MediaResource::collection($this->whenLoaded('media', fn () => $this->getMedia('images')))),
             'video' => $this->when($includeGallery, fn () => $this->whenLoaded('media', fn () => ($v = $this->getFirstMedia('video')) ? new MediaResource($v) : null)),

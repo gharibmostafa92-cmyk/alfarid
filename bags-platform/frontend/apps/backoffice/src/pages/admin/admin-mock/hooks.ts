@@ -8,7 +8,7 @@ import { useAuthStore } from '../../../stores/auth.store';
 export const useRoles = (enabled = true) => useApi(s => enabled ? adminApi.listRoles(s).then(rs => rs.map(toAdminRole)) : Promise.resolve([]), [enabled]);
 export const usePermissionGroups = () => useApi(s => adminApi.listPermissions(s).then(buildPermissionGroups), []);
 export const useBranches = () => useApi(s => adminApi.listBranches(s).catch(e => {
-  if (normalizeError(e).status === 403) return [];   // مفيش صلاحية فروع → قائمة فاضية
+  if (normalizeError(e).status === 403) return [];   // Return empty list if user lacks branches permission.
   throw e;
 }), []);
 export const useSettingsQuery = () => useApi(s => adminApi.getSettings(s).then(toAdminSettings), []);
@@ -24,7 +24,7 @@ export function useMe() {
   };
 }
 
-/** helper لتنفيذ الـ mutations بنفس الشكل في كل مكان */
+/** Standard helper for uniform mutation execution and error handling. */
 export async function runMutation<T>(fn: () => Promise<T>): Promise<{ ok: true; data: T } | { ok: false; error: ApiError }> {
   try { return { ok: true, data: await fn() }; }
   catch (e) { return { ok: false, error: normalizeError(e) }; }

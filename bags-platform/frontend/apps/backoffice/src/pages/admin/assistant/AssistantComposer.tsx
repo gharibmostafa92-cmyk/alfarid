@@ -6,9 +6,9 @@ interface Mention { entity: string; id: string | number; label: string }
 interface Option extends Mention { meta?: string }
 
 interface Props {
-  /** مفعّلة لو الأدمن عنده customers.view — بدونها علامة $ للعملاء متظهرش. */
+  /** Enabled when staff has customers.view permission for customer mentions ($). */
   enableCustomers?: boolean;
-  /** مفعّلة لو الأدمن عنده products.view أو categories.view — بتفعّل $ للمنتجات و & للأقسام ورفع الصور. */
+  /** Enabled when staff has catalog view permissions for product/category mentions and image uploads. */
   enableCatalog?: boolean;
   enableInventory?: boolean;
   enablePricing?: boolean;

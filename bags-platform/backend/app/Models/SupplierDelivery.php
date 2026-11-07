@@ -11,7 +11,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-/** إشعار توريد (ASN) يرسله المورد من بوابته مقابل أمر شراء. */
+/**
+ * Advance Shipping Notice (ASN) submitted by a supplier against an approved purchase order.
+ */
 class SupplierDelivery extends Model
 {
     /** @use HasFactory<SupplierDeliveryFactory> */

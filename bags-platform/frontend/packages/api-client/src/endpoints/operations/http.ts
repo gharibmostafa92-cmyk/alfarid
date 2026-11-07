@@ -6,7 +6,7 @@ export const ADMIN = '/api/v1/admin';
 export const SLOW_REQUEST_TIMEOUT = 190_000;
 export type Id = number;
 
-/** شكل Laravel paginate() القياسي */
+/** Standard Laravel pagination metadata structure. */
 export interface PageMeta {
   current_page: number;
   last_page: number;
@@ -21,7 +21,7 @@ export interface Paginated<T> {
   meta: PageMeta;
 }
 
-/** يحوّل أي استجابة قائمة (paginated أو مصفوفة) إلى Paginated موحّد */
+/** Normalizes diverse list responses (paginated objects or raw arrays) into a standard Paginated<T> structure. */
 export function asPage<T>(r: AxiosResponse<any>): Paginated<T> {
   const body = r.data;
   if (body && Array.isArray(body.data) && body.meta) return body as Paginated<T>;
@@ -35,12 +35,12 @@ export function asPage<T>(r: AxiosResponse<any>): Paginated<T> {
   return { data: arr, meta: { current_page: 1, last_page: 1, per_page: arr.length || 20, total: arr.length, from: arr.length ? 1 : null, to: arr.length || null } };
 }
 
-/** يفك { data: T } */
+/** Unwraps single entity payload from `{ data: T }` responses. */
 export function one<T>(r: AxiosResponse<any>): T {
   return (r.data && 'data' in r.data ? r.data.data : r.data) as T;
 }
 
-/** يحذف القيم الفارغة، ويحوّل boolean إلى 1/0 لأن Laravel `boolean` يرفض "true" */
+/** Strips empty query parameters and normalizes booleans to 1/0 for Laravel query string validation. */
 export function cleanParams(params: object = {}): Record<string, string | number> {
   const out: Record<string, string | number> = {};
   for (const [k, v] of Object.entries(params)) {
@@ -50,7 +50,7 @@ export function cleanParams(params: object = {}): Record<string, string | number
   return out;
 }
 
-/** FormData لرفع الملفات. spoofPut=true عند التعديل لأن PHP لا يقرأ multipart مع PUT */
+/** Builds FormData payloads for multipart uploads, including `_method: PUT` spoofing for PHP compatibility. */
 export function toFormData(obj: Record<string, unknown>, spoofPut = false): FormData {
   const fd = new FormData();
   if (spoofPut) fd.append('_method', 'PUT');
@@ -74,7 +74,7 @@ export function toFormData(obj: Record<string, unknown>, spoofPut = false): Form
 }
 export const MULTIPART = { headers: { 'Content-Type': 'multipart/form-data' } };
 
-/** CRUD عام لموارد apiResource */
+/** Generates standard REST CRUD client methods for an apiResource endpoint. */
 export function crud<T, P extends object, Q extends object = Record<string, unknown>>(path: string) {
   return {
     list: (params?: Q, signal?: AbortSignal) =>
@@ -107,7 +107,7 @@ function navigateToAttachment(url: string): void {
   a.remove();
 }
 
-/** تحميل مرفق محمي (يحتاج Bearer) وفتحه في تبويب جديد */
+/** Streams protected authenticated file downloads in a new tab via signed R2 URLs. */
 export async function openProtectedFile(url: string): Promise<void> {
   const w = window.open('', '_blank');
   if (w) w.opener = null;
@@ -135,7 +135,7 @@ export async function openProtectedFile(url: string): Promise<void> {
   }
 }
 
-/** تنزيل ملف (CSV) */
+/** Downloads binary export files (e.g., CSV) using signed URLs or local Blob triggers. */
 export async function downloadFile(url: string, filename: string, params?: object): Promise<void> {
   const r = await api.get(url, { responseType: 'blob', params: { ...cleanParams(params), signed: 1 }, timeout: SLOW_REQUEST_TIMEOUT });
   const signedUrl = await signedAttachmentUrl(r);
@@ -159,15 +159,15 @@ function saveBlob(blob: Blob, filename: string): void {
   }, 30_000);
 }
 
-/** مفتاح Idempotency للعمليات المالية */
+/** Generates unique idempotency key for transactional operations. */
 export const newIdempotencyKey = (): string =>
   (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`);
 
-/** ===== معالجة الأخطاء ===== */
+/** API Error Handling and Mapping */
 export interface ParsedApiError {
   status: number | null;
   message: string;
-  fieldErrors: Record<string, string>; // أول رسالة لكل حقل
+  fieldErrors: Record<string, string>; // First error message per validated field
 }
 export function parseApiError(e: unknown): ParsedApiError {
   const err = e as any;

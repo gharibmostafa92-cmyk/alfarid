@@ -9,7 +9,9 @@ use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-/** سجّل تاجر جملة/موزع جديد وبانتظار مراجعة الإدارة. */
+/**
+ * Dispatched after transaction commit when a new wholesale application is registered for staff review.
+ */
 class WholesaleApplicationSubmitted implements ShouldDispatchAfterCommit
 {
     use Dispatchable, SerializesModels;

@@ -6,7 +6,9 @@ namespace App\Http\Requests\Supplier\PurchaseOrder;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-/** طلب المورد تعديل أمر شراء: ملاحظات التعديل المقترح إلزامية ليعالجها مدير المشتريات. */
+/**
+ * Supplier modification request for purchase order terms awaiting procurement review.
+ */
 class RequestChangeRequest extends FormRequest
 {
     public function authorize(): bool

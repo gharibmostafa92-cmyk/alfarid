@@ -463,7 +463,7 @@ class StoreOrderFlowTest extends TestCase
         $draft = ProductVariant::factory()->create(['retail_price' => 100]);
         $this->postJson('/api/v1/store/cart/items', ['product_variant_id' => $draft->id, 'qty' => 1])->assertUnprocessable();
         $this->putJson('/api/v1/store/cart/items/123', ['qty' => 1])->assertNotFound();
-        // L10: deletes are idempotent — a missing cart already satisfies them.
+        // Deletes are idempotent — a missing cart already satisfies them.
         $this->deleteJson('/api/v1/store/cart/items/123')->assertNoContent();
         $this->deleteJson('/api/v1/store/cart/coupon')->assertNotFound();
         $this->postJson('/api/v1/store/cart/coupon', ['code' => 'INVALID'])->assertNotFound();
@@ -494,7 +494,7 @@ class StoreOrderFlowTest extends TestCase
         $item = CartItem::factory()->create(['cart_id' => $cart->id, 'product_variant_id' => $live->id]);
         // Bypass model events to exercise historical orphaned rows as well.
         DB::table('product_variants')->where('id', $deleted->id)->update(['deleted_at' => now()]);
-        // L1: the soft-deleted line stays visible as unavailable so the
+        // The soft-deleted line stays visible as unavailable so the
         // shopper can remove it, instead of vanishing silently.
         $response = $this->withHeaders(['X-Cart-Session' => $cart->cart_token])->getJson('/api/v1/store/cart/items')
             ->assertOk()->assertJsonCount(2, 'data.items');

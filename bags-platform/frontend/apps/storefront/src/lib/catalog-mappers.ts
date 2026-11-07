@@ -72,7 +72,7 @@ export function toDetailVM(p: StoreProduct): ProductDetailVM {
   };
 }
 
-/** اختيار الـ variant: تطابق اللون والمقاس، وإلا أول variant متاح من نفس اللون، وإلا أول variant */
+/** Selects variant: exact color/size match, or first available with color, or first variant. */
 export function resolveVariant(vm: ProductDetailVM, colorKey: string | null, size: string | null): VariantVM | null {
   const sameColor = vm.variants.filter((v) => !colorKey || v.colorKey === colorKey);
   return sameColor.find((v) => (!size || v.sizeLabel === size))

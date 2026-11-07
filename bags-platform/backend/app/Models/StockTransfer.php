@@ -9,6 +9,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * Inter-branch stock transfer manifest managing dispatch, transit, and receipt workflows.
+ */
 class StockTransfer extends Model
 {
     protected $attributes = ['version' => 1];

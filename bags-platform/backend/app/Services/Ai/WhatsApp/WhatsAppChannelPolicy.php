@@ -7,6 +7,10 @@ namespace App\Services\Ai\WhatsApp;
 use App\Services\Ai\ToolKind;
 use App\Services\SettingService;
 
+/**
+ * WhatsApp channel security policies: restricts high-risk actions, prevents unauthorized writes,
+ * and enforces PIN-verified exceptions for wholesale payment notice approvals.
+ */
 final class WhatsAppChannelPolicy
 {
     /** @var list<string> */
@@ -26,6 +30,14 @@ final class WhatsAppChannelPolicy
 
     public function __construct(private SettingService $settings) {}
 
+    /**
+     * Determines whether a tool invocation is prohibited on the WhatsApp channel.
+     *
+     * @param  string  $name  Tool identifier name
+     * @param  ToolKind  $kind  Read or Write category
+     * @param  string  $risk  Risk level ('low', 'medium', 'high')
+     * @return bool True if action should be blocked on WhatsApp
+     */
     public function blocks(string $name, ToolKind $kind, string $risk): bool
     {
         $disabled = $this->settings->get('ai_whatsapp_disabled_tools', self::DISABLED_BY_DEFAULT);
@@ -38,10 +50,16 @@ final class WhatsAppChannelPolicy
         if (! $this->settings->getBool('ai_whatsapp_allow_writes', false) && $kind === ToolKind::Write) {
             return true;
         }
+        $noticeException = $name === 'approve_payment_notice'
+            && $this->settings->getBool('ai_whatsapp_allow_notice_approval', false)
+            && $this->settings->getBool('ai_whatsapp_pin_required', false);
+        if (in_array($name, ['approve_payment_notice', 'reverse_payment_notice_approval', 'bulk_approve_matched_notices'], true) && ! $noticeException) {
+            return true;
+        }
         $max = (string) $this->settings->get('ai_whatsapp_max_risk', 'medium');
         $maxRank = self::RANK[$max] ?? self::RANK['medium'];
         $riskRank = self::RANK[$risk] ?? self::RANK['high'];
 
-        return $riskRank > $maxRank;
+        return ! $noticeException && $riskRank > $maxRank;
     }
 }

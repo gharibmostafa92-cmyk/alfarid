@@ -4,18 +4,14 @@ declare(strict_types=1);
 
 /*
 |--------------------------------------------------------------------------
-| إعدادات الويب هوكس الخارجية
+| External Webhook Configuration
 |--------------------------------------------------------------------------
-| بوابات الدفع: سر HMAC لكل بوابة من متغيرات البيئة. التحقق الافتراضي:
-| توقيع HMAC-SHA256 لنص الطلب الخام في هيدر X-Webhook-Signature
-| (تُضبط الأنماط الخاصة بكل بوابة عند ربطها فعليًا).
-| شركات الشحن: السر من api_credentials.webhook_secret لكل شركة،
-| مع سر افتراضي احتياطي من البيئة.
+| HMAC verification keys and signature headers for payment gateways and carriers.
 */
 
 return [
     'payment' => [
-        // نمط تحقق لكل بوابة (F-06): driver يختار خوارزمية البوابة الحقيقية
+        // Driver selects gateway-specific verification algorithms
         'paymob' => [
             'driver' => 'paymob',
             'secret' => env('PAYMOB_WEBHOOK_SECRET'),
@@ -43,8 +39,7 @@ return [
     ],
 
     'shipping' => [
-        // سر التوقيع لكل شركة من api_credentials.webhook_secret حصرًا (M10):
-        // لا سر افتراضي مشترك ولا رجوع لمفتاح API.
+        // Carrier secrets are stored per company in api_credentials.webhook_secret; no global shared secret
         'signature_header' => env('SHIPPING_SIGNATURE_HEADER', 'X-Webhook-Signature'),
     ],
 ];

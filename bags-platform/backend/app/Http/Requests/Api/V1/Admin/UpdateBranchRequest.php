@@ -7,35 +7,15 @@ namespace App\Http\Requests\Api\V1\Admin;
 use App\Enums\BranchType;
 use App\Models\Branch;
 use Illuminate\Contracts\Validation\ValidationRule;
-use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
-class UpdateBranchRequest extends FormRequest
+/**
+ * Validates updates to branch profile and contact information.
+ *
+ * Inherits code/email normalization from StoreBranchRequest and enforces optimistic locking via mandatory lock_version.
+ */
+class UpdateBranchRequest extends StoreBranchRequest
 {
-    protected function prepareForValidation(): void
-    {
-        $normalized = [];
-        $code = $this->input('code');
-        $email = $this->input('email');
-
-        if (is_string($code)) {
-            $normalized['code'] = mb_strtoupper(trim($code));
-        }
-
-        if (is_string($email)) {
-            $normalized['email'] = mb_strtolower(trim($email));
-        }
-
-        // Optimistic locking is mandatory: a missing lock_version must fail
-        // validation (422) instead of being silently backfilled.
-        $this->merge($normalized);
-    }
-
-    public function authorize(): bool
-    {
-        return $this->user() !== null;
-    }
-
     /**
      * @return array<string, array<mixed>|string|ValidationRule>
      */
@@ -60,7 +40,7 @@ class UpdateBranchRequest extends FormRequest
             'city' => ['sometimes', 'nullable', 'string', 'max:120'],
             'city_id' => ['sometimes', 'nullable', 'integer', 'exists:cities,id'],
             'is_active' => ['sometimes', 'boolean'],
-            // M3: قفل توافقي إلزامي مثل الموظفين.
+            // Mandatory optimistic lock version to match staff and catalog concurrency controls.
             'lock_version' => ['required', 'integer', 'min:0'],
         ];
     }

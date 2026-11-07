@@ -27,11 +27,8 @@ class ShippingQuoteService
     public function quoteForCity(int $cityId, float $merchandiseTotal, bool $cod): array
     {
         $rate = ShippingRate::query()
-            ->join('shipping_zones', 'shipping_zones.id', '=', 'shipping_rates.shipping_zone_id')
-            ->join('shipping_zone_cities', 'shipping_zone_cities.shipping_zone_id', '=', 'shipping_zones.id')
+            ->forCity($cityId)
             ->join('shipping_companies', 'shipping_companies.id', '=', 'shipping_rates.shipping_company_id')
-            ->where('shipping_zone_cities.city_id', $cityId)
-            ->where('shipping_zones.is_active', true)
             ->where('shipping_companies.is_active', true)
             ->orderBy('shipping_companies.id')
             ->orderBy('shipping_rates.id')
@@ -44,11 +41,8 @@ class ShippingQuoteService
             return ['cost' => (float) ($city?->shipping_cost ?? 0), 'cod_fee' => 0.0, 'rate' => null];
         }
 
-        $free = $rate->free_shipping_threshold !== null
-            && $merchandiseTotal >= (float) $rate->free_shipping_threshold;
-
         return [
-            'cost' => $free ? 0.0 : (float) $rate->base_cost,
+            'cost' => $rate->effectiveCost($merchandiseTotal),
             'cod_fee' => $cod ? (float) $rate->cod_fee : 0.0,
             'rate' => $rate,
         ];

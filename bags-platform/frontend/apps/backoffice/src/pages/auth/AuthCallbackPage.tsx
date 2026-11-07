@@ -7,13 +7,12 @@ const WEB_URL = resolveServiceUrl((import.meta.env.VITE_WEB_URL as string | unde
 
 export default function AuthCallbackPage() {
   const login = useAuthStore((s) => s.login);
-  const ran = useRef(false); // React StrictMode بيشغّل الـ effect مرتين، والكود بيُستخدم مرة واحدة بس
+  const ran = useRef(false); // Prevent double-execution in React StrictMode since handoff codes are single-use
 
   useEffect(() => {
     if (ran.current) return;
     ran.current = true;
-    // M7: الكود يصل في الـ fragment (لا يُرسل للخادم ولا في الـ Referer) —
-    // يُمسح فورًا من الشريط؛ روابط الـ query القديمة لم تعد مقبولة.
+    // Handoff code arrives in URL fragment to prevent exposure in server logs or Referer headers.
     const fromHash = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('code');
     const code = fromHash;
     window.history.replaceState(null, '', window.location.pathname);
@@ -24,9 +23,7 @@ export default function AuthCallbackPage() {
     authEndpoints
       .exchangeHandoff(code)
       .then(async (res) => {
-        // H1: أبطل التوكن السابق قبل تفعيل الجديد، وبعميل خام بلا interceptors
-        // حتى لا يستبدل الـ interceptor الـ Authorization الصريح بالتوكن الجديد
-        // فيحذف الخادم التوكن الجديد بدل القديم.
+        // Revoke previous token using raw fetch before persisting the new token to prevent interceptor misrouting.
         const prev = localStorage.getItem('backoffice_token');
         if (prev && prev !== res.token) {
           const baseURL =
@@ -40,7 +37,7 @@ export default function AuthCallbackPage() {
               signal: ctrl.signal,
             });
           } catch {
-            // best-effort: التوكن القديم قد يكون منتهيًا أصلًا
+            // Best-effort logout: former token may already be expired or invalidated
           } finally {
             clearTimeout(timer);
           }

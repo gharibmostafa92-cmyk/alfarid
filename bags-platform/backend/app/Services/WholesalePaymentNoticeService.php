@@ -8,6 +8,8 @@ use App\Enums\OrderStatus;
 use App\Enums\TreasuryTransactionType;
 use App\Enums\TreasuryType;
 use App\Enums\WholesalePaymentNoticeStatus;
+use App\Events\PaymentNoticeReviewed;
+use App\Events\PaymentNoticeSubmitted;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
 use App\Models\Order;
@@ -19,6 +21,7 @@ use App\Models\WholesalePaymentNotice;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Carbon\Carbon;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 
@@ -54,6 +57,32 @@ class WholesalePaymentNoticeService
                 throw new BusinessException('رقم مرجع السداد مسجل بالفعل لهذا التاجر.', [], 409);
             }
 
+            $amount = BigDecimal::of((string) $data['amount'])->toScale(2, RoundingMode::HalfUp);
+            $transferDate = Carbon::parse((string) $data['transfer_date'])->toDateString();
+            $crossCustomer = WholesalePaymentNotice::query()
+                ->where('customer_id', '!=', $customer->id)
+                ->where('status', '!=', WholesalePaymentNoticeStatus::Rejected->value)
+                ->whereRaw('lower(btrim(reference_number)) = ?', [mb_strtolower($reference)])
+                ->where('amount', (string) $amount)
+                ->whereDate('transfer_date', $transferDate)
+                ->first();
+            if ($crossCustomer !== null) {
+                throw new BusinessException("نفس المرجع والمبلغ والتاريخ مسجّلين لإشعار {$crossCustomer->notice_number} من حساب تاجر آخر.", [], 409);
+            }
+
+            $realPath = $receipt->getRealPath();
+            if ($realPath === false) {
+                throw new BusinessException('تعذر قراءة إيصال السداد.');
+            }
+            $hash = hash_file('sha256', $realPath);
+            $sameReceipt = WholesalePaymentNotice::query()
+                ->where('receipt_sha256', $hash)
+                ->where('status', '!=', WholesalePaymentNoticeStatus::Rejected->value)
+                ->first();
+            if ($sameReceipt !== null) {
+                throw new BusinessException("نفس الإيصال اترفع قبل كده ({$sameReceipt->notice_number}).", [], 409);
+            }
+
             $order = null;
 
             if (! empty($data['order_id'])) {
@@ -64,18 +93,27 @@ class WholesalePaymentNoticeService
 
             $path = $files->store($receipt, "wholesale_payment_notices/{$customer->id}");
 
-            return WholesalePaymentNotice::create([
-                'notice_number' => $this->settings->generateNextNumber('payment_notice'),
-                'customer_id' => $customer->id,
-                'order_id' => $order?->id,
-                'amount' => $data['amount'],
-                'payment_method' => $data['payment_method'],
-                'bank_name' => $data['bank_name'],
-                'reference_number' => $reference,
-                'transfer_date' => $data['transfer_date'],
-                'receipt_file_path' => $path,
-                'status' => WholesalePaymentNoticeStatus::PendingReview,
-            ]);
+            try {
+                $notice = WholesalePaymentNotice::create([
+                    'notice_number' => $this->settings->generateNextNumber('payment_notice'),
+                    'customer_id' => $customer->id,
+                    'order_id' => $order?->id,
+                    'amount' => (string) $amount,
+                    'payment_method' => $data['payment_method'],
+                    'bank_name' => $data['bank_name'],
+                    'reference_number' => $reference,
+                    'transfer_date' => $transferDate,
+                    'receipt_file_path' => $path,
+                    'receipt_sha256' => $hash,
+                    'status' => WholesalePaymentNoticeStatus::PendingReview,
+                ]);
+            } catch (UniqueConstraintViolationException) {
+                throw new BusinessException('نفس الإيصال اترفع قبل كده.', [], 409);
+            }
+
+            PaymentNoticeSubmitted::dispatch($notice);
+
+            return $notice;
         }, [[$receipt, 'wholesale_payment_notices/'.$customer->id]]);
     }
 
@@ -90,17 +128,20 @@ class WholesalePaymentNoticeService
         return (float) (string) $this->outstandingBalanceDecimal($customer);
     }
 
-    private function outstandingBalanceDecimal(Customer $customer): BigDecimal
+    /**
+     * @return array{debt: string, linked_open_notices: string, free_pool: string, allocated: string, floating_credit: string, outstanding: string}
+     */
+    public function balanceBreakdown(Customer $customer): array
     {
-        $debt = (string) Order::query()
+        $debt = BigDecimal::of((string) Order::query()
             ->where('customer_id', $customer->id)
             ->where('payment_method', 'credit')
             ->where('payment_status', 'unpaid')
             ->where('status', '!=', OrderStatus::Cancelled->value)
-            ->sum('grand_total');
+            ->sum('grand_total'))->toScale(2, RoundingMode::HalfUp);
 
         // Fully paid orders and their linked notices are excluded to avoid double deduction.
-        $linkedOpen = (string) WholesalePaymentNotice::query()
+        $linkedOpen = BigDecimal::of((string) WholesalePaymentNotice::query()
             ->where('customer_id', $customer->id)
             ->where('status', WholesalePaymentNoticeStatus::Approved->value)
             ->whereNotNull('order_id')
@@ -110,16 +151,26 @@ class WholesalePaymentNoticeService
                     ->where('o.payment_status', 'unpaid')
                     ->where('o.status', '!=', OrderStatus::Cancelled->value);
             })
-            ->sum('amount');
+            ->sum('amount'))->toScale(2, RoundingMode::HalfUp);
 
-        // Unallocated free notices and notices linked to cancelled orders act as floating customer credit.
         $free = $this->freePoolTotal($customer);
         $allocated = $this->allocatedTotal($customer);
-        $credits = BigDecimal::of($linkedOpen)
-            ->plus($free->minus($allocated))
-            ->toScale(2, RoundingMode::HalfUp);
+        $floating = $free->minus($allocated)->toScale(2, RoundingMode::HalfUp);
+        $outstanding = $debt->minus($linkedOpen)->minus($floating)->toScale(2, RoundingMode::HalfUp);
 
-        return BigDecimal::of($debt)->minus($credits)->toScale(2, RoundingMode::HalfUp);
+        return [
+            'debt' => (string) $debt,
+            'linked_open_notices' => (string) $linkedOpen,
+            'free_pool' => (string) $free,
+            'allocated' => (string) $allocated,
+            'floating_credit' => (string) $floating,
+            'outstanding' => (string) $outstanding,
+        ];
+    }
+
+    private function outstandingBalanceDecimal(Customer $customer): BigDecimal
+    {
+        return BigDecimal::of($this->balanceBreakdown($customer)['outstanding']);
     }
 
     private function freeNoticesQuery(Customer $customer)
@@ -179,9 +230,9 @@ class WholesalePaymentNoticeService
         WholesalePaymentNotice::query()
             ->where('customer_id', $customer->id)
             ->where('status', WholesalePaymentNoticeStatus::Approved->value)
-            ->get(['id', 'notice_number', 'payment_method', 'amount', 'updated_at'])
+            ->get(['id', 'notice_number', 'payment_method', 'amount', 'approved_at', 'transfer_date', 'updated_at'])
             ->each(fn (WholesalePaymentNotice $notice) => $entries->push([
-                'date' => $notice->updated_at->copy(),
+                'date' => ($notice->approved_at ?? $notice->transfer_date ?? $notice->updated_at)->copy(),
                 'type' => 'credit',
                 'description' => "سداد {$notice->notice_number} ({$notice->payment_method->value})",
                 'reference' => $notice->notice_number,
@@ -293,6 +344,7 @@ class WholesalePaymentNoticeService
             $notice->update([
                 'status' => WholesalePaymentNoticeStatus::Approved,
                 'reviewed_by' => $adminId,
+                'approved_at' => now(),
                 'admin_notes' => $adminNotes ?? $notice->admin_notes,
                 'treasury_id' => $treasury->id,
                 'treasury_transaction_id' => $transaction->id,
@@ -303,7 +355,10 @@ class WholesalePaymentNoticeService
             }
             $this->settleFreeNoticeFifo($customer, $adminId, $notice->notice_number);
 
-            return $notice->load(['customer', 'order', 'treasury', 'treasuryTransaction']);
+            $notice = $notice->load(['customer', 'order', 'treasury', 'treasuryTransaction']);
+            PaymentNoticeReviewed::dispatch($notice);
+
+            return $notice;
         });
     }
 
@@ -332,7 +387,69 @@ class WholesalePaymentNoticeService
                 'admin_notes' => $adminNotes ?? $notice->admin_notes,
             ]);
 
-            return $notice->load(['customer', 'order']);
+            $notice = $notice->load(['customer', 'order']);
+            PaymentNoticeReviewed::dispatch($notice);
+
+            return $notice;
+        });
+    }
+
+    /**
+     * Reverses an approved notice: treasury reversal, allocation removal, and unpaid orders.
+     * This is an audited financial action, not the 15-minute AI undo window.
+     *
+     * @throws BusinessException If the notice is not an approved, unreversed receipt.
+     */
+    public function reverse(WholesalePaymentNotice $notice, int $adminId, string $reason): WholesalePaymentNotice
+    {
+        $reason = trim($reason);
+        if ($reason === '') {
+            throw new BusinessException('سبب عكس الاعتماد مطلوب.');
+        }
+
+        return DB::transaction(function () use ($notice, $adminId, $reason): WholesalePaymentNotice {
+            $notice = WholesalePaymentNotice::query()->lockForUpdate()->findOrFail($notice->id);
+            Customer::query()->lockForUpdate()->findOrFail($notice->customer_id);
+
+            if ($notice->status !== WholesalePaymentNoticeStatus::Approved || $notice->reversed_at !== null) {
+                throw new BusinessException('لا يمكن عكس إشعار غير معتمد أو سبق عكسه.');
+            }
+            if ($notice->treasury_id === null) {
+                throw new BusinessException('الإشعار من غير حركة خزينة، لا يمكن عكسه.');
+            }
+
+            $orderIds = WholesalePaymentAllocation::query()
+                ->where('notice_id', $notice->id)
+                ->pluck('order_id')
+                ->all();
+            if ($notice->order_id !== null) {
+                $orderIds[] = (int) $notice->order_id;
+            }
+            WholesalePaymentAllocation::query()->where('notice_id', $notice->id)->delete();
+
+            $reversal = $this->treasury->record([
+                'treasury_id' => $notice->treasury_id,
+                'type' => TreasuryTransactionType::CustomerReceiptReversal,
+                'amount' => (string) BigDecimal::of((string) $notice->amount)->negated()->toScale(2, RoundingMode::HalfUp),
+                'reference_type' => 'wholesale_payment_notice',
+                'reference_id' => $notice->id,
+                'created_by' => $adminId,
+                'notes' => "عكس اعتماد إشعار سداد {$notice->notice_number}: {$reason}",
+            ]);
+
+            $notice->update([
+                'status' => WholesalePaymentNoticeStatus::Reversed,
+                'reversed_at' => now(),
+                'reversal_treasury_transaction_id' => $reversal->id,
+                'admin_notes' => $reason,
+                'reviewed_by' => $adminId,
+            ]);
+
+            foreach (array_unique(array_map('intval', $orderIds)) as $orderId) {
+                $this->reopenOrderIfUncovered($orderId, $adminId, $notice->notice_number);
+            }
+
+            return $notice->load(['customer', 'order', 'treasury']);
         });
     }
 
@@ -388,16 +505,113 @@ class WholesalePaymentNoticeService
         }
     }
 
+    /**
+     * Read-only allocation preview. Uses the same planner as settlement and writes nothing.
+     *
+     * @return array{notice_id: int, notice_number: string, amount: string, linked_order: array<string, mixed>|null, fifo: list<array<string, mixed>>}
+     */
+    public function previewNoticeAllocation(WholesalePaymentNotice $notice, ?int $branchId = null): array
+    {
+        return DB::transaction(function () use ($notice, $branchId): array {
+            $customer = Customer::query()->lockForUpdate()->findOrFail($notice->customer_id);
+            $extra = '0.00';
+            $linked = null;
+
+            if ($notice->order_id !== null) {
+                $order = Order::query()->lockForUpdate()->find($notice->order_id);
+                if ($order !== null) {
+                    $approved = BigDecimal::of((string) WholesalePaymentNotice::query()
+                        ->where('order_id', $order->id)
+                        ->where('status', WholesalePaymentNoticeStatus::Approved->value)
+                        ->when($notice->status !== WholesalePaymentNoticeStatus::Approved, fn ($q) => $q->whereKeyNot($notice->id))
+                        ->sum('amount'));
+                    $incoming = $notice->status === WholesalePaymentNoticeStatus::Approved
+                        ? BigDecimal::zero()
+                        : BigDecimal::of((string) $notice->amount);
+                    $already = BigDecimal::of((string) WholesalePaymentAllocation::query()->where('order_id', $order->id)->sum('amount'));
+                    $remaining = BigDecimal::of((string) $order->grand_total)->minus($approved)->minus($incoming)->minus($already)
+                        ->toScale(2, RoundingMode::HalfUp);
+                    $linked = [
+                        'order_id' => $order->id,
+                        'order_number' => $order->order_number,
+                        'remaining_after' => (string) ($remaining->isNegative() ? BigDecimal::zero()->toScale(2, RoundingMode::HalfUp) : $remaining),
+                        'closes' => $remaining->isLessThanOrEqualTo('0'),
+                    ];
+                }
+            } elseif ($notice->status !== WholesalePaymentNoticeStatus::Approved) {
+                $extra = (string) BigDecimal::of((string) $notice->amount)->toScale(2, RoundingMode::HalfUp);
+            }
+
+            return [
+                'notice_id' => $notice->id,
+                'notice_number' => $notice->notice_number,
+                'amount' => (string) $notice->amount,
+                'linked_order' => $linked,
+                'fifo' => $this->planFreeAllocation($customer, $extra, $branchId),
+            ];
+        });
+    }
+
+    /** @return list<array{notice_id: int, notice_number: string, customer_id: int, reason: string}> */
+    public function receiptCollisions(WholesalePaymentNotice $notice): array
+    {
+        $collisions = [];
+        if ($notice->receipt_sha256 !== null) {
+            $sameFile = WholesalePaymentNotice::query()
+                ->where('receipt_sha256', $notice->receipt_sha256)
+                ->whereKeyNot($notice->id)
+                ->where('status', '!=', WholesalePaymentNoticeStatus::Rejected->value)
+                ->get(['id', 'notice_number', 'customer_id']);
+            foreach ($sameFile as $other) {
+                $collisions[] = [
+                    'notice_id' => $other->id,
+                    'notice_number' => $other->notice_number,
+                    'customer_id' => $other->customer_id,
+                    'reason' => 'same_receipt',
+                ];
+            }
+        }
+
+        $sameTransfer = WholesalePaymentNotice::query()
+            ->whereKeyNot($notice->id)
+            ->where('customer_id', '!=', $notice->customer_id)
+            ->where('status', '!=', WholesalePaymentNoticeStatus::Rejected->value)
+            ->whereRaw('lower(btrim(reference_number)) = ?', [mb_strtolower(trim((string) $notice->reference_number))])
+            ->where('amount', (string) $notice->amount)
+            ->whereDate('transfer_date', $notice->transfer_date?->toDateString())
+            ->get(['id', 'notice_number', 'customer_id']);
+        foreach ($sameTransfer as $other) {
+            $collisions[] = [
+                'notice_id' => $other->id,
+                'notice_number' => $other->notice_number,
+                'customer_id' => $other->customer_id,
+                'reason' => 'same_reference_amount_date',
+            ];
+        }
+
+        return $collisions;
+    }
+
     // FIFO allocation settles oldest unpaid orders first using available unallocated notices.
     private function settleFreeNoticeFifo(Customer $customer, int $adminId, string $noticeNumber): void
     {
+        $branchId = app(BranchAccess::class)->restrictedBranch(User::findOrFail($adminId));
+        $this->applyFreePlan($customer, $adminId, $noticeNumber, $this->planFreeAllocation($customer, '0', $branchId));
+    }
+
+    /**
+     * @return list<array{order_id: int, order_number: string, allocated: string, remaining: string, closes: bool, skipped: bool}>
+     */
+    private function planFreeAllocation(Customer $customer, string $extraFree, ?int $branchId): array
+    {
         $available = $this->freePoolTotal($customer)->minus($this->allocatedTotal($customer))
+            ->plus(BigDecimal::of($extraFree))
             ->toScale(2, RoundingMode::HalfUp);
-        if ($available->isLessThanOrEqualTo('0')) {
-            return;
+        $mode = (string) $this->settings->get('wholesale_fifo_mode', 'strict');
+        if (! in_array($mode, ['strict', 'skip_to_fit', 'partial'], true)) {
+            $mode = 'strict';
         }
 
-        $branchId = app(BranchAccess::class)->restrictedBranch(User::findOrFail($adminId));
         $orders = Order::query()
             ->where('customer_id', $customer->id)
             ->where('payment_method', 'credit')
@@ -408,32 +622,73 @@ class WholesalePaymentNoticeService
             ->lockForUpdate()
             ->get();
 
+        $lines = [];
         foreach ($orders as $order) {
             if ($available->isLessThanOrEqualTo('0')) {
                 break;
             }
-            $linked = BigDecimal::of((string) WholesalePaymentNotice::query()
-                ->where('order_id', $order->id)
-                ->where('status', WholesalePaymentNoticeStatus::Approved->value)
-                ->sum('amount'))->toScale(2, RoundingMode::HalfUp);
-            $alreadyAllocated = BigDecimal::of((string) WholesalePaymentAllocation::query()
-                ->where('order_id', $order->id)
-                ->sum('amount'))->toScale(2, RoundingMode::HalfUp);
-            $need = BigDecimal::of((string) $order->grand_total)->minus($linked)->minus($alreadyAllocated)
+            $covered = $this->orderCoveredAmount((int) $order->id);
+            $need = BigDecimal::of((string) $order->grand_total)->minus($covered)
                 ->toScale(2, RoundingMode::HalfUp);
             if ($need->isLessThanOrEqualTo('0')) {
-                $this->markOrderPaid($order, $adminId, "تسوية آجل بالإشعار الحر {$noticeNumber}");
+                $lines[] = $this->allocationLine($order, '0.00', '0.00', true, false);
 
                 continue;
             }
             if ($available->compareTo($need) >= 0) {
-                $this->consumeFreePool($customer, $need, (int) $order->id, $adminId);
-                $this->markOrderPaid($order, $adminId, "تسوية آجل بالإشعار الحر {$noticeNumber}");
+                $lines[] = $this->allocationLine($order, (string) $need, '0.00', true, false);
                 $available = $available->minus($need)->toScale(2, RoundingMode::HalfUp);
-            } else {
+
+                continue;
+            }
+            if ($mode === 'partial') {
+                $remaining = $need->minus($available)->toScale(2, RoundingMode::HalfUp);
+                $lines[] = $this->allocationLine($order, (string) $available, (string) $remaining, false, false);
+
                 break;
             }
+            if ($mode === 'skip_to_fit') {
+                $lines[] = $this->allocationLine($order, '0.00', (string) $need, false, true);
+
+                continue;
+            }
+
+            $lines[] = $this->allocationLine($order, '0.00', (string) $need, false, false);
+
+            break;
         }
+
+        return $lines;
+    }
+
+    /** @param  list<array{order_id: int, order_number: string, allocated: string, remaining: string, closes: bool, skipped: bool}>  $lines */
+    private function applyFreePlan(Customer $customer, int $adminId, string $noticeNumber, array $lines): void
+    {
+        foreach ($lines as $line) {
+            $allocated = BigDecimal::of($line['allocated'])->toScale(2, RoundingMode::HalfUp);
+            if ($allocated->isGreaterThan('0')) {
+                $this->consumeFreePool($customer, $allocated, $line['order_id'], $adminId);
+            }
+            if ($line['closes']) {
+                $order = Order::query()->lockForUpdate()->find($line['order_id']);
+                if ($order !== null && $order->payment_status === 'unpaid') {
+                    $this->markOrderPaid($order, $adminId, "تسوية آجل بالإشعار الحر {$noticeNumber}");
+                }
+            }
+        }
+    }
+
+    /** @return array{order_id: int, order_number: string, allocated: string, remaining: string, closes: bool, skipped: bool} */
+    private function allocationLine(Order $order, string $allocated, string $remaining, bool $closes, bool $skipped): array
+    {
+        return [
+            'order_id' => (int) $order->id,
+            'order_number' => (string) $order->order_number,
+            'allocated' => $allocated,
+            'remaining' => $remaining,
+            'closes' => $closes,
+            'skipped' => $skipped,
+        ];
     }
 
     private function consumeFreePool(Customer $customer, BigDecimal $need, int $orderId, int $adminId): void
@@ -464,10 +719,30 @@ class WholesalePaymentNoticeService
         }
     }
 
+    private function reopenOrderIfUncovered(int $orderId, int $adminId, string $noticeNumber): void
+    {
+        $order = Order::query()->lockForUpdate()->find($orderId);
+        if ($order === null || $order->payment_status !== 'paid') {
+            return;
+        }
+
+        $covered = $this->orderCoveredAmount((int) $order->id);
+        if ($covered->compareTo(BigDecimal::of((string) $order->grand_total)) >= 0) {
+            return;
+        }
+
+        $this->transitionOrderPaymentStatus($order, 'unpaid', $adminId, "إلغاء تسوية بعد عكس الإشعار {$noticeNumber}");
+    }
+
     // Record status transition in audit history rather than performing a silent update.
     private function markOrderPaid(Order $order, int $adminId, string $notes): void
     {
-        $order->update(['payment_status' => 'paid']);
+        $this->transitionOrderPaymentStatus($order, 'paid', $adminId, $notes);
+    }
+
+    private function transitionOrderPaymentStatus(Order $order, string $paymentStatus, int $adminId, string $notes): void
+    {
+        $order->update(['payment_status' => $paymentStatus]);
         $order->statusHistories()->create([
             'from_status' => $order->status,
             'to_status' => $order->status,
@@ -475,6 +750,19 @@ class WholesalePaymentNoticeService
             'changed_by_id' => $adminId,
             'notes' => mb_substr($notes, 0, 500),
         ]);
+    }
+
+    private function orderCoveredAmount(int $orderId): BigDecimal
+    {
+        $linked = BigDecimal::of((string) WholesalePaymentNotice::query()
+            ->where('order_id', $orderId)
+            ->where('status', WholesalePaymentNoticeStatus::Approved->value)
+            ->sum('amount'));
+        $allocated = BigDecimal::of((string) WholesalePaymentAllocation::query()
+            ->where('order_id', $orderId)
+            ->sum('amount'));
+
+        return $linked->plus($allocated)->toScale(2, RoundingMode::HalfUp);
     }
 
     private function resolveTreasury(?int $treasuryId): Treasury

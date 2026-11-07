@@ -13,9 +13,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * طلب مرتجع (RMA). دورة حياته وآثاره المخزنية والمالية كلها في
- * ReturnService — القاعدة الذهبية: الإنشاء والموافقة المبدئية لا يحرّكان
- * رصيدًا؛ الإضافة الفعلية للمخزون تحدث عند الاستلام والفحص فقط.
+ * Return Merchandise Authorization (RMA) model.
+ * Creation and initial approval do not alter stock balances; inventory increments
+ * occur strictly upon physical receipt and inspection in ReturnService.
  */
 class ReturnRequest extends Model
 {

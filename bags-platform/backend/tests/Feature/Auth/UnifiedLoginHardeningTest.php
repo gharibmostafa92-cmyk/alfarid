@@ -123,7 +123,7 @@ class UnifiedLoginHardeningTest extends TestCase
 
     public function test_exchange_with_empty_sanctum_expiration_keeps_existing_tokens(): void
     {
-        // M1: SANCTUM_EXPIRATION الفارغ يعني بلا انتهاء زمني — لا يجوز أن
+        // Empty SANCTUM_EXPIRATION denotes non-expiring tokens.
         // يمسح تبادل الـ handoff كل توكنات الموظف الأخرى (subMinutes(0)).
         config()->set('sanctum.expiration', '');
         $staff = User::factory()->create(['password' => 'staff-pass']);

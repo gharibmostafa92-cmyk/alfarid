@@ -8,7 +8,9 @@ use App\Models\PurchaseOrder;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-/** أُرسل أمر شراء إلى المورد (ظهر في بوابته). */
+/**
+ * Dispatched when a purchase order is transmitted to the supplier portal.
+ */
 class PurchaseOrderSentToSupplier
 {
     use Dispatchable, SerializesModels;

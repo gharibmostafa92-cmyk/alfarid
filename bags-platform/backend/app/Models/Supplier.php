@@ -10,8 +10,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * مورد. current_balance = ما ندين به له الآن: يبدأ من opening_balance،
- * يزيد باعتماد فواتيره (posted) وينقص بدفعاتنا — عبر SupplierFinanceService فقط.
+ * Supplier entity model.
+ * current_balance represents outstanding payable: begins at opening_balance,
+ * increases on posted supplier invoices, and decreases on payments via SupplierFinanceService.
  */
 class Supplier extends Model
 {

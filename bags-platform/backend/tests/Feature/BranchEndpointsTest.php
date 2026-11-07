@@ -52,7 +52,7 @@ class BranchEndpointsTest extends TestCase
             'name' => 'Central Warehouse',
             'code' => ' br-001 ',
             'type' => 'warehouse',
-            // M3: optimistic concurrency is mandatory on branch updates.
+            // Optimistic concurrency is mandatory on branch updates.
             'lock_version' => $created->json('data.lock_version'),
         ])->assertOk()
             ->assertJsonPath('data.name', 'Central Warehouse')
@@ -90,7 +90,7 @@ class BranchEndpointsTest extends TestCase
         foreach ([false, true] as $active) {
             $this->requestWithToken($token, 'PATCH', "/api/v1/admin/branches/{$branch->id}", [
                 'is_active' => $active,
-                // M3: optimistic concurrency is mandatory on branch updates.
+                // Optimistic concurrency is mandatory on branch updates.
                 'lock_version' => $branch->fresh()->lock_version,
             ])->assertOk()->assertJsonPath('data.is_active', $active);
 
@@ -212,7 +212,7 @@ class BranchEndpointsTest extends TestCase
         $permission = Permission::findOrCreate($permissionName, 'staff');
         $staff = User::factory()->create();
         $staff->givePermissionTo($permission);
-        // M4: إدارة الفروع مركزية — تتطلب النطاق الكلي بلا فرع مقيّد.
+        // Branch administration is central and requires unrestricted cross-branch scope.
         $staff->givePermissionTo(Permission::findOrCreate('inventory.all_branches', 'staff'));
 
         return $staff;

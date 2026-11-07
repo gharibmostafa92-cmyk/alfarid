@@ -109,14 +109,14 @@ class AuditRoundTwoVerificationTest extends TestCase
         $service = app(CustomerManagementService::class);
         $customer = Customer::factory()->wholesale()->create(['status' => CustomerStatus::Pending]);
 
-        // رفع 5 مستندات
+        // Upload 5 documents
         $docs = [];
         for ($i = 1; $i <= 5; $i++) {
             $file = UploadedFile::fake()->create("doc{$i}.pdf", 100, 'application/pdf');
             $docs[] = $service->uploadDocument($customer, $file, null);
         }
 
-        // محاولة رفع سادس والكل نشط -> يفشل
+        // Sixth active document upload exceeds quota and fails
         $this->expectException(BusinessException::class);
         $this->expectExceptionMessage('وصلت للحد الأقصى للمستندات');
         $service->uploadDocument($customer, UploadedFile::fake()->create('doc6.pdf', 100, 'application/pdf'), null);
@@ -135,15 +135,15 @@ class AuditRoundTwoVerificationTest extends TestCase
             $docs[] = $service->uploadDocument($customer, $file, null);
         }
 
-        // رفض مستند
+        // Mark document as rejected
         $docs[0]->update(['status' => CustomerDocumentStatus::Rejected]);
 
-        // رفع سادس -> ينجح لأن النشط 4
+        // Sixth upload succeeds because active count is now 4
         $doc6 = $service->uploadDocument($customer, UploadedFile::fake()->create('doc6.pdf', 100, 'application/pdf'), null);
         $this->assertNotNull($doc6);
         $this->assertSame(6, $customer->documents()->count());
 
-        // نرفض كل المستندات ونرفع حتى نصل لـ 10
+        // Reject existing documents and continue uploads up to total ceiling of 10
         $customer->documents()->update(['status' => CustomerDocumentStatus::Rejected]);
         for ($i = 7; $i <= 10; $i++) {
             $file = UploadedFile::fake()->create("doc{$i}.pdf", 100, 'application/pdf');
@@ -151,7 +151,7 @@ class AuditRoundTwoVerificationTest extends TestCase
         }
         $this->assertSame(10, $customer->documents()->count());
 
-        // المستند 11 يمنعه السقف الإجمالي حتى لو النشط قليل
+        // Eleventh upload is blocked by lifetime ceiling regardless of active count
         $this->expectException(BusinessException::class);
         $this->expectExceptionMessage('وصلت للحد الأقصى للمستندات (5 فعّالة / 10 إجمالي).');
         $service->uploadDocument($customer, UploadedFile::fake()->create('doc11.pdf', 100, 'application/pdf'), null);
@@ -172,7 +172,7 @@ class AuditRoundTwoVerificationTest extends TestCase
 
         $this->assertSame(CustomerDocumentStatus::Pending->value, $response->json('data.status'));
 
-        // تاجر معتمد بالفعل -> 403
+        // Already approved merchant returns 403
         $approved = Customer::factory()->wholesale()->create(['status' => CustomerStatus::Approved]);
         $approvedToken = $approved->createToken('wholesale')->plainTextToken;
 
@@ -207,17 +207,17 @@ class AuditRoundTwoVerificationTest extends TestCase
         ]);
         $idA = $customerA->id;
 
-        // حذف العميل الأول
+        // Soft-delete first customer
         $this->api($token, 'DELETE', "/api/v1/admin/customers/{$idA}")->assertOk();
         $this->assertSoftDeleted('customers', ['id' => $idA]);
 
-        // عميل جديد يأخذ نفس البريد
+        // New customer registers with same email address
         $customerB = Customer::factory()->wholesale()->create([
             'email' => 'unique.trader@example.com',
             'phone' => '01022222222',
         ]);
 
-        // محاولة استعادة العميل الأول
+        // Attempting to restore first customer is blocked due to active email conflict
         $res = $this->api($token, 'POST', "/api/v1/admin/customers/{$idA}/restore");
         $res->assertStatus(422);
         $this->assertStringContainsString('لا يمكن الاستعادة: البريد unique.trader@example.com مستخدم الآن بحساب نشط آخر', $res->json('message'));
@@ -239,7 +239,7 @@ class AuditRoundTwoVerificationTest extends TestCase
         $this->assertNotSame($key1, $keyOther);
     }
 
-    /** L-9: فحص تكرار الرقم في sendPhoneVerification يرجع رسالة واضحة قبل الـ queue */
+    /** Phone verification rate limit check rejects duplicate attempts before dispatching to queue. */
     public function test_send_phone_verification_clear_error_for_existing_customer(): void
     {
         Customer::factory()->create(['phone' => '01033333333']);
@@ -252,7 +252,7 @@ class AuditRoundTwoVerificationTest extends TestCase
         $res->assertJsonValidationErrors('phone');
         $this->assertStringContainsString('الرقم مسجل بالفعل', $res->json('errors.phone.0'));
 
-        // حساب محذوف
+        // Deleted account
         $trashed = Customer::factory()->create(['phone' => '01044444444']);
         $trashed->delete();
 
@@ -263,7 +263,7 @@ class AuditRoundTwoVerificationTest extends TestCase
         $this->assertStringContainsString('الرقم مرتبط بحساب محذوف', $resTrashed->json('errors.phone.0'));
     }
 
-    /** L-1: حذف CustomerGroup مرتبط بعملاء محذوفين سوفت-ديليت ممنوع */
+    /** Deleting a CustomerGroup referenced by soft-deleted customers is prohibited. */
     public function test_customer_group_cannot_be_deleted_if_has_trashed_customers(): void
     {
         $token = $this->staffToken();
@@ -276,7 +276,7 @@ class AuditRoundTwoVerificationTest extends TestCase
             ->assertJsonPath('message', 'لا يمكن حذف مجموعة مرتبطة بعملاء؛ انقل العملاء أولًا أو عطّل المجموعة.');
     }
 
-    /** L-4: تكرار كود المجموعة يرجع 422 */
+    /** Duplicate customer group code returns 422 validation failure. */
     public function test_customer_group_duplicate_code_returns_422(): void
     {
         $token = $this->staffToken();
@@ -288,7 +288,7 @@ class AuditRoundTwoVerificationTest extends TestCase
         ])->assertStatus(422)->assertJsonValidationErrors('code');
     }
 
-    /** L-8: تعيين مجموعة معطلة يرفض في الـ Requests والخدمة */
+    /** Assigning an inactive customer group is rejected by form requests and domain services. */
     public function test_inactive_customer_group_rejected_in_requests(): void
     {
         $token = $this->staffToken();
@@ -302,7 +302,7 @@ class AuditRoundTwoVerificationTest extends TestCase
         ])->assertStatus(422)->assertJsonValidationErrors('customer_group_id');
     }
 
-    /** L-10: assertProofPresent يفحص الـ token قبل رفع الملفات */
+    /** Asserts upload authentication token is verified before streaming file bytes. */
     public function test_wholesale_registration_asserts_proof_before_upload(): void
     {
         config(['auth.require_phone_verification' => true]);
@@ -324,7 +324,7 @@ class AuditRoundTwoVerificationTest extends TestCase
         ], [$file]);
     }
 
-    /** L-2: البحث أقل من 3 حروف يرفض بـ 422 */
+    /** Customer search queries shorter than 3 characters return 422 validation error. */
     public function test_customer_search_requires_min_3_characters(): void
     {
         $token = $this->staffToken();
@@ -337,7 +337,7 @@ class AuditRoundTwoVerificationTest extends TestCase
             ->assertOk();
     }
 
-    /** L-5: رابط استعادة كلمة المرور في SMS بنص لاتيني */
+    /** Password reset URL in SMS messages uses standard ASCII Latin encoding. */
     public function test_customer_password_reset_notification_to_sms_url(): void
     {
         $customer = Customer::factory()->create(['phone' => '01012345678']);
@@ -349,7 +349,7 @@ class AuditRoundTwoVerificationTest extends TestCase
         $this->assertStringContainsString('phone=01012345678', $sms);
     }
 
-    /** L-6: استهلاك الذكاء الاصطناعي مع توقيت القاهرة */
+    /** AI token usage quotas reset daily aligned with Cairo business timezone. */
     public function test_ai_usage_endpoint_with_cairo_timezone(): void
     {
         $token = $this->staffToken(['ai_agent.use', 'ai_agent.logs.view', 'inventory.all_branches']);
@@ -378,13 +378,13 @@ class AuditRoundTwoVerificationTest extends TestCase
         $this->assertSame('proposal', $outcome->type);
         $action = AiPendingAction::where('conversation_id', $conv->id)->firstOrFail();
 
-        // تغيير الإعداد في الخلفية ليحدث 409 تعارض
+        // Concurrently update setting in background to simulate 409 conflict
         DB::table('settings')->where('key', 'return_window_days')->update(['value' => '99']);
 
         $res = $this->withToken($token)->postJson("/api/v1/admin/ai/actions/{$action->id}/confirm");
         $res->assertStatus(409);
 
-        // الإجراء لازم يكون failed ومش pending
+        // Pending action must transition to failed status instead of hanging in pending
         $this->assertSame('failed', $action->fresh()->status);
     }
 }

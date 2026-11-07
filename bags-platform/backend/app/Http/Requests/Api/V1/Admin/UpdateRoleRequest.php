@@ -4,25 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Api\V1\Admin;
 
-use App\Enums\StaffRole;
 use App\Rules\UniqueStaffRoleName;
-use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
-class UpdateRoleRequest extends FormRequest
+class UpdateRoleRequest extends StoreRoleRequest
 {
-    protected function prepareForValidation(): void
-    {
-        if (is_string($this->input('name'))) {
-            $this->merge(['name' => StaffRole::normalizeName($this->input('name'))]);
-        }
-    }
-
-    public function authorize(): bool
-    {
-        return $this->user() !== null;
-    }
-
     /**
      * @return array<string, array<int, mixed>>
      */

@@ -282,7 +282,7 @@ class PhaseNineTenHardeningTest extends TestCase
         $token = $order->customer->createToken('review')->plainTextToken;
         $this->withToken($token)->getJson('/api/v1/store/account/returns')->assertOk()->assertJsonCount(1, 'data');
         $url = "/api/v1/store/account/return-items/{$return->items->first()->id}/attachments/0";
-        // H3: authorized downloads 302-redirect to a short-lived signed R2 URL.
+        // Authorized downloads 302-redirect to a short-lived signed R2 URL.
         $this->withToken($token)->get($url)->assertRedirect();
         Auth::forgetGuards();
         $other = Customer::factory()->create();
@@ -522,7 +522,7 @@ class PhaseNineTenHardeningTest extends TestCase
         $delivery = SupplierDelivery::factory()->create(['supplier_id' => $this->supplier->id, 'purchase_order_id' => $po->id, 'invoice_file_path' => $invoice->attachment_path]);
         $owner = SupplierUser::factory()->create(['supplier_id' => $this->supplier->id]);
         Auth::forgetGuards();
-        // H3: authorized downloads 302-redirect to a short-lived signed R2 URL.
+        // Authorized downloads 302-redirect to a short-lived signed R2 URL.
         $this->withToken($owner->createToken('review')->plainTextToken)->get("/api/v1/supplier/supplier-invoices/{$invoice->id}/attachment")->assertRedirect();
         $this->get("/api/v1/supplier/deliveries/{$delivery->id}/invoice")->assertRedirect();
         Auth::forgetGuards();

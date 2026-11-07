@@ -10,9 +10,9 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration
 {
     /**
-     * C2: ربط طلبات مرتجع POS بالأصل + عدّاد الكمية المرتجعة على البنود.
-     * - orders.return_of_order_id: طلب المرتجع يشير للطلب الأصلي (null لغير المرتجعات).
-     * - order_items.returned_qty: الكمية المرتجعة من هذا البند (0 افتراضيًا).
+     * Links POS return orders to parent sales and tracks returned item quantities to prevent over-returns:
+     * - orders.return_of_order_id: references original sale order (null for non-return orders).
+     * - order_items.returned_qty: tracks cumulative returned quantity per order line.
      */
     public function up(): void
     {

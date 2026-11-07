@@ -59,8 +59,7 @@ class ProductVariant extends Model implements HasMedia
     }
 
     /**
-     * اسم العرض للكتالوج: اللون والمقاس معًا (مثال: "أسود / L")،
-     * ويرجع SKU عند غيابهما.
+     * Catalog display label combining color and size/capacity (e.g. "Black / L"), falling back to SKU.
      */
     public function displayLabel(): string
     {

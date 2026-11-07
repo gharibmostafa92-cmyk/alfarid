@@ -6,7 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
 /**
- * H6: webhook dedup without a DB guarantee is racy — two concurrent
+ * Webhook deduplication without a DB guarantee is racy — two concurrent
  * deliveries can both pass the "is there a processed row?" read, then both
  * write. A partial unique index on (provider, event_id) WHERE processed
  * makes the second committer fail atomically; the advisory xact lock in

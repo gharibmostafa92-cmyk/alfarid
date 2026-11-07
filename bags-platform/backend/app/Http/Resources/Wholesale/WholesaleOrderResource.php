@@ -13,8 +13,8 @@ use App\Models\WholesalePaymentNotice;
 use Illuminate\Http\Request;
 
 /**
- * تمثيل طلب الجملة: يرث حقول Store\OrderResource ويضيف اسم المدينة
- * وسجل الحالات وأعلام الإلغاء/الإرجاع.
+ * Wholesale order resource: extends Store\OrderResource with city name,
+ * status timeline, and cancellation/return eligibility flags.
  */
 class WholesaleOrderResource extends OrderResource
 {

@@ -8,7 +8,9 @@ use App\Enums\SupplierPaymentMethod;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
-/** تعديل دفعة: الحقول غير المالية فقط — المبلغ والربط يُصحَّحان بحذف وإعادة إنشاء. */
+/**
+ * Update non-financial payment attributes; amount adjustments require voiding and recreating the payment.
+ */
 class UpdateSupplierPaymentRequest extends FormRequest
 {
     public function authorize(): bool

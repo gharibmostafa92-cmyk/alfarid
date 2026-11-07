@@ -9,6 +9,9 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Individual product variant line item on a retail or wholesale order.
+ */
 class OrderItem extends Model
 {
     /** @use HasFactory<OrderItemFactory> */

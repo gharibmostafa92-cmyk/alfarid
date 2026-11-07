@@ -64,7 +64,7 @@ class SettingSeeder extends Seeder
         ['group' => 'numbering', 'key' => 'supplier_payment_next_number', 'value' => '1001', 'type' => 'integer'],
         ['group' => 'numbering', 'key' => 'supplier_payment_padding', 'value' => '6', 'type' => 'integer'],
 
-        // المرحلة 9: نافذة الاسترجاع بالأيام من التسليم. 0 = متوقف، -1 = بلا حد.
+        // Return request window in days from delivery. 0 = disabled, -1 = indefinite.
         ['group' => 'orders', 'key' => 'return_window_days', 'value' => '14', 'type' => 'integer'],
         ['group' => 'purchases', 'key' => 'allow_self_approve_purchases', 'value' => '0', 'type' => 'boolean'],
 
@@ -78,10 +78,9 @@ class SettingSeeder extends Seeder
         ['group' => 'ai', 'key' => 'ai_tool_result_max_chars', 'value' => '16000', 'type' => 'integer'],
         ['group' => 'ai', 'key' => 'ai_max_concurrent_sessions', 'value' => '10', 'type' => 'integer'],
         ['group' => 'ai', 'key' => 'ai_dealer_review_sla_hours', 'value' => '48', 'type' => 'integer'],
-        // 2.2: عتبة حد الائتمان — فوقها تعيين الحد يبقى عالي الخطورة
-        // ويطلب تأكيدًا بالكتابة (حتى لو الزيادة نفسها أقل من 100%).
+        // Credit limit threshold above which changes require explicit confirmation.
         ['group' => 'ai', 'key' => 'ai_credit_limit_confirm_threshold', 'value' => '100000', 'type' => 'integer'],
-        // 6.1: أدوات العملاء وتحليل المستندات مقفولة افتراضيًا (خطة الإطلاق).
+        // Customer tools and document OCR disabled by default during initial rollout.
         ['group' => 'ai', 'key' => 'ai_customer_tools_enabled', 'value' => '0', 'type' => 'boolean'],
         ['group' => 'ai', 'key' => 'ai_document_analysis_enabled', 'value' => '0', 'type' => 'boolean'],
         ['group' => 'ai', 'key' => 'ai_catalog_tools_enabled', 'value' => '0', 'type' => 'boolean'],
@@ -103,6 +102,18 @@ class SettingSeeder extends Seeder
         ['group' => 'ai', 'key' => 'ai_inventory_high_risk_value', 'value' => '50000', 'type' => 'integer'],
         ['group' => 'ai', 'key' => 'ai_inventory_proactive_enabled', 'value' => '0', 'type' => 'boolean'],
         ['group' => 'ai', 'key' => 'ai_finance_tools_enabled', 'value' => '0', 'type' => 'boolean'],
+        ['group' => 'ai', 'key' => 'ai_wholesale_tools_enabled', 'value' => '0', 'type' => 'boolean'],
+        ['group' => 'ai', 'key' => 'ai_wholesale_receipt_vision_enabled', 'value' => '0', 'type' => 'boolean'],
+        ['group' => 'ai', 'key' => 'ai_quote_high_risk_discount_percent', 'value' => '15', 'type' => 'integer'],
+        ['group' => 'ai', 'key' => 'ai_quote_high_risk_total', 'value' => '100000', 'type' => 'integer'],
+        ['group' => 'ai', 'key' => 'ai_wholesale_shadow_mode', 'value' => '1', 'type' => 'boolean'],
+        ['group' => 'ai', 'key' => 'ai_wholesale_quote_sla_hours', 'value' => '24', 'type' => 'integer'],
+        ['group' => 'ai', 'key' => 'ai_wholesale_notice_sla_hours', 'value' => '24', 'type' => 'integer'],
+        ['group' => 'ai', 'key' => 'ai_wholesale_reminder_weekly_cap', 'value' => '3', 'type' => 'integer'],
+        ['group' => 'ai', 'key' => 'ai_whatsapp_allow_notice_approval', 'value' => '0', 'type' => 'boolean'],
+        ['group' => 'ai', 'key' => 'ai_whatsapp_quote_max_discount_percent', 'value' => '5', 'type' => 'integer'],
+        ['group' => 'policy', 'key' => 'wholesale_fifo_mode', 'value' => 'strict', 'type' => 'string'],
+        ['group' => 'policy', 'key' => 'wholesale_default_payment_terms_days', 'value' => '30', 'type' => 'integer'],
         ['group' => 'ai', 'key' => 'ai_finance_wallet_tools_enabled', 'value' => '0', 'type' => 'boolean'],
         ['group' => 'ai', 'key' => 'ai_finance_receipt_vision_enabled', 'value' => '0', 'type' => 'boolean'],
         ['group' => 'ai', 'key' => 'ai_finance_proactive_enabled', 'value' => '1', 'type' => 'boolean'],

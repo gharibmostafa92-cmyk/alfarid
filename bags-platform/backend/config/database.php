@@ -102,9 +102,7 @@ $config = [
             // in the PostgreSQL protocol, using an unnamed statement instead.
             'options' => extension_loaded('pdo_pgsql') ? [
                 PDO::PGSQL_ATTR_DISABLE_PREPARES => (bool) env('DB_DISABLE_PREPARES', false),
-                // H1: fail fast instead of hanging a PHP-FPM worker 30s on a
-                // dead PgBouncer/backend. Short connect timeout; per-statement
-                // budget is enforced at the DB role level (statement_timeout).
+                // Fail fast on unreachable database/PgBouncer backends; statement timeouts are governed at role/session level.
                 PDO::ATTR_TIMEOUT => (int) env('DB_CONNECT_TIMEOUT', 5),
             ] : [],
         ],
@@ -170,9 +168,7 @@ $config = [
             'password' => env('REDIS_PASSWORD'),
             'port' => env('REDIS_PORT', '6379'),
             'database' => env('REDIS_DB', '0'),
-            // H1: phpredis without timeout falls back to default_socket_timeout
-            // (60s); with max_retries=3 one request could block minutes and
-            // exhaust every PHP-FPM worker. Fail fast instead.
+            // Enforce short timeouts so unresponsive Redis nodes do not exhaust PHP-FPM worker pools.
             'timeout' => (float) env('REDIS_TIMEOUT', 2.0),
             'read_timeout' => (float) env('REDIS_READ_TIMEOUT', 2.0),
             'max_retries' => env('REDIS_MAX_RETRIES', 3),
@@ -188,7 +184,7 @@ $config = [
             'password' => env('REDIS_PASSWORD'),
             'port' => env('REDIS_PORT', '6379'),
             'database' => env('REDIS_CACHE_DB', '1'),
-            // H1: same fail-fast budget as the default connection.
+            // Match the default fail-fast timeout budget.
             'timeout' => (float) env('REDIS_TIMEOUT', 2.0),
             'read_timeout' => (float) env('REDIS_READ_TIMEOUT', 2.0),
             'max_retries' => env('REDIS_MAX_RETRIES', 3),

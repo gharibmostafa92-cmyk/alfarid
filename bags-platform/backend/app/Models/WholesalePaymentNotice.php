@@ -9,7 +9,11 @@ use App\Enums\WholesalePaymentNoticeStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * Wholesale customer bank transfer payment notice with OCR match verification, receipt attachment, and treasury link.
+ */
 class WholesalePaymentNotice extends Model
 {
     use HasFactory;
@@ -26,9 +30,15 @@ class WholesalePaymentNotice extends Model
         'receipt_file_path',
         'status',
         'reviewed_by',
+        'approved_at',
         'admin_notes',
+        'receipt_sha256',
+        'ocr_payload',
+        'match_score',
         'treasury_id',
         'treasury_transaction_id',
+        'reversed_at',
+        'reversal_treasury_transaction_id',
     ];
 
     protected function casts(): array
@@ -37,6 +47,10 @@ class WholesalePaymentNotice extends Model
             'amount' => 'decimal:2',
             'payment_method' => WholesalePaymentMethod::class,
             'transfer_date' => 'date',
+            'approved_at' => 'datetime',
+            'reversed_at' => 'datetime',
+            'ocr_payload' => 'array',
+            'match_score' => 'decimal:2',
             'status' => WholesalePaymentNoticeStatus::class,
         ];
     }
@@ -49,6 +63,11 @@ class WholesalePaymentNotice extends Model
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);
+    }
+
+    public function allocations(): HasMany
+    {
+        return $this->hasMany(WholesalePaymentAllocation::class, 'notice_id');
     }
 
     public function reviewer(): BelongsTo

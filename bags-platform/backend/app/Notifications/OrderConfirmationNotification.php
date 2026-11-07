@@ -9,7 +9,9 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Notification;
 
-/** تأكيد استلام طلب جديد — للعميل صاحب الطلب. */
+/**
+ * Order confirmation notification delivered to the purchasing customer.
+ */
 class OrderConfirmationNotification extends Notification implements ShouldQueue
 {
     use Queueable;
@@ -33,7 +35,7 @@ class OrderConfirmationNotification extends Notification implements ShouldQueue
             'order_number' => $this->order->order_number,
             'grand_total' => $this->order->grand_total,
             'message' => $message,
-            // شكل موحد لبوابة الجملة: {title, body, icon, link:{screen,id}}
+            // Standardized schema for wholesale portal notifications: {title, body, icon, link:{screen, id}}
             'title' => "تم استلام طلبك رقم {$this->order->order_number}",
             'body' => $message,
             'icon' => 'fa-box',

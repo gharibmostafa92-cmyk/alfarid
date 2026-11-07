@@ -32,9 +32,9 @@ use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
 /**
- * انحدار جولة المراجعة الثالثة: C1 لقطة الجرد، H1 فروع fail-closed،
- * H2 عدم تكرار التسويات، H3 خصم المجموعة فوق القناة، M1 حمولة الاعتماد،
- * M2 حذف التحويلات ذات الحركات، M3 الصنف غير المُسعَّر.
+ * Security review round 3 regressions: stocktake snapshots, fail-closed branch access,
+ * idempotency on reconciliations, customer group discount precedence over sales channels,
+ * transfer approval payloads, and unpriced catalog variant guards.
  */
 class SecurityReviewRound3Test extends TestCase
 {
@@ -304,7 +304,7 @@ class SecurityReviewRound3Test extends TestCase
     {
         Auth::forgetGuards();
 
-        // M2: مفتاح عدم تكرار جديد لكل طلب — إلا إذا حدده الاختبار (إعادة تشغيل).
+        // Fresh idempotency key per request unless explicitly specified by test for replay testing.
         if (! isset($headers['Idempotency-Key']) && ! isset($this->defaultHeaders['Idempotency-Key'])) {
             $headers['Idempotency-Key'] = (string) Str::uuid();
         }

@@ -44,7 +44,7 @@ class ProductVariantFactory extends Factory
         ];
     }
 
-    /** باركود EAN-13 داخلي سليم الرقم التأكيدي (يبدأ بـ 2). */
+    /** Generate valid internal EAN-13 barcode starting with 2 and computed check digit. */
     private function ean13(): string
     {
         $base = '2'.str_pad((string) fake()->unique()->numberBetween(0, 99999999999), 11, '0', STR_PAD_LEFT);

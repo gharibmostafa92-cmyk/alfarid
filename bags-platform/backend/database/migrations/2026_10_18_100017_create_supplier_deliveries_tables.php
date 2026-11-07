@@ -8,8 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * المرحلة 10 — إشعارات توريد الموردين (ASN): شحنات جزئية/كلية مقابل أمر شراء
- * مع فاتورة مبدئية مرفوعة، يستلمها المخزن لاحقًا عبر استلام أمر الشراء.
+ * Advanced shipping notices (ASN) from suppliers against purchase orders with supporting invoice documents.
  */
 return new class extends Migration
 {

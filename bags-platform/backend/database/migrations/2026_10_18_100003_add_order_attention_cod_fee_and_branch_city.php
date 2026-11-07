@@ -7,10 +7,10 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * ‏needs_attention: علم مراقبة لطلبات تحتاج تدخلًا بشريًا (M19).
- * ‏cod_fee: رسوم الدفع عند الاستلام المحصّلة من العميل (M12).
- * ‏branches.city_id: ربط الفرع بمدينة بمعرّف بدل مطابقة الاسم النصي (L5)،
- * بلا FK تماشيًا مع نمط المشروع (تراجع هجرات أخرى يسقط جدول المدن).
+ * Adds operational attention flags, cash-on-delivery fees, and branch city linkage:
+ * - orders.needs_attention: flags orders requiring manual staff intervention.
+ * - orders.cod_fee: cash on delivery surcharge collected from customer.
+ * - branches.city_id: links branches to normalized city entities without hard FK constraints.
  */
 return new class extends Migration
 {

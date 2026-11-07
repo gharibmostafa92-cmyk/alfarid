@@ -11,19 +11,18 @@ use App\Http\Controllers\Api\V1\Supplier\DeliveryController;
 use App\Http\Controllers\Api\V1\Supplier\PurchaseOrderController;
 use Illuminate\Support\Facades\Route;
 
-// معرّفات رقمية فقط — غير الرقمي 404 بدل خطأ قاعدة بيانات
+// Enforce numeric route patterns to return 404 rather than casting exceptions.
 Route::pattern('purchase_order', '[0-9]{1,18}');
 Route::pattern('delivery', '[0-9]{1,18}');
 
-// دخول موظفي المورد (supplier_users) — عام مع حد محاولات (legacy — M5:
-// يُعطَّل مع LEGACY_LOGIN_ENABLED=false لصالح /api/v1/auth/login).
+// Legacy supplier authentication; disabled when LEGACY_LOGIN_ENABLED=false in favor of /api/v1/auth/login.
 if (config('auth.legacy_login_enabled', false)) {
     Route::post('auth/login', [AuthController::class, 'login'])
         ->middleware('throttle:supplier-login')
         ->name('auth.login');
 }
 
-// بوابة المورد: كل المسارات التالية مقيدة بمورد صاحب التوكن حصرًا
+// Supplier portal endpoints scoped strictly to the authenticated supplier.
 Route::middleware(['auth:sanctum', 'auth.supplier', 'throttle:120,1'])->group(function (): void {
     Route::post('auth/logout', [AuthController::class, 'logout'])->name('auth.logout');
     Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');

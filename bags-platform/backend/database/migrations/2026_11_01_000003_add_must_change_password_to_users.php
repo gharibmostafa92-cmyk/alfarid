@@ -9,8 +9,7 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration
 {
     /**
-     * L8: إجبار تدوير كلمة المرور المؤقتة — المولّدة من المساعد يجب أن
-     * تُغيَّر في أول دخول قبل أي عمل آخر.
+     * Adds must_change_password flag to require newly provisioned staff users to rotate initial temporary passwords upon first login.
      */
     public function up(): void
     {

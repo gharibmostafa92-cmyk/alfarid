@@ -11,7 +11,9 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 
-/** إشعار مستخدمي المورد النشطين بأمر الشراء الجديد في بوابتهم. */
+/**
+ * Notifies active supplier portal users of a newly issued purchase order.
+ */
 class SendPurchaseOrderSent implements ShouldQueue
 {
     public function handle(PurchaseOrderSentToSupplier $event): void

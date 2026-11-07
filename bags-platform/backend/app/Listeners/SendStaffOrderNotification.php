@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 
 /**
- * L8: staff notification split out of SendOrderConfirmation.
+ * Staff notification is decoupled from SendOrderConfirmation.
  *
  * Two separate queued listeners (auto-discovered via OrderCreated type-hints)
  * so a staff-notify failure retries only the staff fan-out — the customer's

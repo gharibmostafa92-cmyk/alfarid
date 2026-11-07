@@ -7,9 +7,8 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * المرحلة 10 — جدول الموردين + ربط supplier_users (من المرحلة 1) به:
- * العمود supplier_id كان رقمًا بلا قيد؛ هنا يصير Foreign Key فعليًا.
- * current_balance = ما نَدين به للمورد الآن (يتحرك مع اعتماد الفواتير والدفعات).
+ * Provisions the suppliers table and constrains supplier_users.supplier_id with a foreign key.
+ * Tracks accounts payable balances adjusted upon invoice approvals and payment disbursement.
  */
 return new class extends Migration
 {

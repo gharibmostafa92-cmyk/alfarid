@@ -6,7 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-// 0.3: سبب رفض المستند — كان التاجر يشوف "مرفوض" من غير ما يعرف ليه.
+// Explains reasons for document rejection to wholesale applicants.
 return new class extends Migration
 {
     public function up(): void

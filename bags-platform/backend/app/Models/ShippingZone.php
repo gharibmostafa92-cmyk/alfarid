@@ -10,6 +10,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * Geographic delivery zone grouping cities for tiered shipping rates.
+ */
 class ShippingZone extends Model
 {
     /** @use HasFactory<ShippingZoneFactory> */

@@ -8,15 +8,12 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * تحصين نطاق الطلبات:
- * - مفتاح منع التكرار مقيّد بهوية المُرسِل (F2): القيد الفريد العالمي على
- *   idempotency_key يسمح لطرف بسرقة/تعطيل مفتاح غيره؛ يُستبدل بقيد مركّب
- *   (idempotency_scope, idempotency_key).
- * - orders.guest_phone_normalized: هوية الزائر الموحّدة لسقف الطلبات (F5).
- * - coupon_usages.coupon_id: restrict بدل cascade حتى لا يمحو حذف الكوبون
- *   سجل استخدامه التاريخي (F14).
- * - فهرس orders(coupon_id, status) لعدّ الطلبات المعلقة للكوبون (F16).
- * - تعطيل مستخدم النظام فلا يُسجَّل دخوله (F23).
+ * Order domain hardening:
+ * - Scopes idempotency keys to client sender identity (idempotency_scope, idempotency_key).
+ * - Denormalizes normalized guest phone on orders for reliable deduplication and abuse limits.
+ * - Restricts coupon deletions if historical usage records exist.
+ * - Adds index on orders(coupon_id, status) for rapid active reservation counts.
+ * - Enforces inactive status on the automated system user.
  */
 return new class extends Migration
 {
@@ -39,7 +36,7 @@ return new class extends Migration
             $table->index(['coupon_id', 'status']);
         });
 
-        // حذف الكوبون لا يمحو سجل استخدامه (F14)
+        // Retain coupon usage history when coupons are retired (restrict deletion)
         Schema::table('coupon_usages', function (Blueprint $table): void {
             $table->dropForeign(['coupon_id']);
         });
@@ -47,7 +44,7 @@ return new class extends Migration
             $table->foreign('coupon_id')->references('id')->on('coupons')->restrictOnDelete();
         });
 
-        // مستخدم النظام للتدقيق فقط: لا يُسجَّل دخوله (F23)
+        // Deactivate system user to disallow interactive login sessions
         DB::table('users')
             ->where('email', (string) config('orders.system_user_email', 'system@alfarid.local'))
             ->update(['is_active' => false]);

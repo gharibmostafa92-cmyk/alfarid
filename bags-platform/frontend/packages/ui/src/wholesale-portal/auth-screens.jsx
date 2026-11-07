@@ -38,7 +38,7 @@ export const ApplicationStatus = ({ onLogout, onEnter }) => {
   const d = api.data;
   const status = d?.status || 'pending';
   const s = APP_STATUS[status] || APP_STATUS.pending;
-  // 4.5: سبب رفض كل مستند (review_note) جاي من rejected_documents — بنربطه بالـ id.
+  // Map document rejection notes from rejected_documents array by document ID.
   const notes = Object.fromEntries((d?.rejected_documents || []).map((doc) => [doc.id, doc.review_note]));
   const docs = (d?.documents || []).map((doc) => ({
     id: doc.id, name: doc.original_name, type: DOC_TYPE[doc.document_type] || doc.document_type, status: DOC_ST[doc.status] || doc.status, note: notes[doc.id] || null,

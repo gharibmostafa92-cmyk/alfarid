@@ -7,10 +7,9 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * مفاتيح عدم التكرار (Idempotency) لطلبات التسويات اليدوية: إعادة إرسال نفس
- * الطلب (retry شبكة/ضغط مزدوج) تعيد الرد المحفوظ بدل تنفيذ الحركات مرتين،
- * ونفس المفتاح بحمولة مختلفة يُرفض 409. الإدراج داخل transaction التسوية نفسها،
- * ففشل الطلب يلغي المفتاح معه وتظل إعادة المحاولة ممكنة.
+ * Idempotency keys for manual stock adjustments: network retries replay the saved response,
+ * while conflicting payloads with the same key are rejected with 409 Conflict.
+ * Keys are committed within the adjustment transaction to allow retries upon failure.
  */
 return new class extends Migration
 {

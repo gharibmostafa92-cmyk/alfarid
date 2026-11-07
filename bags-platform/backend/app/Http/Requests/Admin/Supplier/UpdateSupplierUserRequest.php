@@ -8,7 +8,9 @@ use App\Rules\EmailNotUsedByOtherAccountType;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
-/** تعديل حساب موظف مورد (بيانات/تفعيل/كلمة مرور اختيارية). */
+/**
+ * Update supplier user profile, activation status, or credentials.
+ */
 class UpdateSupplierUserRequest extends FormRequest
 {
     public function authorize(): bool

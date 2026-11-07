@@ -532,4 +532,28 @@ class InventoryService
             throw new BusinessException('نوع حركة المخزون لا يطابق وعاء المخزون أو اتجاه الكمية.');
         }
     }
+
+    /**
+     * Compute new weighted average cost (WAC) using 4-decimal precision arithmetic.
+     */
+    public static function calculateWeightedAverageCost(
+        string|float|int $currentStock,
+        string|float|int $currentCost,
+        string|float|int $incomingQty,
+        string|float|int $incomingUnitCost
+    ): string {
+        $safeCurrent = bccomp((string) $currentStock, '0', 4) < 0 ? '0' : (string) $currentStock;
+        $qtyStr = (string) $incomingQty;
+        $totalCost = bcadd(
+            bcmul($safeCurrent, (string) $currentCost, 8),
+            bcmul($qtyStr, (string) $incomingUnitCost, 8),
+            8
+        );
+        $denominator = bcadd($safeCurrent, $qtyStr, 4);
+        if (bccomp($denominator, '0', 4) === 0) {
+            return bcadd((string) $currentCost, '0', 4);
+        }
+
+        return bcadd(bcdiv($totalCost, $denominator, 5), '0.00005', 4);
+    }
 }

@@ -15,6 +15,9 @@ use Laravel\Sanctum\HasApiTokens;
 
 #[Fillable(['supplier_id', 'name', 'email', 'phone', 'password', 'is_active'])]
 #[Hidden(['password', 'remember_token'])]
+/**
+ * Authenticated supplier portal user account representing an external vendor.
+ */
 class SupplierUser extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable;

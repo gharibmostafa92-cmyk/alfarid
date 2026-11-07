@@ -16,9 +16,7 @@ let activeToken: string | null = null;
 let unauthorizedHandler: (() => void) | null = null;
 
 export function setAuthToken(token: string | null) {
-  // H7: module state is shared across concurrent SSR requests. Setting a
-  // per-request token here would leak user A's token into user B's request.
-  // On the server always use createApiClient({ getToken: () => tokenFromThisRequest }).
+  // Module-level state is shared across concurrent SSR requests in Node; restrict setAuthToken to client-side only to prevent cross-request token leaks.
   if (typeof window === 'undefined') {
     throw new Error('setAuthToken must not be called on the server -- create a per-request client with createApiClient({ getToken }) instead.');
   }

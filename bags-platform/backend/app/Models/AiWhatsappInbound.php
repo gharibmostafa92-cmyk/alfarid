@@ -7,6 +7,9 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Audit log for incoming WhatsApp webhook messages received from staff or merchants.
+ */
 class AiWhatsappInbound extends Model
 {
     protected $table = 'ai_whatsapp_inbound';

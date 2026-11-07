@@ -8,7 +8,9 @@ use App\Enums\RefundMethod;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
-/** تعديل إداري على مرتجع: ملاحظات/طريقة رد، أو إغلاقه برفض/إلغاء (بقية الانتقالات من نقاط الإجراءات). */
+/**
+ * Administrative updates to a return request (notes, refund method, or rejection/cancellation).
+ */
 class UpdateReturnRequest extends FormRequest
 {
     public function authorize(): bool

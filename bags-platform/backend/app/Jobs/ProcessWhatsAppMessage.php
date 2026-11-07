@@ -17,6 +17,9 @@ use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Throwable;
 
+/**
+ * Queued background job that decrypts and dispatches inbound WhatsApp messages to the AI assistant.
+ */
 class ProcessWhatsAppMessage implements ShouldBeEncrypted, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
@@ -24,8 +27,8 @@ class ProcessWhatsAppMessage implements ShouldBeEncrypted, ShouldQueue
     public int $timeout = 300;
 
     /**
-     * release() بعد 423 بيعدّ محاولة. maxExceptions يعدّ الأعطال
-     * الحقيقية بس، عشان الضغط المؤقت مايسقطش الرسالة بعد 3 ثواني انتظار.
+     * Releasing the job on lock contention (423) increments attempt counters.
+     * $maxExceptions isolates genuine uncaught crashes from normal backoff retries.
      */
     public int $tries = 25;
 

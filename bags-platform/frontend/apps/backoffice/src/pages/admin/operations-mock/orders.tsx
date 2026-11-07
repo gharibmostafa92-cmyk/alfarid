@@ -97,7 +97,7 @@ export function OrdersList({ go }: { go: (route: { m: string; id?: number | stri
   const [page, setPage] = useState(1);
   const dq = useDebounced(q);
 
-  // ارجع للصفحة 1 عند تغيير أي فلتر
+  // Reset to page 1 upon filter mutation
   useEffect(() => { setPage(1); }, [dq, st, br, pm, from, to, fu, rf]);
 
   const params: AdminOrderListParams = {

@@ -6,7 +6,9 @@ namespace App\Http\Requests\Admin\Procurement;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-/** استلام بضاعة أمر شراء: كميات لكل بند + موقع اختياري + إشعار توريد اختياري للمطابقة. */
+/**
+ * Receive purchase order goods: received quantities per line, optional bin location, and optional ASN match.
+ */
 class ReceivePurchaseOrderRequest extends FormRequest
 {
     public function authorize(): bool

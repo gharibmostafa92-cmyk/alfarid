@@ -6,7 +6,9 @@ namespace App\Http\Requests\Supplier\Auth;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-/** دخول بوابة المورد (supplier_users). */
+/**
+ * Supplier portal user authentication.
+ */
 class LoginRequest extends FormRequest
 {
     public function authorize(): bool

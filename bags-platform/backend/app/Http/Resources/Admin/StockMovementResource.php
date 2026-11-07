@@ -8,6 +8,9 @@ use App\Services\CostAccess;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
+/**
+ * Administrative stock movement audit trail resource representation with cost access gating.
+ */
 class StockMovementResource extends JsonResource
 {
     /**
@@ -39,7 +42,7 @@ class StockMovementResource extends JsonResource
             'quantity' => $this->quantity,
             'balance_before' => $this->balance_before,
             'balance_after' => $this->balance_after,
-            // تكلفة الشراء معلومة تجارية حساسة: لا تظهر إلا بصلاحية صريحة
+            // Procurement unit cost is sensitive commercial data; gate visibility behind explicit authorization.
             'unit_cost' => $this->when(CostAccess::canView($request->user()), $this->unit_cost),
             'reference_type' => $this->reference_type,
             'reference_id' => $this->reference_id,

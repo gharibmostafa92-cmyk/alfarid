@@ -8,7 +8,9 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Notification;
 
-/** تنبيه انخفاض مخزون متغير في فرع إلى حد إعادة الطلب. */
+/**
+ * Alerts staff when branch variant inventory drops to or below the reorder point.
+ */
 class LowStockAlertNotification extends Notification implements ShouldQueue
 {
     use Queueable;

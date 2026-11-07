@@ -29,7 +29,7 @@ class OrderItemFactory extends Factory
         ];
     }
 
-    /** لقطات الاسم والـ SKU من المتغير نفسه بدل بيانات عشوائية. */
+    /** Populate product name and SKU snapshots directly from the variant model instead of faked data. */
     public function forVariant(ProductVariant $variant): static
     {
         return $this->state(fn (): array => [

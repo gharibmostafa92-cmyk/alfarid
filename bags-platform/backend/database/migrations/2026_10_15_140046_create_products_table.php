@@ -13,10 +13,10 @@ return new class extends Migration
     {
         Schema::create('products', function (Blueprint $table) {
             $table->id();
-            $table->string('code')->nullable()->unique();          // P00001 بيتولد تلقائي
+            $table->string('code')->nullable()->unique();          // Auto-generated sequence (e.g. P00001)
             $table->foreignId('category_id')->constrained()->restrictOnDelete();
             $table->foreignId('brand_id')->nullable()->constrained()->nullOnDelete();
-            $table->unsignedBigInteger('supplier_id')->nullable()->index(); // الـ FK هيتضاف في مرحلة الموردين
+            $table->unsignedBigInteger('supplier_id')->nullable()->index(); // FK constraint added in later migration once suppliers table exists
             $table->string('name_ar');
             $table->string('name_en');
             $table->string('slug')->unique();

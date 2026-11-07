@@ -7,26 +7,11 @@ namespace App\Http\Requests\Api\V1\Admin;
 use App\Models\User;
 use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Rules\PasswordByteLimit;
-use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
 
-class UpdateUserRequest extends FormRequest
+class UpdateUserRequest extends StoreUserRequest
 {
-    protected function prepareForValidation(): void
-    {
-        $email = $this->input('email');
-
-        if (is_string($email)) {
-            $this->merge(['email' => mb_strtolower(trim($email))]);
-        }
-    }
-
-    public function messages(): array
-    {
-        return ['email.unique' => 'هذا البريد مستخدم بحساب آخر في النظام.'];
-    }
-
     public function authorize(): bool
     {
         abort_if($this->route('user') instanceof User && $this->route('user')->is_system, 404);

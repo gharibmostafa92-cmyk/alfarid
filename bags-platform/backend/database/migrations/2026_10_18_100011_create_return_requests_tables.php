@@ -8,11 +8,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * المرحلة 9 — جداول طلبات المرتجعات (RMA) وبنودها.
- *
- * القاعدة الذهبية: إنشاء الطلب أو الموافقة المبدئية لا يحرّكان أي رصيد؛
- * الإضافة الفعلية للمخزون تحدث حصريًا عند الاستلام والفحص (ReturnService::receive)
- * عبر InventoryService::recordMovement، فتُحفظ الحركات بمرجع هذا الطلب.
+ * Return merchandise authorization (RMA) requests and item breakdowns.
+ * Note: Request submission and initial approval do not adjust stock levels; inventory
+ * movements occur strictly upon physical receipt and inspection via ReturnService::receive.
  */
 return new class extends Migration
 {
@@ -23,14 +21,14 @@ return new class extends Migration
             $table->string('return_number')->unique();
             $table->foreignId('order_id')->constrained('orders');
             $table->foreignId('customer_id')->nullable()->constrained('customers')->nullOnDelete();
-            // الفرع/المخزن المستلم للمرتجع — يُحدد عند الموافقة المبدئية
+            // Designated receiving warehouse or branch assigned during initial approval
             $table->foreignId('branch_id')->nullable()->constrained('branches')->nullOnDelete();
             $table->string('status', 20)->default('pending');
             $table->string('refund_method', 30)->nullable();
             $table->decimal('total_refund_amount', 12, 2)->default(0);
             $table->text('reason');
             $table->text('admin_notes')->nullable();
-            // مرجع عملية الرد المالي (تحويل بنكي/بوابة دفع) عند إتمام الاسترداد
+            // External payment gateway refund ID or bank transfer receipt reference
             $table->string('refund_reference')->nullable();
             $table->foreignId('approved_by')->nullable()->constrained('users')->nullOnDelete();
             $table->foreignId('received_by')->nullable()->constrained('users')->nullOnDelete();
@@ -50,14 +48,14 @@ return new class extends Migration
         Schema::create('return_request_items', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('return_request_id')->constrained('return_requests')->cascadeOnDelete();
-            // البند الأصلي من الطلب — سقف الإرجاع يُحسب منه ومن مرتجعاته السابقة
+            // Source order line used to validate returnable quantity limits against prior returns
             $table->foreignId('order_item_id')->constrained('order_items');
             $table->foreignId('product_variant_id')->constrained('product_variants');
             $table->decimal('requested_qty', 12, 4);
             $table->decimal('approved_qty', 12, 4)->default(0);
             $table->decimal('received_good_qty', 12, 4)->default(0);
             $table->decimal('received_damaged_qty', 12, 4)->default(0);
-            // سعر الوحدة الصافي لحظة الشراء بعد كل الخصومات (قسط الكوبون موزع على البند)
+            // Effective purchase price after apportioning item-level and order-level coupon discounts
             $table->decimal('unit_refund_price', 12, 4);
             $table->string('item_reason')->nullable();
             $table->json('attachments')->nullable();

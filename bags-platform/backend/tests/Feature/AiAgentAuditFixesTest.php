@@ -82,7 +82,7 @@ class AiAgentAuditFixesTest extends TestCase
     {
         $admin = $this->staff(['ai_agent.use', 'branches.view', 'inventory.all_branches']);
         $conv = $this->conv($admin);
-        // model(functionCall) id=N، ثم event من تأكيد قديم في تبويب آخر، ثم tool.
+        // Inbound functionCall followed by event from concurrent tab, then tool response.
         AiMessage::create(['conversation_id' => $conv->id, 'role' => 'user', 'content' => 'هات الفروع', 'provider_parts' => [['text' => 'هات الفروع']]]);
         AiMessage::create(['conversation_id' => $conv->id, 'role' => 'model', 'content' => null, 'provider_parts' => [['functionCall' => ['name' => 'list_branches', 'args' => []]]]]);
         AiMessage::create(['conversation_id' => $conv->id, 'role' => 'event', 'content' => 'تم إلغاء الإجراء 1']);
@@ -103,7 +103,7 @@ class AiAgentAuditFixesTest extends TestCase
                 $flat[] = $part;
             }
         }
-        // لا رد interrupted صناعي ولا functionResponse يتيم.
+        // Prevents synthetic interrupted replies and orphaned function responses.
         foreach ($flat as $part) {
             $resp = (array) ($part['functionResponse']['response'] ?? []);
             $this->assertFalse((bool) ($resp['interrupted'] ?? false));
@@ -120,7 +120,7 @@ class AiAgentAuditFixesTest extends TestCase
         }
         $this->assertNotNull($callIdx);
         $this->assertNotNull($responseIdx);
-        // الرد يأتي مباشرة بعد الاستدعاء (الـ event تأجلت لبعده).
+        // Reply streams immediately after function call; event is deferred.
         $this->assertSame($callIdx + 1, $responseIdx);
     }
 
@@ -139,8 +139,7 @@ class AiAgentAuditFixesTest extends TestCase
         $this->assertCount(10, $parts);
         $denied = array_filter($parts, fn ($p) => (bool) (($p['functionResponse']['response'] ?? [])['denied'] ?? false));
         $this->assertCount(2, $denied);
-        // لا إجراءات معلقة من الزيادة (أدوات قراءة أصلًا لا تنشئها،
-        // لكن الرفض نفسه يجب ألا يُسجَّل كتدقيق).
+        // Denied read tool execution does not flood the pending action log.
         $this->assertSame(0, AiPendingAction::query()->where('conversation_id', $conv->id)->count());
     }
 
@@ -205,7 +204,7 @@ class AiAgentAuditFixesTest extends TestCase
             $this->assertStringContainsString('ORD-005000', collect($e->errors())->flatten()->implode(' '));
         }
 
-        // تغيير غير متصادم ينجح.
+        // Non-conflicting update succeeds.
         app(SettingService::class)->updateBatch(['order_prefix' => 'ORDX-']);
         $this->assertSame('ORDX-', DB::table('settings')->where('key', 'order_prefix')->value('value'));
     }
@@ -231,7 +230,7 @@ class AiAgentAuditFixesTest extends TestCase
         $admin = $this->staff(['inventory.all_branches']);
         $drawer = Treasury::create(['name' => 'درج', 'code' => 'DR-1', 'branch_id' => $branch->id, 'type' => TreasuryType::PosDrawer, 'current_balance' => 0, 'is_active' => true]);
 
-        // M4 fail-closed: inactive branch refuses with 403, not 422.
+        // Inactive branch access fails closed with 403 status.
         try {
             app(PosService::class)->openShift($admin, $branch->id, $drawer->id, 0.0);
             $this->fail('Expected AuthorizationException for an inactive branch.');
@@ -247,7 +246,7 @@ class AiAgentAuditFixesTest extends TestCase
         $branchSafe = Treasury::create(['name' => 'خزنة فرع', 'code' => 'BR-SAFE', 'branch_id' => $branch->id, 'type' => TreasuryType::MainSafe, 'current_balance' => 100, 'is_active' => true]);
         $central = Treasury::create(['name' => 'بنك مركزي', 'code' => 'BANK-1', 'branch_id' => null, 'type' => TreasuryType::BankAccount, 'current_balance' => 0, 'is_active' => true]);
 
-        // M4 fail-closed: inactive branch treasury refuses with 403, not 422.
+        // Inactive branch treasury fails closed with 403 status.
         try {
             app(TreasuryService::class)->record(['treasury_id' => $branchSafe->id, 'type' => TreasuryTransactionType::CustomerReceipt, 'amount' => 50, 'created_by' => $admin->id]);
             $this->fail('Expected AuthorizationException for an inactive branch treasury.');
@@ -262,8 +261,7 @@ class AiAgentAuditFixesTest extends TestCase
     public function test_l1_password_rotation_via_users_self_update_is_exempt(): void
     {
         $user = User::factory()->create(['password' => 'Old-password12', 'must_change_password' => true]);
-        // مستخدم مركزي حتى لا يحجبه فحص الفرع داخل UpdateStaffUser
-        // (خارج نطاق L-1) — الاختبار يثبت إصلاح شرط الـ middleware فقط.
+        // Central administrative user verifies middleware authentication requirements.
         $user->givePermissionTo(Permission::findOrCreate('users.update', 'staff'));
         $user->givePermissionTo(Permission::findOrCreate('inventory.all_branches', 'staff'));
 
@@ -296,9 +294,7 @@ class AiAgentAuditFixesTest extends TestCase
     {
         $admin = $this->staff(['ai_agent.use']);
         $conv = $this->conv($admin);
-        // AgentOrchestrator نهائي فلا يُحاكى؛ لكن GeminiClient غير نهائي
-        // ويُحقن فيه، وconverse() يلتقط GeminiException فقط — فـ
-        // AuthorizationException منه تصل فعلًا إلى catch الـ stream.
+        // AuthorizationException propagates cleanly out of the conversation stream.
         $this->app->bind(GeminiClient::class, fn () => new class extends GeminiClient
         {
             public function converse(array $contents, array $functionDeclarations = [], ?string $system = null, ?string $model = null): array

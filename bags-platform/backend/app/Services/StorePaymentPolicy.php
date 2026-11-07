@@ -26,27 +26,27 @@ final class StorePaymentPolicy
      */
     public function allowedFor(?Customer $customer): array
     {
-        $configured = array_values(array_filter((array) config('store.payment_methods', ['cod'])));
-        $walletEnabled = in_array('wallet', $configured, true);
+        $configured = (array) config('store.payment_methods', ['cod']);
+        $walletConfigured = in_array('wallet', $configured, true);
+
         // Wallet and credit require customer qualification and cannot be granted via generic config alone.
-        $methods = array_values(array_filter($configured, fn ($method) => ! in_array($method, ['wallet', 'credit'], true)));
+        $methods = array_filter($configured, fn (mixed $method): bool => ! in_array($method, ['wallet', 'credit'], true));
+
         // Bank transfer relies on InstaPay collection and cannot operate without an active receiving address.
         if ($this->instapayAddress() === null) {
-            $methods = array_values(array_diff($methods, ['bank_transfer']));
+            $methods = array_diff($methods, ['bank_transfer']);
         }
 
         // Suspended or unapproved accounts cannot draw on stored balances.
-        if ($walletEnabled && $customer !== null && $customer->status === CustomerStatus::Approved) {
+        if ($walletConfigured && $customer !== null && $customer->status === CustomerStatus::Approved) {
             $methods[] = 'wallet';
         }
         // Deferred credit is a trade credit facility restricted to verified wholesale accounts.
-        if ($customer !== null
-            && $customer->status === CustomerStatus::Approved
-            && in_array($customer->type, [CustomerType::Wholesale, CustomerType::Distributor], true)) {
+        if ($customer?->isWholesaleApproved()) {
             $methods[] = 'credit';
         }
 
-        return array_values(array_unique($methods));
+        return array_values(array_unique(array_filter($methods, is_string(...))));
     }
 
     /**
@@ -71,8 +71,7 @@ final class StorePaymentPolicy
     public function instapayInstructions(Order $order): ?array
     {
         $address = $this->instapayAddress();
-        if ($address === null || $order->channel !== 'store' || $order->payment_method !== 'bank_transfer'
-            || $order->payment_status !== 'unpaid' || $order->status !== OrderStatus::Pending) {
+        if ($address === null || ! $this->canReceiveInstapay($order)) {
             return null;
         }
 
@@ -84,5 +83,13 @@ final class StorePaymentPolicy
             'amount' => (string) $order->grand_total,
             'expires_at' => $expiresAt->toIso8601String(),
         ] : null;
+    }
+
+    private function canReceiveInstapay(Order $order): bool
+    {
+        return $order->channel === 'store'
+            && $order->payment_method === 'bank_transfer'
+            && $order->payment_status === 'unpaid'
+            && $order->status === OrderStatus::Pending;
     }
 }

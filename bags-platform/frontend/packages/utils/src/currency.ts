@@ -23,7 +23,11 @@ function getFormatter(locale: string, currency: string, minDigits: number, maxDi
 }
 
 const egp = new Intl.NumberFormat('en-EG', { style: 'currency', currency: 'EGP', minimumFractionDigits: 0, maximumFractionDigits: 2 });
-export const formatStorePrice = (v: number) => egp.format(v);
+export function formatStorePrice(v: number | string | null | undefined): string {
+  const raw = typeof v === 'string' ? parseFloat(v) : (v ?? 0);
+  const numeric = isNaN(raw) ? 0 : raw;
+  return egp.format(numeric);
+}
 
 export function formatCurrency(
   amount: number | string | null | undefined,
@@ -44,4 +48,15 @@ export function formatCurrency(
   } catch {
     return `${numericAmount.toFixed(minimumFractionDigits)} ${currency}`;
   }
+}
+
+/**
+ * Format shipping cost with 'Free' for zero amounts, matching storefront display.
+ */
+export function formatShippingPrice(cost: number | string | null | undefined): string {
+  const numeric = typeof cost === 'string' ? parseFloat(cost) : (cost ?? 0);
+  if (numeric === 0) {
+    return 'Free';
+  }
+  return formatStorePrice(numeric);
 }

@@ -7,6 +7,9 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Settlement link distributing approved wholesale payments against outstanding orders.
+ */
 class WholesalePaymentAllocation extends Model
 {
     protected $fillable = [

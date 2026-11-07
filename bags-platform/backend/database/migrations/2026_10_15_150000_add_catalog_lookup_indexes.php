@@ -7,9 +7,8 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration
 {
     /**
-     * فهارس للعلاقات والترتيب: ‏foreignId()->constrained() على PostgreSQL
-     * بيعمل قيد بس من غير فهرس، فالاستعلامات على العلاقات دي كانت Seq Scan.
-     * على جدول كبير في الإنتاج شغّل إنشاء الفهارس بـ CREATE INDEX CONCURRENTLY.
+     * Relationship and ordering lookup indexes: PostgreSQL does not automatically index
+     * foreign key columns, causing full sequential scans on foreign key joins and order clauses.
      */
     public function up(): void
     {

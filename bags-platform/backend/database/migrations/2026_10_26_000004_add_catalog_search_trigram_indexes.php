@@ -8,7 +8,7 @@ return new class extends Migration
     public $withinTransaction = false;
 
     /**
-     * M7: storefront search is LOWER(col) LIKE '%…%' with a leading wildcard,
+     * Storefront search is LOWER(col) LIKE '%…%' with a leading wildcard,
      * which a B-tree cannot serve. Trigram GIN indexes on the lowered
      * expressions make it index-assisted. CONCURRENTLY so the product table
      * is never write-locked; pg_trgm is required first.

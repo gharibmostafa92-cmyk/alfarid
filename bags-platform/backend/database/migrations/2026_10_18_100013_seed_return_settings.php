@@ -6,9 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
 /**
- * المرحلة 9 — زرع إعدادات المرتجعات في قواعد قائمة (insertOrIgnore):
- * ترقيم RET-001001 ونافذة الاسترجاع بالأيام من تاريخ التسليم.
- * نفس القيم موجودة في SettingSeeder للقواعد الجديدة.
+ * Seeds default return numbering sequences (RET-) and customer return eligibility window settings.
  */
 return new class extends Migration
 {

@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Enums\StaffRole;
+use App\Listeners\WholesaleLifecycleSubscriber;
 use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\Expense;
@@ -32,6 +33,7 @@ use App\Services\Ai\Shipping\ShippingToolProvider;
 use App\Services\Ai\Storefront\StorefrontToolProvider;
 use App\Services\Ai\ToolRegistry;
 use App\Services\Ai\WhatsApp\WhatsAppActorContext;
+use App\Services\Ai\Wholesale\WholesaleToolProvider;
 use App\Services\Auth\NetworkIdentity;
 use App\Services\BranchAccess;
 use App\Services\PricingService;
@@ -60,8 +62,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        // scoped لا singleton: ذاكرة المستخدمين لكل طلب تعمل داخل الطلب، ولا
-        // تتسرب صلاحيات مستخدم لطلب آخر تحت Octane (L-6).
+        // Scoped rather than singleton: isolates user-specific state per request, avoiding credential leaks across requests under Octane.
         $this->app->scoped(BranchAccess::class);
         $this->app->scoped(SettingService::class);
         $this->app->scoped(StoreCatalogService::class);
@@ -74,6 +75,7 @@ class AppServiceProvider extends ServiceProvider
             InventoryToolProvider::class,
             PricingToolProvider::class,
             FinanceToolProvider::class,
+            WholesaleToolProvider::class,
             ShippingToolProvider::class,
             StorefrontToolProvider::class,
         ], 'ai.tool_providers');
@@ -93,6 +95,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Event::subscribe(WholesaleLifecycleSubscriber::class);
         $this->configureModelObservers();
         $this->configureLifecycleEvents();
         $this->configureSecurityAndGates();
@@ -240,7 +243,7 @@ class AppServiceProvider extends ServiceProvider
             Limit::perDay(config('auth.customer_limits.phone_verify_id_day', 20))->by('phone-verify-id-day:'.$phoneKey($request)),
         ]);
 
-        // حد دخول العملاء (متجر/جملة): بالمُعرّف (بريد/هاتف) وبالـ IP معًا
+        // Customer authentication rate limiters (retail & wholesale): throttled jointly by normalized identifier and client IP.
         RateLimiter::for('customer-login', function (Request $request) use ($networkIp): array {
             $identifier = $request->input('login');
             $idKey = is_string($identifier) && trim($identifier) !== ''
@@ -350,7 +353,7 @@ class AppServiceProvider extends ServiceProvider
             Limit::perDay(10)->by('customer-password-reset-id-day:'.$identifierKey($request)),
         ]);
 
-        // حد تسجيل دخول الكاشير على نقطة البيع
+        // Cashier POS terminal login rate limits by staff email and client IP.
         RateLimiter::for('pos-login', function (Request $request) use ($networkIp): array {
             $email = $request->input('email');
             $emailKey = hash('sha256', Str::lower(trim(is_string($email) ? $email : '')));

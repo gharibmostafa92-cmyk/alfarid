@@ -9,6 +9,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * Cashier register shift session tracking opening cash, transactions, and drawer reconciliations.
+ */
 class PosShift extends Model
 {
     protected $fillable = [

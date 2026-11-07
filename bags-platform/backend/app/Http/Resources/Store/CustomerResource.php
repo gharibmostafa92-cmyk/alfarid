@@ -7,7 +7,9 @@ namespace App\Http\Resources\Store;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
-/** تمثيل العميل لقنوات العميل نفسه (متجر/جملة) — بلا أي بيانات داخلية. */
+/**
+ * Customer profile presentation for public channels (storefront/wholesale) without internal admin fields.
+ */
 class CustomerResource extends JsonResource
 {
     /**

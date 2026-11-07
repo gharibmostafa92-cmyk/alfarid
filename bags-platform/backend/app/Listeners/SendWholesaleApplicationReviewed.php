@@ -9,14 +9,9 @@ use App\Notifications\WholesaleApplicationReviewedNotification;
 use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 
 /**
- * إشعار التاجر بنتيجة مراجعة حسابه (قبول/رفض).
- * 0.5: التنفيذ بعد الـ commit فقط — وإلا فشل الـ transaction بعد
- * الـ dispatch كان يبعت "اتقبلت" على حاجة متنفذتش (خصوصًا في مسار
- * الـ AI حيث التنفيذ جوه transaction متداخلة في PendingActionService).
- * ملحوظة: ShouldQueueAfterCommit مش ShouldHandleEventsAfterCommit —
- * الأخير بيأجّل المستمعين غير المُصفوفة فقط، أما المستمع المصفوف
- * (ShouldQueue) فلا يؤجَّل إلا بـ ShouldQueueAfterCommit (موثّق
- * بكود الفريمورك واختبار الـ rollback).
+ * Notifies merchant of wholesale onboarding application review outcome (approved or rejected).
+ * Uses ShouldQueueAfterCommit so notifications are queued strictly after database transaction commit,
+ * preventing premature delivery if parent transactions roll back.
  */
 class SendWholesaleApplicationReviewed implements ShouldQueueAfterCommit
 {

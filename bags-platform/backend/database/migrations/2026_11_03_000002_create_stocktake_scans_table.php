@@ -7,7 +7,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * H2: exactly-once POS stocktake scans. (stocktake_id, scan_id) is unique so
+ * Exactly-once POS stocktake scans: (stocktake_id, scan_id) is unique so
  * a retried HTTP request after a timeout cannot double-count. Rows are
  * deleted when the session is approved or cancelled (FK cascade on delete).
  */

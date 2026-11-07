@@ -13,7 +13,7 @@ use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Throwable;
 
 /**
- * F13: afterRollBack cleanup never runs when the process itself dies
+ * Handles cleanup when afterRollBack callbacks never run due to abnormal process termination
  * (max_execution_time, OOM, worker restart) — the DB rolls back on
  * disconnect but the orphaned R2 files stay. This command deletes uuid/
  * folders older than the grace window that no media row references.

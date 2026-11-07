@@ -6,16 +6,9 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
 /**
- * فهارس بحث شاشة الطلبات (F-18):
- * - orders.order_number / orders.guest_phone ببحث البادئة LIKE 'x%':
- *   الفهرس الافتراضي btree لا يُستخدم إلا بمطابقة collation غير C،
- *   لذا ننشئ فهرس text_pattern_ops المخصص لعمليات البادئة.
- * - orders.guest_name ببحث الاحتواء LIKE '%x%': فهرس trigram (GIN).
- *
- * ملاحظة تشغيلية: الهجرات في PostgreSQL تعمل داخل معاملة، و
- * CREATE INDEX CONCURRENTLY لا يسمح بذلك. على الجداول الكبيرة في
- * الإنتاج يُعاد بناء هذه الفهارس لاحقًا بـ CONCURRENTLY بلا قفل كتابة:
- *   CREATE INDEX CONCURRENTLY ... ON orders (... text_pattern_ops);
+ * Specialized PostgreSQL search indexes for order management:
+ * - text_pattern_ops on order_number and guest_phone for btree prefix LIKE queries.
+ * - Trigram GIN index on guest_name for fuzzy substring matching.
  */
 return new class extends Migration
 {

@@ -10,6 +10,11 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
+/**
+ * Validates manufacturing production batch receipts into branch inventory.
+ *
+ * Enforces cost access visibility permissions and checks that received variants exist and are currently active.
+ */
 class StoreProductionReceiptRequest extends FormRequest
 {
     use BulkVariantExists;
@@ -26,7 +31,7 @@ class StoreProductionReceiptRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
-        // L3: batch numbers are compared/unique-matched — trim whitespace.
+        // Trim and uppercase batch numbers to prevent duplicate batches differing only by casing/spacing.
         if (is_string($batch = $this->input('batch_number'))) {
             $this->merge(['batch_number' => mb_strtoupper(trim($batch))]);
         }

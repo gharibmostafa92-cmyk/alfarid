@@ -188,7 +188,7 @@ export default function AssistantPage({ can, theme, initialConversationId, initi
 
   useEffect(() => { void refreshList(); }, [refreshList]);
 
-  // 5.2 / 5.4: كارت الترحيب — بيتبني في السيرفر بدون Gemini، وبيظهر في المحادثة الجديدة لمن عنده customers.approve أو products.view.
+  // Welcome card is built deterministically on the backend without LLM tokens and shown in new sessions for authorized staff.
   const canWelcome = (can('customers.approve') && can('customers.view')) || can('products.view');
   useEffect(() => {
     if (!canWelcome || messages.length > 0) return;

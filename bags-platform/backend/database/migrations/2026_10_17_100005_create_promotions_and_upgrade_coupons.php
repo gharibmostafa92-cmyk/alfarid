@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * المرحلة 8.2: العروض التلقائية + ترقية الكوبونات وسجل استخداماتها.
+ * Automated promotions engine, coupon upgrades, and coupon usage tracking.
  */
 return new class extends Migration
 {
@@ -33,7 +33,7 @@ return new class extends Migration
         DB::statement("ALTER TABLE promotions ADD CONSTRAINT promotions_type_check CHECK (type IN ('percentage_discount', 'fixed_discount', 'buy_x_get_y', 'free_shipping'))");
         DB::statement("ALTER TABLE promotions ADD CONSTRAINT promotions_applies_to_check CHECK (applies_to IN ('all', 'categories', 'brands', 'variants'))");
 
-        // ترقية الكوبونات: نوع شحن مجاني + حد استخدام لكل عميل
+        // Adds per-customer coupon usage limit and free_shipping coupon type
         Schema::table('coupons', function (Blueprint $table): void {
             $table->unsignedInteger('usage_limit_per_customer')->default(1);
         });

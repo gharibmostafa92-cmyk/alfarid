@@ -8,7 +8,9 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Notification;
 
-/** نتيجة مراجعة حساب التاجر (قبول/رفض) — للتاجر نفسه. */
+/**
+ * Notifies applicant merchant of their onboarding application review outcome (approved or rejected).
+ */
 class WholesaleApplicationReviewedNotification extends Notification implements ShouldQueue
 {
     use Queueable;
@@ -37,7 +39,7 @@ class WholesaleApplicationReviewedNotification extends Notification implements S
             'decision' => $this->decision,
             'reason' => $this->reason,
             'message' => $message,
-            // شكل موحد لبوابة الجملة: {title, body, icon, link:{screen,id}}
+            // Standardized schema for wholesale portal: {title, body, icon, link:{screen, id}}
             'title' => $approved ? 'تمت الموافقة على حساب الجملة' : 'تم رفض طلب تفعيل حساب الجملة',
             'body' => $message,
             'icon' => $approved ? 'fa-circle-check' : 'fa-circle-xmark',

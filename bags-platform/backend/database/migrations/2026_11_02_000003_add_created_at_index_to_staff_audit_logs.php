@@ -10,8 +10,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        // INFO: حذف سجلات التدقيق القديمة (staff:prune-audit-logs) يمسح بنطاق
-        // created_at فقط — الفهارس الحالية بادئتها actor/target فلا تخدمه.
+        // Pruning command (staff:prune-audit-logs) filters solely by created_at; existing actor/target compound indexes cannot satisfy this range scan.
         if (! Schema::hasIndex('staff_audit_logs', 'staff_audit_logs_created_at_index')) {
             Schema::table('staff_audit_logs', function (Blueprint $table): void {
                 $table->index('created_at');

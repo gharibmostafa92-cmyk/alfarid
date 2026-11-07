@@ -6,7 +6,9 @@ namespace App\Http\Requests\Admin\Procurement;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-/** إنشاء/تعديل طلب شراء داخلي (مسودة) ببنود أصناف وكميات مطلوبة. */
+/**
+ * Create or update internal purchase request draft with required items and quantities.
+ */
 class PurchaseRequestRequest extends FormRequest
 {
     public function authorize(): bool

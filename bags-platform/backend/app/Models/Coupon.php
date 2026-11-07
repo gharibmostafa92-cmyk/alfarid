@@ -9,6 +9,9 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * Discount coupon code configuration with redemption limits, date windows, and cart rules.
+ */
 class Coupon extends Model
 {
     /** @use HasFactory<CouponFactory> */

@@ -7,9 +7,8 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * مفتاح منع تكرار الشراء (F-13): إعادة إرسال العميل بعد انقطاع الشبكة
- * ترجع الطلب نفسه بدل «السلة فارغة» ثم طلب مكرر. القيد الفريد على
- * مستوى القاعدة، وNULLات متعددة مسموحة في PostgreSQL.
+ * Adds an idempotency key to orders to safely replay existing order responses upon client retries
+ * without creating duplicate orders or charging customers twice.
  */
 return new class extends Migration
 {

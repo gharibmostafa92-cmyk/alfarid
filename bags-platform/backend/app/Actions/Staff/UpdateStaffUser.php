@@ -21,6 +21,9 @@ use Spatie\Permission\Exceptions\PermissionDoesNotExist;
 /**
  * Updates staff user profile, roles, credentials, and associated security tokens.
  */
+/**
+ * Updates staff member credentials, branch assignments, and roles with optimistic locking.
+ */
 final class UpdateStaffUser
 {
     public function __construct(private BranchAccess $branches) {}

@@ -14,7 +14,7 @@ return new class extends Migration
     public function up(): void
     {
         DB::statement('ALTER TABLE stock_movements DROP CONSTRAINT stock_movements_valid_type');
-        // M7: NOT VALID + VALIDATE avoids a full-table ACCESS EXCLUSIVE scan stall on a hot ledger.
+        // Adding constraint as NOT VALID followed by VALIDATE avoids prolonged ACCESS EXCLUSIVE table locks.
         DB::statement('ALTER TABLE stock_movements ADD CONSTRAINT stock_movements_valid_type CHECK (type IN ('.self::LEGACY_TYPES.", 'production_receipt')) NOT VALID");
         DB::statement('ALTER TABLE stock_movements VALIDATE CONSTRAINT stock_movements_valid_type');
         Schema::create('production_receipts', function (Blueprint $table) {

@@ -7,6 +7,9 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Outbox record for messages queued for transmission via WhatsApp business gateways.
+ */
 class AiWhatsappOutbound extends Model
 {
     protected $table = 'ai_whatsapp_outbound';

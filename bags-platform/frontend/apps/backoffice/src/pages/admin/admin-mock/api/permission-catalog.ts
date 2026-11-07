@@ -39,7 +39,7 @@ const RESOURCE: Record<string, string> = {
   branches: 'الفروع', locations: 'المواقع', payments: 'المدفوعات', payment_notices: 'إشعارات الدفع',
   reports: 'التقارير', notifications: 'الإشعارات', pos: 'نقطة البيع', ai_agent: 'المساعد الذكي',
 };
-/** labels مخصوصة للمفاتيح اللي التركيب الآلي مش بيطلع لها اسم كويس */
+/** Custom human-readable labels for permission keys with irregular names. */
 const OVERRIDES: Record<string, string> = {
   'ai_agent.use': 'استخدام المساعد الذكي',
   'ai_agent.execute': 'تنفيذ عمليات عبر المساعد الذكي',
@@ -66,14 +66,14 @@ export function permLabel(key: string): string {
   const [res, ...rest] = key.split('.');
   const act = rest.join('.');
   if (ACTION[act] && RESOURCE[res]) return `${ACTION[act]} ${RESOURCE[res]}`;
-  return key; // fallback: المفتاح نفسه
+  return key; // Fall back to raw permission key
 }
 export const isSensitive = (key: string) => SENSITIVE.has(key) || key.endsWith('.manage');
 
 export interface UiPermGroup { module: string; label: string; icon: string; keys: string;
   perms: [string, string, boolean][] }
 
-/** بيحوّل رد GET /permissions لنفس شكل PermissionGroup اللي roles.tsx متعوّد عليه */
+/** Adapts GET /permissions response into the PermissionGroup structure required by UI roles editor. */
 export function buildPermissionGroups(api: Record<string, { name: string }[]>): UiPermGroup[] {
   const byModule = new Map<string, string[]>();
   Object.entries(api).forEach(([prefix, list]) => {

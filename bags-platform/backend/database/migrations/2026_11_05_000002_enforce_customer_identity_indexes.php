@@ -18,14 +18,14 @@ return new class extends Migration
         }
         $c = DB::transactionLevel() === 0 ? 'CONCURRENTLY ' : '';
 
-        // M-1: بريد التاجر معرّف دخول حتى قبل التحقق.
+        // Customer email serves as a login identifier before phone verification.
         DB::statement("CREATE UNIQUE INDEX {$c}IF NOT EXISTS customers_business_email_unique ON customers (LOWER(email))
             WHERE email IS NOT NULL AND deleted_at IS NULL AND type IN ('wholesale', 'distributor')");
 
-        // INFO: مكرر مع customers_phone_unique وcustomers_phone_pattern_index.
+        // Redundant with customers_phone_unique and customers_phone_pattern_index.
         DB::statement("DROP INDEX {$c}IF EXISTS customers_phone_index");
 
-        // L-3: الافتراضي الآمن (موجود من 2026_10_16_123837، تأكيد فقط).
+        // Fail-safe default matching initial customer schema.
         DB::statement("ALTER TABLE customers ALTER COLUMN status SET DEFAULT 'pending'");
     }
 

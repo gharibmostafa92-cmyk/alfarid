@@ -7,6 +7,9 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Operating expense voucher recorded against a specific branch and treasury account.
+ */
 class Expense extends Model
 {
     protected $fillable = [

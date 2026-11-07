@@ -8,7 +8,9 @@ use App\Enums\SupplierPaymentMethod;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
-/** تسجيل دفعة لمورد — آثارها على الرصيد والفاتورة في SupplierFinanceService. */
+/**
+ * Record supplier payment with balance ledger and invoice settlement in SupplierFinanceService.
+ */
 class SupplierPaymentRequest extends FormRequest
 {
     public function authorize(): bool

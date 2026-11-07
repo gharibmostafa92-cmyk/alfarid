@@ -12,9 +12,7 @@ return [
     'allowed_origins_patterns' => [],
     'allowed_headers' => ['*'],
     'exposed_headers' => ['Retry-After', 'X-Request-ID'],
-    // M12: every non-simple API call (JSON + Authorization) was preceded by
-    // an OPTIONS preflight because max_age=0 forbade caching. 2h is safe:
-    // origins are an explicit allowlist, not '*'.
+    // Cache preflight OPTIONS responses for 2 hours to reduce latency on repeated authenticated API calls.
     'max_age' => (int) env('CORS_MAX_AGE', 7200),
     'supports_credentials' => false,
 ];

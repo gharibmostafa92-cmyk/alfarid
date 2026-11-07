@@ -46,7 +46,7 @@ final class ToolOutcome
         return ['untrusted_text' => $clean];
     }
 
-    /** L11: denied audit flag — validation/not-found denials must not flood the audit log. */
+    /** Audit flag — validation/not-found denials must not flood the audit log. */
     public bool $auditable = true;
 
     public static function denied(string $message, bool $auditable = true): self

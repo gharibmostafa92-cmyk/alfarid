@@ -7,11 +7,8 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * معرّف الطلب لدى بوابة الدفع (C1): يُخزَّن عند إنشاء جلسة الدفع من
- * الحقل الموقّع في الويب هوك (مثل Paymob: obj.order.id) وليس من رقم
- * التاجر غير الموقّع (merchant_order_id). ربط ويب هوك الدفع بالطلب عبر
- * هذا العمود يمنع توجيه دفعة صغيرة لطلب غالٍ بحقول غير موقّعة.
- * بلا FK: معرّف خارجي نصي، وليس مفتاحًا لجدول داخلي.
+ * Stores the payment gateway's external order identifier to securely match signed inbound webhooks
+ * and prevent transaction redirection attacks across mismatched merchant orders.
  */
 return new class extends Migration
 {

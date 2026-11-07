@@ -8,6 +8,9 @@ use Database\Factories\PromotionFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
+/**
+ * Promotional discount rule applying conditional discounts to matching cart items.
+ */
 class Promotion extends Model
 {
     /** @use HasFactory<PromotionFactory> */

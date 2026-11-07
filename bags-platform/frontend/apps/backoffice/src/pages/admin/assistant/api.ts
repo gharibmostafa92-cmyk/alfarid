@@ -52,8 +52,7 @@ export const assistantApi = {
   send: (id: number, body: { text: string; selection?: { entity: string; id: number | string; label?: string }; mentions?: { entity: string; id: number | string }[]; attachments?: string[] }) =>
     api.post<{ data: { text: string; ui_blocks: UiBlock[]; message_id: number } }>(`${BASE}/conversations/${id}/messages`, body, { timeout: 600000 }).then(r => r.data.data),
   stream: async (id: number, body: { text: string; selection?: { entity: string; id: number | string; label?: string }; mentions?: { entity: string; id: number | string }[]; attachments?: string[] }, onStatus: (message: string) => void) => {
-    // L6: تحليل الإطارات الجديدة فقط — إعادة تحليل كامل responseText في
-    // كل chunk كانت O(n²) وتجمّد الواجهة مع الردود الطويلة.
+    // Parse incoming SSE frames incrementally to avoid O(n^2) re-parsing freezes on long streams.
     const parser = createIncrementalSseParser();
     const response = await api.post<string>(`${BASE}/conversations/${id}/stream`, body, {
       timeout: 600000, responseType: 'text', headers: { Accept: 'text/event-stream' },

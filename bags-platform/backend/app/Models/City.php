@@ -10,6 +10,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable(['name_ar', 'name_en', 'shipping_cost', 'is_active'])]
+/**
+ * Shipping destination municipality with geographic coverage and delivery rate associations.
+ */
 class City extends Model
 {
     use HasFactory;

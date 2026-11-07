@@ -99,6 +99,18 @@ class UpdateSettingsRequest extends FormRequest
             'ai_inventory_high_risk_value' => ['sometimes', 'integer', 'min:0', 'max:9999999999'],
             'ai_inventory_proactive_enabled' => ['sometimes', 'boolean'],
             'ai_finance_tools_enabled' => ['sometimes', 'boolean'],
+            'ai_wholesale_tools_enabled' => ['sometimes', 'boolean'],
+            'ai_wholesale_receipt_vision_enabled' => ['sometimes', 'boolean'],
+            'ai_quote_high_risk_discount_percent' => ['sometimes', 'integer', 'min:0', 'max:100'],
+            'ai_quote_high_risk_total' => ['sometimes', 'integer', 'min:0', 'max:9999999999'],
+            'ai_wholesale_shadow_mode' => ['sometimes', 'boolean'],
+            'ai_wholesale_quote_sla_hours' => ['sometimes', 'integer', 'min:1', 'max:168'],
+            'ai_wholesale_notice_sla_hours' => ['sometimes', 'integer', 'min:1', 'max:168'],
+            'ai_wholesale_reminder_weekly_cap' => ['sometimes', 'integer', 'min:1', 'max:14'],
+            'ai_whatsapp_allow_notice_approval' => ['sometimes', 'boolean'],
+            'ai_whatsapp_quote_max_discount_percent' => ['sometimes', 'integer', 'min:0', 'max:100'],
+            'wholesale_fifo_mode' => ['sometimes', 'string', Rule::in(['strict', 'skip_to_fit', 'partial'])],
+            'wholesale_default_payment_terms_days' => ['sometimes', 'integer', 'min:0', 'max:365'],
             'ai_finance_wallet_tools_enabled' => ['sometimes', 'boolean'],
             'ai_finance_receipt_vision_enabled' => ['sometimes', 'boolean'],
             'ai_finance_proactive_enabled' => ['sometimes', 'boolean'],
@@ -166,8 +178,6 @@ class UpdateSettingsRequest extends FormRequest
      * Configure after-validation hooks to enforce strict schema bounds and CAS parity.
      *
      * Rejects unknown payload parameters and ensures the expected-value map strictly mirrors all modified keys.
-     *
-     * @param  Validator  $validator
      */
     public function withValidator(Validator $validator): void
     {

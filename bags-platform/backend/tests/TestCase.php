@@ -18,10 +18,10 @@ abstract class TestCase extends BaseTestCase
     {
         $disk = Storage::fake('r2');
         $disk->buildTemporaryUrlsUsing(fn ($path, $expiration, $options) => 'https://storage.example.test/'.rawurlencode($path).'?signed=1');
-        // H5: catalog collections (products/variants/categories/brands) live on
+        // Catalog collections (products/variants/categories/brands) live on
         // the public bucket; fake it alongside the private one.
         Storage::fake('r2_public');
-        // H3: AI conversation attachments live on the shared private disk.
+        // AI conversation attachments live on the shared private disk.
         Storage::fake('ai_private');
 
         return $disk;

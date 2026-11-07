@@ -8,7 +8,9 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Notification;
 
-/** اقتراح استباقي: إعادة توزيع صنف من فرع بتغطية عالية لفرع مهدد بالنفاد. */
+/**
+ * Proactive notification suggesting stock transfer from a surplus branch to a low-stock branch.
+ */
 class TransferSuggestionNotification extends Notification implements ShouldQueue
 {
     use Queueable;

@@ -12,8 +12,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * أمر شراء موجه لمورد. دورة حياته واستلامه (مع تحديث متوسط التكلفة)
- * في ProcurementService؛ وبوابة المورد لا ترى إلا أوامر موردها.
+ * Supplier purchase order model.
+ * Receipt lifecycle, stock updates, and weighted-average cost calculation are handled in ProcurementService.
  */
 class PurchaseOrder extends Model
 {

@@ -8,7 +8,7 @@ return new class extends Migration
     public $withinTransaction = false;
 
     /**
-     * M9: idempotent media upload. client_upload_id (UUID, per file) lives in
+     * Idempotent media upload: client_upload_id (UUID, per file) lives in
      * media.custom_properties; a partial unique index turns a retried upload
      * into an idempotent replay instead of a duplicate row.
      */

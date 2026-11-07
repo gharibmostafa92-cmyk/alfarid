@@ -49,7 +49,7 @@ class PosStockController extends Controller
         /** @var User $user */
         $user = $request->user('staff');
 
-        // L7 (documented non-control, not a blind count): on_hand stays
+        // Non-blind count design: on_hand stays
         // visible to counters because the same handset sells from it — the
         // session relies on the snapshot/stale-movement guards at approve
         // time (StocktakeService) instead of balance secrecy.

@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace App\Enums;
 
 /**
- * حالات أمر الشراء الموجه للمورد:
- * draft ← sent_to_supplier ← supplier_accepted (أو change_requested ثم إعادة إرسال)
- * ← partially_received ← completed، وcancelled من أي حالة قبل الاستلام.
+ * Procurement purchase order lifecycle:
+ * draft -> sent_to_supplier -> supplier_accepted (or change_requested then re-sent)
+ * -> partially_received -> completed, or cancelled prior to receipt.
  */
 enum PurchaseOrderStatus: string
 {

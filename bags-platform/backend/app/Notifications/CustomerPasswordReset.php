@@ -9,7 +9,9 @@ use App\Notifications\Channels\CustomerSmsChannel;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
-/** إشعار استعادة كلمة مرور العميل — يحمل الرمز الخام (المخزن في القاعدة مُجزّأ). */
+/**
+ * Customer password reset notification carrying the raw unhashed token.
+ */
 class CustomerPasswordReset extends Notification
 {
     public function __construct(private readonly string $token, private readonly ?string $channel = null) {}
@@ -22,7 +24,7 @@ class CustomerPasswordReset extends Notification
         return [$this->channel ?? ($notifiable->email ? 'mail' : CustomerSmsChannel::class)];
     }
 
-    /** L-5: رابط بدل كتابة 64 حرف يدويًا؛ نص لاتيني (GSM-7 = 160 حرف) عشان رسالة واحدة. */
+    /** Reset URL formatted in GSM-7 characters to fit single 160-char SMS segment. */
     public function toSms(Customer $notifiable): string
     {
         return 'Password reset: '.$this->resetUrl($notifiable);

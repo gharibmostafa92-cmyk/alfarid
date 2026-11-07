@@ -7,9 +7,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * فهارس تقارير المرحلة 13.2: الطلبات والحركات مغطاة أصلًا
- * (created_at/status/channel/type) — الناقص فواتير الموردين
- * وفهرس مركب لنوع الحركة وتاريخها (استعلام COGS).
+ * Indexes to accelerate financial reporting: supplier invoice aging queries and stock movement COGS date aggregations.
  */
 return new class extends Migration
 {

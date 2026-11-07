@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Jobs;
 
 use App\Services\CustomerAuthService;
@@ -7,6 +9,9 @@ use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 
+/**
+ * Queued encrypted notification job dispatching customer password reset tokens via SMS or email.
+ */
 class SendCustomerPasswordReset implements ShouldBeEncrypted, ShouldQueue
 {
     use Queueable;

@@ -11,6 +11,9 @@ use App\Services\BranchAccess;
 use App\Services\StaffAdministration;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Activates or deactivates an inventory location, enforcing that occupied locations cannot be deactivated.
+ */
 final class SetLocationStatus
 {
     public function __construct(private BranchAccess $access) {}

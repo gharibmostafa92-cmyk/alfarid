@@ -316,6 +316,10 @@ final class ToolRegistry
             return $actor->can($def['permissions']);
         }
 
+        if ($domain === 'wholesale') {
+            return $actor->can('ai_agent.wholesale') && $actor->canAny($def['permissions']);
+        }
+
         return $actor->canAny($def['permissions']);
     }
 

@@ -4,20 +4,10 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Transfer;
 
-use App\Http\Requests\Admin\Concerns\BulkVariantExists;
-use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
-use Illuminate\Validation\Validator;
 
-class UpdateTransferRequest extends FormRequest
+class UpdateTransferRequest extends StoreTransferRequest
 {
-    use BulkVariantExists;
-
-    public function authorize(): bool
-    {
-        return true;
-    }
-
     /**
      * @return array<string, mixed>
      */
@@ -42,10 +32,5 @@ class UpdateTransferRequest extends FormRequest
             ],
             'items.*.requested_qty' => ['required_with:items', 'numeric', 'decimal:0,4', 'gt:0', 'max:99999999.9999'],
         ];
-    }
-
-    public function withValidator(Validator $validator): void
-    {
-        $this->addBulkVariantExistsCheck($validator);
     }
 }

@@ -44,8 +44,8 @@ export interface UserListParams {
   page?: number;
   per_page?: number;
   search?: string;
-  role?: string;                 // اسم الدور، مش الـ ID
-  branch_id?: number | 'none';   // 'none' = من غير فرع
+  role?: string;                 // Role name string rather than numeric ID
+  branch_id?: number | 'none';   // 'none' denotes users with no branch assignment
   is_active?: boolean;
 }
 

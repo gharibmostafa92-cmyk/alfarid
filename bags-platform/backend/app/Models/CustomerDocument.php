@@ -11,10 +11,13 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * مستند تحقق تابع لعميل (سجل تجاري/بطاقة ضريبية/بطاقة رقم قومي).
- * الملفات نفسها في تخزين خاص (storage/app/private) — لا روابط عامة أبدًا.
+ * Customer verification document (commercial registry, tax card, national ID).
+ * Stored securely in private object storage; never exposed via public URLs.
  */
 #[Fillable(['customer_id', 'document_type', 'file_path', 'original_name', 'mime_type', 'status', 'review_note'])]
+/**
+ * Commercial registry, tax cards, and verification documents uploaded by wholesale merchants.
+ */
 class CustomerDocument extends Model
 {
     public static function safeName(string $name): string

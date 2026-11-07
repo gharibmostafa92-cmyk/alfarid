@@ -19,7 +19,7 @@ use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
 /**
- * M3: admin transfer approve/ship/receive require expected_version so the
+ * Admin transfer approve/ship/receive require expected_version so the
  * approver always names the draft revision they reviewed.
  */
 class TransferVersionRequirementTest extends TestCase

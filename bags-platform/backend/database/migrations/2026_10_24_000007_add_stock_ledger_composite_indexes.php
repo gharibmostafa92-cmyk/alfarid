@@ -8,10 +8,9 @@ return new class extends Migration
     public $withinTransaction = false;
 
     /**
-     * M7: فهارس الدفتر المركبة — الأعمدة المنفردة لا تكفي مع النمو:
-     * - فحص اللقطة القديمة في اعتماد الجرد: MAX(id) GROUP BY variant
-     *   WHERE branch/location/bucket.
-     * - ReconcileInventory: PARTITION BY branch/location/variant/bucket ORDER BY id.
+     * Composite stock movement ledger indexes to accelerate branch stock reconciliations and audits:
+     * - Stale snapshot checks during stocktake approvals: MAX(id) GROUP BY variant WHERE branch/location/bucket.
+     * - Inventory reconciliation window queries: PARTITION BY branch/location/variant/bucket ORDER BY id.
      * The branch/id cursor index already exists in the round4 migration.
      */
     public function up(): void

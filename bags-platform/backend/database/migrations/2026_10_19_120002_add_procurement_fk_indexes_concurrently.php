@@ -6,8 +6,8 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
 /**
- * فهارس مفاتيح أجنبية واستعلامات كشف الحساب — خارج المعاملة وبـ CONCURRENTLY
- * حتى لا تُقفل الجداول بقفل ACCESS EXCLUSIVE على الإنتاج.
+ * Creates foreign key and statement lookup indexes CONCURRENTLY outside a transaction
+ * to prevent ACCESS EXCLUSIVE table locks during production migrations.
  */
 return new class extends Migration
 {

@@ -12,6 +12,7 @@ use App\Services\Ai\WhatsApp\WhatsAppGatewayClient;
 use App\Services\Ai\WhatsApp\WhatsAppGatewayException;
 use App\Services\Ai\WhatsApp\WhatsAppIdentityService;
 use App\Services\BranchAccess;
+use App\Services\SearchTerm;
 use App\Services\StaffAdministration;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -105,7 +106,7 @@ class WhatsAppAdminController extends Controller
         $rows = User::query()
             ->where('is_system', false)
             ->where('is_active', true)
-            ->when($term !== '', fn ($query) => $query->where('name', 'ilike', '%'.addcslashes($term, '%_\\').'%'))
+            ->when($term !== '', fn ($query) => $query->where('name', 'ilike', SearchTerm::pattern($term)))
             ->orderBy('name')
             ->limit(20)
             ->get(['id', 'name']);

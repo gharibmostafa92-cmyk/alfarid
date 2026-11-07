@@ -8,8 +8,8 @@ use App\Exceptions\BusinessException;
 use App\Models\Product;
 
 /**
- * قواعد قابلية النشر: بتتفحص وقت النشر، وبتتعاد بعد أي تعديل على منتج منشور
- * عشان المنتج المنشور يفضل دايمًا مستوفي الشروط (H1).
+ * Product publishability validation rules.
+ * Evaluated prior to publishing and re-checked whenever a published product is modified.
  */
 class ProductPublishabilityChecker
 {
@@ -64,7 +64,7 @@ class ProductPublishabilityChecker
 
     public function assertPublishable(Product $product): void
     {
-        // نشتغل على نسخة حديثة من قاعدة البيانات عشان الفحص يشوف آخر تعديلات
+        // Refresh model from database to ensure checks run against persisted state.
         $product = $product->fresh() ?? $product;
 
         $errors = array_column(array_filter($this->evaluate($product), fn ($c) => ! $c['ok']), 'label');

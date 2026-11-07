@@ -196,8 +196,7 @@ class P03ToolsTest extends TestCase
 
     public function test_set_location_status_refuses_deactivation_with_balances_in_assistant(): void
     {
-        // H-3: قاعدة "لا تعطيل لموقع عليه رصيد" مصدرها المشترك — المساعد
-        // يرفض كما يرفض الـ REST، والحالة تبقى نشطة.
+        // Deactivating a location with non-zero stock is rejected, preserving active status.
         $branch = Branch::factory()->create();
         $loc = Location::factory()->for($branch)->create(['is_active' => true]);
         $variant = ProductVariant::factory()->create();
@@ -219,7 +218,7 @@ class P03ToolsTest extends TestCase
         $this->assertSame('proposal', $outcome->type);
         $action = AiPendingAction::firstOrFail();
         $token = $this->token($admin);
-        // M-5: خطأ العمل يُسجَّل فشلًا برسالة مفهومة بدل بقاء pending للأبد.
+        // Business exceptions record action failure with a descriptive error instead of hanging in pending.
         $this->withToken($token)->postJson("/api/v1/admin/ai/actions/{$action->id}/confirm")
             ->assertOk()->assertJsonPath('data.ok', false)->assertJsonPath('data.message', 'لا يمكن تعطيل الموقع وهو عليه أرصدة غير صفرية.');
         $this->assertSame('failed', $action->fresh()->status);
@@ -228,8 +227,7 @@ class P03ToolsTest extends TestCase
 
     public function test_bulk_confirm_cancels_unselected_inside_claim(): void
     {
-        // M-4: غير المختارين يُلغون داخل الـ claim نفسه — لا نافذة سباق
-        // لتأكيد مستبعد من تبويب آخر.
+        // Unselected batch candidates are cancelled atomically during claim to prevent race conditions.
         $branch = Branch::factory()->create();
         $first = Location::factory()->for($branch)->create(['is_active' => true]);
         $second = Location::factory()->for($branch)->create(['is_active' => true]);

@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * الشحن: شركات ومناطق وأسعار وبوالص.
+ * Shipping infrastructure: carriers, delivery zones, tiered rates, and shipments.
  */
 return new class extends Migration
 {
@@ -18,7 +18,7 @@ return new class extends Migration
             $table->id();
             $table->string('name');
             $table->string('code')->unique(); // bosta | aramex | internal ...
-            $table->text('api_credentials')->nullable(); // مشفرة عبر Cast في الموديل — text لأن النص المشفر ليس JSON
+            $table->text('api_credentials')->nullable(); // Model-encrypted payload; text type because encrypted ciphertext is not JSON
             $table->string('tracking_url_template')->nullable();
             $table->boolean('is_active')->default(true);
             $table->timestamps();
@@ -26,14 +26,14 @@ return new class extends Migration
 
         Schema::create('shipping_zones', function (Blueprint $table): void {
             $table->id();
-            $table->string('name'); // القاهرة الكبرى | الدلتا | الصعيد ...
+            $table->string('name'); // e.g. Greater Cairo, Delta, Upper Egypt
             $table->boolean('is_active')->default(true);
             $table->timestamps();
         });
 
         Schema::create('shipping_zone_cities', function (Blueprint $table): void {
             $table->foreignId('shipping_zone_id')->constrained()->cascadeOnDelete();
-            // بلا FK على cities: تراجع هجرة المرحلة 5.1 يُسقط cities مباشرة (نفس سبب orders.city_id)
+            // Intentionally unconstrained on cities to avoid cascade coupling if cities are reorganized
             $table->unsignedBigInteger('city_id')->index();
 
             $table->primary(['shipping_zone_id', 'city_id']);
@@ -44,9 +44,9 @@ return new class extends Migration
             $table->foreignId('shipping_company_id')->constrained()->cascadeOnDelete();
             $table->foreignId('shipping_zone_id')->constrained()->cascadeOnDelete();
             $table->decimal('base_cost', 10, 2);
-            // شحن مجاني إذا تخطى الطلب هذا المبلغ
+            // Free shipping qualification threshold
             $table->decimal('free_shipping_threshold', 12, 2)->nullable();
-            // رسوم الدفع عند الاستلام
+            // Cash on delivery processing fee
             $table->decimal('cod_fee', 10, 2)->default(0);
             $table->unsignedInteger('estimated_days_min');
             $table->unsignedInteger('estimated_days_max');

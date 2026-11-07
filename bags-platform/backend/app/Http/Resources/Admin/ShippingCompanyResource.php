@@ -7,6 +7,9 @@ namespace App\Http\Resources\Admin;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
+/**
+ * Administrative shipping carrier resource representation masking sensitive credentials.
+ */
 class ShippingCompanyResource extends JsonResource
 {
     /** @return array<string, mixed> */
@@ -16,7 +19,7 @@ class ShippingCompanyResource extends JsonResource
             'id' => $this->id,
             'name' => $this->name,
             'code' => $this->code,
-            // بيانات الاعتماد لا تُعرض أبدًا — مؤشر وجود فقط
+            // Sensitive credentials are never exposed in responses; only an existence indicator is emitted.
             'has_api_credentials' => $this->hasApiCredentials(),
             'tracking_url_template' => $this->tracking_url_template,
             'is_active' => $this->is_active,

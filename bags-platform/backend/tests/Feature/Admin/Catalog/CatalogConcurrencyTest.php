@@ -52,7 +52,7 @@ class CatalogConcurrencyTest extends TestCase
         ]);
         $remaining = $product->fresh()->getMedia('images');
         $this->assertCount(1, $remaining);
-        // H5: product media live on the public bucket.
+        // Product media live on the public bucket.
         Storage::disk('r2_public')->assertExists($remaining->first()->getPathRelativeToRoot());
     }
 
@@ -203,7 +203,7 @@ class CatalogConcurrencyTest extends TestCase
             'DB_HOST' => $db['host'], 'DB_PORT' => (string) $db['port'], 'DB_USERNAME' => $db['username'],
             'DB_PASSWORD' => $db['password'], 'DB_URL' => '', 'CACHE_STORE' => 'file', 'QUEUE_CONNECTION' => 'sync',
             'CATALOG_START_FILE' => $barrier, 'CATALOG_MEDIA_ROOT' => Storage::disk('r2')->path(''),
-            // H5: catalog media (products/categories/brands) live on r2_public;
+            // Catalog media (products/categories/brands) live on r2_public;
             // race subprocesses must redirect that bucket to the local root too.
             'CATALOG_PUBLIC_MEDIA_ROOT' => Storage::disk('r2_public')->path(''),
         ];

@@ -12,11 +12,11 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 use LogicException;
 
 /**
- * سجل دفتر أستاذ المخزون: تاريخي وغير قابل للتعديل أو الحذف نهائيًا (Immutable Ledger).
+ * Append-only immutable inventory ledger movement record.
  */
 class StockMovement extends Model
 {
-    /** لا يوجد updated_at: السجل لا يتغير بعد كتابته. */
+    /** Immutable ledger record: updated_at is omitted by design. */
     public const UPDATED_AT = null;
 
     protected $fillable = [

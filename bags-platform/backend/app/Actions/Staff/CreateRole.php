@@ -11,6 +11,9 @@ use App\Services\StaffAdministration;
 use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Models\Role;
 
+/**
+ * Creates a custom staff role and synchronizes its initial permission set.
+ */
 final class CreateRole
 {
     public function __construct(private BranchAccess $access) {}

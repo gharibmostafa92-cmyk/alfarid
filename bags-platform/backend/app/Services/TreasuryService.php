@@ -25,6 +25,14 @@ class TreasuryService
 {
     public function __construct(private readonly SettingService $settings) {}
 
+    /**
+     * Creates a new treasury account and posts optional opening balance.
+     *
+     * @param  array<string, mixed>  $data  Treasury attributes
+     * @param  User  $actor  Staff user creating the treasury
+     * @param  string  $opening  Initial opening balance amount
+     * @return Treasury Created treasury model
+     */
     public function createAccount(array $data, User $actor, string $opening = '0.00'): Treasury
     {
         $this->assertAccountBranch($actor, isset($data['branch_id']) ? (int) $data['branch_id'] : null);
@@ -45,6 +53,16 @@ class TreasuryService
         });
     }
 
+    /**
+     * Updates treasury account parameters with branch and unsettled shift validation.
+     *
+     * @param  Treasury  $treasury  Target treasury
+     * @param  array<string, mixed>  $data  Updated attributes
+     * @param  User  $actor  Staff user initiating update
+     * @return Treasury Refreshed treasury model
+     *
+     * @throws BusinessException If type changed, unsettled shifts exist, or cross-branch move is blocked
+     */
     public function updateAccount(Treasury $treasury, array $data, User $actor): Treasury
     {
         if (array_key_exists('branch_id', $data)) {
@@ -71,6 +89,14 @@ class TreasuryService
         });
     }
 
+    /**
+     * Deletes an unused treasury account with zero balance and no transaction history.
+     *
+     * @param  Treasury  $treasury  Target treasury
+     * @param  User  $actor  Staff user initiating deletion
+     *
+     * @throws BusinessException If treasury has non-zero balance, transactions, or shifts
+     */
     public function deleteAccount(Treasury $treasury, User $actor): void
     {
         DB::transaction(function () use ($treasury, $actor): void {
@@ -119,7 +145,7 @@ class TreasuryService
                 app(BranchAccess::class)->lockActiveBranch((int) $treasury->branch_id);
             }
 
-            if (! $treasury->is_active && $data['type'] !== TreasuryTransactionType::ExpenseReversal) {
+            if (! $treasury->is_active && ! in_array($data['type'], [TreasuryTransactionType::ExpenseReversal, TreasuryTransactionType::CustomerReceiptReversal], true)) {
                 throw new BusinessException('الخزينة غير نشطة.');
             }
 
@@ -175,25 +201,16 @@ class TreasuryService
             app(BranchAccess::class)->lockActiveBranches($treasuries->pluck('branch_id')->filter());
             $absAmount = (string) BigDecimal::of((string) $transfer->amount)->abs()->toScale(2, RoundingMode::HalfUp);
 
-            $this->record([
-                'treasury_id' => $transfer->from_treasury_id,
-                'type' => TreasuryTransactionType::TransferOut,
-                'amount' => '-'.$absAmount,
-                'reference_type' => TreasuryTransfer::class,
-                'reference_id' => $transfer->id,
-                'created_by' => $approverId,
-                'notes' => "تحويل #{$transfer->transfer_number} صادر",
-            ]);
-
-            $this->record([
-                'treasury_id' => $transfer->to_treasury_id,
-                'type' => TreasuryTransactionType::TransferIn,
-                'amount' => $absAmount,
-                'reference_type' => TreasuryTransfer::class,
-                'reference_id' => $transfer->id,
-                'created_by' => $approverId,
-                'notes' => "تحويل #{$transfer->transfer_number} وارد",
-            ]);
+            $this->recordTransferPair(
+                $transfer->from_treasury_id,
+                $transfer->to_treasury_id,
+                $absAmount,
+                TreasuryTransfer::class,
+                $transfer->id,
+                $approverId,
+                "تحويل #{$transfer->transfer_number} صادر",
+                "تحويل #{$transfer->transfer_number} وارد"
+            );
 
             $transfer->update([
                 'status' => TreasuryTransferStatus::Approved,
@@ -247,25 +264,16 @@ class TreasuryService
                 return;
             }
 
-            $this->record([
-                'treasury_id' => $shift->treasury_id,
-                'type' => TreasuryTransactionType::TransferOut,
-                'amount' => '-'.$amount,
-                'reference_type' => PosShift::class,
-                'reference_id' => $shift->id,
-                'created_by' => $approverId,
-                'notes' => "ترحيل إغلاق وردية #{$shift->shift_number}",
-            ]);
-
-            $this->record([
-                'treasury_id' => $mainSafe->id,
-                'type' => TreasuryTransactionType::TransferIn,
-                'amount' => $amount,
-                'reference_type' => PosShift::class,
-                'reference_id' => $shift->id,
-                'created_by' => $approverId,
-                'notes' => "ترحيل إغلاق وردية #{$shift->shift_number}",
-            ]);
+            $this->recordTransferPair(
+                $shift->treasury_id,
+                $mainSafe->id,
+                $amount,
+                PosShift::class,
+                $shift->id,
+                $approverId,
+                "ترحيل إغلاق وردية #{$shift->shift_number}",
+                "ترحيل إغلاق وردية #{$shift->shift_number}"
+            );
         });
     }
 
@@ -345,5 +353,39 @@ class TreasuryService
         }
 
         return $treasuries;
+    }
+
+    /**
+     * Record matching outbound and inbound transactions for a treasury-to-treasury transfer.
+     */
+    private function recordTransferPair(
+        int $fromTreasuryId,
+        int $toTreasuryId,
+        string $amount,
+        string $referenceType,
+        int $referenceId,
+        int $createdBy,
+        string $outNotes,
+        string $inNotes
+    ): void {
+        $this->record([
+            'treasury_id' => $fromTreasuryId,
+            'type' => TreasuryTransactionType::TransferOut,
+            'amount' => '-'.$amount,
+            'reference_type' => $referenceType,
+            'reference_id' => $referenceId,
+            'created_by' => $createdBy,
+            'notes' => $outNotes,
+        ]);
+
+        $this->record([
+            'treasury_id' => $toTreasuryId,
+            'type' => TreasuryTransactionType::TransferIn,
+            'amount' => $amount,
+            'reference_type' => $referenceType,
+            'reference_id' => $referenceId,
+            'created_by' => $createdBy,
+            'notes' => $inNotes,
+        ]);
     }
 }

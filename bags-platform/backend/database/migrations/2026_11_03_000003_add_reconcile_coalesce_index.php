@@ -10,7 +10,7 @@ return new class extends Migration
     public $withinTransaction = false;
 
     /**
-     * H3: incremental reconcile probes (branch_id, product_variant_id,
+     * Incremental reconcile probes (branch_id, product_variant_id,
      * COALESCE(location_id, 0)) in EXISTS subqueries and ledger joins.
      * IS NOT DISTINCT FROM is not index-sargable and blocks hash joins;
      * plain COALESCE equality matches this expression index instead.
