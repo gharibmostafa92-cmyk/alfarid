@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Wholesale;
 
-use App\Enums\CustomerStatus;
-use App\Enums\CustomerType;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
 use App\Models\CustomerChannel;

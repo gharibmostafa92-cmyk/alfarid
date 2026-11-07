@@ -9,8 +9,8 @@ use App\Models\ProductVariant;
 use App\Models\User;
 use App\Services\Ai\EntityResolver;
 use App\Services\Ai\ToolOutcome;
-use App\Support\ArabicDigits;
 use App\Services\BranchAccess;
+use App\Support\ArabicDigits;
 
 final class InventoryArgs
 {

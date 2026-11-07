@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Wholesale\Tools;
 
-use App\Enums\CustomerStatus;
-use App\Enums\CustomerType;
 use App\Exceptions\BusinessException;
 use App\Models\AiPendingAction;
 use App\Models\Customer;

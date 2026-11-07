@@ -4,9 +4,22 @@
 // multi-line data, bad JSON, and cursor resets on shorter text.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const ts = require('typescript');
 
+let cachedModule = null;
 async function load() {
-  return import('../apps/backoffice/src/pages/admin/assistant/stream.ts');
+  if (!cachedModule) {
+    const code = ts.transpileModule(
+      fs.readFileSync(path.join(__dirname, '../apps/backoffice/src/pages/admin/assistant/stream.ts'), 'utf8'),
+      { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }
+    ).outputText;
+    const mod = { exports: {} };
+    new Function('exports', 'module', 'require', code)(mod.exports, mod, () => ({}));
+    cachedModule = mod.exports;
+  }
+  return cachedModule;
 }
 
 test('full frames parse in one feed, trailing partial frame buffered', async () => {

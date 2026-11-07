@@ -9,9 +9,12 @@ const api = {get: async (url, config) => {
   const paginated = url.endsWith('/roles') || url.endsWith('/branches');
   return {data:{data:paginated?[{id:config.params.page}]:[],meta:{total:42,last_page:paginated?2:1}}};
 }};
+const httpCode = ts.transpileModule(fs.readFileSync(path.join(__dirname,'../packages/api-client/src/endpoints/operations/http.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+const httpMod = {exports:{}};
+new Function('exports','module','require',httpCode)(httpMod.exports,httpMod,()=>({defaultApiClient:api}));
 const code = ts.transpileModule(fs.readFileSync(path.join(__dirname,'../apps/backoffice/src/pages/admin/admin-mock/api/endpoints.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
 const moduleObject = {exports:{}};
-new Function('exports','module','require',code)(moduleObject.exports,moduleObject,()=>({defaultApiClient:api}));
+new Function('exports','module','require',code)(moduleObject.exports,moduleObject,()=>({defaultApiClient:api,allPages:httpMod.exports.allPages}));
 const {adminApi} = moduleObject.exports;
 (async () => {
   await adminApi.listUsers({branch_id:'none',is_active:false,search:'  أحمد ',role:'مشرف'},controller.signal);

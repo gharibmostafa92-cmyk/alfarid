@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Storefront;
 
-use App\Enums\CustomerStatus;
-use App\Enums\CustomerType;
 use App\Enums\OrderStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Cart;

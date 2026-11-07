@@ -8,6 +8,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use InvalidArgumentException;
+use JsonException;
 use LogicException;
 
 /**
@@ -30,26 +31,88 @@ class GeminiClient
     }
 
     /**
-     * Executes standard text generation request against Gemini.
+     * Validates API key and model name against path traversal or empty values.
+     *
+     * @return array{0: string, 1: string}
+     */
+    private static function resolveConfig(?string $modelOverride): array
+    {
+        $key = (string) config('services.gemini.api_key');
+        $model = $modelOverride ?? config('services.gemini.model');
+        if ($key === '' || ! is_string($model) || ! preg_match('/^[a-zA-Z0-9._-]+$/', $model) || str_contains($model, '..')) {
+            throw new LogicException('إعدادات Gemini غير مكتملة.');
+        }
+
+        return [$key, $model];
+    }
+
+    /**
+     * Normalizes and validates uploaded media files into Gemini inlineData parts.
+     *
+     * @param  array<int, UploadedFile>|UploadedFile|null  $files
+     * @param  list<string>  $allowedMimes
+     * @return list<array<string, mixed>>
+     */
+    private static function buildMediaParts(array|UploadedFile|null $files, array $allowedMimes): array
+    {
+        if ($files === null) {
+            return [];
+        }
+        $list = $files instanceof UploadedFile ? [$files] : array_values($files);
+        if (count($list) > (int) config('services.gemini.max_images', 5)) {
+            throw new InvalidArgumentException('الحد الأقصى 5 صور في الطلب.');
+        }
+
+        $maxBytes = (int) config('services.gemini.max_image_bytes', 4 * 1024 * 1024);
+        $parts = [];
+        foreach ($list as $file) {
+            if (! $file instanceof UploadedFile || ! $file->isValid()
+                || ! in_array($file->getMimeType(), $allowedMimes, true)
+                || $file->getSize() > $maxBytes) {
+                throw new InvalidArgumentException('الصورة يجب أن تكون JPG أو PNG أو WebP وبحد أقصى 4MB.');
+            }
+            $parts[] = [
+                'inlineData' => [
+                    'mimeType' => $file->getMimeType() ?: 'image/jpeg',
+                    'data' => base64_encode((string) $file->getContent()),
+                ],
+            ];
+        }
+
+        return $parts;
+    }
+
+    /**
+     * Executes standard text/multimodal generation request against Gemini.
      *
      * @param  string  $prompt  User or prompt text.
+     * @param  list<UploadedFile>|string|null  $images  Uploaded image attachments (or system prompt if string passed as 2nd arg).
      * @param  string|null  $system  Optional system instructions.
-     * @param  string|null  $modelOverride  Specific model identifier to route to.
-     * @return array{text: string, usage: array{input_tokens: int, output_tokens: int, total_tokens: int}}
+     * @param  string|null  $model  Specific model identifier to route to.
+     * @return array{text: string, model: string, usage: array{input_tokens: int, output_tokens: int, total_tokens: int}}
      *
      * @throws GeminiException If API fails or generation is incomplete.
      */
-    public function generate(string $prompt, ?string $system = null, ?string $modelOverride = null): array
+    public function generate(string $prompt, array|string|null $images = [], ?string $system = null, ?string $model = null): array
     {
-        $key = (string) config('services.gemini.api_key');
-        if ($key === '') {
-            throw new LogicException('Gemini API key is not configured.');
+        if (is_string($images)) {
+            $model = $system;
+            $system = $images;
+            $images = [];
+        }
+        [$key, $model] = self::resolveConfig($model);
+        if (trim($prompt) === '') {
+            throw new InvalidArgumentException('نص الطلب مطلوب.');
         }
 
-        $model = $modelOverride ?? (string) config('services.gemini.model', 'gemini-1.5-flash');
+        $parts = array_merge(
+            [['text' => $prompt]],
+            self::buildMediaParts($images ?? [], ['image/jpeg', 'image/png', 'image/webp'])
+        );
+
         $payload = [
             'contents' => [
-                ['role' => 'user', 'parts' => [['text' => $prompt]]],
+                ['role' => 'user', 'parts' => $parts],
             ],
             'generationConfig' => [
                 'temperature' => 0.4,
@@ -85,7 +148,6 @@ class GeminiClient
             if (! $response->successful()) {
                 logger()->error('gemini.converse_failed', [
                     'status' => $response->status(),
-                    'body' => mb_substr($response->body(), 0, 2000),
                     'model' => $model,
                 ]);
                 throw new GeminiException('تعذّر تنفيذ طلب Gemini.', $response->status());
@@ -106,13 +168,16 @@ class GeminiClient
             }
 
             $usage = $response->json('usageMetadata', []);
+            $input = (int) ($usage['promptTokenCount'] ?? 0);
+            $output = (int) ($usage['candidatesTokenCount'] ?? 0);
 
             return [
-                'text' => $text,
+                'text' => trim($text),
+                'model' => $model,
                 'usage' => [
-                    'input_tokens' => (int) ($usage['promptTokenCount'] ?? 0),
-                    'output_tokens' => (int) ($usage['candidatesTokenCount'] ?? 0),
-                    'total_tokens' => (int) ($usage['totalTokenCount'] ?? 0),
+                    'input_tokens' => $input,
+                    'output_tokens' => $output,
+                    'total_tokens' => (int) ($usage['totalTokenCount'] ?? ($input + $output)),
                 ],
             ];
         }
@@ -125,30 +190,28 @@ class GeminiClient
      *
      * @param  string  $prompt  User or prompt text.
      * @param  array<string, mixed>  $schema  Target JSON schema specification.
-     * @param  UploadedFile|null  $file  Optional image attachment for multimodal analysis.
-     * @param  string|null  $modelOverride  Specific model identifier to route to.
-     * @return array{data: array<string, mixed>, usage: array{input_tokens: int, output_tokens: int, total_tokens: int}}
+     * @param  list<UploadedFile>|UploadedFile|null  $images  Optional image/audio attachment(s) for multimodal analysis.
+     * @param  string|null  $model  Specific model identifier to route to.
+     * @return array{data: array<string, mixed>, model: string, usage: array{input_tokens: int, output_tokens: int, total_tokens: int}}
      *
      * @throws GeminiException If API fails, format is invalid, or generation is incomplete.
      */
-    public function generateStructured(string $prompt, array $schema, ?UploadedFile $file = null, ?string $modelOverride = null): array
+    public function generateStructured(string $prompt, array $schema, array|UploadedFile|null $images = null, ?string $model = null): array
     {
-        $key = (string) config('services.gemini.api_key');
-        if ($key === '') {
-            throw new LogicException('Gemini API key is not configured.');
+        [$key, $model] = self::resolveConfig($model);
+        if (trim($prompt) === '') {
+            throw new InvalidArgumentException('نص الطلب مطلوب.');
+        }
+        if ($schema === []) {
+            throw new InvalidArgumentException('مخطط الاستجابة مطلوب.');
         }
 
-        $model = $modelOverride ?? (string) config('services.gemini.model', 'gemini-1.5-flash');
-        $parts = [['text' => $prompt]];
-
-        if ($file !== null) {
-            $parts[] = [
-                'inlineData' => [
-                    'mimeType' => $file->getMimeType() ?: 'image/jpeg',
-                    'data' => base64_encode($file->getContent()),
-                ],
-            ];
-        }
+        $parts = array_merge(
+            [['text' => $prompt]],
+            $images instanceof UploadedFile
+                ? [['inlineData' => ['mimeType' => $images->getClientMimeType() ?: ($images->getMimeType() ?: 'image/jpeg'), 'data' => base64_encode((string) $images->getContent())]]]
+                : self::buildMediaParts($images, ['image/jpeg', 'image/png', 'image/webp'])
+        );
 
         $payload = [
             'contents' => [['role' => 'user', 'parts' => $parts]],
@@ -184,7 +247,6 @@ class GeminiClient
             if (! $response->successful()) {
                 logger()->error('gemini.converse_failed', [
                     'status' => $response->status(),
-                    'body' => mb_substr($response->body(), 0, 2000),
                     'model' => $model,
                 ]);
                 throw new GeminiException('تعذّر تنفيذ طلب Gemini.', $response->status());
@@ -200,19 +262,29 @@ class GeminiClient
             $raw = collect($candidate['content']['parts'] ?? [])
                 ->reject(fn ($part) => ! empty($part['thought']))
                 ->pluck('text')->filter(fn ($part) => is_string($part))->implode('');
-            $decoded = json_decode($raw, true);
+            if (trim($raw) === '') {
+                throw new GeminiException('لم ترجع خدمة Gemini إجابة نصية.');
+            }
+            try {
+                $decoded = json_decode(trim($raw), true, flags: JSON_THROW_ON_ERROR);
+            } catch (JsonException) {
+                throw new GeminiException('لم ترجع خدمة Gemini بنية JSON صالحة.');
+            }
             if (! is_array($decoded)) {
-                throw new GeminiException('تعذّر تفسير مخرجات Gemini المهيكلة.');
+                throw new GeminiException('لم ترجع خدمة Gemini بنية JSON صالحة.');
             }
 
             $usage = $response->json('usageMetadata', []);
+            $input = (int) ($usage['promptTokenCount'] ?? 0);
+            $output = (int) ($usage['candidatesTokenCount'] ?? 0);
 
             return [
                 'data' => $decoded,
+                'model' => $model,
                 'usage' => [
-                    'input_tokens' => (int) ($usage['promptTokenCount'] ?? 0),
-                    'output_tokens' => (int) ($usage['candidatesTokenCount'] ?? 0),
-                    'total_tokens' => (int) ($usage['totalTokenCount'] ?? 0),
+                    'input_tokens' => $input,
+                    'output_tokens' => $output,
+                    'total_tokens' => (int) ($usage['totalTokenCount'] ?? ($input + $output)),
                 ],
             ];
         }
@@ -228,18 +300,18 @@ class GeminiClient
      * @param  string|null  $system  System prompt instructions.
      * @param  string|null  $modelOverride  Specific model identifier to route to.
      * @param  string|null  $toolChoice  Tool choice constraint ('auto', 'none', etc.).
-     * @return array{text: string, tool_calls: list<array{name: string, args: array<string, mixed>, id?: string}>, usage: array{input_tokens: int, output_tokens: int, total_tokens: int}}
+     * @return array{parts: list<array<string, mixed>>, text: string, calls: list<array{name: string, args: array<string, mixed>, id?: string}>, finish: string, model: string, usage: array{input_tokens: int, output_tokens: int, total_tokens: int}}
      *
      * @throws GeminiException If API request fails or response cannot be completed.
      */
     public function converse(array $contents, array $tools = [], ?string $system = null, ?string $modelOverride = null, ?string $toolChoice = null): array
     {
-        $key = (string) config('services.gemini.api_key');
-        if ($key === '') {
-            throw new LogicException('Gemini API key is not configured.');
+        [$key, $model] = self::resolveConfig($modelOverride);
+        if ($contents === []) {
+            throw new InvalidArgumentException('محتوى المحادثة مطلوب.');
         }
 
-        $model = $modelOverride ?? (string) config('services.gemini.model', 'gemini-1.5-flash');
+        // Preserve empty JSON objects ({}) for functionCall.args and functionResponse.response across DB hydration.
         foreach ($contents as $turnIndex => $turn) {
             foreach ($turn['parts'] ?? [] as $partIndex => $part) {
                 foreach (['functionCall' => 'args', 'functionResponse' => 'response'] as $node => $field) {
@@ -249,12 +321,19 @@ class GeminiClient
                 }
             }
         }
+
+        $maxOutputTokens = max(1024, (int) config('services.gemini.max_output_tokens', 2048));
+        $generationConfig = [
+            'temperature' => 0.2,
+            'maxOutputTokens' => $maxOutputTokens,
+        ];
+        if (preg_match('/^gemini-2\.5/i', $model) === 1) {
+            $generationConfig['thinkingConfig'] = ['thinkingBudget' => min(1024, (int) ($maxOutputTokens / 4))];
+        }
+
         $payload = [
             'contents' => $contents,
-            'generationConfig' => [
-                'temperature' => 0.4,
-                'maxOutputTokens' => (int) config('services.gemini.max_output_tokens', 2048),
-            ],
+            'generationConfig' => $generationConfig,
         ];
 
         if ($system !== null && trim($system) !== '') {
@@ -263,13 +342,14 @@ class GeminiClient
 
         if ($tools !== []) {
             $payload['tools'] = [['functionDeclarations' => $tools]];
-            if ($toolChoice !== null) {
-                $payload['toolConfig'] = [
-                    'functionCallingConfig' => [
-                        'mode' => strtoupper($toolChoice) === 'NONE' ? 'NONE' : (strtoupper($toolChoice) === 'ANY' ? 'ANY' : 'AUTO'),
-                    ],
-                ];
-            }
+            $mode = $toolChoice !== null
+                ? (strtoupper($toolChoice) === 'NONE' ? 'NONE' : (strtoupper($toolChoice) === 'ANY' ? 'ANY' : 'AUTO'))
+                : 'AUTO';
+            $payload['toolConfig'] = [
+                'functionCallingConfig' => [
+                    'mode' => $mode,
+                ],
+            ];
         }
 
         for ($attempt = 0; $attempt < 2; $attempt++) {
@@ -297,7 +377,6 @@ class GeminiClient
             if (! $response->successful()) {
                 logger()->error('gemini.converse_failed', [
                     'status' => $response->status(),
-                    'body' => mb_substr($response->body(), 0, 2000),
                     'model' => $model,
                 ]);
                 throw new GeminiException('تعذّر تنفيذ طلب Gemini.', $response->status());
@@ -327,18 +406,27 @@ class GeminiClient
                 if (is_array($part) && isset($part['functionCall']['name'])) {
                     $calls[] = ['name' => (string) $part['functionCall']['name'], 'args' => is_array($part['functionCall']['args'] ?? null) ? $part['functionCall']['args'] : []];
                     if (isset($part['functionCall']['id']) && is_string($part['functionCall']['id'])) {
-                        $calls[count($calls) - 1]['id'] = $part['functionCall']['id'];
+                        $calls[array_key_last($calls)]['id'] = $part['functionCall']['id'];
                     }
                 }
             }
+            if ($calls === [] && trim($text) === '') {
+                throw GeminiException::withUsage('لم ترجع خدمة Gemini إجابة مكتملة.', $measured);
+            }
+            $input = $measured['input_tokens'];
+            $output = max($measured['output_tokens'], $measured['total_tokens'] - $input);
 
             return [
                 'parts' => $parts,
-                'text' => $text,
+                'text' => trim($text),
                 'calls' => $calls,
                 'finish' => $finish,
                 'model' => $model,
-                'usage' => $measured,
+                'usage' => [
+                    'input_tokens' => $input,
+                    'output_tokens' => $output,
+                    'total_tokens' => max($measured['total_tokens'], $input + $output),
+                ],
             ];
         }
 

@@ -11,8 +11,8 @@ use App\Models\User;
 use App\Services\Ai\EntityResolver;
 use App\Services\Ai\Inventory\InventoryArgs;
 use App\Services\Ai\ToolOutcome;
-use App\Support\ArabicDigits;
 use App\Services\BranchAccess;
+use App\Support\ArabicDigits;
 
 final class PricingArgs
 {

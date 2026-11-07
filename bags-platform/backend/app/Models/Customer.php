@@ -179,7 +179,7 @@ class Customer extends Authenticatable
     {
         $normalized = self::normalizePhone($phone);
 
-        return $query->where('phone', $normalized)->orWhere('whatsapp_phone', $normalized);
+        return $query->where(fn ($q) => $q->where('phone', $normalized)->orWhere('whatsapp_phone', $normalized));
     }
 
     /**
