@@ -229,6 +229,14 @@ export default function AssistantAdministration({ can }: { can: (permission: str
                   <span className="as-field-label"><strong>قراءة صور شيتات الأسعار</strong><small>يسمح للمساعد بقراءة صور شيتات أسعار الموردين.</small></span>
                   <input type="checkbox" role="switch" className="as-switch" checked={!!settings.ai_pricing_vision_enabled} disabled={saving || !settings.ai_pricing_tools_enabled} onChange={e => setSettings({ ...settings, ai_pricing_vision_enabled: e.target.checked })} />
                 </label>
+                <label className="as-field as-field--switch">
+                  <span className="as-field-label"><strong>تفعيل أدوات الشحن</strong><small>شرح تكلفة التوصيل وإدارة الشركات والمناطق والتعريفات حسب صلاحيات الموظف.</small></span>
+                  <input type="checkbox" role="switch" className="as-switch" checked={!!settings.ai_shipping_tools_enabled} disabled={saving} onChange={e => setSettings({ ...settings, ai_shipping_tools_enabled: e.target.checked })} />
+                </label>
+                <label className="as-field as-field--switch">
+                  <span className="as-field-label"><strong>تفعيل أدوات المتجر</strong><small>معاينة السلة وإتمام الشراء وإدارة بانرات المتجر.</small></span>
+                  <input type="checkbox" role="switch" className="as-switch" checked={!!settings.ai_storefront_tools_enabled} disabled={saving} onChange={e => setSettings({ ...settings, ai_storefront_tools_enabled: e.target.checked })} />
+                </label>
                 <label className="as-field">
                   <span className="as-field-label"><strong>سياسة السعر تحت التكلفة</strong><small>منع (block) أو تحذير فقط (warn) عند سعر تحت التكلفة.</small></span>
                   <select className="as-input" value={settings.ai_price_below_cost_policy ?? 'block'} disabled={saving} onChange={e => setSettings({ ...settings, ai_price_below_cost_policy: e.target.value })}>

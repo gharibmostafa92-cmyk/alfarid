@@ -10,22 +10,25 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
- * ويب هوك بوابات الدفع — بلا مصادقة Sanctum؛ الحماية بنمط توقيع
- * كل بوابة (driver) وبالتسجيل في webhook_logs (Idempotency).
+ * Payment gateway webhooks — bypasses Sanctum auth; relies on provider-specific
+ * signature verification and idempotency tracking in webhook_logs.
  */
 class PaymentWebhookController extends Controller
 {
     public function __construct(private readonly PaymentWebhookService $webhooks) {}
 
+    /**
+     * Ingest and verify inbound payment gateway webhook notifications.
+     */
     public function handle(Request $request, string $gateway): JsonResponse
     {
         $raw = $request->getContent();
 
-        // حد الحجم قبل أي فك ترميز: حمولة ضخمة لا تُفكَّك (F9). الرفض
-        // والتسجيل المختصر يتمّان في الخدمة (وقتها لا تُخزَّن الحمولة)
+        // Enforce 256KB ceiling before JSON decoding to prevent memory exhaustion DoS;
+        // oversized payloads are rejected and logged by the service without parsing.
         $payload = strlen($raw) > 262144 ? null : json_decode($raw, true);
-        // الهيدرات بمفاتيح صغيرة + الـ query: أنماط Paymob (hmac في query)
-        // وStripe (هيدر موقّع) تحتاج أكثر من هيدر واحد (F-06)
+        // Normalize headers and include query parameters for drivers verifying signatures
+        // via query params (e.g. Paymob HMAC) or provider-specific headers (e.g. Stripe).
         $headers = collect($request->headers->all())
             ->map(fn (array $values): ?string => $values[0] ?? null)
             ->all();

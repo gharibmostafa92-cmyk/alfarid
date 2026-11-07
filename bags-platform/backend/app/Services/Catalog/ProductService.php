@@ -16,15 +16,25 @@ use App\Services\SlugService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Manages product lifecycle operations, publishing constraints, status transitions, and deletion safety.
+ */
 class ProductService
 {
     public function __construct(private ProductPublishabilityChecker $publishability) {}
 
+    /**
+     * Creates a new draft product and its initial variants.
+     *
+     * @param  array<string, mixed>  $data  Product attributes and nested variants array.
+     * @param  User  $user  Authenticated staff user creating the product.
+     * @return Product Created product instance with relations loaded.
+     *
+     * @throws BusinessException If input status is not draft, category is invalid, or slug collides.
+     */
     public function create(array $data, User $user): Product
     {
-        // F9: the backoffice keeps the form alive across a lost response, so a
-        // retried save with the same create_key replays the existing row
-        // instead of creating a slug ...-2 duplicate.
+        // Replay existing product on retried create_key to prevent duplicate entries and numbered slug suffixes.
         $createKey = is_string($data['create_key'] ?? null) && $data['create_key'] !== '' ? $data['create_key'] : null;
         unset($data['create_key']);
         $requestHash = IdempotencyFingerprint::hash($data);
@@ -35,8 +45,7 @@ class ProductService
             }
         }
 
-        // M1: concurrent creates can generate the same auto slug; retry once with
-        // a fresh slug, and surface explicit-slug conflicts as 409 not 500.
+        // Retry once on generated slug races and surface explicit slug collisions as 409 conflicts.
         $autoSlug = empty($data['slug'] ?? null);
         for ($attempt = 0; ; $attempt++) {
             try {
@@ -56,9 +65,10 @@ class ProductService
                     $data['created_by'] = $user->id;
                     $data['create_key'] = $createKey;
                     $data['create_request_hash'] = $createKey !== null ? $requestHash : null;
-                    $data['status'] = ProductStatus::Draft->value; // دايمًا يتعمل draft الأول
+                    // Enforce draft status on creation before media upload and publishing.
+                    $data['status'] = ProductStatus::Draft->value;
 
-                    // قفل القسم يمنع حذفه أثناء إنشاء المنتج
+                    // Shared-lock category to prevent concurrent deletion while assigning new product to it.
                     $this->lockReference(Category::class, (int) $data['category_id'], 'category_id');
 
                     $product = Product::create($data);
@@ -78,9 +88,7 @@ class ProductService
                         return $this->replayCreation($winner, $requestHash);
                     }
                 }
-                // L3: only a slug collision deserves a slug retry/message. A
-                // SKU/barcode clash must surface as-is instead of looping on a
-                // fresh slug and then blaming the slug.
+                // Distinguish slug collisions from child variant SKU/barcode unique violations.
                 $driverMessage = (string) ($e->errorInfo[2] ?? $e->getMessage());
                 $isSlugConflict = str_contains($driverMessage, 'products_slug_lower_unique')
                     || str_contains($driverMessage, '(slug)');
@@ -98,6 +106,16 @@ class ProductService
         }
     }
 
+    /**
+     * Updates an existing product, verifying optimistic concurrency version and publishability.
+     *
+     * @param  Product  $product  Target product model.
+     * @param  array<string, mixed>  $data  Updated attributes.
+     * @param  User  $user  Authenticated staff user initiating the update.
+     * @return Product Refreshed product instance.
+     *
+     * @throws BusinessException If version conflicts, category is missing, or publish criteria fail.
+     */
     public function update(Product $product, array $data, User $user): Product
     {
         $expectedVersion = $data['expected_version'] ?? null;
@@ -107,12 +125,11 @@ class ProductService
         }
         unset($data['expected_updated_at']);
 
-        // F8: a concurrent update can win the slug between validation and the
-        // write — surface it as 409, not 500.
+        // Catch concurrent unique slug collisions during updates and convert to 409 conflict responses.
         try {
             return DB::transaction(function () use ($product, $data, $user, $expectedVersion) {
                 CatalogLock::tree(shared: true);
-                // قفل صف المنتج طول التعديل عشان فحص النشر ميعديش مع تعديل متزامن
+                // Exclusive lock product row during update to ensure publishability invariants hold against concurrent writes.
                 $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
 
                 if ($expectedVersion !== null && (int) $expectedVersion !== (int) $product->lock_version) {
@@ -137,15 +154,14 @@ class ProductService
                 if ($newStatus && $newStatus !== $product->status) {
                     $this->changeStatus($product, $newStatus, $user);
                 } elseif ($product->status === ProductStatus::Published) {
-                    // تعديل من غير تغيير حالة على منتج منشور: القواعد بتتفحص من جديد
+                    // Re-validate publishability invariants when updating an already published product.
                     $this->assertPublishable($product);
                 }
 
                 return $product->fresh(['category.media', 'variants.media', 'media']);
             });
         } catch (UniqueConstraintViolationException $e) {
-            // L3: same rule as create() — only blame the slug on a slug
-            // constraint; anything else is a real conflict, not a 409 guess.
+            // Verify violation relates specifically to the slug before returning a 409 conflict.
             $driverMessage = (string) ($e->errorInfo[2] ?? $e->getMessage());
             if (str_contains($driverMessage, 'products_slug_lower_unique') || str_contains($driverMessage, '(slug)')) {
                 throw new BusinessException('المعرف (slug) مستخدم بالفعل؛ اختر قيمة أخرى.', [], 409);
@@ -167,11 +183,22 @@ class ProductService
         return $product->fresh(['category.media', 'variants.media', 'media']);
     }
 
+    /**
+     * Changes publication status of a product after evaluating permissions and catalog requirements.
+     *
+     * @param  Product  $product  Target product model.
+     * @param  ProductStatus  $status  New publication status.
+     * @param  User  $user  Authenticated staff user.
+     * @param  int|null  $expectedVersion  Optimistic concurrency version.
+     * @return void
+     *
+     * @throws BusinessException If permissions are insufficient or publication rules are unmet.
+     */
     public function changeStatus(Product $product, ProductStatus $status, User $user, ?int $expectedVersion = null): void
     {
         DB::transaction(function () use ($product, $status, $user, $expectedVersion): void {
             CatalogLock::tree(shared: true);
-            // قفل صف المنتج وقسمه قبل الفحص والنشر، عشان مفيش تعديل متزامن يعدي بين الفحص والحفظ
+            // Lock product and parent category to prevent concurrent changes between validation and publish commit.
             $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
             if ($expectedVersion !== null && (int) $product->lock_version !== $expectedVersion) {
                 throw new BusinessException('المنتج تعدّل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
@@ -195,6 +222,14 @@ class ProductService
         $product->refresh();
     }
 
+    /**
+     * Asserts that a product satisfies all business conditions required for publication.
+     *
+     * @param  Product  $product  Product to evaluate.
+     * @return void
+     *
+     * @throws BusinessException If photos, variants, prices, or category status are deficient.
+     */
     public function assertPublishable(Product $product): void
     {
         $this->publishability->assertPublishable($product);
@@ -207,6 +242,16 @@ class ProductService
         }
     }
 
+    /**
+     * Soft-deletes a product and its associated variants if no positive inventory balances exist.
+     *
+     * @param  Product  $product  Target product to soft-delete.
+     * @param  User|null  $user  Authenticated user initiating deletion.
+     * @param  int|null  $expectedVersion  Optimistic concurrency version.
+     * @return void
+     *
+     * @throws BusinessException If non-zero stock balances remain or publishing permission is required.
+     */
     public function delete(Product $product, ?User $user = null, ?int $expectedVersion = null): void
     {
         DB::transaction(function () use ($product, $user, $expectedVersion): void {
@@ -217,10 +262,9 @@ class ProductService
             if ($expectedVersion !== null && (int) $product->lock_version !== $expectedVersion) {
                 throw new BusinessException('المنتج تعدّل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
             }
-            // H3: lock every variant row (id-ordered) before the balance check so
-            // concurrent receipts serialize here instead of slipping underneath it.
+            // Lock all variant rows in deterministic ID order before checking inventory balances to prevent concurrent stock receipts.
             $lockedIds = ProductVariant::where('product_id', $product->id)->orderBy('id')->lockForUpdate()->pluck('id');
-            // حذف المنتج يحذف متغيراته ناعمًا: أي رصيد على أي منها يُحبس (M-9)
+            // Prevent soft-deleting products with non-zero stock to avoid stranding physical inventory.
             if (StockLevel::query()->whereIn('product_variant_id', $lockedIds)->hasNonZeroBalance()->exists()) {
                 throw new BusinessException('لا يمكن حذف منتج له متغيرات برصيد مخزون؛ صفِّ الأرصدة أولًا.');
             }
@@ -230,15 +274,18 @@ class ProductService
             foreach ($product->variants()->orderBy('id')->get() as $variant) {
                 $variant->delete();
             }
-            $product->delete();              // soft
+            $product->delete();
         });
-        // TODO مرحلة الطلبات: منع الحذف لو المنتج عليه طلبات، وبدل كده يتعمل archived
+        // TODO: Prevent deletion if product has existing orders; require archiving instead.
     }
 
     /**
-     * F14: permanent removal also removes the media rows AND their R2 files —
-     * soft-delete intentionally keeps them (old links/caches keep working),
-     * but a force-delete must not leave publicly reachable files behind.
+     * Permanently deletes product and all associated variants and R2 storage media.
+     *
+     * @param  Product  $product  Product instance to permanently purge.
+     * @return void
+     *
+     * @throws BusinessException If non-zero stock balances remain on any variant.
      */
     public function forceDelete(Product $product): void
     {

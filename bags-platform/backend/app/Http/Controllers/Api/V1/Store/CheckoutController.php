@@ -21,7 +21,9 @@ use App\Services\StorePaymentPolicy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-/** إتمام الشراء (زائر/مسجل) وخيارات الشحن. */
+/**
+ * Handles storefront checkout, shipping option quotes, and order placement.
+ */
 class CheckoutController extends Controller
 {
     public function __construct(
@@ -32,6 +34,12 @@ class CheckoutController extends Controller
         private readonly StorePaymentPolicy $paymentPolicy,
     ) {}
 
+    /**
+     * Calculate and return available shipping methods, fees, and order cost previews.
+     *
+     * @param  ShippingOptionsRequest  $request  Validated destination city and payment method.
+     * @return JsonResponse Shipping options breakdown with expected order totals.
+     */
     public function shippingOptions(ShippingOptionsRequest $request): JsonResponse
     {
         $validated = $request->validated();
@@ -39,8 +47,7 @@ class CheckoutController extends Controller
         [$customer, $cart] = $this->currentCart($request, create: false);
         $totals = $this->carts->totals($cart, $customer);
 
-        // نفس المدخلات التي سيحاسب عليها إتمام الشراء (M12 + F-29): البضاعة
-        // بعد خصم الكوبون، ورسوم COD حسب طريقة الدفع الفعلية لا cod دائمًا
+        // Base shipping tier calculations on net merchandise value after promotional discounts.
         $merchandise = max($totals['items_total'] - $totals['coupon_discount'], 0.0);
         $methods = $this->paymentPolicy->allowedFor($customer);
         $method = in_array($validated['payment_method'] ?? null, $methods, true)
@@ -49,7 +56,7 @@ class CheckoutController extends Controller
         $quote = $this->shippingQuote->quoteForCity($city->id, $merchandise, $cod);
         $rate = $quote['rate'];
 
-        // كوبون الشحن المجاني يعفي تكلفة الشحن (لا رسوم COD) كما عند الشراء
+        // Free shipping promotions waive delivery costs but do not eliminate COD cash-handling fees.
         $cost = $quote['cost'];
         if ($totals['coupon_code'] !== null && $cart->coupon_id !== null
             && Coupon::query()->whereKey($cart->coupon_id)->value('type') === 'free_shipping') {
@@ -58,9 +65,7 @@ class CheckoutController extends Controller
 
         $days = $rate !== null ? "من {$rate->estimated_days_min} إلى {$rate->estimated_days_max} أيام عمل" : null;
 
-        // معاينة الإجمالي بنفس معادلة OrderService::createFromCart (شاملة
-        // الكوبون والشحن المجاني وCOD والضريبة) — الفرونت يعرضها ويُرسلها
-        // كـ expected_total، فأي تغيّر سعري يُرفض بـ price_changed بدل تحصيل صامت.
+        // Pre-compute expected total so the client can submit an expected_total guard to prevent price drift.
         $discountAmount = round($totals['pricing_discount'] + $totals['coupon_discount'], 2);
         $taxAmount = 0.0;
         if ($this->settings->getBool('tax_enabled') && ! $this->settings->getBool('prices_include_tax')) {
@@ -92,16 +97,26 @@ class CheckoutController extends Controller
         ]]);
     }
 
+    /**
+     * Create an order from the active shopping cart for authenticated or guest sessions.
+     *
+     * @param  CheckoutRequest  $request  Validated customer address and payment inputs.
+     * @return JsonResponse Created order resource and payment instructions.
+     *
+     * @throws BusinessException If guest contact details are missing or stock is unavailable.
+     */
     public function store(CheckoutRequest $request): JsonResponse
     {
         [$customer, $cart] = $this->currentCart($request);
         $data = $request->validated();
-        // هيدر اختياري: إعادة الإرسال بنفس المفتاح ترجع الطلب نفسه (F-13)
+
+        // Support Idempotency-Key header to prevent duplicate orders on network retries.
         $idempotencyKey = $request->header('Idempotency-Key');
         if (is_string($idempotencyKey) && $idempotencyKey !== '') {
             $data['idempotency_key'] = $idempotencyKey;
         }
 
+        // Guest checkouts require explicit recipient name and phone because no profile exists.
         if ($customer === null && (empty($data['recipient_name']) || empty($data['recipient_phone']))) {
             throw new BusinessException('بيانات المستلم (الاسم ورقم الهاتف) مطلوبة لإتمام الشراء كزائر.');
         }
@@ -110,18 +125,24 @@ class CheckoutController extends Controller
 
         return response()->json([
             'data' => OrderResource::make($order)->resolve($request),
-            // لا بوابة دفع مدمجة بعد: الدفع الإلكتروني يرجع رابطًا فارغًا حتى ربط البوابة
+            // TODO: populate payment_url dynamically once external payment gateway integration is configured.
             'payment_url' => null,
             'message' => 'تم إنشاء الطلب بنجاح',
         ], 201);
     }
 
-    /** @return array{0: ?Customer, 1: Cart} */
+    /**
+     * Resolve the active customer and associated cart session.
+     *
+     * @param  Request  $request  Current HTTP request with session headers.
+     * @param  bool  $create  Whether to initialize a persistent cart if none exists.
+     * @return array{0: ?Customer, 1: Cart}
+     */
     private function currentCart(Request $request, bool $create = true): array
     {
         $user = auth('sanctum')->user();
-        // عميل موقوف/مرفوض بتوكن صالح يُعامل كزائر (F-20): لا تُربط سلاته
-        // وطلباته بحساب غير نشط ولا تُمنح له أسعار/حدود العميل
+
+        // Suspended or unapproved customers fall back to guest privileges to prevent account abuse.
         $customer = $user instanceof Customer && $user->canShop() ? $user : null;
         $cart = $this->carts->resolveCart($customer, $request->header('X-Cart-Session'), $create);
 

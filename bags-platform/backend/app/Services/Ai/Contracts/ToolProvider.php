@@ -12,9 +12,15 @@ interface ToolProvider
     /** @return array<string, AgentTool> */
     public function tools(): array;
 
-    public function enabled(): bool;                 // يقرا الـ flag
+    /**
+     * Check whether this tool domain is currently enabled.
+     */
+    public function enabled(): bool;
 
-    public function canReadEntity(User $actor, string $type): ?bool; // null = مش بتاعي
+    /**
+     * Authorize entity inspection (returns null if entity type belongs to another domain).
+     */
+    public function canReadEntity(User $actor, string $type): ?bool;
 
     public function systemPromptSection(User $actor): ?string;
 

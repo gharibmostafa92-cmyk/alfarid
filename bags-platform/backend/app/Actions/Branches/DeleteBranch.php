@@ -12,11 +12,23 @@ use App\Services\BranchAccess;
 use App\Services\StaffAdministration;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Deletes an empty branch if no assigned users, movements, or non-zero stock exist.
+ */
 final class DeleteBranch
 {
     public function __construct(private BranchAccess $access) {}
 
-    /** @param array<string,mixed> $via */
+    /**
+     * Delete the specified branch and prune its zero-balance stock rows.
+     *
+     * @param  User  $actor  Staff user initiating the deletion.
+     * @param  Branch  $branch  Target branch to delete.
+     * @param  array<string, mixed>  $via  Audit metadata context.
+     * @return bool True on successful deletion, false if users or movements are attached.
+     *
+     * @throws BusinessException If non-zero inventory balances remain.
+     */
     public function __invoke(User $actor, Branch $branch, array $via = []): bool
     {
         $this->access->assertCentralAccess($actor);
@@ -25,10 +37,8 @@ final class DeleteBranch
             StaffAdministration::lock();
             StaffAdministration::authorize($actor, ['branches.delete', 'branches.manage']);
             $this->access->assertCentralAccess($actor);
-            // L-6: ترتيب القفل موحّد مع lockLevels (أرصدة أولًا ثم فرع
-            // بـ SHARE): قفل صفوف الأرصدة قبل صف الفرع، وإلا فحركة
-            // متزامنة تقفل الأرصدة وتنتظر SHARE على الفرع بينما الحذف
-            // يقفل الفرع وينتظر الأرصدة فيحصل 40P01.
+
+            // Lock stock levels before branch row to maintain consistent lock order and prevent 40P01 deadlocks.
             StockLevel::query()->where('branch_id', $branch->getKey())
                 ->orderBy('branch_id')
                 ->orderByRaw('location_id ASC NULLS FIRST')

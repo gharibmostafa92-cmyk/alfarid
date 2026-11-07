@@ -11,14 +11,14 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
- * البحث عن المنتجات في شاشة الـ POS بالباركود أو SKU أو اسم المنتج.
+ * POS product barcode and SKU lookup with branch stock availability and tiered customer pricing.
  */
 class PosProductController extends Controller
 {
     public function __construct(private readonly PosService $pos) {}
 
     /**
-     * GET /pos/products/lookup?barcode=&q=&customer_id=
+     * Search products by barcode, SKU, or name for the cashier's active branch.
      */
     public function lookup(Request $request): JsonResponse
     {

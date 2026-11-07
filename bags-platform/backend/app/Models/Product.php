@@ -20,6 +20,9 @@ use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
+/**
+ * Core product catalog model defining base classifications, dimensions, and shared media assets.
+ */
 class Product extends Model implements HasMedia
 {
     /** @use HasFactory<ProductFactory> */
@@ -57,7 +60,7 @@ class Product extends Model implements HasMedia
 
     public function variants(): HasMany
     {
-        // chaperone: كل variant متحمل من العلاقة دي بيبقى عارف منتجه من غير lazy load (N+1)
+        // Chaperone back-populates product relationship on variants to avoid N+1 lazy queries.
         return $this->hasMany(ProductVariant::class)->orderBy('sort_order')->chaperone();
     }
 
@@ -73,6 +76,11 @@ class Product extends Model implements HasMedia
             ->acceptsMimeTypes(['video/mp4', 'video/webm', 'video/quicktime']);
     }
 
+    /**
+     * Resolves unified collection of product and active variant media images for catalog displays.
+     *
+     * @return Collection<int, Media> Consolidated catalog media collection
+     */
     public function catalogImages(): Collection
     {
         $variants = $this->relationLoaded('variants')
@@ -86,9 +94,7 @@ class Product extends Model implements HasMedia
 
     public function registerMediaConversions(?Media $media = null): void
     {
-        // F3: التحويلات على الطابور — توليد thumb/medium المتزامن داخل
-        // معاملة تقفل المنتج يحبس الصف ثوانٍ لكل ملف. الموارد تعرض
-        // الأصلية حتى يجهز التحويل (hasGeneratedConversion fallback).
+        // Queue thumbnail/medium conversions to avoid holding row locks during synchronous image processing.
         $this->addMediaConversion('thumb')->fit(Fit::Crop, 300, 300)->format('webp')
             ->performOnCollections('images')->queued();
         $this->addMediaConversion('medium')->fit(Fit::Contain, 800, 800)->format('webp')

@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Enums;
 
-/** حالات بوليصة الشحن. */
+/**
+ * Logistics parcel delivery lifecycle statuses.
+ */
 enum ShipmentStatus: string
 {
     case Created = 'created';

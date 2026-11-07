@@ -13,14 +13,15 @@ use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 /**
- * إنشاء بمفتاح عدم تكرار لنهايات الإنشاء (تحويل/جرد): إعادة المحاولة بعد
- * timeout بنفس المفتاح تعيد النموذج المنشأ بدل نسخة مكررة، ونفس المفتاح
- * بحمولة مختلفة يُرفض 409. المفتاح يُدرج في نفس معاملة الإنشاء، ففشل
- * الإنشاء يلغيه معه (L-7 — نفس نمط مفتاح التسويات).
+ * Handles idempotent entity creation (such as stock transfers and stocktakes).
+ * Replaying a request with the same idempotency key and payload hash returns the previously created model.
+ * The idempotency record is persisted within the creation transaction so rollback discards the key as well.
  */
 trait HandlesIdempotentCreation
 {
     /**
+     * Execute the creation callback idempotently under the supplied key.
+     *
      * @param  list<string>  $relations
      * @param  callable(): Model  $creator
      */
@@ -47,7 +48,7 @@ trait HandlesIdempotentCreation
                 return $model;
             });
         } catch (UniqueConstraintViolationException $e) {
-            // L4: اسم القيد من رسالة السائق (errorInfo) لا من نص الاستثناء العام.
+            // Extract constraint name from driver-specific errorInfo to reliably detect idempotency key collisions.
             $driverMessage = (string) ($e->errorInfo[2] ?? $e->getMessage());
             if (! str_contains($driverMessage, 'inventory_idempotency_keys_user_id_key_unique')
                 && ! str_contains($e->getMessage(), 'inventory_idempotency_keys_user_id_key_unique')) {
@@ -62,7 +63,7 @@ trait HandlesIdempotentCreation
             }
 
             $model = $modelClass::query()->with($relations)->findOrFail((int) ($record->response[0] ?? 0));
-            // H4: إعادة التشغيل يقبل أي نطاق للنموذج (تحويل: مرسل أو وجهة).
+            // Validate access against any branch associated with the created entity (e.g. origin or destination).
             $branches = [];
             foreach (['branch_id', 'from_branch_id', 'to_branch_id'] as $attribute) {
                 $value = $model->getAttribute($attribute);

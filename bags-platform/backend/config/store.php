@@ -15,10 +15,12 @@ return [
     // صفحة الهوم لعميل التجزئة بعد تسجيل الدخول بلا redirect آمن.
     'retail_home' => env('STORE_RETAIL_HOME', '/shop'),
 
-    // أضيفوا wallet هنا لتفعيل المحفظة للعملاء المعتمدين. إزالتها توقف المحفظة.
+    // التحويل اليدوي متاح فقط عند ضبط عنوان InstaPay صالح.
+    'instapay_address' => env('STORE_INSTAPAY_ADDRESS'),
+
     'payment_methods' => array_values(array_filter(array_map(
         'trim',
-        explode(',', (string) env('STORE_PAYMENT_METHODS', 'cod')),
+        explode(',', (string) env('STORE_PAYMENT_METHODS', 'cod,wallet,bank_transfer')),
     ))),
 
     /*

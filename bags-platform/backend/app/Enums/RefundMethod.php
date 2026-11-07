@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace App\Enums;
 
-/** طرق رد مبلغ المرتجع للعميل. */
+/**
+ * Supported payment channels for reimbursing approved customer return requests.
+ */
 enum RefundMethod: string
 {
-    case OriginalPayment = 'original_payment'; // نفس وسيلة الدفع الأصلية (عبر البوابة)
-    case Wallet = 'wallet';                     // رصيد محفظة العميل داخل المتجر
-    case BankTransfer = 'bank_transfer';        // تحويل بنكي يدوي بمرجع
-    case Cash = 'cash';                         // نقدًا من الفرع
+    case OriginalPayment = 'original_payment';
+    case Wallet = 'wallet';
+    case BankTransfer = 'bank_transfer';
+    case Cash = 'cash';
 }

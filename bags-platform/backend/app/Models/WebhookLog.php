@@ -6,6 +6,9 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
+/**
+ * Webhook delivery and verification audit record.
+ */
 class WebhookLog extends Model
 {
     protected $fillable = [
@@ -27,13 +30,12 @@ class WebhookLog extends Model
     }
 
     /**
-     * تنقية الحمولة قبل التخزين (H1): بوابات مثل Moyasar تُتحقق من
-     * secret_token داخل الجسم نفسه، وتخزين الجسم كاملًا يضع السر في قاعدة
-     * البيانات فيكفي تسرّب نسخة احتياطية/قراءة لانتحال الأحداث. تُستبدل
-     * المفاتيح الحسّاسة بقيمة ثابتة في كل الأعماق قبل الكتابة.
+     * Redact authentication credentials and private secrets from webhook payloads before persistence.
      *
-     * @param  array<string, mixed>|null  $payload
-     * @return array<string, mixed>|null
+     * Prevents credential exposure in database backups or logs if payment payloads embed auth tokens.
+     *
+     * @param  array<string, mixed>|null  $payload  Raw webhook payload.
+     * @return array<string, mixed>|null Sanitized payload safe for storage.
      */
     public static function sanitizePayload(?array $payload): ?array
     {
@@ -45,11 +47,14 @@ class WebhookLog extends Model
     }
 
     private const SENSITIVE_KEYS = [
-        'secret_token', 'secret', 'api_key', 'apikey', 'webhook_secret',
+        'secret_token', 'secret-token', 'secret', 'api_key', 'apikey', 'webhook_secret',
         'password', 'token', 'access_token', 'authorization',
+        'client_secret', 'client-secret',
     ];
 
     /**
+     * Recursively scrub sensitive keys from payload structures.
+     *
      * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */

@@ -16,6 +16,9 @@ use Illuminate\Support\Facades\Storage;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Throwable;
 
+/**
+ * Migrates local catalog media and private uploads to R2 cloud storage with content verification.
+ */
 class MigrateUploadsToR2 extends Command
 {
     protected $signature = 'uploads:migrate-to-r2 {--delete-source : Remove local copies only after SHA-256 verification} {--catalog-only : Copy catalog media only, excluding other uploads and orphan files}';
@@ -51,8 +54,8 @@ class MigrateUploadsToR2 extends Command
                             }
                             $targetBase = $rekey ? $media->uuid.'/' : $base;
                             if (! Storage::disk($media->disk)->exists($base.$media->file_name)) {
-                                // M10: a single missing original must not abort the run;
-                                // record it and continue with the next row.
+                                // A single missing original must not abort the entire run;
+                                // log it and proceed to the next record.
                                 throw new \RuntimeException('Missing media original; record unchanged: '.$media->id);
                             }
                             $sources = $media->getCustomProperty('r2_migration_sources', []);
@@ -122,9 +125,8 @@ class MigrateUploadsToR2 extends Command
 
             return self::FAILURE;
         }
-        // M10: --delete-source only removes SHA-256-verified copies, and the app
-        // reads private documents exclusively via Storage::disk('r2') — no
-        // explicit local/public reads remain outside this command.
+        // The --delete-source flag only removes SHA-256-verified copies, ensuring zero data loss
+        // during transfer while private documents are routed exclusively through R2.
         $this->info('R2 migration verified: '.$count.' media records / remaining files processed.');
 
         return self::SUCCESS;

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Ai\Inventory\Tools;
 
 use App\Enums\StocktakeStatus;
+use App\Exceptions\BusinessException;
 use App\Models\AiPendingAction;
 use App\Models\Stocktake;
 use App\Models\User;
@@ -13,6 +14,7 @@ use App\Services\Ai\Inventory\InventoryArgs;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
+use App\Services\DiscreteQuantity;
 
 final class CreateStocktakeTool extends StocktakeToolBase implements WriteTool, AgentTool
 {
@@ -123,8 +125,8 @@ final class CreateStocktakeTool extends StocktakeToolBase implements WriteTool, 
             $counted = $raw['counted_qty'] ?? null;
             if ($counted !== null) {
                 try {
-                    \App\Services\DiscreteQuantity::assert($counted, allowZero: true);
-                } catch (\App\Exceptions\BusinessException $e) {
+                    DiscreteQuantity::assert($counted, allowZero: true);
+                } catch (BusinessException $e) {
                     return ToolOutcome::denied($e->getMessage(), auditable: false);
                 }
             }
@@ -136,7 +138,7 @@ final class CreateStocktakeTool extends StocktakeToolBase implements WriteTool, 
 
     public function lockTargets(AiPendingAction $action): void
     {
-        // لا صفوف بعد — القفل العام غير مستخدم لأدوات المخزون.
+        // No existing records to acquire pessimistic locks on prior to session creation.
     }
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome

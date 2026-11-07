@@ -8,13 +8,23 @@ use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Support\Facades\Http;
 
+/**
+ * Verifies Cloudflare Turnstile CAPTCHA response tokens against Cloudflare Siteverify API.
+ */
 final class TurnstileToken implements ValidationRule
 {
-    /** يشتغل حتى لو الحقل مش مبعوت. */
+    /** Evaluates rule even if token field is omitted from payload. */
     public bool $implicit = true;
 
     public function __construct(private readonly ?string $ip = null) {}
 
+    /**
+     * Validates the Turnstile challenge response token via Cloudflare Siteverify API.
+     *
+     * @param  string  $attribute  Validated attribute name
+     * @param  mixed  $value  Submitted Turnstile token string
+     * @param  Closure  $fail  Validation failure callback
+     */
     public function validate(string $attribute, mixed $value, Closure $fail): void
     {
         $secret = (string) config('services.turnstile.secret_key');

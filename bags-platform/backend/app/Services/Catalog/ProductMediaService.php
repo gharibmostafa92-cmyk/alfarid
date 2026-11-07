@@ -19,8 +19,17 @@ use Illuminate\Support\Str;
 use Spatie\MediaLibrary\Conversions\FileManipulator;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
+/**
+ * Handles product and variant media uploads, R2 storage staging, ordering, and deletion safety.
+ */
 class ProductMediaService
 {
+    /**
+     * Lists all active media items for a product and its associated variants.
+     *
+     * @param  Product  $product  Product model instance.
+     * @return Collection<int, Media>
+     */
     public function index(Product $product): Collection
     {
         $variantIds = $product->variants()->withTrashed()->pluck('id');
@@ -33,10 +42,20 @@ class ProductMediaService
         return $media;
     }
 
+    /**
+     * Uploads media items to cloud storage and associates them with product or variant collections.
+     *
+     * @param  Product  $product  Target parent product.
+     * @param  array<string, mixed>  $data  Upload parameters including collection and optional variant_id.
+     * @param  list<UploadedFile>  $files  Batch of image files for images collection.
+     * @param  UploadedFile|null  $file  Single video file for video collection.
+     * @return Collection<int, Media> Newly attached media models.
+     *
+     * @throws BusinessException If variant is assigned a video or upload lock times out.
+     */
     public function upload(Product $product, array $data, array $files = [], ?UploadedFile $file = null): Collection
     {
-        // Images serialize with reorder through a shared cache lock. Network
-        // uploads happen before the short database transaction that links them.
+        // Serialize uploads and reordering through cache locks to keep network I/O outside database locks.
         $product = Product::whereKey($product->id)->firstOrFail();
         $owner = ! empty($data['variant_id']) ? $product->variants()->findOrFail($data['variant_id']) : $product;
         if ($data['collection'] === 'video') {
@@ -44,8 +63,7 @@ class ProductMediaService
                 throw new BusinessException('الفيديو للمنتج فقط');
             }
 
-            // Upload first; serialize only the short replacement so concurrent
-            // uploads cannot delete each other's new single-file video.
+            // Upload video to staging first before atomic replacement to prevent race conditions from dropping active files.
             $media = $product->addMedia($file)->toMediaCollection('video_staging', CatalogMedia::disk());
             try {
                 DB::transaction(function () use ($product, $media): void {
@@ -61,8 +79,7 @@ class ProductMediaService
             return collect([$media]);
         }
 
-        // M4: one transaction per image; a retried client_upload_id
-        // replays the stored row instead of uploading a duplicate.
+        // Process images individually so client_upload_id idempotency keys can replay without duplicating files.
         $clientIds = array_values((array) ($data['client_upload_ids'] ?? []));
 
         return collect(array_values($files))->map(fn ($image, $index) => $this->storeOne($owner, $image, $clientIds[$index] ?? null));
@@ -107,10 +124,7 @@ class ProductMediaService
             }
         }
 
-        // F3: بلا معاملة وبلا قفل مالك — الرفع (I/O شبكي على R2) والتحويلات
-        // المُدرجة على الطابور كانت يحبسان صف المنتج/المتغير ثوانٍ لكل ملف.
-        // الفهرس الفريد الجزئي على client_upload_id هو الحارس من التكرار،
-        // وإعادة المحاولة بنفس المعرّف تعيد صف الفائز عبر الالتقاط أدناه.
+        // Upload to staging collection outside database locks to prevent slow cloud network I/O from blocking concurrent requests.
         $stagingId = (string) Str::uuid();
         try {
             $properties = ['staging_upload_id' => $stagingId];
@@ -163,6 +177,16 @@ class ProductMediaService
         }
     }
 
+    /**
+     * Reorders media items within an owner collection, validating expected sequence.
+     *
+     * @param  Product  $product  Parent product model.
+     * @param  list<int>  $ids  Ordered list of media identifiers.
+     * @param  list<int>|null  $expectedIds  Optional optimistic concurrency expectation.
+     * @return void
+     *
+     * @throws BusinessException If order changed concurrently or list is incomplete.
+     */
     public function reorder(Product $product, array $ids, ?array $expectedIds = null): void
     {
         $this->withMediaLock($product->id, fn () => DB::transaction(function () use ($product, $ids, $expectedIds): void {
@@ -177,25 +201,29 @@ class ProductMediaService
                 }
             }
             $this->assertMediaBelongs($product, $ids);
-            // L6: a partial id list duplicates order_column across the
-            // product/variant scope — require the complete owner-collection
-            // list before renumbering.
+            // Require complete collection ID list to prevent partial ordering from causing duplicate sequence indexes.
             $this->assertCompleteOrderList($ids);
             Media::setNewOrder($ids);
         }));
     }
 
+    /**
+     * Deletes a media item, enforcing publishability invariants that require at least one photo.
+     *
+     * @param  Product  $product  Parent product model.
+     * @param  Media  $media  Target media model to delete.
+     * @return void
+     *
+     * @throws BusinessException If deleting the last photo of a published product.
+     */
     public function delete(Product $product, Media $media): void
     {
-        // F9 مغطى في TransactionalMediaObserver: حذف الملفات مؤجل لـ
-        // afterCommit (فشل المعاملة يُبقي الملفات)، وملفات الرفع المُجهضة
-        // تُنظَّف عند الـ rollback، مع أمر media:prune-orphans الدوري.
+        // Defer remote file deletions until afterCommit via TransactionalMediaObserver to preserve files if transaction rolls back.
         DB::transaction(function () use ($product, $media): void {
             $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
             $media = Media::whereKey($media->id)->firstOrFail();
             $this->assertMediaBelongs($product, [$media->id]);
-            // L6: validate before deleting, not after with a rollback — the
-            // file-removal observer must never run for a rejected delete.
+            // Validate last-image restriction before invoking delete to ensure file cleanup observer is never triggered on rejected deletes.
             if ($product->status === ProductStatus::Published && $media->collection_name === 'images'
                 && ! $this->hasOtherImages($product, $media->id)) {
                 throw new BusinessException('لا يمكن حذف آخر صورة لمنتج منشور');
@@ -216,7 +244,7 @@ class ProductMediaService
         }
     }
 
-    /** L6: another usable image must remain besides the one being deleted. */
+    /** Asserts that at least one active image remains on the published product after deletion. */
     private function hasOtherImages(Product $product, int $exceptMediaId): bool
     {
         $variantIds = $product->variants()->where('is_active', true)->pluck('id')->all();

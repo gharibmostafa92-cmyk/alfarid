@@ -63,6 +63,7 @@ function loadView(api) {
   compiled.require = name => {
     if (name === 'react') return { ...react, default: react };
     if (name === '@alfarid/api-client') return api;
+    if (name === '../../../components/admin/AdminLoading') return { AdminLoading: 'AdminLoading' };
     if (name === './ui') return ui;
     if (name === './data') return {};
     if (name === './api/RemoteFeedback') return { RemoteFeedback: 'RemoteFeedback' };

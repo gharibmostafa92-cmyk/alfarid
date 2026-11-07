@@ -15,13 +15,29 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
 
+/**
+ * Unified authentication coordinator across staff, dealer, and customer account types.
+ *
+ * Implements multi-tier rate limiting against brute force, IP pooling, and constant-time dummy password hashing.
+ */
 final class UnifiedAuthService
 {
     public function __construct(private readonly CustomerAuthService $customerAuth) {}
 
+    /**
+     * Authenticates an actor using email or phone credentials across multiple user guards.
+     *
+     * @param  string  $login  Raw login identifier (email address or phone number).
+     * @param  string  $password  Plaintext credentials.
+     * @return User|SupplierUser|Customer Authenticated model instance.
+     *
+     * @throws BusinessException If credentials are invalid (401) or account is suspended (403).
+     * @throws TooManyRequestsHttpException If brute-force rate limit thresholds are exceeded (429).
+     */
     public function attempt(string $login, string $password): User|SupplierUser|Customer
     {
-        $identifier = str_contains($login, '@') ? mb_strtolower(trim($login)) : Customer::normalizePhone($login);
+        $identifier = Customer::normalizeIdentifier($login) ?? '';
+        // Hash identifier in cache keys to prevent exposing plaintext emails or phone numbers in key stores.
         $key = 'unified-login:failures:'.hash_hmac('sha256', $identifier, (string) config('app.key'));
         $ipKey = 'unified-login:ip-failures:'.NetworkIdentity::key(request());
         $pairKey = $key.':ip:'.NetworkIdentity::key(request()).':hour';
@@ -50,7 +66,7 @@ final class UnifiedAuthService
                 if (RateLimiter::hit($dayKey, 86400) === $dayLimit) {
                     app(AuthenticationAlerts::class)->report('identifier_failures', $staff?->id);
                 }
-                // Broad quotas must not lock out valid credentials behind NAT or CGNAT.
+                // Broad IP/Day quotas must not lock out valid credentials behind shared NAT or enterprise proxies.
                 if ($broadLimitReached || $dayLimitReached || $hourLimitReached) {
                     throw new TooManyRequestsHttpException(60, 'محاولات دخول كثيرة؛ حاول لاحقًا.');
                 }
@@ -69,14 +85,11 @@ final class UnifiedAuthService
         if (str_contains($login, '@')) {
             $email = mb_strtolower($login);
 
-            // H3: bcrypt واحدة ثابتة لكل محاولة بالبريد — نجلب المرشحين من
-            // الجداول الثلاثة (استعلامات indexed رخيصة)، ثم نفحص مرشحًا واحدًا
-            // بالأولوية (staff ثم supplier ثم customer) أو dummy hash عند غياب
-            // الجميع. الفحص الإضافي يحدث فقط في حالة البريد المشترك الشاذة.
+            // Enforce constant-time verification using dummy hash when candidate is missing to prevent user enumeration.
             $supplierUser = null; // Supplier accounts are historical; dealers use Customer accounts.
             $customer = $this->customerAuth->findForLogin($email);
 
-            // L4: رصد أي بريد مشترك بين جدولين — بما فيها العملاء.
+            // Log security warning if identical email exists across multiple user tables.
             $present = array_values(array_filter([$staff, $supplierUser, $customer]));
             if (count($present) >= 2) {
                 logger()->warning('auth.shared_email', ['identifier_key' => hash_hmac('sha256', $email, (string) config('app.key'))]);
@@ -159,14 +172,13 @@ final class UnifiedAuthService
                     403,
                 );
             }
-            // L7: إعادة التجزئة بعد فحص الإيقاف.
+            // Rehash password only after verifying active account status.
             $this->rehashIfNeeded($matched, $password);
             CustomerAuditLog::record($matched, 'login_succeeded', null);
 
             return $matched;
         }
 
-        // يرمي BusinessException ‏401 أو 403 بنفسه
         return $this->customerAuth->login($login, $password);
     }
 

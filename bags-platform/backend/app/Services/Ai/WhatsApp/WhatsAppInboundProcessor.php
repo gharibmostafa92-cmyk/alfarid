@@ -25,6 +25,12 @@ use Illuminate\Support\Str;
 use Spatie\Permission\Exceptions\PermissionDoesNotExist;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
+/**
+ * Processes incoming WhatsApp webhook messages for staff AI assistant operations.
+ *
+ * Enforces linking token authorization, optional PIN authentication, role permission verification,
+ * rate limiting, and conversational orchestration.
+ */
 final class WhatsAppInboundProcessor
 {
     public function __construct(
@@ -36,9 +42,16 @@ final class WhatsAppInboundProcessor
         private WhatsAppActorContext $context,
     ) {}
 
-    /** @param array<string, mixed> $message */
+    /**
+     * Process an inbound WhatsApp webhook message through staff auth and conversational turn lifecycles.
+     *
+     * @param  AiWhatsappInbound  $inbound  Inbound audit log model.
+     * @param  array<string, mixed>  $message  Decoded webhook payload.
+     * @return string Execution outcome indicator ('done' or 'release').
+     */
     public function process(AiWhatsappInbound $inbound, array $message): string
     {
+        // Skip messages that have already been processed or superseded.
         if ($inbound->status !== 'queued') {
             return 'done';
         }
@@ -49,6 +62,7 @@ final class WhatsAppInboundProcessor
 
             return 'done';
         }
+        // Intercept account pairing token strings before evaluating regular conversational turns.
         if ($this->isLink($text)) {
             return $this->link($inbound, $message, $text);
         }
@@ -60,6 +74,7 @@ final class WhatsAppInboundProcessor
             return 'done';
         }
         $user = $identity->user;
+        // Silently ignore messages if WhatsApp assistant is globally disabled, staff user is deactivated, or missing permissions.
         if ($user === null || ! $this->settings->getBool('ai_whatsapp_enabled', false) || ! $user->is_active || ! $this->allowsWhatsapp($user)) {
             $reason = ! $this->settings->getBool('ai_whatsapp_enabled', false) ? 'disabled' : (! $user?->is_active ? 'inactive' : 'no_permission');
             $this->finish($inbound, 'ignored', $reason, $identity->id, null);
@@ -68,6 +83,7 @@ final class WhatsAppInboundProcessor
         }
         $identity->forceFill(['last_inbound_at' => now()])->save();
 
+        // Reject commands until session is unlocked when PIN protection is enabled.
         if ($this->pinLocked($identity) && ! $this->isUnlock($text)) {
             $this->send($remoteJid, 'الجلسة مقفولة. اكتب فتح ثم الرقم السري.');
             $this->finish($inbound, 'processed', 'pin_locked', $identity->id, null);
@@ -95,6 +111,7 @@ final class WhatsAppInboundProcessor
         }
 
         $result = $this->freeText($user, $conversation, $remoteJid, $mediaReply['text'], $mediaReply['attachments'], null);
+        // Clean up unconsumed transient attachments if turn was released due to concurrency locks or timeouts.
         if ($result === 'release') {
             foreach (AiAttachment::query()->whereIn('id', $mediaReply['attachments'])->whereNull('consumed_at')->get() as $attachment) {
                 Storage::disk('ai_private')->delete($attachment->path);
@@ -469,7 +486,7 @@ final class WhatsAppInboundProcessor
             throw new \RuntimeException('Could not store WhatsApp attachment.');
         }
         try {
-            AiAttachment::query()->create([
+            AiAttachment::query()->forceCreate([
                 'id' => $ulid,
                 'conversation_id' => $conversation->id,
                 'user_id' => $user->id,

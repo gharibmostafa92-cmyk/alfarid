@@ -16,13 +16,15 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 /**
- * إشعارات توريد المورد (ASN): تسجيل شحنة جزئية/كلية مقابل أمر شرائه
- * مع فاتورة مبدئية — ويستلمها المخزن لاحقًا من إدارة أوامر الشراء.
+ * Supplier advance shipping notices (ASN): register shipments against purchase orders for warehouse intake.
  */
 class DeliveryController extends Controller
 {
     public function __construct(protected ProcurementService $procurement) {}
 
+    /**
+     * Submit an advance shipping notice (ASN) with optional invoice attachment against a purchase order.
+     */
     public function store(StoreDeliveryRequest $request, int $purchaseOrder): JsonResponse
     {
         /** @var SupplierUser $user */
@@ -43,6 +45,9 @@ class DeliveryController extends Controller
         return DeliveryResource::make($delivery)->response()->setStatusCode(201);
     }
 
+    /**
+     * List paginated advance shipping notices submitted by the authenticated supplier.
+     */
     public function index(Request $request): AnonymousResourceCollection
     {
         /** @var SupplierUser $user */
@@ -58,6 +63,9 @@ class DeliveryController extends Controller
         return DeliveryResource::collection($deliveries);
     }
 
+    /**
+     * Retrieve details of a specific advance shipping notice.
+     */
     public function show(Request $request, int $delivery): DeliveryResource
     {
         /** @var SupplierUser $user */

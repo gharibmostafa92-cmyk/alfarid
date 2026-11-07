@@ -19,6 +19,9 @@ use InvalidArgumentException;
 
 class AiAdministrationController extends Controller
 {
+    /**
+     * Retrieve AI assistant configuration settings and registered tool list.
+     */
     public function settings(Request $request, SettingService $settings, ToolRegistry $registry, BranchAccess $branches): JsonResponse
     {
         $branches->assertCentralAccess($request->user('staff'));
@@ -26,6 +29,9 @@ class AiAdministrationController extends Controller
         return response()->json(['data' => $settings->getAllGrouped()['ai'] ?? [], 'tools' => array_keys($registry->definitions())]);
     }
 
+    /**
+     * Atomically update AI configuration settings with optimistic concurrency check.
+     */
     public function updateSettings(Request $request, SettingService $settings, BranchAccess $branches): JsonResponse
     {
         $branches->assertCentralAccess($request->user('staff'));
@@ -40,7 +46,7 @@ class AiAdministrationController extends Controller
             DB::transaction(function () use ($request, $settings, $data, $expected): void {
                 StaffAdministration::lock();
                 StaffAdministration::authorize($request->user('staff'), ['ai_agent.settings']);
-                // L-5: قناة التدقيق (ai) لا تُترك فارغة كما في SettingController.
+                // Tag audit channel as 'ai' for distinct traceability in settings audit logs.
                 $settings->updateBatch($data, $expected, ['channel' => 'ai']);
             });
         } catch (InvalidArgumentException) {
@@ -52,11 +58,14 @@ class AiAdministrationController extends Controller
         return response()->json(['data' => $settings->getAllGrouped()['ai'] ?? []]);
     }
 
+    /**
+     * Fetch daily token consumption history and tool proposal execution metrics.
+     */
     public function usage(Request $request, BranchAccess $branches): JsonResponse
     {
         $actor = $request->user('staff');
         $all = $request->boolean('all') && $actor->can('ai_agent.logs.view');
-        // L-4: all=1 يكشف استهلاك المؤسسة كاملة — يتطلب وصولًا مركزيًا.
+        // all=1 exposes organization-wide usage metrics, requiring central branch permissions.
         if ($all) {
             $branches->assertCentralAccess($actor);
         }
@@ -72,13 +81,13 @@ class AiAdministrationController extends Controller
                 $q->where('channel', $channel);
             }
         })->where('created_at', '>=', $since)
-            // L-6: نفس يوم القاهرة اللي guard() بيحسب بيه الميزانية.
+            // Group tokens by business timezone date matching daily quota budget enforcement.
             ->selectRaw('DATE((created_at AT TIME ZONE ?) AT TIME ZONE ?) as day, SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens', [
                 (string) config('app.timezone', 'UTC'), (string) config('app.business_timezone', 'Africa/Cairo'),
             ])
             ->groupBy('day')->orderByDesc('day')->get();
 
-        // 6.3: إحصائيات الأدوات ونسبة التأكيد/الإلغاء ونسبة الـ 409
+        // Compile pending action proposal metrics, execution/cancellation rates, and 409 conflict counts.
         $actionsQuery = AiPendingAction::query()
             ->where('created_at', '>=', $since)
             ->when(! $all, fn ($q) => $q->where('user_id', $actor->id))

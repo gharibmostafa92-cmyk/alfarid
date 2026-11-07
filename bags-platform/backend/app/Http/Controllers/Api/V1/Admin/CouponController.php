@@ -19,7 +19,9 @@ use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
-/** إدارة كوبونات الخصم. */
+/**
+ * Promotional discount coupon administration: listing, creation, updates, and safe deletion.
+ */
 class CouponController extends Controller implements HasMiddleware
 {
     public static function middleware(): array
@@ -32,11 +34,17 @@ class CouponController extends Controller implements HasMiddleware
         ];
     }
 
+    /**
+     * Paginate promotional discount coupons.
+     */
     public function index(): AnonymousResourceCollection
     {
         return CouponResource::collection(Coupon::query()->latest('id')->paginate(20));
     }
 
+    /**
+     * Create a new promotional discount coupon.
+     */
     public function store(CouponRequest $request): JsonResponse
     {
         $data = $this->withoutNulls($request->validated());
@@ -45,19 +53,24 @@ class CouponController extends Controller implements HasMiddleware
         try {
             $coupon = Coupon::create($data);
         } catch (UniqueConstraintViolationException) {
-            // Two concurrent creates with the same code both pass validation;
-            // the loser must get 422, not 500.
+            // Concurrent creations with identical code pass validation; convert DB unique collision to 422.
             throw ValidationException::withMessages(['code' => 'رمز الكوبون مستخدم بالفعل.']);
         }
 
         return CouponResource::make($coupon)->response()->setStatusCode(201);
     }
 
+    /**
+     * Retrieve details of a specific coupon.
+     */
     public function show(Coupon $coupon): CouponResource
     {
         return CouponResource::make($coupon);
     }
 
+    /**
+     * Update attributes of an existing coupon.
+     */
     public function update(CouponRequest $request, Coupon $coupon): CouponResource
     {
         $coupon->update($this->withoutNulls($request->validated()));
@@ -65,26 +78,26 @@ class CouponController extends Controller implements HasMiddleware
         return CouponResource::make($coupon);
     }
 
+    /**
+     * Delete an unused coupon under exclusive row lock.
+     *
+     * @throws BusinessException If coupon usage records already exist.
+     */
     public function destroy(Coupon $coupon): JsonResponse
     {
-        // سجل الاستخدام تاريخ مالي: كوبون مُستخدَم لا يُحذف، يُعطَّل (M9).
-        // The existence check runs inside the transaction under an exclusive
-        // row lock: a usage committed between check and delete must refuse the
-        // delete (409/422) instead of cascade-deleting the financial record,
-        // and a delete committed first makes the racing recordUsage fail safe.
+        // Coupon usage history constitutes financial records; used coupons must be deactivated rather than deleted.
         try {
             DB::transaction(function () use ($coupon): void {
                 $locked = Coupon::query()->lockForUpdate()->findOrFail($coupon->id);
                 if ($locked->usages()->exists()) {
                     throw new BusinessException('لا يمكن حذف كوبون له استخدامات مسجلة؛ عطّله بدلًا من حذفه.');
                 }
-                // فكّ ارتباط السلال المعلقة حتى لا يتعطل إتمام شرائها (M9)
+                // Detach deleted coupon from pending carts to prevent blocking customer checkout.
                 Cart::query()->where('coupon_id', $locked->id)->update(['coupon_id' => null]);
                 $locked->delete();
             });
         } catch (QueryException $e) {
-            // A usage committed after our check on another connection trips the
-            // restrict FK: refuse with 422 instead of leaking a 500.
+            // Racing usage record trips restrict FK constraint; convert to business exception.
             if (($e->errorInfo[0] ?? $e->getCode()) === '23503') {
                 throw new BusinessException('لا يمكن حذف كوبون له استخدامات مسجلة؛ عطّله بدلًا من حذفه.');
             }
@@ -96,10 +109,10 @@ class CouponController extends Controller implements HasMiddleware
     }
 
     /**
-     * ‏null صريح لحقول NOT NULL يُحذف من الحمولة بدل ما يكسر الحفظ بـ 500 (M8).
+     * Strip explicit nulls on non-nullable fields to prevent database constraint violations.
      *
-     * @param  array<string, mixed>  $data
-     * @return array<string, mixed>
+     * @param  array<string, mixed>  $data  Request payload.
+     * @return array<string, mixed> Filtered attributes.
      */
     private function withoutNulls(array $data): array
     {

@@ -11,6 +11,9 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 
+/**
+ * Manages AI chat conversation sessions, message history, pinning, and access control.
+ */
 class AiConversationController extends Controller
 {
     public function __construct(private readonly BranchAccess $branchAccess) {}
@@ -20,8 +23,8 @@ class AiConversationController extends Controller
         $actor = $request->user('staff');
         $data = $request->validate(['q' => ['nullable', 'string', 'max:100'], 'all' => ['sometimes', 'boolean']]);
         $query = AiConversation::query()->withCount('messages')->when(! empty($data['q']), fn ($q) => $q->where('title', 'ilike', \App\Services\SearchTerm::pattern($data['q'])))->orderByDesc('is_pinned')->orderByDesc('last_message_at')->orderByDesc('id');
-        if ($request->query('all') && $actor->can('ai_agent.logs.view') && $actor->can('customers.view')) { // M6
-            // M11: عرض محادثات الآخرين بيفضح جداول موظفين وفروع — مين مقيّد بفرع مالوش وصول مركزي.
+        if ($request->query('all') && $actor->can('ai_agent.logs.view') && $actor->can('customers.view')) {
+            // Viewing other users' conversations requires central branch access to prevent cross-branch leaks.
             $this->branchAccess->assertCentralAccess($actor);
         } else {
             $query->where('user_id', $actor->id);
@@ -42,8 +45,7 @@ class AiConversationController extends Controller
     {
         $this->authorizeView($request, $conversation);
 
-        // L-7: حد أعلى (أحدث 200) — كل رسالة جديدة كانت تعيد تحميل
-        // المحادثة كاملة بلا حد.
+        // Fetch only the latest 200 messages to prevent unbounded memory consumption on large histories.
         $conversation->load(['messages' => fn ($q) => $q->where('role', '!=', 'tool')->where(fn ($m) => $m->whereNotNull('content')->orWhereNotNull('ui_blocks'))->orderByDesc('id')->limit(200), 'pendingActions' => fn ($q) => $q->select('id', 'conversation_id', 'status', 'expires_at')]);
         $conversation->setRelation('messages', $conversation->messages->sortBy('id')->values());
 
@@ -73,9 +75,8 @@ class AiConversationController extends Controller
         if ($c->user_id === $actor->id) {
             return;
         }
-        // M-10: محادثة مستخدم آخر قد تحتوي جداول موظفين/فروع أخرى في
-        // ui_blocks — تتطلب logs.view مع وصول مركزي، كما في index?all=1.
-        abort_unless($actor->can('ai_agent.logs.view') && $actor->can('customers.view'), 403); // M6
+        // Viewing another staff member's conversation requires global log and customer viewing rights with central access.
+        abort_unless($actor->can('ai_agent.logs.view') && $actor->can('customers.view'), 403);
         $this->branchAccess->assertCentralAccess($actor);
     }
 }

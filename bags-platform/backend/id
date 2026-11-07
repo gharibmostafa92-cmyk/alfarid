@@ -1,0 +1,6 @@
+app/Services/Ai/WhatsApp\WhatsAppInboundProcessor.php:99:            foreach (AiAttachment::query()->whereIn('id', $mediaReply['attachments'])->whereNull('consumed_at')->get() as $attachment) {
+app/Services/Ai/WhatsApp\WhatsAppInboundProcessor.php:100:                Storage::disk('ai_private')->delete($attachment->path);
+app/Services/Ai/WhatsApp\WhatsAppInboundProcessor.php:101:                $attachment->delete();
+app/Services/Ai/WhatsApp\WhatsAppInboundProcessor.php:137:        if ($token === null || $identity?->status !== 'pending' || $token->consumed_at !== null || $token->expires_at->isPast()) {
+app/Services/Ai/WhatsApp\WhatsAppInboundProcessor.php:158:        $token->forceFill(['consumed_at' => now()])->save();
+app/Services/Ai/WhatsApp\WhatsAppInboundProcessor.php:457:        $pending = AiAttachment::query()->where('user_id', $user->id)->whereNull('consumed_at')->count();

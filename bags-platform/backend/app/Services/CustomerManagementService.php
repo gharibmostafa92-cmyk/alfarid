@@ -72,7 +72,12 @@ class CustomerManagementService
         return $via === [] ? $meta : [...$meta, 'via' => $via];
     }
 
-    /** M-1: نفس مفتاح القفل بتاع lockRegistrationEmail وSerializesAccountEmail + إعادة فحص تحت القفل. */
+    /**
+     * Acquire a transactional advisory lock and re-validate customer email uniqueness under concurrency.
+     *
+     * @param  string|null  $email  Email address to claim.
+     * @param  int|null  $ignoreId  Customer ID to exclude from unique checks during updates.
+     */
     private function claimEmail(?string $email, ?int $ignoreId = null): void
     {
         if ($email === null || trim($email) === '') {
@@ -85,19 +90,17 @@ class CustomerManagementService
         ])->validate();
     }
 
-    /** L-4: تعارض متزامن على فهرس فريد → 422 بدل 500. */
+    /**
+     * Map database unique index collisions to user-friendly validation exceptions.
+     */
     private function translateUniqueViolation(UniqueConstraintViolationException $e): \Throwable
     {
-        $message = $e->getMessage();
-
-        return match (true) {
-            str_contains($message, 'phone') => ValidationException::withMessages(['phone' => 'رقم الموبايل مسجل بالفعل.']),
-            str_contains($message, 'email') => ValidationException::withMessages(['email' => 'البريد الإلكتروني مستخدم بالفعل.']),
-            default => $e,
-        };
+        return Customer::translateUniqueViolation($e);
     }
 
-    /** L-8: منع تعيين مجموعة معطلة (يغطي REST والوكيل). */
+    /**
+     * Assert that the specified customer group exists and is currently active.
+     */
     private function assertActiveGroup(?int $groupId): void
     {
         if ($groupId !== null && ! CustomerGroup::query()->whereKey($groupId)->where('is_active', true)->exists()) {
@@ -115,7 +118,7 @@ class CustomerManagementService
     {
         $data['type'] ??= CustomerType::Retail->value;
         $data['credit_limit'] ??= 0;
-        // Default status by type unless explicitly provided: retail is approved, wholesale requires review
+        // Default status by type unless explicitly provided: retail is approved, wholesale requires review.
         $data['status'] ??= ($data['type'] ?? CustomerType::Retail->value) === CustomerType::Retail->value
             ? CustomerStatus::Approved
             : CustomerStatus::Pending;
@@ -180,7 +183,8 @@ class CustomerManagementService
                 if (isset($data['phone']) && $data['phone'] !== $customer->phone) {
                     $customer->forceFill(['phone_verified_at' => null]);
                 }
-                // M13: القيمة القديمة والجديدة للحقول المالية.
+
+                // Track previous and new values for financial attributes in the audit payload.
                 $financial = [];
                 if (array_key_exists('credit_limit', $data) && (float) $data['credit_limit'] !== (float) $customer->credit_limit) {
                     $financial['credit_limit'] = ['before' => (string) $customer->credit_limit, 'after' => (string) $data['credit_limit']];
@@ -241,12 +245,13 @@ class CustomerManagementService
             if ($customer->status === CustomerStatus::Suspended) {
                 throw new BusinessException('الحساب موقوف؛ استخدم إعادة التفعيل بدل الاعتماد.');
             }
-            $this->assertActiveGroup(array_key_exists('customer_group_id', $data) && $data['customer_group_id'] !== null ? (int) $data['customer_group_id'] : null); // L-8
+            $this->assertActiveGroup(array_key_exists('customer_group_id', $data) && $data['customer_group_id'] !== null ? (int) $data['customer_group_id'] : null);
             if ($customer->status === CustomerStatus::Approved && ($data['type'] ?? $customer->type->value) === $customer->type->value) {
                 throw new BusinessException('هذا الحساب معتمد بالفعل.');
             }
             $legal = [];
-            // H-1: المرفوض مستبعد من القرار ويفضل في السجل للتدقيق؛ المعلّق بس هو اللي يمنع.
+
+            // Exclude rejected documents from blocking approval; only pending documents require resolution.
             if ($customer->documents()->where('status', CustomerDocumentStatus::Pending->value)->exists()) {
                 throw new BusinessException('راجع المستندات المعلقة (اعتمد السليم وارفض غير السليم) قبل اعتماد الحساب.');
             }
@@ -325,7 +330,7 @@ class CustomerManagementService
             $customer->forceFill([
                 'status' => CustomerStatus::Suspended,
                 'suspension_reason' => $reason,
-                'pre_suspension_status' => $previous, // M12
+                'pre_suspension_status' => $previous,
             ])->save();
             $customer->tokens()->delete();
             DB::table('password_reset_tokens')->where('email', $customer->getEmailForPasswordReset())->delete();
@@ -345,7 +350,8 @@ class CustomerManagementService
             if (! $customer->trashed()) {
                 throw new BusinessException('الحساب غير محذوف.');
             }
-            // M-1: ممكن حد تاني سجّل بنفس البريد وقت ما الحساب كان محذوف.
+
+            // Re-claim email under lock in case another account registered the same address while deleted.
             try {
                 $this->claimEmail($customer->email, $customer->id);
             } catch (ValidationException) {
@@ -374,9 +380,15 @@ class CustomerManagementService
     }
 
     /**
-     * 0.1: إعادة تفعيل تاجر موقوف — كان معتمدًا قبل الإيقاف يرجع معتمدًا،
-     * وإلا يرجع قيد المراجعة. قيد customers_approved_business يحمي من
-     * إعادة اعتماد تاجر ببيانات قانونية ناقصة.
+     * Reactivate a suspended customer account, restoring their pre-suspension verification status.
+     *
+     * @param  Customer  $customer  Suspended customer model.
+     * @param  int|null  $actorId  Reviewing staff member ID.
+     * @param  array<string, mixed>  $via  Audit metadata context.
+     * @param  string|null  $restoreTo  Optional explicit target status override.
+     * @return Customer Refreshed customer instance.
+     *
+     * @throws BusinessException If customer is not suspended or legal attributes are incomplete.
      */
     public function reactivate(Customer $customer, ?int $actorId = null, array $via = [], ?string $restoreTo = null): Customer
     {
@@ -385,12 +397,14 @@ class CustomerManagementService
             if ($locked->status !== CustomerStatus::Suspended) {
                 throw new BusinessException('الحساب مش موقوف.');
             }
-            // M12: نرجّع الحالة اللي كانت قبل الإيقاف — المرفوض يفضل مرفوض وما يرجعش للطابور.
+
+            // Revert to pre-suspension status to prevent rejected applications from silently re-entering pending queue.
             $target = CustomerStatus::tryFrom((string) ($restoreTo ?? $locked->pre_suspension_status));
             if ($target === null || $target === CustomerStatus::Suspended) {
                 $target = $locked->approved_at ? CustomerStatus::Approved : CustomerStatus::Pending;
             }
-            // M2: فحص صريح بدل الاعتماد على CHECK constraint اللي كان بيرجع 500.
+
+            // Explicit attribute check prevents PostgreSQL check constraint violations when reactivating approved wholesale accounts.
             if ($target === CustomerStatus::Approved && $locked->type !== CustomerType::Retail) {
                 $missing = array_values(array_filter(['company_name', 'tax_number', 'commercial_register'], fn ($f) => blank($locked->{$f})));
                 if ($missing !== []) {
@@ -417,7 +431,8 @@ class CustomerManagementService
             if ($selfService && $customer->status !== CustomerStatus::Pending) {
                 throw new BusinessException('رفع المستندات متاح للطلبات قيد المراجعة فقط.', [], 403);
             }
-            // H-1: الحد على غير المرفوض، مع سقف إجمالي يمنع الإغراق.
+
+            // Enforce separate active and lifetime document caps to prevent storage quota exhaustion.
             $active = $customer->documents()->where('status', '!=', CustomerDocumentStatus::Rejected->value)->count();
             $total = $customer->documents()->count();
             if ($active >= self::MAX_ACTIVE_DOCUMENTS || $total >= self::MAX_TOTAL_DOCUMENTS) {

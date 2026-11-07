@@ -73,7 +73,7 @@ class ShippingPromotionsTest extends TestCase
     public function test_shipping_companies_zones_rates_crud(): void
     {
         $company = $this->api('POST', '/api/v1/admin/shipping-companies', [
-            'name' => 'بوسطة', 'code' => 'bosta',
+            'name' => 'بوسطة', 'code' => 'BOSTA',
             'api_credentials' => ['api_key' => 'secret-key'],
             'tracking_url_template' => 'https://bosta.example/track/{awb}',
         ])->assertCreated()
@@ -134,6 +134,38 @@ class ShippingPromotionsTest extends TestCase
         $this->assertSame('0.0000', (string) $level->reserved);
         $this->assertSame('8.0000', (string) $level->on_hand);
         $this->assertSame(1, Shipment::query()->count());
+    }
+
+    public function test_shipping_configuration_rejects_invalid_codes_templates_zones_and_rate_bounds(): void
+    {
+        foreach ([str_repeat('x', 41), 'two words'] as $code) {
+            $this->api('POST', '/api/v1/admin/shipping-companies', ['name' => 'Carrier', 'code' => $code])
+                ->assertUnprocessable()->assertJsonValidationErrors('code');
+        }
+        foreach (['javascript:alert({awb})', 'https://example.test/track'] as $template) {
+            $this->api('POST', '/api/v1/admin/shipping-companies', [
+                'name' => 'Carrier', 'code' => 'carrier', 'tracking_url_template' => $template,
+            ])->assertUnprocessable()->assertJsonValidationErrors('tracking_url_template');
+        }
+        $city = City::factory()->create();
+        $this->api('POST', '/api/v1/admin/shipping-zones', ['name' => 'Zone', 'city_ids' => array_fill(0, 501, $city->id)])
+            ->assertUnprocessable()->assertJsonValidationErrors('city_ids');
+        $this->api('POST', '/api/v1/admin/shipping-zones', ['name' => 'Zone', 'city_ids' => [0]])
+            ->assertUnprocessable()->assertJsonValidationErrors('city_ids.0');
+
+        $body = [
+            'shipping_company_id' => ShippingCompany::factory()->create()->id,
+            'shipping_zone_id' => ShippingZone::factory()->create()->id,
+            'base_cost' => '20.00', 'cod_fee' => null, 'estimated_days_min' => 2, 'estimated_days_max' => 3,
+        ];
+        foreach (['100000000', '0.001'] as $cost) {
+            $this->api('POST', '/api/v1/admin/shipping-rates', array_replace($body, ['base_cost' => $cost]))
+                ->assertUnprocessable()->assertJsonValidationErrors('base_cost');
+        }
+        $this->api('POST', '/api/v1/admin/shipping-rates', array_replace($body, ['estimated_days_max' => 1]))
+            ->assertUnprocessable()->assertJsonValidationErrors('estimated_days_max');
+        $this->api('POST', '/api/v1/admin/shipping-rates', $body)
+            ->assertCreated()->assertJsonPath('data.cod_fee', '0.00');
     }
 
     public function test_shipment_on_pending_order_is_rejected_and_rolled_back(): void

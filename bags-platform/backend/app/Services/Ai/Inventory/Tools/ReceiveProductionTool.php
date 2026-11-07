@@ -90,7 +90,7 @@ final class ReceiveProductionTool implements LocksTargets, WriteTool
 
     public function prepare(User $actor, array $args): ToolOutcome
     {
-        // التكلفة مخفية: الأداة ترفض من الأول زي الـ endpoint نفسه.
+        // Restrict execution early when actor lacks permission to view cost figures.
         if (! CostAccess::canView($actor)) {
             return ToolOutcome::denied('استلام الإنتاج محتاج صلاحية رؤية التكلفة.', auditable: false);
         }
@@ -106,7 +106,7 @@ final class ReceiveProductionTool implements LocksTargets, WriteTool
         if ($batch === '') {
             return ToolOutcome::denied('رقم الدفعة مطلوب.', auditable: false);
         }
-        // رقم الدفعة مكرر: نتأكد قبل الاقتراح بدل المفاجأة بعد التأكيد.
+        // Validate batch uniqueness before building proposals to avoid aborting upon user confirmation.
         if (ProductionReceipt::whereRaw('LOWER(batch_number) = ?', [mb_strtolower($batch)])->exists()) {
             return ToolOutcome::denied('رقم الدفعة مسجل بالفعل؛ راجع سجل الاستلام.', auditable: false);
         }
@@ -115,7 +115,7 @@ final class ReceiveProductionTool implements LocksTargets, WriteTool
             return ToolOutcome::denied('حدد بندًا واحدًا على الأقل (بحد أقصى 50).', auditable: false);
         }
 
-        // حل المتغيرات ودمج المكرر في سطر واحد.
+        // Resolve variant entities and aggregate duplicate lines into consolidated batch items.
         $grouped = [];
         foreach ($rawItems as $i => $raw) {
             if (! is_array($raw)) {
@@ -131,10 +131,7 @@ final class ReceiveProductionTool implements LocksTargets, WriteTool
                 return ToolOutcome::denied("المتغير {$variant->sku} معطّل.", auditable: false);
             }
             try {
-                DiscreteQuantity::assert($raw['quantity'] ?? null);
-                if (floor((float) $raw['quantity']) !== (float) $raw['quantity']) {
-                    throw new BusinessException('كمية استلام الإنتاج لازم تكون عددًا صحيحًا.');
-                }
+                DiscreteQuantity::assertWhole($raw['quantity'] ?? null, false, 'كمية استلام الإنتاج لازم تكون عددًا صحيحًا.');
             } catch (BusinessException $e) {
                 return ToolOutcome::denied($e->getMessage(), auditable: false);
             }
@@ -175,7 +172,7 @@ final class ReceiveProductionTool implements LocksTargets, WriteTool
             $newAvg = bccomp($denominator, '0', 4) === 0 ? $costStr : bcadd(bcdiv($total, $denominator, 5), '0.00005', 4);
             $pct = $variant->cost_price > 0 ? round(((float) $newAvg - (float) $variant->cost_price) / (float) $variant->cost_price * 100, 1) : null;
 
-            // تكلفة شاذة خارج ±30% من آخر تكلفة.
+            // Flag cost variance anomalies exceeding +/-30% drift from last recorded unit cost.
             $reference = $variant->last_cost_price ?? $variant->cost_price;
             if ($reference !== null && (float) $reference > 0) {
                 $drift = abs($unit - (float) $reference) / (float) $reference;
@@ -211,7 +208,7 @@ final class ReceiveProductionTool implements LocksTargets, WriteTool
             $expected['stock:'.$id] = $stockVersions[$id];
         }
 
-        // قبل/بعد نسبية للنموذج، والأرقام الفعلية في كارت العرض فقط.
+        // Use relative summary strings in LLM prompt while formatting detailed costs in preview card.
         $relative = array_map(fn ($r) => $r['sku'].': '.$r['cost_before'].' ← '.$r['cost_after'].($r['change_pct'] !== null ? ' ('.($r['change_pct'] >= 0 ? '+' : '').$r['change_pct'].'%)' : ''), $rows);
 
         return $this->proposals->make(

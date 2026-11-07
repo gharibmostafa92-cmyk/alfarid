@@ -98,7 +98,8 @@ class WalletCheckoutTest extends TestCase
         $this->cart();
         $id = $this->postJson('/api/v1/store/checkout', $this->payload())->assertCreated()->json('data.id');
         $this->postJson("/api/v1/store/account/orders/{$id}/cancel")->assertOk()->assertJsonPath('data.payment_status', 'refunded');
-        $this->postJson("/api/v1/store/account/orders/{$id}/cancel")->assertUnprocessable();
+        $this->postJson("/api/v1/store/account/orders/{$id}/cancel")
+            ->assertOk()->assertJsonPath('data.payment_status', 'refunded');
         $this->assertSame('150.00', $this->customer->fresh()->wallet_balance);
         $this->assertSame(1, CustomerWalletTransaction::where('type', 'order_reversal')->count());
         $this->assertSame(0.0, (float) StockLevel::sum('reserved'));

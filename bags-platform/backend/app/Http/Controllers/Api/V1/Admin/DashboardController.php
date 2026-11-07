@@ -10,7 +10,9 @@ use App\Services\ReportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-/** لوحة معلومات الإدارة: مؤشرات اليوم والشهر من ReportService. */
+/**
+ * Admin executive dashboard aggregating daily and monthly KPIs scoped by staff branch access.
+ */
 class DashboardController extends Controller
 {
     public function __construct(
@@ -18,6 +20,9 @@ class DashboardController extends Controller
         private readonly BranchAccess $branchAccess,
     ) {}
 
+    /**
+     * Retrieve aggregated dashboard metrics.
+     */
     public function index(Request $request): JsonResponse
     {
         return response()->json(['data' => $this->reports->dashboard($this->branchAccess->restrictedBranch($request->user()))]);

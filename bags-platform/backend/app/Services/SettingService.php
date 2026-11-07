@@ -30,7 +30,7 @@ class SettingService
 
     private bool $uncommittedSettings = false;
 
-    /** M-6: ذاكرة على مستوى الطلب للنسخة المثبتة — الخدمة scoped فلا تتسرب بين الطلبات. */
+    /** @var array<string, mixed>|null Per-request in-memory cache to avoid repeated serialization and cache lookups. */
     private ?array $requestCache = null;
 
     public function resetReadSnapshot(bool $transactionBoundary = false): void
@@ -59,6 +59,9 @@ class SettingService
         'ai_coupon_high_risk_percent' => 30,
         'ai_price_below_cost_policy' => 'block',
         'ai_pricing_vision_enabled' => false,
+        'ai_shipping_tools_enabled' => false,
+        'ai_storefront_tools_enabled' => false,
+        'ai_storefront_place_order_enabled' => false,
         'ai_max_steps' => 6,
         'ai_whatsapp_enabled' => false,
         'ai_whatsapp_allow_writes' => false,
@@ -111,16 +114,14 @@ class SettingService
         'delivery' => 'delivery_next_number',
         'supplier_invoice' => 'supplier_invoice_next_number',
         'supplier_payment' => 'supplier_payment_next_number',
-        // H5: نقاط البيع المرتفعة الحجم على sequences — فجوات مقبولة لتجنب
-        // اختناق صف واحد عند كل عملية بيع/مصروف/تحويل خزينة.
+        // High-volume POS entities use database sequences where gaps are acceptable to avoid single-row lock contention.
         'shift' => 'shift_next_number',
         'pos_invoice' => 'pos_invoice_next_number',
         'expense' => 'expense_next_number',
         'treasury_transfer' => 'treasury_transfer_next_number',
         'payment_notice' => 'payment_notice_next_number',
     ];
-    // H5: فاتورة الضريبية (invoice) مش دخيلة هنا — تفضل على قفل الصف لأن
-    // الترقيم المتصل شرط قانوني.
+    // Tax invoices remain row-locked because continuous sequential numbering without gaps is a legal requirement.
 
     /** @var array<string, array{0: string, 1: string}> */
     private const NUMBERING_TARGETS = [
@@ -216,8 +217,7 @@ class SettingService
             $version = Cache::get(self::CACHE_VERSION_KEY);
         }
 
-        // M-6: خارج الـ transactions تُحفظ النتيجة في ذاكرة الطلب — كل get()
-        // كان يكلف رحلتين للكاش وفك تسلسل المصفوفة كاملة.
+        // Cache resolved settings in request memory to avoid repeated cache roundtrips and deserialization overhead.
         if ($this->requestCache !== null) {
             return $this->requestCache;
         }
@@ -228,8 +228,7 @@ class SettingService
         }
 
         $result = Cache::remember($key, self::CACHE_TTL_SECONDS, $read);
-        // كاتب متأخر قد يدير النسخة أثناء القراءة — لقطة قديمة لا تُحفظ
-        // في ذاكرة الطلب، وإلا التصقت القيمة القديمة بباقي الطلب.
+        // Guard against concurrent version bump during read to prevent pinning stale snapshots in request cache.
         if (Cache::get(self::CACHE_VERSION_KEY) === $version) {
             $this->requestCache = $result;
         }
@@ -272,7 +271,7 @@ class SettingService
     /** @return array{name: string, logo: ?string, email: ?string, phone: ?string, address: ?string} */
     public function publicBranding(): array
     {
-        // M12: نقرا من كاش static بدل query على الداتابيز لكل زائر.
+        // Read branding from in-memory settings to avoid repetitive database queries on public storefront hits.
         $company = $this->staticSettings()['company'] ?? [];
 
         return [
@@ -306,8 +305,7 @@ class SettingService
             // Collision scan covers the next number AND any future number:
             // any existing document sharing this prefix whose numeric suffix
             // is >= the proposed counter would collide now or later.
-            $escaped = addcslashes($prefix, '\\%_');
-            $existing = DB::table($target[0])->where($target[1], 'like', $escaped.'%')->pluck($target[1]);
+            $existing = DB::table($target[0])->where($target[1], 'like', SearchTerm::prefix($prefix))->pluck($target[1]);
             $max = null;
             foreach ($existing as $number) {
                 // The remainder after the prefix must be purely numeric:
@@ -365,11 +363,7 @@ class SettingService
                 if (in_array($key, self::NUMBERING_COUNTER_KEYS, true)) {
                     $current = $this->get($key);
                 }
-                // M7/M8: العدادات الحية (قيم الـ sequences) بتزيد من نفسها مع
-                // كل فاتورة/عملية بتتنفذ — تسجيل التوقيع على القيمة الحلية
-                // بيورّط 409 دايمًا على الأنظمة المزدحمة. للعدادات القاعدة هي
-                // "الجديد ≥ الحالي" بس (فوق)، وexpected يحكم البادئة والطول
-                // والأنواع غير العدادية (فاتورة ضريبية مثلًا تفضل بالمساواة).
+                // Dynamic sequence counters increment continuously under concurrent traffic; enforce monotonic increase rather than exact equality on optimistic concurrency.
                 $isCounter = in_array($key, self::NUMBERING_COUNTER_KEYS, true);
                 if (! $isCounter && $expected !== null && (! array_key_exists($key, $expected)
                     || $this->comparisonValue($current, $setting->type) !== $this->comparisonValue($expected[$key], $setting->type))) {
@@ -405,23 +399,14 @@ class SettingService
             }
 
             $this->assertNumberingDoesNotCollide($settings, $after);
-            // M-4: تغيير البادئة أو الطول قد يعيد إصدار رقم صدر من قبل
-            // (مثال: INV- بطول 6 أصدر INV-001000، ثم بادئة INV-00 وطول 4
-            // يعيدان الرقم 1000 بصيغة INV-001000). التحقق الحالي يمنع
-            // تخفيض العداد فقط. بعد تطبيق القيم الجديدة وقبل التدقيق،
-            // نشيك أن الرقم التالي المُنسَّق غير موجود أصلًا في جدول
-            // المستند؛ والـ unique index على عمود الرقم هو خط الدفاع
-            // الأخير وقت التشغيل (موجود على كل أعمدة الأرقام).
+            // Changing prefix or padding can collide with previously issued numbers; assert next formatted number is unused in target document table.
             $this->assertNoNumberingCollision(array_keys($settings));
 
             StaffAdministration::audit(request()->user('staff'), 'settings.updated', 'settings', null, array_keys($settings),
                 ['settings' => $this->auditableSettings($before)], ['settings' => $this->auditableSettings($after)], $via);
             DB::afterCommit(fn () => $this->clearCache());
 
-            // M-2: المزامنة داخل الـ transaction — الـ setval غير transactional،
-            // ففشل لاحق (rollback) ينتج فجوة فقط، والفجوات مقبولة لهذه الأنواع.
-            // البديل السابق (afterCommit + warning) كان يترك العداد قديمًا
-            // فيكرر أرقام مستندات.
+            // Synchronize sequence within transaction: non-transactional sequence advance may leave gaps on rollback, but prevents duplicate document numbers.
             if ($movementSequenceTarget !== null) {
                 DB::selectOne('SELECT inventory_movement_number(?) AS number', [$movementSequenceTarget]);
             }
@@ -556,21 +541,20 @@ class SettingService
     /**
      * M-4: لكل نوع مستند اتعدّلت بادئته أو طوله أو عداده، تأكد أن الرقم
      * التالي المُنسَّق بالصيغة الجديدة غير موجود أصلًا في جدول المستند.
-     * استعلام exists واحد لكل نوع اتعدّل.
+    /**
+     * Assert that formatted next number does not collide with existing document rows.
      *
      * @param  list<string>  $changedKeys
      */
     private function assertNoNumberingCollision(array $changedKeys): void
     {
         foreach (self::DOCUMENT_NUMBER_TARGETS as $type => [$table, $column]) {
-            // مفاتيح الترقيم بنمط ثابت {type}_prefix/_next_number/_padding
-            // (بما فيه movement، غير الموجود في numberingDefinitions()).
+            // Numbering settings follow a uniform {type}_prefix/_next_number/_padding naming convention.
             $keys = [$type.'_prefix', $type.'_next_number', $type.'_padding'];
             if (array_intersect($keys, $changedKeys) === []) {
                 continue;
             }
-            // قراءة طازجة داخل الـ transaction: المفاتيح المتعدّلة اتحفظت
-            // بالفعل في الحلقة أعلاه، وغيرها بقيمها الحالية.
+            // Read current values within transaction to combine freshly saved overrides with untouched defaults.
             $rows = Setting::query()->whereIn('key', $keys)->get()->keyBy('key');
             if ($rows->count() !== count($keys)) {
                 continue;

@@ -27,7 +27,7 @@ final class AdjustStockTool implements LocksTargets, UndoableTool, WriteTool
 {
     public const REASONS = ['تالف', 'فقد', 'خطأ إدخال', 'عينة', 'هدية'];
 
-    /** @var array<string, list<array{0:string}>> عكس كل نوع بحركات مقابلة (الدفتر لا يُحذف). */
+    /** @var array<string, list<array{0:string}>> Inverse movement mapping for compensating ledger adjustments. */
     private const INVERSE = [
         'increase' => [['decrease']],
         'decrease' => [['increase']],
@@ -135,7 +135,7 @@ final class AdjustStockTool implements LocksTargets, UndoableTool, WriteTool
             'available' => $level?->available ?? 0.0,
         ];
 
-        // الخروج مايوقعش تحت المحجوز + التالف.
+        // Deductions cannot exceed available stock minus damaged and reserved quantities.
         if (in_array($type, ['write_off_damaged', 'restore_damaged'], true) && $qty > $before['damaged']) {
             return ToolOutcome::denied("التالف {$before['damaged']} بس؛ كمية التسوية أكبر من التالف.", auditable: false);
         }

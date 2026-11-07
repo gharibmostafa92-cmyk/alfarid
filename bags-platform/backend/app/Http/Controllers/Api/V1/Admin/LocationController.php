@@ -24,13 +24,19 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Branch storage locations management (aisles, shelves, staging areas) with balance checks.
+ */
 class LocationController extends Controller
 {
     public function __construct(private readonly BranchAccess $branchAccess) {}
 
+    /**
+     * List locations belonging to a specific branch.
+     */
     public function index(Request $request, Branch $branch): AnonymousResourceCollection
     {
-        // M4: موظف الفرع A لا يعطّل مواقع الفرع B (كان يعلّق تحويلاتها مع H3).
+        // Prevent cross-branch operational leakage and unauthorized location inspection.
         $this->branchAccess->assertBranch($request->user()->id, $branch->id);
         $validated = $request->validate([
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
@@ -44,6 +50,9 @@ class LocationController extends Controller
         return LocationResource::collection($locations);
     }
 
+    /**
+     * Create a new location under the specified active branch.
+     */
     public function store(StoreLocationRequest $request, Branch $branch): JsonResponse
     {
         $this->branchAccess->assertBranch($request->user()->id, $branch->id);
@@ -53,8 +62,7 @@ class LocationController extends Controller
             $location = DB::transaction(function () use ($request, $branch): Location {
                 $created = $branch->locations()->create($request->validated());
                 $created->refresh();
-                // M5: تدقيق الإنشاء زي ما المساعد بيعمل — داخل المعاملة حتى لا
-                // يُنشأ موقع بلا سجل تدقيق.
+                // Audit record is emitted within transaction to prevent unlogged mutations if rollback occurs.
                 StaffAdministration::audit($request->user('staff'), 'location.created', 'location', $created->getKey(),
                     ['name', 'code', 'type'], [], ['name' => $created->name, 'code' => $created->code, 'type' => $created->type->value, 'branch' => $branch->name],
                     via: ['channel' => 'rest']);
@@ -68,6 +76,9 @@ class LocationController extends Controller
         return LocationResource::make($location)->response()->setStatusCode(201);
     }
 
+    /**
+     * Retrieve details for a specific branch location.
+     */
     public function show(Request $request, Branch $branch, Location $location): LocationResource
     {
         $this->authorizeLocation((int) $request->user()->id, $branch, $location);
@@ -75,6 +86,9 @@ class LocationController extends Controller
         return LocationResource::make($location);
     }
 
+    /**
+     * Update location details or toggle active status with balance checks.
+     */
     public function update(UpdateLocationRequest $request, Branch $branch, Location $location, SetLocationStatus $setStatus): LocationResource
     {
         $this->authorizeLocation((int) $request->user()->id, $branch, $location);
@@ -84,9 +98,8 @@ class LocationController extends Controller
 
             return LocationResource::make($updated);
         }
-        // M5: قفل توافقي على الصف، ورفض تغيير النوع/التعطيل لموقع عليه
-        // أرصدة — تغيير المعنى من غير تحذير أو سجل تدقيق.
-        // M-1: سباق قيد فريد متزامن يُرجع 422 بدل 500.
+        // Pessimistic lock row to guard against concurrent type change or deactivation with non-zero balances.
+        // Convert unique constraint race conditions to 422 instead of unhandled 500 error.
         try {
             $updated = DB::transaction(function () use ($request, $location, $validated): Location {
                 $locked = Location::query()->whereKey($location->getKey())->lockForUpdate()->firstOrFail();
@@ -125,14 +138,16 @@ class LocationController extends Controller
         return LocationResource::make($updated);
     }
 
+    /**
+     * Delete a location if it has no ledger history and no active stock balances.
+     */
     public function destroy(Request $request, Branch $branch, Location $location): JsonResponse|Response
     {
         $this->authorizeLocation((int) $request->user()->id, $branch, $location);
 
         try {
             $deleted = DB::transaction(function () use ($request, $branch, $location): bool {
-                // L-6: ترتيب القفل موحّد مع lockLevels (أرصدة أولًا ثم
-                // موقع بـ SHARE) — انظر DeleteBranch.
+                // Consistent lock ordering (stock levels first, then location) prevents 40P01 deadlocks.
                 StockLevel::query()->where('location_id', $location->getKey())
                     ->orderBy('branch_id')
                     ->orderByRaw('location_id ASC NULLS FIRST')
@@ -145,13 +160,12 @@ class LocationController extends Controller
                     ->firstOrFail();
                 $this->ensureLocationBelongsToBranch($branch, $lockedLocation);
 
-                // L3: ضمان الـ FK يكفي للدفتر — بلا مسح Schema في كل طلب.
+                // Foreign key constraint prevents deletion if ledger movements reference this location.
                 if (DB::table('stock_movements')->where('location_id', $lockedLocation->getKey())->exists()) {
                     return false;
                 }
 
-                // L3: صفوف الرصيد الصفرية (أثر جانبي لـ lockLevels) تُنظَّف بدل
-                // منع الحذف الدائم؛ وغير الصفرية تُرفض برسالة مفهومة.
+                // Clean zero-balance placeholder rows created by lockLevels; non-zero balances reject deletion.
                 $hasBalances = StockLevel::query()->where('location_id', $lockedLocation->getKey())
                     ->hasNonZeroBalance()
                     ->exists();
@@ -160,7 +174,7 @@ class LocationController extends Controller
                 }
                 StockLevel::query()->where('location_id', $lockedLocation->getKey())->delete();
 
-                // M5: تدقيق حذف الموقع زي بقية عمليات الإدارة.
+                // Audit location removal alongside staff actions.
                 StaffAdministration::audit($request->user('staff'), 'location.deleted', 'location', $lockedLocation->getKey(),
                     ['name', 'code', 'type'],
                     ['name' => $lockedLocation->name, 'code' => $lockedLocation->code, 'type' => $lockedLocation->type->value], [],

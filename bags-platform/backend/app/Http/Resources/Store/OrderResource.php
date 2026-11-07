@@ -4,13 +4,21 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Store;
 
+use App\Models\OrderItem;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
-/** تمثيل طلب للعميل (إتمام شراء / طلبات الحساب). */
+/**
+ * Customer-facing order projection for checkout confirmation and order history views.
+ */
 class OrderResource extends JsonResource
 {
-    /** @return array<string, mixed> */
+    /**
+     * Transform the resource into an array.
+     *
+     * @param  Request  $request
+     * @return array<string, mixed>
+     */
     public function toArray(Request $request): array
     {
         return [
@@ -28,8 +36,7 @@ class OrderResource extends JsonResource
             'discount_amount' => $this->discount_amount,
             'coupon_code' => $this->coupon_code,
             'shipping_cost' => $this->shipping_cost,
-            // رسوم الدفع عند الاستلام جزء من الإجمالي (M4): بغير عرضها يظهر
-            // للعميل subtotal − discount + shipping + tax ≠ grand_total
+            // Expose COD collection fee so itemized charges reconcile with grand_total.
             'cod_fee' => $this->cod_fee,
             'tax_amount' => $this->tax_amount,
             'grand_total' => $this->grand_total,
@@ -37,6 +44,7 @@ class OrderResource extends JsonResource
                 'id' => $item->id,
                 'product_variant_id' => $item->product_variant_id,
                 'product_name' => $item->product_name_snapshot,
+                'image' => $this->itemImage($item),
                 'sku' => $item->sku_snapshot,
                 'qty' => $item->qty,
                 'unit_price' => $item->unit_price,
@@ -45,5 +53,17 @@ class OrderResource extends JsonResource
             ])->all()),
             'created_at' => $this->created_at,
         ];
+    }
+
+    /**
+     * Resolve the display image URL, falling back from variant to parent product gallery.
+     */
+    private function itemImage(OrderItem $item): ?string
+    {
+        $variant = $item->variant;
+        // Variants without custom color photos inherit their parent product's primary image.
+        $image = $variant?->getFirstMedia('images') ?? $variant?->product?->getFirstMedia('images');
+
+        return $image?->getUrl();
     }
 }

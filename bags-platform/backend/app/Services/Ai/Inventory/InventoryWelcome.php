@@ -18,8 +18,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
- * 5.2: كارت الصباح للمخزون — بيتبني في PHP بالكامل، من غير أي نداء
- * لـ Gemini (صفر توكنز). كل سطر جنبه زرار "اتصرف" بprompt جاهز.
+ * Morning inventory digest card: deterministic PHP aggregation (0 LLM tokens) with quick action prompts.
  */
 final class InventoryWelcome
 {

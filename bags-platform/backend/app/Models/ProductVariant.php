@@ -17,6 +17,9 @@ use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
+/**
+ * Concrete SKU variant representing a distinct color, size, and pricing option for a product.
+ */
 class ProductVariant extends Model implements HasMedia
 {
     /** @use HasFactory<ProductVariantFactory> */
@@ -69,7 +72,7 @@ class ProductVariant extends Model implements HasMedia
         return $parts !== [] ? implode(' / ', $parts) : (string) $this->sku;
     }
 
-    // صور خاصة باللون ده
+    // Colorway and variant-specific image collections.
     public function registerMediaCollections(): void
     {
         $this->addMediaCollection('images')->useDisk(CatalogMedia::disk())->storeConversionsOnDisk(CatalogMedia::disk())->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp']);
@@ -78,7 +81,7 @@ class ProductVariant extends Model implements HasMedia
 
     public function registerMediaConversions(?Media $media = null): void
     {
-        // F3: queued like Product — no synchronous conversion inside locks.
+        // Queue thumbnail/medium conversions asynchronously to avoid holding row locks during transactions.
         $this->addMediaConversion('thumb')->fit(Fit::Crop, 300, 300)->format('webp')->performOnCollections('images')->queued();
         $this->addMediaConversion('medium')->fit(Fit::Contain, 800, 800)->format('webp')->performOnCollections('images')->queued();
     }

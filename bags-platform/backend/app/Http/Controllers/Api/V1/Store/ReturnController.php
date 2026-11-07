@@ -16,8 +16,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 /**
- * مرتجعات العميل المسجل: تقديم طلب إرجاع لطلب مُسلَّم يخصه (مع صور عيوب).
- * بقية الدورة (اعتماد/استلام/رد) إدارية بالكامل في Admin\ReturnController.
+ * Customer portal return requests for delivered orders, including defect photo attachments.
  */
 class ReturnController extends Controller
 {
@@ -25,12 +24,18 @@ class ReturnController extends Controller
 
     public function __construct(protected ReturnService $returns) {}
 
+    /**
+     * Paginate return requests for the authenticated customer.
+     */
     public function index(Request $request): AnonymousResourceCollection
     {
         return ReturnRequestResource::collection(ReturnRequest::query()
             ->where('customer_id', $request->user()->id)->with(self::RELATIONS)->latest('id')->paginate(20));
     }
 
+    /**
+     * Display specific customer return request details.
+     */
     public function show(Request $request, int $returnRequest): ReturnRequestResource
     {
         $return = ReturnRequest::query()->where('customer_id', $request->user()->id)
@@ -39,11 +44,15 @@ class ReturnController extends Controller
         return $this->returnResource($return);
     }
 
+    /**
+     * Submit a new return request against a delivered customer order.
+     */
     public function store(StoreReturnRequest $request): JsonResponse
     {
         /** @var Customer $customer */
         $customer = $request->user();
-        // الطلب يجب أن يخص العميل نفسه — غير الموجود في حسابه = 404 لا 403
+
+        // Scope order lookup to current customer; throw 404 rather than 403 to prevent order ID enumeration.
         $order = Order::query()
             ->where('customer_id', $customer->id)
             ->findOrFail((int) $request->validated('order_id'));
@@ -53,6 +62,12 @@ class ReturnController extends Controller
         return $this->returnResource($return)->response()->setStatusCode(201);
     }
 
+    /**
+     * Wrap return request model with eager-loaded relations in an API resource.
+     *
+     * @param  ReturnRequest  $return  Target return request model
+     * @return ReturnRequestResource Formatted resource
+     */
     private function returnResource(ReturnRequest $return): ReturnRequestResource
     {
         return ReturnRequestResource::make($return->loadMissing(self::RELATIONS));

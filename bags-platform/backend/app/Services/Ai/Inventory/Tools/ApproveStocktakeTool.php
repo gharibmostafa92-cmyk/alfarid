@@ -98,7 +98,7 @@ final class ApproveStocktakeTool extends StocktakeToolBase implements WriteTool,
         try {
             $updated = $this->stocktakes->approve($stocktake, $actor->id);
         } catch (BusinessException $e) {
-            // سياسة الرفض: الأصناف المتغيرة تحتاج إعادة عد — checklist بدل الفشل الأعمى.
+            // Return recount checklist when concurrent movements alter system stock during approval.
             $recount = $e->errors['recount_variant_ids'] ?? [];
             if ($recount === []) {
                 throw $e;

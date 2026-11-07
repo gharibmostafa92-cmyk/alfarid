@@ -3,7 +3,15 @@ export * from './operations';
 
 import { createApiClient, defaultApiClient as apiClient } from '../axios-instance';
 import { SLOW_REQUEST_TIMEOUT } from './operations/http';
-import type { CartCouponResponse, CheckoutPayload, CheckoutResponse, PublicBranding, ShippingOptionsResponse, StoreCart, StoreCity, StoreOrder, TrackOrderResponse } from '../types';
+import type {
+  AdminBrand, AdminCategory, AdminMedia, AdminProduct, AdminVariant,
+  BrandPayload, CartCouponResponse, CategoryPayload, CategoryReorderItem,
+  CheckoutPayload, CheckoutResponse, ProductPayload, ProductStatus,
+  PublicBranding, ResourceCollection, SalesChannel, ShippingOptionsResponse,
+  StoreCart, StoreCatalogFilters, StoreCategory, StoreCity, StoreHomeData,
+  StoreOrder, StoreProduct, StoreProductCard, StoreProductListParams,
+  TrackOrderResponse, VariantPayload,
+} from '../types';
 
 const publicApiClient = createApiClient({ getToken: () => null, onUnauthorized: () => {} });
 
@@ -25,7 +33,7 @@ export const cartEndpoints = {
   applyCoupon: (code: string, session: string | null) => apiClient.post<{ data: CartCouponResponse }>('/api/v1/store/cart/coupon', { code }, { headers: cartHeaders(session) }).then(response => response.data.data),
   removeCoupon: (session: string | null) => apiClient.delete<{ data: StoreCart }>('/api/v1/store/cart/coupon', { headers: cartHeaders(session) }).then(response => response.data.data),
 };
-import type { AdminBrand, AdminCategory, AdminMedia, AdminProduct, AdminVariant, BrandPayload, CategoryPayload, CategoryReorderItem, ProductPayload, ProductStatus, ResourceCollection, SalesChannel, StoreCatalogFilters, StoreCategory, StoreHomeData, StoreProduct, StoreProductCard, StoreProductListParams, VariantPayload } from '../types';
+
 
 export type ActorType = 'staff' | 'supplier' | 'customer';
 export type Destination = 'admin' | 'pos' | 'supplier' | 'wholesale' | 'wholesale_pending' | 'retail';
@@ -155,7 +163,11 @@ export const checkoutEndpoints = {
 };
 
 export const accountEndpoints = {
-  orders: () => apiClient.get<{ data: StoreOrder[] }>('/api/v1/store/account/orders').then((r) => r.data.data),
+  orders: (page = 1) => apiClient.get<{ data: StoreOrder[]; meta?: { current_page: number; last_page: number } }>('/api/v1/store/account/orders', { params: { page } }).then((r) => ({
+    data: r.data.data,
+    currentPage: r.data.meta?.current_page ?? page,
+    lastPage: r.data.meta?.last_page ?? 1,
+  })),
   cancelOrder: (id: number) => apiClient.post<{ data: StoreOrder }>(`/api/v1/store/account/orders/${id}/cancel`).then((r) => r.data.data),
   wallet: (page = 1, filters: { direction?: 'credit' | 'debit'; type?: string; from?: string; to?: string } = {}) => apiClient.get<{ balance: number | string; transactions: { data: Array<{ id: number; type: string; type_label?: string | null; amount: number | string; balance_after: number | string; reference_type: string | null; reference_id: number | null; reference_label?: string | null; created_at: string }>; current_page: number; last_page: number; total: number } }>('/api/v1/store/account/wallet', { params: { page, ...filters } }).then((r) => r.data),
   returns: (page = 1) => apiClient.get<{ data: unknown[]; meta: { current_page: number; last_page: number; total: number } }>(`/api/v1/store/account/returns?page=${page}`).then((r) => r.data),
@@ -199,16 +211,18 @@ export const wholesaleEndpoints = {
 
 const MULTIPART = { headers: { 'Content-Type': 'multipart/form-data' } };
 
+function appendFormField(fd: FormData, key: string, v: unknown): void {
+  if (v === undefined) return;
+  if (v === null) return fd.append(key, '');
+  if (typeof v === 'boolean') return fd.append(key, v ? '1' : '0');
+  if (v instanceof Blob) return fd.append(key, v);
+  fd.append(key, String(v));
+}
+
 function categoryFormData(p: CategoryPayload, spoofPut = false): FormData {
   const fd = new FormData();
   if (spoofPut) fd.append('_method', 'PUT');
-  const put = (key: string, v: unknown) => {
-    if (v === undefined) return;                       // مش هيتبعت
-    if (v === null) return fd.append(key, '');         // Laravel يحوّلها null
-    if (typeof v === 'boolean') return fd.append(key, v ? '1' : '0'); // مهم: مش "true"
-    if (v instanceof Blob) return fd.append(key, v);
-    fd.append(key, String(v));
-  };
+  const put = (key: string, v: unknown) => appendFormField(fd, key, v);
   put('parent_id', p.parent_id);
   put('name_ar', p.name_ar);
   put('name_en', p.name_en);
@@ -262,13 +276,7 @@ export interface ProductListParams {
 function brandFormData(p: BrandPayload, spoofPut = false): FormData {
   const fd = new FormData();
   if (spoofPut) fd.append('_method', 'PUT');
-  const put = (key: string, v: unknown) => {
-    if (v === undefined) return;                       // مش هيتبعت
-    if (v === null) return fd.append(key, '');         // Laravel يحوّلها null
-    if (typeof v === 'boolean') return fd.append(key, v ? '1' : '0'); // مهم: مش "true"
-    if (v instanceof Blob) return fd.append(key, v);
-    fd.append(key, String(v));
-  };
+  const put = (key: string, v: unknown) => appendFormField(fd, key, v);
   put('name_ar', p.name_ar);
   put('name_en', p.name_en);
   put('slug', p.slug);

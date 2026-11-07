@@ -13,7 +13,7 @@ const cart = (quantity = 1, total = 750) => ({ id: 1, customer_id: null, cart_to
   totals: { subtotal: total, items_total: total, total, coupon_discount: 0, pricing_discount: 0, coupon_code: null },
 });
 
-function load(api, values = new Map(), auth = { token: null }) {
+function loadCartModule(api, values = new Map(), auth = { token: null }, navigator, sessionStorage) {
   const modules = new Map();
   const sourceRoot = path.resolve(__dirname, '../apps/storefront/src');
   const localStorage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value),
@@ -25,15 +25,19 @@ function load(api, values = new Map(), auth = { token: null }) {
     const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), {
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
     }).outputText;
-    new Function('exports', 'module', 'require', 'localStorage', 'navigator', 'crypto', code)(
+    new Function('exports', 'module', 'require', 'localStorage', 'navigator', 'crypto', 'sessionStorage', code)(
       moduleObject.exports, moduleObject,
       name => name === '@alfarid/api-client' ? { cartEndpoints: api, getAuthToken: () => auth.token }
         : name.startsWith('@/') ? evaluate(path.join(sourceRoot, `${name.slice(2)}.ts`)) : createRequire(file)(name),
-      localStorage, undefined, webcrypto,
+      localStorage, navigator, webcrypto, sessionStorage,
     );
     return moduleObject.exports;
   }
-  return evaluate(filename).useCartStore;
+  return evaluate(filename);
+}
+
+function load(...args) {
+  return loadCartModule(...args).useCartStore;
 }
 
 test('add sends only variant/quantity/session and trusts the server total', async () => {
@@ -109,4 +113,51 @@ test('a delayed old-session response cannot populate the next account cart', asy
   assert.equal(await loading, true);
   assert.deepEqual(store.getState().items, []);
   assert.equal(store.getState().total(), 0);
+});
+
+test('two tabs serialize their first additions and share one guest session', async () => {
+  const values = new Map();
+  const sessions = [];
+  let releaseFirst;
+  const firstResponse = new Promise(resolve => { releaseFirst = resolve; });
+  let pendingLock = Promise.resolve();
+  const navigator = { locks: { request(name, callback) {
+    assert.equal(name, 'alfarid-store-cart');
+    pendingLock = pendingLock.then(callback);
+    return pendingLock;
+  } } };
+  const api = { async add(variant, qty, session) {
+    sessions.push(session);
+    if (sessions.length === 1) return firstResponse;
+    return cart(2);
+  } };
+  const firstTab = load(api, values, undefined, navigator);
+  const secondTab = load(api, values, undefined, navigator);
+
+  const adding = [firstTab.getState().addItem(88), secondTab.getState().addItem(88)];
+  await new Promise(setImmediate);
+  assert.deepEqual(sessions, [null]);
+  releaseFirst(cart());
+  assert.deepEqual(await Promise.all(adding), [true, true]);
+  assert.deepEqual(sessions, [null, token]);
+  assert.equal(secondTab.getState().items[0].quantity, 2);
+});
+
+test('resetting cart identity clears the guest session, pending checkout and receipt', async () => {
+  const values = new Map([['cart_session', token]]);
+  const receipts = new Map([['last_order', 'receipt'], ['pending_checkout', 'request'], ['unrelated', 'keep']]);
+  const auth = { token: 'customer-token' };
+  const { useCartStore, resetCartIdentity } = loadCartModule(
+    { get: async () => cart() }, values, auth, undefined, { removeItem: key => receipts.delete(key) },
+  );
+  await useCartStore.getState().loadCart();
+  assert.equal(useCartStore.getState().items.length, 1);
+
+  auth.token = null;
+  resetCartIdentity();
+
+  assert.equal(values.has('cart_session'), false);
+  assert.deepEqual([...receipts], [['unrelated', 'keep']]);
+  assert.deepEqual(useCartStore.getState().items, []);
+  assert.equal(useCartStore.getState().identity, 'guest');
 });

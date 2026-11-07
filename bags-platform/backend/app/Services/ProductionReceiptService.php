@@ -29,13 +29,14 @@ class ProductionReceiptService
     /**
      * Intake a manufactured batch into branch inventory and update variant landed cost.
      *
-     * @param  array{branch_id: int, batch_number: string, items: list<array{product_variant_id: int, quantity: int|float, unit_cost: string|float|int}>, location_id?: int|null, notes?: string|null}  $data
-     * @param  int  $userId
-     * @param  string  $key  Idempotency key for request deduplication
-     * @return ProductionReceipt
+     * @param  array{branch_id: int, batch_number: string, items: list<array{product_variant_id: int, quantity: int|float, unit_cost: string|float|int}>, location_id?: int|null, notes?: string|null}  $data  Intake payload and batch details.
+     * @param  int  $userId  Authenticated staff user recording the receipt.
+     * @param  string  $key  Idempotency key for request deduplication.
+     * @return ProductionReceipt Created receipt model instance.
      *
-     * @throws BusinessException
-     * @throws UniqueConstraintViolationException
+     * @throws BusinessException If branch is inactive or variants are unavailable.
+     * @throws RetryableConflict If concurrent inventory locks hit the timeout window.
+     * @throws UniqueConstraintViolationException If batch number or idempotency key collides.
      */
     public function receive(array $data, int $userId, string $key): ProductionReceipt
     {
@@ -78,14 +79,10 @@ class ProductionReceiptService
                     $variant = $variants->get($item['product_variant_id']);
                     $quantity = (int) $item['quantity'];
                     $unitCost = bcadd((string) $item['unit_cost'], '0', 4);
-                    // H4: bcmath weighted average — float loses precision once
-                    // on_hand * cost crosses 2^53, silently biasing landed cost.
-                    // F12: lock this variant's stock_levels rows before summing so
-                    // the average is computed on a frozen balance even if a
-                    // concurrent movement path ever skips the variant lock.
+                    // Use bcmath to prevent IEEE-754 precision loss and bias on high-value stock totals.
+                    // Lock variant stock levels to freeze company-wide balances during weighted cost calculation.
                     $lockedLevelIds = StockLevel::where('product_variant_id', $variant->id)->orderBy('id')->lockForUpdate()->pluck('id');
-                    // In-transit goods are still owned inventory. Excluding them
-                    // would change the average merely because a transfer shipped.
+                    // Include in-transit stock in company inventory to avoid skewing average cost during pending transfers.
                     $onHandStr = (string) StockLevel::whereIn('id', $lockedLevelIds)
                         ->sum(DB::raw('on_hand + in_transit'));
                     $onHandStr = bccomp($onHandStr, '0', 4) < 0 ? '0' : $onHandStr;
@@ -118,9 +115,7 @@ class ProductionReceiptService
             }
             throw $exception;
         } catch (QueryException $exception) {
-            // L3: SET LOCAL lock_timeout makes sharedLock/lockForUpdate throw
-            // raw 55P03 (Laravel does not treat it as a deadlock) — surface a
-            // retryable 409 instead of a 500.
+            // Postgres 55P03 lock timeout indicates transient concurrency conflict rather than a fatal query failure.
             if (($exception->errorInfo[0] ?? null) === '55P03') {
                 throw new RetryableConflict('المخزون مشغول بعملية أخرى الآن؛ أعد المحاولة بعد لحظات.', $exception);
             }

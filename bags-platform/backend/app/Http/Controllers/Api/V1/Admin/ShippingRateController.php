@@ -15,7 +15,9 @@ use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Validation\ValidationException;
 
-/** إدارة أسعار الشحن (شركة × منطقة). */
+/**
+ * Shipping rate matrix administration across carrier companies and geographical zones.
+ */
 class ShippingRateController extends Controller implements HasMiddleware
 {
     public static function middleware(): array
@@ -28,6 +30,9 @@ class ShippingRateController extends Controller implements HasMiddleware
         ];
     }
 
+    /**
+     * List paginated shipping rates with company and zone relationships.
+     */
     public function index(): AnonymousResourceCollection
     {
         return ShippingRateResource::collection(
@@ -35,6 +40,9 @@ class ShippingRateController extends Controller implements HasMiddleware
         );
     }
 
+    /**
+     * Store a shipping rate for a carrier in a specific zone.
+     */
     public function store(ShippingRateRequest $request): JsonResponse
     {
         $rate = $this->persist(fn () => ShippingRate::create($request->validated()));
@@ -42,11 +50,17 @@ class ShippingRateController extends Controller implements HasMiddleware
         return $this->rateResource($rate)->response()->setStatusCode(201);
     }
 
+    /**
+     * Retrieve shipping rate details.
+     */
     public function show(ShippingRate $shippingRate): ShippingRateResource
     {
         return $this->rateResource($shippingRate);
     }
 
+    /**
+     * Update pricing parameters for a carrier zone rate.
+     */
     public function update(ShippingRateRequest $request, ShippingRate $shippingRate): ShippingRateResource
     {
         $this->persist(function () use ($request, $shippingRate): ShippingRate {
@@ -58,6 +72,9 @@ class ShippingRateController extends Controller implements HasMiddleware
         return $this->rateResource($shippingRate);
     }
 
+    /**
+     * Delete a shipping rate.
+     */
     public function destroy(ShippingRate $shippingRate): JsonResponse
     {
         $shippingRate->delete();
@@ -82,6 +99,12 @@ class ShippingRateController extends Controller implements HasMiddleware
         }
     }
 
+    /**
+     * Wrap rate model with company and zone relations in an API resource.
+     *
+     * @param  ShippingRate  $rate  Target shipping rate
+     * @return ShippingRateResource Formatted resource
+     */
     private function rateResource(ShippingRate $rate): ShippingRateResource
     {
         return ShippingRateResource::make($rate->loadMissing(['company', 'zone']));

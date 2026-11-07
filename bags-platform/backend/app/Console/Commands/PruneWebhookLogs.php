@@ -7,13 +7,20 @@ namespace App\Console\Commands;
 use App\Models\WebhookLog;
 use Illuminate\Console\Command;
 
-/** حذف سجلات الويب هوك القديمة — سياسة احتفاظ بدل نمو بلا حد (M4). */
+/**
+ * Prunes expired webhook logs and scrubs processed payloads to preserve idempotency keys while freeing storage.
+ */
 class PruneWebhookLogs extends Command
 {
-    protected $signature = 'webhooks:prune-logs {--days=90 : الاحتفاظ بعدد الأيام هذا}';
+    protected $signature = 'webhooks:prune-logs {--days=90 : Number of days of webhook records to retain}';
 
     protected $description = 'Delete webhook log rows older than the retention window';
 
+    /**
+     * Execute the console command.
+     *
+     * @return int Command exit code (0 for success).
+     */
     public function handle(): int
     {
         $days = max(1, (int) $this->option('days'));
@@ -21,11 +28,8 @@ class PruneWebhookLogs extends Command
         $deleted = 0;
         $scrubbed = 0;
 
-        // (L1) صفوف «processed» هي مفاتيح منع التكرار (provider + event_id):
-        // حذفها كان يسمح بإعادة معالجة نفس الحدث عند وصوله متأخرًا. نُبقي عليها
-        // لكن نُفرّغ حمولتها (المفتاح لا يحتاج الحمولة) — لا حذف لمفتاح التكرار.
-        // L6: cursor pagination (orderBy id + where id > lastId) — دون ترتيب
-        // كانت كل دفعة تمسح نفس الصفوف المفرّغة، والتكلفة تتزايد مع الزمن.
+        // Retain 'processed' records to prevent duplicate event replays, but nullify large payloads to reclaim storage space.
+        // Keyset cursor pagination prevents repeatedly reprocessing already scrubbed rows.
         $lastScrubbedId = 0;
         do {
             $ids = WebhookLog::query()
@@ -44,9 +48,7 @@ class PruneWebhookLogs extends Command
             $lastScrubbedId = $ids->max();
         } while ($ids->count() === 1000);
 
-        // بقية الحالات (received/duplicate/ignored/failed) لا تحمل دلالة منع
-        // تكرار، فتُحذف. الحذف على دفعات (F-29): عبارة DELETE واحدة على جدول
-        // ضخم تُطيل القفل وتفشل عند تراكم ملايين السجلات.
+        // Non-processed statuses carry no deduplication guarantees and are deleted in chunks to avoid table lock escalation.
         $lastDeletedId = 0;
         do {
             $ids = WebhookLog::query()

@@ -13,11 +13,16 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
-/** تصفح منتجات المتجر: قائمة بفلاتر، وصفحة منتج بالـ slug، ومنتجات مشابهة. كله عام. */
+/**
+ * Public storefront product browsing: filtered catalogs, product details, curated showcase, and similar items.
+ */
 class ProductController extends Controller
 {
     public function __construct(private readonly StoreCatalogService $catalog) {}
 
+    /**
+     * Paginate published products matching applied search, category, and pricing filters.
+     */
     public function index(ProductFilterRequest $request): AnonymousResourceCollection
     {
         $filters = $request->validated();
@@ -31,6 +36,9 @@ class ProductController extends Controller
         return StoreProductCardResource::collection($products);
     }
 
+    /**
+     * Retrieve single published product details by unique slug.
+     */
     public function show(string $slug): StoreProductResource
     {
         $product = $this->catalog->publishedQuery()
@@ -40,6 +48,9 @@ class ProductController extends Controller
         return StoreProductResource::make($product);
     }
 
+    /**
+     * Retrieve curated showcase products.
+     */
     public function showcase(Request $request): JsonResponse
     {
         $ids = $this->catalog->showcaseIds();
@@ -49,12 +60,14 @@ class ProductController extends Controller
         return response()->json(['data' => StoreProductResource::collection($products)->resolve($request)]);
     }
 
+    /**
+     * Retrieve related products within the same category.
+     */
     public function similar(string $slug): JsonResponse
     {
         $product = $this->catalog->publishedQuery()
             ->withoutEagerLoads()
-            // F19: similar() only matches on category_id — brand links are
-            // legacy (brand_id is always null), so don't select the column.
+            // Match similar products strictly by category_id as brand references are deprecated.
             ->select(['products.id', 'products.category_id'])
             ->where('products.slug', $slug)
             ->firstOrFail();

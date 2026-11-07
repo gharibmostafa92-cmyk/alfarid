@@ -16,8 +16,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 
 /**
- * 5.3: كشف الأنماط الغريبة أسبوعيًا — ملاحظات للمراجعة تظهر للي معاه
- * ai_agent.logs.view بس، مش اتهامات.
+ * Detects statistical inventory anomalies and delivers branch-scoped review digests.
  */
 class DetectInventoryAnomalies extends Command
 {
@@ -25,9 +24,15 @@ class DetectInventoryAnomalies extends Command
 
     protected $description = 'Flag unusual inventory patterns for review (adjustment rates, repeat shortages).';
 
+    /**
+     * Execute the anomaly detection command.
+     *
+     * @param  SettingService  $settings  System settings service.
+     * @return int Command exit code (0 for success).
+     */
     public function handle(SettingService $settings): int
     {
-        // entry point للتشخيص: المجدول يعمل بلا tty، والتشغيل اليدوي بـ tty.
+        // Record entry point to distinguish automated cron runs from manual interactive executions.
         $source = function_exists('posix_isatty') && @posix_isatty(STDOUT) ? 'cli-manual' : 'scheduler';
         logger()->info('inventory.anomalies.run', ['entry_point' => $source]);
         if (! $settings->getBool('ai_inventory_proactive_enabled', false)) {
@@ -39,7 +44,7 @@ class DetectInventoryAnomalies extends Command
         $notes = [];
         $since = now()->subDays(30);
 
-        // مستخدم نسبة تسويات الخصم بتاعته أعلى من غيره بكتير.
+        // Flag users whose inventory write-off frequency significantly exceeds team median.
         $rates = DB::table('stock_movements')
             ->selectRaw('created_by, COUNT(*) AS c, COALESCE(json_agg(DISTINCT branch_id), \'[]\') AS branches')
             ->where('created_at', '>=', $since)
@@ -65,7 +70,7 @@ class DetectInventoryAnomalies extends Command
             }
         }
 
-        // موقع العجز بيتكرر فيه (جرود معتمدة آخر 90 يوم).
+        // Identify storage locations experiencing recurrent stocktake deficits over the last 90 days.
         $locs = DB::table('stocktake_items as si')
             ->join('stocktakes as s', 's.id', '=', 'si.stocktake_id')
             ->join('locations as loc', 'loc.id', '=', 's.location_id')
@@ -85,7 +90,7 @@ class DetectInventoryAnomalies extends Command
             ];
         }
 
-        // استلامات تحويل بعجز متكرر من نفس المصدر.
+        // Detect branches with recurring transfer shortages during receiving inspection.
         $srcs = DB::table('stock_movements')
             ->selectRaw('branch_id, COUNT(*) AS c')
             ->where('type', StockMovementType::TransferShortage->value)
@@ -107,9 +112,7 @@ class DetectInventoryAnomalies extends Command
             return self::SUCCESS;
         }
 
-        // L8: anomaly notes name specific branches — route each note to its
-        // branch's holders only. Central holders (no branch restriction) get
-        // the full digest; branch holders never see other branches' notes.
+        // Route anomaly notes strictly according to branch scoping: central staff receive all notes, branch staff see only their own.
         $recipients = StaffRecipients::withAnyPermission(['ai_agent.logs.view']);
         if ($recipients->isEmpty()) {
             $this->warn('Anomalies found but nobody holds ai_agent.logs.view.');
@@ -123,9 +126,7 @@ class DetectInventoryAnomalies extends Command
             try {
                 $scope = app(BranchAccess::class)->restrictedBranch($recipient);
             } catch (AuthorizationException) {
-                // A holder tied to a stopped branch must not fall back to the
-                // global digest: keep them on their own branch scope. Holders
-                // with no branch at all keep the previous global visibility.
+                // Stopped branches stay scoped to their branch ID; unassigned users retain global view.
                 $scope = $recipient->branch_id !== null ? (int) $recipient->branch_id : null;
             }
             if ($scope === null) {

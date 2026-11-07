@@ -35,9 +35,9 @@ class QuotationService
     /**
      * Create a new draft quotation for a wholesale customer.
      *
-     * @param  Customer  $customer
+     * @param  Customer  $customer  Wholesale customer requesting the quote.
      * @param  array{customer_notes?: string|null, items: list<array{product_variant_id: int, qty: float, requested_target_price?: float|null}>}  $data
-     * @return Quotation
+     * @return Quotation Newly created draft quotation.
      */
     public function create(Customer $customer, array $data): Quotation
     {
@@ -59,11 +59,11 @@ class QuotationService
     /**
      * Update items and customer notes on an unsubmitted draft quotation.
      *
-     * @param  Quotation  $quotation
+     * @param  Quotation  $quotation  Draft quotation to update.
      * @param  array{customer_notes?: string|null, items?: list<array{product_variant_id: int, qty: float, requested_target_price?: float|null}>}  $data
-     * @return Quotation
+     * @return Quotation Updated quotation instance.
      *
-     * @throws BusinessException
+     * @throws BusinessException If quotation is not in draft state.
      */
     public function update(Quotation $quotation, array $data): Quotation
     {
@@ -90,10 +90,10 @@ class QuotationService
     /**
      * Submit a draft quotation for administrator pricing and review.
      *
-     * @param  Quotation  $quotation
-     * @return Quotation
+     * @param  Quotation  $quotation  Draft quotation to submit.
+     * @return Quotation Submitted quotation instance.
      *
-     * @throws BusinessException
+     * @throws BusinessException If quotation is not draft or contains no items.
      */
     public function submit(Quotation $quotation): Quotation
     {
@@ -113,11 +113,11 @@ class QuotationService
     /**
      * Set negotiated prices, validity expiration, discounts, and taxes by an administrator.
      *
-     * @param  Quotation  $quotation
+     * @param  Quotation  $quotation  Requested quotation to price.
      * @param  array{valid_until?: string|null, admin_notes?: string|null, discount_amount?: float|null, tax_amount?: float|null, items?: list<array{id: int, offered_unit_price: float}>}  $data
-     * @return Quotation
+     * @return Quotation Priced quotation instance.
      *
-     * @throws BusinessException
+     * @throws BusinessException If quotation is not in Requested state or references invalid items.
      */
     public function price(Quotation $quotation, array $data): Quotation
     {
@@ -159,10 +159,10 @@ class QuotationService
      * Preserves negotiated line prices, distributes header discounts/taxes using Hare-Niemeyer,
      * and allocates inventory. Fails the conversion entirely if any item lacks available stock.
      *
-     * @param  Quotation  $quotation
-     * @return Quotation
+     * @param  Quotation  $quotation  Priced quotation to accept.
+     * @return Quotation Converted quotation with loaded relation to generated order.
      *
-     * @throws BusinessException
+     * @throws BusinessException If quotation is expired, unpriced, or breaches customer credit limit.
      */
     public function accept(Quotation $quotation): Quotation
     {
@@ -180,7 +180,7 @@ class QuotationService
             $quotation->loadMissing(['customer', 'items.variant.product']);
             $customer = $quotation->customer;
 
-            // B4: الطلب الناتج عن قبول عرض السعر آجل — يُرفض لو تجاوز حد الائتمان.
+            // Lock customer account row to serialize concurrent order placements and prevent credit limit race conditions.
             Customer::query()->whereKey($customer->id)->lockForUpdate()->first();
             $outstanding = app(WholesalePaymentNoticeService::class)->outstandingBalance($customer->fresh());
             if ($outstanding + (float) $quotation->grand_total > (float) $customer->credit_limit) {
@@ -211,10 +211,10 @@ class QuotationService
                 'grand_total' => $quotation->grand_total,
             ]);
 
-            // Distribute header discount and tax to items using largest remainder for exact cent precision
+            // Apportion header-level discount and tax across items using largest remainder to preserve exact penny reconciliation.
             $weights = $quotation->items->map(fn ($item) => (float) $item->line_total)->all();
-            $discountShares = $this->distributeLargestRemainder((float) $quotation->discount_amount, $weights);
-            $taxShares = $this->distributeLargestRemainder((float) $quotation->tax_amount, $weights);
+            $discountShares = ProportionalDistribution::distribute((float) $quotation->discount_amount, $weights);
+            $taxShares = ProportionalDistribution::distribute((float) $quotation->tax_amount, $weights);
 
             foreach ($quotation->items->values() as $i => $item) {
                 $order->items()->create([
@@ -238,6 +238,7 @@ class QuotationService
                 'notes' => "أُنشئ من عرض السعر {$quotation->quotation_number}",
             ]);
 
+            // Quotations hold zero inventory reservations; physical stock allocation occurs immediately upon conversion.
             $order->load('items');
             $this->allocation->allocate($order, performedBy: $this->systemActorId());
 
@@ -267,51 +268,12 @@ class QuotationService
     }
 
     /**
-     * Distribute an amount proportionally across weights using the Largest Remainder (Hare-Niemeyer) method.
-     *
-     * Ensures line item shares sum exactly to the header amount with zero rounding discrepancies.
-     *
-     * @param  float  $amount
-     * @param  list<float>  $weights
-     * @return list<float>
-     */
-    private function distributeLargestRemainder(float $amount, array $weights): array
-    {
-        $count = count($weights);
-        $totalCents = (int) round($amount * 100);
-        $totalWeight = array_sum($weights);
-
-        if ($count === 0 || $totalCents === 0 || $totalWeight <= 0) {
-            return array_fill(0, $count, 0.0);
-        }
-
-        $shares = [];
-        $remainders = [];
-        $allocated = 0;
-        foreach ($weights as $i => $weight) {
-            $exact = $totalCents * $weight / $totalWeight;
-            $floor = (int) floor($exact);
-            $shares[$i] = $floor;
-            $remainders[$i] = $exact - $floor;
-            $allocated += $floor;
-        }
-
-        $order = array_keys($remainders);
-        usort($order, fn (int $a, int $b): int => $remainders[$b] <=> $remainders[$a]);
-        for ($k = 0; $k < $totalCents - $allocated; $k++) {
-            $shares[$order[$k % $count]]++;
-        }
-
-        return array_map(fn (int $cents): float => $cents / 100, $shares);
-    }
-
-    /**
      * Reject a submitted or priced quotation.
      *
-     * @param  Quotation  $quotation
-     * @return Quotation
+     * @param  Quotation  $quotation  Target quotation.
+     * @return Quotation Rejected quotation instance.
      *
-     * @throws BusinessException
+     * @throws BusinessException If quotation is not in Requested or PricedByAdmin state.
      */
     public function reject(Quotation $quotation): Quotation
     {
@@ -327,15 +289,19 @@ class QuotationService
     /**
      * Expire a past-due quotation.
      *
-     * @param  Quotation  $quotation
-     * @return Quotation
+     * @param  Quotation  $quotation  Target quotation.
+     * @return Quotation Expired quotation instance.
      *
-     * @throws BusinessException
+     * @throws BusinessException If quotation is not in PricedByAdmin state or has not reached its valid_until date.
      */
     public function expire(Quotation $quotation): Quotation
     {
-        if (! in_array($quotation->status, [QuotationStatus::Requested, QuotationStatus::PricedByAdmin], true)) {
-            throw new BusinessException('لا يمكن إنهاء صلاحية عرض السعر في حالته الحالية.');
+        if ($quotation->status !== QuotationStatus::PricedByAdmin) {
+            throw new BusinessException('لا يمكن إنهاء صلاحية عرض السعر إلا بعد تسعيره.');
+        }
+
+        if ($quotation->valid_until !== null && $quotation->valid_until->gte(now()->startOfDay())) {
+            throw new BusinessException('عرض السعر ما زال ساري الصلاحية.');
         }
 
         $quotation->update(['status' => QuotationStatus::Expired]);
@@ -344,34 +310,27 @@ class QuotationService
     }
 
     /**
-     * Delete an unsubmitted draft quotation.
+     * Synchronize requested line items and initial pricing for a quotation.
      *
-     * @param  Quotation  $quotation
-     * @return void
-     *
-     * @throws BusinessException
-     */
-    public function deleteDraft(Quotation $quotation): void
-    {
-        if ($quotation->status !== QuotationStatus::Draft) {
-            throw new BusinessException('لا يمكن حذف عرض السعر إلا وهو مسودة.');
-        }
-
-        $quotation->delete();
-    }
-
-    /**
+     * @param  Quotation  $quotation  Parent quotation instance.
+     * @param  Customer  $customer  Customer instance to resolve tiered pricing.
      * @param  list<array{product_variant_id: int, qty: float, requested_target_price?: float|null}>  $items
+     *
+     * @throws BusinessException If any variant is non-existent or inactive.
      */
     private function syncItems(Quotation $quotation, Customer $customer, array $items): void
     {
-        $variantIds = collect($items)->pluck('product_variant_id')->unique()->all();
-        $variants = ProductVariant::query()->whereIn('id', $variantIds)->get()->keyBy('id');
+        $variantIds = array_column($items, 'product_variant_id');
+        $variants = ProductVariant::query()
+            ->whereIn('id', $variantIds)
+            ->where('is_active', true)
+            ->get()
+            ->keyBy('id');
 
         foreach ($items as $row) {
             $variant = $variants->get($row['product_variant_id']);
 
-            if ($variant === null || ! $variant->is_active) {
+            if ($variant === null) {
                 throw new BusinessException('أحد المتغيرات المطلوبة غير موجود أو غير نشط.');
             }
 
@@ -387,11 +346,19 @@ class QuotationService
         }
     }
 
+    /**
+     * Recalculate quotation subtotal and grand total.
+     *
+     * @param  Quotation  $quotation
+     *
+     * @throws BusinessException If discount exceeds gross total resulting in a negative total.
+     */
     private function recalculate(Quotation $quotation): void
     {
         $subtotal = (float) $quotation->items()->sum('line_total');
         $grandTotal = round($subtotal - (float) $quotation->discount_amount + (float) $quotation->tax_amount, 2);
 
+        // Grand total cannot drop below zero; negative sums indicate an excessive discount that violates accounting boundaries.
         if ($grandTotal < 0) {
             throw new BusinessException('إجمالي عرض السعر لا يمكن أن يكون سالبًا — راجع الخصم.');
         }

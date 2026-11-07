@@ -15,14 +15,15 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 /**
- * أوامر شراء المورد في بوابته — القاعدة الأمنية الأولى:
- * كل استعلام يبدأ بـ where('supplier_id', مورد صاحب التوكن)، فأمر مورد
- * آخر غير موجود أصلًا (404) ولا يظهر في أي قائمة.
+ * Supplier portal purchase orders: strictly scoped to the authenticated supplier ID to prevent cross-tenant enumeration.
  */
 class PurchaseOrderController extends Controller
 {
     public function __construct(protected ProcurementService $procurement) {}
 
+    /**
+     * List paginated purchase orders issued to the authenticated supplier.
+     */
     public function index(Request $request): AnonymousResourceCollection
     {
         /** @var SupplierUser $user */
@@ -36,6 +37,9 @@ class PurchaseOrderController extends Controller
         return PurchaseOrderResource::collection($orders);
     }
 
+    /**
+     * Retrieve details of a specific purchase order including deliveries and items.
+     */
     public function show(Request $request, int $purchaseOrder): PurchaseOrderResource
     {
         /** @var SupplierUser $user */
@@ -47,7 +51,9 @@ class PurchaseOrderController extends Controller
         return PurchaseOrderResource::make($order);
     }
 
-    /** قبول أمر الشراء وتأكيد الالتزام بالتوريد: sent_to_supplier ← supplier_accepted. */
+    /**
+     * Accept purchase order and confirm fulfillment commitment (sent_to_supplier -> supplier_accepted).
+     */
     public function accept(Request $request, int $purchaseOrder): PurchaseOrderResource
     {
         /** @var SupplierUser $user */
@@ -57,7 +63,9 @@ class PurchaseOrderController extends Controller
         return PurchaseOrderResource::make($this->procurement->supplierAccept($order, $user));
     }
 
-    /** طلب تعديل أسعار/كميات/موعد مع ملاحظات للإدارة: ← change_requested. */
+    /**
+     * Request order modifications with explanatory notes for administrative review (-> change_requested).
+     */
     public function requestChange(RequestChangeRequest $request, int $purchaseOrder): PurchaseOrderResource
     {
         /** @var SupplierUser $user */
@@ -69,7 +77,9 @@ class PurchaseOrderController extends Controller
         );
     }
 
-    /** استعلامات البوابة كلها تبدأ من نطاق مورد صاحب التوكن. */
+    /**
+     * Scope query to non-draft purchase orders assigned to the authenticated supplier.
+     */
     private function scoped(SupplierUser $user): Builder
     {
         return PurchaseOrder::query()->where('supplier_id', $user->supplier_id)

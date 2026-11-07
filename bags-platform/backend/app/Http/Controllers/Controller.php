@@ -9,7 +9,14 @@ use Illuminate\Http\Request;
 
 abstract class Controller
 {
-    /** مفتاح عدم التكرار من الترويسة بعد التحقق من شكله (1–128 حرفًا). */
+    /**
+     * Extract and validate the optional Idempotency-Key request header.
+     *
+     * @param  Request  $request  Incoming HTTP request.
+     * @return string|null Validated key or null if omitted.
+     *
+     * @throws BusinessException If key is present but empty or exceeds 128 characters.
+     */
     protected function idempotencyKey(Request $request): ?string
     {
         $key = $request->header('Idempotency-Key');
@@ -26,9 +33,14 @@ abstract class Controller
     }
 
     /**
-     * M2: مفتاح عدم التكرار إلزامي في العمليات المالية-المخزنية (تسوية،
-     * تحويل، جرد) — إعادة المحاولة بعد timeout بلا مفتاح كانت تكرر الحركة
-     * وتفسد الأرصدة بصمت.
+     * Enforce mandatory Idempotency-Key header for sensitive state-mutating operations.
+     *
+     * Prevents duplicate financial and inventory movements during client retries after network timeouts.
+     *
+     * @param  Request  $request  Incoming HTTP request.
+     * @return string Validated idempotency key.
+     *
+     * @throws BusinessException If the header is missing or malformed.
      */
     protected function requiredIdempotencyKey(Request $request): string
     {

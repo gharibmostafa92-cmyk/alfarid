@@ -89,8 +89,7 @@ final class AttachProductImagesTool implements ExecutesOutsideTransaction, Write
             throw ValidationException::withMessages(['attachment_ids' => ['لازم تبعت من صورة لـ 4 صور مرفوعة في المحادثة.']]);
         }
 
-        // L3: النطاق الكامل دائمًا — ->when($conv, ...) كان يسمح بمرفقات
-        // من محادثات أخرى لنفس المستخدم عندما تكون المحادثة null.
+        // Strictly scope attachments to the current conversation to prevent cross-conversation leaks.
         $conv = $this->proposals->conversation();
         if (! $conv) {
             throw ValidationException::withMessages(['attachment_ids' => ['الإرفاق متاح من داخل المحادثة فقط؛ ارفع الصور في المحادثة أولًا.']]);
@@ -106,7 +105,7 @@ final class AttachProductImagesTool implements ExecutesOutsideTransaction, Write
             throw ValidationException::withMessages(['attachment_ids' => ['بعض الصور المرفقة غير موجودة أو لا تخص هذه المحادثة.']]);
         }
 
-        // H3: التخزين المشترك الخاص بدل القرص المحلي.
+        // Verify image files exist on shared storage disk.
         $disk = Storage::disk('ai_private');
         foreach ($attachments as $att) {
             if (! $disk->exists($att->path)) {
@@ -186,14 +185,14 @@ final class AttachProductImagesTool implements ExecutesOutsideTransaction, Write
         $clientUploadIds = (array) ($action->args['client_upload_ids'] ?? []);
         $variantId = isset($action->args['variant_id']) && $action->args['variant_id'] !== null ? (int) $action->args['variant_id'] : null;
 
-        // L3: نطاق الملكية دفاع إضافي — التنفيذ يقرأ مرفقات صاحب الإجراء فقط.
+        // Defense-in-depth: limit execution strictly to attachments owned by the action initiator.
         $attachments = AiAttachment::query()
             ->where('user_id', $action->user_id)
             ->whereIn('id', $attachmentIds)
             ->get()
             ->keyBy('id');
 
-        // H3: قراءة المحتوى من التخزين المشترك عبر get() بدل مسار محلي.
+        // Stream content from shared storage via get() rather than local paths.
         $disk = Storage::disk('ai_private');
         $uploadedFiles = [];
         $resolvedClientIds = [];

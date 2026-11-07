@@ -73,6 +73,9 @@ use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
+/**
+ * Central registry for AI assistant tool declarations, authorization checks, argument validation, and execution.
+ */
 final class ToolRegistry
 {
     private ProposalBuilder $proposals;
@@ -106,11 +109,7 @@ final class ToolRegistry
         return $def['tool'] ?? ($def['provider']->tools()[$name] ?? null);
     }
 
-    /** INFO: التعريفات تُبنى من الصفر في كل نداء وكانت تُستدعى عشرات
-     * المرات في الطلب الواحد (من declarationsFor وisWrite وdispatch
-     * وauthorizeTool وconfirmLocked، ومنها داخل rules() وauditableSettings()
-     * في UpdateSettingsRequest). خزّنها في property — لا حالة طلب
-     * داخلها، فهي ثوابت من الـ enums فقط. */
+    /** Cache definitions in property to avoid redundant array reconstruction across request lifecycle. */
     private ?array $definitionsCache = null;
 
     /** @return array<string, array{kind:ToolKind, permissions:list<string>, declaration:array<string,mixed>, risk:string}> */
@@ -119,7 +118,7 @@ final class ToolRegistry
         return $this->definitionsCache ??= $this->buildDefinitions();
     }
 
-    /** 6.1: كل أدوات العملاء — تختفي كلها لما ai_customer_tools_enabled=false. */
+    /** Customer tools hidden when ai_customer_tools_enabled is false. */
     public const CUSTOMER_TOOLS = [
         'list_customers', 'get_customer_profile', 'dealer_queue_summary', 'review_dealer_application', 'customer_history',
         'find_duplicate_customers', 'list_customer_groups', 'inspect_customer_document',
@@ -138,7 +137,7 @@ final class ToolRegistry
         return $this->settings->getBool('ai_customer_tools_enabled', false);
     }
 
-    /** 5.1: تحليل المستندات مقفول افتراضيًا، وبيحتاج أدوات العملاء مفعّلة كمان. */
+    /** Document analysis requires both customer tools and document analysis flags enabled. */
     public function documentAnalysisEnabled(): bool
     {
         return $this->customerToolsEnabled() && $this->settings->getBool('ai_document_analysis_enabled', false);
@@ -197,17 +196,14 @@ final class ToolRegistry
             'revoke_user_sessions' => ['kind' => ToolKind::Write, 'permissions' => ['users.update', 'users.manage'], 'risk' => 'medium', 'declaration' => ['name' => 'revoke_user_sessions', 'description' => 'تسجيل خروج موظف من كل الأجهزة (يحتاج تأكيد)', 'parameters' => $obj(['user_id' => $int], ['user_id'])]],
 
             // ── P03 Locations ──────────────────────────────────────────────────────
-            // H3: صلاحيات الأدوات موحّدة مع الـ REST (locations.*) — مين ملوش
-            // locations.* على الشاشة مش هيحذف/يعطّل مواقع من المساعد.
+            // Tool permissions align with REST routes (locations.*) to enforce uniform access control.
             'list_locations' => ['kind' => ToolKind::Read, 'permissions' => ['locations.view', 'locations.manage'], 'risk' => 'low', 'declaration' => ['name' => 'list_locations', 'description' => 'عرض مواقع التخزين في فرع معين', 'parameters' => $obj(['branch_id' => $int, 'branch_query' => $str, 'type' => ['type' => 'STRING', 'enum' => $locationTypes]])]],
             'create_location' => ['kind' => ToolKind::Write, 'permissions' => ['locations.create', 'locations.manage'], 'risk' => 'low', 'declaration' => ['name' => 'create_location', 'description' => 'إنشاء موقع تخزين جديد في فرع (يحتاج تأكيد)', 'parameters' => $obj(['branch_id' => $int, 'branch_query' => $str, 'name' => $str, 'code' => $str, 'type' => ['type' => 'STRING', 'enum' => $locationTypes]], ['name', 'code', 'type'])]],
             'set_location_status' => ['kind' => ToolKind::Write, 'permissions' => ['locations.update', 'locations.manage'], 'risk' => 'medium', 'declaration' => ['name' => 'set_location_status', 'description' => 'تفعيل أو تعطيل موقع تخزين (يحتاج تأكيد)', 'parameters' => $obj(['location_id' => $int, 'active' => $bool], ['location_id', 'active'])]],
             'delete_location' => ['kind' => ToolKind::Write, 'permissions' => ['locations.delete', 'locations.manage'], 'risk' => 'high', 'declaration' => ['name' => 'delete_location', 'description' => 'حذف موقع تخزين (يحتاج تأكيد، ممنوع لو فيه رصيد أو حركات)', 'parameters' => $obj(['location_id' => $int], ['location_id'])]],
 
-            // ── P04 Customers (قراءة + كتابة — مساعد مراجِع تجار) ───────────
-            // أدوات القراءة السبع من المرحلة 1، وأدوات الكتابة من المرحلة 2
-            // بنفس نمط propose→confirm→undo؛ الاعتماد والرفض بلا تراجع
-            // تلقائي (التراجع فيهما قرار إداري جديد، مش undo).
+            // ── P04 Customers ───────────────────────────────────────────────
+            // Customer tools follow propose->confirm->undo flow; approval and rejection decisions require explicit human actions rather than automated undo.
             'list_customers' => ['kind' => ToolKind::Read, 'permissions' => ['customers.view'], 'risk' => 'low', 'declaration' => ['name' => 'list_customers', 'description' => 'قائمة العملاء/التجار مع فلاتر (بيانات مقنّعة للنموذج، وكاملة في كارت العرض للأدمن)', 'parameters' => $obj(['query' => $str, 'type' => ['type' => 'STRING', 'enum' => ['retail', 'wholesale', 'distributor']], 'status' => ['type' => 'STRING', 'enum' => ['pending', 'approved', 'rejected', 'suspended']], 'customer_group_id' => $int, 'business_only' => $bool, 'pending_older_than_hours' => $int, 'limit' => $int])]],
             'get_customer_profile' => ['kind' => ToolKind::Read, 'permissions' => ['customers.view'], 'risk' => 'low', 'declaration' => ['name' => 'get_customer_profile', 'description' => 'ملف عميل كامل مقنّع: المستندات حسب الحالة، والمجموعة، وحد الائتمان، والمستخدم منه', 'parameters' => $obj(['customer_id' => $int], ['customer_id'])]],
             'dealer_queue_summary' => ['kind' => ToolKind::Read, 'permissions' => ['customers.view'], 'risk' => 'low', 'declaration' => ['name' => 'dealer_queue_summary', 'description' => 'ملخص طابور مراجعة التجار: قيد المراجعة، المتأخر عن المهلة، الناقص مستندات، الجاهز للاعتماد', 'parameters' => $obj(['sla_hours' => $int])]],
@@ -217,11 +213,8 @@ final class ToolRegistry
             'inspect_customer_document' => ['kind' => ToolKind::Read, 'permissions' => ['customers.documents.view'], 'risk' => 'low', 'declaration' => ['name' => 'inspect_customer_document', 'description' => 'تحليل صورة مستند عميل (سجل تجاري/بطاقة ضريبية) استشاريًا ومقارنة أرقامه بالمسجّل؛ مبيوثّقش المستند أبدًا. صور JPG/PNG/WebP فقط (مش PDF).', 'parameters' => $obj(['customer_id' => $int, 'document_id' => $int], ['customer_id', 'document_id'])]],
             'list_customer_groups' => ['kind' => ToolKind::Read, 'permissions' => ['customer_groups.view'], 'risk' => 'low', 'declaration' => ['name' => 'list_customer_groups', 'description' => 'قائمة مجموعات العملاء مع نسبة الخصم وعدد العملاء', 'parameters' => $obj(['query' => $str, 'active' => $bool])]],
 
-            // ── P04-2 أدوات كتابة العملاء ─────────────────────────────────────
-            // الصلاحيات هنا canAny (أي واحدة تكفي)؛ والحقول القانونية في
-            // update_customer_profile تحتاج customers.approve زيادة (تُفحص
-            // في الـ prep). الممنوعات (حذف عميل، تغيير باسورد، تغيير نوع
-            // من غير اعتماد) مرفوضة صراحة في assertAiConstraints.
+            // ── P04-2 Customer Write Tools ──────────────────────────────────
+            // Customer write permissions use canAny; modifying sensitive legal fields additionally requires customers.approve.
             'create_customer' => ['kind' => ToolKind::Write, 'permissions' => ['customers.create'], 'risk' => 'low', 'declaration' => ['name' => 'create_customer', 'description' => 'إنشاء عميل جديد؛ الباسورد يتولد في السيرفر ويظهر مرة واحدة (يحتاج تأكيد). الجملة والموزع يتسجلون قيد المراجعة.', 'parameters' => $obj(['name' => $str, 'phone' => $str, 'email' => $str, 'type' => ['type' => 'STRING', 'enum' => ['retail', 'wholesale', 'distributor']], 'company_name' => $str, 'tax_number' => $str, 'commercial_register' => $str], ['name', 'phone'])]],
             'update_customer_profile' => ['kind' => ToolKind::Write, 'permissions' => ['customers.update'], 'risk' => 'medium', 'declaration' => ['name' => 'update_customer_profile', 'description' => 'تعديل بيانات عميل (الاسم والإيميل والموبايل والبيانات القانونية فقط؛ النوع والحالة ممنوعان) (يحتاج تأكيد)', 'parameters' => $obj(['customer_id' => $int, 'name' => $str, 'email' => $str, 'phone' => $str, 'company_name' => $str, 'tax_number' => $str, 'commercial_register' => $str], ['customer_id'])]],
             'set_customer_group' => ['kind' => ToolKind::Write, 'permissions' => ['customers.approve'], 'risk' => 'medium', 'declaration' => ['name' => 'set_customer_group', 'description' => 'تعيين مجموعة عميل (يحتاج تأكيد)', 'parameters' => $obj(['customer_id' => $int, 'customer_group_id' => $int], ['customer_id', 'customer_group_id'])]],
@@ -292,9 +285,7 @@ final class ToolRegistry
     }
 
     /**
-     * M7: أدوات الكتالوج تأخذ قفل شجرة الكتالوج (CatalogLock) + أقفال
-     * الصفوف في الـ services، فلا تحتاج القفل الاستشاري العام — إبقاؤه
-     * كان يسلسل كل التأكيدات خلف أثقل عملية كتالوج.
+     * Check if tool belongs to catalog provider (which uses fine-grained locks instead of global lock).
      */
     public function isCatalogTool(string $name): bool
     {
@@ -353,12 +344,15 @@ final class ToolRegistry
         return ($this->definitions()[$name]['kind'] ?? null) === ToolKind::Write;
     }
 
-    /** @param array{name:string,args:array<string,mixed>} $call */
+    /**
+     * Dispatch tool call with permission checks, arg validation, and auditable denial logging.
+     *
+     * @param  array{name:string,args:array<string,mixed>}  $call
+     */
     public function dispatch(User $actor, AiConversation $conv, array $call): ToolOutcome
     {
         $outcome = $this->dispatchAllowed($actor, $conv, $call);
-        // L11: سجل denied لرفض الصلاحيات فقط — أخطاء التحقق و"مش موجود"
-        // من prompt injection كانت تملأ سجل التدقيق (6 خطوات × أدوات).
+        // Audit only authorization denials; validation failures and missing entities are skipped to avoid log spam.
         if ($outcome->type === 'denied' && $outcome->auditable) {
             StaffAdministration::audit($actor, 'administration.denied', 'ai_conversation', $conv->id, [], via: ['channel' => 'ai', 'conversation_id' => $conv->id, 'source' => (string) ($conv->channel ?: 'web')]);
         }
@@ -443,8 +437,7 @@ final class ToolRegistry
 
             return ToolOutcome::denied($e->getMessage() ?: 'مرفوض.', auditable: $auditable);
         } catch (QueryException $e) {
-            // M1: داخل معاملة (prepareBulk) ابتلاع خطأ SQL يترك المعاملة
-            // ميتة (25P02) — أعد الرمي ليتراجع الـ savepoint الخاص بالعنصر.
+            // Re-throw inside active transactions so savepoints roll back cleanly without leaving dead connections.
             if (DB::transactionLevel() > 0) {
                 throw $e;
             }
@@ -452,10 +445,7 @@ final class ToolRegistry
 
             return ToolOutcome::denied('حصل خطأ أثناء تنفيذ الأداة.', auditable: false);
         } catch (\InvalidArgumentException $e) {
-            // task.txt §2-19: input-shape problems with a clear message
-            // (e.g. vision image over 4MB) must reach the user instead of
-            // a generic denial — the message carries no secrets by
-            // construction, and stays non-auditable.
+            // Forward user-facing validation messages (e.g. image size limits) directly without auditing.
             return ToolOutcome::denied($e->getMessage() ?: 'مرفوض.', auditable: false);
         } catch (\Throwable $e) {
             report($e);
@@ -488,9 +478,7 @@ final class ToolRegistry
             $args['email'] = mb_strtolower(trim($args['email']));
         }
         if ($name === 'bulk_actions') {
-            // 3.1: الاعتماد والرفض ممنوعان في الجماعي صراحة — كل قرار
-            // بيبعت إشعار لعميل حقيقي، فلازم يتراجع لوحده. الرفض هنا
-            // برسالة عربية واضحة، مش برسالة Rule::in العامة.
+            // Dealer approval and rejection are excluded from bulk actions because customer notifications require individual verification.
             if (is_array($args['items'] ?? null)) {
                 foreach ($args['items'] as $bulkItem) {
                     if (in_array($bulkItem['tool'] ?? null, ['approve_dealer_application', 'reject_dealer_application'], true)) {
@@ -542,20 +530,17 @@ final class ToolRegistry
             $rules = array_replace($rules, $userRules);
         }
         if (in_array($name, ['create_customer', 'update_customer_profile'], true) && is_string($args['phone'] ?? null)) {
-            // تطبيع الموبايل قبل الـ regex (أرقام عربية، +20/0020) — نفس
-            // ما يعمله الـ mutator عند الحفظ، لكن التحقق يسبق الحفظ.
+            // Canonicalize phone number before validation regex to match model mutator formatting.
             $args['phone'] = Customer::normalizePhone($args['phone']);
         }
         if ($name === 'create_customer') {
-            // دمج قواعد REST لنفس الحقول المعلنة فقط؛ الباسورد مولّد في
-            // السيرفر وقت التنفيذ ومش من args أصلًا.
+            // Merge REST customer rules for declared fields only; staff password generation occurs server-side at execution time.
             $customerRules = array_intersect_key((new StoreCustomerRequest)->rules(), array_flip(['name', 'phone', 'email', 'type', 'company_name', 'tax_number', 'commercial_register']));
             $rules = array_replace($rules, $customerRules);
         }
         if ($name === 'update_customer_profile') {
             $customerRules = array_intersect_key((new UpdateCustomerRequest)->rules(), array_flip(['name', 'email', 'phone', 'company_name', 'tax_number', 'commercial_register']));
-            // قاعدة REST تتجاهل route('customer') غير الموجود في سياق
-            // المساعد — التجاهل هنا هو عميل الأداة نفسه.
+            // Ignore target customer ID in unique validation rules since route parameters are absent in agent turns.
             $customerRules['phone'] = ['sometimes', 'string', 'regex:/^01[0125][0-9]{8}$/', Rule::unique('customers', 'phone')->ignore((int) ($args['customer_id'] ?? 0))];
             $customerRules['email'] = ['sometimes', 'nullable', 'email', 'max:255', new EmailNotUsedByOtherAccountType('customers'), new UniqueCustomerEmail((int) ($args['customer_id'] ?? 0))];
             $rules = array_replace($rules, $customerRules);
@@ -586,13 +571,12 @@ final class ToolRegistry
         }
         if ($name === 'update_customer_group') {
             $groupRules = (new UpdateCustomerGroupRequest)->rules();
-            // نفس مشكلة route() في UpdateCustomerRequest: التجاهل هو
-            // مجموعة الأداة نفسها.
+            // Ignore target customer group ID in unique code rule since route parameters are absent in agent turns.
             $groupRules['code'] = ['sometimes', 'string', 'max:64', 'alpha_dash', Rule::unique('customer_groups', 'code')->ignore((int) ($args['customer_group_id'] ?? 0))];
             $rules = array_replace($rules, $groupRules);
         }
         if (in_array($name, ['create_location', 'set_location_status'], true) && isset($rules['code'])) {
-            // L-8: كود الموقع max:100 في الـ REST — توحيد الحد بين المسارين.
+            // Standardize location code limit to 100 characters to match REST schema constraints.
             $rules['code'] = array_map(static fn ($rule) => $rule === 'max:255' ? 'max:100' : $rule, $rules['code']);
         }
         if ($name === 'create_branch') {
@@ -602,11 +586,7 @@ final class ToolRegistry
             $rules = array_replace($rules, (new StoreRoleRequest)->rules());
         }
         if ($name === 'create_location' && isset($rules['code'])) {
-            // L-8: كود الموقع max:100 في REST وmax:255 في المساعد — وحّدها
-            // على 100. قاعدة الـ unique الكاملة من StoreLocationRequest لا
-            // تُطبَّق هنا لأنها تحتاج route('branch') غير موجود في سياق
-            // المساعد؛ التفرد مضمون أصلًا بالـ unique index (branch_id, code)
-            // وتحذير prepCreateLocation.
+            // Limit location code to 100 characters; uniqueness is enforced via database composite index (branch_id, code).
             $rules['code'] = ['required', 'string', 'max:100'];
         }
         Validator::make($args, $rules)->validate();
@@ -774,24 +754,18 @@ final class ToolRegistry
         return $this->picker($actor, ['entity_type' => $entity, 'purpose' => $purpose, 'query' => $query]);
     }
 
-    // ── P04 Customers: طبقة القراءة ──────────────────────────────────────────
-    // قاعدة ثابتة: أي حقل كتبه التاجر بنفسه لا يدخل نتيجة الأداة إلا
-    // مغلّفًا بـ untrusted()، وأي قيمة كاملة (موبايل/ضريبي/سجل) لا تذهب
-    // للنموذج أبدًا — تظهر للأدمن فقط داخل الـ UI block، لأن
-    // asFunctionResponse يبعت data بس، والـ block يتخزن في ui_blocks.
+    // Customer read layer:
+    // User-submitted strings must be wrapped in untrusted() to protect the model from prompt injection.
+    // Full PII (phone, tax number, commercial register) is excluded from model payloads and rendered only in UI blocks.
 
-    /** 1.6: تغليف بيانات كتبها التاجر — لا تُنفَّذ ولا تُعتَبر سبب قرار. */
+    /** Wrap user-submitted strings to prevent prompt injection and prompt hijacking. */
     private function untrusted(?string $v, int $max = 120): array
     {
-        $clean = mb_substr(preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string) $v), 0, $max);
-
-        return ['untrusted_text' => $clean];
+        return ToolOutcome::untrusted($v, $max);
     }
 
     /**
-     * 5.3: اقتراح مجموعة وحد ائتمان بقاعدة شفافة في PHP (مش تخمين نموذج):
-     * وسيط حد الائتمان لتجار نفس النوع المعتمدين في آخر 90 يوم، وأكتر
-     * مجموعة استخدامًا بينهم. بيرجع null لو مفيش عينة.
+     * Compute statistical recommendation for credit limit and customer group based on approved peer dealers in the last 90 days.
      *
      * @return array{credit_limit:float,customer_group_id:?int,customer_group:?string,sample_size:int,source:string}|null
      */
@@ -822,7 +796,7 @@ final class ToolRegistry
     }
 
     /**
-     * 5.2: كارت الترحيب — بيتبني في PHP من غير أي نداء Gemini (صفر توكنز).
+     * Build domain welcome card natively in PHP without model API calls.
      *
      * @return array<string,mixed>|null
      */
@@ -865,7 +839,7 @@ final class ToolRegistry
     }
 
     /**
-     * 5.4: كارت الترحيب للكتالوج — query واحدة مجمعة + cache لمدة 60 ثانية لكل مستخدم.
+     * Build catalog welcome card using cached aggregated queries (60s TTL).
      *
      * @return array<string,mixed>
      */
@@ -970,7 +944,7 @@ final class ToolRegistry
 
     private function normalizeDigits(?string $v): string
     {
-        $v = strtr((string) $v, ['٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4', '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9', '۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4', '۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9']);
+        $v = EntityResolver::normalizeDigits((string) $v);
 
         return preg_replace('/[\s\-_.\/]+/u', '', $v) ?? '';
     }
@@ -987,9 +961,7 @@ final class ToolRegistry
     }
 
     /**
-     * 5.1: تحليل مستند بالذكاء الاصطناعي — استشاري فقط. المقارنة في PHP،
-     * ومفيش توثيق تلقائي، والقيم المستخرجة كاملة لا تذهب للنموذج (نتيجة
-     * match/mismatch/unreadable بس). التوكنز بتتحسب على ميزانية المستخدم.
+     * Advisory document inspection: compares OCR values in PHP, returning verification match statuses.
      */
     private function inspectCustomerDocument(User $actor, AiConversation $conv, array $args): ToolOutcome
     {
@@ -1024,7 +996,7 @@ final class ToolRegistry
         } finally {
             @unlink($tmp);
         }
-        // التوكنز على ميزانية المستخدم اليومية (AiMessage بتتجمع في guard()).
+        // Bill document vision analysis tokens against the user's daily budget.
         $in = (int) ($res['usage']['input_tokens'] ?? 0);
         $out = (int) ($res['usage']['output_tokens'] ?? 0);
         $conv->forceFill(['total_tokens' => $conv->total_tokens + $in + $out])->save();
@@ -1055,23 +1027,7 @@ final class ToolRegistry
 
     private function customerSearchQuery(array $args)
     {
-        $query = (string) ($args['query'] ?? '');
-        $q = Customer::query()->with('customerGroup')
-            ->when($args['business_only'] ?? false, fn ($x) => $x->whereIn('type', ['wholesale', 'distributor']))
-            ->when(isset($args['type']), fn ($x) => $x->where('type', $args['type']))
-            ->when(isset($args['status']), fn ($x) => $x->where('status', $args['status']))
-            ->when(isset($args['customer_group_id']), fn ($x) => $x->where('customer_group_id', $args['customer_group_id']))
-            ->when(isset($args['pending_older_than_hours']), fn ($x) => $x->where('status', 'pending')->where('created_at', '<', now()->subHours((int) $args['pending_older_than_hours'])));
-        if (trim($query) !== '') {
-            if (preg_match('/^[0-9٠-٩۰-۹\s().+-]+$/u', trim($query))) {
-                // L5: LIKE مش ILIKE عشان يستخدم index الـ text_pattern_ops.
-                $q->whereLike('phone', SearchTerm::prefix(Customer::normalizePhone($query)), caseSensitive: true);
-            } else {
-                $q->whereLike('search_text', SearchTerm::pattern($query), caseSensitive: false);
-            }
-        }
-
-        return $q;
+        return EntityResolver::buildCustomerQuery((string) ($args['query'] ?? ''), $args);
     }
 
     private function listCustomers(array $args): ToolOutcome
@@ -1122,14 +1078,14 @@ final class ToolRegistry
             'created_at' => $customer->created_at,
         ];
 
-        // M6: الـ block بيتخزن في ai_messages.ui_blocks — قيم مقنّعة بس؛ الكامل في ملف التاجر.
+        // Persist masked attributes in ui_blocks to avoid leaking raw sensitive tax identifiers in message history.
         return ToolOutcome::data(['customer' => $data], ['type' => 'customer_card', 'deep_link' => '/dealers?customer='.$customer->id, 'id' => $customer->id, 'name' => $customer->name, 'company_name' => $customer->company_name, 'email' => $customer->email ? $this->resolver->maskEmail($customer->email) : null, 'phone' => EntityResolver::maskPhone($customer->phone), 'tax_number' => EntityResolver::maskLegal($customer->tax_number), 'commercial_register' => EntityResolver::maskLegal($customer->commercial_register), 'customer_type' => $customer->type->value, 'status' => $customer->status->value, 'group' => $customer->customerGroup?->name, 'credit_limit' => (float) $customer->credit_limit, 'used_credit' => $used, 'documents_counts' => $counts]);
     }
 
     private function dealerQueueSummary(array $args): ToolOutcome
     {
         $sla = max(1, (int) ($args['sla_hours'] ?? $this->settings->get('ai_dealer_review_sla_hours', 48)));
-        // M-4: تجميع SQL واحد + ready على أقدم 200 + stale-while-revalidate بدل stampede.
+        // Single SQL aggregation query on pending applications with stale-while-revalidate caching to prevent stampedes.
         $data = Cache::flexible('ai:dealer-queue-summary:'.$sla, [60, 300], function () use ($sla): array {
             $agg = Customer::query()->where('status', CustomerStatus::Pending->value)
                 ->selectRaw('COUNT(*) AS pending_count')
@@ -1168,18 +1124,14 @@ final class ToolRegistry
     }
 
     /**
-     * 1.4: نفس فحوصات approve() قبل الاعتماد، زائد تحذيرات.
-     * الرسائل قوالب ثابتة — لا تحتوي أي قيمة كتبها التاجر.
-     * $treatVerifiedIds (من المرحلة 2): مستندات تُعامل كموثّقة لمحاكاة
-     * التوثيق في prepare الخاص بـ approve_dealer_application — أداة
-     * القراءة تستدعي من غيرها فيبقى السلوك مطابقًا.
+     * Evaluates approval readiness checks and warnings, supporting treatVerifiedIds simulation.
      *
      * @return array{checks:list<array{key:string,ok:bool,severity:string,message:string}>,verdict:string,next_steps:list<string>}
      */
     private function reviewCustomer(Customer $customer, array $treatVerifiedIds = []): array
     {
         $docs = $customer->relationLoaded('documents') ? $customer->documents : $customer->documents()->get();
-        // الحالة الفعالة بعد المحاكاة: الموثّق فعلًا + المحدد للتوثيق.
+        // Effective document status includes existing verified documents plus those staged for verification.
         $effective = $docs->map(fn ($d) => in_array($d->id, $treatVerifiedIds, true) ? CustomerDocumentStatus::Verified : $d->status);
         $sla = max(1, (int) $this->settings->get('ai_dealer_review_sla_hours', 48));
         $legalNames = ['company_name' => 'اسم الشركة', 'tax_number' => 'الرقم الضريبي', 'commercial_register' => 'السجل التجاري'];
@@ -1221,8 +1173,7 @@ final class ToolRegistry
     }
 
     /**
-     * 1.5: كشف التكرار — تطابق تام ضريبي/سجل، تشابه trigram للاسم (> 0.6)،
-     * أو نفس إيميل حساب محذوف. أقصى 5 نتائج، وكل نتيجة معاها reason.
+     * Identify potential duplicate accounts using tax number, commercial register, trigram company name match, or deleted email.
      *
      * @return list<array{id:int,name:array,company_name:array,status:string,type:string,reason:string}>
      */
@@ -1238,7 +1189,7 @@ final class ToolRegistry
             }
         };
         $id = $customer->id;
-        // H2: TRIM(...) بقت sargable بفضل expression indexes في migration 2026_11_05.
+        // Expression indexes make TRIM(...) comparisons sargable for exact match searches.
         if (trim((string) $customer->tax_number) !== '') {
             Customer::query()->whereKeyNot($id)->whereRaw('TRIM(tax_number) = ?', [trim((string) $customer->tax_number)])->limit(5)->get()->each(fn (Customer $o) => $add($o, 'نفس الرقم الضريبي'));
         }
@@ -1247,7 +1198,7 @@ final class ToolRegistry
         }
         if (trim((string) $customer->company_name) !== '') {
             $name = trim((string) $customer->company_name);
-            // H2: المعامل % هو اللي بيستخدم GIN trigram index؛ similarity() لوحدها = seq scan.
+            // Use pg_trgm % operator so Postgres leverages the GIN trigram index before filtering by similarity threshold.
             Customer::query()->whereKeyNot($id)
                 ->whereRaw('company_name % ?', [$name])
                 ->whereRaw('similarity(company_name, ?) > 0.6', [$name])
@@ -1350,8 +1301,7 @@ final class ToolRegistry
             $creditUnderUsed = 0;
             $allSetCustomerGroup = $args['items'] !== [];
             foreach ($args['items'] as $item) {
-                // M1: savepoint لكل عنصر — خطأ SQL في عنصر واحد يتراجع
-                // وحده، والمعاملة الخارجية تفضل سليمة لإلغاء السابق.
+                // Isolate each sub-action inside a savepoint so individual SQL failures do not poison the outer transaction.
                 try {
                     $outcome = DB::transaction(fn () => $this->dispatch($actor, $conv, ['name' => $item['tool'], 'args' => $item['args']]));
                 } catch (QueryException $e) {
@@ -1367,16 +1317,13 @@ final class ToolRegistry
                 }
                 $id = $outcome->data['pending_action_id'];
                 $ids[] = $id;
-                // M7: العناصر عالية الخطورة محتاجة تأكيد مكتوب خاص بيها — ما ينفعش في الجماعي.
+                // High-risk actions require explicit typed confirmation and cannot be batched into bulk executions.
                 if (AiPendingAction::whereKey($id)->value('risk') === 'high') {
                     AiPendingAction::whereIn('id', $ids)->update(['status' => 'cancelled']);
 
                     return ToolOutcome::denied('العنصر "'.($outcome->uiBlock['title'] ?? $item['tool']).'" عالي الخطورة؛ نفّذه لوحده مش ضمن عملية جماعية.');
                 }
                 $items[] = ['key' => $id, 'label' => $outcome->uiBlock['title'], 'change' => $item['tool'], 'before' => $outcome->uiBlock['before'] ?? null, 'after' => $outcome->uiBlock['after'] ?? null];
-                // 3.2: عدّ عناصر الائتمان اللي بتنزل تحت المستخدم — من
-                // preview العنصر نفسه (before: used_credit، after:
-                // credit_limit)، مش من إعادة حساب قد تتغير بعد الاقتراح.
                 if ($item['tool'] === 'set_credit_limit') {
                     $before = $outcome->uiBlock['before'] ?? [];
                     $after = $outcome->uiBlock['after'] ?? [];
@@ -1388,9 +1335,6 @@ final class ToolRegistry
                     $allSetCustomerGroup = false;
                 }
             }
-            // 3.2: لو كل عناصر المجموعة بلا تغيير أصلًا (المجموعة القديمة
-            // = المستهدفة في كل عنصر، من inverse المقترح نفسه)، مفيش
-            // عملية أصلًا — denied، والعناصر الفرعية تُلغى زي أي فشل prep.
             if ($allSetCustomerGroup && $ids !== []) {
                 $noChange = AiPendingAction::whereIn('id', $ids)->get()->every(fn (AiPendingAction $child) => array_key_exists('customer_group_id', $child->inverse ?? []) && (int) $child->inverse['customer_group_id'] === (int) ($child->args['customer_group_id'] ?? -1) && (int) ($child->args['customer_group_id'] ?? -1) !== -1);
                 if ($noChange) {
@@ -1400,15 +1344,12 @@ final class ToolRegistry
                 }
             }
             $warnings = [];
-            // 3.2: تحذير مجمّع في أعلى الكارت لما أكتر من 30% من كل
-            // العناصر بتنزل حد الائتمان تحت المستخدم.
             if ($creditUnderUsed > 0 && $ids !== [] && $creditUnderUsed / count($ids) > 0.3) {
                 $warnings[] = 'تحذير مجمّع: '.$creditUnderUsed.' من '.count($ids).' عناصر بيقللوا حد الائتمان تحت الرصيد المستخدم — التجار دول هيبقوا فوق الحد فورًا، وطلباتهم الآجلة الجاية هتترفض.';
             }
             $warnings[] = 'كل عنصر بيتنفذ لوحده. راجع التغييرات واستبعد أي عنصر مش مطلوب.';
             $outcome = $this->makeProposal($actor, $conv, 'bulk_actions', ['action_ids' => $ids], [], ['title' => 'مراجعة '.count($ids).' عمليات', 'items' => $items, 'warnings' => $warnings], null, 'high');
-            // M10: الأجراءات الفرعية بتبقى bulk_child لحد ما المجموعة تتأكد —
-            // كده اصلی الـ confirm() المباشر لواحد منهم مرفوض من غير مراجعة.
+            // Mark child actions as bulk_child to prevent direct confirmation outside the parent bulk action review.
             AiPendingAction::whereIn('id', $ids)->where('status', 'pending')->update(['status' => 'bulk_child']);
             $block = $outcome->uiBlock;
             $block['type'] = 'bulk_plan';
@@ -1658,7 +1599,7 @@ final class ToolRegistry
         return $this->makeProposal($actor, $conv, 'revoke_user_sessions', ['user_id' => $user->id], ['user:'.$user->id => (int) $user->lock_version], ['title' => 'تسجيل خروج '.$user->name.' من كل الأجهزة', 'warnings' => []], null, 'medium');
     }
 
-    // ── P04-2: prep أدوات كتابة العملاء ────────────────────────────────────
+    // --- Customer Write Tools Preparation ---
 
     private function prepCreateCustomer(User $actor, AiConversation $conv, array $args): ToolOutcome
     {
@@ -1809,7 +1750,7 @@ final class ToolRegistry
         foreach ($verifyIds as $id) {
             $expected['customer_document:'.$id] = $this->documentVersion($docs->firstWhere('id', $id));
         }
-        // M6: من غير الموبايل — وإلا التأكيد بآخر 4 أرقام يفقد معناه.
+        // Exclude phone number from the preview card so prompt verification with trailing digits remains authentic.
         $company = ['name' => $customer->name, 'company_name' => $customer->company_name, 'tax_number' => $customer->tax_number, 'commercial_register' => $customer->commercial_register, 'email' => $customer->email ? $this->resolver->maskEmail($customer->email) : null];
 
         return $this->makeProposal($actor, $conv, 'approve_dealer_application', $data, $expected, ['title' => 'اعتماد تاجر '.($customer->company_name ?? $customer->name), 'before' => ['status' => $customer->status->value, 'company' => $company, 'customer_group' => $customer->customerGroup?->name, 'credit_limit' => (float) $customer->credit_limit], 'after' => ['status' => CustomerStatus::Approved->value, 'company' => $company, 'documents_to_verify' => $docs->map(fn ($d) => ['id' => $d->id, 'type' => $d->document_type->value, 'name' => CustomerDocument::safeName($d->original_name), 'download_url' => route('admin.customers.documents.download', ['customer' => $customer->id, 'document' => $d->id])])->values()->all(), 'suggestion' => $this->suggestGroupAndCredit($customer), 'customer_group' => $group ? ['id' => $group->id, 'name' => $group->name, 'discount_percentage' => $group->discount_percentage] : null, 'credit_limit' => isset($data['credit_limit']) ? (float) $data['credit_limit'] : (float) $customer->credit_limit], 'warnings' => $warnings], null, 'high');
@@ -2012,27 +1953,22 @@ final class ToolRegistry
             }
         }
         if (isset($args['role_id'])) {
-            // H2: الأدوار عامة على كل الفروع — إدارتها من المساعد محتاجة
-            // وصول مركزي، زي ما محصل في شاشة الأدوار.
+            // Staff roles are global across all branches; mutating them via AI requires central headquarters access.
             $this->branches->assertCentralAccess($actor);
             $role = Role::where('guard_name', 'staff')->findOrFail($args['role_id']);
             abort_if(StaffRole::isReserved($role->name), 403);
         }
-        // H2: إنشاء الأدوار بلا role_id — الفحص أعلاه لا يغطيه، والتحقق
-        // في prepare وحده لا يكفي وقت execute.
+        // Role creation/modification tools lack role_id during preparation; assert central headquarters access at execution time.
         if (in_array($action->tool, ['create_role', 'update_role_permissions', 'delete_role'], true)) {
             $this->branches->assertCentralAccess($actor);
         }
-        // 2.2: ممنوعات المساعد الصريحة — لا تعتمد على غياب الأداة من الـ
-        // registry، لأن prepareWrite/executeWrite ممكن يتنده عليهم مباشرة.
         if ($action->tool === 'delete_customer') {
             abort(403, 'حذف العملاء من المساعد ممنوع؛ استخدم شاشة العملاء.');
         }
         if ($action->tool === 'update_customer_profile' && (isset($args['password']) || isset($args['type']) || isset($args['status']))) {
             abort(403, 'تغيير الباسورد أو النوع أو الحالة من المساعد ممنوع.');
         }
-        // H1: نفس قاعدة UpdateCustomerRequest::authorize() — بتتفحص في prepareWrite
-        // وexecuteWrite وexecuteUndo، فسحب الصلاحية بعد الاقتراح بيوقف التنفيذ.
+        // Align with UpdateCustomerRequest::authorize(); re-checked across prepare, execute, and undo stages.
         if ($action->tool === 'update_customer_profile' && $this->touchesSensitiveCustomerFields($action)) {
             abort_unless($actor->can('customers.approve'), 403, 'تعديل الإيميل أو الموبايل أو البيانات القانونية محتاج صلاحية customers.approve.');
         }
@@ -2048,7 +1984,7 @@ final class ToolRegistry
         }
     }
 
-    /** H1: وقت الاقتراح (action مش محفوظ) نقارن بالقيم الحالية؛ بعد الحفظ args فيها الحقول المتغيرة بس. */
+    /** Check whether unpersisted proposal touches sensitive customer legal/contact fields requiring elevated rights. */
     private function touchesSensitiveCustomerFields(AiPendingAction $action): bool
     {
         $fields = ['email', 'phone', 'company_name', 'tax_number', 'commercial_register'];
@@ -2078,7 +2014,7 @@ final class ToolRegistry
         if (str_starts_with($key, 'branch:')) {
             abort_if($this->branchVersion($model) !== $expected, 409, 'حد عدّل السجل ده بعد الاقتراح.');
         } elseif (str_starts_with($key, 'location:')) {
-            // H3: الموقع نسختة lock هي بصمة الحالة، بتقارن كذا في قفل الصف.
+            // Location version fingerprint tracks is_active status directly under row lock.
             abort_if($this->hashArgs(['is_active' => (bool) $model->is_active]) !== $expected, 409, 'حد عدّل السجل ده بعد الاقتراح.');
         } elseif (str_starts_with($key, 'customer_document:')) {
             abort_if($this->documentVersion($model) !== $expected, 409, 'حد عدّل السجل ده بعد الاقتراح.');
@@ -2097,11 +2033,7 @@ final class ToolRegistry
     }
 
     /**
-     * 0.6: بصمة نسخة للعميل — حقول مستقرة فقط. wallet_balance وupdated_at
-     * متعمد غيابهما: بيتغيروا مع كل طلب/حركة محفظة، ولو دخلوا في البصمة
-     * كل كارت تأكيد كان هيتلغي بـ 409 من غير سبب حقيقي.
-     * 2.3: name دخلت مع أدوات الكتابة — update_customer_profile بيكتبها،
-     * وتعديلها من REST بين الاقتراح والتأكيد لازم يرفض بـ 409.
+     * Stable customer version fields for optimistic concurrency hashing, excluding volatile wallet balances.
      */
     private const CUSTOMER_VERSION_FIELDS = [
         'name', 'status', 'type', 'customer_group_id', 'credit_limit', 'company_name',
@@ -2131,9 +2063,7 @@ final class ToolRegistry
 
             return;
         }
-        // 2.3: ترتيب قفل ثابت — العميل أولًا ثم مستنداته (رقميًا) ثم
-        // المجموعة — يمنع الـ deadlock بين عمليتين متزامنتين على نفس
-        // العميل، وهو نفس الترتيب اللي reviewDocument بيستخدمه.
+        // Deterministic lock acquisition order (customer -> documents numerically -> group) prevents deadlocks.
         $keys = array_keys($action->expected_versions ?? []);
         $rank = ['customer' => 0, 'customer_document' => 1, 'customer_group' => 2, 'branch' => 3, 'user' => 4, 'role' => 5, 'location' => 6];
         usort($keys, function ($a, $b) use ($rank) {
@@ -2328,7 +2258,7 @@ final class ToolRegistry
         $locations = $branch->locations()
             ->when(isset($args['type']), fn ($q) => $q->where('type', $args['type']))
             ->orderBy('id')
-            // M7: بلا حد، فرع فيه آلاف المواقع يلاحظ الطلب ونتيجة ضخمة.
+            // Limit to 200 locations to bound memory usage and payload size.
             ->limit(200)
             ->get(['id', 'name', 'code', 'type', 'is_active']);
 
@@ -2418,7 +2348,7 @@ final class ToolRegistry
 
         return $this->makeProposal($actor, $conv, 'set_location_status',
             ['location_id' => $location->id, 'active' => $active],
-            // H3: إصدار حالة الموقع بيتقفل وقت التنفيذ (lockTargets).
+            // Location status version is fingerprinted and verified under row lock during execution.
             ['location:'.$location->id => $this->hashArgs(['is_active' => (bool) $location->is_active])],
             ['title' => ($active ? 'تفعيل ' : 'تعطيل ').$location->name.' في '.($branch?->name ?? ''),
                 'before' => ['is_active' => (bool) $location->is_active],
@@ -2430,7 +2360,7 @@ final class ToolRegistry
     private function execSetLocationStatus(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
     {
         try {
-            // H3: مصدر واحد لقاعدة "لا تعطيل لموقع عليه رصيد" عبر SetLocationStatus.
+            // Delegate to SetLocationStatus action as single source of truth for location active/inactive constraints.
             $location = app(SetLocationStatus::class)(
                 $actor, Location::findOrFail($args['location_id']), (bool) $args['active'], $via);
         } catch (QueryException $e) {
@@ -2480,9 +2410,7 @@ final class ToolRegistry
     {
         try {
             $summary = DB::transaction(function () use ($actor, $args, $via): array {
-                // H3: قفل صف الموقع زي LocationController::destroy بالظبط —
-                // الحذف ضد حركة متزامنة بيرجع failed بدل QueryException/500.
-                // L-6: صفوف الأرصدة تُقفل قبل صف الموقع (ترتيب lockLevels).
+                // Lock stock balance rows before location row (matching lockLevels order) to avoid deadlocks with concurrent adjustments.
                 StockLevel::query()->where('location_id', $args['location_id'])
                     ->orderBy('branch_id')
                     ->orderByRaw('location_id ASC NULLS FIRST')
@@ -2541,7 +2469,7 @@ final class ToolRegistry
         $all = $this->settings->getAllGrouped();
         $group = (string) ($args['group'] ?? 'all');
 
-        // حماية إعدادات AI
+        // Protect AI configuration settings unless actor holds explicit permissions.
         if (! $actor->can('ai_agent.settings')) {
             unset($all['ai']);
         }
@@ -2618,20 +2546,19 @@ final class ToolRegistry
             return ToolOutcome::denied('مفيش تغييرات.');
         }
 
-        // M-3: الوكيل ما يعدّلش حواجزه — الإعدادات دي من شاشة الإدارة (REST) بس.
+        // Prevent agent from modifying its own safety boundaries; guardrails are only modifiable via REST admin.
         $guarded = array_values(array_filter(array_keys($changes), fn ($k) => self::isAgentGuardedSetting($k)));
         if ($guarded !== []) {
             return ToolOutcome::denied('الإعدادات دي بتتعدل من شاشة الإعدادات بس: '.implode(', ', $guarded), auditable: true);
         }
 
-        // منع تعديل ترقيم من هنا — ليها أداة مخصوصة
+        // Prevent modifying document numbering through general settings; dedicated tool handles numbering logic.
         $numberingKeys = array_filter(array_keys($changes), fn ($k) => str_ends_with($k, '_prefix') || str_ends_with($k, '_next_number') || str_ends_with($k, '_padding'));
         if ($numberingKeys !== []) {
             return ToolOutcome::denied('ترقيم المستندات يتعدل من أداة update_document_numbering.');
         }
 
-        // التحقق إن المفاتيح موجودة ومسموحة
-        // H1: مفاتيح expected/expected.* وai_disabled_tools.* ليست إعدادات قابلة للتعديل.
+        // Disallow modifying metadata or guarded AI safety settings via assistant turns.
         $allowedKeys = array_values(array_filter(
             array_keys((new UpdateSettingsRequest)->rules()),
             fn (string $key): bool => $key !== 'expected' && ! str_starts_with($key, 'expected.') && ! str_ends_with($key, '.*') && ! self::isAgentGuardedSetting($key)
@@ -2641,14 +2568,12 @@ final class ToolRegistry
             return ToolOutcome::denied('إعدادات غير معروفة: '.implode(', ', $unknownKeys));
         }
 
-        // قراءة القيم الحالية
         $current = [];
         foreach (array_keys($changes) as $key) {
             $current[$key] = $this->settings->get($key);
         }
 
-        // H1: تطبيق نفس قواعد الـ REST على قيم الوكيل (نحو/نطاقات/حدود
-        // prefix وpadding) — المصدر واحد: UpdateSettingsRequest::rules().
+        // Apply uniform REST validation rules (syntax, ranges, prefix/padding boundaries) via UpdateSettingsRequest.
         $this->validateSettingChanges($changes);
 
         $warnings = [];
@@ -2671,8 +2596,7 @@ final class ToolRegistry
     }
 
     /**
-     * H1: تحقق من قيم الإعدادات بمصدر القواعد الواحد (UpdateSettingsRequest)
-     * مع تجاهل مفاتيح expected وبقاعدتها اللي بتشترط وجود القيمة الأصلية.
+     * Validate modified setting values against UpdateSettingsRequest rules while stripping metadata keys.
      */
     private function validateSettingChanges(array $changes): void
     {
@@ -2681,8 +2605,7 @@ final class ToolRegistry
             fn (string $key): bool => $key !== 'expected' && ! str_starts_with($key, 'expected.') && ! str_ends_with($key, '.*') && ! self::isAgentGuardedSetting($key),
             ARRAY_FILTER_USE_KEY
         );
-        // H1: مفتاح غير معروف (من هلوسة أو حقن) يترفض هنا أيضًا في execute،
-        // حتى لو args اتخزنت قبل الإصلاح.
+        // Reject unrecognized setting keys at execution time to protect against corrupted or injected action payloads.
         $unknown = array_diff(array_keys($changes), array_keys($rules));
         if ($unknown !== []) {
             throw ValidationException::withMessages(array_fill_keys($unknown, 'إعداد غير معروف.'));
@@ -2703,13 +2626,11 @@ final class ToolRegistry
     {
         $this->branches->assertCentralAccess($actor);
         StaffAdministration::authorize($actor, ['settings.manage']);
-        // M-3: إعادة فحص وقت التأكيد (args ممكن تكون اتخزنت قبل الإصلاح).
         if (array_filter(array_keys($args['changes'] ?? []), fn ($k) => self::isAgentGuardedSetting($k)) !== []) {
             return ToolOutcome::result(false, 'إعدادات الذكاء الاصطناعي وفصل المهام بتتعدل من شاشة الإعدادات بس.');
         }
-        // H1: إعادة التحقق وقت التأكيد تحمي من args خزّنت قبل الإصلاح.
+        // Re-validate settings and include assistant audit metadata on batch update.
         $this->validateSettingChanges($args['changes']);
-        // L6: التدقيق يعرف إن التعديل جه من قناة المساعد.
         $this->settings->updateBatch($args['changes'], $args['expected'], $via);
 
         return ToolOutcome::result(true, 'تم تحديث الإعدادات.',
@@ -2752,8 +2673,7 @@ final class ToolRegistry
         if (empty($changes)) {
             return ToolOutcome::denied('حدد قيمة واحدة على الأقل (prefix أو next_number أو padding).');
         }
-        // H1: مسار الترقيم مطبّق عليه حدود الـ REST: بادئة 30 رمزًا
-        // كحد أقصى، padding من 1 لـ 20، عداد بين 1 و999999999.
+        // Enforce REST limits on numbering parameters: max 30 character prefix, padding 1-20, and next_number between 1 and 999999999.
         $this->validateSettingChanges($changes);
 
         $warnings = [];
@@ -2764,7 +2684,6 @@ final class ToolRegistry
             }
         }
 
-        // بناء عينة الرقم الجديد
         $newPrefix = $changes[$type.'_prefix'] ?? $this->settings->get($type.'_prefix', '');
         $newNext = $changes[$type.'_next_number'] ?? $this->settings->get($type.'_next_number', 1);
         $newPadding = $changes[$type.'_padding'] ?? $this->settings->get($type.'_padding', 6);
@@ -2781,9 +2700,8 @@ final class ToolRegistry
     {
         $this->branches->assertCentralAccess($actor);
         StaffAdministration::authorize($actor, ['settings.manage']);
-        // H1: إعادة التحقق وقت التأكيد.
+        // Re-validate numbering constraints and record assistant audit channel.
         $this->validateSettingChanges($args['changes']);
-        // L6: التدقيق يعرف إن التعديل جه من قناة المساعد.
         $this->settings->updateBatch($args['changes'], $args['expected'], $via);
 
         return ToolOutcome::result(true, 'تم تحديث ترقيم '.$args['type'].'.',
@@ -2793,10 +2711,7 @@ final class ToolRegistry
                 'deep_link' => '/settings']);
     }
 
-    // ── P04-2: exec أدوات كتابة العملاء ─────────────────────────────────────
-    // كلها تمر على CustomerManagementService/CustomerGroupService زي
-    // الـ REST تمامًا (نفس القواعد، نفس التدقيق، نفس الإشعارات)، وتُنفذ
-    // داخل transaction التأكيد — فأي فشل يرجّع كل الخطوات.
+    // Customer write executions route through CustomerManagementService / CustomerGroupService ensuring parity with REST.
 
     private function execCreateCustomer(User $actor, array $args, array $via, AiPendingAction $action): ToolOutcome
     {
@@ -2808,8 +2723,7 @@ final class ToolRegistry
         $customer = app(CustomerManagementService::class)->create($data, $actor->id, $via);
         $action->forceFill(['inverse' => ['customer_id' => $customer->id]])->save();
 
-        // الباسورد يظهر مرة واحدة في رد التأكيد فقط (يُشال من النتيجة
-        // المخزنة ومن حدث المحادثة في confirmLocked، زي create_staff_user).
+        // Temporary plaintext password is returned once and stripped from persisted message history.
         return ToolOutcome::result(true, 'تم إنشاء العميل.', ['customer_id' => $customer->id, 'generated_password' => $plain], ['type' => 'result', 'ok' => true, 'message' => 'تم إنشاء العميل. الباسورد المؤقت (يظهر مرة واحدة): '.$plain, 'deep_link' => '/dealers?customer='.$customer->id]);
     }
 
@@ -2958,13 +2872,13 @@ final class ToolRegistry
                 return $f ? ToolOutcome::result(false, 'مش مسموح.') : ToolOutcome::result(true, 'تم التراجع.');
             }
             if ($tool === 'set_location_status' && isset($inv['is_active'])) {
-                // H3: التراجع يمر بنفس القاعدة المشتركة (مع قفل الصف داخل الـ action).
+                // Reversion applies the same business rule check under row lock within SetLocationStatus.
                 app(SetLocationStatus::class)(
                     $actor, Location::findOrFail($args['location_id']), (bool) $inv['is_active'], $via);
 
                 return ToolOutcome::result(true, 'تم التراجع.');
             }
-            // ── P04-2: تراجع أدوات العملاء ───────────────────────────────
+            // Customer tool undo handlers
             if (in_array($tool, ['update_customer_profile', 'set_customer_group', 'set_credit_limit'], true) && $inv !== []) {
                 $c = Customer::findOrFail($args['customer_id']);
                 app(CustomerManagementService::class)->update($c, $inv, $actor->id, $via);
@@ -2979,11 +2893,9 @@ final class ToolRegistry
                 return ToolOutcome::result(true, 'تم التراجع.');
             }
             if ($tool === 'suspend_customer') {
-                // التراجع عن الإيقاف = إعادة تفعيل (ترجع معتمدًا لو كان
-                // معتمدًا قبل الإيقاف، وإلا قيد المراجعة)؛ الجلسات المنهية
-                // لا ترجع — التحذير ده كان في كارت التأكيد نفسه.
+                // Undoing suspension reactivates the account to its pre-suspension status; terminated user sessions are not restored.
                 $c = Customer::findOrFail($args['customer_id']);
-                app(CustomerManagementService::class)->reactivate($c, $actor->id, $via, $inv['previous_status'] ?? null); // M12
+                app(CustomerManagementService::class)->reactivate($c, $actor->id, $via, $inv['previous_status'] ?? null);
 
                 return ToolOutcome::result(true, 'تم التراجع.');
             }
@@ -3008,8 +2920,7 @@ final class ToolRegistry
 
             return ToolOutcome::result(false, $e->getMessage() ?: 'فشل التراجع.');
         } catch (QueryException $e) {
-            // فشل تراجع (كود مجموعة اتحجز مثلًا) — فشل مسجَّل بدل 500،
-            // والإجراء يفضل executed فيُعاد التراجع بعد حل التعارض.
+            // Report conflict failures gracefully instead of throwing 500 so action remains executed until conflict resolution.
             return ToolOutcome::result(false, 'تعذّر التراجع؛ القيمة المطلوبة مستخدمة حاليًا.');
         }
     }

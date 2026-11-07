@@ -16,16 +16,24 @@ use App\Services\StoreCatalogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-/** قوائم التصفح الثابتة: أقسام (شجرة بعدّادات منتجات منشورة) وعلامات ومدن الشحن. */
+/**
+ * Serves storefront taxonomy and reference metadata: category trees, filter facets, and shipping cities.
+ */
 class CatalogController extends Controller
 {
     public function __construct(private readonly StoreCatalogService $catalog) {}
 
+    /**
+     * Compute active filter facets based on query parameters.
+     */
     public function filters(ProductFilterRequest $request): JsonResponse
     {
         return response()->json(['data' => $this->catalog->facets($request->validated())]);
     }
 
+    /**
+     * Retrieve hierarchical category tree with active product counts.
+     */
     public function categories(Request $request): JsonResponse
     {
         $childrenScope = fn ($q) => $q->where('is_active', true)
@@ -40,7 +48,7 @@ class CatalogController extends Controller
             ->with('media')
             ->withCount('activeProducts')
             ->with([
-                // L6: id tie-break keeps sibling order deterministic across pages.
+                // Tie-break with ID keeps sibling ordering deterministic across pagination.
                 'children' => fn ($q) => $childrenScope($q)->with(['children' => $childrenScope]),
             ])
             ->orderBy('sort_order')->orderBy('id')
@@ -50,10 +58,7 @@ class CatalogController extends Controller
     }
 
     /**
-     * F19: brands are a legacy surface — products no longer accept a brand_id
-     * (prohibited in admin requests, forced to null in the service) and the
-     * storefront never filters by brand. This endpoint is retained read-only
-     * for old clients; do not build new features on it.
+     * Retrieve active brands for legacy client compatibility.
      */
     public function brands(Request $request): JsonResponse
     {
@@ -67,6 +72,9 @@ class CatalogController extends Controller
         return response()->json(['data' => StoreBrandResource::collection($brands)->resolve($request)]);
     }
 
+    /**
+     * Retrieve active shipping cities for checkout delivery selection.
+     */
     public function cities(Request $request): JsonResponse
     {
         $cities = City::query()

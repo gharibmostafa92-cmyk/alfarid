@@ -13,12 +13,15 @@ use App\Services\PosService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
+/**
+ * Cashier POS terminal shifts: opening with drawer cash float, active shift monitoring, and reconciliation closing.
+ */
 class PosShiftController extends Controller
 {
     public function __construct(private readonly PosService $pos) {}
 
     /**
-     * فتح وردية جديدة.
+     * Open a new cashier shift with initial drawer cash float.
      */
     public function open(Request $request): JsonResponse
     {
@@ -44,7 +47,7 @@ class PosShiftController extends Controller
     }
 
     /**
-     * عرض الوردية المفتوحة للكاشير الحالي.
+     * Retrieve current open shift details for the authenticated cashier.
      */
     public function current(Request $request): JsonResponse
     {
@@ -70,7 +73,7 @@ class PosShiftController extends Controller
     }
 
     /**
-     * إغلاق الوردية.
+     * Close the cashier shift with counted cash for administrative reconciliation.
      */
     public function close(Request $request): JsonResponse
     {

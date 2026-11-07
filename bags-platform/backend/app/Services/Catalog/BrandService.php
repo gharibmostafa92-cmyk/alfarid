@@ -11,11 +11,23 @@ use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Manages brand catalog entities, slug generation, logo media attachments, and deletion constraints.
+ */
 class BrandService
 {
+    /**
+     * Creates a new brand record with optional logo media.
+     *
+     * @param  array<string, mixed>  $data  Brand attributes including localized names.
+     * @param  UploadedFile|null  $logo  Optional image file for brand logo.
+     * @return Brand Created brand instance.
+     *
+     * @throws BusinessException If unique slug collision occurs or logo upload fails.
+     */
     public function create(array $data, ?UploadedFile $logo): Brand
     {
-        // M1: retry once on auto-slug races; explicit conflicts surface as 409.
+        // Retry once on generated slug races before returning a 409 conflict error.
         $autoSlug = empty($data['slug'] ?? null);
         for ($attempt = 0; ; $attempt++) {
             try {
@@ -30,8 +42,7 @@ class BrandService
                     return Brand::create($data);
                 });
 
-                // F2: the R2 upload runs outside the row lock, in its own
-                // short transaction — network I/O must not hold the lock.
+                // Perform media uploads in a separate transaction to avoid holding database row locks during remote network I/O.
                 if ($logo) {
                     $this->attachLogo($brand, $logo);
                 }
@@ -48,10 +59,19 @@ class BrandService
         }
     }
 
+    /**
+     * Updates an existing brand record and syncs logo media.
+     *
+     * @param  Brand  $brand  Target brand model.
+     * @param  array<string, mixed>  $data  Updated attributes.
+     * @param  UploadedFile|null  $logo  Replacement logo file if provided.
+     * @return Brand Refreshed brand instance.
+     *
+     * @throws BusinessException If unique slug collision occurs or logo upload fails.
+     */
     public function update(Brand $brand, array $data, ?UploadedFile $logo): Brand
     {
-        // F8: a concurrent update can win the slug between validation and the
-        // write — surface it as 409, not 500.
+        // Catch concurrent unique slug collisions and convert to 409 conflict responses.
         try {
             $updated = DB::transaction(function () use ($brand, $data) {
                 $brand = Brand::whereKey($brand->id)->lockForUpdate()->firstOrFail();
@@ -75,7 +95,7 @@ class BrandService
             throw new BusinessException('المعرف (slug) مستخدم بالفعل؛ اختر قيمة أخرى.', [], 409);
         }
 
-        // F2: logo changes run outside the row lock (see create()).
+        // Execute logo updates outside main entity transaction to prevent long-running table locks.
         $removeLogo = (bool) ($data['remove_logo'] ?? false);
         if ($logo) {
             $this->attachLogo($updated, $logo);
@@ -87,9 +107,7 @@ class BrandService
     }
 
     /**
-     * F2: attach the logo in its own short transaction with no row lock.
-     * The logo is optional, so a failed upload keeps the saved row and
-     * reports a clear message instead of rolling back the data.
+     * Attaches a brand logo in an isolated transaction without holding table locks.
      */
     private function attachLogo(Brand $brand, UploadedFile $logo): void
     {
@@ -101,10 +119,18 @@ class BrandService
         }
     }
 
+    /**
+     * Deletes a brand if not referenced by existing catalog products.
+     *
+     * @param  Brand  $brand  Brand instance to delete.
+     * @return void
+     *
+     * @throws BusinessException If brand has associated products.
+     */
     public function delete(Brand $brand): void
     {
         DB::transaction(function () use ($brand): void {
-            // قفل الصف بيمنع حذف البراند في نفس لحظة إنشاء منتج عليه
+            // Lock row to prevent deleting a brand concurrently while a product is being assigned to it.
             $locked = Brand::whereKey($brand->id)->lockForUpdate()->firstOrFail();
 
             if ($locked->products()->exists()) {

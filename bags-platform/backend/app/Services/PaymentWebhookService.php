@@ -8,6 +8,7 @@ use App\Enums\OrderStatus;
 use App\Models\Order;
 use App\Models\WebhookLog;
 use Illuminate\Database\DeadlockException;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -32,15 +33,15 @@ class PaymentWebhookService
     ) {}
 
     /**
-     * Process an inbound payment gateway webhook request.
+     * Process an inbound payment gateway webhook request under transactional concurrency locks.
      *
-     * @param  string  $gateway
-     * @param  array<string, mixed>  $payload
-     * @param  string  $rawBody
-     * @param  array<string, string|null>  $headers
-     * @param  array<string, mixed>  $query
-     * @param  string|null  $ip
-     * @return array{http: int, body: array<string, mixed>}
+     * @param  string  $gateway  Configured gateway identifier (paymob, moyasar, stripe, etc.).
+     * @param  array<string, mixed>  $payload  Decoded webhook JSON payload.
+     * @param  string  $rawBody  Raw HTTP request body for cryptographic signature verification.
+     * @param  array<string, string|null>  $headers  HTTP headers containing signatures or security tokens.
+     * @param  array<string, mixed>  $query  Query string parameters.
+     * @param  string|null  $ip  Client IP address.
+     * @return array{http: int, body: array<string, mixed>} HTTP status code and response payload.
      */
     public function handle(string $gateway, array $payload, string $rawBody, array $headers, array $query, ?string $ip): array
     {
@@ -116,8 +117,8 @@ class PaymentWebhookService
                 return ['http' => 200, 'body' => ['received' => false, 'message' => 'order not found']];
             }
 
-            if ($order->payment_method === 'wallet') {
-                $log->update(['status' => 'ignored', 'error' => 'Wallet payments are settled internally.']);
+            if (in_array($order->payment_method, ['wallet', 'bank_transfer'], true)) {
+                $log->update(['status' => 'ignored', 'error' => 'This payment method is settled outside the gateway.']);
 
                 return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
             }
@@ -163,6 +164,19 @@ class PaymentWebhookService
                         } catch (DeadlockException $e) {
                             // Re-throw database deadlock so the gateway retries delivery
                             throw $e;
+                        } catch (QueryException $e) {
+                            $state = (string) ($e->errorInfo[0] ?? $e->getCode());
+                            if (in_array($state, ['55P03', '40P01', '08006', '08003'], true)) {
+                                throw $e;
+                            }
+                            Log::warning('Payment captured but order auto-confirm failed.', [
+                                'order_id' => $order->id,
+                                'order_number' => $order->order_number,
+                                'gateway' => $gateway,
+                                'exception' => $e->getMessage(),
+                            ]);
+                            $order->update(['needs_attention' => true]);
+                            $note = 'تم الدفع لكن تأكيد الطلب فشل: '.$e->getMessage();
                         } catch (Throwable $e) {
                             // Captured payment with confirmation failure requires visible staff attention
                             Log::warning('Payment captured but order auto-confirm failed.', [
@@ -216,6 +230,13 @@ class PaymentWebhookService
         $pending = data_get($payload, 'obj.pending') ?? data_get($payload, 'data.pending') ?? data_get($payload, 'pending');
         if ($pending === true) {
             return 'pending';
+        }
+
+        // Stripe charge.refunded carries data.object.status=succeeded. The event type
+        // is the refund signal and must win before that inner charge status.
+        $type = strtolower((string) ($this->firstValue($payload, ['type', 'event_type', 'event']) ?? ''));
+        if ($type !== '' && str_contains($type, 'refund')) {
+            return 'refunded';
         }
 
         $successFlag = data_get($payload, 'obj.success') ?? data_get($payload, 'data.success') ?? data_get($payload, 'success');
@@ -290,7 +311,7 @@ class PaymentWebhookService
             return ! ($config['require_amount'] ?? false);
         }
 
-        return abs(round(((float) $amount) / $divisor, 2) - (float) $order->grand_total) < 0.01;
+        return $this->sameMoney(((float) $amount) / $divisor, (float) $order->grand_total);
     }
 
     private function extractOrderNumber(array $payload): ?string
@@ -399,7 +420,12 @@ class PaymentWebhookService
             return ! ($config['require_amount'] ?? false);
         }
 
-        return abs(round(((float) $cents) / 100, 2) - (float) $order->grand_total) < 0.01;
+        return $this->sameMoney(((float) $cents) / 100, (float) $order->grand_total);
+    }
+
+    private function sameMoney(float $paid, float $expected): bool
+    {
+        return (int) round($paid * 100) === (int) round($expected * 100);
     }
 
     /** @param array<string, mixed> $obj */

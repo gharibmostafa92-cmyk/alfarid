@@ -29,37 +29,38 @@ class ShipmentService
     /**
      * Create a shipment manifest for an order, assign shipping fees, and trigger dispatch state.
      *
-     * @param  Order  $order
-     * @param  int  $companyId
-     * @param  string|null  $awbNumber
-     * @param  User  $actor
-     * @return Shipment
+     * @param  Order  $order  Target order to ship.
+     * @param  int  $companyId  Selected shipping carrier ID.
+     * @param  string|null  $awbNumber  External carrier tracking number, or null to generate internally.
+     * @param  User  $actor  Staff user creating the shipment.
+     * @return Shipment Created shipment manifest.
      *
-     * @throws BusinessException
+     * @throws BusinessException If order state is invalid, unpaid, or already has an active AWB.
      */
     public function createForOrder(Order $order, int $companyId, ?string $awbNumber, User $actor): Shipment
     {
         return DB::transaction(function () use ($order, $companyId, $awbNumber, $actor): Shipment {
-            // Lock order to prevent race conditions and duplicate shipments
+            // Pessimistic lock serializes concurrent manifest requests and prevents duplicate AWBs.
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
-            $hasActiveShipmentEarly = $order->shipments()
+            // Active shipments cannot be duplicated; only previously failed or returned attempts permit re-shipment.
+            $hasActiveShipment = $order->shipments()
                 ->whereNotIn('status', [ShipmentStatus::Failed->value, ShipmentStatus::Returned->value])
                 ->exists();
-            // Allow replacement AWB issuance without re-deducting stock if all prior attempts failed or returned
+            if ($hasActiveShipment) {
+                throw new BusinessException('توجد بوليصة نشطة لهذا الطلب بالفعل.');
+            }
+
+            // Replacement AWBs skip order state changes and stock allocations because inventory was already deducted.
             $isReplacement = $order->status === OrderStatus::Shipped
-                && ! $hasActiveShipmentEarly
                 && $order->shipments()->exists();
             if (! in_array($order->status, [OrderStatus::Confirmed, OrderStatus::Processing], true) && ! $isReplacement) {
                 throw new BusinessException('لا يمكن إنشاء بوليصة إلا لطلب مؤكد أو قيد التجهيز.');
             }
-            // Non-COD orders require confirmed payment before warehouse dispatch
+
+            // Non-COD orders require confirmed payment before warehouse dispatch.
             if ($order->payment_method !== 'cod' && $order->payment_status !== 'paid') {
                 throw new BusinessException('لا يمكن شحن طلب دفع مسبق لم يُدفع بعد (الحالة الحالية: '.$order->payment_status.').');
             }
-            if ($hasActiveShipmentEarly) {
-                throw new BusinessException('توجد بوليصة نشطة لهذا الطلب بالفعل.');
-            }
-
             $company = ShippingCompany::query()->where('is_active', true)->find($companyId);
             if ($company === null) {
                 throw new BusinessException('شركة الشحن غير موجودة أو غير نشطة.');
@@ -67,6 +68,7 @@ class ShipmentService
 
             $rate = $this->rateFor($order, $company->id);
             $shippingCost = $rate !== null ? (float) $rate->base_cost : (float) $order->shipping_cost;
+            // Waive shipping charge when net merchandise subtotal meets the carrier's free shipping threshold.
             if ($rate !== null && $rate->free_shipping_threshold !== null
                 && ((float) $order->subtotal - (float) $order->discount_amount) >= (float) $rate->free_shipping_threshold) {
                 $shippingCost = 0.0;
@@ -83,7 +85,7 @@ class ShipmentService
                 'raw_response' => ['source' => 'internal'],
             ]);
 
-            // Transition order status to Shipped and release stock allocations (bypassed for replacement shipments)
+            // Transition order to Shipped and release reservation locks; skipped for replacement shipments.
             if (! $isReplacement) {
                 $this->orders->changeStatus($order, OrderStatus::Shipped, $actor, "تم إنشاء بوليصة الشحن {$shipment->awb_number}");
             }
@@ -95,7 +97,9 @@ class ShipmentService
     /**
      * Find active rate matching the carrier and order's destination city zone.
      *
-     * Joins directly with zone cities to avoid ambiguous matching if a city is mapped to multiple zones.
+     * @param  Order  $order  Target order with destination city.
+     * @param  int  $companyId  Target shipping company ID.
+     * @return ShippingRate|null Matched shipping rate, or null if unconfigured.
      */
     private function rateFor(Order $order, int $companyId): ?ShippingRate
     {
@@ -115,7 +119,10 @@ class ShipmentService
     }
 
     /**
-     * Generate a unique tracking number prefixed with the carrier code.
+     * Generate a unique tracking identifier prefixed with the carrier code.
+     *
+     * @param  ShippingCompany  $company  Target shipping carrier.
+     * @return string Unique AWB identifier.
      */
     private function generateAwb(ShippingCompany $company): string
     {

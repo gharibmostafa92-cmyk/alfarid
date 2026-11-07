@@ -292,6 +292,7 @@ class PosService
             $overridePrice = (bool) ($payload['override_price'] ?? false);
             $items = $this->resolveItems($shift, $payload['items'], $customer, $overridePrice);
 
+            // Compute gross subtotal and sum line totals directly to preserve discount arithmetic.
             $subtotal = $items->sum(fn ($item) => $this->minor($item['unit_price']) * (int) $item['qty']) / 100;
             $discountTotal = $items->sum(fn ($item) => $this->minor($item['discount_amount'])) / 100;
             $grandTotal = $items->sum(fn ($item) => $this->minor($item['line_total'])) / 100;
@@ -307,6 +308,7 @@ class PosService
                 throw new BusinessException('مبالغ الدفع يجب ألا تكون سالبة.');
             }
 
+            // Split payments must reconcile down to the cent against the calculated grand total.
             $grandCents = $this->minor($grandTotal);
             $paidCents = $this->minor($cashAmount) + $this->minor($cardAmount);
 
@@ -456,9 +458,7 @@ class PosService
                 foreach ($returnedItems as $ret) {
                     $vid = (int) $ret['product_variant_id'];
                     $qty = (float) $ret['qty'];
-                    if (! is_finite($qty) || $qty <= 0 || floor($qty) !== $qty) {
-                        throw new BusinessException('كمية المرتجع يجب أن تكون موجبة.');
-                    }
+                    DiscreteQuantity::assertWhole($qty, false, 'كمية المرتجع يجب أن تكون موجبة.');
                     $destination = $ret['return_to'] ?? 'on_hand';
                     if (! in_array($destination, ['on_hand', 'damaged'], true)
                         || (isset($grouped[$vid]) && $grouped[$vid]['return_to'] !== $destination)) {
@@ -729,9 +729,7 @@ class PosService
     ): Collection {
         return collect($rawItems)->map(function (array $item) use ($shift, $customer, $overridePrice): array {
             $qty = (float) $item['qty'];
-            if (! is_finite($qty) || $qty <= 0 || floor($qty) !== $qty) {
-                throw new BusinessException('كمية البيع يجب أن تكون عددًا صحيحًا موجبًا.');
-            }
+            DiscreteQuantity::assertWhole($qty, false, 'كمية البيع يجب أن تكون عددًا صحيحًا موجبًا.');
             /** @var ProductVariant $variant */
             $variant = ProductVariant::query()
                 ->where('id', $item['product_variant_id'])
@@ -850,9 +848,13 @@ class PosService
         return $shift;
     }
 
+    /**
+     * Convert decimal amount to integer cents, forbidding unrepresented fractional cents.
+     */
     private function minor(mixed $value): int
     {
         try {
+            // RoundingMode::Unnecessary rejects sub-penny fractions to enforce strict 2-decimal financial bounds.
             return BigDecimal::of((string) $value)->toScale(2, RoundingMode::Unnecessary)->getUnscaledValue()->toInt();
         } catch (\Throwable) {
             throw new BusinessException('المبلغ المالي غير صالح؛ يُسمح بخانتين عشريتين فقط.');

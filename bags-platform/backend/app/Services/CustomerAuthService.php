@@ -14,6 +14,7 @@ use App\Notifications\Channels\CustomerSmsChannel;
 use App\Notifications\CustomerPasswordReset;
 use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Rules\UniqueCustomerEmail;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
@@ -92,28 +93,29 @@ class CustomerAuthService
 
                 return $customer;
             });
-        } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+        } catch (UniqueConstraintViolationException $e) {
             throw $this->translateRegistrationConflict($e);
         }
     }
 
-    /** Recheck registration rules while reserving the email until the surrounding transaction commits. */
-    /** M9: تسجيلين متزامنين بنفس الموبايل أو البريد → 23505 من الـ unique index؛ نحوله لخطأ تحقق بدل 500. */
+    /**
+     * Map database unique constraint violations to user-friendly validation exceptions.
+     *
+     * Prevents 500 errors on concurrent registrations with identical phone or email.
+     *
+     * @param  \Throwable  $e  Captured database or runtime exception.
+     * @return \Throwable Converted ValidationException or original exception.
+     */
     public function translateRegistrationConflict(\Throwable $e): \Throwable
     {
-        if ($e instanceof \Illuminate\Database\UniqueConstraintViolationException) {
-            $message = $e->getMessage();
-            if (str_contains($message, 'phone')) {
-                return ValidationException::withMessages(['phone' => 'رقم الموبايل مسجل بالفعل.']);
-            }
-            if (str_contains($message, 'email')) {
-                return ValidationException::withMessages(['email' => 'البريد الإلكتروني مستخدم بالفعل.']);
-            }
-        }
-
-        return $e;
+        return Customer::translateUniqueViolation($e);
     }
 
+    /**
+     * Acquire a transactional advisory lock on the normalized email to prevent race conditions.
+     *
+     * @param  string|null  $email  Email address to lock.
+     */
     public function lockRegistrationEmail(?string $email): void
     {
         if ($email === null || trim($email) === '') {
@@ -139,7 +141,7 @@ class CustomerAuthService
     public function login(string $identifier, string $password): Customer
     {
         $emailLogin = str_contains($identifier, '@');
-        $identifier = $emailLogin ? mb_strtolower(trim($identifier)) : Customer::normalizePhone($identifier);
+        $identifier = Customer::normalizeIdentifier($identifier) ?? '';
         $dummyHash = self::dummyHash();
         $customer = $this->findForLogin($identifier);
 
@@ -172,7 +174,7 @@ class CustomerAuthService
             if ($customer->newQuery()->whereKey($customer->id)->where('password', $original)->update(['password' => $replacement]) === 1) {
                 $customer->forceFill(['password' => $replacement])->syncOriginalAttribute('password');
             } else {
-                // L2: جهاز تاني عمل rehash في نفس اللحظة — نتأكد من الـ hash الحالي بدل 401 غلط.
+                // Verify against freshly persisted hash if a concurrent request completed the rehash first.
                 $fresh = $customer->newQuery()->whereKey($customer->id)->value('password');
                 if (! is_string($fresh) || ! Hash::check($password, $fresh)) {
                     throw new BusinessException('بيانات الدخول غير صحيحة.', [], 401);
@@ -311,7 +313,7 @@ class CustomerAuthService
                 $customer->tokens()->whereIn('id', $old)->delete();
             }
 
-            $token = $customer->createToken($name, ['*'], now()->addMinutes(max(1, (int) config('auth.customer_token_minutes', 1440))));
+            $token = $customer->createToken($name, ['*'], now()->addMinutes(max(1, (int) config('auth.customer_token_minutes', 86400))));
             CustomerAuditLog::record($customer, 'token_issued', null, ['token_id' => $token->accessToken->id, 'channel' => $name]);
 
             return $token->plainTextToken;

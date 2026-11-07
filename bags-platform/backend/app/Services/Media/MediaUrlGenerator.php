@@ -6,13 +6,19 @@ namespace App\Services\Media;
 
 use Spatie\MediaLibrary\Support\UrlGenerator\DefaultUrlGenerator;
 
+/**
+ * Custom URL generator enforcing signed pre-signed URLs on private media disks.
+ */
 class MediaUrlGenerator extends DefaultUrlGenerator
 {
+    /**
+     * Resolves the media download URL, enforcing short-lived signed URLs for private R2 storage.
+     *
+     * @return string
+     */
     public function getUrl(): string
     {
-        // H5: the private disk always yields a temporary URL — even when a public
-        // URL is configured — so enabling public catalog URLs can never leak
-        // private documents. Catalog media lives on r2_public (stable public URLs).
+        // Force signed temporary URLs on private R2 storage to prevent accidental data leakage.
         if ($this->getDiskName() === 'r2') {
             $ttl = max(60, min(604800, (int) config('filesystems.disks.r2.download_url_ttl_seconds', 3600)));
 

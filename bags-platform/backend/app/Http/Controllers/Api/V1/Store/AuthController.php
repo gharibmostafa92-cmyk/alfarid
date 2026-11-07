@@ -24,7 +24,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
-/** مصادقة المتجر القطاعي: تسجيل فوري معتمد، دخول، خروج، واستعادة كلمة المرور. */
+/**
+ * Handles retail customer authentication, self-registration, session tokens, and password recovery.
+ */
 class AuthController extends Controller
 {
     public function __construct(
@@ -33,6 +35,9 @@ class AuthController extends Controller
         private readonly CustomerPhoneVerificationService $phoneVerification,
     ) {}
 
+    /**
+     * Retrieve frontend registration requirements and CAPTCHA configuration.
+     */
     public function registrationOptions(): JsonResponse
     {
         $required = (bool) config('auth.require_phone_verification');
@@ -43,6 +48,9 @@ class AuthController extends Controller
         ]])->header('Cache-Control', 'no-store, private');
     }
 
+    /**
+     * Register a new retail customer account and issue an initial access token.
+     */
     public function register(RegisterRequest $request): JsonResponse
     {
         [$customer, $token] = DB::transaction(function () use ($request): array {
@@ -51,7 +59,7 @@ class AuthController extends Controller
             return [$customer, $this->auth->issueToken($customer, 'store-token')];
         });
 
-        // حساب جديد = دخول فوري: تُدمج سلة الزائر إن وُجدت
+        // Automatically merge existing guest cart items into the newly registered account.
         $cartMerged = true;
         try {
             $this->carts->mergeGuestCart($customer, $request->header('X-Cart-Session'));
@@ -66,12 +74,15 @@ class AuthController extends Controller
             ->setStatusCode(201);
     }
 
+    /**
+     * Authenticate customer credentials and issue a store session token.
+     */
     public function login(LoginRequest $request): CustomerResource
     {
         $customer = $this->auth->login($request->validated()['login'], $request->validated()['password']);
         $token = $this->auth->issueToken($customer, 'store-token');
 
-        // دمج سلة الزائر (إن وُجدت بهيدر الجلسة) في سلة الحساب تلقائيًا
+        // Merge guest cart items into the customer account upon login.
         $cartMerged = true;
         try {
             $this->carts->mergeGuestCart($customer, $request->header('X-Cart-Session'));
@@ -84,7 +95,9 @@ class AuthController extends Controller
             ->additional(['message' => 'تم تسجيل الدخول بنجاح', 'token' => $token, 'cart_merged' => $cartMerged]);
     }
 
-    /** خروج: حذف التوكن الحالي فقط (بقية الجلسات على أجهزة أخرى تظل فعالة). */
+    /**
+     * Revoke current access token while preserving concurrent device sessions.
+     */
     public function logout(Request $request): JsonResponse
     {
         $request->user()->currentAccessToken()->delete();
@@ -92,6 +105,9 @@ class AuthController extends Controller
         return response()->json(['message' => 'تم تسجيل الخروج بنجاح']);
     }
 
+    /**
+     * Trigger asynchronous password reset notification if the account exists.
+     */
     public function forgotPassword(ForgotPasswordRequest $request): JsonResponse
     {
         $this->auth->forgotPassword($request->validated()['email'] ?? null, $request->validated()['phone'] ?? null);
@@ -99,6 +115,9 @@ class AuthController extends Controller
         return response()->json(['message' => 'لو الحساب موجود، أرسلنا رمز الاستعادة إليه.']);
     }
 
+    /**
+     * Update account password using a validated password reset token.
+     */
     public function resetPassword(ResetPasswordRequest $request): JsonResponse
     {
         $this->auth->resetPassword($request->validated());
@@ -106,17 +125,23 @@ class AuthController extends Controller
         return response()->json(['message' => 'تم تغيير كلمة المرور؛ سجل الدخول من جديد.']);
     }
 
+    /**
+     * Dispatch an SMS OTP code to verify mobile number ownership.
+     *
+     * @throws BusinessException If IP subnet cannot be resolved.
+     * @throws ValidationException If phone is already registered.
+     */
     public function sendPhoneVerification(PhoneVerificationRequest $request): JsonResponse
     {
-        // H-2: تحدٍّ بشري على endpoint الإرسال بس.
+        // Enforce Cloudflare Turnstile verification strictly on SMS dispatch to protect gateway budget.
         $request->validate(['turnstile_token' => [new TurnstileToken($request->ip())]]);
         $phone = $request->validated()['phone'];
         $networkKey = CustomerMessageBudget::subnetKey($request->ip());
         if ($networkKey === null) {
             throw new BusinessException('تعذر التحقق من الشبكة، حاول مرة أخرى.');
         }
-        // L-9: الإرسال في queue فأي خطأ جوه send() مش هيوصل للمستخدم — نوضح هنا.
-        // (التسجيل نفسه بيكشف وجود الرقم، فده مش كشف جديد.)
+
+        // Pre-validate phone existence before dispatching queued job to return synchronous feedback to the user.
         $existing = Customer::withTrashed()->where('phone', $phone)->first(['id', 'deleted_at']);
         if ($existing !== null) {
             throw ValidationException::withMessages(['phone' => $existing->trashed()
@@ -130,6 +155,9 @@ class AuthController extends Controller
         return response()->json(['message' => 'سيتم إرسال رمز التحقق إلى الرقم.']);
     }
 
+    /**
+     * Validate submitted SMS OTP and issue a one-time proof token.
+     */
     public function verifyPhone(PhoneVerificationRequest $request): JsonResponse
     {
         $data = $request->validated();

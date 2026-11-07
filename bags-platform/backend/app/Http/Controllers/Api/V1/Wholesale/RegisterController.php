@@ -18,13 +18,18 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
-/** تسجيل تجار الجملة ومتابعة حالة طلب الاعتماد. */
+/**
+ * Handles wholesale merchant registration and onboarding application status tracking.
+ */
 class RegisterController extends Controller
 {
     public function __construct(
         private readonly WholesaleRegistrationService $registrations,
     ) {}
 
+    /**
+     * Submit wholesale registration application with accompanying trade documents.
+     */
     public function register(WholesaleRegisterRequest $request): JsonResponse
     {
         $data = $request->validated();
@@ -41,8 +46,8 @@ class RegisterController extends Controller
     }
 
     /**
-     * حالة الطلب لصاحبه — بما فيه المرفوض (يحتاج سبب الرفض ومستنداته).
-     * محمي بمصادقة العملاء فقط؛ لا يحتاج اعتماد الجملة.
+     * Retrieve the current merchant onboarding application status and rejected document notes.
+     * Accessible by authenticated customer accounts prior to full wholesale approval.
      */
     public function applicationStatus(Request $request): JsonResponse
     {
@@ -77,6 +82,9 @@ class RegisterController extends Controller
         ]);
     }
 
+    /**
+     * Upload additional onboarding or replacement documents requested during verification.
+     */
     public function uploadDocument(Request $request, CustomerManagementService $customers): JsonResponse
     {
         $customer = $request->user();

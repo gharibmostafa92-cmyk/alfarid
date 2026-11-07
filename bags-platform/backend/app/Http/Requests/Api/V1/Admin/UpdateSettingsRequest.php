@@ -11,8 +11,22 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
+/**
+ * Validates administrative system settings modifications with optimistic concurrency guarantees.
+ *
+ * Enforces headquarter branch permissions, AI capabilities authorizations,
+ * strict type boundaries, sequence format integrity, and CAS (Compare-And-Swap) expected-state verification.
+ */
 class UpdateSettingsRequest extends FormRequest
 {
+    /**
+     * Determine if the user is authorized to update system settings.
+     *
+     * Requires central headquarters branch scope, and specific AI permission if any ai_* keys are present.
+     *
+     * @param  BranchAccess  $branchAccess  Branch boundary enforcement service.
+     * @return bool True if authorized.
+     */
     public function authorize(BranchAccess $branchAccess): bool
     {
         if ($this->user('staff') === null) {
@@ -28,13 +42,19 @@ class UpdateSettingsRequest extends FormRequest
         return true;
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Retrieve normalized input data from JSON payload or request parameters.
+     *
+     * @return array<string, mixed>
+     */
     public function validationData(): array
     {
         return $this->isJson() ? $this->json()->all() : $this->request->all();
     }
 
     /**
+     * Get the validation rules that apply to the request.
+     *
      * @return array<string, array<mixed>|string|ValidationRule>
      */
     public function rules(): array
@@ -51,14 +71,13 @@ class UpdateSettingsRequest extends FormRequest
             'tax_number' => ['sometimes', 'nullable', 'string', 'max:100'],
             'default_tax_rate' => ['sometimes', 'required', 'numeric', 'between:0,100'],
             'prices_include_tax' => ['sometimes', 'boolean'],
-            // 0 = الإرجاع متوقف، -1 = بلا حد زمني، قيمة موجبة = أيام من التسليم
+            // Return policy: 0 disables returns, -1 allows indefinite returns, positive values define days from delivery.
             'return_window_days' => ['sometimes', 'integer', 'min:-1', 'max:3650'],
             'allow_self_approve_purchases' => ['sometimes', 'boolean'],
             'ai_enabled' => ['sometimes', 'boolean'],
             'ai_daily_token_budget_per_user' => ['sometimes', 'integer', 'min:0', 'max:10000000'],
             'ai_disabled_tools' => ['sometimes', 'array'],
-            // L12: الأداة مقفولة مش تنسيق حر — الاسم لازم يكون في الـ registry
-            // فعلًا، وإلا الغلطة الإملائية تعدي إعدادًا ميؤثر بلا سؤال.
+            // Disabled tools must reference registered definitions to prevent typos from creating inert configuration.
             'ai_disabled_tools.*' => ['string', 'max:100', Rule::in(array_keys(app(ToolRegistry::class)->definitions()))],
             'ai_action_ttl_minutes' => ['sometimes', 'integer', 'min:1', 'max:1440'],
             'ai_retention_days' => ['sometimes', 'integer', 'min:1', 'max:3650'],
@@ -92,6 +111,9 @@ class UpdateSettingsRequest extends FormRequest
             'ai_coupon_high_risk_percent' => ['sometimes', 'numeric', 'min:0', 'max:100'],
             'ai_price_below_cost_policy' => ['sometimes', 'string', Rule::in(['block', 'warn'])],
             'ai_pricing_vision_enabled' => ['sometimes', 'boolean'],
+            'ai_shipping_tools_enabled' => ['sometimes', 'boolean'],
+            'ai_storefront_tools_enabled' => ['sometimes', 'boolean'],
+            'ai_storefront_place_order_enabled' => ['sometimes', 'boolean'],
             'ai_max_steps' => ['sometimes', 'integer', 'min:1', 'max:10'],
             'ai_whatsapp_enabled' => ['sometimes', 'boolean'],
             'ai_whatsapp_allow_writes' => ['sometimes', 'boolean'],
@@ -116,8 +138,7 @@ class UpdateSettingsRequest extends FormRequest
             'delivery',
             'supplier_invoice',
             'supplier_payment',
-            // H1: أنواع كان الوكيل يقدر يعدّلها من update_document_numbering
-            // والـ REST لأ — توحيد مصدر القواعد بين المسارين.
+            // Sequence types supported across both REST and assistant document numbering updates.
             'shift',
             'pos_invoice',
             'expense',
@@ -130,6 +151,7 @@ class UpdateSettingsRequest extends FormRequest
             $rules["{$type}_padding"] = ['sometimes', 'integer', 'min:1', 'max:20'];
         }
 
+        // Enforce Compare-And-Swap (CAS) optimistic locking: each changed key must supply its expected current value.
         $expectedRules = ['expected' => ['required', 'array']];
         foreach ($rules as $key => $keyRules) {
             $type = in_array('boolean', $keyRules, true) ? 'boolean'
@@ -140,6 +162,13 @@ class UpdateSettingsRequest extends FormRequest
         return $rules + $expectedRules;
     }
 
+    /**
+     * Configure after-validation hooks to enforce strict schema bounds and CAS parity.
+     *
+     * Rejects unknown payload parameters and ensures the expected-value map strictly mirrors all modified keys.
+     *
+     * @param  Validator  $validator
+     */
     public function withValidator(Validator $validator): void
     {
         $allowedKeys = array_values(array_filter(array_keys($this->rules()), fn ($key) => ! str_starts_with($key, 'expected.')));

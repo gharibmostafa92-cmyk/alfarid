@@ -77,7 +77,7 @@ final class ParseCountSheetTool extends StocktakeToolBase implements AgentTool
 
     public function handle(User $actor, array $args): ToolOutcome
     {
-        // بوابة الرؤية: الصورة ماتتبعتش للنموذج غير بموافقة الإعداد.
+        // Vision capability gate: disallow external multimodal processing unless explicitly enabled.
         if (! $this->settings->getBool('ai_inventory_vision_enabled', false)) {
             return ToolOutcome::denied('تحليل الصور مقفول من الإعدادات.', auditable: false);
         }

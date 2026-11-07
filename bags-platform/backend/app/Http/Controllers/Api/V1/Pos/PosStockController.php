@@ -66,7 +66,7 @@ class PosStockController extends Controller
                         ->where('name_ar', 'LIKE', $like)
                         ->orWhere('name_en', 'LIKE', $like)));
             })
-            // L6: نفس شرط التنبيهات — حد الصف على الصف، وحد الصنف على إجمالي الفرع.
+            // Matches alert thresholds: evaluates row-level minimum per location, and variant reorder point across branch totals.
             ->when($filters['low_stock'] ?? null, fn ($q) => $q->whereLowStock())
             ->orderBy('product_variant_id')
             ->paginate($filters['per_page'] ?? 15);
@@ -92,7 +92,7 @@ class PosStockController extends Controller
                 Rule::notIn([$user->branch_id]),
             ],
             'items' => ['required', 'array', 'min:1', 'max:100'],
-            // L9: reject inactive variants here instead of failing later at approve time.
+            // Reject inactive variants upfront during validation rather than during transfer approval.
             'items.*.product_variant_id' => ['required', 'integer', 'min:1', 'distinct',
                 Rule::exists('product_variants', 'id')->where('is_active', true)],
             'items.*.from_location_id' => ['nullable', 'integer', 'min:1',
@@ -184,8 +184,7 @@ class PosStockController extends Controller
             'scan_id' => ['nullable', 'uuid'],
         ]);
 
-        // وضع العد الصوتي: الموظف يمسح الباركود ويقول الرقم ("اتنين وعشرين").
-        // system_qty يفضل محجوبًا عن غير المصرح لهم بالاعتماد (نفس القاعدة أدناه).
+        // Voice count input: parse spoken Arabic quantities while keeping system_qty hidden from non-approvers.
         $qty = isset($data['qty']) ? (float) $data['qty'] : 1;
         if (! isset($data['qty']) && isset($data['qty_words'])) {
             $spoken = \App\Services\SpokenQuantity::parse($data['qty_words']);

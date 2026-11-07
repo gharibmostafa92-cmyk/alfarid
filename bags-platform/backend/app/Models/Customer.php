@@ -13,10 +13,15 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\HasApiTokens;
 
+/**
+ * Customer entity representing retail shoppers and wholesale/distributor trading partners.
+ */
 #[Fillable([
     'name',
     'email',
@@ -42,6 +47,7 @@ class Customer extends Authenticatable
     {
         static::creating(function (Customer $customer): void {
             if (! array_key_exists('status', $customer->getAttributes())) {
+                // Wholesale and distributor accounts require commercial vetting before order placement.
                 $customer->status = in_array($customer->type, [CustomerType::Wholesale, CustomerType::Distributor], true)
                     ? CustomerStatus::Pending : CustomerStatus::Approved;
             }
@@ -53,6 +59,11 @@ class Customer extends Authenticatable
         return $this->belongsTo(CustomerGroup::class);
     }
 
+    /**
+     * Check if the account has shopping and ordering privileges.
+     *
+     * @return bool True if active or pending; false if suspended or rejected.
+     */
     public function canShop(): bool
     {
         return ! in_array($this->status, [CustomerStatus::Suspended, CustomerStatus::Rejected], true);
@@ -66,13 +77,14 @@ class Customer extends Authenticatable
     public function setEmailAttribute(?string $email): void
     {
         $normalized = $email === null ? null : mb_strtolower(trim($email));
+        // Changing email invalidates prior verification and requires re-confirming ownership.
         if (($this->attributes['email'] ?? null) !== $normalized) {
             $this->attributes['email_verified_at'] = null;
         }
         $this->attributes['email'] = $normalized;
     }
 
-    /** خريطة تحويل الأرقام العربية والفارسية إلى أرقام لاتينية */
+    /** Transliteration map for Eastern Arabic and Persian numerals to ASCII digits. */
     private const ARABIC_PERSIAN_DIGITS_MAP = [
         '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4',
         '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
@@ -85,12 +97,22 @@ class Customer extends Authenticatable
         $this->attributes['phone'] = self::normalizePhone($phone);
     }
 
+    /**
+     * Standardize Egyptian mobile numbers into canonical local format (01xxxxxxxxx).
+     *
+     * Transliterates Eastern Arabic/Persian digits, strips punctuation, and normalizes country prefixes.
+     *
+     * @param  string  $phone  Raw phone number string.
+     * @return string Canonical local phone string.
+     */
     public static function normalizePhone(string $phone): string
     {
         $trimmed = preg_replace('/^\s+|\s+$/u', '', $phone) ?? trim($phone);
+        // Preserve synthetic placeholder identifiers for legacy accounts without valid phones.
         if (preg_match('/^legacy-[0-9]+$/', $trimmed)) {
-            return $trimmed; // L8: ما نبوّظش الـ placeholder
+            return $trimmed;
         }
+        // Normalize Arabic-Indic and Eastern Arabic digits into ASCII equivalents.
         $phone = strtr($trimmed, self::ARABIC_PERSIAN_DIGITS_MAP);
         $phone = preg_replace('/[\s().-]+/u', '', $phone);
         if (preg_match('/^201[0125][0-9]{8}$/', $phone)) {
@@ -104,6 +126,48 @@ class Customer extends Authenticatable
         }
 
         return $phone;
+    }
+
+    /**
+     * Normalize an authentication identifier (email or phone number).
+     *
+     * @param  string|null  $identifier  Raw email or phone number.
+     * @return string|null Canonical lowercase email or normalized Egyptian phone.
+     */
+    public static function normalizeIdentifier(?string $identifier): ?string
+    {
+        if ($identifier === null) {
+            return null;
+        }
+        $trimmed = trim($identifier);
+        if ($trimmed === '') {
+            return '';
+        }
+
+        return str_contains($trimmed, '@')
+            ? mb_strtolower($trimmed)
+            : self::normalizePhone($trimmed);
+    }
+
+    /**
+     * Map database unique constraint collisions on customer attributes to validation exceptions.
+     *
+     * @param  \Throwable  $e  Captured database or runtime exception.
+     * @return \Throwable Converted ValidationException or original exception.
+     */
+    public static function translateUniqueViolation(\Throwable $e): \Throwable
+    {
+        if ($e instanceof UniqueConstraintViolationException) {
+            $message = $e->getMessage();
+            if (str_contains($message, 'phone')) {
+                return ValidationException::withMessages(['phone' => 'رقم الموبايل مسجل بالفعل.']);
+            }
+            if (str_contains($message, 'email')) {
+                return ValidationException::withMessages(['email' => 'البريد الإلكتروني مستخدم بالفعل.']);
+            }
+        }
+
+        return $e;
     }
 
     public function auditLogs(): HasMany

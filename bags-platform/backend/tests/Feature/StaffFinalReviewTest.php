@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\Auth\StaffHandoffService;
 use App\Services\Auth\StaffTokenService;
 use App\Services\Auth\UnifiedAuthService;
+use App\Services\CustomerAuthService;
 use App\Services\OrderService;
 use App\Services\SettingService;
 use Database\Seeders\SettingSeeder;
@@ -108,6 +109,29 @@ class StaffFinalReviewTest extends TestCase
         $this->travel(121)->minutes();
         Auth::forgetGuards();
         $this->withToken($token)->getJson('/api/v1/admin/me')->assertUnauthorized();
+    }
+
+    public function test_default_store_and_staff_tokens_survive_for_their_configured_days(): void
+    {
+        $this->freezeSecond();
+        $staff = User::factory()->create();
+        $customer = Customer::factory()->create();
+        $staffToken = app(StaffTokenService::class)->issue($staff);
+        $customerToken = app(CustomerAuthService::class)->issueToken($customer, 'store');
+        $this->assertTrue($staff->tokens()->sole()->expires_at->equalTo(now()->addDays(30)));
+        $this->assertTrue($customer->tokens()->sole()->expires_at->equalTo(now()->addDays(60)));
+
+        $this->travel(29)->days();
+        Auth::forgetGuards();
+        $this->withToken($staffToken)->getJson('/api/v1/admin/me')->assertOk();
+        $this->travel(2)->days();
+        Auth::forgetGuards();
+        $this->withToken($staffToken)->getJson('/api/v1/admin/me')->assertUnauthorized();
+        Auth::forgetGuards();
+        $this->withToken($customerToken)->getJson('/api/v1/auth/me')->assertOk();
+        $this->travel(30)->days();
+        Auth::forgetGuards();
+        $this->withToken($customerToken)->getJson('/api/v1/auth/me')->assertUnauthorized();
     }
 
     public function test_valid_staff_and_customer_credentials_survive_aggregate_ip_and_daily_failure_budgets(): void
@@ -308,6 +332,7 @@ class StaffFinalReviewTest extends TestCase
 
     public function test_historical_staff_tokens_are_capped_without_shortening_customer_tokens(): void
     {
+        config(['auth.staff_token_minutes' => 120]);
         $migration = require database_path('migrations/2026_10_25_000005_harden_staff_sessions_and_audit.php');
         $migration->down();
         $user = User::factory()->create();

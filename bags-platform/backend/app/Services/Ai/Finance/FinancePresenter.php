@@ -22,9 +22,7 @@ final class FinancePresenter
     /** @return array{untrusted_text: string} */
     public function untrusted(?string $value, int $max = 300): array
     {
-        $clean = mb_substr((string) preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string) $value), 0, $max);
-
-        return ['untrusted_text' => $clean];
+        return ToolOutcome::untrusted($value, $max);
     }
 
     public function money(string|float|int $v): string
@@ -49,16 +47,7 @@ final class FinancePresenter
             $data['balances_hidden_from_model'] = true;
         }
 
-        $maxChars = max(1024, (int) $this->settings->get('ai_tool_result_max_chars', 16000));
-        $encoded = json_encode($data, JSON_UNESCAPED_UNICODE);
-        if ($encoded !== false && strlen($encoded) > $maxChars) {
-            return ToolOutcome::data([
-                'truncated' => true,
-                'message' => 'ضيّق البحث',
-            ], $uiBlock, 'ضيّق البحث');
-        }
-
-        return ToolOutcome::data($data, $uiBlock, $message);
+        return ToolOutcome::present($data, $uiBlock, $message, (int) $this->settings->get('ai_tool_result_max_chars', 16000));
     }
 
     /** @return array<string,mixed> */

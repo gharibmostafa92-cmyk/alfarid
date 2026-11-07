@@ -9,16 +9,17 @@ use App\Models\StockLevel;
 use Illuminate\Support\Facades\DB;
 
 /**
- * أيام التغطية = المتاح ÷ متوسط البيع اليومي (آخر 30 يوم).
- * null تعني بلا مبيعات (تغطية غير محدودة عمليًا).
+ * Calculate stock coverage days: available inventory divided by average daily net sales (null when zero sales).
  */
 final class InventoryCoverage
 {
+    /**
+     * Compute average daily net sales velocity over the given lookback window.
+     */
     public static function avgDailySale(int $variantId, ?int $branchId = null, int $days = 30): float
     {
-        // L5: net sales — customer returns (positive sale_return quantities)
-        // offset gross sales, otherwise velocity (and transfer suggestions)
-        // are overstated.
+        // Factor customer returns (positive sale_return quantities) against gross sales so
+        // net sales velocity and automated replenishment suggestions remain accurate.
         $sold = (float) DB::table('stock_movements')
             ->where('product_variant_id', $variantId)
             ->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
@@ -29,6 +30,9 @@ final class InventoryCoverage
         return max(0.0, $sold / max(1, $days));
     }
 
+    /**
+     * Compute net available stock across locations for a variant in a branch.
+     */
     public static function available(int $variantId, int $branchId): float
     {
         return (float) StockLevel::query()
@@ -37,7 +41,11 @@ final class InventoryCoverage
             ->sum(DB::raw('on_hand - reserved - damaged'));
     }
 
-    /** @return float|null */
+    /**
+     * Estimated days of stock coverage before stockout.
+     *
+     * @return float|null
+     */
     public static function coverageDays(int $variantId, int $branchId, int $days = 30): ?float
     {
         $available = self::available($variantId, $branchId);

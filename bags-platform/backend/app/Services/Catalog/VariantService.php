@@ -13,20 +13,34 @@ use App\Services\BarcodeGenerator;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Manages product variant creation, SKU and barcode generation, combination uniqueness, and deletion safety.
+ */
 class VariantService
 {
     public function __construct(private ProductPublishabilityChecker $publishability) {}
 
+    /**
+     * Creates a new product variant, generating sequence SKU and barcode when omitted.
+     *
+     * @param  Product  $product  Parent product model.
+     * @param  array<string, mixed>  $data  Variant attributes.
+     * @param  int|null  $expectedProductVersion  Optimistic concurrency version of the parent product.
+     * @return ProductVariant Created variant instance.
+     *
+     * @throws BusinessException If unique combination exists, SKU collides, or publish invariants fail.
+     */
     public function create(Product $product, array $data, ?int $expectedProductVersion = null): ProductVariant
     {
         $data = array_filter($data, fn ($value) => $value !== null);
 
-        // M1: auto-SKU races retry once; explicit conflicts surface as 409.
+        // Retry once on generated SKU races before surfacing unique constraint collisions as 409 conflicts.
         $autoSku = empty($data['sku']);
         for ($attempt = 0; ; $attempt++) {
             try {
                 return DB::transaction(function () use ($product, $data, $expectedProductVersion) {
-                    $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail(); // منع تكرار الترقيم
+                    // Lock product row to serialize variant index numbering and prevent duplicate SKU sequences.
+                    $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
                     if ($expectedProductVersion !== null && (int) $product->lock_version !== $expectedProductVersion) {
                         throw new BusinessException('المنتج تعدّل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
                     }
@@ -47,7 +61,7 @@ class VariantService
                         $variant->update(['barcode' => BarcodeGenerator::fromId($variant->id)]);
                     }
 
-                    // متغير جديد على منتج منشور لازم ميكسرش قواعد النشر، وإلا التعديل كله يتلغي
+                    // Validate publishability conditions to ensure adding a variant does not break publishing invariants.
                     if ($product->status === ProductStatus::Published) {
                         $this->publishability->assertPublishable($product);
                     }
@@ -63,6 +77,15 @@ class VariantService
         }
     }
 
+    /**
+     * Updates an existing product variant, enforcing unique combinations and optimistic locks.
+     *
+     * @param  ProductVariant  $variant  Target variant to update.
+     * @param  array<string, mixed>  $data  Updated variant attributes.
+     * @return ProductVariant Refreshed variant instance.
+     *
+     * @throws BusinessException If version conflicts, duplicate combination exists, or SKU collides.
+     */
     public function update(ProductVariant $variant, array $data): ProductVariant
     {
         $expectedVersion = $data['expected_version'] ?? null;
@@ -73,8 +96,7 @@ class VariantService
             }
         }
 
-        // F8: a concurrent update can win the SKU/barcode between validation
-        // and the write — surface it as 409, not 500.
+        // Catch concurrent unique SKU or barcode collisions during updates and convert to 409 conflict responses.
         try {
             return DB::transaction(function () use ($variant, $data, $expectedVersion) {
                 $product = Product::whereKey($variant->product_id)->lockForUpdate()->firstOrFail();
@@ -92,7 +114,7 @@ class VariantService
                 }
                 $variant->update($data);
 
-                // أي تعديل على متغير منتج منشور بيعيد فحص قواعد النشر جوه نفس الـ transaction
+                // Re-assert product publishability inside transaction to maintain catalog consistency.
                 if ($product->status === ProductStatus::Published) {
                     $this->publishability->assertPublishable($product);
                 }
@@ -104,21 +126,27 @@ class VariantService
         }
     }
 
+    /**
+     * Soft-deletes a variant if no non-zero inventory balances exist.
+     *
+     * @param  ProductVariant  $variant  Variant instance to soft-delete.
+     * @param  int|null  $expectedVersion  Optimistic concurrency version.
+     * @return void
+     *
+     * @throws BusinessException If variant has non-zero stock or is the last active variant on a published product.
+     */
     public function delete(ProductVariant $variant, ?int $expectedVersion = null): void
     {
         DB::transaction(function () use ($variant, $expectedVersion): void {
             $product = Product::whereKey($variant->product_id)->lockForUpdate()->firstOrFail();
-            // H3: lock the variant rows (id-ordered) before the balance check so a
-            // concurrent receipt serializes here; in READ COMMITTED the check then
-            // sees its committed movement instead of a phantom zero.
+            // Lock variant row before inventory check so concurrent movements serialize and prevent phantom zero balances.
             ProductVariant::whereKey($variant->id)->orderBy('id')->lockForUpdate()->firstOrFail();
             $variant = $product->variants()->whereKey($variant->id)->firstOrFail();
             if ($expectedVersion !== null && (int) $variant->lock_version !== $expectedVersion) {
                 throw new BusinessException('المتغير تعدّل في جلسة أخرى؛ أعد تحميل الصفحة وحاول مجددًا.', [], 409);
             }
             $this->assertNotLastActiveOfPublished($variant);
-            // متغير له رصيد في أي وعاء لا يُحذف: الحذف الناعم كان يحبس الرصيد
-            // لأن فحوص وجود المتغير تستبعد المحذوف (M-9). صفِّ الرصيد أولًا.
+            // Prevent soft-deleting variants with non-zero stock to avoid stranding physical inventory.
             if (StockLevel::query()->where('product_variant_id', $variant->id)->hasNonZeroBalance()->exists()) {
                 throw new BusinessException('لا يمكن حذف متغير له رصيد مخزون؛ صفِّ رصيده أولًا أو عطّله بدلًا من حذفه.');
             }
@@ -132,7 +160,7 @@ class VariantService
 
     private function assertUniqueCombination(Product $product, array $d, ?int $ignoreId = null): void
     {
-        // المقارنة من غير حساسية لحالة الحروف: Black وblack نفس اللون
+        // Compare option attributes case-insensitively to prevent duplicate variant combinations.
         $matchField = fn ($q, string $column, ?string $value) => $value === null
             ? $q->whereNull($column)
             : $q->whereRaw("lower({$column}) = ?", [mb_strtolower($value)]);

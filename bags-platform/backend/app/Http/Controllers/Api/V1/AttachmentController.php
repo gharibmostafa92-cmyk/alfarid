@@ -34,7 +34,7 @@ class AttachmentController extends Controller
      * @param  Request  $request  Authorized request
      * @param  int  $returnItem  Return item identifier
      * @param  int  $attachment  Attachment array index
-     * @return RedirectResponse Short-lived signed R2 URL (H3)
+     * @return RedirectResponse Short-lived signed R2 URL
      */
     public function returnFile(Request $request, int $returnItem, int $attachment): RedirectResponse|JsonResponse
     {
@@ -64,7 +64,7 @@ class AttachmentController extends Controller
      *
      * @param  Request  $request  Authorized request
      * @param  int  $invoice  Supplier invoice identifier
-     * @return RedirectResponse Short-lived signed R2 URL (H3)
+     * @return RedirectResponse Short-lived signed R2 URL
      */
     public function invoice(Request $request, int $invoice): RedirectResponse|JsonResponse
     {
@@ -78,8 +78,7 @@ class AttachmentController extends Controller
 
         $model = $query->findOrFail($invoice);
         if ($actor instanceof User) {
-            // M5: same branch rule as returnFile — a branch-confined staffer
-            // must not fetch another branch's procurement documents by id.
+            // Prevent branch-confined staff from accessing procurement documents of other branches.
             $branchId = $model->purchaseOrder?->branch_id;
             if ($branchId === null) {
                 $this->branchAccess->assertCentralAccess($actor);
@@ -96,7 +95,7 @@ class AttachmentController extends Controller
      *
      * @param  Request  $request  Authorized request
      * @param  int  $delivery  Delivery identifier
-     * @return RedirectResponse Short-lived signed R2 URL (H3)
+     * @return RedirectResponse Short-lived signed R2 URL
      */
     public function delivery(Request $request, int $delivery): RedirectResponse|JsonResponse
     {
@@ -110,7 +109,7 @@ class AttachmentController extends Controller
 
         $model = $query->findOrFail($delivery);
         if ($actor instanceof User) {
-            // M5: same branch rule as returnFile.
+            // Prevent cross-branch procurement document retrieval.
             $branchId = $model->purchaseOrder?->branch_id;
             if ($branchId === null) {
                 $this->branchAccess->assertCentralAccess($actor);
@@ -154,11 +153,8 @@ class AttachmentController extends Controller
 
     private function download(Request $request, ?string $path): RedirectResponse|JsonResponse
     {
-        // H3: never proxy R2 bytes through PHP-FPM. The old exists()+download()
-        // held one FPM worker for the whole transfer (a 20MB file on a 500KB/s
-        // link exceeds the 30s Guzzle http.timeout and arrives truncated), and
-        // let one client exhaust workers with slow downloads. Issue a 2-minute
-        // signed URL instead; authorization stays here, bytes come from R2.
+        // Avoid proxying storage payload through PHP-FPM workers to prevent connection exhaustion.
+        // Instead, authorize locally and redirect to a short-lived (2-minute) signed R2 URL.
         abort_if($path === null, 404);
 
         try {
@@ -171,7 +167,7 @@ class AttachmentController extends Controller
                 now()->addMinutes(2),
                 [
                     'ResponseContentDisposition' => HeaderUtils::makeDisposition('attachment', basename($path), 'attachment'),
-                    // L11: private documents must never sit in shared caches.
+                    // Prevent intermediate proxies or shared caches from storing private documents.
                     'ResponseCacheControl' => 'private, max-age=120',
                 ]
             );

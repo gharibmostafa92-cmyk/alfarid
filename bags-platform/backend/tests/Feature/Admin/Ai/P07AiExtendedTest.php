@@ -9,6 +9,8 @@ use App\Models\AiAttachment;
 use App\Models\AiConversation;
 use App\Models\AiMessage;
 use App\Models\AiPendingAction;
+use App\Models\Branch;
+use App\Models\ProductVariant;
 use App\Models\User;
 use App\Services\Ai\AgentOrchestrator;
 use App\Services\Ai\GeminiException;
@@ -22,7 +24,9 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Spatie\Permission\Models\Permission;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 /**
@@ -203,7 +207,7 @@ class P07AiExtendedTest extends TestCase
         try {
             app(AgentOrchestrator::class)->guard($u);
             $this->fail('expected budget rejection after conversation delete');
-        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+        } catch (HttpException $e) {
             $this->assertSame(429, $e->getStatusCode());
         }
     }
@@ -239,7 +243,7 @@ class P07AiExtendedTest extends TestCase
 
         $mk = function (string $tool, string $status, int $minutesAgo, array $extra = []) use ($u, $conv): AiPendingAction {
             return AiPendingAction::forceCreate(array_merge([
-                'id' => (string) \Illuminate\Support\Str::ulid(),
+                'id' => (string) Str::ulid(),
                 'conversation_id' => $conv->id, 'user_id' => $u->id, 'tool' => $tool,
                 'args' => ['x' => 1], 'args_hash' => 'h', 'expected_versions' => [],
                 'preview' => [], 'risk' => 'medium', 'status' => $status,
@@ -347,8 +351,17 @@ class P07AiExtendedTest extends TestCase
         $this->assertSame('45', (string) app(SettingService::class)->get('ai_action_ttl_minutes'));
         $this->withToken($token)->putJson($url, $payload)->assertStatus(409);
 
+        $this->withToken($token)->putJson($url, [
+            'expected' => ['ai_shipping_tools_enabled' => false, 'ai_storefront_tools_enabled' => false],
+            'ai_shipping_tools_enabled' => true,
+            'ai_storefront_tools_enabled' => true,
+        ])->assertOk()
+            ->assertJsonPath('data.ai_shipping_tools_enabled', true)
+            ->assertJsonPath('data.ai_storefront_tools_enabled', true)
+            ->assertJsonPath('data.ai_storefront_place_order_enabled', false);
+
         // Branch-restricted admins are refused at the gate.
-        $branch = \App\Models\Branch::factory()->create();
+        $branch = Branch::factory()->create();
         $restricted = $this->staff(['ai_agent.use', 'ai_agent.settings'], $branch->id);
         $this->withToken($this->token($restricted))->putJson($url, [
             'expected' => ['ai_action_ttl_minutes' => '45'], 'ai_action_ttl_minutes' => 50,
@@ -387,7 +400,7 @@ class P07AiExtendedTest extends TestCase
         // 403: selection outside the user's read permissions (thrown inside handle).
         $noCatalog = $this->aiStaff();
         $convNoCatalog = $this->conv($noCatalog);
-        $variant = \App\Models\ProductVariant::factory()->create();
+        $variant = ProductVariant::factory()->create();
         $error = $errorOf($this->withToken($tokenFor($noCatalog))->post(
             "/api/v1/admin/ai/conversations/{$convNoCatalog->id}/stream",
             ['selection' => ['entity' => 'variant', 'id' => $variant->id]])->streamedContent());
@@ -447,7 +460,7 @@ class P07AiExtendedTest extends TestCase
         $this->withToken($token)->postJson($url, ['text' => 'hi', 'mentions' => $mentions])->assertStatus(422);
         $attachments = [];
         for ($i = 0; $i < 5; $i++) {
-            $attachments[] = (string) \Illuminate\Support\Str::ulid();
+            $attachments[] = (string) Str::ulid();
         }
         $this->withToken($token)->postJson($url, ['text' => 'hi', 'attachments' => $attachments])->assertStatus(422);
     }
@@ -459,7 +472,7 @@ class P07AiExtendedTest extends TestCase
         $conv = $this->conv($u);
         $mk = function (string $status, ?bool $conflict = null) use ($u, $conv): void {
             $result = $conflict === null ? null : ['conflict_409' => $conflict];
-            AiPendingAction::forceCreate(['id' => (string) \Illuminate\Support\Str::ulid(),
+            AiPendingAction::forceCreate(['id' => (string) Str::ulid(),
                 'conversation_id' => $conv->id, 'user_id' => $u->id, 'tool' => 'update_variant',
                 'args' => ['x' => 1], 'args_hash' => 'h', 'expected_versions' => [],
                 'preview' => [], 'risk' => 'low', 'status' => $status, 'result' => $result,

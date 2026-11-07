@@ -1,0 +1,10 @@
+bags-platform/backend/app/Services/Ai/Shipping/Tools\UpsertShippingZoneTool.php:72:        if ($id && ! $actor->can('shipping.update')) {
+bags-platform/backend/app/Services/Ai/Shipping/Tools\UpsertShippingZoneTool.php:75:        if (! $id && ! $actor->can('shipping.create')) {
+bags-platform/backend/app/Services/Ai/Shipping/Tools\UpsertShippingZoneTool.php:112:    public function execute(User $actor, AiPendingAction $action): ToolOutcome
+bags-platform/backend/app/Services/Ai/Shipping/Tools\UpsertShippingCompanyTool.php:70:        if ($id && ! $actor->can('shipping.update')) {
+bags-platform/backend/app/Services/Ai/Shipping/Tools\UpsertShippingCompanyTool.php:73:        if (! $id && ! $actor->can('shipping.create')) {
+bags-platform/backend/app/Services/Ai/Shipping/Tools\UpsertShippingCompanyTool.php:113:    public function execute(User $actor, AiPendingAction $action): ToolOutcome
+bags-platform/backend/app/Services/Ai/Shipping/Tools\UpsertShippingCompanyTool.php:130:                'is_active' => true,
+bags-platform/backend/app/Services/Ai/Shipping/Tools\UpsertShippingRateTool.php:79:        if ($rate && ! $actor->can('shipping.update')) {
+bags-platform/backend/app/Services/Ai/Shipping/Tools\UpsertShippingRateTool.php:82:        if (! $rate && ! $actor->can('shipping.create')) {
+bags-platform/backend/app/Services/Ai/Shipping/Tools\UpsertShippingRateTool.php:128:    public function execute(User $actor, AiPendingAction $action): ToolOutcome

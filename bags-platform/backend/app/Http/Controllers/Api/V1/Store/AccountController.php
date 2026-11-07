@@ -8,9 +8,14 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-/** عناوين العميل المحفوظة — تُملأ تلقائيًا من طلباته لتعبئة الفورم لاحقًا. */
+/**
+ * Manages authenticated customer account profile data and saved shipping addresses.
+ */
 class AccountController extends Controller
 {
+    /**
+     * Retrieve saved delivery addresses for the authenticated customer.
+     */
     public function addresses(Request $request): JsonResponse
     {
         $addresses = $request->user()->addresses()->with('city:id,name_ar,name_en')

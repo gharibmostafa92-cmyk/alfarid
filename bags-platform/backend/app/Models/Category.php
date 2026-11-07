@@ -19,6 +19,9 @@ use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
+/**
+ * Hierarchical category model organizing products into multi-level classification trees.
+ */
 class Category extends Model implements HasMedia
 {
     /** @use HasFactory<CategoryFactory> */
@@ -43,7 +46,7 @@ class Category extends Model implements HasMedia
         return $this->hasMany(Product::class);
     }
 
-    /** المنتجات المنشورة فقط — أساس عدّادات أقسام المتجر. */
+    /** Active retail products for storefront category counters. */
     public function activeProducts(): HasMany
     {
         return $this->hasMany(Product::class)->where('status', ProductStatus::Published)
@@ -56,8 +59,7 @@ class Category extends Model implements HasMedia
             ->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp']);
     }
 
-    // L5: category tiles render small thumbs — generate them once instead of
-    // serving up-to-6000px originals in storefront tiles.
+    // Generate webp thumbnails and medium variants to avoid serving original master images in UI tiles.
     public function registerMediaConversions(?Media $media = null): void
     {
         $this->addMediaConversion('thumb')->fit(Fit::Crop, 300, 300)->format('webp')
@@ -66,7 +68,11 @@ class Category extends Model implements HasMedia
             ->performOnCollections('image');
     }
 
-    // بيرجّع IDs كل الأقسام اللي تحته على أي مستوى — مجموعة visited بتمنع اللف اللانهائي لو فيه دورة في البيانات
+    /**
+     * Returns all recursive descendant category IDs using cycle detection.
+     *
+     * @return list<int> Array of descendant category IDs
+     */
     public function descendantIds(): array
     {
         $ids = [];
@@ -87,6 +93,13 @@ class Category extends Model implements HasMedia
         return $ids;
     }
 
+    /**
+     * Calculates the category depth from root (root = 1), detecting circular parent references.
+     *
+     * @return int 1-based hierarchy depth
+     *
+     * @throws \RuntimeException If a cycle is detected in the parent chain
+     */
     public function depth(): int
     {
         $depth = 1;

@@ -12,7 +12,10 @@ interface UndoableTool
 {
     public function canUndo(AiPendingAction $action): bool;
 
-    public function targetState(AiPendingAction $action): string; // hash للحالة بعد التنفيذ
+    /**
+     * Compute state hash post-execution to detect concurrent modifications prior to undo.
+     */
+    public function targetState(AiPendingAction $action): string;
 
     public function undo(User $actor, AiPendingAction $action): ToolOutcome;
 }

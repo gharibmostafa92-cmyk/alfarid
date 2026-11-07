@@ -23,6 +23,9 @@ use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Validation\Rule;
 
+/**
+ * Backoffice catalog product management: listing with facet aggregations, creation, updates, and cost protection.
+ */
 class ProductController extends Controller implements HasMiddleware
 {
     public function __construct(private ProductService $service) {}
@@ -37,9 +40,12 @@ class ProductController extends Controller implements HasMiddleware
         ];
     }
 
+    /**
+     * List paginated products with category tree resolution and price aggregations.
+     */
     public function index(Request $request): AnonymousResourceCollection
     {
-        // فلاتر القائمة بتتفحص الأول: أي قيمة غلط تبقى 422 بدل 500 من Postgres
+        // Validate filter inputs upfront to prevent unhandled database query exceptions.
         $filters = $request->validate([
             'search' => ['nullable', 'string', 'max:100'],
             'category_id' => ['nullable', 'integer', Rule::exists('categories', 'id')->whereNull('deleted_at')],
@@ -63,10 +69,8 @@ class ProductController extends Controller implements HasMiddleware
         if (isset($filters['search']) && $filters['search'] !== '') {
             $s = $filters['search'];
             $pattern = SearchTerm::pattern($s);
-            // F15: SKUs/barcodes/codes are stored uppercased — match
-            // case-insensitively so a lowercase search still finds them.
-            // LOWER() comparisons stay index-backed via the lower(sku) /
-            // lower(barcode) functional unique indexes.
+            // SKUs/barcodes/codes are stored uppercased; match case-insensitively using
+            // functional index backing on lower(sku) / lower(barcode).
             $u = strtoupper($s);
             $q->where(fn ($w) => $w->whereLike('name_ar', $pattern, caseSensitive: false)
                 ->orWhereLike('name_en', $pattern, caseSensitive: false)
@@ -83,7 +87,7 @@ class ProductController extends Controller implements HasMiddleware
             ->when($filters['sales_channel'] ?? null, fn ($x, $v) => $x->where('sales_channel', $v))
             ->when(isset($filters['is_featured']), fn ($x) => $x->where('is_featured', filter_var($filters['is_featured'], FILTER_VALIDATE_BOOLEAN)));
 
-        // ترتيب ثابت: id مفتاح كاسر للتعادل عشان الصفحات متتكررش ولا تختفي منها عناصر
+        // Deterministic tiebreaker ID prevents page drift and missing rows across pagination offsets.
         match ($filters['sort'] ?? 'latest') {
             'oldest' => $q->oldest()->orderBy('id'),
             'name' => $q->orderBy('name_en')->orderBy('id'),
@@ -95,11 +99,17 @@ class ProductController extends Controller implements HasMiddleware
         return ProductResource::collection($paginator);
     }
 
+    /**
+     * Retrieve full details of a single product.
+     */
     public function show(Product $product): ProductResource
     {
         return $this->productResource($product);
     }
 
+    /**
+     * Store a newly created product with its variants.
+     */
     public function store(StoreProductRequest $request): JsonResponse
     {
         $data = $this->filterCostPrices($request->validated(), $request);
@@ -108,6 +118,9 @@ class ProductController extends Controller implements HasMiddleware
         return $this->productResource($product)->response()->setStatusCode(201);
     }
 
+    /**
+     * Update an existing product and its attributes.
+     */
     public function update(UpdateProductRequest $request, Product $product): ProductResource
     {
         $product = $this->service->update($product, $request->validated(), $request->user());
@@ -115,6 +128,9 @@ class ProductController extends Controller implements HasMiddleware
         return $this->productResource($product);
     }
 
+    /**
+     * Delete a product and its associated variants.
+     */
     public function destroy(Request $request, Product $product): JsonResponse
     {
         $this->service->delete($product, $request->user());

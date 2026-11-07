@@ -5,18 +5,11 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { checkoutEndpoints, type TrackOrderResponse } from '@alfarid/api-client';
 import { useAuthStore } from '@/store/auth.store';
+import { getStatusLabel, OrderStatusLabelsAr } from '@alfarid/utils';
 import { SophieFooter } from '@/components/sophie/SophieFooter';
+import { InstaPayInstructions } from '@/components/sophie/checkout/InstaPayInstructions';
 
-const STATUS_LABELS: Record<string, string> = {
-  pending: 'قيد المراجعة',
-  confirmed: 'تم تأكيد الطلب',
-  processing: 'جاري التجهيز',
-  shipped: 'خرج للتوصيل',
-  out_for_delivery: 'مع المندوب',
-  delivered: 'تم التوصيل',
-  cancelled: 'ملغي',
-  returned: 'مرتجع',
-};
+
 
 const TRACK_PROGRESS_STEPS = [
   { key: 'pending', label: 'استلام الطلب' },
@@ -25,6 +18,10 @@ const TRACK_PROGRESS_STEPS = [
   { key: 'delivered', label: 'التوصيل' },
 ];
 
+/**
+ * Maps order status to 0-indexed tracking stage.
+ * Returns -1 for cancelled or returned orders to suppress forward progress indicators.
+ */
 function getStepIndex(status: string): number {
   const normalized = status.toLowerCase().trim();
   if (normalized === 'delivered' || normalized === 'completed') return 3;
@@ -225,10 +222,15 @@ const TRACK_PAGE_STYLES = `
   }
 `;
 
+/**
+ * Public order tracking page allowing customers and guests to view live order progress.
+ * Requires matching order number and phone to prevent unauthorized enumeration of customer PII.
+ */
 export default function TrackOrderPage() {
   const raw = useParams()?.number;
   const initialRaw = Array.isArray(raw) ? raw[0] : raw ?? '';
   const initial = (() => {
+    // External SMS/WhatsApp links may contain unencoded or malformed percent sequences.
     try {
       return decodeURIComponent(initialRaw);
     } catch {
@@ -271,6 +273,7 @@ export default function TrackOrderPage() {
     try {
       setResult(await checkoutEndpoints.track(number.trim(), phone.trim()));
     } catch {
+      // Uniform error message masks whether the order number or phone mismatched to prevent enumeration.
       setError('لم نلاقي طلب بالرقم ورقم الموبايل دول.');
       setResult(null);
     } finally {
@@ -279,7 +282,7 @@ export default function TrackOrderPage() {
   };
 
   const activeStepIdx = result ? getStepIndex(result.status) : 0;
-  const localizedStatus = result ? (STATUS_LABELS[result.status.toLowerCase()] ?? result.status) : '';
+  const localizedStatus = result ? getStatusLabel(OrderStatusLabelsAr, result.status, '') : '';
 
   return (
     <main id="main-content" tabIndex={-1} className="track-order-shell min-h-screen bg-[#f3f5f7]">
@@ -365,6 +368,10 @@ export default function TrackOrderPage() {
                 </span>
               </div>
 
+              {result.instapay && (
+                <InstaPayInstructions key={result.order_number} details={result.instapay} />
+              )}
+
               {activeStepIdx >= 0 && (
                 <ol className="track-stepper" aria-label="مراحل توصيل الطلب">
                   {TRACK_PROGRESS_STEPS.map((st, idx) => {
@@ -402,7 +409,7 @@ export default function TrackOrderPage() {
                   <div className="track-timeline-list">
                     {result.status_history.map((h, i) => (
                       <div key={i} className="bag-totals-row">
-                        <span>{STATUS_LABELS[h.status.toLowerCase()] ?? h.status}</span>
+                        <span>{getStatusLabel(OrderStatusLabelsAr, h.status)}</span>
                         <span style={{ color: '#6b7280', fontSize: '0.875rem' }}>
                           {h.at ? new Date(h.at).toLocaleDateString('ar-EG', { year: 'numeric', month: 'short', day: 'numeric' }) : ''}
                         </span>

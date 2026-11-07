@@ -6,15 +6,7 @@ export function hasPermission(
   userPermissions: string[] | null | undefined,
   requiredPermission: string
 ): boolean {
-  if (!userPermissions || !Array.isArray(userPermissions)) {
-    return false;
-  }
-
-  if (userPermissions.includes(requiredPermission)) {
-    return true;
-  }
-
-  return false;
+  return Array.isArray(userPermissions) && userPermissions.includes(requiredPermission);
 }
 
 export function hasAnyPermission(

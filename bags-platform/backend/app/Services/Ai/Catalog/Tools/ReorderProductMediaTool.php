@@ -83,8 +83,7 @@ final class ReorderProductMediaTool implements LocksTargets, UndoableTool, Write
             if (! $coverMedia) {
                 throw ValidationException::withMessages(['cover_media_id' => ['الصورة المحددة غير موجودة.']]);
             }
-            // M9: صورة الغلاف يجب أن تتبع نفس المنتج — بلا هذا الفحص كانت
-            // البطاقة تُبنى من مجموعة منتج آخر ويُنفَّذ عليه الترتيب.
+            // Ensure cover image belongs to the product or its variants before altering reorder sequence.
             if (! $this->belongsToProduct($coverMedia, $product)) {
                 return ToolOutcome::denied('الصورة لا تتبع هذا المنتج.', auditable: false);
             }
@@ -105,7 +104,7 @@ final class ReorderProductMediaTool implements LocksTargets, UndoableTool, Write
             if (! $first) {
                 throw ValidationException::withMessages(['ids' => ['الصورة الأولى غير موجودة.']]);
             }
-            // M9: صورة البداية يجب أن تتبع نفس المنتج.
+            // Ensure first item in reorder list belongs to this product hierarchy.
             if (! $this->belongsToProduct($first, $product)) {
                 return ToolOutcome::denied('الصورة لا تتبع هذا المنتج.', auditable: false);
             }
@@ -145,8 +144,7 @@ final class ReorderProductMediaTool implements LocksTargets, UndoableTool, Write
     }
 
     /**
-     * M9: ملكية الوسائط — نفس فحص DeleteProductMediaTool: المنتج نفسه
-     * أو أحد متغيراته (بما فيها المحذوفة).
+     * Check whether media is owned directly by product or one of its variants (including trashed).
      */
     private function belongsToProduct(Media $media, Product $product): bool
     {

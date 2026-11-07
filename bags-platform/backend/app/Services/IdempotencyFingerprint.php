@@ -16,9 +16,12 @@ use JsonException;
 final class IdempotencyFingerprint
 {
     /**
-     * Compute SHA-256 fingerprint for a canonicalized payload array.
+     * Computes a deterministic SHA-256 digest from a canonicalized payload.
      *
-     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $payload  Request payload to fingerprint.
+     * @return string 64-character lowercase hexadecimal hash.
+     *
+     * @throws BusinessException If serialization fails or numeric values are non-finite.
      */
     public static function hash(array $payload): string
     {
@@ -34,10 +37,7 @@ final class IdempotencyFingerprint
         if (is_float($value) && ! is_finite($value)) {
             throw new BusinessException('يجب أن تكون القيم الرقمية محدودة.');
         }
-        // M2: textual decimal normalization without precision loss — strip
-        // redundant zeros instead of rounding, so 10.1234 and 10.1299 never
-        // share a fingerprint (no silent replay of a corrected price), and no
-        // float rounding error is introduced by (float) casts.
+        // Normalizes decimal strings without float precision loss to avoid fingerprint collisions on distinct values.
         if (is_numeric($value) && in_array($field, [
             'amount', 'subtotal', 'tax_amount', 'unit_price', 'line_total',
             'grand_total', 'discount_amount', 'total', 'total_amount', 'paid_amount',
@@ -90,8 +90,7 @@ final class IdempotencyFingerprint
             $raw = substr($raw, 1);
         }
 
-        // Keep the coefficient compact: expanding user-supplied exponents
-        // could allocate gigabytes. No float conversion or rounding is needed.
+        // Preserves scientific representation to prevent memory exhaustion from large exponent expansion.
         if (preg_match('/\A(\d*(?:\.\d*)?)(?:[eE]([+-]?\d+))?\z/', $raw, $parts) !== 1) {
             throw new BusinessException('قيمة رقمية غير صالحة.');
         }

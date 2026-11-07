@@ -23,7 +23,7 @@ class BranchAccess
     /** @var array<int, User> Per-request memory cache to avoid reloading user instances on repeated checks. */
     private array $usersById = [];
 
-    /** @var array<int, bool> M4: حالة تفعيل الفرع للمستخدم المرتبط — cache بمستوى الطلب. */
+    /** @var array<int, bool> Per-request cache of branch active statuses. */
     private array $branchActive = [];
 
     /**
@@ -48,8 +48,7 @@ class BranchAccess
         }
 
         if ($user->branch_id !== null) {
-            // M4: الفرع المعطّل مقفول — مقيّد بفرع معطّل مالوش أي وصول
-            // (fail-closed) بدل ما يكمل POS/مخزون عادي على فرع مزعّم إنه مقفول.
+            // Fail closed if the assigned branch is deactivated to prevent unauthorized operations.
             $branchId = (int) $user->branch_id;
             $this->branchActive[$branchId] ??= (bool) (Branch::query()->find($branchId)?->is_active);
             if (! $this->branchActive[$branchId]) {
@@ -94,6 +93,15 @@ class BranchAccess
         }
     }
 
+    /**
+     * Lock and retrieve an active branch by ID with a shared read lock.
+     *
+     * @param  int  $branchId  Branch identifier.
+     * @return Branch Active branch model.
+     *
+     * @throws ModelNotFoundException If the branch does not exist.
+     * @throws AuthorizationException If the branch is deactivated.
+     */
     public function lockActiveBranch(int $branchId): Branch
     {
         return $this->lockActiveBranches([$branchId])->get($branchId)
@@ -101,8 +109,13 @@ class BranchAccess
     }
 
     /**
-     * @param  array<int, int>|Collection<int, int>  $branchIds
-     * @return Collection<int, Branch>
+     * Lock and retrieve multiple active branches with a shared read lock.
+     *
+     * @param  array<int, int>|Collection<int, int>  $branchIds  Branch IDs to lock.
+     * @return Collection<int, Branch> Keyed by branch ID.
+     *
+     * @throws ModelNotFoundException If any branch does not exist.
+     * @throws AuthorizationException If any branch is deactivated.
      */
     public function lockActiveBranches(array|Collection $branchIds): Collection
     {

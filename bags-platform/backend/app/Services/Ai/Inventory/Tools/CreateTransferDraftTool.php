@@ -114,7 +114,7 @@ final class CreateTransferDraftTool extends TransferToolBase implements Undoable
 
     public function lockTargets(AiPendingAction $action): void
     {
-        // لا صفوف بعد — القفل العام غير مستخدم لمخزون الأدوات.
+        // No existing records to acquire pessimistic locks on prior to draft creation.
     }
 
     public function execute(User $actor, AiPendingAction $action): ToolOutcome

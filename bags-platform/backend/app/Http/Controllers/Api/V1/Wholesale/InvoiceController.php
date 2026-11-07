@@ -23,7 +23,9 @@ class InvoiceController extends Controller
         private readonly SettingService $settings,
     ) {}
 
-    /** فواتير التاجر: طلباته المسددة والآجلة معًا. */
+    /**
+     * List merchant invoices (both paid orders and orders on credit terms).
+     */
     public function index(Request $request): JsonResponse
     {
         $filters = $request->validate([
@@ -65,7 +67,9 @@ class InvoiceController extends Controller
         ]);
     }
 
-    /** تنزيل فاتورة طلب التاجر كـ PDF (طلب الغير = 404). */
+    /**
+     * Download the merchant's order invoice as PDF (scoped to the authenticated merchant).
+     */
     public function pdf(Request $request, int $order): Response
     {
         /** @var Customer $customer */
@@ -82,8 +86,9 @@ class InvoiceController extends Controller
         ])->download("invoice-{$model->order_number}.pdf");
     }
 
-    /** كشف حساب مالي تفصيلي: آجل مدين، سداد ومرتجعات دائنة، رصيد تراكمي. */
-    /** رفع إشعار سداد بنكي لمديونية آجلة (نفس خدمة PaymentNoticeController). */
+    /**
+     * Upload a bank payment proof for outstanding credit balances.
+     */
     public function storePaymentNotice(StorePaymentNoticeRequest $request): JsonResponse
     {
         /** @var Customer $customer */
@@ -93,6 +98,9 @@ class InvoiceController extends Controller
         return (new WholesalePaymentNoticeResource($notice->load('order')))->response()->setStatusCode(201);
     }
 
+    /**
+     * Retrieve detailed account statement including debits, credits, and cumulative balance.
+     */
     public function statement(Request $request): JsonResponse
     {
         $validated = $request->validate([

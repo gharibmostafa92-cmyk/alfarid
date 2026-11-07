@@ -16,15 +16,14 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 /**
- * متحكم المبيعات في نقطة البيع.
- * يتعامل مع: البيع المباشر، التعليق، المرتجع، والاستبدال.
+ * POS terminal sales operations: direct checkout, cart hold/resume, returns, and item exchanges.
  */
 class PosSaleController extends Controller
 {
     public function __construct(private readonly PosService $pos) {}
 
     /**
-     * POST /pos/sales — إنشاء فاتورة بيع مباشر.
+     * Create and record a direct POS retail sale within the active shift.
      */
     public function store(Request $request): JsonResponse
     {
@@ -45,7 +44,7 @@ class PosSaleController extends Controller
         /** @var PosShift $shift */
         $shift = $request->attributes->get('pos_shift');
 
-        // التحقق من صلاحية تجاوز السعر
+        // Authorize manual unit price overrides via pos.override_price permission.
         if (! empty($data['override_price'])) {
             $user = $request->user('staff');
             if (! $user->can('pos.override_price')) {
@@ -65,7 +64,7 @@ class PosSaleController extends Controller
     }
 
     /**
-     * POST /pos/sales/hold — تعليق فاتورة مؤقتاً.
+     * Temporarily hold an uncompleted sale for later retrieval.
      */
     public function hold(Request $request): JsonResponse
     {
@@ -92,7 +91,7 @@ class PosSaleController extends Controller
     }
 
     /**
-     * GET /pos/sales/held — قائمة الفواتير المعلقة في الفرع.
+     * List all held sales currently pending in the cashier's branch.
      */
     public function held(Request $request): JsonResponse
     {
@@ -108,7 +107,7 @@ class PosSaleController extends Controller
     }
 
     /**
-     * POST /pos/sales/{id}/return — مرتجع من فاتورة POS.
+     * Process item return against an existing POS sale order.
      */
     public function processReturn(Request $request, Order $sale): JsonResponse
     {
@@ -133,7 +132,7 @@ class PosSaleController extends Controller
     }
 
     /**
-     * POST /pos/sales/{id}/exchange — استبدال من فاتورة POS.
+     * Process exchange: atomically return items and create new replacement sale order.
      */
     public function processExchange(Request $request, Order $sale): JsonResponse
     {
@@ -156,7 +155,7 @@ class PosSaleController extends Controller
 
         $sale->load('items');
 
-        // C2: الاستبدال = مرتجع مستقل ثم بيع مستقل بمبالغه الخاصة.
+        // Atomically process return and replacement sale order in a single transaction.
         $exchangePayload = [
             'items' => $data['exchange_items'],
             'customer_id' => $sale->customer_id,
@@ -185,6 +184,12 @@ class PosSaleController extends Controller
     //  Helper
     // ===================================================================
 
+    /**
+     * Formats order and line items for POS receipt printer and client payload.
+     *
+     * @param  Order  $order  Target order model
+     * @return array<string, mixed> Formatted POS order data
+     */
     private function formatOrder(Order $order): array
     {
         return [

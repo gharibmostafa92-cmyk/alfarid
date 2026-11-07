@@ -17,14 +17,14 @@ use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Scoped operation idempotency coordinator.
+ * Coordinates scoped idempotent execution for state-changing operations.
  *
- * Guarantees exactly-once execution for state-changing financial and inventory intake operations
- * by tracking idempotency keys scoped to the authenticated actor and verifying request payload hashes.
+ * Guarantees exactly-once execution across concurrent requests by scoping idempotency
+ * keys to the authenticated actor and comparing canonical payload hashes.
  */
 class OperationIdempotencyService
 {
-    // Result-only aliases avoid changing existing polymorphic relation queries.
+    // Maps internal result types to concrete models without altering polymorphic relation queries.
     private const RESULT_TYPES = [
         'supplier_payment' => SupplierPayment::class,
         'supplier_delivery' => SupplierDelivery::class,
@@ -34,15 +34,17 @@ class OperationIdempotencyService
     ];
 
     /**
-     * Execute an operation idempotently or return the previously recorded result.
+     * Execute an operation idempotently or return the cached result of a previous run.
      *
-     * @param  string  $operation  Unique operation identifier (e.g. purchase_receipt, supplier_payment)
-     * @param  Model  $actor  Authenticated user or customer instance
-     * @param  string|null  $key  Idempotency key supplied by the client
-     * @param  array<string, mixed>  $payload  Request payload for canonical hash comparison
-     * @param  callable(): Model  $execute  Operation execution callback
+     * @param  string  $operation  Unique operation identifier (e.g., purchase_receipt, supplier_payment).
+     * @param  Model  $actor  Authenticated entity executing the operation.
+     * @param  string|null  $key  Client-supplied idempotency key.
+     * @param  array<string, mixed>  $payload  Request payload used to detect parameter tampering or key reuse.
+     * @param  callable(): Model  $execute  Operation execution callback invoked on the first attempt.
+     * @return Model Stored or newly created model instance.
      *
-     * @throws BusinessException
+     * @throws BusinessException If the key is missing/invalid, payload diverges, or the record was deleted.
+     * @throws RetryableConflict If a concurrent request is currently holding the key lock.
      */
     public function run(string $operation, Model $actor, ?string $key, array $payload, callable $execute): Model
     {
@@ -54,6 +56,7 @@ class OperationIdempotencyService
 
         return DB::transaction(function () use ($scope, $hash, $execute): Model {
             $previousTimeout = DB::selectOne("SELECT current_setting('lock_timeout') AS value")->value;
+            // Bound lock wait time to quickly fail concurrent duplicates instead of exhausting connection pool.
             DB::statement("SET LOCAL lock_timeout = '3s'");
             try {
                 $inserted = DB::table('operation_idempotency_keys')->insertOrIgnore([
@@ -61,13 +64,13 @@ class OperationIdempotencyService
                 ]);
                 $record = DB::table('operation_idempotency_keys')->where($scope)->lockForUpdate()->first();
             } catch (QueryException $e) {
-                // L3: insertOrIgnore may wait on a concurrent uncommitted key
-                // and hit the 3s lock timeout (55P03) — retryable, not a 500.
+                // Postgres 55P03 triggers when insertOrIgnore waits on an uncommitted concurrent transaction.
                 if (($e->errorInfo[0] ?? null) === '55P03') {
                     throw new RetryableConflict('العملية مشغولة؛ أعد المحاولة بنفس المفتاح.', $e);
                 }
                 throw $e;
             }
+            // Restore connection-level lock timeout to avoid leaking the 3-second limit to subsequent queries.
             DB::selectOne("SELECT set_config('lock_timeout', ?, true)", [$previousTimeout]);
             if ($record === null) {
                 throw new BusinessException('العملية مشغولة؛ أعد المحاولة بنفس المفتاح.', [], 409);
@@ -85,22 +88,21 @@ class OperationIdempotencyService
             }
             $result = $execute();
             DB::table('operation_idempotency_keys')->where($scope)->update([
-                // M1: store the morph alias, not the FQCN — a class rename
-                // must not turn every replay into a fatal error.
+                // Store morph aliases instead of FQCNs to prevent model namespace refactoring from breaking historical replays.
                 'result_type' => array_search($result::class, self::RESULT_TYPES, true) ?: $result->getMorphClass(), 'result_id' => $result->getKey(),
             ]);
 
             return $result;
-            // Callbacks may upload files or invoke external services. Let the
-            // client retry a failed transaction instead of repeating those effects.
+        // Limit to 1 attempt to avoid repeating non-transactional side effects (e.g., file storage, notifications).
         }, 1);
     }
 
     /**
-     * Resolve a stored idempotency result via its morph alias.
+     * Resolves a stored model instance by morph alias or legacy FQCN.
      *
-     * Legacy rows stored the FQCN; resolve those directly for BC. New rows
-     * store getMorphClass() and resolve through the morph map.
+     * @param  mixed  $type  Morph alias or legacy fully-qualified class name.
+     * @param  mixed  $id  Model primary key.
+     * @return Model|null
      */
     private static function findResult(mixed $type, mixed $id): ?Model
     {
@@ -108,6 +110,7 @@ class OperationIdempotencyService
             return null;
         }
 
+        // Resolves custom map first, then Laravel morph map, and falls back to FQCN for backward compatibility.
         $class = self::RESULT_TYPES[$type] ?? Relation::getMorphedModel($type) ?? $type;
 
         if (! is_string($class) || ! is_subclass_of($class, Model::class)) {

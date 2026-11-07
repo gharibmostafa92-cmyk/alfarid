@@ -12,9 +12,18 @@ use App\Models\Customer;
 use App\Models\SupplierUser;
 use App\Models\User;
 
+/**
+ * Resolves post-authentication routing destinations across multiple frontend applications and user roles.
+ */
 final class LoginDestinationResolver
 {
-    /** @return array{app: string, path: string, destination: string} */
+    /**
+     * Resolves target application and path based on actor role and account status.
+     *
+     * @param  User|SupplierUser|Customer  $actor  Authenticated entity.
+     * @param  string|null  $requested  Optional redirect path requested by client.
+     * @return array{app: string, path: string, destination: string}
+     */
     public function resolve(User|SupplierUser|Customer $actor, ?string $requested = null): array
     {
         if ($actor instanceof User) {
@@ -23,8 +32,7 @@ final class LoginDestinationResolver
                 throw new BusinessException('حسابك غير مرتبط بأي صلاحية. تواصل مع الإدارة.', [], 403);
             }
             if ($roles->count() === 1 && $roles->first() === StaffRole::Cashier->value) {
-                // M14: الفرع المحذوف أو الموقوف يُوجَّه للـ POS خطأً — ارفضه هنا
-                // بدل واجهة تعمل جزئيًا.
+                // Block cashiers without an active assigned branch to prevent partially-functioning POS sessions.
                 if ($actor->branch_id === null || $actor->branch === null || ! $actor->branch->is_active) {
                     throw new BusinessException('حسابك غير مرتبط بفرع نشط.', [], 403);
                 }
@@ -40,13 +48,11 @@ final class LoginDestinationResolver
         }
 
         if ($actor->type === CustomerType::Retail) {
-            // L3: المرفوض (بقرار إداري) كان يُوجَّه لـ '/' المعطلة بالكامل —
-            // وجّهه لصفحة الحالة التي تعرض سبب الرفض (مسموحة للمرفوض).
+            // Route rejected commercial applicants to application-status page to view decision and appeal notes.
             if ($actor->status === CustomerStatus::Rejected) {
                 return ['app' => 'web', 'path' => '/wholesale/application-status', 'destination' => 'wholesale_pending'];
             }
-            // safe() كما هي: أي redirect آمن (مثل /checkout) له الأولوية،
-            // والافتراضي من الإعدادات لا من '/' الثابت.
+            // Respect requested redirect paths (e.g. /checkout) before falling back to configured retail home.
             $home = (string) config('store.retail_home', '/shop');
             $path = $this->safe($requested, '/');
             if ($path !== null && (str_starts_with($path, '/wholesale') || str_starts_with($path, '/supplier') || str_starts_with($path, '/auth'))) {

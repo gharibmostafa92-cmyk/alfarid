@@ -67,7 +67,7 @@ final class WhatIfProductionCostTool implements AgentTool
 
     public function handle(User $actor, array $args): ToolOutcome
     {
-        // سؤال مباشر عن التكلفة + رقم جاي من نتيجة أداة = مسموح يظهر في الرد.
+        // Enforce CostAccess authorization before computing and disclosing prospective cost data.
         if (! CostAccess::canView($actor)) {
             return ToolOutcome::denied('السؤال عن التكلفة محتاج صلاحية رؤية التكلفة.', auditable: false);
         }
@@ -77,10 +77,7 @@ final class WhatIfProductionCostTool implements AgentTool
             return $resolved;
         }
         try {
-            DiscreteQuantity::assert($args['quantity'] ?? null);
-            if (floor((float) $args['quantity']) !== (float) $args['quantity']) {
-                throw new BusinessException('كمية استلام الإنتاج لازم تكون عددًا صحيحًا.');
-            }
+            DiscreteQuantity::assertWhole($args['quantity'] ?? null, false, 'كمية استلام الإنتاج لازم تكون عددًا صحيحًا.');
         } catch (BusinessException $e) {
             return ToolOutcome::denied($e->getMessage(), auditable: false);
         }

@@ -27,14 +27,15 @@ class WholesaleQuickOrderService
     /**
      * Batch lookup product variants by SKU or barcode with quantity-tier pricing and total available stock.
      *
-     * @param  list<array{sku?: string|null, barcode?: string|null, qty: float}>  $lines
-     * @return list<array<string, mixed>>
+     * @param  Customer  $customer  Wholesale customer performing the lookup.
+     * @param  list<array{sku?: string|null, barcode?: string|null, qty: float}>  $lines  Requested order lines.
+     * @return list<array<string, mixed>> Line details with live pricing and availability status.
      */
     public function lookup(Customer $customer, array $lines): array
     {
         $variants = $this->findVariants($lines);
         $availability = $this->availabilityFor($variants->pluck('id')->all());
-        // F17: one context for the whole lookup, not one group query per line.
+        // Preload pricing context for all looked-up variants in a single query batch.
         $ctx = $this->pricing->contextFor($customer, $variants->pluck('id')->unique()->all());
 
         return collect($lines)->map(function (array $line) use ($customer, $variants, $availability, $ctx): array {
@@ -75,12 +76,13 @@ class WholesaleQuickOrderService
      * Import multiple items from a parsed CSV/Excel file into the customer's active cart.
      * Skips invalid codes or lines exceeding available stock with explanatory status reports.
      *
-     * @param  list<array{sku: string, qty: float}>  $rows
+     * @param  Customer  $customer  Target wholesale customer account.
+     * @param  list<array{sku: string, qty: float}>  $rows  Parsed spreadsheet rows.
      * @return array{added: list<array<string, mixed>>, skipped: list<array<string, mixed>>, cart: array<string, mixed>}
      */
     public function importToCart(Customer $customer, array $rows): array
     {
-        // Consolidate duplicate codes within the input before running stock availability checks
+        // Consolidate duplicate codes within the input before running stock availability checks.
         $merged = [];
         foreach ($rows as $row) {
             $sku = trim((string) $row['sku']);
@@ -97,7 +99,7 @@ class WholesaleQuickOrderService
         $cart = $this->carts->resolveCart($customer, null);
         $inCart = $cart->items()->pluck('qty', 'product_variant_id')->map(fn ($q) => (float) $q)->all();
 
-        // F17: one context for the whole import, not one group query per line.
+        // Preload pricing context for all candidate items in one batch to eliminate per-item overhead.
         $ctx = $this->pricing->contextFor($customer, $variants->pluck('id')->unique()->all());
 
         $added = [];
@@ -139,6 +141,8 @@ class WholesaleQuickOrderService
      * Copy lines from a previous order into the customer's current cart at today's real-time prices.
      * Skips items that are discontinued, unpublished, or out of stock.
      *
+     * @param  Customer  $customer  Target wholesale customer account.
+     * @param  Order  $order  Historical order to duplicate into cart.
      * @return array{added: list<array<string, mixed>>, skipped: list<array<string, mixed>>, cart: array<string, mixed>}
      */
     public function reorderToCart(Customer $customer, Order $order): array
@@ -158,7 +162,7 @@ class WholesaleQuickOrderService
             ->values()
             ->all();
 
-        // Mirror the import flow keyed by current variant ID rather than historical snapshot SKU
+        // Key by active variant ID rather than historical snapshot SKU to ensure integrity against catalog renames.
         $cart = $this->carts->resolveCart($customer, null);
         $inCart = $cart->items()->pluck('qty', 'product_variant_id')->map(fn ($q) => (float) $q)->all();
         $variants = ProductVariant::query()->with('product')
@@ -238,7 +242,7 @@ class WholesaleQuickOrderService
     }
 
     /**
-     * أول صورة للمنتج (صور المنتج ثم صور المتغير)، بنفس قاعدة الكتالوج.
+     * Resolves primary thumbnail following catalog priority (product gallery first, then variant media).
      */
     private function imageFor(ProductVariant $variant): ?string
     {

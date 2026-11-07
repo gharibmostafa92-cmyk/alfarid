@@ -22,7 +22,6 @@ import { StoreProductImage } from './StoreProductImage';
  * @param {string|null} [props.defaultDept] Initial active department (defaults to first key)
  * @param {Function} [props.onSelectCategory] Callback when a category link is clicked: (slug) => void
  * @param {Function} [props.onAddToCart] Callback when spotlight item is added to cart
- * @param {Function} [props.onGoToCheckout] Callback to navigate to checkout
  * @param {*} [props.departments] Departments data (required; null while loading)
  * @param {boolean} [props.error] Whether loading categories failed
  * @param {Function} [props.onRetry] Retry category loading
@@ -34,7 +33,6 @@ export function SophieMegaDropdown({
   defaultDept = null,
   onSelectCategory,
   onAddToCart,
-  onGoToCheckout,
   departments = null,
   error = false,
   onRetry,
@@ -108,14 +106,6 @@ export function SophieMegaDropdown({
     adding.current = false;
     if (ok) onAddToCart?.();
     else setAddError(useCartStore.getState().error || 'تعذّرت الإضافة، حاول تاني.');
-  };
-
-  const handleProceedCheckout = (e) => {
-    e.preventDefault();
-    onClose?.();
-    if (onGoToCheckout) {
-      onGoToCheckout();
-    } else router.push('/checkout');
   };
 
   const spotIsMultiVariant = spot?.variantCount !== 1;
@@ -325,14 +315,6 @@ export function SophieMegaDropdown({
             </span>
           </div>
 
-          <button
-            type="button"
-            className="mega-footer-cta"
-            id="mega-goto-checkout"
-            onClick={handleProceedCheckout}
-          >
-            Proceed to Checkout <i className="fa-solid fa-arrow-right" aria-hidden="true" />
-          </button>
         </div>
       </div>
     </div>

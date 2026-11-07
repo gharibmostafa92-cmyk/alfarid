@@ -10,10 +10,16 @@ use App\Services\SettingService;
 use Illuminate\Http\JsonResponse;
 use InvalidArgumentException;
 
+/**
+ * Backoffice administration of system-wide configuration keys and tool activation registries.
+ */
 class SettingController extends Controller
 {
     public function __construct(private readonly SettingService $settings) {}
 
+    /**
+     * Retrieve all system settings grouped by domain with validation warnings.
+     */
     public function index(): JsonResponse
     {
         return response()->json([
@@ -22,13 +28,16 @@ class SettingController extends Controller
         ]);
     }
 
+    /**
+     * Update a batch of system settings under optimistic locking.
+     */
     public function update(UpdateSettingsRequest $request): JsonResponse
     {
         try {
             $validated = $request->validated();
             $expected = $validated['expected'];
             unset($validated['expected']);
-            // L6: ميّز قناة التعديل في التدقيق (rest مقابل ai).
+            // Distinguish REST API mutations from AI assistant executions in audit logs.
             $this->settings->updateBatch($validated, $expected, ['channel' => 'rest']);
         } catch (InvalidArgumentException) {
             return response()->json([

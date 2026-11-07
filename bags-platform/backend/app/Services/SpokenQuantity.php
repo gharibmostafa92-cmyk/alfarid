@@ -61,7 +61,7 @@ final class SpokenQuantity
             if ($token === '' || $token === 'و') {
                 continue;
             }
-            // عطف متصل: "وعشرين" — الواو الأولى تُحذف لغير أول توكن.
+            // Strip prefix conjunction 'waw' from subsequent tokens when word is not recognized directly.
             if ($i > 0 && mb_substr($token, 0, 1) === 'و' && mb_strlen($token) > 1 && ! isset(self::WORDS[$token])) {
                 $token = mb_substr($token, 1);
                 if ($token === '' || $token === 'و') {

@@ -9,10 +9,16 @@ use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
+/**
+ * Issues and consumes one-time handoff codes for seamless staff app authentication transfers.
+ */
 final class StaffHandoffService
 {
     private const TTL_SECONDS = 60;
 
+    /**
+     * Issue a single-use exchange code bound to the user's current credential fingerprint.
+     */
     public function issue(User $user): string
     {
         $code = Str::random(64);
@@ -21,18 +27,23 @@ final class StaffHandoffService
         return $code;
     }
 
+    /**
+     * Generate an HMAC fingerprint over user ID, email, and password hash to invalidate codes upon credential changes.
+     */
     public static function credentialFingerprint(User $user): string
     {
         return hash_hmac('sha256', json_encode([$user->id, $user->email, $user->password], JSON_THROW_ON_ERROR), (string) config('app.key'));
     }
 
-    /** @return array{user_id:int, credentials:string}|null */
+    /**
+     * Atomically consume a handoff code using a mutex lock to prevent concurrent double-consumption.
+     *
+     * @return array{user_id:int, credentials:string}|null
+     */
     public function consume(string $code): ?array
     {
-        // Cache::pull alone is a read followed by delete on database/Redis stores.
-        // Serialize consumers so concurrent exchanges cannot issue two tokens.
-        // M8: block() يرمي LockTimeoutException لو تعذّر القفل (تزامن/بطء) —
-        // تُعامل ككود مستهلك (null) في الكنترولر بدل 500.
+        // Cache::pull alone is read-then-delete; serialize consumers so concurrent exchanges cannot issue two tokens.
+        // On lock contention timeout, report the exception and treat code as consumed (null) instead of 500.
         try {
             return Cache::lock($this->key($code).':lock', 10)
                 ->block(5, fn (): ?array => Cache::pull($this->key($code)));

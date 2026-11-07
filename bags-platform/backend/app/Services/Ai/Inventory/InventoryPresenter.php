@@ -16,9 +16,7 @@ final class InventoryPresenter
     /** @return array{untrusted_text: string} */
     public function untrusted(?string $value, int $max = 300): array
     {
-        $clean = mb_substr((string) preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string) $value), 0, $max);
-
-        return ['untrusted_text' => $clean];
+        return ToolOutcome::untrusted($value, $max);
     }
 
     /**
@@ -27,8 +25,7 @@ final class InventoryPresenter
      */
     public function present(User $actor, array $data, ?array $uiBlock = null, ?string $message = null): ToolOutcome
     {
-        // طبقتان لحماية التكلفة: بلا صلاحية عرض تُحذف من كل مكان،
-        // ومع الصلاحية تبقى الأرقام في كارت العرض فقط ولا تصل للنموذج.
+        // Two-tier cost protection: strip entirely without permissions, and mask in LLM context unless explicitly shared.
         if (! CostAccess::canView($actor)) {
             $data = $this->stripCost($data);
             if ($uiBlock !== null) {
@@ -39,16 +36,7 @@ final class InventoryPresenter
             $data['cost_hidden_from_model'] = true;
         }
 
-        $maxChars = max(1024, (int) $this->settings->get('ai_tool_result_max_chars', 16000));
-        $encoded = json_encode($data, JSON_UNESCAPED_UNICODE);
-        if ($encoded !== false && strlen($encoded) > $maxChars) {
-            return ToolOutcome::data([
-                'truncated' => true,
-                'message' => 'ضيّق البحث',
-            ], $uiBlock, 'ضيّق البحث');
-        }
-
-        return ToolOutcome::data($data, $uiBlock, $message);
+        return ToolOutcome::present($data, $uiBlock, $message, (int) $this->settings->get('ai_tool_result_max_chars', 16000));
     }
 
     private const COST_KEYS = ['cost_price', 'cost', 'unit_cost', 'total_value', 'tied_value', 'value_impact', 'cost_before', 'cost_after'];
@@ -56,15 +44,7 @@ final class InventoryPresenter
     /** @return array<string,mixed> */
     public function stripCost(array $payload): array
     {
-        $out = [];
-        foreach ($payload as $key => $value) {
-            if (in_array($key, self::COST_KEYS, true)) {
-                continue;
-            }
-            $out[$key] = is_array($value) ? $this->stripCost($value) : $value;
-        }
-
-        return $out;
+        return CostAccess::strip($payload, self::COST_KEYS);
     }
 
     /** @return array<string,mixed> */

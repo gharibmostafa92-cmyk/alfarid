@@ -73,9 +73,8 @@ class ReportController extends Controller
     {
         $request->validate(['dead_days' => ['nullable', 'integer', 'min:1', 'max:3650']]);
 
-        // H1: cost fields are stripped inside the service for cost-blind
-        // callers (cached separately). M7: HTTP uses a lower statement
-        // budget than background jobs.
+        // Cost fields are filtered within the service based on user permissions, with separate cache
+        // keys per permission level. HTTP requests apply a tighter query timeout budget than background jobs.
         $data = $this->reports->inventoryReport(
             (int) $request->input('dead_days', 90),
             app(BranchAccess::class)->restrictedBranch($request->user()),

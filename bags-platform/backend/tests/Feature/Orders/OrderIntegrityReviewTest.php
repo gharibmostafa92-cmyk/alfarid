@@ -69,7 +69,7 @@ class OrderIntegrityReviewTest extends TestCase
         ));
     }
 
-    private function guestCheckout(ProductVariant $variant, int $qty, ?string $idempotencyKey = null, ?string $couponCode = null, string $phone = '01012345678'): TestResponse
+    private function guestCheckout(ProductVariant $variant, int $qty, ?string $idempotencyKey = null, ?string $couponCode = null, string $phone = '01012345678', ?int $cityId = null): TestResponse
     {
         $token = $this->postJson('/api/v1/store/cart/items', [
             'product_variant_id' => $variant->id, 'qty' => $qty,
@@ -85,7 +85,7 @@ class OrderIntegrityReviewTest extends TestCase
 
         return $this->withHeaders($headers)->postJson('/api/v1/store/checkout', [
             'recipient_name' => 'ضيف', 'recipient_phone' => $phone,
-            'city_id' => City::factory()->create(['shipping_cost' => 0])->id,
+            'city_id' => $cityId ?? City::factory()->create(['shipping_cost' => 0])->id,
             'shipping_address_line' => 'عنوان', 'payment_method' => 'cod',
         ]);
     }
@@ -157,8 +157,9 @@ class OrderIntegrityReviewTest extends TestCase
         $variant = $this->variant();
         $this->giveStock($variant, 5);
 
-        $first = $this->guestCheckout($variant, 1, 'checkout-key-abc')->assertCreated();
-        $second = $this->guestCheckout($variant, 1, 'checkout-key-abc');
+        $cityId = City::factory()->create(['shipping_cost' => 0])->id;
+        $first = $this->guestCheckout($variant, 1, 'checkout-key-abc', cityId: $cityId)->assertCreated();
+        $second = $this->guestCheckout($variant, 1, 'checkout-key-abc', cityId: $cityId);
 
         // المحاولة الثانية لا تصطدم بـ«سلة فارغة» في createFromCart لأن
         // المفتاح يرجع الطلب القائم قبل لمس السلة (السلة الثانية جديدة

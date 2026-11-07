@@ -10,10 +10,8 @@ use App\Services\Ai\Contracts\ToolProvider;
 use App\Services\SettingService;
 
 /**
- * StaffAdministration::lock → CatalogLock::tree(shared|exclusive) → Category (by id) → Product (by id) → ProductVariant (by id)
- *
- * lockTargets في أدوات الكتالوج ما يقفلش صفوف الكتالوج بنفسه. بياخد بس CatalogLock::tree(shared: true)،
- * أو exclusive لأدوات النقل والحذف في الأقسام. الصفوف نفسها بيقفلها الـ service. ده بيمنع deadlock مع CategoryService::reorder.
+ * Lock hierarchy: StaffAdministration::lock -> CatalogLock::tree(shared|exclusive) -> Category -> Product -> ProductVariant.
+ * Catalog tools acquire CatalogLock::tree in lockTargets while underlying services lock individual entities to prevent deadlocks.
  */
 final class CatalogToolProvider implements ToolProvider
 {

@@ -84,9 +84,13 @@ PHP;
         }
     }
 
-    private function httpJob(string $token, string $method, string $uri, array $payload = [], array $headers = []): string
+    private function httpJob(string $token, string $method, string $uri, array $payload = [], array $headers = [], bool $waitAtRoute = true): string
     {
-        return 'foreach (app("router")->getRoutes() as $route) { $route->middleware(Tests\\Support\\ConcurrentRequestBarrier::class); }'
+        $barrier = $waitAtRoute
+            ? 'foreach (app("router")->getRoutes() as $route) { $route->middleware(Tests\\Support\\ConcurrentRequestBarrier::class); }'
+            : '';
+
+        return $barrier
             .'$request = Illuminate\\Http\\Request::create('.var_export($uri, true).', '.var_export($method, true).', [], [], [], '
             .var_export(array_replace(['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json', 'HTTP_AUTHORIZATION' => 'Bearer '.$token], $headers), true)
             .', '.var_export(json_encode($payload, JSON_THROW_ON_ERROR), true).');'

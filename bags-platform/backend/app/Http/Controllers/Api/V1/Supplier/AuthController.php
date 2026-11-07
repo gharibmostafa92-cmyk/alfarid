@@ -15,11 +15,13 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
 /**
- * دخول بوابة المورد: إيميل/كلمة مرور من supplier_users، بشرط حساب نشط
- * ومورد نشط — ثم توكن Sanctum باسم supplier-token.
+ * Supplier portal authentication: verifies staff and company active status, issuing scoped Sanctum tokens.
  */
 class AuthController extends Controller
 {
+    /**
+     * Authenticate supplier staff credentials and issue portal API token.
+     */
     public function login(LoginRequest $request): JsonResponse
     {
         $email = mb_strtolower(trim($request->validated('email')));
@@ -55,6 +57,9 @@ class AuthController extends Controller
         ]);
     }
 
+    /**
+     * Generates or returns static dummy hash to ensure constant-time password verification on nonexistent emails.
+     */
     private static function dummyHash(): string
     {
         static $hash;
@@ -62,6 +67,12 @@ class AuthController extends Controller
         return $hash ??= Hash::make('not-a-supplier-password');
     }
 
+    /**
+     * Prunes expired tokens, enforces FIFO token cap under row lock, and issues a new Sanctum token.
+     *
+     * @param  SupplierUser  $user  Target authenticated supplier user
+     * @return string Plain-text bearer token
+     */
     private function issueToken(SupplierUser $user): string
     {
         return DB::transaction(function () use ($user): string {
@@ -79,6 +90,9 @@ class AuthController extends Controller
         });
     }
 
+    /**
+     * Revoke the current supplier staff API token.
+     */
     public function logout(Request $request): JsonResponse
     {
         /** @var SupplierUser $user */

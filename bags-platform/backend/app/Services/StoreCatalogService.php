@@ -13,17 +13,17 @@ use App\Models\Category;
 use App\Models\Customer;
 use App\Models\Product;
 use App\Models\ProductVariant;
-use App\Models\StockLevel;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
  * Read-only store catalog service: queries, facets, filtering, and real-time online stock availability.
- * Online availability = aggregated SQL sum of sellable balances across active branches without loading in-memory rows.
+ * Variant purchase availability is the largest sellable balance a single branch can fulfill.
  * Only published products are visible on the storefront.
  */
 class StoreCatalogService
@@ -72,8 +72,7 @@ class StoreCatalogService
      */
     public function withStoreAvailability(Builder $query): Builder
     {
-        // L9: sellable stock only — active branches, active sellable locations
-        // (receiving bins are not on the shelf yet, damaged bins are not shippable).
+        // Exclude receiving and damaged bins so only customer-shippable on-hand stock is counted as available.
         $sub = DB::table('stock_levels')
             ->join('product_variants', 'product_variants.id', '=', 'stock_levels.product_variant_id')
             ->join('branches', 'branches.id', '=', 'stock_levels.branch_id')
@@ -88,7 +87,7 @@ class StoreCatalogService
     }
 
     /**
-     * Batch-query sellable stock availability map for a list of variant IDs.
+     * Batch-query the total sellable stock for each variant across all active branches.
      *
      * @param  list<int>  $variantIds
      * @return array<int, float> Map of variant ID to available stock quantity
@@ -99,19 +98,56 @@ class StoreCatalogService
             return [];
         }
 
-        // L9: same sellable-stock rule as withStoreAvailability.
-        $query = StockLevel::query()
-            ->join('branches', 'branches.id', '=', 'stock_levels.branch_id')
-            ->leftJoin('locations', 'locations.id', '=', 'stock_levels.location_id');
-        $this->sellableLocationRule($query);
-
-        return $query
+        return $this->sellableStock()
             ->whereIn('stock_levels.product_variant_id', $variantIds)
             ->groupBy('stock_levels.product_variant_id')
-            ->selectRaw('stock_levels.product_variant_id, COALESCE(SUM(stock_levels.available), 0) as total')
+            ->selectRaw('stock_levels.product_variant_id, SUM(stock_levels.available) AS total')
             ->pluck('total', 'product_variant_id')
-            ->map(fn ($v) => (float) $v)
+            ->map(fn ($quantity) => (float) $quantity)
             ->all();
+    }
+
+    /**
+     * Compute the maximum single-branch fulfillable quantity for each variant.
+     *
+     * Orders cannot be split across multiple branches; an order line must be sourced entirely from one location.
+     *
+     * @param  list<int>  $variantIds
+     * @return array<int, float> Map of variant ID to maximum single-branch stock
+     */
+    public function fulfillableQuantityMap(array $variantIds): array
+    {
+        if ($variantIds === []) {
+            return [];
+        }
+
+        $byBranch = $this->variantAvailabilityByBranch()
+            ->whereIn('stock_levels.product_variant_id', $variantIds)
+            ->addSelect('stock_levels.product_variant_id')
+            ->groupBy('stock_levels.product_variant_id');
+
+        return DB::query()->fromSub($byBranch, 'branch_stock')
+            ->groupBy('product_variant_id')
+            ->selectRaw('product_variant_id, MAX(branch_available) AS available')
+            ->pluck('available', 'product_variant_id')
+            ->map(fn ($quantity) => (float) $quantity)
+            ->all();
+    }
+
+    private function variantAvailabilityByBranch(): QueryBuilder
+    {
+        return $this->sellableStock()->groupBy('stock_levels.branch_id')
+            ->selectRaw('SUM(stock_levels.available) AS branch_available');
+    }
+
+    private function sellableStock(): QueryBuilder
+    {
+        $stock = DB::table('stock_levels')
+            ->join('branches', 'branches.id', '=', 'stock_levels.branch_id')
+            ->leftJoin('locations', 'locations.id', '=', 'stock_levels.location_id');
+        $this->sellableLocationRule($stock);
+
+        return $stock;
     }
 
     // ------------------------------------------------------------------ Catalog Queries
@@ -143,13 +179,12 @@ class StoreCatalogService
      */
     private function withVariantAvailability(Builder $query): Builder
     {
-        $stock = DB::table('stock_levels')
-            ->join('branches', 'branches.id', '=', 'stock_levels.branch_id')
-            ->leftJoin('locations', 'locations.id', '=', 'stock_levels.location_id');
-        $this->sellableLocationRule($stock);
+        $stock = $this->variantAvailabilityByBranch()
+            ->whereColumn('stock_levels.product_variant_id', 'product_variants.id')
+            ->orderByDesc('branch_available')
+            ->limit(1);
 
-        return $query->selectSub($stock->whereColumn('stock_levels.product_variant_id', 'product_variants.id')
-            ->selectRaw('COALESCE(SUM(stock_levels.available), 0)'), 'store_available');
+        return $query->selectSub($stock, 'store_available');
     }
 
     // ------------------------------------------------------------------ Filtering & Sorting
@@ -241,7 +276,7 @@ class StoreCatalogService
      */
     private function resolveCategory(int|string $value): ?Category
     {
-        // L4: one lookup per distinct value per request.
+        // Memoize category lookup per request to prevent redundant queries during tree traversals.
         $key = 'c:'.((string) $value);
         if (array_key_exists($key, $this->categoryMemo)) {
             return $this->categoryMemo[$key];
@@ -252,7 +287,7 @@ class StoreCatalogService
             ? Category::query()->where('is_active', true)->find((int) $value) : null);
     }
 
-    /** L4: descendant ids memoized per category per request. */
+    /** Memoize descendant category IDs per request to prevent redundant recursive tree queries. */
     private function cachedDescendantIds(Category $category): array
     {
         return $this->descendantMemo[$category->id] ??= $category->descendantIds();
@@ -285,7 +320,7 @@ class StoreCatalogService
             ? $product->variants
             : $product->variants()->where('is_active', true)->orderBy('sort_order')->get();
 
-        // F18: Preferred in-stock variant selection for quick add-to-cart actions
+        // Prefer in-stock variant for card display price to prevent quick-add buttons targeting sold-out variants.
         $availability ??= $variants->every(fn ($variant) => array_key_exists('store_available', $variant->getAttributes()))
             ? $variants->mapWithKeys(fn ($variant) => [$variant->id => (float) $variant->store_available])->all()
             : $this->availabilityMap($variants->pluck('id')->all());
@@ -350,7 +385,7 @@ class StoreCatalogService
         return ['unit_price' => (float) $variant->store_price, 'base_price' => (float) ($variant->getAttributes()['store_base_price'] ?? $this->pricing->basePriceForCustomer($variant, $customer) ?? $variant->store_price)];
     }
 
-    private function minimumPriceQuery(): \Illuminate\Database\Query\Builder
+    private function minimumPriceQuery(): QueryBuilder
     {
         $customer = $this->customer();
         if (! $this->pricing->catalogContext($customer)['public_retail']) {
@@ -367,7 +402,7 @@ class StoreCatalogService
     /**
      * Build lateral minimum price query across active variants for a customer context.
      */
-    public function liveMinimumPriceQuery(?Customer $customer): \Illuminate\Database\Query\Builder
+    public function liveMinimumPriceQuery(?Customer $customer): QueryBuilder
     {
         $variants = $this->withVariantAvailability($this->pricing->withStorePrice(ProductVariant::query(), $customer))
             ->where('is_active', true);
@@ -449,7 +484,7 @@ class StoreCatalogService
             ->orderByDesc('count')->orderBy('id')->limit(24)->get()
             ->map(fn ($c) => [...(array) $c, 'count' => (int) $c->count]);
 
-        // F13: Aggregate occasion counters in a single query using PostgreSQL conditional filtering
+        // Aggregate occasion facets in a single query using PostgreSQL FILTER clauses instead of per-occasion queries.
         $occasionBase = $this->applyFilters($this->publishedQuery()->withoutEagerLoads(),
             Arr::except($base, 'occasions'))->reorder()->select('products.id', 'products.occasions');
         $occasionCounts = DB::query()->fromSub($occasionBase->toBase(), 'occasion_scope')
@@ -565,8 +600,7 @@ class StoreCatalogService
      */
     public function similar(Product $product): Collection
     {
-        // F12: Two-stage retrieval: fetch 40 candidates indexed by sales_count,
-        // prioritize available stock in memory, then load complete models for the top 8.
+        // Retrieve candidate pool by sales index, rank in-stock items in memory, and hydrate top 8 models.
         $candidates = $this->publishedQuery()->withoutEagerLoads()
             ->where('products.id', '!=', $product->id)
             ->where('products.category_id', $product->category_id)

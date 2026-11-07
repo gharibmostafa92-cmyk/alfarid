@@ -127,7 +127,6 @@ class InventoryService
                 $referenceType = (new $referenceType)->getMorphClass();
             }
 
-            // 4. تسجيل الحركة في دفتر الأستاذ (Ledger)
             $movement = StockMovement::query()->create([
                 'reference_number' => $this->settings->generateNextNumber('movement'),
                 'product_variant_id' => $data['product_variant_id'],
@@ -381,10 +380,7 @@ class InventoryService
         try {
             // Lock variants before stock rows in every path, including callers
             // that prelock a batch of balances before recording movements.
-            // H1: shared (FOR SHARE) lock — movements only need to block
-            // concurrent variant edits (which take FOR UPDATE), while shared
-            // locks don't block each other, so branches run in parallel.
-            // The real serialization stays on stock_levels (FOR UPDATE below).
+            // Acquire FOR SHARE on variants to serialize against variant schema updates while allowing parallel branch movements.
             $variantIds = $keys->pluck('product_variant_id')->unique()->sort()->values();
             $variants = ProductVariant::withTrashed()->whereIn('id', $variantIds)->orderBy('id')->sharedLock()->get();
             if ($variants->count() !== $variantIds->count()) {
@@ -403,10 +399,7 @@ class InventoryService
                 ]);
             }
 
-            // M2: batch location→branch ownership check inside the lock path,
-            // so executeAdjustments cannot plant (branch A, location of branch
-            // B) rows through the prelocked path. The composite FK migration
-            // enforces the same invariant at the database level.
+            // Validate location-to-branch ownership inside lock scope to prevent cross-branch inventory placement.
             $locationIds = $keys->pluck('location_id')->filter(fn ($id) => $id !== null)->unique()->values();
             if ($locationIds->isNotEmpty()) {
                 $branchByLocation = Location::query()->whereIn('id', $locationIds->all())->pluck('branch_id', 'id');
@@ -440,10 +433,7 @@ class InventoryService
             })->orderBy('branch_id')->orderByRaw('location_id ASC NULLS FIRST')->orderBy('product_variant_id')
                 ->lockForUpdate()->get()->keyBy(fn ($stock) => $this->levelKey($stock->getAttributes()));
 
-            // M-11: بعد قفل صفوف الأرصدة يُفحص is_active للموقع والفرع تحت
-            // قفل FOR SHARE — يقفل التعطيل (FOR UPDATE على نفس الصفوف)
-            // فيتسلسل المساران: إما يرى المخزونُ التعطيلَ فيرفض، أو يرى
-            // التعطيلُ الرصيدَ الجديد فيرفض. بلا هذا يدخل رصيد بين الفحص والتعطيل.
+            // Shared lock on branches serializes with branch deactivation (exclusive lock), preventing stock entries while branch is being disabled.
             $branchIds = $keys->pluck('branch_id')->map(fn ($id) => (int) $id)->unique()->values();
             if ($branchIds->isNotEmpty()) {
                 $inactiveBranches = Branch::query()->whereIn('id', $branchIds->all())->sharedLock()->pluck('is_active', 'id');
@@ -462,10 +452,7 @@ class InventoryService
                 }
             }
         } catch (QueryException $e) {
-            // M1: lock timeouts are retryable conflicts, not terminal failures.
-            // RetryableConflict extends ConflictHttpException, so REST callers
-            // still see 409, while PendingActionService::confirmLocked retries
-            // instead of marking the action failed.
+            // Map 55P03 lock timeouts to RetryableConflict so background queues and HTTP callers retry safely.
             if (($e->errorInfo[0] ?? $e->getCode()) === '55P03') {
                 throw new RetryableConflict('المخزون مشغول بعملية أخرى الآن؛ أعد المحاولة بعد لحظات.', $e);
             }

@@ -25,11 +25,13 @@ class PrivateAttachments
     private array $claimed = [];
 
     /**
-     * Execute a callback within a transactional scope, deleting stored files if rolled back.
+     * Executes a callback within a transactional scope, purging stored files on rollback.
      *
-     * @param  callable(self): mixed  $callback
+     * @param  callable(self): mixed  $callback  Business transaction callback.
+     * @param  list<array{0: UploadedFile, 1: string}>  $uploads  Optional files pre-uploaded outside transaction locks.
+     * @return mixed Value returned by the business callback.
      *
-     * @throws Throwable
+     * @throws Throwable Re-throws the original exception if transaction fails.
      */
     public static function transaction(callable $callback, array $uploads = []): mixed
     {
@@ -48,10 +50,7 @@ class PrivateAttachments
             throw $exception;
         }
 
-        // A successful savepoint is not a committed operation. Keep rollback
-        // cleanup attached to an existing outer transaction. Invoke this API
-        // before opening an outer transaction to keep network I/O outside it.
-        // The attachment sweeper handles process death and failed deletes.
+        // Attach rollback cleanup to outer transaction to ensure savepoint rollbacks still purge remote storage.
         if (DB::transactionLevel() > 0) {
             $pending = $files;
             DB::afterRollBack(static function () use ($pending): void {
@@ -67,8 +66,7 @@ class PrivateAttachments
 
             return $result;
         } catch (Throwable $exception) {
-            // H2: never let a failing R2 cleanup replace the original error
-            // (disk has throw => true). The caller must see the real cause.
+            // Suppress cleanup failures so the original business or database exception surfaces to the caller.
             $files->deleteStoredQuietly();
 
             throw $exception;
@@ -76,10 +74,13 @@ class PrivateAttachments
     }
 
     /**
-     * Store an uploaded file on private R2 storage and track it for transaction rollback cleanup.
+     * Stores an uploaded file on private R2 storage and tracks it for transaction rollback cleanup.
      *
+     * @param  UploadedFile  $file  Uploaded file instance.
+     * @param  string  $directory  Target storage path.
+     * @return string Stored file path on disk.
      *
-     * @throws RuntimeException
+     * @throws RuntimeException If the cloud storage upload fails.
      */
     public function store(UploadedFile $file, string $directory): string
     {

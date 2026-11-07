@@ -17,8 +17,7 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
- * سلة المتجر — تعمل للزائر (هيدر X-Cart-Session) وللعميل المسجل (Bearer)
- * بنفس النقاط؛ الهوية تُحسم داخل CartService.
+ * Manages storefront shopping cart operations, item quantities, and coupon redemptions.
  */
 class CartController extends Controller
 {
@@ -27,14 +26,20 @@ class CartController extends Controller
         private readonly CouponService $coupons,
     ) {}
 
+    /**
+     * Display the current session or customer shopping cart.
+     */
     public function index(Request $request): JsonResponse
     {
-        // قراءة فقط: لا يُحفظ صف سلة لمجرد العرض (M3)
+        // Read-only view: do not persist empty cart records merely on display.
         [$customer, $cart] = $this->currentCart($request, create: false);
 
         return response()->json(['data' => $this->carts->present($cart, $customer)]);
     }
 
+    /**
+     * Add an item to the shopping cart.
+     */
     public function store(AddCartItemRequest $request): JsonResponse
     {
         [$customer, $cart] = $this->currentCart($request, create: false);
@@ -43,6 +48,9 @@ class CartController extends Controller
         return response()->json(['data' => $this->carts->present($cart, $customer)]);
     }
 
+    /**
+     * Update quantity of an existing cart item.
+     */
     public function update(UpdateCartItemRequest $request, int $item): JsonResponse
     {
         [$customer, $cart] = $this->currentCart($request);
@@ -52,10 +60,12 @@ class CartController extends Controller
         return response()->json(['data' => $this->carts->present($cart, $customer)]);
     }
 
+    /**
+     * Remove an item from the shopping cart idempotently.
+     */
     public function destroy(Request $request, int $item): JsonResponse
     {
-        // L10: cart deletes are idempotent — a missing cart or line is already
-        // the desired end state.
+        // Deletions are idempotent: missing carts or lines represent the desired end state.
         try {
             [$customer, $cart] = $this->currentCart($request);
         } catch (NotFoundHttpException) {
@@ -70,6 +80,9 @@ class CartController extends Controller
         return response()->json(['data' => $this->carts->present($cart, $customer)]);
     }
 
+    /**
+     * Detach the applied coupon from the shopping cart.
+     */
     public function removeCoupon(Request $request): JsonResponse
     {
         [$customer, $cart] = $this->currentCart($request);
@@ -78,9 +91,12 @@ class CartController extends Controller
         return response()->json(['data' => $this->carts->present($cart->refresh(), $customer)]);
     }
 
+    /**
+     * Clear all items from the shopping cart.
+     */
     public function clear(Request $request): JsonResponse
     {
-        // L10: clearing a missing cart is already the desired end state.
+        // Clearing a missing cart is idempotent and returns success immediately.
         try {
             [$customer, $cart] = $this->currentCart($request);
         } catch (NotFoundHttpException) {
@@ -94,6 +110,9 @@ class CartController extends Controller
         return response()->json(['data' => $this->carts->present($cart, $customer)]);
     }
 
+    /**
+     * Validate and apply a promotional coupon code to the cart.
+     */
     public function applyCoupon(ApplyCouponRequest $request): JsonResponse
     {
         [$customer, $cart] = $this->currentCart($request);
@@ -110,8 +129,8 @@ class CartController extends Controller
     private function currentCart(Request $request, bool $create = false): array
     {
         $user = auth('sanctum')->user();
-        // عميل موقوف/مرفوض بتوكن صالح يُعامل كزائر (F-20): لا تُربط سلاته
-        // وطلباته بحساب غير نشط ولا تُمنح له أسعار/حدود العميل
+
+        // Suspended or unapproved customers with valid tokens fall back to guest pricing and privileges.
         $customer = $user instanceof Customer && $user->canShop() ? $user : null;
         $cart = $this->carts->resolveCart($customer, $request->header('X-Cart-Session'), $create);
         if (! $cart->exists && ! $request->isMethod('GET') && $request->route()?->getActionMethod() !== 'store') {

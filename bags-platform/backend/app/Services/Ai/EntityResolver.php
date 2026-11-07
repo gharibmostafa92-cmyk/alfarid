@@ -25,13 +25,20 @@ use App\Models\User;
 use App\Services\BranchAccess;
 use App\Services\SearchTerm;
 use App\Services\StaffAdministration;
+use Illuminate\Database\Eloquent\Builder;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
+/**
+ * Resolves and scopes domain entity lookups, search term normalization, and masked references for the AI agent.
+ */
 final class EntityResolver
 {
     public function __construct(private BranchAccess $branches) {}
 
+    /**
+     * Normalize Eastern Arabic and Persian numerals to Western digits.
+     */
     public static function normalizeDigits(string $value): string
     {
         return strtr($value, [
@@ -42,7 +49,11 @@ final class EntityResolver
         ]);
     }
 
-    /** @return list<string> */
+    /**
+     * Expand search query with Arabic spelling normalizations and synonym replacements.
+     *
+     * @return list<string>
+     */
     public static function expandCatalogSearchTerms(string $query): array
     {
         $clean = trim(self::normalizeDigits($query));
@@ -90,7 +101,11 @@ final class EntityResolver
         }
     }
 
-    /** @return list<array{id:int,label:string,meta:string}> */
+    /**
+     * Find branches accessible to the actor matching name, code, or city filters.
+     *
+     * @return list<array{id:int,label:string,meta:string}>
+     */
     public function branches(User $actor, string $query = '', array $filters = []): array
     {
         $restricted = $this->restricted($actor);
@@ -98,8 +113,7 @@ final class EntityResolver
             return [];
         }
 
-        // M6/L5: الفلترة في SQL (ILIKE محمي بـ SearchTerm::escape) مع LIMIT —
-        // استعلام بلا نتيجة ما يمسحش الجدول كله ولا يعمل ذاكرة lazy.
+        // Filter in SQL with limit to avoid full-table scans and bound memory usage.
         return Branch::query()->withCount('users')
             ->when($restricted !== null, fn ($x) => $x->whereKey($restricted))
             ->when(array_key_exists('active', $filters), fn ($x) => $x->where('is_active', $filters['active']))
@@ -153,7 +167,11 @@ final class EntityResolver
             ->all();
     }
 
-    /** @return list<array{id:int,label:string,meta:string}> */
+    /**
+     * Resolve inventory storage locations within actor branch scope.
+     *
+     * @return list<array{id:int,label:string,meta:string}>
+     */
     public function locations(User $actor, string $query = '', ?int $branchId = null): array
     {
         $restricted = $this->restricted($actor);
@@ -161,7 +179,7 @@ final class EntityResolver
             return [];
         }
         $cleanCode = trim(self::normalizeDigits($query));
-        // مسار سريع: كود موقع مضبوط (A-03-2).
+        // Fast path: exact location code lookup without whitespace.
         if ($cleanCode !== '' && ! preg_match('/\s/u', $cleanCode)) {
             $exact = Location::query()
                 ->when($restricted !== null, fn ($q) => $q->where('branch_id', $restricted), fn ($q) => $q->when($branchId !== null, fn ($w) => $w->where('branch_id', $branchId)))
@@ -177,8 +195,7 @@ final class EntityResolver
             }
         }
 
-        // M1: قيد الفرع يطبق أولًا — مقيّد بفرع ما يقدرش يوجّه branch_id لفرع تاني.
-        // M6/L5: نفس الفلترة السلكية المحمية مع LIMIT.
+        // Enforce actor restricted branch first to prevent unauthorized cross-branch lookups.
         return Location::query()
             ->when($restricted !== null, fn ($q) => $q->where('branch_id', $restricted), fn ($q) => $q->when($branchId !== null, fn ($w) => $w->where('branch_id', $branchId)))
             ->when($query !== '', fn ($x) => $x->where(fn ($w) => $w
@@ -196,7 +213,11 @@ final class EntityResolver
             ->all();
     }
 
-    /** @return list<array{id:int,label:string,meta:string}> */
+    /**
+     * Search stock transfers originating from or destined to actor branches.
+     *
+     * @return list<array{id:int,label:string,meta:string}>
+     */
     public function transfers(User $actor, string $query = '', array $filters = []): array
     {
         $restricted = $this->restricted($actor);
@@ -208,7 +229,7 @@ final class EntityResolver
             : $x;
         $clean = trim(self::normalizeDigits($query));
 
-        // مسار سريع: رقم مستند مضبوط (TRF-00012).
+        // Fast path: exact document number format (e.g. TRF-00012).
         if ($clean !== '' && preg_match('/^[A-Za-z]+-\d+$/', $clean)) {
             $exact = StockTransfer::query()->with(['fromBranch:id,name', 'toBranch:id,name'])
                 ->tap($scope)->whereRaw('LOWER(transfer_number) = LOWER(?)', [$clean])->limit(2)->get();
@@ -318,7 +339,11 @@ final class EntityResolver
             ->all();
     }
 
-    /** @return list<array{id:int,label:string,meta:string}> */
+    /**
+     * Search treasuries filtered by branch restrictions and access rights.
+     *
+     * @return list<array{id:int,label:string,meta:string}>
+     */
     public function treasuries(User $actor, string $query = '', array $filters = []): array
     {
         $restricted = $this->restricted($actor);
@@ -327,7 +352,7 @@ final class EntityResolver
         }
         $clean = trim(self::normalizeDigits($query));
 
-        // مسار سريع: كود خزينة مضبوط.
+        // Fast path: exact treasury code format.
         if ($clean !== '' && preg_match('/^[A-Za-z]+-\d+$/', $clean)) {
             $exact = Treasury::query()->with('branch:id,name')
                 ->when($restricted !== null, fn ($x) => $x->where('branch_id', $restricted))
@@ -353,7 +378,11 @@ final class EntityResolver
             ->get(), $actor)->all();
     }
 
-    /** @return list<array{id:int,label:string,meta:string}> */
+    /**
+     * Search internal treasury transfers touching actor branches.
+     *
+     * @return list<array{id:int,label:string,meta:string}>
+     */
     public function treasuryTransfers(User $actor, string $query = '', array $filters = []): array
     {
         $restricted = $this->restricted($actor);
@@ -362,7 +391,7 @@ final class EntityResolver
         }
         $clean = trim(self::normalizeDigits($query));
 
-        // مسار سريع: رقم تحويل مضبوط (TRF-00012).
+        // Fast path: exact treasury transfer number (e.g. TRF-00012).
         if ($clean !== '' && preg_match('/^[A-Za-z]+-\d+$/', $clean)) {
             $exact = TreasuryTransfer::query()->with(['fromTreasury.branch:id,name', 'toTreasury.branch:id,name'])
                 ->when($restricted !== null, fn ($x) => $x->where(fn ($w) => $w
@@ -392,7 +421,11 @@ final class EntityResolver
             ->get())->all();
     }
 
-    /** @return list<array{id:int,label:string,meta:string}> */
+    /**
+     * Search branch expense records matching actor permissions.
+     *
+     * @return list<array{id:int,label:string,meta:string}>
+     */
     public function expenses(User $actor, string $query = '', array $filters = []): array
     {
         $restricted = $this->restricted($actor);
@@ -401,7 +434,7 @@ final class EntityResolver
         }
         $clean = trim(self::normalizeDigits($query));
 
-        // مسار سريع: رقم مصروف مضبوط (EXP-00012).
+        // Fast path: exact expense document number (e.g. EXP-00012).
         if ($clean !== '' && preg_match('/^[A-Za-z]+-\d+$/', $clean)) {
             $exact = Expense::query()->with(['branch:id,name', 'treasury:id,name'])
                 ->when($restricted !== null, fn ($x) => $x->where('branch_id', $restricted))
@@ -507,20 +540,26 @@ final class EntityResolver
         ])->values();
     }
 
+    /**
+     * Mask staff email address for privacy-preserving displays.
+     */
     public function maskEmail(?string $email): string
     {
-        // مصدر واحد للقناع: StaffAdministration (حتى لا يتباين القناع
-        // بين التدقيق وعرض الكيانات).
+        // Centralize masking via StaffAdministration to maintain consistency between audit trails and entity views.
         return StaffAdministration::maskEmail($email);
     }
 
-    /** تقنيع رقم موبايل: 11 رقمًا يظهر أول 3 وآخر 3 فقط، غير كده ***. */
+    /**
+     * Mask phone number displaying only leading 3 and trailing 3 digits.
+     */
     public static function maskPhone(?string $p): string
     {
         return $p && strlen($p) === 11 ? substr($p, 0, 3).'*****'.substr($p, -3) : '***';
     }
 
-    /** تقنيع رقم ضريبي/سجل تجاري: أول حرفين وآخر حرفين فقط. */
+    /**
+     * Mask tax and commercial registry numbers showing leading and trailing characters only.
+     */
     public static function maskLegal(?string $v): ?string
     {
         if ($v === null || trim($v) === '') {
@@ -553,32 +592,46 @@ final class EntityResolver
     }
 
     /**
-     * @return list<array{id:int,label:string,meta:string}>
-     *                                                      لا يوجد branch scoping هنا — مقصود، زي REST بالظبط
-     *                                                      (CustomerController مبيستخدمش BranchAccess).
+     * Build customer search query with common filters and phone / trigram text matching.
+     *
+     * @param  array<string,mixed>  $filters
      */
-    public function customers(User $actor, string $query = '', array $filters = []): array
+    public static function buildCustomerQuery(string $query = '', array $filters = []): Builder
     {
-        $q = Customer::query()
+        $q = Customer::query()->with('customerGroup')
             ->when(($filters['business_only'] ?? false), fn ($x) => $x->whereIn('type', ['wholesale', 'distributor']))
             ->when(isset($filters['type']), fn ($x) => $x->where('type', $filters['type']))
             ->when(isset($filters['status']), fn ($x) => $x->where('status', $filters['status']))
             ->when(isset($filters['customer_group_id']), fn ($x) => $x->where('customer_group_id', $filters['customer_group_id']))
             ->when(isset($filters['pending_older_than_hours']), fn ($x) => $x->where('status', 'pending')->where('created_at', '<', now()->subHours((int) $filters['pending_older_than_hours'])));
+
         if (trim($query) !== '') {
-            // L5: حرف أو اتنين مش بيستفيدوا من trigram.
-            if (mb_strlen(trim($query)) < 3) {
-                return [];
-            }
             if (preg_match('/^[0-9٠-٩۰-۹\s().+-]+$/u', trim($query))) {
-                // L5: LIKE مش ILIKE عشان يستخدم index الـ text_pattern_ops.
+                // Use case-sensitive LIKE for phone prefixes to leverage the Postgres text_pattern_ops btree index.
                 $q->whereLike('phone', SearchTerm::prefix(Customer::normalizePhone($query)), caseSensitive: true);
             } else {
                 $q->whereLike('search_text', SearchTerm::pattern($query), caseSensitive: false);
             }
         }
 
-        return $q->orderBy('id')->limit(50)->get()
+        return $q;
+    }
+
+    /**
+     * Search customer records without branch restriction (customers are global across all branches).
+     *
+     * @return list<array{id:int,label:string,meta:string}>
+     */
+    public function customers(User $actor, string $query = '', array $filters = []): array
+    {
+        if (trim($query) !== '' && mb_strlen(trim($query)) < 3) {
+            return [];
+        }
+
+        return self::buildCustomerQuery($query, $filters)
+            ->orderBy('id')
+            ->limit(50)
+            ->get()
             ->map(fn (Customer $c) => [
                 'id' => $c->id,
                 'label' => $c->company_name ? $c->name.' — '.$c->company_name : $c->name,
@@ -827,7 +880,11 @@ final class EntityResolver
             ->all();
     }
 
-    /** @return list<array{id:int,label:string,meta:string}> */
+    /**
+     * Search product variants by SKU, barcode, color, size, capacity, or parent product attributes.
+     *
+     * @return list<array{id:int,label:string,meta:string}>
+     */
     public function variants(User $actor, string $q = '', ?int $productId = null): array
     {
         $clean = trim(self::normalizeDigits($q));
@@ -862,8 +919,7 @@ final class EntityResolver
                             ->orWhereLike('size', $pattern, caseSensitive: false)
                             ->orWhereHas('product', fn ($p) => $p->whereLike('name_ar', $pattern, caseSensitive: false)->orWhereLike('name_en', $pattern, caseSensitive: false)->orWhereLike('code', $pattern, caseSensitive: false));
                     }
-                    // صيغة "اللون + الموديل" من غير SKU ("الشنطة الكروس البني"):
-                    // كل توكن يطابق حقلًا ما، بدل تطابق العبارة كاملة في حقل واحد.
+                    // Multi-token fallback: matches compound descriptive terms across multiple columns rather than requiring a single full phrase match.
                     $tokens = array_values(array_filter(preg_split('/\s+/u', self::normalizeForSearch($clean)) ?: [], fn ($t) => mb_strlen($t) >= 2));
                     if (count($tokens) > 1) {
                         $w->orWhere(function ($and) use ($tokens): void {
@@ -893,6 +949,9 @@ final class EntityResolver
             ->all();
     }
 
+    /**
+     * Find variant by exact SKU or barcode match.
+     */
     public function exactVariantByCode(string $code): ?ProductVariant
     {
         $clean = trim(self::normalizeDigits($code));
@@ -907,6 +966,12 @@ final class EntityResolver
         return $matches->count() === 1 ? $matches->first() : null;
     }
 
+    /**
+     * Resolve and sanitize human-readable entity references within branch authorization boundaries.
+     *
+     * @param  array{entity?:string,id?:mixed}  $reference
+     * @return array{entity:string,id:mixed,label:string}
+     */
     public function reference(User $actor, array $reference): array
     {
         $type = $reference['entity'] ?? '';
@@ -919,7 +984,7 @@ final class EntityResolver
             'role' => Role::query()->where('guard_name', 'staff')->find($id),
             'permission' => Permission::query()->where('guard_name', 'staff')->where('name', $id)->first(),
             'location' => Location::query()->when($branch !== null, fn ($q) => $q->where('branch_id', $branch))->find($id),
-            // العملاء بلا branch scoping — زي REST بالظبط.
+            // Customers have global scope matching standard REST authorization.
             'customer' => Customer::query()->find($id),
             'customer_group' => CustomerGroup::query()->find($id),
             'category' => Category::query()->find($id),
@@ -947,7 +1012,7 @@ final class EntityResolver
             'expense' => (string) $model->expense_number,
             default => (string) $model->name,
         };
-        // اسم العميل أو المنتج/القسم كتبه بشر ورايح للنموذج كمرجع: نشيل رموز التحكم ونحدّ الطول.
+        // Strip control characters and clamp length to sanitize user-provided text before embedding into model prompts.
         $label = in_array($type, ['customer', 'customer_group', 'category', 'product', 'variant', 'treasury'], true)
             ? mb_substr((string) preg_replace('/[\x00-\x1F\x7F]/u', ' ', $rawLabel), 0, 120)
             : $rawLabel;

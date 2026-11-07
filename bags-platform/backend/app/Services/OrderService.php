@@ -10,6 +10,7 @@ use App\Enums\OrderStatus;
 use App\Enums\ReturnStatus;
 use App\Enums\StockBucket;
 use App\Enums\StockMovementType;
+use App\Enums\WholesalePaymentNoticeStatus;
 use App\Events\OrderCreated;
 use App\Exceptions\BusinessException;
 use App\Models\Cart;
@@ -24,6 +25,7 @@ use App\Models\ProductVariant;
 use App\Models\ReturnRequest;
 use App\Models\StockMovement;
 use App\Models\User;
+use App\Models\WholesalePaymentNotice;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -88,11 +90,11 @@ class OrderService
                 ->where('idempotency_scope', $idempotencyScope)
                 ->first();
             if ($existing !== null) {
-                return $existing->load('items');
+                return $this->assertMatchingIdempotentReplay($existing, $data, $cart);
             }
         }
 
-        // H5: validation failures never consume the daily phone budget.
+        // Enforce daily checkout quota per phone number without deducting budget on validation errors.
         $phoneDayKey = $customer === null && $guestPhoneNormalized !== null && preg_match('/\d/', $guestPhoneNormalized) === 1
             ? 'checkout-phone-day:'.hash('sha256', $guestPhoneNormalized)
             : null;
@@ -109,7 +111,7 @@ class OrderService
                     ->where('idempotency_scope', $idempotencyScope)
                     ->first();
                 if ($existing !== null) {
-                    return $existing->load('items');
+                    return $this->assertMatchingIdempotentReplay($existing, $data, $cart);
                 }
             }
 
@@ -154,6 +156,7 @@ class OrderService
             if ($customer === null) {
                 $pendingCap = (int) config('store.guest_pending_orders_cap', 3);
                 if ($pendingCap > 0 && $guestPhoneNormalized !== null) {
+                    DB::statement('SELECT pg_advisory_xact_lock(hashtext(?))', ['pending-guest:'.$guestPhoneNormalized]);
                     $pendingForPhone = Order::query()
                         ->whereNull('customer_id')
                         ->where('status', OrderStatus::Pending)
@@ -166,6 +169,7 @@ class OrderService
             } elseif (! $isWholesale) {
                 $pendingCap = (int) config('store.customer_pending_orders_cap', 5);
                 if ($pendingCap > 0) {
+                    DB::statement('SELECT pg_advisory_xact_lock(hashtext(?))', ['pending-customer:'.$customer->id]);
                     $pendingForCustomer = Order::query()
                         ->where('customer_id', $customer->id)
                         ->where('status', OrderStatus::Pending)
@@ -240,7 +244,7 @@ class OrderService
 
             $grandTotal = round(($subtotal - $discountAmount) + $shippingCost + $codFee + $taxAmount, 2);
 
-            // B4: حد الائتمان للتجار — طلب credit يتجاوز المتاح يُرفض قبل إنشاء الطلب.
+            // Reject credit orders upfront if projected outstanding balance exceeds the approved credit limit.
             if (($data['payment_method'] ?? null) === 'credit' && $customer !== null) {
                 Customer::query()->whereKey($customer->id)->lockForUpdate()->first();
                 $outstanding = app(WholesalePaymentNoticeService::class)->outstandingBalance($customer->fresh());
@@ -255,8 +259,7 @@ class OrderService
             }
 
             // Reject checkout if grand total drifted since cart preview (e.g. price update or expired promo).
-            if (isset($data['expected_total']) && is_numeric($data['expected_total'])
-                && abs((float) $data['expected_total'] - $grandTotal) > 0.01) {
+            if ($this->expectedTotalChanged($data, $grandTotal)) {
                 throw new BusinessException(
                     'تغيّر إجمالي الطلب منذ عرضه. راجع السلة ثم أعد المحاولة.',
                     [], 422, 'price_changed',
@@ -291,8 +294,8 @@ class OrderService
 
             // Distribute tax and coupon discounts across line items using the largest remainder method.
             $weights = array_map(fn (array $line): float => (float) $line['line_total'], $lines);
-            $taxShares = $this->distributeLargestRemainder($taxAmount, $weights);
-            $couponShares = $this->distributeLargestRemainder($couponDiscount, $weights);
+            $taxShares = ProportionalDistribution::distribute($taxAmount, $weights);
+            $couponShares = ProportionalDistribution::distribute($couponDiscount, $weights);
             foreach ($lines as $i => $line) {
                 $order->items()->create([
                     'product_variant_id' => $line['variant']->id,
@@ -314,12 +317,16 @@ class OrderService
             // Free shipping coupon without actual shipping cost does not consume user redemption limit.
             if ($coupon !== null
                 && ! ($coupon->type === 'free_shipping' && $waivedShipping <= 0)) {
-                $this->couponService->recordUsage(
-                    $coupon,
-                    $order,
-                    $customer,
-                    $coupon->type === 'free_shipping' ? $waivedShipping : $couponDiscount,
-                );
+                try {
+                    $this->couponService->recordUsage(
+                        $coupon,
+                        $order,
+                        $customer,
+                        $coupon->type === 'free_shipping' ? $waivedShipping : $couponDiscount,
+                    );
+                } catch (BusinessException $e) {
+                    throw new BusinessException($e->getMessage(), $e->errors, $e->status, 'coupon_invalid');
+                }
             }
 
             if (($data['payment_method'] ?? 'cod') === 'wallet') {
@@ -376,6 +383,71 @@ class OrderService
     }
 
     /**
+     * Replays an idempotent checkout only when the new request still describes the stored order.
+     */
+    private function assertMatchingIdempotentReplay(Order $existing, array $data, Cart $cart): Order
+    {
+        $existing->loadMissing('items');
+        $cart->loadMissing('items');
+        $mismatched = false;
+
+        if (array_key_exists('payment_method', $data) && (string) $data['payment_method'] !== (string) $existing->payment_method) {
+            $mismatched = true;
+        }
+        if (array_key_exists('city_id', $data) && (int) $data['city_id'] !== (int) $existing->city_id) {
+            $mismatched = true;
+        }
+        if (array_key_exists('shipping_address_line', $data)
+            && trim((string) $data['shipping_address_line']) !== trim((string) $existing->shipping_address_line)) {
+            $mismatched = true;
+        }
+        if (array_key_exists('recipient_name', $data)
+            && trim((string) $data['recipient_name']) !== trim((string) $existing->guest_name)) {
+            $mismatched = true;
+        }
+        if (array_key_exists('recipient_phone', $data)) {
+            $incoming = Customer::normalizePhone((string) $data['recipient_phone']);
+            $stored = $existing->guest_phone_normalized
+                ?? ($existing->guest_phone !== null ? Customer::normalizePhone((string) $existing->guest_phone) : '');
+            if ($incoming !== $stored) {
+                $mismatched = true;
+            }
+        }
+        if ($this->expectedTotalChanged($data, (float) $existing->grand_total)) {
+            $mismatched = true;
+        }
+
+        if ($cart->items->isNotEmpty()) {
+            $cartSignature = $cart->items
+                ->map(fn ($item): string => $item->product_variant_id.':'.(int) $item->qty)
+                ->sort()->values()->all();
+            $orderSignature = $existing->items
+                ->map(fn ($item): string => $item->product_variant_id.':'.(int) $item->qty)
+                ->sort()->values()->all();
+            if ($cartSignature !== $orderSignature) {
+                $mismatched = true;
+            }
+        }
+
+        if ($mismatched) {
+            throw new BusinessException(
+                'هذا المفتاح مستخدم لطلب ببيانات مختلفة.',
+                [],
+                409,
+                'idempotency_conflict',
+            );
+        }
+
+        return $existing->load('items');
+    }
+
+    private function expectedTotalChanged(array $data, float $actualTotal): bool
+    {
+        return isset($data['expected_total']) && is_numeric($data['expected_total'])
+            && round((float) $data['expected_total'], 2) !== $actualTotal;
+    }
+
+    /**
      * Executes an order status transition and triggers corresponding inventory and payment side-effects.
      *
      * @param  array<int, OrderStatus>|null  $expectedFrom  Expected previous statuses to prevent race conditions.
@@ -419,8 +491,8 @@ class OrderService
             // Prevent silent cancellation of credit orders that hold approved wholesale treasury notices.
             if ($to === OrderStatus::Cancelled && ! $allowNoticesLoss
                 && $order->payment_method === 'credit'
-                && \App\Models\WholesalePaymentNotice::query()->where('order_id', $order->id)
-                    ->where('status', \App\Enums\WholesalePaymentNoticeStatus::Approved->value)->exists()) {
+                && WholesalePaymentNotice::query()->where('order_id', $order->id)
+                    ->where('status', WholesalePaymentNoticeStatus::Approved->value)->exists()) {
                 throw new BusinessException('للطلب الآجل إشعارات سداد معتمدة مقيدة في الخزينة؛ سوِّها أولًا (رد أو تحويلها لائتمان حر) قبل الإلغاء.');
             }
 
@@ -531,40 +603,7 @@ class OrderService
      */
     private function distributeLargestRemainder(float $total, array $weights): array
     {
-        $count = count($weights);
-        if ($count === 0) {
-            return [];
-        }
-        $totalCents = (int) round($total * 100);
-        $weightSum = array_sum($weights);
-        if ($totalCents <= 0 || $weightSum <= 0) {
-            return array_fill(0, $count, 0.0);
-        }
-
-        $floorCents = [];
-        $remainders = [];
-        $assigned = 0;
-        foreach ($weights as $i => $weight) {
-            $exact = $totalCents * ((float) $weight / $weightSum);
-            $floor = (int) floor($exact);
-            $floorCents[$i] = $floor;
-            $remainders[$i] = $exact - $floor;
-            $assigned += $floor;
-        }
-
-        $left = $totalCents - $assigned;
-        arsort($remainders);
-        foreach (array_keys($remainders) as $i) {
-            if ($left <= 0) {
-                break;
-            }
-            $floorCents[$i]++;
-            $left--;
-        }
-
-        ksort($floorCents);
-
-        return array_map(fn (int $cents): float => $cents / 100, $floorCents);
+        return ProportionalDistribution::distribute($total, $weights);
     }
 
     /**

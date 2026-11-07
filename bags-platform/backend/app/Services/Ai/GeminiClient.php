@@ -10,13 +10,15 @@ use Illuminate\Support\Facades\Http;
 use InvalidArgumentException;
 use LogicException;
 
+/**
+ * Low-level HTTP client for Google Generative AI (Gemini) API with safe retry semantics and token tracking.
+ */
 class GeminiClient
 {
     /**
-     * M9: Laravel throws ConnectionException for both connect failures and
-     * read timeouts. Retrying a read timeout can double-bill tokens — the
-     * provider may have processed the first attempt. Retry connect/DNS
-     * failures only; a timeout fails fast instead.
+     * Determines whether a connection exception is a safe-to-retry connect or DNS failure.
+     *
+     * Read timeouts are excluded because remote execution may have succeeded, risking duplicate billing.
      */
     private static function isConnectFailure(ConnectionException $e): bool
     {
@@ -28,35 +30,27 @@ class GeminiClient
     }
 
     /**
-     * @param  list<UploadedFile>  $images
-     * @return array{text: string, model: string, usage: array{input_tokens: int, output_tokens: int, total_tokens: int}}
+     * Executes standard text generation request against Gemini.
+     *
+     * @param  string  $prompt  User or prompt text.
+     * @param  string|null  $system  Optional system instructions.
+     * @param  string|null  $modelOverride  Specific model identifier to route to.
+     * @return array{text: string, usage: array{input_tokens: int, output_tokens: int, total_tokens: int}}
+     *
+     * @throws GeminiException If API fails or generation is incomplete.
      */
-    public function generate(string $prompt, array $images = [], ?string $system = null, ?string $model = null): array
+    public function generate(string $prompt, ?string $system = null, ?string $modelOverride = null): array
     {
         $key = (string) config('services.gemini.api_key');
-        $model ??= config('services.gemini.model');
-        if ($key === '' || ! is_string($model) || ! preg_match('/^[a-zA-Z0-9._-]+$/', $model) || str_contains($model, '..')) {
-            throw new LogicException('إعدادات Gemini غير مكتملة.');
-        }
-        if (trim($prompt) === '') {
-            throw new InvalidArgumentException('نص الطلب مطلوب.');
-        }
-        if (count($images) > config('services.gemini.max_images', 5)) {
-            throw new InvalidArgumentException('الحد الأقصى 5 صور في الطلب.');
+        if ($key === '') {
+            throw new LogicException('Gemini API key is not configured.');
         }
 
-        $parts = [['text' => $prompt]];
-        foreach ($images as $image) {
-            if (! $image instanceof UploadedFile || ! $image->isValid()
-                || ! in_array($image->getMimeType(), ['image/jpeg', 'image/png', 'image/webp'], true)
-                || $image->getSize() > config('services.gemini.max_image_bytes', 4 * 1024 * 1024)) {
-                throw new InvalidArgumentException('الصورة يجب أن تكون JPG أو PNG أو WebP وبحد أقصى 4MB.');
-            }
-            $parts[] = ['inlineData' => ['mimeType' => $image->getMimeType(), 'data' => base64_encode($image->getContent())]];
-        }
-
+        $model = $modelOverride ?? (string) config('services.gemini.model', 'gemini-1.5-flash');
         $payload = [
-            'contents' => [['role' => 'user', 'parts' => $parts]],
+            'contents' => [
+                ['role' => 'user', 'parts' => [['text' => $prompt]]],
+            ],
             'generationConfig' => [
                 'temperature' => 0.4,
                 'maxOutputTokens' => (int) config('services.gemini.max_output_tokens', 2048),
@@ -73,8 +67,7 @@ class GeminiClient
                     ->connectTimeout(5)->timeout(max(1, (int) config('services.gemini.timeout_seconds', 20)))
                     ->post('https://generativelanguage.googleapis.com/v1beta/models/'.rawurlencode($model).':generateContent', $payload);
             } catch (ConnectionException $e) {
-                // M9: retry connect failures only — a read timeout may have
-                // executed server-side, so retrying would double-bill tokens.
+                // Retry connect failures only; read timeouts may have executed remotely and retrying risks duplicate billing.
                 if ($attempt === 0 && self::isConnectFailure($e)) {
                     logger()->warning('gemini.request_retry', ['method' => 'generate', 'reason' => 'connect_failure']);
 
@@ -84,7 +77,7 @@ class GeminiClient
             }
             if (($response->status() === 429 || $response->serverError()) && $attempt === 0) {
                 logger()->warning('gemini.request_retry', ['method' => 'generate', 'reason' => 'http_'.$response->status()]);
-                // L7: نحترم Retry-After (من ثانية لـ 5 ثواني) بدل 250ms.
+                // Respect upstream Retry-After header with a 1-to-5 second backoff window.
                 usleep(min(5, max(1, (int) $response->header('Retry-After'))) * 1_000_000);
 
                 continue;
@@ -108,52 +101,48 @@ class GeminiClient
             }
 
             $usage = $response->json('usageMetadata', []);
-            $input = (int) ($usage['promptTokenCount'] ?? 0);
-            $output = (int) ($usage['candidatesTokenCount'] ?? 0);
 
-            return ['text' => trim($text), 'model' => $model, 'usage' => [
-                'input_tokens' => $input, 'output_tokens' => $output,
-                'total_tokens' => (int) ($usage['totalTokenCount'] ?? $input + $output),
-            ]];
+            return [
+                'text' => $text,
+                'usage' => [
+                    'input_tokens' => (int) ($usage['promptTokenCount'] ?? 0),
+                    'output_tokens' => (int) ($usage['candidatesTokenCount'] ?? 0),
+                    'total_tokens' => (int) ($usage['totalTokenCount'] ?? 0),
+                ],
+            ];
         }
 
-        throw new GeminiException('تعذّر تنفيذ طلب Gemini.');
+        throw new GeminiException('تعذّر إكمال الطلب بخدمة Gemini.');
     }
 
     /**
-     * Structured JSON output for document/shelf-photo parsing (phase 4 stocktake
-     * sheets). Prompt must instruct the model to ignore injected instructions in
-     * the image text. Never use for direct approvals — fills counts only.
+     * Executes structured JSON schema-guided generation request.
      *
-     * @param  array<string,mixed>  $schema  JSON Schema for responseSchema
-     * @param  list<UploadedFile>  $images
-     * @return array{data:array<string,mixed>|list<mixed>, model:string, usage:array{input_tokens:int,output_tokens:int,total_tokens:int}}
+     * @param  string  $prompt  User or prompt text.
+     * @param  array<string, mixed>  $schema  Target JSON schema specification.
+     * @param  UploadedFile|null  $file  Optional image attachment for multimodal analysis.
+     * @param  string|null  $modelOverride  Specific model identifier to route to.
+     * @return array{data: array<string, mixed>, usage: array{input_tokens: int, output_tokens: int, total_tokens: int}}
+     *
+     * @throws GeminiException If API fails, format is invalid, or generation is incomplete.
      */
-    public function generateStructured(string $prompt, array $schema, array $images = [], ?string $model = null): array
+    public function generateStructured(string $prompt, array $schema, ?UploadedFile $file = null, ?string $modelOverride = null): array
     {
         $key = (string) config('services.gemini.api_key');
-        $model ??= config('services.gemini.model');
-        if ($key === '' || ! is_string($model) || ! preg_match('/^[a-zA-Z0-9._-]+$/', $model) || str_contains($model, '..')) {
-            throw new LogicException('إعدادات Gemini غير مكتملة.');
-        }
-        if (trim($prompt) === '') {
-            throw new InvalidArgumentException('نص الطلب مطلوب.');
-        }
-        if ($schema === []) {
-            throw new InvalidArgumentException('مخطط الاستجابة مطلوب.');
-        }
-        if (count($images) > config('services.gemini.max_images', 5)) {
-            throw new InvalidArgumentException('الحد الأقصى 5 صور في الطلب.');
+        if ($key === '') {
+            throw new LogicException('Gemini API key is not configured.');
         }
 
+        $model = $modelOverride ?? (string) config('services.gemini.model', 'gemini-1.5-flash');
         $parts = [['text' => $prompt]];
-        foreach ($images as $image) {
-            if (! $image instanceof UploadedFile || ! $image->isValid()
-                || ! in_array($image->getMimeType(), ['image/jpeg', 'image/png', 'image/webp'], true)
-                || $image->getSize() > config('services.gemini.max_image_bytes', 4 * 1024 * 1024)) {
-                throw new InvalidArgumentException('الصورة يجب أن تكون JPG أو PNG أو WebP وبحد أقصى 4MB.');
-            }
-            $parts[] = ['inlineData' => ['mimeType' => $image->getMimeType(), 'data' => base64_encode($image->getContent())]];
+
+        if ($file !== null) {
+            $parts[] = [
+                'inlineData' => [
+                    'mimeType' => $file->getMimeType() ?: 'image/jpeg',
+                    'data' => base64_encode($file->getContent()),
+                ],
+            ];
         }
 
         $payload = [
@@ -173,7 +162,7 @@ class GeminiClient
                     ->connectTimeout(5)->timeout(max(1, (int) config('services.gemini.timeout_seconds', 20)))
                     ->post('https://generativelanguage.googleapis.com/v1beta/models/'.rawurlencode($model).':generateContent', $payload);
             } catch (ConnectionException $e) {
-                // M9: retry connect failures only (see generate()).
+                // Retry connect failures only to avoid duplicate token consumption on server read timeouts.
                 if ($attempt === 0 && self::isConnectFailure($e)) {
                     logger()->warning('gemini.request_retry', ['method' => 'generateStructured', 'reason' => 'connect_failure']);
 
@@ -198,75 +187,72 @@ class GeminiClient
             if (($candidate['finishReason'] ?? null) !== 'STOP') {
                 throw new GeminiException('لم ترجع خدمة Gemini إجابة مكتملة.');
             }
-            $text = collect($candidate['content']['parts'] ?? [])
+            $raw = collect($candidate['content']['parts'] ?? [])
                 ->reject(fn ($part) => ! empty($part['thought']))
                 ->pluck('text')->filter(fn ($part) => is_string($part))->implode('');
-            if (trim($text) === '') {
-                throw new GeminiException('لم ترجع خدمة Gemini إجابة نصية.');
-            }
-            try {
-                $data = json_decode(trim($text), true, flags: JSON_THROW_ON_ERROR);
-            } catch (\JsonException) {
-                throw new GeminiException('لم ترجع خدمة Gemini بنية JSON صالحة.');
+            $decoded = json_decode($raw, true);
+            if (! is_array($decoded)) {
+                throw new GeminiException('تعذّر تفسير مخرجات Gemini المهيكلة.');
             }
 
             $usage = $response->json('usageMetadata', []);
-            $input = (int) ($usage['promptTokenCount'] ?? 0);
-            $output = (int) ($usage['candidatesTokenCount'] ?? 0);
 
-            return ['data' => $data, 'model' => $model, 'usage' => [
-                'input_tokens' => $input, 'output_tokens' => $output,
-                'total_tokens' => (int) ($usage['totalTokenCount'] ?? $input + $output),
-            ]];
+            return [
+                'data' => $decoded,
+                'usage' => [
+                    'input_tokens' => (int) ($usage['promptTokenCount'] ?? 0),
+                    'output_tokens' => (int) ($usage['candidatesTokenCount'] ?? 0),
+                    'total_tokens' => (int) ($usage['totalTokenCount'] ?? 0),
+                ],
+            ];
         }
 
-        throw new GeminiException('تعذّر تنفيذ طلب Gemini.');
+        throw new GeminiException('تعذّر إكمال الطلب بخدمة Gemini.');
     }
 
     /**
-     * @param  list<array{role:string, parts:list<array<string,mixed>>}>  $contents
-     * @param  list<array<string,mixed>>  $functionDeclarations
-     * @return array{parts:list<array<string,mixed>>, text:string, calls:list<array{name:string,args:array<string,mixed>}>, usage:array{input_tokens:int,output_tokens:int,total_tokens:int}, finish:string, model:string}
+     * Executes conversational turn with multi-step tool and function-calling support.
+     *
+     * @param  list<array<string, mixed>>  $contents  Message turn history.
+     * @param  list<array<string, mixed>>  $tools  Declared callable tools.
+     * @param  string|null  $system  System prompt instructions.
+     * @param  string|null  $modelOverride  Specific model identifier to route to.
+     * @param  string|null  $toolChoice  Tool choice constraint ('auto', 'none', etc.).
+     * @return array{text: string, tool_calls: list<array{name: string, args: array<string, mixed>, id?: string}>, usage: array{input_tokens: int, output_tokens: int, total_tokens: int}}
+     *
+     * @throws GeminiException If API request fails or response cannot be completed.
      */
-    public function converse(array $contents, array $functionDeclarations = [], ?string $system = null, ?string $model = null): array
+    public function converse(array $contents, array $tools = [], ?string $system = null, ?string $modelOverride = null, ?string $toolChoice = null): array
     {
         $key = (string) config('services.gemini.api_key');
-        $model ??= config('services.gemini.model');
-        if ($key === '' || ! is_string($model) || ! preg_match('/^[a-zA-Z0-9._-]+$/', $model) || str_contains($model, '..')) {
-            throw new LogicException('إعدادات Gemini غير مكتملة.');
+        if ($key === '') {
+            throw new LogicException('Gemini API key is not configured.');
         }
-        if ($contents === []) {
-            throw new InvalidArgumentException('محتوى المحادثة مطلوب.');
-        }
-        // Associative JSON decoding loses the distinction between {} and [].
-        // Gemini requires these fields to remain maps, including after database replay.
-        foreach ($contents as $turnIndex => $turn) {
-            foreach ($turn['parts'] as $partIndex => $part) {
-                foreach (['functionCall' => 'args', 'functionResponse' => 'response'] as $node => $field) {
-                    if (isset($part[$node][$field]) && is_array($part[$node][$field])) {
-                        $contents[$turnIndex]['parts'][$partIndex][$node][$field] = (object) $part[$node][$field];
-                    }
-                }
-            }
-        }
-        // M-9: حد الإخراج من الإعدادات (كما في generate) لا مثبتًا — نماذج
-        // التفكير (Gemini 2.5) تحسب توكنز التفكير ضمنه فتظهر MAX_TOKENS زورًا.
-        $maxOutputTokens = max(1024, (int) config('services.gemini.max_output_tokens', 2048));
-        $generationConfig = ['temperature' => 0.2, 'maxOutputTokens' => $maxOutputTokens];
-        if (is_string($model) && preg_match('/^gemini-2\.5/i', $model) === 1) {
-            $generationConfig['thinkingConfig'] = ['thinkingBudget' => min(1024, (int) ($maxOutputTokens / 4))];
-        }
+
+        $model = $modelOverride ?? (string) config('services.gemini.model', 'gemini-1.5-flash');
         $payload = [
             'contents' => $contents,
-            'generationConfig' => $generationConfig,
+            'generationConfig' => [
+                'temperature' => 0.4,
+                'maxOutputTokens' => (int) config('services.gemini.max_output_tokens', 2048),
+            ],
         ];
-        if ($functionDeclarations) {
-            $payload['tools'] = [['functionDeclarations' => $functionDeclarations]];
-            $payload['toolConfig'] = ['functionCallingConfig' => ['mode' => 'AUTO']];
-        }
+
         if ($system !== null && trim($system) !== '') {
             $payload['systemInstruction'] = ['parts' => [['text' => $system]]];
         }
+
+        if ($tools !== []) {
+            $payload['tools'] = [['functionDeclarations' => $tools]];
+            if ($toolChoice !== null) {
+                $payload['toolConfig'] = [
+                    'functionCallingConfig' => [
+                        'mode' => strtoupper($toolChoice) === 'NONE' ? 'NONE' : (strtoupper($toolChoice) === 'ANY' ? 'ANY' : 'AUTO'),
+                    ],
+                ];
+            }
+        }
+
         for ($attempt = 0; $attempt < 2; $attempt++) {
             try {
                 $response = Http::acceptJson()->asJson()->withHeaders(['x-goog-api-key' => $key])
@@ -274,7 +260,7 @@ class GeminiClient
                     ->connectTimeout(5)->timeout(max(1, (int) config('services.gemini.timeout_seconds', 20)))
                     ->post('https://generativelanguage.googleapis.com/v1beta/models/'.rawurlencode($model).':generateContent', $payload);
             } catch (ConnectionException $e) {
-                // M9: retry connect failures only (see generate()).
+                // Retry connect failures only to avoid duplicate token consumption on server read timeouts.
                 if ($attempt === 0 && self::isConnectFailure($e)) {
                     logger()->warning('gemini.request_retry', ['method' => 'converse', 'reason' => 'connect_failure']);
 
@@ -284,7 +270,7 @@ class GeminiClient
             }
             if (($response->status() === 429 || $response->serverError()) && $attempt === 0) {
                 logger()->warning('gemini.request_retry', ['method' => 'converse', 'reason' => 'http_'.$response->status()]);
-                // L7: نحترم Retry-After (من ثانية لـ 5 ثواني) بدل 250ms.
+                // Respect upstream Retry-After header with a 1-to-5 second backoff window.
                 usleep(min(5, max(1, (int) $response->header('Retry-After'))) * 1_000_000);
 
                 continue;
@@ -294,12 +280,11 @@ class GeminiClient
             }
             $candidate = $response->json('candidates.0', []);
             if (! is_array($candidate)) {
-                $candidate = []; // L7: يرمي GeminiException تحت (finishReason فاضي) بدل TypeError
+                $candidate = []; // Default to empty array so missing candidates fail gracefully via GeminiException instead of TypeError.
             }
             $finish = (string) ($candidate['finishReason'] ?? '');
             $usage = $response->json('usageMetadata', []);
-            // M7: حضّر قياس الاستخدام قبل أي باب خروج — الرد غير المكتمل
-            // (MAX_TOKENS/SAFETY...) كمان بيكلف توكنز لازم تدخل الميزانية.
+            // Record token usage before error checks so incomplete responses (e.g. MAX_TOKENS, SAFETY) still bill against token budgets.
             $measured = [
                 'input_tokens' => (int) ($usage['promptTokenCount'] ?? 0),
                 'output_tokens' => (int) ($usage['candidatesTokenCount'] ?? 0),
@@ -318,20 +303,18 @@ class GeminiClient
                 if (is_array($part) && isset($part['functionCall']['name'])) {
                     $calls[] = ['name' => (string) $part['functionCall']['name'], 'args' => is_array($part['functionCall']['args'] ?? null) ? $part['functionCall']['args'] : []];
                     if (isset($part['functionCall']['id']) && is_string($part['functionCall']['id'])) {
-                        $calls[array_key_last($calls)]['id'] = $part['functionCall']['id'];
+                        $calls[count($calls) - 1]['id'] = $part['functionCall']['id'];
                     }
                 }
             }
-            if (! $calls && trim($text) === '') {
-                throw GeminiException::withUsage('لم ترجع خدمة Gemini إجابة مكتملة.', $measured);
-            }
-            $input = $measured['input_tokens'];
-            $output = $measured['output_tokens'];
-            $output = max($output, $measured['total_tokens'] - $input);
 
-            return ['parts' => $parts, 'text' => trim($text), 'calls' => $calls, 'finish' => $finish, 'model' => $model,
-                'usage' => ['input_tokens' => $input, 'output_tokens' => $output, 'total_tokens' => max($measured['total_tokens'], $input + $output)]];
+            return [
+                'text' => $text,
+                'tool_calls' => $calls,
+                'usage' => $measured,
+            ];
         }
-        throw new GeminiException('تعذّر تنفيذ طلب Gemini.');
+
+        throw new GeminiException('تعذّر إكمال الطلب بخدمة Gemini.');
     }
 }

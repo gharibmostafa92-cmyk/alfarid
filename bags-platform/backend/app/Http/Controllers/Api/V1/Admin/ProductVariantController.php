@@ -18,6 +18,9 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 
+/**
+ * Product variant management (SKU, barcode, colors, sizes, pricing) with cost access controls.
+ */
 class ProductVariantController extends Controller implements HasMiddleware
 {
     public function __construct(private VariantService $service) {}
@@ -26,16 +29,22 @@ class ProductVariantController extends Controller implements HasMiddleware
     {
         return [
             new Middleware('can:products.view', only: ['index', 'show']),
-            // تعديل المتغيرات معناه تعديل المنتج نفسه
+            // Mutating variants alters the parent product structure, requiring product update permissions.
             new Middleware('can:products.update', only: ['store', 'update', 'destroy']),
         ];
     }
 
+    /**
+     * List all variants for a given product.
+     */
     public function index(Product $product): AnonymousResourceCollection
     {
         return VariantResource::collection($product->variants()->with('media')->get());
     }
 
+    /**
+     * Create a new variant under the specified product.
+     */
     public function store(StoreVariantRequest $request, Product $product): JsonResponse
     {
         $data = $this->filterCostPrice($request->validated(), $request);
@@ -44,11 +53,17 @@ class ProductVariantController extends Controller implements HasMiddleware
         return $this->variantResource($variant, $product)->response()->setStatusCode(201);
     }
 
+    /**
+     * Retrieve details for a specific variant.
+     */
     public function show(Product $product, ProductVariant $variant): VariantResource
     {
         return $this->variantResource($variant, $product);
     }
 
+    /**
+     * Update an existing product variant.
+     */
     public function update(UpdateVariantRequest $request, Product $product, ProductVariant $variant): VariantResource
     {
         $data = $this->filterCostPrice($request->validated(), $request);
@@ -57,6 +72,9 @@ class ProductVariantController extends Controller implements HasMiddleware
         return $this->variantResource($variant, $product);
     }
 
+    /**
+     * Delete a product variant.
+     */
     public function destroy(Product $product, ProductVariant $variant): JsonResponse
     {
         $this->service->delete($variant);

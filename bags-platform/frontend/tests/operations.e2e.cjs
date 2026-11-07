@@ -41,6 +41,7 @@ const pageOf=(data,page=1,total=data.length)=>({data,meta:{current_page:page,las
    if(p.endsWith('/orders'))return json(pageOf([order],Number(url.searchParams.get('page')||1),41));
    if(p.endsWith('/orders/stats'))return one({pending:2,processing:3,needs_attention:1,requires_refund:0});
    if(p.endsWith('/orders/71')){if(failOrder)return json({message:'طلب غير موجود'},404);return one(order);}
+   if(p.endsWith('/orders/10468'))return json({message:'تعذّر تحميل الطلب'},503);
    if(p.endsWith('/returns'))return json(pageOf([ret]));
    if(p.endsWith('/returns/81'))return one(ret);
    if(p.endsWith('/returns/81/receive')){mutations.push({p,body});ret={...ret,status:'received',items:ret.items.map(i=>({...i,received_good_qty:1,received_damaged_qty:0}))};return one(ret);}
@@ -92,6 +93,16 @@ const pageOf=(data,page=1,total=data.length)=>({data,meta:{current_page:page,las
   await page.goto(base+'/#/orders');await op().getByText('ORD-RUNTIME',{exact:true}).waitFor();await op().getByRole('button',{name:'2',exact:true}).click();await page.waitForTimeout(300);assert.ok(calls.some(c=>c.p.endsWith('/orders')&&c.search.includes('page=2')));
   await op().getByText('ORD-RUNTIME',{exact:true}).click();await op().getByText('عنوان الاختبار الحقيقي',{exact:true}).waitFor();assert.equal(await op().getByText('WELCOME50',{exact:true}).count(),0);
   await page.waitForTimeout(1500);await page.screenshot({path:path.join(out,'order.png'),fullPage:true});
+  if (process.env.OPERATIONS_FALLBACK === 'true') {
+   await page.goto(base+'/#/orders/10468');
+   await op().getByText('ORD-10468',{exact:true}).waitFor();
+   await op().getByText('تعذّر الاتصال بالخادم؛ البيانات المعروضة تجريبية ولا يمكن حفظ التغييرات.',{exact:true}).waitFor();
+   for (const name of ['تغيير الحالة','تحديث الدفع','فك التخصيص','إنشاء شحنة']) {
+    assert.equal(await op().getByRole('button',{name,exact:true}).isDisabled(),true,name);
+   }
+   assert.ok(calls.some(c=>c.p.endsWith('/orders/10468')&&c.method==='GET'));
+   assert.ok(!calls.some(c=>c.p.includes('/orders/10468')&&['POST','PATCH','PUT','DELETE'].includes(c.method)));
+  }
   await page.goto(base+'/#/returns/81');await op().getByText('سبب اختبار حقيقي',{exact:true}).waitFor();await op().getByRole('button',{name:'الاستلام والفحص',exact:true}).click();
   const quantities=op().locator('input[type=number]');assert.equal(await quantities.nth(0).inputValue(),'');assert.equal(await quantities.nth(1).inputValue(),'');
   await op().getByRole('button',{name:'تأكيد الاستلام',exact:true}).click();await op().getByText('أدخل الكمية السليمة والتالفة لكل بند بعد الفحص الفعلي',{exact:true}).waitFor();assert.ok(!mutations.some(m=>m.p.endsWith('/receive')));

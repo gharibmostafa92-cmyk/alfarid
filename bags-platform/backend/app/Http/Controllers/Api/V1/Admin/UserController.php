@@ -214,8 +214,8 @@ class UserController extends Controller
         if (isset($userAttributes['password'])) {
             $actionData['password'] = $userAttributes['password'];
         }
-        // L8: self password-only rotation (verified current password) does not
-        // require users.update — otherwise flagged newcomers could never comply.
+        // Self password-only rotation (with verified current password) bypasses the users.update
+        // permission so users flagged with must_change_password can rotate their credentials upon login.
         $selfRotation = $isCurrentUser && isset($userAttributes['password'])
             && array_diff(array_keys($validated), ['password', 'current_password', 'expected_version']) === [];
         $failure = app(UpdateStaffUser::class)($currentUser, $user, $actionData,

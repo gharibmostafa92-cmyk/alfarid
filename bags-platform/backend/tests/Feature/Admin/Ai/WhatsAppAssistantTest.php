@@ -5,25 +5,30 @@ declare(strict_types=1);
 namespace Tests\Feature\Admin\Ai;
 
 use App\Jobs\ProcessWhatsAppMessage;
+use App\Models\AiAttachment;
 use App\Models\AiConversation;
 use App\Models\AiPendingAction;
 use App\Models\AiWhatsappIdentity;
 use App\Models\AiWhatsappInbound;
 use App\Models\AiWhatsappLinkToken;
 use App\Models\AiWhatsappOutbound;
+use App\Models\Banner;
 use App\Models\User;
 use App\Services\Ai\PendingActionService;
 use App\Services\Ai\ToolRegistry;
 use App\Services\Ai\WhatsApp\WhatsAppActorContext;
 use App\Services\Ai\WhatsApp\WhatsAppInboundProcessor;
 use App\Services\SettingService;
+use App\Support\BannerImage;
 use Database\Seeders\AiAgentPermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Models\Permission;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
@@ -177,6 +182,103 @@ class WhatsAppAssistantTest extends TestCase
         $this->assertSame('12345@lid', $identity->wa_lid);
         $this->assertNotNull($identity->verified_at);
         Http::assertSent(fn ($request) => str_contains((string) $request->body(), 'تم ربط رقمك'));
+    }
+
+    public function test_shipping_company_can_be_confirmed_from_whatsapp_at_medium_risk(): void
+    {
+        DB::table('settings')->whereIn('key', [
+            'ai_enabled', 'ai_whatsapp_enabled', 'ai_whatsapp_allow_writes', 'ai_shipping_tools_enabled',
+        ])->update(['value' => '1']);
+        app(SettingService::class)->clearCache();
+        $user = $this->staff();
+        $user->givePermissionTo(Permission::findOrCreate('shipping.create', 'staff'));
+        $conversation = AiConversation::query()->create(['user_id' => $user->id, 'channel' => 'whatsapp', 'model' => 'test']);
+        $jid = '201012345678@s.whatsapp.net';
+        AiWhatsappIdentity::query()->create([
+            'user_id' => $user->id,
+            'phone_e164' => '+201012345678',
+            'wa_jid' => $jid,
+            'status' => 'active',
+            'verified_at' => now(),
+            'created_by' => $user->id,
+        ]);
+        $registry = app(ToolRegistry::class);
+        $this->assertContains('upsert_shipping_company', array_column($registry->declarationsFor($user, channel: 'whatsapp'), 'name'));
+        $proposal = $registry->dispatch($user, $conversation, [
+            'name' => 'upsert_shipping_company',
+            'args' => ['name' => 'Test Carrier', 'code' => 'test-carrier', 'is_active' => false],
+        ]);
+        $this->assertSame('proposal', $proposal->type);
+        $this->assertDatabaseMissing('shipping_companies', ['code' => 'test-carrier']);
+        AiWhatsappOutbound::query()->create([
+            'wa_message_id' => 'carrier-card',
+            'conversation_id' => $conversation->id,
+            'pending_action_id' => $proposal->data['pending_action_id'],
+        ]);
+        Http::fake(['http://gateway.test/*' => Http::response(['wa_message_id' => 'carrier-result'])]);
+
+        app(WhatsAppInboundProcessor::class)->process(
+            $this->inbound('carrier-confirm'),
+            $this->message('carrier-confirm', $jid, 'تأكيد', 'carrier-card'),
+        );
+
+        $this->assertDatabaseHas('shipping_companies', ['code' => 'test-carrier', 'is_active' => false]);
+        $this->assertDatabaseHas('ai_pending_actions', ['id' => $proposal->data['pending_action_id'], 'status' => 'executed']);
+    }
+
+    public function test_whatsapp_image_creates_a_banner_only_after_confirmation(): void
+    {
+        DB::table('settings')->whereIn('key', [
+            'ai_enabled', 'ai_whatsapp_enabled', 'ai_whatsapp_allow_writes', 'ai_storefront_tools_enabled',
+        ])->update(['value' => '1']);
+        app(SettingService::class)->clearCache();
+        config(['services.gemini.api_key' => 'test-key', 'services.gemini.model' => 'test-model']);
+        $user = $this->staff();
+        $user->givePermissionTo(Permission::findOrCreate('store.manage', 'staff'));
+        $jid = '201012345678@s.whatsapp.net';
+        AiWhatsappIdentity::query()->create([
+            'user_id' => $user->id,
+            'phone_e164' => '+201012345678',
+            'wa_jid' => $jid,
+            'status' => 'active',
+            'verified_at' => now(),
+            'created_by' => $user->id,
+        ]);
+        $image = UploadedFile::fake()->image('banner.jpg', 600, 300);
+        Http::fake([
+            'http://gateway.test/media/banner-image' => Http::response($image->getContent()),
+            'http://gateway.test/presence' => Http::response(),
+            'http://gateway.test/send' => Http::sequence()
+                ->push(['wa_message_id' => 'banner-card'])
+                ->push(['wa_message_id' => 'banner-result']),
+            'generativelanguage.googleapis.com/*' => function ($request) use ($user) {
+                $attachment = AiAttachment::query()->where('user_id', $user->id)->sole();
+                $this->assertStringContainsString($attachment->id, $request->body());
+
+                return Http::response([
+                    'candidates' => [['finishReason' => 'STOP', 'content' => ['parts' => [[
+                        'functionCall' => ['name' => 'create_banner', 'args' => [
+                            'title' => 'WhatsApp banner',
+                            'position' => 'main_slider',
+                            'link_type' => 'none',
+                            'attachment_id' => $attachment->id,
+                        ]],
+                    ]]]]],
+                ]);
+            },
+        ]);
+        $processor = app(WhatsAppInboundProcessor::class);
+        $message = $this->message('banner-request', $jid, 'اعمل بانر من الصورة دي');
+        $message['media'] = ['id' => 'banner-image', 'type' => 'image'];
+        $processor->process($this->inbound('banner-request'), $message);
+        $this->assertDatabaseMissing('banners', ['title' => 'WhatsApp banner']);
+        $card = AiWhatsappOutbound::query()->where('wa_message_id', 'banner-card')->firstOrFail();
+        $this->assertNotNull($card->pending_action_id);
+
+        $processor->process($this->inbound('banner-confirm'), $this->message('banner-confirm', $jid, 'تأكيد', 'banner-card'));
+
+        $banner = Banner::query()->where('title', 'WhatsApp banner')->sole();
+        Storage::disk(BannerImage::disk())->assertExists($banner->image_path);
     }
 
     public function test_high_risk_confirm_requires_typed_text_and_quote_finds_the_card(): void

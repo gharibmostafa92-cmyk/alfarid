@@ -19,6 +19,9 @@ class PaymentNoticeController extends Controller
 {
     public function __construct(private readonly WholesalePaymentNoticeService $service) {}
 
+    /**
+     * List payment notices submitted by the merchant.
+     */
     public function index(Request $request): JsonResponse
     {
         $filters = $request->validate([
@@ -36,6 +39,9 @@ class PaymentNoticeController extends Controller
         return WholesalePaymentNoticeResource::collection($notices)->response();
     }
 
+    /**
+     * Submit a new payment notice with bank transfer receipt.
+     */
     public function store(StorePaymentNoticeRequest $request): JsonResponse
     {
         /** @var Customer $customer */
@@ -45,6 +51,9 @@ class PaymentNoticeController extends Controller
         return (new WholesalePaymentNoticeResource($notice->load('order')))->response()->setStatusCode(201);
     }
 
+    /**
+     * Show a single payment notice belonging to the merchant.
+     */
     public function show(Request $request, int $paymentNotice): JsonResponse
     {
         $notice = WholesalePaymentNotice::query()
@@ -55,7 +64,9 @@ class PaymentNoticeController extends Controller
         return (new WholesalePaymentNoticeResource($notice))->response();
     }
 
-    /** المديونية الآجلة الحالية للتاجر بعد خصم الإشعارات المعتمدة. */
+    /**
+     * Get current outstanding credit balance after deducting verified notices.
+     */
     public function outstanding(Request $request): JsonResponse
     {
         /** @var Customer $customer */

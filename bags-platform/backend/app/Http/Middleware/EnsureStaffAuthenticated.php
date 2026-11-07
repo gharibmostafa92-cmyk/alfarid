@@ -13,6 +13,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Symfony\Component\HttpFoundation\Response;
 
+/**
+ * Enforces staff authentication, account activation, password rotation, token abilities, and branch active state.
+ */
 class EnsureStaffAuthenticated
 {
     public function handle(Request $request, Closure $next): Response
@@ -32,8 +35,8 @@ class EnsureStaffAuthenticated
             ], 403);
         }
 
-        // L8: كلمة المرور المؤقتة يجب تدويرها في أول دخول — تُسمح فقط
-        // مشاهدة الحساب وتغيير كلمة السر الذاتي وتسجيل الخروج حتى التدوير.
+        // Temporary passwords must be rotated upon first login; restrict access exclusively
+        // to own profile viewing, password updates, and logout until completed.
         if ((bool) $user->must_change_password && ! $this->isPasswordRotationRequest($request, $user)) {
             return response()->json([
                 'message' => 'يجب تغيير كلمة المرور المؤقتة قبل المتابعة.',
@@ -61,7 +64,7 @@ class EnsureStaffAuthenticated
         return $next($request);
     }
 
-    /** L6: كاش 30 ثانية؛ تعطيل الفرع بياخد لحد 30 ثانية عشان يسري. */
+    /** Cache branch active status for 30 seconds to balance check frequency with deactivation propagation delay. */
     private function branchIsActive(int $branchId): bool
     {
         return (bool) Cache::remember('branch-active:'.$branchId, 30, fn () => (bool) Branch::query()->whereKey($branchId)->value('is_active'));
@@ -82,12 +85,8 @@ class EnsureStaffAuthenticated
         $routeUser = $request->route('user');
         $targetId = $routeUser instanceof User ? $routeUser->getKey() : $routeUser;
 
-        // L-1: عدّ الأجزاء كان 4 دائمًا، لكن مسار api/v1/admin/users/5
-        // فيه 5 أجزاء فالشرط عمره ما تحقق وأي تدوير عبر PUT users/{id}
-        // كان يأخذ 403 password_change_required. المطابقة باسم المسار
-        // أدق (users/{user} فقط — لا مسارات فرعية مثل users/{user}/roles).
-        // L-8: مطابقة المسار بدقة (users/{user} فقط) — لا أي مسار مستقبلي
-        // مثل users/{user}/roles يُستثنى تلقائيًا.
+        // Match the exact named route admin.users.update targeting the authenticated user's own ID,
+        // preventing route segment count bugs and ensuring sub-resources remain blocked during rotation.
         return in_array($request->method(), ['PUT', 'PATCH'], true)
             && $request->routeIs('admin.users.update')
             && (int) $targetId === (int) $user->getKey();

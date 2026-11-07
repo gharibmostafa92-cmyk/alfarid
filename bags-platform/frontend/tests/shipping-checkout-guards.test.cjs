@@ -50,7 +50,7 @@ test('idempotency keys do not require crypto.randomUUID', () => {
 test('card-only methods leave checkout with nothing it can submit', () => {
   const { checkoutPaymentMethods, shownQuote } = loadTs('../apps/storefront/src/components/sophie/checkout/useCheckout.ts');
   assert.deepEqual(checkoutPaymentMethods(['card']), []);
-  assert.deepEqual(checkoutPaymentMethods(['cod', 'card', 'wallet']), ['cod', 'wallet']);
+  assert.deepEqual(checkoutPaymentMethods(['cod', 'card', 'wallet', 'bank_transfer']), ['cod', 'wallet', 'bank_transfer']);
   const quote = { city: 1 };
   assert.equal(shownQuote(quote, 'latest', 'old', false, false), null);
   assert.equal(shownQuote(quote, 'latest', 'latest', true, false), null);
@@ -122,6 +122,7 @@ function mountCheckout({ endpoints, cart, session, router }) {
     '@/store/auth.store': { useAuthStore: (select) => select({ user: null, token: null }) },
     '@/hooks/use-auth-hydrated': { useAuthHydrated: () => true },
     '@/lib/viewer-key': { viewerKey: () => 'guest' },
+    '@/lib/guest-orders': { rememberGuestOrder() {} },
   });
   return {
     render() {
@@ -215,6 +216,48 @@ test('checkout recovers a lost response after reload, then rotates the key after
   assert.notEqual(attempts[2][2], attempts[0][2]);
   assert.equal(fixture.storage.has('pending_checkout'), false);
   reloaded.unmount();
+});
+
+test('checkout blocks double submission and retries transient HTTP errors with the original request', async (t) => {
+  const attempts = [];
+  const failures = [408, 409, 429];
+  let rejectFirst;
+  const fixture = checkoutFixture(t, {
+    async place(...args) {
+      attempts.push(args);
+      const status = failures.shift();
+      if (status === 408) return new Promise((resolve, reject) => { rejectFirst = reject; });
+      if (status) throw { response: { status } };
+      return { data: { order_number: 'ORD-1' } };
+    },
+  });
+  const checkout = fixture.mount();
+  const { set } = checkout.render();
+  set('fullName', 'Customer');
+  set('phone', '01012345678');
+  set('cityId', 1);
+  set('street', 'Nile');
+  set('agreeTerms', true);
+  checkout.render();
+  await advanceQuote(t);
+
+  const { submit } = checkout.render();
+  const inFlight = submit();
+  await submit();
+  assert.equal(attempts.length, 1);
+  rejectFirst({ response: { status: 408 } });
+  await inFlight;
+
+  for (const status of [408, 409, 429]) {
+    const view = checkout.render();
+    assert.equal(view.uncertain, true, `HTTP ${status} leaves the result uncertain`);
+    assert.equal(view.locked, true);
+    await view.submit();
+  }
+  assert.equal(attempts.length, 4);
+  for (const attempt of attempts.slice(1)) assert.deepEqual(attempt, attempts[0]);
+  assert.equal(checkout.render().uncertain, false);
+  checkout.unmount();
 });
 
 test('checkout ignores stale city responses and blocks submission while quantities change or payment is unavailable', async (t) => {

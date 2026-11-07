@@ -120,7 +120,7 @@ final class SearchProductsTool implements AgentTool
 
         $products = $q->orderByDesc('id')->limit($limit)->get();
 
-        // الوصف ما يرجعش أبدًا في البحث
+        // Omit lengthy product descriptions from search results to conserve context window.
         $items = $products->map(fn (Product $p) => [
             'id' => $p->id,
             'code' => $p->code,

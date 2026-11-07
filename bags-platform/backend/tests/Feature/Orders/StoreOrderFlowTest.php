@@ -20,15 +20,18 @@ use App\Models\Setting;
 use App\Models\ShippingRate;
 use App\Models\StockLevel;
 use App\Models\User;
+use App\Notifications\OrderConfirmationNotification;
 use App\Services\CartService;
 use App\Services\InventoryService;
 use App\Services\OrderService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\RateLimiter;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -95,9 +98,67 @@ class StoreOrderFlowTest extends TestCase
         ])->assertUnprocessable();
     }
 
+    public function test_cart_quantity_validation_and_customer_specific_caps(): void
+    {
+        $variant = $this->purchasableVariant(100);
+        $this->giveStock($variant, 600);
+        $add = fn ($qty) => $this->postJson('/api/v1/store/cart/items', [
+            'product_variant_id' => $variant->id, 'qty' => $qty,
+        ]);
+
+        foreach ([0, 1.5, -1, 10001, 'abc'] as $invalid) {
+            $add($invalid)->assertUnprocessable()->assertJsonValidationErrors('qty');
+        }
+        $add(11)->assertUnprocessable();
+        $add(1)->assertOk()->assertJsonCount(1, 'data.items');
+
+        Auth::forgetGuards();
+        $retail = Customer::factory()->create();
+        $this->withToken($retail->createToken('retail-cap')->plainTextToken);
+        $add(51)->assertUnprocessable();
+        $add(50)->assertOk();
+        $this->assertSame(50.0, (float) Cart::query()->where('customer_id', $retail->id)->sole()->items()->sole()->qty);
+
+        Auth::forgetGuards();
+        $wholesale = Customer::factory()->wholesale()->create(['status' => 'approved']);
+        $this->withToken($wholesale->createToken('wholesale-cap')->plainTextToken);
+        $add(500)->assertOk();
+        $this->assertSame(500.0, (float) Cart::query()->where('customer_id', $wholesale->id)->sole()->items()->sole()->qty);
+    }
+
+    public function test_checkout_handles_fifty_lines_and_cart_rejects_the_fifty_first(): void
+    {
+        config(['store.max_cart_lines' => 50]);
+        $cart = Cart::query()->create([]);
+        $headers = ['X-Cart-Session' => $cart->cart_token];
+        for ($line = 1; $line <= 51; $line++) {
+            $variant = $this->purchasableVariant(10);
+            $this->giveStock($variant, 5);
+            $response = $this->postJson('/api/v1/store/cart/items', [
+                'product_variant_id' => $variant->id, 'qty' => 1,
+            ], $headers);
+            $response->assertStatus($line <= 50 ? 200 : 422);
+        }
+        $this->assertSame(50, $cart->items()->count());
+        $city = City::factory()->create(['shipping_cost' => 0]);
+
+        $started = hrtime(true);
+        $this->postJson('/api/v1/store/checkout', [
+            'recipient_name' => 'ضيف', 'recipient_phone' => '01012345678',
+            'city_id' => $city->id, 'shipping_address_line' => 'عنوان',
+            'payment_method' => 'cod', 'expected_total' => 500,
+        ], $headers)->assertCreated()->assertJsonCount(50, 'data.items');
+        if (getenv('STORE_LOAD_METRICS')) {
+            fwrite(STDERR, sprintf("50-line checkout: %.1f ms\n", (hrtime(true) - $started) / 1e6));
+        }
+        $this->assertSame(50.0, (float) StockLevel::query()->sum('reserved'));
+        $this->assertSame(0, $cart->items()->count());
+    }
+
     public function test_guest_checkout_with_coupon_computes_totals_and_empties_cart(): void
     {
         $variant = $this->purchasableVariant(200);
+        $image = $variant->product->addMedia(UploadedFile::fake()->image('receipt-bag.jpg'))->toMediaCollection('images');
         $this->giveStock($variant, 10);
         $city = City::factory()->create(['shipping_cost' => 30]);
         Coupon::factory()->create(['code' => 'SAVE10', 'type' => 'percentage', 'value' => 10]);
@@ -122,6 +183,7 @@ class StoreOrderFlowTest extends TestCase
             ->assertJsonPath('data.shipping_cost', '30.00')
             ->assertJsonPath('data.tax_amount', '0.00')
             ->assertJsonPath('data.grand_total', '390.00')
+            ->assertJsonPath('data.items.0.image', $image->getUrl())
             ->assertJsonPath('data.status', 'pending');
         $this->assertStringStartsWith('ORD-', (string) $response->json('data.order_number'));
 
@@ -155,6 +217,109 @@ class StoreOrderFlowTest extends TestCase
         ])->assertCreated()
             ->assertJsonPath('data.tax_amount', '56.00')   // 400 × 14%
             ->assertJsonPath('data.grand_total', '486.00'); // 400 + 30 شحن + 56 ضريبة
+    }
+
+    public function test_tax_and_coupon_shares_reconcile_to_the_cent_across_order_lines(): void
+    {
+        Setting::query()->where('key', 'tax_enabled')->update(['value' => '1']);
+        $coupon = Coupon::factory()->create(['type' => 'fixed', 'value' => 0.02]);
+        $cart = Cart::query()->create(['coupon_id' => $coupon->id]);
+        foreach ([10.01, 10.02, 10.03] as $price) {
+            $variant = $this->purchasableVariant($price);
+            $this->giveStock($variant, 5);
+            $cart->items()->create(['product_variant_id' => $variant->id, 'qty' => 1]);
+        }
+        $city = City::factory()->create(['shipping_cost' => 0]);
+
+        $this->postJson('/api/v1/store/checkout', [
+            'recipient_name' => 'ضيف', 'recipient_phone' => '01012345678',
+            'city_id' => $city->id, 'shipping_address_line' => 'عنوان', 'payment_method' => 'cod',
+        ], ['X-Cart-Session' => $cart->cart_token])->assertCreated()
+            ->assertJsonPath('data.tax_amount', '4.21')
+            ->assertJsonPath('data.discount_amount', '0.02');
+
+        $order = Order::query()->sole();
+        $this->assertSame(421, (int) round((float) $order->items()->sum('tax_amount') * 100));
+        $this->assertSame(2, (int) round((float) $order->items()->sum('discount_amount') * 100));
+        $this->assertFalse($order->items()->where('tax_amount', '<', 0)->orWhere('discount_amount', '<', 0)->exists());
+    }
+
+    public function test_order_confirmation_waits_for_commit_and_is_not_resent_on_replay(): void
+    {
+        Notification::fake();
+        $customer = Customer::factory()->create();
+        $variant = $this->purchasableVariant(100);
+        $this->giveStock($variant, 5);
+        $cart = Cart::query()->create(['customer_id' => $customer->id]);
+        $cart->items()->create(['product_variant_id' => $variant->id, 'qty' => 1]);
+        $city = City::factory()->create(['shipping_cost' => 0]);
+        $this->withToken($customer->createToken('confirmation-test')->plainTextToken);
+        $checkout = fn () => $this->postJson('/api/v1/store/checkout', [
+            'city_id' => $city->id, 'shipping_address_line' => 'عنوان', 'payment_method' => 'cod',
+        ], ['Idempotency-Key' => 'confirmation-test']);
+
+        DB::beginTransaction();
+        try {
+            $checkout()->assertCreated();
+        } finally {
+            DB::rollBack();
+        }
+        Notification::assertNotSentTo($customer, OrderConfirmationNotification::class);
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertSame(1, $cart->items()->count());
+
+        $number = DB::transaction(function () use ($checkout, $customer) {
+            $number = $checkout()->assertCreated()->json('data.order_number');
+            Notification::assertNotSentTo($customer, OrderConfirmationNotification::class);
+
+            return $number;
+        });
+
+        Notification::assertSentToTimes($customer, OrderConfirmationNotification::class, 1);
+        $checkout()->assertCreated()->assertJsonPath('data.order_number', $number);
+        Notification::assertSentToTimes($customer, OrderConfirmationNotification::class, 1);
+    }
+
+    public function test_instapay_requires_configuration_and_staff_confirmation(): void
+    {
+        config(['store.payment_methods' => ['cod', 'wallet', 'bank_transfer'], 'store.instapay_address' => null]);
+        $variant = $this->purchasableVariant(100);
+        $this->giveStock($variant, 5);
+        $city = City::factory()->create(['shipping_cost' => 0]);
+        $cartToken = $this->postJson('/api/v1/store/cart/items', [
+            'product_variant_id' => $variant->id, 'qty' => 1,
+        ])->assertOk()->json('data.cart_token');
+        $headers = ['X-Cart-Session' => $cartToken];
+        $payload = [
+            'recipient_name' => 'ضيف', 'recipient_phone' => '01012345678',
+            'city_id' => $city->id, 'shipping_address_line' => 'عنوان', 'payment_method' => 'bank_transfer',
+        ];
+        $quote = '/api/v1/store/checkout/shipping-options';
+        $checkout = '/api/v1/store/checkout';
+        $this->postJson($quote, $payload, $headers)->assertOk()->assertJsonPath('data.payment_methods', ['cod']);
+        $this->postJson($checkout, $payload, $headers)->assertUnprocessable()->assertJsonValidationErrors('payment_method');
+        $this->assertDatabaseCount('orders', 0);
+
+        config(['store.instapay_address' => 'test-store@instapay']);
+        $this->postJson($quote, $payload, $headers)->assertOk()
+            ->assertJsonPath('data.payment_methods', ['cod', 'bank_transfer'])
+            ->assertJsonPath('data.preview.cod_fee', 0);
+        $order = $this->postJson($checkout, [...$payload, 'expected_total' => 100], $headers)
+            ->assertCreated()->assertJsonPath('data.payment_status', 'unpaid')->json('data');
+        $track = '/api/v1/store/orders/'.$order['order_number'].'/track';
+        $this->getJson($track.'?phone=01000000000')->assertNotFound();
+        $this->getJson($track.'?phone=01012345678')->assertOk()
+            ->assertJsonPath('data.instapay.address', 'test-store@instapay')
+            ->assertJsonPath('data.instapay.amount', '100.00')
+            ->assertJsonStructure(['data' => ['instapay' => ['expires_at']]]);
+
+        $this->staff->assignRole(Role::findOrCreate('Super Admin', 'staff'));
+        Auth::forgetGuards();
+        $this->withToken($this->staff->createToken('instapay-review')->plainTextToken)
+            ->postJson('/api/v1/admin/orders/'.$order['id'].'/payment', [
+                'payment_status' => 'paid', 'notes' => 'Verified transfer REF-123',
+            ])->assertOk()->assertJsonPath('data.payment_status', 'paid');
+        $this->getJson($track.'?phone=01012345678')->assertOk()->assertJsonMissingPath('data.instapay');
     }
 
     public function test_guest_cart_merges_into_account_on_login(): void
@@ -230,7 +395,25 @@ class StoreOrderFlowTest extends TestCase
             ->assertJsonPath('data.status', 'pending')
             ->assertJsonCount(1, 'data.status_history');
 
-        $this->getJson("/api/v1/store/orders/{$number}/track?phone=01000000000")->assertNotFound();
+        $track = "/api/v1/store/orders/{$number}/track";
+        config(['app.debug' => false]);
+        $wrongPhone = $this->getJson("{$track}?phone=01000000000")->assertNotFound();
+        $missingOrder = $this->getJson('/api/v1/store/orders/NO-SUCH-ORDER/track?phone=01012345678')->assertNotFound();
+        $this->assertSame($wrongPhone->json(), $missingOrder->json());
+
+        $this->getJson($track)->assertUnprocessable()->assertJsonValidationErrors('phone');
+        $formattedPhone = rawurlencode('+20 10-1234-5678');
+        $this->getJson("{$track}?phone={$formattedPhone}")->assertOk()
+            ->assertJsonPath('data.order_number', $number)
+            ->assertJsonMissingPath('data.shipping_address_line')
+            ->assertJsonMissingPath('data.address_snapshot')
+            ->assertJsonMissingPath('data.email')
+            ->assertJsonMissingPath('data.recipient_phone');
+
+        for ($attempt = 5; $attempt < 10; $attempt++) {
+            $this->getJson("{$track}?phone=01012345678")->assertOk();
+        }
+        $this->getJson("{$track}?phone=01012345678")->assertTooManyRequests();
     }
 
     public function test_account_orders_listing_and_customer_cancel_releases_reservation(): void
@@ -269,7 +452,8 @@ class StoreOrderFlowTest extends TestCase
 
         Auth::forgetGuards();
         $this->withToken($token)->postJson("/api/v1/store/account/orders/{$orderId}/cancel")
-            ->assertUnprocessable();
+            ->assertOk()->assertJsonPath('data.status', 'cancelled');
+        $this->assertSame('0.0000', (string) $this->level($variant->id)->reserved);
     }
 
     // ---------- helpers ----------

@@ -6,10 +6,14 @@ namespace App\Services\Ai;
 
 use App\Models\AiConversation;
 use App\Models\AiMessage;
+use App\Services\Ai\Contracts\ToolProvider;
 
+/**
+ * Analyzes conversational user prompts and entity references to route intent to appropriate AI tool domains.
+ */
 final class DomainRouter
 {
-    /** @var array<string, list<string>> */
+    /** @var array<string, list<string>> Domain keyword triggers supporting Arabic synonyms and dialect variants. */
     private const KEYWORDS = [
         'catalog' => [
             'شنط', 'شنطة', 'شنطه', 'باك باك', 'كروس', 'هاند باج', 'ترولي', 'محفظة', 'محفظه', 'لابتوب',
@@ -58,15 +62,28 @@ final class DomainRouter
             'متأخرة', 'فئة', 'فئات', 'اتدفع', 'الدفع', 'مدفوع',
             'treasury', 'expense', 'cash', 'wallet balance',
         ],
+        'shipping' => [
+            'شركة شحن', 'شركات الشحن', 'منطقة شحن', 'مناطق الشحن', 'تعريفة الشحن', 'تعريفة التوصيل',
+            'رسوم التوصيل', 'تكلفة التوصيل', 'رسوم التحصيل', 'مدينة التوصيل', 'مدن الشحن',
+            'shipping company', 'shipping zone', 'shipping rate',
+        ],
+        'storefront' => [
+            'بانر', 'سلايدر', 'الصفحة الرئيسية', 'السلة', 'كوبون السلة', 'إتمام الشراء', 'اتمام الشراء',
+            'checkout', 'storefront',
+        ],
     ];
 
     public function __construct(private ToolRegistry $registry) {}
 
     /**
-     * @param  list<array<string,mixed>>  $mentions
-     * @param  array<string,mixed>|null  $selection
-     * @param  list<string>  $attachments
-     * @return list<string>|null
+     * Resolve eligible AI tool domains from text, mentions, selections, and conversation history.
+     *
+     * @param  string  $text  User prompt text.
+     * @param  list<array<string, mixed>>  $mentions  Explicit @entity mentions.
+     * @param  array<string, mixed>|null  $selection  Contextual client UI selection.
+     * @param  AiConversation|null  $conversation  Active conversation session.
+     * @param  list<string>  $attachments  File attachments accompanying the message.
+     * @return list<string>|null List of domain names, or null if unrouted.
      */
     public function route(
         string $text,
@@ -77,6 +94,7 @@ final class DomainRouter
     ): ?array {
         $domains = [];
 
+        // Image attachments imply catalog vision tools for analysis or product onboarding.
         if ($attachments !== []) {
             $domains['catalog'] = true;
         }
@@ -94,6 +112,8 @@ final class DomainRouter
                 'transfer', 'stocktake', 'production_receipt' => 'inventory',
                 'price_list', 'coupon', 'promotion' => 'pricing',
                 'treasury', 'treasury_transfer', 'expense' => 'finance',
+                'shipping_company', 'shipping_zone', 'shipping_rate' => 'shipping',
+                'banner', 'cart' => 'storefront',
                 default => null,
             };
             if ($mapped !== null) {
@@ -110,9 +130,7 @@ final class DomainRouter
                 if ($normWord === '') {
                     continue;
                 }
-                // Short keywords ('عد' count vs 'تعديل' modify, 'رف' shelf vs
-                // 'ارفض' reject) must match whole words, or every sentence
-                // containing them misroutes.
+                // Short keywords (<=2 chars) must match whole tokens to prevent substring false positives.
                 if (mb_strlen($normWord) <= 2) {
                     $matched = (bool) preg_match('/(^|\s)'.preg_quote($normWord, '/').'(\s|$)/u', $norm);
                 } else {
@@ -127,6 +145,7 @@ final class DomainRouter
 
         $domains = array_fill_keys($this->disambiguate($norm, array_keys($domains), $refs), true);
 
+        // Retain previous tool domain context during multi-turn follow-up queries.
         if ($conversation !== null) {
             $lastToolName = $this->lastToolInConversation($conversation);
             if ($lastToolName !== null) {
@@ -145,12 +164,15 @@ final class DomainRouter
     }
 
     /**
-     * تمييز محفظة المنتج من محفظة العميل، وتحويل البضاعة من تحويل الفلوس،
-     * ورصيد الصنف من رصيد الخزنة — بعد مطابقة الكلمات وقبل إرجاع الدومينات.
+     * Disambiguate homonymous keywords across domain boundaries before selecting tool providers.
      *
-     * @param  list<string>  $domains
-     * @param  list<array<string,mixed>>  $refs
-     * @return list<string>
+     * Distinguishes wallet merchandise from customer stored balance, money transfers from goods transfers,
+     * treasury balances from stock levels, and carrier shipping from free shipping promotional coupons.
+     *
+     * @param  string  $norm  Normalized prompt text.
+     * @param  list<string>  $domains  Matched candidate domains.
+     * @param  list<array<string, mixed>>  $refs  Referenced entity metadata.
+     * @return list<string> Refined domain list.
      */
     private function disambiguate(string $norm, array $domains, array $refs): array
     {
@@ -185,6 +207,7 @@ final class DomainRouter
             }
         };
 
+        // Distinguish customer balance top-up from physical leather wallet products.
         if ($has('محفظة')) {
             $walletFinance = $hasAny(['عميل', 'رصيد', 'شحن', 'استرداد', 'جنيه', 'مبلغ']) || $mentionsCustomer;
             if ($walletFinance) {
@@ -222,6 +245,7 @@ final class DomainRouter
             }
         }
 
+        // Distinguish cash movements between registers from physical product inter-branch transfers.
         if ($transferWord) {
             $moneyCtx = $hasAny(['خزنة', 'خزينة', 'درج', 'فلوس', 'نقدية', 'كاش', 'بنك', 'مبلغ', 'اعتماد', 'اعتمد', 'يعتمد', 'معلقة', 'معلق']);
             $goodsCtx = $hasAny(['بضاعة', 'قطعة', 'صنف', 'كرتونة', 'شنطة', 'منتج', 'مخزن']);
@@ -233,6 +257,7 @@ final class DomainRouter
             }
         }
 
+        // Distinguish financial ledger balances from SKU stock quantities.
         if ($has('رصيد')) {
             $financeCtx = $hasAny(['خزنة', 'خزينة', 'درج', 'بنك', 'محفظة']);
             $inventoryCtx = $hasAny(['صنف', 'مخزن', 'قطعة']);
@@ -263,9 +288,32 @@ final class DomainRouter
             $drop(['inventory']);
         }
 
+        // Distinguish carrier shipping rate settings from promotional free-shipping coupons.
+        $shippingCtx = $hasAny(['توصيل', 'تعريفة', 'شركة شحن', 'شركات الشحن', 'منطقة شحن', 'رسوم التحصيل', 'مدن الشحن']);
+        if ($has('شحن المحفظة') || ($has('محفظة') && $has('شحن'))) {
+            $keep('finance');
+            $drop(['shipping']);
+        }
+        if (($has('مشحون') || $has('اتشحن')) && $hasAny(['تحويل', 'مخزن']) && ! $shippingCtx) {
+            $drop(['shipping']);
+        }
+        if ($has('شحن مجاني') && $hasAny(['كوبون', 'عرض']) && ! $hasAny(['تعريفة', 'منطقة شحن', 'شركة شحن'])) {
+            $keep('pricing');
+            $drop(['shipping', 'inventory']);
+        }
+        if ($shippingCtx) {
+            $keep('shipping');
+            if (! $hasAny(['جرد', 'رصيد صنف', 'تحويل'])) {
+                $drop(['inventory']);
+            }
+        }
+
         return array_values($domains);
     }
 
+    /**
+     * Inspect previous model turns to extract the last executed tool name.
+     */
     private function lastToolInConversation(AiConversation $conversation): ?string
     {
         $lastModelWithCall = AiMessage::query()
@@ -287,6 +335,9 @@ final class DomainRouter
         return null;
     }
 
+    /**
+     * Map a tool identifier to its owning business capability domain.
+     */
     private function toolDomain(string $toolName): ?string
     {
         if (in_array($toolName, ['find_entities', 'ask_user_to_choose', 'bulk_actions'], true)) {
@@ -296,7 +347,7 @@ final class DomainRouter
         if (! $def) {
             return null;
         }
-        if (isset($def['provider']) && $def['provider'] instanceof \App\Services\Ai\Contracts\ToolProvider) {
+        if (isset($def['provider']) && $def['provider'] instanceof ToolProvider) {
             return $def['provider']->domain();
         }
         if ($this->registry->isCustomerTool($toolName)) {

@@ -23,8 +23,7 @@ use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Facades\DB;
 
 /**
- * إدارة الموردين وحسابات موظفيهم (بوابة المورد):
- * الرصيد الجاري دفتري — يبدأ من الافتتاحي ثم يتحرك بالفواتير والدفعات فقط.
+ * Supplier profiles and portal staff administration with ledger balance tracking.
  */
 class SupplierController extends Controller implements HasMiddleware
 {
@@ -40,6 +39,9 @@ class SupplierController extends Controller implements HasMiddleware
 
     public function __construct(protected SupplierService $suppliers) {}
 
+    /**
+     * List paginated suppliers with case-insensitive search and status filtering.
+     */
     public function index(Request $request): AnonymousResourceCollection
     {
         $search = trim((string) $request->query('search', ''));
@@ -57,6 +59,9 @@ class SupplierController extends Controller implements HasMiddleware
         return SupplierResource::collection($suppliers);
     }
 
+    /**
+     * Create a new supplier profile and initialize ledger balance.
+     */
     public function store(SupplierRequest $request): JsonResponse
     {
         $supplier = $this->suppliers->create($request->validated());
@@ -64,16 +69,25 @@ class SupplierController extends Controller implements HasMiddleware
         return SupplierResource::make($supplier)->response()->setStatusCode(201);
     }
 
+    /**
+     * Retrieve supplier profile details and portal users.
+     */
     public function show(Supplier $supplier): SupplierResource
     {
         return SupplierResource::make($supplier->loadMissing('users'));
     }
 
+    /**
+     * Update supplier profile details.
+     */
     public function update(SupplierRequest $request, Supplier $supplier): SupplierResource
     {
         return SupplierResource::make($this->suppliers->update($supplier, $request->validated()));
     }
 
+    /**
+     * Delete an unused supplier profile.
+     */
     public function destroy(Supplier $supplier): JsonResponse
     {
         DB::transaction(function () use ($supplier): void {
@@ -88,13 +102,19 @@ class SupplierController extends Controller implements HasMiddleware
         return response()->json(['message' => 'تم حذف المورد.']);
     }
 
-    // ---------- حسابات موظفي المورد ----------
+    // --- Supplier Portal User Accounts ---
 
+    /**
+     * List portal user accounts associated with the supplier.
+     */
     public function users(Supplier $supplier): AnonymousResourceCollection
     {
         return SupplierUserResource::collection($supplier->users()->latest('id')->get());
     }
 
+    /**
+     * Create a new portal user account for the supplier.
+     */
     public function storeUser(StoreSupplierUserRequest $request, Supplier $supplier): JsonResponse
     {
         $user = $supplier->users()->create($request->validated());
@@ -102,6 +122,9 @@ class SupplierController extends Controller implements HasMiddleware
         return SupplierUserResource::make($user)->response()->setStatusCode(201);
     }
 
+    /**
+     * Update supplier portal user account and invalidate tokens on credential changes.
+     */
     public function updateUser(UpdateSupplierUserRequest $request, Supplier $supplier, SupplierUser $user): SupplierUserResource
     {
         $this->assertBelongsToSupplier($supplier, $user);
@@ -123,6 +146,9 @@ class SupplierController extends Controller implements HasMiddleware
         return SupplierUserResource::make($user->fresh());
     }
 
+    /**
+     * Revoke tokens and delete a supplier portal user account.
+     */
     public function destroyUser(Supplier $supplier, SupplierUser $user): JsonResponse
     {
         $this->assertBelongsToSupplier($supplier, $user);
@@ -132,6 +158,12 @@ class SupplierController extends Controller implements HasMiddleware
         return response()->json(['message' => 'تم حذف حساب موظف المورد.']);
     }
 
+    /**
+     * Verifies that the portal user belongs to the specified supplier, aborting 404 otherwise.
+     *
+     * @param  Supplier  $supplier  Parent supplier
+     * @param  SupplierUser  $user  Target portal user
+     */
     private function assertBelongsToSupplier(Supplier $supplier, SupplierUser $user): void
     {
         abort_if((int) $user->supplier_id !== (int) $supplier->id, 404);

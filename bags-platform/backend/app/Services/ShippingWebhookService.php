@@ -126,6 +126,14 @@ class ShippingWebhookService
                 return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
             }
 
+            // A replacement waybill is the live shipment. A late "delivered" on the
+            // failed original must not mark the order delivered.
+            if ($status === ShipmentStatus::Delivered && $this->hasNewerActiveShipment($shipment)) {
+                $log->update(['status' => 'ignored', 'error' => 'تسليم لبوليصة استُبدلت بأحدث منها — يُتجاهل']);
+
+                return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
+            }
+
             // Reject regressive status transitions or movements out of terminal states
             if (! $this->transitionAllowed($shipment->status, $status)) {
                 $log->update(['status' => 'ignored', 'error' => "حدث متأخر/متراجع: {$shipment->status->value} ← {$status->value}"]);

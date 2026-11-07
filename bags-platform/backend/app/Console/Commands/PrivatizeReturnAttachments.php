@@ -6,14 +6,15 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 
+/**
+ * Legacy command alias for migrating uploaded attachments to private R2 storage.
+ */
 class PrivatizeReturnAttachments extends Command
 {
     protected $signature = 'returns:privatize-attachments';
 
-    // L10: the name is misleading — this migrates ALL legacy uploads to
-    // private R2 (uploads:migrate-to-r2), not just return attachments.
-    // Kept as a thin alias for existing runbooks/cron; prefer calling
-    // uploads:migrate-to-r2 directly for new schedules.
+    // Kept as a backwards-compatible alias for existing runbooks and cron entries.
+    // Migrates all legacy uploads (not returns only) via uploads:migrate-to-r2.
     protected $description = 'Migrate all legacy uploads to private R2 storage (alias of uploads:migrate-to-r2, not returns-only)';
 
     public function handle(): int

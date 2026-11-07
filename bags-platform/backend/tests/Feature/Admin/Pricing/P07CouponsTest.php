@@ -21,7 +21,7 @@ use Database\Seeders\PromotionPermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Testing\TestResponse;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
@@ -243,7 +243,7 @@ class P07CouponsTest extends TestCase
         return array_merge(['code' => 'C'.strtoupper(uniqid()), 'type' => 'percentage', 'value' => 10], $overrides);
     }
 
-    private function postCoupon(User $admin, array $payload): \Illuminate\Testing\TestResponse
+    private function postCoupon(User $admin, array $payload): TestResponse
     {
         return $this->withToken($this->token($admin))->postJson('/api/v1/admin/coupons', $payload);
     }
@@ -327,6 +327,28 @@ class P07CouponsTest extends TestCase
         $this->assertSame(self::NOT_REDEEMABLE, $this->validateError('USE01', 100.0));
     }
 
+    public function test_coupon_accepts_exact_schedule_and_subtotal_boundaries(): void
+    {
+        $this->freezeSecond();
+        $starts = now()->addSecond();
+        $ends = now()->addMinute();
+        $coupon = Coupon::factory()->create([
+            'code' => 'BOUNDARY', 'starts_at' => $starts, 'ends_at' => $ends,
+            'min_order_amount' => 100, 'usage_limit' => null,
+        ]);
+        $service = app(CouponService::class);
+        $this->assertSame(self::NOT_REDEEMABLE, $this->validateError('BOUNDARY', 100.0));
+
+        $this->travelTo($starts);
+        $this->assertSame(self::NOT_REDEEMABLE, $this->validateError('BOUNDARY', 99.99));
+        $this->assertSame($coupon->id, $service->redeemableById($coupon->id, 100.0)->id);
+
+        $this->travelTo($ends);
+        $this->assertSame($coupon->id, $service->redeemableById($coupon->id, 100.0)->id);
+        $this->travel(1)->seconds();
+        $this->assertSame(self::NOT_REDEEMABLE, $this->validateError('BOUNDARY', 100.0));
+    }
+
     // ── section 3: checkout revalidation path honors exhaustion ──
     public function test_checkout_revalidation_rejects_exhausted_coupon(): void
     {
@@ -348,7 +370,7 @@ class P07CouponsTest extends TestCase
         $cart = Cart::factory()->create();
 
         $applied = $this->withHeaders(['X-Cart-Session' => $cart->cart_token])
-            ->postJson('/api/v1/store/cart/coupon', ['code' => 'cart10']);
+            ->postJson('/api/v1/store/cart/coupon', ['code' => '  cart10  ']);
         $applied->assertOk();
         $this->assertSame(Coupon::where('code', 'CART10')->firstOrFail()->id, (int) $cart->fresh()->coupon_id);
 

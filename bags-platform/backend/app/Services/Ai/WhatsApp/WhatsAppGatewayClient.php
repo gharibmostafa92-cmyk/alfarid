@@ -73,7 +73,7 @@ final class WhatsAppGatewayClient
         try {
             $this->request('POST', '/delete', ['to_jid' => $toJid, 'wa_message_id' => $waMessageId]);
         } catch (WhatsAppGatewayException) {
-            // حذف رسالة الرقم السري أفضلية، مش شرط لإتمام الفتح.
+            // Deleting the PIN message is best-effort and must not abort authentication.
         }
     }
 

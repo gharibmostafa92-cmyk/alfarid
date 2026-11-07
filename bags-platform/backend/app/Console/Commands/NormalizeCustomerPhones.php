@@ -8,17 +8,25 @@ use App\Models\Customer;
 use App\Models\CustomerAuditLog;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use RuntimeException;
 
+/**
+ * Validates and batch-normalizes legacy customer mobile numbers into canonical Egyptian format.
+ */
 class NormalizeCustomerPhones extends Command
 {
     protected $signature = 'customers:normalize-phones {--apply : Apply a collision-free normalization plan in batches}';
 
     protected $description = 'Check legacy Egyptian mobile numbers for normalization collisions before updating them';
 
+    /**
+     * Execute the phone normalization command.
+     *
+     * @return int Command exit code (0 for success, 1 on failure).
+     */
     public function handle(): int
     {
-        // M8: الخطة في transaction قصيرة (الجدول المؤقت ON COMMIT DROP على نفس الاتصال)
-        // وتتحمّل في الذاكرة؛ بعدين كل batch في transaction مستقلة فالأقفال تتساب دفعة بدفعة.
+        // Build normalization plan in a temporary table transaction, then apply in isolated batches to release row locks incrementally.
         $plan = DB::transaction(fn (): ?array => $this->buildPlan());
         if ($plan === null) {
             return self::FAILURE;
@@ -33,7 +41,7 @@ class NormalizeCustomerPhones extends Command
                 foreach ($batch as $change) {
                     $customer = Customer::withTrashed()->lockForUpdate()->findOrFail($change->id);
                     if ($customer->phone !== $change->before) {
-                        throw new \RuntimeException('A customer changed during normalization; earlier batches are committed — rerun the command to continue.');
+                        throw new RuntimeException('A customer changed during normalization; earlier batches are committed — rerun the command to continue.');
                     }
                     $customer->phone = $change->after;
                     $customer->save();
@@ -47,7 +55,12 @@ class NormalizeCustomerPhones extends Command
         return self::SUCCESS;
     }
 
-    /** @return list<object>|null */
+    /**
+     * Builds and validates the phone normalization plan using an isolated temporary table.
+     * Aborts with null if normalization would create unique phone collisions or produce invalid formats.
+     *
+     * @return list<object>|null Normalization change records, or null if collisions/invalid numbers are detected
+     */
     private function buildPlan(): ?array
     {
         DB::statement("CREATE TEMP TABLE customer_phone_normalization ON COMMIT DROP AS

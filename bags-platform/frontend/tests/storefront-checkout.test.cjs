@@ -16,10 +16,56 @@ function load(relative, dependencies = {}) {
     return Module.prototype.require.call(compiled, name);
   };
   compiled._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
   }).outputText, filename);
   return compiled.exports;
 }
+
+test('InstaPay instructions expire at the deadline even beyond the maximum timer delay', t => {
+  const startedAt = Date.UTC(2026, 10, 7);
+  const deadline = startedAt + 30 * 24 * 60 * 60 * 1000;
+  let now = startedAt;
+  let state;
+  let effect;
+  let timer;
+  t.mock.method(Date, 'now', () => now);
+  t.mock.method(global, 'setTimeout', (callback, delay) => {
+    assert.ok(delay <= 2 ** 31 - 1, 'delay must fit in a browser timer');
+    timer = { callback, delay };
+    return 1;
+  });
+  t.mock.method(global, 'clearTimeout', () => { timer = null; });
+  const jsx = type => ({ type });
+  const { InstaPayInstructions } = load('apps/storefront/src/components/sophie/checkout/InstaPayInstructions.tsx', {
+    react: {
+      useState(initial) {
+        if (!state) state = { value: typeof initial === 'function' ? initial() : initial };
+        return [state.value, value => { state.value = value; }];
+      },
+      useEffect(callback) { effect ??= callback; },
+    },
+    'react/jsx-runtime': { jsx, jsxs: jsx },
+    '@alfarid/utils': { formatStorePrice: String },
+  });
+  const render = () => InstaPayInstructions({ details: {
+    expires_at: new Date(deadline).toISOString(), amount: 100, address: 'test@instapay',
+  } });
+
+  assert.equal(render().type, 'section');
+  const cleanup = effect();
+  const first = timer;
+  now += first.delay;
+  first.callback();
+  assert.equal(render().type, 'section');
+  assert.equal(timer.delay, deadline - now);
+  now = deadline - 1;
+  assert.equal(render().type, 'section');
+  now = deadline;
+  timer.callback();
+  assert.equal(render().type, 'p');
+  cleanup();
+  assert.equal(timer, null);
+});
 
 test('retail return paths cannot escape the site or override restricted destinations', () => {
   const { safeReturnPath } = load('apps/storefront/src/lib/safe-return-path.ts');
@@ -48,6 +94,22 @@ test('checkout endpoints unwrap real Laravel resource envelopes and preserve ret
   await checkoutEndpoints.place({ city_id: 1 }, 'guest-cart', 'same-order-key');
   assert.equal(calls[2].config.headers['Idempotency-Key'], 'same-order-key');
   assert.equal(calls[2].config.headers['X-Cart-Session'], 'guest-cart');
+});
+
+test('tracking encodes an order number as one path segment and passes the phone separately', async () => {
+  const calls = [];
+  const payload = { order_number: 'ORD-%2F/1' };
+  const client = { defaults: {}, get: async (url, config) => {
+    calls.push({ url, config });
+    return { data: { data: payload } };
+  } };
+  const { checkoutEndpoints } = load('packages/api-client/src/endpoints/index.ts', {
+    './inventory': {}, './operations': {}, '../axios-instance': { defaultApiClient: client, createApiClient: () => client },
+  });
+  assert.deepEqual(await checkoutEndpoints.track(payload.order_number, '01012345678'), payload);
+  assert.deepEqual(calls, [{
+    url: '/api/v1/store/orders/ORD-%252F%2F1/track', config: { params: { phone: '01012345678' } },
+  }]);
 });
 
 test('root categories with direct products remain navigable without fabricated subcategories', () => {
@@ -96,5 +158,40 @@ test('public API images use a same-origin path across surfaces without proxying 
     assert.equal(storeImageUrl('https://api.store.test/storage/banner.png'), '/store-media/banner.png');
   } finally {
     if (previous === undefined) delete process.env.NEXT_PUBLIC_API_URL; else process.env.NEXT_PUBLIC_API_URL = previous;
+  }
+});
+
+test('store image helpers reject unsafe schemes, protocol-relative paths and credentials', () => {
+  const { storeImageSource, storeImageUrl } = load('apps/storefront/src/lib/store-image.ts');
+  for (const host of ['cdn.example.test', 'localhost:8000', '127.0.0.1:8000']) {
+    for (const input of [
+      `https://user:pass@${host}/bag.png`, `http://user@${host}/storage/bag.png`,
+      `//${host}/bag.png`, `/\\${host}/bag.png`, `/\t/${host}/bag.png`,
+      'javascript:alert(1)', ' JaVaScRiPt:alert(1)', 'data:text/html,test',
+    ]) {
+      assert.equal(storeImageSource(input), null, input);
+      assert.equal(storeImageUrl(input), '', input);
+    }
+  }
+});
+
+test('catalog filters survive a URL round trip with generated valid combinations', () => {
+  const { buildSearch, parseFilters } = load('apps/storefront/src/lib/catalog-query.ts');
+  const sorts = ['featured', 'newest', 'best_selling', 'price_asc', 'price_desc', 'name'];
+  const occasions = ['casual', 'work', 'weekend', 'evening'];
+  for (let sample = 0; sample < 1000; sample++) {
+    const state = {
+      category: sample % 3 ? 'شنط-يد' : null,
+      color: sample % 7 ? 'black' : null,
+      priceMin: sample % 5 ? sample / 100 : null,
+      priceMax: sample % 7 ? (sample + 500) / 100 : null,
+      occasions: occasions.filter((_, index) => (sample >> index) & 1),
+      sort: sorts[sample % sorts.length],
+      search: sample % 2 ? `شنطة + & # ${sample}` : '',
+      inStock: sample % 4 === 0,
+    };
+    const search = new URLSearchParams(buildSearch(state, { product: 'شنطة-جلد' }));
+    assert.deepEqual(parseFilters(search), state);
+    assert.equal(search.get('product'), 'شنطة-جلد');
   }
 });

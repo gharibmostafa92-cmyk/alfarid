@@ -12,19 +12,19 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
- * مطابقة دورية بين الدفتر والأرصدة (M-8): القاعدة تضمن صحة كل حركة على حدة،
- * والكتابة المباشرة التي تتجاوز حماية الموديل تحتاج مطابقة مستقلة.
- * الفحص يتحقق لكل وعاء من أمرين:
- * 1. رصيد stock_levels يساوي آخر balance_after في الدفتر لنفس الوعاء.
- * 2. تسلسل الدفتر متصل: balance_before لكل حركة يساوي balance_after لسابقتها.
- * يُشغَّل دوريًا (جدولة ليلية) ويُرجع كود فشل عند وجود أي فرق للتنبيه.
+ * Periodic inventory audit verifying ledger continuity and synchronization with current stock levels.
  */
 class ReconcileInventory extends Command
 {
-    protected $signature = 'inventory:reconcile {--branch_id= : قصر الفحص على فرع واحد} {--all-branches : الفحص الكامل فرعًا فرعًا بنفس الاستعلام (وضع الجدولة الأسبوعية)} {--incremental : فحص المفاتيح المتغيرة فقط} {--limit=1000 : أقصى عدد مفاتيح في الدفعة التراكمية}';
+    protected $signature = 'inventory:reconcile {--branch_id= : Restrict check to a single branch} {--all-branches : Scan all active branches sequentially} {--incremental : Reconcile recently modified inventory keys only} {--limit=1000 : Maximum keys per incremental batch}';
 
-    protected $description = 'مطابقة أرصدة المخزون مع دفتر الحركات وكشف أي كتابة مباشرة';
+    protected $description = 'Reconcile stock level balances against movement ledger history and flag discrepancies';
 
+    /**
+     * Execute the inventory reconciliation command.
+     *
+     * @return int Command exit code (0 for success).
+     */
     public function handle(): int
     {
         $branch = $this->option('branch_id');
@@ -34,8 +34,7 @@ class ReconcileInventory extends Command
             return self::INVALID;
         }
 
-        // M6: فحص شامل واحد يمسح الدفتر كاملًا ويحمل أقفالًا واسعة وقت الذروة —
-        // وضع الجدولة يمر على الفروع النشطة واحدًا واحدًا بنفس الاستعلام.
+        // Running branch-by-branch avoids locking large ledger sections and reduces statement duration.
         if ((bool) $this->option('all-branches')) {
             if ($branch !== null) {
                 $this->error('مرر branch_id أو all-branches وليس الاثنين معًا.');
@@ -61,9 +60,14 @@ class ReconcileInventory extends Command
         return StatementBudget::run(300000, fn (): int => $this->reconcile($branch === null ? null : (int) $branch));
     }
 
+    /**
+     * Executes the reconciliation SQL CTE for a specific branch or all branches.
+     *
+     * @param  int|null  $branch  Target branch ID, or null to reconcile across all branches
+     * @return int Command exit code (SUCCESS, FAILURE, or INVALID)
+     */
     private function reconcile(?int $branch): int
     {
-
         $incremental = (bool) $this->option('incremental');
         $limit = filter_var($this->option('limit'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 10000]]);
         if ($limit === false) {
@@ -116,8 +120,7 @@ SQL;
             // Revision comparison survives concurrent commits. A simple MAX(id) cursor
             // would skip a lower sequence ID committed after the reconciliation snapshot.
             $matches = fn (string $alias): string => "EXISTS (SELECT 1 FROM chosen c WHERE c.branch_id = {$alias}.branch_id AND c.product_variant_id = {$alias}.product_variant_id AND COALESCE(c.location_id, 0) = COALESCE({$alias}.location_id, 0))";
-            // L13: prefer least-recently-checked keys so a permanently-broken
-            // key cannot occupy the LIMIT window forever and starve the rest.
+            // Prefer least-recently-checked keys so permanently broken records do not starve the remaining backlog.
             $sql = str_replace('WITH levels AS (', "WITH chosen AS MATERIALIZED (SELECT * FROM inventory_reconcile_work WHERE (?::bigint IS NULL OR branch_id = ?::bigint) ORDER BY checked_at NULLS FIRST, key LIMIT {$limit}), levels AS (", $sql);
             $sql = str_replace('SELECT * FROM stock_levels WHERE', 'SELECT * FROM stock_levels WHERE '.$matches('stock_levels').' AND', $sql);
             $sql = str_replace('FROM stock_movements WHERE', 'FROM stock_movements WHERE '.$matches('stock_movements').' AND', $sql);
@@ -141,16 +144,14 @@ SQL, $sql);
         $result = DB::selectOne($sql, $bindings);
 
         if ($incremental) {
-            // L13: mark everything just examined — permanent problems sink
-            // below unchecked keys on the next run instead of starving them.
+            // Mark examined keys to ensure unresolvable issues sink below unchecked keys in subsequent runs.
             $examined = json_decode((string) ($result->examined ?? '[]'), true) ?? [];
             if ($examined !== []) {
                 DB::table('inventory_reconcile_work')->whereIn('key', $examined)->update(['checked_at' => now()]);
             }
         }
 
-        // آخر نتيجة محفوظة لأداة inventory_health (المطابقة الكاملة أثقل من
-        // حد زمن الأدوات، فالأداة تقرأ آخر تشغيل مجدول بدل تشغيل الفحص).
+        // Persist latest run outcome for the inventory_health assistant tool to avoid expensive real-time audits.
         InventoryReconcileRun::query()->create([
             'branch_id' => $branch !== null ? (int) $branch : null,
             'checked' => (int) $result->checked,
@@ -158,8 +159,7 @@ SQL, $sql);
             'samples' => json_decode((string) $result->samples, true) ?? [],
         ]);
 
-        // L11: التشغيل التراكمي كل 15 دقيقة يخلف ~96 صفًا يوميًا — إبقاء
-        // أسبوعين فقط من سجل التشغيلات.
+        // Retain two weeks of reconciliation run logs to keep historical trends while capping storage growth.
         InventoryReconcileRun::query()->where('created_at', '<', now()->subDays(14))->delete();
 
         if ((int) $result->problem_count > 0) {

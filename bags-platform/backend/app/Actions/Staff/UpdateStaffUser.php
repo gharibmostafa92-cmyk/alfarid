@@ -18,16 +18,25 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Exceptions\PermissionDoesNotExist;
 
+/**
+ * Updates staff user profile, roles, credentials, and associated security tokens.
+ */
 final class UpdateStaffUser
 {
     public function __construct(private BranchAccess $branches) {}
 
     /**
-     * Credentials are validated and hashed by the REST caller; AI may never supply them.
+     * Update target staff user attributes, credentials, or assigned roles.
      *
-     * L8: $selfRotation allows a password-only self change (verified current
-     * password) without users.update — otherwise a freshly created staff
-     * member could never clear must_change_password.
+     * @param  User  $actor  Staff user initiating the update.
+     * @param  User  $target  Target staff user being modified.
+     * @param  array<string, mixed>  $validated  Validated user attributes and roles.
+     * @param  array<string, mixed>  $via  Audit metadata context.
+     * @param  string|null  $verifiedPasswordHash  Pre-verified password hash for self-updates.
+     * @param  bool  $selfRotation  Whether this is a self-rotation clearing must_change_password.
+     * @return string|null Error status key on business rule rejection, or null on success.
+     *
+     * @throws ValidationException If password verification fails or email collision occurs.
      */
     public function __invoke(User $actor, User $target, array $validated, array $via = [], ?string $verifiedPasswordHash = null, bool $selfRotation = false): ?string
     {
@@ -79,7 +88,8 @@ final class UpdateStaffUser
             if (array_key_exists('branch_id', $userAttributes)) {
                 $branch = $this->branches->restrictedBranch($currentUser);
                 abort_if($branch !== null && (int) ($userAttributes['branch_id'] ?? 0) !== $branch, 403);
-                // M4: نقل موظف لفرع معطّل مرفوض.
+
+                // Reassigning staff to a deactivated branch is disallowed to prevent locking the user out.
                 $newBranchId = (int) ($userAttributes['branch_id'] ?? 0);
                 if ($newBranchId > 0 && $newBranchId !== (int) $lockedUser->branch_id) {
                     abort_unless((bool) (Branch::query()->find($newBranchId)?->is_active), 422, 'لا يمكن تعيين موظف على فرع متوقف.');
@@ -109,12 +119,7 @@ final class UpdateStaffUser
                 return 'insufficient_permissions';
             }
 
-            // L-3: إعادة التحقق من تفرّد البريد تحت القفل، زي M-14 في
-            // CreateStaffUser. الفحص في الـ FormRequest يسبق القفل،
-            // فتعديلان متزامنان لنفس البريد يمرّان معًا ويضرب الثاني
-            // في الـ unique index فيرجع 500. هنا القفل العام
-            // (StaffAdministration::lock) يسلّسل كتابات الموظفين،
-            // فإعادة الفحص داخل الـ transaction كافية.
+            // Re-validate email uniqueness under lock to prevent unique index collisions from concurrent edits.
             if (isset($userAttributes['email']) && $userAttributes['email'] !== $lockedUser->email) {
                 Validator::make(
                     ['email' => $userAttributes['email']],
@@ -123,8 +128,8 @@ final class UpdateStaffUser
             }
             $emailChanged = isset($userAttributes['email']) && $userAttributes['email'] !== $lockedUser->email;
             $passwordChanged = array_key_exists('password', $userAttributes);
-            if ($passwordChanged) {                // L8: تدوير ذاتي يُسقط الإجبار؛ تعيين إداري لكلمة سر موظف
-                // آخر يُشغّله (لم يخترها بنفسه).
+            if ($passwordChanged) {
+                // Self-rotation clears the reset requirement, while admin resets mandate rotation on next login.
                 $userAttributes['must_change_password'] = ! $currentUser->is($lockedUser);
             }
             $lockedUser->update($userAttributes);

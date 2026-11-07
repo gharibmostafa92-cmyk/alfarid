@@ -14,6 +14,7 @@ import { getCartSession, useCartStore } from '@/stores/cart-store';
 import { useAuthStore } from '@/store/auth.store';
 import { useAuthHydrated } from '@/hooks/use-auth-hydrated';
 import { viewerKey } from '@/lib/viewer-key';
+import { rememberGuestOrder } from '@/lib/guest-orders';
 
 export interface SavedAddressItem {
   id: number;
@@ -76,8 +77,11 @@ export function buildAddressLine(
     .join(', ');
 }
 
-/** Works on http pages where crypto.randomUUID is missing. */
+/**
+ * Generate a unique idempotency key with fallback for non-secure HTTP contexts.
+ */
 export function newIdempotencyKey(): string {
+  // Web Crypto randomUUID requires a secure origin; fallback ensures reliability on local networks.
   const generator = globalThis.crypto?.randomUUID;
   if (typeof generator === 'function') {
     return generator.call(globalThis.crypto);
@@ -86,12 +90,16 @@ export function newIdempotencyKey(): string {
 }
 
 /** Checkout can submit only these methods. Anything else (card, bitcoin) is dropped. */
-export function checkoutPaymentMethods(methods: readonly string[]): Array<'cod' | 'wallet' | 'credit'> {
-  return methods.filter((method): method is 'cod' | 'wallet' | 'credit' =>
-    method === 'cod' || method === 'wallet' || method === 'credit');
+export function checkoutPaymentMethods(methods: readonly string[]): CheckoutPaymentMethod[] {
+  return methods.filter((method): method is CheckoutPaymentMethod =>
+    (['cod', 'wallet', 'bank_transfer', 'credit'] as const).includes(method as CheckoutPaymentMethod));
 }
 
-/** The price on screen belongs to the latest quote key, and only after the cart settles. */
+/**
+ * Display a quote only when it strictly matches the current live cart state and selections.
+ *
+ * Guards against displaying stale delivery rates while background cart mutations are in flight.
+ */
 export function shownQuote<T>(quote: T | null, quotedFor: string, quoteKey: string, cartBusy: boolean, cartLoading: boolean): T | null {
   return quotedFor === quoteKey && !cartBusy && !cartLoading ? quote : null;
 }
@@ -481,6 +489,7 @@ export function useCheckout() {
         pending.current.session,
         keyRef.current,
       );
+      if (attemptOwner === 'guest') rememberGuestOrder(res.data.order_number);
       try {
         sessionStorage.setItem('last_order', JSON.stringify(res.data));
       } catch {

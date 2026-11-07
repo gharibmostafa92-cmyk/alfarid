@@ -82,8 +82,7 @@ final class AnalyzeProductPhotosTool implements AgentTool
             throw ValidationException::withMessages(['attachment_ids' => ['ابعت من صورة لـ 5 صور لتحليلها.']]);
         }
 
-        // M3: بلا محادثة لا ميزانية يومية ولا سقف دورة — الرفض هنا بدل
-        // تسجيل صامت لا يُحتسب.
+        // Rejection required outside conversations to track token budgets against daily and session caps.
         $conv = $this->proposals->conversation();
         if (! $conv) {
             throw ValidationException::withMessages(['attachment_ids' => ['التحليل متاح من داخل المحادثة فقط؛ ارفع الصور في المحادثة أولًا.']]);
@@ -99,8 +98,7 @@ final class AnalyzeProductPhotosTool implements AgentTool
             throw ValidationException::withMessages(['attachment_ids' => ['بعض الصور المرفقة غير موجودة أو لا تخص هذه المحادثة.']]);
         }
 
-        // H3: قراءة المحتوى من التخزين المشترك بدل مسار محلي — $disk->path()
-        // لا يوجد على S3، وكل سيرفر كان يرى ملفاته فقط.
+        // Read file contents from shared object storage rather than local paths to support distributed nodes.
         $disk = Storage::disk('ai_private');
 
         $prompt = <<<'PROMPT'
@@ -150,8 +148,7 @@ PROMPT;
             ->whereNull('consumed_at')
             ->update(['consumed_at' => now()]);
 
-        // $conv مضمونة هنا (الرفض أعلاه) — التوكنز تدخل الميزانية
-        // اليومية وسقف الدورة عبر صفوف ai_messages.
+        // Record token metrics into ai_messages to track daily usage caps.
         AiMessage::create([
             'conversation_id' => $conv->id,
             'role' => 'event',

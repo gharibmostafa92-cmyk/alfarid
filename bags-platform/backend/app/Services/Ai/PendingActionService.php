@@ -23,10 +23,22 @@ use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Exceptions\RoleAlreadyExists;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
+/**
+ * Coordinates two-phase confirmation, execution, cancellation, and rollback of AI-proposed actions.
+ */
 final class PendingActionService
 {
     public function __construct(private ToolRegistry $registry, private SettingService $settings) {}
 
+    /**
+     * Confirms and executes an AI proposed action after verifying permissions and constraints.
+     *
+     * @param  User  $actor  Authenticated staff user confirming the action.
+     * @param  AiPendingAction  $action  Target pending action model.
+     * @param  string|null  $typed  Required typed confirmation string for high-risk actions.
+     * @param  array<string, mixed>|null  $selectedItems  Item selection for partial bulk execution.
+     * @return ToolOutcome Execution result outcome.
+     */
     public function confirm(User $actor, AiPendingAction $action, ?string $typed = null, ?array $selectedItems = null): ToolOutcome
     {
         if ($action->tool === 'bulk_actions') {
@@ -132,9 +144,7 @@ final class PendingActionService
             $selected = $selectedItems ?? $ids;
             abort_if(! $selected || array_diff($selected, $ids) !== [] || count(array_unique($selected)) !== count($selected), 422);
             $locked->forceFill(['status' => 'confirmed'])->save();
-            // M-4: المختارون فقط يتحولون لـ pending، والباقون يُلغون في نفس
-            // الـ transaction — فلا نافذة سباق لتأكيد مستبعد من تبويب آخر،
-            // ولا أيتام pending لو انهارت العملية بعد الـ claim.
+            // Transition selected items to pending while cancelling unselected ones in the same transaction to prevent orphans and race conditions.
             AiPendingAction::query()->whereIn('id', $selected)->where('status', 'bulk_child')->update(['status' => 'pending']);
             AiPendingAction::query()->whereIn('id', array_diff($ids, $selected))->whereIn('status', ['bulk_child', 'pending'])->update(['status' => 'cancelled']);
 
@@ -147,12 +157,7 @@ final class PendingActionService
         foreach ($claim['selected'] as $id) {
             $child = AiPendingAction::query()->where('conversation_id', $action->conversation_id)->where('user_id', $actor->id)->findOrFail($id);
             try {
-                // M-5: set_branch_status خرج من الـ bulk نهائيًا (كان نص
-                // "تنفيذ" واحد يؤكد تعطيل فروع، والحماية بالكود المكتوب
-                // تُلغى من السيرفر بتعبئة تلقائية — residual risk M10).
-                // لا تعبئة تلقائية لأي نص تأكيد هنا: أي عنصر عالي الخطورة
-                // في مجموعة قديمة بلا نص مدخل من المستخدم يفشل برسالة
-                // واضحة بدل تنفيذه بتعبئة من السيرفر.
+                // Do not auto-fill typed confirmation: high-risk actions requiring typed input must fail if unconfirmed.
                 $outcome = $this->confirm($actor, $child, null);
                 $results[] = ['action_id' => $id, 'ok' => $outcome->type === 'result', 'message' => $outcome->message];
             } catch (QueryException $e) {
@@ -165,8 +170,7 @@ final class PendingActionService
                 }
                 $this->retryBulkConflict($action, $claim, $results);
             } catch (RetryableConflict $e) {
-                // H2: قفل/تايم-أوت من confirmLocked أو StaffAdministration::lock
-                // يصل هنا كاستثناء مخصص — نفس مسار إعادة المحاولة، لا failed.
+                // Transient lock timeouts in batch actions trigger retryable conflict rather than marking action as failed.
                 $this->retryBulkConflict($action, $claim, $results);
             } catch (\Throwable $e) {
                 if (! $e instanceof HttpExceptionInterface && ! $e instanceof ValidationException) {
@@ -179,8 +183,7 @@ final class PendingActionService
         $successes = count(array_filter($results, fn ($item) => $item['ok']));
         $ok = $successes === count($results);
         $message = 'تم تنفيذ '.$successes.' من '.count($results).' عمليات.';
-        // L4: الأب الفاشل كليًا يُوسم failed لا executed — وإلا usage()
-        // والتقارير تحسبه نجاحًا.
+        // Mark batch parent action as failed if zero items succeeded to prevent incorrect audit reporting.
         $parentStatus = $successes === 0 ? 'failed' : 'executed';
         $action->refresh()->forceFill(['status' => $parentStatus, 'executed_at' => now(), 'result' => ['ok' => $ok, 'message' => $message, 'items' => $results]])->save();
         $block = ['type' => 'result', 'ok' => $ok, 'message' => $message, 'items' => $results];
@@ -190,9 +193,7 @@ final class PendingActionService
     }
 
     /**
-     * H2: تعارض مؤقت أثناء تأكيد عنصر جماعي — الأب يرجع pending
-     * (قابل للتأكيد من جديد)، والعنصر الحالي يبقى pending، ولا شيء يوسم
-     * failed. تُرمى 409 دائمًا بعد تسجيل حدث النتيجة.
+     * Handles transient lock conflict during batch item confirmation, leaving parent pending for safe retry.
      *
      * @param  array{selected:list<string>,all:list<string>}  $claim
      * @param  list<array{action_id:string,ok:bool,message:string}>  $results
@@ -209,10 +210,7 @@ final class PendingActionService
     }
 
     /**
-     * M7: القفل الاستشاري العام لأدوات إدارة الموظفين فقط. أدوات
-     * الكتالوج والمخزون تعتمد على أقفالها الخاصة (CatalogLock::tree +
-     * أقفال الصفوف، أو InventoryService::lockLevels بترتيب ثابت)، فأخذ
-     * القفل العام عند تأكيدها كان يسلسل كل شيء خلف أثقل عملية.
+     * Acquire global admin lock only for tool domains that do not manage fine-grained locks.
      */
     private function lockForAction(string $tool): void
     {
@@ -274,7 +272,7 @@ final class PendingActionService
             } elseif ($typedHint !== null && $typedHint !== '') {
                 $typedInstruction = 'اكتب '.$typedHint.': '.$expectedTyped;
             }
-            // L-9: مطابقة متسامحة (trim + توحيد حالة) بدل الحرفية الصارمة.
+            // Tolerant comparison (trimmed, case-insensitive) for user-entered confirmation.
             $norm = fn (?string $v): ?string => $v === null ? null : mb_strtolower(trim($v));
             if ($expectedTyped !== null && $typed !== null && $norm($typed) !== $norm($expectedTyped)) {
                 abort(422, 'نص التأكيد مش مطابق.');
@@ -297,8 +295,7 @@ final class PendingActionService
                 return $this->registry->executeWrite($actor, $action, $via, $selectedItems);
             });
         } catch (UniqueConstraintViolationException) {
-            // M14: 23505 بتصل برا الـ savepoint — الإجراء يتاخد failed برسالة
-            // مفهومة بدل 500 والإجراء يتعلق pending للأبد.
+            // Convert unique constraint violations outside savepoint to descriptive 409 errors instead of dangling in pending.
             $message = 'قيمة مشتركة (كود فرع أو موقع/بريد) اتحجزت لحظة الحفظ. اطلب اقتراح جديد.';
             $action->forceFill(['status' => 'failed', 'result' => ['message' => $message, 'conflict_409' => true]])->save();
             $this->event($action, 'result', $message, [['type' => 'result', 'ok' => false, 'message' => $message]]);
@@ -316,8 +313,7 @@ final class PendingActionService
 
                 return ToolOutcome::result(false, $message);
             }
-            // M-5: خطأ عمل مفهوم (تعطيل مرفوض/تحقق) يُحوَّل لفشل مسجَّل بدل
-            // إلغاء الـ transaction الخارجية وبقاء الإجراء pending للأبد.
+            // Record expected domain validation errors as action failures to prevent hanging actions in pending state.
             $message = $e instanceof ValidationException
                 ? collect($e->errors())->flatten()->implode(' ')
                 : $e->getMessage();
@@ -336,9 +332,7 @@ final class PendingActionService
 
             return ToolOutcome::result(false, $message);
         } catch (QueryException $e) {
-            // M1: كتلة QueryException واحدة. قفل/deadlock → RetryableConflict
-            // (409 قابل لإعادة المحاولة) من غير وسم failed (الـ savepoint
-            // اتراجع ومفيش حالة اتغيرت). غير كده → failed برسالة مفهومة.
+            // Convert database lock timeouts (55P03, 40P01, 40001) to RetryableConflict without marking the action failed.
             if (in_array($e->errorInfo[0] ?? null, ['55P03', '40P01', '40001'], true) || $this->isRetryableLockFailure($e)) {
                 throw new RetryableConflict('السجل مشغول بتعديل تاني؛ مفيش حاجة اتنفذت. جرّب التأكيد تاني بعد لحظة.', $e);
             }
@@ -353,8 +347,7 @@ final class PendingActionService
             return ToolOutcome::result(false, $message);
         } catch (HttpExceptionInterface $e) {
             if ($e->getStatusCode() === 409) {
-                // H2: التعارض القابل لإعادة المحاولة لا يوسم failed — مفيش
-                // حالة اتغيرت، وإعادة التأكيد بعد لحظة كافية.
+                // Do not mark retryable 409 conflicts as failed since underlying state is unchanged and can be retried.
                 if (! $e instanceof RetryableConflict) {
                     $action->forceFill(['status' => 'failed', 'result' => ['message' => $e->getMessage() ?: 'حد عدّل السجل ده بعد الاقتراح. تحب أجهّز اقتراح جديد؟', 'conflict_409' => true]])->save();
                     $this->event($action, 'result', $e->getMessage() ?: 'حد عدّل السجل ده بعد الاقتراح.', [['type' => 'result', 'ok' => false, 'message' => $e->getMessage() ?: 'حد عدّل السجل ده بعد الاقتراح.']]);
@@ -371,8 +364,7 @@ final class PendingActionService
         $ok = $outcome->type === 'result';
         $storedResult = $outcome->data;
         unset($storedResult['generated_password']);
-        // الأدوات قد تحفظ مراجع أنشأتها أثناء التنفيذ (مثل مسودة تحويل)
-        // في expected_versions — حدّث النسخة قبل حساب حالة التراجع.
+        // Refresh model instance so newly generated IDs in expected_versions are available for undo state hashing.
         $action->refresh();
         if ($ok && $this->registry->canUndo($action)) {
             $storedResult['undo_state'] = $this->registry->targetState($action);
@@ -398,6 +390,13 @@ final class PendingActionService
         return ToolOutcome::wrap($outcome->type, $outcome->data, $blocks[0] ?? null, $outcome->message);
     }
 
+    /**
+     * Cancels a pending AI action and its associated bulk children.
+     *
+     * @param  User  $actor  Staff user initiating cancellation.
+     * @param  AiPendingAction  $action  Target pending action to cancel.
+     * @return AiPendingAction Cancelled action instance.
+     */
     public function cancel(User $actor, AiPendingAction $action): AiPendingAction
     {
         abort_unless($action->user_id === $actor->id, 403);
@@ -408,7 +407,7 @@ final class PendingActionService
             if ($locked->status === 'pending') {
                 $locked->forceFill(['status' => 'cancelled'])->save();
                 if ($locked->tool === 'bulk_actions') {
-                    // M10: الإجراءات الفرعية بتنقفل مع الخبّة الجماعية.
+                    // Cancel child actions in lockstep when parent bulk action is cancelled.
                     AiPendingAction::query()->where('user_id', $actor->id)->where('conversation_id', $locked->conversation_id)->whereIn('id', $locked->args['action_ids'])->whereIn('status', ['pending', 'bulk_child'])->update(['status' => 'cancelled']);
                 }
                 $this->event($locked, 'result', 'تم إلغاء الإجراء '.$locked->id, [['type' => 'result', 'ok' => true, 'message' => 'تم إلغاء الإجراء.']]);
@@ -418,9 +417,16 @@ final class PendingActionService
         });
     }
 
+    /**
+     * Reverses an executed AI action if within the allowable 15-minute undo window.
+     *
+     * @param  User  $actor  Staff user initiating the undo.
+     * @param  AiPendingAction  $action  Executed action to revert.
+     * @return ToolOutcome Undo result outcome.
+     */
     public function undo(User $actor, AiPendingAction $action): ToolOutcome
     {
-        // L-6: فحص الملكية قبل قفل الصفوف — لا قفل لصفوف إجراء لا يملكه المستخدم.
+        // Verify action ownership before acquiring row locks to prevent unauthorized lock contention.
         abort_unless($action->user_id === $actor->id, 403);
 
         return DB::transaction(function () use ($actor, $action) {
@@ -471,8 +477,7 @@ final class PendingActionService
     }
 
     /**
-     * M-3: وسم الإجراء failed برسالة واضحة + حدث نتيجة — بدل بقائه
-     * pending للأبد بعد استثناء غير مصنّف.
+     * Marks an action as failed with an explanatory message and records the corresponding result event.
      */
     private function markFailed(AiPendingAction $action, string $message): void
     {
@@ -494,8 +499,7 @@ final class PendingActionService
     private function event(AiPendingAction $action, string $kind, string $text, array $blocks, bool $stripPassword = false): void
     {
         if ($stripPassword) {
-            // L8: لا تعتمد على regex فوق صياغة عربية قد تتغير — المؤقتة
-            // تُعرض مرة واحدة في رد التأكيد فقط، والمخزّن نص ثابت.
+            // Strip generated passwords from stored conversation events to ensure credentials are shown only once.
             $created = $action->tool === 'create_customer' ? 'العميل' : 'الموظف';
             $text = "تم إنشاء {$created} (الباسورد ظهر للأدمن مرة واحدة).";
             $blocks = array_map(function ($b) use ($created) {

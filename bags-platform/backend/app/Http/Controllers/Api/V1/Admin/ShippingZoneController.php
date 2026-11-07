@@ -14,7 +14,9 @@ use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Facades\DB;
 
-/** إدارة مناطق الشحن ومدنها. */
+/**
+ * Geographical shipping zones and city coverage mapping administration.
+ */
 class ShippingZoneController extends Controller implements HasMiddleware
 {
     public static function middleware(): array
@@ -27,6 +29,9 @@ class ShippingZoneController extends Controller implements HasMiddleware
         ];
     }
 
+    /**
+     * List paginated shipping zones with covered cities.
+     */
     public function index(): AnonymousResourceCollection
     {
         return ShippingZoneResource::collection(
@@ -34,6 +39,9 @@ class ShippingZoneController extends Controller implements HasMiddleware
         );
     }
 
+    /**
+     * Create a new shipping zone and sync covered city associations.
+     */
     public function store(ShippingZoneRequest $request): JsonResponse
     {
         $data = $request->validated();
@@ -47,11 +55,17 @@ class ShippingZoneController extends Controller implements HasMiddleware
         return $this->zoneResource($zone)->response()->setStatusCode(201);
     }
 
+    /**
+     * Retrieve details of a shipping zone and its assigned cities.
+     */
     public function show(ShippingZone $shippingZone): ShippingZoneResource
     {
         return $this->zoneResource($shippingZone);
     }
 
+    /**
+     * Update shipping zone parameters and sync city assignments.
+     */
     public function update(ShippingZoneRequest $request, ShippingZone $shippingZone): ShippingZoneResource
     {
         $data = $request->validated();
@@ -65,6 +79,9 @@ class ShippingZoneController extends Controller implements HasMiddleware
         return $this->zoneResource($shippingZone);
     }
 
+    /**
+     * Delete a shipping zone.
+     */
     public function destroy(ShippingZone $shippingZone): JsonResponse
     {
         $shippingZone->delete();
@@ -83,6 +100,12 @@ class ShippingZoneController extends Controller implements HasMiddleware
         return array_values(array_unique(array_map(intval(...), $data['city_ids'] ?? [])));
     }
 
+    /**
+     * Wrap shipping zone model with covered cities in an API resource.
+     *
+     * @param  ShippingZone  $zone  Target shipping zone
+     * @return ShippingZoneResource Formatted resource
+     */
     private function zoneResource(ShippingZone $zone): ShippingZoneResource
     {
         return ShippingZoneResource::make($zone->loadMissing('cities'));

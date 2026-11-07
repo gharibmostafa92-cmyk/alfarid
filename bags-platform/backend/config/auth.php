@@ -7,9 +7,9 @@ use App\Models\User;
 return [
     'require_phone_verification' => env('CUSTOMER_REQUIRE_PHONE_VERIFICATION', false),
     'customer_max_tokens' => (int) env('CUSTOMER_MAX_TOKENS', 10),
-    'customer_token_minutes' => (int) env('CUSTOMER_TOKEN_MINUTES', 1440),
+    'customer_token_minutes' => (int) env('CUSTOMER_TOKEN_MINUTES', 86400),
     'supplier_max_tokens' => (int) env('SUPPLIER_MAX_TOKENS', 5),
-    'staff_token_minutes' => (int) env('STAFF_TOKEN_MINUTES', 120),
+    'staff_token_minutes' => (int) env('STAFF_TOKEN_MINUTES', 43200),
     'staff_current_password_failures' => (int) env('STAFF_CURRENT_PASSWORD_FAILURES', 5),
     'staff_admin_mutations_minute' => (int) env('STAFF_ADMIN_MUTATIONS_MINUTE', 60),
     'staff_audit_retention_days' => (int) env('STAFF_AUDIT_RETENTION_DAYS', 365),

@@ -3,6 +3,9 @@
 import React from 'react';
 import type { CheckoutVM } from './useCheckout';
 
+/**
+ * Localized display labels, descriptions, and icons for supported payment options.
+ */
 const methodLabels: Record<string, { title: string; desc: string; icon: string }> = {
   cod: {
     title: 'الدفع عند الاستلام',
@@ -14,6 +17,11 @@ const methodLabels: Record<string, { title: string; desc: string; icon: string }
     desc: 'ادفع فوراً من رصيد محفظتك',
     icon: 'fa-solid fa-wallet',
   },
+  bank_transfer: {
+    title: 'تحويل عبر InstaPay',
+    desc: 'عنوان التحويل والمبلغ هيظهروا بعد إنشاء الطلب. المتجر هيراجع التحويل يدويًا.',
+    icon: 'fa-solid fa-building-columns',
+  },
   credit: {
     title: 'آجل',
     desc: 'متاح لعملاء الجملة المعتمدين',
@@ -21,8 +29,13 @@ const methodLabels: Record<string, { title: string; desc: string; icon: string }
   },
 };
 
+/**
+ * Renders checkout payment options and mandatory legal terms agreement.
+ * Filters methods against the calculated quote to only show eligible methods.
+ */
 export function PaymentSection({ vm }: { vm: CheckoutVM }) {
   const { form, set, blur, visibleErrors, quote } = vm;
+  // Filter against UI configurations so unsupported server methods are not shown with blank labels.
   const methods = (quote?.payment_methods ?? []).filter((m) => m in methodLabels);
   return (
     <div className="checkout-block" id="checkout-section-payment" style={{ marginBottom: 0 }}>

@@ -20,6 +20,9 @@ class CustomerGroupService
 {
     /**
      * Paginate customer groups with search filtering and active counts.
+     *
+     * @param  array<string, mixed>  $filters  Search criteria and pagination parameters.
+     * @return LengthAwarePaginator Paginated group models.
      */
     public function paginate(array $filters): LengthAwarePaginator
     {
@@ -36,6 +39,13 @@ class CustomerGroupService
 
     /**
      * Create a new customer group record.
+     *
+     * @param  array<string, mixed>  $data  Group attributes.
+     * @param  User|null  $actor  Staff user initiating the action.
+     * @param  array<string, mixed>  $via  Audit metadata context.
+     * @return CustomerGroup Created group instance.
+     *
+     * @throws ValidationException If group code is already registered.
      */
     public function create(array $data, ?User $actor = null, array $via = []): CustomerGroup
     {
@@ -43,7 +53,8 @@ class CustomerGroupService
         try {
             return DB::transaction(function () use ($data, $actor, $via): CustomerGroup {
                 $group = CustomerGroup::query()->create($data)->refresh();
-                // L-7: الخصم بيأثر على التسعير.
+
+                // Audit group creation because discount percentage impacts wholesale order pricing.
                 if ($actor !== null) {
                     StaffAdministration::audit($actor, 'customer_group.created', 'customer_group', $group->id, array_keys($data), [], $group->only(array_keys($data)), $via);
                 }
@@ -51,12 +62,20 @@ class CustomerGroupService
                 return $group;
             });
         } catch (UniqueConstraintViolationException) {
-            throw ValidationException::withMessages(['code' => 'كود المجموعة مستخدم بالفعل.']); // L-4
+            throw ValidationException::withMessages(['code' => 'كود المجموعة مستخدم بالفعل.']);
         }
     }
 
     /**
      * Update customer group attributes.
+     *
+     * @param  CustomerGroup  $group  Target group model.
+     * @param  array<string, mixed>  $data  Updated attributes.
+     * @param  User|null  $actor  Staff user initiating the update.
+     * @param  array<string, mixed>  $via  Audit metadata context.
+     * @return CustomerGroup Refreshed group instance.
+     *
+     * @throws ValidationException If updated code collides with an existing group.
      */
     public function update(CustomerGroup $group, array $data, ?User $actor = null, array $via = []): CustomerGroup
     {
@@ -65,7 +84,8 @@ class CustomerGroupService
                 $group = CustomerGroup::query()->lockForUpdate()->findOrFail($group->id);
                 $before = $group->only(array_keys($data));
                 $group->update($data);
-                // M13: مسار REST كان مش بيسجل؛ مسار المساعد بيسجل بنفسه فمش بيبعت actor.
+
+                // Audit when actor is supplied; assistant tools handle audit logging independently.
                 if ($actor !== null) {
                     StaffAdministration::audit($actor, 'customer_group.updated', 'customer_group', $group->id, array_keys($data), $before, $group->only(array_keys($data)), $via);
                 }
@@ -73,23 +93,26 @@ class CustomerGroupService
                 return $group;
             });
         } catch (UniqueConstraintViolationException) {
-            throw ValidationException::withMessages(['code' => 'كود المجموعة مستخدم بالفعل.']); // L-4
+            throw ValidationException::withMessages(['code' => 'كود المجموعة مستخدم بالفعل.']);
         }
     }
 
     /**
      * Delete customer group safely under lock, preventing orphaned customer associations.
      *
-     * @throws BusinessException If assigned to customers or price lists
+     * @param  CustomerGroup  $group  Target group model.
+     * @param  User|null  $actor  Staff user initiating the deletion.
+     *
+     * @throws BusinessException If assigned to customers or price lists.
      */
     public function delete(CustomerGroup $group, ?User $actor = null): void
     {
         try {
             DB::transaction(function () use ($group, $actor): void {
-                // Lock row before existence check to prevent concurrent customer assignment that would silently lose group via nullOnDelete
+                // Lock row before existence check to prevent concurrent customer assignment that would silently lose group via nullOnDelete.
                 $group = CustomerGroup::query()->lockForUpdate()->findOrFail($group->id);
 
-                // L-1: العملاء المحذوفين لما يترجعوا لازم يلاقوا مجموعتهم.
+                // Prevent deletion if soft-deleted customers exist to preserve association upon restoration.
                 if ($group->customers()->withTrashed()->exists()) {
                     throw new BusinessException('لا يمكن حذف مجموعة مرتبطة بعملاء؛ انقل العملاء أولًا أو عطّل المجموعة.');
                 }
@@ -105,7 +128,7 @@ class CustomerGroupService
                 }
             });
         } catch (QueryException $e) {
-            // Convert foreign key violation (PostgreSQL 23503) into friendly 422 business error
+            // Convert foreign key violation (PostgreSQL 23503) into friendly 422 business error.
             if (($e->errorInfo[0] ?? $e->getCode()) === '23503') {
                 throw new BusinessException('لا يمكن حذف مجموعة مرتبطة بعملاء أو قوائم أسعار.');
             }

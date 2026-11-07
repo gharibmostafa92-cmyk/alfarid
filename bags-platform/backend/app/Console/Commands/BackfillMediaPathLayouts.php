@@ -10,6 +10,9 @@ use Illuminate\Support\Facades\Storage;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Throwable;
 
+/**
+ * Records existing numeric or UUID media storage layouts without moving physical files.
+ */
 class BackfillMediaPathLayouts extends Command
 {
     protected $signature = 'media:backfill-path-layouts';
@@ -20,9 +23,9 @@ class BackfillMediaPathLayouts extends Command
     {
         $count = 0;
         $missing = 0;
-        // L7: per-item try/catch — one R2 error must not abort the whole
-        // backfill. Files missing on BOTH layouts are logged as missing
-        // (not silently stamped uuid) so the orphan sweeper can reclaim them.
+        // Process records in individual transactions with per-item error handling so that
+        // a single R2 error does not abort the whole backfill. Missing files on both layouts
+        // are logged without tagging so orphan sweeps can inspect them later.
         Media::query()->whereNull('custom_properties->path_layout')->chunkById(100, function ($items) use (&$count, &$missing): void {
             foreach ($items as $item) {
                 try {

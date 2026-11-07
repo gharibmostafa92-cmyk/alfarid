@@ -6,42 +6,40 @@ namespace App\Console\Commands;
 
 use App\Models\Customer;
 use Illuminate\Console\Command;
+use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
 
+/**
+ * Removes abandoned private staging files from R2 storage and purges expired phone challenges and audit records.
+ */
 class PruneCustomerArtifacts extends Command
 {
     protected $signature = 'customers:prune-artifacts';
 
     protected $description = 'Remove abandoned private staging files, expired phone challenges and old message counters';
 
+    /**
+     * Execute the console command.
+     *
+     * @return int Command exit code (0 for success, 1 on failure).
+     */
     public function handle(): int
     {
         $failures = 0;
         $disk = Storage::disk('r2');
 
-        // M11: isolate each stage — an R2 exception in the storage sweep must
-        // not cancel the DB cleanups below. Customer existence is resolved in
-        // batches of 500 instead of one exists() per directory.
+        $cutoffTimestamp = now()->subHour()->timestamp;
+
+        // Isolate each cleanup phase so an R2 storage exception does not prevent the database cleanups
+        // from executing. Candidate customer existence is resolved in chunks of 500 to avoid N+1 queries.
         try {
             foreach ($disk->directories('customer_documents/pending') as $directory) {
                 if (! preg_match('~^customer_documents/pending/[a-f0-9-]{36}$~D', $directory)) {
                     continue;
                 }
-                try {
-                    $newest = 0;
-                    foreach ($disk->allFiles($directory) as $file) {
-                        $newest = max($newest, $disk->lastModified($file));
-                    }
-                    if ($newest < now()->subHour()->timestamp) {
-                        $disk->deleteDirectory($directory);
-                    }
-                } catch (Throwable $exception) {
-                    $failures++;
-                    report($exception);
-                    $this->error('Could not process '.$directory.'; rerun after checking storage access.');
-                }
+                $this->pruneDirectoryIfInactive($disk, $directory, $cutoffTimestamp, $failures);
             }
         } catch (Throwable $exception) {
             $failures++;
@@ -68,19 +66,7 @@ class PruneCustomerArtifacts extends Command
                 if (isset($existing[$customerId])) {
                     continue;
                 }
-                try {
-                    $newest = 0;
-                    foreach ($disk->allFiles($directory) as $file) {
-                        $newest = max($newest, $disk->lastModified($file));
-                    }
-                    if ($newest < now()->subHour()->timestamp) {
-                        $disk->deleteDirectory($directory);
-                    }
-                } catch (Throwable $exception) {
-                    $failures++;
-                    report($exception);
-                    $this->error('Could not process '.$directory.'; rerun after checking storage access.');
-                }
+                $this->pruneDirectoryIfInactive($disk, $directory, $cutoffTimestamp, $failures);
             }
         } catch (Throwable $exception) {
             $failures++;
@@ -105,5 +91,30 @@ class PruneCustomerArtifacts extends Command
         $this->info('Expired customer artifacts pruned.');
 
         return $failures === 0 ? self::SUCCESS : self::FAILURE;
+    }
+
+    /**
+     * Delete storage directory if all files within it were modified before the cutoff timestamp.
+     *
+     * @param  Filesystem  $disk  Target storage disk instance
+     * @param  string  $directory  Directory path to inspect
+     * @param  int  $cutoffTimestamp  Unix cutoff timestamp
+     * @param  int  $failures  Failure counter incremented by reference
+     */
+    private function pruneDirectoryIfInactive(Filesystem $disk, string $directory, int $cutoffTimestamp, int &$failures): void
+    {
+        try {
+            $newest = 0;
+            foreach ($disk->allFiles($directory) as $file) {
+                $newest = max($newest, $disk->lastModified($file));
+            }
+            if ($newest < $cutoffTimestamp) {
+                $disk->deleteDirectory($directory);
+            }
+        } catch (Throwable $exception) {
+            $failures++;
+            report($exception);
+            $this->error('Could not process '.$directory.'; rerun after checking storage access.');
+        }
     }
 }

@@ -8,6 +8,7 @@ use App\Enums\PosShiftStatus;
 use App\Enums\TransferStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;
+use App\Models\City;
 use App\Models\PosShift;
 use App\Models\StockLevel;
 use App\Models\StockTransfer;
@@ -17,11 +18,25 @@ use App\Services\BranchAccess;
 use App\Services\StaffAdministration;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Updates branch metadata, enforces optimistic concurrency, and validates deactivation blockers.
+ */
 final class UpdateBranch
 {
     public function __construct(private BranchAccess $access) {}
 
-    /** @param array<string,mixed> $data @param array<string,mixed> $via */
+    /**
+     * Update branch attributes with concurrency checks and dependency validation.
+     *
+     * @param  User  $actor  Staff user initiating the update.
+     * @param  Branch  $branch  Target branch model.
+     * @param  array<string, mixed>  $data  Validated branch attributes.
+     * @param  array<string, mixed>  $via  Audit metadata context.
+     * @param  string|null  $expectedUpdatedAt  Legacy ISO timestamp for optimistic concurrency.
+     * @return Branch Refreshed branch model.
+     *
+     * @throws BusinessException If active transfers, balances, or shifts block deactivation.
+     */
     public function __invoke(User $actor, Branch $branch, array $data, array $via = [], ?string $expectedUpdatedAt = null): Branch
     {
         $this->access->assertCentralAccess($actor);
@@ -30,8 +45,8 @@ final class UpdateBranch
             StaffAdministration::authorize($actor, ['branches.update', 'branches.manage']);
             $this->access->assertCentralAccess($actor);
             $locked = Branch::query()->lockForUpdate()->findOrFail($branch->id);
-            // M3: قفل توافقي حقيقي بالـ lock_version (بدقة أقل من الثانية)،
-            // مع دعم expectedUpdatedAt القديم احتياطًا.
+
+            // Enforce optimistic concurrency via integer version counter, falling back to ISO timestamp for legacy clients.
             $expectedLockVersion = $data['lock_version'] ?? null;
             unset($data['lock_version']);
             if ($expectedLockVersion !== null) {
@@ -40,15 +55,14 @@ final class UpdateBranch
                 abort(409, 'تم تعديل السجل بواسطة مستخدم آخر؛ أعد التحميل قبل الحفظ.');
             }
             $before = StaffAdministration::branchState($locked);
-            // city_id wins over free text so the two columns cannot drift.
+
+            // City relation ID takes precedence over raw text to keep location columns synchronized.
             if (array_key_exists('city_id', $data) && ! empty($data['city_id'])
-                && ($city = \App\Models\City::query()->find($data['city_id']))) {
+                && ($city = City::query()->find($data['city_id']))) {
                 $data['city'] = $city->name_ar ?: $city->name_en;
             }
-            // M4: same rule as SetLocationStatus — an approved transfer from a
-            // disabled branch can never be cancelled (release path is locked),
-            // and a shipped transfer to it can never be received (goods stay
-            // "in transit" forever). Non-zero balances would freeze too.
+
+            // An approved transfer from a disabled branch cannot be cancelled and in-transit shipments cannot be received.
             if (array_key_exists('is_active', $data) && ! $data['is_active']) {
                 $hasOpenTransfers = StockTransfer::query()
                     ->where(fn ($q) => $q->where('from_branch_id', $locked->id)->orWhere('to_branch_id', $locked->id))
@@ -61,8 +75,8 @@ final class UpdateBranch
                     throw new BusinessException('لا يمكن تعطيل الفرع وبه أرصدة غير صفرية؛ صفّرها أولًا.');
                 }
             }
-            // M-12: وردية POS مفتوحة أو خزينة بها رصيد — موظفو الفرع المعطّل
-            // ممنوعون من أي وصول (fail-closed) فلن يستطيعوا إغلاقها بعده.
+
+            // Prevent deactivation if POS shifts or non-zero treasuries remain, as assigned staff are locked out immediately.
             if (array_key_exists('is_active', $data) && ! $data['is_active']) {
                 if (PosShift::query()->where('branch_id', $locked->id)->where('status', PosShiftStatus::Open->value)->exists()) {
                     throw new BusinessException('لا يمكن تعطيل الفرع وبه وردية POS مفتوحة؛ أغلقها أولًا.');
@@ -71,10 +85,10 @@ final class UpdateBranch
                     throw new BusinessException('لا يمكن تعطيل الفرع وخزائنه بها أرصدة؛ صفّرها أولًا.');
                 }
             }
-            // branch.deactivated is recorded only on a real true -> false transition.
+
             $wasActive = (bool) $locked->is_active;
-            // Changing a branch into a warehouse while POS shifts are open is
-            // rejected: open shifts cannot be closed from a deactivated branch.
+
+            // Prevent changing to warehouse while open POS shifts exist to prevent unclosable shifts.
             if (array_key_exists('type', $data) && (string) $locked->type->value === 'branch'
                 && (string) ($data['type'] instanceof \App\Enums\BranchType ? $data['type']->value : $data['type']) === 'warehouse'
                 && PosShift::query()->where('branch_id', $locked->id)->where('status', PosShiftStatus::Open->value)->exists()) {

@@ -18,6 +18,9 @@ use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 class AiMessageController extends Controller
 {
+    /**
+     * Stream AI assistant responses via Server-Sent Events (SSE).
+     */
     public function stream(Request $request, AiConversation $conversation, AgentOrchestrator $orchestrator): StreamedResponse
     {
         abort_unless($conversation->user_id === $request->user('staff')->id, 403);
@@ -36,9 +39,7 @@ class AiMessageController extends Controller
                 $reply = $orchestrator->handle($request->user('staff'), $conversation, $data, fn ($status) => $emit('status', ['message' => $status]));
                 $emit('reply', ['text' => $reply->text, 'ui_blocks' => $reply->blocks, 'message_id' => $reply->messageId]);
             } catch (\Throwable $e) {
-                // L-9: AuthorizationException وValidationException ليستا
-                // HttpExceptionInterface، فكانتا تُعرضان كـ 502 مع report().
-                // صنّفهما لرمزيهما الصحيحين بلا تقرير.
+                // Map AuthorizationException (403) and ValidationException (422) directly without reporting as 502 errors.
                 $status = match (true) {
                     $e instanceof HttpExceptionInterface => $e->getStatusCode(),
                     $e instanceof AuthorizationException => 403,
@@ -53,6 +54,9 @@ class AiMessageController extends Controller
         }, 200, ['Content-Type' => 'text/event-stream', 'Cache-Control' => 'no-cache, no-store', 'X-Accel-Buffering' => 'no']);
     }
 
+    /**
+     * Submit a synchronous message turn to the AI assistant.
+     */
     public function store(Request $request, AiConversation $conversation, AgentOrchestrator $orchestrator): JsonResponse
     {
         abort_unless($conversation->user_id === $request->user('staff')->id, 403);

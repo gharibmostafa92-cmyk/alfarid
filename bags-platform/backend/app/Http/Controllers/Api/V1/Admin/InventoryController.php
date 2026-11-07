@@ -22,6 +22,9 @@ use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Validation\Rule;
 
+/**
+ * Backoffice inventory management: real-time stock levels, movement ledger queries, and manual adjustments.
+ */
 class InventoryController extends Controller implements HasMiddleware
 {
     public function __construct(
@@ -37,7 +40,9 @@ class InventoryController extends Controller implements HasMiddleware
         ];
     }
 
-    /** قائمة أرصدة المخزون الحالية مع الفلاتر والمتاح المحسوب. */
+    /**
+     * List current stock levels across branches and locations with calculated available balance.
+     */
     public function index(Request $request): AnonymousResourceCollection
     {
         $filters = $request->validate([
@@ -56,7 +61,7 @@ class InventoryController extends Controller implements HasMiddleware
             ->when($filters['location_id'] ?? null, fn ($q, $v) => $q->where('stock_levels.location_id', $v))
             ->when($filters['product_variant_id'] ?? null, fn ($q, $v) => $q->where('stock_levels.product_variant_id', $v))
             ->when($filters['product_id'] ?? null, fn ($q, $v) => $q->whereHas('variant', fn ($vq) => $vq->where('product_id', $v)))
-            // L6: نفس شرط التنبيهات — حد الصف على الصف، وحد الصنف على إجمالي الفرع.
+            // Evaluates location row safety thresholds and branch aggregate reorder points.
             ->when($filters['low_stock'] ?? null, fn ($q) => $q->whereLowStock())
             ->orderBy('stock_levels.branch_id')
             ->orderBy('stock_levels.product_variant_id')
@@ -66,7 +71,9 @@ class InventoryController extends Controller implements HasMiddleware
         return StockLevelResource::collection($levels);
     }
 
-    /** سجل حركات دفتر الأستاذ من الأحدث للأقدم مع الفلاتر. */
+    /**
+     * List paginated ledger movements in reverse chronological order with optional filtering.
+     */
     public function movements(Request $request): AnonymousResourceCollection
     {
         $filters = $request->validate([
@@ -88,19 +95,19 @@ class InventoryController extends Controller implements HasMiddleware
             ->when($filters['product_variant_id'] ?? null, fn ($q, $v) => $q->where('product_variant_id', $v))
             ->when($filters['product_id'] ?? null, fn ($q, $v) => $q->whereHas('variant', fn ($vq) => $vq->where('product_id', $v)))
             ->when($filters['type'] ?? null, fn ($q, $v) => $q->where('type', $v))
-            // حدود الأيام بأيام العمل (business_timezone) لا UTC، والتخزين يظل UTC
+            // Bound date windows using configured business timezone while querying against UTC timestamps.
             ->when($filters['from_date'] ?? null, fn ($q, $v) => $q->where('created_at', '>=', Carbon::parse($v, config('app.business_timezone'))->startOfDay()->utc()))
             ->when($filters['to_date'] ?? null, fn ($q, $v) => $q->where('created_at', '<', Carbon::parse($v, config('app.business_timezone'))->addDay()->startOfDay()->utc()))
             ->orderByDesc('id')
-            // الدفتر append-only وسيكبر لملايين الصفوف: بلا COUNT(*) وبلا OFFSET —
-            // ترقيم بالمؤشر على (branch_id, id DESC) يجعل الصفحات العميقة بنفس
-            // تكلفة الأولى (M-7). المقايضة: لا قفز لرقم صفحة محدد.
+            // Keyset pagination avoids COUNT(*) and OFFSET cost on append-only ledger tables.
             ->cursorPaginate($filters['per_page'] ?? 15);
 
         return StockMovementResource::collection($movements);
     }
 
-    /** تسوية يدوية: كل العناصر في transaction واحدة عبر InventoryService فقط. */
+    /**
+     * Apply manual stock adjustments atomically within a single transaction.
+     */
     public function adjustments(StoreAdjustmentRequest $request): JsonResponse
     {
         $movements = $this->inventory->applyAdjustments($request->validated(), $request->user()->id, $this->requiredIdempotencyKey($request));

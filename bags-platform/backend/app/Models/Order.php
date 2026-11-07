@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\OrderStatus;
-use App\Models\PosShift;
 use Database\Factories\OrderFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -14,9 +13,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
- * طلب. أي تغيير في status يجب أن يمر عبر OrderService::changeStatus()
- * حصرًا — هي التي تسجل التغيير في order_status_histories وتطلق الحجز
- * والتوزيع عند الانتقال إلى confirmed.
+ * Order entity representing customer orders across Storefront, POS, and Wholesale channels.
+ * Status transitions MUST occur via OrderService::changeStatus() to ensure inventory reservations,
+ * status history audit entries, and shipment consignments are atomically handled.
  */
 class Order extends Model
 {
@@ -74,8 +73,8 @@ class Order extends Model
         ];
     }
 
-    /** @return \Illuminate\Database\Eloquent\Relations\BelongsTo<\App\Models\PosShift, $this> */
-    public function posShift(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    /** @return BelongsTo<PosShift, $this> */
+    public function posShift(): BelongsTo
     {
         return $this->belongsTo(PosShift::class);
     }
@@ -120,5 +119,31 @@ class Order extends Model
     public function allocatedBranch(): BelongsTo
     {
         return $this->belongsTo(Branch::class, 'allocated_branch_id');
+    }
+
+    /**
+     * Determine whether the given phone number matches this order (guest or registered customer).
+     * Compares canonical E.164 formats to prevent false mismatches from dialing codes.
+     *
+     * @param  string  $phone  Input phone string to compare
+     * @return bool True if phone matches guest or customer phone
+     */
+    public function matchesPhone(string $phone): bool
+    {
+        $normalized = Customer::normalizePhone($phone);
+
+        if ($this->guest_phone_normalized !== null && $this->guest_phone_normalized === $normalized) {
+            return true;
+        }
+
+        if ($this->guest_phone !== null && Customer::normalizePhone($this->guest_phone) === $normalized) {
+            return true;
+        }
+
+        if ($this->customer?->phone !== null && Customer::normalizePhone((string) $this->customer->phone) === $normalized) {
+            return true;
+        }
+
+        return false;
     }
 }

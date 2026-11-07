@@ -20,6 +20,9 @@ use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Validation\Rule;
 
+/**
+ * Backoffice administration of physical warehouse and store stocktake counting sessions and ledger adjustments.
+ */
 class StocktakeController extends Controller implements HasMiddleware
 {
     public function __construct(
@@ -38,6 +41,9 @@ class StocktakeController extends Controller implements HasMiddleware
         ];
     }
 
+    /**
+     * List paginated physical stocktake sessions with branch access constraints.
+     */
     public function index(Request $request): AnonymousResourceCollection
     {
         $filters = $request->validate([
@@ -51,6 +57,9 @@ class StocktakeController extends Controller implements HasMiddleware
         return StocktakeResource::collection($this->stocktakes->paginate($filters));
     }
 
+    /**
+     * Create a new physical stocktake session under an active branch.
+     */
     public function store(StoreStocktakeRequest $request): JsonResponse
     {
         $stocktake = $this->stocktakes->create($request->validated(), $request->user()->id, $this->requiredIdempotencyKey($request));
@@ -61,6 +70,9 @@ class StocktakeController extends Controller implements HasMiddleware
             ->setStatusCode(201);
     }
 
+    /**
+     * Retrieve stocktake session details, lines, and counted variances.
+     */
     public function show(Request $request, Stocktake $stocktake): StocktakeResource
     {
         $this->branchAccess->assertBranch($request->user()->id, $stocktake->branch_id);
@@ -68,17 +80,25 @@ class StocktakeController extends Controller implements HasMiddleware
         return StocktakeResource::make($this->stocktakes->find($stocktake->id));
     }
 
+    /**
+     * Update stocktake session details and reset/replace counted lines.
+     */
     public function update(UpdateStocktakeRequest $request, Stocktake $stocktake): StocktakeResource
     {
         return StocktakeResource::make($this->stocktakes->update($stocktake, $request->validated(), $request->user()->id));
     }
 
-    /** تحديث جزئي للعناصر: upsert للمرسلة فقط دون حذف الغائبة (M-4). */
+    /**
+     * Incrementally upsert counted stocktake lines without deleting unmentioned items.
+     */
     public function updateItems(UpdateStocktakeItemsRequest $request, Stocktake $stocktake): StocktakeResource
     {
         return StocktakeResource::make($this->stocktakes->upsertSomeItems($stocktake, $request->validated()['items'], $request->user()->id));
     }
 
+    /**
+     * Delete an unapproved stocktake session.
+     */
     public function destroy(Request $request, Stocktake $stocktake): JsonResponse
     {
         $this->stocktakes->delete($stocktake, $request->user()->id);
@@ -86,6 +106,9 @@ class StocktakeController extends Controller implements HasMiddleware
         return response()->json(['message' => 'تم حذف جلسة الجرد بنجاح']);
     }
 
+    /**
+     * Approve stocktake session and post automated variance adjustment movements.
+     */
     public function approve(Request $request, Stocktake $stocktake): StocktakeResource
     {
         $stocktake = $this->stocktakes->approve($stocktake, $request->user()->id);

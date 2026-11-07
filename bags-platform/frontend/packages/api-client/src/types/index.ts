@@ -173,7 +173,7 @@ export interface StoreCart {
 
 export interface StoreCity { id: number; name_ar: string; name_en: string | null; shipping_cost: string | number }
 
-export type CheckoutPaymentMethod = 'cod' | 'wallet' | 'credit';
+export type CheckoutPaymentMethod = 'cod' | 'wallet' | 'bank_transfer' | 'credit';
 
 export interface CheckoutPayload {
   recipient_name?: string; recipient_phone?: string; recipient_email?: string;
@@ -183,6 +183,7 @@ export interface CheckoutPayload {
 
 export interface StoreOrderItem {
   id: number; product_variant_id: number; product_name: string; sku: string;
+  image?: string | null;
   qty: number; unit_price: number | string; discount_amount: number | string; line_total: number | string;
 }
 
@@ -216,6 +217,7 @@ export interface ShippingOptionsResponse {
 export interface CartCouponResponse { cart: StoreCart; coupon_discount: number }
 
 export interface TrackOrderResponse {
+  instapay?: { address: string; amount: string; expires_at: string };
   order_number: string; status: string;
   items: Array<{ product_name: string; qty: number }>;
   status_history: Array<{ status: string; at: string }>;

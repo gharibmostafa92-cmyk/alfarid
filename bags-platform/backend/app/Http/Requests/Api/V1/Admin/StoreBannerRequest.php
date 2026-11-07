@@ -21,6 +21,11 @@ class StoreBannerRequest extends FormRequest
         return true;
     }
 
+    protected function linkTypeRule(): mixed
+    {
+        return Rule::enum(BannerLinkType::class)->except([BannerLinkType::Brand]);
+    }
+
     public function rules(): array
     {
         $type = $this->input('link_type');
@@ -30,7 +35,7 @@ class StoreBannerRequest extends FormRequest
             'image' => [$this->isCreate() ? 'required' : 'sometimes', 'file', 'image',
                 'mimes:png,jpg,jpeg,webp', 'max:5120', 'dimensions:min_width=600,min_height=300,max_width=4000,max_height=4000'],
             'position' => ['required', Rule::enum(BannerPosition::class)],
-            'link_type' => ['required', Rule::enum(BannerLinkType::class)->except([BannerLinkType::Brand])],
+            'link_type' => ['required', $this->linkTypeRule()],
             'link_value' => match ($type) {
                 'product' => ['required', 'integer', Rule::exists('products', 'id')->withoutTrashed()],
                 'category' => ['required', 'integer', Rule::exists('categories', 'id')->withoutTrashed()],

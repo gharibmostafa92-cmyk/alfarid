@@ -11,6 +11,9 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
 
+/**
+ * Generates or propagates request correlation IDs across HTTP responses, log context, and queued jobs.
+ */
 final class AssignRequestId
 {
     public function handle(Request $request, Closure $next): Response
@@ -20,9 +23,8 @@ final class AssignRequestId
             $id = (string) Str::uuid();
         }
 
-        // L2: Context (not Log::withContext) propagates request_id to queued
-        // jobs and their log records (Laravel 11+); Log context stayed in
-        // the HTTP process. Keep Log::withContext too for log formatting.
+        // Laravel 11 Context propagates request_id into queued jobs dispatched within this lifecycle,
+        // while Log::withContext ensures consistent stdout/stderr log formatting in the current process.
         Context::add([
             'request_id' => $id,
             'node' => gethostname(),

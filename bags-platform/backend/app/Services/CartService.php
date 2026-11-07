@@ -67,6 +67,9 @@ class CartService
 
     /**
      * Retrieves or creates the unique persistent cart instance for an authenticated customer.
+     *
+     * @param  Customer  $customer  Target customer
+     * @return Cart Active customer cart
      */
     private function accountCart(Customer $customer): Cart
     {
@@ -77,6 +80,9 @@ class CartService
 
     /**
      * Merges items and coupon from a guest cart into an authenticated customer cart on login.
+     *
+     * @param  Customer  $customer  Target authenticated customer
+     * @param  string|null  $guestToken  Guest session UUID token
      */
     public function mergeGuestCart(Customer $customer, ?string $guestToken): void
     {
@@ -153,6 +159,14 @@ class CartService
 
     /**
      * Adds an item quantity to the cart under a pessimistic row lock.
+     *
+     * @param  Cart  $cart  Current cart instance
+     * @param  Customer|null  $customer  Authenticated customer, if any
+     * @param  int  $variantId  Target product variant ID
+     * @param  float  $qty  Quantity to add
+     * @return Cart Fresh cart instance with loaded items
+     *
+     * @throws BusinessException If limits, stock, or pricing rules are violated
      */
     public function addItem(Cart $cart, ?Customer $customer, int $variantId, float $qty): Cart
     {
@@ -193,6 +207,7 @@ class CartService
                 ['cart_id', 'product_variant_id'],
                 ['qty' => DB::raw('cart_items.qty + EXCLUDED.qty'), 'updated_at' => now()],
             );
+            $cart->touch();
 
             return $cart->fresh('items');
         });
@@ -200,6 +215,15 @@ class CartService
 
     /**
      * Updates the quantity of a specific item in the cart.
+     *
+     * @param  Cart  $cart  Current cart instance
+     * @param  Customer|null  $customer  Authenticated customer, if any
+     * @param  int  $variantId  Target product variant ID
+     * @param  float  $qty  New target quantity
+     * @param  int|null  $itemId  Optional cart item primary key
+     * @return Cart Fresh cart instance with loaded items
+     *
+     * @throws BusinessException If quantity, stock, or pricing rules are violated
      */
     public function updateItemQty(Cart $cart, ?Customer $customer, int $variantId, float $qty, ?int $itemId = null): Cart
     {
@@ -218,6 +242,7 @@ class CartService
             $item = $cart->items()->where('product_variant_id', $variantId)
                 ->when($itemId !== null, fn ($query) => $query->whereKey($itemId))->firstOrFail();
             $item->update(['qty' => $qty]);
+            $cart->touch();
 
             return $cart->fresh('items');
         });
@@ -225,12 +250,17 @@ class CartService
 
     /**
      * Removes all quantities of a product variant from the cart.
+     *
+     * @param  Cart  $cart  Target cart instance
+     * @param  int  $variantId  Variant to remove
+     * @return Cart Fresh cart instance with loaded items
      */
     public function removeItem(Cart $cart, int $variantId): Cart
     {
         return DB::transaction(function () use ($cart, $variantId): Cart {
             $cart = Cart::query()->lockForUpdate()->findOrFail($cart->id);
             $cart->items()->where('product_variant_id', $variantId)->delete();
+            $cart->touch();
 
             return $cart->fresh('items');
         });
@@ -238,12 +268,16 @@ class CartService
 
     /**
      * Removes all items from the cart.
+     *
+     * @param  Cart  $cart  Target cart instance
+     * @return Cart Fresh cart instance with loaded items
      */
     public function clearItems(Cart $cart): Cart
     {
         return DB::transaction(function () use ($cart): Cart {
             $cart = Cart::query()->lockForUpdate()->findOrFail($cart->id);
             $cart->items()->delete();
+            $cart->touch();
 
             return $cart->fresh('items');
         });
@@ -265,8 +299,7 @@ class CartService
             if ($variant === null) {
                 continue;
             }
-            // L1: soft-deleted or deactivated variants stay in the response as
-            // unavailable lines so the shopper can remove them.
+            // Retain inactive variants in response with null prices so shoppers can view and remove them from cart.
             if (! in_array($variant->id, $purchasableIds, true)) {
                 $lines[] = [
                     'item_id' => $item->id,
@@ -376,9 +409,7 @@ class CartService
             $this->assertWholeQuantity((float) $line['qty']);
         }
         $ids = array_map(fn (array $line): int => (int) $line['variant']->id, $lines);
-        // H1: one batched refresh; the purchasability rule is the storefront
-        // published rule (retail channel + active category path), not just
-        // is_active/Published/trashed.
+        // Verify variants against published storefront channel and category hierarchy in one query batch.
         $variants = $this->retailVariants()->whereIn('id', $ids)->pluck('id')->all();
         foreach ($lines as $line) {
             $variant = $line['variant'];
@@ -396,7 +427,7 @@ class CartService
     public function assertLinesAvailable(array $lines): void
     {
         $ids = array_map(fn (array $line): int => (int) $line['variant']->id, $lines);
-        $map = $this->catalog->availabilityMap($ids);
+        $map = $this->catalog->fulfillableQuantityMap($ids);
         foreach ($lines as $line) {
             if (($map[$line['variant']->id] ?? 0) < $line['qty']) {
                 throw new BusinessException("الكمية المتاحة من الصنف ({$line['variant']->sku}) لم تعد كافية لإتمام الطلب.");
@@ -421,14 +452,13 @@ class CartService
         ]);
         $lines = $this->pricedLines($cart, $customer);
         $ids = array_map(fn (array $line): int => (int) $line['variant']->id, $lines);
-        $availability = $this->catalog->availabilityMap($ids);
+        $availability = $this->catalog->fulfillableQuantityMap($ids);
 
         $items = [];
         foreach ($lines as $line) {
             $variant = $line['variant'];
             $exact = (float) ($availability[$variant->id] ?? 0);
-            // L2: never expose the exact branch-wide balance; shoppers only
-            // need the purchasable ceiling. Unpriced lines report zero.
+            // Cap exposed balance to purchasable limits to prevent leaking exact warehouse stock levels.
             $maxQty = $line['unit_price'] === null ? 0.0 : $this->maxPurchasableQty($exact, $customer);
             // Same image rule as StoreProductCardResource::toArray: first of
             // Product::catalogImages() (product `images`, then active variants'
@@ -468,10 +498,15 @@ class CartService
 
     /**
      * Retrieves an active variant published on the retail channel.
+     *
+     * @param  int  $variantId  Product variant ID
+     * @return ProductVariant Found active variant
+     *
+     * @throws BusinessException If variant is unpublished or inactive
      */
     private function purchasableVariant(int $variantId): ProductVariant
     {
-        // H1: the single source of truth is the storefront published rule.
+        // Apply storefront catalog publishing rules to ensure discontinued products cannot be added to cart.
         $variant = $this->retailVariants()->with('product')->find($variantId);
         if ($variant === null) {
             throw new BusinessException('الصنف غير متاح للشراء.');
@@ -482,6 +517,8 @@ class CartService
 
     /**
      * Scopes query to active variants published on storefront retail channels.
+     *
+     * @return Builder Eloquent query builder for retail variants
      */
     private function retailVariants(): Builder
     {
@@ -491,6 +528,11 @@ class CartService
 
     /**
      * Enforces maximum allowed purchase quantity per cart line for guests and retail users.
+     *
+     * @param  Customer|null  $customer  Customer or null for guest
+     * @param  float  $qty  Target line quantity
+     *
+     * @throws BusinessException If requested quantity exceeds user cap
      */
     private function assertLineQty(?Customer $customer, float $qty): void
     {
@@ -504,6 +546,9 @@ class CartService
 
     /**
      * Returns the effective quantity cap per cart line based on customer type (0 = uncapped for wholesale).
+     *
+     * @param  Customer|null  $customer  Customer or null for guest
+     * @return float Maximum allowed line quantity (0 = uncapped)
      */
     public function lineQtyCap(?Customer $customer): float
     {
@@ -520,6 +565,10 @@ class CartService
 
     /**
      * Computes the maximum purchasable quantity considering branch availability and request caps.
+     *
+     * @param  float  $available  Actual branch quantity
+     * @param  Customer|null  $customer  Customer or null for guest
+     * @return float Capped quantity safe for storefront exposure
      */
     public function maxPurchasableQty(float $available, ?Customer $customer): float
     {
@@ -530,27 +579,42 @@ class CartService
 
     /**
      * Asserts that the quantity is a positive whole integer.
+     *
+     * @param  float  $qty  Input quantity
+     * @param  bool  $allowZero  Whether 0 is considered valid
+     *
+     * @throws BusinessException If quantity contains fractional parts or is negative
      */
     public function assertWholeQuantity(float $qty, bool $allowZero = false): void
     {
-        if (! is_finite($qty) || floor($qty) !== $qty || $qty < ($allowZero ? 0 : 1)) {
-            throw new BusinessException('الكمية يجب أن تكون عددًا صحيحًا من القطع.');
-        }
+        DiscreteQuantity::assertWhole($qty, $allowZero);
     }
 
     /**
-     * Verifies variant availability against aggregate stock.
+     * Verifies that a single branch holds enough stock to fulfill the requested line quantity.
+     * Storefront orders are not split across branches to prevent multiple shipments.
+     *
+     * @param  int  $variantId  Target variant
+     * @param  float  $qty  Required quantity
+     *
+     * @throws BusinessException If insufficient branch inventory
      */
     private function assertAvailable(int $variantId, float $qty): void
     {
-        $available = $this->catalog->availabilityMap([$variantId])[$variantId] ?? 0;
+        $available = $this->catalog->fulfillableQuantityMap([$variantId])[$variantId] ?? 0;
         if ($available < $qty) {
-            throw new BusinessException('الكمية المطلوبة غير متاحة حاليًا لهذا الصنف.');
+            throw new BusinessException('الكمية المطلوبة غير متاحة حاليًا لهذا الصنف. يمكن تجهيز حتى '.max(0, floor($available)).' قطعة من فرع واحد.');
         }
     }
 
     /**
      * Ensures the variant has a valid pricing rule before adding to cart.
+     *
+     * @param  ProductVariant  $variant  Target variant
+     * @param  Customer|null  $customer  Customer or null for guest
+     * @param  float  $qty  Quantity being priced
+     *
+     * @throws BusinessException If no valid price rule matches
      */
     private function assertPriced(ProductVariant $variant, ?Customer $customer, float $qty): void
     {

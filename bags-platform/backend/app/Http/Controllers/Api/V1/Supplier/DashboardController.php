@@ -14,11 +14,13 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
- * لوحة بوابة المورد: أعداد أوامر الشراء حسب مرحلتها + الرصيد المستحق
- * الحالي + آخر 5 دفعات — كلها مقيدة بمورد صاحب التوكن.
+ * Supplier portal dashboard metrics: order counts, outstanding balance, and recent payments.
  */
 class DashboardController extends Controller
 {
+    /**
+     * Retrieve aggregated metrics and recent payments for the authenticated supplier.
+     */
     public function index(Request $request): JsonResponse
     {
         /** @var SupplierUser $user */

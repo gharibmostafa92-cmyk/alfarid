@@ -46,41 +46,7 @@ final class PricingArgs
      */
     public static function resolveVariant(User $actor, EntityResolver $resolver, array $args): array|ToolOutcome
     {
-        if (! empty($args['variant_id'])) {
-            $variant = ProductVariant::with('product:id,name_ar,code')->find((int) $args['variant_id']);
-            if (! $variant) {
-                return ToolOutcome::denied('المتغير مش موجود.', auditable: false);
-            }
-
-            return ['variant' => $variant];
-        }
-        $code = trim((string) ($args['sku'] ?? $args['barcode'] ?? ''));
-        if ($code !== '') {
-            $variant = $resolver->exactVariantByCode($code);
-            if (! $variant) {
-                return ToolOutcome::denied('مش لاقي متغير بالكود ده. استخدم find_entities.', auditable: false);
-            }
-            $variant->loadMissing('product:id,name_ar,code');
-
-            return ['variant' => $variant];
-        }
-        $query = trim((string) ($args['query'] ?? ''));
-        if ($query === '') {
-            return ToolOutcome::denied('حدد المتغير بـ variant_id أو sku أو query.', auditable: false);
-        }
-        $options = $resolver->variants($actor, $query, isset($args['product_id']) ? (int) $args['product_id'] : null);
-        if (count($options) === 0) {
-            return ToolOutcome::denied('مش لاقي متغير بالوصف ده.', auditable: false);
-        }
-        if (count($options) > 1) {
-            return ToolOutcome::denied('لقيت أكتر من متغير. استخدم find_entities ثم ask_user_to_choose.', auditable: false);
-        }
-        $variant = ProductVariant::with('product:id,name_ar,code')->find($options[0]['id']);
-        if (! $variant) {
-            return ToolOutcome::denied('المتغير مش موجود.', auditable: false);
-        }
-
-        return ['variant' => $variant];
+        return \App\Services\Ai\Inventory\InventoryArgs::resolveVariant($actor, $resolver, $args);
     }
 
     /**

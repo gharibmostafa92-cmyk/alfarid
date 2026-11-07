@@ -28,6 +28,39 @@ button, input, select, textarea { font-family: inherit; }
 .ltr { direction: ltr; unicode-bidi: isolate; }
 .osw { font-family: 'Oswald', sans-serif; text-transform: uppercase; letter-spacing: .06em; }
 
+/* Keep the document, sidebar, tables and dialogs on the same scroll treatment. */
+html:has(.wholesale-portal-app),
+.wholesale-portal-app,
+.wholesale-portal-app * {
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 transparent;
+}
+html:has(.wholesale-portal-app)::-webkit-scrollbar,
+.wholesale-portal-app::-webkit-scrollbar,
+.wholesale-portal-app *::-webkit-scrollbar { width: 8px; height: 8px; }
+html:has(.wholesale-portal-app)::-webkit-scrollbar-track,
+.wholesale-portal-app::-webkit-scrollbar-track,
+.wholesale-portal-app *::-webkit-scrollbar-track { background: transparent; }
+html:has(.wholesale-portal-app)::-webkit-scrollbar-thumb,
+.wholesale-portal-app::-webkit-scrollbar-thumb,
+.wholesale-portal-app *::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+html:has(.wholesale-portal-app)::-webkit-scrollbar-thumb:hover,
+.wholesale-portal-app::-webkit-scrollbar-thumb:hover,
+.wholesale-portal-app *::-webkit-scrollbar-thumb:hover { background-color: #4f7d88; }
+html:has(.wholesale-portal-app)::-webkit-scrollbar-corner,
+.wholesale-portal-app::-webkit-scrollbar-corner,
+.wholesale-portal-app *::-webkit-scrollbar-corner { background: transparent; }
+@media (forced-colors: active) {
+  html:has(.wholesale-portal-app),
+  .wholesale-portal-app,
+  .wholesale-portal-app * { scrollbar-width: auto; scrollbar-color: auto; }
+}
+
 /* ============ HEADER (SophieHeader) ============ */
 .wp-header {
   position: sticky; top: 0; z-index: 100;

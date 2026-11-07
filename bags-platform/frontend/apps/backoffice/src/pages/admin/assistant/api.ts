@@ -6,6 +6,8 @@ export interface ConvMsg { id: number; role: string; content: string | null; ui_
 export interface Conv { id: number; user_id: number; is_pinned: boolean; channel?: 'web' | 'whatsapp'; title: string | null; model: string; total_tokens: number; last_message_at: string | null; messages?: ConvMsg[]; pending_actions?: { id: string; status: string; expires_at: string }[] }
 export interface AgentSettings { ai_enabled: boolean; ai_customer_tools_enabled?: boolean; ai_document_analysis_enabled?: boolean; ai_catalog_tools_enabled?: boolean; ai_catalog_vision_enabled?: boolean; ai_catalog_copywriting_enabled?: boolean; ai_catalog_bulk_price_max_items?: number; ai_pricing_tools_enabled?: boolean; ai_promotions_tools_enabled?: boolean; ai_pricing_max_items_per_action?: number; ai_coupon_high_risk_percent?: number; ai_price_below_cost_policy?: string; ai_pricing_vision_enabled?: boolean; ai_max_steps?: number; ai_daily_token_budget_per_user: number; ai_disabled_tools: string[]; ai_action_ttl_minutes: number; ai_retention_days: number; ai_bulk_max_items: number; ai_dealer_review_sla_hours?: number; ai_credit_limit_confirm_threshold?: number; ai_finance_tools_enabled?: boolean; ai_finance_wallet_tools_enabled?: boolean; ai_finance_receipt_vision_enabled?: boolean; ai_finance_proactive_enabled?: boolean; ai_finance_share_balances_with_model?: boolean; ai_finance_high_risk_amount?: number; ai_wallet_adjust_max_amount?: number }
 export interface AgentSettings {
+  ai_shipping_tools_enabled?: boolean;
+  ai_storefront_tools_enabled?: boolean;
   ai_inventory_tools_enabled?: boolean;
   ai_inventory_vision_enabled?: boolean;
   ai_inventory_share_cost_with_model?: boolean;

@@ -8,8 +8,7 @@ trait NormalizesCatalogInput
 {
     protected function normalizeCatalogIdentifiers(): void
     {
-        // L3: barcodes are case-insensitive-unique — normalize to uppercase like
-        // SKUs so abc and ABC cannot coexist as separate rows.
+        // Normalize barcodes and SKUs to uppercase to enforce case-insensitive uniqueness consistency.
         $changes = [];
         foreach (['slug' => 'strtolower', 'sku' => 'strtoupper', 'barcode' => 'strtoupper'] as $field => $normalize) {
             if (is_string($value = $this->input($field))) {

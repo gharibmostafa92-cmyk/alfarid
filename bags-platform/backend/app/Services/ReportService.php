@@ -264,8 +264,7 @@ class ReportService
             ->selectRaw('sl.branch_id, b.name AS branch_name, COUNT(DISTINCT sl.product_variant_id) AS variants_count, COALESCE(SUM(sl.on_hand), 0) AS total_qty, COALESCE(SUM(sl.on_hand * COALESCE(pv.cost_price, 0)), 0) AS total_value')
             ->groupBy('sl.branch_id', 'b.name')
             ->orderByDesc('total_value')
-            // M7: cap the payload at hundreds of rows (ordered by value) so a
-            // catalog of thousands of variants cannot blow the response.
+            // Cap rows by highest valuation to prevent large catalog payloads from exhausting response memory.
             ->limit(self::INVENTORY_VALUATION_ROW_LIMIT + 1)
             ->get()
             ->map(fn ($row): array => [

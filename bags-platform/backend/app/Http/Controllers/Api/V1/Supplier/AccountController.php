@@ -11,13 +11,15 @@ use App\Services\SupplierFinanceService;
 use Illuminate\Http\JsonResponse;
 
 /**
- * كشف حساب المورد (Supplier Ledger): رصيد افتتاحي + فواتير معتمدة
- * دائنة ودفعات مدينة برصيد تراكمي متحرك — من SupplierFinanceService.
+ * Supplier portal ledger statement: opening balance, approved invoices, and debit payments with running balances.
  */
 class AccountController extends Controller
 {
     public function __construct(protected SupplierFinanceService $finance) {}
 
+    /**
+     * Retrieve chronological account statement for the authenticated supplier within a date range.
+     */
     public function statement(StatementRequest $request): JsonResponse
     {
         /** @var SupplierUser $user */

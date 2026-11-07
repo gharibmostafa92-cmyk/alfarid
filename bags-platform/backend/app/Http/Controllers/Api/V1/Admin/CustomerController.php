@@ -27,7 +27,9 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
-/** إدارة العملاء واعتماد حسابات الجملة في لوحة الإدارة. */
+/**
+ * Customer administration, status transitions, and wholesale document verification.
+ */
 class CustomerController extends Controller implements HasMiddleware
 {
     public function __construct(private readonly CustomerManagementService $customers) {}
@@ -45,6 +47,9 @@ class CustomerController extends Controller implements HasMiddleware
         ];
     }
 
+    /**
+     * List customers with optional status, group, type, and trigram search filtering.
+     */
     public function index(Request $request): AnonymousResourceCollection
     {
         $filters = $request->validate([
@@ -52,7 +57,7 @@ class CustomerController extends Controller implements HasMiddleware
             'business_only' => ['nullable', 'boolean'],
             'status' => ['nullable', Rule::enum(CustomerStatus::class)],
             'customer_group_id' => ['nullable', 'integer', 'min:1'],
-            // L-2: أقل من 3 حروف trigram ما يستفيدش من الفهرس → full scan + COUNT(*).
+            // Trigram index requires at least 3 characters to prevent full table scans and slow COUNT queries.
             'search' => ['nullable', 'string', 'min:3', 'max:255'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
             'trashed' => ['nullable', Rule::in(['only'])],
@@ -61,6 +66,9 @@ class CustomerController extends Controller implements HasMiddleware
         return CustomerResource::collection($this->customers->paginate($filters));
     }
 
+    /**
+     * Create a new customer profile directly from admin panel.
+     */
     public function store(StoreCustomerRequest $request): JsonResponse
     {
         $customer = $this->customers->create($request->validated(), $request->user()->id);
@@ -71,16 +79,25 @@ class CustomerController extends Controller implements HasMiddleware
             ->setStatusCode(201);
     }
 
+    /**
+     * Retrieve full customer profile details.
+     */
     public function show(Customer $customer): CustomerResource
     {
         return CustomerResource::make($this->customers->find($customer->id));
     }
 
+    /**
+     * Update customer profile attributes under advisory lock.
+     */
     public function update(UpdateCustomerRequest $request, Customer $customer): CustomerResource
     {
         return CustomerResource::make($this->customers->update($customer, $request->validated(), $request->user()->id));
     }
 
+    /**
+     * Soft delete a customer profile.
+     */
     public function destroy(Request $request, Customer $customer): JsonResponse
     {
         $this->customers->delete($customer, $request->user()->id);
@@ -88,6 +105,9 @@ class CustomerController extends Controller implements HasMiddleware
         return response()->json(['message' => 'تم حذف العميل بنجاح']);
     }
 
+    /**
+     * Approve a pending wholesale customer registration and assign credit limits.
+     */
     public function approve(ApproveCustomerRequest $request, Customer $customer): CustomerResource
     {
         $customer = $this->customers->approve($customer, $request->validated(), $request->user()->id);
@@ -95,6 +115,9 @@ class CustomerController extends Controller implements HasMiddleware
         return CustomerResource::make($customer)->additional(['message' => 'تم اعتماد الحساب بنجاح']);
     }
 
+    /**
+     * Reject a pending wholesale registration with rejection reason.
+     */
     public function reject(RejectCustomerRequest $request, Customer $customer): CustomerResource
     {
         $customer = $this->customers->reject($customer, $request->validated()['reason'], $request->user()->id);
@@ -102,6 +125,9 @@ class CustomerController extends Controller implements HasMiddleware
         return CustomerResource::make($customer)->additional(['message' => 'تم رفض الحساب']);
     }
 
+    /**
+     * Suspend an active customer and revoke active login tokens.
+     */
     public function suspend(SuspendCustomerRequest $request, Customer $customer): CustomerResource
     {
         $customer = $this->customers->suspend($customer, $request->validated()['reason'], $request->user()->id);
@@ -109,6 +135,9 @@ class CustomerController extends Controller implements HasMiddleware
         return CustomerResource::make($customer)->additional(['message' => 'تم إيقاف الحساب وإنهاء جلساته']);
     }
 
+    /**
+     * Reactivate a suspended customer back to their pre-suspension status.
+     */
     public function reactivate(Request $request, Customer $customer): CustomerResource
     {
         $customer = $this->customers->reactivate($customer, $request->user()->id);
@@ -116,7 +145,9 @@ class CustomerController extends Controller implements HasMiddleware
         return CustomerResource::make($customer)->additional(['message' => 'تم إعادة تفعيل الحساب']);
     }
 
-    /** سجل تغييرات العميل — الأحدث أولًا، 25 في الصفحة (P04-M01-F05). */
+    /**
+     * Paginated audit log entries for a customer in reverse chronological order.
+     */
     public function history(Customer $customer): JsonResponse
     {
         $logs = CustomerAuditLog::query()->where('customer_id', $customer->id)->with('actor:id,name')
@@ -131,7 +162,9 @@ class CustomerController extends Controller implements HasMiddleware
         return response()->json($logs);
     }
 
-    /** تنزيل مستند تحقق من التخزين الخاص (scoped: المستند تابع لهذا العميل حصرًا). */
+    /**
+     * Download customer verification document from private storage.
+     */
     public function downloadDocument(Customer $customer, CustomerDocument $document): StreamedResponse
     {
         abort_unless(Storage::disk('r2')->exists($document->file_path), 404, 'المستند غير موجود.');
@@ -140,11 +173,17 @@ class CustomerController extends Controller implements HasMiddleware
         return Storage::disk('r2')->download($document->file_path, CustomerDocument::safeName($document->original_name));
     }
 
+    /**
+     * Restore a soft-deleted customer record.
+     */
     public function restore(Request $request, Customer $customer): CustomerResource
     {
         return CustomerResource::make($this->customers->restore($customer, $request->user()->id));
     }
 
+    /**
+     * Review and update verification status of a customer document.
+     */
     public function reviewDocument(Request $request, Customer $customer, CustomerDocument $document): JsonResponse
     {
         $data = $request->validate([
@@ -156,6 +195,9 @@ class CustomerController extends Controller implements HasMiddleware
         return response()->json(['data' => ['id' => $document->id, 'status' => $document->status, 'review_note' => $document->review_note]]);
     }
 
+    /**
+     * Upload an additional verification document for a customer.
+     */
     public function storeDocument(Request $request, Customer $customer): JsonResponse
     {
         $request->validate(['document' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'mimetypes:application/pdf,image/jpeg,image/png', 'max:5120']]);

@@ -294,13 +294,11 @@ export function SophieHeader() {
             New Arrivals
           </a>
 
-          <Link href="/checkout" aria-current={pathname === '/checkout' ? 'page' : undefined} className="py-2 text-[#111] hover:text-[#4f7d88] transition-colors">
-            Checkout
-          </Link>
-
-          <Link href="/wholesale" className="py-2 text-[#111] hover:text-[#4f7d88] transition-colors">
-            Wholesale
-          </Link>
+          {mounted && !isAuthed && (
+            <Link href="/orders/track" className="py-2 text-[#111] hover:text-[#4f7d88] transition-colors">
+              Track Order
+            </Link>
+          )}
         </nav>
 
         {/* Right Icons: Search, Profile Dropdown / Sign in, Cart, Mobile Menu Toggle */}
@@ -379,7 +377,6 @@ export function SophieHeader() {
           onRetry={retryMenu}
           onClose={() => setMegaOpen(false)}
           onSelectCategory={(slug: string) => router.push(slug ? STORE_ROUTES.shop({ category: slug }) : STORE_ROUTES.shop())}
-          onGoToCheckout={() => router.push('/checkout')}
           onAddToCart={() => setCartOpen(true)}
         />
       </header>
@@ -588,20 +585,12 @@ export function SophieHeader() {
                 >
                   <span>New Arrivals</span>
                 </a>
-                <Link
-                  href="/checkout"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="flex items-center justify-between py-3 px-2 rounded-lg text-gray-800 hover:text-[#4f7d88] hover:bg-gray-50"
-                >
-                  <span>Checkout</span>
-                </Link>
-                <Link
-                  href="/wholesale"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="flex items-center justify-between py-3 px-2 rounded-lg text-gray-800 hover:text-[#4f7d88] hover:bg-gray-50"
-                >
-                  <span>Wholesale Portal</span>
-                </Link>
+                {mounted && !isAuthed && (
+                  <Link href="/orders/track" onClick={() => setMobileMenuOpen(false)}
+                    className="flex items-center justify-between rounded-lg px-2 py-3 text-gray-800 hover:bg-gray-50">
+                    Track Order
+                  </Link>
+                )}
               </div>
             </div>
 
@@ -617,13 +606,6 @@ export function SophieHeader() {
               >
                 <span>Cart ({mounted ? cartCount : 0})</span>
               </button>
-              <Link
-                href="/checkout"
-                onClick={() => setMobileMenuOpen(false)}
-                className="flex-1 min-h-[46px] rounded-lg bg-black text-white font-['Oswald'] text-xs uppercase tracking-wider inline-flex items-center justify-center hover:bg-[#159a8c] transition-colors"
-              >
-                Checkout
-              </Link>
             </div>
           </div>
         </div>

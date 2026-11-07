@@ -12,6 +12,9 @@ use Illuminate\Http\Request;
 
 class AiMentionController extends Controller
 {
+    /**
+     * Search mentionable entities (users, branches, products, etc.) filtered by actor permissions.
+     */
     public function search(Request $request, EntityResolver $resolver, ToolRegistry $registry): JsonResponse
     {
         $data = $request->validate(['q' => ['nullable', 'string', 'max:100'], 'entity' => ['nullable', 'in:branch,user,role,customer,category,product,variant,transfer,stocktake,production_receipt,treasury,treasury_transfer,expense']]);
@@ -29,7 +32,7 @@ class AiMentionController extends Controller
             $out['roles'] = $resolver->roles($q);
         }
 
-        // العملاء بلا branch scoping عمدًا — زي REST (CustomerController مبيستخدمش BranchAccess).
+        // Customers have no branch scoping, mirroring REST behavior in CustomerController.
         if ((! $entity || $entity === 'customer') && $registry->canReadEntity($actor, 'customer')) {
             $out['customers'] = $resolver->customers($actor, $q);
         }

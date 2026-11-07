@@ -27,9 +27,7 @@ final class StaffAdministration
      */
     public static function lock(): void
     {
-        // L3: SET LOCAL يسري على الـ transaction كلها — 55P03 (lock timeout)
-        // تتحول لـ RetryableConflict (409 قابلة لإعادة المحاولة) بدل 500،
-        // وبدل failed نهائي في مسار confirmBulk.
+        // Advisory lock timeout (55P03) indicates a transient concurrency conflict converted to a retryable 409.
         try {
             DB::statement("SET LOCAL lock_timeout = '5s'");
             DB::select('SELECT pg_advisory_xact_lock(79301, 1)');
@@ -77,24 +75,26 @@ final class StaffAdministration
     /**
      * Capture snapshot of user role assignments, branch scoping, and active status.
      *
-     * @return array{roles: list<string>, branch_id: int|null, is_active: bool}
+     * @return array{roles: list<string>, email: string|null, branch_id: int|null, is_active: bool}
      */
     public static function userState(User $user): array
     {
-        return ['roles' => $user->roles()->orderBy('name')->pluck('name')->all(),
-            // L-5: البريد مقنّع (أول حرفين + النطاق) — تغيير بريد موظف
-            // هو الطريق الطبيعي للاستيلاء على حساب عبر استعادة كلمة
-            // المرور، فلا بد أن يظهر في before/after، لكن بلا قيمة كاملة.
+        return [
+            'roles' => $user->roles()->orderBy('name')->pluck('name')->all(),
+            // Mask email in audit snapshots to prevent exposing sensitive credentials while still logging account takeovers.
             'email' => self::maskEmail($user->email),
-            'branch_id' => $user->branch_id, 'is_active' => (bool) $user->is_active];
+            'branch_id' => $user->branch_id,
+            'is_active' => (bool) $user->is_active,
+        ];
     }
 
     /**
-     * Capture snapshot of role definition and its assigned permissions.
+     * Asserts whether an actor holds sufficient privilege to grant specified permissions.
      *
-     * @return array{name: string, permissions: list<string>}
+     * @param  User|null  $actor  Staff user attempting permission assignment.
+     * @param  list<string>  $permissions  Permissions requested to be granted.
+     * @return bool
      */
-    /** @return array{name: string, is_active: bool} */
     public static function mayGrantPermissions(?User $actor, array $permissions): bool
     {
         if (! $actor instanceof User) {
@@ -105,7 +105,14 @@ final class StaffAdministration
         return $actor->hasRole(StaffRole::SuperAdmin->value, 'staff') || $actor->hasAllPermissions(array_values(array_unique($permissions)));
     }
 
-    /** @param list<string> $roles */
+    /**
+     * Validates whether an administrative actor has authority to manage a target user and assign roles.
+     *
+     * @param  mixed  $actor  Staff user initiating management action.
+     * @param  User|null  $target  Target user being modified, or null if creating.
+     * @param  list<string>  $roles  Roles being assigned to the target user.
+     * @return bool
+     */
     public static function mayManageUser(mixed $actor, ?User $target = null, array $roles = []): bool
     {
         if (! $actor instanceof User) {
@@ -130,11 +137,13 @@ final class StaffAdministration
         return $actor->hasAllPermissions($permissions->unique()->all());
     }
 
+    /** @return array{name: string, is_active: bool} */
     public static function branchState(Branch $branch): array
     {
         return ['name' => $branch->name, 'is_active' => (bool) $branch->is_active];
     }
 
+    /** @return array{name: string, permissions: list<string>} */
     public static function roleState(Role $role): array
     {
         return ['name' => $role->name, 'permissions' => $role->permissions()->orderBy('name')->pluck('name')->all()];
@@ -177,11 +186,10 @@ final class StaffAdministration
     }
 
     /**
-     * Record an administrative audit entry with sanitized before/after metadata.
+     * Masks an email address preserving only initial characters and domain for safe auditing.
      *
-     * @param  list<string>  $fields
-     * @param  array<string, mixed>  $before
-     * @param  array<string, mixed>  $after
+     * @param  mixed  $email  Raw email string to mask.
+     * @return string|null Masked email or null if empty.
      */
     public static function maskEmail(mixed $email): ?string
     {
@@ -193,6 +201,19 @@ final class StaffAdministration
         return mb_substr($local, 0, 2).'***'.($domain !== '' ? '@'.$domain : '');
     }
 
+    /**
+     * Records an administrative audit log entry with sanitized before/after metadata.
+     *
+     * @param  User|null  $actor  Staff member performing the operation.
+     * @param  string  $action  Audited operation identifier.
+     * @param  string  $targetType  Target entity morph class or identifier.
+     * @param  int|string|null  $targetId  Target entity primary key.
+     * @param  list<string>  $fields  Modified field keys.
+     * @param  array<string, mixed>  $before  Pre-modification snapshot.
+     * @param  array<string, mixed>  $after  Post-modification snapshot.
+     * @param  array<string, mixed>  $via  Audit trail origin metadata.
+     * @return void
+     */
     public static function audit(?User $actor, string $action, string $targetType, int|string|null $targetId, array $fields, array $before = [], array $after = [], array $via = []): void
     {
         $allowed = array_flip(['roles', 'permissions', 'name', 'branch_id', 'is_active', 'settings', 'code', 'type', 'is_active_branch', 'email', 'discount_percentage', 'description', 'name_ar', 'name_en', 'slug', 'parent_id', 'sort_order', 'category_id', 'status', 'sales_channel', 'is_featured', 'sku', 'barcode', 'color_name_ar', 'color_name_en', 'color_hex', 'size', 'capacity', 'retail_price', 'wholesale_price', 'count', 'media_ids', 'updated_count']);

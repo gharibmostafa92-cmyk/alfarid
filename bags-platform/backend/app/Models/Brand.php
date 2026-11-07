@@ -15,6 +15,9 @@ use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
+/**
+ * Brand entity representing a product manufacturer or label with localized descriptions and logos.
+ */
 class Brand extends Model implements HasMedia
 {
     /** @use HasFactory<BrandFactory> */
@@ -35,8 +38,7 @@ class Brand extends Model implements HasMedia
             ->acceptsMimeTypes(['image/jpeg', 'image/png', 'image/webp']);
     }
 
-    // L5: brand tiles render small thumbs — generate them once instead of
-    // serving up-to-6000px originals in storefront tiles.
+    // Generate webp thumbnails and medium variants to avoid serving original master images in UI tiles.
     public function registerMediaConversions(?Media $media = null): void
     {
         $this->addMediaConversion('thumb')->fit(Fit::Crop, 300, 300)->format('webp')

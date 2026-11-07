@@ -16,9 +16,7 @@ final class PricingPresenter
     /** @return array{untrusted_text: string} */
     public function untrusted(?string $value, int $max = 300): array
     {
-        $clean = mb_substr((string) preg_replace('/[\x00-\x1F\x7F]/u', ' ', (string) $value), 0, $max);
-
-        return ['untrusted_text' => $clean];
+        return ToolOutcome::untrusted($value, $max);
     }
 
     /**
@@ -34,30 +32,13 @@ final class PricingPresenter
             }
         }
 
-        $maxChars = max(1024, (int) $this->settings->get('ai_tool_result_max_chars', 16000));
-        $encoded = json_encode($data, JSON_UNESCAPED_UNICODE);
-        if ($encoded !== false && strlen($encoded) > $maxChars) {
-            return ToolOutcome::data([
-                'truncated' => true,
-                'message' => 'ضيّق البحث',
-            ], $uiBlock, 'ضيّق البحث');
-        }
-
-        return ToolOutcome::data($data, $uiBlock, $message);
+        return ToolOutcome::present($data, $uiBlock, $message, (int) $this->settings->get('ai_tool_result_max_chars', 16000));
     }
 
     /** @return array<string,mixed> */
     public function stripCost(array $payload): array
     {
-        $out = [];
-        foreach ($payload as $key => $value) {
-            if ($key === 'cost_price' || $key === 'cost') {
-                continue;
-            }
-            $out[$key] = is_array($value) ? $this->stripCost($value) : $value;
-        }
-
-        return $out;
+        return CostAccess::strip($payload);
     }
 
     /**

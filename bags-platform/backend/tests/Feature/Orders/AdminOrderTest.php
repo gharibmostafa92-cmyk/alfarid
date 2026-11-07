@@ -9,6 +9,7 @@ use App\Enums\StockBucket;
 use App\Enums\StockMovementType;
 use App\Models\Branch;
 use App\Models\Cart;
+use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductVariant;
@@ -22,6 +23,7 @@ use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Testing\TestResponse;
 use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 /**
@@ -136,6 +138,37 @@ class AdminOrderTest extends TestCase
 
         // إعادة توزيع طلب مُوزّع مرفوضة
         $this->api('POST', "/api/v1/admin/orders/{$order->id}/allocate", [])->assertUnprocessable();
+
+        $this->api('POST', "/api/v1/admin/orders/{$order->id}/deallocate")
+            ->assertOk()->assertJsonPath('data.allocated_branch', null);
+        $this->assertSame('0.0000', (string) $this->level($variant->id, $other)->reserved);
+        $this->api('POST', "/api/v1/admin/orders/{$order->id}/deallocate")->assertUnprocessable();
+        $this->assertSame('0.0000', (string) $this->level($variant->id, $other)->reserved);
+        $carrier = ShippingCompany::factory()->create(['is_active' => true]);
+        $shipment = $this->api('POST', "/api/v1/admin/orders/{$order->id}/shipment", ['shipping_company_id' => $carrier->id])
+            ->assertUnprocessable();
+        $this->assertStringContainsString('لا توجد حجوزات', $shipment->json('message'));
+        $this->assertDatabaseCount('shipments', 0);
+        $disabled = Branch::factory()->create(['is_active' => false]);
+        $this->api('POST', "/api/v1/admin/orders/{$order->id}/allocate", ['branch_id' => $disabled->id])
+            ->assertUnprocessable();
+
+        $this->api('POST', "/api/v1/admin/orders/{$order->id}/allocate", ['branch_id' => $this->branch->id])
+            ->assertOk()->assertJsonPath('data.allocated_branch.id', $this->branch->id);
+        $this->assertSame('4.0000', (string) $this->level($variant->id)->reserved);
+        $this->assertSame('0.0000', (string) $this->level($variant->id, $other)->reserved);
+
+        $local = $this->staffWithPermissions(['orders.view', 'orders.allocate']);
+        $local->update(['branch_id' => $this->branch->id]);
+        $token = $local->createToken('allocate')->plainTextToken;
+        Auth::forgetGuards();
+        $this->withToken($token)->postJson("/api/v1/admin/orders/{$order->id}/deallocate")->assertOk();
+        Auth::forgetGuards();
+        $this->withToken($token)->postJson("/api/v1/admin/orders/{$order->id}/allocate", ['branch_id' => $this->branch->id])
+            ->assertForbidden();
+        Auth::forgetGuards();
+        $this->withToken($token)->getJson('/api/v1/admin/orders')->assertOk()->assertJsonMissing(['id' => $order->id]);
+        $this->assertSame('0.0000', (string) $this->level($variant->id)->reserved);
     }
 
     public function test_order_endpoints_require_permissions(): void
@@ -149,6 +182,80 @@ class AdminOrderTest extends TestCase
         Auth::forgetGuards();
         $this->withToken($token)->patchJson("/api/v1/admin/orders/{$order->id}/status", ['status' => 'confirmed'])
             ->assertForbidden();
+    }
+
+    public function test_order_routes_isolate_branches_and_require_the_correct_staff_permissions(): void
+    {
+        $other = Branch::factory()->create();
+        $inactive = Branch::factory()->create(['is_active' => false]);
+        $own = Order::factory()->create(['allocated_branch_id' => $this->branch->id, 'status' => OrderStatus::Pending]);
+        $foreign = Order::factory()->create([
+            'allocated_branch_id' => $other->id, 'status' => OrderStatus::Confirmed, 'payment_status' => 'unpaid',
+        ]);
+        $unallocated = Order::factory()->create(['allocated_branch_id' => null, 'status' => OrderStatus::Pending]);
+        $company = ShippingCompany::factory()->create();
+        $permissions = ['orders.view', 'orders.update', 'orders.allocate', 'orders.payment'];
+        $local = $this->staffWithPermissions($permissions);
+        $local->update(['branch_id' => $this->branch->id]);
+        $disabled = $this->staffWithPermissions($permissions);
+        $disabled->update(['branch_id' => $inactive->id]);
+        $branchless = $this->staffWithPermissions($permissions);
+        $branchless->update(['branch_id' => null]);
+        $superAdmin = User::factory()->create();
+        $superAdmin->assignRole(Role::findOrCreate('Super Admin', 'staff'));
+        $base = '/api/v1/admin/orders';
+        $target = "{$base}/{$foreign->id}";
+        $payment = ['payment_status' => 'paid', 'notes' => 'Received'];
+        $orderRoutes = [
+            ['GET', $target, []],
+            ['PATCH', "{$target}/status", ['status' => 'processing']],
+            ['POST', "{$target}/payment", $payment],
+            ['POST', "{$target}/shipment", ['shipping_company_id' => $company->id]],
+            ['POST', "{$target}/allocate", ['branch_id' => $other->id]],
+            ['POST', "{$target}/deallocate", []],
+        ];
+        $call = function (string $token, string $method, string $path, array $payload = []): TestResponse {
+            Auth::forgetGuards();
+
+            return $this->withToken($token)->json($method, $path, $payload);
+        };
+
+        $this->getJson($base)->assertUnauthorized();
+        $customerToken = Customer::factory()->create()->createToken('customer')->plainTextToken;
+        $this->assertContains($call($customerToken, 'GET', $base)->status(), [401, 403]);
+        $this->assertContains($call($customerToken, ...$orderRoutes[1])->status(), [401, 403]);
+
+        $localToken = $local->createToken('local')->plainTextToken;
+        foreach ($orderRoutes as $route) {
+            $call($localToken, ...$route)->assertForbidden();
+        }
+        $call($localToken, 'GET', $base)->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $own->id);
+        $call($localToken, 'GET', "{$base}/stats")->assertOk()->assertJsonPath('data.pending', 1);
+        $call($localToken, 'GET', "{$base}?allocated_branch_id={$other->id}")->assertForbidden();
+        $call($localToken, 'GET', "{$base}/{$unallocated->id}")->assertForbidden();
+        foreach ([$disabled, $branchless] as $blocked) {
+            $token = $blocked->createToken('blocked')->plainTextToken;
+            foreach ($orderRoutes as $route) {
+                $call($token, ...$route)->assertForbidden();
+            }
+            $call($token, 'GET', $base)->assertForbidden();
+            $call($token, 'GET', "{$base}/stats")->assertForbidden();
+        }
+
+        foreach ([$this->admin, $superAdmin] as $central) {
+            $token = $central->createToken('central')->plainTextToken;
+            $call($token, 'GET', $target)->assertOk();
+            $call($token, 'GET', "{$base}/{$unallocated->id}")->assertOk();
+            $call($token, 'GET', "{$base}/stats")->assertOk()->assertJsonPath('data.pending', 2);
+        }
+        $call($this->admin->createToken('no-payment')->plainTextToken, 'POST', "{$target}/payment", $payment)
+            ->assertForbidden();
+        $this->assertSame(OrderStatus::Confirmed, $foreign->refresh()->status);
+        $this->assertSame('unpaid', $foreign->payment_status);
+        $this->assertSame($other->id, $foreign->allocated_branch_id);
+        $this->assertDatabaseCount('shipments', 0);
+        $this->assertDatabaseCount('order_status_histories', 0);
+        $this->assertDatabaseCount('stock_movements', 0);
     }
 
     // ---------- helpers ----------

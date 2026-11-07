@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Enums\OrderStatus;
 use App\Enums\StockBucket;
 use App\Enums\StockMovementType;
 use App\Exceptions\BusinessException;
@@ -21,7 +22,25 @@ use Illuminate\Support\Facades\DB;
  */
 class OrderAllocationService
 {
+    private const NON_ALLOCATABLE_STATUSES = [
+        OrderStatus::Cancelled,
+        OrderStatus::Shipped,
+        OrderStatus::Delivered,
+        OrderStatus::Returned,
+    ];
+
     public function __construct(protected InventoryService $inventoryService) {}
+
+    /**
+     * Load order items and sort by variant ID to establish consistent lock ordering against deadlocks.
+     */
+    private function prepareOrderItemsForAllocation(Order $order): void
+    {
+        $order->load('items');
+        $order->setRelation('items', $order->items
+            ->sortBy(fn (OrderItem $item): int => (int) $item->product_variant_id)
+            ->values());
+    }
 
     /**
      * Allocates order items to branch inventory and reserves stock atomically.
@@ -37,14 +56,10 @@ class OrderAllocationService
         return DB::transaction(function () use ($order, $forcedBranchId, $performedBy): Order {
             // Re-read order under row lock to prevent concurrent allocation attempts.
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
-            $order->load('items');
-            // Consistent lock order by product_variant_id prevents deadlocks between concurrent allocations.
-            $order->setRelation('items', $order->items
-                ->sortBy(fn (OrderItem $item): int => (int) $item->product_variant_id)
-                ->values());
+            $this->prepareOrderItemsForAllocation($order);
             $performedBy ??= auth()->id();
 
-            if (in_array($order->status, [\App\Enums\OrderStatus::Cancelled, \App\Enums\OrderStatus::Shipped, \App\Enums\OrderStatus::Delivered, \App\Enums\OrderStatus::Returned], true)) {
+            if (in_array($order->status, self::NON_ALLOCATABLE_STATUSES, true)) {
                 throw new BusinessException('التوزيع غير متاح على هذه الحالة.');
             }
 
@@ -149,14 +164,10 @@ class OrderAllocationService
     {
         return DB::transaction(function () use ($order, $performedBy): Order {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
-            $order->load('items');
-            // Consistent lock order by product_variant_id prevents deadlocks between concurrent allocations.
-            $order->setRelation('items', $order->items
-                ->sortBy(fn (OrderItem $item): int => (int) $item->product_variant_id)
-                ->values());
+            $this->prepareOrderItemsForAllocation($order);
             $performedBy ??= auth()->id();
 
-            if (in_array($order->status, [\App\Enums\OrderStatus::Cancelled, \App\Enums\OrderStatus::Shipped, \App\Enums\OrderStatus::Delivered, \App\Enums\OrderStatus::Returned], true)) {
+            if (in_array($order->status, self::NON_ALLOCATABLE_STATUSES, true)) {
                 throw new BusinessException('فك التوزيع غير متاح على هذه الحالة.');
             }
 

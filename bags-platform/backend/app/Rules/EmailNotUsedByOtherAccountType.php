@@ -8,11 +8,20 @@ use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Support\Facades\DB;
 
-/** يمنع تسجيل بريد مستخدم أصلًا في نوع حساب آخر (users / supplier_users / customers). */
+/**
+ * Prevents email collisions across distinct account realms (users, supplier_users, customers).
+ */
 final class EmailNotUsedByOtherAccountType implements ValidationRule
 {
     public function __construct(private readonly string $ownTable) {}
 
+    /**
+     * Validates that the submitted email is not registered in another account realm.
+     *
+     * @param  string  $attribute  Validated attribute name
+     * @param  mixed  $value  Submitted email value
+     * @param  Closure  $fail  Validation failure callback
+     */
     public function validate(string $attribute, mixed $value, Closure $fail): void
     {
         if (! is_string($value) || trim($value) === '') {

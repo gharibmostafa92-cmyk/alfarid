@@ -14,7 +14,9 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 
-/** إدارة شركات الشحن. */
+/**
+ * Shipping carrier configurations, integration credentials, and status management.
+ */
 class ShippingCompanyController extends Controller implements HasMiddleware
 {
     public static function middleware(): array
@@ -27,11 +29,17 @@ class ShippingCompanyController extends Controller implements HasMiddleware
         ];
     }
 
+    /**
+     * List paginated shipping carriers in reverse chronological order.
+     */
     public function index(): AnonymousResourceCollection
     {
         return ShippingCompanyResource::collection(ShippingCompany::query()->latest('id')->paginate(20));
     }
 
+    /**
+     * Register a new shipping company.
+     */
     public function store(ShippingCompanyRequest $request): JsonResponse
     {
         $company = ShippingCompany::create($request->validated());
@@ -39,22 +47,26 @@ class ShippingCompanyController extends Controller implements HasMiddleware
         return ShippingCompanyResource::make($company)->response()->setStatusCode(201);
     }
 
+    /**
+     * Retrieve shipping company configuration details.
+     */
     public function show(ShippingCompany $shippingCompany): ShippingCompanyResource
     {
         return ShippingCompanyResource::make($shippingCompany);
     }
 
+    /**
+     * Update shipping company settings with credential merging.
+     */
     public function update(ShippingCompanyRequest $request, ShippingCompany $shippingCompany): ShippingCompanyResource
     {
         $data = $request->validated();
-        // الأسرار لا تُرجع في الردود (has_api_credentials فقط)، فشاشة التعديل
-        // ترسل null — تُتجاهل ولا تمحو الأسرار المحفوظة (M10)
+        // Form payloads send null for masked secrets; ignore nulls to avoid wiping saved credentials.
         if (array_key_exists('api_credentials', $data)) {
             if ($data['api_credentials'] === null) {
                 unset($data['api_credentials']);
             } else {
-                // دمج لا استبدال (F21): تحديث مفتاح واحد لا يمحو بقية أسرار
-                // الشركة (مفتاح API، سر الوب هوك...) المعروضة كـ null في الشاشة
+                // Merge credentials rather than replacing to preserve unedited keys (e.g. webhook secrets).
                 $data['api_credentials'] = array_merge(
                     $shippingCompany->api_credentials ?? [],
                     $data['api_credentials'],
@@ -66,9 +78,12 @@ class ShippingCompanyController extends Controller implements HasMiddleware
         return ShippingCompanyResource::make($shippingCompany);
     }
 
+    /**
+     * Delete a shipping company if no shipments have been assigned.
+     */
     public function destroy(ShippingCompany $shippingCompany): JsonResponse
     {
-        // شركة لها بوليصات: الحذف يكسر FK — يُمنع ويُعطَّل بدلًا منه (M9)
+        // Guard against foreign key violations when historic shipments reference this carrier.
         if ($shippingCompany->shipments()->exists()) {
             throw new BusinessException('لا يمكن حذف شركة شحن لها بوليصات مسجلة؛ عطّلها بدلًا من حذفها.');
         }

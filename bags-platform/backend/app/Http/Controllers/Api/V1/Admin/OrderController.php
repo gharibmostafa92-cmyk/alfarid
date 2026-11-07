@@ -13,12 +13,15 @@ use App\Http\Requests\Admin\Order\UpdateOrderPaymentRequest;
 use App\Http\Requests\Admin\Order\UpdateOrderStatusRequest;
 use App\Http\Resources\Admin\AdminOrderResource;
 use App\Http\Resources\Admin\ShipmentResource;
+use App\Models\Customer;
 use App\Models\Order;
 use App\Services\BranchAccess;
 use App\Services\OrderAllocationService;
 use App\Services\OrderService;
 use App\Services\SearchTerm;
 use App\Services\ShipmentService;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -27,6 +30,7 @@ use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Admin controller for order processing, allocation, status workflows, and payment transitions.
@@ -62,7 +66,7 @@ class OrderController extends Controller implements HasMiddleware
     /**
      * Lists paginated orders with branch access scoping, search, and status filters.
      *
-     * @param Request $request Filter query request
+     * @param  Request  $request  Filter query request
      * @return AnonymousResourceCollection Paginated order resources
      */
     public function index(Request $request): AnonymousResourceCollection
@@ -81,7 +85,7 @@ class OrderController extends Controller implements HasMiddleware
 
         $branch = $this->branchAccess->restrictedBranch($request->user());
         if ($branch !== null && isset($filters['allocated_branch_id']) && (int) $filters['allocated_branch_id'] !== $branch) {
-            throw new BusinessException('لا تملك صلاحية الوصول إلى هذا الفرع.');
+            throw new AuthorizationException('لا تملك صلاحية الوصول إلى هذا الفرع.');
         }
 
         $orders = Order::query()
@@ -97,16 +101,22 @@ class OrderController extends Controller implements HasMiddleware
                 fn ($q) => $q->where('requires_refund', (bool) $filters['requires_refund']))
             // Range comparison leverages created_at index while converting business timezone to UTC.
             ->when($filters['date_from'] ?? null, fn ($q, $date) => $q->where('created_at', '>=',
-                Carbon::parse($date, (string) config('app.business_timezone'))->startOfDay()->utc()))
+                $this->businessDayStart((string) $date)))
             ->when($filters['date_to'] ?? null, fn ($q, $date) => $q->where('created_at', '<',
-                Carbon::parse($date, (string) config('app.business_timezone'))->startOfDay()->addDay()->utc()))
+                $this->businessDayStart((string) $date, daysAfter: 1)))
             // Route numeric queries to indexed prefix lookups and text queries to trigram name searches.
             ->when($filters['search'] ?? null, fn ($q, $term) => $q->where(function ($inner) use ($term): void {
                 $prefix = SearchTerm::prefix((string) $term);
+                $normalizedPhone = Customer::normalizePhone((string) $term);
+                $phonePrefix = SearchTerm::prefix($normalizedPhone);
                 $numeric = preg_match('/^\s*[0-9+\-\s()]+\s*$/', (string) $term) === 1;
                 $inner->where('order_number', 'like', $prefix)
                     ->orWhere('guest_phone', 'like', $prefix)
                     ->orWhere('guest_phone_normalized', 'like', $prefix);
+                if ($phonePrefix !== $prefix) {
+                    $inner->orWhere('guest_phone_normalized', 'like', $phonePrefix)
+                        ->orWhereHas('customer', fn ($cq) => $cq->where('phone', 'like', $phonePrefix));
+                }
                 if (! $numeric) {
                     $pattern = SearchTerm::pattern((string) $term);
                     $inner->orWhere('guest_name', 'ilike', $pattern)
@@ -122,7 +132,7 @@ class OrderController extends Controller implements HasMiddleware
     /**
      * Aggregates order queue counts in a single query.
      *
-     * @param Request $request Authenticated admin request
+     * @param  Request  $request  Authenticated admin request
      * @return JsonResponse Aggregated queue statistics
      */
     public function stats(Request $request): JsonResponse
@@ -148,8 +158,8 @@ class OrderController extends Controller implements HasMiddleware
     /**
      * Retrieves full details and status histories of an order.
      *
-     * @param Request $request Incoming request
-     * @param Order $order Target order model
+     * @param  Request  $request  Incoming request
+     * @param  Order  $order  Target order model
      * @return AdminOrderResource Order resource
      */
     public function show(Request $request, Order $order): AdminOrderResource
@@ -162,9 +172,10 @@ class OrderController extends Controller implements HasMiddleware
     /**
      * Transitions an order to a new operational status.
      *
-     * @param UpdateOrderStatusRequest $request Validated status request
-     * @param Order $order Target order
+     * @param  UpdateOrderStatusRequest  $request  Validated status request
+     * @param  Order  $order  Target order
      * @return AdminOrderResource Updated order resource
+     *
      * @throws BusinessException If manually transitioning to Shipped without an AWB
      */
     public function updateStatus(UpdateOrderStatusRequest $request, Order $order): AdminOrderResource
@@ -188,9 +199,10 @@ class OrderController extends Controller implements HasMiddleware
     /**
      * Updates order payment status under row lock and registers audit history.
      *
-     * @param UpdateOrderPaymentRequest $request Payment status request
-     * @param Order $order Target order
+     * @param  UpdateOrderPaymentRequest  $request  Payment status request
+     * @param  Order  $order  Target order
      * @return AdminOrderResource Updated order resource
+     *
      * @throws BusinessException If transition is invalid or refund reference is missing
      */
     public function updatePayment(UpdateOrderPaymentRequest $request, Order $order): AdminOrderResource
@@ -227,12 +239,13 @@ class OrderController extends Controller implements HasMiddleware
 
             $actor = $request->user();
             $notes = trim("تحديث يدوي لحالة الدفع: {$from} ← {$to}. ".($data['notes'] ?? ''));
+            $reference = $to === 'refunded' ? ' [مرجع الاسترداد: '.$data['refund_reference'].']' : '';
             $order->statusHistories()->create([
                 'from_status' => $order->status,
                 'to_status' => $order->status,
                 'changed_by_type' => $actor?->getMorphClass(),
                 'changed_by_id' => $actor?->getKey(),
-                'notes' => mb_substr($notes.($to === 'refunded' ? ' [مرجع الاسترداد: '.($data['refund_reference'] ?? '').']' : ''), 0, 500),
+                'notes' => mb_substr($notes, 0, 500 - mb_strlen($reference)).$reference,
             ]);
 
             return $order;
@@ -244,19 +257,29 @@ class OrderController extends Controller implements HasMiddleware
     /**
      * Generates a courier shipment and transitions the order to Shipped.
      *
-     * @param CreateShipmentRequest $request Shipment creation request
-     * @param Order $order Target order
+     * @param  CreateShipmentRequest  $request  Shipment creation request
+     * @param  Order  $order  Target order
      * @return ShipmentResource Created shipment resource
      */
     public function createShipment(CreateShipmentRequest $request, Order $order): ShipmentResource
     {
         $this->authorizeOrder($request, $order);
-        $shipment = $this->shipments->createForOrder(
-            $order,
-            (int) $request->validated()['shipping_company_id'],
-            $request->validated()['awb_number'] ?? null,
-            $request->user(),
-        );
+        try {
+            $shipment = $this->shipments->createForOrder(
+                $order,
+                (int) $request->validated()['shipping_company_id'],
+                $request->validated()['awb_number'] ?? null,
+                $request->user(),
+            );
+        } catch (UniqueConstraintViolationException $exception) {
+            if (! str_contains($exception->errorInfo[2] ?? '', '"shipments_awb_number_unique"')) {
+                throw $exception;
+            }
+
+            throw ValidationException::withMessages([
+                'awb_number' => __('validation.unique', ['attribute' => 'awb number']),
+            ]);
+        }
 
         return ShipmentResource::make($shipment);
     }
@@ -264,9 +287,10 @@ class OrderController extends Controller implements HasMiddleware
     /**
      * Allocates order items to branch inventory and reserves stock.
      *
-     * @param AllocateOrderRequest $request Allocation request
-     * @param Order $order Target order
+     * @param  AllocateOrderRequest  $request  Allocation request
+     * @param  Order  $order  Target order
      * @return AdminOrderResource Updated allocated order resource
+     *
      * @throws BusinessException If order status is not eligible for allocation
      */
     public function allocate(AllocateOrderRequest $request, Order $order): AdminOrderResource
@@ -292,9 +316,10 @@ class OrderController extends Controller implements HasMiddleware
     /**
      * Releases inventory reservations tied to an allocated order and clears allocation state.
      *
-     * @param Request $request Deallocation request
-     * @param Order $order Target order
+     * @param  Request  $request  Deallocation request
+     * @param  Order  $order  Target order
      * @return AdminOrderResource Deallocated order resource
+     *
      * @throws BusinessException If order status is not eligible for deallocation
      */
     public function deallocate(Request $request, Order $order): AdminOrderResource
@@ -314,6 +339,27 @@ class OrderController extends Controller implements HasMiddleware
         return AdminOrderResource::make(
             $order->loadMissing(['items', 'statusHistories', 'customer', 'city', 'allocatedBranch'])
         );
+    }
+
+    private function businessDayStart(string $date, int $daysAfter = 0): Carbon
+    {
+        return Carbon::parse($date, $this->businessTimezone())->addDays($daysAfter)->startOfDay()->utc();
+    }
+
+    private function businessTimezone(): string
+    {
+        $timezone = config('app.business_timezone');
+        if (! is_string($timezone) || $timezone === '') {
+            return 'UTC';
+        }
+
+        try {
+            new \DateTimeZone($timezone);
+        } catch (\Exception) {
+            return 'UTC';
+        }
+
+        return $timezone;
     }
 
     private function authorizeOrder(Request $request, Order $order): void

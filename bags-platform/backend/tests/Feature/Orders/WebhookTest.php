@@ -67,6 +67,16 @@ class WebhookTest extends TestCase
         $this->assertSame('ignored', WebhookLog::query()->sole()->status);
     }
 
+    public function test_gateway_callback_cannot_confirm_a_manual_transfer(): void
+    {
+        $order = Order::factory()->create(['payment_method' => 'bank_transfer', 'payment_status' => 'unpaid']);
+        $this->postWebhook('/api/v1/webhooks/payment/testpay', [
+            'event_id' => 'manual-transfer-event', 'order_number' => $order->order_number, 'status' => 'paid',
+        ], self::PAY_SECRET)->assertOk()->assertJsonPath('ignored', true);
+
+        $this->assertSame('unpaid', $order->fresh()->payment_status);
+    }
+
     public function test_payment_success_marks_paid_confirms_and_allocates(): void
     {
         $variant = $this->purchasableVariant(100);

@@ -42,7 +42,7 @@ class WholesaleRegistrationService
         $staged = [];
         $stagingDirectory = 'customer_documents/pending/'.Str::uuid();
 
-        // L-10: الاستهلاك الفعلي لسه جوه الـ transaction.
+        // Validate proof presence before file uploads; atomic consumption happens inside the registration transaction.
         app(CustomerPhoneVerificationService::class)->assertProofPresent($data);
 
         try {
@@ -131,7 +131,8 @@ class WholesaleRegistrationService
                 }
             }
 
-            throw $this->auth->translateRegistrationConflict($e); // M9 — الملفات اتمسحت فوق
+            // Staged cloud files were purged above; convert unique constraint collisions into validation errors.
+            throw Customer::translateUniqueViolation($e);
         }
 
         try {

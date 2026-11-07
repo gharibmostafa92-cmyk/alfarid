@@ -25,7 +25,7 @@ class CustomerPhoneVerificationService
      */
     public function send(string $phone, ?string $networkKey = null): void
     {
-        // L9: سياسة موحّدة — التسجيل بيكشف وجود الرقم (UX). السكوت هنا لحماية رصيد الـ SMS، مش لمنع الكشف.
+        // Silently exit if phone exists to protect SMS gateway budget against automated credit depletion.
         if (Customer::withTrashed()->where('phone', $phone)->exists()) {
             return;
         }
@@ -114,14 +114,25 @@ class CustomerPhoneVerificationService
     }
 
     /**
-     * Verify phone ownership proof token against stored hash and check expiration.
+     * Compute a keyed HMAC for the phone number.
+     *
+     * @param  string  $phone  Plaintext phone number.
+     * @return string HMAC-SHA256 hex digest.
      */
-    /** L3: HMAC بدل sha256 خام — نطاق أرقام الموبايل صغير وسهل عكسه. */
     private function phoneKey(string $phone): string
     {
+        // Keyed HMAC prevents rainbow-table preimage attacks against low-entropy phone numbers.
         return hash_hmac('sha256', $phone, (string) config('app.key'));
     }
 
+    /**
+     * Verify phone ownership proof token against stored hash and check expiration.
+     *
+     * @param  string  $phone  Plaintext phone number.
+     * @param  string  $proof  Plaintext 64-character proof token.
+     * @param  bool  $consume  Whether to delete the verification record upon success.
+     * @return bool True if the proof matches and has not expired.
+     */
     private function validProof(string $phone, string $proof, bool $consume = false): bool
     {
         $query = DB::table('customer_phone_verifications')->where('phone_key', $this->phoneKey($phone));
@@ -154,7 +165,13 @@ class CustomerPhoneVerificationService
         return true;
     }
 
-    /** L-10: فحص رخيص غير مستهلك قبل رفع الملفات لـ R2. */
+    /**
+     * Non-destructive proof check before expensive R2 cloud uploads to prevent orphaned storage objects.
+     *
+     * @param  array<string, mixed>  $data  Request payload containing phone and proof token.
+     *
+     * @throws BusinessException If token is missing, invalid, or expired.
+     */
     public function assertProofPresent(array $data): void
     {
         if (! config('auth.require_phone_verification')) {

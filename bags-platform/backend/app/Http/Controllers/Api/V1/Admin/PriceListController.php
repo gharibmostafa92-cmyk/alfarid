@@ -20,6 +20,9 @@ use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
+/**
+ * Backoffice administration of customer-, branch-, and group-specific price lists, CSV import/export, and percentage adjustments.
+ */
 class PriceListController extends Controller implements HasMiddleware
 {
     public function __construct(private readonly PriceListService $priceLists) {}
@@ -36,6 +39,9 @@ class PriceListController extends Controller implements HasMiddleware
         ];
     }
 
+    /**
+     * List paginated price lists with filters for type, customer, branch, and status.
+     */
     public function index(Request $request): AnonymousResourceCollection
     {
         $filters = $request->validate([
@@ -51,6 +57,9 @@ class PriceListController extends Controller implements HasMiddleware
         return PriceListResource::collection($this->priceLists->paginate($filters, $request->user()));
     }
 
+    /**
+     * Create a new custom or branch price list.
+     */
     public function store(StorePriceListRequest $request): JsonResponse
     {
         $priceList = $this->priceLists->create($request->validated(), $request->user());
@@ -61,16 +70,25 @@ class PriceListController extends Controller implements HasMiddleware
             ->setStatusCode(201);
     }
 
+    /**
+     * Retrieve a price list along with item pricing.
+     */
     public function show(Request $request, PriceList $priceList): PriceListResource
     {
         return PriceListResource::make($this->priceLists->find($priceList->id, $request->user()));
     }
 
+    /**
+     * Update price list headers and rules.
+     */
     public function update(UpdatePriceListRequest $request, PriceList $priceList): PriceListResource
     {
         return PriceListResource::make($this->priceLists->update($priceList, $request->validated(), $request->user()));
     }
 
+    /**
+     * Delete a price list and clear its item entries.
+     */
     public function destroy(Request $request, PriceList $priceList): JsonResponse
     {
         $this->priceLists->delete($priceList, $request->user());
@@ -78,7 +96,9 @@ class PriceListController extends Controller implements HasMiddleware
         return response()->json(['message' => 'تم حذف قائمة الأسعار بنجاح']);
     }
 
-    /** استيراد أسعار من CSV (updateOrCreate على القائمة/المتغير/حد الكمية). */
+    /**
+     * Import price list items from CSV, supporting dry-run previews.
+     */
     public function import(ImportPriceListItemsRequest $request, PriceList $priceList): JsonResponse
     {
         $dryRun = $request->boolean('dry_run');
@@ -90,6 +110,9 @@ class PriceListController extends Controller implements HasMiddleware
         ]);
     }
 
+    /**
+     * Bulk adjust item prices in the price list by a specified percentage.
+     */
     public function applyPercentage(Request $request, PriceList $priceList): JsonResponse
     {
         $data = $request->validate(['percent' => ['required', 'numeric', 'min:-100', 'max:1000000']]);
@@ -98,7 +121,9 @@ class PriceListController extends Controller implements HasMiddleware
         return response()->json(['data' => ['updated' => $updated]]);
     }
 
-    /** تصدير عناصر القائمة كملف CSV قابل لإعادة الاستيراد. */
+    /**
+     * Export price list items as a streaming CSV download.
+     */
     public function export(Request $request, PriceList $priceList): StreamedResponse
     {
         return $this->priceLists->exportCsv($priceList, $request->user());

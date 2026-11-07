@@ -8,14 +8,29 @@ export enum OrderStatus {
   Returned = 'returned',
 }
 
-export const OrderStatusLabelsAr: Record<OrderStatus, string> = {
-  [OrderStatus.Pending]: 'قيد الانتظار',
-  [OrderStatus.Confirmed]: 'مؤكد',
+export const OrderStatusLabelsAr: Record<string, string> = {
+  [OrderStatus.Pending]: 'قيد المراجعة',
+  [OrderStatus.Confirmed]: 'تم تأكيد الطلب',
   [OrderStatus.Processing]: 'جاري التجهيز',
   [OrderStatus.Shipped]: 'تم الشحن',
+  out_for_delivery: 'مع المندوب',
   [OrderStatus.Delivered]: 'تم التوصيل',
   [OrderStatus.Cancelled]: 'ملغي',
   [OrderStatus.Returned]: 'مرتجع',
+};
+
+export enum PaymentMethod {
+  Cod = 'cod',
+  Wallet = 'wallet',
+  BankTransfer = 'bank_transfer',
+  Credit = 'credit',
+}
+
+export const PaymentMethodLabelsAr: Record<string, string> = {
+  [PaymentMethod.Cod]: 'الدفع عند الاستلام',
+  [PaymentMethod.Wallet]: 'محفظة المتجر',
+  [PaymentMethod.BankTransfer]: 'تحويل عبر InstaPay',
+  [PaymentMethod.Credit]: 'دفع آجل',
 };
 
 export enum PaymentStatus {
@@ -26,11 +41,12 @@ export enum PaymentStatus {
   PartiallyRefunded = 'partially_refunded',
 }
 
-export const PaymentStatusLabelsAr: Record<PaymentStatus, string> = {
-  [PaymentStatus.Pending]: 'قيد السداد',
-  [PaymentStatus.Paid]: 'مدفوع',
+export const PaymentStatusLabelsAr: Record<string, string> = {
+  [PaymentStatus.Pending]: 'غير مدفوع',
+  unpaid: 'غير مدفوع',
+  [PaymentStatus.Paid]: 'تم الدفع',
   [PaymentStatus.Failed]: 'فشل الدفع',
-  [PaymentStatus.Refunded]: 'مسترد',
+  [PaymentStatus.Refunded]: 'تم رد المبلغ',
   [PaymentStatus.PartiallyRefunded]: 'مسترد جزئياً',
 };
 
@@ -89,10 +105,11 @@ export const CustomerTypeLabelsAr: Record<CustomerType, string> = {
 };
 
 export function getStatusLabel<T extends string>(
-  labels: Record<T, string>,
+  labels: Record<T, string> | Record<string, string>,
   key: T | string | null | undefined,
   fallback = '-'
 ): string {
   if (!key) return fallback;
-  return (labels as Record<string, string>)[key] ?? key;
+  const lookup = typeof key === 'string' ? key.toLowerCase().trim() : key;
+  return (labels as Record<string, string>)[lookup] ?? (labels as Record<string, string>)[key] ?? key;
 }

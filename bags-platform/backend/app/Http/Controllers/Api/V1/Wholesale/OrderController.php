@@ -19,7 +19,7 @@ class OrderController extends Controller
     public function __construct(private readonly WholesaleQuickOrderService $quickOrder) {}
 
     /**
-     * قائمة طلبات التاجر مع فلتر المجموعة (active/delivered/cancelled).
+     * List merchant orders filtered by status group (active, delivered, or cancelled).
      */
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -44,7 +44,7 @@ class OrderController extends Controller
     }
 
     /**
-     * تفاصيل طلب واحد يخص التاجر (404 لطلب تاجر آخر).
+     * Show details of a specific order scoped to the authenticated merchant.
      */
     public function show(Request $request, int $order): WholesaleOrderResource
     {
@@ -58,8 +58,7 @@ class OrderController extends Controller
     }
 
     /**
-     * إعادة طلب سابق: نسخ بنوده إلى سلة التاجر الحالية بأسعار اليوم
-     * السارية عبر CartService/PricingService، مع تقرير بالمتخطى.
+     * Reorder a previous purchase: copies items to the current cart with live prices and reports skipped items.
      */
     public function reorder(Request $request, int $order): JsonResponse
     {

@@ -3,6 +3,9 @@
 import React from 'react';
 import type { CheckoutVM } from './useCheckout';
 
+/**
+ * Renders recipient address fields, saved address quick-selector, and courier delivery notes.
+ */
 export function ShippingSection({ vm }: { vm: CheckoutVM }) {
   const { form, set, blur, visibleErrors, cities, savedAddresses, applySavedAddress } = vm;
   return (
@@ -21,6 +24,7 @@ export function ShippingSection({ vm }: { vm: CheckoutVM }) {
           <span className="saved-addresses-label">عناوينك المحفوظة:</span>
           <div className="saved-addresses-pills">
             {savedAddresses.map((addr) => {
+              // Match both city and street because a customer can have multiple saved locations within the same city.
               const active =
                 form.cityId === addr.city_id && form.street === addr.address_line;
               return (
@@ -47,6 +51,11 @@ export function ShippingSection({ vm }: { vm: CheckoutVM }) {
           </button>
         </div>
       )}
+      {!vm.citiesError && cities?.length === 0 && (
+        <p id="chk-city-unavailable" className="checkout-inline-alert" role="status">
+          مفيش مدن متاحة للتوصيل حاليًا.
+        </p>
+      )}
 
       <div className="checkout-fields-grid">
         <div className="line-input-wrap">
@@ -60,8 +69,9 @@ export function ShippingSection({ vm }: { vm: CheckoutVM }) {
               id="chk-city"
               aria-label="المدينة"
               aria-required="true"
-              aria-describedby={visibleErrors.cityId ? 'chk-city-error' : undefined}
+              aria-describedby={visibleErrors.cityId ? 'chk-city-error' : !vm.citiesError && cities.length === 0 ? 'chk-city-unavailable' : undefined}
               className="line-input"
+              disabled={cities.length === 0}
               value={form.cityId ?? ''}
               onChange={(e) =>
                 set('cityId', e.target.value === '' ? null : Number(e.target.value))

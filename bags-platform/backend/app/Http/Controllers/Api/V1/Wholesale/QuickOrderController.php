@@ -16,7 +16,9 @@ class QuickOrderController extends Controller
 {
     public function __construct(private readonly WholesaleQuickOrderService $service) {}
 
-    /** بحث جماعي بالأكواد مع الكميات: أسعار الشرائح والتوفر لكل بند. */
+    /**
+     * Bulk lookup of variants by SKU/barcode with requested quantities, tiered prices, and availability.
+     */
     public function lookup(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -40,12 +42,7 @@ class QuickOrderController extends Controller
     }
 
     /**
-     * استيراد ملف (sku, qty) إلى سلة التاجر مباشرة مع تقرير بالمضاف
-     * والمتخطى (كود غير معروف أو مخزون لا يغطي).
-     */
-    /**
-     * إضافة بنود الطلب السريع إلى السلة دفعة واحدة (حتى 500 بند)
-     * بدل طلب cart add لكل سطر.
+     * Batch-add quick order items to the merchant cart (up to 500 lines) in a single request.
      */
     public function addToCart(Request $request): JsonResponse
     {
@@ -61,6 +58,9 @@ class QuickOrderController extends Controller
         return response()->json(['data' => $this->service->importToCart($customer, $validated['items'])]);
     }
 
+    /**
+     * Import spreadsheet rows (SKU, qty) directly into the cart and return added vs skipped item counts.
+     */
     public function import(Request $request): JsonResponse
     {
         $request->validate([
@@ -80,8 +80,7 @@ class QuickOrderController extends Controller
     }
 
     /**
-     * صفوف الملف إلى [{sku, qty}] — يقبل صف ترويسة sku/qty بأي حالة أحرف
-     * أو صفوفًا رقمية بلا ترويسة (العمود الأول SKU والثاني الكمية).
+     * Normalize sheet rows to [{sku, qty}], handling optional header rows or indexed columns.
      *
      * @return list<array{sku: string, qty: float}>
      */
@@ -94,7 +93,7 @@ class QuickOrderController extends Controller
             if ($index === 0) {
                 $header = collect($values)->map(fn ($v) => strtolower(trim((string) $v)))->all();
                 if (in_array('sku', $header, true)) {
-                    continue; // صف الترويسة
+                    continue; // Skip detected header row.
                 }
             }
 

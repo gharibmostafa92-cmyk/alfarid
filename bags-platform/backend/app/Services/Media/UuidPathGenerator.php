@@ -7,14 +7,20 @@ namespace App\Services\Media;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Spatie\MediaLibrary\Support\PathGenerator\PathGenerator;
 
-// مسارات الميديا بالـ uuid بدل الـ id المتسلسل، فصور المسودات مبتتخمنش بترقيم بسيط
+/**
+ * Generates UUID-based storage paths to prevent enumeration and guessing of draft media assets.
+ */
 class UuidPathGenerator implements PathGenerator
 {
+    /**
+     * Resolves the root storage directory for a media file.
+     *
+     * @param  Media  $media  Target media model instance.
+     * @return string Relative directory path ending with a trailing slash.
+     */
     public function getPath(Media $media): string
     {
-        // M3: never hit the network here — this runs per URL (original + every
-        // conversion). Legacy rows without a layout live under id/; the
-        // media:backfill-path-layouts command persists the layout separately.
+        // Avoid remote storage I/O during path generation; resolve legacy paths synchronously in memory.
         if ($media->getCustomProperty('path_layout') === 'uuid' && $media->uuid) {
             return $media->uuid.'/';
         }
@@ -22,11 +28,17 @@ class UuidPathGenerator implements PathGenerator
         return $media->id.'/';
     }
 
+    /**
+     * Resolves storage directory for generated image conversions.
+     */
     public function getPathForConversions(Media $media): string
     {
         return $this->getPath($media).'conversions/';
     }
 
+    /**
+     * Resolves storage directory for responsive responsive image sets.
+     */
     public function getPathForResponsiveImages(Media $media): string
     {
         return $this->getPath($media).'responsive-images/';

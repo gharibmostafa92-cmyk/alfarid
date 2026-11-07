@@ -9,9 +9,7 @@ use RuntimeException;
 class GeminiException extends RuntimeException
 {
     /**
-     * M7: توكنز الطلب الفاشل لازم تتسجّل في ميزانية المستخدم حتى لو الرد
-     * ما اتعالش (finishReason غير STOP / رد نصي فاضي). اضبطها بالـ factory
-     * مع رفع الاستثناء، وتقرأها الدائرة عبر usage().
+     * Failed request tokens must still count against user token budgets (e.g. non-STOP finishReason or empty text).
      */
     public function __construct(string $message, public readonly ?int $providerStatus = null, private readonly ?array $usage = null)
     {

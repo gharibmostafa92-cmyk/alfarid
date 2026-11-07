@@ -125,8 +125,7 @@ class PricingService
             ->orderByRaw("CASE WHEN price_lists.type = 'customer_specific' THEN 0 WHEN price_lists.type = 'customer_group' THEN 1 WHEN price_lists.type = ? THEN 2 ELSE 3 END", [$channel->value]);
         $items = $this->ordered($items)->limit(1);
 
-        // M6: mirror basePrice() in SQL — the wholesale channel falls back to
-        // wholesale_price first, then retail_price.
+        // Mirror basePrice() hierarchy in SQL: wholesale channels fallback to wholesale_price before retail_price.
         $fallback = in_array($channel, [PriceListType::Wholesale, PriceListType::Distributor], true)
             ? 'COALESCE(product_variants.wholesale_price, product_variants.retail_price)'
             : 'product_variants.retail_price';
@@ -161,8 +160,7 @@ class PricingService
         }
         $now = Carbon::now();
 
-        // F17: reuse the preloaded per-customer context when the caller passes
-        // it (wholesale listing); otherwise load it for this single call.
+        // Reuse preloaded customer pricing context if supplied by bulk callers to prevent redundant queries.
         $ctx ??= $this->contextFor($customer);
         $baseQuery = $this->eligibleItems($variant, $qty, $branchId, $now);
         $channel = $ctx['channel'];
@@ -419,7 +417,7 @@ class PricingService
     public function tiersFor(ProductVariant $variant, ?Customer $customer, ?array $ctx = null, ?int $branchId = null): array
     {
         $now = Carbon::now();
-        // F17: reuse the preloaded per-customer context when available.
+        // Reuse preloaded customer pricing context when available to prevent redundant group queries.
         $ctx ??= $this->contextFor($customer);
         $channel = $ctx['channel'];
         $eligible = $ctx['eligible'];
@@ -473,9 +471,7 @@ class PricingService
 
     private function basePrice(ProductVariant $variant, PriceListType $channel): ?string
     {
-        // M6: wholesale_price is the wholesale-channel fallback. Retail stays
-        // on retail_price; wholesale/distributor prefer wholesale_price and
-        // fall back to retail_price when it is missing.
+        // Wholesale channels prefer wholesale_price and fall back to retail_price when unassigned.
         if (in_array($channel, [PriceListType::Wholesale, PriceListType::Distributor], true)
             && $variant->wholesale_price !== null) {
             return (string) $variant->wholesale_price;

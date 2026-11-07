@@ -9,6 +9,9 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Line item in a customer shopping cart linking to a product variant and quantity.
+ */
 class CartItem extends Model
 {
     /** @use HasFactory<CartItemFactory> */
@@ -36,8 +39,7 @@ class CartItem extends Model
     /** @return BelongsTo<ProductVariant, $this> */
     public function variant(): BelongsTo
     {
-        // L1: soft-deleted variants stay visible as unavailable lines instead of
-        // vanishing ghost rows that still count toward max_cart_lines.
+        // Include soft-deleted variants so they render as unavailable lines rather than silently vanishing ghost items.
         return $this->belongsTo(ProductVariant::class, 'product_variant_id')->withTrashed();
     }
 }

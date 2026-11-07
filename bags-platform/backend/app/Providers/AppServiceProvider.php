@@ -28,6 +28,8 @@ use App\Services\Ai\Finance\FinanceToolProvider;
 use App\Services\Ai\Inventory\InventoryToolProvider;
 use App\Services\Ai\Pricing\PricingToolProvider;
 use App\Services\Ai\ProposalBuilder;
+use App\Services\Ai\Shipping\ShippingToolProvider;
+use App\Services\Ai\Storefront\StorefrontToolProvider;
 use App\Services\Ai\ToolRegistry;
 use App\Services\Ai\WhatsApp\WhatsAppActorContext;
 use App\Services\Auth\NetworkIdentity;
@@ -67,7 +69,14 @@ class AppServiceProvider extends ServiceProvider
         $this->app->scoped(CatalogRetailPriceObserver::class);
         $this->app->scoped(ProposalBuilder::class);
         $this->app->scoped(WhatsAppActorContext::class);
-        $this->app->tag([CatalogToolProvider::class, InventoryToolProvider::class, PricingToolProvider::class, FinanceToolProvider::class], 'ai.tool_providers');
+        $this->app->tag([
+            CatalogToolProvider::class,
+            InventoryToolProvider::class,
+            PricingToolProvider::class,
+            FinanceToolProvider::class,
+            ShippingToolProvider::class,
+            StorefrontToolProvider::class,
+        ], 'ai.tool_providers');
         $this->app->scoped(ToolRegistry::class, function ($app) {
             return new ToolRegistry(
                 $app->make(EntityResolver::class),
@@ -84,10 +93,24 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $this->configureModelObservers();
+        $this->configureLifecycleEvents();
+        $this->configureSecurityAndGates();
+        $this->enforceProductionGuards();
+        $this->configureMorphMaps();
+        $this->configureRateLimiters();
+    }
+
+    private function configureModelObservers(): void
+    {
         foreach ([ProductVariant::class, PriceListItem::class, PriceList::class,
             StockLevel::class, Branch::class, Location::class] as $model) {
             $model::observe(CatalogRetailPriceObserver::class);
         }
+    }
+
+    private function configureLifecycleEvents(): void
+    {
         Event::listen(TransactionBeginning::class, function ($event): void {
             app(CatalogRetailPriceObserver::class)->transactionBegan($event->connection);
             if ($event->connection->transactionLevel() === 1) {
@@ -106,54 +129,78 @@ class AppServiceProvider extends ServiceProvider
         });
         Event::listen(JobProcessing::class, function (): void {
             app(PermissionRegistrar::class)->clearPermissionsCollection();
-            // M9: worker نحتاجها عن نفسه — إعدادات/بادئات ترقيم قديمة من
-            // الجاب الفات ما تفضلش عاملة تحت فيه الوحدة الجديدة.
+            // Clear memoized settings and document numbering sequences between queue jobs to prevent state pollution in long-running workers.
             app(SettingService::class)->forgetMemoryState();
         });
+        Event::listen(QueueBusy::class,
+            fn ($event) => logger()->error('Queue backlog exceeded its configured threshold.', ['connection' => $event->connectionName, 'queue' => $event->queue, 'size' => $event->size]));
+    }
+
+    private function configureSecurityAndGates(): void
+    {
         Gate::before(fn ($user) => $user instanceof User
             && $user->is_active && ! $user->is_system
             && $user->hasRole(StaffRole::SuperAdmin->value, 'staff') ? true : null);
+
         $proxies = config('app.trusted_proxies');
-        if ($this->app->environment('production') && (! is_string($proxies) || trim($proxies) === '' || preg_match('/(?:^|,)\s*\*{1,2}\s*(?:,|$)/', $proxies))) {
+        TrustProxies::at(is_string($proxies) && trim($proxies) !== '' && $proxies !== 'none'
+            ? array_map('trim', explode(',', $proxies)) : []);
+    }
+
+    private function enforceProductionGuards(): void
+    {
+        if (! $this->app->environment('production')) {
+            return;
+        }
+
+        $proxies = config('app.trusted_proxies');
+        if (! is_string($proxies) || trim($proxies) === '' || preg_match('/(?:^|,)\s*\*{1,2}\s*(?:,|$)/', $proxies)) {
             throw new \LogicException('Set TRUSTED_PROXIES to explicit proxy IPs/CIDRs, or none for direct access. Wildcards are not allowed in production.');
         }
-        if ($this->app->environment('production') && in_array(config('cache.default'), ['file', 'array'], true)) {
+        if (in_array(config('cache.default'), ['file', 'array'], true)) {
             logger()->critical('AI agent locks require a shared atomic cache store (redis/database).');
         }
-        // F17: إعدادات افتراضية خطرة في الإنتاج — روابط ورموز الاستعادة
-        // تُكتب في السجل مع mailer=log (استيلاء على الحسابات)، وsslmode=prefer
-        // يسمح بالرجوع لاتصال غير مشفر. فشل مبكر كحراسة TRUSTED_PROXIES.
-        if ($this->app->environment('production') && config('mail.default') === 'log') {
+        // Disallow log mailer and plaintext database connections in production to prevent credential leakage.
+        if (config('mail.default') === 'log') {
             throw new \LogicException('Set MAIL_MAILER to a real mailer in production. The log mailer writes password-reset links and OTP codes to the log file.');
         }
         $sslmode = config('database.connections.pgsql.sslmode');
-        if ($this->app->environment('production') && config('database.default') === 'pgsql'
-            && in_array($sslmode, ['prefer', 'allow', 'disable'], true)) {
+        if (config('database.default') === 'pgsql' && in_array($sslmode, ['prefer', 'allow', 'disable'], true)) {
             throw new \LogicException("Set DB_SSLMODE=require (or stricter) in production. '{$sslmode}' allows a plaintext database connection.");
         }
-        TrustProxies::at(is_string($proxies) && trim($proxies) !== '' && $proxies !== 'none'
-            ? array_map('trim', explode(',', $proxies)) : []);
-        Event::listen(QueueBusy::class,
-            fn ($event) => logger()->error('Queue backlog exceeded its configured threshold.', ['connection' => $event->connectionName, 'queue' => $event->queue, 'size' => $event->size]));
+        // Require shared lockable cache store across workers in production for multi-node staff handoff synchronization.
+        if (! in_array((string) config('cache.default'), ['redis', 'database', 'memcached', 'dynamodb'], true)) {
+            throw new \LogicException('Staff handoff requires a shared lockable cache store in production. Use Redis or a shared database cache.');
+        }
+    }
 
-        // مستمعو نظام الإشعارات الموحد (المرحلة 13.1) يُكتشفون تلقائيًا من
-        // app/Listeners عبر تلميحات أنواع الأحداث — لا تسجيل صريح هنا حتى
-        // لا تُستدعى المستمعات مرتين.
-        // H5: one IPv6 device owns a whole /64 (2^64 addresses). Keying by
-        // the full $request->ip() lets an attacker rotate addresses and dodge
-        // every IP bucket (SMS pumping, coupon guessing, account stuffing).
-        // Collapse IPv6 to its /64; IPv4 stays as-is (one IPv4 may hide a
-        // whole CGNAT cell, so it must not carry a daily budget alone).
+    private function configureMorphMaps(): void
+    {
+        // Morph map aliases decouple ledger reference records (e.g. stock_movements) from PHP class namespaces.
+        Relation::morphMap([
+            'production_receipt' => ProductionReceipt::class,
+            'stock_transfer' => StockTransfer::class,
+            'stocktake' => Stocktake::class,
+            'order' => Order::class,
+            'return_request' => ReturnRequest::class,
+            'purchase_order' => PurchaseOrder::class,
+            'pos_shift' => PosShift::class,
+            'expense' => Expense::class,
+            'treasury_transfer' => TreasuryTransfer::class,
+            'wholesale_payment_notice' => WholesalePaymentNotice::class,
+        ]);
+    }
+
+    private function configureRateLimiters(): void
+    {
+        // Collapse IPv6 addresses to their /64 subnet to prevent rotating through transient host addresses to bypass rate limits.
         $networkIp = NetworkIdentity::forRequest(...);
         RateLimiter::for('customer-registration', fn (Request $request) => [
             Limit::perMinute(config('auth.customer_limits.registration_ip_minute', 20))->by('customer-register-minute:'.$networkIp($request)),
             Limit::perDay(config('auth.customer_limits.registration_ip_day', 500))->by('customer-register-day:'.$networkIp($request)),
         ]);
         RateLimiter::for('store-branding', fn (Request $request) => Limit::perMinute(1200)->by('store-branding:'.$networkIp($request)));
-        // H2: filters + search ride the expensive price limiter. H3: no shared
-        // global bucket — one global counter turns cheap traffic into a
-        // store-wide 429 on the whole product list. Per-IP ceilings plus the
-        // facets cache (H2) reduce load without a store-wide denial bucket.
+        // Expensive catalog filters and price sorting use tighter limits, avoiding global shared buckets that cause storewide outages.
         RateLimiter::for('store-catalog', function (Request $request) use ($networkIp) {
             $customer = auth('sanctum')->user();
             $identity = $customer instanceof Customer ? 'customer:'.$customer->id : $networkIp($request);
@@ -183,38 +230,22 @@ class AppServiceProvider extends ServiceProvider
             Limit::perMinute(config('auth.customer_limits.phone_ip_minute', 20))->by('phone-send-ip:'.$networkIp($request)),
             Limit::perDay(config('auth.customer_limits.phone_ip_day', 500))->by('phone-send-day:'.$networkIp($request)),
             Limit::perMinute(1)->by('phone-send-id:'.$phoneKey($request)),
-            // F16: سقف يومي لكل رقم — بلا سقف يمكن إرسال 1440 رسالة يوميًا
-            // لضحية واحدة (إزعاج وتكلفة SMS pumping).
+            // Daily limit per phone number mitigates SMS toll fraud and recipient harassment.
             Limit::perDay(config('auth.customer_limits.phone_id_day', 5))->by('phone-send-id-day:'.$phoneKey($request)),
         ]);
         RateLimiter::for('customer-phone-verify', fn (Request $request) => [
             Limit::perMinute(config('auth.customer_limits.phone_verify_ip_minute', 120))->by('phone-verify-ip:'.$networkIp($request)),
             Limit::perMinute(5)->by('phone-verify-id:'.$phoneKey($request)),
-            // F16: سقف يومي لكل رقم — الرمز 6 أرقام ويُبطل بعد 5 محاولات
-            // (CustomerPhoneVerificationService)، والسقف اليومي طبقة إضافية.
+            // Daily verification attempt ceiling adds an additional defense layer on top of per-code invalidation thresholds.
             Limit::perDay(config('auth.customer_limits.phone_verify_id_day', 20))->by('phone-verify-id-day:'.$phoneKey($request)),
-        ]);
-        // أسماء قصيرة ثابتة لمراجع الدفتر (stock_movements.reference_type):
-        // إعادة تسمية/نقل الكلاسات لاحقًا لا تكسر أثر التدقيق التاريخي.
-        // الصفوف القديمة المخزنة باسم الكلاس الكامل تظل قابلة للقراءة.
-        Relation::morphMap([
-            'production_receipt' => ProductionReceipt::class,
-            'stock_transfer' => StockTransfer::class,
-            'stocktake' => Stocktake::class,
-            'order' => Order::class,
-            'return_request' => ReturnRequest::class,
-            'purchase_order' => PurchaseOrder::class,
-            'pos_shift' => PosShift::class,
-            'expense' => Expense::class,
-            'treasury_transfer' => TreasuryTransfer::class,
-            'wholesale_payment_notice' => WholesalePaymentNotice::class,
         ]);
 
         // حد دخول العملاء (متجر/جملة): بالمُعرّف (بريد/هاتف) وبالـ IP معًا
         RateLimiter::for('customer-login', function (Request $request) use ($networkIp): array {
             $identifier = $request->input('login');
-            $idKey = is_string($identifier) ? hash('sha256', str_contains($identifier, '@')
-                ? Str::lower(trim($identifier)) : Customer::normalizePhone($identifier)) : 'none';
+            $idKey = is_string($identifier) && trim($identifier) !== ''
+                ? hash('sha256', (string) Customer::normalizeIdentifier($identifier))
+                : 'none';
 
             return [
                 Limit::perMinute(5)->by('customer-login-id:'.$idKey),
@@ -224,25 +255,20 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
-        // حدود مسارات السلة وإتمام الشراء وتتبع الطلب والويب هوك (M3/M5)
-        // H4: behind CGNAT one IPv4 hides thousands of shoppers, so logged-in
-        // customers are keyed by customer_id and the IP minute ceiling is
-        // generous — abuse is handled by account/phone limits, not the NAT.
+        // Key authenticated customers by customer_id while applying network ceilings for unauthenticated carts.
         RateLimiter::for('cart', function (Request $request) use ($networkIp) {
             $customer = auth('sanctum')->user();
             if ($customer instanceof Customer) {
                 return [Limit::perMinute(120)->by('cart-customer:'.$customer->id)];
             }
 
-            // F2/F15: حد الزائر مخفّض وقابل للضبط — كل POST بلا جلسة قد
-            // ينشئ سلة جديدة، و600/دقيقة لكل IP تضخّم carts/cart_items.
+            // Guest cart limits prevent rapid generation of ephemeral cart sessions and database row bloat.
             return [
                 Limit::perMinute(config('auth.customer_limits.cart_guest_ip_minute', 120))->by('cart-ip:'.$networkIp($request)),
                 Limit::perDay(config('auth.customer_limits.cart_guest_ip_day', 2000))->by('cart-ip-day:'.$networkIp($request)),
             ];
         });
-        // تخمين أكواد الكوبونات (F-24): حد ضيق خاص لكل IP وأيضًا لكل
-        // توكن/جلسة سلة، بدل الاعتماد على حد السلة العام فقط
+        // Key coupon rate limiting on network IP and cart session to prevent brute-force discount code guessing.
         RateLimiter::for('coupon', function (Request $request) use ($networkIp): array {
             $identity = $request->bearerToken() ?? $request->header('X-Cart-Session') ?? 'guest';
 
@@ -251,14 +277,7 @@ class AppServiceProvider extends ServiceProvider
                 Limit::perMinute(10)->by('coupon-id:'.hash('sha256', (string) $identity)),
             ];
         });
-        // إتمام الشراء: بالـ IP وأيضًا بالهاتف المُوحَّد (F5) — الزائر بلا
-        // تحقق من الهاتف لا يراكم طلبات وهمية يحبس بها مخزونًا برقم واحد
-        // H4: logged-in customers are keyed by customer_id; the daily network
-        // quota only applies to an IPv6 /64 (one IPv4 may hide a whole CGNAT
-        // cell, so it must not carry a daily budget). H5: no 'guest' phone
-        // bucket — requests without a phone get no phone key at all, and the
-        // daily phone counter lives in OrderService after successful
-        // validation instead of the middleware.
+        // Authenticated checkout is keyed by customer ID; guest checkout limits apply daily network ceilings and per-phone limits.
         RateLimiter::for('checkout', function (Request $request) use ($networkIp): array {
             $customer = auth('sanctum')->user();
             $customer = $customer instanceof Customer ? $customer : null;
@@ -272,8 +291,7 @@ class AppServiceProvider extends ServiceProvider
                 $limits[] = Limit::perMinute(30)->by('checkout-customer:'.$customer->id);
                 $limits[] = Limit::perDay(100)->by('checkout-customer-day:'.$customer->id);
             } else {
-                // F2: حد الزائر مخفّض وقابل للضبط، مع سقف يومي لكل IP
-                // (IPv4 مشمول — لا /64 وحده) وسقف يومي لكل هاتف.
+                // Guest checkout limits enforce daily quotas per IP and per destination phone number.
                 $limits[] = Limit::perMinute(config('auth.customer_limits.checkout_guest_ip_minute', 30))->by('checkout-ip:'.$networkIp($request));
                 $limits[] = Limit::perDay(config('auth.customer_limits.checkout_guest_ip_day', 200))->by('checkout-ip-day:'.$networkIp($request));
                 $packedIp = inet_pton((string) $request->ip());
@@ -344,23 +362,17 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
-        // حد الدخول الموحد: بالـ IP وبالمعرّف (بريد/هاتف) معًا
         RateLimiter::for('unified-login', function (Request $request) use ($networkIp) {
-            // H2: طبّع المعرّف بنفس منطق CustomerAuthService::login، وإلا كانت
-            // كل صيغة هاتف (‎+20/0020/مسافات/أرقام عربية) بعدّاد مستقل.
-            // M3: المدخل قد يكون array فيصل قبل الـ validation — لا تصبه لـ string.
+            // Canonicalize login identifier using Customer::normalizeIdentifier to prevent circumventing limits via alternate phone formats.
+            // Guard against non-string payloads that arrive prior to controller validation.
             $raw = $request->input('login');
-            $normalized = ! is_string($raw) || trim($raw) === ''
-                ? 'invalid'
-                : (str_contains($raw, '@')
-                    ? Str::lower(trim($raw))
-                    : Customer::normalizePhone($raw));
-            $id = hash('sha256', $normalized);
+            $normalized = is_string($raw) && trim($raw) !== ''
+                ? Customer::normalizeIdentifier($raw)
+                : null;
+            $id = hash('sha256', $normalized ?? 'invalid');
 
             return [
-                // M6: حد الـ IP قابل للضبط (شبكات CGNAT والفروع المشتركة)، وحد
-                // إبقاء حد ضيق لكل (IP + معرّف) ضد التخمين المركّز.
-                // الحدود العامة تحسب الفشل فقط داخل UnifiedAuthService.
+                // Combined IP and identifier rate limiting protects against targeted credential stuffing across shared network gateways.
                 Limit::perMinute((int) config('auth.unified_login_ip_minute', 120))->by('ip:'.$networkIp($request)),
                 Limit::perMinute(5)->by('id:'.$id.':'.$networkIp($request)),
             ];
@@ -368,12 +380,5 @@ class AppServiceProvider extends ServiceProvider
 
         RateLimiter::for('unified-handoff', fn (Request $request) => Limit::perMinute((int) config('auth.unified_handoff_ip_minute', 60))->by($networkIp($request)));
         RateLimiter::for('ai-chat', fn (Request $request) => Limit::perMinute(20)->by('ai-chat:'.($request->user('staff')?->id ?? $networkIp($request))));
-
-        // M8: الـ handoff يعتمد على cache مشترك يدعم الأقفال عبر الخوادم.
-        // file/array يكسرانه بصمت على عدة nodes — نبّه في الإنتاج مبكرًا.
-        if ($this->app->environment('production')
-            && ! in_array((string) config('cache.default'), ['redis', 'database', 'memcached', 'dynamodb'], true)) {
-            throw new \LogicException('Staff handoff requires a shared lockable cache store in production. Use Redis or a shared database cache.');
-        }
     }
 }

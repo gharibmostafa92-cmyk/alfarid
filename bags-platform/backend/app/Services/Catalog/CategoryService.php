@@ -12,12 +12,23 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Manages category hierarchy trees, slug assignments, media attachments, and cyclic reference guards.
+ */
 class CategoryService
 {
+    /**
+     * Creates a new category within allowable tree depth.
+     *
+     * @param  array<string, mixed>  $data  Category attributes including name and optional parent_id.
+     * @param  UploadedFile|null  $image  Optional category display image.
+     * @return Category Created category instance.
+     *
+     * @throws BusinessException If maximum tree depth (3) is exceeded or slug collides.
+     */
     public function create(array $data, ?UploadedFile $image): Category
     {
-        // M1: retry once on auto-slug races; M5: shared tree lock + FOR SHARE on
-        // the parent — creating a leaf must not take the exclusive tree lock.
+        // Acquire shared tree lock and retry once on generated slug races to allow concurrent leaf creations.
         $autoSlug = empty($data['slug'] ?? null);
         for ($attempt = 0; ; $attempt++) {
             try {
@@ -41,9 +52,7 @@ class CategoryService
                     return Category::create($data);
                 });
 
-                // F2: the R2 upload (and any sync conversion) runs outside the
-                // tree lock, in its own short transaction — network I/O must
-                // not hold an advisory lock that serializes all catalog writes.
+                // Perform media uploads in a separate transaction to avoid holding catalog tree locks during remote network I/O.
                 if ($image) {
                     $this->attachImage($category, $image);
                 }
@@ -60,6 +69,16 @@ class CategoryService
         }
     }
 
+    /**
+     * Updates an existing category, validating optimistic locks and hierarchy changes.
+     *
+     * @param  Category  $category  Target category model.
+     * @param  array<string, mixed>  $data  Updated attributes.
+     * @param  UploadedFile|null  $image  Replacement image file if provided.
+     * @return Category Refreshed category instance.
+     *
+     * @throws BusinessException If version conflicts, hierarchy is invalid, or slug collides.
+     */
     public function update(Category $category, array $data, ?UploadedFile $image): Category
     {
         $expectedVersion = $data['expected_version'] ?? null;
@@ -97,27 +116,20 @@ class CategoryService
                     $data['slug'] = SlugService::make(Category::class, $data['name_en'] ?? $category->name_en, $category->id);
                 }
 
-                foreach (['sort_order', 'is_active'] as $field) {
-                    if (array_key_exists($field, $data) && $data[$field] === null) {
-                        unset($data[$field]);
-                    }
-                }
-
                 $category->update($data);
 
                 return $category;
             });
         };
 
-        // F8: a concurrent update can win the slug between validation and the
-        // write — surface it as 409, not 500.
+        // Catch concurrent unique slug collisions and convert to 409 conflict responses.
         try {
             $updated = $apply(false) ?? $apply(true);
         } catch (UniqueConstraintViolationException $e) {
             throw new BusinessException('المعرف (slug) مستخدم بالفعل؛ اختر قيمة أخرى.', [], 409);
         }
 
-        // F2: image changes run outside the tree lock (see create()).
+        // Execute media updates outside tree lock transaction to avoid prolonging catalog locks.
         if ($image) {
             $this->attachImage($updated, $image);
         } elseif ($removeImage) {
@@ -128,9 +140,7 @@ class CategoryService
     }
 
     /**
-     * F2: attach the image in its own short transaction with no tree lock.
-     * The image is optional, so a failed upload keeps the saved row and
-     * reports a clear message instead of rolling back the data.
+     * Attaches a category image in an isolated transaction without holding tree locks.
      */
     private function attachImage(Category $category, UploadedFile $image): void
     {
@@ -142,6 +152,15 @@ class CategoryService
         }
     }
 
+    /**
+     * Deletes a category if it has no child categories or assigned products.
+     *
+     * @param  Category  $category  Category to delete.
+     * @param  int|null  $expectedVersion  Optimistic concurrency version.
+     * @return void
+     *
+     * @throws BusinessException If category has subcategories or assigned products.
+     */
     public function delete(Category $category, ?int $expectedVersion = null): void
     {
         DB::transaction(function () use ($category, $expectedVersion): void {
@@ -163,6 +182,14 @@ class CategoryService
         });
     }
 
+    /**
+     * Reorders category items and moves nodes within the hierarchy under lock protection.
+     *
+     * @param  list<array{id: int, parent_id: int|null, sort_order: int, expected_version?: int|null}>  $items
+     * @return void
+     *
+     * @throws BusinessException If cycle is detected or version mismatch occurs.
+     */
     public function reorder(array $items): void
     {
         // Retry with an exclusive tree lock only if the fresh snapshot contains a move.
@@ -195,8 +222,7 @@ class CategoryService
                     CategoryHierarchy::assertValid($nodes);
                     CategoryHierarchy::assertPublishedPathsActive($nodes);
                 }
-                // M11: apply row updates in id order so concurrent order-only
-                // requests acquire row locks in the same order (no deadlock).
+                // Sort category updates by ID to enforce deterministic row-lock ordering and prevent deadlocks.
                 $ordered = collect($items)->sortBy('id')->values()->all();
                 $hasExpectedVersions = collect($ordered)->contains(fn ($item) => isset($item['expected_version']));
                 $lockedCategories = $hasExpectedVersions
@@ -219,6 +245,12 @@ class CategoryService
         }
     }
 
+    /**
+     * Builds the hierarchical category tree.
+     *
+     * @param  bool  $onlyActive  Whether to include only active categories.
+     * @return Collection<int, Category>
+     */
     public function tree(bool $onlyActive = false): Collection
     {
         $all = Category::query()->with('media')->withCount(['products', 'products as all_products_count' => fn ($q) => $q->withTrashed()])
@@ -236,6 +268,15 @@ class CategoryService
         return $build(null);
     }
 
+    /**
+     * Asserts that assigning a parent category maintains valid published hierarchy and tree depth.
+     *
+     * @param  Category  $category  Target category.
+     * @param  int|null  $parentId  Candidate parent identifier.
+     * @return void
+     *
+     * @throws BusinessException If cycle or depth invariant is violated.
+     */
     public function assertValidParent(Category $category, ?int $parentId): void
     {
         $nodes = CategoryHierarchy::snapshot();

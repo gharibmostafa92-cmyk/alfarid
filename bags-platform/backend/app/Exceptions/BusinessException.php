@@ -7,7 +7,9 @@ namespace App\Exceptions;
 use Exception;
 use Illuminate\Http\JsonResponse;
 
-// الاستثناء اللي بنرميه لما قاعدة من قواعد البيزنس تتكسر، وبيرجّع 422.
+/**
+ * Exception thrown when domain business constraints or state preconditions are violated.
+ */
 class BusinessException extends Exception
 {
     public function __construct(
@@ -19,11 +21,14 @@ class BusinessException extends Exception
         parent::__construct($message);
     }
 
+    /**
+     * Render the exception into a JSON HTTP response.
+     */
     public function render(): JsonResponse
     {
         $payload = ['message' => $this->getMessage(), 'errors' => $this->errors];
         if ($this->errorCode !== null) {
-            // رمز خطأ مميز تتصرف الواجهة على أساسه (مثل coupon_invalid)
+            // Machine-readable error code for client error handling (e.g. 'credit_limit_exceeded').
             $payload['code'] = $this->errorCode;
         }
 

@@ -38,6 +38,9 @@ class UnifiedAuthController extends Controller
         private readonly CartService $carts,
     ) {}
 
+    /**
+     * Authenticate unified portal user (staff handoff, supplier, or customer).
+     */
     public function login(UnifiedLoginRequest $request): JsonResponse
     {
         $data = $request->validated();
@@ -58,8 +61,8 @@ class UnifiedAuthController extends Controller
 
         /** @var Customer $actor */
         $token = $this->customerAuth->issueToken($actor, $actor->type === CustomerType::Retail ? 'store-token' : 'wholesale-token');
-        // M10: الدمج best-effort بعد إصدار التوكن — فشله لا يُفشل الدخول ولا
-        // يُيتّم التوكن؛ يُبلغ الفرونت بالنتيجة ليحتفظ بـ cart_session عند الفشل.
+        // Best-effort cart merge: failure should not abort login or orphan the issued token;
+        // frontend is notified via cart_merged flag so it can retain guest cart session.
         $cartMerged = true;
         try {
             $this->carts->mergeGuestCart($actor, $request->header('X-Cart-Session'));
@@ -73,10 +76,12 @@ class UnifiedAuthController extends Controller
             $actor->type->value, $cartMerged);
     }
 
+    /**
+     * Exchange a staff one-time handoff code for a Sanctum access token.
+     */
     public function exchange(HandoffExchangeRequest $request): JsonResponse
     {
-        // L3: الكود المستهلك يُعامل كغير صالح (401)، أما أعطال البنية
-        // (قاعدة/كاش) فتُترك لتُرجع 503/500 بدل ابتلاعها في 401 مضلل.
+        // Invalid or expired codes return 401; infrastructure timeouts (cache/lock) propagate 500/503.
         try {
             $payload = $this->handoff->consume($request->validated()['code']);
         } catch (LockTimeoutException $exception) {
@@ -91,8 +96,7 @@ class UnifiedAuthController extends Controller
             return response()->json(['message' => 'رابط الدخول غير صالح أو انتهت صلاحيته.'], 401);
         }
 
-        // تُحسم الوجهة (بما فيها فحص الأدوار/الفرع) قبل إصدار أي توكن حتى
-        // لا يتخلف توكن يتيم عند الرفض.
+        // Verify roles/branch constraints and resolve redirect destination before issuing token.
         $user->load(['branch', 'roles.permissions', 'permissions']);
         $redirect = $this->destinations->resolve($user);
 
@@ -107,6 +111,9 @@ class UnifiedAuthController extends Controller
         ]);
     }
 
+    /**
+     * Retrieve the current authenticated actor profile and portal route destination.
+     */
     public function me(Request $request): JsonResponse
     {
         $actor = $request->user('sanctum');
@@ -122,8 +129,7 @@ class UnifiedAuthController extends Controller
         }
 
         if ($actor instanceof SupplierUser) {
-            // H5: أعد فحص الشركة هنا أيضًا — إيقافها بعد إصدار التوكن يجب أن
-            // يمنع الجلسة فورًا لا عند انتهاء التوكن.
+            // Re-verify company active status; deactivated suppliers must be blocked immediately.
             abort_unless($actor->is_active && $actor->supplier_id !== null
                 && $actor->supplier?->is_active === true, 403);
             $actor->load('supplier');
@@ -139,8 +145,7 @@ class UnifiedAuthController extends Controller
             $redirect = $this->destinations->resolve($actor);
 
             return response()->json([
-                // M1: subtype هو الـ destination دائمًا (كما في login)، ونوع
-                // العميل في حقل منفصل حتى لا يبني الفرونت الوجهة من me خطأً.
+                // Keep customer_type distinct from destination subtype to prevent frontend misrouting.
                 'actor' => ['type' => 'customer', 'subtype' => $redirect['destination'],
                     'customer_type' => $actor->type->value, 'status' => $actor->status->value],
                 'redirect' => $redirect,
@@ -150,6 +155,9 @@ class UnifiedAuthController extends Controller
         abort(401);
     }
 
+    /**
+     * Revoke the current Sanctum token and log out the actor.
+     */
     public function logout(Request $request): Response
     {
         $request->user('sanctum')?->currentAccessToken()?->delete();
@@ -159,13 +167,13 @@ class UnifiedAuthController extends Controller
 
     private function issueSupplierToken(SupplierUser $user): string
     {
-        // L1: الحد غير ذري — دخولان متزامنان يتجاوزانه. القفل داخل transaction.
+        // Enforce token limit under transaction lock to prevent race conditions during concurrent logins.
         return DB::transaction(function () use ($user): string {
             $user = SupplierUser::query()->lockForUpdate()->findOrFail($user->id);
             if (! $user->is_active || $user->supplier_id === null || $user->supplier?->is_active !== true) {
                 throw new BusinessException('بيانات الدخول غير صحيحة.', [], 401);
             }
-            // M1: SANCTUM_EXPIRATION الفارغ يعني بلا انتهاء زمني — لا تمسح كل التوكنات.
+            // Null or empty SANCTUM_EXPIRATION denotes non-expiring tokens; prune only when explicit expiry is set.
             $expiry = config('sanctum.expiration');
             $user->tokens()->where(fn ($q) => $q->where('expires_at', '<=', now())
                 ->when($expiry, fn ($q) => $q->orWhere('created_at', '<=', now()->subMinutes((int) $expiry))))->delete();
@@ -187,8 +195,7 @@ class UnifiedAuthController extends Controller
     {
         return response()->json(array_filter([
             'message' => 'تم تسجيل الدخول بنجاح',
-            // M1: customer_type منفصل عن subtype (الوجهة) حتى لا يبني الفرونت
-            // الوجهة من نوع العميل خطأً.
+            // Keep customer_type distinct from destination subtype to prevent frontend misrouting.
             'actor' => array_filter(['type' => $type, 'subtype' => $redirect['destination'], 'status' => $status,
                 'customer_type' => $customerType], fn ($v) => $v !== null),
             'redirect' => $redirect,

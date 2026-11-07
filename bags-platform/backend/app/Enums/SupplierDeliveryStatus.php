@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Enums;
 
-/** حالات إشعار توريد المورد (ASN): بانتظار استلام المخزن، أو مستلم، أو مرفوض. */
+/**
+ * Advanced Shipping Notice (ASN) delivery inspection statuses.
+ */
 enum SupplierDeliveryStatus: string
 {
     case PendingReceipt = 'pending_receipt';

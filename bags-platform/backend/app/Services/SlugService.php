@@ -30,7 +30,9 @@ class SlugService
 
         // Fetch all existing candidate slugs in a single query and find the next available integer suffix in memory
         $like = SearchTerm::escape($base).'-%';
-        $query = $modelClass::withTrashed();
+        $query = method_exists($modelClass, 'withTrashed')
+            ? $modelClass::withTrashed()
+            : $modelClass::query();
         $existing = $query
             ->when($query->getModel()->getConnection()->getDriverName() === 'pgsql',
                 fn ($q) => $q->whereRaw('slug ~* ?', ['^'.preg_quote($base).'(-[0-9]+)?$']),

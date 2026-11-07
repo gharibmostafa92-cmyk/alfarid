@@ -32,7 +32,9 @@ class ProductController extends Controller
         private readonly SettingService $settings,
     ) {}
 
-    /** كتالوج الجملة: لكل متغير سعر هذا التاجر وشرائح كمياته والمتاح. */
+    /**
+     * Wholesale catalog: resolves merchant tier pricing, base price, and active branch availability.
+     */
     public function index(Request $request): JsonResponse
     {
         $filters = $request->validate([
@@ -44,8 +46,7 @@ class ProductController extends Controller
         $customer = $request->user();
 
         $products = Product::query()
-            // M6: wholesale sees wholesale-channel products only, on active
-            // category paths (mirrors the storefront's publishedQuery guards).
+            // Restrict wholesale catalog to published products on active category trees in wholesale channels.
             ->where('status', 'published')
             ->whereIn('sales_channel', [SalesChannel::Wholesale, SalesChannel::Both])
             ->whereHas('category', fn ($q) => $q->where('is_active', true)
@@ -66,7 +67,7 @@ class ProductController extends Controller
             ->flatMap(fn (Product $product) => $product->variants->pluck('id'))
             ->all();
 
-        // M6: availability counts active branches only, like the storefront.
+        // Calculate available stock across active branches only.
         $availability = StockLevel::query()
             ->join('branches', 'branches.id', '=', 'stock_levels.branch_id')
             ->where('branches.is_active', true)
@@ -77,8 +78,7 @@ class ProductController extends Controller
             ->map(fn ($v) => (float) $v)
             ->all();
 
-        // F17: customer price-list context is identical for every variant on
-        // this page — load it once instead of per variant.
+        // Preload customer price-list context once for all variants in the page to prevent repeated queries.
         $pricingCtx = $this->pricing->contextFor($customer, $variantIds);
 
         $data = $products->getCollection()->map(function (Product $product) use ($customer, $availability, $pricingCtx): array {
@@ -131,7 +131,9 @@ class ProductController extends Controller
         ]);
     }
 
-    /** تصدير قائمة أسعار التاجر: xlsx منسق أو PDF بترويسة الشركة وصلاحية. */
+    /**
+     * Export merchant price list as formatted Excel or branded PDF with 30-day validity.
+     */
     public function exportPriceList(Request $request): BinaryFileResponse|Response
     {
         $validated = $request->validate([

@@ -99,7 +99,7 @@ final class StocktakeVarianceTool extends StocktakeToolBase implements AgentTool
         usort($rows, fn ($a, $b) => $b['value_impact'] <=> $a['value_impact']);
         $top = array_slice($rows, 0, 10);
 
-        // فروق مشبوهة: عجز نفس الصنف في آخر 3 جرود معتمدة بنفس الموقع.
+        // Flag recurring deficits across recent approved stocktakes in the same location.
         $prior = Stocktake::query()->where('branch_id', $stocktake->branch_id)
             ->where('id', '!=', $stocktake->id)
             ->where('location_id', $stocktake->location_id)
@@ -121,7 +121,7 @@ final class StocktakeVarianceTool extends StocktakeToolBase implements AgentTool
             }
         }
 
-        // اتعد صفر وليه بيع امبارح → احتمال خطأ عد.
+        // Flag probable miscounts: items counted as zero despite having recorded sales yesterday.
         $zeroSuspicious = [];
         $zeroIds = array_values(array_filter(array_map(fn ($r) => $r['counted_qty'] === 0.0 ? $r['variant_id'] : null, $rows)));
         if ($zeroIds !== []) {

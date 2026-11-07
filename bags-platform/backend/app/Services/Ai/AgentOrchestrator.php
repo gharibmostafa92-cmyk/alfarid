@@ -14,21 +14,27 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Orchestrates multi-turn AI agent conversations, tool dispatching, and token budgets.
+ */
 final class AgentOrchestrator
 {
     private const MAX_STEPS = 6;
 
-    /** M-2: أقصى عدد استدعاءات أدوات في خطوة نموذج واحدة. */
+    /** Maximum tool calls permitted in a single model turn to prevent resource exhaustion. */
     private const MAX_CALLS_PER_STEP = 8;
 
-    /** H4/M13: حد زمني كلي لدورة الوكيل الواحدة في الثواني — أطول من كده تعرض الطلب/الـ worker للحجز. */
+    /** Total time budget for an agent cycle in seconds to prevent FPM worker exhaustion. */
     private const MAX_CYCLE_SECONDS = 240;
 
-    /** M5: هامش لأطول استدعاء أداة (Gemini 20s × محاولتين + backoff). */
+    /** Safety buffer reserved for the longest tool call retry/backoff window. */
     private const TOOL_CALL_RESERVE_SECONDS = 45;
 
     public function __construct(private GeminiClient $gemini, private ToolRegistry $registry, private SettingService $settings) {}
 
+    /**
+     * Assert that the user is authorized to use the AI assistant and has not exceeded their daily token budget.
+     */
     public function guard(User $actor): void
     {
         abort_unless($this->settings->getBool('ai_enabled', false), 403, 'المساعد الذكي مقفول حالياً.');
@@ -36,17 +42,14 @@ final class AgentOrchestrator
         abort_unless($actor->is_active && $actor->can('ai_agent.use'), 403);
         $budget = (int) $this->settings->get('ai_daily_token_budget_per_user', 1000000);
         if ($budget > 0) {
-            // M6/M7: join مباشر + نطاق timestamp بدل whereDate + whereHas
-            // (سايقل وفهرس على البادئة بدل مسح جدول كامل بليفة ملبّضة).
-            // L2: نهاية اليوم تُحسب بتوقيت العمل قبل التحويل لتوقيت
-            // التخزين — يوم تغيير التوقيت 23 أو 25 ساعة لا 24 ثابتة.
+            // Direct join with timestamp bounds allows index scans without whereDate/whereHas full-table scans.
+            // Day bounds are calculated in business timezone before conversion to handle daylight saving boundaries.
             $dayStart = now(config('app.business_timezone', 'Africa/Cairo'))->startOfDay();
             $dayEnd = $dayStart->copy()->addDay();
             $storeTz = config('app.timezone');
             $used = (int) AiMessage::query()
                 ->join('ai_conversations as ai_conversations_budget', 'ai_conversations_budget.id', '=', 'ai_messages.conversation_id')
                 ->where('ai_conversations_budget.user_id', $actor->id)
-                // INFO: يوم العمل بتوقيت القاهرة، محوَّل لتوقيت التخزين.
                 ->where('ai_messages.created_at', '>=', $dayStart->copy()->setTimezone($storeTz))
                 ->where('ai_messages.created_at', '<', $dayEnd->copy()->setTimezone($storeTz))
                 ->sum(DB::raw('ai_messages.input_tokens + ai_messages.output_tokens'));
@@ -54,6 +57,9 @@ final class AgentOrchestrator
         }
     }
 
+    /**
+     * Build system instructions including actor roles, store domain rules, and dynamic tool provider prompts.
+     */
     public function systemPrompt(User $actor, string $channel = 'web'): string
     {
         $roles = $actor->roles()->pluck('name')->implode('، ');
@@ -110,18 +116,15 @@ final class AgentOrchestrator
         return implode("\n", $lines);
     }
 
-    /** @param array{text?:string,selection?:array<string,mixed>|null,mentions?:list<array<string,mixed>>} $turn */
+    /**
+     * Handle an incoming conversation turn with global slot concurrency and user locking.
+     *
+     * @param  array{text?:string,selection?:array<string,mixed>|null,mentions?:list<array<string,mixed>>}  $turn
+     */
     public function handle(User $actor, AiConversation $conv, array $turn, ?callable $progress = null): AgentReply
     {
-        // M-8: سقف عام للجلسات المتزامنة — كل stream يحجز worker حتى 240 ثانية،
-        // وبلا سقف جماعي 30 موظفًا يشلّون pool الـ FPM كله (بديل فصل الـ pool
-        // يتطلب بنية FPM جديدة؛ هذا الحد يعمل على أي بنية).
-        // M-1: "slots" بأقفال Cache::lock بملكية وTTL بدل عدّاد increment/put:
-        // العدّاد كان فيه سباق (put يرجّع القيمة لـ 1 بعد increment تاني)،
-        // وTTL يُضبط مرة واحدة فيتسرب الحد بعد انتهائه، وSIGKILL يسرّب
-        // العدّاد للأبد. القفل ذريّ الاستحواذ، ولا يُحرَّر إلا من مالكه،
-        // وينتهي تلقائيًا بانتهاء TTL. عدد المحاولات ≤ maxConcurrent (≤100
-        // بحكم UpdateSettingsRequest) وهو مهمل.
+        // Global concurrency cap: each streaming session holds a worker up to MAX_CYCLE_SECONDS.
+        // Lock slots prevent FPM pool exhaustion and avoid race conditions inherent in simple counter keys.
         $maxConcurrent = max(1, min(
             (int) config('services.gemini.max_concurrent_sessions_cap', 20),
             (int) $this->settings->get('ai_max_concurrent_sessions', 10),
@@ -138,14 +141,13 @@ final class AgentOrchestrator
             }
         }
         abort_if($slot === null, 429, 'في ضغط على المساعد حالياً؛ حاول بعد دقيقة.');
-        // M8: الـ fatal error (انتهاء set_time_limit) يتجاوز finally فيتسرب
-        // الـ slot حتى TTL — نفس shutdown callback المستخدم لقفل المستخدم.
+        // Release slot if PHP execution times out or encounters a fatal error bypassing finally.
         if (! isset($_SERVER['LARAVEL_OCTANE'])) {
             register_shutdown_function(function () use ($slot): void {
                 try {
                     $slot->release();
                 } catch (\Throwable) {
-                    // الـ slot تحرر أصلًا أو الكاش غير متاح وقت الإنهاء — لا فعل.
+                    // Slot was already released or cache driver is unavailable during shutdown.
                 }
             });
         }
@@ -156,29 +158,29 @@ final class AgentOrchestrator
         }
     }
 
-    /** @param array{text?:string,selection?:array<string,mixed>|null,mentions?:list<array<string,mixed>>} $turn */
+    /**
+     * Run the agent cycle under a dedicated user lock to prevent concurrent overlapping turns.
+     *
+     * @param  array{text?:string,selection?:array<string,mixed>|null,mentions?:list<array<string,mixed>>}  $turn
+     */
     private function handleWithUserLock(User $actor, AiConversation $conv, array $turn, ?callable $progress = null): AgentReply
     {
         $lock = Cache::lock('ai-agent:user:'.$actor->id, 600);
         abort_unless($lock->get(), 423, 'في طلب تاني للمساعد لسه شغال؛ استنى لما يخلص.');
-        // H4: الـ fatal error بيتجاوز الـ finally — ندفق الـ shutdown بيقفل
-        // القفل حتى مع انتهاء زمن التنفيذ أو انقطاع الـ SSE.
-        // L-2: تحت Octane تتراكم الـ shutdown callbacks في الـ worker حتى
-        // إنهائه (تسرب ذاكرة) — try/finally وحده يكفي هناك.
+        // Ensure user lock is freed even on fatal execution timeouts, except under Octane where callbacks persist.
         if (! isset($_SERVER['LARAVEL_OCTANE'])) {
             register_shutdown_function(function () use ($lock): void {
                 try {
                     $lock->release();
                 } catch (\Throwable) {
-                    // القفل خلص أصلًا أو الكاش مش متاح وقت الإنهاء — لا فعل.
+                    // Lock was already released or cache driver is unavailable during shutdown.
                 }
             });
         }
         $previousTimeLimit = (int) ini_get('max_execution_time');
         $previousIgnoreUserAbort = ignore_user_abort(true);
         try {
-            // H4: قطع اتصال السحب من غير ignore_user_abort بينهي الدورة في
-            // نصها وسيب رسالة ناقصة من غير ردّ أدوات.
+            // Ignore client abort so the full turn and tool responses finish recording without leaving orphaned turns.
             return $this->handleLocked($actor, $conv, $turn, $progress);
         } finally {
             $lock->release();
@@ -253,13 +255,10 @@ final class AgentOrchestrator
             if ($elapsed >= self::MAX_CYCLE_SECONDS || (int) (self::MAX_CYCLE_SECONDS - $elapsed) <= 0) {
                 break;
             }
-            // H4/M13: حد أقصى زمني للدورة ومهلة تنفيذ بتجري دورة بدورة، فأول
-            // فشل اتصال بيقف كل حاجة بدل ما تقعد تعيد المحاولة وشتغل دقايق.
+            // Dynamic execution time limit prevents lingering workers while leaving headroom for the current step.
             set_time_limit((int) ceil(self::MAX_CYCLE_SECONDS - $elapsed) + 5);
             $this->guard($actor);
-            // M3: استهلاك الدورة من قاعدة البيانات — العداد المحلي كان يفوّت
-            // توكنز أدوات الرؤية (analyze_product_photos) المسجلة كرسائل
-            // event أثناء الخطوات، فكانت دورة واحدة تتجاوز السقف.
+            // Recompute token usage directly from database to include out-of-band vision or tool event tokens.
             $cycleTokens = (int) AiMessage::query()
                 ->where('conversation_id', $conv->id)
                 ->where('id', '>', $userMessage->id)
@@ -271,16 +270,14 @@ final class AgentOrchestrator
                 $progress('براجع الطلب والصلاحيات…');
             }
             try {
-                // L11: موديل اتلغى → نرجع للافتراضي بدل ما المحادثة تفشل للأبد.
+                // Fall back to default model if the conversation was pinned to a retired model.
                 $model = $conv->model ?: null;
                 if ($model !== null && in_array($model, (array) config('services.gemini.retired_models', []), true)) {
                     $model = null;
                 }
                 $res = $this->gemini->converse($history, $declarations, $system, $model);
             } catch (GeminiException $failure) {
-                // M8/M7: توكنز الطلب الفاشل ("aborted tokens" — MAX_TOKENS أو
-                // فشل شبكة بعد الطلع من الـ provider) لازم تُخصم من العداد
-                // اليومي، وإلا يعيد المستخدم المحاولة ببلاش مقلب ميزانية.
+                // Track token usage even from aborted or failed requests to prevent budget bypass via repeated retries.
                 if (($usage = $failure->usage()) !== null) {
                     $in = max(0, (int) ($usage['input_tokens'] ?? 0));
                     $out = max(0, (int) ($usage['output_tokens'] ?? 0));
@@ -297,7 +294,7 @@ final class AgentOrchestrator
                 }
                 throw $failure;
             }
-            // M7: سقف توكنز للدورة الواحدة — يمنع دورة وحيدة تنفد ميزانية اليوم.
+            // Enforce per-cycle token budget to prevent a single complex prompt from draining the daily allowance.
             $cycleTokens += (int) $res['usage']['total_tokens'];
             $conv->forceFill(['total_tokens' => $conv->total_tokens + $res['usage']['total_tokens'], 'last_message_at' => now()])->save();
             $modelMsg = AiMessage::create(['conversation_id' => $conv->id, 'role' => 'model', 'content' => $res['text'] !== '' ? $res['text'] : null, 'provider_parts' => $res['parts'], 'input_tokens' => $res['usage']['input_tokens'], 'output_tokens' => $res['usage']['output_tokens']]);
@@ -314,24 +311,19 @@ final class AgentOrchestrator
             $blocks = [];
             $halted = false;
             $denials = [];
-            // M-2: سقف استدعاءات الخطوة الواحدة — النموذج (أو حقن من أسماء
-            // الكيانات) قد يرجع عشرات الاستدعاءات في رد واحد، وكل كتابة
-            // تُنشئ صف AiPendingAction وكل رفض قابل للتدقيق يُكتب في
-            // staff_audit_logs. الزيادة لا تُنفَّذ أبدًا، لكنها تأخذ
-            // functionResponse مرفوضًا لأن Gemini يطلب ردًا لكل استدعاء.
-            // الرفض غير قابل للتدقيق (auditable: false) حتى لا يوقف الدورة
-            // ولا يملأ سجل التدقيق.
+            // Cap executed tool calls per step to protect pending action storage and audit tables.
+            // Unexecuted excess calls receive synthetic non-auditable denials to satisfy the model's call-response protocol.
             $executedCalls = array_slice($res['calls'], 0, self::MAX_CALLS_PER_STEP);
             $excessCalls = array_slice($res['calls'], self::MAX_CALLS_PER_STEP);
             $inspections = 0;
             foreach ($executedCalls as $call) {
-                // M5: فحص الوقت قبل كل استدعاء، مش أول الخطوة بس — set_time_limit مش بيحسب انتظار الشبكة.
+                // Check elapsed time before each call because network socket waits are excluded from max_execution_time.
                 if (microtime(true) - $cycleStartedAt >= self::MAX_CYCLE_SECONDS - self::TOOL_CALL_RESERVE_SECONDS) {
                     $responses = array_merge($responses, ToolOutcome::denied('الوقت المسموح للطلب خلص؛ كمّل في رسالة جديدة.', auditable: false)->asFunctionResponse($call)['parts']);
 
                     continue;
                 }
-                // M5: تحليل مستند واحد بس في الخطوة (كل واحد ممكن ياخد ~45 ثانية).
+                // Limit heavy document inspections to one per step due to external vision analysis latency.
                 if ($call['name'] === 'inspect_customer_document' && ++$inspections > 1) {
                     $responses = array_merge($responses, ToolOutcome::denied('تحليل مستند واحد بس في كل خطوة؛ اطلب الباقي بعدين.', auditable: false)->asFunctionResponse($call)['parts']);
 
@@ -379,7 +371,11 @@ final class AgentOrchestrator
         return new AgentReply('محتاج توضيح أكتر عشان أكمل.', [], $msg->id);
     }
 
-    /** @return array{name:string,args:array<string,mixed>}|null */
+    /**
+     * Map common administrative phrases directly to high-privilege actions without LLM inference.
+     *
+     * @return array{name:string,args:array<string,mixed>}|null
+     */
     private function financeShortcut(string $text): ?array
     {
         if (preg_match('/\Aجهّز دفعة تحويل فائض الأدراج للرئيسية(?: للفرع رقم ([1-9][0-9]{0,17}))?\z/u', $text, $matches)) {
@@ -398,9 +394,7 @@ final class AgentOrchestrator
     }
 
     /**
-     * M3: رد تجاوز سقف توكنز الدورة. يُستدعى من فحصين: فحص بداية الخطوة
-     * (يحسب من قاعدة البيانات فيشمل توكنز الرؤية) وفحص ما بعد الاستكمال
-     * (يشمل استهلاك الاستكمال الحالي).
+     * Terminate the turn gracefully when the cycle token budget is exhausted.
      */
     private function cycleCapReply(AiConversation $conv, array $readBlocks, int $cycleCap, ?int $messageId = null): AgentReply
     {
@@ -417,8 +411,7 @@ final class AgentOrchestrator
     }
 
     /**
-     * M7: سقف حجم نتائج الأدوات — نتيجة ضخمة تعبّي التاريخ وترفع تكلفة الـ
-     * token بتقريبًا تربيعيًا. الجزء المقطوع راجع للأداة كنص مفهوم.
+     * Truncate oversized tool payload responses to avoid inflating attention cost in subsequent turns.
      */
     private function cappedToolResponses(array $parts): array
     {
@@ -443,18 +436,9 @@ final class AgentOrchestrator
     }
 
     /**
-     * H-1: أعد ترتيب أزواج functionCall/functionResponse قبل أي ميزانية.
-     * تأكيد/إلغاء/تراجع من تبويب آخر يكتب رسالة event من غير قفل المستخدم،
-     * فيمكن أن تقع بين model فيه استدعاءات وردّ أداته (model id=10، ثم
-     * event id=11، ثم tool id=12). بلا تطبيع، history() يرى أن ما بعد
-     * الـ model ليس tool فيحقن رد "interrupted" صناعيًا، ثم تُرسل رسالة
-     * الـ tool كـ functionResponse يتيم فيرفضها Gemini بـ 400 ويبقى التاريخ
-     * مكسورًا حتى تخرج الرسائل من نافذة الـ 60 رسالة.
-     * القاعدة: كل model فيه استدعاءات يُقرن بأقرب tool بعده قبل أي رسالة
-     * user أو model، فيُنقل الـ tool بعده مباشرة وتتأجل الـ events التي
-     * بينهما لبعده. وأي tool بلا model يُحذف من التاريخ المُرسل (لا من
-     * قاعدة البيانات). ترتيب العرض قد يختلف قليلًا عن ترتيب الـ id، وهذا
-     * مقبول — البديل (حبس التأكيد بقفل المستخدم) يعلّقه حتى 240 ثانية.
+     * Re-order functionCall and functionResponse pairs before applying history budgets.
+     * Interleaving event messages from concurrent user actions are deferred after the paired tool response
+     * so that Gemini's strict turn validation is not broken by orphaned calls.
      *
      * @param  Collection<int, AiMessage>  $messages
      * @return Collection<int, AiMessage>
@@ -533,7 +517,7 @@ final class AgentOrchestrator
         $total = 0;
         $i = $messages->count() - 1;
         while ($i >= 0) {
-            // رد الأداة يُسحب مع استدعاء الموديل السابق له — وحدة ذرية.
+            // Tool response and its preceding model call are treated as an atomic pair.
             if ($messages[$i]->role === 'tool' && $i - 1 >= 0 && $hasCalls($messages[$i - 1])) {
                 $unit = [$i - 1, $i];
                 $i -= 2;
@@ -552,8 +536,7 @@ final class AgentOrchestrator
         }
         sort($keep);
 
-        // NOTE: Eloquent Collection::only() يطابق مفاتيح النماذج لا المواضع —
-        // الترشيح هنا موضعي حصرًا.
+        // Eloquent Collection::only() matches model keys rather than integer positions; filter positional indices explicitly.
         return $messages->filter(fn ($m, $key) => in_array($key, $keep, true))->values();
     }
 
@@ -563,12 +546,9 @@ final class AgentOrchestrator
         $messages = $conv->messages()->orderByDesc('id')->limit(60)->get()->reverse()->values();
         // Start at a complete user turn so function calls and their responses stay paired.
         $messages = $messages->skipUntil(fn ($message) => $message->role === 'user')->values();
-        // H-1: طبّع أزواج model/tool قبل الميزانية — وإلا فُصل الزوج
-        // برسالة event عابرة وانكسر التاريخ المُرسل.
+        // Normalize model/tool pairings before budgeting to keep pairs contiguous across interim events.
         $messages = $this->normalizePairs($messages);
-        // M-7: سقف إجمالي بالحروف (لا بعدد الرسائل فقط) — نتيجة أداة واحدة
-        // قد تصل لـ 16k حرف. يُطبق من الأحدث للأقدم، وزوج
-        // functionCall/functionResponse وحدة ذرية لا تُشطر.
+        // Budget character count rather than message count to account for variable tool response sizes.
         $messages = $this->fitHistoryBudget($messages, 60000);
         $history = [];
         if ($first = $messages->first()) {
@@ -583,9 +563,7 @@ final class AgentOrchestrator
                 $history[] = ['role' => 'user', 'parts' => $m->provider_parts ?: [['text' => (string) $m->content]]];
             } elseif ($m->role === 'model' && $m->provider_parts) {
                 $history[] = ['role' => 'model', 'parts' => $m->provider_parts];
-                // M0/H4: لو الموديل طلب functionCalls وماتت ال العملية قبل حفظ
-                // ردّ الأداة، التاريخ هيبقى فيه functionCall يتيم — الـ API بيرفضه
-                // بـ 400 ويخرب الطلب كله. نعالجه هنا بدل الحذف اليدوي.
+                // Synthesize interrupted responses for dangling function calls left by ungraceful worker termination.
                 $pending = collect($m->provider_parts)->pluck('functionCall')->filter()->values();
                 if ($pending->isNotEmpty()) {
                     $next = $messages->get($messages->search($m) + 1);

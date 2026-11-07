@@ -160,7 +160,7 @@ class StocktakeService
 
             if (($stocktake->status === StocktakeStatus::Cancelled)
                 && DB::table('stocktake_scans')->where('stocktake_id', $stocktake->id)->exists()) {
-                // H2: cancelled sessions release their per-scan idempotency rows.
+                // Purge per-scan idempotency keys when cancelling session to reclaim table storage.
                 DB::table('stocktake_scans')->where('stocktake_id', $stocktake->id)->delete();
             }
 
@@ -278,7 +278,7 @@ class StocktakeService
                 'approved_at' => now(),
             ]);
 
-            // H2: the session is closed; drop per-scan idempotency rows (audit served its purpose).
+            // Clean up scan idempotency records once session is approved to keep operational tables lean.
             DB::table('stocktake_scans')->where('stocktake_id', $stocktake->id)->delete();
 
             return $stocktake->load(['items.variant', 'branch', 'location']);
@@ -411,12 +411,7 @@ class StocktakeService
 
             $existing = $stocktake->items()->where('product_variant_id', $variantId)->first();
             if ($existing !== null && $existing->counted_qty !== null && (int) $existing->snapshot_movement_id > 0) {
-                // M2: a previously-counted variant rescanned after an on_hand
-                // movement on the same key would silently double-apply the
-                // difference at approve time. Reject the scan and ask for a
-                // recount, which refreshes system_qty and the snapshot cursor.
-                // Uses stock_movements_stale_check_index
-                // (branch_id, location_id, affected_bucket, product_variant_id, id).
+                // Reject scans when intervening stock movements occurred to prevent corrupting variance calculations.
                 $moved = StockMovement::query()
                     ->where('branch_id', $stocktake->branch_id)
                     ->where('location_id', $stocktake->location_id)

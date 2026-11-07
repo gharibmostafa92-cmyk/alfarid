@@ -12,7 +12,8 @@ use App\Models\StockLevel;
 
 /**
  * Generates customer-specific wholesale price list export rows.
- * Acts as the single source of truth for both Excel and PDF price list exports.
+ *
+ * Serves as the single source of truth for Excel and PDF price list exports.
  */
 class WholesalePriceListService
 {
@@ -21,6 +22,7 @@ class WholesalePriceListService
     /**
      * Build tabular pricing and availability rows for all active variants for the given customer.
      *
+     * @param  Customer  $customer  Target wholesale customer account.
      * @return list<array{sku: string, barcode: string|null, product_name: string|null, base_price: float|null, wholesale_price: float|null, tier_prices: list<array{min_qty: float, unit_price: float}>, available_qty: float}>
      */
     public function rows(Customer $customer): array
@@ -44,7 +46,7 @@ class WholesalePriceListService
             ->map(fn ($v) => (float) $v)
             ->all();
 
-        // F17: one context for the whole export, not one group lookup per row.
+        // Preload customer pricing rules and tier overrides once to eliminate N+1 group queries.
         $ctx = $this->pricing->contextFor($customer, $variants->pluck('id')->all());
 
         return $variants->map(function (ProductVariant $variant) use ($customer, $availability, $ctx): array {
@@ -54,7 +56,7 @@ class WholesalePriceListService
                 $base = $resolved['base_price'];
                 $tiers = $this->pricing->tiersFor($variant, $customer, $ctx);
             } catch (BusinessException) {
-                // Unpriced variant: emit with null price rather than failing the entire export
+                // Emit unpriced variants with null instead of aborting the bulk catalog export.
                 $price = null;
                 $base = $variant->retail_price !== null ? (float) $variant->retail_price : null;
                 $tiers = [];

@@ -16,6 +16,9 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
+/**
+ * Handles secure file uploads (images and price lists) for AI assistant conversations.
+ */
 class AiAttachmentController extends Controller
 {
     public function store(Request $request, AiConversation $conversation): JsonResponse
@@ -23,7 +26,7 @@ class AiAttachmentController extends Controller
         $user = $request->user('staff');
         abort_unless($conversation->user_id === $user->id, 403);
 
-        // L1: لا رفع والمساعد مقفول أو المستخدم غير نشط أو فوق الميزانية.
+        // Disallow uploads if the AI agent is disabled, user is inactive, or spending limits are exceeded.
         app(AgentOrchestrator::class)->guard($user);
 
         $request->validate([
@@ -44,16 +47,14 @@ class AiAttachmentController extends Controller
             }),
         ]);
 
-        // L1: حصة مرفقات غير مستهلكة لكل مستخدم — الرفع بلا سقف كان يتيح
-        // ملء التخزين المشترك (4 ملفات × 5MB كل دقيقة لكل مستخدم).
+        // Enforce a per-user pending attachment quota to prevent storage exhaustion from unconsumed files.
         $quota = max(1, (int) config('services.gemini.max_pending_attachments_per_user', 40));
         $pending = AiAttachment::query()->where('user_id', $user->id)->whereNull('consumed_at')->count();
         abort_if($pending + count($request->file('files')) > $quota, 429, 'وصلت للحد الأقصى من المرفقات غير المستخدمة؛ استخدمها أو احذف المحادثة أولًا.');
 
         /** @var list<UploadedFile> $files */
         $files = array_values((array) $request->file('files', []));
-        // H3: تخزين مشترك خاص بدل القرص المحلي — كل سيرفر worker يرى
-        // نفس الملفات في prepare/execute/prune.
+        // Use shared private disk so queued workers and web nodes share access across prepare, execute, and prune.
         $disk = Storage::disk('ai_private');
         $created = [];
 
@@ -77,7 +78,7 @@ class AiAttachmentController extends Controller
                     'sha256' => $sha256,
                 ]);
             } catch (\Throwable $e) {
-                // L1: فشل الإدخال بعد كتابة الملف كان يترك ملفًا يتيمًا.
+                // Remove stored file if database creation fails to prevent orphaned artifacts.
                 $disk->delete($relativePath);
 
                 throw $e;

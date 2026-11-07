@@ -19,13 +19,15 @@ use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Hash;
 
 /**
- * مصادقة الكاشير على نقطة البيع.
- * تختلف عن تسجيل دخول الإدارة بقيد الفرع الإلزامي.
+ * POS terminal cashier authentication enforcing mandatory branch authorization checks.
  */
 class PosAuthController extends Controller
 {
     private const DUMMY_PASSWORD_HASH = '$2y$12$dRibbzvWAKqkXBRPna4QCuri7dR8TKHRGDIt.RsplFZRfRcJzmPlq';
 
+    /**
+     * Authenticate cashier against specific branch credentials and issue scoped staff token.
+     */
     public function login(Request $request): JsonResource|JsonResponse
     {
         $data = $request->validate([
@@ -38,10 +40,11 @@ class PosAuthController extends Controller
             ->whereRaw('LOWER(email) = ?', [mb_strtolower(trim($data['email']))])
             ->first();
 
+        // Dummy hash evaluation prevents timing attack enumeration of registered staff emails.
         $storedHash = $user instanceof User ? $user->password : self::DUMMY_PASSWORD_HASH;
         $passwordOk = Hash::check($data['password'], $storedHash);
 
-        // التحقق من صلاحية الدخول إلى هذا الفرع تحديداً
+        // Cashiers are strictly confined to their assigned active branch.
         $branchAllowed = $user instanceof User
             && $user->is_active
             && ! $user->is_system
@@ -56,7 +59,7 @@ class PosAuthController extends Controller
             ], 401);
         }
 
-        // التحقق من وجود الفرع ونشاطه
+        // Verify designated branch exists and is currently active.
         Branch::query()->where('id', $data['branch_id'])->where('is_active', true)->firstOrFail();
 
         $user->load(['branch', 'roles.permissions', 'permissions']);
@@ -67,6 +70,9 @@ class PosAuthController extends Controller
         return UserResource::make($user)->additional(['token' => $token]);
     }
 
+    /**
+     * Revoke cashier terminal session token.
+     */
     public function logout(Request $request): Response
     {
         $request->user('staff')?->currentAccessToken()?->delete();

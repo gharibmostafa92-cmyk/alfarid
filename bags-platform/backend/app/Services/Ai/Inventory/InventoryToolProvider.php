@@ -39,8 +39,7 @@ use App\Services\Ai\Inventory\Tools\WhatIfTransferCoverageTool;
 use App\Services\SettingService;
 
 /**
- * أدوات المخزون تقفل الصفوف بترتيب ثابت عبر InventoryService::lockLevels،
- * فلا تحتاج القفل الاستشاري العام (usesGlobalAdminLock = false).
+ * Inventory AI tools provider: implements deterministic row locking via InventoryService::lockLevels.
  */
 final class InventoryToolProvider implements ToolProvider
 {

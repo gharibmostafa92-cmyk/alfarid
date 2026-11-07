@@ -55,6 +55,7 @@ function viewMappers() {
   compiled.paths = Module._nodeModulePaths(path.dirname(filename));
   compiled.require = name => name === './api/mappers' ? { num: value => Number(value ?? 0) }
     : name === './api/source' ? { USE_MOCK: false }
+    : name === '../../../components/admin/AdminLoading' ? { AdminLoading: 'AdminLoading' }
     : name.startsWith('./') || name === '@alfarid/api-client' ? {} : Module.prototype.require.call(compiled, name);
   compiled._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText, filename);
   return compiled.exports;
@@ -115,6 +116,7 @@ function transferFormHarness(api) {
   compiled.require = name => {
     if (name === 'react') return { ...react, default: react };
     if (name === '@alfarid/api-client') return api;
+    if (name === '../../../components/admin/AdminLoading') return { AdminLoading: 'AdminLoading' };
     if (name === './ui') return ui;
     if (name === './data') return { TRANSFER_STATUS: {} };
     if (name === './api/source') return { USE_MOCK: false };

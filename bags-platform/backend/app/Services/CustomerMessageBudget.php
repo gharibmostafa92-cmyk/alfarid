@@ -7,30 +7,39 @@ namespace App\Services;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Manages daily and hourly outbound SMS/message rate-limit budgets.
- * Tracks usage in customer_message_budgets table using atomic pessimistic row locks.
+ * Manages daily and hourly outbound SMS/messaging rate-limit budgets.
+ *
+ * Tracks usage in the customer_message_budgets table using pessimistic row locks.
  */
 class CustomerMessageBudget
 {
     /**
-     * Atomically claim a messaging quota slot for the given scope and channel.
-     * Enforces global hourly/daily SMS quotas as well as per-recipient limits.
+     * Generate an HMAC fingerprint of the client IP subnet (/24 for IPv4, /48 for IPv6).
      *
-     * @param  string  $scope  Distinct scope identifier (e.g. "verify:<phone_hash>" or "reset:customer:<id>")
-     * @param  bool  $sms  Whether this message consumes global SMS quota
+     * @param  string|null  $ip  Raw client IP address.
+     * @return string|null Anonymized subnet fingerprint, or null if the IP is invalid.
      */
-    /** M10/H-2: مفتاح subnet (/24 لـ IPv4، /48 لـ IPv6) — الـ VPS بياخد /48 أو /56 فـ /64 كان سهل التدوير. */
     public static function subnetKey(?string $ip): ?string
     {
         $bin = $ip ? @inet_pton($ip) : false;
         if ($bin === false) {
             return null;
         }
+
+        // Mask to /24 (IPv4) or /48 (IPv6) to prevent rate-limit evasion via cheap /64 VPS address rotation.
         $bin = strlen($bin) === 4 ? substr($bin, 0, 3)."\0" : substr($bin, 0, 6).str_repeat("\0", 10);
 
         return hash_hmac('sha256', (string) inet_ntop($bin), (string) config('app.key'));
     }
 
+    /**
+     * Atomically claim a messaging quota slot for the given scope and channel.
+     *
+     * @param  string  $scope  Distinct scope identifier (e.g. "verify:<phone_hash>" or "reset:customer:<id>").
+     * @param  bool  $sms  Whether this message consumes global SMS quota.
+     * @param  string|null  $networkKey  Subnet key to enforce network-level verification caps.
+     * @return bool True if all quota slots were successfully acquired; false if exhausted.
+     */
     public function claim(string $scope, bool $sms = true, ?string $networkKey = null): bool
     {
         $now = now(config('app.business_timezone', 'Africa/Cairo'));
@@ -43,7 +52,8 @@ class CustomerMessageBudget
             $fraction = max(0, min(0.6, (float) config('auth.customer_sms_verification_fraction', 0.6)));
             $budgets['sms:verify:day'] = (int) floor($budgets['sms:global:day'] * $fraction);
             $budgets['sms:verify:hour:'.$now->format('H')] = (int) floor($budgets['sms:global:hour:'.$now->format('H')] * $fraction);
-            // H-2: من غير مفتاح شبكة حد الشبكة بيتعطل بصمت — نرفض بدل ما نفتح الباب.
+
+            // Fail closed if network key is missing to prevent bypassing subnet caps.
             if ($networkKey === null) {
                 logger()->warning('Verification SMS claimed without network key.');
 
@@ -60,6 +70,8 @@ class CustomerMessageBudget
                 $key = hash('sha256', $scope);
                 DB::table('customer_message_budgets')->insertOrIgnore(['key' => $key, 'date' => $date, 'sends' => 0]);
                 $query = DB::table('customer_message_budgets')->where('key', $key)->where('date', $date);
+
+                // Acquire pessimistic write lock to prevent race conditions and overdrafts under concurrency.
                 $row = (clone $query)->lockForUpdate()->first();
                 if ($row->sends >= $limit) {
                     return false;
@@ -68,6 +80,8 @@ class CustomerMessageBudget
             }
             foreach ($claims as [$query, $scope, $sends, $limit]) {
                 $query->increment('sends');
+
+                // Defer warnings until commit to avoid holding database row locks during logging.
                 if (str_starts_with($scope, 'sms:') && $sends + 1 === $limit) {
                     DB::afterCommit(fn () => logger()->warning('Customer SMS budget exhausted.', ['scope' => $scope, 'date' => $date, 'limit' => $limit]));
                 }

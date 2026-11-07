@@ -76,7 +76,7 @@ final class ParsePriceSheetTool implements AgentTool
 
     public function handle(User $actor, array $args): ToolOutcome
     {
-        // بوابة الرؤية: الصورة ماتتبعتش للنموذج غير بموافقة الإعداد.
+        // Vision capability gate: disallow external multimodal processing unless explicitly enabled.
         if (! $this->settings->getBool('ai_pricing_vision_enabled', false)) {
             return ToolOutcome::denied('قراءة صور الشيتات مقفولة من الإعدادات.', auditable: false);
         }

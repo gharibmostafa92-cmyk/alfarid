@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Orders;
 
+use App\Enums\OrderStatus;
 use App\Enums\StockMovementType as MovementType;
 use App\Models\Branch;
 use App\Models\Cart;
@@ -17,15 +18,18 @@ use App\Models\ProductVariant;
 use App\Models\ShippingCompany;
 use App\Models\StockLevel;
 use App\Models\User;
+use App\Models\WebhookLog;
 use App\Services\OrderAllocationService;
 use App\Services\OrderService;
 use Database\Seeders\OrderPermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Database\Seeders\ShippingPermissionSeeder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
@@ -152,6 +156,136 @@ class CheckoutReservationReviewTest extends TestCase
         $this->assertSame('pending', $freshCod->fresh()->status->value);
         // حجوزات الملغاة رُفعت ويبقى حجز الطلب الحديث فقط
         $this->assertEquals(1, (float) StockLevel::where('product_variant_id', $variant->id)->first()->reserved);
+    }
+
+    public function test_expiration_respects_payment_windows_and_paid_wallet_orders(): void
+    {
+        $this->freezeSecond();
+        config([
+            'orders.pending_online_expire_minutes' => 90,
+            'orders.pending_cod_expire_hours' => 72,
+            'orders.pending_guest_cod_expire_hours' => 12,
+        ]);
+        $customer = Customer::factory()->create();
+        $cases = [
+            'online' => ['card', 'unpaid', null, 90],
+            'guest COD' => ['cod', 'unpaid', null, 12 * 60],
+            'customer COD' => ['cod', 'unpaid', $customer->id, 72 * 60],
+        ];
+        $expected = [];
+        foreach ($cases as $label => [$method, $paymentStatus, $customerId, $minutes]) {
+            foreach ([-1, 0, 1] as $offset) {
+                $order = Order::factory()->create([
+                    'customer_id' => $customerId,
+                    'payment_method' => $method,
+                    'payment_status' => $paymentStatus,
+                    'created_at' => now()->subMinutes($minutes + $offset),
+                ]);
+                $expected[] = [$order, $offset > 0 ? 'cancelled' : 'pending', "{$label} offset {$offset}"];
+            }
+        }
+        foreach (['credit' => 'unpaid', 'wallet' => 'paid', 'card' => 'paid'] as $method => $paymentStatus) {
+            $order = Order::factory()->create([
+                'customer_id' => $customer->id,
+                'payment_method' => $method,
+                'payment_status' => $paymentStatus,
+                'created_at' => now()->subWeek(),
+            ]);
+            $expected[] = [$order, 'pending', $method];
+        }
+        $confirmed = Order::factory()->create([
+            'status' => OrderStatus::Confirmed, 'payment_method' => 'card', 'created_at' => now()->subWeek(),
+        ]);
+        $expected[] = [$confirmed, 'confirmed', 'confirmed card'];
+
+        $this->artisan('orders:expire-pending')
+            ->expectsOutput('Expired 3 pending orders.')
+            ->assertSuccessful();
+
+        foreach ($expected as [$order, $status, $label]) {
+            $this->assertSame($status, $order->fresh()->status->value, $label);
+        }
+    }
+
+    public function test_zero_expiration_settings_use_one_minute_or_hour(): void
+    {
+        $this->freezeSecond();
+        config([
+            'orders.pending_online_expire_minutes' => 0,
+            'orders.pending_cod_expire_hours' => 0,
+            'orders.pending_guest_cod_expire_hours' => 0,
+        ]);
+        $customer = Customer::factory()->create();
+        $cases = [];
+        foreach ([['card', null, 60], ['cod', null, 3600], ['cod', $customer->id, 3600]] as [$method, $customerId, $seconds]) {
+            $atLimit = Order::factory()->create([
+                'customer_id' => $customerId, 'payment_method' => $method, 'created_at' => now()->subSeconds($seconds),
+            ]);
+            $expired = Order::factory()->create([
+                'customer_id' => $customerId, 'payment_method' => $method, 'created_at' => now()->subSeconds($seconds + 1),
+            ]);
+            $cases[] = [$atLimit, $expired];
+        }
+
+        $this->artisan('orders:expire-pending')->expectsOutput('Expired 3 pending orders.')->assertSuccessful();
+        foreach ($cases as [$atLimit, $expired]) {
+            $this->assertSame(OrderStatus::Pending, $atLimit->refresh()->status);
+            $this->assertSame(OrderStatus::Cancelled, $expired->refresh()->status);
+            $this->assertStringContainsString('إلغاء تلقائي', $expired->statusHistories()->sole()->notes);
+        }
+    }
+
+    public function test_expiration_scans_ten_thousand_orders_in_batches_and_continues_after_a_failure(): void
+    {
+        $template = Order::factory()->raw(['created_at' => now()->subDays(4)]);
+        for ($offset = 0; $offset < 10_000; $offset += 500) {
+            $rows = [];
+            for ($index = $offset; $index < $offset + 500; $index++) {
+                $rows[] = array_replace($template, ['order_number' => "EXP-LOAD-{$index}"]);
+            }
+            DB::table('orders')->insert($rows);
+        }
+        unset($rows);
+
+        // Use a stub that keeps no references to processed models so it cannot inflate the peak.
+        $orders = new class extends OrderService
+        {
+            public int $processed = 0;
+
+            public bool $inOrder = true;
+
+            public function __construct() {}
+
+            public function changeStatus(Order $order, OrderStatus|string $toStatus, ?Model $actor = null, ?string $notes = null, ?array $expectedFrom = null, bool $returnEffects = true, bool $allowNoticesLoss = false): Order
+            {
+                $this->inOrder = $this->inOrder && $order->order_number === "EXP-LOAD-{$this->processed}";
+                if (++$this->processed === 1) {
+                    throw new \RuntimeException('Test cancellation failure');
+                }
+
+                return $order;
+            }
+        };
+        $this->app->instance(OrderService::class, $orders);
+
+        $selects = 0;
+        DB::listen(function ($query) use (&$selects): void {
+            if (str_starts_with($query->sql, 'select * from "orders"')) {
+                $selects++;
+            }
+        });
+        memory_reset_peak_usage();
+        $before = memory_get_usage();
+        $this->artisan('orders:expire-pending')
+            ->expectsOutput('Order EXP-LOAD-0: Test cancellation failure')
+            ->expectsOutput('Expired 9999 pending orders.')
+            ->assertSuccessful();
+        if (getenv('STORE_LOAD_METRICS')) {
+            fwrite(STDERR, sprintf("Expiration scan peak above baseline: %.2f MiB\n", (memory_get_peak_usage() - $before) / 1048576));
+        }
+        $this->assertSame(10_000, $orders->processed);
+        $this->assertTrue($orders->inOrder);
+        $this->assertGreaterThan(1, $selects);
     }
 
     // ---------- F-03: كميات صحيحة ----------
@@ -288,22 +422,32 @@ class CheckoutReservationReviewTest extends TestCase
             'source_data' => ['pan' => 'xxxx', 'sub_type' => 'MasterCard', 'type' => 'card'],
             'success' => true,
         ];
-        $concat = '250002026-10-18T00:00:00EGPfalsefalse777123falsefalsefalsefalsetruefalse55'.
-            '1falsexxxxMasterCardcardtrue';
-        $hmac = hash_hmac('sha512', $concat, 'paymob_hmac');
-        $body = json_encode(['obj' => $obj]);
+        $sign = function (bool $refunded = false, bool $pending = false): string {
+            $fields = '250002026-10-18T00:00:00EGPfalsefalse777123falsefalsefalse'
+                .($refunded ? 'true' : 'false').'truefalse551'
+                .($pending ? 'true' : 'false').'xxxxMasterCardcardtrue';
 
-        $this->call('POST', '/api/v1/webhooks/payment/paymob?hmac='.$hmac, [], [], [],
-            ['CONTENT_TYPE' => 'application/json'], $body)->assertOk();
+            return hash_hmac('sha512', $fields, 'paymob_hmac');
+        };
+        $send = fn (array $obj, string $hmac) => $this->call(
+            'POST', '/api/v1/webhooks/payment/paymob?hmac='.$hmac, [], [], [],
+            ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json'],
+            json_encode(['obj' => $obj], JSON_THROW_ON_ERROR),
+        );
+        $send(array_replace($obj, ['amount_cents' => 24999]), $sign())->assertForbidden();
+        $send(array_replace($obj, ['pending' => true]), $sign(pending: true))
+            ->assertOk()->assertJsonPath('ignored', true);
+        $this->assertSame('unpaid', $order->fresh()->payment_status);
+        $this->assertDatabaseHas('webhook_logs', ['event_id' => '777:pending', 'status' => 'ignored']);
+
+        $send($obj, $sign())->assertOk();
         $this->assertSame('paid', $order->fresh()->payment_status);
+        $send($obj, $sign())->assertOk()->assertJsonPath('duplicate', true);
 
-        // نفس معرّف المعاملة (777) لكن الحدث استرداد: لا يُبتلع كـ duplicate (F-08)
-        $body2 = json_encode(['transaction_id' => 777, 'status' => 'refunded', 'order_number' => $order->order_number]);
-        Config::set('webhooks.payment.testpay', ['secret' => 's8', 'signature_header' => 'X-Webhook-Signature']);
-        $this->call('POST', '/api/v1/webhooks/payment/testpay', [], [], [],
-            ['CONTENT_TYPE' => 'application/json', 'HTTP_X_WEBHOOK_SIGNATURE' => hash_hmac('sha256', $body2, 's8')],
-            $body2)->assertOk();
+        $send(array_replace($obj, ['is_refunded' => true]), $sign(refunded: true))->assertOk();
         $this->assertSame('refunded', $order->fresh()->payment_status);
+        $this->assertTrue($order->fresh()->needs_attention);
+        $this->assertSame('processed', WebhookLog::query()->where('event_id', '777:refunded')->sole()->status);
     }
 
     public function test_moyasar_secret_token_scheme(): void
@@ -330,7 +474,13 @@ class CheckoutReservationReviewTest extends TestCase
         $response = $this->call('POST', '/api/v1/webhooks/payment/testpay', [], [], [],
             ['CONTENT_TYPE' => 'application/json', 'HTTP_X_WEBHOOK_SIGNATURE' => hash_hmac('sha256', $body, 's7')],
             $body);
-        $this->assertNotSame(500, $response->status());
+        $response->assertOk()->assertJsonPath('message', 'order not found');
+        $invalidJson = '{"status":';
+        $this->call('POST', '/api/v1/webhooks/payment/testpay', [], [], [], [
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_X_WEBHOOK_SIGNATURE' => hash_hmac('sha256', $invalidJson, 's7'),
+        ], $invalidJson)->assertOk()->assertJsonPath('message', 'order not found');
+        $this->assertDatabaseHas('webhook_logs', ['signature_valid' => true, 'status' => 'failed']);
 
         // بوابة باسم طويل جدًا: قيد المسار يرد 404 لا 500 بقاعدة البيانات
         $this->call('POST', '/api/v1/webhooks/payment/'.str_repeat('a', 60), [], [], [],

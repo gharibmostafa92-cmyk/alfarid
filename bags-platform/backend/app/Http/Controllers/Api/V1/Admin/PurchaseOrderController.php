@@ -19,8 +19,7 @@ use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 
 /**
- * أوامر الشراء للموردين: إنشاء/اعتماد/إرسال/إلغاء + استلام مخزني
- * يحدّث متوسط التكلفة المرجح (ProcurementService::receivePurchaseOrder).
+ * Supplier purchase order lifecycle: drafting, approval, transmission, cancellation, and receipt with cost revaluation.
  */
 class PurchaseOrderController extends Controller implements HasMiddleware
 {
@@ -38,6 +37,9 @@ class PurchaseOrderController extends Controller implements HasMiddleware
 
     public function __construct(protected ProcurementService $procurement) {}
 
+    /**
+     * List paginated purchase orders with supplier and branch filters.
+     */
     public function index(Request $request): AnonymousResourceCollection
     {
         $search = trim((string) $request->query('search', ''));
@@ -53,6 +55,9 @@ class PurchaseOrderController extends Controller implements HasMiddleware
         return PurchaseOrderResource::collection($orders);
     }
 
+    /**
+     * Create a new draft purchase order.
+     */
     public function store(PurchaseOrderRequest $request): JsonResponse
     {
         /** @var User $admin */
@@ -62,11 +67,17 @@ class PurchaseOrderController extends Controller implements HasMiddleware
         return $this->orderResource($po)->response()->setStatusCode(201);
     }
 
+    /**
+     * Retrieve details of a purchase order including item lines and delivery status.
+     */
     public function show(PurchaseOrder $purchaseOrder): PurchaseOrderResource
     {
         return $this->orderResource($purchaseOrder, includeDeliveries: true);
     }
 
+    /**
+     * Update details of an existing draft purchase order.
+     */
     public function update(PurchaseOrderRequest $request, PurchaseOrder $purchaseOrder): PurchaseOrderResource
     {
         $po = $this->procurement->updatePurchaseOrder($purchaseOrder, $request->validated());
@@ -74,6 +85,9 @@ class PurchaseOrderController extends Controller implements HasMiddleware
         return $this->orderResource($po);
     }
 
+    /**
+     * Delete an unapproved draft purchase order.
+     */
     public function destroy(PurchaseOrder $purchaseOrder): JsonResponse
     {
         $this->procurement->deletePurchaseOrder($purchaseOrder);
@@ -81,6 +95,9 @@ class PurchaseOrderController extends Controller implements HasMiddleware
         return response()->json(['message' => 'تم حذف أمر الشراء.']);
     }
 
+    /**
+     * Approve a purchase order for submission to the supplier.
+     */
     public function approve(Request $request, PurchaseOrder $purchaseOrder): PurchaseOrderResource
     {
         /** @var User $admin */
@@ -89,22 +106,33 @@ class PurchaseOrderController extends Controller implements HasMiddleware
         return PurchaseOrderResource::make($this->procurement->approvePurchaseOrder($purchaseOrder, $admin));
     }
 
+    /**
+     * Mark a purchase order as sent to the supplier.
+     */
     public function send(PurchaseOrder $purchaseOrder): PurchaseOrderResource
     {
         return PurchaseOrderResource::make($this->procurement->sendPurchaseOrder($purchaseOrder));
     }
 
+    /**
+     * Cancel a purchase order before fulfillment.
+     */
     public function cancel(PurchaseOrder $purchaseOrder): PurchaseOrderResource
     {
         return PurchaseOrderResource::make($this->procurement->cancelPurchaseOrder($purchaseOrder));
     }
 
+    /**
+     * Close a purchase order short when remaining quantities will not be fulfilled.
+     */
     public function closeShort(PurchaseOrder $purchaseOrder): PurchaseOrderResource
     {
         return PurchaseOrderResource::make($this->procurement->closeShort($purchaseOrder));
     }
 
-    /** استلام بضاعة (كلي/جزئي) — يحدّث متوسط التكلفة ويغذي المخزون. */
+    /**
+     * Receive goods against a purchase order and update weighted average inventory costs.
+     */
     public function receive(ReceivePurchaseOrderRequest $request, PurchaseOrder $purchaseOrder): PurchaseOrderResource
     {
         /** @var User $admin */
@@ -121,6 +149,13 @@ class PurchaseOrderController extends Controller implements HasMiddleware
         return $this->orderResource($po);
     }
 
+    /**
+     * Wrap purchase order with related models in an API resource.
+     *
+     * @param  PurchaseOrder  $order  Target purchase order
+     * @param  bool  $includeDeliveries  Whether to include supplier deliveries
+     * @return PurchaseOrderResource Formatted resource
+     */
     private function orderResource(PurchaseOrder $order, bool $includeDeliveries = false): PurchaseOrderResource
     {
         $relations = ['supplier:id,code,name', 'branch:id,name', 'items.variant'];

@@ -16,9 +16,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 
 /**
- * الصفحة الرئيسية للمتجر: رد مجمّع واحد (بانرات + أحدث + أكثر مبيعًا + مخفضات).
- * الكاش يخزن معرّفات الأقسام فقط (5 دقائق) — الأسعار تُحسب لكل طلب على حدة
- * لأنها شخصية (خصم مجموعة/سعر خاص)، فلا تتسرب أسعار عميل لزائر آخر أبدًا.
+ * Storefront homepage aggregator: active banners, latest arrivals, best sellers, and discounts.
+ *
+ * Caches product ID sets while calculating prices per-request to preserve customer-specific pricing.
  */
 class HomeController extends Controller
 {
@@ -27,13 +27,16 @@ class HomeController extends Controller
         private readonly BannerLinkResolver $bannerResolver,
     ) {}
 
+    /**
+     * Retrieve aggregated homepage sections.
+     */
     public function index(Request $request): JsonResponse
     {
         try {
             $load = fn () => Cache::flexible(StoreCatalogService::HOME_CACHE_KEY, [300, 1800],
                 fn () => $this->catalog->homeSectionIds(), ['seconds' => 120]);
-            // F10: انتظار ثانية على البداية الباردة، وعند انتهاء المهلة
-            // نحسب مباشرة (3 استعلامات LIMIT 12) بدل صفحة فارغة لكل الزوار.
+
+            // Block 1s on cache stampede, falling back to direct computation to avoid returning empty homepage sections.
             $ids = Cache::has(StoreCatalogService::HOME_CACHE_KEY) ? $load() : Cache::lock(StoreCatalogService::HOME_CACHE_KEY.':build', 120)->block(1, $load);
         } catch (LockTimeoutException) {
             $ids = Cache::get(StoreCatalogService::HOME_CACHE_KEY) ?? $this->catalog->homeSectionIds();

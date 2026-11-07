@@ -13,7 +13,9 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 
-/** إدارة العروض التلقائية. */
+/**
+ * Automatic promotional rules and campaign discounts administration.
+ */
 class PromotionController extends Controller implements HasMiddleware
 {
     public static function middleware(): array
@@ -26,11 +28,17 @@ class PromotionController extends Controller implements HasMiddleware
         ];
     }
 
+    /**
+     * List paginated promotional campaigns in reverse chronological order.
+     */
     public function index(): AnonymousResourceCollection
     {
         return PromotionResource::collection(Promotion::query()->latest('id')->paginate(20));
     }
 
+    /**
+     * Store a newly created promotional discount rule.
+     */
     public function store(PromotionRequest $request): JsonResponse
     {
         $promotion = Promotion::create($this->withoutNulls($request->validated()));
@@ -38,11 +46,17 @@ class PromotionController extends Controller implements HasMiddleware
         return PromotionResource::make($promotion)->response()->setStatusCode(201);
     }
 
+    /**
+     * Retrieve details of a specific promotion.
+     */
     public function show(Promotion $promotion): PromotionResource
     {
         return PromotionResource::make($promotion);
     }
 
+    /**
+     * Update an existing promotion's rules and scheduling.
+     */
     public function update(PromotionRequest $request, Promotion $promotion): PromotionResource
     {
         $promotion->update($this->withoutNulls($request->validated()));
@@ -51,7 +65,7 @@ class PromotionController extends Controller implements HasMiddleware
     }
 
     /**
-     * ‏null صريح لحقول NOT NULL يُحذف من الحمولة بدل ما يكسر الحفظ بـ 500 (M8).
+     * Strip explicit nulls on NOT NULL columns to prevent database-level constraint failures.
      *
      * @param  array<string, mixed>  $data
      * @return array<string, mixed>
@@ -67,6 +81,9 @@ class PromotionController extends Controller implements HasMiddleware
         return $data;
     }
 
+    /**
+     * Delete a promotion.
+     */
     public function destroy(Promotion $promotion): JsonResponse
     {
         $promotion->delete();

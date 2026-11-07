@@ -19,8 +19,7 @@ use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 
 /**
- * طلبات الشراء الداخلية: إنشاء فروع لنواقصها واعتماد إدارة المشتريات،
- * ثم التحويل لأمر شراء من متحكم أوامر الشراء. الدورة في ProcurementService.
+ * Internal branch purchase requisitions: submission, approval, and downstream conversion into purchase orders.
  */
 class PurchaseRequestController extends Controller implements HasMiddleware
 {
@@ -37,6 +36,9 @@ class PurchaseRequestController extends Controller implements HasMiddleware
 
     public function __construct(protected ProcurementService $procurement) {}
 
+    /**
+     * List paginated purchase requisitions with branch and status filtering.
+     */
     public function index(Request $request): AnonymousResourceCollection
     {
         $requests = PurchaseRequest::query()
@@ -49,6 +51,9 @@ class PurchaseRequestController extends Controller implements HasMiddleware
         return PurchaseRequestResource::collection($requests);
     }
 
+    /**
+     * Store a newly created draft purchase requisition.
+     */
     public function store(PurchaseRequestRequest $request): JsonResponse
     {
         /** @var User $admin */
@@ -58,11 +63,17 @@ class PurchaseRequestController extends Controller implements HasMiddleware
         return $this->requestResource($pr)->response()->setStatusCode(201);
     }
 
+    /**
+     * Retrieve details of a specific purchase requisition.
+     */
     public function show(PurchaseRequest $purchaseRequest): PurchaseRequestResource
     {
         return $this->requestResource($purchaseRequest);
     }
 
+    /**
+     * Update details of an existing draft purchase requisition.
+     */
     public function update(PurchaseRequestRequest $request, PurchaseRequest $purchaseRequest): PurchaseRequestResource
     {
         $pr = $this->procurement->updatePurchaseRequest($purchaseRequest, $request->validated());
@@ -70,6 +81,9 @@ class PurchaseRequestController extends Controller implements HasMiddleware
         return $this->requestResource($pr);
     }
 
+    /**
+     * Delete a draft purchase requisition.
+     */
     public function destroy(PurchaseRequest $purchaseRequest): JsonResponse
     {
         if ($purchaseRequest->status !== PurchaseRequestStatus::Draft) {
@@ -80,6 +94,12 @@ class PurchaseRequestController extends Controller implements HasMiddleware
         return response()->json(['message' => 'تم حذف طلب الشراء.']);
     }
 
+    /**
+     * Wrap purchase requisition with branch and variant lines in an API resource.
+     *
+     * @param  PurchaseRequest  $request  Target purchase requisition
+     * @return PurchaseRequestResource Formatted resource
+     */
     private function requestResource(PurchaseRequest $request): PurchaseRequestResource
     {
         return PurchaseRequestResource::make(
@@ -87,16 +107,25 @@ class PurchaseRequestController extends Controller implements HasMiddleware
         );
     }
 
+    /**
+     * Submit a draft purchase requisition for review.
+     */
     public function submit(PurchaseRequest $purchaseRequest): PurchaseRequestResource
     {
         return PurchaseRequestResource::make($this->procurement->submitPurchaseRequest($purchaseRequest));
     }
 
+    /**
+     * Approve a submitted purchase requisition.
+     */
     public function approve(PurchaseRequest $purchaseRequest): PurchaseRequestResource
     {
         return PurchaseRequestResource::make($this->procurement->approvePurchaseRequest($purchaseRequest));
     }
 
+    /**
+     * Reject a submitted purchase requisition.
+     */
     public function reject(PurchaseRequest $purchaseRequest): PurchaseRequestResource
     {
         return PurchaseRequestResource::make($this->procurement->rejectPurchaseRequest($purchaseRequest));
