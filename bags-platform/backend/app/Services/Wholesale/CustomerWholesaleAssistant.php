@@ -10,10 +10,13 @@ use App\Exceptions\BusinessException;
 use App\Models\Customer;
 use App\Models\CustomerChannel;
 use App\Models\Order;
+use App\Models\OrderStatusHistory;
 use App\Models\Quotation;
+use App\Services\Ai\EntityResolver;
 use App\Services\QuotationService;
 use App\Services\SettingService;
 use App\Services\WholesalePaymentNoticeService;
+use App\Services\WholesaleQuickOrderService;
 use Illuminate\Support\Facades\Hash;
 
 /**
@@ -27,6 +30,7 @@ final class CustomerWholesaleAssistant
         private WholesalePaymentNoticeService $notices,
         private SettingService $settings,
         private WholesaleOutbox $outbox,
+        private WholesaleQuickOrderService $quickOrder,
     ) {}
 
     public function reply(Customer $customer, string $text, ?string $buttonId = null): string
@@ -47,6 +51,11 @@ final class CustomerWholesaleAssistant
         }
         if (str_contains($text, 'اعتمد الإشعار') || str_contains($text, 'اعتمد الاشعار')) {
             return 'اعتماد الإشعار من صورة أو نص مش بيتنفذ. الموظف هو اللي بيراجع الإشعار.';
+        }
+
+        $receipt = $this->parseReceiptText($text);
+        if ($receipt !== null) {
+            return 'سجلت تحويل '.$receipt['amount'].' مرجع '.$receipt['reference'].($receipt['bank'] !== '' ? ' ('.$receipt['bank'].')' : '').'. أربطه بأقرب طلب؟ [تأكيد] [على الحساب]';
         }
 
         return match (true) {
@@ -178,7 +187,10 @@ final class CustomerWholesaleAssistant
         if ($order === null) {
             return 'مفيش طلبات على الحساب.';
         }
-        $status = $order->status instanceof \BackedEnum ? $order->status->value : (string) $order->status;
+        $history = OrderStatusHistory::query()->where('order_id', $order->id)->latest('id')->first();
+        $status = $history?->to_status instanceof \BackedEnum
+            ? $history->to_status->value
+            : ($history !== null ? (string) $history->to_status : ($order->status instanceof \BackedEnum ? $order->status->value : (string) $order->status));
 
         return 'آخر طلب '.$order->order_number.' حالته '.$status.'.';
     }
@@ -189,8 +201,40 @@ final class CustomerWholesaleAssistant
         if ($order === null) {
             return 'مفيش طلب نعيده.';
         }
-        $lines = $order->items->count();
+        $result = $this->quickOrder->reorderToCart($customer, $order);
+        $added = count($result['added']);
+        $skipped = count($result['skipped']);
 
-        return 'آخر طلب فيه '.$lines.' بند. التأكيد قبل إضافته للسلة، ومش هيتعمل طلب من الرسالة دي.';
+        return 'اتضافت '.$added.' بند للسلة من آخر طلب'
+            .($skipped > 0 ? ' واتشال '.$skipped.' لنقص المخزون أو الإيقاف' : '')
+            .'. راجع السلة قبل التأكيد.';
+    }
+
+    /**
+     * @return array{amount: string, reference: string, bank: string}|null
+     */
+    private function parseReceiptText(string $text): ?array
+    {
+        if (! str_contains($text, 'تحويل') && ! str_contains($text, 'ايصال') && ! str_contains($text, 'إيصال')) {
+            return null;
+        }
+        $normalized = EntityResolver::normalizeDigits($text);
+        if (! preg_match('/مرجع\s*(\d+)/u', $normalized, $ref)) {
+            return null;
+        }
+        preg_match_all('/\d+(?:[.,]\d+)?/u', $normalized, $numbers);
+        $amount = (string) ($numbers[0][0] ?? '');
+        if ($amount === '' || $amount === $ref[1]) {
+            $amount = (string) ($numbers[0][1] ?? $numbers[0][0] ?? '');
+        }
+        if ($amount === '') {
+            return null;
+        }
+        $bank = '';
+        if (preg_match('/من\s+([^0-9]+?)(?:\s+مرجع|$)/u', trim($normalized), $bankMatch)) {
+            $bank = trim($bankMatch[1]);
+        }
+
+        return ['amount' => $amount, 'reference' => $ref[1], 'bank' => $bank];
     }
 }
