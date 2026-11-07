@@ -370,7 +370,7 @@ class ProcurementService
             DiscreteQuantity::assert($item['ordered_qty']);
             $qty = (float) $item['ordered_qty'];
             $cost = (float) $item['unit_cost'];
-            if (round($qty * $cost, 4) > 99999999.9999) {
+            if (round($qty * $cost, 4) > DiscreteQuantity::MAX_DECIMAL) {
                 throw new BusinessException('قيمة بند أمر الشراء تتجاوز السعة المسموحة.');
             }
             $po->items()->create([

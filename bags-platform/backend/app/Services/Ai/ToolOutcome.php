@@ -4,11 +4,24 @@ declare(strict_types=1);
 
 namespace App\Services\Ai;
 
+/**
+ * Encapsulates the execution result of an AI tool invocation.
+ *
+ * Normalizes tool data payloads, interactive UI picker blocks, human-in-the-loop proposals,
+ * permission denials, and untrusted user input sanitization for model consumption.
+ */
 final class ToolOutcome
 {
     /** @param array<string,mixed> $data @param array<string,mixed>|null $uiBlock */
     private function __construct(public string $type, public array $data = [], public ?array $uiBlock = null, public ?string $message = null) {}
 
+    /**
+     * Creates a standard informational data outcome.
+     *
+     * @param  array<string, mixed>  $data  Payload to return to the model.
+     * @param  array<string, mixed>|null  $block  Optional interactive UI presentation block.
+     * @param  string|null  $message  Optional merchant/staff summary message.
+     */
     public static function data(array $data, ?array $block = null, ?string $message = null): self
     {
         return new self('data', $data, $block, $message);
@@ -77,6 +90,11 @@ final class ToolOutcome
         return new self($type, $data, $block, $message);
     }
 
+    /**
+     * Determines whether tool processing must immediately halt the orchestrator reasoning loop.
+     *
+     * Interactive UI pickers, confirmation proposals, and security denials require user interaction or abort execution.
+     */
     public function haltsLoop(): bool
     {
         // Only auditable permission denials halt loop execution; validation errors allow LLM self-correction.

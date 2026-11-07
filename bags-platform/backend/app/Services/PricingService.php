@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Enums\CustomerStatus;
-use App\Enums\CustomerType;
 use App\Enums\PriceListType;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
@@ -16,6 +15,7 @@ use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 
 /**
  * Central pricing engine across storefront, wholesale portal, POS, and admin backoffice.
@@ -144,8 +144,9 @@ class PricingService
      *
      * @param  float  $qty  Purchasing quantity used for volume tier matching.
      * @param  int|null  $branchId  Optional branch restriction for branch-specific price lists.
-     * @param  array{channel: PriceListType, eligible: bool, group: object|null, items?: \Illuminate\Support\Collection}|null  $ctx  Preloaded pricing context.
+     * @param  array{channel: PriceListType, eligible: bool, group: object|null, items?: Collection}|null  $ctx  Preloaded pricing context.
      * @return array{unit_price: float, base_price: float, source: string, price_list_id: int|null}
+     *
      * @throws BusinessException If quantity is non-positive or item has no valid price.
      */
     public function resolve(
@@ -165,8 +166,7 @@ class PricingService
         $baseQuery = $this->eligibleItems($variant, $qty, $branchId, $now);
         $channel = $ctx['channel'];
         $eligibleCustomer = $ctx['eligible'];
-        $pick = fn (PriceListType $type, ?string $ownerField = null, ?int $ownerId = null): ?PriceListItem =>
-            $this->pickWinningItem($type, $ownerField, $ownerId, $variant, $qty, $branchId, $baseQuery, $ctx);
+        $pick = fn (PriceListType $type, ?string $ownerField = null, ?int $ownerId = null): ?PriceListItem => $this->pickWinningItem($type, $ownerField, $ownerId, $variant, $qty, $branchId, $baseQuery, $ctx);
 
         // Priority 1: Customer-specific pricing.
         if ($eligibleCustomer) {
@@ -252,10 +252,9 @@ class PricingService
             $notes[] = 'العميل جملة لكنه مش معتمد، فاتسعّر قطاعي.';
         }
 
-        $pick = fn (PriceListType $type, ?string $ownerField = null, ?int $ownerId = null): ?PriceListItem =>
-            $this->pickWinningItem($type, $ownerField, $ownerId, $variant, $qty, $branchId, $baseQuery, $ctx);
+        $pick = fn (PriceListType $type, ?string $ownerField = null, ?int $ownerId = null): ?PriceListItem => $this->pickWinningItem($type, $ownerField, $ownerId, $variant, $qty, $branchId, $baseQuery, $ctx);
 
-        $tieNote = function (PriceListType $type, ?string $ownerField, ?int $ownerId, ?PriceListItem $winner) use ($ctx, $variant, $qty, $baseQuery, $branchId, &$notes): void {
+        $tieNote = function (PriceListType $type, ?string $ownerField, ?int $ownerId, ?PriceListItem $winner) use ($ctx, $baseQuery, $branchId, &$notes): void {
             if ($winner === null || (isset($ctx['items']) && $branchId === null)) {
                 return;
             }
@@ -383,7 +382,6 @@ class PricingService
      * Returns the step-ladder volume pricing tiers applicable to a customer for a variant.
      *
      * @return list<array{min_qty: float, unit_price: float}>}
-     *
      * @return list<array{min_qty: float, unit_price: float}>
      */
     public function tiersFor(ProductVariant $variant, ?Customer $customer, ?array $ctx = null, ?int $branchId = null): array
@@ -547,5 +545,23 @@ class PricingService
             'source' => $source,
             'price_list_id' => $priceListId,
         ];
+    }
+
+    /**
+     * Applies charm and psychological price rounding schemes.
+     */
+    public static function applyRounding(float $price, string $rounding): float
+    {
+        if ($price <= 0) {
+            return round($price, 2);
+        }
+
+        return match ($rounding) {
+            'nearest_5' => round($price / 5.0) * 5.0,
+            'nearest_10' => round($price / 10.0) * 10.0,
+            'end_with_9' => max(9.0, floor($price / 10.0) * 10.0 + 9.0),
+            'end_with_99' => max(99.0, round($price / 100.0) * 100.0 - 1.0),
+            default => round($price, 2),
+        };
     }
 }

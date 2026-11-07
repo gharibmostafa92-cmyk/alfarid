@@ -1,3 +1,4 @@
+import { canAny } from '@alfarid/utils';
 import React, { useState, useEffect, useMemo, ReactNode } from 'react';
 import {
   Icon,
@@ -67,7 +68,7 @@ export function SettingsScreen({ onNavigate, can, initialTab }: { onNavigate?: (
   const [conflict, setConflict] = useState<string | false>(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string,string[]>>({});
   const { centralAccess } = useMe();
-  const editable = centralAccess && ( can('settings.update') || can('settings.manage'));
+  const editable = centralAccess && canAny(can, 'settings.update', 'settings.manage');
   const loading = query.loading && !server;
 
   useEffect(() => {

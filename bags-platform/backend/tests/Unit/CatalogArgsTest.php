@@ -32,5 +32,10 @@ class CatalogArgsTest extends TestCase
             'is_active' => false,
             'optional' => null,
         ]));
+
+        $this->assertSame(
+            CatalogArgs::normalizeDigitsInArray(['retail_price' => '٨٥٠.٥']),
+            CatalogArgs::normalize(['retail_price' => '٨٥٠.٥'])
+        );
     }
 }

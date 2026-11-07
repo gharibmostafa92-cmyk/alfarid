@@ -416,7 +416,7 @@ class StocktakeService
             }
             $counted = (float) ($existing?->counted_qty ?? 0);
             $total = round($counted + $quantity, 4);
-            if (! is_finite($quantity) || $quantity <= 0 || $total > 99999999.9999) {
+            if (! is_finite($quantity) || $quantity <= 0 || $total > DiscreteQuantity::MAX_DECIMAL) {
                 throw new BusinessException('كمية العد تتجاوز النطاق المسموح.');
             }
             if ($existing !== null && $existing->counted_qty !== null) {

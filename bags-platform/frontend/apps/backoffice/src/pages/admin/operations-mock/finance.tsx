@@ -2,7 +2,7 @@ import { AdminLoading } from '../../../components/admin/AdminLoading';
 import React, { useState, useEffect } from 'react';
 import { parseApiError } from '@alfarid/api-client';
 import { treasuriesApi, expensesApi, treasuryTransfersApi, shiftsApi, quotationsApi, paymentNoticesApi, asPage, newIdempotencyKey, type TreasuryType, type Treasury, type Expense, type PosShift, type Quotation, type PaymentNotice, type Paginated } from '@alfarid/api-client';
-import { useRemote, useAction } from './api/useRemote';
+import { useRemote, useAction, allPages } from './api/useRemote';
 import { useFormState } from './api/useFormState';
 import { mapErrors, num, toDate } from './api/mappers';
 import { api as opsApi } from '@alfarid/api-client';
@@ -67,12 +67,6 @@ const quoteStatus = (s: string) => s === 'priced_by_admin' ? 'priced' : s === 'c
 export const mapQuote = (q: Quotation): QuoteRow => ({ id: q.id, no: q.quotation_number, company: q.customer?.company_name || q.customer?.name || '—', cust: q.customer?.name ?? '', status: quoteStatus(q.status), total: q.status === 'draft' || q.status === 'requested' ? null : num(q.grand_total), valid: q.valid_until, date: q.created_at.slice(0, 10), order: q.converted_order_id ? `#${q.converted_order_id}` : undefined });
 export const mapNotice = (n: PaymentNotice): PaymentNoticeRow => ({ id: n.id, no: n.notice_number, company: n.customer?.company_name || n.customer?.name || '—', cust: n.customer?.name ?? '', amount: num(n.amount), method: n.payment_method === 'bank_transfer' ? 'bank' : n.payment_method, status: n.status === 'pending_review' ? 'pending' : n.status, date: n.transfer_date ?? n.created_at.slice(0, 10), bank: n.bank_name ?? '', ref: n.reference_number ?? '', file: n.has_receipt, order: n.order_number ?? null, tr: n.treasury_id ?? undefined, review: n.admin_notes ?? undefined });
 
-async function allPages<T>(request: (page: number) => Promise<Paginated<T>>): Promise<T[]> {
-  const first = await request(1);
-  const rows = [...first.data];
-  for (let page = 2; page <= first.meta.last_page; page++) rows.push(...(await request(page)).data);
-  return rows;
-}
 
 function RemoteNote({ remote }: { remote: { loading: boolean; error: { message: string } | null; usingMock: boolean; reload: () => void } }) {
   if (remote.usingMock && !USE_MOCK) return <Note tone="red">تعذّر الاتصال بالخادم؛ البيانات المعروضة تجريبية.</Note>;

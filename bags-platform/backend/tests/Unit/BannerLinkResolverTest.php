@@ -9,7 +9,6 @@ use App\Models\Banner;
 use App\Services\BannerLinkResolver;
 use App\Services\StoreCatalogService;
 use PHPUnit\Framework\TestCase;
-use ReflectionClass;
 
 class BannerLinkResolverTest extends TestCase
 {
@@ -24,22 +23,16 @@ class BannerLinkResolverTest extends TestCase
 
     public function test_sanitize_external_url_accepts_only_valid_https(): void
     {
-        $reflection = new ReflectionClass($this->resolver);
-        $sanitize = $reflection->getMethod('sanitizeExternalUrl');
-
-        $this->assertSame('https://example.com/promo', $sanitize->invoke($this->resolver, 'https://example.com/promo'));
-        $this->assertNull($sanitize->invoke($this->resolver, 'http://insecure.com'));
-        $this->assertNull($sanitize->invoke($this->resolver, 'javascript:alert(1)'));
-        $this->assertNull($sanitize->invoke($this->resolver, 'not-a-url'));
-        $this->assertNull($sanitize->invoke($this->resolver, null));
-        $this->assertNull($sanitize->invoke($this->resolver, 12345));
+        $this->assertSame('https://example.com/promo', BannerLinkResolver::sanitizeExternalUrl('https://example.com/promo'));
+        $this->assertNull(BannerLinkResolver::sanitizeExternalUrl('http://insecure.com'));
+        $this->assertNull(BannerLinkResolver::sanitizeExternalUrl('javascript:alert(1)'));
+        $this->assertNull(BannerLinkResolver::sanitizeExternalUrl('not-a-url'));
+        $this->assertNull(BannerLinkResolver::sanitizeExternalUrl(null));
+        $this->assertNull(BannerLinkResolver::sanitizeExternalUrl(12345));
     }
 
     public function test_extract_target_ids(): void
     {
-        $reflection = new ReflectionClass($this->resolver);
-        $extract = $reflection->getMethod('extractTargetIds');
-
         $b1 = new Banner(['link_type' => BannerLinkType::Product, 'link_value' => '10']);
         $b2 = new Banner(['link_type' => BannerLinkType::Product, 'link_value' => '20']);
         $b3 = new Banner(['link_type' => BannerLinkType::Product, 'link_value' => '10']); // duplicate
@@ -47,13 +40,13 @@ class BannerLinkResolverTest extends TestCase
 
         $banners = collect([$b1, $b2, $b3, $b4]);
 
-        $productIds = $extract->invoke($this->resolver, $banners, BannerLinkType::Product);
+        $productIds = BannerLinkResolver::extractTargetIds($banners, BannerLinkType::Product);
         $this->assertSame([10, 20], $productIds);
 
-        $categoryIds = $extract->invoke($this->resolver, $banners, BannerLinkType::Category);
+        $categoryIds = BannerLinkResolver::extractTargetIds($banners, BannerLinkType::Category);
         $this->assertSame([5], $categoryIds);
 
-        $externalIds = $extract->invoke($this->resolver, $banners, BannerLinkType::External);
+        $externalIds = BannerLinkResolver::extractTargetIds($banners, BannerLinkType::External);
         $this->assertSame([], $externalIds);
     }
 }

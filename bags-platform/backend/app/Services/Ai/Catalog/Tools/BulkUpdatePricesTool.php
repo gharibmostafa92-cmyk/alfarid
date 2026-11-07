@@ -24,6 +24,7 @@ use App\Services\Ai\WriteTool;
 use App\Services\Catalog\CatalogLock;
 use App\Services\Catalog\VariantService;
 use App\Services\CostAccess;
+use App\Services\PricingService;
 use App\Services\SettingService;
 use App\Services\StaffAdministration;
 use Illuminate\Validation\ValidationException;
@@ -329,17 +330,7 @@ final class BulkUpdatePricesTool implements LocksTargets, UndoableTool, WriteToo
 
     public static function applyRounding(float $price, string $rounding): float
     {
-        if ($price <= 0) {
-            return round($price, 2);
-        }
-
-        return match ($rounding) {
-            'nearest_5' => round($price / 5.0) * 5.0,
-            'nearest_10' => round($price / 10.0) * 10.0,
-            'end_with_9' => max(9.0, floor($price / 10.0) * 10.0 + 9.0),
-            'end_with_99' => max(99.0, round($price / 100.0) * 100.0 - 1.0),
-            default => round($price, 2),
-        };
+        return PricingService::applyRounding($price, $rounding);
     }
 
     public function lockTargets(AiPendingAction $action): void

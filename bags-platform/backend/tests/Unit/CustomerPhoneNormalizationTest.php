@@ -64,4 +64,27 @@ class CustomerPhoneNormalizationTest extends TestCase
         $otherEx = new \RuntimeException('Generic runtime error');
         $this->assertSame($otherEx, Customer::translateUniqueViolation($otherEx));
     }
+
+    public function test_customer_commercial_tier_and_wholesale_approval_predicates(): void
+    {
+        $retail = new Customer(['type' => \App\Enums\CustomerType::Retail, 'status' => \App\Enums\CustomerStatus::Approved]);
+        $this->assertFalse($retail->isCommercialTier());
+        $this->assertFalse($retail->isWholesaleApproved());
+
+        $pendingWholesale = new Customer(['type' => \App\Enums\CustomerType::Wholesale, 'status' => \App\Enums\CustomerStatus::Pending]);
+        $this->assertTrue($pendingWholesale->isCommercialTier());
+        $this->assertFalse($pendingWholesale->isWholesaleApproved());
+
+        $approvedWholesale = new Customer(['type' => \App\Enums\CustomerType::Wholesale, 'status' => \App\Enums\CustomerStatus::Approved]);
+        $this->assertTrue($approvedWholesale->isCommercialTier());
+        $this->assertTrue($approvedWholesale->isWholesaleApproved());
+
+        $approvedDistributor = new Customer(['type' => \App\Enums\CustomerType::Distributor, 'status' => \App\Enums\CustomerStatus::Approved]);
+        $this->assertTrue($approvedDistributor->isCommercialTier());
+        $this->assertTrue($approvedDistributor->isWholesaleApproved());
+
+        $rejectedDistributor = new Customer(['type' => \App\Enums\CustomerType::Distributor, 'status' => \App\Enums\CustomerStatus::Rejected]);
+        $this->assertTrue($rejectedDistributor->isCommercialTier());
+        $this->assertFalse($rejectedDistributor->isWholesaleApproved());
+    }
 }

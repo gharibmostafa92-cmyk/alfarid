@@ -74,12 +74,19 @@ export function toFormData(obj: Record<string, unknown>, spoofPut = false): Form
 }
 export const MULTIPART = { headers: { 'Content-Type': 'multipart/form-data' } };
 
-/** Generates standard REST CRUD client methods for an apiResource endpoint. */
-export function crud<T, P extends object, Q extends object = Record<string, unknown>>(path: string) {
+/** Generates standard REST read methods (list & show) for an endpoint. */
+export function reader<T, Q extends object = Record<string, unknown>>(path: string) {
   return {
     list: (params?: Q, signal?: AbortSignal) =>
       api.get(path, { params: cleanParams(params), signal }).then((r) => asPage<T>(r)),
     show: (id: Id, signal?: AbortSignal) => api.get(`${path}/${id}`, { signal }).then((r) => one<T>(r)),
+  };
+}
+
+/** Generates standard REST CRUD client methods for an apiResource endpoint. */
+export function crud<T, P extends object, Q extends object = Record<string, unknown>>(path: string) {
+  return {
+    ...reader<T, Q>(path),
     create: (body: P) => api.post(path, body).then((r) => one<T>(r)),
     update: (id: Id, body: Partial<P>) => api.put(`${path}/${id}`, body).then((r) => one<T>(r)),
     remove: (id: Id) => api.delete<{ message: string }>(`${path}/${id}`).then((r) => r.data),
@@ -87,6 +94,24 @@ export function crud<T, P extends object, Q extends object = Record<string, unkn
 }
 
 const SAFE_INLINE = new Set(['application/pdf', 'image/png', 'image/jpeg', 'image/webp']);
+
+/** Traverses all pages of a paginated resource callback and collects all items into a single array. */
+export async function allPages<T>(
+  loadPage: (page: number, signal?: AbortSignal) => Promise<{ data: T[]; meta?: { last_page?: number } }>,
+  signal?: AbortSignal,
+): Promise<T[]> {
+  const items: T[] = [];
+  let page = 1;
+  let last = 1;
+  do {
+    if (signal?.aborted) break;
+    const response = await loadPage(page, signal);
+    items.push(...(response.data || []));
+    last = response.meta?.last_page ?? 1;
+    page += 1;
+  } while (page <= last && !signal?.aborted);
+  return items;
+}
 
 /** Signed private downloads are navigations; their bytes never pass through XHR. */
 export async function signedAttachmentUrl(response: AxiosResponse): Promise<string | null> {

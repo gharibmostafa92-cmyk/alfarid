@@ -16,8 +16,10 @@ use Illuminate\Support\Facades\Http;
 use Throwable;
 
 /**
- * WhatsApp Business webhook for merchant communications.
- * Uses dedicated HMAC signature secret separate from staff QR gateway.
+ * Inbound WhatsApp Business Cloud API webhook controller for merchant interactions.
+ *
+ * Handles verification, idempotency deduplication, and media routing
+ * to the wholesale AI assistant.
  */
 final class CustomerWhatsAppWebhookController extends Controller
 {
@@ -27,7 +29,10 @@ final class CustomerWhatsAppWebhookController extends Controller
     ) {}
 
     /**
-     * Ingest and process inbound WhatsApp messages from registered merchants.
+     * Ingest, verify, and process an inbound WhatsApp webhook event.
+     *
+     * @param  Request  $request  Incoming HTTP webhook request.
+     * @return JsonResponse JSON acknowledgement or assistant reply.
      */
     public function handle(Request $request): JsonResponse
     {
@@ -44,9 +49,12 @@ final class CustomerWhatsAppWebhookController extends Controller
         }
 
         $message = $this->message($request->json()->all());
+        // Acknowledge non-message webhook events (e.g., delivery receipts) with 200 OK to stop retries.
         if ($message === null) {
             return response()->json(['ok' => true]);
         }
+
+        // Atomically insert message ID to guard against Meta webhook retries during latency spikes.
         $inserted = InboundMessage::query()->insertOrIgnore([
             'provider_message_id' => $message['id'],
             'payload' => json_encode(['kind' => $message['kind'], 'text' => $message['text'], 'button_id' => $message['button_id']], JSON_UNESCAPED_UNICODE),
@@ -58,10 +66,8 @@ final class CustomerWhatsAppWebhookController extends Controller
         }
 
         $phone = Customer::normalizePhone($message['from']);
-        $customer = Customer::query()
-            ->where('phone', $phone)
-            ->orWhere('whatsapp_phone', $phone)
-            ->first();
+        $customer = Customer::query()->whereAnyPhone($phone)->first();
+        // Acknowledge unlinked senders with 200 OK to prevent webhook replay loops while ignoring untracked traffic.
         if ($customer === null) {
             return response()->json(['ok' => true, 'linked' => false]);
         }
@@ -72,6 +78,8 @@ final class CustomerWhatsAppWebhookController extends Controller
     }
 
     /**
+     * Routes inbound message content (text, image, or audio) to appropriate assistant pipelines.
+     *
      * @param  array{id: string, from: string, text: string, button_id: ?string, kind: string, media_id: ?string}  $message
      */
     private function respond(Customer $customer, array $message): string
@@ -81,6 +89,8 @@ final class CustomerWhatsAppWebhookController extends Controller
             if ($bytes === null) {
                 return 'الملف موصلش. ابعته تاني من فضلك.';
             }
+
+            // Write to a temporary file because Gemini Vision and transcription services require a file path.
             $path = tempnam(sys_get_temp_dir(), 'wa-media');
             if ($path === false) {
                 return 'الملف موصلش. ابعته تاني من فضلك.';
@@ -93,6 +103,7 @@ final class CustomerWhatsAppWebhookController extends Controller
                     ? $this->assistant->readOrderImage($customer, $file)
                     : $this->assistant->transcribeAndReply($customer, $file);
             } finally {
+                // Ensure temporary media files are cleaned up even if parsing or inference fails.
                 @unlink($path);
             }
         }
@@ -100,6 +111,9 @@ final class CustomerWhatsAppWebhookController extends Controller
         return $this->assistant->reply($customer, $message['text'], $message['button_id']);
     }
 
+    /**
+     * Downloads media bytes from Meta Graph API via two-step URL resolution.
+     */
     private function downloadMedia(string $mediaId): ?string
     {
         $token = config('services.whatsapp_business.token');
@@ -107,6 +121,7 @@ final class CustomerWhatsAppWebhookController extends Controller
             return null;
         }
         try {
+            // Meta Graph API requires fetching the temporary CDN URL metadata first before downloading the binary.
             $meta = Http::withToken($token)->get("https://graph.facebook.com/v21.0/{$mediaId}");
             $url = $meta->json('url');
             if (! is_string($url) || $url === '') {
@@ -120,6 +135,8 @@ final class CustomerWhatsAppWebhookController extends Controller
             if ($body === '') {
                 return null;
             }
+
+            // Reject payloads exceeding configured size before AI processing to prevent OOM errors.
             $max = (int) config('services.gemini.max_image_bytes', 4 * 1024 * 1024);
             if (strlen($body) > $max) {
                 return null;
@@ -132,11 +149,14 @@ final class CustomerWhatsAppWebhookController extends Controller
     }
 
     /**
+     * Normalizes payload from either test fixtures or nested WhatsApp Cloud API webhook structure.
+     *
      * @param  array<string, mixed>  $payload
      * @return array{id: string, from: string, text: string, button_id: ?string, kind: string, media_id: ?string}|null
      */
     private function message(array $payload): ?array
     {
+        // Support flat test payloads directly to facilitate unit and feature test mocking.
         if (isset($payload['provider_message_id'], $payload['from'])) {
             return [
                 'id' => (string) $payload['provider_message_id'],
@@ -158,6 +178,7 @@ final class CustomerWhatsAppWebhookController extends Controller
         } elseif ($kind === 'audio' && isset($entry['audio']['id'])) {
             $mediaId = (string) $entry['audio']['id'];
         }
+        // TODO: Support document and PDF attachments once invoice/quotation parsing is extended.
         if (! in_array($kind, ['text', 'image', 'audio'], true)) {
             $kind = 'text';
         }
@@ -165,6 +186,7 @@ final class CustomerWhatsAppWebhookController extends Controller
         return [
             'id' => (string) $entry['id'],
             'from' => (string) $entry['from'],
+            // Prefer text body, falling back to image caption when merchants provide order notes with photos.
             'text' => (string) ($entry['text']['body'] ?? $entry['image']['caption'] ?? ''),
             'button_id' => isset($entry['interactive']['button_reply']['id']) ? (string) $entry['interactive']['button_reply']['id'] : null,
             'kind' => $kind,

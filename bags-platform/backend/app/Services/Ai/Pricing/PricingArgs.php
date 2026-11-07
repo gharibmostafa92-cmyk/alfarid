@@ -9,7 +9,9 @@ use App\Models\Customer;
 use App\Models\ProductVariant;
 use App\Models\User;
 use App\Services\Ai\EntityResolver;
+use App\Services\Ai\Inventory\InventoryArgs;
 use App\Services\Ai\ToolOutcome;
+use App\Support\ArabicDigits;
 use App\Services\BranchAccess;
 
 final class PricingArgs
@@ -22,7 +24,7 @@ final class PricingArgs
     {
         foreach ($args as $key => $value) {
             if (is_string($value)) {
-                $converted = EntityResolver::normalizeDigits($value);
+                $converted = ArabicDigits::normalize($value);
                 if (in_array($key, ['variant_id', 'customer_id', 'customer_group_id', 'price_list_id', 'price_list_item_id', 'branch_id', 'limit', 'page', 'per_page', 'expiring_within_days'], true) && is_numeric($converted)) {
                     $args[$key] = (int) $converted;
                 } elseif (in_array($key, ['qty', 'min_qty'], true) && is_numeric($converted)) {
@@ -46,7 +48,7 @@ final class PricingArgs
      */
     public static function resolveVariant(User $actor, EntityResolver $resolver, array $args): array|ToolOutcome
     {
-        return \App\Services\Ai\Inventory\InventoryArgs::resolveVariant($actor, $resolver, $args);
+        return InventoryArgs::resolveVariant($actor, $resolver, $args);
     }
 
     /**
@@ -120,12 +122,7 @@ final class PricingArgs
         if (count($options) > 1) {
             return ToolOutcome::denied('لقيت أكتر من عميل. استخدم find_entities ثم ask_user_to_choose.', auditable: false);
         }
-        $customer = Customer::query()->find($options[0]['id']);
-        if (! $customer) {
-            return ToolOutcome::denied('العميل مش موجود.', auditable: false);
-        }
 
-        return ['customer' => $customer];
+        return self::resolveCustomer($actor, $resolver, ['customer_id' => $options[0]['id']]);
     }
-
 }

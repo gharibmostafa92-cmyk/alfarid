@@ -15,6 +15,14 @@ use JsonException;
  */
 final class IdempotencyFingerprint
 {
+    /** @var list<string> Key precedence used to recognize and sort item collections deterministically. */
+    private const ITEM_IDENTIFIER_KEYS = [
+        'order_item_id',
+        'purchase_order_item_id',
+        'id',
+        'product_variant_id',
+    ];
+
     /**
      * Computes a deterministic SHA-256 digest from a canonicalized payload.
      *
@@ -111,7 +119,17 @@ final class IdempotencyFingerprint
     private static function isItemList(array $items): bool
     {
         foreach ($items as $item) {
-            if (! is_array($item) || (! isset($item['id']) && ! isset($item['order_item_id']) && ! isset($item['purchase_order_item_id']) && ! isset($item['product_variant_id']))) {
+            if (! is_array($item)) {
+                return false;
+            }
+            $hasKey = false;
+            foreach (self::ITEM_IDENTIFIER_KEYS as $key) {
+                if (isset($item[$key])) {
+                    $hasKey = true;
+                    break;
+                }
+            }
+            if (! $hasKey) {
                 return false;
             }
         }
@@ -123,13 +141,13 @@ final class IdempotencyFingerprint
     private static function itemSort(array $left, array $right): int
     {
         $sortKey = static function (array $item): array {
-            foreach (['order_item_id', 'purchase_order_item_id', 'id', 'product_variant_id'] as $rank => $key) {
+            foreach (self::ITEM_IDENTIFIER_KEYS as $rank => $key) {
                 if (isset($item[$key])) {
                     return [$rank, $item[$key], json_encode($item, JSON_THROW_ON_ERROR)];
                 }
             }
 
-            return [4, '', json_encode($item, JSON_THROW_ON_ERROR)];
+            return [count(self::ITEM_IDENTIFIER_KEYS), '', json_encode($item, JSON_THROW_ON_ERROR)];
         };
 
         return $sortKey($left) <=> $sortKey($right);

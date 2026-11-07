@@ -7,7 +7,7 @@ const code = ts.transpileModule(fs.readFileSync(path.join(__dirname, '../package
 }).outputText;
 const loaded = { exports: {} };
 new Function('exports', 'module', code)(loaded.exports, loaded);
-const { hasPermission, hasAnyPermission, hasAllPermissions } = loaded.exports;
+const { hasPermission, hasAnyPermission, hasAllPermissions, canAny, canAll } = loaded.exports;
 for (const permission of ['*', 'users.*', 'super_admin']) {
   assert.equal(hasPermission([permission], 'users.update'), false);
 }
@@ -15,4 +15,11 @@ assert.equal(hasPermission(['users.update'], 'users.update'), true);
 assert.equal(hasPermission(undefined, 'users.view'), false);
 assert.equal(hasAnyPermission(['users.view'], ['users.update', 'users.view']), true);
 assert.equal(hasAllPermissions(['users.view'], ['users.update', 'users.view']), false);
+
+const mockCan = (perm) => ['branches.view', 'branches.create'].includes(perm);
+assert.equal(canAny(mockCan, 'branches.create', 'branches.manage'), true);
+assert.equal(canAny(mockCan, 'branches.update', 'branches.manage'), false);
+assert.equal(canAll(mockCan, 'branches.view', 'branches.create'), true);
+assert.equal(canAll(mockCan, 'branches.view', 'branches.delete'), false);
+
 console.log('Staff permissions match the server without wildcard aliases.');

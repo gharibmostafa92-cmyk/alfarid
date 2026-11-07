@@ -80,6 +80,39 @@ final class DomainRouter
 
     public function __construct(private ToolRegistry $registry) {}
 
+    /** @var array<string, list<array{word: string, norm: string, lower: string, is_short: bool}>>|null */
+    private static ?array $compiledKeywords = null;
+
+    /**
+     * @return array<string, list<array{word: string, norm: string, lower: string, is_short: bool}>>
+     */
+    private static function compiledKeywords(): array
+    {
+        if (self::$compiledKeywords !== null) {
+            return self::$compiledKeywords;
+        }
+
+        $compiled = [];
+        foreach (self::KEYWORDS as $domain => $words) {
+            $list = [];
+            foreach ($words as $word) {
+                $normWord = EntityResolver::normalizeForSearch($word);
+                if ($normWord === '') {
+                    continue;
+                }
+                $list[] = [
+                    'word' => $word,
+                    'norm' => $normWord,
+                    'lower' => mb_strtolower($word),
+                    'is_short' => mb_strlen($normWord) <= 2,
+                ];
+            }
+            $compiled[$domain] = $list;
+        }
+
+        return self::$compiledKeywords = $compiled;
+    }
+
     /**
      * Resolve eligible AI tool domains from text, mentions, selections, and conversation history.
      *
@@ -130,17 +163,13 @@ final class DomainRouter
         $norm = EntityResolver::normalizeForSearch(EntityResolver::normalizeDigits($text));
         $lower = mb_strtolower($text);
 
-        foreach (self::KEYWORDS as $domain => $words) {
-            foreach ($words as $word) {
-                $normWord = EntityResolver::normalizeForSearch($word);
-                if ($normWord === '') {
-                    continue;
-                }
+        foreach (self::compiledKeywords() as $domain => $items) {
+            foreach ($items as $item) {
                 // Short keywords (<=2 chars) must match whole tokens to prevent substring false positives.
-                if (mb_strlen($normWord) <= 2) {
-                    $matched = (bool) preg_match('/(^|\s)'.preg_quote($normWord, '/').'(\s|$)/u', $norm);
+                if ($item['is_short']) {
+                    $matched = (bool) preg_match('/(^|\s)'.preg_quote($item['norm'], '/').'(\s|$)/u', $norm);
                 } else {
-                    $matched = str_contains($norm, $normWord) || str_contains($lower, mb_strtolower($word));
+                    $matched = str_contains($norm, $item['norm']) || str_contains($lower, $item['lower']);
                 }
                 if ($matched) {
                     $domains[$domain] = true;
@@ -212,38 +241,29 @@ final class DomainRouter
                 $domains[] = $name;
             }
         };
+        $hasOtherKeywords = function (string $domain, array $excludeWords) use ($norm): bool {
+            $compiled = self::compiledKeywords()[$domain] ?? [];
+            foreach ($compiled as $item) {
+                if (in_array($item['word'], $excludeWords, true)) {
+                    continue;
+                }
+                if (str_contains($norm, $item['norm'])) {
+                    return true;
+                }
+            }
+
+            return false;
+        };
 
         // Distinguish customer balance top-up from physical leather wallet products.
         if ($has('محفظة')) {
             $walletFinance = $hasAny(['عميل', 'رصيد', 'شحن', 'استرداد', 'جنيه', 'مبلغ']) || $mentionsCustomer;
             if ($walletFinance) {
                 $keep('finance');
-                $otherCatalog = false;
-                foreach (self::KEYWORDS['catalog'] ?? [] as $word) {
-                    if (in_array($word, ['محفظة', 'محفظه'], true)) {
-                        continue;
-                    }
-                    $normWord = EntityResolver::normalizeForSearch($word);
-                    if ($normWord !== '' && str_contains($norm, $normWord)) {
-                        $otherCatalog = true;
-                        break;
-                    }
-                }
-                if (! $otherCatalog) {
+                if (! $hasOtherKeywords('catalog', ['محفظة', 'محفظه'])) {
                     $drop(['catalog']);
                 }
-                $otherInventory = false;
-                foreach (self::KEYWORDS['inventory'] ?? [] as $word) {
-                    if (in_array($word, ['شحن', 'مشحون'], true)) {
-                        continue;
-                    }
-                    $normWord = EntityResolver::normalizeForSearch($word);
-                    if ($normWord !== '' && str_contains($norm, $normWord)) {
-                        $otherInventory = true;
-                        break;
-                    }
-                }
-                if (! $otherInventory) {
+                if (! $hasOtherKeywords('inventory', ['شحن', 'مشحون'])) {
                     $drop(['inventory']);
                 }
             } else {
@@ -264,6 +284,7 @@ final class DomainRouter
         }
 
         // Distinguish financial ledger balances from SKU stock quantities.
+        // Financial balances vs inventory stock levels.
         if ($has('رصيد')) {
             $financeCtx = $hasAny(['خزنة', 'خزينة', 'درج', 'بنك', 'محفظة']);
             $inventoryCtx = $hasAny(['صنف', 'مخزن', 'قطعة']);
@@ -275,20 +296,24 @@ final class DomainRouter
             }
         }
 
+        // Shift terms ("وردية") relate to cash drawer opening/closing rather than stockroom shifts.
         if ($hasAny(['وردية', 'ورديات']) && ! $hasAny(['مخزن', 'صنف', 'جرد', 'بضاعة'])) {
             $keep('finance');
             $drop(['inventory']);
         }
 
+        // Operating expenses ("مصروف") belong to petty cash accounting unless tied to product manufacturing/inventory.
         if ($has('مصروف') && ! $hasAny(['مخزن', 'صنف', 'منتج', 'بضاعة', 'جرد'])) {
             $keep('finance');
             $drop(['inventory']);
         }
 
+        // Cash movements ("حركات") coupled with register or bank terms refer to ledger entries, not stock transfers.
         if ($hasAny(['حركة', 'حركات']) && $hasAny(['خزنة', 'خزينة', 'درج', 'بنك', 'محفظة']) && ! $hasAny(['مخزن', 'صنف', 'بضاعة'])) {
             $drop(['inventory']);
         }
 
+        // Shortages/surpluses ("عجز/زيادة") coupled with till or shift terms indicate cash reconciliation, not warehouse inventory variance.
         if (($has('عجز') || $has('زيادة')) && ($has('درج') || $has('وردية'))) {
             $keep('finance');
             $drop(['inventory']);

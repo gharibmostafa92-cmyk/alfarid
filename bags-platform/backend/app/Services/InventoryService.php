@@ -40,7 +40,7 @@ class InventoryService
     {
         $apply = function () use ($data, $prelockedLevel): StockMovement {
             $rawQty = $data['quantity'];
-            if (! is_numeric($rawQty) || ! is_finite((float) $rawQty) || abs((float) $rawQty) > 99999999.9999) {
+            if (! is_numeric($rawQty) || ! is_finite((float) $rawQty) || abs((float) $rawQty) > DiscreteQuantity::MAX_DECIMAL) {
                 throw new BusinessException('كمية الحركة غير صالحة.');
             }
             // Work in ten-thousandths to avoid floating point residues at zero.

@@ -84,4 +84,12 @@ class WholesalePaymentNotice extends Model
     {
         return $this->belongsTo(TreasuryTransaction::class);
     }
+
+    /**
+     * Scope query to match reference number case-insensitively with trimmed whitespace.
+     */
+    public function scopeWhereReferenceNumber($query, string $reference)
+    {
+        return $query->whereRaw('lower(btrim(reference_number)) = ?', [mb_strtolower(trim($reference))]);
+    }
 }

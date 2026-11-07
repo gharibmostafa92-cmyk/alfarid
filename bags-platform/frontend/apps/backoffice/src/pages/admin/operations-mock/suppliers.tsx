@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, Fragment } from 'react';
 import { suppliersApi, purchaseRequestsApi, purchaseOrdersApi, supplierInvoicesApi, supplierPaymentsApi, branchesApi, commerceLookupsApi, newIdempotencyKey, type Supplier as SupplierApi, type PurchaseRequest as PRApi, type PurchaseOrder as POApi, type SupplierInvoice as InvoiceApi, type SupplierPaymentApi } from '@alfarid/api-client';
 import { useCan } from '../../../hooks/useCan';
 import { RemoteFeedback } from './api/RemoteFeedback';
-import { useRemote, useDebounced, useAction } from './api/useRemote';
+import { useRemote, useDebounced, useAction, allPages } from './api/useRemote';
 import { useFormState } from './api/useFormState';
 import { mapErrors, num, toDate } from './api/mappers';
 import {
@@ -57,11 +57,6 @@ const mapPO = (x: POApi) => ({ demo: !!(x as any).__demo, id: x.id, no: x.po_num
 const mapInvoice = (x: InvoiceApi) => ({ demo: !!(x as any).__demo, id: x.id, sys: x.invoice_number, supNo: x.supplier_invoice_no ?? '', sup: x.supplier_id, po: x.purchase_order?.po_number ?? null, poId: x.purchase_order_id, issue: x.issue_date ?? '', due: x.due_date, subtotal: num(x.subtotal), tax: num(x.tax_amount), paid: num(x.paid_amount), remaining: num(x.remaining_amount), status: x.status === 'partially_paid' ? 'partial' : x.status, file: !!x.attachment_url, raw: x });
 const paymentMethod = (m: string): 'cash' | 'bank_transfer' | 'check' => m === 'bank' ? 'bank_transfer' : m === 'cheque' ? 'check' : 'cash';
 const mapPayment = (x: SupplierPaymentApi) => ({ demo: !!(x as any).__demo, id: x.id, no: x.payment_number, sup: x.supplier_id, inv: x.invoice?.invoice_number ?? null, invId: x.supplier_invoice_id, amount: num(x.amount), method: x.payment_method === 'bank_transfer' ? 'bank' : x.payment_method === 'check' ? 'cheque' : 'cash', ref: x.reference_no, date: x.payment_date, notes: x.notes, void: x.voided_at ? { reason: x.void_reason ?? '', by: x.voided_by ? `#${x.voided_by}` : '—', at: x.voided_at } : null });
-async function allPages<T>(loadPage: (page: number) => Promise<{ data: T[]; meta: { last_page: number } }>): Promise<T[]> {
-  const first = await loadPage(1), rows = [...first.data];
-  for (let page = 2; page <= first.meta.last_page; page++) rows.push(...(await loadPage(page)).data);
-  return rows;
-}
 const mockSuppliers = SUPPLIERS.map(s => ({ id: s.id, code: s.code, name: s.name, company_name: s.company, email: s.email, phone: s.phone, payment_terms_days: s.terms, opening_balance: '0', current_balance: String(s.balance), is_active: s.active, tax_number: null, commercial_register: null, address: null, users: [] } as SupplierApi)).map(row => Object.assign(row, { __demo: true }) as SupplierApi);
 const mockPRs = PRS.map(p => ({ id: p.id, request_number: p.no, branch_id: 0, branch: { id: 0, name: p.branch }, requested_by: null, status: p.status, notes: null, items: [], created_at: p.date } as PRApi)).map(row => Object.assign(row, { __demo: true }) as PRApi);
 const mockPOs = POS.map(p => ({ id: p.id, po_number: p.no, supplier_id: p.sup, branch_id: 0, branch: { id: 0, name: p.branch }, purchase_request_id: null, status: toPOStatus(p.status), expected_delivery_date: p.eta, grand_total: String(p.total), approved_by: null, supplier_change_notes: null, subtotal: String(p.total), tax_amount: '0', discount_amount: '0', items: [], deliveries: [] } as POApi)).map(row => Object.assign(row, { __demo: true }) as POApi);

@@ -136,7 +136,7 @@ final class ReceiveProductionTool implements LocksTargets, WriteTool
                 return ToolOutcome::denied($e->getMessage(), auditable: false);
             }
             $unit = $raw['unit_cost'] ?? null;
-            if (! is_numeric($unit) || ! is_finite((float) $unit) || (float) $unit < 0 || (float) $unit > 99999999.9999 || abs((float) $unit - round((float) $unit, 4)) > 1e-9) {
+            if (! DiscreteQuantity::isValid($unit, allowZero: true)) {
                 return ToolOutcome::denied("تكلفة البند {$variant->sku} غير سليمة.", auditable: false);
             }
             $grouped[$variant->id]['variant'] = $variant;

@@ -1,3 +1,4 @@
+import { canAny } from '@alfarid/utils';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Icon,
@@ -79,7 +80,7 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
   const permissionGroups = permissionsQ.data ?? buildPermissionGroups(fallbackPermissions);
   const allPerms = permissionGroups.flatMap(g => g.perms.map(p => p[0]));
   const isSystem = draft?.system;
-  const editable = centralAccess && !permissionsQ.error && (draft?.isNew ? can('roles.create') || can('roles.manage') : can('roles.update') || can('roles.manage'));
+  const editable = centralAccess && !permissionsQ.error && (draft?.isNew ? canAny(can, 'roles.create', 'roles.manage') : canAny(can, 'roles.update', 'roles.manage'));
   const togglePerm = (k: string) => {
     if (isSystem || !editable || (!iAmSuper && !myPerms.has(k))) return;
     setDraft(d => d ? { ...d, perms: d.perms.includes(k) ? d.perms.filter(x => x !== k) : [...d.perms, k] } : null);
@@ -92,7 +93,7 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
   const toggleOpen = (m: string) => setOpenGroups(s => { const n = new Set(s); n.has(m) ? n.delete(m) : n.add(m); return n; });
 
   const newRole = () => {
-    if (!centralAccess || !(can('roles.create') || can('roles.manage')) || permissionsQ.error) return;
+    if (!centralAccess || !canAny(can, 'roles.create', 'roles.manage') || permissionsQ.error) return;
     setNameError(undefined);
     setSelId(null);
     setDraft({ name: '', perms: [], isNew: true });
@@ -129,7 +130,7 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
     toast(draft.isNew ? 'تم إنشاء الدور بنجاح' : 'تم حفظ صلاحيات الدور');
   };
   const doDelete = async (r: AdminRole) => {
-    if (saving || !(can('roles.delete') || can('roles.manage'))) return;
+    if (saving || !canAny(can, 'roles.delete', 'roles.manage')) return;
     setSaving(true);
     const result = await runMutation(() => adminApi.deleteRole(r.id));
     setSaving(false);
@@ -179,7 +180,7 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
               <h3 className="font-display text-[16px] font-semibold" style={{ color: 'var(--text-primary)' }}>الأدوار</h3>
               <span className="text-[11.5px]" style={{ color: 'var(--text-muted)' }}>| &nbsp;{roles.length} أدوار</span>
             </div>
-            <button type="button" disabled={!centralAccess || saving || !!permissionsQ.error || !(can('roles.create') || can('roles.manage'))} onClick={newRole} className="h-8 px-3.5 rounded-full text-[12px] font-semibold flex items-center gap-1.5 hover:opacity-90" style={{ background: 'var(--pill-active-bg)', color: 'var(--pill-active-text)' }}>
+            <button type="button" disabled={!centralAccess || saving || !!permissionsQ.error || !canAny(can, 'roles.create', 'roles.manage')} onClick={newRole} className="h-8 px-3.5 rounded-full text-[12px] font-semibold flex items-center gap-1.5 hover:opacity-90" style={{ background: 'var(--pill-active-bg)', color: 'var(--pill-active-text)' }}>
               <Icon name="plus" className="w-3.5 h-3.5" strokeWidth={2.4} />دور جديد
             </button>
           </div>
@@ -238,7 +239,7 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
                     <TextInput value={draft.name} onChange={v => setDraft(d => d ? { ...d, name: v } : null)} disabled={isSystem || draft.builtin || !editable} icon={isSystem ? 'lock' : 'shield'} placeholder="مثال: مشرف مبيعات" />
                   </Field>
                 </div>
-                {!draft.isNew && !draft.builtin && !isSystem && centralAccess && (can('roles.delete') || can('roles.manage')) && (
+                {!draft.isNew && !draft.builtin && !isSystem && centralAccess && canAny(can, 'roles.delete', 'roles.manage') && (
                   <button type="button" onClick={() => sel && (setDeleteConflict(undefined), setDel(sel))} className="mt-7 h-11 px-4 rounded-full text-[12.5px] font-semibold flex items-center gap-2 v-badge-red hover:opacity-85 transition">
                     <Icon name="trash" className="w-4 h-4" />حذف الدور
                   </button>

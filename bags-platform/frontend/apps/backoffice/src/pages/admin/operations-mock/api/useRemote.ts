@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type DependencyList } from 'react';
-import { isAxiosCancel, parseApiError, type ParsedApiError } from '@alfarid/api-client';
+import { isAxiosCancel, parseApiError, type ParsedApiError, allPages } from '@alfarid/api-client';
 import { USE_MOCK, FALLBACK_ON_ERROR } from './source';
 
 export interface RemoteState<T> {
@@ -53,7 +53,7 @@ export function useRemote<T>(
   return { data, loading, error, usingMock, reload, setData };
 }
 
-/** Debounces query input with a 350ms delay to avoid excessive API requests. */
+export { allPages };
 export function useDebounced<T>(value: T, ms = 350): T {
   const [v, setV] = useState(value);
   useEffect(() => { const t = setTimeout(() => setV(value), ms); return () => clearTimeout(t); }, [value, ms]);

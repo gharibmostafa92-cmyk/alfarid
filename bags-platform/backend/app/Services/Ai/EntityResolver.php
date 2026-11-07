@@ -10,8 +10,8 @@ use App\Models\Category;
 use App\Models\Coupon;
 use App\Models\Customer;
 use App\Models\CustomerGroup;
-use App\Models\Location;
 use App\Models\Expense;
+use App\Models\Location;
 use App\Models\PriceList;
 use App\Models\Product;
 use App\Models\ProductionReceipt;
@@ -25,7 +25,9 @@ use App\Models\User;
 use App\Services\BranchAccess;
 use App\Services\SearchTerm;
 use App\Services\StaffAdministration;
+use App\Support\ArabicDigits;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
@@ -41,12 +43,7 @@ final class EntityResolver
      */
     public static function normalizeDigits(string $value): string
     {
-        return strtr($value, [
-            '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4',
-            '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
-            '۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4',
-            '۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9',
-        ]);
+        return ArabicDigits::normalize($value);
     }
 
     /**
@@ -464,8 +461,8 @@ final class EntityResolver
             ->get())->all();
     }
 
-    /** @param \Illuminate\Support\Collection<int, Treasury> $items */
-    private function mapTreasuries($items, User $actor): \Illuminate\Support\Collection
+    /** @param Collection<int, Treasury> $items */
+    private function mapTreasuries($items, User $actor): Collection
     {
         $canViewBalance = $actor->can('treasuries.view');
 
@@ -476,8 +473,8 @@ final class EntityResolver
         ])->values();
     }
 
-    /** @param \Illuminate\Support\Collection<int, TreasuryTransfer> $items */
-    private function mapTreasuryTransfers($items): \Illuminate\Support\Collection
+    /** @param Collection<int, TreasuryTransfer> $items */
+    private function mapTreasuryTransfers($items): Collection
     {
         return $items->map(fn (TreasuryTransfer $t) => [
             'id' => $t->id,
@@ -486,8 +483,8 @@ final class EntityResolver
         ])->values();
     }
 
-    /** @param \Illuminate\Support\Collection<int, Expense> $items */
-    private function mapExpenses($items): \Illuminate\Support\Collection
+    /** @param Collection<int, Expense> $items */
+    private function mapExpenses($items): Collection
     {
         return $items->map(fn (Expense $e) => [
             'id' => $e->id,
@@ -520,8 +517,8 @@ final class EntityResolver
         return str_contains($norm, 'نهارده') || preg_match('/(^|\s)يوم($|\s)/u', $norm) === 1;
     }
 
-    /** @param \Illuminate\Support\Collection<int, StockTransfer> $items */
-    private function mapTransfers($items): \Illuminate\Support\Collection
+    /** @param Collection<int, StockTransfer> $items */
+    private function mapTransfers($items): Collection
     {
         return $items->map(fn (StockTransfer $t) => [
             'id' => $t->id,
@@ -530,8 +527,8 @@ final class EntityResolver
         ])->values();
     }
 
-    /** @param \Illuminate\Support\Collection<int, Stocktake> $items */
-    private function mapStocktakes($items): \Illuminate\Support\Collection
+    /** @param Collection<int, Stocktake> $items */
+    private function mapStocktakes($items): Collection
     {
         return $items->map(fn (Stocktake $s) => [
             'id' => $s->id,

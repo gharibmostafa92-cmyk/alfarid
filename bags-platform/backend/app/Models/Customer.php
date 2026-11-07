@@ -7,6 +7,7 @@ namespace App\Models;
 use App\Enums\CustomerStatus;
 use App\Enums\CustomerType;
 use App\Models\Concerns\SerializesAccountEmail;
+use App\Support\ArabicDigits;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -108,14 +109,6 @@ class Customer extends Authenticatable
         $this->attributes['email'] = $normalized;
     }
 
-    /** Transliteration map for Eastern Arabic and Persian numerals to ASCII digits. */
-    private const ARABIC_PERSIAN_DIGITS_MAP = [
-        '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4',
-        '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
-        '۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4',
-        '۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9',
-    ];
-
     public function setPhoneAttribute(string $phone): void
     {
         $this->attributes['phone'] = self::normalizePhone($phone);
@@ -143,7 +136,7 @@ class Customer extends Authenticatable
             return $trimmed;
         }
         // Normalize Arabic-Indic and Eastern Arabic digits into ASCII equivalents.
-        $phone = strtr($trimmed, self::ARABIC_PERSIAN_DIGITS_MAP);
+        $phone = ArabicDigits::normalize($trimmed);
         $phone = preg_replace('/[\s().-]+/u', '', $phone);
         if (preg_match('/^201[0125][0-9]{8}$/', $phone)) {
             return '0'.substr($phone, 2);
@@ -177,6 +170,16 @@ class Customer extends Authenticatable
         return str_contains($trimmed, '@')
             ? mb_strtolower($trimmed)
             : self::normalizePhone($trimmed);
+    }
+
+    /**
+     * Scope query to find customer by either canonical primary phone or secondary WhatsApp phone.
+     */
+    public function scopeWhereAnyPhone($query, string $phone)
+    {
+        $normalized = self::normalizePhone($phone);
+
+        return $query->where('phone', $normalized)->orWhere('whatsapp_phone', $normalized);
     }
 
     /**

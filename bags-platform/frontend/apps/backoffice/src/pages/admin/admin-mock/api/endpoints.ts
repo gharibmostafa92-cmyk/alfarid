@@ -1,4 +1,4 @@
-import { defaultApiClient as api } from '@alfarid/api-client';
+import { defaultApiClient as api, allPages } from '@alfarid/api-client';
 import type { ApiBanner, ApiBranch, ApiPermissionGroups, ApiRole, ApiSettingsGrouped, ApiUser,
   CreateUserBody, Paginated, RoleBody, UpdateUserBody, UserListParams } from './types';
 
@@ -14,6 +14,9 @@ function userParams(p: UserListParams): Record<string, string | number> {
   if (typeof p.is_active === 'boolean') out.is_active = p.is_active ? 1 : 0;
   return out;
 }
+
+const fetchAllPages = <T>(path: string, signal?: AbortSignal): Promise<T[]> =>
+  allPages<T>((page, s) => api.get<Paginated<T>>(path, { params: { per_page: 100, page }, signal: s }).then(r => r.data), signal);
 
 export const adminApi = {
   // Users
@@ -32,17 +35,8 @@ export const adminApi = {
       .then(r => r.data.meta.total),
 
   // Fetch all role pages sequentially for complete role assignment choices.
-  listRoles: async (signal?: AbortSignal): Promise<ApiRole[]> => {
-    const all: ApiRole[] = [];
-    let page = 1, last = 1;
-    do {
-      const r = await api.get<Paginated<ApiRole>>(`${BASE}/roles`, { params: { per_page: 100, page }, signal });
-      all.push(...r.data.data);
-      last = r.data.meta.last_page;
-      page++;
-    } while (page <= last);
-    return all;
-  },
+  listRoles: (signal?: AbortSignal): Promise<ApiRole[]> =>
+    fetchAllPages<ApiRole>(`${BASE}/roles`, signal),
   createRole: (body: Required<Pick<RoleBody, 'name'>> & RoleBody) =>
     api.post<{ data: ApiRole }>(`${BASE}/roles`, body).then(r => r.data.data),
   updateRole: (id: number, body: RoleBody) =>
@@ -54,15 +48,8 @@ export const adminApi = {
     api.get<{ data: ApiPermissionGroups }>(`${BASE}/permissions`, { signal }).then(r => r.data.data),
 
   // Branches
-  listBranches: async (signal?: AbortSignal): Promise<ApiBranch[]> => {
-    const branches: ApiBranch[] = [];
-    let page = 1, last = 1;
-    do {
-      const response = await api.get<Paginated<ApiBranch>>(`${BASE}/branches`, {params:{per_page:100,page},signal});
-      branches.push(...response.data.data); last = response.data.meta.last_page; page++;
-    } while (page <= last);
-    return branches;
-  },
+  listBranches: (signal?: AbortSignal): Promise<ApiBranch[]> =>
+    fetchAllPages<ApiBranch>(`${BASE}/branches`, signal),
 
   // Settings
   getSettings: (signal?: AbortSignal) =>

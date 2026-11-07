@@ -12,8 +12,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Admin\StoreRoleRequest;
 use App\Http\Requests\Api\V1\Admin\UpdateRoleRequest;
 use App\Http\Resources\Api\V1\Admin\RoleResource;
-use App\Models\User;
 use App\Services\BranchAccess;
+use App\Services\StaffAdministration;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -53,7 +53,7 @@ class RoleController extends Controller
             ], 403);
         }
 
-        if (! $this->mayGrantPermissions($currentUser, $permissions)) {
+        if (! StaffAdministration::mayGrantPermissions($currentUser, $permissions)) {
             return response()->json([
                 'message' => 'لا يمكنك إسناد صلاحيات لا تملكها.',
             ], 403);
@@ -83,7 +83,7 @@ class RoleController extends Controller
             ], 403);
         }
 
-        if (is_array($permissions) && ! $this->mayGrantPermissions($currentUser, $permissions)) {
+        if (is_array($permissions) && ! StaffAdministration::mayGrantPermissions($currentUser, $permissions)) {
             return response()->json([
                 'message' => 'لا يمكنك إسناد صلاحيات لا تملكها.',
             ], 403);
@@ -119,18 +119,6 @@ class RoleController extends Controller
         }
 
         return response()->noContent();
-    }
-
-    private function mayGrantPermissions(mixed $user, array $permissions): bool
-    {
-        if (! $user instanceof User) {
-            return false;
-        }
-
-        $user->unsetRelation('roles')->unsetRelation('permissions');
-
-        return $user->hasRole(StaffRole::SuperAdmin->value, 'staff')
-            || $user->hasAllPermissions($permissions);
     }
 
     private function ensureStaffRole(Role $role): void

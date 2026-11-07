@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Enums\CustomerStatus;
-use App\Enums\CustomerType;
 use App\Enums\OrderStatus;
 use App\Enums\ReturnStatus;
 use App\Enums\StockBucket;
@@ -589,17 +588,6 @@ class OrderService
     private function isWholesaleApproved(?Customer $customer): bool
     {
         return $customer !== null && $customer->isWholesaleApproved();
-    }
-
-    /**
-     * Distributes a total currency amount across weights using Hare-Niemeyer (largest remainder) algorithm.
-     *
-     * @param  array<int, float>  $weights
-     * @return array<int, float>
-     */
-    private function distributeLargestRemainder(float $total, array $weights): array
-    {
-        return ProportionalDistribution::distribute($total, $weights);
     }
 
     /**

@@ -23,6 +23,7 @@ use App\Models\StockLevel;
 use App\Models\StockMovement;
 use App\Models\Treasury;
 use App\Models\User;
+use App\Support\ArabicDigits;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -668,26 +669,36 @@ class PosService
      */
     public function lookupProducts(string $query, int $branchId, ?Customer $customer = null): array
     {
+        $normalized = ArabicDigits::normalize(trim($query));
+
         $variants = ProductVariant::query()
             ->with(['product', 'media'])
             ->whereHas('product', fn ($q) => $q->where('is_active', true)->whereNotNull('published_at'))
             ->where('is_active', true)
-            ->where(function ($q) use ($query): void {
+            ->where(function ($q) use ($query, $normalized): void {
                 $like = SearchTerm::pattern(mb_strtolower($query));
-                $q->where('barcode', $query)
+                $q->where('barcode', $normalized)
+                    ->orWhere('barcode', $query)
+                    ->orWhere('sku', $normalized)
                     ->orWhere('sku', $query)
                     ->orWhereHas('product', fn ($pq) => $pq->whereRaw('LOWER(name_ar) LIKE ? OR LOWER(name_en) LIKE ?', [$like, $like]));
             })
             ->limit(20)
             ->get();
 
+        $variantIds = $variants->pluck('id')->all();
+        $stockByVariant = ! empty($variantIds)
+            ? StockLevel::query()
+                ->where('branch_id', $branchId)
+                ->whereIn('product_variant_id', $variantIds)
+                ->where(fn ($q) => $q->whereNull('location_id')->orWhereHas('location', fn ($q) => $q->where('is_active', true)))
+                ->get()
+                ->groupBy('product_variant_id')
+            : collect();
+
         $result = [];
         foreach ($variants as $variant) {
-            $stock = StockLevel::query()
-                ->where('product_variant_id', $variant->id)
-                ->where('branch_id', $branchId)
-                ->where(fn ($q) => $q->whereNull('location_id')->orWhereHas('location', fn ($q) => $q->where('is_active', true)))
-                ->get();
+            $stock = $stockByVariant->get($variant->id, collect());
 
             try {
                 $priceData = $this->pricing->resolve($variant, $customer, 1, $branchId);

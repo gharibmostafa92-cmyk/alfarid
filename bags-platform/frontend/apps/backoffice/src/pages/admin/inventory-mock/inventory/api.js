@@ -1,22 +1,11 @@
 // Pure inventory API helpers (no JSX, no InvCtx imports — no import cycles).
 // Screens use these together with catalog/useApi + @alfarid/api-client.
-import { branchesApi, locationsApi } from '@alfarid/api-client';
+import { branchesApi, locationsApi, allPages } from '@alfarid/api-client';
 
 // The branch/location index endpoints expose no search/type/active filters
 // (only per_page), so list screens page through everything (per_page=100)
 // and filter client-side. Branch counts are small, so this is acceptable.
-export async function fetchAllPages(listFn, signal) {
-  const all = [];
-  let page = 1;
-  let last = 1;
-  do {
-    const res = await listFn(page, signal);
-    all.push(...(res.data || []));
-    last = (res.meta && res.meta.last_page) || 1;
-    page += 1;
-  } while (page <= last);
-  return all;
-}
+export const fetchAllPages = allPages;
 
 export const fetchAllBranches = (signal) =>
   fetchAllPages((page, s) => branchesApi.list({ per_page: 100, page }, s), signal);

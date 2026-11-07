@@ -7,7 +7,7 @@ import { useAuthStore } from '../../../stores/auth.store';
 import { formatCurrency, formatDate, hasPermission } from '@alfarid/utils';
 import { ADJ_MOCK_TO_API, BRANCH_TYPES, LOCATION_TYPES, MOVE_TYPE_LABELS, STOCKTAKE_STATUS, TRANSFER_STATUS } from './inventory/labels';
 import { canAny, formatQty, groupItemsErrors, pickName, QTY_MAX, QTY_RE, toLatinDigits } from './inventory/helpers';
-import { apiPhase, fetchAllBranches, fetchAllLocations } from './inventory/api';
+import { apiPhase, fetchAllBranches, fetchAllLocations, fetchAllPages } from './inventory/api';
 import { useIdempotencyKey } from './inventory/useIdempotencyKey';
 const INV_NAV = [
   { id: 'branches',  label: 'الفروع والمخازن', icon: 'store',     match: ['branches', 'locations'] },
@@ -460,14 +460,9 @@ function CountsScreen({ go }) {
   const allowed = canAny(can, 'stocktakes.view', 'stocktakes.manage');
 
   // Small cardinality like branches: fetch all pages so filters run client-side.
-  const query = useApi(signal => (async () => {
-    const all = []; let page = 1; let last = 1;
-    do {
-      const res = await stocktakesApi.list({ per_page: 100, page, branch_id: (restriction.locked ? restriction.branchId : branchF) || undefined, status: st === 'all' ? undefined : st }, signal);
-      all.push(...(res.data || [])); last = res.meta?.last_page || 1; page += 1;
-    } while (page <= last);
-    return all;
-  })(), [branchF, st, restriction.branchId]);
+  const query = useApi(signal => fetchAllPages((page, s) =>
+    stocktakesApi.list({ per_page: 100, page, branch_id: (restriction.locked ? restriction.branchId : branchF) || undefined, status: st === 'all' ? undefined : st }, s)
+  , signal), [branchF, st, restriction.branchId]);
   const canCreate = canAny(can, 'stocktakes.create', 'stocktakes.manage');
 
   if (!allowed) return <NoPerm title="الجرد" perm="stocktakes.view" go={go} />;
@@ -539,14 +534,7 @@ function CountCreate({ open, onClose, go, onCreated }) {
   const effBranch = restriction.locked ? restriction.branchId : branchId;
 
   const scopeQuery = useApi(signal => (effBranch
-    ? (async () => {
-        const all = []; let page = 1; let last = 1;
-        do {
-          const res = await stockApi.levels({ branch_id: effBranch, location_id: locId || undefined, per_page: 100, page }, signal);
-          all.push(...(res.data || [])); last = res.meta?.last_page || 1; page += 1;
-        } while (page <= last);
-        return all;
-      })()
+    ? fetchAllPages((page, s) => stockApi.levels({ branch_id: effBranch, location_id: locId || undefined, per_page: 100, page }, s), signal)
     : Promise.resolve([])), [effBranch || 0, locId || 0]);
   const scopeIds = useMemo(() => [...new Set((scopeQuery.data || []).map(s => s.product_variant_id))], [scopeQuery.data]);
   useEffect(() => { cacheVariantNames(variantCache, (scopeQuery.data || []).map(s => s.variant)); }, [scopeQuery.data]);
@@ -1482,14 +1470,9 @@ function TransfersScreen({ go }) {
 
   // Small cardinality like branches: fetch all pages once (per_page=100) so the
   // KPIs are exact and status/branch/search filters run client-side.
-  const query = useApi(signal => (async () => {
-    const all = []; let page = 1; let last = 1;
-    do {
-      const res = await transfersApi.list({ per_page: 100, page, from_branch_id: fromF || undefined, to_branch_id: toF || undefined, status: st === 'all' ? undefined : st }, signal);
-      all.push(...(res.data || [])); last = res.meta?.last_page || 1; page += 1;
-    } while (page <= last);
-    return all;
-  })(), [fromF, toF, st]);
+  const query = useApi(signal => fetchAllPages((page, s) =>
+    transfersApi.list({ per_page: 100, page, from_branch_id: fromF || undefined, to_branch_id: toF || undefined, status: st === 'all' ? undefined : st }, s)
+  , signal), [fromF, toF, st]);
 
   if (!allowed) return <NoPerm title="التحويلات المخزنية" perm="transfers.view" go={go} />;
 

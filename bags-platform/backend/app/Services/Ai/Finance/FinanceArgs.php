@@ -10,6 +10,7 @@ use App\Models\TreasuryTransfer;
 use App\Models\User;
 use App\Services\Ai\EntityResolver;
 use App\Services\Ai\ToolOutcome;
+use App\Support\ArabicDigits;
 use App\Services\BranchAccess;
 use App\Services\SpokenQuantity;
 use Brick\Math\BigDecimal;
@@ -53,17 +54,8 @@ final class FinanceArgs
         if (count($options) > 1) {
             return ToolOutcome::denied('لقيت أكتر من خزينة. استخدم find_entities ثم ask_user_to_choose.', auditable: false);
         }
-        $treasury = Treasury::find($options[0]['id']);
-        if (! $treasury) {
-            return ToolOutcome::denied('الخزينة مش موجودة.', auditable: false);
-        }
-        try {
-            $branches->assertTreasury($actor->id, $treasury);
-        } catch (AuthorizationException) {
-            return ToolOutcome::denied('الخزينة خارج نطاقك.', auditable: false);
-        }
 
-        return ['treasury' => $treasury];
+        return self::resolveTreasury($actor, $resolver, $branches, ['treasury_id' => $options[0]['id']]);
     }
 
     /**
@@ -141,6 +133,15 @@ final class FinanceArgs
      * @param  array<string,mixed>  $args
      * @return array<string,mixed>
      */
+    public static function normalize(array $args): array
+    {
+        return self::normalizeDigitsInArray($args);
+    }
+
+    /**
+     * @param  array<string,mixed>  $args
+     * @return array<string,mixed>
+     */
     public static function normalizeDigitsInArray(array $args): array
     {
         $intKeys = [
@@ -151,7 +152,7 @@ final class FinanceArgs
 
         foreach ($args as $key => $value) {
             if (is_string($value)) {
-                $converted = EntityResolver::normalizeDigits($value);
+                $converted = ArabicDigits::normalize($value);
                 if (in_array($key, ['amount', 'total', 'expected_amount'], true)) {
                     $args[$key] = trim($converted);
                 } elseif (in_array($key, $intKeys, true) && is_numeric($converted)) {
@@ -180,7 +181,7 @@ final class FinanceArgs
     public static function parseAmount(mixed $v): string
     {
         $raw = is_string($v) ? $v : (is_int($v) || is_float($v) ? (string) $v : '');
-        $s = trim(EntityResolver::normalizeDigits($raw));
+        $s = trim(ArabicDigits::normalize($raw));
         if ($s === '') {
             throw ValidationException::withMessages(['amount' => ['صيغة المبلغ غير مفهومة.']]);
         }
@@ -281,7 +282,7 @@ final class FinanceArgs
         $now = now($tz);
         $today = $now->toDateString();
 
-        $n = EntityResolver::normalizeForSearch(trim(EntityResolver::normalizeDigits((string) $text)));
+        $n = EntityResolver::normalizeForSearch(trim(ArabicDigits::normalize((string) $text)));
         if ($n === '' || $n === 'نهارده' || $n === 'يوم' || $n === 'نهارده يوم') {
             return ['from' => $today, 'to' => $today];
         }

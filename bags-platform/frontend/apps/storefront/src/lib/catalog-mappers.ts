@@ -1,8 +1,11 @@
 import type { StoreCategory, StoreProduct, StoreProductCard, StoreCatalogFilters } from '@alfarid/api-client';
-import { formatStorePrice } from '@alfarid/utils';
+import { formatStorePrice, parseNumericAmount } from '@alfarid/utils';
 
 export const pick = (en?: string | null, ar?: string | null) => en?.trim() || ar?.trim() || '';
-const toNum = (v: unknown) => (v === null || v === undefined || v === '' ? null : Number.isFinite(Number(v)) ? Number(v) : null);
+const toNum = (v: unknown) => {
+  const n = parseNumericAmount(v as any, NaN);
+  return Number.isFinite(n) ? n : null;
+};
 
 export interface CatalogCardVM {
   id: number; slug: string; name: string; categoryLabel: string;

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Services\Ai\EntityResolver;
+use App\Support\ArabicDigits;
 
 /**
  * Parses spoken Arabic quantities ("اتنين وعشرين") into numbers for the
@@ -29,12 +30,40 @@ final class SpokenQuantity
     /** @var list<string> */
     private const FILLER = ['قطعه', 'قطع', 'حبه', 'حبات', 'علبه', 'علب', 'كرتونه'];
 
+    /**
+     * Build regex alternation pattern for all spoken quantity and filler tokens.
+     */
+    public static function wordsPattern(): string
+    {
+        static $pattern = null;
+        if ($pattern === null) {
+            $tokens = array_merge(array_keys(self::WORDS), self::FILLER, ['دستة', 'دسته', 'دست']);
+            usort($tokens, fn (string $a, string $b) => mb_strlen($b) <=> mb_strlen($a));
+            $escaped = array_map(fn (string $t) => preg_quote($t, '/'), array_unique($tokens));
+            $pattern = implode('|', $escaped);
+        }
+
+        return $pattern;
+    }
+
+    /**
+     * Strip digits, spoken quantity words, and unit fillers from the given text.
+     */
+    public static function stripQuantityTokens(string $text): string
+    {
+        $normalized = ArabicDigits::normalize($text);
+        $words = self::wordsPattern();
+        $cleaned = (string) preg_replace('/[\d.,]+|'.$words.'/u', '', $normalized);
+
+        return trim((string) preg_replace('/\s+/u', ' ', $cleaned));
+    }
+
     public static function parse(?string $input): ?float
     {
         if ($input === null) {
             return null;
         }
-        $clean = trim(EntityResolver::normalizeDigits($input));
+        $clean = trim(ArabicDigits::normalize($input));
         if ($clean === '') {
             return null;
         }

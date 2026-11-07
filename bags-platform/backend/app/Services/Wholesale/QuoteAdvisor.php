@@ -26,13 +26,25 @@ final class QuoteAdvisor
     ) {}
 
     /**
-     * @return array{lines: list<array<string, mixed>>, warnings: list<string>}
+     * Evaluates quotation line items and suggests optimal pricing based on list prices, costs, and historical rates.
+     *
+     * @param  Quotation  $quotation  Quotation request requiring line pricing.
+     * @param  User|null  $actor  Staff user reviewing the quote (used for cost visibility authorization).
+     * @return array{lines: list<array<string, mixed>>, warnings: list<string>} Line suggestions with rationale and warnings.
      */
     public function suggest(Quotation $quotation, ?User $actor): array
     {
         $quotation->loadMissing(['items.variant', 'customer']);
+        // Hide cost price when the acting staff user lacks authorization, preventing profit margin leakage.
         $canCost = CostAccess::canView($actor);
         $policy = (string) $this->settings->get('ai_price_below_cost_policy', 'block');
+        $variantIds = $quotation->items->pluck('product_variant_id')->filter()->unique()->values()->all();
+        $customerId = (int) $quotation->customer_id;
+
+        $stockMap = $this->batchAvailable($variantIds);
+        $lastSoldMap = $this->batchLastSold($customerId, $variantIds);
+        $acceptanceMap = $this->batchAcceptanceRates($customerId, $variantIds);
+
         $lines = [];
         foreach ($quotation->items as $item) {
             $variant = $item->variant;
@@ -45,6 +57,7 @@ final class QuoteAdvisor
             $cost = $canCost && $variant !== null ? round((float) $variant->cost_price, 2) : null;
             $suggested = $list;
             $reason = 'سعر القائمة عند الكمية المطلوبة';
+            // Float epsilon (+0.001) avoids rounding jitter when requested price matches unit cost exactly.
             if ($requested !== null && ($cost === null || $requested + 0.001 >= $cost || $policy === 'warn')) {
                 if ($requested <= $list) {
                     $suggested = $requested;
@@ -53,7 +66,7 @@ final class QuoteAdvisor
             } elseif ($requested !== null && $cost !== null && $requested < $cost && $policy === 'block') {
                 $reason = 'السعر المطلوب أقل من التكلفة، والسياسة تمنع النزول تحتها';
             }
-            $stock = $this->available($item->product_variant_id);
+            $variantId = (int) $item->product_variant_id;
             $lines[] = [
                 'quotation_item_id' => $item->id,
                 'sku' => $variant?->sku,
@@ -61,9 +74,9 @@ final class QuoteAdvisor
                 'requested_price' => $requested,
                 'suggested_price' => $suggested,
                 'cost' => $cost,
-                'stock_available' => $stock,
-                'last_sold_price' => $this->lastSold($quotation->customer_id, $item->product_variant_id),
-                'acceptance_rate' => $this->acceptanceRate($quotation->customer_id, $item->product_variant_id),
+                'stock_available' => $stockMap[$variantId] ?? 0.0,
+                'last_sold_price' => $lastSoldMap[$variantId] ?? null,
+                'acceptance_rate' => $acceptanceMap[$variantId] ?? null,
                 'reason' => $reason,
             ];
         }
@@ -71,45 +84,90 @@ final class QuoteAdvisor
         return ['lines' => $lines, 'warnings' => []];
     }
 
-    private function available(int $variantId): float
+    /**
+     * @param  list<int>  $variantIds
+     * @return array<int, float>
+     */
+    private function batchAvailable(array $variantIds): array
     {
-        $available = StockLevel::query()
-            ->where('product_variant_id', $variantId)
-            ->sum(DB::raw('COALESCE(on_hand, 0) - COALESCE(reserved, 0) - COALESCE(damaged, 0)'));
+        if ($variantIds === []) {
+            return [];
+        }
 
-        return round((float) $available, 2);
+        // Net available stock excludes both reserved units and damaged inventory.
+        return StockLevel::query()
+            ->whereIn('product_variant_id', $variantIds)
+            ->groupBy('product_variant_id')
+            ->selectRaw('product_variant_id, COALESCE(SUM(COALESCE(on_hand, 0) - COALESCE(reserved, 0) - COALESCE(damaged, 0)), 0) as available')
+            ->pluck('available', 'product_variant_id')
+            ->map(fn ($v) => round((float) $v, 2))
+            ->all();
     }
 
-    private function lastSold(int $customerId, int $variantId): ?float
+    /**
+     * @param  list<int>  $variantIds
+     * @return array<int, float>
+     */
+    private function batchLastSold(int $customerId, array $variantIds): array
     {
-        $price = OrderItem::query()
-            ->where('product_variant_id', $variantId)
-            ->whereHas('order', fn ($q) => $q->where('customer_id', $customerId)->whereNotIn('status', ['cancelled', 'draft']))
-            ->latest('id')
-            ->value('unit_price');
+        if ($variantIds === []) {
+            return [];
+        }
 
-        return $price === null ? null : round((float) $price, 2);
+        $latestItemIds = OrderItem::query()
+            ->join('orders', 'orders.id', '=', 'order_items.order_id')
+            ->where('orders.customer_id', $customerId)
+            ->whereNotIn('orders.status', ['cancelled', 'draft'])
+            ->whereIn('order_items.product_variant_id', $variantIds)
+            ->groupBy('order_items.product_variant_id')
+            ->selectRaw('MAX(order_items.id) as max_id')
+            ->pluck('max_id');
+
+        if ($latestItemIds->isEmpty()) {
+            return [];
+        }
+
+        return OrderItem::query()
+            ->whereIn('id', $latestItemIds)
+            ->pluck('unit_price', 'product_variant_id')
+            ->map(fn ($price) => round((float) $price, 2))
+            ->all();
     }
 
-    private function acceptanceRate(int $customerId, int $variantId): ?float
+    /**
+     * @param  list<int>  $variantIds
+     * @return array<int, float>
+     */
+    private function batchAcceptanceRates(int $customerId, array $variantIds): array
     {
+        if ($variantIds === []) {
+            return [];
+        }
+
+        // Exclude open/draft quotations from denominator so in-flight negotiations do not depress acceptance rate.
         $rows = DB::table('quotation_items')
             ->join('quotations', 'quotations.id', '=', 'quotation_items.quotation_id')
             ->where('quotations.customer_id', $customerId)
-            ->where('quotation_items.product_variant_id', $variantId)
+            ->whereIn('quotation_items.product_variant_id', $variantIds)
             ->whereIn('quotations.status', [
                 QuotationStatus::Accepted->value,
                 QuotationStatus::Rejected->value,
                 QuotationStatus::Expired->value,
             ])
-            ->selectRaw('quotations.status, count(*) as c')
-            ->groupBy('quotations.status')
-            ->pluck('c', 'status');
-        $total = (int) $rows->sum();
-        if ($total === 0) {
-            return null;
+            ->selectRaw('quotation_items.product_variant_id, quotations.status, count(*) as c')
+            ->groupBy('quotation_items.product_variant_id', 'quotations.status')
+            ->get();
+
+        $rates = [];
+        $byVariant = $rows->groupBy('product_variant_id');
+        foreach ($byVariant as $vId => $statusCounts) {
+            $total = (int) $statusCounts->sum('c');
+            if ($total > 0) {
+                $accepted = (int) ($statusCounts->firstWhere('status', QuotationStatus::Accepted->value)?->c ?? 0);
+                $rates[(int) $vId] = round(($accepted / $total) * 100, 1);
+            }
         }
 
-        return round(((int) ($rows[QuotationStatus::Accepted->value] ?? 0) / $total) * 100, 1);
+        return $rates;
     }
 }

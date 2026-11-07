@@ -13,6 +13,12 @@ class DiscreteQuantityTest extends TestCase
 {
     public function test_accepts_integers_and_four_decimal_fractions(): void
     {
+        $this->assertTrue(DiscreteQuantity::isValid(1));
+        $this->assertTrue(DiscreteQuantity::isValid('2.5'));
+        $this->assertTrue(DiscreteQuantity::isValid(99999999.9999));
+        $this->assertTrue(DiscreteQuantity::isValid(0, allowZero: true));
+        $this->assertFalse(DiscreteQuantity::isValid(0, allowZero: false));
+
         DiscreteQuantity::assert(1);
         DiscreteQuantity::assert('2.5');
         DiscreteQuantity::assert(99999999.9999);

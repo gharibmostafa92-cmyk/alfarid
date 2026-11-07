@@ -1,4 +1,4 @@
-import { signedAttachmentUrl } from '@alfarid/api-client';
+import { signedAttachmentUrl, allPages } from '@alfarid/api-client';
 
 export const num = (v) => (v === null || v === undefined || v === '' ? null : Number(v));
 export const day = (iso) => (iso ? String(iso).slice(0, 10) : null);
@@ -30,21 +30,15 @@ export async function saveBlob(promise, fallbackName) {
   const cd = res.headers?.['content-disposition'] || '';
   const name = /filename="([^"]+)"/i.exec(cd)?.[1] || /filename=([^;\s]+)/i.exec(cd)?.[1] || fallbackName;
   const url = URL.createObjectURL(res.data);
-  const a = document.createElement('a'); a.href = url; a.download = name; a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 export const pageMeta = (meta) => ({ page: meta?.current_page ?? 1, pages: meta?.last_page ?? 1, total: meta?.total ?? 0, per: meta?.per_page ?? 15 });
 
-export async function allPages(fetchPage, signal) {
-  const items = [];
-  let page = 1;
-  let pages = 1;
-  do {
-    const response = await fetchPage(page, signal);
-    items.push(...(response.data || []));
-    pages = response.meta?.last_page ?? 1;
-    page += 1;
-  } while (page <= pages && !signal?.aborted);
-  return items;
-}
+export { allPages };

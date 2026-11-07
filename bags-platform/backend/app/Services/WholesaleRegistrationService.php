@@ -18,21 +18,25 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
- * Wholesale customer self-registration service.
- * Registers customer in Pending status and stages uploaded verification documents into private storage.
- * Final approval is performed by administrators via CustomerManagementService.
+ * Handles wholesale merchant self-registration and KYC document staging.
+ *
+ * Persists customer accounts in pending verification status and isolates document uploads
+ * in private cloud storage prior to database transaction commitment.
  */
 class WholesaleRegistrationService
 {
-    public function __construct(private readonly CustomerAuthService $auth) {}
+    public function __construct(
+        private readonly CustomerAuthService $auth,
+        private readonly CustomerPhoneVerificationService $phoneVerification,
+    ) {}
 
     /**
-     * Register a new wholesale customer and store supporting verification documents.
-     * Staged files are moved into customer directory upon successful transaction.
+     * Registers a wholesale applicant and links uploaded verification files.
      *
-     * @param  list<UploadedFile>  $files
-     * @param  list<string|null>  $documentTypes  Parallel document type tags (defaults to "other")
-     * @return array{customer: Customer, token: string}
+     * @param  array<string, mixed>  $data  Registration attributes including credentials and trade metadata.
+     * @param  list<UploadedFile>  $files  Uploaded identity and commercial verification files.
+     * @param  list<string|null>  $documentTypes  Corresponding document categorization tags.
+     * @return array{customer: Customer, token: string} Created customer instance and initial session token.
      */
     public function register(array $data, array $files, array $documentTypes = []): array
     {
@@ -41,14 +45,15 @@ class WholesaleRegistrationService
         $storedPaths = [];
         $staged = [];
         $stagingDirectory = 'customer_documents/pending/'.Str::uuid();
+        $disk = Storage::disk('r2');
 
-        // Validate proof presence before file uploads; atomic consumption happens inside the registration transaction.
-        app(CustomerPhoneVerificationService::class)->assertProofPresent($data);
+        // Assert proof existence upfront before expensive cloud file I/O; actual token consumption happens in DB transaction.
+        $this->phoneVerification->assertProofPresent($data);
 
         try {
             foreach ($files as $i => $file) {
                 $filename = Str::uuid().'.'.($file->extension() ?: 'bin');
-                $path = Storage::disk('r2')->putFileAs($stagingDirectory, $file, $filename);
+                $path = $disk->putFileAs($stagingDirectory, $file, $filename);
                 if ($path === false) {
                     throw new \RuntimeException('تعذر حفظ مستند العميل.');
                 }
@@ -61,12 +66,12 @@ class WholesaleRegistrationService
                 ];
             }
 
-            // Reserve the sequence value before storage I/O, without holding row locks.
+            // Pre-allocate Postgres sequence ID to establish customer document directory path without holding row locks during S3/R2 copy operations.
             $customerId = (int) DB::selectOne("SELECT nextval(pg_get_serial_sequence('customers', 'id')) AS id")->id;
             foreach ($staged as &$document) {
                 $path = "customer_documents/{$customerId}/".$document['filename'];
                 $storedPaths[] = $path;
-                if (! Storage::disk('r2')->move($document['path'], $path)) {
+                if (! $disk->move($document['path'], $path)) {
                     throw new \RuntimeException('تعذر حفظ مستند العميل.');
                 }
                 $document['path'] = $path;
@@ -75,7 +80,7 @@ class WholesaleRegistrationService
 
             $registration = DB::transaction(function () use ($data, $staged, $customerId): array {
                 $this->auth->lockRegistrationEmail($data['email'] ?? null);
-                $verified = app(CustomerPhoneVerificationService::class)->consume($data);
+                $verified = $this->phoneVerification->consume($data);
                 $customer = Customer::query()->make([
                     'name' => $data['name'],
                     'email' => $data['email'] ?? null,
@@ -104,7 +109,7 @@ class WholesaleRegistrationService
                     try {
                         WholesaleApplicationSubmitted::dispatch($customer);
                     } catch (\Throwable $exception) {
-                        // The account is committed; a queue outage must not turn it into a failed registration.
+                        // Commit the account first; prevent queue driver outages or notification failures from aborting a valid registration.
                         report($exception);
                     }
                 });
@@ -115,32 +120,42 @@ class WholesaleRegistrationService
                 ];
             });
         } catch (\Throwable $e) {
-            // Transaction failure: clean up uploaded files on cloud storage to prevent orphaned assets
-            foreach ($storedPaths as $path) {
-                try {
-                    Storage::disk('r2')->delete($path);
-                } catch (\Throwable $exception) {
-                    report($exception);
-                }
-            }
-            if ($storedPaths !== []) {
-                try {
-                    Storage::disk('r2')->deleteDirectory($stagingDirectory);
-                } catch (\Throwable $exception) {
-                    report($exception);
-                }
-            }
+            // Purge staged and committed cloud assets on rollback to prevent orphaned KYC files in storage bucket.
+            $this->purgePathsAndDirectory($stagingDirectory, $storedPaths);
 
-            // Staged cloud files were purged above; convert unique constraint collisions into validation errors.
+            // Map PostgreSQL unique constraint violations (e.g. duplicate tax/phone/email) to friendly HTTP 422 validation errors.
             throw Customer::translateUniqueViolation($e);
         }
 
+        $this->deleteDirectorySilently($stagingDirectory);
+
+        return $registration;
+    }
+
+    /**
+     * @param  list<string>  $storedPaths
+     */
+    private function purgePathsAndDirectory(string $stagingDirectory, array $storedPaths): void
+    {
+        $disk = Storage::disk('r2');
+        foreach ($storedPaths as $path) {
+            try {
+                $disk->delete($path);
+            } catch (\Throwable $exception) {
+                report($exception);
+            }
+        }
+        if ($storedPaths !== []) {
+            $this->deleteDirectorySilently($stagingDirectory);
+        }
+    }
+
+    private function deleteDirectorySilently(string $directory): void
+    {
         try {
-            Storage::disk('r2')->deleteDirectory($stagingDirectory);
+            Storage::disk('r2')->deleteDirectory($directory);
         } catch (\Throwable $exception) {
             report($exception);
         }
-
-        return $registration;
     }
 }

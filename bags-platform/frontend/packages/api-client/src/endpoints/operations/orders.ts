@@ -1,4 +1,4 @@
-import { api, ADMIN, asPage, one, cleanParams, type Id, type Paginated } from './http';
+import { api, ADMIN, asPage, one, crud, cleanParams, reader, type Id, type Paginated } from './http';
 
 export type OrderStatus = 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'returned';
 export type PaymentStatus = 'unpaid' | 'paid' | 'failed' | 'refunded';
@@ -94,9 +94,7 @@ export interface ShipmentResponse {
 
 const O = `${ADMIN}/orders`;
 export const adminOrdersApi = {
-  list: (p: AdminOrderListParams, signal?: AbortSignal): Promise<Paginated<AdminOrder>> =>
-    api.get(O, { params: cleanParams(p), signal }).then((r) => asPage<AdminOrder>(r)),
-  show: (id: Id, signal?: AbortSignal) => api.get(`${O}/${id}`, { signal }).then((r) => one<AdminOrder>(r)),
+  ...reader<AdminOrder, AdminOrderListParams>(O),
   updateStatus: (id: Id, body: { status: Exclude<OrderStatus, 'shipped'>; notes?: string }) =>
     api.patch(`${O}/${id}/status`, body).then((r) => one<AdminOrder>(r)),
   updatePayment: (id: Id, body: { payment_status: PaymentStatus; notes: string; refund_reference?: string }) =>
@@ -167,13 +165,9 @@ export interface RefundReturnPayload { refund_method?: RefundMethod | null; refu
 
 const R = `${ADMIN}/returns`;
 export const adminReturnsApi = {
-  list: (p: ReturnListParams, signal?: AbortSignal) =>
-    api.get(R, { params: cleanParams(p), signal }).then((r) => asPage<ReturnRequest>(r)),
-  show: (id: Id, signal?: AbortSignal) => api.get(`${R}/${id}`, { signal }).then((r) => one<ReturnRequest>(r)),
-  create: (b: StoreReturnPayload) => api.post(R, b).then((r) => one<ReturnRequest>(r)),
+  ...crud<ReturnRequest, StoreReturnPayload, ReturnListParams>(R),
   update: (id: Id, b: Partial<StoreReturnPayload> & { status?: 'rejected' | 'cancelled'; admin_notes?: string; refund_method?: RefundMethod | null }) =>
     api.put(`${R}/${id}`, b).then((r) => one<ReturnRequest>(r)),
-  remove: (id: Id) => api.delete(`${R}/${id}`).then((r) => r.data as { message: string }),
   approve: (id: Id, b: ApproveReturnPayload) => api.post(`${R}/${id}/approve`, b).then((r) => one<ReturnRequest>(r)),
   receive: (id: Id, b: ReceiveReturnPayload) => api.post(`${R}/${id}/receive`, b).then((r) => one<ReturnRequest>(r)),
   refund: (id: Id, b: RefundReturnPayload) => api.post(`${R}/${id}/refund`, b).then((r) => one<ReturnRequest>(r)),

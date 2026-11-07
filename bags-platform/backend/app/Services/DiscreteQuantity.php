@@ -14,24 +14,40 @@ use App\Exceptions\BusinessException;
  */
 final class DiscreteQuantity
 {
+    /** Maximum allowed decimal quantity matching database decimal(12,4). */
+    public const MAX_DECIMAL = 99999999.9999;
+
+    /**
+     * Checks whether a quantity is finite, has at most 4 decimal places, and stays within limits.
+     *
+     * @param  mixed  $qty  Input quantity or cost value.
+     * @param  bool  $allowZero  Whether zero quantity is permitted.
+     */
+    public static function isValid(mixed $qty, bool $allowZero = false): bool
+    {
+        if (! is_numeric($qty) || ! is_finite((float) $qty)) {
+            return false;
+        }
+        $value = (float) $qty;
+        // Epsilon comparison guards against IEEE-754 floating point inaccuracies during decimal checks.
+        if ($value < ($allowZero ? 0 : 1) || $value > self::MAX_DECIMAL || abs($value - round($value, 4)) > 1e-9) {
+            return false;
+        }
+
+        return true;
+    }
+
     /**
      * Assert that a quantity is finite, has at most 4 decimal places, and stays within bounds.
      *
      * @param  mixed  $qty  Input quantity value.
      * @param  bool  $allowZero  Whether zero quantity is permitted.
-     * @return void
      *
      * @throws BusinessException If quantity is non-numeric, out of bounds, or exceeds 4 decimals.
      */
     public static function assert(mixed $qty, bool $allowZero = false): void
     {
-        if (! is_numeric($qty) || ! is_finite((float) $qty)) {
-            throw new BusinessException('الكمية يجب أن تكون رقمًا حتى 4 خانات عشرية ضمن الحد المسموح.');
-        }
-        $value = (float) $qty;
-        // Epsilon comparison guards against IEEE-754 floating point inaccuracies during decimal checks.
-        if ($value < ($allowZero ? 0 : 1) || $value > 99999999.9999
-            || abs($value - round($value, 4)) > 1e-9) {
+        if (! self::isValid($qty, $allowZero)) {
             throw new BusinessException('الكمية يجب أن تكون رقمًا حتى 4 خانات عشرية ضمن الحد المسموح.');
         }
     }
@@ -42,7 +58,6 @@ final class DiscreteQuantity
      * @param  mixed  $qty  Input quantity value.
      * @param  bool  $allowZero  Whether zero quantity is permitted.
      * @param  string|null  $customMessage  Optional exception message override.
-     * @return void
      *
      * @throws BusinessException If value is fractional, negative, or not a finite number.
      */

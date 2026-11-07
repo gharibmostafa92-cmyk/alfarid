@@ -9,6 +9,7 @@ use App\Models\ProductVariant;
 use App\Models\User;
 use App\Services\Ai\EntityResolver;
 use App\Services\Ai\ToolOutcome;
+use App\Support\ArabicDigits;
 use App\Services\BranchAccess;
 
 final class InventoryArgs
@@ -21,7 +22,7 @@ final class InventoryArgs
     {
         foreach ($args as $key => $value) {
             if (is_string($value)) {
-                $converted = EntityResolver::normalizeDigits($value);
+                $converted = ArabicDigits::normalize($value);
                 if (in_array($key, ['variant_id', 'product_variant_id', 'product_id', 'branch_id', 'from_branch_id', 'to_branch_id', 'location_id', 'from_location_id', 'to_location_id', 'item_id', 'reference_id', 'user_id', 'transfer_id', 'stocktake_id', 'limit', 'cursor', 'dead_days', 'days'], true) && is_numeric($converted)) {
                     $args[$key] = (int) $converted;
                 } elseif (in_array($key, ['quantity', 'counted_qty', 'unit_cost'], true)) {
@@ -113,11 +114,7 @@ final class InventoryArgs
         if (count($options) > 1) {
             return ToolOutcome::denied('لقيت أكتر من متغير. استخدم find_entities ثم ask_user_to_choose.', auditable: false);
         }
-        $variant = ProductVariant::with('product:id,name_ar,code')->find($options[0]['id']);
-        if (! $variant) {
-            return ToolOutcome::denied('المتغير مش موجود.', auditable: false);
-        }
 
-        return ['variant' => $variant];
+        return self::resolveVariant($actor, $resolver, ['variant_id' => $options[0]['id']]);
     }
 }

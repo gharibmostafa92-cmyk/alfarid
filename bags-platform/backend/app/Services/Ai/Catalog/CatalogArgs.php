@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Ai\Catalog;
 
 use App\Services\Ai\EntityResolver;
+use App\Support\ArabicDigits;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
@@ -63,11 +64,20 @@ final class CatalogArgs
      * @param  array<string,mixed>  $args
      * @return array<string,mixed>
      */
+    public static function normalize(array $args): array
+    {
+        return self::normalizeDigitsInArray($args);
+    }
+
+    /**
+     * @param  array<string,mixed>  $args
+     * @return array<string,mixed>
+     */
     public static function normalizeDigitsInArray(array $args): array
     {
         foreach ($args as $key => $value) {
             if (is_string($value)) {
-                $converted = EntityResolver::normalizeDigits($value);
+                $converted = ArabicDigits::normalize($value);
                 if (in_array($key, ['retail_price', 'wholesale_price', 'cost_price', 'compare_at_price', 'weight_kg', 'length_cm', 'width_cm', 'height_cm', 'value'], true) && is_numeric($converted)) {
                     $args[$key] = (float) $converted;
                 } elseif (in_array($key, ['reorder_level', 'sort_order', 'warranty_months', 'category_id', 'parent_id', 'product_id', 'variant_id'], true) && is_numeric($converted)) {

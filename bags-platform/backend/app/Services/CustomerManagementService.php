@@ -111,21 +111,21 @@ class CustomerManagementService
         $data['type'] ??= CustomerType::Retail->value;
         $data['credit_limit'] ??= 0;
         // Default status by type unless explicitly provided: retail is approved, wholesale requires review.
-        $data['status'] ??= ($data['type'] ?? CustomerType::Retail->value) === CustomerType::Retail->value
+        $data['status'] ??= $data['type'] === CustomerType::Retail->value
             ? CustomerStatus::Approved
             : CustomerStatus::Pending;
 
-        if ($data['status'] === CustomerStatus::Approved || $data['status'] === CustomerStatus::Approved->value) {
-            if ($data['type'] !== CustomerType::Retail->value) {
-                throw new BusinessException('أنشئ حساب الجملة قيد المراجعة ثم استخدم مسار الاعتماد.');
-            }
+        $isApproved = in_array($data['status'], [CustomerStatus::Approved, CustomerStatus::Approved->value], true);
+
+        if ($isApproved && $data['type'] !== CustomerType::Retail->value) {
+            throw new BusinessException('أنشئ حساب الجملة قيد المراجعة ثم استخدم مسار الاعتماد.');
         }
 
         try {
-            return DB::transaction(function () use ($data, $actorId, $via): Customer {
+            return DB::transaction(function () use ($data, $actorId, $via, $isApproved): Customer {
                 $this->claimEmail($data['email'] ?? null);
                 $this->assertActiveGroup(isset($data['customer_group_id']) ? (int) $data['customer_group_id'] : null);
-                if (in_array($data['status'], [CustomerStatus::Approved, CustomerStatus::Approved->value], true)) {
+                if ($isApproved) {
                     $data['approved_at'] = now();
                     $data['approved_by'] = $actorId;
                 }
@@ -159,7 +159,7 @@ class CustomerManagementService
                 if (isset($data['type']) && $data['type'] !== $customer->type->value) {
                     throw new BusinessException('تغيير نوع الحساب المعتمد يتطلب استخدام مسار الاعتماد.');
                 }
-                if ($customer->status === CustomerStatus::Approved && $customer->type !== CustomerType::Retail) {
+                if ($customer->isWholesaleApproved()) {
                     foreach (['company_name', 'tax_number', 'commercial_register'] as $field) {
                         if (array_key_exists($field, $data) && blank($data[$field])) {
                             throw new BusinessException('لا يمكن مسح بيانات الجملة لحساب معتمد.', [$field => ['هذا الحقل مطلوب.']]);
@@ -200,8 +200,7 @@ class CustomerManagementService
                 }
                 if ($credentialsChanged) {
                     $customer->forceFill(['remember_token' => Str::random(60)]);
-                    $customer->tokens()->delete();
-                    DB::table('password_reset_tokens')->where('email', $customer->getEmailForPasswordReset())->delete();
+                    $this->revokeSessionsAndResetTokens($customer);
                 }
                 $customer->save();
                 CustomerAuditLog::record($customer, $credentialsChanged ? 'credentials_changed' : 'updated', $actorId, $this->viaMeta($via, ['fields' => array_keys($data)] + ($financial !== [] ? ['changes' => $financial] : [])));
@@ -254,7 +253,7 @@ class CustomerManagementService
                 throw new BusinessException('راجع المستندات المعلقة (اعتمد السليم وارفض غير السليم) قبل اعتماد الحساب.');
             }
             if (($data['type'] ?? $customer->type->value) !== CustomerType::Retail->value) {
-                if (! $customer->documents()->where('status', 'verified')->exists()) {
+                if (! $customer->documents()->where('status', CustomerDocumentStatus::Verified->value)->exists()) {
                     throw new BusinessException('يلزم مستند موثّق واحد على الأقل لاعتماد حساب الجملة أو الموزع.');
                 }
                 foreach (['company_name', 'tax_number', 'commercial_register'] as $field) {
@@ -279,7 +278,7 @@ class CustomerManagementService
             ])->save();
             CustomerAuditLog::record($customer, 'approved', $adminId, $this->viaMeta($via, ['type' => $customer->type->value, 'credit_limit' => $customer->credit_limit, 'customer_group_id' => $customer->customer_group_id]));
 
-            if ($customer->type !== CustomerType::Retail) {
+            if ($customer->isCommercialTier()) {
                 WholesaleApplicationReviewed::dispatch($customer, 'approved');
             }
 
@@ -306,7 +305,7 @@ class CustomerManagementService
             ])->save();
             CustomerAuditLog::record($customer, 'rejected', $actorId, $this->viaMeta($via, ['reason' => $reason]));
 
-            if ($customer->type !== CustomerType::Retail) {
+            if ($customer->isCommercialTier()) {
                 WholesaleApplicationReviewed::dispatch($customer, 'rejected', $reason);
             }
 
@@ -330,12 +329,17 @@ class CustomerManagementService
                 'suspension_reason' => $reason,
                 'pre_suspension_status' => $previous,
             ])->save();
-            $customer->tokens()->delete();
-            DB::table('password_reset_tokens')->where('email', $customer->getEmailForPasswordReset())->delete();
+            $this->revokeSessionsAndResetTokens($customer);
             CustomerAuditLog::record($customer, 'suspended', $actorId, $this->viaMeta($via, ['reason' => $reason, 'previous_status' => $previous]));
 
             return $customer->load('customerGroup');
         });
+    }
+
+    private function revokeSessionsAndResetTokens(Customer $customer): void
+    {
+        $customer->tokens()->delete();
+        DB::table('password_reset_tokens')->where('email', $customer->getEmailForPasswordReset())->delete();
     }
 
     /**
@@ -403,7 +407,7 @@ class CustomerManagementService
             }
 
             // Explicit attribute check prevents PostgreSQL check constraint violations when reactivating approved wholesale accounts.
-            if ($target === CustomerStatus::Approved && $locked->type !== CustomerType::Retail) {
+            if ($target === CustomerStatus::Approved && $locked->isCommercialTier()) {
                 $missing = array_values(array_filter(['company_name', 'tax_number', 'commercial_register'], fn ($f) => blank($locked->{$f})));
                 if ($missing !== []) {
                     throw new BusinessException('لا يمكن إعادة تفعيل حساب جملة وبياناته القانونية ناقصة؛ كمّلها الأول.', array_fill_keys($missing, ['هذا الحقل مطلوب.']));
@@ -423,7 +427,7 @@ class CustomerManagementService
     {
         return PrivateAttachments::transaction(function (PrivateAttachments $files) use ($customer, $file, $actorId, $type, $selfService): CustomerDocument {
             $customer = Customer::whereKey($customer->id)->lockForUpdate()->firstOrFail();
-            if ($customer->type === CustomerType::Retail) {
+            if (! $customer->isCommercialTier()) {
                 throw new BusinessException('رفع المستندات متاح للتجار والموزعين فقط.');
             }
             if ($selfService && $customer->status !== CustomerStatus::Pending) {

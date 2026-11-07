@@ -11,8 +11,6 @@ use App\Models\CustomerGroup;
 use App\Models\PriceListItem;
 use App\Models\User;
 use App\Observers\CatalogRetailPriceObserver;
-use App\Services\Ai\AgentTool;
-use App\Services\Ai\Catalog\Tools\BulkUpdatePricesTool;
 use App\Services\Ai\Pricing\PricingArgs;
 use App\Services\Ai\Pricing\PricingPresenter;
 use App\Services\Ai\ProposalBuilder;
@@ -22,6 +20,7 @@ use App\Services\Ai\WriteTool;
 use App\Services\BranchAccess;
 use App\Services\CostAccess;
 use App\Services\PriceListService;
+use App\Services\PricingService;
 use App\Services\SettingService;
 use App\Services\StaffAdministration;
 use Carbon\Carbon;
@@ -161,13 +160,15 @@ final class ClonePriceListTool implements WriteTool
         $warnings = [];
         $uiRows = [];
         foreach ($sourceItems as $item) {
-            $newPrice = BulkUpdatePricesTool::applyRounding((float) $item->price * (1.0 + $percent / 100.0), $rounding);
+            $newPrice = PricingService::applyRounding((float) $item->price * (1.0 + $percent / 100.0), $rounding);
             if ($newPrice <= 0) {
                 $blocked[] = ['sku' => $item->variant?->sku ?? ('#'.$item->product_variant_id), 'reason' => 'السعر بعد التعديل صفر أو سالب.'];
+
                 continue;
             }
             if ($isWholesaleList && $item->variant?->retail_price !== null && $newPrice >= (float) $item->variant->retail_price) {
                 $blocked[] = ['sku' => $item->variant?->sku ?? ('#'.$item->product_variant_id), 'reason' => 'سعر الجملة هيبقى أكبر من أو يساوي القطاعي.'];
+
                 continue;
             }
             $cost = $item->variant?->cost_price !== null ? (float) $item->variant->cost_price : null;
@@ -175,6 +176,7 @@ final class ClonePriceListTool implements WriteTool
                 $message = $canViewCost ? "السعر ({$newPrice}) أقل من التكلفة ({$cost})." : 'السعر أقل من التكلفة (محمي).';
                 if ($belowCostPolicy === 'block') {
                     $blocked[] = ['sku' => $item->variant?->sku ?? ('#'.$item->product_variant_id), 'reason' => $message];
+
                     continue;
                 }
                 $warnings[] = ($item->variant?->sku ?? '#'.$item->product_variant_id).': '.$message;

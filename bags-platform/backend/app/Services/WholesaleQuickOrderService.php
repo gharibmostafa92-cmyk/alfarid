@@ -95,46 +95,16 @@ class WholesaleQuickOrderService
         $lines = collect($merged)->map(fn (float $qty, string $sku) => ['sku' => $sku, 'qty' => $qty])->values()->all();
         $variants = $this->findVariants($lines);
         $availability = $this->availabilityFor($variants->pluck('id')->all());
-
-        $cart = $this->carts->resolveCart($customer, null);
-        $inCart = $cart->items()->pluck('qty', 'product_variant_id')->map(fn ($q) => (float) $q)->all();
-
         // Preload pricing context for all candidate items in one batch to eliminate per-item overhead.
         $ctx = $this->pricing->contextFor($customer, $variants->pluck('id')->unique()->all());
 
-        $added = [];
-        $skipped = [];
-        foreach ($lines as $line) {
-            $variant = $variants->get($line['sku']);
+        $items = array_map(fn (array $line) => [
+            'sku' => $line['sku'],
+            'qty' => $line['qty'],
+            'variant' => $variants->get($line['sku']),
+        ], $lines);
 
-            if ($variant === null) {
-                $skipped[] = ['sku' => $line['sku'], 'qty' => $line['qty'], 'reason' => 'not_found_or_inactive'];
-
-                continue;
-            }
-
-            $alreadyInCart = $inCart[$variant->id] ?? 0.0;
-            if (($availability[$variant->id] ?? 0.0) < $alreadyInCart + $line['qty']) {
-                $skipped[] = ['sku' => $line['sku'], 'qty' => $line['qty'], 'reason' => 'insufficient_stock'];
-
-                continue;
-            }
-
-            $cart = $this->carts->addItem($cart, $customer, $variant->id, $line['qty']);
-            $inCart[$variant->id] = $alreadyInCart + $line['qty'];
-            $added[] = [
-                'sku' => $variant->sku,
-                'product_variant_id' => $variant->id,
-                'qty' => $line['qty'],
-                'unit_price' => $this->pricing->resolve($variant, $customer, $inCart[$variant->id], null, $ctx)['unit_price'],
-            ];
-        }
-
-        return [
-            'added' => $added,
-            'skipped' => $skipped,
-            'cart' => $this->carts->present($cart, $customer),
-        ];
+        return $this->addLinesToCart($customer, $items, $availability, $ctx);
     }
 
     /**
@@ -163,39 +133,61 @@ class WholesaleQuickOrderService
             ->all();
 
         // Key by active variant ID rather than historical snapshot SKU to ensure integrity against catalog renames.
-        $cart = $this->carts->resolveCart($customer, null);
-        $inCart = $cart->items()->pluck('qty', 'product_variant_id')->map(fn ($q) => (float) $q)->all();
         $variants = ProductVariant::query()->with('product')
             ->whereIn('id', collect($rows)->pluck('variant_id')->all())
             ->get()->keyBy('id');
         $availability = $this->availabilityFor($variants->pluck('id')->all());
         $ctx = $this->pricing->contextFor($customer, $variants->pluck('id')->all());
 
+        $items = array_map(fn (array $row) => [
+            'sku' => $row['sku'],
+            'qty' => $row['qty'],
+            'variant' => $variants->get($row['variant_id']),
+        ], $rows);
+
+        return $this->addLinesToCart($customer, $items, $availability, $ctx);
+    }
+
+    /**
+     * Iterates over candidate order lines, applying stock checks and adding available items to the active cart.
+     *
+     * @param  list<array{sku: string, qty: float, variant: ?ProductVariant}>  $items
+     * @param  array<int, float>  $availability
+     * @param  array<string, mixed>  $pricingCtx
+     * @return array{added: list<array<string, mixed>>, skipped: list<array<string, mixed>>, cart: array<string, mixed>}
+     */
+    private function addLinesToCart(Customer $customer, array $items, array $availability, array $pricingCtx): array
+    {
+        $cart = $this->carts->resolveCart($customer, null);
+        $inCart = $cart->items()->pluck('qty', 'product_variant_id')->map(fn ($q) => (float) $q)->all();
+
         $added = [];
         $skipped = [];
-        foreach ($rows as $row) {
-            $variant = $variants->get($row['variant_id']);
+        foreach ($items as $item) {
+            $variant = $item['variant'];
+            $sku = $item['sku'];
+            $qty = (float) $item['qty'];
 
             if ($variant === null || ! $variant->is_active || $variant->product?->status !== ProductStatus::Published) {
-                $skipped[] = ['sku' => $row['sku'], 'qty' => $row['qty'], 'reason' => 'not_found_or_inactive'];
+                $skipped[] = ['sku' => $sku, 'qty' => $qty, 'reason' => 'not_found_or_inactive'];
 
                 continue;
             }
 
             $alreadyInCart = $inCart[$variant->id] ?? 0.0;
-            if (($availability[$variant->id] ?? 0.0) < $alreadyInCart + $row['qty']) {
-                $skipped[] = ['sku' => $row['sku'], 'qty' => $row['qty'], 'reason' => 'insufficient_stock'];
+            if (($availability[$variant->id] ?? 0.0) < $alreadyInCart + $qty) {
+                $skipped[] = ['sku' => $sku, 'qty' => $qty, 'reason' => 'insufficient_stock'];
 
                 continue;
             }
 
-            $cart = $this->carts->addItem($cart, $customer, $variant->id, $row['qty']);
-            $inCart[$variant->id] = $alreadyInCart + $row['qty'];
+            $cart = $this->carts->addItem($cart, $customer, $variant->id, $qty);
+            $inCart[$variant->id] = $alreadyInCart + $qty;
             $added[] = [
                 'sku' => $variant->sku,
                 'product_variant_id' => $variant->id,
-                'qty' => $row['qty'],
-                'unit_price' => $this->pricing->resolve($variant, $customer, $inCart[$variant->id], null, $ctx)['unit_price'],
+                'qty' => $qty,
+                'unit_price' => $this->pricing->resolve($variant, $customer, $inCart[$variant->id], null, $pricingCtx)['unit_price'],
             ];
         }
 

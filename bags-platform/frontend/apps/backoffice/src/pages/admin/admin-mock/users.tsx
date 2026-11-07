@@ -1,3 +1,4 @@
+import { canAny } from '@alfarid/utils';
 import { AnimatedNumber } from '@alfarid/ui';
 import React, { useState, useEffect, useRef, ReactNode } from 'react';
 import {
@@ -90,7 +91,7 @@ export function UsersScreen({ rolesLoading, can, onUsersChanged, roles, onNaviga
   const [confirm, setConfirm] = useState<AdminUser | null>(null);
   const linkedUser = useApi(signal => initialUserId ? adminApi.getUser(initialUserId, signal) : Promise.resolve(null), [initialUserId]);
   useQueryError(linkedUser.error);
-  const mayEditLinkedUser = can('users.update') || can('users.manage');
+  const mayEditLinkedUser = canAny(can, 'users.update', 'users.manage');
   useEffect(() => {
     if (!linkedUser.data) return;
     const user = toAdminUser(linkedUser.data, meId);
@@ -181,7 +182,7 @@ export function UsersScreen({ rolesLoading, can, onUsersChanged, roles, onNaviga
     if (!result.ok) { if (result.error.status !== 401) toast(result.error.message,'err'); return; }
     toast('تم تفعيل حساب '+u.name); refreshAll();
   };
-  const mayUpdate = can('users.update') || can('users.manage');
+  const mayUpdate = canAny(can, 'users.update', 'users.manage');
   if (list.error && (!list.data || list.error.status === 403)) return <EmptyState icon="lock" title={list.error.message} action={<GhostButton onClick={list.reload}>إعادة المحاولة</GhostButton>} />;
 
   return (
@@ -196,7 +197,7 @@ export function UsersScreen({ rolesLoading, can, onUsersChanged, roles, onNaviga
                 الأدوار والصلاحيات
               </GhostButton>
             )}
-            <PrimaryButton disabled={rolesLoading || !(can('users.create') || can('users.manage'))} icon="plus" onClick={() => setDrawer({ mode: 'create' })}>
+            <PrimaryButton disabled={rolesLoading || !canAny(can, 'users.create', 'users.manage')} icon="plus" onClick={() => setDrawer({ mode: 'create' })}>
               مستخدم جديد
             </PrimaryButton>
           </div>
@@ -349,7 +350,7 @@ export function UsersScreen({ rolesLoading, can, onUsersChanged, roles, onNaviga
                           { disabled: !mayUpdate || protectedUser, icon: 'edit', label: 'تعديل البيانات', onClick: () => setDrawer({ mode: 'edit', user: u }) },
                           { disabled: !mayUpdate || protectedUser, icon: 'key', label: 'إعادة تعيين كلمة المرور', onClick: () => setDrawer({ mode: 'edit', user: u, focusPwd: true }) },
                           { divider: true },
-                          ...(!isMe && (!isSuper || iAmSuper) && u.is_active && (can('users.delete') || can('users.manage')) ? [{icon:'power', label:'تعطيل الحساب', danger:true, disabled: mutating, onClick: () => setConfirm(u)}] : []),
+                          ...(!isMe && (!isSuper || iAmSuper) && u.is_active && canAny(can, 'users.delete', 'users.manage') ? [{icon:'power', label:'تعطيل الحساب', danger:true, disabled: mutating, onClick: () => setConfirm(u)}] : []),
                           ...(!u.is_active && mayUpdate ? [{icon:'power', label:'إعادة تفعيل الحساب', disabled:protectedUser || mutating, onClick: () => doActivate(u)}] : []),
                         ]} />
                       </div>

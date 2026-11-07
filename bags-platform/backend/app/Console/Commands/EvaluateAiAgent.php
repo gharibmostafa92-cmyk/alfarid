@@ -10,12 +10,14 @@ use App\Services\Ai\AgentOrchestrator;
 use App\Services\Ai\Catalog\CatalogToolProvider;
 use App\Services\Ai\DomainRouter;
 use App\Services\Ai\EntityResolver;
+use App\Services\Ai\Finance\FinanceArgs;
 use App\Services\Ai\GeminiClient;
 use App\Services\Ai\GeminiException;
 use App\Services\Ai\Inventory\InventoryToolProvider;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\ToolRegistry;
 use Illuminate\Console\Command;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Offline evaluation benchmark for AI tool calling accuracy against Egyptian Arabic test datasets.
@@ -244,7 +246,7 @@ final class EvaluateAiAgent extends Command
             $items = array_values(array_filter($items, fn ($item) => ($item['branch_id'] ?? null) === $call['args']['branch_id']));
         }
         // Convert Arabic-Indic digits to standard ASCII before matching phone numbers, mirroring Customer::normalizePhone.
-        $digits = preg_replace('/\D+/', '', strtr((string) ($call['args']['query'] ?? ''), ['٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4', '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9']));
+        $digits = preg_replace('/\D+/', '', EntityResolver::normalizeDigits((string) ($call['args']['query'] ?? '')));
         $items = array_values(array_filter($items, fn ($item) => $query === ''
             || str_contains($normalize($item['name'].' '.($item['code'] ?? '').' '.($item['sku'] ?? '').' '.($item['barcode'] ?? '').' '.($item['company_name'] ?? '')), $query)
             || ($key === 'variants' && $this->matchesInventoryDescription($item, $query))
@@ -259,8 +261,8 @@ final class EvaluateAiAgent extends Command
     {
         if (isset($args['amount'])) {
             try {
-                $args['amount'] = \App\Services\Ai\Finance\FinanceArgs::parseAmount($args['amount']);
-            } catch (\Illuminate\Validation\ValidationException) {
+                $args['amount'] = FinanceArgs::parseAmount($args['amount']);
+            } catch (ValidationException) {
                 // An unparseable amount cannot match a valid expected value.
             }
         }

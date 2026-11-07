@@ -65,11 +65,7 @@ final class CreateQuotationForCustomerTool implements WriteTool
     public function prepare(User $actor, array $args): ToolOutcome
     {
         $customer = Customer::query()->find((int) ($args['customer_id'] ?? 0));
-        if (
-            $customer === null
-            || ! in_array($customer->type, [CustomerType::Wholesale, CustomerType::Distributor], true)
-            || $customer->status !== CustomerStatus::Approved
-        ) {
+        if (! $customer?->isWholesaleApproved()) {
             return ToolOutcome::denied('التاجر لازم يكون جملة أو موزع ومعتمد.', auditable: false);
         }
         $parsed = $this->parseLines($actor, (string) ($args['text'] ?? ''));

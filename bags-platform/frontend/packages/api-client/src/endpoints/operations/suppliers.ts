@@ -1,4 +1,4 @@
-import { ADMIN, asPage, cleanParams, crud, one, api, toFormData, MULTIPART, openProtectedFile, type Id } from './http';
+import { ADMIN, asPage, cleanParams, crud, reader, one, api, toFormData, MULTIPART, openProtectedFile, type Id } from './http';
 
 export interface SupplierUser { id: number; supplier_id: number; name: string; email: string; phone: string | null; is_active: boolean }
 export interface SupplierUserPayload { name: string; email: string; phone?: string | null; password?: string; is_active: boolean }
@@ -97,8 +97,7 @@ export interface SupplierPaymentPayload {
 }
 const PAY = `${ADMIN}/supplier-payments`;
 export const supplierPaymentsApi = {
-  list: (params: { page?: number; supplier_id?: number; supplier_invoice_id?: number; from_date?: string; to_date?: string } = {}, signal?: AbortSignal) => api.get(PAY, { params: cleanParams(params), signal }).then(r => asPage<SupplierPaymentApi>(r)),
-  show: (id: Id, signal?: AbortSignal) => api.get(`${PAY}/${id}`, { signal }).then(r => one<SupplierPaymentApi>(r)),
+  ...reader<SupplierPaymentApi, { page?: number; supplier_id?: number; supplier_invoice_id?: number; from_date?: string; to_date?: string }>(PAY),
   create: (body: SupplierPaymentPayload, idempotencyKey: string) => api.post(PAY, body, { headers: { 'Idempotency-Key': idempotencyKey } }).then(r => one<SupplierPaymentApi>(r)),
   update: (id: Id, body: Pick<SupplierPaymentPayload, 'payment_method' | 'reference_no' | 'notes'>) => api.put(`${PAY}/${id}`, body).then(r => one<SupplierPaymentApi>(r)),
   allocate: (id: Id, supplier_invoice_id: number) => api.post(`${PAY}/${id}/allocate`, { supplier_invoice_id }).then(r => one<SupplierPaymentApi>(r)),

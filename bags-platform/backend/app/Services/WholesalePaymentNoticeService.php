@@ -53,7 +53,7 @@ class WholesalePaymentNoticeService
             Customer::query()->lockForUpdate()->findOrFail($customer->id);
             $reference = trim($data['reference_number']);
             if (WholesalePaymentNotice::query()->where('customer_id', $customer->id)
-                ->whereRaw('lower(btrim(reference_number)) = ?', [mb_strtolower($reference)])->exists()) {
+                ->whereReferenceNumber($reference)->exists()) {
                 throw new BusinessException('رقم مرجع السداد مسجل بالفعل لهذا التاجر.', [], 409);
             }
 
@@ -62,7 +62,7 @@ class WholesalePaymentNoticeService
             $crossCustomer = WholesalePaymentNotice::query()
                 ->where('customer_id', '!=', $customer->id)
                 ->where('status', '!=', WholesalePaymentNoticeStatus::Rejected->value)
-                ->whereRaw('lower(btrim(reference_number)) = ?', [mb_strtolower($reference)])
+                ->whereReferenceNumber($reference)
                 ->where('amount', (string) $amount)
                 ->whereDate('transfer_date', $transferDate)
                 ->first();
@@ -282,8 +282,8 @@ class WholesalePaymentNoticeService
                 'date' => $entry['date']->toDateString(),
                 'reference' => $entry['reference'],
                 'description' => $entry['description'],
-                'debit' => $entry['type'] === 'debit' ? number_format($entry['amount'], 2, '.', '') : number_format(0, 2, '.', ''),
-                'credit' => $entry['type'] === 'credit' ? number_format($entry['amount'], 2, '.', '') : number_format(0, 2, '.', ''),
+                'debit' => $entry['type'] === 'debit' ? number_format($entry['amount'], 2, '.', '') : '0.00',
+                'credit' => $entry['type'] === 'credit' ? number_format($entry['amount'], 2, '.', '') : '0.00',
                 'balance' => number_format($running, 2, '.', ''),
             ];
         }
@@ -556,6 +556,13 @@ class WholesalePaymentNoticeService
     public function receiptCollisions(WholesalePaymentNotice $notice): array
     {
         $collisions = [];
+        $mapCollision = static fn (WholesalePaymentNotice $other, string $reason): array => [
+            'notice_id' => $other->id,
+            'notice_number' => $other->notice_number,
+            'customer_id' => $other->customer_id,
+            'reason' => $reason,
+        ];
+
         if ($notice->receipt_sha256 !== null) {
             $sameFile = WholesalePaymentNotice::query()
                 ->where('receipt_sha256', $notice->receipt_sha256)
@@ -563,12 +570,7 @@ class WholesalePaymentNoticeService
                 ->where('status', '!=', WholesalePaymentNoticeStatus::Rejected->value)
                 ->get(['id', 'notice_number', 'customer_id']);
             foreach ($sameFile as $other) {
-                $collisions[] = [
-                    'notice_id' => $other->id,
-                    'notice_number' => $other->notice_number,
-                    'customer_id' => $other->customer_id,
-                    'reason' => 'same_receipt',
-                ];
+                $collisions[] = $mapCollision($other, 'same_receipt');
             }
         }
 
@@ -576,17 +578,12 @@ class WholesalePaymentNoticeService
             ->whereKeyNot($notice->id)
             ->where('customer_id', '!=', $notice->customer_id)
             ->where('status', '!=', WholesalePaymentNoticeStatus::Rejected->value)
-            ->whereRaw('lower(btrim(reference_number)) = ?', [mb_strtolower(trim((string) $notice->reference_number))])
+            ->whereReferenceNumber((string) $notice->reference_number)
             ->where('amount', (string) $notice->amount)
             ->whereDate('transfer_date', $notice->transfer_date?->toDateString())
             ->get(['id', 'notice_number', 'customer_id']);
         foreach ($sameTransfer as $other) {
-            $collisions[] = [
-                'notice_id' => $other->id,
-                'notice_number' => $other->notice_number,
-                'customer_id' => $other->customer_id,
-                'reason' => 'same_reference_amount_date',
-            ];
+            $collisions[] = $mapCollision($other, 'same_reference_amount_date');
         }
 
         return $collisions;

@@ -236,6 +236,10 @@ function categoryFormData(p: CategoryPayload, spoofPut = false): FormData {
   return fd;
 }
 
+function progress(cb?: (n: number) => void) {
+  return (e: { loaded: number; total?: number }) => cb?.(Math.round((e.loaded / (e.total || 1)) * 100));
+}
+
 const CAT = API_ENDPOINTS.ADMIN.CATEGORIES; // '/api/v1/admin/categories'
 
 export const categoriesApi = {
@@ -246,12 +250,12 @@ export const categoriesApi = {
   create: (p: CategoryPayload, onProgress?: (pct: number) => void) =>
     apiClient.post<{ data: AdminCategory }>(CAT, categoryFormData(p), {
       ...MULTIPART,
-      onUploadProgress: (e) => onProgress?.(Math.round((e.loaded / (e.total || 1)) * 100)),
+      onUploadProgress: progress(onProgress),
     }).then((r) => r.data.data),
   update: (id: number, p: CategoryPayload, onProgress?: (pct: number) => void) =>
     apiClient.post<{ data: AdminCategory }>(`${CAT}/${id}`, categoryFormData(p, true), {
       ...MULTIPART,
-      onUploadProgress: (e) => onProgress?.(Math.round((e.loaded / (e.total || 1)) * 100)),
+      onUploadProgress: progress(onProgress),
     }).then((r) => r.data.data),
   remove: (id: number) =>
     apiClient.delete<{ message: string }>(`${CAT}/${id}`).then((r) => r.data),
@@ -261,10 +265,6 @@ export const categoriesApi = {
 
 const BR = '/api/v1/admin/brands';
 const PR = '/api/v1/admin/products';
-
-function progress(cb?: (n: number) => void) {
-  return (e: { loaded: number; total?: number }) => cb?.(Math.round((e.loaded / (e.total || 1)) * 100));
-}
 
 export interface BrandListParams { search?: string; is_active?: 0 | 1; page?: number; per_page?: number }
 export interface ProductListParams {

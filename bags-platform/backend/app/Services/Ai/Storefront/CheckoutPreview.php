@@ -56,9 +56,7 @@ final class CheckoutPreview
                 return $this->stop("قيمة الصنف ({$line['variant']->sku}) صفر؛ راجع الكمية أو السعر.");
             }
         }
-        $wholesale = $customer !== null
-            && $customer->status === CustomerStatus::Approved
-            && in_array($customer->type, [CustomerType::Wholesale, CustomerType::Distributor], true);
+        $wholesale = $customer?->isWholesaleApproved() ?? false;
         if (! $wholesale) {
             $cap = $this->carts->lineQtyCap($customer);
             if ($cap > 0) {
