@@ -9,4 +9,10 @@ enum CustomerType: string
     case Retail = 'retail';
     case Wholesale = 'wholesale';
     case Distributor = 'distributor';
+
+    /** @return list<string> */
+    public static function commercialValues(): array
+    {
+        return [self::Wholesale->value, self::Distributor->value];
+    }
 }

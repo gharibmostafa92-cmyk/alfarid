@@ -95,7 +95,7 @@ final class BankStatementMatcher
             return null;
         }
         $customers = $this->cachedCustomers ??= Customer::query()
-            ->whereIn('type', ['wholesale', 'distributor'])
+            ->commercial()
             ->limit(200)
             ->get(['id', 'name', 'company_name']);
 

@@ -97,8 +97,8 @@ final class WholesaleInboxTool implements AgentTool
         }
 
         $applications = Customer::query()
+            ->commercial()
             ->where('status', CustomerStatus::Pending)
-            ->whereIn('type', [CustomerType::Wholesale, CustomerType::Distributor])
             ->orderBy('id')
             ->limit(15)
             ->get(['id', 'name', 'company_name', 'created_at'])

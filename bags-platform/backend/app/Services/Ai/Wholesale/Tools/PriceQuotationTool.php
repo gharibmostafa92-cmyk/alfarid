@@ -60,7 +60,7 @@ final class PriceQuotationTool implements LocksTargets, UndoableTool, WriteTool
                     'quotation_id' => ['type' => 'INTEGER'],
                     'use_suggested' => ['type' => 'BOOLEAN'],
                     'valid_until' => ['type' => 'STRING'],
-                    'items' => ['type' => 'ARRAY'],
+                    'items' => ['type' => 'ARRAY', 'items' => ['type' => 'OBJECT', 'properties' => (object) ['id' => ['type' => 'INTEGER'], 'offered_unit_price' => ['type' => 'NUMBER']], 'required' => ['id', 'offered_unit_price']]],
                 ],
                 'required' => ['quotation_id'],
             ],

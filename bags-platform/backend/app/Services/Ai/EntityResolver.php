@@ -596,7 +596,7 @@ final class EntityResolver
     public static function buildCustomerQuery(string $query = '', array $filters = []): Builder
     {
         $q = Customer::query()->with('customerGroup')
-            ->when(($filters['business_only'] ?? false), fn ($x) => $x->whereIn('type', ['wholesale', 'distributor']))
+            ->when(($filters['business_only'] ?? false), fn ($x) => $x->commercial())
             ->when(isset($filters['type']), fn ($x) => $x->where('type', $filters['type']))
             ->when(isset($filters['status']), fn ($x) => $x->where('status', $filters['status']))
             ->when(isset($filters['customer_group_id']), fn ($x) => $x->where('customer_group_id', $filters['customer_group_id']))

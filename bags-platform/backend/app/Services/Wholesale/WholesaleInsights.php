@@ -126,7 +126,7 @@ final class WholesaleInsights
     {
         $out = [];
         $customers = Customer::query()
-            ->whereIn('type', ['wholesale', 'distributor'])
+            ->commercial()
             ->where('status', 'approved')
             ->where('credit_limit', '>', 0)
             ->limit(100)

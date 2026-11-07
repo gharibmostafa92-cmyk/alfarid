@@ -183,6 +183,14 @@ class Customer extends Authenticatable
     }
 
     /**
+     * Scope query to commercial tier accounts (wholesale and distributor).
+     */
+    public function scopeCommercial($query)
+    {
+        return $query->whereIn('type', [CustomerType::Wholesale, CustomerType::Distributor]);
+    }
+
+    /**
      * Map database unique constraint collisions on customer attributes to validation exceptions.
      *
      * @param  \Throwable  $e  Captured database or runtime exception.

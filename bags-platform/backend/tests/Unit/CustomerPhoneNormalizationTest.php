@@ -86,5 +86,9 @@ class CustomerPhoneNormalizationTest extends TestCase
         $rejectedDistributor = new Customer(['type' => \App\Enums\CustomerType::Distributor, 'status' => \App\Enums\CustomerStatus::Rejected]);
         $this->assertTrue($rejectedDistributor->isCommercialTier());
         $this->assertFalse($rejectedDistributor->isWholesaleApproved());
+
+        $this->assertSame(['wholesale', 'distributor'], \App\Enums\CustomerType::commercialValues());
+        $sql = Customer::query()->commercial()->toRawSql();
+        $this->assertStringContainsString('"type" in (\'wholesale\', \'distributor\')', strtolower($sql));
     }
 }

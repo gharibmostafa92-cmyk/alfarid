@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Enums\CustomerType;
 use App\Models\Order;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
@@ -64,7 +65,7 @@ class ReportService
             ->count();
 
         $pendingWholesale = $branchId !== null ? 0 : (int) DB::table('customers')
-            ->whereIn('type', ['wholesale', 'distributor'])
+            ->whereIn('type', CustomerType::commercialValues())
             ->where('status', 'pending')
             ->count();
 

@@ -21,7 +21,7 @@ class WholesaleMonthlyStatements extends Command
     {
         $month = now((string) config('app.business_timezone', 'Africa/Cairo'))->format('Y-m');
         Customer::query()
-            ->whereIn('type', ['wholesale', 'distributor'])
+            ->commercial()
             ->where('status', 'approved')
             ->whereNotNull('whatsapp_opt_in_at')
             ->orderBy('id')

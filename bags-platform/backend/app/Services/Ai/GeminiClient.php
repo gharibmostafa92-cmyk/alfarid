@@ -83,6 +83,11 @@ class GeminiClient
                 continue;
             }
             if (! $response->successful()) {
+                logger()->error('gemini.converse_failed', [
+                    'status' => $response->status(),
+                    'body' => mb_substr($response->body(), 0, 2000),
+                    'model' => $model,
+                ]);
                 throw new GeminiException('تعذّر تنفيذ طلب Gemini.', $response->status());
             }
 
@@ -177,6 +182,11 @@ class GeminiClient
                 continue;
             }
             if (! $response->successful()) {
+                logger()->error('gemini.converse_failed', [
+                    'status' => $response->status(),
+                    'body' => mb_substr($response->body(), 0, 2000),
+                    'model' => $model,
+                ]);
                 throw new GeminiException('تعذّر تنفيذ طلب Gemini.', $response->status());
             }
 
@@ -230,6 +240,15 @@ class GeminiClient
         }
 
         $model = $modelOverride ?? (string) config('services.gemini.model', 'gemini-1.5-flash');
+        foreach ($contents as $turnIndex => $turn) {
+            foreach ($turn['parts'] ?? [] as $partIndex => $part) {
+                foreach (['functionCall' => 'args', 'functionResponse' => 'response'] as $node => $field) {
+                    if (isset($part[$node][$field]) && is_array($part[$node][$field])) {
+                        $contents[$turnIndex]['parts'][$partIndex][$node][$field] = (object) $part[$node][$field];
+                    }
+                }
+            }
+        }
         $payload = [
             'contents' => $contents,
             'generationConfig' => [
@@ -276,6 +295,11 @@ class GeminiClient
                 continue;
             }
             if (! $response->successful()) {
+                logger()->error('gemini.converse_failed', [
+                    'status' => $response->status(),
+                    'body' => mb_substr($response->body(), 0, 2000),
+                    'model' => $model,
+                ]);
                 throw new GeminiException('تعذّر تنفيذ طلب Gemini.', $response->status());
             }
             $candidate = $response->json('candidates.0', []);
@@ -309,8 +333,11 @@ class GeminiClient
             }
 
             return [
+                'parts' => $parts,
                 'text' => $text,
-                'tool_calls' => $calls,
+                'calls' => $calls,
+                'finish' => $finish,
+                'model' => $model,
                 'usage' => $measured,
             ];
         }

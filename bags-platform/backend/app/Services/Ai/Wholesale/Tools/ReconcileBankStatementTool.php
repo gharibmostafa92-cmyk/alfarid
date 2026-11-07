@@ -41,7 +41,7 @@ final class ReconcileBankStatementTool implements AgentTool
             'description' => 'يطابق حركات دائنة من كشف بنك مع إشعارات معلقة: مطابق، محتمل، ومن غير إشعار. لا يعتمد شيئًا.',
             'parameters' => [
                 'type' => 'OBJECT',
-                'properties' => (object) ['rows' => ['type' => 'ARRAY']],
+                'properties' => (object) ['rows' => ['type' => 'ARRAY', 'items' => ['type' => 'OBJECT', 'properties' => (object) ['amount' => ['type' => 'NUMBER'], 'reference' => ['type' => 'STRING'], 'date' => ['type' => 'STRING'], 'description' => ['type' => 'STRING']]]]],
                 'required' => ['rows'],
             ],
         ];
