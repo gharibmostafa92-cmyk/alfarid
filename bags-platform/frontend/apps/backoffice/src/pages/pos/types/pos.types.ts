@@ -54,6 +54,10 @@ export interface PosCartLine {
   qty: number;
   price: number;
   listPrice: number;
+  /** True when the cashier typed this price; the quote then runs with override_price. */
+  manualPrice?: boolean;
+  /** Per-line message from the last quote (e.g. insufficient stock). */
+  error?: string | null;
 }
 
 export interface ShiftStats {

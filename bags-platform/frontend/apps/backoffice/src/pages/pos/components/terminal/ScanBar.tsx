@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, PImg, Api, Kbd, cx } from '../ui/SharedUI';
+import { pos as posMockService } from '../../services/pos-data-source';
+import { normAr } from '../../lib/arabic';
+import { beepError } from '../../lib/sound';
 import type { PosProduct, Customer } from '../../types/pos.types';
 
 interface ScanBarProps {
@@ -16,10 +19,10 @@ export function ScanBar({ products, customer, onAdd, inputRef }: ScanBarProps) {
   const [open, setOpen] = useState(false);
 
   const results = useMemo(() => {
-    const s = q.trim().toLowerCase();
+    const s = normAr(q);
     if (!s) return [];
     return products
-      .filter((p) => p.name.includes(s) || p.sku.toLowerCase().includes(s) || p.barcode.includes(s))
+      .filter((p) => normAr(p.name).includes(s) || normAr(p.sku).includes(s) || normAr(p.barcode).includes(s))
       .slice(0, 7);
   }, [q, products]);
 
@@ -41,13 +44,17 @@ export function ScanBar({ products, customer, onAdd, inputRef }: ScanBarProps) {
       setHl((h) => Math.max(h - 1, 0));
     }
     if (e.key === 'Enter') {
-      const exact = products.find(
-        (p) => p.barcode === q.trim() || p.sku.toLowerCase() === q.trim().toLowerCase()
-      );
+      const code = normAr(q);
+      const exact = products.find((p) => normAr(p.barcode) === code || normAr(p.sku) === code);
       if (exact) {
         pick(exact);
       } else if (results[hl]) {
         pick(results[hl]);
+      } else if (code) {
+        posMockService
+          .lookupByBarcode(code)
+          .then((p) => (p ? pick(p) : beepError()))
+          .catch(() => beepError());
       }
     }
     if (e.key === 'Escape') {
@@ -63,6 +70,7 @@ export function ScanBar({ products, customer, onAdd, inputRef }: ScanBarProps) {
       </span>
       <input
         ref={inputRef}
+        data-scan-input
         value={q}
         onChange={(e) => {
           setQ(e.target.value);

@@ -13,13 +13,15 @@ import { TransfersPage } from './inventory/TransfersPage';
 import { StocktakePage } from './inventory/StocktakePage';
 import { useToast } from './ui/SharedUI';
 import { pos as posMockService } from '../services/pos-data-source';
+import { usePosCart, posCartStore } from '../stores/pos-cart.store';
+import { createScanDetector } from '../lib/barcode-scanner';
+import { beepError, beepSuccess } from '../lib/sound';
 import type {
   AppScreen,
   PosShift,
   Branch,
   CashierUser,
   PosProduct,
-  PosCartLine,
   Customer,
   PosHeldSale,
 } from '../types/pos.types';
@@ -37,15 +39,19 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
   const [cashier, setCashier] = useState<CashierUser | null>(null);
   const [isDark, setIsDark] = useState<boolean>(false);
 
-  // Cart and sale state
-  const [cart, setCart] = useState<PosCartLine[]>([
-    { id: 101, qty: 1, price: 450, listPrice: 450 },
-    { id: 103, qty: 2, price: 285, listPrice: 285 },
-  ]);
-  const [customer, setCustomer] = useState<Customer | null>(null);
-  const [discount, setDiscount] = useState<number>(0);
+  // Cart, customer, discount and the live server quote live in the persisted cart store.
+  const cart = usePosCart((s) => s.cart);
+  const setCart = usePosCart((s) => s.setCart);
+  const customer = usePosCart((s) => s.customer);
+  const setCustomer = usePosCart((s) => s.setCustomer);
+  const discount = usePosCart((s) => s.discount);
+  const setDiscount = usePosCart((s) => s.setDiscount);
+  const quote = usePosCart((s) => s.quote);
+  const isQuoting = usePosCart((s) => s.isQuoting);
+  const lastDeleted = usePosCart((s) => s.lastDeleted);
   const [heldSales, setHeldSales] = useState<PosHeldSale[]>([]);
   const [lastAdded, setLastAdded] = useState<{ id: number; k: number } | null>(null);
+  const [maxDiscountPercent, setMaxDiscountPercent] = useState<number>(100);
 
   // Modals state
   const [isCloseShiftOpen, setIsCloseShiftOpen] = useState<boolean>(false);
@@ -61,6 +67,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
     posMockService.getBranch().then(setBranch);
     posMockService.getCashier().then(setCashier);
     posMockService.getHeldSales().then(setHeldSales);
+    setMaxDiscountPercent(posMockService.getSettings().max_discount_percent);
   }, []);
 
   useEffect(() => {
@@ -69,20 +76,55 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
     return unsub;
   }, [loadInitialData]);
 
-  // Handle Add Product to Cart
-  const handleAddToCart = (p: PosProduct) => {
-    setCart((prev) => {
-      const existing = prev.find((l) => l.id === p.id);
-      const unitPrice = customer?.tier === 'wholesale' ? p.wholesale : p.price;
-      if (existing) {
-        return prev.map((l) => (l.id === p.id ? { ...l, qty: l.qty + 1 } : l));
-      }
-      return [...prev, { id: p.id, qty: 1, price: unitPrice, listPrice: p.price }];
-    });
-    setLastAdded({ id: p.id, k: Date.now() });
-  };
+  // One cart per cashier+shift: survives refresh / power loss (key pos-cart:{userId}:{shiftId}).
+  useEffect(() => {
+    if (cashier) posCartStore.getState().bindContext(cashier.id, currentShift?.id ?? null);
+  }, [cashier?.id, currentShift?.id]);
 
-  // Keyboard shortcuts (F2, F6, F8, Space)
+  // Add a product (click, scan bar or HID scanner): beep tells the cashier the outcome.
+  const handleAddToCart = useCallback(
+    (p: PosProduct) => {
+      const inCart = posCartStore.getState().cart.find((l) => l.id === p.id)?.qty ?? 0;
+      if (p.stock <= 0 || inCart + 1 > p.stock) {
+        beepError();
+        toast(p.stock <= 0 ? 'الصنف نفد من المخزون' : `الرصيد المتاح ${p.stock} فقط`, 'bad');
+        return;
+      }
+      posCartStore.getState().addItem(p);
+      setLastAdded({ id: p.id, k: Date.now() });
+      beepSuccess();
+    },
+    [toast],
+  );
+
+  // Hardware scanner: works even when the scan box is not focused.
+  useEffect(() => {
+    const detect = createScanDetector({
+      onScan: async (code) => {
+        try {
+          const p = await posMockService.lookupByBarcode(code);
+          if (p) handleAddToCart(p);
+          else {
+            beepError();
+            toast(`لا يوجد صنف بالباركود ${code}`, 'bad');
+          }
+        } catch {
+          beepError();
+          toast('تعذر البحث عن الباركود', 'bad');
+        }
+      },
+    });
+    window.addEventListener('keydown', detect, true);
+    return () => window.removeEventListener('keydown', detect, true);
+  }, [handleAddToCart, toast]);
+
+  // Pay waits for the current quote so the payment screen opens with a confirmed total.
+  const handlePay = useCallback(async () => {
+    await posCartStore.getState().flushQuote();
+    setIsCheckoutOpen(true);
+  }, []);
+
+  // Keyboard shortcuts (F2, F6, F8, Space, Ctrl+Z)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeTag = (e.target as HTMLElement)?.tagName;
@@ -103,21 +145,35 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
       }
       if (e.key === ' ' && !isInput && cart.length > 0 && currentScreen === 'terminal') {
         e.preventDefault();
-        setIsCheckoutOpen(true);
+        void handlePay();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !isInput) {
+        if (posCartStore.getState().lastDeleted) {
+          e.preventDefault();
+          posCartStore.getState().undoDelete();
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [cart.length, currentScreen]);
+  }, [cart.length, currentScreen, handlePay]);
+
+  // Offer undo for 5s after a line is removed.
+  const undoToastFor = useRef<number | null>(null);
+  useEffect(() => {
+    if (lastDeleted && undoToastFor.current !== lastDeleted.id) {
+      undoToastFor.current = lastDeleted.id;
+      toast('تم حذف الصنف — اضغط Ctrl+Z للتراجع');
+    }
+    if (!lastDeleted) undoToastFor.current = null;
+  }, [lastDeleted, toast]);
 
   // Handle holding sale
   const handleHoldSale = async (note: string) => {
     if (!cart.length) return;
     await posMockService.holdSale(cart, customer, note);
-    setCart([]);
-    setCustomer(null);
-    setDiscount(0);
+    posCartStore.getState().clearCart();
     setIsHoldOpen(false);
     toast('تم تعليق الفاتورة بنجاح');
   };
@@ -148,9 +204,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
   };
 
   const handleSalePaid = () => {
-    setCart([]);
-    setCustomer(null);
-    setDiscount(0);
+    posCartStore.getState().clearCart();
     toast('تم تسجيل الفاتورة بنجاح');
   };
 
@@ -190,17 +244,20 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
                 cart={cart}
                 setCart={setCart}
                 customer={customer}
-                setCustomer={setCustomer}
+                setCustomer={setCustomer as (c: Customer | null) => void}
                 discount={discount}
                 setDiscount={setDiscount}
                 onHold={() => setIsHoldOpen(true)}
                 onHeld={() => setIsHeldOpen(true)}
                 heldCount={heldSales.length}
-                onPay={() => setIsCheckoutOpen(true)}
-                onClear={() => setCart([])}
+                onPay={() => void handlePay()}
+                onClear={() => posCartStore.getState().clearCart()}
                 lastAdded={lastAdded}
                 toast={toast}
                 cashier={cashier}
+                quote={quote}
+                isQuoting={isQuoting}
+                maxDiscountPercent={maxDiscountPercent}
               />
             </div>
           )}
@@ -219,6 +276,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
             onClose={() => setIsCloseShiftOpen(false)}
             shift={currentShift}
             onClosed={(closed) => {
+              posCartStore.getState().clearCart();
               setCurrentShift(null);
               setIsCloseShiftOpen(false);
               toast(`تم إغلاق الوردية #${closed.shift_number} بنجاح`);

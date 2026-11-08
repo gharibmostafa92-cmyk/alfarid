@@ -3,7 +3,8 @@ import { CustomerBar } from './CustomerBar';
 import { CartLine } from './CartLine';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, Kbd, toAsciiNum } from '../ui/SharedUI';
-import type { PosCartLine, Customer, CashierUser } from '../../types/pos.types';
+import type { PosCartLine, Customer, CashierUser, QuoteResult } from '../../types/pos.types';
+import { maxDiscountAmount, toCents, fromCents } from '../../lib/money';
 
 interface CartProps {
   cart: PosCartLine[];
@@ -20,6 +21,10 @@ interface CartProps {
   lastAdded: { id: number; k: number } | null;
   toast: (msg: string, tone?: 'ok' | 'bad') => void;
   cashier?: CashierUser | null;
+  /** Latest server quote: the source of truth for totals once available. */
+  quote?: QuoteResult | null;
+  isQuoting?: boolean;
+  maxDiscountPercent?: number;
 }
 
 export function Cart({
@@ -37,14 +42,30 @@ export function Cart({
   lastAdded,
   toast,
   cashier,
+  quote,
+  isQuoting,
+  maxDiscountPercent = 100,
 }: CartProps) {
   const canOverride = cashier?.perms?.includes('pos.override_price') ?? true;
+  const canDiscount = cashier?.perms?.includes('pos.discount') ?? true;
   const subtotal = cart.reduce((s, l) => s + l.listPrice * l.qty, 0);
   const lineAdj = cart.reduce((s, l) => s + (l.listPrice - l.price) * l.qty, 0);
-  const total = Math.max(0, subtotal - lineAdj - discount);
+  const localTotal = Math.max(0, subtotal - lineAdj - discount);
+  // The screen total is the server's; the local figure only shows until the first quote lands.
+  const total = quote ? quote.grand_total : localTotal;
   const items = cart.reduce((s, l) => s + l.qty, 0);
   const [discOpen, setDiscOpen] = useState(false);
   const [discVal, setDiscVal] = useState('');
+
+  const applyDiscount = () => {
+    const cap = fromCents(maxDiscountAmount(toCents(subtotal - lineAdj), maxDiscountPercent));
+    const wanted = Math.min(Number(discVal || 0), subtotal);
+    if (wanted > cap) {
+      toast(`الحد الأقصى للخصم ${maxDiscountPercent}% (${egp(cap)} ج)`, 'bad');
+    }
+    setDiscount(Math.min(wanted, cap));
+    setDiscOpen(false);
+  };
 
   return (
     <aside className="cart">
@@ -84,7 +105,11 @@ export function Cart({
                 setCart((c) => c.map((x) => (x.id === l.id ? { ...x, qty: q } : x)))
               }
               onPrice={(pr) =>
-                setCart((c) => c.map((x) => (x.id === l.id ? { ...x, price: pr } : x)))
+                setCart((c) =>
+                  c.map((x) =>
+                    x.id === l.id ? { ...x, price: pr, manualPrice: pr !== x.listPrice } : x,
+                  ),
+                )
               }
               onRemove={() => setCart((c) => c.filter((x) => x.id !== l.id))}
             />
@@ -113,15 +138,9 @@ export function Cart({
                   value={discVal}
                   onChange={(e) => setDiscVal(toAsciiNum(e.target.value))}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      setDiscount(Math.min(Number(discVal || 0), subtotal));
-                      setDiscOpen(false);
-                    }
+                    if (e.key === 'Enter') applyDiscount();
                   }}
-                  onBlur={() => {
-                    setDiscount(Math.min(Number(discVal || 0), subtotal));
-                    setDiscOpen(false);
-                  }}
+                  onBlur={applyDiscount}
                   placeholder="0"
                 />
               </span>
@@ -132,17 +151,19 @@ export function Cart({
                   setDiscVal(discount ? String(discount) : '');
                   setDiscOpen(true);
                 }}
-                disabled={!cart.length}
+                disabled={!cart.length || !canDiscount}
+                title={canDiscount ? undefined : 'تحتاج صلاحية الخصم (pos.discount)'}
               >
                 {discount ? 'تعديل' : '+ إضافة'}
               </button>
             )}
+            {!canDiscount && <span className="fs-12 t-3">تحتاج صلاحية</span>}
           </span>
           <b className={discount ? 't-ok' : ''}>{discount ? '−' + egp(discount) : '٠'}</b>
         </div>
         <div className="grand">
           <span className="fs-13 t-2">الإجمالي</span>
-          <span className="v">
+          <span className={isQuoting ? 'v quoting' : 'v'}>
             {egp(total)}
             <small>ج.م</small>
           </span>

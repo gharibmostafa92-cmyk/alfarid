@@ -239,3 +239,10 @@ html, body { height: 100%; overflow: hidden; }
   .co { grid-template-columns: 1fr; } .co-side { display: none; }
   .st-grid { grid-template-columns: 1fr; }
 }
+
+/* Live quote in flight: soft shimmer on the grand total */
+.grand .v.quoting { animation: pos-shimmer 1s ease-in-out infinite; }
+@keyframes pos-shimmer { 0%, 100% { opacity: .45; } 50% { opacity: .95; } }
+/* Line rejected by the server quote (e.g. insufficient stock) */
+.line.line-bad { background: var(--bad-bg, #fde8e8); box-shadow: inset 0 0 0 1px var(--bad, #c0392b); }
+.line-err { color: var(--bad, #c0392b); font-size: 12px; margin-top: 2px; }

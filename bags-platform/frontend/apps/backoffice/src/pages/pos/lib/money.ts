@@ -14,3 +14,6 @@ export function spreadDiscount(lines: { id: number; totalC: number }[], discount
   });
   return out.map(({ id, d }) => ({ id, d }));
 }
+
+/** Highest invoice discount (in cents) allowed by max_discount_percent. */
+export const maxDiscountAmount = (subtotalC: number, percent: number): number => Math.floor((subtotalC * percent) / 100);

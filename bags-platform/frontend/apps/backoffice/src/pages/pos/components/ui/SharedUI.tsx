@@ -151,7 +151,7 @@ export function MoneyInput({
   }, [autoFocus]);
 
   return (
-    <label className={cx('money-in', size)}>
+    <label className={cx('money-in', size)} data-money-input>
       <span className="cur">ج.م</span>
       <input
         ref={ref}

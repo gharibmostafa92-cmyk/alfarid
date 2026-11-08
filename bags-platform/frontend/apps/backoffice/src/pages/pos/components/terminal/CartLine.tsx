@@ -22,7 +22,7 @@ export function CartLine({ l, onQty, onRemove, onPrice, canOverride, flash }: Ca
   if (!p) return null;
 
   return (
-    <div className={cx('line', flash ? 'flash' : '')}>
+    <div className={cx('line', flash ? 'flash' : '', l.error && 'line-bad')}>
       <PImg p={p} size="sm" />
       <div style={{ minWidth: 0 }}>
         <div className="line-name truncate">{p.name}</div>
@@ -79,6 +79,7 @@ export function CartLine({ l, onQty, onRemove, onPrice, canOverride, flash }: Ca
             </span>
           )}
         </div>
+        {l.error && <div className="line-err">{l.error}</div>}
       </div>
       <div className="col" style={{ alignItems: 'flex-end', gap: 6 }}>
         <div className="row gap-1">

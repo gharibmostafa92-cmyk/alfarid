@@ -15,15 +15,6 @@ export function PosPage() {
   const canPos = useCan('pos.access');
   const canCount = useCan('stocktakes.update');
   const canCreateSales = useCan('pos.sales.create');
-  const roles = user?.roles ?? [];
-  const isCashier = roles.some(
-    (r) =>
-      r === 'cashier' ||
-      r === 'كاشير' ||
-      r.toLowerCase().includes('pos') ||
-      r.toLowerCase().includes('cashier') ||
-      r.includes('كاشير'),
-  );
 
   useEffect(() => {
     posMockService.syncActor(user);
@@ -52,17 +43,45 @@ export function PosPage() {
     };
   }, []);
 
-  if (!isCashier && !canPos) {
+  if ((user as any)?.must_change_password) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center' }} dir="rtl">
+        <h1>تغيير كلمة المرور مطلوب</h1>
+        <p>يجب تغيير كلمة المرور للمتابعة إلى نقطة البيع.</p>
+        <button
+          className="btn btn-primary"
+          style={{ marginTop: 16 }}
+          onClick={() => {
+            window.location.hash = '#/change-password';
+          }}
+        >
+          تغيير كلمة المرور الآن
+        </button>
+      </div>
+    );
+  }
+
+  const branchId = user?.branch_id ?? user?.branch?.id;
+  if (!branchId) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center' }} dir="rtl">
+        <h1>حسابك غير مربوط بفرع</h1>
+        <p>لا يمكن استخدام نقطة البيع دون ربط الحساب بفرع محدد.</p>
+      </div>
+    );
+  }
+
+  if (!canPos) {
     return (
       <div style={{ padding: 40, textAlign: 'center' }} dir="rtl">
         <h1>غير مصرح</h1>
-        <p>صفحة نقطة البيع متاحة للكاشير فقط.</p>
+        <p>صفحة نقطة البيع متاحة للمستخدمين المصرح لهم فقط (صلاحية pos.access).</p>
       </div>
     );
   }
 
   // Dedicated blind voice-count view for stocktake-only staff (e.g. non-cashier inventory counter)
-  if (!isCashier && canCount && !canCreateSales) {
+  if (canCount && !canCreateSales) {
     return (
       <div style={{ padding: 40 }} dir="rtl">
         <h1>نقطة البيع</h1>

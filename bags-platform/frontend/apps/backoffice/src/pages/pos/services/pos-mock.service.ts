@@ -26,7 +26,7 @@ const INITIAL_CASHIER: CashierUser = {
   name: 'أحمد سمير',
   initials: 'أس',
   role: 'كاشير أول',
-  perms: ['pos.override_price', 'pos.sales.refund', 'transfers.create', 'transfers.receive', 'stocktakes.update'],
+  perms: ['pos.override_price', 'pos.discount', 'pos.sales.refund', 'transfers.create', 'transfers.receive', 'stocktakes.update'],
 };
 
 const INITIAL_TREASURIES: Treasury[] = [
