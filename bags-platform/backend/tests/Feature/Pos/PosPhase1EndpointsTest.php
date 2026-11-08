@@ -483,6 +483,303 @@ class PosPhase1EndpointsTest extends TestCase
             ]);
     }
 
+    public function test_sales_quote_matches_create_sale_totals_for_retail_wholesale_and_discounts(): void
+    {
+        $this->cashier->givePermissionTo(Permission::findOrCreate('pos.override_price', 'staff'));
+
+        $this->withToken($this->token)->postJson('/api/v1/pos/shifts/open', [
+            'treasury_id' => $this->posDrawer1->id,
+            'opening_cash' => 200.00,
+        ])->assertCreated();
+
+        // 1. Retail quote with line discount
+        $quoteRetail = $this->withToken($this->token)->postJson('/api/v1/pos/sales/quote', [
+            'items' => [
+                [
+                    'product_variant_id' => $this->variant->id,
+                    'qty' => 2,
+                    'discount_amount' => 30.00,
+                ],
+            ],
+        ]);
+
+        $quoteRetail->assertOk()
+            ->assertJsonPath('data.lines.0.product_variant_id', $this->variant->id)
+            ->assertJsonPath('data.lines.0.qty', 2)
+            ->assertJsonPath('data.lines.0.unit_price', '150.00')
+            ->assertJsonPath('data.lines.0.discount_amount', '30.00')
+            ->assertJsonPath('data.lines.0.line_total', '270.00')
+            ->assertJsonPath('data.lines.0.available', 50)
+            ->assertJsonPath('data.lines.0.error', null)
+            ->assertJsonPath('data.subtotal', '300.00')
+            ->assertJsonPath('data.discount_total', '30.00')
+            ->assertJsonPath('data.grand_total', '270.00');
+
+        $saleRetail = $this->withToken($this->token)->postJson('/api/v1/pos/sales', [
+            'items' => [
+                [
+                    'product_variant_id' => $this->variant->id,
+                    'qty' => 2,
+                    'discount_amount' => 30.00,
+                ],
+            ],
+            'payment_method' => 'cash',
+            'cash_amount' => 270.00,
+            'card_amount' => 0,
+        ])->assertCreated();
+
+        $this->assertSame($quoteRetail->json('data.grand_total'), $saleRetail->json('data.grand_total'));
+
+        // 2. Approved wholesale customer quote
+        $this->variant->update(['wholesale_price' => 110.00]);
+        $wholesaleCustomer = \App\Models\Customer::create([
+            'name' => 'Wholesale Merchant',
+            'phone' => '01022223333',
+            'password' => 'secret123',
+            'company_name' => 'Alfarid Wholesale Co.',
+            'tax_number' => '123456789',
+            'commercial_register' => '654321',
+            'type' => \App\Enums\CustomerType::Wholesale,
+            'status' => \App\Enums\CustomerStatus::Approved,
+        ]);
+
+        $quoteWholesale = $this->withToken($this->token)->postJson('/api/v1/pos/sales/quote', [
+            'customer_id' => $wholesaleCustomer->id,
+            'items' => [
+                [
+                    'product_variant_id' => $this->variant->id,
+                    'qty' => 3,
+                    'discount_amount' => 15.00,
+                ],
+            ],
+        ]);
+
+        $quoteWholesale->assertOk()
+            ->assertJsonPath('data.lines.0.unit_price', '110.00')
+            ->assertJsonPath('data.lines.0.discount_amount', '15.00')
+            ->assertJsonPath('data.lines.0.line_total', '315.00')
+            ->assertJsonPath('data.lines.0.available', 48)
+            ->assertJsonPath('data.lines.0.error', null)
+            ->assertJsonPath('data.subtotal', '330.00')
+            ->assertJsonPath('data.discount_total', '15.00')
+            ->assertJsonPath('data.grand_total', '315.00');
+
+        $saleWholesale = $this->withToken($this->token)->postJson('/api/v1/pos/sales', [
+            'customer_id' => $wholesaleCustomer->id,
+            'items' => [
+                [
+                    'product_variant_id' => $this->variant->id,
+                    'qty' => 3,
+                    'discount_amount' => 15.00,
+                ],
+            ],
+            'payment_method' => 'cash',
+            'cash_amount' => 315.00,
+            'card_amount' => 0,
+        ])->assertCreated();
+
+        $this->assertSame($quoteWholesale->json('data.grand_total'), $saleWholesale->json('data.grand_total'));
+    }
+
+    public function test_sales_quote_with_insufficient_stock_returns_200_with_line_error_message(): void
+    {
+        $this->withToken($this->token)->postJson('/api/v1/pos/shifts/open', [
+            'treasury_id' => $this->posDrawer1->id,
+            'opening_cash' => 200.00,
+        ])->assertCreated();
+
+        $res = $this->withToken($this->token)->postJson('/api/v1/pos/sales/quote', [
+            'items' => [
+                [
+                    'product_variant_id' => $this->variant->id,
+                    'qty' => 60, // available is 50
+                ],
+            ],
+        ]);
+
+        $res->assertOk()
+            ->assertJsonPath('data.lines.0.product_variant_id', $this->variant->id)
+            ->assertJsonPath('data.lines.0.qty', 60)
+            ->assertJsonPath('data.lines.0.available', 50)
+            ->assertJsonPath('data.lines.0.unit_price', '150.00')
+            ->assertJsonPath('data.lines.0.line_total', '9000.00');
+
+        $this->assertNotNull($res->json('data.lines.0.error'));
+        $this->assertStringContainsString('50', (string) $res->json('data.lines.0.error'));
+    }
+
+    public function test_sales_lookup_for_return_supports_arabic_digits_and_prefixless_numbers_and_enforces_branch(): void
+    {
+        $this->withToken($this->token)->postJson('/api/v1/pos/shifts/open', [
+            'treasury_id' => $this->posDrawer1->id,
+            'opening_cash' => 200.00,
+        ])->assertCreated();
+
+        // Sell 2 items @ 150 with total discount 100 -> net unit price = (300 - 100) / 2 = 100.00
+        $saleRes = $this->withToken($this->token)->postJson('/api/v1/pos/sales', [
+            'items' => [
+                [
+                    'product_variant_id' => $this->variant->id,
+                    'qty' => 2,
+                    'discount_amount' => 100.00,
+                ],
+            ],
+            'payment_method' => 'cash',
+            'cash_amount' => 200.00,
+            'card_amount' => 0,
+        ])->assertCreated();
+
+        $saleId = $saleRes->json('data.id');
+        $orderNumber = (string) $saleRes->json('data.order_number'); // e.g. ORD-001000
+
+        // Return 1 item first so returned_qty = 1 and returnable_qty = 1
+        $this->withToken($this->token)->postJson("/api/v1/pos/sales/{$saleId}/return", [
+            'items' => [
+                ['product_variant_id' => $this->variant->id, 'qty' => 1, 'return_to' => 'on_hand'],
+            ],
+        ])->assertOk();
+
+        // Extract digits and convert to Arabic-Indic numerals
+        $digitsOnly = preg_replace('/\D+/', '', $orderNumber);
+        $arabicDigits = strtr($digitsOnly, array_flip(\App\Support\ArabicDigits::MAP));
+
+        // 1. Lookup with Arabic digits without prefix
+        $lookup1 = $this->withToken($this->token)->getJson('/api/v1/pos/sales/lookup?number='.urlencode($arabicDigits));
+        $lookup1->assertOk()
+            ->assertJsonPath('data.id', $saleId)
+            ->assertJsonPath('data.order_number', $orderNumber)
+            ->assertJsonPath('data.grand_total', '200.00')
+            ->assertJsonPath('data.items.0.product_variant_id', $this->variant->id)
+            ->assertJsonPath('data.items.0.sku', 'BAG-001-RED')
+            ->assertJsonPath('data.items.0.qty', 2)
+            ->assertJsonPath('data.items.0.returned_qty', 1)
+            ->assertJsonPath('data.items.0.returnable_qty', 1)
+            ->assertJsonPath('data.items.0.unit_price', '150.00')
+            ->assertJsonPath('data.items.0.discount_amount', '100.00')
+            ->assertJsonPath('data.items.0.net_unit_price', '100.00');
+
+        // 2. Lookup with POS- prefix or full order number
+        $lookup2 = $this->withToken($this->token)->getJson('/api/v1/pos/sales/lookup?number='.urlencode('POS-'.$digitsOnly));
+        $lookup2->assertOk()
+            ->assertJsonPath('data.id', $saleId);
+
+        // 3. Cashier from another branch gets 403
+        $otherBranch = Branch::create([
+            'name' => 'Alex Branch',
+            'code' => 'BR-ALEX',
+            'type' => 'branch',
+            'is_active' => true,
+        ]);
+        $otherDrawer = Treasury::create([
+            'name' => 'Alex Drawer',
+            'code' => 'DRW-ALEX-1',
+            'branch_id' => $otherBranch->id,
+            'type' => TreasuryType::PosDrawer,
+            'current_balance' => 0,
+            'is_active' => true,
+        ]);
+        $otherCashier = User::create([
+            'name' => 'Cashier Alex',
+            'email' => 'alex@example.com',
+            'phone' => '+201099998888',
+            'password' => Hash::make('secret123'),
+            'branch_id' => $otherBranch->id,
+            'is_active' => true,
+        ]);
+        foreach (['pos.access', 'pos.sales.refund'] as $perm) {
+            $otherCashier->givePermissionTo(Permission::findOrCreate($perm, 'staff'));
+        }
+        $otherToken = $otherCashier->createToken('pos', ['pos'])->plainTextToken;
+        \Illuminate\Support\Facades\Auth::forgetGuards();
+        $this->withToken($otherToken)->postJson('/api/v1/pos/shifts/open', [
+            'treasury_id' => $otherDrawer->id,
+            'opening_cash' => 0,
+        ])->assertCreated();
+
+        $this->withToken($otherToken)
+            ->getJson('/api/v1/pos/sales/lookup?number='.urlencode($orderNumber))
+            ->assertStatus(403);
+    }
+
+    public function test_held_sale_resume_and_delete_are_atomic_and_branch_scoped(): void
+    {
+        $this->withToken($this->token)->postJson('/api/v1/pos/shifts/open', [
+            'treasury_id' => $this->posDrawer1->id,
+            'opening_cash' => 200.00,
+        ])->assertCreated();
+
+        // Hold sale 1
+        $hold1 = $this->withToken($this->token)->postJson('/api/v1/pos/sales/hold', [
+            'items' => [
+                ['product_variant_id' => $this->variant->id, 'qty' => 2],
+            ],
+            'notes' => 'Hold 1',
+        ])->assertCreated();
+        $heldId1 = $hold1->json('data.id');
+
+        // Hold sale 2
+        $hold2 = $this->withToken($this->token)->postJson('/api/v1/pos/sales/hold', [
+            'items' => [
+                ['product_variant_id' => $this->variant->id, 'qty' => 1],
+            ],
+            'notes' => 'Hold 2',
+        ])->assertCreated();
+        $heldId2 = $hold2->json('data.id');
+
+        // Other branch cashier setup
+        $otherBranch = Branch::create([
+            'name' => 'Alex Branch',
+            'code' => 'BR-ALEX',
+            'type' => 'branch',
+            'is_active' => true,
+        ]);
+        $otherDrawer = Treasury::create([
+            'name' => 'Alex Drawer',
+            'code' => 'DRW-ALEX-1',
+            'branch_id' => $otherBranch->id,
+            'type' => TreasuryType::PosDrawer,
+            'current_balance' => 0,
+            'is_active' => true,
+        ]);
+        $otherCashier = User::create([
+            'name' => 'Cashier Alex',
+            'email' => 'alex@example.com',
+            'phone' => '+201099998888',
+            'password' => Hash::make('secret123'),
+            'branch_id' => $otherBranch->id,
+            'is_active' => true,
+        ]);
+        $otherCashier->givePermissionTo(Permission::findOrCreate('pos.access', 'staff'));
+        $otherToken = $otherCashier->createToken('pos', ['pos'])->plainTextToken;
+        \Illuminate\Support\Facades\Auth::forgetGuards();
+        $this->withToken($otherToken)->postJson('/api/v1/pos/shifts/open', [
+            'treasury_id' => $otherDrawer->id,
+            'opening_cash' => 0,
+        ])->assertCreated();
+
+        // Cross-branch resume and delete return 403
+        $this->withToken($otherToken)->postJson("/api/v1/pos/sales/held/{$heldId1}/resume")->assertStatus(403);
+        $this->withToken($otherToken)->deleteJson("/api/v1/pos/sales/held/{$heldId2}")->assertStatus(403);
+
+        // Switch back to main cashier
+        \Illuminate\Support\Facades\Auth::forgetGuards();
+
+        // First resume succeeds and returns items_payload
+        $resumeRes = $this->withToken($this->token)->postJson("/api/v1/pos/sales/held/{$heldId1}/resume");
+        $resumeRes->assertOk()
+            ->assertJsonPath('data.id', $heldId1)
+            ->assertJsonPath('data.notes', 'Hold 1')
+            ->assertJsonPath('data.items_payload.0.product_variant_id', $this->variant->id)
+            ->assertJsonPath('data.items_payload.0.qty', 2);
+
+        // Second resume to the same ID returns 404
+        $this->withToken($this->token)->postJson("/api/v1/pos/sales/held/{$heldId1}/resume")->assertStatus(404);
+
+        // Delete held sale 2 succeeds, then subsequent delete returns 404
+        $this->withToken($this->token)->deleteJson("/api/v1/pos/sales/held/{$heldId2}")->assertSuccessful();
+        $this->withToken($this->token)->deleteJson("/api/v1/pos/sales/held/{$heldId2}")->assertStatus(404);
+    }
+
     public function json($method, $uri, array $data = [], array $headers = [], $options = 0)
     {
         if (strtoupper($method) === 'POST' && str_ends_with($uri, '/pos/sales') && ! isset($headers['Idempotency-Key']) && ! isset($this->defaultHeaders['Idempotency-Key'])) {

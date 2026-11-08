@@ -45,6 +45,10 @@ Route::middleware(['auth:sanctum', 'auth.staff', 'permission:pos.access'])->grou
         // POS sales, held carts, refunds, and exchanges.
         Route::post('sales', [PosSaleController::class, 'store'])->name('sales.store');
         Route::post('sales/hold', [PosSaleController::class, 'hold'])->name('sales.hold');
+        Route::post('sales/quote', [PosSaleController::class, 'quote'])->name('sales.quote');
+        Route::get('sales/lookup', [PosSaleController::class, 'lookupForReturn'])->middleware('permission:pos.sales.refund')->name('sales.lookup');
+        Route::post('sales/held/{held_sale}/resume', [PosSaleController::class, 'resumeHeld'])->name('sales.held.resume');
+        Route::delete('sales/held/{held_sale}', [PosSaleController::class, 'deleteHeld'])->name('sales.held.delete');
         Route::post('sales/{sale}/return', [PosSaleController::class, 'processReturn'])->middleware('permission:pos.sales.refund')->name('sales.return');
         Route::post('sales/{sale}/exchange', [PosSaleController::class, 'processExchange'])->middleware('permission:pos.sales.refund')->name('sales.exchange');
 

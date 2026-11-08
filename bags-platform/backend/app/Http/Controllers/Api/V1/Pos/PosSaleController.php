@@ -4,13 +4,19 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Pos;
 
+use App\Enums\OrderStatus;
 use App\Http\Controllers\Controller;
+use App\Models\Customer;
 use App\Models\Order;
+use App\Models\OrderItem;
 use App\Models\PosHeldSale;
 use App\Models\PosShift;
 use App\Models\User;
+use App\Services\BranchAccess;
 use App\Services\OperationIdempotencyService;
 use App\Services\PosService;
+use App\Services\SettingService;
+use App\Support\ArabicDigits;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -104,6 +110,230 @@ class PosSaleController extends Controller
             ->get();
 
         return response()->json(['data' => $held]);
+    }
+
+    /**
+     * Calculate live cart pricing, discounts, available stock, and totals without locks or DB writes.
+     */
+    public function quote(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'items' => ['required', 'array', 'min:1'],
+            'items.*.product_variant_id' => ['required', 'integer'],
+            'items.*.qty' => ['required', 'numeric', 'gt:0'],
+            'items.*.discount_amount' => ['nullable', 'numeric', 'min:0'],
+            'items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
+            'customer_id' => ['nullable', 'integer', 'exists:customers,id'],
+            'override_price' => ['nullable', 'boolean'],
+        ]);
+
+        /** @var PosShift $shift */
+        $shift = $request->attributes->get('pos_shift');
+        /** @var User $user */
+        $user = $request->user('staff');
+
+        $override = ! empty($data['override_price']);
+        if ($override && ! $user->can('pos.override_price')) {
+            return response()->json(['message' => 'لا تملك صلاحية تجاوز سعر البيع.'], 403);
+        }
+
+        if (collect($data['items'])->contains(fn ($item) => (float) ($item['discount_amount'] ?? 0) > 0) && ! $user->can('pos.discount')) {
+            return response()->json(['message' => 'لا تملك صلاحية تطبيق خصم يدوي.'], 403);
+        }
+
+        $customer = isset($data['customer_id']) ? Customer::find($data['customer_id']) : null;
+
+        return response()->json([
+            'data' => $this->pos->quote(
+                branchId: (int) $shift->branch_id,
+                items: $data['items'],
+                c: $customer,
+                override: $override,
+            ),
+        ]);
+    }
+
+    /**
+     * Look up a delivered POS sale order by number for return or exchange processing.
+     */
+    public function lookupForReturn(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'number' => ['required', 'string'],
+        ]);
+
+        /** @var User $user */
+        $user = $request->user('staff');
+
+        $normalized = strtoupper(trim(ArabicDigits::normalize($data['number'])));
+        if ($normalized === '') {
+            abort(404, 'الفاتورة غير موجودة.');
+        }
+
+        $candidates = [$normalized];
+        if (! str_starts_with($normalized, 'POS-')) {
+            $candidates[] = 'POS-'.$normalized;
+        }
+        if (! str_starts_with($normalized, 'ORD-')) {
+            $candidates[] = 'ORD-'.$normalized;
+        }
+
+        $stripped = preg_replace('/^(?:POS|ORD)-/', '', $normalized) ?? $normalized;
+        if (ctype_digit($stripped)) {
+            $intVal = (string) ((int) $stripped);
+            $pad6 = str_pad($intVal, 6, '0', STR_PAD_LEFT);
+            $pad4 = str_pad($intVal, 4, '0', STR_PAD_LEFT);
+            foreach (['POS-', 'ORD-'] as $p) {
+                $candidates[] = $p.$stripped;
+                $candidates[] = $p.$intVal;
+                $candidates[] = $p.$pad6;
+                $candidates[] = $p.$pad4;
+            }
+            $orderPrefix = (string) app(SettingService::class)->get('order_prefix', 'ORD-');
+            $orderPadding = (int) app(SettingService::class)->get('order_padding', 6);
+            if ($orderPrefix !== '') {
+                $candidates[] = strtoupper($orderPrefix).str_pad($intVal, max(0, $orderPadding), '0', STR_PAD_LEFT);
+                $candidates[] = strtoupper($orderPrefix).$stripped;
+            }
+        }
+        $candidates = array_values(array_unique($candidates));
+
+        $order = Order::query()
+            ->where('channel', 'pos')
+            ->where('status', OrderStatus::Delivered)
+            ->whereNull('return_of_order_id')
+            ->where(function ($q) use ($candidates, $stripped): void {
+                $q->whereIn('order_number', $candidates);
+                if ($stripped !== '') {
+                    $q->orWhere('order_number', 'like', '%-'.$stripped);
+                    if (ctype_digit($stripped)) {
+                        $intVal = (string) ((int) $stripped);
+                        $q->orWhere('order_number', 'like', '%-'.str_pad($intVal, 6, '0', STR_PAD_LEFT));
+                    }
+                }
+            })
+            ->with(['items.variant.product', 'customer', 'posShift.cashier'])
+            ->latest('id')
+            ->first();
+
+        if ($order === null) {
+            abort(404, 'الفاتورة غير موجودة.');
+        }
+
+        $branchId = (int) ($order->allocated_branch_id ?? $order->posShift?->branch_id ?? 0);
+        app(BranchAccess::class)->assertBranch($user->id, $branchId);
+
+        return response()->json([
+            'data' => [
+                'id' => $order->id,
+                'order_number' => $order->order_number,
+                'created_at' => $order->created_at,
+                'payment_method' => $order->payment_method,
+                'cash_amount' => number_format((float) $order->cash_amount, 2, '.', ''),
+                'card_amount' => number_format((float) $order->card_amount, 2, '.', ''),
+                'grand_total' => number_format((float) $order->grand_total, 2, '.', ''),
+                'customer' => $order->customer !== null ? [
+                    'id' => $order->customer->id,
+                    'name' => $order->customer->name,
+                    'phone' => $order->customer->phone,
+                ] : null,
+                'cashier' => $order->posShift?->cashier !== null ? [
+                    'id' => $order->posShift->cashier->id,
+                    'name' => $order->posShift->cashier->name,
+                ] : null,
+                'items' => $order->items->map(function (OrderItem $item): array {
+                    $qty = (float) $item->qty;
+                    $returnedQty = (float) ($item->returned_qty ?? 0);
+                    $returnableQty = max(0.0, $qty - $returnedQty);
+                    $unitPrice = (float) $item->unit_price;
+                    $discountAmount = (float) $item->discount_amount;
+                    $netUnitPrice = $qty > 0 ? ($qty * $unitPrice - $discountAmount) / $qty : 0.0;
+
+                    return [
+                        'id' => $item->id,
+                        'product_variant_id' => $item->product_variant_id,
+                        'product_name' => $item->product_name_snapshot
+                            ?? $item->variant?->product?->name_ar
+                            ?? $item->variant?->product?->name_en,
+                        'variant_name' => $item->variant?->color_name_ar ?? $item->variant?->color_name_en,
+                        'sku' => $item->sku_snapshot ?? $item->variant?->sku,
+                        'qty' => floor($qty) === $qty ? (int) $qty : $qty,
+                        'returned_qty' => floor($returnedQty) === $returnedQty ? (int) $returnedQty : $returnedQty,
+                        'returnable_qty' => floor($returnableQty) === $returnableQty ? (int) $returnableQty : $returnableQty,
+                        'unit_price' => number_format($unitPrice, 2, '.', ''),
+                        'discount_amount' => number_format($discountAmount, 2, '.', ''),
+                        'net_unit_price' => number_format($netUnitPrice, 2, '.', ''),
+                    ];
+                })->values()->all(),
+            ],
+        ]);
+    }
+
+    /**
+     * Atomically lock, retrieve, and delete a held sale so two cashiers cannot resume it twice.
+     */
+    public function resumeHeld(Request $request, int $held_sale): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user('staff');
+
+        $data = DB::transaction(function () use ($held_sale, $user): array {
+            $heldSale = PosHeldSale::query()
+                ->whereKey($held_sale)
+                ->lockForUpdate()
+                ->with('customer')
+                ->first();
+
+            if ($heldSale === null) {
+                abort(404, 'الفاتورة المعلقة غير موجودة.');
+            }
+
+            app(BranchAccess::class)->assertBranch($user->id, (int) $heldSale->branch_id);
+
+            $payload = [
+                'id' => $heldSale->id,
+                'hold_reference' => $heldSale->hold_reference,
+                'customer_id' => $heldSale->customer_id,
+                'customer' => $heldSale->customer !== null ? [
+                    'id' => $heldSale->customer->id,
+                    'name' => $heldSale->customer->name,
+                    'phone' => $heldSale->customer->phone,
+                ] : null,
+                'notes' => $heldSale->notes,
+                'items_payload' => $heldSale->items_payload,
+            ];
+
+            $heldSale->delete();
+
+            return $payload;
+        });
+
+        return response()->json([
+            'message' => 'تم استعادة الفاتورة المعلقة بنجاح.',
+            'data' => $data,
+        ]);
+    }
+
+    /**
+     * Delete a parked held sale belonging to the cashier's branch.
+     */
+    public function deleteHeld(Request $request, int $held_sale): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user('staff');
+
+        $heldSale = PosHeldSale::query()->find($held_sale);
+        if ($heldSale === null) {
+            abort(404, 'الفاتورة المعلقة غير موجودة.');
+        }
+
+        app(BranchAccess::class)->assertBranch($user->id, (int) $heldSale->branch_id);
+
+        $heldSale->delete();
+
+        return response()->json([
+            'message' => 'تم حذف الفاتورة المعلقة بنجاح.',
+        ]);
     }
 
     /**

@@ -372,12 +372,12 @@ class PosService
                 : null;
 
             $overridePrice = (bool) ($payload['override_price'] ?? false);
-            $items = $this->resolveItems($shift, $payload['items'], $customer, $overridePrice);
+            $items = $this->resolveItems((int) $shift->branch_id, $payload['items'], $customer, $overridePrice, true);
+            $totals = $this->computeCartTotals($items);
 
-            // Compute gross subtotal and sum line totals directly to preserve discount arithmetic.
-            $subtotal = $items->sum(fn ($item) => $this->minor($item['unit_price']) * (int) $item['qty']) / 100;
-            $discountTotal = $items->sum(fn ($item) => $this->minor($item['discount_amount'])) / 100;
-            $grandTotal = $items->sum(fn ($item) => $this->minor($item['line_total'])) / 100;
+            $subtotal = $totals['subtotal'];
+            $discountTotal = $totals['discount_total'];
+            $grandTotal = $totals['grand_total'];
 
             if ($grandTotal < 0) {
                 throw new BusinessException('إجمالي الفاتورة لا يمكن أن يكون سالبًا.');
@@ -805,21 +805,86 @@ class PosService
     }
 
     /**
+     * Quotes a POS cart without DB locks or persistence, returning line pricing, availability, and totals.
+     * Never throws when stock is insufficient; populates line `error` with an Arabic message instead.
+     *
+     * @param  int  $branchId  Target branch ID
+     * @param  array<array{product_variant_id: int, qty: int|float, unit_price?: float|null, discount_amount?: float|null}>  $items  Raw cart items
+     * @param  Customer|null  $c  Optional customer for targeted pricing
+     * @param  bool  $override  Whether manual price override is enabled
+     * @return array{
+     *     lines: array<int, array{
+     *         product_variant_id: int,
+     *         qty: int|float,
+     *         unit_price: string,
+     *         discount_amount: string,
+     *         line_total: string,
+     *         available: int|float,
+     *         error: string|null
+     *     }>,
+     *     subtotal: string,
+     *     discount_total: string,
+     *     grand_total: string
+     * }
+     */
+    public function quote(int $branchId, array $items, ?Customer $c = null, bool $override = false): array
+    {
+        $resolved = $this->resolveItems($branchId, $items, $c, $override, false);
+        $totals = $this->computeCartTotals($resolved);
+
+        $lines = $resolved->map(fn (array $item): array => [
+            'product_variant_id' => $item['product_variant_id'],
+            'qty' => is_float($item['qty']) && floor($item['qty']) === $item['qty'] ? (int) $item['qty'] : $item['qty'],
+            'unit_price' => number_format((float) $item['unit_price'], 2, '.', ''),
+            'discount_amount' => number_format((float) $item['discount_amount'], 2, '.', ''),
+            'line_total' => number_format((float) $item['line_total'], 2, '.', ''),
+            'available' => is_float($item['available']) && floor($item['available']) === $item['available']
+                ? (int) $item['available']
+                : $item['available'],
+            'error' => $item['error'],
+        ])->values()->all();
+
+        return [
+            'lines' => $lines,
+            'subtotal' => number_format($totals['subtotal'], 2, '.', ''),
+            'discount_total' => number_format($totals['discount_total'], 2, '.', ''),
+            'grand_total' => number_format($totals['grand_total'], 2, '.', ''),
+        ];
+    }
+
+    /**
+     * Computes subtotal, discount_total, and grand_total from resolved items in minor units.
+     *
+     * @param  Collection<int, array<string, mixed>>  $items
+     * @return array{subtotal: float, discount_total: float, grand_total: float}
+     */
+    private function computeCartTotals(Collection $items): array
+    {
+        return [
+            'subtotal' => $items->sum(fn ($item) => $this->minor($item['unit_price']) * (int) $item['qty']) / 100,
+            'discount_total' => $items->sum(fn ($item) => $this->minor($item['discount_amount'])) / 100,
+            'grand_total' => $items->sum(fn ($item) => $this->minor($item['line_total'])) / 100,
+        ];
+    }
+
+    /**
      * Prepares sale item line totals and resolves pricing tiers.
      *
-     * @param  PosShift  $shift  Active shift
-     * @param  array<array{product_variant_id: int, qty: int, unit_price?: float|null, discount_amount?: float}>  $rawItems  Raw cart items
+     * @param  int  $branchId  Target branch ID
+     * @param  array<array{product_variant_id: int, qty: int|float, unit_price?: float|null, discount_amount?: float|null}>  $rawItems  Raw cart items
      * @param  Customer|null  $customer  Target customer
      * @param  bool  $overridePrice  Whether manual price override is enabled
+     * @param  bool  $enforceStock  When true, throws BusinessException if available < qty; when false, sets line `error`
      * @return Collection<int, array<string, mixed>> Resolved item rows
      */
     private function resolveItems(
-        PosShift $shift,
+        int $branchId,
         array $rawItems,
         ?Customer $customer,
-        bool $overridePrice
+        bool $overridePrice,
+        bool $enforceStock = true
     ): Collection {
-        return collect($rawItems)->map(function (array $item) use ($shift, $customer, $overridePrice): array {
+        return collect($rawItems)->map(function (array $item) use ($branchId, $customer, $overridePrice, $enforceStock): array {
             $qty = (float) $item['qty'];
             DiscreteQuantity::assertWhole($qty, false, 'كمية البيع يجب أن تكون عددًا صحيحًا موجبًا.');
             /** @var ProductVariant $variant */
@@ -830,23 +895,28 @@ class PosService
 
             $stock = StockLevel::query()
                 ->where('product_variant_id', $variant->id)
-                ->where('branch_id', $shift->branch_id)
+                ->where('branch_id', $branchId)
                 ->where(fn ($q) => $q->whereNull('location_id')->orWhereHas('location', fn ($q) => $q->where('is_active', true)))
                 ->get();
 
             $available = (float) $stock->sum('available');
+            $availableFormatted = floor($available) === $available ? (int) $available : $available;
 
-            if ($available < $item['qty']) {
-                throw new BusinessException(
-                    "الكمية المتاحة للصنف [{$variant->sku}] في الفرع هي {$available} فقط.",
-                    status: 422,
-                );
+            $error = null;
+            if ($available < $qty) {
+                if ($enforceStock) {
+                    throw new BusinessException(
+                        "الكمية المتاحة للصنف [{$variant->sku}] في الفرع هي {$available} فقط.",
+                        status: 422,
+                    );
+                }
+                $error = "الكمية المطلوبة غير متوفرة في المخزون (المتاح: {$availableFormatted})";
             }
 
             if ($overridePrice && isset($item['unit_price'])) {
                 $unitPrice = (float) $item['unit_price'];
             } else {
-                $priceData = $this->pricing->resolve($variant, $customer, (float) $item['qty'], $shift->branch_id);
+                $priceData = $this->pricing->resolve($variant, $customer, $qty, $branchId);
                 $unitPrice = (float) $priceData['unit_price'];
             }
 
@@ -856,13 +926,13 @@ class PosService
 
             $discount = (float) ($item['discount_amount'] ?? 0);
             $maxDiscount = (float) config('inventory.pos_max_discount_percent', 100);
-            if ($discount > round($unitPrice * (float) $item['qty'] * $maxDiscount / 100, 2)) {
+            if ($discount > round($unitPrice * $qty * $maxDiscount / 100, 2)) {
                 throw new BusinessException('الخصم يتجاوز النسبة القصوى المسموحة.');
             }
             if (! is_finite($discount) || $discount < 0) {
                 throw new BusinessException("خصم الصنف [{$variant->sku}] لا يمكن أن يكون سالبًا.");
             }
-            $lineTotal = round($unitPrice * $item['qty'] - $discount, 2);
+            $lineTotal = round($unitPrice * $qty - $discount, 2);
 
             if ($lineTotal < 0) {
                 throw new BusinessException("إجمالي السطر للصنف [{$variant->sku}] لا يمكن أن يكون سالبًا.");
@@ -872,11 +942,13 @@ class PosService
                 'product_variant_id' => $variant->id,
                 'product_name_snapshot' => $variant->product->name_ar ?? $variant->product->name_en ?? 'POS Item',
                 'sku_snapshot' => $variant->sku,
-                'qty' => $item['qty'],
+                'qty' => (int) $qty,
                 'unit_price' => $unitPrice,
                 'discount_amount' => $discount,
                 'line_total' => $lineTotal,
                 'unit_cost' => $variant->cost_price,
+                'available' => $availableFormatted,
+                'error' => $error,
             ];
         });
     }
