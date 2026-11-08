@@ -134,6 +134,8 @@ export function MoneyInput({
   size,
   placeholder = '0',
   onEnter,
+  disabled,
+  readOnly,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -141,24 +143,28 @@ export function MoneyInput({
   size?: string;
   placeholder?: string;
   onEnter?: () => void;
+  disabled?: boolean;
+  readOnly?: boolean;
 }) {
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (autoFocus) {
+    if (autoFocus && !disabled && !readOnly) {
       const timer = setTimeout(() => ref.current?.focus(), 60);
       return () => clearTimeout(timer);
     }
-  }, [autoFocus]);
+  }, [autoFocus, disabled, readOnly]);
 
   return (
-    <label className={cx('money-in', size)} data-money-input>
+    <label className={cx('money-in', size, (disabled || readOnly) && 'is-disabled')} data-money-input>
       <span className="cur">ج.م</span>
       <input
         ref={ref}
         inputMode="decimal"
         value={value}
         placeholder={placeholder}
-        onChange={(e) => onChange(toAsciiNum(e.target.value))}
+        disabled={disabled}
+        readOnly={readOnly}
+        onChange={(e) => !disabled && !readOnly && onChange(toAsciiNum(e.target.value))}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && onEnter) onEnter();
         }}

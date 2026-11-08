@@ -1,10 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, PImg, Api, Kbd, MoneyInput, Field, cx, useEsc } from '../ui/SharedUI';
 import { ReceiptDone } from './ReceiptDone';
 import { pos as posMockService } from '../../services/pos-data-source';
 import type { PosCartLine, Customer, Branch, CashierUser } from '../../types/pos.types';
+import { toCents, fromCents, spreadDiscount } from '../../lib/money';
+import { createPendingSaleManager } from '../../lib/pending-sale';
+import { pushReceipt } from '../../lib/receipt-archive';
+import { normalizeError } from '../../lib/pos-error';
 
 interface CheckoutModalProps {
   open: boolean;
@@ -16,12 +20,6 @@ interface CheckoutModalProps {
   branch?: Branch | null;
   cashier?: CashierUser | null;
 }
-
-const uuid = () =>
-  'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-  });
 
 export function CheckoutModal({
   open,
@@ -37,9 +35,15 @@ export function CheckoutModal({
   const [received, setReceived] = useState<string>('');
   const [cashPart, setCashPart] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
+  const [cardDigits, setCardDigits] = useState<string>('');
   const [stage, setStage] = useState<'pay' | 'sending' | 'done'>('pay');
+  const [retryStatus, setRetryStatus] = useState<string>('');
+  const [errorMsg, setErrorMsg] = useState<string>('');
   const [idem, setIdem] = useState<string>('');
   const [invoiceNumber, setInvoiceNumber] = useState<string>('');
+
+  const isSubmittingRef = useRef(false);
+  const pendingMgrRef = useRef(createPendingSaleManager());
 
   const subtotal = cart.reduce((s, l) => s + l.price * l.qty, 0);
   const total = Math.max(0, subtotal - discount);
@@ -50,11 +54,20 @@ export function CheckoutModal({
       setReceived('');
       setCashPart('');
       setNotes('');
+      setCardDigits('');
       setStage('pay');
-      setIdem(uuid());
+      setRetryStatus('');
+      setErrorMsg('');
+      isSubmittingRef.current = false;
+      const initialDraft = pendingMgrRef.current.prepare({
+        items: cart.map((l) => ({ id: l.id, qty: l.qty })),
+        discount,
+        t: Date.now(),
+      });
+      setIdem(initialDraft.key);
       setInvoiceNumber('');
     }
-  }, [open]);
+  }, [open, cart, discount]);
 
   useEffect(() => {
     if (!open || stage !== 'pay') return;
@@ -112,26 +125,69 @@ export function CheckoutModal({
   };
 
   const confirm = async () => {
-    if (!valid || stage === 'sending') return;
+    if (!valid || stage === 'sending' || isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
     setStage('sending');
+    setRetryStatus('');
+    setErrorMsg('');
+
+    // Proportional discount spread per line in cents
+    const lineCents = cart.map((l) => ({ id: l.id, totalC: toCents(l.price * l.qty) }));
+    const distributed = spreadDiscount(lineCents, toCents(discount));
+    const discountMap = new Map(distributed.map((d) => [d.id, fromCents(d.d)]));
+
+    const finalNotes = (method === 'card' || method === 'mixed') && cardDigits.trim()
+      ? (notes.trim() ? `كارت ****${cardDigits.trim()} · ${notes.trim()}` : `كارت ****${cardDigits.trim()}`)
+      : notes.trim();
+
+    const payload = {
+      items: cart.map((l) => ({
+        product_variant_id: l.id,
+        qty: l.qty,
+        unit_price: l.price,
+        discount_amount: discountMap.get(l.id) ?? 0,
+      })),
+      customer_id: customer?.id ?? null,
+      payment_method: method,
+      cash_amount: method === 'cash' ? total : method === 'mixed' ? cashA : 0,
+      card_amount: method === 'card' ? total : method === 'mixed' ? cardA : 0,
+      notes: finalNotes,
+    };
+
     try {
-      const res = await posMockService.createSale({
-        items: cart.map((l) => ({
-          product_variant_id: l.id,
-          qty: l.qty,
-          unit_price: l.price,
-          discount_amount: 0,
-        })),
-        customer_id: customer?.id ?? null,
-        payment_method: method,
-        cash_amount: method === 'cash' ? total : method === 'mixed' ? cashA : 0,
-        card_amount: method === 'card' ? total : method === 'mixed' ? cardA : 0,
-        notes,
-      });
+      const res = await pendingMgrRef.current.executeWithRetry(
+        payload,
+        idem,
+        (p, k) => posMockService.createSale(p, k),
+        (attempt) => {
+          setRetryStatus(`جاري التأكد… (محاولة ${attempt})`);
+        }
+      );
+
       setInvoiceNumber(res.invoiceNumber);
+      pushReceipt({
+        invoiceNumber: res.invoiceNumber,
+        total,
+        method,
+        received: rec,
+        change,
+        cashA,
+        cardA,
+        cart,
+        customer,
+        discount,
+        notes: finalNotes,
+        branch,
+        cashier,
+        timestamp: Date.now(),
+      });
       setStage('done');
-    } catch {
+    } catch (err: any) {
+      const apiErr = normalizeError(err);
+      setErrorMsg(apiErr.message || 'تعذر تسجيل البيع');
       setStage('pay');
+    } finally {
+      isSubmittingRef.current = false;
     }
   };
 
@@ -288,6 +344,8 @@ export function CheckoutModal({
                         className="input ltr num"
                         style={{ textAlign: 'right', maxWidth: 240 }}
                         placeholder="•••• 4821"
+                        value={cardDigits}
+                        onChange={(e) => setCardDigits(e.target.value.replace(/\D/g, '').slice(-4))}
                       />
                     </Field>
                   </div>
@@ -405,6 +463,12 @@ export function CheckoutModal({
                     placeholder="تظهر في أسفل الإيصال"
                   />
                 </Field>
+                {errorMsg && (
+                  <div className="banner b-bad" style={{ margin: '8px 0' }}>
+                    <Icon n="alert" s={16} />
+                    {errorMsg}
+                  </div>
+                )}
                 <div className="row gap-2" style={{ marginTop: 'auto' }}>
                   <button className="btn btn-secondary btn-lg" onClick={onClose}>
                     رجوع
@@ -417,7 +481,7 @@ export function CheckoutModal({
                   >
                     <span className="row gap-2">
                       <Icon n="printer" s={18} />
-                      {stage === 'sending' ? 'جارِ تسجيل البيع…' : 'تأكيد الدفع وطباعة الإيصال'}
+                      {stage === 'sending' ? (retryStatus || 'جارِ تسجيل البيع…') : 'تأكيد الدفع وطباعة الإيصال'}
                     </span>
                     <span
                       className="kbd"

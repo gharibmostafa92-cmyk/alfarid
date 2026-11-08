@@ -16,6 +16,7 @@ export function CloseShiftModal({ open, onClose, shift, onClosed }: CloseShiftMo
   const [actual, setActual] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [busy, setBusy] = useState<boolean>(false);
+  const [closedResult, setClosedResult] = useState<PosShift | null>(null);
   const [stats, setStats] = useState<ShiftStats>({
     cashSales: 7360,
     cardSales: 2840,
@@ -29,6 +30,7 @@ export function CloseShiftModal({ open, onClose, shift, onClosed }: CloseShiftMo
       setActual('');
       setNotes('');
       setBusy(false);
+      setClosedResult(null);
       posMockService.getShiftStats().then(setStats);
     }
   }, [open]);
@@ -70,12 +72,113 @@ export function CloseShiftModal({ open, onClose, shift, onClosed }: CloseShiftMo
     if (!canSubmit) return;
     setBusy(true);
     try {
-      const closedShift = await posMockService.closeShift(Number(actual), notes);
-      onClosed(closedShift);
+      const res = await posMockService.closeShift(Number(actual), notes);
+      setClosedResult(res);
     } finally {
       setBusy(false);
     }
   };
+
+  if (closedResult) {
+    return ReactDOM.createPortal(
+      <div
+        dir="rtl"
+        className={document.querySelector('.app')?.classList.contains('theme-dark') ? 'theme-dark' : ''}
+      >
+        <div className="overlay" onClick={() => onClosed(closedResult)} />
+        <div
+          className="modal"
+          style={{ width: 'min(520px, calc(100vw - 32px))' }}
+          data-screen-label="02 Close Shift Done"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="pop col gap-4" style={{ padding: 24, textAlign: 'center', alignItems: 'center' }}>
+            <span
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: 18,
+                background: 'var(--ok-bg)',
+                color: 'var(--ok)',
+                display: 'grid',
+                placeItems: 'center',
+              }}
+            >
+              <Icon n="check" s={28} w={2.4} />
+            </span>
+            <div>
+              <h3 className="fs-18">تم إغلاق الوردية بنجاح</h3>
+              <p className="t-2" style={{ marginTop: 4 }}>
+                الوردية بانتظار اعتماد المدير
+              </p>
+            </div>
+
+            <div className="receipt" style={{ width: '100%', maxWidth: 300, textAlign: 'right' }}>
+              <div style={{ textAlign: 'center' }}>
+                <b className="fs-14 display">ملخص إغلاق الوردية</b>
+                <div className="num" style={{ color: '#6f6a76' }}>
+                  {closedResult.shift_number} · {shift.treasury.name}
+                </div>
+              </div>
+              <div className="dash" />
+              <div className="rr">
+                <span>العهدة الافتتاحية:</span>
+                <span className="num">{egp(shift.opening_cash)} ج</span>
+              </div>
+              <div className="rr">
+                <span>مبيعات نقدية:</span>
+                <span className="num">{egp(stats.cashSales)} ج</span>
+              </div>
+              <div className="rr">
+                <span>مبيعات بطاقة:</span>
+                <span className="num">{egp(stats.cardSales)} ج</span>
+              </div>
+              <div className="rr">
+                <span>مرتجعات نقدية:</span>
+                <span className="num">{egp(stats.returns)} ج</span>
+              </div>
+              <div className="rr">
+                <span>مصروفات:</span>
+                <span className="num">{egp(stats.expenses)} ج</span>
+              </div>
+              <div className="dash" />
+              <div className="rr">
+                <span>النقد المتوقع:</span>
+                <span className="num">{egp(expected)} ج</span>
+              </div>
+              <div className="rr" style={{ fontWeight: 700 }}>
+                <span>النقد الفعلي:</span>
+                <span className="num">{egp(Number(actual))} ج</span>
+              </div>
+              <div className="rr">
+                <span>الفرق:</span>
+                <span className="num">
+                  {diff > 0 ? `+${egp(diff)}` : diff < 0 ? `−${egp(Math.abs(diff))}` : '٠'} ج
+                </span>
+              </div>
+              {notes && (
+                <div style={{ marginTop: 8, fontSize: 11, color: '#6f6a76' }}>
+                  ملاحظات: {notes}
+                </div>
+              )}
+            </div>
+
+            <div className="row gap-2" style={{ width: '100%', justifyContent: 'center' }}>
+              <button className="btn btn-secondary btn-lg" onClick={() => window.print()}>
+                <Icon n="printer" s={16} />
+                طباعة الملخص
+              </button>
+              <button className="btn btn-primary btn-lg" autoFocus onClick={() => onClosed(closedResult)}>
+                إنهاء وخروج
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>,
+      document.body
+    );
+  }
 
   return ReactDOM.createPortal(
     <div

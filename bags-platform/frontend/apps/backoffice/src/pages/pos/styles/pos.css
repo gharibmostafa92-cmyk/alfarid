@@ -168,6 +168,38 @@ html, body { height: 100%; overflow: hidden; }
 .receipt .num { font-family: var(--f-display); }
 .bars { height: 34px; margin-top: 12px; background: repeating-linear-gradient(90deg, #18151c 0 2px, transparent 2px 4px, #18151c 4px 5px, transparent 5px 8px, #18151c 8px 11px, transparent 11px 12px); }
 
+/* 80mm Thermal Receipt Print */
+@media print {
+  @page {
+    size: 80mm auto;
+    margin: 0;
+  }
+  html, body {
+    background: #fff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .receipt, .receipt * {
+    visibility: visible;
+  }
+  .receipt {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 72mm;
+    margin: 0 auto;
+    padding: 12px 8px;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+  .receipt::after {
+    display: none !important;
+  }
+}
+
 /* Held */
 .held-card { border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 12px; background: var(--bg-card); transition: border-color .15s, box-shadow .15s; }
 .held-card:hover { border-color: var(--line-strong); box-shadow: var(--sh-2); }

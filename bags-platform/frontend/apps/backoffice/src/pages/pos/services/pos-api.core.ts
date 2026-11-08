@@ -197,7 +197,14 @@ export class PosApiService {
 
   // ---- shifts ----
   private mapDrawers(list: any[]): Treasury[] {
-    return list.map((t) => ({ id: t.id, name: t.name, code: t.code, state: t.busy ? 'busy' : 'free', last: t.balance }));
+    return list.map((t) => ({
+      id: t.id,
+      name: t.name,
+      code: t.code,
+      state: t.busy ? 'busy' : 'free',
+      last: t.busy ? 'مشغول حاليًا' : `رصيد: ${t.balance ?? '0.00'} ج.م`,
+      balance: Number(t.balance ?? 0),
+    }));
   }
 
   public async getTreasuries(): Promise<Treasury[]> {
@@ -369,7 +376,10 @@ export class PosApiService {
   }
 
   // ---- sales ----
-  public async createSale(payload: CreateSalePayload): Promise<{ order: PastSale; invoiceNumber: string }> {
+  public async createSale(
+    payload: CreateSalePayload,
+    idempotencyKey?: string,
+  ): Promise<{ order: PastSale; invoiceNumber: string }> {
     const body = {
       items: payload.items.map((i) => ({
         product_variant_id: i.product_variant_id,
@@ -384,7 +394,7 @@ export class PosApiService {
       ...(payload.override_price ? { override_price: true } : {}),
       notes: payload.notes ?? null,
     };
-    const key = this.idemKey('sale', body);
+    const key = idempotencyKey ?? this.idemKey('sale', body);
     const r = await this.call(() =>
       this.http.post(EP.SALES, body, { headers: { 'Idempotency-Key': key }, timeout: 15000 }),
     );

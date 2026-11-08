@@ -21,6 +21,7 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
   const [rq, setRq] = useState<string>('');
   const [busy, setBusy] = useState<boolean>(false);
   const [allProducts, setAllProducts] = useState<PosProduct[]>([]);
+  const [replQuoteTotal, setReplQuoteTotal] = useState<number | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -32,9 +33,21 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
       setRepl([]);
       setRq('');
       setBusy(false);
+      setReplQuoteTotal(null);
       posMockService.getProducts().then(setAllProducts);
     }
   }, [open]);
+
+  useEffect(() => {
+    if (mode === 'exchange' && repl.length > 0) {
+      const items = repl.map((r) => ({ product_variant_id: r.id, qty: r.qty }));
+      posMockService.quoteSale({ items, customer_id: null })
+        .then((q) => setReplQuoteTotal(q.grand_total))
+        .catch(() => setReplQuoteTotal(null));
+    } else {
+      setReplQuoteTotal(null);
+    }
+  }, [mode, repl]);
 
   useEsc(onClose, open);
   if (!open) return null;
@@ -64,10 +77,11 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
     ? sale.items.reduce((s, i) => s + (sel[i.id]?.qty || 0) * i.price, 0)
     : 0;
 
-  const replTotal = repl.reduce((s, r) => {
+  const fallbackReplTotal = repl.reduce((s, r) => {
     const p = posMockService.getProductById(r.id);
     return s + (p?.price || 0) * r.qty;
   }, 0);
+  const replTotal = replQuoteTotal != null ? replQuoteTotal : fallbackReplTotal;
 
   const net = replTotal - retTotal;
   const anySel = Object.values(sel).some((v) => v.qty > 0);
@@ -96,11 +110,22 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
         }));
 
       if (mode === 'return') {
-        await posMockService.processReturn(sale.id, returnPayload);
-        toast('تم تسجيل المرتجع وتحديث المخزون');
+        const res = await posMockService.processReturn(sale.id, returnPayload);
+        const cardAmt = sale.card_amount ?? 0;
+        const cardRefund = (res as any)?.card_refund_amount ?? (cardAmt > 0 ? Math.min(cardAmt, retTotal) : 0);
+        if (cardRefund > 0) {
+          toast(`تم تسجيل المرتجع. يجب رد ${cardRefund} جنيه على الكارت يدويًا`, 'ok');
+        } else {
+          toast('تم تسجيل المرتجع وتحديث المخزون', 'ok');
+        }
       } else {
-        await posMockService.processExchange(sale.id, returnPayload, repl, net);
-        toast('تم الاستبدال وإصدار فاتورة جديدة');
+        const res = await posMockService.processExchange(sale.id, returnPayload, repl, net);
+        const cardRefund = (res as any)?.card_refund_amount ?? 0;
+        if (cardRefund > 0) {
+          toast(`تم الاستبدال. يجب رد ${cardRefund} جنيه على الكارت يدويًا`, 'ok');
+        } else {
+          toast('تم الاستبدال وإصدار فاتورة جديدة', 'ok');
+        }
       }
       onClose();
     } finally {
@@ -230,17 +255,25 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
                       {sale.items.map((i) => {
                         const p = posMockService.getProductById(i.id);
                         const s = sel[i.id] || { qty: 0, to: 'on_hand' };
-                        const on = s.qty > 0;
+                        const retMax = i.returnable_qty != null ? i.returnable_qty : i.qty;
+                        const fullyReturned = retMax <= 0;
+                        const on = !fullyReturned && s.qty > 0;
                         const upd = (v: Partial<{ qty: number; to: 'on_hand' | 'damaged' }>) =>
                           setSel((x) => ({ ...x, [i.id]: { ...s, ...v } }));
 
                         return (
                           <tr key={i.id} className={on ? 'selected' : ''}>
                             <td>
-                              <Check
-                                on={on}
-                                onChange={(v) => upd({ qty: v ? 1 : 0 })}
-                              />
+                              {fullyReturned ? (
+                                <span className="badge b-neutral" style={{ fontSize: 10, padding: '2px 4px' }}>
+                                  —
+                                </span>
+                              ) : (
+                                <Check
+                                  on={on}
+                                  onChange={(v) => upd({ qty: v ? 1 : 0 })}
+                                />
+                              )}
                             </td>
                             <td>
                               <div className="row gap-2">
@@ -254,21 +287,33 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
                               </div>
                             </td>
                             <td className="n">{egp(i.price)}</td>
-                            <td className="n">{fmt(i.qty)}</td>
+                            <td className="n">
+                              {fmt(i.qty)}
+                              {i.returnable_qty != null && i.returnable_qty < i.qty && (
+                                <div className="fs-11 t-3">متبقي {fmt(i.returnable_qty)}</div>
+                              )}
+                            </td>
                             <td style={{ textAlign: 'center' }}>
-                              <div className="stepper-q" style={{ opacity: on ? 1 : 0.5 }}>
-                                <button
-                                  onClick={() => upd({ qty: Math.min(i.qty, s.qty + 1) })}
-                                >
-                                  <Icon n="plus" s={13} />
-                                </button>
-                                <span>{fmt(s.qty)}</span>
-                                <button
-                                  onClick={() => upd({ qty: Math.max(0, s.qty - 1) })}
-                                >
-                                  <Icon n="minus" s={13} />
-                                </button>
-                              </div>
+                              {fullyReturned ? (
+                                <span className="badge b-neutral" style={{ fontSize: 11 }}>
+                                  مرتجع بالكامل
+                                </span>
+                              ) : (
+                                <div className="stepper-q" style={{ opacity: on ? 1 : 0.5 }}>
+                                  <button
+                                    disabled={s.qty >= retMax}
+                                    onClick={() => upd({ qty: Math.min(retMax, s.qty + 1) })}
+                                  >
+                                    <Icon n="plus" s={13} />
+                                  </button>
+                                  <span>{fmt(s.qty)}</span>
+                                  <button
+                                    onClick={() => upd({ qty: Math.max(0, s.qty - 1) })}
+                                  >
+                                    <Icon n="minus" s={13} />
+                                  </button>
+                                </div>
+                              )}
                             </td>
                             <td>
                               <div

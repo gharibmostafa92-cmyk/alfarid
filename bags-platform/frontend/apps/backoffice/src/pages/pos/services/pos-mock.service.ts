@@ -30,9 +30,9 @@ const INITIAL_CASHIER: CashierUser = {
 };
 
 const INITIAL_TREASURIES: Treasury[] = [
-  { id: 1, name: 'درج كاشير ١', code: 'DRW-01', state: 'free', last: 'آخر إغلاق أمس ١١:٤٠ م' },
-  { id: 2, name: 'درج كاشير ٢', code: 'DRW-02', state: 'free', last: 'آخر إغلاق أمس ١٠:١٥ م' },
-  { id: 4, name: 'درج الصالة', code: 'DRW-04', state: 'busy', last: 'مفتوح مع منى عادل' },
+  { id: 1, name: 'درج كاشير ١', code: 'DRW-01', state: 'free', last: 'آخر إغلاق أمس ١١:٤٠ م', balance: 500 },
+  { id: 2, name: 'درج كاشير ٢', code: 'DRW-02', state: 'free', last: 'آخر إغلاق أمس ١٠:١٥ م', balance: 0 },
+  { id: 4, name: 'درج الصالة', code: 'DRW-04', state: 'busy', last: 'مفتوح مع منى عادل', balance: 0 },
 ];
 
 const INITIAL_CATS: ProductCategory[] = [
@@ -359,7 +359,10 @@ export class PosMockService {
   }
 
   // Sales & Checkout
-  public async createSale(payload: CreateSalePayload): Promise<{ order: PastSale; invoiceNumber: string }> {
+  public async createSale(
+    payload: CreateSalePayload,
+    _idempotencyKey?: string,
+  ): Promise<{ order: PastSale; invoiceNumber: string }> {
     await delay(350);
 
     const invoiceNum = `POS-NSR-${Math.floor(Math.random() * 9000) + 10000}`;

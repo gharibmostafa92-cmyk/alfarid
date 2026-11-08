@@ -3,6 +3,7 @@ import { Icon } from '../ui/Icons';
 import { egp, fmt, MoneyInput, Api } from '../ui/SharedUI';
 import { pos as posMockService } from '../../services/pos-data-source';
 import type { PosShift, Treasury, Branch, CashierUser } from '../../types/pos.types';
+import { normalizeError } from '../../lib/pos-error';
 
 interface OpenShiftGateProps {
   onOpened: (shift: PosShift) => void;
@@ -12,6 +13,7 @@ export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
   const [treasury, setTreasury] = useState<number>(1);
   const [cash, setCash] = useState<string>('500');
   const [busy, setBusy] = useState<boolean>(false);
+  const [error, setError] = useState<string>('');
   const [treasuries, setTreasuries] = useState<Treasury[]>([]);
   const [branch, setBranch] = useState<Branch | null>(null);
   const [cashier, setCashier] = useState<CashierUser | null>(null);
@@ -20,11 +22,25 @@ export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
     posMockService.getTreasuries().then((list) => {
       setTreasuries(list);
       const free = list.find((t) => t.state === 'free');
-      if (free) setTreasury(free.id);
+      if (free) {
+        setTreasury(free.id);
+        if ((free.balance ?? 0) > 0) {
+          setCash(String(free.balance));
+        }
+      }
     });
     posMockService.getBranch().then(setBranch);
     posMockService.getCashier().then(setCashier);
   }, []);
+
+  const selectedDrawer = treasuries.find((t) => t.id === treasury);
+  const isBalanceLocked = Boolean(selectedDrawer && (selectedDrawer.balance ?? 0) > 0);
+
+  useEffect(() => {
+    if (selectedDrawer && (selectedDrawer.balance ?? 0) > 0) {
+      setCash(String(selectedDrawer.balance));
+    }
+  }, [treasury, selectedDrawer?.balance]);
 
   const amount = Number(cash || 0);
   const now = new Date();
@@ -34,9 +50,13 @@ export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
   const submit = async () => {
     if (!treasury || busy) return;
     setBusy(true);
+    setError('');
     try {
       const opened = await posMockService.openShift(treasury, amount);
       onOpened(opened);
+    } catch (err: any) {
+      const apiErr = normalizeError(err);
+      setError(apiErr.message || 'تعذر فتح الوردية');
     } finally {
       setBusy(false);
     }
@@ -124,24 +144,57 @@ export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
           <div className="col gap-2">
             <div className="row between">
               <span className="fs-13 fw-5">العهدة الافتتاحية</span>
-              <button className="fs-12 t-3" onClick={() => setCash('')}>
-                مسح
-              </button>
-            </div>
-            <MoneyInput value={cash} onChange={setCash} autoFocus onEnter={submit} />
-            <div className="denoms">
-              {[200, 500, 1000].map((v) => (
-                <button key={v} className="denom" onClick={() => setCash(String(amount + v))}>
-                  +{fmt(v)}
-                  <small>ج</small>
+              {!isBalanceLocked && (
+                <button className="fs-12 t-3" onClick={() => setCash('')}>
+                  مسح
                 </button>
-              ))}
-              <button className="denom ghost" onClick={() => setCash('500')}>
-                نفس أمس
-              </button>
+              )}
             </div>
+            <MoneyInput
+              value={cash}
+              onChange={setCash}
+              autoFocus={!isBalanceLocked}
+              readOnly={isBalanceLocked}
+              onEnter={submit}
+            />
+            {isBalanceLocked ? (
+              <div
+                className="row gap-2 fs-12"
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: 10,
+                  background: 'var(--bg-sunken)',
+                  color: 'var(--text-2)',
+                }}
+              >
+                <Icon n="lock" s={14} />
+                <span>العهدة يجب أن تساوي رصيد الدرج ({egp(selectedDrawer?.balance ?? 0)} ج)</span>
+              </div>
+            ) : (
+              <div className="denoms">
+                {[200, 500, 1000].map((v) => (
+                  <button key={v} className="denom" onClick={() => setCash(String(amount + v))}>
+                    +{fmt(v)}
+                    <small>ج</small>
+                  </button>
+                ))}
+                <button className="denom ghost" onClick={() => setCash('500')}>
+                  نفس أمس
+                </button>
+              </div>
+            )}
           </div>
         </div>
+
+        {error && (
+          <div
+            className="banner b-bad"
+            style={{ margin: '0 24px 8px', borderRadius: 12, padding: '10px 14px' }}
+          >
+            <Icon n="alert" s={16} />
+            <span>{error}</span>
+          </div>
+        )}
 
         <div style={{ padding: '16px 24px 22px' }}>
           <button

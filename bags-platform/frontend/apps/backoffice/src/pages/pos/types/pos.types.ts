@@ -21,6 +21,7 @@ export interface Treasury {
   code: string;
   state: 'free' | 'busy';
   last: string;
+  balance?: number;
 }
 
 export interface ProductCategory {

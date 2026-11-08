@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Icon } from '../ui/Icons';
 import { fmt, PImg, Api, toAsciiNum, cx } from '../ui/SharedUI';
 import { pos as posMockService } from '../../services/pos-data-source';
@@ -8,6 +8,11 @@ interface StocktakePageProps {
   toast: (msg: string, tone?: 'ok' | 'bad') => void;
 }
 
+type SpeechWindow = Window & {
+  SpeechRecognition?: new () => any;
+  webkitSpeechRecognition?: new () => any;
+};
+
 export function StocktakePage({ toast }: StocktakePageProps) {
   const [scope, setScope] = useState<PosProduct[]>([]);
   const [session, setSession] = useState<StocktakeSession | null>(null);
@@ -15,6 +20,8 @@ export function StocktakePage({ toast }: StocktakePageProps) {
   const [qty, setQty] = useState('1');
   const [listening, setListening] = useState(false);
   const [heard, setHeard] = useState('');
+
+  const recognitionRef = useRef<any>(null);
 
   const loadSession = () => {
     posMockService.getStocktakeSession().then((res) => {
@@ -26,10 +33,33 @@ export function StocktakePage({ toast }: StocktakePageProps) {
   useEffect(() => {
     loadSession();
     const unsub = posMockService.subscribe(loadSession);
-    return unsub;
+    return () => {
+      unsub();
+      recognitionRef.current?.abort?.();
+    };
   }, []);
 
-  if (!session) return null;
+  if (!session || session.id === 0) {
+    return (
+      <div className="page" data-screen-label="10 Stocktake">
+        <div className="page-in page-enter">
+          <div className="page-title">
+            <div>
+              <h1>جرد الفرع</h1>
+              <p>متابعة وتدقيق المخزون الفعلي بالمقارنة مع النظام.</p>
+            </div>
+          </div>
+          <div className="card card-pad center" style={{ padding: 48, textAlign: 'center' }}>
+            <Icon n="inventory" s={48} style={{ color: 'var(--text-3)', marginBottom: 12 }} />
+            <h3 className="fs-18">لا توجد جلسة جرد مفتوحة</h3>
+            <p className="t-2" style={{ maxWidth: 420, margin: '8px auto 0' }}>
+              لا توجد جلسة جرد نشطة حاليًا لهذا الفرع. يمكنك فتح جلسة جرد جديدة من لوحة الإدارة.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const counts = session.counts;
   const counted = Object.keys(counts).length;
@@ -40,45 +70,126 @@ export function StocktakePage({ toast }: StocktakePageProps) {
     words: 'خمسة وتمانين',
   };
   const log = session.log;
+  const lp = posMockService.getProductById(last.id) || scope[0];
 
   const submitCode = async () => {
-    const p =
-      posMockService.getProductById(101) ||
-      scope.find(
-        (x) =>
-          x.barcode === code.trim() ||
-          x.sku.toLowerCase() === code.trim().toLowerCase()
-      ) ||
-      scope[4];
+    const trimmed = code.trim();
+    if (!trimmed) return;
+    let p = scope.find(
+      (x) => x.barcode === trimmed || x.sku.toLowerCase() === trimmed.toLowerCase()
+    );
+    if (!p) {
+      try {
+        const found = await posMockService.lookupByBarcode(trimmed);
+        if (found) p = found;
+      } catch {}
+    }
+    if (!p) {
+      p = scope[0] || posMockService.getProductById(101);
+    }
+    if (!p) {
+      toast(`لا يوجد صنف بالرمز ${trimmed}`, 'bad');
+      return;
+    }
 
-    await posMockService.recordStocktakeScan(p.id, Number(qty || 1), 'barcode');
-    setCode('');
-    setQty('1');
-    loadSession();
+    try {
+      const res = await posMockService.recordStocktakeScan(p.id, Number(qty || 1), 'barcode');
+      if ((res as any)?.duplicate) {
+        toast('تم تسجيل هذا المسح مسبقًا', 'bad');
+      } else {
+        toast(`سُجّل ${fmt(Number(qty || 1))} — ${p.name}`);
+      }
+      setCode('');
+      setQty('1');
+      loadSession();
+    } catch (e: any) {
+      toast(e?.message || 'تعذر تسجيل المسح', 'bad');
+    }
   };
 
   const mic = () => {
     if (listening) return;
-    setListening(true);
-    setHeard('');
-    const words = 'اتناشر';
-    let i = 0;
-    const iv = setInterval(() => {
-      i++;
-      setHeard(words.slice(0, i));
-      if (i >= words.length) {
-        clearInterval(iv);
-        setTimeout(async () => {
-          setListening(false);
-          await posMockService.recordStocktakeScan(105, 12, 'voice', words);
-          toast('سُجّل ١٢ — باك باك لابتوب');
-          loadSession();
-        }, 500);
-      }
-    }, 140);
-  };
+    const Speech =
+      typeof window !== 'undefined'
+        ? (window as SpeechWindow).SpeechRecognition ?? (window as SpeechWindow).webkitSpeechRecognition
+        : undefined;
 
-  const lp = posMockService.getProductById(last.id) || scope[0];
+    if (Speech) {
+      setListening(true);
+      setHeard('');
+      try {
+        const listener = new Speech();
+        recognitionRef.current = listener;
+        listener.lang = 'ar-EG';
+        listener.interimResults = false;
+        listener.maxAlternatives = 1;
+
+        listener.onresult = async (event: any) => {
+          const transcript = event.results?.[0]?.[0]?.transcript?.trim() ?? '';
+          setHeard(transcript);
+          if (transcript) {
+            const targetProd = lp || scope[0];
+            if (targetProd) {
+              try {
+                const res = await posMockService.recordStocktakeScan(
+                  targetProd.id,
+                  undefined,
+                  'voice',
+                  transcript
+                );
+                if ((res as any)?.duplicate) {
+                  toast('تم تسجيل هذا المسح مسبقًا', 'bad');
+                } else {
+                  toast(`سُجّل «${transcript}» — ${targetProd.name}`);
+                }
+                loadSession();
+              } catch (e: any) {
+                toast(e?.message || 'تعذر تسجيل العدد الصوتي', 'bad');
+              }
+            }
+          }
+        };
+
+        listener.onerror = () => {
+          toast('تعذّر سماع العدد؛ اكتب العدد بالخانة يدويًا', 'bad');
+          setListening(false);
+        };
+
+        listener.onend = () => {
+          setListening(false);
+        };
+
+        listener.start();
+      } catch {
+        setListening(false);
+      }
+    } else {
+      setListening(true);
+      setHeard('');
+      const words = 'اتناشر';
+      let i = 0;
+      const iv = setInterval(() => {
+        i++;
+        setHeard(words.slice(0, i));
+        if (i >= words.length) {
+          clearInterval(iv);
+          setTimeout(async () => {
+            setListening(false);
+            const targetProd = lp || scope[0];
+            if (targetProd) {
+              const res = await posMockService.recordStocktakeScan(targetProd.id, 12, 'voice', words);
+              if ((res as any)?.duplicate) {
+                toast('تم تسجيل هذا المسح مسبقًا', 'bad');
+              } else {
+                toast(`سُجّل ١٢ — ${targetProd.name}`);
+              }
+              loadSession();
+            }
+          }, 400);
+        }
+      }, 140);
+    }
+  };
 
   return (
     <div className="page" data-screen-label="10 Stocktake">
