@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\Pos\PosAuthController;
 use App\Http\Controllers\Api\V1\Pos\PosBootstrapController;
+use App\Http\Controllers\Api\V1\Pos\PosCustomerController;
 use App\Http\Controllers\Api\V1\Pos\PosProductController;
 use App\Http\Controllers\Api\V1\Pos\PosSaleController;
 use App\Http\Controllers\Api\V1\Pos\PosShiftController;
@@ -33,7 +34,9 @@ Route::middleware(['auth:sanctum', 'auth.staff', 'permission:pos.access'])->grou
     Route::post('shifts/open', [PosShiftController::class, 'open'])->name('shifts.open');
     Route::get('shifts/current', [PosShiftController::class, 'current'])->name('shifts.current');
 
-    // Product lookup and held carts accessible prior to shift opening.
+    // Product catalog, lookup, customers, and held carts accessible prior to shift opening.
+    Route::get('catalog', [PosProductController::class, 'catalog'])->name('catalog');
+    Route::get('customers', [PosCustomerController::class, 'index'])->name('customers.index');
     Route::get('products/lookup', [PosProductController::class, 'lookup'])->name('products.lookup');
     Route::get('sales/held', [PosSaleController::class, 'held'])->name('sales.held');
 
@@ -52,10 +55,16 @@ Route::middleware(['auth:sanctum', 'auth.staff', 'permission:pos.access'])->grou
         Route::post('sales/{sale}/return', [PosSaleController::class, 'processReturn'])->middleware('permission:pos.sales.refund')->name('sales.return');
         Route::post('sales/{sale}/exchange', [PosSaleController::class, 'processExchange'])->middleware('permission:pos.sales.refund')->name('sales.exchange');
 
+        // Customers quick creation during active shift.
+        Route::post('customers', [PosCustomerController::class, 'store'])->name('customers.store');
+
         // Branch inventory, transfers, and barcode scanning.
         Route::get('stock', [PosStockController::class, 'index'])->name('stock.index');
+        Route::get('transfers/incoming', [PosStockController::class, 'incoming'])->name('transfers.incoming');
+        Route::get('transfer-sources', [PosStockController::class, 'sources'])->name('transfer-sources.index');
         Route::post('transfer-requests', [PosStockController::class, 'requestTransfer'])->name('transfer-requests.store');
         Route::post('transfers/{transfer}/receive', [PosStockController::class, 'receiveTransfer'])->name('transfers.receive');
+        Route::get('stocktakes/current', [PosStockController::class, 'currentStocktake'])->name('stocktakes.current');
         Route::post('stocktakes/{stocktake}/scan', [PosStockController::class, 'scan'])->name('stocktakes.scan');
     });
 

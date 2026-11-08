@@ -39,6 +39,15 @@ class StockTransferResource extends JsonResource
                 'id' => $item->id,
                 'product_variant_id' => $item->product_variant_id,
                 'sku' => $item->relationLoaded('variant') ? $item->variant?->sku : null,
+                'variant' => $item->relationLoaded('variant') && $item->variant ? [
+                    'id' => $item->variant->id,
+                    'sku' => $item->variant->sku,
+                    'barcode' => $item->variant->barcode,
+                    'product_name' => $item->variant->relationLoaded('product')
+                        ? ($item->variant->product?->name_ar ?? $item->variant->product?->name_en)
+                        : null,
+                    'variant_name' => $item->variant->color_name_ar ?? $item->variant->color_name_en,
+                ] : null,
                 'from_location' => $item->relationLoaded('fromLocation') && $item->fromLocation ? [
                     'id' => $item->fromLocation->id, 'name' => $item->fromLocation->name,
                 ] : null,

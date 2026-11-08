@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Pos;
 
 use App\Enums\StocktakeStatus;
+use App\Enums\TransferStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Admin\StockLevelResource;
+use App\Http\Resources\Admin\StockTransferResource;
+use App\Models\Branch;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
 use App\Models\Stocktake;
@@ -226,5 +229,111 @@ class PosStockController extends Controller
         }
 
         return response()->json($response);
+    }
+
+    /**
+     * Lists incoming shipped transfers targeted at the cashier's branch.
+     */
+    public function incoming(Request $request): AnonymousResourceCollection
+    {
+        /** @var User $user */
+        $user = $request->user('staff');
+        $branchId = (int) $user->branch_id;
+        app(BranchAccess::class)->assertBranch($user->id, $branchId);
+
+        $transfers = StockTransfer::query()
+            ->where('to_branch_id', $branchId)
+            ->where('status', TransferStatus::Shipped)
+            ->with(['fromBranch', 'toBranch', 'items.variant.product', 'items.fromLocation', 'items.toLocation'])
+            ->orderByDesc('shipped_at')
+            ->orderByDesc('id')
+            ->get();
+
+        return StockTransferResource::collection($transfers);
+    }
+
+    /**
+     * Lists active transfer source branches and warehouses excluding the cashier's own branch.
+     */
+    public function sources(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user('staff');
+        $branchId = (int) $user->branch_id;
+        app(BranchAccess::class)->assertBranch($user->id, $branchId);
+
+        $branches = Branch::query()
+            ->where('is_active', true)
+            ->where('id', '!=', $branchId)
+            ->orderBy('id')
+            ->get()
+            ->map(fn (Branch $b): array => [
+                'id' => $b->id,
+                'name' => $b->getAttribute('name_ar') ?? $b->name,
+                'code' => $b->code,
+                'type' => $b->type instanceof \BackedEnum ? $b->type->value : (string) $b->type,
+            ])
+            ->values()
+            ->all();
+
+        return response()->json(['data' => $branches]);
+    }
+
+    /**
+     * Retrieves the latest active (draft or in_progress) stocktake session for the cashier's branch.
+     *
+     * Enforces blind counting by hiding system_qty and variance_qty unless the staff member has stocktakes.approve.
+     */
+    public function currentStocktake(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user('staff');
+        $branchId = (int) $user->branch_id;
+        app(BranchAccess::class)->assertBranch($user->id, $branchId);
+
+        $stocktake = Stocktake::query()
+            ->where('branch_id', $branchId)
+            ->whereIn('status', [StocktakeStatus::Draft, StocktakeStatus::InProgress])
+            ->with(['items.variant.product'])
+            ->latest('id')
+            ->first();
+
+        if ($stocktake === null) {
+            return response()->json(['data' => null]);
+        }
+
+        $canApprove = $user->can('stocktakes.approve');
+
+        $items = $stocktake->items->map(function ($item) use ($canApprove): array {
+            $row = [
+                'id' => $item->id,
+                'product_variant_id' => $item->product_variant_id,
+                'sku' => $item->relationLoaded('variant') ? $item->variant?->sku : null,
+                'barcode' => $item->relationLoaded('variant') ? $item->variant?->barcode : null,
+                'counted_qty' => $item->counted_qty !== null ? (float) $item->counted_qty : null,
+            ];
+
+            if ($canApprove) {
+                $row['system_qty'] = $item->system_qty !== null ? (float) $item->system_qty : null;
+                $row['difference'] = $item->difference !== null ? (float) $item->difference : null;
+                $row['variance_qty'] = $item->difference !== null ? (float) $item->difference : null;
+            }
+
+            return $row;
+        })->values()->all();
+
+        return response()->json([
+            'data' => [
+                'id' => $stocktake->id,
+                'stocktake_number' => $stocktake->stocktake_number,
+                'branch_id' => $stocktake->branch_id,
+                'location_id' => $stocktake->location_id,
+                'status' => $stocktake->status->value,
+                'notes' => $stocktake->notes,
+                'items' => $items,
+                'created_at' => $stocktake->created_at,
+                'updated_at' => $stocktake->updated_at,
+            ],
+        ]);
     }
 }

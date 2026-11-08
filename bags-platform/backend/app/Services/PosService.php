@@ -805,6 +805,145 @@ class PosService
     }
 
     /**
+     * Retrieves the active branch product catalog with aggregated stock and batch-resolved retail/wholesale prices.
+     *
+     * Supports cursor pagination when total active variants exceed 3000 or when a cursor is explicitly provided.
+     *
+     * @param  int  $branchId  Target branch ID
+     * @param  string  $catalogVersion  Pre-computed catalog version hash
+     * @param  string|null  $cursor  Optional pagination cursor
+     * @return array{data: list<array<string, mixed>>, meta: array{catalog_version: string, next_cursor: string|null}}
+     */
+    public function getBranchCatalog(int $branchId, string $catalogVersion, ?string $cursor = null): array
+    {
+        $baseQuery = ProductVariant::query()
+            ->where('is_active', true)
+            ->whereHas('product', fn ($q) => $q->where('is_active', true)->whereNotNull('published_at'))
+            ->with(['product.media', 'media'])
+            ->orderBy('id');
+
+        $nextCursor = null;
+        if ($cursor !== null && $cursor !== '') {
+            $paginator = $baseQuery->cursorPaginate(500, ['*'], 'cursor', $cursor);
+            $variants = collect($paginator->items());
+            $nextCursor = $paginator->nextCursor()?->encode();
+        } else {
+            $totalCount = (clone $baseQuery)->count();
+            if ($totalCount > 3000) {
+                $paginator = $baseQuery->cursorPaginate(500);
+                $variants = collect($paginator->items());
+                $nextCursor = $paginator->nextCursor()?->encode();
+            } else {
+                $variants = $baseQuery->get();
+            }
+        }
+
+        if ($variants->isEmpty()) {
+            return [
+                'data' => [],
+                'meta' => [
+                    'catalog_version' => $catalogVersion,
+                    'next_cursor' => null,
+                ],
+            ];
+        }
+
+        $variantIds = $variants->pluck('id')->all();
+
+        $stockByVariant = StockLevel::query()
+            ->where('branch_id', $branchId)
+            ->whereIn('product_variant_id', $variantIds)
+            ->where(fn ($q) => $q->whereNull('location_id')->orWhereHas('location', fn ($q) => $q->where('is_active', true)))
+            ->get()
+            ->groupBy('product_variant_id');
+
+        $now = now();
+        $priceListItemsByVariant = \App\Models\PriceListItem::query()
+            ->select('price_list_items.*', 'price_lists.type as pricing_type', 'price_lists.branch_id as pricing_branch_id', 'price_lists.priority as pricing_priority')
+            ->join('price_lists', 'price_lists.id', '=', 'price_list_items.price_list_id')
+            ->where('price_lists.is_active', true)
+            ->whereIn('price_lists.type', [\App\Enums\PriceListType::Retail->value, \App\Enums\PriceListType::Wholesale->value])
+            ->whereIn('price_list_items.product_variant_id', $variantIds)
+            ->where('price_list_items.min_qty', '<=', 1)
+            ->where(fn ($q) => $q->whereNull('price_lists.starts_at')->orWhere('price_lists.starts_at', '<=', $now))
+            ->where(fn ($q) => $q->whereNull('price_lists.ends_at')->orWhere('price_lists.ends_at', '>=', $now))
+            ->where(fn ($q) => $q->whereNull('price_list_items.starts_at')->orWhere('price_list_items.starts_at', '<=', $now))
+            ->where(fn ($q) => $q->whereNull('price_list_items.ends_at')->orWhere('price_list_items.ends_at', '>=', $now))
+            ->where(function ($q) use ($branchId): void {
+                $q->whereNull('price_lists.branch_id')->orWhere('price_lists.branch_id', $branchId);
+            })
+            ->orderByRaw('price_lists.branch_id IS NULL ASC')
+            ->orderByDesc('price_list_items.min_qty')
+            ->orderByDesc('price_lists.priority')
+            ->orderBy('price_list_items.price')
+            ->orderBy('price_list_items.id')
+            ->get()
+            ->groupBy('product_variant_id');
+
+        $data = [];
+        foreach ($variants as $variant) {
+            /** @var ProductVariant $variant */
+            $stock = $stockByVariant->get($variant->id, collect());
+            $onHand = (float) $stock->sum('on_hand');
+            $available = (float) $stock->sum('available');
+
+            $rowReorderMax = (float) $stock->max('reorder_level');
+            $reorderPoint = $rowReorderMax > 0 ? $rowReorderMax : (float) ($variant->reorder_level ?? 0);
+
+            $candidates = $priceListItemsByVariant->get($variant->id, collect());
+            $retailMatch = $candidates->firstWhere('pricing_type', \App\Enums\PriceListType::Retail->value);
+            $wholesaleMatch = $candidates->firstWhere('pricing_type', \App\Enums\PriceListType::Wholesale->value);
+
+            $retailPriceRaw = $retailMatch !== null
+                ? (float) $retailMatch->price
+                : (float) ($variant->retail_price ?? 0);
+
+            if ($wholesaleMatch !== null) {
+                $wholesalePriceRaw = (float) $wholesaleMatch->price;
+            } elseif ($retailMatch !== null && $variant->wholesale_price === null) {
+                $wholesalePriceRaw = (float) $retailMatch->price;
+            } elseif ($variant->wholesale_price !== null) {
+                $wholesalePriceRaw = (float) $variant->wholesale_price;
+            } else {
+                $wholesalePriceRaw = $retailPriceRaw;
+            }
+
+            $productName = $variant->product->name_ar ?? $variant->product->name_en ?? '';
+            $variantName = $variant->color_name_ar ?? $variant->color_name_en ?? $variant->size ?? $variant->capacity;
+            $composedName = implode(' - ', array_filter([$productName, $variantName], fn ($v) => $v !== null && trim((string) $v) !== ''));
+
+            $media = $variant->getMedia('images')->first() ?? $variant->product->getMedia('images')->first();
+            $imageUrl = $media !== null
+                ? ($media->hasGeneratedConversion('thumb') ? $media->getUrl('thumb') : $media->getUrl())
+                : null;
+
+            $data[] = [
+                'id' => $variant->id,
+                'sku' => $variant->sku,
+                'barcode' => $variant->barcode,
+                'name' => $composedName !== '' ? $composedName : (string) $variant->sku,
+                'product_name' => $productName,
+                'variant_name' => $variantName,
+                'category_id' => $variant->product->category_id !== null ? (string) $variant->product->category_id : null,
+                'unit_price' => round($retailPriceRaw, 2),
+                'wholesale_price' => round($wholesalePriceRaw, 2),
+                'available' => floor($available) === $available ? (int) $available : $available,
+                'on_hand' => floor($onHand) === $onHand ? (int) $onHand : $onHand,
+                'reorder_point' => floor($reorderPoint) === $reorderPoint ? (int) $reorderPoint : $reorderPoint,
+                'image_url' => $imageUrl,
+            ];
+        }
+
+        return [
+            'data' => $data,
+            'meta' => [
+                'catalog_version' => $catalogVersion,
+                'next_cursor' => $nextCursor,
+            ],
+        ];
+    }
+
+    /**
      * Quotes a POS cart without DB locks or persistence, returning line pricing, availability, and totals.
      * Never throws when stock is insufficient; populates line `error` with an Arabic message instead.
      *

@@ -780,6 +780,310 @@ class PosPhase1EndpointsTest extends TestCase
         $this->withToken($this->token)->deleteJson("/api/v1/pos/sales/held/{$heldId2}")->assertStatus(404);
     }
 
+    public function test_catalog_returns_active_variants_with_branch_stock_and_wholesale_prices_and_etag_304(): void
+    {
+        $this->variant->update([
+            'wholesale_price' => 120.00,
+            'reorder_level' => 10,
+        ]);
+
+        // Add branch price list item overriding retail to 140.00
+        $retailList = \App\Models\PriceList::create([
+            'name' => 'Cairo Promo',
+            'type' => \App\Enums\PriceListType::Retail,
+            'branch_id' => $this->branch->id,
+            'priority' => 10,
+            'is_active' => true,
+        ]);
+        \App\Models\PriceListItem::create([
+            'price_list_id' => $retailList->id,
+            'product_variant_id' => $this->variant->id,
+            'min_qty' => 1,
+            'price' => 140.00,
+        ]);
+
+        // Add inactive variant (should be excluded)
+        ProductVariant::create([
+            'product_id' => $this->variant->product_id,
+            'sku' => 'BAG-001-INACTIVE',
+            'barcode' => '6221234567999',
+            'color_name_ar' => 'أسود',
+            'retail_price' => 150.00,
+            'cost_price' => 80.00,
+            'is_active' => false,
+        ]);
+
+        $expectedVersion = app(PosService::class)->computeCatalogVersion($this->branch->id);
+
+        // 1. Initial GET catalog (callable before opening shift)
+        $res = $this->withToken($this->token)->getJson('/api/v1/pos/catalog');
+        $res->assertOk()
+            ->assertHeader('ETag', "\"{$expectedVersion}\"")
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $this->variant->id)
+            ->assertJsonPath('data.0.sku', 'BAG-001-RED')
+            ->assertJsonPath('data.0.barcode', '6221234567890')
+            ->assertJsonPath('data.0.name', 'شنطة جلد - أحمر')
+            ->assertJsonPath('data.0.product_name', 'شنطة جلد')
+            ->assertJsonPath('data.0.variant_name', 'أحمر')
+            ->assertJsonPath('data.0.category_id', (string) $this->category->id)
+            ->assertJsonPath('data.0.unit_price', 140)
+            ->assertJsonPath('data.0.wholesale_price', 120)
+            ->assertJsonPath('data.0.available', 50)
+            ->assertJsonPath('data.0.on_hand', 50)
+            ->assertJsonPath('data.0.reorder_point', 10)
+            ->assertJsonPath('meta.catalog_version', $expectedVersion)
+            ->assertJsonPath('meta.next_cursor', null);
+
+        // 2. Request with matching If-None-Match (quoted) returns 304 with empty body
+        $res304Quoted = $this->withToken($this->token)
+            ->withHeaders(['If-None-Match' => "\"{$expectedVersion}\""])
+            ->get('/api/v1/pos/catalog');
+        $res304Quoted->assertStatus(304)
+            ->assertHeader('ETag', "\"{$expectedVersion}\"");
+        $this->assertSame('', $res304Quoted->getContent());
+
+        // 3. Request with matching If-None-Match (unquoted) returns 304 with empty body
+        $res304Unquoted = $this->withToken($this->token)
+            ->withHeaders(['If-None-Match' => $expectedVersion])
+            ->get('/api/v1/pos/catalog');
+        $res304Unquoted->assertStatus(304)
+            ->assertHeader('ETag', "\"{$expectedVersion}\"");
+        $this->assertSame('', $res304Unquoted->getContent());
+    }
+
+    public function test_customers_index_and_store_search_by_arabic_digits_and_create_retail_or_wholesale(): void
+    {
+        \App\Models\Customer::create([
+            'name' => 'مها فتحي',
+            'phone' => '01012345678',
+            'password' => 'secret123456',
+            'company_name' => 'شركة مها',
+            'tax_number' => '111222333',
+            'commercial_register' => '444555',
+            'type' => \App\Enums\CustomerType::Wholesale,
+            'status' => \App\Enums\CustomerStatus::Approved,
+        ]);
+
+        \App\Models\Customer::create([
+            'name' => 'كريم عبد الله',
+            'phone' => '01155550912',
+            'password' => 'secret123456',
+            'type' => \App\Enums\CustomerType::Retail,
+            'status' => \App\Enums\CustomerStatus::Approved,
+        ]);
+
+        // Suspended customer should be excluded
+        \App\Models\Customer::create([
+            'name' => 'عميل موقوف',
+            'phone' => '01299998888',
+            'password' => 'secret123456',
+            'type' => \App\Enums\CustomerType::Retail,
+            'status' => \App\Enums\CustomerStatus::Suspended,
+        ]);
+
+        // 1. Search by Arabic-Indic phone digits (callable before shift open)
+        $resPhone = $this->withToken($this->token)->getJson('/api/v1/pos/customers?q='.urlencode('٠١٠١٢٣٤'));
+        $resPhone->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.name', 'مها فتحي')
+            ->assertJsonPath('data.0.phone', '01012345678')
+            ->assertJsonPath('data.0.type', 'wholesale')
+            ->assertJsonPath('data.0.loyalty_points', 0)
+            ->assertJsonPath('data.0.points', 0);
+
+        // 2. Search by name
+        $resName = $this->withToken($this->token)->getJson('/api/v1/pos/customers?q='.urlencode('كريم'));
+        $resName->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.name', 'كريم عبد الله')
+            ->assertJsonPath('data.0.type', 'retail');
+
+        // 2b. Max 10 active customers returned when more than 10 exist
+        for ($i = 1; $i <= 12; $i++) {
+            \App\Models\Customer::create([
+                'name' => "عميل تجريبي {$i}",
+                'phone' => '0151111'.str_pad((string) $i, 4, '0', STR_PAD_LEFT),
+                'password' => 'secret123456',
+                'type' => \App\Enums\CustomerType::Retail,
+                'status' => \App\Enums\CustomerStatus::Approved,
+            ]);
+        }
+        $resMax10 = $this->withToken($this->token)->getJson('/api/v1/pos/customers');
+        $resMax10->assertOk()->assertJsonCount(10, 'data');
+
+        // 3. POST customers requires active shift
+        $this->withToken($this->token)->postJson('/api/v1/pos/customers', [
+            'name' => 'أحمد علي',
+            'phone' => '01066667777',
+            'type' => 'retail',
+        ])->assertStatus(403);
+
+        // Open shift
+        $this->withToken($this->token)->postJson('/api/v1/pos/shifts/open', [
+            'treasury_id' => $this->posDrawer1->id,
+            'opening_cash' => 200.00,
+        ])->assertCreated();
+
+        // 4. Create retail customer (with Arabic digits in phone)
+        $createRetail = $this->withToken($this->token)->postJson('/api/v1/pos/customers', [
+            'name' => 'أحمد علي',
+            'phone' => '٠١٠٦٦٦٦٧٧٧٧',
+            'type' => 'retail',
+        ]);
+        $createRetail->assertStatus(201)
+            ->assertJsonPath('data.name', 'أحمد علي')
+            ->assertJsonPath('data.phone', '01066667777')
+            ->assertJsonPath('data.type', 'retail')
+            ->assertJsonPath('data.loyalty_points', 0);
+
+        // 5. Create wholesale customer
+        $createWholesale = $this->withToken($this->token)->postJson('/api/v1/pos/customers', [
+            'name' => 'تاجر جملة جديد',
+            'phone' => '01277778888',
+            'type' => 'wholesale',
+        ]);
+        $createWholesale->assertStatus(201)
+            ->assertJsonPath('data.name', 'تاجر جملة جديد')
+            ->assertJsonPath('data.phone', '01277778888')
+            ->assertJsonPath('data.type', 'wholesale');
+
+        // 6. Duplicate phone returns 422
+        $this->withToken($this->token)->postJson('/api/v1/pos/customers', [
+            'name' => 'مكرر',
+            'phone' => '+201066667777',
+            'type' => 'retail',
+        ])->assertStatus(422);
+    }
+
+    public function test_inventory_endpoints_incoming_transfers_sources_and_blind_stocktake(): void
+    {
+        $warehouse = Branch::create([
+            'name' => 'المخزن الرئيسي',
+            'code' => 'WH-MAIN',
+            'type' => 'warehouse',
+            'is_active' => true,
+        ]);
+
+        $otherStore = Branch::create([
+            'name' => 'فرع الإسكندرية',
+            'code' => 'BR-ALEX',
+            'type' => 'branch',
+            'is_active' => true,
+        ]);
+
+        // Inactive branch should be excluded from sources
+        Branch::create([
+            'name' => 'فرع مغلق',
+            'code' => 'BR-CLOSED',
+            'type' => 'branch',
+            'is_active' => false,
+        ]);
+
+        // Open shift for cashier
+        $this->withToken($this->token)->postJson('/api/v1/pos/shifts/open', [
+            'treasury_id' => $this->posDrawer1->id,
+            'opening_cash' => 200.00,
+        ])->assertCreated();
+
+        // 1. GET /api/v1/pos/transfer-sources (excludes own branch and inactive branches)
+        $sourcesRes = $this->withToken($this->token)->getJson('/api/v1/pos/transfer-sources');
+        $sourcesRes->assertOk()
+            ->assertJsonCount(2, 'data');
+
+        $sourceIds = array_column($sourcesRes->json('data'), 'id');
+        $this->assertContains($warehouse->id, $sourceIds);
+        $this->assertContains($otherStore->id, $sourceIds);
+        $this->assertNotContains($this->branch->id, $sourceIds);
+
+        // 2. GET /api/v1/pos/transfers/incoming (only shipped transfers to this branch)
+        $shippedTransfer = \App\Models\StockTransfer::create([
+            'transfer_number' => 'TRF-001001',
+            'from_branch_id' => $warehouse->id,
+            'to_branch_id' => $this->branch->id,
+            'status' => \App\Enums\TransferStatus::Shipped,
+            'created_by' => $this->cashier->id,
+            'approved_by' => $this->cashier->id,
+            'shipped_at' => now(),
+            'notes' => 'شحنة الصباح',
+        ]);
+        $transferItem = \App\Models\StockTransferItem::create([
+            'stock_transfer_id' => $shippedTransfer->id,
+            'product_variant_id' => $this->variant->id,
+            'requested_qty' => 10,
+            'approved_qty' => 10,
+            'shipped_qty' => 8,
+        ]);
+
+        // Draft transfer to this branch should NOT appear in incoming
+        \App\Models\StockTransfer::create([
+            'transfer_number' => 'TRF-001002',
+            'from_branch_id' => $warehouse->id,
+            'to_branch_id' => $this->branch->id,
+            'status' => \App\Enums\TransferStatus::Draft,
+            'created_by' => $this->cashier->id,
+        ]);
+
+        $incomingRes = $this->withToken($this->token)->getJson('/api/v1/pos/transfers/incoming');
+        $incomingRes->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $shippedTransfer->id)
+            ->assertJsonPath('data.0.transfer_number', 'TRF-001001')
+            ->assertJsonPath('data.0.from_branch.id', $warehouse->id)
+            ->assertJsonPath('data.0.from_branch.name', 'المخزن الرئيسي')
+            ->assertJsonPath('data.0.items.0.id', $transferItem->id)
+            ->assertJsonPath('data.0.items.0.product_variant_id', $this->variant->id)
+            ->assertJsonPath('data.0.items.0.sku', 'BAG-001-RED');
+
+        $this->assertEquals(8, (float) $incomingRes->json('data.0.items.0.shipped_qty'));
+        $this->assertEquals(10, (float) $incomingRes->json('data.0.items.0.requested_qty'));
+
+        // 3. GET /api/v1/pos/stocktakes/current when none exists -> { data: null }
+        $this->withToken($this->token)
+            ->getJson('/api/v1/pos/stocktakes/current')
+            ->assertOk()
+            ->assertExactJson(['data' => null]);
+
+        // Create active stocktake
+        $stocktake = \App\Models\Stocktake::create([
+            'stocktake_number' => 'STK-001001',
+            'branch_id' => $this->branch->id,
+            'status' => \App\Enums\StocktakeStatus::InProgress,
+            'created_by' => $this->cashier->id,
+            'notes' => 'جرد مسائي',
+        ]);
+        \App\Models\StocktakeItem::create([
+            'stocktake_id' => $stocktake->id,
+            'product_variant_id' => $this->variant->id,
+            'system_qty' => 50,
+            'counted_qty' => 48,
+        ]);
+
+        // Regular cashier (without stocktakes.approve) MUST NOT see system_qty, difference, or variance_qty
+        $stCashierRes = $this->withToken($this->token)->getJson('/api/v1/pos/stocktakes/current');
+        $stCashierRes->assertOk()
+            ->assertJsonPath('data.id', $stocktake->id)
+            ->assertJsonPath('data.stocktake_number', 'STK-001001')
+            ->assertJsonPath('data.status', 'in_progress')
+            ->assertJsonPath('data.items.0.product_variant_id', $this->variant->id);
+
+        $this->assertEquals(48, (float) $stCashierRes->json('data.items.0.counted_qty'));
+        $itemArray = $stCashierRes->json('data.items.0');
+        $this->assertArrayNotHasKey('system_qty', $itemArray);
+        $this->assertArrayNotHasKey('difference', $itemArray);
+        $this->assertArrayNotHasKey('variance_qty', $itemArray);
+
+        // Grant stocktakes.approve -> system_qty becomes visible
+        $this->cashier->givePermissionTo(Permission::findOrCreate('stocktakes.approve', 'staff'));
+        \Illuminate\Support\Facades\Auth::forgetGuards();
+
+        $stApproverRes = $this->withToken($this->token)->getJson('/api/v1/pos/stocktakes/current');
+        $stApproverRes->assertOk();
+        $approverItem = $stApproverRes->json('data.items.0');
+        $this->assertArrayHasKey('system_qty', $approverItem);
+        $this->assertEquals(50, (float) $approverItem['system_qty']);
+    }
+
     public function json($method, $uri, array $data = [], array $headers = [], $options = 0)
     {
         if (strtoupper($method) === 'POST' && str_ends_with($uri, '/pos/sales') && ! isset($headers['Idempotency-Key']) && ! isset($this->defaultHeaders['Idempotency-Key'])) {
