@@ -1,0 +1,48 @@
+{
+  "output": {
+    "filePath": "repomix-design-wholesale-storefront.xml",
+    "style": "xml",
+    "parsableStyle": true,
+    "fileSummary": true,
+    "directoryStructure": true,
+    "removeComments": false,
+    "removeEmptyLines": false,
+    "topFilesLength": 20,
+    "showLineNumbers": false,
+    "copyToClipboard": false
+  },
+  "include": [
+    "bags-platform/frontend/packages/ui/src/wholesale-portal/portal.css",
+    "bags-platform/frontend/packages/ui/src/wholesale-portal/auth.css",
+    "bags-platform/frontend/packages/ui/src/wholesale-portal/ui-primitives.jsx",
+    "bags-platform/frontend/packages/ui/src/wholesale-portal/WholesalePortal.jsx",
+    "bags-platform/frontend/packages/ui/src/wholesale-portal/buy-screens.jsx",
+    "bags-platform/frontend/packages/ui/src/wholesale-portal/orders-screens.jsx",
+    "bags-platform/frontend/packages/ui/src/wholesale-portal/finance-screens.jsx",
+    "bags-platform/frontend/packages/ui/src/wholesale-portal/auth-screens.jsx",
+    "bags-platform/frontend/apps/backoffice/src/pages/admin/operations-mock/wholesale.tsx",
+    "bags-platform/frontend/apps/storefront/src/styles/**",
+    "bags-platform/frontend/apps/storefront/src/components/StorefrontShell.tsx",
+    "bags-platform/frontend/apps/storefront/src/components/sophie/SophieHeader.tsx",
+    "bags-platform/frontend/apps/storefront/src/components/sophie/SophieFooter.tsx",
+    "bags-platform/frontend/apps/storefront/src/components/sophie/SophieHero.tsx",
+    "bags-platform/frontend/apps/storefront/src/components/sophie/SophieProductCard.tsx",
+    "bags-platform/frontend/apps/storefront/src/components/sophie/SophieCartDrawer.tsx",
+    "bags-platform/frontend/apps/storefront/src/components/sophie/SophieMegaDrawer.tsx",
+    "bags-platform/frontend/apps/storefront/src/components/sophie/SophieSectionHeading.tsx",
+    "bags-platform/frontend/apps/storefront/src/components/sophie/checkout/**",
+    "bags-platform/frontend/packages/ui/src/components/**",
+    "new_design/tokens.css",
+    "new_design/shell.css",
+    "new_design/ui.jsx"
+  ],
+  "ignore": {
+    "useGitignore": true,
+    "customPatterns": [
+      "**/node_modules/**",
+      "**/.git/**",
+      "**/dist/**",
+      "**/.next/**"
+    ]
+  }
+}

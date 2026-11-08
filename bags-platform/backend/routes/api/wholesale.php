@@ -55,7 +55,7 @@ Route::middleware(['auth:sanctum', 'auth.customer', 'wholesale.approved'])->grou
     Route::get('payment-notices/{notice}/receipt', [AttachmentController::class, 'paymentNotice'])->whereNumber('notice')->name('payment-notices.receipt');
 
     // Price quotations lifecycle
-    Route::apiResource('quotations', QuotationController::class)->parameters(['quotations' => 'quotation']);
+    Route::apiResource('quotations', QuotationController::class)->parameters(['quotations' => 'quotation'])->where(['quotation' => '[0-9]+']);
     Route::post('quotations/{quotation}/submit', [QuotationController::class, 'submit'])->whereNumber('quotation')->name('quotations.submit');
     Route::post('quotations/{quotation}/accept', [QuotationController::class, 'accept'])->whereNumber('quotation')->name('quotations.accept');
     Route::post('quotations/{quotation}/reject', [QuotationController::class, 'reject'])->whereNumber('quotation')->name('quotations.reject');

@@ -1,6 +1,7 @@
 import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { CashierScreen } from './pages/CashierScreen';
+import { PosApp } from './components/PosApp';
+import { ToastHost } from './components/ui/SharedUI';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -14,7 +15,9 @@ const queryClient = new QueryClient({
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <CashierScreen />
+      <ToastHost>
+        <PosApp />
+      </ToastHost>
     </QueryClientProvider>
   );
 }

@@ -15,18 +15,25 @@ use Throwable;
  */
 class ExpireQuotations extends Command
 {
-    protected $signature = 'quotations:expire';
+    protected $signature = 'quotations:expire {--dry-run : Count expired quotations without changing them}';
 
     protected $description = 'Expire priced quotations whose valid_until date has passed';
 
     public function handle(QuotationService $quotations): int
     {
-        $expired = 0;
-        Quotation::query()
+        $query = Quotation::query()
             ->where('status', QuotationStatus::PricedByAdmin)
             ->whereNotNull('valid_until')
-            ->whereDate('valid_until', '<', now()->toDateString())
-            ->orderBy('id')
+            ->whereDate('valid_until', '<', now()->toDateString());
+
+        if ($this->option('dry-run')) {
+            $this->info("Would expire {$query->count()} quotations.");
+
+            return self::SUCCESS;
+        }
+
+        $expired = 0;
+        $query->orderBy('id')
             ->each(function (Quotation $quotation) use ($quotations, &$expired): void {
                 try {
                     $quotations->expire($quotation);

@@ -185,3 +185,11 @@ store
 probe-servers-tmp.cjs
 repomix-files.txt
 
+
+# ------------------------------------------
+# AI Agents & Skills Local Folders
+# ------------------------------------------
+.agent/
+.agents/
+.superpowers/
+docs/superpowers/

@@ -69,7 +69,7 @@ final class DomainRouter
         ],
         'wholesale' => [
             'عرض سعر', 'عروض اسعار', 'تسعيرة', 'تسعير عرض', 'اشعار سداد', 'إشعار سداد',
-            'كشف حساب', 'مديونية', 'مديونيه', 'آجل', 'اجل', 'تاجر', 'تجار',
+            'كشف حساب', 'مديونية', 'مديونيه', 'مديونيتي', 'مديونيتك', 'آجل', 'اجل', 'تاجر', 'تجار',
             'q-', 'pn-',
         ],
         'storefront' => [
@@ -178,6 +178,14 @@ final class DomainRouter
             }
         }
 
+        // Quotation / payment-notice references (Q- / QT- / PN- plus digits) always
+        // belong to wholesale. They cannot ride the keyword loop: 'q-' is a short
+        // keyword that only matches whole tokens, while real refs glue digits to
+        // the prefix (Q-1042), so the keyword could never fire.
+        if (preg_match('/(?:^|[^\p{L}\p{N}_])(?:qt|q|pn)-\d+/iu', EntityResolver::normalizeDigits($text)) === 1) {
+            $domains['wholesale'] = true;
+        }
+
         $domains = array_fill_keys($this->disambiguate($norm, array_keys($domains), $refs), true);
 
         // Retain previous tool domain context during multi-turn follow-up queries.
@@ -283,6 +291,16 @@ final class DomainRouter
             }
         }
 
+        // Production batches ("دفعة إنتاج") are inventory terms, but the finance
+        // keyword "الدفع" normalizes to "دفع" which is a substring of "دفعة", so
+        // batch sentences would always drag finance along. Drop finance unless a
+        // different finance signal is present.
+        if (($has('دفعة') || $has('دفعات')) && $hasAny(['انتاج', 'إنتاج'])) {
+            if (! $hasOtherKeywords('finance', ['الدفع', 'اتدفع', 'مدفوع'])) {
+                $drop(['finance']);
+            }
+        }
+
         // Distinguish financial ledger balances from SKU stock quantities.
         // Financial balances vs inventory stock levels.
         if ($has('رصيد')) {
@@ -342,8 +360,14 @@ final class DomainRouter
                 $drop(['finance']);
             }
         } elseif ($transferWord && $has('بنك') && ! $hasAny(['خزنة', 'خزينه', 'درج', 'بضاعه', 'صنف', 'شنطه'])) {
-            $keep('wholesale');
-            $drop(['inventory', 'finance']);
+            // A bare bank transfer is a treasury move (finance). Claim it for
+            // wholesale only with an explicit payment signal; otherwise the
+            // money-context rule above already kept finance.
+            if ($hasAny(['اشعار', 'سداد', 'مديونية', 'مديونيه', 'مديونيتي', 'اجل', 'كشف حساب', 'عرض سعر'])
+                || preg_match('/(?:^|[^\p{L}\p{N}_])(?:qt|q|pn)-\d+/iu', $norm) === 1) {
+                $keep('wholesale');
+                $drop(['inventory', 'finance']);
+            }
         }
 
         if ($shippingCtx) {

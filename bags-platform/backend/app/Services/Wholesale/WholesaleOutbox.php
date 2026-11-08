@@ -9,6 +9,7 @@ use App\Models\Customer;
 use App\Models\OutboundMessage;
 use Carbon\CarbonInterface;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 /**
@@ -37,7 +38,11 @@ final class WholesaleOutbox
         bool $deliver = true,
     ): void {
         try {
-            $message = OutboundMessage::query()->create([
+            // Savepoint-guarded: callers queue from inside service transactions
+            // (model event listeners), and on Postgres a caught unique
+            // violation without a savepoint would abort the whole outer
+            // transaction instead of just dropping the duplicate.
+            $message = DB::transaction(fn () => OutboundMessage::query()->create([
                 'customer_id' => $customerId,
                 'channel' => $channel,
                 'idempotency_key' => $key,
@@ -47,7 +52,7 @@ final class WholesaleOutbox
                 // Mark as skipped when the customer has not explicitly opted into notifications.
                 'error' => $deliver ? null : 'no_opt_in',
                 'scheduled_for' => $scheduledFor,
-            ]);
+            ]));
         } catch (UniqueConstraintViolationException) {
             // Silently drop duplicate idempotency keys to guarantee at-most-once enqueue semantics.
             return;

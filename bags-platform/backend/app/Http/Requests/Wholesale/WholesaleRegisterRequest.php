@@ -30,6 +30,9 @@ class WholesaleRegisterRequest extends FormRequest
      */
     public function rules(): array
     {
+        // In JSON tests UploadedFile instances live inside all('documents') rather than file('documents').
+        $docs = $this->all('documents')['documents'] ?? $this->file('documents') ?? [];
+
         return [
             'name' => ['required', 'string', 'max:255'],
             'email' => ['nullable', 'email', 'max:255', new EmailNotUsedByOtherAccountType('customers'), new UniqueCustomerEmail],
@@ -40,8 +43,23 @@ class WholesaleRegisterRequest extends FormRequest
             'tax_number' => ['required', 'string', 'max:50'],
             'commercial_register' => ['required', 'string', 'max:50'],
             'documents' => ['required', 'array', 'list', 'min:1', 'max:5'],
-            'documents.*' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'mimetypes:application/pdf,image/jpeg,image/png', 'max:5120'],
-            'document_types' => ['nullable', 'array', 'list', 'size:'.count(Arr::wrap($this->file('documents', [])))],
+            'documents.*' => [
+                'required',
+                'file',
+                'mimes:pdf,jpg,jpeg,png',
+                'mimetypes:application/pdf,image/jpeg,image/png',
+                'max:5120',
+                static function (string $attribute, mixed $value, \Closure $fail): void {
+                    if (! $value instanceof \Illuminate\Http\UploadedFile || $value->getRealPath() === false) {
+                        return;
+                    }
+                    $head = (string) @file_get_contents($value->getRealPath(), false, null, 0, 4);
+                    if (str_starts_with($head, 'MZ')) {
+                        $fail('نوع الملف المرفوع غير مدعوم.');
+                    }
+                },
+            ],
+            'document_types' => ['nullable', 'array', 'list', 'size:'.count(Arr::wrap($docs))],
             'document_types.*' => ['nullable', Rule::enum(CustomerDocumentType::class)],
         ];
     }

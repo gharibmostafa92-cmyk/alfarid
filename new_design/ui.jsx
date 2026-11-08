@@ -209,4 +209,4 @@ function Stepper({ steps, current }) {
   </React.Fragment>)}</div>;
 }
 
-Object.assign(window, { Icon, cx, fmt, money, STATUS, CHANNEL, Status, PageHead, Card, KPI, Empty, Seg, Toggle, Check, Field, Search, Pager, Menu, FilterSelect, Modal, Drawer, ToastHost, useToast, Stepper, useOutside, useEsc });
+Object.assign(window, { IC, Icon, cx, fmt, money, STATUS, CHANNEL, Status, PageHead, Card, KPI, Empty, Seg, Toggle, Check, Field, Search, Pager, Menu, FilterSelect, Modal, Drawer, ToastHost, useToast, Stepper, useOutside, useEsc });

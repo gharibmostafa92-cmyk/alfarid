@@ -1,12 +1,6 @@
+@import './styles/tokens.css';
+@import './styles/pos.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-:root {
-  --font-cairo: 'Cairo', sans-serif;
-}
-
-body {
-  font-family: var(--font-cairo), sans-serif;
-  direction: rtl;
-}

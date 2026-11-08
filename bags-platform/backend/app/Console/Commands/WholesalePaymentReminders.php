@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Enums\OrderStatus;
 use App\Models\Order;
 use App\Models\OutboundMessage;
 use App\Services\SettingService;
@@ -26,6 +27,7 @@ class WholesalePaymentReminders extends Command
             ->with('customer')
             ->where('payment_method', 'credit')
             ->where('payment_status', 'unpaid')
+            ->where('status', '!=', OrderStatus::Cancelled->value)
             ->whereNotNull('due_at')
             ->whereBetween('due_at', [now()->subDays(7)->startOfDay(), now()->addDays(3)->endOfDay()])
             ->limit(200)

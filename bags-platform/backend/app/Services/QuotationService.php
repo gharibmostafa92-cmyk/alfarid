@@ -82,7 +82,7 @@ class QuotationService
 
         return DB::transaction(function () use ($quotation, $data): Quotation {
             $quotation->update([
-                'customer_notes' => $data['customer_notes'] ?? $quotation->customer_notes,
+                'customer_notes' => array_key_exists('customer_notes', $data) ? $data['customer_notes'] : $quotation->customer_notes,
             ]);
 
             if (isset($data['items'])) {
@@ -94,6 +94,25 @@ class QuotationService
             $this->recalculate($quotation);
 
             return $quotation->load('items.variant.product');
+        });
+    }
+
+    /**
+     * Delete a draft quotation along with its items.
+     *
+     * @param  Quotation  $quotation  Draft quotation to delete.
+     *
+     * @throws BusinessException If quotation is not in draft state.
+     */
+    public function deleteDraft(Quotation $quotation): void
+    {
+        if ($quotation->status !== QuotationStatus::Draft) {
+            throw new BusinessException('لا يمكن حذف عرض السعر إلا وهو مسودة.');
+        }
+
+        DB::transaction(function () use ($quotation): void {
+            $quotation->items()->delete();
+            $quotation->delete();
         });
     }
 
@@ -137,6 +156,12 @@ class QuotationService
         }
 
         return DB::transaction(function () use ($quotation, $data): Quotation {
+            $quotation = Quotation::query()->whereKey($quotation->getKey())->lockForUpdate()->firstOrFail();
+
+            if ($quotation->status !== QuotationStatus::Requested) {
+                throw new BusinessException('لا يمكن تسعير عرض السعر إلا بعد إرساله من التاجر.');
+            }
+
             foreach ($data['items'] ?? [] as $row) {
                 $item = $quotation->items()->whereKey($row['id'])->first();
 
@@ -158,7 +183,11 @@ class QuotationService
                 'tax_amount' => $data['tax_amount'] ?? $quotation->tax_amount,
                 'priced_at' => now(),
                 'priced_by' => $data['priced_by'] ?? $quotation->priced_by,
-                'revision' => $quotation->priced_at === null ? (int) $quotation->revision : (int) $quotation->revision + 1,
+                // Every pricing is a new revision, including the first and any
+                // re-pricing after an undo: the revision feeds the priced
+                // notification idempotency key, so reusing it would swallow
+                // the new message (or abort the transaction on the key clash).
+                'revision' => (int) $quotation->revision + 1,
             ]);
 
             $this->recalculate($quotation);
@@ -193,6 +222,21 @@ class QuotationService
         }
 
         return DB::transaction(function () use ($quotation): Quotation {
+            // Re-fetch the row under a write lock and re-verify state inside the
+            // transaction so two concurrent accepts serialize: the loser sees the
+            // updated status instead of converting a second order.
+            $quotation = Quotation::query()->whereKey($quotation->getKey())->lockForUpdate()->firstOrFail();
+
+            if ($quotation->status !== QuotationStatus::PricedByAdmin) {
+                throw new BusinessException('لا يمكن قبول عرض السعر إلا بعد تسعير الإدارة له.');
+            }
+
+            if ($quotation->valid_until !== null && $quotation->valid_until->lt(now()->startOfDay())) {
+                $quotation->update(['status' => QuotationStatus::Expired]);
+
+                throw new BusinessException('انتهت صلاحية عرض السعر هذا.');
+            }
+
             $quotation->loadMissing(['customer', 'items.variant.product']);
             $customer = $quotation->customer;
 

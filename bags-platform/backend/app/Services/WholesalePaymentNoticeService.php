@@ -129,7 +129,7 @@ class WholesalePaymentNoticeService
     }
 
     /**
-     * @return array{debt: string, linked_open_notices: string, free_pool: string, allocated: string, floating_credit: string, outstanding: string}
+     * @return array{debt: string, linked_open_notices: string, free_pool: string, allocated: string, allocated_open: string, floating_credit: string, outstanding: string}
      */
     public function balanceBreakdown(Customer $customer): array
     {
@@ -155,14 +155,19 @@ class WholesalePaymentNoticeService
 
         $free = $this->freePoolTotal($customer);
         $allocated = $this->allocatedTotal($customer);
+        // Partial FIFO allocations consume free money against orders that stay
+        // unpaid, so debt still counts their full totals: subtract the applied
+        // amount explicitly or the payment would vanish from the balance.
+        $allocatedOpen = $this->allocatedOpenTotal($customer);
         $floating = $free->minus($allocated)->toScale(2, RoundingMode::HalfUp);
-        $outstanding = $debt->minus($linkedOpen)->minus($floating)->toScale(2, RoundingMode::HalfUp);
+        $outstanding = $debt->minus($linkedOpen)->minus($floating)->minus($allocatedOpen)->toScale(2, RoundingMode::HalfUp);
 
         return [
             'debt' => (string) $debt,
             'linked_open_notices' => (string) $linkedOpen,
             'free_pool' => (string) $free,
             'allocated' => (string) $allocated,
+            'allocated_open' => (string) $allocatedOpen,
             'floating_credit' => (string) $floating,
             'outstanding' => (string) $outstanding,
         ];
@@ -199,6 +204,16 @@ class WholesalePaymentNoticeService
         return BigDecimal::of((string) WholesalePaymentAllocation::query()
             ->whereHas('notice', fn ($q) => $q->where('customer_id', $customer->id))
             ->whereHas('order', fn ($q) => $q->where('status', '!=', OrderStatus::Cancelled->value))
+            ->sum('amount'))->toScale(2, RoundingMode::HalfUp);
+    }
+
+    private function allocatedOpenTotal(Customer $customer): BigDecimal
+    {
+        return BigDecimal::of((string) WholesalePaymentAllocation::query()
+            ->whereHas('notice', fn ($q) => $q->where('customer_id', $customer->id))
+            ->whereHas('order', fn ($q) => $q
+                ->where('status', '!=', OrderStatus::Cancelled->value)
+                ->where('payment_status', 'unpaid'))
             ->sum('amount'))->toScale(2, RoundingMode::HalfUp);
     }
 

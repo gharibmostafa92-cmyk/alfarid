@@ -44,7 +44,13 @@ final class BankStatementMatcher
         foreach ($rows as $index => $row) {
             $amount = number_format((float) ($row['amount'] ?? 0), 2, '.', '');
             $reference = mb_strtolower(trim((string) ($row['reference'] ?? '')));
-            $date = isset($row['date']) ? Carbon::parse((string) $row['date'])->startOfDay() : null;
+            try {
+                $date = isset($row['date']) ? Carbon::parse((string) $row['date'])->startOfDay() : null;
+            } catch (\Throwable) {
+                // A garbage row date degrades to reference/amount matching
+                // instead of aborting the whole reconciliation.
+                $date = null;
+            }
             $hit = null;
             $kind = null;
             foreach ($preparedNotices as $prepared) {
