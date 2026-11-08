@@ -82,6 +82,7 @@
   color: var(--text-primary);
   min-height: 100vh;
   transition: background-color 0.3s ease;
+  overflow-x: hidden;
 }
 
 .font-display {
@@ -566,7 +567,7 @@
 .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .badge .dot { width: 6px; height: 6px; border-radius: 99px; background: currentColor; }
 
-.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 999px; font-size: 13px; font-weight: 500; padding: 9px 18px; transition: opacity .15s, background .15s, transform .1s; white-space: nowrap; cursor: pointer; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 999px; font-size: 13px; font-weight: 500; padding: 9px 18px; min-height: 40px; transition: opacity .15s, background .15s, transform .1s; white-space: nowrap; cursor: pointer; }
 .btn:active { transform: scale(.98); }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
 .btn-dark { background: var(--pill-active-bg); color: var(--pill-active-text); }
@@ -576,9 +577,9 @@
 .btn-orange { background: var(--accent-orange); color: #fff; }
 .btn-orange:hover:not(:disabled) { opacity: .92; }
 .btn-danger { background: var(--badge-red-bg); color: var(--badge-red-text); }
-.btn-sm { padding: 6px 13px; font-size: 12px; }
+.btn-sm { padding: 6px 13px; font-size: 12px; min-height: 34px; }
 
-.icon-btn { width: 30px; height: 30px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-secondary); transition: background .15s, color .15s; }
+.icon-btn { width: 34px; height: 34px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-secondary); transition: background .15s, color .15s; }
 .icon-btn:hover:not(:disabled) { background: var(--bg-subcard-hover); color: var(--text-primary); }
 .icon-btn:disabled { opacity: .3; cursor: not-allowed; }
 
@@ -603,6 +604,11 @@
   .settings-nav button { min-height: 44px; padding: 6px 8px; gap: 6px; }
   .settings-nav button > span:first-child { width: 26px; height: 26px; }
   .seg { flex-wrap: wrap; border-radius: 12px; }
+  .btn { min-height: 44px; }
+  .btn-sm { min-height: 40px; }
+  .icon-btn { min-width: 44px; min-height: 44px; }
+  .v-drawer { border-radius: 0; }
+  .v-sticky-bar { border-radius: 16px; padding: 10px 14px; width: 100%; }
 }
 
 @media (max-width: 479px) {

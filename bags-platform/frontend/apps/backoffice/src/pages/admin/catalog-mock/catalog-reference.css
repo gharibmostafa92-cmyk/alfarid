@@ -136,6 +136,15 @@ textarea.v-input { height: auto; padding: 11px 14px; line-height: 1.6; resize: v
 .btn-acc { background: var(--accent); color: #fff; box-shadow: 0 6px 16px -6px rgba(224,73,31,.55); }
 .btn-acc:hover { opacity: .92; }
 
+@media (max-width: 639px) {
+  .btn { min-height: 44px; }
+  .btn-sm { min-height: 40px; }
+  .icon-btn { min-width: 44px; min-height: 44px; }
+  .v-table { min-width: 620px; }
+  .v-input { min-height: 44px; }
+  .seg { flex-wrap: wrap; border-radius: 14px; }
+}
+
 @media (max-width: 479px) {
   .catalog-save-bar > .v-card { padding: 8px; gap: 6px; }
   .catalog-save-actions { width: 100%; gap: 4px; }
@@ -171,7 +180,7 @@ textarea.v-input { height: auto; padding: 11px 14px; line-height: 1.6; resize: v
 .chk.mixed { background: var(--accent); border-color: var(--accent); }
 
 /* Table */
-.v-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+.v-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; min-width: 680px; }
 .v-table th { font-size: 11.5px; font-weight: 600; color: var(--text-muted); text-align: start; padding: 12px 14px; white-space: nowrap; border-bottom: 1px solid var(--divider-color); }
 .v-table td { padding: 12px 14px; border-bottom: 1px solid var(--divider-color); vertical-align: middle; }
 .v-table tbody tr { transition: background .12s; }
@@ -211,4 +220,4 @@ textarea.v-input { height: auto; padding: 11px 14px; line-height: 1.6; resize: v
 .text-pretty { text-wrap: pretty; }
 select option { background: var(--bg-card); color: var(--text-primary); }
 kbd { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 10.5px; padding: 1px 6px; border-radius: 6px; background: var(--bg-card); border: 1px solid var(--border-field); border-bottom-width: 2px; color: var(--text-secondary); }
-.catalog-surface {min-height:100%;font-family:"Plus Jakarta Sans","Readex Pro",sans-serif;background:var(--bg-canvas);color:var(--text-primary);}
+.catalog-surface {min-height:100%;font-family:"Plus Jakarta Sans","Readex Pro",sans-serif;background:var(--bg-canvas);color:var(--text-primary);overflow-x:hidden;}

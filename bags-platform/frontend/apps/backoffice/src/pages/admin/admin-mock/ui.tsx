@@ -195,7 +195,7 @@ export function Select({ value, onChange, options, placeholder = 'اختر', sea
   const cur = options.find(o => o.value === value);
   const list = options.filter(o => !q || o.label.includes(q));
   return (
-    <div ref={ref} className="relative" style={{ width }}>
+    <div ref={ref} className="relative max-w-full" style={{ width, maxWidth: '100%' }}>
       <button type="button" disabled={disabled} onClick={() => setOpen(!open)}
         className={compact ? 'v-subcard rounded-full px-3.5 h-9 flex items-center gap-2 text-[12.5px] font-medium w-full hover:opacity-90 transition'
           : `v-input flex items-center gap-2 px-3.5 h-11 w-full text-[13px] ${open ? 'is-focus' : ''}`}
@@ -409,7 +409,7 @@ export function IconButton({ icon, onClick, title, disabled, tone, className = '
 }) {
   return (
     <button type="button" disabled={disabled} title={title} onClick={onClick}
-      className={`w-8 h-8 rounded-full v-subcard flex items-center justify-center hover:opacity-80 transition ${className}`}
+      className={`w-8 h-8 min-w-[32px] min-h-[32px] rounded-full v-subcard flex items-center justify-center hover:opacity-80 transition ${className}`}
       style={{ color: tone === 'danger' ? 'var(--badge-red-text)' : 'var(--text-secondary)' }}>
       <Icon name={icon} className="w-3.5 h-3.5" strokeWidth={2} />
     </button>
@@ -420,8 +420,8 @@ export function PageHeader({ title, subtitle, action }: { title: string; subtitl
   return (
     <div className="stagger-item stagger-1 pt-1 flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h1 className="font-display text-[34px] sm:text-[38px] font-semibold tracking-[-0.01em] leading-tight" style={{ color: 'var(--text-primary)' }}>{title}</h1>
-        {subtitle && <p className="text-[13.5px] mt-1" style={{ color: 'var(--text-secondary)' }}>{subtitle}</p>}
+        <h1 className="font-display text-[26px] sm:text-[34px] md:text-[38px] font-semibold tracking-[-0.01em] leading-tight" style={{ color: 'var(--text-primary)' }}>{title}</h1>
+        {subtitle && <p className="text-[13px] sm:text-[13.5px] mt-1" style={{ color: 'var(--text-secondary)' }}>{subtitle}</p>}
       </div>
       {action}
     </div>
@@ -539,8 +539,8 @@ export function Drawer({ open, onClose, children, width = 520 }: { open: boolean
   return (
     <div inert={!open} className={`fixed inset-0 z-50 ${open ? '' : 'invisible pointer-events-none'}`}>
       <div onClick={onClose} className={`absolute inset-0 v-scrim transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0'}`} />
-      <div className={`absolute top-3 bottom-3 start-3 v-card v-drawer flex flex-col transition-transform duration-[420ms] ${open ? 'translate-x-0' : 'translate-x-[calc(100%+24px)]'}`}
-        style={{ width: `min(${width}px, calc(100vw - 24px))`, transitionTimingFunction: 'cubic-bezier(0.22,1,0.36,1)' }}>
+      <div className={`absolute inset-y-0 start-0 sm:top-3 sm:bottom-3 sm:start-3 v-card v-drawer flex flex-col transition-transform duration-[420ms] rounded-none sm:rounded-[26px] ${open ? 'translate-x-0' : 'translate-x-[calc(100%+24px)]'}`}
+        style={{ width: `min(${width}px, 100vw)`, maxWidth: '100vw', transitionTimingFunction: 'cubic-bezier(0.22,1,0.36,1)' }}>
         {children}
       </div>
     </div>
@@ -550,9 +550,12 @@ export function Drawer({ open, onClose, children, width = 520 }: { open: boolean
 export function Modal({ open, onClose, children, width = 420 }: { open: boolean; onClose: () => void; children: ReactNode; width?: number }) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div onClick={onClose} className="absolute inset-0 v-scrim v-fade" />
-      <div className="relative v-card p-6 v-pop-in" style={{ width: `min(${width}px, 100%)` }}>{children}</div>
+      <div className="relative v-card p-5 sm:p-6 v-pop-in w-full rounded-b-none sm:rounded-b-[22px] rounded-t-[24px] max-h-[92dvh] overflow-y-auto overscroll-contain pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))]" style={{ width: `min(${width}px, 100%)` }}>
+        <div className="sm:hidden w-10 h-1 bg-[var(--toggle-off-bg)] rounded-full mx-auto mb-4" aria-hidden="true" />
+        {children}
+      </div>
     </div>
   );
 }

@@ -410,32 +410,34 @@ function LocationsScreen({ go, params }) {
             empty={<EmptyState icon="pin" title="لا توجد مواقع تخزين في هذا الفرع" sub="أضف رفوفًا ومناطق وخانات لتحديد مكان كل صنف بدقة."
               action={canAdd && <button className="btn btn-dark btn-sm" onClick={() => setForm({ open: true, initial: null })}><Icon n="plus" s={13} /> إضافة موقع</button>} />}>
             {rows.length === 0 ? <EmptyState icon="pin" title="لا توجد مواقع من هذا النوع" /> : (
-              <table className="vt">
-                <thead><tr><th>الاسم</th><th>الكود</th><th>النوع</th><th>الحالة</th><th></th></tr></thead>
-                <tbody>
-                  {rows.map(l => (
-                    <tr key={l.id} className={l.is_active ? '' : 'opacity-60'}>
-                      <td className="font-semibold c-primary">{l.name}</td>
-                      <td><Sku>{l.code}</Sku></td>
-                      <td><Badge cls={({ shelf: 'b-gray', zone: 'b-blue', bin: 'b-gray', damaged: 'b-red', receiving: 'b-amber' })[l.type] || 'b-gray'}>{LOCATION_TYPES[l.type] || l.type}</Badge></td>
-                      <td>
-                        <div className="flex items-center gap-2.5">
-                          {canEdit && <Toggle on={l.is_active} onChange={() => toggle(l)} />}
-                          <span className={`text-[11.5px] font-semibold ${l.is_active ? '' : 'c-muted'}`} style={l.is_active ? { color: 'var(--badge-green-text)' } : {}}>{l.is_active ? 'نشط' : 'معطّل'}</span>
-                        </div>
-                      </td>
-                      <td>
-                        {(canEdit || canDelete) && (
-                          <div className="flex items-center gap-0.5 justify-end">
-                            {canEdit && <button className="icon-btn" title="تعديل" onClick={() => setForm({ open: true, initial: l })}><Icon n="edit" s={15} /></button>}
-                            {canDelete && <button className="icon-btn" title="حذف" onClick={() => { setDel(l); setDelErr(null); }}><Icon n="trash" s={15} /></button>}
+              <div className="overflow-x-auto">
+                <table className="vt">
+                  <thead><tr><th>الاسم</th><th>الكود</th><th>النوع</th><th>الحالة</th><th></th></tr></thead>
+                  <tbody>
+                    {rows.map(l => (
+                      <tr key={l.id} className={l.is_active ? '' : 'opacity-60'}>
+                        <td className="font-semibold c-primary">{l.name}</td>
+                        <td><Sku>{l.code}</Sku></td>
+                        <td><Badge cls={({ shelf: 'b-gray', zone: 'b-blue', bin: 'b-gray', damaged: 'b-red', receiving: 'b-amber' })[l.type] || 'b-gray'}>{LOCATION_TYPES[l.type] || l.type}</Badge></td>
+                        <td>
+                          <div className="flex items-center gap-2.5">
+                            {canEdit && <Toggle on={l.is_active} onChange={() => toggle(l)} />}
+                            <span className={`text-[11.5px] font-semibold ${l.is_active ? '' : 'c-muted'}`} style={l.is_active ? { color: 'var(--badge-green-text)' } : {}}>{l.is_active ? 'نشط' : 'معطّل'}</span>
                           </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                        </td>
+                        <td>
+                          {(canEdit || canDelete) && (
+                            <div className="flex items-center gap-0.5 justify-end">
+                              {canEdit && <button className="icon-btn" title="تعديل" onClick={() => setForm({ open: true, initial: l })}><Icon n="edit" s={15} /></button>}
+                              {canDelete && <button className="icon-btn" title="حذف" onClick={() => { setDel(l); setDelErr(null); }}><Icon n="trash" s={15} /></button>}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </Phase>
         </Card>
@@ -492,23 +494,25 @@ function CountsScreen({ go }) {
           empty={<EmptyState icon="clipboard" title="لم يتم إنشاء أي جرد بعد" sub="ابدأ جردًا لفرع كامل أو لموقع تخزين محدد."
             action={canCreate && <button className="btn btn-dark btn-sm" onClick={() => setCreate(true)}><Icon n="plus" s={13} /> جرد جديد</button>} />}>
           {rows.length === 0 ? <EmptyState icon="filter" title="لا توجد عمليات جرد بهذه الفلاتر" /> : (
-          <table className="vt">
-            <thead><tr><th>رقم الجرد</th><th>الفرع</th><th>الموقع</th><th>البنود</th><th>الحالة</th><th>المنشئ</th><th>التاريخ</th><th></th></tr></thead>
-            <tbody>
-              {rows.map(c => (
-                <tr key={c.id} className="cursor-pointer" onClick={() => go('count', { id: c.id })}>
-                  <td><span className="mono text-[12px] font-semibold c-primary" dir="ltr">{c.stocktake_number}</span></td>
-                  <td className="c-primary font-medium">{c.branch?.name || '—'}</td>
-                  <td className="mono text-[11.5px] c-secondary" dir="ltr">{c.location ? c.location.name : <span className="c-muted" style={{ fontFamily: 'inherit' }}>كل المواقع</span>}</td>
-                  <td className="num text-[11.5px] c-secondary">{c.items_count ?? '—'} بند</td>
-                  <td><Badge cls={({ draft: 'b-gray', in_progress: 'b-amber', approved: 'b-green', cancelled: 'b-red' })[c.status] || 'b-gray'} dot>{STOCKTAKE_STATUS[c.status] || c.status}</Badge></td>
-                  <td className="c-secondary">{c.creator_name || '—'}</td>
-                  <td className="num text-[11.5px] c-secondary">{formatDate(c.created_at)}</td>
-                  <td><Icon n="chevL" s={15} className="c-muted" /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>)}
+          <div className="overflow-x-auto">
+            <table className="vt">
+              <thead><tr><th>رقم الجرد</th><th>الفرع</th><th>الموقع</th><th>البنود</th><th>الحالة</th><th>المنشئ</th><th>التاريخ</th><th></th></tr></thead>
+              <tbody>
+                {rows.map(c => (
+                  <tr key={c.id} className="cursor-pointer" onClick={() => go('count', { id: c.id })}>
+                    <td><span className="mono text-[12px] font-semibold c-primary" dir="ltr">{c.stocktake_number}</span></td>
+                    <td className="c-primary font-medium">{c.branch?.name || '—'}</td>
+                    <td className="mono text-[11.5px] c-secondary" dir="ltr">{c.location ? c.location.name : <span className="c-muted" style={{ fontFamily: 'inherit' }}>كل المواقع</span>}</td>
+                    <td className="num text-[11.5px] c-secondary">{c.items_count ?? '—'} بند</td>
+                    <td><Badge cls={({ draft: 'b-gray', in_progress: 'b-amber', approved: 'b-green', cancelled: 'b-red' })[c.status] || 'b-gray'} dot>{STOCKTAKE_STATUS[c.status] || c.status}</Badge></td>
+                    <td className="c-secondary">{c.creator_name || '—'}</td>
+                    <td className="num text-[11.5px] c-secondary">{formatDate(c.created_at)}</td>
+                    <td><Icon n="chevL" s={15} className="c-muted" /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>)}
         </Phase>
       </Card>
       <CountCreate open={create} onClose={() => setCreate(false)} go={go} onCreated={() => query.reload()} />
@@ -775,34 +779,36 @@ function CountDetail({ go, params }) {
           {counted < rows.length && c.status !== 'approved' && <div className="mb-3"><InlineAlert kind="amber" icon="info" title="الحقل الفارغ ≠ صفر">الخانة الفارغة المظللة تعني «لم يتم العدّ». إذا كان الصنف غير موجود فعليًا اكتب 0 أو اضغط «صفر».</InlineAlert></div>}
           {stale.itemIds.length + stale.variantIds.length > 0 && <div className="mb-3"><InlineAlert kind="red" icon="alert" title="أصناف تحتاج إعادة عدّ">تغيّر رصيدها بعد عدّها. عدّها من جديد ثم اضغط «إعادة العدّ» على البند.</InlineAlert></div>}
           {shown.length === 0 ? <EmptyState icon="filter" title="لا توجد بنود بهذا الفلتر" /> : (
-            <table className="vt">
-              <thead><tr><th>SKU</th><th>الصنف</th><th className="t-num">كمية النظام</th><th className="t-num" style={{ width: 200 }}>الكمية الفعلية</th><th className="t-num">الفرق</th><th>الحالة</th></tr></thead>
-              <tbody>
-                {shown.map(r => (
-                  <tr key={r.product_variant_id} className={r.isStale ? 'ring-1 ring-inset' : ''} style={r.isStale ? { background: 'var(--badge-red-bg)' } : {}}>
-                    <td><Sku>{r.sku || `#${r.product_variant_id}`}</Sku></td>
-                    <td><div className="font-medium c-primary truncate">{variantDisplayName(variantCache, r.product_variant_id, r.sku)}</div></td>
-                    <td className="t-num num c-secondary">{r.system_qty == null ? '—' : formatQty(r.system_qty)}</td>
-                    <td className="t-num">
-                      {editable ? (
-                        <div className="flex items-center gap-1.5 justify-end">
-                          {r.a === null && <button className="btn btn-ghost btn-sm !px-2 !py-1 text-[11px]" onClick={() => { setVals(v => ({ ...v, [r.product_variant_id]: '0' })); setDirty(true); }}>صفر</button>}
-                          <div className={`rounded-[10px] w-28 ${r.a === null ? 'uncounted' : ''}`}>
-                            <NumInput small value={vals[r.product_variant_id] ?? ''} placeholder="لم يُعدّ" onChange={v => { setVals(x => ({ ...x, [r.product_variant_id]: v })); setDirty(true); }} className={r.a === null ? '!bg-transparent' : ''} />
+            <div className="overflow-x-auto">
+              <table className="vt">
+                <thead><tr><th>SKU</th><th>الصنف</th><th className="t-num">كمية النظام</th><th className="t-num" style={{ width: 200 }}>الكمية الفعلية</th><th className="t-num">الفرق</th><th>الحالة</th></tr></thead>
+                <tbody>
+                  {shown.map(r => (
+                    <tr key={r.product_variant_id} className={r.isStale ? 'ring-1 ring-inset' : ''} style={r.isStale ? { background: 'var(--badge-red-bg)' } : {}}>
+                      <td><Sku>{r.sku || `#${r.product_variant_id}`}</Sku></td>
+                      <td><div className="font-medium c-primary truncate">{variantDisplayName(variantCache, r.product_variant_id, r.sku)}</div></td>
+                      <td className="t-num num c-secondary">{r.system_qty == null ? '—' : formatQty(r.system_qty)}</td>
+                      <td className="t-num">
+                        {editable ? (
+                          <div className="flex items-center gap-1.5 justify-end">
+                            {r.a === null && <button className="btn btn-ghost btn-sm !px-2 !py-1 text-[11px]" onClick={() => { setVals(v => ({ ...v, [r.product_variant_id]: '0' })); setDirty(true); }}>صفر</button>}
+                            <div className={`rounded-[10px] w-28 ${r.a === null ? 'uncounted' : ''}`}>
+                              <NumInput small value={vals[r.product_variant_id] ?? ''} placeholder="لم يُعدّ" onChange={v => { setVals(x => ({ ...x, [r.product_variant_id]: v })); setDirty(true); }} className={r.a === null ? '!bg-transparent' : ''} />
+                            </div>
+                            {r.a !== null && <button className="icon-btn !w-6 !h-6" title="مسح (لم يُعدّ)" onClick={() => { setVals(v => ({ ...v, [r.product_variant_id]: '' })); setDirty(true); }}><Icon n="x" s={11} /></button>}
+                            {r.isStale && <button className="btn btn-soft btn-sm" disabled={busy} onClick={() => saveCounts([r.product_variant_id])}>إعادة العدّ</button>}
                           </div>
-                          {r.a !== null && <button className="icon-btn !w-6 !h-6" title="مسح (لم يُعدّ)" onClick={() => { setVals(v => ({ ...v, [r.product_variant_id]: '' })); setDirty(true); }}><Icon n="x" s={11} /></button>}
-                          {r.isStale && <button className="btn btn-soft btn-sm" disabled={busy} onClick={() => saveCounts([r.product_variant_id])}>إعادة العدّ</button>}
-                        </div>
-                      ) : <span className="num font-semibold c-primary">{r.a === null ? <span className="c-muted font-normal">لم يُعدّ</span> : formatQty(r.a)}</span>}
-                    </td>
-                    <td className="t-num num font-bold" style={{ color: r.diff === null ? 'var(--text-muted)' : r.diff > 0 ? 'var(--badge-green-text)' : r.diff < 0 ? 'var(--badge-red-text)' : 'var(--text-secondary)' }}>
-                      {r.diff === null ? '—' : r.diff === 0 ? '0' : (r.diff > 0 ? '+' : '−') + formatQty(Math.abs(r.diff))}
-                    </td>
-                    <td>{r.isStale ? <Badge cls="b-red">تحتاج إعادة عدّ</Badge> : r.a === null ? <Badge cls="b-gray">لم يُعدّ</Badge> : r.diff === null ? <Badge cls="b-gray">تم العدّ</Badge> : r.a === 0 ? <Badge cls={r.diff ? 'b-red' : 'b-green'}>صفر فعلي</Badge> : r.diff === 0 ? <Badge cls="b-green">مطابق</Badge> : <Badge cls={r.diff > 0 ? 'b-blue' : 'b-red'}>{r.diff > 0 ? 'زيادة' : 'عجز'}</Badge>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                        ) : <span className="num font-semibold c-primary">{r.a === null ? <span className="c-muted font-normal">لم يُعدّ</span> : formatQty(r.a)}</span>}
+                      </td>
+                      <td className="t-num num font-bold" style={{ color: r.diff === null ? 'var(--text-muted)' : r.diff > 0 ? 'var(--badge-green-text)' : r.diff < 0 ? 'var(--badge-red-text)' : 'var(--text-secondary)' }}>
+                        {r.diff === null ? '—' : r.diff === 0 ? '0' : (r.diff > 0 ? '+' : '−') + formatQty(Math.abs(r.diff))}
+                      </td>
+                      <td>{r.isStale ? <Badge cls="b-red">تحتاج إعادة عدّ</Badge> : r.a === null ? <Badge cls="b-gray">لم يُعدّ</Badge> : r.diff === null ? <Badge cls="b-gray">تم العدّ</Badge> : r.a === 0 ? <Badge cls={r.diff ? 'b-red' : 'b-green'}>صفر فعلي</Badge> : r.diff === 0 ? <Badge cls="b-green">مطابق</Badge> : <Badge cls={r.diff > 0 ? 'b-blue' : 'b-red'}>{r.diff > 0 ? 'زيادة' : 'عجز'}</Badge>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </Card>
         </>)}
@@ -868,22 +874,24 @@ function ProductionScreen({ go }) {
         <CardHead title="سجل الاستلامات" meta={phase === 'ready' ? `${rows.length} استلام` : null} />
         <Phase phase={phase} cols={6} error={error} onRetry={() => history.reload()}
           empty={<EmptyState icon="factory" title="لا توجد استلامات إنتاج" sub="عند وصول دفعة من التصنيع سجّلها هنا لتُضاف إلى رصيد المخزن." action={canEnter && <button className="btn btn-dark btn-sm" onClick={() => setOpen(true)}><Icon n="plus" s={13} /> تسجيل استلام</button>} />}>
-          <table className="vt">
-            <thead><tr><th>رقم الدفعة</th><th>الفرع</th><th>الموقع</th><th className="t-num">البنود</th><th className="t-num">إجمالي الكمية</th>{showCost && <th className="t-num">إجمالي التكلفة</th>}<th>التاريخ</th></tr></thead>
-            <tbody>
-              {rows.map(p => (
-                <tr key={p.id} className="cursor-pointer" onClick={() => setView(p)}>
-                  <td><Sku>{p.batch_number}</Sku></td>
-                  <td className="c-primary font-medium">{branchName(p.branch_id)}</td>
-                  <td className="mono text-[11.5px] c-secondary" dir="ltr">{locName(p.location_id)}</td>
-                  <td className="t-num num c-secondary">{(p.items || []).length}</td>
-                  <td className="t-num num font-semibold c-primary">{(p.items || []).reduce((a, l) => a + Number(l.quantity || 0), 0)}</td>
-                  {showCost && <td className="t-num num c-primary">{formatCurrency((p.items || []).reduce((a, l) => a + Number(l.quantity || 0) * Number(l.unit_cost || 0), 0))}</td>}
-                  <td className="num text-[11.5px] c-secondary">{formatDate(p.created_at, { includeTime: true })}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="vt">
+              <thead><tr><th>رقم الدفعة</th><th>الفرع</th><th>الموقع</th><th className="t-num">البنود</th><th className="t-num">إجمالي الكمية</th>{showCost && <th className="t-num">إجمالي التكلفة</th>}<th>التاريخ</th></tr></thead>
+              <tbody>
+                {rows.map(p => (
+                  <tr key={p.id} className="cursor-pointer" onClick={() => setView(p)}>
+                    <td><Sku>{p.batch_number}</Sku></td>
+                    <td className="c-primary font-medium">{branchName(p.branch_id)}</td>
+                    <td className="mono text-[11.5px] c-secondary" dir="ltr">{locName(p.location_id)}</td>
+                    <td className="t-num num c-secondary">{(p.items || []).length}</td>
+                    <td className="t-num num font-semibold c-primary">{(p.items || []).reduce((a, l) => a + Number(l.quantity || 0), 0)}</td>
+                    {showCost && <td className="t-num num c-primary">{formatCurrency((p.items || []).reduce((a, l) => a + Number(l.quantity || 0) * Number(l.unit_cost || 0), 0))}</td>}
+                    <td className="num text-[11.5px] c-secondary">{formatDate(p.created_at, { includeTime: true })}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           {history.data && history.data.last_page > 1 && (
             <div className="flex items-center justify-between mt-4">
               <button className="btn btn-soft btn-sm" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>السابق</button>
@@ -895,8 +903,8 @@ function ProductionScreen({ go }) {
       </Card>
       <ProductionForm open={open} onClose={() => setOpen(false)} branches={optsQuery.data?.branches || []} onSaved={() => { history.reload(); }} />
       <Modal open={!!view} onClose={() => setView(null)} width="max-w-xl" title={view ? <span className="mono" dir="ltr">{view.batch_number}</span> : ''} sub={view && `${branchName(view.branch_id)} · ${locName(view.location_id)}`}>
-        {view && <table className="vt mb-4"><thead><tr><th>SKU</th><th>الصنف</th><th className="t-num">الكمية</th>{showCost && <th className="t-num">تكلفة الوحدة</th>}</tr></thead>
-          <tbody>{(view.items || []).map((l, i) => <tr key={i}><td><Sku>{variantCache.get(Number(l.product_variant_id))?.sku || `#${l.product_variant_id}`}</Sku></td><td><div className="font-medium c-primary truncate">{variantDisplayName(variantCache, l.product_variant_id, null)}</div></td><td className="t-num num font-semibold">{formatQty(l.quantity)}</td>{showCost && <td className="t-num num">{l.unit_cost != null ? formatCurrency(l.unit_cost) : '—'}</td>}</tr>)}</tbody></table>}
+        {view && <div className="overflow-x-auto"><table className="vt mb-4"><thead><tr><th>SKU</th><th>الصنف</th><th className="t-num">الكمية</th>{showCost && <th className="t-num">تكلفة الوحدة</th>}</tr></thead>
+          <tbody>{(view.items || []).map((l, i) => <tr key={i}><td><Sku>{variantCache.get(Number(l.product_variant_id))?.sku || `#${l.product_variant_id}`}</Sku></td><td><div className="font-medium c-primary truncate">{variantDisplayName(variantCache, l.product_variant_id, null)}</div></td><td className="t-num num font-semibold">{formatQty(l.quantity)}</td>{showCost && <td className="t-num num">{l.unit_cost != null ? formatCurrency(l.unit_cost) : '—'}</td>}</tr>)}</tbody></table></div>}
       </Modal>
     </section>
   );
@@ -970,27 +978,29 @@ function ProductionForm({ open, onClose, branches, onSaved }) {
             <span className="field-label !mb-0">البنود <span className="num c-muted">{lines.length}/{PRD_MAX}</span></span>
             <button className="btn btn-soft btn-sm" disabled={lines.length >= PRD_MAX} onClick={() => setLines(ls => [...ls, newPrLine()])}><Icon n="plus" s={13} /> إضافة بند</button>
           </div>
-          <table className="vt">
-            <thead><tr><th className="w-8">#</th><th style={{ minWidth: 300 }}>المتغير / SKU</th><th style={{ width: 120 }}>الكمية</th><th style={{ width: 140 }}>تكلفة الوحدة</th><th className="t-num">الإجمالي</th><th></th></tr></thead>
-            <tbody>
-              {lines.map((l, i) => {
-                const re = rowErrs[i] || {};
-                return (
-                <tr key={l.key}>
-                  <td className="num c-muted">{i + 1}</td>
-                  <td><div className={(tried && !l.variantId) || re.product_variant_id ? 'rounded-[12px] ring-1 ring-[var(--badge-red-text)]' : ''}><VariantPicker small value={l.variantId} onChange={v => upd(l.key, { variantId: v })} /></div>
-                    {re.product_variant_id && <div className="text-[10.5px] mt-1" style={{ color: 'var(--badge-red-text)' }}>{re.product_variant_id}</div>}</td>
-                  <td><NumInput small integer value={l.qty} onChange={v => upd(l.key, { qty: v })} err={(tried && bad(l)) || re.quantity} />
-                    {re.quantity && <div className="text-[10.5px] mt-1" style={{ color: 'var(--badge-red-text)' }}>{re.quantity}</div>}</td>
-                  <td><NumInput small decimals={4} value={l.cost} onChange={v => upd(l.key, { cost: v })} err={(tried && bad(l)) || re.unit_cost} placeholder="0.00" />
-                    {re.unit_cost && <div className="text-[10.5px] mt-1" style={{ color: 'var(--badge-red-text)' }}>{re.unit_cost}</div>}</td>
-                  <td className="t-num num c-primary font-semibold">{formatCurrency((Number(toLatinDigits(l.qty)) || 0) * (Number(toLatinDigits(l.cost)) || 0))}</td>
-                  <td><button className="icon-btn" disabled={lines.length === 1} onClick={() => setLines(ls => ls.filter(x => x.key !== l.key))}><Icon n="trash" s={14} /></button></td>
-                </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="vt">
+              <thead><tr><th className="w-8">#</th><th style={{ minWidth: 300 }}>المتغير / SKU</th><th style={{ width: 120 }}>الكمية</th><th style={{ width: 140 }}>تكلفة الوحدة</th><th className="t-num">الإجمالي</th><th></th></tr></thead>
+              <tbody>
+                {lines.map((l, i) => {
+                  const re = rowErrs[i] || {};
+                  return (
+                  <tr key={l.key}>
+                    <td className="num c-muted">{i + 1}</td>
+                    <td><div className={(tried && !l.variantId) || re.product_variant_id ? 'rounded-[12px] ring-1 ring-[var(--badge-red-text)]' : ''}><VariantPicker small value={l.variantId} onChange={v => upd(l.key, { variantId: v })} /></div>
+                      {re.product_variant_id && <div className="text-[10.5px] mt-1" style={{ color: 'var(--badge-red-text)' }}>{re.product_variant_id}</div>}</td>
+                    <td><NumInput small integer value={l.qty} onChange={v => upd(l.key, { qty: v })} err={(tried && bad(l)) || re.quantity} />
+                      {re.quantity && <div className="text-[10.5px] mt-1" style={{ color: 'var(--badge-red-text)' }}>{re.quantity}</div>}</td>
+                    <td><NumInput small decimals={4} value={l.cost} onChange={v => upd(l.key, { cost: v })} err={(tried && bad(l)) || re.unit_cost} placeholder="0.00" />
+                      {re.unit_cost && <div className="text-[10.5px] mt-1" style={{ color: 'var(--badge-red-text)' }}>{re.unit_cost}</div>}</td>
+                    <td className="t-num num c-primary font-semibold">{formatCurrency((Number(toLatinDigits(l.qty)) || 0) * (Number(toLatinDigits(l.cost)) || 0))}</td>
+                    <td><button className="icon-btn" disabled={lines.length === 1} onClick={() => setLines(ls => ls.filter(x => x.key !== l.key))}><Icon n="trash" s={14} /></button></td>
+                  </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
         <Field label="ملاحظات"><textarea maxLength={1000} className="inp" rows={2} value={f.note} onChange={e => setF({ ...f, note: e.target.value })} /></Field>
       </div>
@@ -1517,34 +1527,36 @@ function TransfersScreen({ go }) {
           empty={<EmptyState icon="swap" title="لا توجد تحويلات" sub="أنشئ أول تحويل لنقل الكميات من المخزن الرئيسي إلى الفروع."
             action={canCreate && <button className="btn btn-dark btn-sm" onClick={() => go('transfer-edit', {})}><Icon n="plus" s={13} /> تحويل جديد</button>} />}>
           {rows.length === 0 ? <EmptyState icon="filter" title="لا توجد تحويلات بهذه الحالة" /> : (
-            <table className="vt">
-              <thead><tr><th>رقم التحويل</th><th>المصدر ← الوجهة</th><th>التقدّم</th><th>الحالة</th><th>التاريخ</th><th></th></tr></thead>
-              <tbody>
-                {rows.map(t => {
-                  const idx = TR_FLOW.indexOf(t.status);
-                  return (
-                    <tr key={t.id} className="cursor-pointer" onClick={() => go('transfer', { id: t.id })}>
-                      <td><span className="mono text-[12px] font-semibold c-primary" dir="ltr">{t.transfer_number}</span></td>
-                      <td>
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium c-primary">{t.from_branch?.name || '—'}</span>
-                          <Icon n="arrowL" s={14} className="c-orange" />
-                          <span className="font-medium c-primary">{t.to_branch?.name || '—'}</span>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="flex items-center gap-1 w-28">
-                          {TR_FLOW.slice(1).map((s, i) => <span key={s} className="h-1.5 flex-1 rounded-full" style={{ background: t.status === 'cancelled' ? 'var(--badge-red-bg)' : i < idx ? 'var(--accent-orange)' : 'var(--badge-gray-bg)' }} />)}
-                        </div>
-                      </td>
-                      <td><TrStatus s={t.status} /></td>
-                      <td className="num text-[11.5px] c-secondary">{formatDate(t.created_at)}</td>
-                      <td><Icon n="chevL" s={15} className="c-muted" /></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <div className="overflow-x-auto">
+              <table className="vt">
+                <thead><tr><th>رقم التحويل</th><th>المصدر ← الوجهة</th><th>التقدّم</th><th>الحالة</th><th>التاريخ</th><th></th></tr></thead>
+                <tbody>
+                  {rows.map(t => {
+                    const idx = TR_FLOW.indexOf(t.status);
+                    return (
+                      <tr key={t.id} className="cursor-pointer" onClick={() => go('transfer', { id: t.id })}>
+                        <td><span className="mono text-[12px] font-semibold c-primary" dir="ltr">{t.transfer_number}</span></td>
+                        <td>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium c-primary">{t.from_branch?.name || '—'}</span>
+                            <Icon n="arrowL" s={14} className="c-orange" />
+                            <span className="font-medium c-primary">{t.to_branch?.name || '—'}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <div className="flex items-center gap-1 w-28">
+                            {TR_FLOW.slice(1).map((s, i) => <span key={s} className="h-1.5 flex-1 rounded-full" style={{ background: t.status === 'cancelled' ? 'var(--badge-red-bg)' : i < idx ? 'var(--accent-orange)' : 'var(--badge-gray-bg)' }} />)}
+                          </div>
+                        </td>
+                        <td><TrStatus s={t.status} /></td>
+                        <td className="num text-[11.5px] c-secondary">{formatDate(t.created_at)}</td>
+                        <td><Icon n="chevL" s={15} className="c-muted" /></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </Phase>
       </Card>
@@ -2172,8 +2184,8 @@ function Modal({ open, onClose, title, sub, children, footer, width = 'max-w-lg'
   }, [open]);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 fade-in" style={{ background: 'rgba(0,0,0,.4)', backdropFilter: 'blur(4px)' }} onMouseDown={e => e.target === e.currentTarget && onClose && onClose()}>
-      <div className={`v-card ${width} w-full shadow-2xl modal-in flex flex-col max-h-[92vh]`}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 fade-in" style={{ background: 'rgba(0,0,0,.4)', backdropFilter: 'blur(4px)' }} onMouseDown={e => e.target === e.currentTarget && onClose && onClose()}>
+      <div className={`v-card ${width} w-full shadow-2xl modal-in flex flex-col max-h-[92vh] rounded-b-none sm:rounded-b-[22px] rounded-t-[24px] sm:rounded-t-[22px] pb-[max(0.5rem,env(safe-area-inset-bottom))]`}>
         <div className="flex items-start justify-between gap-4 p-6 pb-4">
           <div>
             <h3 className="font-display text-[18px] font-semibold c-primary">{title}</h3>

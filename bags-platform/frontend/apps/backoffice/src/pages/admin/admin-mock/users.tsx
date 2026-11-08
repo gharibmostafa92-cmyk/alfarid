@@ -255,9 +255,9 @@ export function UsersScreen({ rolesLoading, can, onUsersChanged, roles, onNaviga
             <Badge tone="neutral">{filteredTotal} مستخدم</Badge>
           </div>
           <div className="flex flex-wrap items-center gap-2.5">
-            <div className="v-subcard px-3.5 h-9 rounded-full flex items-center gap-2">
+            <div className="v-subcard px-3.5 h-9 rounded-full flex items-center gap-2 flex-1 sm:flex-initial min-w-[140px]">
               <Icon name="search" className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
-              <input value={q} onChange={e => setQ(e.target.value)} placeholder="بحث بالاسم أو البريد" className="bg-transparent text-[12.5px] outline-none w-40 sm:w-48" style={{ color: 'var(--text-primary)' }} />
+              <input value={q} onChange={e => setQ(e.target.value)} placeholder="بحث بالاسم أو البريد" className="bg-transparent text-[12.5px] outline-none w-full sm:w-48" style={{ color: 'var(--text-primary)' }} />
               {q && <button type="button" onClick={() => setQ('')} style={{ color: 'var(--text-muted)' }}><Icon name="close" className="w-3 h-3" strokeWidth={2.4} /></button>}
             </div>
             <Select compact icon="building" width={170} disabled={!branches.length} value={branch} onChange={setBranch} searchable

@@ -297,7 +297,7 @@ export function CompanyModal({ row, onClose, onSaved }: { row: ShipCompany | nul
       }
     >
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="اسم الشركة" req err={f.errors.name}>
             <input className="inp" value={f.v.name} onChange={f.on('name')} />
           </Field>
@@ -436,7 +436,7 @@ export function RateModal({ row, companies, zones, onClose, onSaved }: { row: (S
       }
     >
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="شركة الشحن" req err={f.errors.companyId}>
             <select className="inp" value={f.v.companyId} onChange={f.on('companyId' as any)}>
               <option value="">اختر الشركة</option>
@@ -469,7 +469,7 @@ export function RateModal({ row, companies, zones, onClose, onSaved }: { row: (S
             <input type="number" step="0.01" className="inp num" value={f.v.cod} onChange={f.on('cod' as any)} />
           </Field>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="أقل مدة تسليم (أيام)" err={f.errors.min}>
             <input
               type="number"
@@ -733,7 +733,7 @@ export function PriceImportModal({ open, priceListId, onClose, onSaved }: { open
               <div className="v-sub p-3"><div className="text-[11px] tx2">أخطاء</div><div className="font-display text-[20px] font-bold num c-red">{report.errors.length}</div></div>
             </div>
             {!!report.diff?.length && (
-              <div className="v-sub p-1 max-h-[200px] overflow-y-auto mb-2">
+              <div className="v-sub p-1 max-h-[200px] overflow-auto mb-2">
                 <table className="tbl compact">
                   <thead><tr><th>الصف</th><th>المتغير</th><th>الكمية</th><th>السعر الحالي</th><th>السعر الجديد</th></tr></thead>
                   <tbody>{report.diff.map((row) => (
@@ -743,7 +743,7 @@ export function PriceImportModal({ open, priceListId, onClose, onSaved }: { open
               </div>
             )}
             {!!report.errors.length && (
-              <div className="v-sub p-1 max-h-[160px] overflow-y-auto">
+              <div className="v-sub p-1 max-h-[160px] overflow-auto">
                 <table className="tbl compact"><tbody>
                   {report.errors.map((e) => (<tr key={e.line}><td className="num tx3 !w-14">#{e.line}</td><td className="text-[12px] c-red">{e.message}</td></tr>))}
                 </tbody></table>
@@ -772,7 +772,7 @@ export function GroupForm({ row, onClose, onSaved }: { row: CustomerGroup | null
     <Modal open onClose={onClose} title={row ? 'تعديل مجموعة عملاء' : 'مجموعة عملاء جديدة'} icon="users"
       footer={<><button className="btn btn-soft" onClick={onClose}>إلغاء</button><button className="btn btn-dark" disabled={busy} onClick={save}>حفظ</button></>}>
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="الاسم" req err={f.errors.name}><input className="inp" value={f.v.name} onChange={f.on('name')} /></Field>
           <Field label="الكود" req hint="فريد" err={f.errors.code}><input className="inp num" dir="ltr" value={f.v.code} onChange={f.on('code')} /></Field>
         </div>
@@ -877,7 +877,7 @@ export function PriceListForm({ row, onClose, onSaved }: { row: (PriceListRow & 
             </select>
           </Field>
         )}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="الفرع" hint="اتركه فارغًا لكل الفروع" err={f.errors.branchId}>
             <select className="inp" value={f.v.branchId} onChange={f.on('branchId' as any)}>
               <option value="">كل الفروع</option>
@@ -936,11 +936,11 @@ export function AddPriceItemModal({ priceListId, onClose, onSaved }: { priceList
             {variantOptions.map((v) => (<option key={v.id} value={String(v.id)}>{v.label}</option>))}
           </select>
         </Field>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="أقل كمية لتطبيق السعر" req hint="1 أو أكثر" err={f.errors.min_qty}><input type="number" min="1" className="inp num" value={f.v.min} onChange={f.on('min' as any)} /></Field>
           <Field label="السعر (EGP)" req hint="حتى 4 منازل عشرية" err={f.errors.price}><input type="number" step="0.0001" min="0" className="inp num" value={f.v.price} onChange={f.on('price' as any)} /></Field>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="بداية سريان البند" hint="اختياري"><input type="date" className="inp" value={f.v.from} onChange={f.on('from' as any)} /></Field>
           <Field label="نهاية سريان البند" hint="اختياري"><input type="date" className="inp" value={f.v.to} onChange={f.on('to' as any)} /></Field>
         </div>
@@ -1370,7 +1370,7 @@ export function PromoForm({ row, onClose, onSaved }: { row: PromoRow | null; onC
             ))}
           </div>
         </Field>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {type !== 'free_ship' && type !== 'bxgy' && (
             <Field label={type === 'percent' ? 'نسبة الخصم %' : 'مبلغ الخصم (EGP)'} req err={f.errors.value}>
               <input type="number" step="0.01" min="0" className="inp num" value={f.v.value} onChange={f.on('value' as any)} />
@@ -1430,7 +1430,7 @@ export function PromoForm({ row, onClose, onSaved }: { row: PromoRow | null; onC
             </div>
           </div>
         )}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="بداية السريان" req err={f.errors.from}>
             <input type="date" className="inp" value={f.v.from} onChange={f.on('from' as any)} />
           </Field>
@@ -1517,7 +1517,7 @@ export function CouponForm({ row, onClose, onSaved }: { row: CouponRow | null; o
             options={Object.entries(COUPON_TYPES).map(([v, l]) => ({ value: v, label: l }))}
           />
         </Field>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {type !== 'free_ship' && (
             <Field label="قيمة الخصم" req err={f.errors.value}>
               <div className="relative">
@@ -1546,7 +1546,7 @@ export function CouponForm({ row, onClose, onSaved }: { row: CouponRow | null; o
             <input className="inp num" type="number" value={f.v.perCust} onChange={f.on('perCust' as any)} placeholder="غير محدود" />
           </Field>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="بداية السريان" err={f.errors.from}>
             <input type="date" className="inp" value={f.v.from} onChange={f.on('from' as any)} />
           </Field>
@@ -1627,11 +1627,11 @@ export function BrandForm({ row, onClose, onSaved }: { row: BrandRow | null; onC
             <Field label="الاسم الإنجليزي" req hint="حتى 150 حرفًا" err={f.errors.en}><input className="inp num" dir="ltr" maxLength={150} value={f.v.en} onChange={f.on('en' as any)} /></Field>
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="slug" hint="اختياري" err={f.errors.slug}><input className="inp num" dir="ltr" value={f.v.slug} onChange={f.on('slug' as any)} placeholder="auto-generated" /></Field>
           <Field label="ترتيب العرض" err={f.errors.sort}><input className="inp num" type="number" value={f.v.sort} onChange={f.on('sort' as any)} /></Field>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <TextArea label="الوصف العربي" value={f.v.descAr} onChange={(v) => f.set('descAr', v)} />
           <Field label="الوصف الإنجليزي"><textarea className="inp num" dir="ltr" value={f.v.descEn} onChange={f.on('descEn' as any)} /></Field>
         </div>

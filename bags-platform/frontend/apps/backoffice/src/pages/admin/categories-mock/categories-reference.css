@@ -205,14 +205,20 @@ textarea.v-input { height: auto; padding: 11px 14px; line-height: 1.6; resize: v
 .text-pretty { text-wrap: pretty; }
 kbd { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 10.5px; padding: 1px 6px; border-radius: 6px; background: var(--bg-card); border: 1px solid var(--border-field); border-bottom-width: 2px; color: var(--text-secondary); }
 :host { all: initial; display: block; direction: rtl; min-width: 0; }
-.categories-surface { direction: rtl; padding: 28px 32px 48px; min-height: calc(100vh - 58px); font-size: 13.5px; line-height: 1.5; }
+.categories-surface { direction: rtl; padding: 28px 32px 48px; min-height: calc(100vh - 58px); font-size: 13.5px; line-height: 1.5; overflow-x: hidden; }
 .categories-surface > .space-y-5 > .grid > * { min-width: 0; }
 .categories-surface[data-embedded] { padding: 0; min-height: 0; background: transparent; }
 @media (max-width: 1023px) {
   .categories-surface > .space-y-5 > .grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 639px) {
-  .categories-surface { padding: 20px 16px 40px; }
+  .categories-surface { padding: 16px 12px 36px; }
   .categories-surface .v-card > .v-border-t { flex-wrap: wrap; gap: 12px; }
   .categories-surface [draggable] > .opacity-0 { display: none; }
+  .btn { min-height: 44px; }
+  .btn-sm { min-height: 40px; }
+  .icon-btn { min-width: 44px; min-height: 44px; }
+  .v-input { min-height: 44px; }
+  .seg { flex-wrap: wrap; border-radius: 14px; }
+  .v-table { min-width: 580px; }
 }

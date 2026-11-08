@@ -1832,10 +1832,12 @@ video {
 @media (max-width: 767px) {
   #app-viewport {
     --admin-bottom-nav-space: calc(70px + env(safe-area-inset-bottom, 0px));
+    overflow-x: hidden;
   }
 
   .v-shell-container {
     padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)) !important;
+    overflow-x: hidden;
   }
 
   .v-shell-header {
@@ -1843,10 +1845,9 @@ video {
     margin-bottom: 1rem !important;
   }
   .v-header-tools .v-desktop-menu { display: none; }
-  .v-header-tools { max-inline-size: 56%; }
-  .v-shell-header #brand-home-btn { flex-shrink: 1; }
+  .v-header-tools { max-inline-size: 58%; }
+  .v-shell-header #brand-home-btn { flex-shrink: 1; min-width: 0; }
   .v-header-tools .v-header-account { padding-inline: 8px; }
-  .v-mobile-nav button { overflow-wrap: anywhere; }
 
   .v-shell-layout {
     flex-direction: column !important;
@@ -1860,25 +1861,39 @@ video {
     bottom: 0;
     z-index: 45;
     display: grid;
-    gap: 4px;
-    padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+    gap: 3px;
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px));
     background: var(--bg-card);
     border-top: 1px solid var(--border-subtle);
     box-shadow: 0 -6px 24px rgba(0, 0, 0, .08);
   }
   .v-mobile-nav button {
     min-width: 0;
-    min-height: 56px;
+    min-height: 52px;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 4px;
+    gap: 2px;
+    padding: 4px 2px;
     border-radius: 12px;
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
-    line-height: 1.3;
+    line-height: 1.2;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+  .v-mobile-nav button span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    letter-spacing: -0.01em;
+  }
+  .v-mobile-nav button svg {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
   }
   .v-mobile-nav button[aria-current="page"],
   .v-mobile-nav button[aria-expanded="true"] {
@@ -1895,6 +1910,30 @@ video {
     left: 16px !important;
     display: flex;
     justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .v-shell-header #brand-home-btn span {
+    max-width: 110px !important;
+  }
+  .v-header-tools .v-header-account {
+    max-width: 110px !important;
+  }
+}
+
+@media (max-width: 380px) {
+  .v-mobile-nav {
+    gap: 2px;
+    padding-inline: 4px;
+  }
+  .v-mobile-nav button {
+    font-size: 10px;
+    padding: 3px 1px;
+  }
+  .v-mobile-nav button svg {
+    width: 18px;
+    height: 18px;
   }
 }
 
@@ -1933,6 +1972,9 @@ video {
 }
 .v-modal-card input { font-size: 16px; }
 .v-mobile-menu nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 380px) {
+  .v-mobile-menu nav { grid-template-columns: 1fr; gap: 6px; }
+}
 .v-mobile-menu nav + nav { margin-block-start: 16px; }
 .v-mobile-menu nav h3 {
   grid-column: 1 / -1;
@@ -1940,20 +1982,27 @@ video {
   font: inherit;
   font-size: 13px;
   font-weight: 600;
+  margin-bottom: 2px;
 }
 .v-mobile-menu nav button {
   display: flex; align-items: center; gap: 10px; text-align: start;
   min-height: 48px; padding: 10px 12px; border-radius: 12px;
-  color: var(--text-primary); background: var(--bg-subcard); font-size: 14px;
+  color: var(--text-primary); background: var(--bg-subcard); font-size: 13px;
+  font-weight: 500; transition: background-color 0.15s ease, transform 0.1s ease;
 }
+.v-mobile-menu nav button:active { transform: scale(0.98); }
 .v-mobile-menu nav button svg { flex-shrink: 0; }
-.v-mobile-menu nav button span { min-width: 0; overflow-wrap: anywhere; }
-.v-mobile-menu nav button[aria-current="page"] { background: var(--pill-active-bg); color: var(--pill-active-text); }
+.v-mobile-menu nav button span { min-width: 0; overflow-wrap: break-word; line-height: 1.3; }
+.v-mobile-menu nav button[aria-current="page"] { background: var(--pill-active-bg); color: var(--pill-active-text); font-weight: 600; }
 .v-mobile-menu-tools { margin-top: 16px; padding-top: 8px; border-top: 1px solid var(--border-subtle); }
 .v-mobile-menu-tools button {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  width: 100%; min-height: 48px; padding: 10px 4px; font-size: 14px; color: var(--text-primary);
+  width: 100%; min-height: 48px; padding: 10px 8px; font-size: 13.5px; font-weight: 500; color: var(--text-primary);
+  border-radius: 10px; transition: background-color 0.15s ease;
 }
+.v-mobile-menu-tools button:hover,
+.v-mobile-menu-tools button:active { background: var(--bg-subcard); }
+.v-mobile-menu-tools button span { color: var(--text-secondary); font-size: 12px; }
 .v-mobile-menu-tools button span { color: var(--text-secondary); font-size: 12px; }
 @media (max-width: 639px) { .v-modal-card { max-height: calc(100dvh - 16px); } }
 

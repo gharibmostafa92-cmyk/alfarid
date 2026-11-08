@@ -128,7 +128,7 @@ export function ExpenseForm({ onClose, onSaved }: { onClose: () => void; onSaved
       <div className="space-y-4">
         <RemoteNote remote={treasures} />
         <RemoteNote remote={branches} />
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="الفرع" req err={f.errors.branch_id}>
             <select className="inp" value={f.v.branchId} onChange={f.on('branchId')}>
               <option value="">اختر الفرع</option>
@@ -183,7 +183,7 @@ export function TreasuryForm({ row, onClose, onSaved }: { row: any; onClose: () 
     <Modal open onClose={onClose} title={row ? 'تعديل خزينة' : 'خزينة جديدة'} icon="vault" width={600}
       footer={<><button className="btn btn-soft" onClick={onClose}>إلغاء</button><button className="btn btn-dark" disabled={busy} onClick={save}>حفظ</button></>}>
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="اسم الخزينة" req err={f.errors.name}><input className="inp" value={f.v.name} onChange={f.on('name')} /></Field>
           <Field label="الكود" req err={f.errors.code}><input className="inp" value={f.v.code} onChange={f.on('code')} /></Field>
           <Field label="النوع" req err={f.errors.type}>
@@ -706,7 +706,7 @@ export function TransfersTab({ recordId }: { recordId?: number } = {}) {
       >
         {unresolved && <p role="status">نتيجة الطلب السابق لم تُحسم. أعد الإرسال بنفس البيانات للتحقق منه بأمان.</p>}
         <fieldset disabled={busy || unresolved} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="الخزينة المصدر" req err={errors.from_treasury_id}>
               <select className="inp" value={src} onChange={(e) => setSrc(e.target.value)}>
                 <option value="">اختر</option>
@@ -1234,7 +1234,7 @@ export function QuotesTab() {
           }
         >
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="صالح حتى تاريخ" req err={errors.valid_until}>
                 <input type="date" className="inp" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} />
               </Field>

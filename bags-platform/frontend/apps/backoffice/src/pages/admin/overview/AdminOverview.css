@@ -37,12 +37,19 @@
   outline-offset: 2px;
 }
 
-.admin-sales-total, .admin-metric-value { overflow-wrap: anywhere; }
+.admin-sales-total, .admin-metric-value {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  min-width: 0;
+}
 .admin-vortix-metrics { grid-template-rows: repeat(2, minmax(0, 1fr)); }
 .admin-vortix-metrics .v-orange-earnings { color: white; }
 .admin-vortix-metrics .v-orange-earnings .v-icon-well { background: rgb(255 255 255 / 18%); }
-.admin-metric-value { font-size: clamp(18px, 2.3vw, 32px); line-height: 1.2; }
-.admin-metric-link { font-size: 11px; text-decoration: none; color: inherit; min-height: 24px; }
+.admin-metric-value {
+  font-size: clamp(20px, 4.5vw, 30px) !important;
+  line-height: 1.15;
+}
+.admin-metric-link { font-size: 11px; text-decoration: none; color: inherit; min-height: 28px; display: inline-flex; align-items: center; }
 .admin-metric-link:hover { text-decoration: underline; }
 
 .admin-comparison-legend {
@@ -101,9 +108,14 @@
   color: inherit;
 }
 
-.admin-ranking-table { border-collapse: collapse; text-align: start; font-size: 12.5px; }
+.admin-ranking-table {
+  border-collapse: collapse;
+  text-align: start;
+  font-size: 12.5px;
+  min-width: 480px;
+}
 .admin-ranking-table :is(th, td) { padding: 12px; text-align: start; }
-.admin-ranking-table thead th { font-size: 11.5px; font-weight: 600; }
+.admin-ranking-table thead th { font-size: 11.5px; font-weight: 600; white-space: nowrap; }
 .admin-ranking-table thead th:first-child { border-start-start-radius: 12px; border-end-start-radius: 12px; }
 .admin-ranking-table thead th:last-child { border-start-end-radius: 12px; border-end-end-radius: 12px; }
 .admin-ranking-table tbody tr + tr { border-top: 1px solid var(--divider-color); }
@@ -117,6 +129,29 @@
   border-radius: 8px;
   background: var(--accent-orange-light);
   color: var(--accent-orange);
+}
+
+@media (max-width: 639px) {
+  .admin-overview-header {
+    flex-direction: column;
+    align-items: stretch !important;
+  }
+  .admin-overview-header > * {
+    width: 100%;
+  }
+  .admin-overview-header .admin-overview-button,
+  .admin-overview-header .admin-ranking-search {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 420px) {
+  .admin-chart-axis { font-size: 9px; }
+  .admin-comparison-columns { font-size: 9px; }
+  .admin-comparison-bars span { width: min(85%, 18px); }
+  .admin-ranking-table { min-width: 420px; }
+  .admin-sales-total { font-size: 26px !important; }
 }
 
 @media (min-width: 1024px) {

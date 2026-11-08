@@ -611,35 +611,35 @@ export function KPI({
   const metric = typeof value === 'number' ? <AnimatedNumber value={value} format={format} /> : value;
   if (hero)
     return (
-      <div className="v-orange rounded-[18px] p-4 flex flex-col justify-between min-h-[118px]">
-        <div className="flex items-center justify-between">
-          <span className="text-[12.5px] font-medium text-white/90">{label}</span>
+      <div className="v-orange rounded-[18px] p-4 flex flex-col justify-between min-h-[118px] min-w-0 overflow-hidden">
+        <div className="flex items-center justify-between gap-1">
+          <span className="text-[12.5px] font-medium text-white/90 truncate">{label}</span>
           {icon && (
-            <span className="w-7 h-7 rounded-full bg-white/15 flex items-center justify-center">
+            <span className="w-7 h-7 rounded-full bg-white/15 flex items-center justify-center shrink-0">
               <Icon name={icon} size={14} />
             </span>
           )}
         </div>
-        <div className={'font-display font-bold tracking-tight my-2.5 num ' + (small ? 'text-[22px]' : 'text-[28px]')}>
+        <div className={'font-display font-bold tracking-tight my-2.5 num truncate ' + (small ? 'text-[20px] sm:text-[22px]' : 'text-[24px] sm:text-[28px]')}>
           {metric}
         </div>
-        {foot && <div className="text-[11px] text-white/80">{foot}</div>}
+        {foot && <div className="text-[11px] text-white/80 truncate">{foot}</div>}
       </div>
     );
   return (
-    <div className="v-sub rounded-[18px] p-4 flex flex-col justify-between min-h-[118px]">
-      <div className="flex items-center justify-between">
-        <span className="text-[12.5px] font-medium tx2">{label}</span>
+    <div className="v-sub rounded-[18px] p-4 flex flex-col justify-between min-h-[118px] min-w-0 overflow-hidden">
+      <div className="flex items-center justify-between gap-1">
+        <span className="text-[12.5px] font-medium tx2 truncate">{label}</span>
         {icon && (
-          <span className="v-well w-7 h-7 rounded-full flex items-center justify-center">
+          <span className="v-well w-7 h-7 rounded-full flex items-center justify-center shrink-0">
             <Icon name={icon} size={14} />
           </span>
         )}
       </div>
-      <div className={'font-display font-bold tracking-tight my-2.5 tx1 num ' + (small ? 'text-[22px]' : 'text-[28px]')}>
+      <div className={'font-display font-bold tracking-tight my-2.5 tx1 num truncate ' + (small ? 'text-[20px] sm:text-[22px]' : 'text-[24px] sm:text-[28px]')}>
         {metric}
       </div>
-      {foot && <div className="text-[11px] tx3">{foot}</div>}
+      {foot && <div className="text-[11px] tx3 truncate">{foot}</div>}
     </div>
   );
 }
@@ -657,14 +657,19 @@ export function SearchPill({
   w?: string;
 }) {
   return (
-    <div className="v-sub px-3 py-1.5 rounded-full flex items-center gap-2">
-      <Icon name="search" size={14} className="tx3" />
+    <div className="v-sub px-3 py-1.5 rounded-full flex items-center gap-2 min-h-[38px] flex-1 sm:flex-initial min-w-[140px] max-w-full">
+      <Icon name="search" size={14} className="tx3 shrink-0" />
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className={'bg-transparent text-[12px] outline-none tx1 ' + w}
+        className={'bg-transparent text-[12px] outline-none tx1 w-full ' + w}
       />
+      {value && (
+        <button type="button" onClick={() => onChange('')} className="tx3 hover:tx1" aria-label="مسح البحث">
+          <Icon name="x" size={12} />
+        </button>
+      )}
     </div>
   );
 }
@@ -757,12 +762,12 @@ export function TabsBar({
   onChange: (v: string) => void;
 }) {
   return (
-    <div className="v-pill p-1.5 inline-flex items-center gap-1 stg stg-2 flex-wrap">
+    <div className="v-pill p-1.5 inline-flex items-center gap-1 stg stg-2 flex-wrap max-w-full rounded-2xl sm:rounded-full">
       {tabs.map((t) => (
         <button
           key={t.value}
           onClick={() => onChange(t.value)}
-          className="px-4 py-2 rounded-full text-[13px] font-medium transition flex items-center gap-2"
+          className="px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-full text-[12.5px] sm:text-[13px] font-medium transition flex items-center gap-1.5 min-h-[38px]"
           style={
             value === t.value
               ? { background: 'var(--pill-active-bg)', color: 'var(--pill-active-text)' }
@@ -770,8 +775,8 @@ export function TabsBar({
           }
         >
           {t.icon && <Icon name={t.icon} size={14} />}
-          {t.label}
-          {t.count != null && <span className="num text-[11px] opacity-70">{t.count}</span>}
+          <span>{t.label}</span>
+          {t.count != null && <span className="num text-[11px] opacity-70">({t.count})</span>}
         </button>
       ))}
     </div>
@@ -803,7 +808,7 @@ export function DataTable<T extends Record<string, any>>({
   foot?: ReactNode;
 }) {
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto -mx-1 px-1">
       <table className={'tbl' + (compact ? ' compact' : '')}>
         <thead>
           <tr>

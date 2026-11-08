@@ -344,7 +344,7 @@ export function SupplierForm({ row, onClose, onSaved, blocked }: { row: Supplier
       }
     >
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="الكود" req hint="فريد" err={f.errors.code}>
             <input className="inp num" dir="ltr" value={f.v.code} onChange={f.on('code' as any)} placeholder="SUP-0001" />
           </Field>
@@ -1254,7 +1254,7 @@ export function POModule() {
         >
           <div className="space-y-4">
             {Object.keys(errors).length > 0 && <Note tone="red">{Object.values(errors).join(' · ')}</Note>}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="المورد" req>
                 <select className="inp" value={form.sup} onChange={e => setForm({ ...form, sup: e.target.value })}>
                   <option value="">اختر المورد</option>
@@ -1508,7 +1508,7 @@ export function InvModule({ onPayment }: { onPayment?: (invoice: any) => void })
         >
           <div className="space-y-4">
             {Object.keys(errors).length > 0 && <Note tone="red">{Object.values(errors).join(' · ')}</Note>}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <RemoteFeedback state={suppliers} /><RemoteFeedback state={orders} />
               <Field label="المورد" err={errors.supplier_id} req hint={form.id ? 'لا يمكن تغيير المورد بعد الإنشاء' : null}>
                 <select className="inp" disabled={!!form.id} value={form.sup} onChange={e => setForm({ ...form, sup: e.target.value, poId: '' })}>
@@ -1786,7 +1786,7 @@ export function PayModule({ initialInvoice }: { initialInvoice?: any }) {
                 لا يمكن تعديل المبلغ أو المورد أو التاريخ — يمكن تعديل الوسيلة والمرجع والملاحظات فقط.
               </Note>
             )}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="المورد" err={errors.supplier_id} req>
                 <select className="inp" disabled={!!form.id} value={form.sup} onChange={e => setForm({ ...form, sup: e.target.value, invId: '' })}>
                   <option value="">اختر المورد</option>

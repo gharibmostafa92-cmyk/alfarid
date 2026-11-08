@@ -15,7 +15,7 @@ function Drawer({ open, onClose, title, subtitle, children, footer, width = 520 
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[60] fade" style={{ background: 'var(--overlay)', backdropFilter: 'blur(2px)' }} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="drawer absolute top-3 bottom-3 start-3 v-card flex flex-col overflow-hidden" style={{ width, maxWidth: 'calc(100vw - 24px)', boxShadow: 'var(--shadow-pop)', borderRadius: 26 }}>
+      <div className="drawer absolute inset-y-0 start-0 sm:top-3 sm:bottom-3 sm:start-3 v-card flex flex-col overflow-hidden rounded-none sm:rounded-[26px]" style={{ width, maxWidth: '100vw', boxShadow: 'var(--shadow-pop)' }}>
         <div className="px-6 pt-6 pb-4 flex items-start justify-between gap-3 v-border-b">
           <div>
             <h3 className="font-display text-[19px] font-semibold t-1">{title}</h3>
@@ -950,8 +950,8 @@ function Modal({ open, onClose, children, width = 460, title, subtitle, icon, ic
   }, [open]);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 fade" style={{ background: 'var(--overlay)', backdropFilter: 'blur(3px)' }} onMouseDown={(e) => e.target === e.currentTarget && onClose && onClose()}>
-      <div className="pop v-card w-full overflow-hidden" style={{ maxWidth: width, boxShadow: 'var(--shadow-pop)', borderRadius: 26 }}>
+    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4 fade" style={{ background: 'var(--overlay)', backdropFilter: 'blur(3px)' }} onMouseDown={(e) => e.target === e.currentTarget && onClose && onClose()}>
+      <div className="pop v-card w-full overflow-hidden rounded-b-none sm:rounded-b-[26px] rounded-t-[26px] max-h-[90vh] flex flex-col pb-[max(0.75rem,env(safe-area-inset-bottom))]" style={{ maxWidth: width, boxShadow: 'var(--shadow-pop)' }}>
         {(title || icon) && (
           <div className="p-6 pb-0 flex items-start gap-3.5">
             {icon && <span className={cx('w-11 h-11 rounded-full flex items-center justify-center shrink-0', 'b-' + iconTone)}><Icon name={icon} size={19} /></span>}

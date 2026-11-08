@@ -227,8 +227,8 @@ function Modal({ open, onClose, children, width = 460, title, subtitle, icon, ic
   }, [open, onClose]);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 fade" style={{ background: 'var(--overlay)', backdropFilter: 'blur(3px)' }} onMouseDown={(e) => e.target === e.currentTarget && onClose && onClose()}>
-      <div role="dialog" aria-modal="true" aria-labelledby={titleId} className="pop v-card w-full overflow-hidden" style={{ maxWidth: width, boxShadow: 'var(--shadow-pop)', borderRadius: 26 }}>
+    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4 fade" style={{ background: 'var(--overlay)', backdropFilter: 'blur(3px)' }} onMouseDown={(e) => e.target === e.currentTarget && onClose && onClose()}>
+      <div role="dialog" aria-modal="true" aria-labelledby={titleId} className="pop v-card w-full overflow-hidden rounded-b-none sm:rounded-b-[26px] rounded-t-[26px] max-h-[90vh] flex flex-col pb-[max(0.75rem,env(safe-area-inset-bottom))]" style={{ maxWidth: width, boxShadow: 'var(--shadow-pop)' }}>
         {(title || icon) && (
           <div className="p-6 pb-0 flex items-start gap-3.5">
             {icon && <span className={cx('w-11 h-11 rounded-full flex items-center justify-center shrink-0', 'b-' + iconTone)}><Icon name={icon} size={19} /></span>}
@@ -568,7 +568,7 @@ export function CategoriesReferencePage() {
           <span className="text-[11px] t-3 num hidden sm:inline">{sumProducts(n)} منتج</span>
           <span className="text-[10px] font-bold w-5 h-5 rounded-full v-well flex items-center justify-center num">{depth}</span>
           {(perms.create || perms.update || perms.delete) && (
-            <div className="flex items-center opacity-0 group-hover:opacity-100 transition" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition" onClick={(e) => e.stopPropagation()}>
               {perms.create && (depth < MAX_DEPTH
                 ? <button title={dirty ? lockMsg : 'إضافة قسم فرعي'} disabled={dirty} className={cx('icon-btn !w-8 !h-8', dirty && 'opacity-30 cursor-not-allowed')} onClick={() => canCreate && setForm({ parentId: n.id })}><Icon name="plus" size={14} /></button>
                 : <span title="الحد الأقصى ٣ مستويات" className="icon-btn !w-8 !h-8 opacity-30 cursor-not-allowed"><Icon name="plus" size={14} /></span>)}
@@ -800,7 +800,7 @@ function CategoryForm({ open, value, tree, onClose, onSaved }) {
     <Drawer open={open} onClose={close} title={isEdit ? 'تعديل القسم' : (v.parentId ? 'قسم فرعي جديد' : 'قسم رئيسي جديد')} subtitle={v.parentId && !isEdit && parentName ? <>تحت <b className="t-1"><bdi>{parentName}</bdi></b></> : null} width={540}
       footer={<><button className="btn btn-soft" onClick={close} disabled={busy}>إلغاء</button><button className="btn btn-ink" onClick={save} disabled={busy || fileChecking}>{(busy || fileChecking) && <Spinner size={14} />}{isEdit ? 'حفظ' : 'إنشاء القسم'}</button></>}>
       <fieldset disabled={busy} className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="الاسم بالعربي" required error={errs.ar}><Input dir="rtl" value={v.ar || ''} onChange={(e) => setV({ ...v, ar: e.target.value })} error={errs.ar} /></Field>
           <Field label="الاسم بالإنجليزي" required error={errs.en}><Input ltr dir="ltr" value={v.en || ''} onChange={(e) => setV({ ...v, en: e.target.value })} error={errs.en} /></Field>
         </div>
@@ -851,7 +851,7 @@ function Drawer({ open, onClose, title, subtitle, children, footer, width = 520 
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[60] fade" style={{ background: 'var(--overlay)', backdropFilter: 'blur(2px)' }} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-modal="true" aria-labelledby={titleId} className="drawer absolute top-3 bottom-3 start-3 v-card flex flex-col overflow-hidden" style={{ width, maxWidth: 'calc(100vw - 24px)', boxShadow: 'var(--shadow-pop)', borderRadius: 26 }}>
+      <div role="dialog" aria-modal="true" aria-labelledby={titleId} className="drawer absolute inset-y-0 start-0 sm:top-3 sm:bottom-3 sm:start-3 v-card flex flex-col overflow-hidden rounded-none sm:rounded-[26px]" style={{ width, maxWidth: '100vw', boxShadow: 'var(--shadow-pop)' }}>
         <div className="px-6 pt-6 pb-4 flex items-start justify-between gap-3 v-border-b">
           <div>
             <h3 id={titleId} className="font-display text-[19px] font-semibold t-1">{title}</h3>

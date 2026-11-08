@@ -98,8 +98,8 @@ export default function AdminOverview({ can, name }: { can: (permission: string)
       <style>{styles}</style>
       <header className="admin-overview-header pt-1">
         <div className="admin-overview-intro">
-          <h1 className="font-display text-[32px] sm:text-[40px] font-medium tracking-[-0.025em] leading-tight">مرحبًا بك{name && <>، <bdi>{name}</bdi></>}</h1>
-          <p className="text-[13.5px] mt-1">تابع المبيعات والطلبات والمخزون في مكان واحد.</p>
+          <h1 className="font-display text-[26px] sm:text-[34px] md:text-[40px] font-medium tracking-[-0.025em] leading-tight">مرحبًا بك{name && <>، <bdi>{name}</bdi></>}</h1>
+          <p className="text-[13px] sm:text-[13.5px] mt-1">تابع المبيعات والطلبات والمخزون في مكان واحد.</p>
         </div>
         {data && <button type="button" className="admin-overview-button v-subcard" onClick={reload}><RefreshCw size={15} aria-hidden="true" /> تحديث البيانات</button>}
       </header>

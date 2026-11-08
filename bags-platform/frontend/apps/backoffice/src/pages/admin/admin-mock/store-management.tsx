@@ -444,12 +444,12 @@ function BannerForm({ open, initial, defaultPlacement, onClose, onSave }: Banner
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4 fade-in"
+      className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4 fade-in"
       style={{ background: 'rgba(0,0,0,.45)', backdropFilter: 'blur(4px)' }}
       onMouseDown={e => e.target === e.currentTarget && !busy && closeForm()}
     >
       <div
-        className="v-card w-full shadow-2xl flex flex-col max-h-[92vh] v-pop-in"
+        className="v-card w-full shadow-2xl flex flex-col max-h-[92vh] rounded-b-none sm:rounded-b-[22px] rounded-t-[24px] sm:rounded-t-[22px] v-pop-in pb-[max(0.5rem,env(safe-area-inset-bottom))]"
         style={{ maxWidth: 760 }}
       >
         <div className="flex items-start justify-between gap-4 p-6 pb-4 v-border-b">
@@ -1217,11 +1217,11 @@ export function StoreManagementTab({ can }: { can?: (perm: string) => boolean })
       {/* Delete Confirmation Modal */}
       {del && (
         <div
-          className="fixed inset-0 z-[65] flex items-center justify-center p-4 fade-in"
+          className="fixed inset-0 z-[65] flex items-end sm:items-center justify-center p-0 sm:p-4 fade-in"
           style={{ background: 'rgba(0,0,0,.45)', backdropFilter: 'blur(4px)' }}
           onMouseDown={e => e.target === e.currentTarget && !delBusy && setDel(null)}
         >
-          <div className="v-card p-6 w-full max-w-md shadow-2xl v-pop-in space-y-4">
+          <div className="v-card p-6 w-full max-w-md shadow-2xl v-pop-in space-y-4 rounded-b-none sm:rounded-b-[22px] rounded-t-[24px] sm:rounded-t-[22px] pb-[max(1rem,env(safe-area-inset-bottom))]">
             <div className="flex items-start justify-between gap-4">
               <h3 className="font-display text-[18px] font-semibold c-primary">حذف البانر؟</h3>
               <button

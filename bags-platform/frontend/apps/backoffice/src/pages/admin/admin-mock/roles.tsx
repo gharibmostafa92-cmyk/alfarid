@@ -373,7 +373,7 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
             <p className="text-[13px] mt-2 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
               {deleteConflict ? deleteConflict : uc ? <>الدور مُسند حالياً إلى <b style={{ color: 'var(--text-primary)' }}>{uc} مستخدم</b>. أزل الدور من المستخدمين أولاً ثم أعد المحاولة.</> : 'سيتم حذف الدور وجميع صلاحياته نهائياً. لا يمكن التراجع عن هذا الإجراء.'}
             </p>
-            <div className="grid grid-cols-2 gap-2.5 mt-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-5">
               <GhostButton onClick={() => setDel(null)} className={uc ? 'col-span-2' : ''}>{blocked ? 'حسناً' : 'إلغاء'}</GhostButton>
               {!blocked && <button type="button" onClick={() => doDelete(del)} className="h-10 rounded-full text-[13px] font-semibold text-white" style={{ background: 'var(--badge-red-text)' }}>حذف نهائي</button>}
             </div>
