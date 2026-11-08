@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\Pos\PosAuthController;
+use App\Http\Controllers\Api\V1\Pos\PosBootstrapController;
 use App\Http\Controllers\Api\V1\Pos\PosProductController;
 use App\Http\Controllers\Api\V1\Pos\PosSaleController;
 use App\Http\Controllers\Api\V1\Pos\PosShiftController;
@@ -25,6 +26,8 @@ if (config('auth.legacy_login_enabled', false)) {
 
 Route::middleware(['auth:sanctum', 'auth.staff', 'permission:pos.access'])->group(function (): void {
     Route::post('auth/logout', [PosAuthController::class, 'logout'])->name('auth.logout');
+    Route::get('bootstrap', [PosBootstrapController::class, 'show'])->name('bootstrap');
+    Route::get('treasuries/available', [PosShiftController::class, 'availableDrawers'])->name('treasuries.available');
 
     // Shift management: opening and inspecting shifts do not require an active shift.
     Route::post('shifts/open', [PosShiftController::class, 'open'])->name('shifts.open');
@@ -36,6 +39,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', 'permission:pos.access'])->grou
 
     // Protected endpoints requiring an active shift (pos.shift middleware injects current shift).
     Route::middleware('pos.shift')->group(function (): void {
+        Route::get('shifts/current/summary', [PosShiftController::class, 'summary'])->name('shifts.current.summary');
         Route::post('shifts/close', [PosShiftController::class, 'close'])->name('shifts.close');
 
         // POS sales, held carts, refunds, and exchanges.

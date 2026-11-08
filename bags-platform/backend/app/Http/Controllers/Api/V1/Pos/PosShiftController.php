@@ -7,9 +7,10 @@ namespace App\Http\Controllers\Api\V1\Pos;
 use App\Enums\PosShiftStatus;
 use App\Http\Controllers\Controller;
 use App\Models\PosShift;
-use App\Models\Treasury;
 use App\Models\User;
+use App\Services\BranchAccess;
 use App\Services\PosService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -19,6 +20,49 @@ use Illuminate\Http\Request;
 class PosShiftController extends Controller
 {
     public function __construct(private readonly PosService $pos) {}
+
+    /**
+     * List active POS drawers for the authenticated cashier's branch with busy status and balance.
+     */
+    public function availableDrawers(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user('staff');
+        if ($user->branch_id === null) {
+            throw new AuthorizationException('حسابك غير مرتبط بأي فرع.');
+        }
+
+        $branchId = (int) $user->branch_id;
+        app(BranchAccess::class)->assertBranch($user->id, $branchId);
+
+        return response()->json([
+            'data' => $this->pos->getAvailableDrawers($branchId),
+        ]);
+    }
+
+    /**
+     * Retrieve live computed financial totals and invoice count for the current open shift.
+     */
+    public function summary(Request $request): JsonResponse
+    {
+        /** @var PosShift $shift */
+        $shift = $request->attributes->get('pos_shift');
+        $shift->load(['cashier', 'treasury', 'branch']);
+
+        $totals = $this->pos->computeShiftTotals($shift);
+
+        return response()->json([
+            'data' => array_merge($this->formatShift($shift), [
+                'opening_cash'          => number_format((float) $totals['opening_cash'], 2, '.', ''),
+                'cash_sales_total'      => number_format((float) $totals['cash_sales_total'], 2, '.', ''),
+                'card_sales_total'      => number_format((float) $totals['card_sales_total'], 2, '.', ''),
+                'cash_returns_total'    => number_format((float) $totals['cash_returns_total'], 2, '.', ''),
+                'cash_expenses_total'   => number_format((float) $totals['cash_expenses_total'], 2, '.', ''),
+                'expected_closing_cash' => number_format((float) $totals['expected_closing_cash'], 2, '.', ''),
+                'invoices_count'        => (int) $totals['invoices_count'],
+            ]),
+        ]);
+    }
 
     /**
      * Open a new cashier shift with initial drawer cash float.

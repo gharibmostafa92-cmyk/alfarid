@@ -9,6 +9,7 @@ use App\Enums\PosShiftStatus;
 use App\Enums\StockBucket;
 use App\Enums\StockMovementType;
 use App\Enums\TreasuryTransactionType;
+use App\Enums\TreasuryType;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;
 use App\Models\Customer;
@@ -148,6 +149,110 @@ class PosService
     }
 
     /**
+     * Computes live financial totals and delivered invoice count for a shift.
+     *
+     * @param  PosShift  $s  Target shift
+     * @return array{
+     *     opening_cash: float,
+     *     cash_sales_total: float,
+     *     card_sales_total: float,
+     *     cash_returns_total: float,
+     *     cash_expenses_total: float,
+     *     expected_closing_cash: float,
+     *     invoices_count: int
+     * }
+     */
+    public function computeShiftTotals(PosShift $s): array
+    {
+        $salesStats = Order::query()
+            ->where('pos_shift_id', $s->id)
+            ->where('status', OrderStatus::Delivered)
+            ->selectRaw('
+                COALESCE(SUM(cash_amount), 0) AS cash_sales,
+                COALESCE(SUM(card_amount), 0) AS card_sales
+            ')
+            ->first();
+
+        $cashSales = (float) ($salesStats?->cash_sales ?? 0);
+        $cardSales = (float) ($salesStats?->card_sales ?? 0);
+
+        $cashReturns = (float) Order::query()
+            ->where('pos_shift_id', $s->id)
+            ->where('status', OrderStatus::Returned)
+            ->sum('cash_amount');
+
+        $cashExpenses = (float) Expense::query()
+            ->where('shift_id', $s->id)
+            ->sum('amount');
+
+        $openingCash = (float) $s->opening_cash;
+        $expectedClosingCash = $openingCash
+            + $cashSales
+            - $cashReturns
+            - $cashExpenses;
+
+        return [
+            'opening_cash' => $openingCash,
+            'cash_sales_total' => $cashSales,
+            'card_sales_total' => $cardSales,
+            'cash_returns_total' => $cashReturns,
+            'cash_expenses_total' => $cashExpenses,
+            'expected_closing_cash' => $expectedClosingCash,
+            'invoices_count' => Order::where('pos_shift_id', $s->id)->where('status', OrderStatus::Delivered)->count(),
+        ];
+    }
+
+    /**
+     * Lists active POS drawers for a branch with busy status and current balance.
+     *
+     * @param  int  $branchId  Target branch ID
+     * @return array<int, array{id: int, name: string, code: string, busy: bool, balance: string}>
+     */
+    public function getAvailableDrawers(int $branchId): array
+    {
+        $drawers = Treasury::query()
+            ->where('branch_id', $branchId)
+            ->where('type', TreasuryType::PosDrawer)
+            ->where('is_active', true)
+            ->orderBy('id')
+            ->get();
+
+        if ($drawers->isEmpty()) {
+            return [];
+        }
+
+        $busyIds = PosShift::query()
+            ->whereIn('treasury_id', $drawers->pluck('id')->all())
+            ->whereIn('status', [PosShiftStatus::Open, PosShiftStatus::ClosedPendingApproval])
+            ->pluck('treasury_id')
+            ->flip();
+
+        return $drawers->map(fn (Treasury $drawer): array => [
+            'id' => $drawer->id,
+            'name' => $drawer->name,
+            'code' => $drawer->code,
+            'busy' => $busyIds->has($drawer->id),
+            'balance' => number_format((float) $drawer->current_balance, 2, '.', ''),
+        ])->values()->all();
+    }
+
+    /**
+     * Computes an MD5 version hash of the branch product catalog and stock levels.
+     *
+     * @param  int  $branchId  Target branch ID
+     * @return string 32-character MD5 hex string
+     */
+    public function computeCatalogVersion(int $branchId): string
+    {
+        $maxVariantUpdated = (string) (ProductVariant::query()->max('updated_at') ?? '');
+        $maxStockUpdated = (string) (StockLevel::query()
+            ->where('branch_id', $branchId)
+            ->max('updated_at') ?? '');
+
+        return md5($maxVariantUpdated.'|'.$maxStockUpdated);
+    }
+
+    /**
      * Closes an active POS shift, recalculates expected cash, and records cash difference.
      *
      * @param  PosShift  $shift  Active shift to close
@@ -170,41 +275,17 @@ class PosService
                 throw new BusinessException('النقدية الفعلية غير صالحة.');
             }
 
-            $salesStats = Order::query()
-                ->where('pos_shift_id', $shift->id)
-                ->where('status', OrderStatus::Delivered)
-                ->selectRaw('
-                    COALESCE(SUM(cash_amount), 0) AS cash_sales,
-                    COALESCE(SUM(card_amount), 0) AS card_sales
-                ')
-                ->first();
-
-            $cashSales = (float) ($salesStats?->cash_sales ?? 0);
-            $cardSales = (float) ($salesStats?->card_sales ?? 0);
-
-            $cashReturns = (float) Order::query()
-                ->where('pos_shift_id', $shift->id)
-                ->where('status', OrderStatus::Returned)
-                ->sum('cash_amount');
-
-            $cashExpenses = (float) Expense::query()
-                ->where('shift_id', $shift->id)
-                ->sum('amount');
-
-            $expectedClosingCash = (float) $shift->opening_cash
-                + $cashSales
-                - $cashReturns
-                - $cashExpenses;
-
+            $totals = $this->computeShiftTotals($shift);
+            $expectedClosingCash = $totals['expected_closing_cash'];
             $cashDifference = $actualCash - $expectedClosingCash;
 
             $shift->update([
                 'status' => PosShiftStatus::ClosedPendingApproval,
                 'closed_at' => now(),
-                'cash_sales_total' => $cashSales,
-                'card_sales_total' => $cardSales,
-                'cash_returns_total' => $cashReturns,
-                'cash_expenses_total' => $cashExpenses,
+                'cash_sales_total' => $totals['cash_sales_total'],
+                'card_sales_total' => $totals['card_sales_total'],
+                'cash_returns_total' => $totals['cash_returns_total'],
+                'cash_expenses_total' => $totals['cash_expenses_total'],
                 'expected_closing_cash' => $expectedClosingCash,
                 'actual_closing_cash' => $actualCash,
                 'cash_difference' => $cashDifference,
