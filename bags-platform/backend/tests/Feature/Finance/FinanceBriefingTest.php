@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Feature;
+namespace Tests\Feature\Finance;
 
 use App\Enums\Finance\PosShiftStatus;
 use App\Enums\StaffRole;
