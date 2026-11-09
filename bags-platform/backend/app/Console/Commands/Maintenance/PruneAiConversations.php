@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Console\Commands;
+namespace App\Console\Commands\Maintenance;
 
 use App\Jobs\PruneAiConversations as Job;
 use Illuminate\Console\Command;

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Console\Commands;
+namespace App\Console\Commands\Customer;
 
 use App\Models\Customer;
 use Illuminate\Console\Command;

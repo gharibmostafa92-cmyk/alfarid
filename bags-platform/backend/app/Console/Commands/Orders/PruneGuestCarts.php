@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Console\Commands;
+namespace App\Console\Commands\Orders;
 
 use App\Models\Cart;
 use Illuminate\Console\Command;

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Console\Commands;
+namespace App\Console\Commands\Maintenance;
 
 use App\Models\InventoryIdempotencyKey;
 use Illuminate\Console\Command;
