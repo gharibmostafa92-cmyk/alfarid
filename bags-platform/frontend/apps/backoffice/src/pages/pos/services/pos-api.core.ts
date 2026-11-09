@@ -35,6 +35,7 @@ import {
 const EP = API_ENDPOINTS.POS;
 const CATALOG_STALE_MS = 60_000;
 const LOCK_RETRY_DELAYS = [300, 900];
+const MAX_503_RETRIES = 3;
 
 export interface PosHttp {
   get(url: string, config?: any): Promise<any>;
@@ -108,9 +109,11 @@ export class PosApiService {
     this.listeners.forEach((cb) => cb());
   }
 
-  /** Normalizes errors, clears the shift on no_open_shift, retries 409 lock conflicts (300ms, 900ms). */
+  /** Normalizes errors, clears the shift on no_open_shift, retries 409 lock conflicts (300ms, 900ms)
+   * and 503s (Retry-After, capped). */
   private async call<T>(fn: () => Promise<T>): Promise<T> {
     let attempt = 0;
+    let unavailableAttempts = 0;
     for (;;) {
       try {
         return await fn();
@@ -123,6 +126,11 @@ export class PosApiService {
         }
         if (err.status === 409 && err.retryable && attempt < LOCK_RETRY_DELAYS.length) {
           await this.sleep(LOCK_RETRY_DELAYS[attempt++]);
+          continue;
+        }
+        if (err.status === 503 && err.retryable && unavailableAttempts < MAX_503_RETRIES) {
+          unavailableAttempts += 1;
+          await this.sleep(err.retryAfterMs ?? 1000);
           continue;
         }
         throw err;

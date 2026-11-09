@@ -5,6 +5,7 @@ export class PosApiError extends Error {
     public code?: string,
     public fields?: Record<string, string[]>,
     public retryable = false,
+    public retryAfterMs?: number,
   ) {
     super(message);
     this.name = 'PosApiError';
@@ -22,5 +23,13 @@ export function normalizeError(e: any): PosApiError {
   const r = e?.response;
   if (!r) return new PosApiError(0, 'انقطع الاتصال بالسيرفر', 'network', undefined, true);
   const msg = r.data?.message ?? 'حدث خطأ غير متوقع';
+  if (r.status === 503) {
+    const raw = r.headers?.["retry-after"] ?? r.headers?.["Retry-After"];
+    const seconds = raw == null ? NaN : Number(raw);
+    const retryAfterMs = Number.isFinite(seconds) && (seconds as number) >= 0
+      ? Math.round((seconds as number) * 1000)
+      : 1000;
+    return new PosApiError(r.status, msg, r.data?.code, r.data?.errors, true, retryAfterMs);
+  }
   return new PosApiError(r.status, msg, r.data?.code, r.data?.errors, r.status === 409 && !/مفتاح عدم التكرار/.test(msg));
 }

@@ -15,14 +15,16 @@ use App\Models\StockLevel;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Database\Seeders\WholesalePortalPermissionSeeder;
-use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Tests\Concerns\RunsConcurrentAuditJobs;
 use Tests\TestCase;
 
 class TaskTxtQuotationAcceptRaceTest extends TestCase
 {
-    use LazilyRefreshDatabase;
+    use DatabaseMigrations;
+    use RunsConcurrentAuditJobs;
 
     private Customer $trader;
 
@@ -53,6 +55,13 @@ class TaskTxtQuotationAcceptRaceTest extends TestCase
             'product_variant_id' => $this->variant->id,
             'on_hand' => 100,
         ]);
+    }
+
+    protected function tearDown(): void
+    {
+        // The committed reservation ledger references the migration's system user.
+        $this->artisan('migrate:fresh', ['--force' => true]);
+        parent::tearDown();
     }
 
     private function asTrader(): static
@@ -106,5 +115,18 @@ class TaskTxtQuotationAcceptRaceTest extends TestCase
             'A quotation must convert to exactly one order.'
         );
         $this->assertNotNull($quotation->fresh()->converted_order_id);
+    }
+
+    public function test_parallel_accepts_create_only_one_order_and_stock_reservation(): void
+    {
+        $quotation = $this->pricedQuotation();
+        $job = $this->httpJob($this->traderToken, 'POST', "/api/v1/wholesale/quotations/{$quotation->id}/accept");
+        $results = $this->concurrentJobs([$job, $job]);
+
+        $this->assertEqualsCanonicalizing([200, 422], array_column($results, 'status'));
+        $order = Order::query()->where('customer_id', $this->trader->id)->sole();
+        $this->assertSame($order->id, $quotation->fresh()->converted_order_id);
+        $this->assertSame(2.0, (float) StockLevel::query()
+            ->where('product_variant_id', $this->variant->id)->sole()->reserved);
     }
 }

@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Enums\OrderStatus;
 use App\Enums\PosShiftStatus;
+use App\Enums\PriceListType;
 use App\Enums\StockBucket;
 use App\Enums\StockMovementType;
 use App\Enums\TreasuryTransactionType;
@@ -19,6 +20,8 @@ use App\Models\OrderItem;
 use App\Models\OrderStatusHistory;
 use App\Models\PosHeldSale;
 use App\Models\PosShift;
+use App\Models\PriceListItem;
+use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
 use App\Models\StockMovement;
@@ -28,6 +31,7 @@ use App\Support\ArabicDigits;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -75,6 +79,15 @@ class PosService
                 throw new BusinessException('لديك وردية مفتوحة بالفعل. أغلقها أولًا قبل فتح وردية جديدة.');
             }
 
+            // Branch-scoped drawer lookup runs before the busy check so cashiers
+            // from other branches get a neutral 404 instead of cross-branch state.
+            $treasury = Treasury::query()
+                ->where('id', $treasuryId)
+                ->where('branch_id', $branchId)
+                ->where('type', 'pos_drawer')
+                ->where('is_active', true)
+                ->firstOrFail();
+
             $existingDrawerShift = PosShift::query()
                 ->where('treasury_id', $treasuryId)
                 ->where('status', PosShiftStatus::Open)
@@ -84,13 +97,6 @@ class PosService
             if ($existingDrawerShift) {
                 throw new BusinessException('درج النقدية المحدد مفتوح على وردية أخرى.');
             }
-
-            $treasury = Treasury::query()
-                ->where('id', $treasuryId)
-                ->where('branch_id', $branchId)
-                ->where('type', 'pos_drawer')
-                ->where('is_active', true)
-                ->firstOrFail();
 
             $mainSafe = Treasury::query()->where('branch_id', $branchId)->where('type', 'main_safe')->where('is_active', true)->orderBy('id')->first();
             $treasuries = $this->treasury->lockTreasuries(array_filter([$treasury->id, $mainSafe?->id]));
@@ -183,6 +189,7 @@ class PosService
 
         $cashExpenses = (float) Expense::query()
             ->where('shift_id', $s->id)
+            ->whereNull('voided_at')
             ->sum('amount');
 
         $openingCash = (float) $s->opening_cash;
@@ -245,11 +252,28 @@ class PosService
     public function computeCatalogVersion(int $branchId): string
     {
         $maxVariantUpdated = (string) (ProductVariant::query()->max('updated_at') ?? '');
-        $maxStockUpdated = (string) (StockLevel::query()
-            ->where('branch_id', $branchId)
-            ->max('updated_at') ?? '');
+        // Catalog contents can change more than once in the same second.
+        $stockVersion = $this->catalogStockLevels($branchId)->toBase()->selectRaw(
+            "md5(string_agg(json_build_array(
+                id, product_variant_id, on_hand, available, reorder_level
+            )::text, ',' ORDER BY id)) as version"
+        )->value('version');
+        $productVersion = Product::query()
+            ->where('is_active', true)
+            ->whereNotNull('published_at')
+            ->toBase()
+            ->selectRaw("md5(string_agg(concat(id, ':', updated_at), ',' ORDER BY id)) as version")
+            ->value('version');
+        // Use the eligible prices so schedule boundaries also change the tag.
+        $pricingVersion = $this->catalogPriceItems($branchId)->toBase()->selectRaw(
+            "md5(string_agg(json_build_array(
+                price_list_items.id, price_list_items.product_variant_id,
+                price_list_items.min_qty, price_list_items.price,
+                price_lists.type, price_lists.branch_id, price_lists.priority
+            )::text, ',' ORDER BY price_list_items.id)) as version"
+        )->value('version');
 
-        return md5($maxVariantUpdated.'|'.$maxStockUpdated);
+        return md5($maxVariantUpdated.'|'.$stockVersion.'|'.$productVersion.'|'.$pricingVersion);
     }
 
     /**
@@ -850,28 +874,14 @@ class PosService
 
         $variantIds = $variants->pluck('id')->all();
 
-        $stockByVariant = StockLevel::query()
-            ->where('branch_id', $branchId)
+        $stockByVariant = $this->catalogStockLevels($branchId)
             ->whereIn('product_variant_id', $variantIds)
-            ->where(fn ($q) => $q->whereNull('location_id')->orWhereHas('location', fn ($q) => $q->where('is_active', true)))
             ->get()
             ->groupBy('product_variant_id');
 
-        $now = now();
-        $priceListItemsByVariant = \App\Models\PriceListItem::query()
+        $priceListItemsByVariant = $this->catalogPriceItems($branchId)
             ->select('price_list_items.*', 'price_lists.type as pricing_type', 'price_lists.branch_id as pricing_branch_id', 'price_lists.priority as pricing_priority')
-            ->join('price_lists', 'price_lists.id', '=', 'price_list_items.price_list_id')
-            ->where('price_lists.is_active', true)
-            ->whereIn('price_lists.type', [\App\Enums\PriceListType::Retail->value, \App\Enums\PriceListType::Wholesale->value])
             ->whereIn('price_list_items.product_variant_id', $variantIds)
-            ->where('price_list_items.min_qty', '<=', 1)
-            ->where(fn ($q) => $q->whereNull('price_lists.starts_at')->orWhere('price_lists.starts_at', '<=', $now))
-            ->where(fn ($q) => $q->whereNull('price_lists.ends_at')->orWhere('price_lists.ends_at', '>=', $now))
-            ->where(fn ($q) => $q->whereNull('price_list_items.starts_at')->orWhere('price_list_items.starts_at', '<=', $now))
-            ->where(fn ($q) => $q->whereNull('price_list_items.ends_at')->orWhere('price_list_items.ends_at', '>=', $now))
-            ->where(function ($q) use ($branchId): void {
-                $q->whereNull('price_lists.branch_id')->orWhere('price_lists.branch_id', $branchId);
-            })
             ->orderByRaw('price_lists.branch_id IS NULL ASC')
             ->orderByDesc('price_list_items.min_qty')
             ->orderByDesc('price_lists.priority')
@@ -891,8 +901,8 @@ class PosService
             $reorderPoint = $rowReorderMax > 0 ? $rowReorderMax : (float) ($variant->reorder_level ?? 0);
 
             $candidates = $priceListItemsByVariant->get($variant->id, collect());
-            $retailMatch = $candidates->firstWhere('pricing_type', \App\Enums\PriceListType::Retail->value);
-            $wholesaleMatch = $candidates->firstWhere('pricing_type', \App\Enums\PriceListType::Wholesale->value);
+            $retailMatch = $candidates->firstWhere('pricing_type', PriceListType::Retail->value);
+            $wholesaleMatch = $candidates->firstWhere('pricing_type', PriceListType::Wholesale->value);
 
             $retailPriceRaw = $retailMatch !== null
                 ? (float) $retailMatch->price
@@ -941,6 +951,31 @@ class PosService
                 'next_cursor' => $nextCursor,
             ],
         ];
+    }
+
+    /** @return Builder<StockLevel> */
+    private function catalogStockLevels(int $branchId): Builder
+    {
+        return StockLevel::query()
+            ->where('branch_id', $branchId)
+            ->where(fn ($q) => $q->whereNull('location_id')->orWhereHas('location', fn ($q) => $q->where('is_active', true)));
+    }
+
+    /** @return Builder<PriceListItem> */
+    private function catalogPriceItems(int $branchId): Builder
+    {
+        $now = now();
+
+        return PriceListItem::query()
+            ->join('price_lists', 'price_lists.id', '=', 'price_list_items.price_list_id')
+            ->where('price_lists.is_active', true)
+            ->whereIn('price_lists.type', [PriceListType::Retail->value, PriceListType::Wholesale->value])
+            ->where('price_list_items.min_qty', '<=', 1)
+            ->where(fn ($q) => $q->whereNull('price_lists.starts_at')->orWhere('price_lists.starts_at', '<=', $now))
+            ->where(fn ($q) => $q->whereNull('price_lists.ends_at')->orWhere('price_lists.ends_at', '>=', $now))
+            ->where(fn ($q) => $q->whereNull('price_list_items.starts_at')->orWhere('price_list_items.starts_at', '<=', $now))
+            ->where(fn ($q) => $q->whereNull('price_list_items.ends_at')->orWhere('price_list_items.ends_at', '>=', $now))
+            ->where(fn ($q) => $q->whereNull('price_lists.branch_id')->orWhere('price_lists.branch_id', $branchId));
     }
 
     /**
@@ -1064,7 +1099,9 @@ class PosService
             }
 
             $discount = (float) ($item['discount_amount'] ?? 0);
-            $maxDiscount = (float) config('inventory.pos_max_discount_percent', 100);
+            $maxDiscount = (float) ($this->settings->get('pos.max_discount_percent')
+                ?? $this->settings->get('pos_max_discount_percent')
+                ?? config('inventory.pos_max_discount_percent', 100));
             if ($discount > round($unitPrice * $qty * $maxDiscount / 100, 2)) {
                 throw new BusinessException('الخصم يتجاوز النسبة القصوى المسموحة.');
             }

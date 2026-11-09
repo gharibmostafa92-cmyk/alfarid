@@ -15,14 +15,16 @@ use App\Models\WholesalePaymentNotice;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Database\Seeders\WholesalePortalPermissionSeeder;
-use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Tests\Concerns\RunsConcurrentAuditJobs;
 use Tests\TestCase;
 
 class TaskTxtDoubleApproveTest extends TestCase
 {
-    use LazilyRefreshDatabase;
+    use DatabaseMigrations;
+    use RunsConcurrentAuditJobs;
 
     private Customer $trader;
 
@@ -120,5 +122,22 @@ class TaskTxtDoubleApproveTest extends TestCase
             WholesalePaymentAllocation::query()->count(),
             'The rejected second approve must not duplicate allocations.'
         );
+    }
+
+    public function test_parallel_approvals_record_one_receipt_and_one_allocation(): void
+    {
+        $notice = $this->freeNotice(1000);
+        $job = $this->httpJob($this->adminToken, 'POST', "/api/v1/admin/payment-notices/{$notice->id}/approve", [
+            'treasury_id' => $this->bank->id,
+        ]);
+        $results = $this->concurrentJobs([$job, $job]);
+
+        $this->assertEqualsCanonicalizing([200, 422], array_column($results, 'status'));
+        $rejection = collect($results)->firstWhere('status', 422);
+        $this->assertSame('إشعار السداد هذا تمت مراجعته من قبل.', $rejection['body']['message']);
+        $this->assertSame('approved', $notice->fresh()->status->value);
+        $this->assertDatabaseCount('treasury_transactions', 1);
+        $this->assertSame('1000.00', $this->bank->fresh()->current_balance);
+        $this->assertDatabaseCount('wholesale_payment_allocations', 1);
     }
 }

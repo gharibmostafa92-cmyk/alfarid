@@ -62,6 +62,8 @@ class PosSaleController extends Controller
             'pos_sale', $request->user('staff'), $this->requiredIdempotencyKey($request),
             ['shift_id' => $shift->id, ...$data], fn () => $this->pos->createSale($shift, $data),
         );
+        // Idempotent replays resolve via find() without relations; reload for a complete response.
+        $order->loadMissing(['items.variant', 'customer']);
 
         return response()->json([
             'message' => 'تم تسجيل البيع بنجاح.',
@@ -197,15 +199,16 @@ class PosSaleController extends Controller
             }
         }
         $candidates = array_values(array_unique($candidates));
+        $literalSuffix = strtr($stripped, ['!' => '!!', '%' => '!%', '_' => '!_']);
 
         $order = Order::query()
             ->where('channel', 'pos')
             ->where('status', OrderStatus::Delivered)
             ->whereNull('return_of_order_id')
-            ->where(function ($q) use ($candidates, $stripped): void {
+            ->where(function ($q) use ($candidates, $stripped, $literalSuffix): void {
                 $q->whereIn('order_number', $candidates);
                 if ($stripped !== '') {
-                    $q->orWhere('order_number', 'like', '%-'.$stripped);
+                    $q->orWhereRaw("order_number LIKE ? ESCAPE '!'", ['%-'.$literalSuffix]);
                     if (ctype_digit($stripped)) {
                         $intVal = (string) ((int) $stripped);
                         $q->orWhere('order_number', 'like', '%-'.str_pad($intVal, 6, '0', STR_PAD_LEFT));

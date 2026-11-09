@@ -418,10 +418,15 @@ class CustomerAbuseProtectionTest extends TestCase
     public function test_expired_sessions_are_pruned_before_issuing_another_token(): void
     {
         $customer = Customer::factory()->create();
+        // A genuinely expired session: past expires_at (a merely 2-day-old
+        // active session must survive pruning under the 60-day inactivity cap).
         $old = $customer->createToken('expired')->accessToken;
-        $old->forceFill(['created_at' => now()->subDays(2)])->save();
+        $old->forceFill(['expires_at' => now()->subHour()])->save();
+        $idle = $customer->createToken('idle')->accessToken;
+        $idle->forceFill(['created_at' => now()->subDays(61)])->save();
         app(CustomerAuthService::class)->issueToken($customer, 'new');
         $this->assertDatabaseMissing('personal_access_tokens', ['id' => $old->id]);
+        $this->assertDatabaseMissing('personal_access_tokens', ['id' => $idle->id]);
         $this->assertSame(1, $customer->tokens()->count());
     }
 
