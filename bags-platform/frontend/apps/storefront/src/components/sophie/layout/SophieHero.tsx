@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { HeroSlide } from '@/lib/hero-slides';
-import { FALLBACK_SLIDE } from '@/lib/hero-slides';
-import { SophieBagPlaceholder } from './SophieBagPlaceholder';
+import type { HeroSlide } from '@/lib/core/hero-slides';
+import { FALLBACK_SLIDE } from '@/lib/core/hero-slides';
+import { SophieBagPlaceholder } from '../product/SophieBagPlaceholder';
 import { useBranding } from '@alfarid/ui/branding';
-import { StoreImage } from '../StoreImage';
-import { storeImageUrl } from '@/lib/store-image';
+import { StoreImage } from '../../StoreImage';
+import { storeImageUrl } from '@/lib/catalog/store-image';
 
 export function SophieHero({ slides, isLoading = false }: { slides: HeroSlide[]; isLoading?: boolean }) {
   const { branding } = useBranding();

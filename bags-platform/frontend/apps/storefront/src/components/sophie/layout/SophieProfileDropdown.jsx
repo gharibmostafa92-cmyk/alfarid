@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { formatStorePrice } from '@alfarid/utils';
-import { StoreImage } from '../StoreImage';
+import { StoreImage } from '../../StoreImage';
 
 const FALLBACK_USER = {
   name: 'My account',

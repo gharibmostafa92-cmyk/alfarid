@@ -2,7 +2,7 @@
 
 import { create } from 'zustand';
 import { cartEndpoints, getAuthToken, type StoreCart } from '@alfarid/api-client';
-import { viewerKey } from '@/lib/viewer-key';
+import { viewerKey } from '@/lib/core/viewer-key';
 
 export interface CartItem {
   id: number;

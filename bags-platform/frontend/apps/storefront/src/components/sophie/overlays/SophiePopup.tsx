@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { StoreBanner } from '@alfarid/api-client';
-import { StoreImage } from '../StoreImage';
-import { storeImageUrl } from '@/lib/store-image';
+import { StoreImage } from '../../StoreImage';
+import { storeImageUrl } from '@/lib/catalog/store-image';
 
 export function SophiePopup({ banner }: { banner: StoreBanner }) {
   const [open, setOpen] = useState(false);

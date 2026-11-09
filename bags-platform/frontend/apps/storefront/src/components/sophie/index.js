@@ -1,12 +1,25 @@
 // Sophie Bag Collection Component Exports
 
-export { SophieProfileDropdown } from './SophieProfileDropdown';
-export { SophieMegaDropdown } from './SophieMegaDropdown';
+// Layout
+export { SophieProfileDropdown } from './layout/SophieProfileDropdown';
+export { SophieMegaDropdown } from './layout/SophieMegaDropdown';
+export { SophieHeader } from './layout/SophieHeader';
+export { SophieHero } from './layout/SophieHero';
+export { SophieFooter } from './layout/SophieFooter';
+export { SophiePromoBanners } from './layout/SophiePromoBanners';
+export { SophieHomeContent } from './layout/SophieHomeContent';
+
+// Product
+export { SophieProductCard } from './product/SophieProductCard';
+export { SophieProductsSection } from './product/SophieProductsSection';
+export { StoreProductImage } from './product/StoreProductImage';
+export { SophieBagPlaceholder } from './product/SophieBagPlaceholder';
+
+// Overlays & Feedback
+export { SophieCartDrawer } from './overlays/SophieCartDrawer';
+export { SophiePopup } from './overlays/SophiePopup';
+export { SophieComingSoon } from './overlays/SophieComingSoon';
+export { SophieSectionError } from './overlays/SophieSectionError';
+
+// Checkout
 export { SophieCheckoutPage } from './checkout/SophieCheckoutPage';
-export { SophieHeader } from './SophieHeader';
-export { SophieCartDrawer } from './SophieCartDrawer';
-export { SophieHero } from './SophieHero';
-export { SophieFooter } from './SophieFooter';
-export { SophieProductCard } from './SophieProductCard';
-export { SophieProductsSection } from './SophieProductsSection';
-export { SophiePromoBanners } from './SophiePromoBanners';

@@ -13,8 +13,8 @@ import {
 import { getCartSession, useCartStore } from '@/stores/cart-store';
 import { useAuthStore } from '@/store/auth.store';
 import { useAuthHydrated } from '@/hooks/use-auth-hydrated';
-import { viewerKey } from '@/lib/viewer-key';
-import { rememberGuestOrder } from '@/lib/guest-orders';
+import { viewerKey } from '@/lib/core/viewer-key';
+import { rememberGuestOrder } from '@/lib/orders/guest-orders';
 
 export interface SavedAddressItem {
   id: number;

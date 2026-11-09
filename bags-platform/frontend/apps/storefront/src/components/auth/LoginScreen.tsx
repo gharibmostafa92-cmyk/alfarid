@@ -9,7 +9,7 @@ import { useAuthStore } from '@/store/auth.store';
 import { loginUnified } from '@/services/auth.service';
 import { AccountForm, type AuthView } from './AccountForm';
 import { createSessionNonce } from './session-nonce';
-import { safeReturnPath } from '@/lib/safe-return-path';
+import { safeReturnPath } from '@/lib/orders/safe-return-path';
 
 export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView = 'login' }) => {
   const { branding } = useBranding();

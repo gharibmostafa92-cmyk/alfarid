@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { STORE_ROUTES } from '@/lib/store-routes';
+import { STORE_ROUTES } from '@/lib/orders/store-routes';
 import { BrandLogo, useBranding } from '@alfarid/ui/branding';
 
 export function SophieFooter() {

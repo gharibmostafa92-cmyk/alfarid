@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import type { StoreBanner } from '@alfarid/api-client';
-import { StoreImage } from '../StoreImage';
+import { StoreImage } from '../../StoreImage';
 
 const PALETTE = ['#dfe6ec', '#ede3de', '#e7e9e1', '#efe6dc'];
 

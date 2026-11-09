@@ -5,7 +5,7 @@ import { useCartStore } from '@/stores/cart-store';
 import Link from 'next/link';
 import { formatShippingPrice, formatStorePrice } from '@alfarid/utils';
 import type { CheckoutVM } from './useCheckout';
-import { StoreProductImage } from '../StoreProductImage';
+import { StoreProductImage } from '../product/StoreProductImage';
 import { StoreImage } from '@/components/StoreImage';
 
 export interface SuggestionCard {

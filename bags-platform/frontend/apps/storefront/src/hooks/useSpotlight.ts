@@ -2,11 +2,11 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { storeEndpoints } from '@alfarid/api-client';
-import { toCardVM } from '@/lib/catalog-mappers';
+import { toCardVM } from '@/lib/catalog/catalog-mappers';
 import { useAuthStore } from '@/store/auth.store';
-import { viewerKey } from '@/lib/viewer-key';
+import { viewerKey } from '@/lib/core/viewer-key';
 import { useAuthHydrated } from './use-auth-hydrated';
-import { storeRetry, storeRetryDelay } from '@/lib/query-retry';
+import { storeRetry, storeRetryDelay } from '@/lib/core/query-retry';
 
 /** Top-discounted in-stock product of a category — spotlight card for the active mega tab. */
 export function useSpotlight(slug?: string, enabled = true) {

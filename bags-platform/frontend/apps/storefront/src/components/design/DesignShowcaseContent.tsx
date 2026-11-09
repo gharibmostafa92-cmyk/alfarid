@@ -7,8 +7,8 @@ import { ShowcaseStage } from './ShowcaseStage';
 import { StoreImage } from '../StoreImage';
 import { formatStorePrice } from '@alfarid/utils';
 import { useStoreCategories, useStoreProducts, useStoreShowcase } from '@/hooks/use-store-catalog';
-import { STORE_ROUTES } from '@/lib/store-routes';
-import { pick, toCardVM, toDetailVM } from '@/lib/catalog-mappers';
+import { STORE_ROUTES } from '@/lib/orders/store-routes';
+import { pick, toCardVM, toDetailVM } from '@/lib/catalog/catalog-mappers';
 
 const slotImg = (item: ReturnType<typeof toDetailVM> | null | undefined) =>
   item?.variants[0]?.images[0]?.url ?? item?.images[0]?.url ?? null;

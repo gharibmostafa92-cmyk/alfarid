@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { formatStorePrice } from '@alfarid/utils';
 import { useCartStore } from '@/stores/cart-store';
 import { SophieBagPlaceholder } from './SophieBagPlaceholder';
-import { StoreImage } from '../StoreImage';
+import { StoreImage } from '../../StoreImage';
 
 export interface SophieProduct {
   id: number;

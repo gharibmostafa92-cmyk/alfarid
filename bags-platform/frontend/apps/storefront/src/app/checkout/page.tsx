@@ -3,7 +3,7 @@
 import React, { Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import { SophieCheckoutPage } from '@/components/sophie/checkout/SophieCheckoutPage';
-import { SophieFooter } from '@/components/sophie/SophieFooter';
+import { SophieFooter } from '@/components/sophie/layout/SophieFooter';
 
 export default function CheckoutPage() {
   const router = useRouter();

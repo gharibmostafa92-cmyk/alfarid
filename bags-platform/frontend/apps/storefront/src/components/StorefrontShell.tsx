@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { AccountMenu } from './auth/AccountMenu';
 import { useBranding } from '@alfarid/ui/branding';
 import { useCartSync } from '@/hooks/use-cart-sync';
-import { SophieHeader } from './sophie/SophieHeader';
+import { SophieHeader } from './sophie/layout/SophieHeader';
 
 export function StorefrontShell({ children }: { children: React.ReactNode }) {
   useCartSync();

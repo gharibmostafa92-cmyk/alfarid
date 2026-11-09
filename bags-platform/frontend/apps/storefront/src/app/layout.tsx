@@ -4,7 +4,7 @@ import './globals.css';
 import { QueryProvider } from '../providers/query-provider';
 import { StorefrontShell } from '@/components/StorefrontShell';
 import { StoreBrandingProvider } from '@/providers/store-branding-provider';
-import { getServerBranding } from '@/lib/server-branding';
+import { getServerBranding } from '@/lib/core/server-branding';
 // Each document needs a fresh nonce; the branding fetch remains cached for one minute.
 export const revalidate = 60;
 

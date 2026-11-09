@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { guestOrdersKey, readGuestOrders } from '@/lib/guest-orders';
+import { guestOrdersKey, readGuestOrders } from '@/lib/orders/guest-orders';
 
 const trackUrl = (number: string) => `/orders/${encodeURIComponent(number)}/track`;
 

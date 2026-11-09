@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCartStore } from '@/stores/cart-store';
-import { SophieCartDrawer } from './SophieCartDrawer';
+import { SophieCartDrawer } from '../overlays/SophieCartDrawer';
 import { SophieMegaDropdown } from './SophieMegaDropdown';
 import { SophieProfileDropdown } from './SophieProfileDropdown';
 import { useAuthStore } from '@/store/auth.store';
@@ -12,8 +12,8 @@ import type { Destination } from '@/types/auth';
 import { authEndpoints } from '@alfarid/api-client';
 import { logoutWeb } from '@/services/auth.service';
 import { prefetchMegaMenu, useMegaMenu } from '@/hooks/useMegaMenu';
-import { toProfileVM } from '@/lib/sophie-mappers';
-import { STORE_ROUTES } from '@/lib/store-routes';
+import { toProfileVM } from '@/lib/catalog/sophie-mappers';
+import { STORE_ROUTES } from '@/lib/orders/store-routes';
 import { BrandLogo, useBranding } from '@alfarid/ui/branding';
 
 export function SophieHeader() {

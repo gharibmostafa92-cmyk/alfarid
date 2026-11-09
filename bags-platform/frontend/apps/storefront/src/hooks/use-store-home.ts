@@ -4,8 +4,8 @@ import { useQuery } from '@tanstack/react-query';
 import { storeEndpoints } from '@alfarid/api-client';
 import { useAuthStore } from '@/store/auth.store';
 import { useAuthHydrated } from './use-auth-hydrated';
-import { storeRetry, storeRetryDelay } from '@/lib/query-retry';
-import { viewerKey } from '@/lib/viewer-key';
+import { storeRetry, storeRetryDelay } from '@/lib/core/query-retry';
+import { viewerKey } from '@/lib/core/viewer-key';
 
 export function useStoreHome() {
   const token = useAuthStore((state) => state.token);

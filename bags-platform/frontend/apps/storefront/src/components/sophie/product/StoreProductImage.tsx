@@ -1,8 +1,8 @@
 'use client';
 
-import { StoreImage } from '../StoreImage';
+import { StoreImage } from '../../StoreImage';
 import { useState } from 'react';
-import { storeImageSource } from '@/lib/store-image';
+import { storeImageSource } from '@/lib/catalog/store-image';
 import { SophieBagPlaceholder } from './SophieBagPlaceholder';
 
 /** One image rule for the menu, checkout and cart, including absent or failed media. */

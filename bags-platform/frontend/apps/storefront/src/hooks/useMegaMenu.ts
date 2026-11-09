@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { storeEndpoints } from '@alfarid/api-client';
-import { toMegaDepartments, type MegaDepartment } from '@/lib/sophie-mappers';
+import { toMegaDepartments, type MegaDepartment } from '@/lib/catalog/sophie-mappers';
 
 let cache: { at: number; data: Record<string, MegaDepartment> } | null = null;
 let inflight: Promise<Record<string, MegaDepartment>> | null = null;

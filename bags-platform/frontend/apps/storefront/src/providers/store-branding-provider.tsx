@@ -2,7 +2,7 @@
 
 import { BrandingProvider, type BrandIdentity } from '@alfarid/ui/branding';
 import { brandingEndpoints } from '@alfarid/api-client';
-import { storeImageUrl } from '@/lib/store-image';
+import { storeImageUrl } from '@/lib/catalog/store-image';
 
 const loadBranding = async (signal?: AbortSignal) => {
   const data = await brandingEndpoints.get(signal);

@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { storeEndpoints } from '@alfarid/api-client';
 import { formatStorePrice } from '@alfarid/utils';
-import { toCardVM } from '@/lib/catalog-mappers';
+import { toCardVM } from '@/lib/catalog/catalog-mappers';
 import { useCheckout } from './useCheckout';
 import { ContactSection } from './ContactSection';
 import { ShippingSection } from './ShippingSection';

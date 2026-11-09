@@ -4,7 +4,7 @@ import React, { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useCartStore } from '@/stores/cart-store';
 import { formatStorePrice } from '@alfarid/utils';
-import { StoreProductImage } from './StoreProductImage';
+import { StoreProductImage } from '../product/StoreProductImage';
 
 interface SophieCartDrawerProps {
   isOpen: boolean;

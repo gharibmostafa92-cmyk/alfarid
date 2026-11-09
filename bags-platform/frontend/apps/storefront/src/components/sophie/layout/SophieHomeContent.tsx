@@ -3,15 +3,15 @@
 import { useMemo } from 'react';
 import type { StoreBanner } from '@alfarid/api-client';
 import { useStoreHome } from '@/hooks/use-store-home';
-import { bannerToSlide } from '@/lib/hero-slides';
-import { mapCards } from '@/lib/sophie-mappers';
-import { STORE_ROUTES } from '@/lib/store-routes';
+import { bannerToSlide } from '@/lib/core/hero-slides';
+import { mapCards } from '@/lib/catalog/sophie-mappers';
+import { STORE_ROUTES } from '@/lib/orders/store-routes';
 import { SophieHero } from './SophieHero';
-import { SophieProductsSection } from './SophieProductsSection';
+import { SophieProductsSection } from '../product/SophieProductsSection';
 import { SophiePromoBanners } from './SophiePromoBanners';
-import { SophieComingSoon } from './SophieComingSoon';
-import { SophieSectionError } from './SophieSectionError';
-import { SophiePopup } from './SophiePopup';
+import { SophieComingSoon } from '../overlays/SophieComingSoon';
+import { SophieSectionError } from '../overlays/SophieSectionError';
+import { SophiePopup } from '../overlays/SophiePopup';
 import { SophieFooter } from './SophieFooter';
 
 const EMPTY_BANNERS: StoreBanner[] = [];

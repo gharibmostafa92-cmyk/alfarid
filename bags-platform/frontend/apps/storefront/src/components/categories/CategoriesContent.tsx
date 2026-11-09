@@ -6,9 +6,9 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { StoreOccasion } from '@alfarid/api-client';
 import { AnimatedNumber } from '@alfarid/ui';
 import { useCatalogFilters, useSimilarProducts, useStoreCategories, useStoreProduct, useStoreProducts } from '@/hooks/use-store-catalog';
-import { buildSearch, parseFilters, toApiParams, toFacetParams, type CatalogFilterState } from '@/lib/catalog-query';
-import { DEFAULT_HERO, OCCASION_LABELS, SORT_OPTIONS } from '@/lib/catalog-labels';
-import { findCategory, pick, priceRangeLabel, toCardVM, type CatalogCardVM } from '@/lib/catalog-mappers';
+import { buildSearch, parseFilters, toApiParams, toFacetParams, type CatalogFilterState } from '@/lib/catalog/catalog-query';
+import { DEFAULT_HERO, OCCASION_LABELS, SORT_OPTIONS } from '@/lib/catalog/catalog-labels';
+import { findCategory, pick, priceRangeLabel, toCardVM, type CatalogCardVM } from '@/lib/catalog/catalog-mappers';
 import { ProductExperience } from '@/components/products/ProductExperience';
 import { StoreImage } from '../StoreImage';
 

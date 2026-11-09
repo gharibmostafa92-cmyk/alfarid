@@ -2,10 +2,10 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { STORE_ROUTES } from '@/lib/store-routes';
+import { STORE_ROUTES } from '@/lib/orders/store-routes';
 import { useSpotlight } from '@/hooks/useSpotlight';
 import { useCartStore } from '@/stores/cart-store';
-import { StoreProductImage } from './StoreProductImage';
+import { StoreProductImage } from '../product/StoreProductImage';
 
 /**
  * SophieMegaDropdown Component

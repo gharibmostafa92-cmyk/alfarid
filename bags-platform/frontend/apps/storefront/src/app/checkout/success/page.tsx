@@ -8,7 +8,7 @@ import { useBranding } from '@alfarid/ui/branding';
 import { useAuthStore } from '@/store/auth.store';
 import { useAuthHydrated } from '@/hooks/use-auth-hydrated';
 import { formatStorePrice, getStatusLabel, OrderStatusLabelsAr, PaymentMethodLabelsAr, PaymentStatusLabelsAr } from '@alfarid/utils';
-import { SophieFooter } from '@/components/sophie/SophieFooter';
+import { SophieFooter } from '@/components/sophie/layout/SophieFooter';
 import { InstaPayInstructions } from '@/components/sophie/checkout/InstaPayInstructions';
 import { StoreImage } from '@/components/StoreImage';
 

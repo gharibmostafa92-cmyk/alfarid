@@ -4,8 +4,8 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { storeEndpoints, type StoreProductListParams } from '@alfarid/api-client';
 import { useAuthStore } from '@/store/auth.store';
 import { useAuthHydrated } from './use-auth-hydrated';
-import { storeRetry, storeRetryDelay } from '@/lib/query-retry';
-import { viewerKey } from '@/lib/viewer-key';
+import { storeRetry, storeRetryDelay } from '@/lib/core/query-retry';
+import { viewerKey } from '@/lib/core/viewer-key';
 
 const common = { retry: storeRetry, retryDelay: storeRetryDelay };
 // Avoid storing raw Bearer tokens in React Query keys to prevent credential exposure in DevTools; use a one-way fingerprint.

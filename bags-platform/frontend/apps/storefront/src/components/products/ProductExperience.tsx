@@ -4,8 +4,8 @@ import { useState } from 'react';
 import { ArrowLeft, Check, ChevronDown, ShoppingBag } from 'lucide-react';
 import { formatStorePrice } from '@alfarid/utils';
 import type { StoreProduct } from '@alfarid/api-client';
-import { toDetailVM } from '@/lib/catalog-mappers';
-import { initialProductSelection } from '@/lib/product-selection';
+import { toDetailVM } from '@/lib/catalog/catalog-mappers';
+import { initialProductSelection } from '@/lib/catalog/product-selection';
 import { useCartStore } from '@/stores/cart-store';
 import { ShowcaseStage } from '@/components/design/ShowcaseStage';
 

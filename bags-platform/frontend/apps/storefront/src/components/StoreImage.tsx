@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 import type { ComponentProps } from 'react';
-import { storeImageUrl } from '@/lib/store-image';
+import { storeImageUrl } from '@/lib/catalog/store-image';
 
 /** Keep each surface's native sizing, loading and error behavior with one URL policy. */
 export function StoreImage({ src, alt, ...props }: ComponentProps<'img'>) {

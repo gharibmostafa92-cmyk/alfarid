@@ -6,7 +6,7 @@ import { useParams } from 'next/navigation';
 import { checkoutEndpoints, type TrackOrderResponse } from '@alfarid/api-client';
 import { useAuthStore } from '@/store/auth.store';
 import { getStatusLabel, OrderStatusLabelsAr } from '@alfarid/utils';
-import { SophieFooter } from '@/components/sophie/SophieFooter';
+import { SophieFooter } from '@/components/sophie/layout/SophieFooter';
 import { InstaPayInstructions } from '@/components/sophie/checkout/InstaPayInstructions';
 
 
