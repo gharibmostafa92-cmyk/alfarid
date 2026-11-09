@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Admin\Catalog;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Admin\Product\ReorderProductMediaRequest;
-use App\Http\Requests\Admin\Product\UploadProductMediaRequest;
+use App\Http\Requests\Admin\Catalog\ReorderProductMediaRequest;
+use App\Http\Requests\Admin\Catalog\UploadProductMediaRequest;
 use App\Http\Resources\MediaResource;
 use App\Models\Product;
 use App\Services\Catalog\ProductMediaService;

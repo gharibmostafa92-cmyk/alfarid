@@ -6,7 +6,7 @@ namespace App\Services\Ai\Catalog\Tools;
 
 use App\Enums\Occasion;
 use App\Enums\SalesChannel;
-use App\Http\Requests\Admin\Product\UpdateProductRequest;
+use App\Http\Requests\Admin\Catalog\UpdateProductRequest;
 use App\Models\AiPendingAction;
 use App\Models\Product;
 use App\Models\User;

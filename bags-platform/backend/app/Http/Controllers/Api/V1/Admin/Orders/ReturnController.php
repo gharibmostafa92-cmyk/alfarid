@@ -6,11 +6,11 @@ namespace App\Http\Controllers\Api\V1\Admin\Orders;
 
 use App\Enums\ReturnStatus;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Admin\Return\ApproveReturnRequest;
-use App\Http\Requests\Admin\Return\ReceiveReturnRequest;
-use App\Http\Requests\Admin\Return\RefundReturnRequest;
-use App\Http\Requests\Admin\Return\StoreReturnRequest;
-use App\Http\Requests\Admin\Return\UpdateReturnRequest;
+use App\Http\Requests\Admin\Orders\ApproveReturnRequest;
+use App\Http\Requests\Admin\Orders\ReceiveReturnRequest;
+use App\Http\Requests\Admin\Orders\RefundReturnRequest;
+use App\Http\Requests\Store\Orders\StoreReturnRequest;
+use App\Http\Requests\Admin\Orders\UpdateReturnRequest;
 use App\Http\Resources\Admin\Orders\ReturnRequestResource;
 use App\Models\Order;
 use App\Models\ReturnRequest;

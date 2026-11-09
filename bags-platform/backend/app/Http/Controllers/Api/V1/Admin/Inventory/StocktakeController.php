@@ -6,9 +6,9 @@ namespace App\Http\Controllers\Api\V1\Admin\Inventory;
 
 use App\Enums\StocktakeStatus;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Admin\Stocktake\StoreStocktakeRequest;
-use App\Http\Requests\Admin\Stocktake\UpdateStocktakeItemsRequest;
-use App\Http\Requests\Admin\Stocktake\UpdateStocktakeRequest;
+use App\Http\Requests\Admin\Inventory\StoreStocktakeRequest;
+use App\Http\Requests\Admin\Inventory\UpdateStocktakeItemsRequest;
+use App\Http\Requests\Admin\Inventory\UpdateStocktakeRequest;
 use App\Http\Resources\Admin\Inventory\StocktakeResource;
 use App\Models\Stocktake;
 use App\Services\Inventory\BranchAccess;

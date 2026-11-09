@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Admin\Ai;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Api\V1\Admin\UpdateSettingsRequest;
+use App\Http\Requests\Admin\Auth\UpdateSettingsRequest;
 use App\Models\AiMessage;
 use App\Models\AiPendingAction;
 use App\Services\Ai\ToolRegistry;

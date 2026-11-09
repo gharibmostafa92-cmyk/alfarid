@@ -6,11 +6,11 @@ namespace App\Http\Controllers\Api\V1\Admin\Inventory;
 
 use App\Enums\TransferStatus;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Admin\Transfer\ApproveTransferRequest;
-use App\Http\Requests\Admin\Transfer\ReceiveTransferRequest;
-use App\Http\Requests\Admin\Transfer\ShipTransferRequest;
-use App\Http\Requests\Admin\Transfer\StoreTransferRequest;
-use App\Http\Requests\Admin\Transfer\UpdateTransferRequest;
+use App\Http\Requests\Admin\Inventory\ApproveTransferRequest;
+use App\Http\Requests\Admin\Inventory\ReceiveTransferRequest;
+use App\Http\Requests\Admin\Inventory\ShipTransferRequest;
+use App\Http\Requests\Admin\Inventory\StoreTransferRequest;
+use App\Http\Requests\Admin\Inventory\UpdateTransferRequest;
 use App\Http\Resources\Admin\Inventory\StockTransferResource;
 use App\Models\StockTransfer;
 use App\Services\Inventory\BranchAccess;

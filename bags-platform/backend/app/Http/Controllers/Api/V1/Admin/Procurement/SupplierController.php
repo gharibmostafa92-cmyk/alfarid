@@ -6,9 +6,9 @@ namespace App\Http\Controllers\Api\V1\Admin\Procurement;
 
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Admin\Supplier\StoreSupplierUserRequest;
-use App\Http\Requests\Admin\Supplier\SupplierRequest;
-use App\Http\Requests\Admin\Supplier\UpdateSupplierUserRequest;
+use App\Http\Requests\Admin\Procurement\StoreSupplierUserRequest;
+use App\Http\Requests\Admin\Procurement\SupplierRequest;
+use App\Http\Requests\Admin\Procurement\UpdateSupplierUserRequest;
 use App\Http\Resources\Admin\Procurement\SupplierResource;
 use App\Http\Resources\Admin\Procurement\SupplierUserResource;
 use App\Models\Supplier;

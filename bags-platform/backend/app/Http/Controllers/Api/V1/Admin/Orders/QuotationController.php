@@ -6,7 +6,7 @@ namespace App\Http\Controllers\Api\V1\Admin\Orders;
 
 use App\Enums\QuotationStatus;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Admin\PriceQuotationRequest;
+use App\Http\Requests\Admin\Orders\PriceQuotationRequest;
 use App\Http\Resources\Wholesale\QuotationResource;
 use App\Models\Quotation;
 use App\Services\Wholesale\QuotationService;

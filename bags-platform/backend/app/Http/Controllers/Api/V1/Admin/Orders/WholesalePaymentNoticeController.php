@@ -7,7 +7,7 @@ namespace App\Http\Controllers\Api\V1\Admin\Orders;
 use App\Enums\WholesalePaymentNoticeStatus;
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Admin\ReviewPaymentNoticeRequest;
+use App\Http\Requests\Admin\Orders\ReviewPaymentNoticeRequest;
 use App\Http\Resources\Wholesale\WholesalePaymentNoticeResource;
 use App\Models\Treasury;
 use App\Models\WholesalePaymentNotice;

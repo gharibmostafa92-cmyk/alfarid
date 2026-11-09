@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Admin\Catalog;
 
-use App\Http\Requests\Admin\Brand\StoreBrandRequest;
+use App\Http\Requests\Admin\Catalog\StoreBrandRequest;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductVariant;

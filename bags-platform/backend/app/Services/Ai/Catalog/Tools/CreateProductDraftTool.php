@@ -6,8 +6,8 @@ namespace App\Services\Ai\Catalog\Tools;
 
 use App\Enums\Occasion;
 use App\Enums\SalesChannel;
-use App\Http\Requests\Admin\Product\StoreProductRequest;
-use App\Http\Requests\Admin\Variant\VariantRules;
+use App\Http\Requests\Admin\Catalog\StoreProductRequest;
+use App\Http\Requests\Admin\Catalog\VariantRules;
 use App\Models\AiPendingAction;
 use App\Models\Product;
 use App\Models\User;

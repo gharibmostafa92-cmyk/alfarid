@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Store\Orders;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Store\Return\StoreReturnRequest;
+use App\Http\Requests\Store\Orders\StoreReturnRequest;
 use App\Http\Resources\Store\Orders\ReturnRequestResource;
 use App\Models\Customer;
 use App\Models\Order;

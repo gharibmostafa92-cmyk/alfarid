@@ -1,0 +1,41 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Procurement;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+/**
+ * Create or update supplier profile. current_balance is immutable via REST and updated only by ledger movements.
+ */
+class SupplierRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        $supplierId = $this->route('supplier')?->id ?? $this->route('supplier');
+
+        return [
+            'code' => ['required', 'string', 'max:50', Rule::unique('suppliers', 'code')->ignore($supplierId)],
+            'name' => ['required', 'string', 'max:255'],
+            'company_name' => ['nullable', 'string', 'max:255'],
+            'email' => ['nullable', 'email', 'max:255'],
+            'phone' => ['nullable', 'string', 'max:30'],
+            'tax_number' => ['nullable', 'string', 'max:50'],
+            'commercial_register' => ['nullable', 'string', 'max:50'],
+            'address' => ['nullable', 'string', 'max:500'],
+            'payment_terms_days' => ['sometimes', 'integer', 'min:0', 'max:365'],
+            'opening_balance' => ['sometimes', 'numeric', 'min:-9999999999.99', 'max:9999999999.99'],
+            'is_active' => ['sometimes', 'boolean'],
+        ];
+    }
+}

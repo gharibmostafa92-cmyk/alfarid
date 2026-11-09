@@ -1,0 +1,32 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Admin\Orders;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+/**
+ * Initial return approval: receiving branch and optional approved quantities (defaults to full requested).
+ */
+class ApproveReturnRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            'branch_id' => ['required', 'integer', 'exists:branches,id'],
+            'admin_notes' => ['nullable', 'string', 'max:2000'],
+            'items' => ['nullable', 'array', 'max:50'],
+            'items.*.id' => ['required', 'integer'],
+            'items.*.approved_qty' => ['required', 'integer', 'min:0', 'max:99999999'],
+        ];
+    }
+}

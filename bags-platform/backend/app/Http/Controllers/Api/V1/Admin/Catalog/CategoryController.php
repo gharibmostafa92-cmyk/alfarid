@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Admin\Catalog;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Admin\Category\ReorderCategoriesRequest;
-use App\Http\Requests\Admin\Category\StoreCategoryRequest;
-use App\Http\Requests\Admin\Category\UpdateCategoryRequest;
+use App\Http\Requests\Admin\Catalog\ReorderCategoriesRequest;
+use App\Http\Requests\Admin\Catalog\StoreCategoryRequest;
+use App\Http\Requests\Admin\Catalog\UpdateCategoryRequest;
 use App\Http\Resources\Admin\Catalog\CategoryResource;
 use App\Models\Category;
 use App\Services\Catalog\CategoryService;

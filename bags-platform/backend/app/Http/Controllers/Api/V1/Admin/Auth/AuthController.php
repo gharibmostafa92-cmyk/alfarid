@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Admin\Auth;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Api\V1\Admin\AdminLoginRequest;
-use App\Http\Resources\Api\V1\Admin\UserResource;
+use App\Http\Requests\Admin\Auth\AdminLoginRequest;
+use App\Http\Resources\Admin\Auth\UserResource;
 use App\Models\User;
 use App\Services\Auth\LoginDestinationResolver;
 use App\Services\Auth\StaffAuthenticationAudit;

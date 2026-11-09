@@ -6,8 +6,8 @@ namespace App\Http\Controllers\Api\V1\Store\Orders;
 
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Store\Checkout\CheckoutRequest;
-use App\Http\Requests\Store\Checkout\ShippingOptionsRequest;
+use App\Http\Requests\Store\Orders\CheckoutRequest;
+use App\Http\Requests\Store\Orders\ShippingOptionsRequest;
 use App\Http\Resources\Store\Orders\OrderResource;
 use App\Models\Cart;
 use App\Models\City;

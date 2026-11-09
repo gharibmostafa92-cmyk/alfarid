@@ -6,11 +6,11 @@ namespace App\Http\Controllers\Api\V1\Store\Customer;
 
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Store\ForgotPasswordRequest;
-use App\Http\Requests\Store\LoginRequest;
-use App\Http\Requests\Store\PhoneVerificationRequest;
-use App\Http\Requests\Store\RegisterRequest;
-use App\Http\Requests\Store\ResetPasswordRequest;
+use App\Http\Requests\Store\Customer\ForgotPasswordRequest;
+use App\Http\Requests\Supplier\LoginRequest;
+use App\Http\Requests\Store\Customer\PhoneVerificationRequest;
+use App\Http\Requests\Store\Customer\RegisterRequest;
+use App\Http\Requests\Store\Customer\ResetPasswordRequest;
 use App\Http\Resources\Store\CustomerResource;
 use App\Jobs\SendCustomerPhoneVerification;
 use App\Models\Customer;

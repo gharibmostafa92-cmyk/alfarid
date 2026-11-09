@@ -6,7 +6,7 @@ namespace App\Console\Commands;
 
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Api\V1\Admin\Pricing\CouponController;
-use App\Http\Requests\Admin\Promotion\CouponRequest;
+use App\Http\Requests\Admin\Pricing\CouponRequest;
 use App\Models\AiPendingAction;
 use App\Models\Coupon;
 use App\Models\CouponUsage;

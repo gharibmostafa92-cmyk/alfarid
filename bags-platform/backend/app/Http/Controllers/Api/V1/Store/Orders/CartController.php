@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Store\Orders;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Store\Cart\AddCartItemRequest;
-use App\Http\Requests\Store\Cart\ApplyCouponRequest;
-use App\Http\Requests\Store\Cart\UpdateCartItemRequest;
+use App\Http\Requests\Store\Orders\AddCartItemRequest;
+use App\Http\Requests\Store\Orders\ApplyCouponRequest;
+use App\Http\Requests\Store\Orders\UpdateCartItemRequest;
 use App\Models\Cart;
 use App\Models\Customer;
 use App\Services\Orders\CartService;

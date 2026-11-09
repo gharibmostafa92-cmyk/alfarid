@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace Tests\Feature\Admin\Catalog;
 
 use App\Exceptions\BusinessException;
-use App\Http\Requests\Admin\Brand\StoreBrandRequest;
-use App\Http\Requests\Admin\Brand\UpdateBrandRequest;
-use App\Http\Requests\Admin\Category\StoreCategoryRequest;
-use App\Http\Requests\Admin\Category\UpdateCategoryRequest;
+use App\Http\Requests\Admin\Catalog\StoreBrandRequest;
+use App\Http\Requests\Admin\Catalog\UpdateBrandRequest;
+use App\Http\Requests\Admin\Catalog\StoreCategoryRequest;
+use App\Http\Requests\Admin\Catalog\UpdateCategoryRequest;
 use App\Models\Category;
 use App\Models\Customer;
 use App\Models\CustomerGroup;

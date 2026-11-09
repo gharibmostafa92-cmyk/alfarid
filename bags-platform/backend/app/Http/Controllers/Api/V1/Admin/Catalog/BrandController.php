@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Admin\Catalog;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Admin\Brand\StoreBrandRequest;
-use App\Http\Requests\Admin\Brand\UpdateBrandRequest;
+use App\Http\Requests\Admin\Catalog\StoreBrandRequest;
+use App\Http\Requests\Admin\Catalog\UpdateBrandRequest;
 use App\Http\Resources\Admin\Catalog\BrandResource;
 use App\Models\Brand;
 use App\Services\Catalog\BrandService;

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Catalog\Tools;
 
-use App\Http\Requests\Admin\Category\StoreCategoryRequest;
+use App\Http\Requests\Admin\Catalog\StoreCategoryRequest;
 use App\Models\AiPendingAction;
 use App\Models\Category;
 use App\Models\User;

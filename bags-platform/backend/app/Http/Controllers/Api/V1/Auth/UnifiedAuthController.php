@@ -10,7 +10,7 @@ use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Auth\HandoffExchangeRequest;
 use App\Http\Requests\Api\V1\Auth\UnifiedLoginRequest;
-use App\Http\Resources\Api\V1\Admin\UserResource;
+use App\Http\Resources\Admin\Auth\UserResource;
 use App\Http\Resources\Api\V1\Supplier\SupplierUserResource;
 use App\Http\Resources\Store\CustomerResource;
 use App\Models\Customer;

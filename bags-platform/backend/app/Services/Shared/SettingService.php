@@ -7,7 +7,7 @@ namespace App\Services\Shared;
 use App\Services\Auth\StaffAdministration;
 
 use App\Exceptions\BusinessException;
-use App\Http\Requests\Api\V1\Admin\UpdateSettingsRequest;
+use App\Http\Requests\Admin\Auth\UpdateSettingsRequest;
 use App\Models\Setting;
 use Brick\Math\BigDecimal;
 use Illuminate\Support\Facades\Cache;
