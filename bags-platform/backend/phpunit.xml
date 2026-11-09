@@ -30,6 +30,7 @@
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
         <env name="CACHE_STORE" value="array"/>
+        <env name="LOG_LEVEL" value="error" force="true"/>
         <env name="DB_CONNECTION" value="pgsql" force="true"/>
         <env name="DB_DATABASE" value="alfarid_testing" force="true"/>
         <env name="DB_URL" value="" force="true"/>

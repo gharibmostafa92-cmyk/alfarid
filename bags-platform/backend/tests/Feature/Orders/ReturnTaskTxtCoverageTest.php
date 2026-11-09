@@ -5,19 +5,25 @@ declare(strict_types=1);
 namespace Tests\Feature\Orders;
 
 use App\Enums\OrderStatus;
+use App\Enums\ReturnStatus;
 use App\Models\Branch;
 use App\Models\City;
 use App\Models\Customer;
 use App\Models\CustomerWalletTransaction;
 use App\Models\Location;
 use App\Models\Order;
+use App\Models\OrderItem;
+use App\Models\OrderStatusHistory;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\ReturnRequest;
+use App\Models\ReturnRequestItem;
 use App\Models\ShippingCompany;
 use App\Models\StockLevel;
+use App\Models\TreasuryTransaction;
 use App\Models\User;
 use App\Services\OrderService;
+use App\Services\ReturnService;
 use App\Services\ShipmentService;
 use Database\Seeders\ReturnPermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
@@ -264,5 +270,219 @@ class ReturnTaskTxtCoverageTest extends TestCase
             );
             $this->assertStringNotContainsString('return_requests/', (string) $link);
         }
+    }
+
+    /**
+     * task.txt (4): بند كميته 3 وصافي قيمته 100.00 يُسترجع قطعةً قطعة على
+     * ثلاثة مرتجعات منفصلة — مجموع refund_amount يساوي الصافي بالضبط،
+     * والمرتجع الأخير يأخذ الفرق (cumulativeQty >= qty → netCents كاملًا).
+     */
+    public function test_three_sequential_receives_sum_exactly_to_net_cents(): void
+    {
+        $variant = $this->purchasableVariant(35);
+        $this->giveStock($variant, 10);
+        $customer = Customer::factory()->create();
+        $order = $this->deliveredOrder($customer, $variant, 3);
+        $order->items()->update(['unit_price' => 35, 'discount_amount' => 5, 'tax_amount' => 0]);
+
+        $amounts = [];
+        for ($i = 0; $i < 3; $i++) {
+            $created = $this->storeCreateReturn($customer, $order, $order->items->first()->id, 1)->assertCreated();
+            $returnId = (int) $created->json('data.id');
+            $itemId = (int) $created->json('data.items.0.id');
+            $this->adminPost("/api/v1/admin/returns/{$returnId}/approve", ['branch_id' => $this->branch->id])->assertOk();
+            $received = $this->adminPost("/api/v1/admin/returns/{$returnId}/receive", [
+                'items' => [['id' => $itemId, 'received_good_qty' => 1, 'received_damaged_qty' => 0]],
+            ])->assertOk()->json('data');
+            // ملاحظة: مورد البند الإداري لا يعرض refund_amount، فنقرأ إجمالي المرتجع (بند واحد).
+            $amounts[] = $received['total_refund_amount'];
+        }
+
+        $this->assertSame(['33.33', '33.34', '33.33'], $amounts);
+        $this->assertSame('100.00', number_format(array_sum(array_map('floatval', $amounts)), 2, '.', ''));
+    }
+
+    /**
+     * task.txt (4) خاصية: لأي كمية وسعر وخصم وضريبة عشوائية، وأي تقسيم
+     * عشوائي للكمية على عدة مرتجعات — المجموع يساوي الصافي تمامًا وكل جزء ≥ 0.
+     */
+    public function test_split_receives_sum_exactly_to_net_cents_property(): void
+    {
+        $returns = app(ReturnService::class);
+
+        for ($trial = 0; $trial < 12; $trial++) {
+            $qty = random_int(1, 5);
+            $price = [10.5, 35.0, 99.99, 7.25][array_rand([10.5, 35.0, 99.99, 7.25])];
+            $discount = round((float) random_int(0, (int) ($price * $qty * 0.3 * 100)) / 100, 2);
+            $tax = random_int(0, 1) === 1 ? round($price * $qty * 0.14, 2) : 0.0;
+            $net = round($price * $qty - $discount + $tax, 2);
+
+            $customer = Customer::factory()->create();
+            $variant = $this->purchasableVariant($price);
+            $order = Order::factory()->create([
+                'customer_id' => $customer->id,
+                'status' => OrderStatus::Delivered,
+                'channel' => 'store',
+                'payment_status' => 'paid',
+                'payment_method' => 'cod',
+                'allocated_branch_id' => $this->branch->id,
+            ]);
+            OrderStatusHistory::create([
+                'order_id' => $order->id, 'from_status' => OrderStatus::Confirmed->value,
+                'to_status' => OrderStatus::Delivered->value, 'changed_by_id' => $this->staff->id,
+            ]);
+            $orderItem = OrderItem::factory()->forVariant($variant)->create([
+                'order_id' => $order->id, 'qty' => $qty,
+                'unit_price' => $price, 'discount_amount' => $discount,
+                'tax_amount' => $tax, 'line_total' => $net,
+            ]);
+
+            // تقسيم عشوائي للكمية على 1..q مرتجعات.
+            $remaining = $qty;
+            $chunks = [];
+            while ($remaining > 0) {
+                $take = $remaining === 1 ? 1 : random_int(1, $remaining);
+                $chunks[] = $take;
+                $remaining -= $take;
+            }
+
+            $amounts = [];
+            foreach ($chunks as $chunk) {
+                $return = $returns->createReturnRequest($order, [
+                    'reason' => 'فحص خاصية',
+                    'items' => [['order_item_id' => $orderItem->id, 'requested_qty' => $chunk]],
+                ], $customer);
+                $returns->approve($return, $this->staff, [
+                    'branch_id' => $this->branch->id,
+                    'items' => [['id' => $return->items->first()->id, 'approved_qty' => $chunk]],
+                ]);
+                $received = $returns->receive($return->fresh(), $this->staff, [
+                    'items' => [['id' => $return->items->first()->id, 'received_good_qty' => $chunk, 'received_damaged_qty' => 0]],
+                ]);
+                $amounts[] = (float) $received->items->first()->refund_amount;
+            }
+
+            foreach ($amounts as $amount) {
+                $this->assertGreaterThanOrEqual(0, $amount, "trial {$trial}: جزء سالب");
+            }
+            $this->assertSame(
+                number_format($net, 2, '.', ''),
+                number_format(array_sum($amounts), 2, '.', ''),
+                "trial {$trial}: q={$qty} price={$price} discount={$discount} tax={$tax}"
+            );
+        }
+    }
+
+    /**
+     * task.txt (7): توثيق سلوك حالي بانتظار قرار صاحب المشروع — رد مرتجع
+     * متجر بطريقة cash يُتم الرد دون تسجيل أي حركة خزينة.
+     */
+    public function test_cash_refund_records_no_treasury_movement_pending_owner_decision(): void
+    {
+        $variant = $this->purchasableVariant(100);
+        $this->giveStock($variant, 10);
+        $customer = Customer::factory()->create();
+        $order = $this->deliveredOrder($customer, $variant, 2);
+        $created = $this->storeCreateReturn($customer, $order, $order->items->first()->id, 2)->assertCreated();
+        $returnId = (int) $created->json('data.id');
+        $itemId = (int) $created->json('data.items.0.id');
+        $this->adminPost("/api/v1/admin/returns/{$returnId}/approve", ['branch_id' => $this->branch->id])->assertOk();
+        $this->adminPost("/api/v1/admin/returns/{$returnId}/receive", [
+            'items' => [['id' => $itemId, 'received_good_qty' => 2, 'received_damaged_qty' => 0]],
+        ])->assertOk();
+
+        $this->assertSame(0, TreasuryTransaction::query()->count());
+        $this->adminPost("/api/v1/admin/returns/{$returnId}/refund", ['refund_method' => 'cash'])->assertOk()
+            ->assertJsonPath('data.status', 'refunded');
+
+        // السلوك الحالي: لا حركة خزينة لطرق الرد غير المحفظة.
+        $this->assertSame(0, TreasuryTransaction::query()->count());
+        $this->assertSame('0.00', (string) $customer->fresh()->wallet_balance);
+    }
+
+    /**
+     * task.txt (12): جدول انتقالات الحالة — كل إجراء من كل حالة.
+     * المسموح: pending←approved، pending←rejected، pending/approved←cancelled،
+     * approved←received، received←refunded، وحذف pending فقط.
+     */
+    public function test_return_status_transition_table(): void
+    {
+        $payloads = [
+            'approve' => ['branch_id' => $this->branch->id],
+            'cancel_via_update' => ['status' => 'cancelled'],
+            'reject_via_update' => ['status' => 'rejected'],
+            'change_method' => ['refund_method' => 'wallet'],
+        ];
+
+        $makeState = function (string $status): array {
+            $order = Order::factory()->create(['allocated_branch_id' => $this->branch->id]);
+            if (in_array($status, [ReturnStatus::Received->value, ReturnStatus::Refunded->value], true)) {
+                $order->update(['payment_status' => 'paid', 'payment_method' => 'cod']);
+            }
+            $orderItem = OrderItem::factory()->create(['order_id' => $order->id, 'qty' => 5]);
+            $return = ReturnRequest::factory()->create([
+                'order_id' => $order->id,
+                'status' => $status,
+                // الاستلام يتطلب فرعًا محددًا؛ المعلَّق واقعيًا بلا فرع.
+                'branch_id' => $status === ReturnStatus::Pending->value ? null : $this->branch->id,
+            ]);
+            $item = ReturnRequestItem::factory()->create([
+                'return_request_id' => $return->id,
+                'order_item_id' => $orderItem->id,
+                'requested_qty' => 2,
+                'approved_qty' => $status === ReturnStatus::Pending->value ? 0 : 2,
+            ]);
+
+            return [$return, $item];
+        };
+
+        // [الحالة => [الإجراء => الحالة المتوقعة بعده أو null للمنع]]
+        $matrix = [
+            ReturnStatus::Approved->value => ['approve' => null, 'receive' => ReturnStatus::Received->value, 'refund' => null, 'reject_via_update' => null, 'cancel_via_update' => ReturnStatus::Cancelled->value, 'delete' => null],
+            ReturnStatus::Received->value => ['approve' => null, 'receive' => null, 'refund' => ReturnStatus::Refunded->value, 'reject_via_update' => null, 'cancel_via_update' => null, 'delete' => null, 'change_method' => ReturnStatus::Received->value],
+            ReturnStatus::Refunded->value => ['approve' => null, 'receive' => null, 'refund' => null, 'reject_via_update' => null, 'cancel_via_update' => null, 'delete' => null, 'change_method' => null],
+            ReturnStatus::Rejected->value => ['approve' => null, 'receive' => null, 'refund' => null, 'reject_via_update' => null, 'cancel_via_update' => null, 'delete' => null],
+            ReturnStatus::Cancelled->value => ['approve' => null, 'receive' => null, 'refund' => null, 'reject_via_update' => null, 'cancel_via_update' => null, 'delete' => null],
+            ReturnStatus::Pending->value => ['approve' => ReturnStatus::Approved->value, 'receive' => null, 'refund' => null, 'reject_via_update' => ReturnStatus::Rejected->value, 'cancel_via_update' => ReturnStatus::Cancelled->value, 'delete' => 'deleted'],
+        ];
+
+        foreach ($matrix as $state => $actions) {
+            foreach ($actions as $action => $expected) {
+                [$return, $item] = $makeState($state);
+                $payload = match ($action) {
+                    'approve' => $payloads['approve'],
+                    'receive' => ['items' => [['id' => $item->id, 'received_good_qty' => 0, 'received_damaged_qty' => 0]]],
+                    'refund' => ['refund_method' => 'cash'],
+                    'delete' => [],
+                    default => $payloads[$action],
+                };
+
+                if ($action === 'delete') {
+                    $response = $this->adminDelete("/api/v1/admin/returns/{$return->id}");
+                } elseif (in_array($action, ['reject_via_update', 'cancel_via_update', 'change_method'], true)) {
+                    Auth::forgetGuards();
+                    $response = $this->withToken($this->staffToken)->patchJson("/api/v1/admin/returns/{$return->id}", $payload);
+                } else {
+                    $response = $this->adminPost("/api/v1/admin/returns/{$return->id}/{$action}", $payload);
+                }
+
+                if ($expected === null) {
+                    $response->assertUnprocessable();
+                    $this->assertDatabaseHas('return_requests', ['id' => $return->id, 'status' => $state]);
+                } elseif ($expected === 'deleted') {
+                    $response->assertOk();
+                    $this->assertDatabaseMissing('return_requests', ['id' => $return->id]);
+                } else {
+                    $response->assertOk()->assertJsonPath('data.status', $expected);
+                }
+            }
+        }
+    }
+
+    private function adminDelete(string $url): TestResponse
+    {
+        Auth::forgetGuards();
+
+        return $this->withToken($this->staffToken)->deleteJson($url);
     }
 }

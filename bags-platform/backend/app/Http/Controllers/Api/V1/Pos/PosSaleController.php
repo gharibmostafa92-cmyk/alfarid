@@ -14,6 +14,7 @@ use App\Models\PosShift;
 use App\Models\User;
 use App\Services\BranchAccess;
 use App\Services\OperationIdempotencyService;
+use Illuminate\Auth\Access\AuthorizationException;
 use App\Services\PosService;
 use App\Services\SettingService;
 use App\Support\ArabicDigits;
@@ -201,26 +202,52 @@ class PosSaleController extends Controller
         $candidates = array_values(array_unique($candidates));
         $literalSuffix = strtr($stripped, ['!' => '!!', '%' => '!%', '_' => '!_']);
 
-        $order = Order::query()
+        $matchCandidates = function ($q) use ($candidates, $stripped, $literalSuffix): void {
+            $q->whereIn('order_number', $candidates);
+            if ($stripped !== '') {
+                $q->orWhereRaw("order_number LIKE ? ESCAPE '!'", ['%-'.$literalSuffix]);
+                if (ctype_digit($stripped)) {
+                    $intVal = (string) ((int) $stripped);
+                    $q->orWhere('order_number', 'like', '%-'.str_pad($intVal, 6, '0', STR_PAD_LEFT));
+                }
+            }
+        };
+
+        $baseQuery = fn () => Order::query()
             ->where('channel', 'pos')
             ->where('status', OrderStatus::Delivered)
             ->whereNull('return_of_order_id')
-            ->where(function ($q) use ($candidates, $stripped, $literalSuffix): void {
-                $q->whereIn('order_number', $candidates);
-                if ($stripped !== '') {
-                    $q->orWhereRaw("order_number LIKE ? ESCAPE '!'", ['%-'.$literalSuffix]);
-                    if (ctype_digit($stripped)) {
-                        $intVal = (string) ((int) $stripped);
-                        $q->orWhere('order_number', 'like', '%-'.str_pad($intVal, 6, '0', STR_PAD_LEFT));
-                    }
-                }
-            })
-            ->with(['items.variant.product', 'customer', 'posShift.cashier'])
-            ->latest('id')
-            ->first();
+            ->where($matchCandidates)
+            ->with(['items.variant.product', 'customer', 'posShift.cashier']);
+
+        $order = $baseQuery()->latest('id')->first();
 
         if ($order === null) {
             abort(404, 'الفاتورة غير موجودة.');
+        }
+
+        // Prefer an invoice from the cashier's own branch before falling back to
+        // the globally latest match, so a branch-restricted cashier finds their
+        // own invoice instead of failing on another branch's newer invoice.
+        try {
+            $scopedBranch = app(BranchAccess::class)->restrictedBranch($user);
+        } catch (AuthorizationException) {
+            $scopedBranch = false;
+        }
+        if (is_int($scopedBranch)) {
+            $orderBranchId = (int) ($order->allocated_branch_id ?? $order->posShift?->branch_id ?? 0);
+            if ($orderBranchId !== $scopedBranch) {
+                $scoped = $baseQuery()
+                    ->where(function ($q) use ($scopedBranch): void {
+                        $q->where('allocated_branch_id', $scopedBranch)
+                            ->orWhereHas('posShift', fn ($s) => $s->where('branch_id', $scopedBranch));
+                    })
+                    ->latest('id')
+                    ->first();
+                if ($scoped !== null) {
+                    $order = $scoped;
+                }
+            }
         }
 
         $branchId = (int) ($order->allocated_branch_id ?? $order->posShift?->branch_id ?? 0);
