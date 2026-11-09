@@ -17,7 +17,7 @@ use App\Enums\Orders\ReturnStatus;
 use App\Enums\Inventory\StockBucket;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
-use App\Events\OrderCreated;
+use App\Events\Orders\OrderCreated;
 use App\Exceptions\BusinessException;
 use App\Models\Cart;
 use App\Models\City;

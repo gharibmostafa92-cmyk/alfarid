@@ -15,7 +15,7 @@ use App\Models\StockLevel;
 use App\Models\Supplier;
 use App\Models\SupplierUser;
 use App\Models\User;
-use App\Notifications\AdminOrderCreatedNotification;
+use App\Notifications\Orders\AdminOrderCreatedNotification;
 use App\Notifications\Inventory\TransferPendingApprovalNotification;
 use App\Notifications\Wholesale\WholesaleApplicationSubmittedNotification;
 use App\Services\Inventory\InventoryService;

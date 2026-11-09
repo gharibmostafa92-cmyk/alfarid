@@ -3,7 +3,7 @@
 namespace App\Providers;
 
 use App\Enums\StaffRole;
-use App\Listeners\WholesaleLifecycleSubscriber;
+use App\Listeners\Wholesale\WholesaleLifecycleSubscriber;
 use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\Expense;
@@ -68,6 +68,7 @@ class AppServiceProvider extends ServiceProvider
         require_once __DIR__.'/../Http/Requests/ClassAliases.php';
         require_once __DIR__.'/../Http/Resources/ClassAliases.php';
         require_once __DIR__.'/../Enums/ClassAliases.php';
+        require_once __DIR__.'/../Listeners/ClassAliases.php';
 
         // Scoped rather than singleton: isolates user-specific state per request, avoiding credential leaks across requests under Octane.
         $this->app->scoped(BranchAccess::class);

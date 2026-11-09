@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Admin\Inventory;
 
-use App\Events\StockLowDetected;
-use App\Events\TransferPendingApproval;
-use App\Listeners\SendLowStockAlert;
-use App\Listeners\SendTransferPendingApproval;
+use App\Events\Inventory\StockLowDetected;
+use App\Events\Inventory\TransferPendingApproval;
+use App\Listeners\Inventory\SendLowStockAlert;
+use App\Listeners\Inventory\SendTransferPendingApproval;
 use App\Models\Branch;
 use App\Models\Location;
 use App\Models\ProductVariant;

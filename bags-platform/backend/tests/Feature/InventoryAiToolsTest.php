@@ -6,8 +6,8 @@ namespace Tests\Feature;
 
 use App\Enums\Inventory\StockBucket;
 use App\Enums\Inventory\StockMovementType;
-use App\Events\StockLowDetected;
-use App\Listeners\SuggestTransferRedistribution;
+use App\Events\Inventory\StockLowDetected;
+use App\Listeners\Inventory\SuggestTransferRedistribution;
 use App\Models\AiAttachment;
 use App\Models\AiConversation;
 use App\Models\AiPendingAction;

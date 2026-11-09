@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\Listeners;
+namespace App\Listeners\Inventory;
 
-use App\Events\StockLowDetected;
+use App\Events\Inventory\StockLowDetected;
 use App\Models\ProductVariant;
 use App\Notifications\StaffRecipients;
 use App\Notifications\Inventory\TransferSuggestionNotification;

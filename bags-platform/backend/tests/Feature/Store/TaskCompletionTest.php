@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Store;
 
-use App\Events\StockLowDetected;
+use App\Events\Inventory\StockLowDetected;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;
 use App\Models\Cart;

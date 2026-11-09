@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Notifications;
 
-use App\Events\OrderCreated;
+use App\Events\Orders\OrderCreated;
 use App\Http\Controllers\Api\V1\Shared\NotificationController;
-use App\Listeners\SendStaffOrderNotification;
+use App\Listeners\Orders\SendStaffOrderNotification;
 use App\Models\Branch;
 use App\Models\Order;
 use App\Models\User;

@@ -10,7 +10,7 @@ use App\Services\Shared\SettingService;
 
 use App\Enums\Inventory\StockBucket;
 use App\Enums\Inventory\StockMovementType;
-use App\Events\StockLowDetected;
+use App\Events\Inventory\StockLowDetected;
 use App\Exceptions\BusinessException;
 use App\Exceptions\RetryableConflict;
 use App\Models\Branch;

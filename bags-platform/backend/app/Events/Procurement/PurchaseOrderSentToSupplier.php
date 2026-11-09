@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Events;
+namespace App\Events\Procurement;
 
 use App\Models\PurchaseOrder;
 use Illuminate\Foundation\Events\Dispatchable;

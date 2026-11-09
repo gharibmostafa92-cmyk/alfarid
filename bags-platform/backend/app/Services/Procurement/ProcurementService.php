@@ -15,7 +15,7 @@ use App\Enums\Procurement\PurchaseRequestStatus;
 use App\Enums\Inventory\StockBucket;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\Procurement\SupplierDeliveryStatus;
-use App\Events\PurchaseOrderSentToSupplier;
+use App\Events\Procurement\PurchaseOrderSentToSupplier;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;
 use App\Models\ProductVariant;

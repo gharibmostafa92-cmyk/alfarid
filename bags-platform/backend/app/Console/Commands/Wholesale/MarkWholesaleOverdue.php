@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Console\Commands\Wholesale;
 
 use App\Enums\Orders\OrderStatus;
-use App\Events\OrderBecameOverdue;
+use App\Events\Orders\OrderBecameOverdue;
 use App\Models\Order;
 use App\Models\OutboundMessage;
 use Illuminate\Console\Command;

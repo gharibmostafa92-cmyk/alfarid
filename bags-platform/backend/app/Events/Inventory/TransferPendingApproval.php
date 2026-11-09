@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Events;
+namespace App\Events\Inventory;
 
 use App\Models\StockTransfer;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;

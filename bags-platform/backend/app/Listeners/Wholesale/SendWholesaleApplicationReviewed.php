@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Listeners;
+namespace App\Listeners\Wholesale;
 
 use App\Events\Wholesale\WholesaleApplicationReviewed;
 use App\Notifications\Wholesale\WholesaleApplicationReviewedNotification;

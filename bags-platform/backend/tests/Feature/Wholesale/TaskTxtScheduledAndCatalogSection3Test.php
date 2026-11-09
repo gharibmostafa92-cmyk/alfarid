@@ -12,7 +12,7 @@ use App\Enums\Finance\TreasuryType;
 use App\Enums\Wholesale\WholesalePaymentMethod;
 use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Events\Wholesale\QuotationSubmitted;
-use App\Listeners\WholesaleLifecycleSubscriber;
+use App\Listeners\Wholesale\WholesaleLifecycleSubscriber;
 use App\Models\Branch;
 use App\Models\Category;
 use App\Models\Customer;

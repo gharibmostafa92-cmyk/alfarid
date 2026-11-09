@@ -9,7 +9,7 @@ use App\Models\ProductVariant;
 use App\Models\StockMovement;
 use App\Models\Stocktake;
 use App\Models\StockTransfer;
-use App\Events\TransferPendingApproval;
+use App\Events\Inventory\TransferPendingApproval;
 use Illuminate\Support\Facades\Event;
 
 /**

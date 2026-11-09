@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Listeners;
+namespace App\Listeners\Wholesale;
 
 use App\Events\Wholesale\WholesaleApplicationSubmitted;
 use App\Notifications\StaffRecipients;

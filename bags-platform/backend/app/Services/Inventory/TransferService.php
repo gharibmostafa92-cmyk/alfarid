@@ -9,7 +9,7 @@ use App\Services\Shared\SettingService;
 use App\Enums\Inventory\StockBucket;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\Inventory\TransferStatus;
-use App\Events\TransferPendingApproval;
+use App\Events\Inventory\TransferPendingApproval;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;
 use App\Models\Location;

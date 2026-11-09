@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace App\Listeners;
+namespace App\Listeners\Orders;
 
-use App\Events\OrderCreated;
-use App\Notifications\OrderConfirmationNotification;
+use App\Events\Orders\OrderCreated;
+use App\Notifications\Orders\OrderConfirmationNotification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 
 /**

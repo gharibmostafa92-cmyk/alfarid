@@ -20,7 +20,7 @@ use App\Models\Setting;
 use App\Models\ShippingRate;
 use App\Models\StockLevel;
 use App\Models\User;
-use App\Notifications\OrderConfirmationNotification;
+use App\Notifications\Orders\OrderConfirmationNotification;
 use App\Services\Orders\CartService;
 use App\Services\Inventory\InventoryService;
 use App\Services\Orders\OrderService;

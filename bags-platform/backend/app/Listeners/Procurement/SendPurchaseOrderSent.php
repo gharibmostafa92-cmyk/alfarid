@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace App\Listeners;
+namespace App\Listeners\Procurement;
 
-use App\Events\PurchaseOrderSentToSupplier;
+use App\Events\Procurement\PurchaseOrderSentToSupplier;
 use App\Models\SupplierUser;
-use App\Notifications\PurchaseOrderSentNotification;
+use App\Notifications\Procurement\PurchaseOrderSentNotification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;

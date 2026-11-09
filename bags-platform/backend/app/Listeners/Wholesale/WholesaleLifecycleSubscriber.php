@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\Listeners;
+namespace App\Listeners\Wholesale;
 
-use App\Events\OrderBecameOverdue;
+use App\Events\Orders\OrderBecameOverdue;
 use App\Events\Wholesale\PaymentNoticeReviewed;
 use App\Events\Wholesale\PaymentNoticeSubmitted;
 use App\Events\Wholesale\QuotationAccepted;

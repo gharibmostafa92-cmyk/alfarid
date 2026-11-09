@@ -4,6 +4,13 @@ declare(strict_types=1);
 
 // Backwards-compatibility aliases for notifications organized into domain subfolders.
 $aliases = [
+    // Orders
+    \App\Notifications\Orders\AdminOrderCreatedNotification::class => 'App\Notifications\AdminOrderCreatedNotification',
+    \App\Notifications\Orders\OrderConfirmationNotification::class => 'App\Notifications\OrderConfirmationNotification',
+
+    // Procurement
+    \App\Notifications\Procurement\PurchaseOrderSentNotification::class => 'App\Notifications\PurchaseOrderSentNotification',
+
     // Wholesale
     \App\Notifications\Wholesale\WholesaleApplicationReviewedNotification::class => 'App\Notifications\WholesaleApplicationReviewedNotification',
     \App\Notifications\Wholesale\WholesaleApplicationSubmittedNotification::class => 'App\Notifications\WholesaleApplicationSubmittedNotification',

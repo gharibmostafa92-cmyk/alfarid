@@ -280,7 +280,7 @@ class WholesaleOrdersPortalTest extends TestCase
 
     public function test_notifications_read_all_clears_unread(): void
     {
-        $this->trader->notify(new \App\Notifications\OrderConfirmationNotification(
+        $this->trader->notify(new \App\Notifications\Orders\OrderConfirmationNotification(
             $this->makeOrder($this->trader, OrderStatus::Pending)
         ));
 
@@ -301,7 +301,7 @@ class WholesaleOrdersPortalTest extends TestCase
     public function test_notification_data_uses_unified_shape(): void
     {
         $order = $this->makeOrder($this->trader, OrderStatus::Pending);
-        $this->trader->notify(new \App\Notifications\OrderConfirmationNotification($order));
+        $this->trader->notify(new \App\Notifications\Orders\OrderConfirmationNotification($order));
 
         $this->asTrader($this->token)->getJson('/api/v1/wholesale/notifications')
             ->assertOk()

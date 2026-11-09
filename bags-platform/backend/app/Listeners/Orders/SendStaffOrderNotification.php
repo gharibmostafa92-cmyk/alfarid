@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace App\Listeners;
+namespace App\Listeners\Orders;
 
-use App\Events\OrderCreated;
-use App\Notifications\AdminOrderCreatedNotification;
+use App\Events\Orders\OrderCreated;
+use App\Notifications\Orders\AdminOrderCreatedNotification;
 use App\Notifications\StaffRecipients;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\DB;
