@@ -13,6 +13,7 @@ use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
 use App\Models\User;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
+use Illuminate\Support\Facades\Auth;
 use Tests\Concerns\RunsConcurrentAuditJobs;
 
 /**
@@ -38,10 +39,21 @@ class PosReturnTaskTxtTest extends PosScenarioFixture
         return $this->tokenFor($user, ['pos.sales.refund']);
     }
 
+    /**
+     * طلب HTTP بهوية جديدة: يعيد ضبط حراس المصادقة قبل كل هوية مختلفة،
+     * لأن singleton الحراس يبقى بين الطلبات داخل نفس العملية.
+     */
+    private function as(string $token): static
+    {
+        Auth::forgetGuards();
+
+        return $this->withToken($token);
+    }
+
     /** بيع نقدي مسلَّم بكمية معلومة. */
     private function cashSale(string $token, int $qty, float $cash): int
     {
-        return $this->withToken($token)->postJson(
+        return $this->as($token)->postJson(
             '/api/v1/pos/sales',
             $this->salePayload($cash, 0, $qty),
             $this->idem()
@@ -64,8 +76,8 @@ class PosReturnTaskTxtTest extends PosScenarioFixture
         $saleId = $this->cashSale($token, 3, 300);
 
         // إرسال متتابع لنفس المرتجع الجزئي (قطعة واحدة من 3).
-        $this->withToken($token)->postJson($this->returnUrl($saleId), $this->returnPayload(1))->assertOk();
-        $this->withToken($token)->postJson($this->returnUrl($saleId), $this->returnPayload(1))->assertOk();
+        $this->as($token)->postJson($this->returnUrl($saleId), $this->returnPayload(1))->assertOk();
+        $this->as($token)->postJson($this->returnUrl($saleId), $this->returnPayload(1))->assertOk();
 
         // السلوك الحالي (بانتظار قرار صاحب المشروع): أمران مرتجعان وخصم خزينة مزدوج.
         $this->assertSame(2, Order::query()->where('return_of_order_id', $saleId)->count());
