@@ -28,11 +28,6 @@ class PosReturnTaskTxtTest extends PosScenarioFixture
     use DatabaseMigrations;
     use RunsConcurrentAuditJobs;
 
-    protected function tearDown(): void
-    {
-        $this->artisan('migrate:fresh', ['--force' => true]);
-        parent::tearDown();
-    }
 
     private function refundToken(User $user): string
     {
@@ -119,8 +114,9 @@ class PosReturnTaskTxtTest extends PosScenarioFixture
         $this->assertStringContainsString('تتجاوز المتبقي', (string) json_encode($loser['body'], JSON_UNESCAPED_UNICODE));
 
         $this->assertSame(2.0, (float) OrderItem::query()->where('order_id', $saleId)->sum('returned_qty'));
+        // ملاحظة: recordMovement يخزّن اسم morph المختصر لا FQCN، كما في استعلامات PosService نفسها.
         $this->assertSame(2.0, (float) StockMovement::query()
-            ->where('reference_type', Order::class)
+            ->whereIn('reference_type', [(new Order)->getMorphClass(), Order::class])
             ->where('reference_id', $saleId)
             ->where('type', StockMovementType::SaleReturn)
             ->sum('quantity'));

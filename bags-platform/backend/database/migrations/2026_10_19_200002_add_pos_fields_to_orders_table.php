@@ -33,6 +33,7 @@ return new class extends Migration
     public function down(): void
     {
         \Illuminate\Support\Facades\DB::statement("ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_payment_method_check");
+        \Illuminate\Support\Facades\DB::statement("UPDATE orders SET payment_method = NULL WHERE payment_method IN ('cash', 'mixed')");
         \Illuminate\Support\Facades\DB::statement("ALTER TABLE orders ADD CONSTRAINT orders_payment_method_check CHECK (payment_method IS NULL OR payment_method IN ('cod', 'card', 'wallet', 'bank_transfer', 'credit'))");
 
         Schema::table('orders', function (Blueprint $table): void {
