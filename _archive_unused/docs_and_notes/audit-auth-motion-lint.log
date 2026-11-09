@@ -1,0 +1,5 @@
+.../resources/exceptions/renderer        |  WARN  Unsupported engine: wanted: {"node":">=22.19.0"} (current: {"node":"v22.12.0","pnpm":"10.34.4"})
+
+> @alfarid/storefront@1.0.0 lint D:\programming\programming\projects\alfarid\bags-platform\frontend\apps\storefront
+> eslint src
+

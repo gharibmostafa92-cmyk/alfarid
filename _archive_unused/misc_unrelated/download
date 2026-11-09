@@ -1,0 +1,10 @@
+50:                $this->branchAccess->assertCentralAccess($actor);
+52:                $this->branchAccess->assertBranch($actor->id, (int) $branchId);
+56:        return $this->download(($item->attachments ?? [])[$attachment] ?? null);
+82:                $this->branchAccess->assertCentralAccess($actor);
+84:                $this->branchAccess->assertBranch($actor->id, (int) $branchId);
+88:        return $this->download($model->attachment_path);
+113:                $this->branchAccess->assertCentralAccess($actor);
+115:                $this->branchAccess->assertBranch($actor->id, (int) $branchId);
+119:        return $this->download($model->invoice_file_path);
+139:        return $this->download($query->findOrFail($notice)->receipt_file_path);

@@ -1,0 +1,9 @@
+bags-platform/backend/app/Services\CustomerManagementService.php:286:            $path = $files->store($file, 'customer_documents/'.$customer->id);
+bags-platform/backend/app/Services\ProcurementService.php:765:                $delivery->update(['invoice_file_path' => $files->store($invoiceFile, "supplier_deliveries/{$delivery->id}")]);
+bags-platform/backend/app/Services\PrivateAttachments.php:51:                if ($files->stored !== []) {
+bags-platform/backend/app/Services\PrivateAttachments.php:52:                    $files->deleteStoredQuietly();
+bags-platform/backend/app/Services\PrivateAttachments.php:60:            $files->deleteStoredQuietly();
+bags-platform/backend/app/Services\ReturnService.php:576:                $paths[] = $files->store($file, "return_requests/{$return->id}");
+bags-platform/backend/app/Services\SupplierFinanceService.php:75:                $invoice->update(['attachment_path' => $files->store($attachment, "supplier_invoices/{$invoice->id}")]);
+bags-platform/backend/app/Services\SupplierFinanceService.php:130:                $invoice->update(['attachment_path' => $files->store($attachment, "supplier_invoices/{$invoice->id}")]);
+bags-platform/backend/app/Services\WholesalePaymentNoticeService.php:55:            $path = $files->store($receipt, "wholesale_payment_notices/{$customer->id}");

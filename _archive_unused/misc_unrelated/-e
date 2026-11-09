@@ -1,0 +1,4 @@
+bags-platform/backend/database/migrations\2026_10_15_160001_create_stock_levels_table.php:17:            $table->decimal('on_hand', 12, 4)->default(0);
+bags-platform/backend/database/migrations\2026_10_15_160001_create_stock_levels_table.php:22:            $table->decimal('available', 12, 4)->storedAs('on_hand - reserved - damaged');
+bags-platform/backend/database/migrations\2026_10_15_180000_harden_inventory_ledger_and_pricing.php:22:        DB::statement("ALTER TABLE stock_movements ADD CONSTRAINT stock_movements_valid_bucket CHECK (affected_bucket IN ('on_hand', 'reserved', 'damaged', 'in_transit'))");
+bags-platform/backend/database/migrations\2026_10_15_180000_harden_inventory_ledger_and_pricing.php:24:        DB::statement('ALTER TABLE stock_levels ADD CONSTRAINT stock_levels_valid_balances CHECK (on_hand >= 0 AND reserved >= 0 AND damaged >= 0 AND in_transit >= 0 AND reorder_level >= 0 AND on_hand >= reserved + damaged)');

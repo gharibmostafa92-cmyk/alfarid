@@ -193,3 +193,9 @@ repomix-files.txt
 .agents/
 .superpowers/
 docs/superpowers/
+
+# ------------------------------------------
+# Archived workspace clutter (preserved history)
+# ------------------------------------------
+!_archive_unused/**
+
