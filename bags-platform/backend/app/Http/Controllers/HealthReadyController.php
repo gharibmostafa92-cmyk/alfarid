@@ -26,11 +26,14 @@ final class HealthReadyController
             $checks['db'] = 'fail';
         }
 
-        try {
-            Redis::connection('health')->ping();
-            $checks['redis'] = 'ok';
-        } catch (Throwable) {
-            $checks['redis'] = 'fail';
+        $checks['redis'] = 'skipped';
+        if (config('app.readiness_check_redis')) {
+            try {
+                Redis::connection('health')->ping();
+                $checks['redis'] = 'ok';
+            } catch (Throwable) {
+                $checks['redis'] = 'fail';
+            }
         }
 
         $checks['storage'] = is_writable(storage_path('framework')) ? 'ok' : 'fail';
