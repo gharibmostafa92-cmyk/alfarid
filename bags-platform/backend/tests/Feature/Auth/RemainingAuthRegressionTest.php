@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Feature;
+namespace Tests\Feature\Auth;
 
 use App\Exceptions\BusinessException;
 use App\Models\User;

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Feature;
+namespace Tests\Feature\Staff;
 
 use App\Models\User;
 use App\Services\Shared\SettingService;

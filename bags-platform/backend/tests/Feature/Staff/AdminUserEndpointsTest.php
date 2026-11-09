@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Feature;
+namespace Tests\Feature\Staff;
 
 use App\Enums\StaffRole;
 use App\Models\Branch;

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Feature;
+namespace Tests\Feature\Auth;
 
 use App\Jobs\SendCustomerPhoneVerification;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;

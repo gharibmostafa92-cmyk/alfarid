@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Feature;
+namespace Tests\Feature\Attachments;
 
 use App\Services\Shared\PrivateAttachments;
 use Illuminate\Http\UploadedFile;

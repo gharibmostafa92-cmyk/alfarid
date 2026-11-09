@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Feature;
+namespace Tests\Feature\Staff;
 
 use App\Exceptions\BusinessException;
 use App\Models\Branch;

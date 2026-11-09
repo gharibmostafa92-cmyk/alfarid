@@ -1,6 +1,6 @@
 <?php
 
-namespace Tests\Feature;
+namespace Tests\Feature\System;
 
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;

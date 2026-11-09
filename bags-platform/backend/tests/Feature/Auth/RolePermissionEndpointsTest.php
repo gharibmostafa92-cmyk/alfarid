@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Feature;
+namespace Tests\Feature\Auth;
 
 use App\Enums\StaffRole;
 use App\Http\Controllers\Api\V1\Admin\Auth\PermissionController;

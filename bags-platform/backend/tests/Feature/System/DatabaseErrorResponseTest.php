@@ -1,6 +1,6 @@
 <?php
 
-namespace Tests\Feature;
+namespace Tests\Feature\System;
 
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Route;

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Feature;
+namespace Tests\Feature\Attachments;
 
 use App\Enums\Catalog\ProductStatus;
 use App\Enums\Orders\SalesChannel;
