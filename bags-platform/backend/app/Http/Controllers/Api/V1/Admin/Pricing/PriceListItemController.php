@@ -7,7 +7,7 @@ namespace App\Http\Controllers\Api\V1\Admin\Pricing;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Pricing\StorePriceListItemRequest;
 use App\Http\Requests\Admin\Pricing\UpdatePriceListItemRequest;
-use App\Http\Resources\Admin\PriceListItemResource;
+use App\Http\Resources\Admin\Pricing\PriceListItemResource;
 use App\Models\PriceList;
 use App\Models\PriceListItem;
 use App\Services\Pricing\PriceListService;

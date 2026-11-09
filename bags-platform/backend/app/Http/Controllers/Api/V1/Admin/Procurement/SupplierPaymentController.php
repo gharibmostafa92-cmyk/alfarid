@@ -7,7 +7,7 @@ namespace App\Http\Controllers\Api\V1\Admin\Procurement;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Procurement\SupplierPaymentRequest;
 use App\Http\Requests\Admin\Procurement\UpdateSupplierPaymentRequest;
-use App\Http\Resources\Admin\SupplierPaymentResource;
+use App\Http\Resources\Admin\Procurement\SupplierPaymentResource;
 use App\Models\SupplierPayment;
 use App\Models\User;
 use App\Services\Procurement\SupplierFinanceService;

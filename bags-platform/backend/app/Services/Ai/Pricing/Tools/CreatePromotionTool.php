@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Pricing\Tools;
 
-use App\Http\Resources\Admin\PromotionResource;
+use App\Http\Resources\Admin\Pricing\PromotionResource;
 use App\Models\AiPendingAction;
 use App\Models\Promotion;
 use App\Models\User;

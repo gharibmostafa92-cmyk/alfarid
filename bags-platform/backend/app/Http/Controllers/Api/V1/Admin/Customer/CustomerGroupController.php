@@ -7,7 +7,7 @@ namespace App\Http\Controllers\Api\V1\Admin\Customer;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Pricing\StoreCustomerGroupRequest;
 use App\Http\Requests\Admin\Pricing\UpdateCustomerGroupRequest;
-use App\Http\Resources\Admin\CustomerGroupResource;
+use App\Http\Resources\Admin\Pricing\CustomerGroupResource;
 use App\Models\CustomerGroup;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Customer\CustomerGroupService;

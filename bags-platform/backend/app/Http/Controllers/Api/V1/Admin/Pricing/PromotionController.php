@@ -6,7 +6,7 @@ namespace App\Http\Controllers\Api\V1\Admin\Pricing;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Promotion\PromotionRequest;
-use App\Http\Resources\Admin\PromotionResource;
+use App\Http\Resources\Admin\Pricing\PromotionResource;
 use App\Models\Promotion;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;

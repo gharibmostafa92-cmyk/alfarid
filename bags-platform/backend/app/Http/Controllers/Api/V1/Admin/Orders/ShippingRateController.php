@@ -6,7 +6,7 @@ namespace App\Http\Controllers\Api\V1\Admin\Orders;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Shipping\ShippingRateRequest;
-use App\Http\Resources\Admin\ShippingRateResource;
+use App\Http\Resources\Admin\Orders\ShippingRateResource;
 use App\Models\ShippingRate;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;

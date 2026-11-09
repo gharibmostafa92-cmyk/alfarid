@@ -7,7 +7,7 @@ namespace App\Http\Controllers\Api\V1\Admin\Procurement;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Procurement\PurchaseOrderRequest;
 use App\Http\Requests\Admin\Procurement\ReceivePurchaseOrderRequest;
-use App\Http\Resources\Admin\PurchaseOrderResource;
+use App\Http\Resources\Admin\Procurement\PurchaseOrderResource;
 use App\Models\PurchaseOrder;
 use App\Models\User;
 use App\Services\Procurement\ProcurementService;

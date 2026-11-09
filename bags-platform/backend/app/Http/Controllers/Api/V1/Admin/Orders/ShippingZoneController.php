@@ -6,7 +6,7 @@ namespace App\Http\Controllers\Api\V1\Admin\Orders;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Shipping\ShippingZoneRequest;
-use App\Http\Resources\Admin\ShippingZoneResource;
+use App\Http\Resources\Admin\Orders\ShippingZoneResource;
 use App\Models\ShippingZone;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;

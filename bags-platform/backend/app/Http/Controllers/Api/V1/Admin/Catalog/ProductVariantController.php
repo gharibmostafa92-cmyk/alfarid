@@ -7,7 +7,7 @@ namespace App\Http\Controllers\Api\V1\Admin\Catalog;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Variant\StoreVariantRequest;
 use App\Http\Requests\Admin\Variant\UpdateVariantRequest;
-use App\Http\Resources\Admin\VariantResource;
+use App\Http\Resources\Admin\Catalog\VariantResource;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Services\Catalog\VariantService;

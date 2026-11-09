@@ -8,7 +8,7 @@ use App\Enums\PurchaseRequestStatus;
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Procurement\PurchaseRequestRequest;
-use App\Http\Resources\Admin\PurchaseRequestResource;
+use App\Http\Resources\Admin\Procurement\PurchaseRequestResource;
 use App\Models\PurchaseRequest;
 use App\Models\User;
 use App\Services\Procurement\ProcurementService;

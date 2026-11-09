@@ -8,7 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Category\ReorderCategoriesRequest;
 use App\Http\Requests\Admin\Category\StoreCategoryRequest;
 use App\Http\Requests\Admin\Category\UpdateCategoryRequest;
-use App\Http\Resources\Admin\CategoryResource;
+use App\Http\Resources\Admin\Catalog\CategoryResource;
 use App\Models\Category;
 use App\Services\Catalog\CategoryService;
 use App\Services\Shared\SearchTerm;

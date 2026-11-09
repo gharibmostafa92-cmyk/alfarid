@@ -11,7 +11,7 @@ use App\Http\Requests\Admin\Return\ReceiveReturnRequest;
 use App\Http\Requests\Admin\Return\RefundReturnRequest;
 use App\Http\Requests\Admin\Return\StoreReturnRequest;
 use App\Http\Requests\Admin\Return\UpdateReturnRequest;
-use App\Http\Resources\Admin\ReturnRequestResource;
+use App\Http\Resources\Admin\Orders\ReturnRequestResource;
 use App\Models\Order;
 use App\Models\ReturnRequest;
 use App\Models\User;

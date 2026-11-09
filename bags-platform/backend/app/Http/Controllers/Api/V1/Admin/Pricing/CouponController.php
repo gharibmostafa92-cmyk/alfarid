@@ -7,7 +7,7 @@ namespace App\Http\Controllers\Api\V1\Admin\Pricing;
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Promotion\CouponRequest;
-use App\Http\Resources\Admin\CouponResource;
+use App\Http\Resources\Admin\Pricing\CouponResource;
 use App\Models\Cart;
 use App\Models\Coupon;
 use Illuminate\Database\QueryException;

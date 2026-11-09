@@ -9,7 +9,7 @@ use App\Enums\SalesChannel;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Product\StoreProductRequest;
 use App\Http\Requests\Admin\Product\UpdateProductRequest;
-use App\Http\Resources\Admin\ProductResource;
+use App\Http\Resources\Admin\Catalog\ProductResource;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductVariant;

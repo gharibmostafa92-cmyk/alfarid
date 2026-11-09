@@ -7,7 +7,7 @@ namespace App\Http\Controllers\Api\V1\Admin\Catalog;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Brand\StoreBrandRequest;
 use App\Http\Requests\Admin\Brand\UpdateBrandRequest;
-use App\Http\Resources\Admin\BrandResource;
+use App\Http\Resources\Admin\Catalog\BrandResource;
 use App\Models\Brand;
 use App\Services\Catalog\BrandService;
 use App\Services\Shared\SearchTerm;

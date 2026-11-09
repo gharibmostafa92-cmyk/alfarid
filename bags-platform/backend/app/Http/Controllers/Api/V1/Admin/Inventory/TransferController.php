@@ -11,7 +11,7 @@ use App\Http\Requests\Admin\Transfer\ReceiveTransferRequest;
 use App\Http\Requests\Admin\Transfer\ShipTransferRequest;
 use App\Http\Requests\Admin\Transfer\StoreTransferRequest;
 use App\Http\Requests\Admin\Transfer\UpdateTransferRequest;
-use App\Http\Resources\Admin\StockTransferResource;
+use App\Http\Resources\Admin\Inventory\StockTransferResource;
 use App\Models\StockTransfer;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Inventory\TransferService;

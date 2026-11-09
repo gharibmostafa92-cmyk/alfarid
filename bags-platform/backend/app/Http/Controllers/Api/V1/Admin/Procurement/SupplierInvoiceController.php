@@ -7,7 +7,7 @@ namespace App\Http\Controllers\Api\V1\Admin\Procurement;
 use App\Enums\SupplierInvoiceStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Procurement\SupplierInvoiceRequest;
-use App\Http\Resources\Admin\SupplierInvoiceResource;
+use App\Http\Resources\Admin\Procurement\SupplierInvoiceResource;
 use App\Models\SupplierInvoice;
 use App\Services\Procurement\SupplierFinanceService;
 use Illuminate\Http\JsonResponse;

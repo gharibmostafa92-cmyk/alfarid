@@ -9,7 +9,7 @@ use App\Enums\BannerPosition;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Admin\StoreBannerRequest;
 use App\Http\Requests\Api\V1\Admin\UpdateBannerRequest;
-use App\Http\Resources\Admin\AdminBannerResource;
+use App\Http\Resources\Admin\Catalog\AdminBannerResource;
 use App\Models\Banner;
 use App\Models\Brand;
 use App\Models\Category;

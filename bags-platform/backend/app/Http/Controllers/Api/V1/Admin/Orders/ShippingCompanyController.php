@@ -7,7 +7,7 @@ namespace App\Http\Controllers\Api\V1\Admin\Orders;
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Shipping\ShippingCompanyRequest;
-use App\Http\Resources\Admin\ShippingCompanyResource;
+use App\Http\Resources\Admin\Orders\ShippingCompanyResource;
 use App\Models\ShippingCompany;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;

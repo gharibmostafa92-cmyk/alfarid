@@ -9,7 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Pricing\ImportPriceListItemsRequest;
 use App\Http\Requests\Admin\Pricing\StorePriceListRequest;
 use App\Http\Requests\Admin\Pricing\UpdatePriceListRequest;
-use App\Http\Resources\Admin\PriceListResource;
+use App\Http\Resources\Admin\Pricing\PriceListResource;
 use App\Models\PriceList;
 use App\Services\Pricing\PriceListService;
 use Illuminate\Http\JsonResponse;

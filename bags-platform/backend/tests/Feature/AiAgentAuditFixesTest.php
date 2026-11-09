@@ -297,7 +297,7 @@ class AiAgentAuditFixesTest extends TestCase
         // AuthorizationException propagates cleanly out of the conversation stream.
         $this->app->bind(GeminiClient::class, fn () => new class extends GeminiClient
         {
-            public function converse(array $contents, array $functionDeclarations = [], ?string $system = null, ?string $model = null): array
+            public function converse(array $contents, array $tools = [], ?string $system = null, ?string $modelOverride = null, ?string $toolChoice = null): array
             {
                 throw new AuthorizationException('ممنوع');
             }

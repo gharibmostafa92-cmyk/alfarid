@@ -13,7 +13,7 @@ use App\Http\Requests\Admin\Customer\RejectCustomerRequest;
 use App\Http\Requests\Admin\Customer\StoreCustomerRequest;
 use App\Http\Requests\Admin\Customer\SuspendCustomerRequest;
 use App\Http\Requests\Admin\Customer\UpdateCustomerRequest;
-use App\Http\Resources\Admin\CustomerResource;
+use App\Http\Resources\Admin\Pricing\CustomerResource;
 use App\Models\Customer;
 use App\Models\CustomerAuditLog;
 use App\Models\CustomerDocument;
