@@ -19,7 +19,7 @@ function load(relative) {
   return compiled.exports;
 }
 
-const { safeReturnPath } = load('apps/storefront/src/lib/safe-return-path.ts');
+const { safeReturnPath } = load('apps/storefront/src/lib/orders/safe-return-path.ts');
 
 // task.txt (28): كل الحالات الخطرة ترجع null.
 const dangerous = [
