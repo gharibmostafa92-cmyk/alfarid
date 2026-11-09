@@ -8,7 +8,7 @@ use App\Models\Branch;
 use App\Models\Location;
 use App\Models\ProductVariant;
 use App\Models\User;
-use App\Services\InventoryService;
+use App\Services\Inventory\InventoryService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;

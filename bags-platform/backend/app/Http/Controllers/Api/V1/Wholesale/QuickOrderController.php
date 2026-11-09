@@ -7,7 +7,7 @@ namespace App\Http\Controllers\Api\V1\Wholesale;
 use App\Http\Controllers\Controller;
 use App\Imports\WholesaleQuickOrderImport;
 use App\Models\Customer;
-use App\Services\WholesaleQuickOrderService;
+use App\Services\Wholesale\WholesaleQuickOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;

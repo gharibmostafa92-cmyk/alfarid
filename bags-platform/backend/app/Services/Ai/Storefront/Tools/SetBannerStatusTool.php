@@ -11,7 +11,7 @@ use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
-use App\Services\BannerService;
+use App\Services\Catalog\BannerService;
 
 final class SetBannerStatusTool implements WriteTool
 {

@@ -13,7 +13,7 @@ use App\Services\Ai\Storefront\CheckoutPreview;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
-use App\Services\OrderService;
+use App\Services\Orders\OrderService;
 use Illuminate\Support\Str;
 
 final class PlaceAssistedOrderTool implements WriteTool

@@ -13,7 +13,7 @@ use App\Models\Customer;
 use App\Models\CustomerGroup;
 use App\Models\PriceList;
 use App\Models\ProductVariant;
-use App\Services\PricingService;
+use App\Services\Pricing\PricingService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -263,7 +263,7 @@ class P07PricingEngine2Test extends TestCase
 
         // Dates go through PriceListService::normalizeDates (Cairo midnight),
         // exactly like the admin API path.
-        $list = app(\App\Services\PriceListService::class)->create(
+        $list = app(\App\Services\Pricing\PriceListService::class)->create(
             ['name' => 'Dated', 'type' => PriceListType::Retail->value,
                 'starts_at' => '2026-11-01', 'ends_at' => '2026-11-05'],
             $this->centralPricingStaff());
@@ -286,7 +286,7 @@ class P07PricingEngine2Test extends TestCase
 
         // DST-aware parsing: an end day inside the DST window (UTC+3) lands
         // one hour earlier in UTC than a winter end day (UTC+2).
-        $dstList = app(\App\Services\PriceListService::class)->create(
+        $dstList = app(\App\Services\Pricing\PriceListService::class)->create(
             ['name' => 'Dst', 'type' => PriceListType::Retail->value,
                 'starts_at' => '2026-08-01', 'ends_at' => '2026-08-15'],
             $this->centralPricingStaff());
@@ -387,7 +387,7 @@ class P07PricingEngine2Test extends TestCase
         // REST create/update writes audit rows when the actor is passed (service-level).
         $actor = $this->centralPricingStaff();
         $before = \DB::table('staff_audit_logs')->where('action', 'customer_group.created')->count();
-        app(\App\Services\CustomerGroupService::class)->create(
+        app(\App\Services\Customer\CustomerGroupService::class)->create(
             ['name' => 'Aud', 'code' => 'AUD'.uniqid()], $actor, ['channel' => 'test']);
         $this->assertSame($before + 1, \DB::table('staff_audit_logs')->where('action', 'customer_group.created')->count());
     }

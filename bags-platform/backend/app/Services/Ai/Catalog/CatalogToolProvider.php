@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Catalog;
 
+use App\Services\Auth\StaffAdministration;
+
 use App\Models\User;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\Contracts\ToolProvider;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 
 /**
  * Lock hierarchy: StaffAdministration::lock -> CatalogLock::tree(shared|exclusive) -> Category -> Product -> ProductVariant.

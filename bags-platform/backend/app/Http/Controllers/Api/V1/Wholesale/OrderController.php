@@ -8,7 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\Wholesale\WholesaleOrderResource;
 use App\Models\Customer;
 use App\Models\Order;
-use App\Services\WholesaleQuickOrderService;
+use App\Services\Wholesale\WholesaleQuickOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;

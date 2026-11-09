@@ -10,7 +10,7 @@ use App\Models\PriceList;
 use App\Models\PriceListItem;
 use App\Models\Promotion;
 use App\Models\User;
-use App\Services\PriceListService;
+use App\Services\Pricing\PriceListService;
 use Illuminate\Support\Collection;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 

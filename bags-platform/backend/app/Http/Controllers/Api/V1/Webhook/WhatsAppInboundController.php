@@ -7,7 +7,7 @@ namespace App\Http\Controllers\Api\V1\Webhook;
 use App\Http\Controllers\Controller;
 use App\Jobs\ProcessWhatsAppMessage;
 use App\Models\AiWhatsappIdentity;
-use App\Services\WebhookSignatureVerifier;
+use App\Services\Shared\WebhookSignatureVerifier;
 use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;

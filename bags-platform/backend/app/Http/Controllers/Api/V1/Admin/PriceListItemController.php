@@ -10,7 +10,7 @@ use App\Http\Requests\Admin\Pricing\UpdatePriceListItemRequest;
 use App\Http\Resources\Admin\PriceListItemResource;
 use App\Models\PriceList;
 use App\Models\PriceListItem;
-use App\Services\PriceListService;
+use App\Services\Pricing\PriceListService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;

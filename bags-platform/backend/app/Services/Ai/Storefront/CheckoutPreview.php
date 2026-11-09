@@ -10,11 +10,11 @@ use App\Models\Cart;
 use App\Models\City;
 use App\Models\Customer;
 use App\Models\Order;
-use App\Services\CartService;
-use App\Services\CouponService;
-use App\Services\SettingService;
-use App\Services\ShippingQuoteService;
-use App\Services\StorePaymentPolicy;
+use App\Services\Orders\CartService;
+use App\Services\Pricing\CouponService;
+use App\Services\Shared\SettingService;
+use App\Services\Orders\ShippingQuoteService;
+use App\Services\Pos\StorePaymentPolicy;
 
 /**
  * Dry-run checkout validation: replicates order creation checks without stock reservation or database writes.

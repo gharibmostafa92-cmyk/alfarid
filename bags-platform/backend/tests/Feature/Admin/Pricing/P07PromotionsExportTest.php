@@ -17,7 +17,7 @@ use App\Models\PriceList;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\User;
-use App\Services\WholesalePriceListService;
+use App\Services\Wholesale\WholesalePriceListService;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;

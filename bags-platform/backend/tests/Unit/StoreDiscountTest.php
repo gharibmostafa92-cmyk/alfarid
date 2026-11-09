@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit;
 
-use App\Services\StoreCatalogService;
+use App\Services\Catalog\StoreCatalogService;
 use PHPUnit\Framework\TestCase;
 
 /**

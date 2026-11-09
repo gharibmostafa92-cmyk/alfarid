@@ -16,8 +16,8 @@ use App\Services\Ai\Inventory\InventoryPresenter;
 use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
-use App\Services\BranchAccess;
-use App\Services\StocktakeService;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Inventory\StocktakeService;
 
 final class StocktakeVarianceTool extends StocktakeToolBase implements AgentTool
 {

@@ -9,7 +9,7 @@ use App\Models\ReturnRequestItem;
 use App\Models\SupplierInvoice;
 use App\Models\User;
 use App\Models\WholesalePaymentNotice;
-use App\Services\CustomerManagementService;
+use App\Services\Customer\CustomerManagementService;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;

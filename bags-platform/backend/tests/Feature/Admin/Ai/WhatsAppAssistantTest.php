@@ -18,7 +18,7 @@ use App\Services\Ai\PendingActionService;
 use App\Services\Ai\ToolRegistry;
 use App\Services\Ai\WhatsApp\WhatsAppActorContext;
 use App\Services\Ai\WhatsApp\WhatsAppInboundProcessor;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use App\Support\BannerImage;
 use Database\Seeders\AiAgentPermissionSeeder;
 use Database\Seeders\SettingSeeder;

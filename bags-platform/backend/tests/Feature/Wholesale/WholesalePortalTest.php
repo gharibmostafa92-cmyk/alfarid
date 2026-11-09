@@ -15,7 +15,7 @@ use App\Models\Quotation;
 use App\Models\StockLevel;
 use App\Models\Treasury;
 use App\Models\User;
-use App\Services\OrderService;
+use App\Services\Orders\OrderService;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Database\Seeders\WholesalePortalPermissionSeeder;

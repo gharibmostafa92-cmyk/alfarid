@@ -6,7 +6,7 @@ namespace App\Services\Ai\Storefront\Tools;
 
 use App\Enums\BannerLinkType;
 use App\Models\Banner;
-use App\Services\BannerLinkResolver;
+use App\Services\Catalog\BannerLinkResolver;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 

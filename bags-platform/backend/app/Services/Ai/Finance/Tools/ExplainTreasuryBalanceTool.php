@@ -12,7 +12,7 @@ use App\Services\Ai\Finance\FinanceArgs;
 use App\Services\Ai\Finance\FinancePresenter;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
-use App\Services\BranchAccess;
+use App\Services\Inventory\BranchAccess;
 
 final class ExplainTreasuryBalanceTool implements AgentTool
 {

@@ -61,7 +61,7 @@ class ReturnTaskTxtBatchCTest extends TestCase
     public function test_concurrent_wallet_debits_serialize_without_negative_balance(): void
     {
         $customer = Customer::factory()->create();
-        app(\App\Services\WalletService::class)->record($customer->id, 100, 'test_topup', 'test', 1, $this->staff->id);
+        app(\App\Services\Finance\WalletService::class)->record($customer->id, 100, 'test_topup', 'test', 1, $this->staff->id);
 
         $jobs = [];
         for ($i = 0; $i < 10; $i++) {
@@ -92,7 +92,7 @@ class ReturnTaskTxtBatchCTest extends TestCase
      */
     public function test_wallet_balance_tracks_ledger_exactly_property(): void
     {
-        $service = app(\App\Services\WalletService::class);
+        $service = app(\App\Services\Finance\WalletService::class);
         $customer = Customer::factory()->create();
         $ref = 1;
         $expected = 0.0;
@@ -137,7 +137,7 @@ class ReturnTaskTxtBatchCTest extends TestCase
      */
     public function test_wallet_zero_and_fractional_amounts(): void
     {
-        $service = app(\App\Services\WalletService::class);
+        $service = app(\App\Services\Finance\WalletService::class);
         $customer = Customer::factory()->create();
 
         $zero = $service->record($customer->id, 0, 'test_zero', 'test', 1, $this->staff->id);

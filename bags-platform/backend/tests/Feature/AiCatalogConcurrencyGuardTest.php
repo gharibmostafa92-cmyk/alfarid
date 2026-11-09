@@ -18,7 +18,7 @@ use App\Services\Catalog\CategoryService;
 use App\Services\Catalog\ProductMediaService;
 use App\Services\Catalog\ProductService;
 use App\Services\Catalog\VariantService;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Ai\WhatsApp;
 
 use App\Services\Ai\ToolKind;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 
 /**
  * WhatsApp channel security policies: restricts high-risk actions, prevents unauthorized writes,

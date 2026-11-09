@@ -10,7 +10,7 @@ use App\Models\Customer;
 use App\Models\CustomerAuditLog;
 use App\Models\SupplierUser;
 use App\Models\User;
-use App\Services\CustomerAuthService;
+use App\Services\Auth\CustomerAuthService;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;

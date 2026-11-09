@@ -9,7 +9,7 @@ use App\Models\WholesalePaymentNotice;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
-use App\Services\WholesalePaymentNoticeService;
+use App\Services\Wholesale\WholesalePaymentNoticeService;
 
 final class GetPaymentNoticeTool implements AgentTool
 {

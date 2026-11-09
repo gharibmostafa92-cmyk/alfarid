@@ -11,7 +11,7 @@ use App\Http\Requests\Wholesale\UpdateQuotationRequest;
 use App\Http\Resources\Wholesale\QuotationResource;
 use App\Models\Customer;
 use App\Models\Quotation;
-use App\Services\QuotationService;
+use App\Services\Wholesale\QuotationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;

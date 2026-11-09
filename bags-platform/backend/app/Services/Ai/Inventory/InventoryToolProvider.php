@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Inventory;
 
+use App\Services\Inventory\InventoryService;
+
 use App\Models\User;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\Contracts\ToolProvider;
@@ -36,7 +38,7 @@ use App\Services\Ai\Inventory\Tools\StocktakeVarianceTool;
 use App\Services\Ai\Inventory\Tools\UpdateTransferDraftTool;
 use App\Services\Ai\Inventory\Tools\WhatIfProductionCostTool;
 use App\Services\Ai\Inventory\Tools\WhatIfTransferCoverageTool;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 
 /**
  * Inventory AI tools provider: implements deterministic row locking via InventoryService::lockLevels.

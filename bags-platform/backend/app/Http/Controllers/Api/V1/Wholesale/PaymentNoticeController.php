@@ -10,7 +10,7 @@ use App\Http\Requests\Wholesale\StorePaymentNoticeRequest;
 use App\Http\Resources\Wholesale\WholesalePaymentNoticeResource;
 use App\Models\Customer;
 use App\Models\WholesalePaymentNotice;
-use App\Services\WholesalePaymentNoticeService;
+use App\Services\Wholesale\WholesalePaymentNoticeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;

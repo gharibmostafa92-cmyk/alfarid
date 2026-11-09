@@ -6,8 +6,8 @@ namespace App\Services\Concerns;
 
 use App\Exceptions\BusinessException;
 use App\Models\InventoryIdempotencyKey;
-use App\Services\BranchAccess;
-use App\Services\IdempotencyFingerprint;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Shared\IdempotencyFingerprint;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;

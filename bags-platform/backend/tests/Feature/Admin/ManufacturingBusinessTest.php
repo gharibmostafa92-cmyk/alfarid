@@ -13,7 +13,7 @@ use App\Models\ProductVariant;
 use App\Models\StockMovement;
 use App\Models\SupplierUser;
 use App\Models\User;
-use App\Services\InventoryService;
+use App\Services\Inventory\InventoryService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;

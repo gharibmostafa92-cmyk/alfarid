@@ -13,7 +13,7 @@ use App\Models\Customer;
 use App\Models\CustomerGroup;
 use App\Models\PriceList;
 use App\Models\ProductVariant;
-use App\Services\PricingService;
+use App\Services\Pricing\PricingService;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Database\Seeders\WholesalePortalPermissionSeeder;

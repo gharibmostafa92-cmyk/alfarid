@@ -6,7 +6,7 @@ namespace App\Console\Commands;
 
 use App\Models\Branch;
 use App\Models\FinanceReconcileRun;
-use App\Services\StatementBudget;
+use App\Services\Finance\StatementBudget;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;

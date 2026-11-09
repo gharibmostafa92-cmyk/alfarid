@@ -11,7 +11,7 @@ use App\Http\Resources\Store\OrderResource;
 use App\Http\Resources\Store\TrackOrderResource;
 use App\Models\Customer;
 use App\Models\Order;
-use App\Services\OrderService;
+use App\Services\Orders\OrderService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Finance\Tools;
 
+use App\Services\Pos\TreasuryService;
+
 use App\Exceptions\BusinessException;
 use App\Models\AiPendingAction;
 use App\Models\Treasury;
@@ -19,9 +21,9 @@ use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
-use App\Services\BranchAccess;
-use App\Services\ExpenseService;
-use App\Services\SettingService;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Pos\ExpenseService;
+use App\Services\Shared\SettingService;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -149,7 +151,7 @@ final class CreateExpensesBulkTool implements AgentTool, ExecutesSelectedItems, 
             }
         }
         if ($ids !== []) {
-            app(\App\Services\TreasuryService::class)->lockTreasuries(array_values(array_unique($ids)), $action->user_id);
+            app(\App\Services\Pos\TreasuryService::class)->lockTreasuries(array_values(array_unique($ids)), $action->user_id);
         }
     }
 

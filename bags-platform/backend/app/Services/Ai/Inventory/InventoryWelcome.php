@@ -10,10 +10,10 @@ use App\Models\InventoryReconcileRun;
 use App\Models\Stocktake;
 use App\Models\StockTransfer;
 use App\Models\User;
-use App\Services\BranchAccess;
-use App\Services\CostAccess;
-use App\Services\ReportService;
-use App\Services\SettingService;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Shared\CostAccess;
+use App\Services\Finance\ReportService;
+use App\Services\Shared\SettingService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 

@@ -6,7 +6,7 @@ namespace App\Services\Catalog;
 
 use App\Exceptions\BusinessException;
 use App\Models\Category;
-use App\Services\SlugService;
+use App\Services\Catalog\SlugService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;

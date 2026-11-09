@@ -139,16 +139,16 @@ class PosReturnTaskTxtBatchDTest extends PosScenarioFixture
         $returnOrder = Order::query()->where('return_of_order_id', $saleId)->firstOrFail();
         $this->assertSame($shiftB->id, (int) $returnOrder->pos_shift_id);
 
-        $totalsB = app(\App\Services\PosService::class)->computeShiftTotals($shiftB->fresh());
+        $totalsB = app(\App\Services\Pos\PosService::class)->computeShiftTotals($shiftB->fresh());
         $this->assertSame(100.0, $totalsB['cash_returns_total']);
         $shiftA = PosShift::query()->where('treasury_id', $this->drawer->id)->firstOrFail();
-        $totalsA = app(\App\Services\PosService::class)->computeShiftTotals($shiftA->fresh());
+        $totalsA = app(\App\Services\Pos\PosService::class)->computeShiftTotals($shiftA->fresh());
         $this->assertSame(0.0, $totalsA['cash_returns_total']);
 
         // نقدية فعلية سالبة أو لانهائية مرفوضة.
         foreach ([-5.0, INF] as $actual) {
             try {
-                app(\App\Services\PosService::class)->closeShift($shiftB->fresh(), $actual, null);
+                app(\App\Services\Pos\PosService::class)->closeShift($shiftB->fresh(), $actual, null);
                 $this->fail('إغلاق الوردية بنقدية غير صالحة يجب أن يُرفض.');
             } catch (\App\Exceptions\BusinessException $e) {
                 $this->assertSame('النقدية الفعلية غير صالحة.', $e->getMessage());

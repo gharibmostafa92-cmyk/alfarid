@@ -12,7 +12,7 @@ use App\Models\SupplierInvoice;
 use App\Models\SupplierUser;
 use App\Models\User;
 use App\Models\WholesalePaymentNotice;
-use App\Services\BranchAccess;
+use App\Services\Inventory\BranchAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;

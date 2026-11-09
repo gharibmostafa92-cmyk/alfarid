@@ -15,10 +15,10 @@ use App\Models\StockLevel;
 use App\Models\Stocktake;
 use App\Models\StockTransfer;
 use App\Models\User;
-use App\Services\BranchAccess;
-use App\Services\SearchTerm;
-use App\Services\StocktakeService;
-use App\Services\TransferService;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Shared\SearchTerm;
+use App\Services\Inventory\StocktakeService;
+use App\Services\Inventory\TransferService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -190,7 +190,7 @@ class PosStockController extends Controller
         // Voice count input: parse spoken Arabic quantities while keeping system_qty hidden from non-approvers.
         $qty = isset($data['qty']) ? (float) $data['qty'] : 1;
         if (! isset($data['qty']) && isset($data['qty_words'])) {
-            $spoken = \App\Services\SpokenQuantity::parse($data['qty_words']);
+            $spoken = \App\Services\Shared\SpokenQuantity::parse($data['qty_words']);
             if ($spoken === null || $spoken < 1) {
                 return response()->json(['message' => 'العدد المنطوق مش واضح؛ قوله تاني أو اكتبه رقمًا.'], 422);
             }

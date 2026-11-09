@@ -14,11 +14,11 @@ use App\Models\User;
 use App\Notifications\CustomerPasswordReset;
 use App\Notifications\CustomerPhoneVerificationCode;
 use App\Providers\AppServiceProvider;
-use App\Services\CustomerAuthService;
-use App\Services\CustomerMessageBudget;
-use App\Services\CustomerPhoneVerificationService;
-use App\Services\PricingService;
-use App\Services\StoreCatalogService;
+use App\Services\Auth\CustomerAuthService;
+use App\Services\Customer\CustomerMessageBudget;
+use App\Services\Customer\CustomerPhoneVerificationService;
+use App\Services\Pricing\PricingService;
+use App\Services\Catalog\StoreCatalogService;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -138,7 +138,7 @@ class CustomerAdditionalReviewTest extends TestCase
         Notification::fake();
         config(['auth.require_phone_verification' => true]);
         $phone = '01001234567';
-        $networkKey = \App\Services\CustomerMessageBudget::subnetKey('127.0.0.1');
+        $networkKey = \App\Services\Customer\CustomerMessageBudget::subnetKey('127.0.0.1');
         $service = app(CustomerPhoneVerificationService::class);
         $service->send($phone, $networkKey);
         $code = '';
@@ -289,7 +289,7 @@ class CustomerAdditionalReviewTest extends TestCase
         Http::fake(['https://sms.example.test/send' => Http::response(['success' => false], 200)]);
         Log::spy();
         try {
-            app(CustomerPhoneVerificationService::class)->send('01001234567', \App\Services\CustomerMessageBudget::subnetKey('127.0.0.1'));
+            app(CustomerPhoneVerificationService::class)->send('01001234567', \App\Services\Customer\CustomerMessageBudget::subnetKey('127.0.0.1'));
             $this->fail('Gateway refusal must fail delivery.');
         } catch (BusinessException) {
             Log::shouldHaveReceived('error')->once()->with('Customer OTP delivery failed.', ['exception' => BusinessException::class]);

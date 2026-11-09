@@ -15,8 +15,8 @@ use App\Models\StockTransfer;
 use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
 use App\Models\User;
-use App\Services\StocktakeService;
-use App\Services\TransferService;
+use App\Services\Inventory\StocktakeService;
+use App\Services\Inventory\TransferService;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -504,7 +504,7 @@ class TaskTxtPosScenariosDTest extends PosScenarioFixture
         ]), '23503', 'cross-branch stock/location');
 
         // Rollback guard: with cash_shortage data present, down() refuses with RuntimeException.
-        app(\App\Services\TreasuryService::class)->record([
+        app(\App\Services\Pos\TreasuryService::class)->record([
             'treasury_id' => $this->safe->id,
             'type' => TreasuryTransactionType::CashShortage,
             'amount' => -5, 'created_by' => $this->cashier->id,

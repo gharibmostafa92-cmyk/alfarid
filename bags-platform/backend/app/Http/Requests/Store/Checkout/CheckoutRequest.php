@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests\Store\Checkout;
 
 use App\Models\Customer;
-use App\Services\StorePaymentPolicy;
+use App\Services\Pos\StorePaymentPolicy;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 

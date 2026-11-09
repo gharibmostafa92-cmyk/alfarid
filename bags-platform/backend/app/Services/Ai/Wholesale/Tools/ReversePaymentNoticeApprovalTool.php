@@ -14,7 +14,7 @@ use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
-use App\Services\WholesalePaymentNoticeService;
+use App\Services\Wholesale\WholesalePaymentNoticeService;
 
 /**
  * Full financial reversal of an approved payment notice (distinct from the short undo window).

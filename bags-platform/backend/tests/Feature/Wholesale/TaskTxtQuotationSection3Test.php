@@ -17,7 +17,7 @@ use App\Models\StockLevel;
 use App\Models\User;
 use App\Services\Ai\Wholesale\Tools\ExpireQuotationTool;
 use App\Services\Ai\Wholesale\Tools\ExtendQuotationValidityTool;
-use App\Services\QuotationService;
+use App\Services\Wholesale\QuotationService;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Database\Seeders\WholesalePortalPermissionSeeder;

@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Services\BranchAccess;
-use App\Services\ReportService;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Finance\ReportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 

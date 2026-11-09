@@ -12,7 +12,7 @@ use App\Models\ReturnRequest;
 use App\Models\Treasury;
 use App\Models\User;
 use App\Models\WholesalePaymentNotice;
-use App\Services\WholesalePaymentNoticeService;
+use App\Services\Wholesale\WholesalePaymentNoticeService;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Database\Seeders\WholesalePortalPermissionSeeder;

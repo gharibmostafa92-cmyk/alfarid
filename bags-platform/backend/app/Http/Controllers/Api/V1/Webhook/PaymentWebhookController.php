@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Webhook;
 
 use App\Http\Controllers\Controller;
-use App\Services\PaymentWebhookService;
+use App\Services\Shared\PaymentWebhookService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 

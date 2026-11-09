@@ -20,7 +20,7 @@ use App\Models\ShippingRate;
 use App\Models\ShippingZone;
 use App\Models\User;
 use App\Models\WebhookLog;
-use App\Services\InventoryService;
+use App\Services\Inventory\InventoryService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Spatie\Permission\Models\Role;

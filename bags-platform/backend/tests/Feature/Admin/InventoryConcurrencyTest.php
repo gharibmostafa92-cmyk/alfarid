@@ -13,12 +13,12 @@ use App\Models\StockMovement;
 use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
 use App\Models\User;
-use App\Services\InventoryService;
-use App\Services\PosService;
-use App\Services\SettingService;
-use App\Services\StocktakeService;
-use App\Services\TransferService;
-use App\Services\TreasuryService;
+use App\Services\Inventory\InventoryService;
+use App\Services\Pos\PosService;
+use App\Services\Shared\SettingService;
+use App\Services\Inventory\StocktakeService;
+use App\Services\Inventory\TransferService;
+use App\Services\Pos\TreasuryService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Spatie\Permission\Models\Permission;
@@ -52,7 +52,7 @@ class InventoryConcurrencyTest extends TestCase
         $variant = ProductVariant::factory()->create();
         $branch = Branch::factory()->create();
         $data = $this->data($variant, $branch);
-        $operation = 'app(App\Services\InventoryService::class)->recordMovement('.var_export($data, true).');';
+        $operation = 'app(App\Services\Inventory\InventoryService::class)->recordMovement('.var_export($data, true).');';
         $this->race([$operation, $operation]);
         $this->assertSame(1, StockLevel::count());
         $this->assertSame('2.0000', StockLevel::firstOrFail()->on_hand);
@@ -66,7 +66,7 @@ class InventoryConcurrencyTest extends TestCase
         $items = $variants->map(fn ($variant) => ['product_variant_id' => $variant->id, 'quantity' => 1, 'adjustment_type' => 'increase'])->all();
         $jobs = [];
         foreach ([$items, array_reverse($items)] as $order) {
-            $jobs[] = 'app(App\Services\InventoryService::class)->applyAdjustments('.var_export(['branch_id' => $branch->id, 'items' => $order], true).', '.$this->staff->id.');';
+            $jobs[] = 'app(App\Services\Inventory\InventoryService::class)->applyAdjustments('.var_export(['branch_id' => $branch->id, 'items' => $order], true).', '.$this->staff->id.');';
         }
         $this->race($jobs);
         $this->assertSame(['2.0000', '2.0000'], StockLevel::orderBy('product_variant_id')->pluck('on_hand')->all());
@@ -78,7 +78,7 @@ class InventoryConcurrencyTest extends TestCase
         foreach (['left' => 'right', 'right' => 'left'] as $own => $other) {
             $data = $this->data(ProductVariant::factory()->create(), Branch::factory()->create());
             $hook = 'App\Models\StockMovement::creating(function () { $prefix = getenv("INVENTORY_START_FILE"); touch($prefix.'.var_export('.'.$own, true).'); $deadline = microtime(true) + 5; while (!is_file($prefix.'.var_export('.'.$other, true).')) { if (microtime(true) > $deadline) { throw new RuntimeException("Movement numbering serialized unrelated stock rows"); } usleep(10000); } });';
-            $jobs[] = $hook.'app(App\Services\InventoryService::class)->recordMovement('.var_export($data, true).');';
+            $jobs[] = $hook.'app(App\Services\Inventory\InventoryService::class)->recordMovement('.var_export($data, true).');';
         }
         $this->race($jobs);
         $this->assertSame(2, StockMovement::count());
@@ -98,7 +98,7 @@ class InventoryConcurrencyTest extends TestCase
                 'items' => [['product_variant_id' => $variant->id, 'requested_qty' => 2]],
             ], $this->staff->id);
             app(TransferService::class)->approve($transfer, [], $this->staff->id);
-            $jobs[] = 'app(App\Services\TransferService::class)->ship(App\Models\StockTransfer::findOrFail('.$transfer->id.'), [], '.$this->staff->id.');';
+            $jobs[] = 'app(App\Services\Inventory\TransferService::class)->ship(App\Models\StockTransfer::findOrFail('.$transfer->id.'), [], '.$this->staff->id.');';
         }
         $this->race($jobs);
         foreach (StockLevel::all() as $stock) {
@@ -115,7 +115,7 @@ class InventoryConcurrencyTest extends TestCase
         foreach (['left' => 'right', 'right' => 'left'] as $own => $other) {
             $data = $this->data($variant, Branch::factory()->create());
             $hook = 'App\Models\StockMovement::creating(function () { $prefix = getenv("INVENTORY_START_FILE"); touch($prefix.'.var_export('.'.$own, true).'); $deadline = microtime(true) + 4; while (!is_file($prefix.'.var_export('.'.$other, true).')) { if (microtime(true) > $deadline) { throw new RuntimeException("Variant lock serialized separate branches"); } usleep(10000); } });';
-            $jobs[] = $hook.'app(App\Services\InventoryService::class)->recordMovement('.var_export($data, true).');';
+            $jobs[] = $hook.'app(App\Services\Inventory\InventoryService::class)->recordMovement('.var_export($data, true).');';
         }
         $this->race($jobs);
         $this->assertSame(2, StockMovement::count());
@@ -126,7 +126,7 @@ class InventoryConcurrencyTest extends TestCase
         $branch = Branch::factory()->create();
         $variant = ProductVariant::factory()->create();
         $count = app(StocktakeService::class)->create(['branch_id' => $branch->id], $this->staff->id);
-        $operation = 'app(App\Services\StocktakeService::class)->incrementItemCount(App\Models\Stocktake::findOrFail('.$count->id.'), '.$variant->id.', 1, '.$this->staff->id.');';
+        $operation = 'app(App\Services\Inventory\StocktakeService::class)->incrementItemCount(App\Models\Stocktake::findOrFail('.$count->id.'), '.$variant->id.', 1, '.$this->staff->id.');';
         $this->race([$operation, $operation]);
         $this->assertSame('2.0000', $count->items()->firstOrFail()->counted_qty);
         $this->assertSame(1, $count->items()->count());
@@ -142,7 +142,7 @@ class InventoryConcurrencyTest extends TestCase
             $stocktake = app(StocktakeService::class)->create(['branch_id' => $branch->id,
                 'items' => [['product_variant_id' => $variant->id, 'counted_qty' => 7]],
             ], $this->staff->id);
-            $jobs[] = 'app(App\Services\StocktakeService::class)->approve(App\Models\Stocktake::findOrFail('.$stocktake->id.'), '.$this->staff->id.');';
+            $jobs[] = 'app(App\Services\Inventory\StocktakeService::class)->approve(App\Models\Stocktake::findOrFail('.$stocktake->id.'), '.$this->staff->id.');';
         }
         $this->race($jobs, ['OK', 'REJECTED']);
         $this->assertSame('7.0000', StockLevel::firstOrFail()->on_hand);
@@ -153,7 +153,7 @@ class InventoryConcurrencyTest extends TestCase
     {
         $variant = ProductVariant::factory()->create();
         $list = PriceList::create(['name' => 'Retail', 'type' => 'retail']);
-        $operation = 'app(App\Services\PriceListService::class)->createItem(App\Models\PriceList::findOrFail('.$list->id.'), '.var_export(['product_variant_id' => $variant->id, 'min_qty' => 1, 'price' => 10], true).');';
+        $operation = 'app(App\Services\Pricing\PriceListService::class)->createItem(App\Models\PriceList::findOrFail('.$list->id.'), '.var_export(['product_variant_id' => $variant->id, 'min_qty' => 1, 'price' => 10], true).');';
         $this->race([$operation, $operation], ['OK', 'REJECTED']);
         $this->assertSame(1, $list->items()->count());
     }
@@ -186,7 +186,7 @@ while (!is_file($prefix.'.left')) {
 }
 try {
 PHP;
-        $contender .= 'app(App\Services\InventoryService::class)->recordMovement('.var_export($this->data($variant, $branch), true).');';
+        $contender .= 'app(App\Services\Inventory\InventoryService::class)->recordMovement('.var_export($this->data($variant, $branch), true).');';
         $contender .= <<<'PHP'
     touch($prefix.'.right');
     throw new RuntimeException('Expected a lock conflict');
@@ -210,7 +210,7 @@ PHP;
         $data = $this->data(ProductVariant::factory()->create(), Branch::factory()->create());
         $holder = <<<'PHP'
 Illuminate\Support\Facades\DB::transaction(function () {
-    app(App\Services\SettingService::class)->updateBatch(['movement_next_number' => 20000]);
+    app(App\Services\Shared\SettingService::class)->updateBatch(['movement_next_number' => 20000]);
     $prefix = getenv('INVENTORY_START_FILE');
     touch($prefix.'.left');
     $deadline = microtime(true) + 8;
@@ -228,7 +228,7 @@ while (!is_file($prefix.'.left')) {
     usleep(10000);
 }
 PHP;
-        $writer .= 'app(App\Services\InventoryService::class)->recordMovement('.var_export($data, true).'); touch($prefix.".right");';
+        $writer .= 'app(App\Services\Inventory\InventoryService::class)->recordMovement('.var_export($data, true).'); touch($prefix.".right");';
         $this->race([$holder, $writer]);
         $this->assertDatabaseCount('stock_movements', 1);
         // The counter sync raises the shared sequence inside the holder
@@ -313,7 +313,7 @@ PHP;
     {
         $branch = Branch::factory()->create();
         $drawer = Treasury::create(['name' => 'Drawer', 'code' => 'RACE-DRAWER', 'branch_id' => $branch->id, 'type' => 'pos_drawer', 'is_active' => true]);
-        $operation = 'app(App\Services\PosService::class)->openShift(App\Models\User::findOrFail('.$this->staff->id.'), '.$branch->id.', '.$drawer->id.', 0);';
+        $operation = 'app(App\Services\Pos\PosService::class)->openShift(App\Models\User::findOrFail('.$this->staff->id.'), '.$branch->id.', '.$drawer->id.', 0);';
         $this->race([$operation, $operation], ['OK', 'REJECTED']);
         $this->assertDatabaseCount('pos_shifts', 1);
     }
@@ -327,7 +327,7 @@ PHP;
         $transfer = app(TreasuryService::class)->createTransfer(['from_treasury_id' => $from->id, 'to_treasury_id' => $to->id, 'amount' => 30], $creator->id);
         $jobs = [];
         foreach (['approveTransfer', 'rejectTransfer'] as $method) {
-            $jobs[] = 'app(App\Services\TreasuryService::class)->'.$method.'(App\Models\TreasuryTransfer::findOrFail('.$transfer->id.'), '.$this->staff->id.');';
+            $jobs[] = 'app(App\Services\Pos\TreasuryService::class)->'.$method.'(App\Models\TreasuryTransfer::findOrFail('.$transfer->id.'), '.$this->staff->id.');';
         }
         $this->race($jobs, ['OK', 'REJECTED']);
         $approved = $transfer->fresh()->status->value === 'approved';
@@ -343,7 +343,7 @@ PHP;
         $drawer = Treasury::create(['name' => 'Drawer', 'code' => 'DRAWER', 'branch_id' => $branch->id, 'type' => 'pos_drawer', 'is_active' => true]);
         $shift = app(PosService::class)->openShift($this->staff, $branch->id, $drawer->id, 200);
         app(PosService::class)->closeShift($shift, 180, null);
-        $job = 'app(App\Services\PosService::class)->approveShift(App\Models\PosShift::findOrFail('.$shift->id.'), App\Models\User::findOrFail('.$this->staff->id.'));';
+        $job = 'app(App\Services\Pos\PosService::class)->approveShift(App\Models\PosShift::findOrFail('.$shift->id.'), App\Models\User::findOrFail('.$this->staff->id.'));';
         $this->race([$job, $job], ['OK', 'REJECTED']);
         $this->assertSame('980.00', $safe->fresh()->current_balance);
         $this->assertSame('0.00', $drawer->fresh()->current_balance);
@@ -358,7 +358,7 @@ PHP;
         app(InventoryService::class)->recordMovement($this->data($variant, $branch));
         $writer = str_replace('MOVEMENT_DATA', $data, <<<'PHP'
 Illuminate\Support\Facades\DB::transaction(function () {
-    app(App\Services\InventoryService::class)->recordMovement(MOVEMENT_DATA);
+    app(App\Services\Inventory\InventoryService::class)->recordMovement(MOVEMENT_DATA);
     touch(getenv('INVENTORY_START_FILE').'.left');
     $deadline = microtime(true) + 12;
     do {
@@ -398,7 +398,7 @@ PHP;
             $order = Order::factory()->create();
             $order->items()->create(['product_variant_id' => $variant->id, 'product_name_snapshot' => 'Bag', 'sku_snapshot' => $variant->sku, 'qty' => 1, 'unit_price' => 10, 'line_total' => 10]);
             $hook = 'App\Models\StockMovement::creating(function () { $prefix = getenv("INVENTORY_START_FILE"); touch($prefix.'.var_export('.'.$own, true).'); $deadline = microtime(true) + 5; while (!is_file($prefix.'.var_export('.'.$other, true).')) { if (microtime(true) > $deadline) throw new RuntimeException("Allocation locked another branch"); usleep(10000); } });';
-            $jobs[] = $hook.'app(App\Services\OrderAllocationService::class)->allocate(App\Models\Order::findOrFail('.$order->id.'), '.$branch->id.', '.$this->staff->id.');';
+            $jobs[] = $hook.'app(App\Services\Orders\OrderAllocationService::class)->allocate(App\Models\Order::findOrFail('.$order->id.'), '.$branch->id.', '.$this->staff->id.');';
         }
         $this->race($jobs);
         $this->assertSame(['1.0000', '1.0000'], StockLevel::orderBy('branch_id')->pluck('reserved')->all());

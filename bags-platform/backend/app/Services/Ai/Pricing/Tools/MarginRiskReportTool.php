@@ -18,10 +18,10 @@ use App\Services\Ai\Pricing\PricingArgs;
 use App\Services\Ai\Pricing\PricingPresenter;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
-use App\Services\BranchAccess;
-use App\Services\CostAccess;
-use App\Services\CouponService;
-use App\Services\PricingService;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Shared\CostAccess;
+use App\Services\Pricing\CouponService;
+use App\Services\Pricing\PricingService;
 
 final class MarginRiskReportTool implements AgentTool
 {

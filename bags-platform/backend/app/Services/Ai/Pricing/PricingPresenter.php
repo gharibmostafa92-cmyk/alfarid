@@ -6,8 +6,8 @@ namespace App\Services\Ai\Pricing;
 
 use App\Models\User;
 use App\Services\Ai\ToolOutcome;
-use App\Services\CostAccess;
-use App\Services\SettingService;
+use App\Services\Shared\CostAccess;
+use App\Services\Shared\SettingService;
 
 final class PricingPresenter
 {

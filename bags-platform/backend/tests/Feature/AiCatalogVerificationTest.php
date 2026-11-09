@@ -13,7 +13,7 @@ use App\Services\Ai\AgentOrchestrator;
 use App\Services\Ai\Catalog\Tools\DraftProductCopyTool;
 use App\Services\Ai\EntityResolver;
 use App\Services\Ai\ToolRegistry;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use Database\Seeders\AiAgentPermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;

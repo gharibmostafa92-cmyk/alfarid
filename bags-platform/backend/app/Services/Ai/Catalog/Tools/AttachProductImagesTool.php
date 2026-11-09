@@ -17,7 +17,7 @@ use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
 use App\Services\Catalog\ProductMediaService;
-use App\Services\StaffAdministration;
+use App\Services\Auth\StaffAdministration;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;

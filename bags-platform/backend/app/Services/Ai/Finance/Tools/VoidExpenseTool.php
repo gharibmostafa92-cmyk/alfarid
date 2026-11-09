@@ -19,8 +19,8 @@ use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
-use App\Services\BranchAccess;
-use App\Services\ExpenseService;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Pos\ExpenseService;
 
 final class VoidExpenseTool implements AgentTool, LocksTargets, WriteTool
 {

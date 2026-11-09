@@ -265,7 +265,7 @@ class TaskTxtInventoryStocktakeTest extends TaskTxtInventoryCase
         $branch = Branch::factory()->create(['is_active' => true]);
         $variant = ProductVariant::factory()->create(['is_active' => true]);
         $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
-        $service = app(\App\Services\StocktakeService::class);
+        $service = app(\App\Services\Inventory\StocktakeService::class);
         $take = $service->create(['branch_id' => $branch->id], $admin->id);
 
         try {

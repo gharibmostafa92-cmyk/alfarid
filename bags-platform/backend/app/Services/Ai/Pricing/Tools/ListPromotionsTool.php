@@ -9,7 +9,7 @@ use App\Models\User;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\Pricing\PricingArgs;
 use App\Services\Ai\Pricing\PricingPresenter;
-use App\Services\SearchTerm;
+use App\Services\Shared\SearchTerm;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 

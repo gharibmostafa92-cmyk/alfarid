@@ -23,7 +23,7 @@ use App\Services\Ai\WriteTool;
 use App\Services\Catalog\CatalogLock;
 use App\Services\Catalog\ProductPublishabilityChecker;
 use App\Services\Catalog\ProductService;
-use App\Services\StaffAdministration;
+use App\Services\Auth\StaffAdministration;
 use Illuminate\Support\Arr;
 
 final class UpdateProductTool implements LocksTargets, UndoableTool, WriteTool

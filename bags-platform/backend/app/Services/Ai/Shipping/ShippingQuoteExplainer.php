@@ -7,7 +7,7 @@ namespace App\Services\Ai\Shipping;
 use App\Models\City;
 use App\Models\ShippingCompany;
 use App\Models\ShippingRate;
-use App\Services\ShippingQuoteService;
+use App\Services\Orders\ShippingQuoteService;
 use Illuminate\Support\Collection;
 
 /**

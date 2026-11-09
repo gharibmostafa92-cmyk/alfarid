@@ -15,7 +15,7 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Treasury;
 use App\Models\User;
-use App\Services\InventoryService;
+use App\Services\Inventory\InventoryService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Hash;

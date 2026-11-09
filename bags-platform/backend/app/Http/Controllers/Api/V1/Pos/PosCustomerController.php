@@ -8,7 +8,7 @@ use App\Enums\CustomerStatus;
 use App\Enums\CustomerType;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
-use App\Services\SearchTerm;
+use App\Services\Shared\SearchTerm;
 use App\Support\ArabicDigits;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;

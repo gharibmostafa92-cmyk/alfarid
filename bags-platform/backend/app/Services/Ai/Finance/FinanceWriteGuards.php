@@ -10,7 +10,7 @@ use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
 use App\Models\TreasuryTransfer;
 use App\Models\User;
-use App\Services\BranchAccess;
+use App\Services\Inventory\BranchAccess;
 use Illuminate\Auth\Access\AuthorizationException;
 
 /**

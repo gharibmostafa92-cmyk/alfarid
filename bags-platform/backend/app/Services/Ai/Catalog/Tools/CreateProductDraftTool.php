@@ -21,8 +21,8 @@ use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
 use App\Services\Catalog\CatalogLock;
 use App\Services\Catalog\ProductService;
-use App\Services\CostAccess;
-use App\Services\StaffAdministration;
+use App\Services\Shared\CostAccess;
+use App\Services\Auth\StaffAdministration;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 

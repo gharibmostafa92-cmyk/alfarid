@@ -9,7 +9,7 @@ use App\Http\Requests\Supplier\PurchaseOrder\RequestChangeRequest;
 use App\Http\Resources\Supplier\PurchaseOrderResource;
 use App\Models\PurchaseOrder;
 use App\Models\SupplierUser;
-use App\Services\ProcurementService;
+use App\Services\Procurement\ProcurementService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;

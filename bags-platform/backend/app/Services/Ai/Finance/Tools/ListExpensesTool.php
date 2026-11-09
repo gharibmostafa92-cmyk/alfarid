@@ -11,8 +11,8 @@ use App\Services\Ai\Finance\FinanceArgs;
 use App\Services\Ai\Finance\FinancePresenter;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
-use App\Services\BranchAccess;
-use App\Services\SearchTerm;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Shared\SearchTerm;
 
 final class ListExpensesTool implements AgentTool
 {

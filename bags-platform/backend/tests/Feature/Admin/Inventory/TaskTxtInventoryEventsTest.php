@@ -14,8 +14,8 @@ use App\Models\ProductVariant;
 use App\Notifications\InventoryAnomalyDigestNotification;
 use App\Notifications\LowStockAlertNotification;
 use App\Notifications\TransferPendingApprovalNotification;
-use App\Services\InventoryService;
-use App\Services\SettingService;
+use App\Services\Inventory\InventoryService;
+use App\Services\Shared\SettingService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -172,7 +172,7 @@ class TaskTxtInventoryEventsTest extends TaskTxtInventoryCase
             'product_variant_id' => $variant->id, 'branch_id' => $from->id,
             'type' => 'adjustment_in', 'affected_bucket' => 'on_hand', 'quantity' => 5, 'created_by' => $admin->id,
         ]);
-        $transfer = app(\App\Services\TransferService::class)->create([
+        $transfer = app(\App\Services\Inventory\TransferService::class)->create([
             'from_branch_id' => $from->id, 'to_branch_id' => $to->id,
             'items' => [['product_variant_id' => $variant->id, 'requested_qty' => 2]],
         ], $admin->id);

@@ -12,7 +12,7 @@ use App\Models\ReturnRequest;
 use App\Models\ReturnRequestItem;
 use App\Models\StockMovement;
 use App\Models\User;
-use App\Services\ReportService;
+use App\Services\Finance\ReportService;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;

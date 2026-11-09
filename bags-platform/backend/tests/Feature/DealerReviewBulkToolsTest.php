@@ -17,7 +17,7 @@ use App\Models\CustomerGroup;
 use App\Models\Order;
 use App\Models\User;
 use App\Services\Ai\ToolRegistry;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;

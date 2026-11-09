@@ -12,7 +12,7 @@ use App\Models\Customer;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\User;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use Spatie\Permission\Models\Role;
 
 final class ProposalBuilder

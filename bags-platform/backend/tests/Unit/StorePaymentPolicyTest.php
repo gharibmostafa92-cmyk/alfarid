@@ -9,7 +9,7 @@ use App\Enums\CustomerType;
 use App\Enums\OrderStatus;
 use App\Models\Customer;
 use App\Models\Order;
-use App\Services\StorePaymentPolicy;
+use App\Services\Pos\StorePaymentPolicy;
 use Illuminate\Support\Carbon;
 use Tests\TestCase;
 

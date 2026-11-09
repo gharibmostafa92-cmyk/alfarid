@@ -11,8 +11,8 @@ use App\Models\User;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
-use App\Services\CartService;
-use App\Services\CouponService;
+use App\Services\Orders\CartService;
+use App\Services\Pricing\CouponService;
 
 final class DiagnoseCartTool implements AgentTool
 {

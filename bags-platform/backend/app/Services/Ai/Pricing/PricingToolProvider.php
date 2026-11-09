@@ -7,7 +7,7 @@ namespace App\Services\Ai\Pricing;
 use App\Models\User;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\Contracts\ToolProvider;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 
 /**
  * Pricing AI domain (P07): price-list, coupon and promotion tools.

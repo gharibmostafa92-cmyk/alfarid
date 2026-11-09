@@ -6,8 +6,8 @@ namespace App\Services\Ai\Finance;
 
 use App\Models\AiPendingAction;
 use App\Models\TreasuryTransfer;
-use App\Services\BranchAccess;
-use App\Services\TreasuryService;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Pos\TreasuryService;
 
 /**
  * Row locks for finance write tools. Treasuries are always locked in primary

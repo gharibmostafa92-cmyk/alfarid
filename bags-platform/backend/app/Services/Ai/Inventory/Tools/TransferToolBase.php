@@ -14,9 +14,9 @@ use App\Services\Ai\Inventory\InventoryArgs;
 use App\Services\Ai\Inventory\TransferTimeline;
 use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolOutcome;
-use App\Services\BranchAccess;
-use App\Services\DiscreteQuantity;
-use App\Services\TransferService;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Shared\DiscreteQuantity;
+use App\Services\Inventory\TransferService;
 
 abstract class TransferToolBase implements LocksTargets
 {

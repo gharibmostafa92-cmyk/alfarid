@@ -20,7 +20,7 @@ use App\Rules\MaxImagePixels;
 use App\Services\Catalog\CategoryService;
 use App\Services\Catalog\ProductService;
 use App\Services\Catalog\VariantService;
-use App\Services\PricingService;
+use App\Services\Pricing\PricingService;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;

@@ -6,7 +6,7 @@ namespace Tests\Feature;
 
 use App\Models\Branch;
 use App\Models\Setting;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use Database\Seeders\DatabaseSeeder;
 use Database\Seeders\LocationSeeder;
 use Database\Seeders\SettingSeeder;

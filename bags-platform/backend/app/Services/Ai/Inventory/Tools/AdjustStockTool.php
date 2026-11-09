@@ -18,10 +18,10 @@ use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
-use App\Services\BranchAccess;
-use App\Services\DiscreteQuantity;
-use App\Services\InventoryService;
-use App\Services\SettingService;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Shared\DiscreteQuantity;
+use App\Services\Inventory\InventoryService;
+use App\Services\Shared\SettingService;
 
 final class AdjustStockTool implements LocksTargets, UndoableTool, WriteTool
 {

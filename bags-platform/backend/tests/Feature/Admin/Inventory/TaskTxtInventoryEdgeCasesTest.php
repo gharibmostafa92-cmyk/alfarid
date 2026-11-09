@@ -11,7 +11,7 @@ use App\Models\Branch;
 use App\Models\Location;
 use App\Models\ProductVariant;
 use App\Models\StockMovement;
-use App\Services\InventoryService;
+use App\Services\Inventory\InventoryService;
 
 /**
  * task.txt §3 (notable cases per area not covered elsewhere).

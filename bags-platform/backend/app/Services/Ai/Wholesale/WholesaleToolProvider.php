@@ -27,7 +27,7 @@ use App\Services\Ai\Wholesale\Tools\ReversePaymentNoticeApprovalTool;
 use App\Services\Ai\Wholesale\Tools\SuggestQuotePricingTool;
 use App\Services\Ai\Wholesale\Tools\WholesaleInboxTool;
 use App\Services\Ai\Wholesale\Tools\WholesaleInsightsTool;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 
 /**
  * Wholesale AI domain. Writes stay behind ai_wholesale_tools_enabled, which defaults off.

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit;
 
-use App\Services\SpokenQuantity;
+use App\Services\Shared\SpokenQuantity;
 use App\Support\ArabicDigits;
 use PHPUnit\Framework\TestCase;
 

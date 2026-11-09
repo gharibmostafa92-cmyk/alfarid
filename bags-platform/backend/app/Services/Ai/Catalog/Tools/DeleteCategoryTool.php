@@ -17,7 +17,7 @@ use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
 use App\Services\Catalog\CatalogLock;
 use App\Services\Catalog\CategoryService;
-use App\Services\StaffAdministration;
+use App\Services\Auth\StaffAdministration;
 use Illuminate\Validation\ValidationException;
 
 final class DeleteCategoryTool implements LocksTargets, WriteTool

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Unit;
 
 use App\Exceptions\BusinessException;
-use App\Services\IdempotencyFingerprint;
+use App\Services\Shared\IdempotencyFingerprint;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 

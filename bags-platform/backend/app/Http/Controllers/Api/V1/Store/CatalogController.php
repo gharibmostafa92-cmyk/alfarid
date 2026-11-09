@@ -12,7 +12,7 @@ use App\Http\Resources\Store\StoreCityResource;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\City;
-use App\Services\StoreCatalogService;
+use App\Services\Catalog\StoreCatalogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 

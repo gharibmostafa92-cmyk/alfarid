@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 

@@ -7,8 +7,8 @@ namespace App\Actions\Locations;
 use App\Models\Location;
 use App\Models\StockLevel;
 use App\Models\User;
-use App\Services\BranchAccess;
-use App\Services\StaffAdministration;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Auth\StaffAdministration;
 use Illuminate\Support\Facades\DB;
 
 /**

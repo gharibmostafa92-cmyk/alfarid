@@ -51,7 +51,7 @@ class TaskTxtInventoryConcurrencyTest extends TestCase
     {
         $variant = ProductVariant::factory()->create();
         $branch = Branch::factory()->create();
-        app(\App\Services\InventoryService::class)->recordMovement([
+        app(\App\Services\Inventory\InventoryService::class)->recordMovement([
             'product_variant_id' => $variant->id, 'branch_id' => $branch->id,
             'type' => 'adjustment_in', 'affected_bucket' => 'on_hand',
             'quantity' => 5, 'created_by' => $this->staff->id,
@@ -61,7 +61,7 @@ class TaskTxtInventoryConcurrencyTest extends TestCase
             'branch_id' => $branch->id,
             'items' => [['product_variant_id' => $variant->id, 'adjustment_type' => 'decrease', 'quantity' => 3]],
         ], true);
-        $job = 'app(App\Services\InventoryService::class)->applyAdjustments('.$payload.', '.$this->staff->id.');';
+        $job = 'app(App\Services\Inventory\InventoryService::class)->applyAdjustments('.$payload.', '.$this->staff->id.');';
         $this->race([$job, $job], ['OK', 'REJECTED']);
 
         $this->assertSame('2.0000', StockLevel::firstOrFail()->on_hand);
@@ -74,7 +74,7 @@ class TaskTxtInventoryConcurrencyTest extends TestCase
     {
         $variant = ProductVariant::factory()->create();
         $branch = Branch::factory()->create();
-        app(\App\Services\InventoryService::class)->recordMovement([
+        app(\App\Services\Inventory\InventoryService::class)->recordMovement([
             'product_variant_id' => $variant->id, 'branch_id' => $branch->id,
             'type' => 'adjustment_in', 'affected_bucket' => 'on_hand',
             'quantity' => 10, 'created_by' => $this->staff->id,
@@ -84,7 +84,7 @@ class TaskTxtInventoryConcurrencyTest extends TestCase
             'branch_id' => $branch->id,
             'items' => [['product_variant_id' => $variant->id, 'adjustment_type' => 'increase', 'quantity' => 5]],
         ], true);
-        $job = 'app(App\Services\InventoryService::class)->applyAdjustments('.$payload.', '.$this->staff->id.', "parallel-key-5d");';
+        $job = 'app(App\Services\Inventory\InventoryService::class)->applyAdjustments('.$payload.', '.$this->staff->id.', "parallel-key-5d");';
         $this->race([$job, $job], ['OK', 'OK']);
 
         $this->assertSame('15.0000', StockLevel::firstOrFail()->on_hand);
@@ -98,17 +98,17 @@ class TaskTxtInventoryConcurrencyTest extends TestCase
         $variant = ProductVariant::factory()->create();
         $from = Branch::factory()->create();
         $to = Branch::factory()->create();
-        app(\App\Services\InventoryService::class)->recordMovement([
+        app(\App\Services\Inventory\InventoryService::class)->recordMovement([
             'product_variant_id' => $variant->id, 'branch_id' => $from->id,
             'type' => 'adjustment_in', 'affected_bucket' => 'on_hand',
             'quantity' => 10, 'created_by' => $this->staff->id,
         ]);
-        $transfer = app(\App\Services\TransferService::class)->create([
+        $transfer = app(\App\Services\Inventory\TransferService::class)->create([
             'from_branch_id' => $from->id, 'to_branch_id' => $to->id,
             'items' => [['product_variant_id' => $variant->id, 'requested_qty' => 4]],
         ], $this->staff->id);
 
-        $job = 'app(App\Services\TransferService::class)->approve(App\Models\StockTransfer::findOrFail('.$transfer->id.'), [], '.$this->staff->id.', null, 1);';
+        $job = 'app(App\Services\Inventory\TransferService::class)->approve(App\Models\StockTransfer::findOrFail('.$transfer->id.'), [], '.$this->staff->id.', null, 1);';
         $this->race([$job, $job], ['OK', 'REJECTED']);
 
         $level = StockLevel::query()->where('product_variant_id', $variant->id)->where('branch_id', $from->id)->firstOrFail();
@@ -122,10 +122,10 @@ class TaskTxtInventoryConcurrencyTest extends TestCase
     {
         $branch = Branch::factory()->create();
         $variant = ProductVariant::factory()->create();
-        $take = app(\App\Services\StocktakeService::class)->create(['branch_id' => $branch->id], $this->staff->id);
+        $take = app(\App\Services\Inventory\StocktakeService::class)->create(['branch_id' => $branch->id], $this->staff->id);
         $scanId = '11111111-2222-3333-4444-555555555555';
 
-        $job = 'app(App\Services\StocktakeService::class)->incrementItemCount(App\Models\Stocktake::findOrFail('.$take->id.'), '.$variant->id.', 1, '.$this->staff->id.', '.var_export($scanId, true).');';
+        $job = 'app(App\Services\Inventory\StocktakeService::class)->incrementItemCount(App\Models\Stocktake::findOrFail('.$take->id.'), '.$variant->id.', 1, '.$this->staff->id.', '.var_export($scanId, true).');';
         $this->race([$job, $job], ['OK', 'OK']);
 
         $this->assertSame('1.0000', $take->items()->firstOrFail()->counted_qty);
@@ -138,7 +138,7 @@ class TaskTxtInventoryConcurrencyTest extends TestCase
     {
         $variant = ProductVariant::factory()->create();
         $branch = Branch::factory()->create();
-        app(\App\Services\InventoryService::class)->recordMovement([
+        app(\App\Services\Inventory\InventoryService::class)->recordMovement([
             'product_variant_id' => $variant->id, 'branch_id' => $branch->id,
             'type' => 'adjustment_in', 'affected_bucket' => 'on_hand',
             'quantity' => 5, 'created_by' => $this->staff->id,
@@ -173,7 +173,7 @@ while (!is_file($prefix.'.left')) {
 }
 try {
 PHP;
-        $contender .= 'app(App\Services\InventoryService::class)->recordMovement('.$data.');';
+        $contender .= 'app(App\Services\Inventory\InventoryService::class)->recordMovement('.$data.');';
         $contender .= <<<'PHP'
     touch($prefix.'.right');
     throw new RuntimeException('Expected a retryable conflict');
@@ -195,7 +195,7 @@ PHP;
     {
         $variant = ProductVariant::factory()->create();
         $branch = Branch::factory()->create();
-        app(\App\Services\InventoryService::class)->recordMovement([
+        app(\App\Services\Inventory\InventoryService::class)->recordMovement([
             'product_variant_id' => $variant->id, 'branch_id' => $branch->id,
             'type' => 'adjustment_in', 'affected_bucket' => 'on_hand',
             'quantity' => 5, 'created_by' => $this->staff->id,
@@ -229,7 +229,7 @@ while (!is_file($prefix.'.left')) {
 }
 try {
 PHP;
-        $contender .= 'app(App\Services\ProductionReceiptService::class)->receive('.$data.', '.$this->staff->id.', "race-19-key");';
+        $contender .= 'app(App\Services\Inventory\ProductionReceiptService::class)->receive('.$data.', '.$this->staff->id.', "race-19-key");';
         $contender .= <<<'PHP'
     touch($prefix.'.right');
     throw new RuntimeException('Expected a retryable conflict');
@@ -256,7 +256,7 @@ PHP;
         $items = $variants->map(fn ($variant) => ['product_variant_id' => $variant->id, 'quantity' => 1, 'adjustment_type' => 'increase'])->all();
         $jobs = [];
         foreach ([$items, array_reverse($items)] as $order) {
-            $jobs[] = 'app(App\Services\InventoryService::class)->applyAdjustments('.var_export(['branch_id' => $branch->id, 'items' => $order], true).', '.$this->staff->id.');';
+            $jobs[] = 'app(App\Services\Inventory\InventoryService::class)->applyAdjustments('.var_export(['branch_id' => $branch->id, 'items' => $order], true).', '.$this->staff->id.');';
         }
         // Global key ordering serializes the two workers; neither deadlocks (no 40P01).
         $this->race($jobs, ['OK', 'OK']);

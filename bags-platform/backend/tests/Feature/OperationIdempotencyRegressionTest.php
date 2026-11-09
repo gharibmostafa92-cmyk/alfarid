@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Models\User;
-use App\Services\OperationIdempotencyService;
+use App\Services\Shared\OperationIdempotencyService;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 use Tests\TestCase;

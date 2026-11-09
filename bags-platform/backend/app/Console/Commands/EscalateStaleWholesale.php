@@ -10,7 +10,7 @@ use App\Models\Quotation;
 use App\Models\WholesalePaymentNotice;
 use App\Notifications\StaffRecipients;
 use App\Notifications\WholesaleDeskNotification;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use App\Services\Wholesale\WholesaleOutbox;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Notification;

@@ -4,14 +4,16 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Inventory\Tools;
 
+use App\Services\Shared\CostAccess;
+
 use App\Models\User;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\Inventory\InventoryArgs;
 use App\Services\Ai\Inventory\InventoryPresenter;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
-use App\Services\BranchAccess;
-use App\Services\ReportService;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Finance\ReportService;
 
 final class InventoryValuationTool implements AgentTool
 {
@@ -65,7 +67,7 @@ final class InventoryValuationTool implements AgentTool
         }
         $report = $this->reports->inventoryReport(90, $scope['branch']?->id);
 
-        $showCost = \App\Services\CostAccess::canView($actor);
+        $showCost = \App\Services\Shared\CostAccess::canView($actor);
         $table = array_map(fn ($r) => array_merge([
             $r['branch_name'], (string) $r['variants_count'], (string) $r['total_qty'],
         ], $showCost ? [(string) $r['total_value']] : []), $report['valuation']);

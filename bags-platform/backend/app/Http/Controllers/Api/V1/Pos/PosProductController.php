@@ -6,8 +6,8 @@ namespace App\Http\Controllers\Api\V1\Pos;
 
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
-use App\Services\BranchAccess;
-use App\Services\PosService;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Pos\PosService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;

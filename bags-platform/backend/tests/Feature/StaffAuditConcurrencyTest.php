@@ -9,7 +9,7 @@ use App\Models\AiPendingAction;
 use App\Models\Branch;
 use App\Models\User;
 use App\Services\Ai\ToolRegistry;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use Database\Seeders\AiAgentPermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;

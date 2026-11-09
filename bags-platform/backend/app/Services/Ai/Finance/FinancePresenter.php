@@ -7,7 +7,7 @@ namespace App\Services\Ai\Finance;
 use App\Models\User;
 use App\Services\Ai\EntityResolver;
 use App\Services\Ai\ToolOutcome;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 
 final class FinancePresenter
 {

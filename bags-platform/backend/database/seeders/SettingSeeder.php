@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Database\Seeders;
 
 use App\Models\Setting;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 

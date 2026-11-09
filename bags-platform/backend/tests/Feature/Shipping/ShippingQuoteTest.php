@@ -8,7 +8,7 @@ use App\Models\City;
 use App\Models\ShippingCompany;
 use App\Models\ShippingRate;
 use App\Models\ShippingZone;
-use App\Services\ShippingQuoteService;
+use App\Services\Orders\ShippingQuoteService;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Tests\TestCase;
 

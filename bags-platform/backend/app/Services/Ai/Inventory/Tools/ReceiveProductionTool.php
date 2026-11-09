@@ -20,11 +20,11 @@ use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
-use App\Services\BranchAccess;
-use App\Services\CostAccess;
-use App\Services\DiscreteQuantity;
-use App\Services\ProductionReceiptService;
-use App\Services\SettingService;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Shared\CostAccess;
+use App\Services\Shared\DiscreteQuantity;
+use App\Services\Inventory\ProductionReceiptService;
+use App\Services\Shared\SettingService;
 use Illuminate\Support\Facades\DB;
 
 final class ReceiveProductionTool implements LocksTargets, WriteTool

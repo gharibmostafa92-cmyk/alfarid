@@ -6,7 +6,7 @@ namespace App\Jobs;
 
 use App\Models\WholesalePaymentNotice;
 use App\Services\Ai\GeminiClient;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use App\Services\Wholesale\ReceiptMatchScorer;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;

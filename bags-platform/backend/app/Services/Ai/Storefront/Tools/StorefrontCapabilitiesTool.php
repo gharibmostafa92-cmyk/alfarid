@@ -8,7 +8,7 @@ use App\Models\User;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 
 final class StorefrontCapabilitiesTool implements AgentTool
 {

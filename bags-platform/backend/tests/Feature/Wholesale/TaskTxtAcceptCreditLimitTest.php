@@ -17,7 +17,7 @@ use App\Models\Treasury;
 use App\Enums\TreasuryType;
 use App\Models\User;
 use App\Models\WholesalePaymentNotice;
-use App\Services\WholesalePaymentNoticeService;
+use App\Services\Wholesale\WholesalePaymentNoticeService;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Database\Seeders\WholesalePortalPermissionSeeder;
@@ -165,7 +165,7 @@ class TaskTxtAcceptCreditLimitTest extends TestCase
             'status' => 'pending_review',
         ]);
         app(WholesalePaymentNoticeService::class)->approve($notice, $admin->id, $bank->id);
-        app(\App\Services\OrderService::class)->changeStatus(
+        app(\App\Services\Orders\OrderService::class)->changeStatus(
             $order->fresh(), OrderStatus::Cancelled, null, null, null, true, true
         );
         $this->assertSame(-400.0, app(WholesalePaymentNoticeService::class)->outstandingBalance($this->trader));

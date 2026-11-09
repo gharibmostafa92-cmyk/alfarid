@@ -12,7 +12,7 @@ use App\Models\Customer;
 use App\Models\CustomerGroup;
 use App\Models\PriceList;
 use App\Models\ProductVariant;
-use App\Services\PricingService;
+use App\Services\Pricing\PricingService;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;

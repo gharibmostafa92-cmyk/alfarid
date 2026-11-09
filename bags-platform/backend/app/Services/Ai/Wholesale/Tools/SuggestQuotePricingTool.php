@@ -9,8 +9,8 @@ use App\Models\User;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
-use App\Services\CostAccess;
-use App\Services\QuotationService;
+use App\Services\Shared\CostAccess;
+use App\Services\Wholesale\QuotationService;
 use App\Services\Wholesale\QuoteAdvisor;
 
 final class SuggestQuotePricingTool implements AgentTool

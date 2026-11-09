@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests\Admin\Inventory;
 
 use App\Http\Requests\Admin\Concerns\BulkVariantExists;
-use App\Services\CostAccess;
+use App\Services\Shared\CostAccess;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;

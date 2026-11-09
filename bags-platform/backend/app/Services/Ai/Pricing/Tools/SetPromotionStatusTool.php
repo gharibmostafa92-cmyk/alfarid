@@ -18,7 +18,7 @@ use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
-use App\Services\StaffAdministration;
+use App\Services\Auth\StaffAdministration;
 use Illuminate\Validation\ValidationException;
 
 final class SetPromotionStatusTool implements WriteTool, LocksTargets, UndoableTool

@@ -13,7 +13,7 @@ use App\Models\Expense;
 use App\Models\Treasury;
 use App\Models\User;
 use App\Services\Ai\ToolRegistry;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use Database\Seeders\AiAgentPermissionSeeder;
 use Database\Seeders\FinancialPermissionSeeder;
 use Database\Seeders\SettingSeeder;
@@ -148,7 +148,7 @@ class FinanceExpenseToolsTest extends TestCase
         $admin = $this->admin();
         $branch = Branch::factory()->create(['is_active' => true]);
         $treasury = $this->treasury($branch);
-        app(\App\Services\ExpenseService::class)->create([
+        app(\App\Services\Pos\ExpenseService::class)->create([
             'branch_id' => $branch->id, 'treasury_id' => $treasury->id, 'category' => 'كهرباء',
             'amount' => '100.00', 'expense_date' => now()->toDateString(),
         ], $admin, 'existing-expense');
@@ -167,7 +167,7 @@ class FinanceExpenseToolsTest extends TestCase
         $admin = $this->admin();
         $branch = Branch::factory()->create(['is_active' => true]);
         $treasury = $this->treasury($branch);
-        $expense = app(\App\Services\ExpenseService::class)->create([
+        $expense = app(\App\Services\Pos\ExpenseService::class)->create([
             'branch_id' => $branch->id, 'treasury_id' => $treasury->id, 'category' => 'كهرباء',
             'amount' => '100.00', 'expense_date' => now()->toDateString(),
         ], $admin, 'test-'.Str::uuid()->toString());
@@ -186,7 +186,7 @@ class FinanceExpenseToolsTest extends TestCase
         $admin = $this->admin();
         $branch = Branch::factory()->create(['is_active' => true]);
         $treasury = $this->treasury($branch);
-        $svc = app(\App\Services\ExpenseService::class);
+        $svc = app(\App\Services\Pos\ExpenseService::class);
         $expense = $svc->create([
             'branch_id' => $branch->id, 'treasury_id' => $treasury->id, 'category' => 'كهرباء',
             'amount' => '100.00', 'expense_date' => now()->toDateString(),
@@ -211,7 +211,7 @@ class FinanceExpenseToolsTest extends TestCase
         $admin = $this->admin();
         $branch = Branch::factory()->create(['is_active' => true]);
         $treasury = $this->treasury($branch);
-        $expense = app(\App\Services\ExpenseService::class)->create([
+        $expense = app(\App\Services\Pos\ExpenseService::class)->create([
             'branch_id' => $branch->id, 'treasury_id' => $treasury->id, 'category' => 'كهرباء',
             'amount' => '300.00', 'expense_date' => now()->toDateString(),
         ], $admin, 'test-'.Str::uuid()->toString());

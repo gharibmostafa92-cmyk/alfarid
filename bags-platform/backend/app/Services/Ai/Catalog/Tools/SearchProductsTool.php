@@ -16,7 +16,7 @@ use App\Services\Ai\Catalog\CatalogPresenter;
 use App\Services\Ai\EntityResolver;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
-use App\Services\SearchTerm;
+use App\Services\Shared\SearchTerm;
 
 final class SearchProductsTool implements AgentTool
 {

@@ -7,7 +7,7 @@ namespace Tests\Feature;
 use App\Models\Branch;
 use App\Models\Setting;
 use App\Models\User;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;

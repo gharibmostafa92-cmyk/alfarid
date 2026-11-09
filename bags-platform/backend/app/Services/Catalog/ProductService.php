@@ -11,8 +11,8 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
 use App\Models\User;
-use App\Services\IdempotencyFingerprint;
-use App\Services\SlugService;
+use App\Services\Shared\IdempotencyFingerprint;
+use App\Services\Catalog\SlugService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 

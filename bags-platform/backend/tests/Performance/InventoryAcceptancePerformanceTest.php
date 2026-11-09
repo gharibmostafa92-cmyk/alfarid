@@ -8,7 +8,7 @@ use App\Models\Branch;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\User;
-use App\Services\StocktakeService;
+use App\Services\Inventory\StocktakeService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\DB;

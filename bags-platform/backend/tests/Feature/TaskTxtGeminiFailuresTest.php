@@ -33,7 +33,7 @@ class TaskTxtGeminiFailuresTest extends TestCase
         $this->seed(SettingSeeder::class);
         $this->seed(AiAgentPermissionSeeder::class);
         DB::table('settings')->whereIn('key', ['ai_enabled', 'ai_catalog_tools_enabled'])->update(['value' => '1']);
-        app(\App\Services\SettingService::class)->clearCache();
+        app(\App\Services\Shared\SettingService::class)->clearCache();
         config(['services.gemini.api_key' => 'test-key', 'services.gemini.model' => 'gemini-test']);
     }
 

@@ -11,7 +11,7 @@ use App\Models\Expense;
 use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
 use App\Models\User;
-use App\Services\ReportService;
+use App\Services\Finance\ReportService;
 use Database\Seeders\FinancialPermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;

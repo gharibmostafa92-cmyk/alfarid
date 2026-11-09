@@ -16,7 +16,7 @@ use App\Models\Supplier;
 use App\Models\SupplierInvoice;
 use App\Models\Treasury;
 use App\Models\User;
-use App\Services\ReportService;
+use App\Services\Finance\ReportService;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;

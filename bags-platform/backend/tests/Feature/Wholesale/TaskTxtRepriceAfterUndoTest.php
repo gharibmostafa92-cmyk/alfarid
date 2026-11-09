@@ -10,7 +10,7 @@ use App\Models\OutboundMessage;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Quotation;
-use App\Services\QuotationService;
+use App\Services\Wholesale\QuotationService;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Database\Seeders\WholesalePortalPermissionSeeder;

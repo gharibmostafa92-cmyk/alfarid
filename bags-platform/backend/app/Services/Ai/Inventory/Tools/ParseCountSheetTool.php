@@ -17,10 +17,10 @@ use App\Services\Ai\Inventory\InventoryArgs;
 use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
-use App\Services\BranchAccess;
-use App\Services\DiscreteQuantity;
-use App\Services\SettingService;
-use App\Services\StocktakeService;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Shared\DiscreteQuantity;
+use App\Services\Shared\SettingService;
+use App\Services\Inventory\StocktakeService;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 

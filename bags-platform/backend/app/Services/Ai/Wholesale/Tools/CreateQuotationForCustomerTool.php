@@ -13,8 +13,8 @@ use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
-use App\Services\QuotationService;
-use App\Services\SpokenQuantity;
+use App\Services\Wholesale\QuotationService;
+use App\Services\Shared\SpokenQuantity;
 
 final class CreateQuotationForCustomerTool implements WriteTool
 {

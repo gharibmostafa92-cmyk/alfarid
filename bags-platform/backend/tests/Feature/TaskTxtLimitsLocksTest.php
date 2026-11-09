@@ -36,7 +36,7 @@ class TaskTxtLimitsLocksTest extends TestCase
             'ai_enabled',
             'ai_catalog_tools_enabled',
         ])->update(['value' => '1']);
-        app(\App\Services\SettingService::class)->clearCache();
+        app(\App\Services\Shared\SettingService::class)->clearCache();
         config(['services.gemini.api_key' => 'test-key', 'services.gemini.model' => 'gemini-test']);
     }
 
@@ -88,7 +88,7 @@ class TaskTxtLimitsLocksTest extends TestCase
     public function test_task16a_daily_budget_blocks_and_resets_after_cairo_midnight(): void
     {
         DB::table('settings')->where('key', 'ai_daily_token_budget_per_user')->update(['value' => '100']);
-        app(\App\Services\SettingService::class)->clearCache();
+        app(\App\Services\Shared\SettingService::class)->clearCache();
 
         $admin = $this->agentUser();
         $conv = $this->conv($admin);
@@ -114,7 +114,7 @@ class TaskTxtLimitsLocksTest extends TestCase
     public function test_task16b_usage_grouped_by_cairo_day_across_dst(): void
     {
         DB::table('settings')->where('key', 'ai_daily_token_budget_per_user')->update(['value' => '100']);
-        app(\App\Services\SettingService::class)->clearCache();
+        app(\App\Services\Shared\SettingService::class)->clearCache();
 
         $admin = $this->agentUser();
         $conv = $this->conv($admin);
@@ -150,7 +150,7 @@ class TaskTxtLimitsLocksTest extends TestCase
     public function test_task16c_cycle_cap_returns_cap_reply(): void
     {
         DB::table('settings')->where('key', 'ai_max_tokens_per_cycle')->update(['value' => '1000']);
-        app(\App\Services\SettingService::class)->clearCache();
+        app(\App\Services\Shared\SettingService::class)->clearCache();
 
         $admin = $this->agentUser();
         $conv = $this->conv($admin);
@@ -201,7 +201,7 @@ class TaskTxtLimitsLocksTest extends TestCase
     public function test_task16f_vision_event_tokens_count_toward_cycle_cap(): void
     {
         DB::table('settings')->where('key', 'ai_max_tokens_per_cycle')->update(['value' => '1000']);
-        app(\App\Services\SettingService::class)->clearCache();
+        app(\App\Services\Shared\SettingService::class)->clearCache();
 
         $admin = $this->agentUser();
         $conv = $this->conv($admin);
@@ -255,7 +255,7 @@ class TaskTxtLimitsLocksTest extends TestCase
     public function test_task17b_global_session_cap_429_and_release(): void
     {
         DB::table('settings')->where('key', 'ai_max_concurrent_sessions')->update(['value' => '10']);
-        app(\App\Services\SettingService::class)->clearCache();
+        app(\App\Services\Shared\SettingService::class)->clearCache();
 
         $admin = $this->agentUser();
         $conv = $this->conv($admin);

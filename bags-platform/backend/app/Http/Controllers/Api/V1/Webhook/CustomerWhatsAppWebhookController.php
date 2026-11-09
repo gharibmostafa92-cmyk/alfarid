@@ -7,7 +7,7 @@ namespace App\Http\Controllers\Api\V1\Webhook;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\InboundMessage;
-use App\Services\WebhookSignatureVerifier;
+use App\Services\Shared\WebhookSignatureVerifier;
 use App\Services\Wholesale\CustomerWholesaleAssistant;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;

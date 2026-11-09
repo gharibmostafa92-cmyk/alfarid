@@ -13,8 +13,8 @@ use App\Services\Ai\Inventory\InventoryCoverage;
 use App\Services\Ai\Inventory\InventoryPresenter;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
-use App\Services\BranchAccess;
-use App\Services\DiscreteQuantity;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Shared\DiscreteQuantity;
 
 final class WhatIfTransferCoverageTool implements AgentTool
 {

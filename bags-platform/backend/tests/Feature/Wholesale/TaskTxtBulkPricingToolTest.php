@@ -14,7 +14,7 @@ use App\Models\Quotation;
 use App\Models\User;
 use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\Wholesale\Tools\BulkPriceQuotationsTool;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Database\Seeders\WholesalePortalPermissionSeeder;

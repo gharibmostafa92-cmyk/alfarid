@@ -19,7 +19,7 @@ use App\Models\ReturnRequestItem;
 use App\Models\Treasury;
 use App\Models\User;
 use App\Models\WholesalePaymentNotice;
-use App\Services\OrderAllocationService;
+use App\Services\Orders\OrderAllocationService;
 use Database\Seeders\PromotionPermissionSeeder;
 use Database\Seeders\ReturnPermissionSeeder;
 use Database\Seeders\WholesalePortalPermissionSeeder;

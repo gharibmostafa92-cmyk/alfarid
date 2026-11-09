@@ -17,7 +17,7 @@ use App\Models\StockMovement;
 use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
 use App\Models\User;
-use App\Services\PosService;
+use App\Services\Pos\PosService;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;

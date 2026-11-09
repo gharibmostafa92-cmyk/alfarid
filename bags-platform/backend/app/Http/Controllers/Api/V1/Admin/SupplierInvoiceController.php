@@ -9,7 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Procurement\SupplierInvoiceRequest;
 use App\Http\Resources\Admin\SupplierInvoiceResource;
 use App\Models\SupplierInvoice;
-use App\Services\SupplierFinanceService;
+use App\Services\Procurement\SupplierFinanceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;

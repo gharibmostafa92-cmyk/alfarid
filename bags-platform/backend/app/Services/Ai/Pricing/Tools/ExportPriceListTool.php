@@ -9,7 +9,7 @@ use App\Services\Ai\AgentTool;
 use App\Services\Ai\Pricing\PricingArgs;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
-use App\Services\PriceListService;
+use App\Services\Pricing\PriceListService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 
 final class ExportPriceListTool implements AgentTool

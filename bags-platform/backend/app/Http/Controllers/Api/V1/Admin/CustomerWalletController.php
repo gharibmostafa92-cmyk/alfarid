@@ -9,7 +9,7 @@ use App\Models\Customer;
 use App\Models\CustomerWalletTransaction;
 use App\Models\WalletAdjustment;
 use App\Services\Ai\Finance\FinancePresenter;
-use App\Services\WalletAdjustmentService;
+use App\Services\Finance\WalletAdjustmentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;

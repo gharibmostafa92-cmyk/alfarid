@@ -9,8 +9,8 @@ use App\Models\WholesalePaymentNotice;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
-use App\Services\BranchAccess;
-use App\Services\WholesalePaymentNoticeService;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Wholesale\WholesalePaymentNoticeService;
 use Throwable;
 
 final class PreviewNoticeAllocationTool implements AgentTool

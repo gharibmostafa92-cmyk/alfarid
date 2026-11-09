@@ -13,8 +13,8 @@ use App\Services\Ai\Inventory\InventoryArgs;
 use App\Services\Ai\Inventory\InventoryPresenter;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
-use App\Services\BranchAccess;
-use App\Services\CostAccess;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Shared\CostAccess;
 
 final class ListMovementsTool implements AgentTool
 {

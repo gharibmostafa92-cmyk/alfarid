@@ -8,8 +8,8 @@ use App\Models\Coupon;
 use App\Models\PriceList;
 use App\Models\User;
 use App\Services\Ai\Pricing\Tools\PricingHealthReportTool;
-use App\Services\BranchAccess;
-use App\Services\CostAccess;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Shared\CostAccess;
 use Illuminate\Support\Facades\Cache;
 
 final class PricingWelcome

@@ -9,7 +9,7 @@ use App\Exceptions\BusinessException;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
-use App\Services\BarcodeGenerator;
+use App\Services\Catalog\BarcodeGenerator;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 

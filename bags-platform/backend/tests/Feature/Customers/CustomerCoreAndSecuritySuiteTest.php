@@ -21,9 +21,9 @@ use App\Models\ProductVariant;
 use App\Models\User;
 use App\Notifications\WholesaleApplicationReviewedNotification;
 use App\Notifications\WholesaleApplicationSubmittedNotification;
-use App\Services\CustomerAuthService;
-use App\Services\CustomerManagementService;
-use App\Services\StaffAdministration;
+use App\Services\Auth\CustomerAuthService;
+use App\Services\Customer\CustomerManagementService;
+use App\Services\Auth\StaffAdministration;
 use Database\Seeders\CustomerPermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
@@ -580,7 +580,7 @@ class CustomerCoreAndSecuritySuiteTest extends TestCase
         $disk = $this->fakeUploads();
         User::factory()->create(['email' => 'taken.staff@example.com']);
         try {
-            app(\App\Services\WholesaleRegistrationService::class)->register(
+            app(\App\Services\Wholesale\WholesaleRegistrationService::class)->register(
                 [...$basePayload, 'email' => 'TAKEN.STAFF@example.com'],
                 [UploadedFile::fake()->create('doc.pdf', 50, 'application/pdf')],
                 ['commercial_register'],

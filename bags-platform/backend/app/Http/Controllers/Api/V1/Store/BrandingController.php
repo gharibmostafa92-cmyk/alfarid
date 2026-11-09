@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Store;
 
 use App\Http\Controllers\Controller;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use Illuminate\Http\JsonResponse;
 
 class BrandingController extends Controller

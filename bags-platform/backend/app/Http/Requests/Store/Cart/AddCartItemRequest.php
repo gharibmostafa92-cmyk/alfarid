@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Store\Cart;
 
-use App\Services\CartService;
+use App\Services\Orders\CartService;
 use Illuminate\Foundation\Http\FormRequest;
 
 class AddCartItemRequest extends FormRequest

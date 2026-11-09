@@ -8,7 +8,7 @@ use App\Models\AiConversation;
 use App\Models\User;
 use App\Services\Ai\Finance\FinanceToolProvider;
 use App\Services\Ai\ToolRegistry;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use Database\Seeders\AiAgentPermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
@@ -120,7 +120,7 @@ class FinanceProviderTest extends TestCase
             'name' => 'خزينة 2', 'code' => 'SAFE-'.Str::uuid(), 'branch_id' => $branch->id,
             'type' => \App\Enums\TreasuryType::MainSafe, 'current_balance' => '0.00', 'is_active' => true,
         ]);
-        app(\App\Services\TreasuryService::class)->createTransfer([
+        app(\App\Services\Pos\TreasuryService::class)->createTransfer([
             'from_treasury_id' => $from->id, 'to_treasury_id' => $to->id, 'amount' => '100.00',
             'notes' => 'اختبار',
         ], $creator->id);

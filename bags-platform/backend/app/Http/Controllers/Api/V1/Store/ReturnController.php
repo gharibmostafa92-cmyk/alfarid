@@ -10,7 +10,7 @@ use App\Http\Resources\Store\ReturnRequestResource;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\ReturnRequest;
-use App\Services\ReturnService;
+use App\Services\Orders\ReturnService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;

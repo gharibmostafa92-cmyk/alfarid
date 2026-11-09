@@ -10,7 +10,7 @@ use App\Http\Requests\Admin\Brand\UpdateBrandRequest;
 use App\Http\Resources\Admin\BrandResource;
 use App\Models\Brand;
 use App\Services\Catalog\BrandService;
-use App\Services\SearchTerm;
+use App\Services\Shared\SearchTerm;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;

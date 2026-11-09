@@ -11,7 +11,7 @@ use App\Http\Resources\Admin\VariantResource;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Services\Catalog\VariantService;
-use App\Services\CostAccess;
+use App\Services\Shared\CostAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Finance\Tools;
 
+use App\Services\Shared\SearchTerm;
+
 use App\Enums\TreasuryType;
 use App\Models\Treasury;
 use App\Models\User;
@@ -13,7 +15,7 @@ use App\Services\Ai\Finance\FinanceArgs;
 use App\Services\Ai\Finance\FinancePresenter;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
-use App\Services\BranchAccess;
+use App\Services\Inventory\BranchAccess;
 
 final class ListTreasuriesTool implements AgentTool
 {
@@ -79,7 +81,7 @@ final class ListTreasuriesTool implements AgentTool
             ->when(! empty($args['type']), fn ($q) => $q->where('type', $args['type']))
             ->when(array_key_exists('is_active', $args), fn ($q) => $q->where('is_active', (bool) $args['is_active']))
             ->when(! empty($args['query']), function ($q) use ($args): void {
-                $pattern = \App\Services\SearchTerm::pattern((string) $args['query']);
+                $pattern = \App\Services\Shared\SearchTerm::pattern((string) $args['query']);
                 $q->where(fn ($w) => $w->where('name', 'ilike', $pattern)->orWhere('code', 'ilike', $pattern));
             })
             ->orderBy('branch_id')

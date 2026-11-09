@@ -7,7 +7,7 @@ namespace App\Console\Commands;
 use App\Enums\OrderStatus;
 use App\Models\Order;
 use App\Models\OutboundMessage;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use App\Services\Wholesale\WholesaleOutbox;
 use Illuminate\Console\Command;
 

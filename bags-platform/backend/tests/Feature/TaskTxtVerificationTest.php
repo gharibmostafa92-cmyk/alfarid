@@ -8,7 +8,7 @@ use App\Models\Branch;
 use App\Models\Location;
 use App\Models\StockLevel;
 use App\Models\User;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
@@ -49,7 +49,7 @@ class TaskTxtVerificationTest extends TestCase
         // C is the last active Super Admin; removing its own role must be refused.
         $this->api($c, 'PATCH', '/users/'.$c->id, ['roles' => []])->assertForbidden();
         // And no other active Super Admin remains besides C.
-        $this->assertFalse(\App\Services\StaffAdministration::hasOtherActiveSuperAdmin($c));
+        $this->assertFalse(\App\Services\Auth\StaffAdministration::hasOtherActiveSuperAdmin($c));
         $this->assertTrue($c->fresh()->is_active);
     }
 
@@ -552,7 +552,7 @@ class TaskTxtVerificationTest extends TestCase
     // Item 20: receiving location never picks damaged, prefers oldest receiving.
     public function test_item20_receiving_location_matrix(): void
     {
-        $service = app(\App\Services\InventoryService::class);
+        $service = app(\App\Services\Inventory\InventoryService::class);
 
         // (a) Damaged (smaller id) + shelf, no receiving -> shelf.
         $a = Branch::factory()->create(['is_active' => true]);

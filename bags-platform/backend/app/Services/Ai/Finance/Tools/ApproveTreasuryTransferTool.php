@@ -20,9 +20,9 @@ use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
-use App\Services\BranchAccess;
-use App\Services\SettingService;
-use App\Services\TreasuryService;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Shared\SettingService;
+use App\Services\Pos\TreasuryService;
 
 final class ApproveTreasuryTransferTool implements AgentTool, LocksTargets, WriteTool
 {

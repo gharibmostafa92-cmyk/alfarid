@@ -15,7 +15,7 @@ use App\Models\Treasury;
 use App\Models\User;
 use App\Services\Ai\GeminiClient;
 use App\Services\Ai\ToolRegistry;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use Database\Seeders\AiAgentPermissionSeeder;
 use Database\Seeders\FinancialPermissionSeeder;
 use Database\Seeders\SettingSeeder;
@@ -189,7 +189,7 @@ class FinanceReceiptBulkToolsTest extends TestCase
         ]);
         $this->assertSame('proposal', $proposal->type);
         $action = AiPendingAction::findOrFail($proposal->data['pending_action_id']);
-        app(\App\Services\TreasuryService::class)->record([
+        app(\App\Services\Pos\TreasuryService::class)->record([
             'treasury_id' => $treasury->id, 'type' => \App\Enums\TreasuryTransactionType::OpeningBalance,
             'amount' => '1.00', 'created_by' => $admin->id,
         ]);

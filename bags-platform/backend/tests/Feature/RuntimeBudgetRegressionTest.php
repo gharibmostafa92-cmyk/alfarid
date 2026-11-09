@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Jobs\RefreshCatalogRetailPrices;
-use App\Services\StatementBudget;
+use App\Services\Finance\StatementBudget;
 use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;

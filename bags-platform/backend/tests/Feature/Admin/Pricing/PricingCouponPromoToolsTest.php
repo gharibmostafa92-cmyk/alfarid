@@ -33,7 +33,7 @@ class PricingCouponPromoToolsTest extends TestCase
         foreach (['ai_pricing_tools_enabled' => '1', 'ai_promotions_tools_enabled' => '1', 'ai_pricing_max_items_per_action' => '200', 'ai_coupon_high_risk_percent' => '30', 'ai_price_below_cost_policy' => 'block', 'ai_pricing_vision_enabled' => '0'] as $key => $value) {
             DB::table('settings')->updateOrInsert(['key' => $key], ['group' => 'ai', 'value' => $value]);
         }
-        app(\App\Services\SettingService::class)->clearCache();
+        app(\App\Services\Shared\SettingService::class)->clearCache();
         config(['services.gemini.api_key' => 'test-key', 'services.gemini.model' => 'gemini-test']);
     }
 

@@ -6,7 +6,7 @@ namespace Tests\Feature;
 
 use App\Models\Category;
 use App\Services\Media\R2UploadMigration;
-use App\Services\PrivateAttachments;
+use App\Services\Shared\PrivateAttachments;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;

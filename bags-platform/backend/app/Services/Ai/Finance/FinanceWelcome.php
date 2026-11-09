@@ -10,8 +10,8 @@ use App\Models\PosShift;
 use App\Models\Treasury;
 use App\Models\TreasuryTransfer;
 use App\Models\User;
-use App\Services\BranchAccess;
-use App\Services\SettingService;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Shared\SettingService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 

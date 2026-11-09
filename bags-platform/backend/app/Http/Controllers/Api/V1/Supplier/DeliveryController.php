@@ -10,7 +10,7 @@ use App\Http\Resources\Supplier\DeliveryResource;
 use App\Models\PurchaseOrder;
 use App\Models\SupplierDelivery;
 use App\Models\SupplierUser;
-use App\Services\ProcurementService;
+use App\Services\Procurement\ProcurementService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;

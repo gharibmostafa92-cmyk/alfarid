@@ -10,7 +10,7 @@ use App\Exceptions\BusinessException;
 use App\Models\Branch;
 use App\Models\ProductVariant;
 use App\Models\StockMovement;
-use App\Services\TransferService;
+use App\Services\Inventory\TransferService;
 
 /**
  * task.txt §7 (full journey)، §8 (version guards)، §9 (stage replay)، §10 (cancel/delete).
@@ -122,7 +122,7 @@ class TaskTxtInventoryTransfersTest extends TaskTxtInventoryCase
         $variant = ProductVariant::factory()->create();
         $service = app(TransferService::class);
 
-        app(\App\Services\InventoryService::class)->recordMovement([
+        app(\App\Services\Inventory\InventoryService::class)->recordMovement([
             'product_variant_id' => $variant->id, 'branch_id' => $from->id,
             'type' => StockMovementType::AdjustmentIn, 'affected_bucket' => StockBucket::OnHand,
             'quantity' => 10, 'created_by' => $admin->id,

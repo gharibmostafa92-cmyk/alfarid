@@ -14,8 +14,8 @@ use App\Services\Ai\Inventory\InventoryPresenter;
 use App\Services\Ai\Inventory\TransferTimeline;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
-use App\Services\BranchAccess;
-use App\Services\TransferService;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Inventory\TransferService;
 
 final class GetTransferTool implements AgentTool
 {

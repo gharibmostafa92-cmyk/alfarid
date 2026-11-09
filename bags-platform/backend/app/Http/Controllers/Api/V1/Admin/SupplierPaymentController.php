@@ -10,7 +10,7 @@ use App\Http\Requests\Admin\Procurement\UpdateSupplierPaymentRequest;
 use App\Http\Resources\Admin\SupplierPaymentResource;
 use App\Models\SupplierPayment;
 use App\Models\User;
-use App\Services\SupplierFinanceService;
+use App\Services\Procurement\SupplierFinanceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;

@@ -6,7 +6,7 @@ namespace App\Console\Commands;
 
 use App\Enums\QuotationStatus;
 use App\Models\Quotation;
-use App\Services\QuotationService;
+use App\Services\Wholesale\QuotationService;
 use Illuminate\Console\Command;
 use Throwable;
 

@@ -14,7 +14,7 @@ use App\Services\Ai\Inventory\InventoryArgs;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
-use App\Services\DiscreteQuantity;
+use App\Services\Shared\DiscreteQuantity;
 
 final class RecordCountsTool extends StocktakeToolBase implements AgentTool, WriteTool
 {

@@ -8,7 +8,7 @@ use App\Jobs\ScoreWholesaleReceipt;
 use App\Models\Customer;
 use App\Models\WholesalePaymentNotice;
 use App\Services\Ai\GeminiClient;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Database\Seeders\WholesalePortalPermissionSeeder;

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Unit;
 
 use App\Exceptions\BusinessException;
-use App\Services\DiscreteQuantity;
+use App\Services\Shared\DiscreteQuantity;
 use PHPUnit\Framework\TestCase;
 
 /** Assistant quantities accept REST-grade 4-decimal precision. */

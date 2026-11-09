@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Catalog;
 
 use App\Models\Product;
-use App\Services\StoreCatalogService;
+use App\Services\Catalog\StoreCatalogService;
 use Illuminate\Support\Facades\DB;
 
 class RetailPriceSnapshot

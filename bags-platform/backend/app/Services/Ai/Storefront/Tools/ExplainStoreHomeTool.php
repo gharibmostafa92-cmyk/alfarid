@@ -10,7 +10,7 @@ use App\Models\User;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
-use App\Services\BannerLinkResolver;
+use App\Services\Catalog\BannerLinkResolver;
 use App\Support\BannerImage;
 
 final class ExplainStoreHomeTool implements AgentTool

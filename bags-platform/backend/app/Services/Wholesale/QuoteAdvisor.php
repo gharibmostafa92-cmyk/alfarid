@@ -10,9 +10,9 @@ use App\Models\ProductVariant;
 use App\Models\Quotation;
 use App\Models\StockLevel;
 use App\Models\User;
-use App\Services\CostAccess;
-use App\Services\PricingService;
-use App\Services\SettingService;
+use App\Services\Shared\CostAccess;
+use App\Services\Pricing\PricingService;
+use App\Services\Shared\SettingService;
 use Illuminate\Support\Facades\DB;
 
 /**

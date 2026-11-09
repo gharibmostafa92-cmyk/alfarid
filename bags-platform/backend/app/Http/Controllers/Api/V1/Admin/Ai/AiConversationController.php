@@ -6,7 +6,7 @@ namespace App\Http\Controllers\Api\V1\Admin\Ai;
 
 use App\Http\Controllers\Controller;
 use App\Models\AiConversation;
-use App\Services\BranchAccess;
+use App\Services\Inventory\BranchAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -22,7 +22,7 @@ class AiConversationController extends Controller
     {
         $actor = $request->user('staff');
         $data = $request->validate(['q' => ['nullable', 'string', 'max:100'], 'all' => ['sometimes', 'boolean']]);
-        $query = AiConversation::query()->withCount('messages')->when(! empty($data['q']), fn ($q) => $q->where('title', 'ilike', \App\Services\SearchTerm::pattern($data['q'])))->orderByDesc('is_pinned')->orderByDesc('last_message_at')->orderByDesc('id');
+        $query = AiConversation::query()->withCount('messages')->when(! empty($data['q']), fn ($q) => $q->where('title', 'ilike', \App\Services\Shared\SearchTerm::pattern($data['q'])))->orderByDesc('is_pinned')->orderByDesc('last_message_at')->orderByDesc('id');
         if ($request->query('all') && $actor->can('ai_agent.logs.view') && $actor->can('customers.view')) {
             // Viewing other users' conversations requires central branch access to prevent cross-branch leaks.
             $this->branchAccess->assertCentralAccess($actor);

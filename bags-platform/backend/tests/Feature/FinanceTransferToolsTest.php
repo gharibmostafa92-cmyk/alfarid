@@ -13,7 +13,7 @@ use App\Models\Treasury;
 use App\Models\User;
 use App\Services\Ai\Finance\BulkUndoGuard;
 use App\Services\Ai\ToolRegistry;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use Database\Seeders\AiAgentPermissionSeeder;
 use Database\Seeders\FinancialPermissionSeeder;
 use Database\Seeders\SettingSeeder;
@@ -139,7 +139,7 @@ class FinanceTransferToolsTest extends TestCase
         $this->assertSame('high', $action->risk);
         $this->confirm($admin, $action)->assertStatus(422);
 
-        app(\App\Services\TreasuryService::class)->record([
+        app(\App\Services\Pos\TreasuryService::class)->record([
             'treasury_id' => $to->id,
             'type' => \App\Enums\TreasuryTransactionType::OpeningBalance,
             'amount' => '5.00',
@@ -160,7 +160,7 @@ class FinanceTransferToolsTest extends TestCase
         $first = $this->propose($approver, 'approve_treasury_transfer', []);
         $this->assertSame('denied', $first->type); // transfer_id required
 
-        $transfer = app(\App\Services\TreasuryService::class)->createTransfer([
+        $transfer = app(\App\Services\Pos\TreasuryService::class)->createTransfer([
             'from_treasury_id' => $from->id, 'to_treasury_id' => $to->id, 'amount' => '100.00',
         ], $admin->id);
 
@@ -202,7 +202,7 @@ class FinanceTransferToolsTest extends TestCase
         ['from' => $from, 'to' => $to] = $this->pair($branch, '50000.00');
         $approver = $this->staff(['ai_agent.use', 'ai_agent.execute', 'treasury_transfers.approve'], $branch->id);
 
-        $transfer = app(\App\Services\TreasuryService::class)->createTransfer([
+        $transfer = app(\App\Services\Pos\TreasuryService::class)->createTransfer([
             'from_treasury_id' => $from->id, 'to_treasury_id' => $to->id, 'amount' => '25000.00',
         ], $admin->id);
 
@@ -223,7 +223,7 @@ class FinanceTransferToolsTest extends TestCase
         ['from' => $from, 'to' => $to] = $this->pair($branch, '50.00');
         $approver = $this->staff(['ai_agent.use', 'ai_agent.execute', 'treasury_transfers.approve'], $branch->id);
 
-        $transfer = app(\App\Services\TreasuryService::class)->createTransfer([
+        $transfer = app(\App\Services\Pos\TreasuryService::class)->createTransfer([
             'from_treasury_id' => $from->id, 'to_treasury_id' => $to->id, 'amount' => '500.00',
         ], $admin->id);
 
@@ -245,7 +245,7 @@ class FinanceTransferToolsTest extends TestCase
         ['from' => $from, 'to' => $to] = $this->pair($branch);
         $approver = $this->staff(['ai_agent.use', 'ai_agent.execute', 'treasury_transfers.approve'], $branch->id);
 
-        $transfer = app(\App\Services\TreasuryService::class)->createTransfer([
+        $transfer = app(\App\Services\Pos\TreasuryService::class)->createTransfer([
             'from_treasury_id' => $from->id, 'to_treasury_id' => $to->id, 'amount' => '100.00',
         ], $admin->id);
 
@@ -265,7 +265,7 @@ class FinanceTransferToolsTest extends TestCase
         $branch = Branch::factory()->create(['is_active' => true]);
         ['from' => $from, 'to' => $to] = $this->pair($branch);
         $approver = $this->staff(['ai_agent.use', 'ai_agent.execute', 'treasury_transfers.approve'], $branch->id);
-        $svc = app(\App\Services\TreasuryService::class);
+        $svc = app(\App\Services\Pos\TreasuryService::class);
 
         $mine = $svc->createTransfer(['from_treasury_id' => $from->id, 'to_treasury_id' => $to->id, 'amount' => '10.00'], $approver->id);
         $ok1 = $svc->createTransfer(['from_treasury_id' => $from->id, 'to_treasury_id' => $to->id, 'amount' => '20.00'], $admin->id);
@@ -303,7 +303,7 @@ class FinanceTransferToolsTest extends TestCase
         ['from' => $from, 'to' => $to] = $this->pair($branch);
         $approver = $this->staff(['ai_agent.use', 'ai_agent.execute', 'treasury_transfers.approve'], $branch->id);
 
-        $mine = app(\App\Services\TreasuryService::class)->createTransfer([
+        $mine = app(\App\Services\Pos\TreasuryService::class)->createTransfer([
             'from_treasury_id' => $from->id, 'to_treasury_id' => $to->id, 'amount' => '10.00',
         ], $approver->id);
 

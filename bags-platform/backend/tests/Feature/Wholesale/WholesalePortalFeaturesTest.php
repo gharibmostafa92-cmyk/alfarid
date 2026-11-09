@@ -123,7 +123,7 @@ class WholesalePortalFeaturesTest extends TestCase
             'current_balance' => 0, 'is_active' => true,
         ]);
         $order = $this->creditOrder(100);
-        $service = app(\App\Services\WholesalePaymentNoticeService::class);
+        $service = app(\App\Services\Wholesale\WholesalePaymentNoticeService::class);
         $admin = User::factory()->create();
         $admin->assignRole('Super Admin');
         $free = \App\Models\WholesalePaymentNotice::factory()->create([

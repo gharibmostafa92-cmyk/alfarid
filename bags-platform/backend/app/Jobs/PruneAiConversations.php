@@ -6,7 +6,7 @@ namespace App\Jobs;
 
 use App\Models\AiConversation;
 use App\Models\AiPendingAction;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 

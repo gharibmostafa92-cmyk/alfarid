@@ -14,7 +14,7 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\User;
 use App\Services\Ai\ToolRegistry;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use Database\Seeders\AiAgentPermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
@@ -171,7 +171,7 @@ class P07BulkGuardsTest extends TestCase
         $args = ['field' => 'retail_price', 'operation' => 'percent', 'value' => -50, 'scope' => ['category_id' => $cat->id]];
 
         $noCostView = $this->catalogStaff();
-        $this->assertFalse(\App\Services\CostAccess::canView($noCostView));
+        $this->assertFalse(\App\Services\Shared\CostAccess::canView($noCostView));
         $out = $this->dispatch($noCostView, $this->conv($noCostView), $args);
         $this->assertSame('proposal', $out->type);
         $blockedReasons = json_encode(AiPendingAction::findOrFail($out->data['pending_action_id'])->preview['blocked'] ?? [], JSON_UNESCAPED_UNICODE);
@@ -179,7 +179,7 @@ class P07BulkGuardsTest extends TestCase
         $this->assertStringNotContainsString('390', $blockedReasons);
 
         $withCostView = $this->catalogStaff(['products.view_cost']);
-        $this->assertTrue(\App\Services\CostAccess::canView($withCostView));
+        $this->assertTrue(\App\Services\Shared\CostAccess::canView($withCostView));
         $out2 = $this->dispatch($withCostView, $this->conv($withCostView), $args);
         $this->assertSame('proposal', $out2->type);
         $blocked2 = json_encode(AiPendingAction::findOrFail($out2->data['pending_action_id'])->preview['blocked'] ?? [], JSON_UNESCAPED_UNICODE);

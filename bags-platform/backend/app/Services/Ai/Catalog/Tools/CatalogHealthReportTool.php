@@ -17,7 +17,7 @@ use App\Services\Ai\Catalog\CatalogPresenter;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Catalog\CategoryHierarchy;
-use App\Services\CostAccess;
+use App\Services\Shared\CostAccess;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;

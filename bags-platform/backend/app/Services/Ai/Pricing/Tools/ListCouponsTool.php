@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Pricing\Tools;
 
+use App\Services\Shared\SearchTerm;
+
 use App\Models\Coupon;
 use App\Models\User;
 use App\Services\Ai\AgentTool;
@@ -62,7 +64,7 @@ final class ListCouponsTool implements AgentTool
         $now = Carbon::now();
 
         $coupons = Coupon::query()
-            ->when(! empty($args['code']), fn ($q) => $q->whereRaw('UPPER(code) LIKE ?', [\App\Services\SearchTerm::pattern(mb_strtoupper(trim((string) $args['code'])))]))
+            ->when(! empty($args['code']), fn ($q) => $q->whereRaw('UPPER(code) LIKE ?', [\App\Services\Shared\SearchTerm::pattern(mb_strtoupper(trim((string) $args['code'])))]))
             ->when(array_key_exists('active', $args), fn ($q) => $q->where('is_active', (bool) $args['active']))
             ->when(! empty($args['expired']), fn ($q) => $q->whereNotNull('ends_at')->where('ends_at', '<', $now))
             ->when(! empty($args['near_limit']), fn ($q) => $q->whereNotNull('usage_limit')->whereRaw('used_count >= 0.9 * usage_limit'))

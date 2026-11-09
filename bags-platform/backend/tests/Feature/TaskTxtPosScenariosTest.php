@@ -23,8 +23,8 @@ use App\Models\Setting;
 use App\Models\StockLevel;
 use App\Models\Treasury;
 use App\Models\User;
-use App\Services\InventoryService;
-use App\Services\PosService;
+use App\Services\Inventory\InventoryService;
+use App\Services\Pos\PosService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Hash;
@@ -239,7 +239,7 @@ class TaskTxtPosScenariosTest extends TestCase
             ['key' => 'pos.max_discount_percent'],
             ['group' => 'pos', 'key' => 'pos.max_discount_percent', 'value' => '10', 'type' => 'number'],
         );
-        app(\App\Services\SettingService::class)->clearCache();
+        app(\App\Services\Shared\SettingService::class)->clearCache();
         config(['inventory.pos_max_discount_percent' => 100]);
 
         // 50% discount on a 100 unit must be rejected when settings cap is 10%.

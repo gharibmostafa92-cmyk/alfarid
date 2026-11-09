@@ -9,7 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\PriceQuotationRequest;
 use App\Http\Resources\Wholesale\QuotationResource;
 use App\Models\Quotation;
-use App\Services\QuotationService;
+use App\Services\Wholesale\QuotationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;

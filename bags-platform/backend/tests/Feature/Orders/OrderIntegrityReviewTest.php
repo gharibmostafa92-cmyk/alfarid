@@ -16,7 +16,7 @@ use App\Models\Shipment;
 use App\Models\ShippingCompany;
 use App\Models\StockLevel;
 use App\Models\User;
-use App\Services\OrderService;
+use App\Services\Orders\OrderService;
 use Database\Seeders\OrderPermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;

@@ -17,7 +17,7 @@ use App\Http\Resources\Admin\CustomerResource;
 use App\Models\Customer;
 use App\Models\CustomerAuditLog;
 use App\Models\CustomerDocument;
-use App\Services\CustomerManagementService;
+use App\Services\Customer\CustomerManagementService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;

@@ -9,7 +9,7 @@ use App\Http\Requests\Concerns\NormalizesCustomerInput;
 use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Rules\PasswordByteLimit;
 use App\Rules\UniqueCustomerEmail;
-use App\Services\CustomerPhoneVerificationService;
+use App\Services\Customer\CustomerPhoneVerificationService;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Arr;
 use Illuminate\Validation\Rule;

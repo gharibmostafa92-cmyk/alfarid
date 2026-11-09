@@ -19,7 +19,7 @@ use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
 use App\Services\Catalog\CatalogLock;
 use App\Services\Catalog\VariantService;
-use App\Services\StaffAdministration;
+use App\Services\Auth\StaffAdministration;
 use Illuminate\Validation\ValidationException;
 
 final class DeleteVariantTool implements LocksTargets, WriteTool

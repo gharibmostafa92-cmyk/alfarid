@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Webhook;
 
 use App\Http\Controllers\Controller;
-use App\Services\ShippingWebhookService;
+use App\Services\Orders\ShippingWebhookService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 

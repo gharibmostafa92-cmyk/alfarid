@@ -13,7 +13,7 @@ use App\Models\CustomerGroup;
 use App\Models\PriceList;
 use App\Models\ProductVariant;
 use App\Models\User;
-use App\Services\PricingService;
+use App\Services\Pricing\PricingService;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;

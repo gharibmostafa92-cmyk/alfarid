@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Unit;
 
 use App\Models\Coupon;
-use App\Services\CouponService;
+use App\Services\Pricing\CouponService;
 use PHPUnit\Framework\TestCase;
 
 /**

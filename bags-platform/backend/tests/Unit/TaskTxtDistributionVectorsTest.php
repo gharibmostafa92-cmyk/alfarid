@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit;
 
-use App\Services\ProportionalDistribution;
+use App\Services\Shared\ProportionalDistribution;
 use PHPUnit\Framework\TestCase;
 
 class TaskTxtDistributionVectorsTest extends TestCase

@@ -16,7 +16,7 @@ use App\Models\Supplier;
 use App\Models\SupplierPayment;
 use App\Models\SupplierUser;
 use App\Models\User;
-use App\Services\ProcurementService;
+use App\Services\Procurement\ProcurementService;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;

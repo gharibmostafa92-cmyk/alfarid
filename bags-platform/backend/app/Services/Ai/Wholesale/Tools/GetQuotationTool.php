@@ -9,9 +9,9 @@ use App\Models\User;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
-use App\Services\CostAccess;
-use App\Services\PricingService;
-use App\Services\QuotationService;
+use App\Services\Shared\CostAccess;
+use App\Services\Pricing\PricingService;
+use App\Services\Wholesale\QuotationService;
 use Throwable;
 
 final class GetQuotationTool implements AgentTool

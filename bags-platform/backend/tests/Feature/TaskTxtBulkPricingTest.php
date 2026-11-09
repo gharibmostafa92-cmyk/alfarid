@@ -16,7 +16,7 @@ use App\Services\Ai\PendingActionService;
 use App\Services\Ai\Catalog\Tools\BulkUpdatePricesTool;
 use App\Services\Ai\ToolRegistry;
 use App\Services\Catalog\VariantService;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use Database\Seeders\AiAgentPermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
@@ -206,7 +206,7 @@ class TaskTxtBulkPricingTest extends TestCase
             'retail_price' => 400, 'wholesale_price' => 300, 'cost_price' => 390, 'is_active' => true,
         ]);
         $noCostView = $this->staff(['ai_agent.use', 'ai_agent.execute', 'products.view', 'products.update']);
-        $this->assertFalse(\App\Services\CostAccess::canView($noCostView));
+        $this->assertFalse(\App\Services\Shared\CostAccess::canView($noCostView));
         $conv2 = $this->conv($noCostView);
         $costOut = $registry->dispatch($noCostView, $conv2, [
             'name' => 'bulk_update_prices',

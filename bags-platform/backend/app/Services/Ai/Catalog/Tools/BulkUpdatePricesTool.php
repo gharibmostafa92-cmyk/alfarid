@@ -23,10 +23,10 @@ use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
 use App\Services\Catalog\CatalogLock;
 use App\Services\Catalog\VariantService;
-use App\Services\CostAccess;
-use App\Services\PricingService;
-use App\Services\SettingService;
-use App\Services\StaffAdministration;
+use App\Services\Shared\CostAccess;
+use App\Services\Pricing\PricingService;
+use App\Services\Shared\SettingService;
+use App\Services\Auth\StaffAdministration;
 use Illuminate\Validation\ValidationException;
 
 final class BulkUpdatePricesTool implements LocksTargets, UndoableTool, WriteTool

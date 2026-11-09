@@ -6,7 +6,7 @@ namespace App\Console\Commands;
 
 use App\Enums\OrderStatus;
 use App\Models\Order;
-use App\Services\OrderService;
+use App\Services\Orders\OrderService;
 use Illuminate\Console\Command;
 use Throwable;
 

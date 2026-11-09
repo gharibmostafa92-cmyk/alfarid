@@ -11,7 +11,7 @@ use App\Http\Requests\Admin\Pricing\StorePriceListRequest;
 use App\Http\Requests\Admin\Pricing\UpdatePriceListRequest;
 use App\Http\Resources\Admin\PriceListResource;
 use App\Models\PriceList;
-use App\Services\PriceListService;
+use App\Services\Pricing\PriceListService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;

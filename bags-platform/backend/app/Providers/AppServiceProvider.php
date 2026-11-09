@@ -35,10 +35,10 @@ use App\Services\Ai\ToolRegistry;
 use App\Services\Ai\WhatsApp\WhatsAppActorContext;
 use App\Services\Ai\Wholesale\WholesaleToolProvider;
 use App\Services\Auth\NetworkIdentity;
-use App\Services\BranchAccess;
-use App\Services\PricingService;
-use App\Services\SettingService;
-use App\Services\StoreCatalogService;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Pricing\PricingService;
+use App\Services\Shared\SettingService;
+use App\Services\Catalog\StoreCatalogService;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Events\TransactionBeginning;
@@ -62,6 +62,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        require_once __DIR__.'/../Services/ClassAliases.php';
+
         // Scoped rather than singleton: isolates user-specific state per request, avoiding credential leaks across requests under Octane.
         $this->app->scoped(BranchAccess::class);
         $this->app->scoped(SettingService::class);

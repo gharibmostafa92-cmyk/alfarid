@@ -23,10 +23,10 @@ use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
-use App\Services\BranchAccess;
-use App\Services\OperationIdempotencyService;
-use App\Services\SettingService;
-use App\Services\TreasuryService;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Shared\OperationIdempotencyService;
+use App\Services\Shared\SettingService;
+use App\Services\Pos\TreasuryService;
 use Illuminate\Validation\ValidationException;
 
 final class CreateTreasuryTransferTool implements AgentTool, LocksTargets, UndoableTool, WriteTool

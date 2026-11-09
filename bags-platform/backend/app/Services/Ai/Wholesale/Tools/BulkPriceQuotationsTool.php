@@ -14,8 +14,8 @@ use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
-use App\Services\QuotationService;
-use App\Services\SettingService;
+use App\Services\Wholesale\QuotationService;
+use App\Services\Shared\SettingService;
 use App\Services\Wholesale\QuotationVersion;
 use App\Services\Wholesale\QuoteAdvisor;
 

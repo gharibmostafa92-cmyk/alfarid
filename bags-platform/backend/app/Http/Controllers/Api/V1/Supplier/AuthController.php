@@ -9,7 +9,7 @@ use App\Http\Requests\Supplier\Auth\LoginRequest;
 use App\Http\Resources\Admin\SupplierUserResource;
 use App\Models\SupplierUser;
 use App\Services\Auth\StaffTokenService;
-use App\Services\CustomerAuthService;
+use App\Services\Auth\CustomerAuthService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;

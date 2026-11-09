@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Models\User;
-use App\Services\SettingService;
-use App\Services\StaffAdministration;
+use App\Services\Shared\SettingService;
+use App\Services\Auth\StaffAdministration;
 use Carbon\CarbonInterval;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\DatabaseMigrations;

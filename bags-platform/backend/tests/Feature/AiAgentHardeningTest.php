@@ -14,7 +14,7 @@ use App\Models\Location;
 use App\Models\User;
 use App\Services\Ai\AgentOrchestrator;
 use App\Services\Ai\ToolRegistry;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;

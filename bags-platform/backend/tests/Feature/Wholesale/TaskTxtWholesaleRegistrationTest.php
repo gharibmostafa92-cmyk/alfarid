@@ -9,7 +9,7 @@ use App\Enums\CustomerStatus;
 use App\Enums\CustomerType;
 use App\Events\WholesaleApplicationSubmitted;
 use App\Models\Customer;
-use App\Services\WholesaleRegistrationService;
+use App\Services\Wholesale\WholesaleRegistrationService;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Event;

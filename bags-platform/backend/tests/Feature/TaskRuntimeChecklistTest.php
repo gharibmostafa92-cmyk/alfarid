@@ -10,7 +10,7 @@ use App\Notifications\Channels\CustomerSmsChannel;
 use App\Providers\AppServiceProvider;
 use App\Services\Media\MediaUrlGenerator;
 use App\Services\Media\UuidPathGenerator;
-use App\Services\StatementBudget;
+use App\Services\Finance\StatementBudget;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;

@@ -19,7 +19,7 @@ use App\Services\Ai\Shipping\Tools\UpsertShippingCompanyTool;
 use App\Services\Ai\Shipping\Tools\UpsertShippingRateTool;
 use App\Services\Ai\Shipping\Tools\UpsertShippingZoneTool;
 use App\Services\Ai\Shipping\Tools\WhatIfShippingChangeTool;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 
 final class ShippingToolProvider implements ToolProvider
 {

@@ -13,7 +13,7 @@ use App\Models\ShippingCompany;
 use App\Models\ShippingRate;
 use App\Models\ShippingZone;
 use App\Models\User;
-use App\Services\ShippingQuoteService;
+use App\Services\Orders\ShippingQuoteService;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;

@@ -109,7 +109,7 @@ class CatalogConcurrencyTest extends TestCase
                 'product_variant_id' => $variant->id, 'branch_id' => $branch->id,
                 'type' => 'adjustment_in', 'affected_bucket' => 'on_hand', 'quantity' => 2, 'created_by' => $user->id,
             ], true);
-            $increase = 'Illuminate\Support\Facades\DB::transaction(function () { app(App\Services\InventoryService::class)->recordMovement('.$movement.'); touch(getenv("CATALOG_START_FILE").".left"); usleep(300000); });';
+            $increase = 'Illuminate\Support\Facades\DB::transaction(function () { app(App\Services\Inventory\InventoryService::class)->recordMovement('.$movement.'); touch(getenv("CATALOG_START_FILE").".left"); usleep(300000); });';
             $wait = '$deadline = microtime(true) + 5; while (!is_file(getenv("CATALOG_START_FILE").".left")) { if (microtime(true) > $deadline) { throw new RuntimeException("Movement did not acquire lock"); } usleep(10000); }';
             $delete = $target === 'product'
                 ? 'app(App\Services\Catalog\ProductService::class)->delete($product);'

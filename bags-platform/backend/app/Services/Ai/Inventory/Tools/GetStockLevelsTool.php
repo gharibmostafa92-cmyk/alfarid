@@ -12,7 +12,7 @@ use App\Services\Ai\Inventory\InventoryArgs;
 use App\Services\Ai\Inventory\InventoryPresenter;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
-use App\Services\BranchAccess;
+use App\Services\Inventory\BranchAccess;
 
 final class GetStockLevelsTool implements AgentTool
 {

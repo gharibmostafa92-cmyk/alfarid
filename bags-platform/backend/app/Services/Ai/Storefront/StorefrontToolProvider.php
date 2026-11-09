@@ -16,7 +16,7 @@ use App\Services\Ai\Storefront\Tools\ReorderBannersTool;
 use App\Services\Ai\Storefront\Tools\SetBannerStatusTool;
 use App\Services\Ai\Storefront\Tools\StorefrontCapabilitiesTool;
 use App\Services\Ai\Storefront\Tools\UpdateBannerTool;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 
 final class StorefrontToolProvider implements ToolProvider
 {

@@ -8,7 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Store\ProductFilterRequest;
 use App\Http\Resources\Store\StoreProductCardResource;
 use App\Http\Resources\Store\StoreProductResource;
-use App\Services\StoreCatalogService;
+use App\Services\Catalog\StoreCatalogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;

@@ -9,7 +9,7 @@ use App\Models\ProductVariant;
 use App\Notifications\StaffRecipients;
 use App\Notifications\TransferSuggestionNotification;
 use App\Services\Ai\Inventory\InventoryCoverage;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;

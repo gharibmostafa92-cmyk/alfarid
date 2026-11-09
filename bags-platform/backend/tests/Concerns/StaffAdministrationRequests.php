@@ -3,7 +3,7 @@
 namespace Tests\Concerns;
 
 use App\Models\User;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use Spatie\Permission\Models\Role;
 
 trait StaffAdministrationRequests

@@ -9,7 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Quotation;
-use App\Services\WholesalePaymentNoticeService;
+use App\Services\Wholesale\WholesalePaymentNoticeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 

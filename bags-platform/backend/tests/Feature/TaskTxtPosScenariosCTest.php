@@ -20,9 +20,9 @@ use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
 use App\Models\TreasuryTransfer;
 use App\Models\User;
-use App\Services\InventoryService;
-use App\Services\StocktakeService;
-use App\Services\TransferService;
+use App\Services\Inventory\InventoryService;
+use App\Services\Inventory\StocktakeService;
+use App\Services\Inventory\TransferService;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -347,7 +347,7 @@ class TaskTxtPosScenariosCTest extends PosScenarioFixture
         $this->assertContains($this->branch->id, $branchOf);
         $this->assertContains($this->branchB->id, $branchOf);
 
-        $settings = app(\App\Services\SettingService::class);
+        $settings = app(\App\Services\Shared\SettingService::class);
         $prefix = (string) $settings->get('order_prefix', 'ORD-');
         foreach ($numbers as $number) {
             $this->assertStringStartsWith($prefix, $number);
@@ -367,17 +367,17 @@ class TaskTxtPosScenariosCTest extends PosScenarioFixture
         $token = $this->tokenFor($this->cashier, ['pos.sales.refund']);
 
         // Locks are acquired in primary-key order (deadlock-safe by construction).
-        $locks = app(\App\Services\TreasuryService::class)->lockTreasuries([$this->safe->id, $this->drawer->id]);
+        $locks = app(\App\Services\Pos\TreasuryService::class)->lockTreasuries([$this->safe->id, $this->drawer->id]);
         $this->assertSame([$this->drawer->id, $this->safe->id], $locks->keys()->all());
 
         // Creator cannot approve their own treasury transfer (service + DB guard).
-        $transfer = app(\App\Services\TreasuryService::class)->createTransfer([
+        $transfer = app(\App\Services\Pos\TreasuryService::class)->createTransfer([
             'from_treasury_id' => $this->safe->id,
             'to_treasury_id' => $this->drawer->id,
             'amount' => 100,
         ], $this->cashier->id);
         $this->expectExceptionObject(new \App\Exceptions\BusinessException('يجب أن يعتمد تحويل الخزينة موظف آخر غير منشئه.'));
-        app(\App\Services\TreasuryService::class)->approveTransfer($transfer, $this->cashier->id);
+        app(\App\Services\Pos\TreasuryService::class)->approveTransfer($transfer, $this->cashier->id);
     }
 
     public function test_16_treasury_balance_chain_consistent(): void

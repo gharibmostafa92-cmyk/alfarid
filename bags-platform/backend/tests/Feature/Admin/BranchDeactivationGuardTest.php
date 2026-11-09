@@ -10,7 +10,7 @@ use App\Models\Branch;
 use App\Models\ProductVariant;
 use App\Models\StockTransfer;
 use App\Models\User;
-use App\Services\InventoryService;
+use App\Services\Inventory\InventoryService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Spatie\Permission\Models\Permission;

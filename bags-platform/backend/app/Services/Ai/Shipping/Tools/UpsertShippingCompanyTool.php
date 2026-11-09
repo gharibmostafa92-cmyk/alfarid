@@ -16,7 +16,7 @@ use App\Services\Ai\Shipping\ShippingVersions;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
-use App\Services\StaffAdministration;
+use App\Services\Auth\StaffAdministration;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 

@@ -12,7 +12,7 @@ use App\Models\StockLevel;
 use App\Models\StockMovement;
 use App\Models\Supplier;
 use App\Models\User;
-use App\Services\SupplierFinanceService;
+use App\Services\Procurement\SupplierFinanceService;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;

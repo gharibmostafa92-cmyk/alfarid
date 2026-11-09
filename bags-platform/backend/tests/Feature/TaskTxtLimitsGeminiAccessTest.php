@@ -9,7 +9,7 @@ use App\Models\AiMessage;
 use App\Models\User;
 use App\Services\Ai\GeminiClient;
 use App\Services\Ai\GeminiException;
-use App\Services\SettingService;
+use App\Services\Shared\SettingService;
 use Database\Seeders\AiAgentPermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;

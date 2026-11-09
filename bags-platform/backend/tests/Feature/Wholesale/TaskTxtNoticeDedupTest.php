@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Wholesale;
 
 use App\Models\Customer;
-use App\Services\WholesalePaymentNoticeService;
+use App\Services\Wholesale\WholesalePaymentNoticeService;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
 use Database\Seeders\WholesalePortalPermissionSeeder;

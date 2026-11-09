@@ -13,7 +13,7 @@ use App\Services\Ai\Pricing\PricingArgs;
 use App\Services\Ai\Pricing\PricingPresenter;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
-use App\Services\BranchAccess;
+use App\Services\Inventory\BranchAccess;
 use Carbon\Carbon;
 
 final class ListPriceListsTool implements AgentTool

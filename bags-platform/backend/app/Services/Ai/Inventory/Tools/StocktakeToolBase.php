@@ -10,8 +10,8 @@ use App\Services\Ai\EntityResolver;
 use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\Contracts\LocksTargets;
 use App\Services\Ai\ToolOutcome;
-use App\Services\BranchAccess;
-use App\Services\StocktakeService;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Inventory\StocktakeService;
 
 abstract class StocktakeToolBase implements LocksTargets
 {

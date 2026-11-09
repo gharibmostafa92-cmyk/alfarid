@@ -12,8 +12,8 @@ use App\Services\Ai\Pricing\PricingArgs;
 use App\Services\Ai\Pricing\PricingPresenter;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
-use App\Services\BranchAccess;
-use App\Services\PricingService;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Pricing\PricingService;
 
 final class ExplainPriceTool implements AgentTool
 {

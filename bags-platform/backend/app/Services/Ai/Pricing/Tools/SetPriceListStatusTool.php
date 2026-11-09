@@ -21,8 +21,8 @@ use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
-use App\Services\PriceListService;
-use App\Services\StaffAdministration;
+use App\Services\Pricing\PriceListService;
+use App\Services\Auth\StaffAdministration;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Validation\ValidationException;
 

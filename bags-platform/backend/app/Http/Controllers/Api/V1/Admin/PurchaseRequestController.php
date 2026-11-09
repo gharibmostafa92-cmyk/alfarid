@@ -11,7 +11,7 @@ use App\Http\Requests\Admin\Procurement\PurchaseRequestRequest;
 use App\Http\Resources\Admin\PurchaseRequestResource;
 use App\Models\PurchaseRequest;
 use App\Models\User;
-use App\Services\ProcurementService;
+use App\Services\Procurement\ProcurementService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;

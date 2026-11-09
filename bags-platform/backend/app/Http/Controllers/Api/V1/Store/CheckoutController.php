@@ -13,11 +13,11 @@ use App\Models\Cart;
 use App\Models\City;
 use App\Models\Coupon;
 use App\Models\Customer;
-use App\Services\CartService;
-use App\Services\OrderService;
-use App\Services\SettingService;
-use App\Services\ShippingQuoteService;
-use App\Services\StorePaymentPolicy;
+use App\Services\Orders\CartService;
+use App\Services\Orders\OrderService;
+use App\Services\Shared\SettingService;
+use App\Services\Orders\ShippingQuoteService;
+use App\Services\Pos\StorePaymentPolicy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 

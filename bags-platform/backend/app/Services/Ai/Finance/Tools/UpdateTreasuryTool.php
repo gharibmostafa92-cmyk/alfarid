@@ -20,8 +20,8 @@ use App\Services\Ai\ProposalBuilder;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Ai\WriteTool;
-use App\Services\BranchAccess;
-use App\Services\TreasuryService;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Pos\TreasuryService;
 use Illuminate\Auth\Access\AuthorizationException;
 
 final class UpdateTreasuryTool implements AgentTool, LocksTargets, UndoableTool, WriteTool

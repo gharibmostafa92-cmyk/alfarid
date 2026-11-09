@@ -14,8 +14,8 @@ use App\Services\Ai\Inventory\InventoryArgs;
 use App\Services\Ai\Inventory\InventoryPresenter;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
-use App\Services\CostAccess;
-use App\Services\DiscreteQuantity;
+use App\Services\Shared\CostAccess;
+use App\Services\Shared\DiscreteQuantity;
 use Illuminate\Support\Facades\DB;
 
 final class WhatIfProductionCostTool implements AgentTool

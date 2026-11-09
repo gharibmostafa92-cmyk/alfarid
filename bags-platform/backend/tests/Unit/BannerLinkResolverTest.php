@@ -6,8 +6,8 @@ namespace Tests\Unit;
 
 use App\Enums\BannerLinkType;
 use App\Models\Banner;
-use App\Services\BannerLinkResolver;
-use App\Services\StoreCatalogService;
+use App\Services\Catalog\BannerLinkResolver;
+use App\Services\Catalog\StoreCatalogService;
 use PHPUnit\Framework\TestCase;
 
 class BannerLinkResolverTest extends TestCase
