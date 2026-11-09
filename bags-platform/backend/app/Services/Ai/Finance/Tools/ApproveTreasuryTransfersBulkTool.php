@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Finance\Tools;
 
-use App\Enums\TreasuryTransferStatus;
-use App\Enums\TreasuryType;
+use App\Enums\Finance\TreasuryTransferStatus;
+use App\Enums\Finance\TreasuryType;
 use App\Exceptions\BusinessException;
 use App\Models\AiPendingAction;
 use App\Models\TreasuryTransfer;

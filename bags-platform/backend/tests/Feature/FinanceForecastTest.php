@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Enums\StaffRole;
-use App\Enums\TreasuryType;
+use App\Enums\Finance\TreasuryType;
 use App\Models\AiConversation;
 use App\Models\Branch;
 use App\Models\Treasury;

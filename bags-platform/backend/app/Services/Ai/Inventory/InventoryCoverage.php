@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Inventory;
 
-use App\Enums\StockMovementType;
+use App\Enums\Inventory\StockMovementType;
 use App\Models\StockLevel;
 use Illuminate\Support\Facades\DB;
 

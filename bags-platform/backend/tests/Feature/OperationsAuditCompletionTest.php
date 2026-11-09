@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
-use App\Enums\TreasuryType;
-use App\Enums\WholesalePaymentNoticeStatus;
+use App\Enums\Finance\TreasuryType;
+use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;
 use App\Models\Brand;

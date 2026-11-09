@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Console\Commands\Wholesale;
 
-use App\Enums\OrderStatus;
+use App\Enums\Orders\OrderStatus;
 use App\Models\Order;
 use App\Models\OutboundMessage;
 use App\Services\Shared\SettingService;

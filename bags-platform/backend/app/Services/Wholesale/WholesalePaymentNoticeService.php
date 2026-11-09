@@ -9,10 +9,10 @@ use App\Services\Pos\TreasuryService;
 use App\Services\Shared\PrivateAttachments;
 use App\Services\Shared\SettingService;
 
-use App\Enums\OrderStatus;
-use App\Enums\TreasuryTransactionType;
-use App\Enums\TreasuryType;
-use App\Enums\WholesalePaymentNoticeStatus;
+use App\Enums\Orders\OrderStatus;
+use App\Enums\Finance\TreasuryTransactionType;
+use App\Enums\Finance\TreasuryType;
+use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Events\Wholesale\PaymentNoticeReviewed;
 use App\Events\Wholesale\PaymentNoticeSubmitted;
 use App\Exceptions\BusinessException;

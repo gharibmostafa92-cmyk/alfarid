@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Wholesale;
 
-use App\Enums\QuotationStatus;
+use App\Enums\Wholesale\QuotationStatus;
 use App\Events\Wholesale\QuotationPriced;
 use App\Exceptions\BusinessException;
 use App\Models\AiPendingAction;

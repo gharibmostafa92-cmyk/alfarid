@@ -6,9 +6,9 @@ namespace App\Services\Orders;
 
 use App\Services\Inventory\InventoryService;
 
-use App\Enums\OrderStatus;
-use App\Enums\StockBucket;
-use App\Enums\StockMovementType;
+use App\Enums\Orders\OrderStatus;
+use App\Enums\Inventory\StockBucket;
+use App\Enums\Inventory\StockMovementType;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;
 use App\Models\Order;

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Finance;
 
-use App\Enums\CustomerType;
+use App\Enums\Customer\CustomerType;
 use App\Models\Order;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;

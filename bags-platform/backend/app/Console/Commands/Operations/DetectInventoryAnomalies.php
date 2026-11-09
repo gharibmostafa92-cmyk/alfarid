@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Console\Commands\Operations;
 
-use App\Enums\StockMovementType;
+use App\Enums\Inventory\StockMovementType;
 use App\Models\Stocktake;
 use App\Notifications\Inventory\InventoryAnomalyDigestNotification;
 use App\Notifications\StaffRecipients;

@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
-use App\Enums\StockMovementType;
-use App\Enums\TreasuryTransactionType;
+use App\Enums\Inventory\StockMovementType;
+use App\Enums\Finance\TreasuryTransactionType;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\StockMovement;

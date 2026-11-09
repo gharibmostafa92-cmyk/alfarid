@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Admin;
 
-use App\Enums\CustomerStatus;
-use App\Enums\CustomerType;
-use App\Enums\StockBucket;
-use App\Enums\StockMovementType;
+use App\Enums\Customer\CustomerStatus;
+use App\Enums\Customer\CustomerType;
+use App\Enums\Inventory\StockBucket;
+use App\Enums\Inventory\StockMovementType;
 use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\InventoryIdempotencyKey;

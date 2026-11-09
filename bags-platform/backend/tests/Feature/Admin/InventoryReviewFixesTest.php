@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Admin;
 
-use App\Enums\CustomerStatus;
-use App\Enums\CustomerType;
+use App\Enums\Customer\CustomerStatus;
+use App\Enums\Customer\CustomerType;
 use App\Enums\StaffRole;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;

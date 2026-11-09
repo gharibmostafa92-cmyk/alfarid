@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Admin\Pricing;
 
-use App\Enums\ProductStatus;
-use App\Enums\SalesChannel;
+use App\Enums\Catalog\ProductStatus;
+use App\Enums\Orders\SalesChannel;
 use App\Models\AiConversation;
 use App\Models\AiPendingAction;
 use App\Models\Category;

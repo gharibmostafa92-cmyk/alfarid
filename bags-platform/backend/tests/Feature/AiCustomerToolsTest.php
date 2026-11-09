@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
-use App\Enums\CustomerDocumentStatus;
-use App\Enums\CustomerDocumentType;
-use App\Enums\CustomerStatus;
-use App\Enums\CustomerType;
+use App\Enums\Customer\CustomerDocumentStatus;
+use App\Enums\Customer\CustomerDocumentType;
+use App\Enums\Customer\CustomerStatus;
+use App\Enums\Customer\CustomerType;
 use App\Events\Wholesale\WholesaleApplicationReviewed;
 use App\Models\AiConversation;
 use App\Models\AiPendingAction;

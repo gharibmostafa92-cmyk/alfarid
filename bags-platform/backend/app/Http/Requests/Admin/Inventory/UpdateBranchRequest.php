@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Inventory;
 
-use App\Enums\BranchType;
+use App\Enums\Inventory\BranchType;
 use App\Models\Branch;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Validation\Rule;

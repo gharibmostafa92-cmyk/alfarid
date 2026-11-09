@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Finance\Tools;
 
-use App\Enums\PosShiftStatus;
-use App\Enums\TreasuryTransferStatus;
-use App\Enums\TreasuryType;
+use App\Enums\Finance\PosShiftStatus;
+use App\Enums\Finance\TreasuryTransferStatus;
+use App\Enums\Finance\TreasuryType;
 use App\Models\Expense;
 use App\Models\Order;
 use App\Models\PosShift;

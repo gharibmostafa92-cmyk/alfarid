@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Finance\Tools;
 
-use App\Enums\TreasuryType;
+use App\Enums\Finance\TreasuryType;
 use App\Models\AiPendingAction;
 use App\Models\Treasury;
 use App\Models\User;

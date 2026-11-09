@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin\Catalog;
 
-use App\Enums\ProductStatus;
-use App\Enums\SalesChannel;
+use App\Enums\Catalog\ProductStatus;
+use App\Enums\Orders\SalesChannel;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Catalog\StoreProductRequest;
 use App\Http\Requests\Admin\Catalog\UpdateProductRequest;

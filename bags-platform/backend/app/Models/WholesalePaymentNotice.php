@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Models;
 
-use App\Enums\WholesalePaymentMethod;
-use App\Enums\WholesalePaymentNoticeStatus;
+use App\Enums\Wholesale\WholesalePaymentMethod;
+use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;

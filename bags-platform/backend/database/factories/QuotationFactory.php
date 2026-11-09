@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Factories;
 
-use App\Enums\QuotationStatus;
+use App\Enums\Wholesale\QuotationStatus;
 use App\Models\Customer;
 use App\Models\Quotation;
 use Illuminate\Database\Eloquent\Factories\Factory;

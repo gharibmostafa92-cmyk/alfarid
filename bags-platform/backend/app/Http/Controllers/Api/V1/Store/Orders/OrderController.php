@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Store\Orders;
 
-use App\Enums\OrderStatus;
+use App\Enums\Orders\OrderStatus;
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Store\Orders\OrderResource;

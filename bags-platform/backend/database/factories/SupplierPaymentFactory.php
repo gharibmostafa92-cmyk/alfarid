@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Factories;
 
-use App\Enums\SupplierPaymentMethod;
+use App\Enums\Procurement\SupplierPaymentMethod;
 use App\Models\Supplier;
 use App\Models\SupplierPayment;
 use App\Models\User;

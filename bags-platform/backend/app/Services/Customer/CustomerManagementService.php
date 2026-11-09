@@ -7,10 +7,10 @@ namespace App\Services\Customer;
 use App\Services\Shared\PrivateAttachments;
 use App\Services\Shared\SearchTerm;
 
-use App\Enums\CustomerDocumentStatus;
-use App\Enums\CustomerDocumentType;
-use App\Enums\CustomerStatus;
-use App\Enums\CustomerType;
+use App\Enums\Customer\CustomerDocumentStatus;
+use App\Enums\Customer\CustomerDocumentType;
+use App\Enums\Customer\CustomerStatus;
+use App\Enums\Customer\CustomerType;
 use App\Events\Wholesale\WholesaleApplicationReviewed;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;

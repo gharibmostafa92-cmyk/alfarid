@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Actions\Branches;
 
-use App\Enums\PosShiftStatus;
-use App\Enums\TransferStatus;
+use App\Enums\Finance\PosShiftStatus;
+use App\Enums\Inventory\TransferStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;
 use App\Models\City;

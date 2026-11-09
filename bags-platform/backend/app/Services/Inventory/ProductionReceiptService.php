@@ -6,8 +6,8 @@ namespace App\Services\Inventory;
 
 use App\Services\Shared\IdempotencyFingerprint;
 
-use App\Enums\StockBucket;
-use App\Enums\StockMovementType;
+use App\Enums\Inventory\StockBucket;
+use App\Enums\Inventory\StockMovementType;
 use App\Exceptions\BusinessException;
 use App\Exceptions\RetryableConflict;
 use App\Models\Branch;

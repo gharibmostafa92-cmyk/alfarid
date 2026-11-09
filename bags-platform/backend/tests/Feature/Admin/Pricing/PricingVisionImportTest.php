@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Admin\Pricing;
 
-use App\Enums\PriceListType;
-use App\Enums\ProductStatus;
+use App\Enums\Catalog\PriceListType;
+use App\Enums\Catalog\ProductStatus;
 use App\Models\AiAttachment;
 use App\Models\AiConversation;
 use App\Models\AiMessage;

@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
-use App\Enums\BannerLinkType;
-use App\Enums\BannerPosition;
-use App\Enums\BranchType;
-use App\Enums\ProductStatus;
-use App\Enums\StockBucket;
-use App\Enums\StockMovementType;
+use App\Enums\Catalog\BannerLinkType;
+use App\Enums\Catalog\BannerPosition;
+use App\Enums\Inventory\BranchType;
+use App\Enums\Catalog\ProductStatus;
+use App\Enums\Inventory\StockBucket;
+use App\Enums\Inventory\StockMovementType;
 use App\Models\Banner;
 use App\Models\Branch;
 use App\Models\Category;

@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Orders;
 
-use App\Enums\StockBucket;
-use App\Enums\StockMovementType;
+use App\Enums\Inventory\StockBucket;
+use App\Enums\Inventory\StockMovementType;
 use App\Models\Branch;
 use App\Models\Cart;
 use App\Models\CartItem;

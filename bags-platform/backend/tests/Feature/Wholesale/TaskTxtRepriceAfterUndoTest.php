@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Wholesale;
 
-use App\Enums\QuotationStatus;
+use App\Enums\Wholesale\QuotationStatus;
 use App\Models\Customer;
 use App\Models\OutboundMessage;
 use App\Models\Product;

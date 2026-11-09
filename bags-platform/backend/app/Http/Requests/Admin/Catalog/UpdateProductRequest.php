@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Catalog;
 
-use App\Enums\Occasion;
-use App\Enums\ProductStatus;
-use App\Enums\SalesChannel;
+use App\Enums\Catalog\Occasion;
+use App\Enums\Catalog\ProductStatus;
+use App\Enums\Orders\SalesChannel;
 use App\Http\Requests\Admin\Concerns\NormalizesCatalogInput;
 use App\Rules\UniqueCatalogIdentifier;
 use Illuminate\Contracts\Validation\ValidationRule;

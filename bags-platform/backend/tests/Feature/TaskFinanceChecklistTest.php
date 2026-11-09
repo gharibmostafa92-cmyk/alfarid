@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
-use App\Enums\SupplierInvoiceStatus;
+use App\Enums\Procurement\SupplierInvoiceStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Supplier;
 use App\Models\SupplierPayment;

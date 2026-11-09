@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
-use App\Enums\SupplierPaymentMethod;
+use App\Enums\Procurement\SupplierPaymentMethod;
 use Database\Factories\SupplierPaymentFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;

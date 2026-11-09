@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Models;
 
-use App\Enums\BannerLinkType;
-use App\Enums\BannerPosition;
+use App\Enums\Catalog\BannerLinkType;
+use App\Enums\Catalog\BannerPosition;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;

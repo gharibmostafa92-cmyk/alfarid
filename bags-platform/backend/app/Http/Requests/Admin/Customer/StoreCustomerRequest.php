@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Customer;
 
-use App\Enums\CustomerStatus;
-use App\Enums\CustomerType;
+use App\Enums\Customer\CustomerStatus;
+use App\Enums\Customer\CustomerType;
 use App\Http\Requests\Concerns\NormalizesCustomerInput;
 use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Rules\PasswordByteLimit;

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin\Inventory;
 
-use App\Enums\TransferStatus;
+use App\Enums\Inventory\TransferStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Inventory\ApproveTransferRequest;
 use App\Http\Requests\Admin\Inventory\ReceiveTransferRequest;

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Inventory\Tools;
 
-use App\Enums\StocktakeStatus;
+use App\Enums\Inventory\StocktakeStatus;
 use App\Exceptions\BusinessException;
 use App\Models\AiAttachment;
 use App\Models\AiMessage;

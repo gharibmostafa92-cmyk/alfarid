@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Orders;
 
-use App\Enums\OrderStatus;
-use App\Enums\ReturnStatus;
+use App\Enums\Orders\OrderStatus;
+use App\Enums\Orders\ReturnStatus;
 use App\Models\Branch;
 use App\Models\City;
 use App\Models\Customer;

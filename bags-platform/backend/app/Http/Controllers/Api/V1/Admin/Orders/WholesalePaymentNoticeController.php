@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin\Orders;
 
-use App\Enums\WholesalePaymentNoticeStatus;
+use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Orders\ReviewPaymentNoticeRequest;

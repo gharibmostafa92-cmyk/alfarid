@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Supplier;
 
-use App\Enums\PurchaseOrderStatus;
+use App\Enums\Procurement\PurchaseOrderStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Supplier\PaymentResource;
 use App\Models\PurchaseOrder;

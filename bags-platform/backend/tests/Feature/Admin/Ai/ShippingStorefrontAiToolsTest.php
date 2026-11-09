@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Admin\Ai;
 
-use App\Enums\BannerPosition;
-use App\Enums\StockBucket;
-use App\Enums\StockMovementType;
+use App\Enums\Catalog\BannerPosition;
+use App\Enums\Inventory\StockBucket;
+use App\Enums\Inventory\StockMovementType;
 use App\Models\AiConversation;
 use App\Models\AiPendingAction;
 use App\Models\Banner;

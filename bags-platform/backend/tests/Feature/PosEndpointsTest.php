@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
-use App\Enums\ProductStatus;
-use App\Enums\StockBucket;
-use App\Enums\StockMovementType;
-use App\Enums\TreasuryType;
+use App\Enums\Catalog\ProductStatus;
+use App\Enums\Inventory\StockBucket;
+use App\Enums\Inventory\StockMovementType;
+use App\Enums\Finance\TreasuryType;
 use App\Models\Branch;
 use App\Models\Brand;
 use App\Models\Category;

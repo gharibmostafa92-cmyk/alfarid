@@ -10,11 +10,11 @@ use App\Services\Shared\OperationIdempotencyService;
 use App\Services\Shared\PrivateAttachments;
 use App\Services\Shared\SettingService;
 
-use App\Enums\PurchaseOrderStatus;
-use App\Enums\PurchaseRequestStatus;
-use App\Enums\StockBucket;
-use App\Enums\StockMovementType;
-use App\Enums\SupplierDeliveryStatus;
+use App\Enums\Procurement\PurchaseOrderStatus;
+use App\Enums\Procurement\PurchaseRequestStatus;
+use App\Enums\Inventory\StockBucket;
+use App\Enums\Inventory\StockMovementType;
+use App\Enums\Procurement\SupplierDeliveryStatus;
 use App\Events\PurchaseOrderSentToSupplier;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;

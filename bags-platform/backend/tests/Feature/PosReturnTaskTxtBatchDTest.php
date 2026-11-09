@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
-use App\Enums\TreasuryType;
+use App\Enums\Finance\TreasuryType;
 use App\Models\Order;
 use App\Models\PosShift;
 use App\Models\Treasury;

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Store;
 
-use App\Enums\ProductStatus;
+use App\Enums\Catalog\ProductStatus;
 use App\Models\Branch;
 use App\Models\Category;
 use App\Models\Customer;

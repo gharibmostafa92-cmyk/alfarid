@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Pos;
 
-use App\Enums\StocktakeStatus;
-use App\Enums\TransferStatus;
+use App\Enums\Inventory\StocktakeStatus;
+use App\Enums\Inventory\TransferStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Admin\Inventory\StockLevelResource;
 use App\Http\Resources\Admin\Inventory\StockTransferResource;

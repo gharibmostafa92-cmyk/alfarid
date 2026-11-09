@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Wholesale;
 
-use App\Enums\OrderStatus;
-use App\Enums\PriceListType;
-use App\Enums\QuotationStatus;
-use App\Enums\SalesChannel;
-use App\Enums\TreasuryType;
-use App\Enums\WholesalePaymentMethod;
-use App\Enums\WholesalePaymentNoticeStatus;
+use App\Enums\Orders\OrderStatus;
+use App\Enums\Catalog\PriceListType;
+use App\Enums\Wholesale\QuotationStatus;
+use App\Enums\Orders\SalesChannel;
+use App\Enums\Finance\TreasuryType;
+use App\Enums\Wholesale\WholesalePaymentMethod;
+use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Events\Wholesale\QuotationSubmitted;
 use App\Listeners\WholesaleLifecycleSubscriber;
 use App\Models\Branch;

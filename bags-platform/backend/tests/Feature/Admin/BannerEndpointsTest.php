@@ -2,7 +2,7 @@
 
 namespace Tests\Feature\Admin;
 
-use App\Enums\ProductStatus;
+use App\Enums\Catalog\ProductStatus;
 use App\Models\Banner;
 use App\Models\Category;
 use App\Models\Product;

@@ -8,8 +8,8 @@ use App\Services\Shared\DiscreteQuantity;
 use App\Services\Shared\IdempotencyFingerprint;
 use App\Services\Shared\SettingService;
 
-use App\Enums\StockBucket;
-use App\Enums\StockMovementType;
+use App\Enums\Inventory\StockBucket;
+use App\Enums\Inventory\StockMovementType;
 use App\Events\StockLowDetected;
 use App\Exceptions\BusinessException;
 use App\Exceptions\RetryableConflict;

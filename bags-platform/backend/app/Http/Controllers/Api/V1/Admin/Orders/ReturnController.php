@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin\Orders;
 
-use App\Enums\ReturnStatus;
+use App\Enums\Orders\ReturnStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Orders\ApproveReturnRequest;
 use App\Http\Requests\Admin\Orders\ReceiveReturnRequest;

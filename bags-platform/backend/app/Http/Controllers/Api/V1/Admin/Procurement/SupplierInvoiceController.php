@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin\Procurement;
 
-use App\Enums\SupplierInvoiceStatus;
+use App\Enums\Procurement\SupplierInvoiceStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Procurement\SupplierInvoiceRequest;
 use App\Http\Resources\Admin\Procurement\SupplierInvoiceResource;

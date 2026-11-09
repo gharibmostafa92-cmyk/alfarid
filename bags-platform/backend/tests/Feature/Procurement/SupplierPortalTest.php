@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Procurement;
 
-use App\Enums\PurchaseOrderStatus;
+use App\Enums\Procurement\PurchaseOrderStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;
 use App\Models\Product;

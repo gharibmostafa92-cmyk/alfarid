@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Wholesale;
 
-use App\Enums\CustomerDocumentStatus;
-use App\Enums\CustomerStatus;
-use App\Enums\CustomerType;
+use App\Enums\Customer\CustomerDocumentStatus;
+use App\Enums\Customer\CustomerStatus;
+use App\Enums\Customer\CustomerType;
 use App\Events\Wholesale\WholesaleApplicationSubmitted;
 use App\Models\Customer;
 use App\Services\Wholesale\WholesaleRegistrationService;

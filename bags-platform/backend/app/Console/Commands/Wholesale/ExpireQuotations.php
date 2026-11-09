@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Console\Commands\Wholesale;
 
-use App\Enums\QuotationStatus;
+use App\Enums\Wholesale\QuotationStatus;
 use App\Models\Quotation;
 use App\Services\Wholesale\QuotationService;
 use Illuminate\Console\Command;

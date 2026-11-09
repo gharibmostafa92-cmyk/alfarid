@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Procurement;
 
-use App\Enums\SupplierPaymentMethod;
+use App\Enums\Procurement\SupplierPaymentMethod;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 

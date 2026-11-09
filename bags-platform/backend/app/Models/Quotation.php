@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Models;
 
-use App\Enums\QuotationSource;
-use App\Enums\QuotationStatus;
+use App\Enums\Wholesale\QuotationSource;
+use App\Enums\Wholesale\QuotationStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;

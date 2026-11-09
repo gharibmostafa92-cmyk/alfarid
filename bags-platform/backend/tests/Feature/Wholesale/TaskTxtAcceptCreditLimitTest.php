@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Wholesale;
 
-use App\Enums\OrderStatus;
-use App\Enums\QuotationStatus;
+use App\Enums\Orders\OrderStatus;
+use App\Enums\Wholesale\QuotationStatus;
 use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\Order;
@@ -14,7 +14,7 @@ use App\Models\ProductVariant;
 use App\Models\Quotation;
 use App\Models\StockLevel;
 use App\Models\Treasury;
-use App\Enums\TreasuryType;
+use App\Enums\Finance\TreasuryType;
 use App\Models\User;
 use App\Models\WholesalePaymentNotice;
 use App\Services\Wholesale\WholesalePaymentNoticeService;

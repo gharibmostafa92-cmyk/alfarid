@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Console\Commands\Wholesale;
 
-use App\Enums\OrderStatus;
-use App\Enums\QuotationStatus;
-use App\Enums\WholesalePaymentNoticeStatus;
+use App\Enums\Orders\OrderStatus;
+use App\Enums\Wholesale\QuotationStatus;
+use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Models\Order;
 use App\Models\Quotation;
 use App\Models\WholesalePaymentNotice;

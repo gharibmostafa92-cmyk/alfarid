@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Admin\Pricing;
 
-use App\Enums\CustomerStatus;
-use App\Enums\CustomerType;
-use App\Enums\PriceListType;
-use App\Enums\ProductStatus;
-use App\Enums\SalesChannel;
+use App\Enums\Customer\CustomerStatus;
+use App\Enums\Customer\CustomerType;
+use App\Enums\Catalog\PriceListType;
+use App\Enums\Catalog\ProductStatus;
+use App\Enums\Orders\SalesChannel;
 use App\Jobs\RefreshCatalogRetailPrices;
 use App\Models\Branch;
 use App\Models\Category;

@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Wholesale;
 
-use App\Enums\OrderStatus;
-use App\Enums\SalesChannel;
-use App\Enums\WholesalePaymentMethod;
-use App\Enums\WholesalePaymentNoticeStatus;
+use App\Enums\Orders\OrderStatus;
+use App\Enums\Orders\SalesChannel;
+use App\Enums\Wholesale\WholesalePaymentMethod;
+use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Models\Branch;
 use App\Models\Category;
 use App\Models\Customer;

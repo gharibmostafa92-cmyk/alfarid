@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Catalog;
 
-use App\Enums\ProductStatus;
+use App\Enums\Catalog\ProductStatus;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductVariant;

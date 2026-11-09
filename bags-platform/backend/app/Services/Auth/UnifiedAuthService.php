@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Auth;
 
-use App\Enums\CustomerStatus;
+use App\Enums\Customer\CustomerStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
 use App\Models\CustomerAuditLog;

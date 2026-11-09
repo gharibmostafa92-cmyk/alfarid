@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Factories;
 
-use App\Enums\BranchType;
+use App\Enums\Inventory\BranchType;
 use App\Models\Branch;
 use Illuminate\Database\Eloquent\Factories\Factory;
 

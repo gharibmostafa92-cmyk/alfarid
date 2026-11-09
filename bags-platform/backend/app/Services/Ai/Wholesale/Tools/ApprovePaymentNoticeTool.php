@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Wholesale\Tools;
 
-use App\Enums\WholesalePaymentNoticeStatus;
+use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Exceptions\BusinessException;
 use App\Models\AiPendingAction;
 use App\Models\User;

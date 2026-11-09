@@ -10,11 +10,11 @@ use App\Services\Shared\DiscreteQuantity;
 use App\Services\Shared\PrivateAttachments;
 use App\Services\Shared\SettingService;
 
-use App\Enums\OrderStatus;
-use App\Enums\RefundMethod;
-use App\Enums\ReturnStatus;
-use App\Enums\StockBucket;
-use App\Enums\StockMovementType;
+use App\Enums\Orders\OrderStatus;
+use App\Enums\Orders\RefundMethod;
+use App\Enums\Orders\ReturnStatus;
+use App\Enums\Inventory\StockBucket;
+use App\Enums\Inventory\StockMovementType;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;
 use App\Models\Customer;

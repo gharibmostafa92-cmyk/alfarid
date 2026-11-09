@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Wholesale;
 
-use App\Enums\WholesalePaymentNoticeStatus;
+use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Models\Customer;
 use App\Models\WholesalePaymentNotice;
 use Carbon\Carbon;

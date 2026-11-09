@@ -7,7 +7,7 @@ namespace App\Services\Wholesale;
 use App\Services\Orders\CartService;
 use App\Services\Pricing\PricingService;
 
-use App\Enums\ProductStatus;
+use App\Enums\Catalog\ProductStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
 use App\Models\Order;

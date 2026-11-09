@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
-use App\Enums\BranchType;
+use App\Enums\Inventory\BranchType;
 use App\Models\Concerns\TracksEditVersion;
 use Database\Factories\BranchFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;

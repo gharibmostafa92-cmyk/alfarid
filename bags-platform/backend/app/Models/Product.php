@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Models;
 
-use App\Enums\ProductStatus;
-use App\Enums\SalesChannel;
+use App\Enums\Catalog\ProductStatus;
+use App\Enums\Orders\SalesChannel;
 use App\Models\Concerns\TracksEditVersion;
 use App\Support\CatalogMedia;
 use Database\Factories\ProductFactory;

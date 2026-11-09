@@ -6,7 +6,7 @@ namespace App\Services\Shared;
 
 use App\Services\Orders\OrderService;
 
-use App\Enums\OrderStatus;
+use App\Enums\Orders\OrderStatus;
 use App\Models\Order;
 use App\Models\WebhookLog;
 use Illuminate\Database\DeadlockException;

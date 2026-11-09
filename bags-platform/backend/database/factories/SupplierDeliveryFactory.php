@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Factories;
 
-use App\Enums\SupplierDeliveryStatus;
+use App\Enums\Procurement\SupplierDeliveryStatus;
 use App\Models\PurchaseOrder;
 use App\Models\Supplier;
 use App\Models\SupplierDelivery;

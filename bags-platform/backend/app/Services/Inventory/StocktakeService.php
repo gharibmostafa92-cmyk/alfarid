@@ -7,9 +7,9 @@ namespace App\Services\Inventory;
 use App\Services\Shared\DiscreteQuantity;
 use App\Services\Shared\SettingService;
 
-use App\Enums\StockBucket;
-use App\Enums\StockMovementType;
-use App\Enums\StocktakeStatus;
+use App\Enums\Inventory\StockBucket;
+use App\Enums\Inventory\StockMovementType;
+use App\Enums\Inventory\StocktakeStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Location;
 use App\Models\StockLevel;

@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\Pos;
 
-use App\Enums\CustomerStatus;
-use App\Enums\CustomerType;
-use App\Enums\OrderStatus;
+use App\Enums\Customer\CustomerStatus;
+use App\Enums\Customer\CustomerType;
+use App\Enums\Orders\OrderStatus;
 use App\Models\Customer;
 use App\Models\Order;
 

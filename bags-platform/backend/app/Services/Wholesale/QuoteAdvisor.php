@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Wholesale;
 
-use App\Enums\QuotationStatus;
+use App\Enums\Wholesale\QuotationStatus;
 use App\Models\OrderItem;
 use App\Models\ProductVariant;
 use App\Models\Quotation;

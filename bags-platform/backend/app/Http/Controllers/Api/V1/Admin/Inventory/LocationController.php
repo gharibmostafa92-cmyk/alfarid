@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Admin\Inventory;
 
 use App\Actions\Locations\SetLocationStatus;
-use App\Enums\LocationType;
+use App\Enums\Inventory\LocationType;
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Inventory\StoreLocationRequest;

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
-use App\Enums\LocationType;
+use App\Enums\Inventory\LocationType;
 use App\Models\AiConversation;
 use App\Models\AiPendingAction;
 use App\Models\Branch;

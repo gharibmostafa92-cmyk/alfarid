@@ -7,8 +7,8 @@ namespace App\Services\Pos;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Shared\SettingService;
 
-use App\Enums\TreasuryTransactionType;
-use App\Enums\TreasuryTransferStatus;
+use App\Enums\Finance\TreasuryTransactionType;
+use App\Enums\Finance\TreasuryTransferStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;
 use App\Models\PosShift;

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
-use App\Enums\SalesChannel;
+use App\Enums\Orders\SalesChannel;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Product;

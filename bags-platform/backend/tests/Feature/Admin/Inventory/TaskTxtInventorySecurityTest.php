@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Admin\Inventory;
 
-use App\Enums\TreasuryType;
+use App\Enums\Finance\TreasuryType;
 use App\Models\Branch;
 use App\Models\ProductVariant;
 use App\Models\Stocktake;

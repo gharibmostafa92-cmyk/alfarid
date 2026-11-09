@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Orders;
 
-use App\Enums\OrderStatus;
-use App\Enums\StockMovementType;
+use App\Enums\Orders\OrderStatus;
+use App\Enums\Inventory\StockMovementType;
 use App\Models\Branch;
 use App\Models\City;
 use App\Models\Coupon;

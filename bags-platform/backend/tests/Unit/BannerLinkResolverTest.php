@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit;
 
-use App\Enums\BannerLinkType;
+use App\Enums\Catalog\BannerLinkType;
 use App\Models\Banner;
 use App\Services\Catalog\BannerLinkResolver;
 use App\Services\Catalog\StoreCatalogService;

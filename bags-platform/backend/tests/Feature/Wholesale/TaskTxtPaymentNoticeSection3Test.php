@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Wholesale;
 
-use App\Enums\CustomerStatus;
-use App\Enums\CustomerType;
-use App\Enums\OrderStatus;
-use App\Enums\TreasuryTransactionType;
-use App\Enums\TreasuryType;
-use App\Enums\WholesalePaymentMethod;
-use App\Enums\WholesalePaymentNoticeStatus;
+use App\Enums\Customer\CustomerStatus;
+use App\Enums\Customer\CustomerType;
+use App\Enums\Orders\OrderStatus;
+use App\Enums\Finance\TreasuryTransactionType;
+use App\Enums\Finance\TreasuryType;
+use App\Enums\Wholesale\WholesalePaymentMethod;
+use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Events\Wholesale\PaymentNoticeSubmitted;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;

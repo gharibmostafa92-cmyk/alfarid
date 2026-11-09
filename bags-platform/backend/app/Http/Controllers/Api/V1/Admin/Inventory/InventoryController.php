@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin\Inventory;
 
-use App\Enums\StockMovementType;
+use App\Enums\Inventory\StockMovementType;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Inventory\StoreAdjustmentRequest;
 use App\Http\Resources\Admin\Inventory\StockLevelResource;

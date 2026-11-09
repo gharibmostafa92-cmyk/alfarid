@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Factories;
 
-use App\Enums\PurchaseRequestStatus;
+use App\Enums\Procurement\PurchaseRequestStatus;
 use App\Models\Branch;
 use App\Models\PurchaseRequest;
 use App\Models\User;

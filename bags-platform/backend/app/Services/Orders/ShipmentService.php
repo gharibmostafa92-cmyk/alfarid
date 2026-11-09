@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Orders;
 
-use App\Enums\OrderStatus;
-use App\Enums\ShipmentStatus;
+use App\Enums\Orders\OrderStatus;
+use App\Enums\Orders\ShipmentStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Order;
 use App\Models\Shipment;

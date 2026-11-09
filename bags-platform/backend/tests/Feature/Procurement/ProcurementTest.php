@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Procurement;
 
-use App\Enums\StockMovementType;
+use App\Enums\Inventory\StockMovementType;
 use App\Models\Branch;
 use App\Models\Product;
 use App\Models\ProductVariant;

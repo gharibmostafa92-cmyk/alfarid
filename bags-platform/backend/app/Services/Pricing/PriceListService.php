@@ -7,7 +7,7 @@ namespace App\Services\Pricing;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Shared\SearchTerm;
 
-use App\Enums\PriceListType;
+use App\Enums\Catalog\PriceListType;
 use App\Exceptions\BusinessException;
 use App\Jobs\RefreshCatalogRetailPrices;
 use App\Models\PriceList;

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Store\Catalog;
 
-use App\Enums\BannerLinkType;
+use App\Enums\Catalog\BannerLinkType;
 use App\Support\BannerImage;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;

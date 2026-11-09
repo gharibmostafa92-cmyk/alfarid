@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Models;
 
-use App\Enums\RefundMethod;
-use App\Enums\ReturnStatus;
+use App\Enums\Orders\RefundMethod;
+use App\Enums\Orders\ReturnStatus;
 use Database\Factories\ReturnRequestFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;

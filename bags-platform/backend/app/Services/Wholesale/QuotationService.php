@@ -10,9 +10,9 @@ use App\Services\Pricing\PricingService;
 use App\Services\Shared\ProportionalDistribution;
 use App\Services\Shared\SettingService;
 
-use App\Enums\OrderStatus;
-use App\Enums\QuotationSource;
-use App\Enums\QuotationStatus;
+use App\Enums\Orders\OrderStatus;
+use App\Enums\Wholesale\QuotationSource;
+use App\Enums\Wholesale\QuotationStatus;
 use App\Events\OrderCreated;
 use App\Events\Wholesale\QuotationAccepted;
 use App\Events\Wholesale\QuotationExpired;

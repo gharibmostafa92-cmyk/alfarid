@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Factories;
 
-use App\Enums\LocationType;
+use App\Enums\Inventory\LocationType;
 use App\Models\Branch;
 use App\Models\Location;
 use Illuminate\Database\Eloquent\Factories\Factory;

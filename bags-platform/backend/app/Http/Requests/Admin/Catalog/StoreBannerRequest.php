@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Catalog;
 
-use App\Enums\BannerLinkType;
-use App\Enums\BannerPosition;
+use App\Enums\Catalog\BannerLinkType;
+use App\Enums\Catalog\BannerPosition;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 

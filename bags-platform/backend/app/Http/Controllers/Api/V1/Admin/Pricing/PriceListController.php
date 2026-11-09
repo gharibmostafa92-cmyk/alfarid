@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin\Pricing;
 
-use App\Enums\PriceListType;
+use App\Enums\Catalog\PriceListType;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Pricing\ImportPriceListItemsRequest;
 use App\Http\Requests\Admin\Pricing\StorePriceListRequest;

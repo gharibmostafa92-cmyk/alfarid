@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Http\Resources\Wholesale;
 
-use App\Enums\OrderStatus;
-use App\Enums\ReturnStatus;
-use App\Enums\WholesalePaymentNoticeStatus;
+use App\Enums\Orders\OrderStatus;
+use App\Enums\Orders\ReturnStatus;
+use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Http\Resources\Store\Orders\OrderResource;
 use App\Models\ReturnRequest;
 use App\Models\WholesalePaymentNotice;

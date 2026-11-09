@@ -2,9 +2,9 @@
 
 namespace Tests\Feature\Store;
 
-use App\Enums\CustomerType;
-use App\Enums\ProductStatus;
-use App\Enums\SalesChannel;
+use App\Enums\Customer\CustomerType;
+use App\Enums\Catalog\ProductStatus;
+use App\Enums\Orders\SalesChannel;
 use App\Jobs\SendCustomerPasswordReset;
 use App\Models\Banner;
 use App\Models\Brand;

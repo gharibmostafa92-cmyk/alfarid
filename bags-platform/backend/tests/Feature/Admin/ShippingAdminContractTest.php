@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Admin;
 
-use App\Enums\ShipmentStatus;
+use App\Enums\Orders\ShipmentStatus;
 use App\Models\City;
 use App\Models\Customer;
 use App\Models\Order;

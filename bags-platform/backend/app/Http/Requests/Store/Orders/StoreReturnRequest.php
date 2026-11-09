@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Store\Orders;
 
-use App\Enums\RefundMethod;
+use App\Enums\Orders\RefundMethod;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;

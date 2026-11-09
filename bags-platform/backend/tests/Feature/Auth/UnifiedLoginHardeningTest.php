@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Auth;
 
-use App\Enums\CustomerStatus;
+use App\Enums\Customer\CustomerStatus;
 use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\CustomerAuditLog;

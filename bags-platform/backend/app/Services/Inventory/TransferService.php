@@ -6,9 +6,9 @@ namespace App\Services\Inventory;
 
 use App\Services\Shared\SettingService;
 
-use App\Enums\StockBucket;
-use App\Enums\StockMovementType;
-use App\Enums\TransferStatus;
+use App\Enums\Inventory\StockBucket;
+use App\Enums\Inventory\StockMovementType;
+use App\Enums\Inventory\TransferStatus;
 use App\Events\TransferPendingApproval;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;

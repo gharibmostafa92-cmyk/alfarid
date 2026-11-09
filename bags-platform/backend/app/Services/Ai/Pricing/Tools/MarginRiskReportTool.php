@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Pricing\Tools;
 
-use App\Enums\CustomerStatus;
-use App\Enums\CustomerType;
-use App\Enums\ProductStatus;
+use App\Enums\Customer\CustomerStatus;
+use App\Enums\Customer\CustomerType;
+use App\Enums\Catalog\ProductStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Coupon;
 use App\Models\Customer;

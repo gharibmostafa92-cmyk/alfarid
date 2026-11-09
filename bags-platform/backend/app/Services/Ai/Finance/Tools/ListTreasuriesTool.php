@@ -6,7 +6,7 @@ namespace App\Services\Ai\Finance\Tools;
 
 use App\Services\Shared\SearchTerm;
 
-use App\Enums\TreasuryType;
+use App\Enums\Finance\TreasuryType;
 use App\Models\Treasury;
 use App\Models\User;
 use App\Services\Ai\AgentTool;

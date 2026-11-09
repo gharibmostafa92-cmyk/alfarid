@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Wholesale\Tools;
 
-use App\Enums\OrderStatus;
+use App\Enums\Orders\OrderStatus;
 use App\Models\Order;
 use App\Models\User;
 use App\Services\Ai\AgentTool;

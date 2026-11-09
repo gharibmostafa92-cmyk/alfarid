@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Inventory;
 
-use App\Enums\StocktakeStatus;
+use App\Enums\Inventory\StocktakeStatus;
 use App\Http\Requests\Admin\Concerns\BulkVariantExists;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;

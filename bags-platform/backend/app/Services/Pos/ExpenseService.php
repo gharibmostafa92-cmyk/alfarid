@@ -8,7 +8,7 @@ use App\Services\Inventory\BranchAccess;
 use App\Services\Shared\OperationIdempotencyService;
 use App\Services\Shared\SettingService;
 
-use App\Enums\TreasuryTransactionType;
+use App\Enums\Finance\TreasuryTransactionType;
 use App\Exceptions\BusinessException;
 use App\Models\Expense;
 use App\Models\Treasury;

@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Catalog;
 
-use App\Enums\Occasion;
-use App\Enums\SalesChannel;
+use App\Enums\Catalog\Occasion;
+use App\Enums\Orders\SalesChannel;
 use App\Http\Requests\Admin\Concerns\LimitsArrayInput;
 use App\Http\Requests\Admin\Catalog\VariantRules;
 use App\Models\Product;

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin\Inventory;
 
-use App\Enums\StocktakeStatus;
+use App\Enums\Inventory\StocktakeStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Inventory\StoreStocktakeRequest;
 use App\Http\Requests\Admin\Inventory\UpdateStocktakeItemsRequest;

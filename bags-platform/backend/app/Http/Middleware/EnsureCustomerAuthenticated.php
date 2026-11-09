@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Middleware;
 
-use App\Enums\CustomerStatus;
+use App\Enums\Customer\CustomerStatus;
 use App\Models\Customer;
 use Closure;
 use Illuminate\Http\Request;

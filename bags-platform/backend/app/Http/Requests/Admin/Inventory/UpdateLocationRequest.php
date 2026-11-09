@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Inventory;
 
-use App\Enums\LocationType;
+use App\Enums\Inventory\LocationType;
 use App\Models\Branch;
 use App\Models\Location;
 use Illuminate\Contracts\Validation\ValidationRule;

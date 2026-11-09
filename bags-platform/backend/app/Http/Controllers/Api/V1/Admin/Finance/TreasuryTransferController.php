@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin\Finance;
 
-use App\Enums\TreasuryTransferStatus;
+use App\Enums\Finance\TreasuryTransferStatus;
 use App\Http\Controllers\Controller;
 use App\Models\TreasuryTransfer;
 use App\Services\Inventory\BranchAccess;

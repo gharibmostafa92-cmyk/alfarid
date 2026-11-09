@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin\Finance;
 
-use App\Enums\TreasuryType;
+use App\Enums\Finance\TreasuryType;
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Models\Treasury;

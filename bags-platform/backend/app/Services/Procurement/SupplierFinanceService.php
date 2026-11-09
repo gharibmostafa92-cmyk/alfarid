@@ -8,8 +8,8 @@ use App\Services\Shared\OperationIdempotencyService;
 use App\Services\Shared\PrivateAttachments;
 use App\Services\Shared\SettingService;
 
-use App\Enums\PurchaseOrderStatus;
-use App\Enums\SupplierInvoiceStatus;
+use App\Enums\Procurement\PurchaseOrderStatus;
+use App\Enums\Procurement\SupplierInvoiceStatus;
 use App\Exceptions\BusinessException;
 use App\Models\PurchaseOrder;
 use App\Models\Supplier;

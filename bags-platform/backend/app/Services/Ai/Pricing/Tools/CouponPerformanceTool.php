@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Pricing\Tools;
 
-use App\Enums\OrderStatus;
+use App\Enums\Orders\OrderStatus;
 use App\Models\Coupon;
 use App\Models\CouponUsage;
 use App\Models\Order;

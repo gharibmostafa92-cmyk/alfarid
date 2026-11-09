@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Wholesale\Tools;
 
-use App\Enums\CustomerStatus;
-use App\Enums\QuotationStatus;
-use App\Enums\WholesalePaymentNoticeStatus;
+use App\Enums\Customer\CustomerStatus;
+use App\Enums\Wholesale\QuotationStatus;
+use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Models\Customer;
 use App\Models\Quotation;
 use App\Models\User;

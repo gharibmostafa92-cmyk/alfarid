@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Pricing\Tools;
 
-use App\Enums\PriceListType;
+use App\Enums\Catalog\PriceListType;
 use App\Models\User;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\Pricing\PricingArgs;

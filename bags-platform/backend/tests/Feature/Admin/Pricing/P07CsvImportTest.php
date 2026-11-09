@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Admin\Pricing;
 
-use App\Enums\PriceListType;
+use App\Enums\Catalog\PriceListType;
 use App\Models\PriceList;
 use App\Models\ProductVariant;
 use App\Models\User;

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin\Procurement;
 
-use App\Enums\PurchaseRequestStatus;
+use App\Enums\Procurement\PurchaseRequestStatus;
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Procurement\PurchaseRequestRequest;

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Factories;
 
-use App\Enums\SupplierInvoiceStatus;
+use App\Enums\Procurement\SupplierInvoiceStatus;
 use App\Models\Supplier;
 use App\Models\SupplierInvoice;
 use Illuminate\Database\Eloquent\Factories\Factory;

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
-use App\Enums\OrderStatus;
+use App\Enums\Orders\OrderStatus;
 use App\Enums\StaffRole;
 use App\Models\Customer;
 use App\Models\CustomerWalletTransaction;

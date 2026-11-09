@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Customers;
 
-use App\Enums\CustomerDocumentStatus;
-use App\Enums\CustomerDocumentType;
-use App\Enums\CustomerStatus;
+use App\Enums\Customer\CustomerDocumentStatus;
+use App\Enums\Customer\CustomerDocumentType;
+use App\Enums\Customer\CustomerStatus;
 use App\Models\Customer;
 use App\Models\CustomerGroup;
 use App\Models\User;

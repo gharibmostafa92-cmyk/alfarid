@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
-use App\Enums\ProductStatus;
+use App\Enums\Catalog\ProductStatus;
 use App\Exceptions\BusinessException;
 use App\Models\AiConversation;
 use App\Models\AiPendingAction;

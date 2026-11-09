@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Wholesale;
 
-use App\Enums\CustomerDocumentType;
+use App\Enums\Customer\CustomerDocumentType;
 use App\Http\Requests\Concerns\NormalizesCustomerInput;
 use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Rules\PasswordByteLimit;

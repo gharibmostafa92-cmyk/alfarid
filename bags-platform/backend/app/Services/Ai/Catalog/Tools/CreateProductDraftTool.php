@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Catalog\Tools;
 
-use App\Enums\Occasion;
-use App\Enums\SalesChannel;
+use App\Enums\Catalog\Occasion;
+use App\Enums\Orders\SalesChannel;
 use App\Http\Requests\Admin\Catalog\StoreProductRequest;
 use App\Http\Requests\Admin\Catalog\VariantRules;
 use App\Models\AiPendingAction;

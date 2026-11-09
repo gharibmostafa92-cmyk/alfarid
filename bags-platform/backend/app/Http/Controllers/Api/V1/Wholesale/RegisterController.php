@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Wholesale;
 
-use App\Enums\CustomerDocumentStatus;
-use App\Enums\CustomerDocumentType;
-use App\Enums\CustomerStatus;
+use App\Enums\Customer\CustomerDocumentStatus;
+use App\Enums\Customer\CustomerDocumentType;
+use App\Enums\Customer\CustomerStatus;
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Wholesale\WholesaleRegisterRequest;

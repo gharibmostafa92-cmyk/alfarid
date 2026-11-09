@@ -7,10 +7,10 @@ namespace App\Services\Catalog;
 use App\Services\Pricing\PricingService;
 use App\Services\Shared\SearchTerm;
 
-use App\Enums\CustomerStatus;
-use App\Enums\Occasion;
-use App\Enums\ProductStatus;
-use App\Enums\SalesChannel;
+use App\Enums\Customer\CustomerStatus;
+use App\Enums\Catalog\Occasion;
+use App\Enums\Catalog\ProductStatus;
+use App\Enums\Orders\SalesChannel;
 use App\Exceptions\BusinessException;
 use App\Models\Category;
 use App\Models\Customer;

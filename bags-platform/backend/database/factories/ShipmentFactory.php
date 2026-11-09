@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Factories;
 
-use App\Enums\ShipmentStatus;
+use App\Enums\Orders\ShipmentStatus;
 use App\Models\Order;
 use App\Models\Shipment;
 use App\Models\ShippingCompany;

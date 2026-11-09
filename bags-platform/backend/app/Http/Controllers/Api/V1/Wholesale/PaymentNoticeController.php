@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Wholesale;
 
-use App\Enums\WholesalePaymentNoticeStatus;
+use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Wholesale\StorePaymentNoticeRequest;
 use App\Http\Resources\Wholesale\WholesalePaymentNoticeResource;

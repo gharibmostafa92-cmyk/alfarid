@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Factories;
 
-use App\Enums\ReturnStatus;
+use App\Enums\Orders\ReturnStatus;
 use App\Models\Order;
 use App\Models\ReturnRequest;
 use Illuminate\Database\Eloquent\Factories\Factory;

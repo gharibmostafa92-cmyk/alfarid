@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Pricing\Tools;
 
-use App\Enums\PriceListType;
+use App\Enums\Catalog\PriceListType;
 use App\Models\AiAttachment;
 use App\Models\AiMessage;
 use App\Models\PriceListItem;

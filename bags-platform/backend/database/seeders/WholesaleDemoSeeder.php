@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
-use App\Enums\CustomerStatus;
-use App\Enums\CustomerType;
-use App\Enums\OrderStatus;
-use App\Enums\SalesChannel;
+use App\Enums\Customer\CustomerStatus;
+use App\Enums\Customer\CustomerType;
+use App\Enums\Orders\OrderStatus;
+use App\Enums\Orders\SalesChannel;
 use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\CustomerDocument;

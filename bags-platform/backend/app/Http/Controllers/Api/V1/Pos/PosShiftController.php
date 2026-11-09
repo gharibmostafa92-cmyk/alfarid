@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Pos;
 
-use App\Enums\PosShiftStatus;
+use App\Enums\Finance\PosShiftStatus;
 use App\Http\Controllers\Controller;
 use App\Models\PosShift;
 use App\Models\User;

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Wholesale;
 
-use App\Enums\WholesalePaymentMethod;
+use App\Enums\Wholesale\WholesalePaymentMethod;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 

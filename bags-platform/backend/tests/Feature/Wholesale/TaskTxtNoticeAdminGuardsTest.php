@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Wholesale;
 
-use App\Enums\TreasuryType;
+use App\Enums\Finance\TreasuryType;
 use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\Treasury;

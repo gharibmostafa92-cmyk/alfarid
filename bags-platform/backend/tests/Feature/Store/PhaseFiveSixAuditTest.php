@@ -2,8 +2,8 @@
 
 namespace Tests\Feature\Store;
 
-use App\Enums\CustomerStatus;
-use App\Enums\ProductStatus;
+use App\Enums\Customer\CustomerStatus;
+use App\Enums\Catalog\ProductStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Banner;
 use App\Models\Branch;

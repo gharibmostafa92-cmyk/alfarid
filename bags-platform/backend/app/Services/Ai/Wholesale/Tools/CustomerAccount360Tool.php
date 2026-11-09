@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Wholesale\Tools;
 
-use App\Enums\OrderStatus;
-use App\Enums\WholesalePaymentNoticeStatus;
+use App\Enums\Orders\OrderStatus;
+use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\User;

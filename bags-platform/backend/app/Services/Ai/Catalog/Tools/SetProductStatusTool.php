@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Catalog\Tools;
 
-use App\Enums\ProductStatus;
+use App\Enums\Catalog\ProductStatus;
 use App\Exceptions\BusinessException;
 use App\Models\AiPendingAction;
 use App\Models\Product;

@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
-use App\Enums\PosShiftStatus;
-use App\Enums\StockMovementType;
-use App\Enums\TreasuryTransactionType;
-use App\Enums\TreasuryType;
+use App\Enums\Finance\PosShiftStatus;
+use App\Enums\Inventory\StockMovementType;
+use App\Enums\Finance\TreasuryTransactionType;
+use App\Enums\Finance\TreasuryType;
 use App\Models\Location;
 use App\Models\Order;
 use App\Models\PosHeldSale;

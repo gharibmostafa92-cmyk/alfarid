@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin\Catalog;
 
-use App\Enums\BannerLinkType;
-use App\Enums\BannerPosition;
+use App\Enums\Catalog\BannerLinkType;
+use App\Enums\Catalog\BannerPosition;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Catalog\StoreBannerRequest;
 use App\Http\Requests\Admin\Catalog\UpdateBannerRequest;

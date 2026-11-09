@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin\Customer;
 
-use App\Enums\CustomerDocumentStatus;
-use App\Enums\CustomerStatus;
-use App\Enums\CustomerType;
+use App\Enums\Customer\CustomerDocumentStatus;
+use App\Enums\Customer\CustomerStatus;
+use App\Enums\Customer\CustomerType;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Customer\ApproveCustomerRequest;
 use App\Http\Requests\Admin\Customer\RejectCustomerRequest;

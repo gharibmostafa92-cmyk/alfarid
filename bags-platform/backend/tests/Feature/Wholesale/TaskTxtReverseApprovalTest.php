@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Wholesale;
 
-use App\Enums\OrderStatus;
-use App\Enums\TreasuryType;
+use App\Enums\Orders\OrderStatus;
+use App\Enums\Finance\TreasuryType;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
 use App\Models\Order;

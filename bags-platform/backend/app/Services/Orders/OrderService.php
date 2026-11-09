@@ -11,12 +11,12 @@ use App\Services\Shared\ProportionalDistribution;
 use App\Services\Shared\SettingService;
 use App\Services\Wholesale\WholesalePaymentNoticeService;
 
-use App\Enums\CustomerStatus;
-use App\Enums\OrderStatus;
-use App\Enums\ReturnStatus;
-use App\Enums\StockBucket;
-use App\Enums\StockMovementType;
-use App\Enums\WholesalePaymentNoticeStatus;
+use App\Enums\Customer\CustomerStatus;
+use App\Enums\Orders\OrderStatus;
+use App\Enums\Orders\ReturnStatus;
+use App\Enums\Inventory\StockBucket;
+use App\Enums\Inventory\StockMovementType;
+use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Events\OrderCreated;
 use App\Exceptions\BusinessException;
 use App\Models\Cart;

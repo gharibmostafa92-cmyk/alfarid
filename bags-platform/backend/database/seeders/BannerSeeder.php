@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
-use App\Enums\BannerLinkType;
-use App\Enums\BannerPosition;
+use App\Enums\Catalog\BannerLinkType;
+use App\Enums\Catalog\BannerPosition;
 use App\Models\Banner;
 use App\Support\BannerImage;
 use Illuminate\Database\Seeder;

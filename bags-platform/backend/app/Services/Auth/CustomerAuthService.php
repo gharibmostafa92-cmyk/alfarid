@@ -7,8 +7,8 @@ namespace App\Services\Auth;
 use App\Services\Customer\CustomerMessageBudget;
 use App\Services\Customer\CustomerPhoneVerificationService;
 
-use App\Enums\CustomerStatus;
-use App\Enums\CustomerType;
+use App\Enums\Customer\CustomerStatus;
+use App\Enums\Customer\CustomerType;
 use App\Exceptions\BusinessException;
 use App\Jobs\SendCustomerPasswordReset;
 use App\Models\Customer;

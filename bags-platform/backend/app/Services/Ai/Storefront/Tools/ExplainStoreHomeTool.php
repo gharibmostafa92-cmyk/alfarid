@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Storefront\Tools;
 
-use App\Enums\BannerLinkType;
+use App\Enums\Catalog\BannerLinkType;
 use App\Models\Banner;
 use App\Models\User;
 use App\Services\Ai\AgentTool;

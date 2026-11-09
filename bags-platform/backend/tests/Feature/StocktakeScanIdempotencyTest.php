@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
-use App\Enums\ProductStatus;
-use App\Enums\StockBucket;
-use App\Enums\StockMovementType;
+use App\Enums\Catalog\ProductStatus;
+use App\Enums\Inventory\StockBucket;
+use App\Enums\Inventory\StockMovementType;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;
 use App\Models\Brand;
@@ -15,7 +15,7 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Treasury;
 use App\Models\User;
-use App\Enums\TreasuryType;
+use App\Enums\Finance\TreasuryType;
 use App\Services\Inventory\InventoryService;
 use App\Services\Inventory\StocktakeService;
 use Database\Seeders\SettingSeeder;

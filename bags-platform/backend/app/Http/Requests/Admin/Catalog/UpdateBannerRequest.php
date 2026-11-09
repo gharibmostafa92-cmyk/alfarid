@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Admin\Catalog;
 
-use App\Enums\BannerLinkType;
+use App\Enums\Catalog\BannerLinkType;
 use App\Models\Banner;
 use Illuminate\Validation\Rule;
 

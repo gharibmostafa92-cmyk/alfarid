@@ -1,0 +1,18 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Enums\Orders;
+
+/**
+ * Return Merchandise Authorization (RMA) lifecycle statuses. Inventory movements occur only on Received.
+ */
+enum ReturnStatus: string
+{
+    case Pending = 'pending';
+    case Approved = 'approved';
+    case Rejected = 'rejected';
+    case Received = 'received';
+    case Refunded = 'refunded';
+    case Cancelled = 'cancelled';
+}

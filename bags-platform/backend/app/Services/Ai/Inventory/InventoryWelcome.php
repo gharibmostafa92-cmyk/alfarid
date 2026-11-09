@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Inventory;
 
-use App\Enums\StocktakeStatus;
-use App\Enums\TransferStatus;
+use App\Enums\Inventory\StocktakeStatus;
+use App\Enums\Inventory\TransferStatus;
 use App\Models\InventoryReconcileRun;
 use App\Models\Stocktake;
 use App\Models\StockTransfer;

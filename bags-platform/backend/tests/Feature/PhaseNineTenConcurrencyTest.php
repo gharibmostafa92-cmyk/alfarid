@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
-use App\Enums\OrderStatus;
+use App\Enums\Orders\OrderStatus;
 use App\Http\Middleware\ManufacturingBusiness;
 use App\Models\Branch;
 use App\Models\Customer;

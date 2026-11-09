@@ -6,8 +6,8 @@ namespace App\Services\Orders;
 
 use App\Services\Shared\WebhookSignatureVerifier;
 
-use App\Enums\OrderStatus;
-use App\Enums\ShipmentStatus;
+use App\Enums\Orders\OrderStatus;
+use App\Enums\Orders\ShipmentStatus;
 use App\Models\Shipment;
 use App\Models\ShippingCompany;
 use App\Models\WebhookLog;

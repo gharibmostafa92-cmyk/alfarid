@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin\Orders;
 
-use App\Enums\QuotationStatus;
+use App\Enums\Wholesale\QuotationStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Orders\PriceQuotationRequest;
 use App\Http\Resources\Wholesale\QuotationResource;

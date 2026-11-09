@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Ai\Finance\Tools;
 
-use App\Enums\TreasuryTransferStatus;
+use App\Enums\Finance\TreasuryTransferStatus;
 use App\Models\Treasury;
 use App\Models\TreasuryTransfer;
 use App\Models\User;

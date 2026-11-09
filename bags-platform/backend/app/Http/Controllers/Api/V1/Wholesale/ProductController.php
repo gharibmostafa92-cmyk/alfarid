@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Wholesale;
 
-use App\Enums\SalesChannel;
+use App\Enums\Orders\SalesChannel;
 use App\Exceptions\BusinessException;
 use App\Exports\WholesalePriceListExport;
 use App\Http\Controllers\Controller;
