@@ -23,9 +23,12 @@ class AiMessageController extends Controller
      */
     public function stream(Request $request, AiConversation $conversation, AgentOrchestrator $orchestrator): StreamedResponse
     {
+        fwrite(STDERR, "\nMARK-0-ENTRY\n");
         abort_unless($conversation->user_id === $request->user('staff')->id, 403);
         $data = $this->validated($request);
+        fwrite(STDERR, "\nMARK-0B-VALIDATED\n");
         $orchestrator->guard($request->user('staff'));
+        fwrite(STDERR, "\nMARK-0C-GUARDED\n");
 
         return response()->stream(function () use ($request, $conversation, $orchestrator, $data): void {
             $emit = static function (string $event, array $payload): void {
@@ -36,9 +39,12 @@ class AiMessageController extends Controller
                 flush();
             };
             try {
+                fwrite(STDERR, "\nMARK-A-BEFORE-HANDLE\n");
                 $reply = $orchestrator->handle($request->user('staff'), $conversation, $data, fn ($status) => $emit('status', ['message' => $status]));
+                fwrite(STDERR, "\nMARK-B-AFTER-HANDLE\n");
                 $emit('reply', ['text' => $reply->text, 'ui_blocks' => $reply->blocks, 'message_id' => $reply->messageId]);
             } catch (\Throwable $e) {
+                fwrite(STDERR, "\nMARK-C-CAUGHT:".get_class($e)."\n");
                 // Map AuthorizationException (403) and ValidationException (422) directly without reporting as 502 errors.
                 $status = match (true) {
                     $e instanceof HttpExceptionInterface => $e->getStatusCode(),

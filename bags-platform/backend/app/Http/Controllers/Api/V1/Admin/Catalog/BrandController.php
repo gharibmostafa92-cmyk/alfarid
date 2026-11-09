@@ -1,0 +1,129 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Controllers\Api\V1\Admin\Catalog;
+
+use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\Brand\StoreBrandRequest;
+use App\Http\Requests\Admin\Brand\UpdateBrandRequest;
+use App\Http\Resources\Admin\BrandResource;
+use App\Models\Brand;
+use App\Services\Catalog\BrandService;
+use App\Services\Shared\SearchTerm;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Routing\Controllers\HasMiddleware;
+use Illuminate\Routing\Controllers\Middleware;
+
+/**
+ * Admin controller for brand catalog management, logo uploads, and product associations.
+ */
+class BrandController extends Controller implements HasMiddleware
+{
+    public function __construct(private BrandService $service) {}
+
+    public static function middleware(): array
+    {
+        return [
+            new Middleware('can:brands.view', only: ['index', 'show']),
+            new Middleware('can:brands.create', only: ['store']),
+            new Middleware('can:brands.update', only: ['update']),
+            new Middleware('can:brands.delete', only: ['destroy']),
+        ];
+    }
+
+    /**
+     * Lists paginated brands with search, status filtering, and product counts.
+     *
+     * @param Request $request Filter query request
+     * @return AnonymousResourceCollection Paginated brand collection
+     */
+    public function index(Request $request): AnonymousResourceCollection
+    {
+        $filters = $request->validate([
+            'search' => ['nullable', 'string', 'max:100'],
+            'is_active' => ['nullable', 'boolean'],
+            'per_page' => ['nullable', 'integer', 'min:1'],
+        ]);
+
+        $perPage = min((int) ($filters['per_page'] ?? 15), 100);
+
+        $brands = Brand::query()
+            ->with('media')
+            // Expose trashed-inclusive count so clients can distinguish active vs soft-deleted product dependencies.
+            ->withCount(['products', 'products as all_products_count' => fn ($q) => $q->withTrashed()])
+            ->when(isset($filters['search']) && $filters['search'] !== '', function ($query) use ($filters): void {
+                $pattern = SearchTerm::pattern($filters['search']);
+                $query->where(fn ($q) => $q->whereLike('name_ar', $pattern, caseSensitive: false)
+                    ->orWhereLike('name_en', $pattern, caseSensitive: false));
+            })
+            ->when(isset($filters['is_active']), fn ($query) => $query->where('is_active', filter_var($filters['is_active'], FILTER_VALIDATE_BOOLEAN)))
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->paginate($perPage)
+            ->withQueryString();
+
+        return BrandResource::collection($brands);
+    }
+
+    /**
+     * Retrieves a single brand with its logo and product counts.
+     *
+     * @param Brand $brand Target brand
+     * @return BrandResource Brand resource
+     */
+    public function show(Brand $brand): BrandResource
+    {
+        return $this->brandResource($brand);
+    }
+
+    /**
+     * Creates a new brand with an optional logo image.
+     *
+     * @param StoreBrandRequest $request Validated creation request
+     * @return JsonResponse Created brand resource response
+     */
+    public function store(StoreBrandRequest $request): JsonResponse
+    {
+        $brand = $this->service->create($request->validated(), $request->file('logo'));
+
+        return $this->brandResource($brand)->response()->setStatusCode(201);
+    }
+
+    /**
+     * Updates brand metadata and optionally replaces its logo.
+     *
+     * @param UpdateBrandRequest $request Validated update request
+     * @param Brand $brand Target brand
+     * @return BrandResource Updated brand resource
+     */
+    public function update(UpdateBrandRequest $request, Brand $brand): BrandResource
+    {
+        // Multipart file updates require POST with _method=PUT because PHP does not parse multipart on PUT.
+        $brand = $this->service->update($brand, $request->validated(), $request->file('logo'));
+
+        return $this->brandResource($brand);
+    }
+
+    /**
+     * Deletes a brand if it has no associated products.
+     *
+     * @param Brand $brand Target brand
+     * @return JsonResponse Deletion confirmation
+     */
+    public function destroy(Brand $brand): JsonResponse
+    {
+        $this->service->delete($brand);
+
+        return response()->json(['message' => 'تم الحذف']);
+    }
+
+    private function brandResource(Brand $brand): BrandResource
+    {
+        $brand->loadMissing('media')->loadCount(['products', 'products as all_products_count' => fn ($q) => $q->withTrashed()]);
+
+        return BrandResource::make($brand);
+    }
+}

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use App\Exceptions\BusinessException;
-use App\Http\Controllers\Api\V1\Admin\CouponController;
+use App\Http\Controllers\Api\V1\Admin\Pricing\CouponController;
 use App\Http\Requests\Admin\Promotion\CouponRequest;
 use App\Models\AiPendingAction;
 use App\Models\Coupon;
