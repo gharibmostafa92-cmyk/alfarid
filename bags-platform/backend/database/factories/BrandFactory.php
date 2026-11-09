@@ -20,7 +20,7 @@ class BrandFactory extends Factory
         return [
             'name_ar' => 'براند '.$name,
             'name_en' => $name,
-            'slug' => Str::slug($name),
+            'slug' => Str::slug($name.' '.Str::ulid()),
             'description_ar' => fake()->sentence(),
             'description_en' => fake()->sentence(),
             'sort_order' => fake()->numberBetween(0, 50),
