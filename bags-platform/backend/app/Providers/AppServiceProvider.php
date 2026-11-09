@@ -65,6 +65,8 @@ class AppServiceProvider extends ServiceProvider
         require_once __DIR__.'/../Services/ClassAliases.php';
         require_once __DIR__.'/../Notifications/ClassAliases.php';
         require_once __DIR__.'/../Events/ClassAliases.php';
+        require_once __DIR__.'/../Http/Requests/ClassAliases.php';
+        require_once __DIR__.'/../Http/Resources/ClassAliases.php';
 
         // Scoped rather than singleton: isolates user-specific state per request, avoiding credential leaks across requests under Octane.
         $this->app->scoped(BranchAccess::class);
