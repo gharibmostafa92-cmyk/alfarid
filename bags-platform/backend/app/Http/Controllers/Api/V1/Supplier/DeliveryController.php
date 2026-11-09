@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Supplier;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Supplier\Delivery\StoreDeliveryRequest;
+use App\Http\Requests\Supplier\StoreDeliveryRequest;
 use App\Http\Resources\Supplier\DeliveryResource;
 use App\Models\PurchaseOrder;
 use App\Models\SupplierDelivery;

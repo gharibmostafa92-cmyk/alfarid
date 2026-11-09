@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Events;
+namespace App\Events\Wholesale;
 
 use App\Models\WholesalePaymentNotice;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;

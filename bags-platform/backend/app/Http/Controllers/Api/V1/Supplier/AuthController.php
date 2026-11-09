@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Supplier;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Supplier\Auth\LoginRequest;
+use App\Http\Requests\Supplier\LoginRequest;
 use App\Http\Resources\Admin\Procurement\SupplierUserResource;
 use App\Models\SupplierUser;
 use App\Services\Auth\StaffTokenService;

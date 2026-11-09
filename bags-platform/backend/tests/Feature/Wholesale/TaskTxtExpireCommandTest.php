@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Wholesale;
 
 use App\Enums\QuotationStatus;
-use App\Events\QuotationExpired;
+use App\Events\Wholesale\QuotationExpired;
 use App\Models\Customer;
 use App\Models\Product;
 use App\Models\ProductVariant;

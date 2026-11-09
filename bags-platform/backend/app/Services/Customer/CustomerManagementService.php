@@ -11,7 +11,7 @@ use App\Enums\CustomerDocumentStatus;
 use App\Enums\CustomerDocumentType;
 use App\Enums\CustomerStatus;
 use App\Enums\CustomerType;
-use App\Events\WholesaleApplicationReviewed;
+use App\Events\Wholesale\WholesaleApplicationReviewed;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
 use App\Models\CustomerAuditLog;

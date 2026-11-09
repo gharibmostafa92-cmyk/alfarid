@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Listeners;
 
-use App\Events\WholesaleApplicationSubmitted;
+use App\Events\Wholesale\WholesaleApplicationSubmitted;
 use App\Notifications\StaffRecipients;
 use App\Notifications\Wholesale\WholesaleApplicationSubmittedNotification;
 use Illuminate\Contracts\Queue\ShouldQueue;

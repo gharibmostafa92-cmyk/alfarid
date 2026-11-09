@@ -7,7 +7,7 @@ namespace Tests\Feature\Wholesale;
 use App\Enums\CustomerDocumentStatus;
 use App\Enums\CustomerStatus;
 use App\Enums\CustomerType;
-use App\Events\WholesaleApplicationSubmitted;
+use App\Events\Wholesale\WholesaleApplicationSubmitted;
 use App\Models\Customer;
 use App\Services\Wholesale\WholesaleRegistrationService;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;

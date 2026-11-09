@@ -11,7 +11,7 @@ use App\Enums\TreasuryTransactionType;
 use App\Enums\TreasuryType;
 use App\Enums\WholesalePaymentMethod;
 use App\Enums\WholesalePaymentNoticeStatus;
-use App\Events\PaymentNoticeSubmitted;
+use App\Events\Wholesale\PaymentNoticeSubmitted;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;
 use App\Models\Customer;

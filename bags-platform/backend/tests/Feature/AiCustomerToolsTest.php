@@ -8,7 +8,7 @@ use App\Enums\CustomerDocumentStatus;
 use App\Enums\CustomerDocumentType;
 use App\Enums\CustomerStatus;
 use App\Enums\CustomerType;
-use App\Events\WholesaleApplicationReviewed;
+use App\Events\Wholesale\WholesaleApplicationReviewed;
 use App\Models\AiConversation;
 use App\Models\AiPendingAction;
 use App\Models\Customer;

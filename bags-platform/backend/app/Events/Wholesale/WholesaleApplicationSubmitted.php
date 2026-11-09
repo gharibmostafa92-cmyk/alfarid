@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Events;
+namespace App\Events\Wholesale;
 
 use App\Models\Customer;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;

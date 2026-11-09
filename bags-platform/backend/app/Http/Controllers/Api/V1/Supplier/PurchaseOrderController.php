@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Supplier;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Supplier\PurchaseOrder\RequestChangeRequest;
+use App\Http\Requests\Supplier\RequestChangeRequest;
 use App\Http\Resources\Supplier\PurchaseOrderResource;
 use App\Models\PurchaseOrder;
 use App\Models\SupplierUser;

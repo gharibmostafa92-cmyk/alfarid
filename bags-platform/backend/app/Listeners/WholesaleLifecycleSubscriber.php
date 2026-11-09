@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace App\Listeners;
 
 use App\Events\OrderBecameOverdue;
-use App\Events\PaymentNoticeReviewed;
-use App\Events\PaymentNoticeSubmitted;
-use App\Events\QuotationAccepted;
-use App\Events\QuotationExpired;
-use App\Events\QuotationPriced;
-use App\Events\QuotationSubmitted;
+use App\Events\Wholesale\PaymentNoticeReviewed;
+use App\Events\Wholesale\PaymentNoticeSubmitted;
+use App\Events\Wholesale\QuotationAccepted;
+use App\Events\Wholesale\QuotationExpired;
+use App\Events\Wholesale\QuotationPriced;
+use App\Events\Wholesale\QuotationSubmitted;
 use App\Jobs\ScoreWholesaleReceipt;
 use App\Models\Customer;
 use App\Notifications\StaffRecipients;

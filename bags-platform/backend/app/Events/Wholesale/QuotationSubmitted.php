@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Events;
+namespace App\Events\Wholesale;
 
 use App\Models\Quotation;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
@@ -10,9 +10,9 @@ use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
 /**
- * Dispatched when a wholesale quotation is accepted by the merchant and converted into an order.
+ * Dispatched when a merchant submits a quotation request.
  */
-class QuotationAccepted implements ShouldDispatchAfterCommit
+class QuotationSubmitted implements ShouldDispatchAfterCommit
 {
     use Dispatchable, SerializesModels;
 

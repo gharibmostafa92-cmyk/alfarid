@@ -11,7 +11,7 @@ use App\Enums\SalesChannel;
 use App\Enums\TreasuryType;
 use App\Enums\WholesalePaymentMethod;
 use App\Enums\WholesalePaymentNoticeStatus;
-use App\Events\QuotationSubmitted;
+use App\Events\Wholesale\QuotationSubmitted;
 use App\Listeners\WholesaleLifecycleSubscriber;
 use App\Models\Branch;
 use App\Models\Category;

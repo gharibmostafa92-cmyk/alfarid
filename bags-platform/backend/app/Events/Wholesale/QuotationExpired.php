@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Events;
+namespace App\Events\Wholesale;
 
 use App\Models\Quotation;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
@@ -10,9 +10,9 @@ use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
 /**
- * Dispatched when staff submits item pricing, discounts, and validity dates for a quotation.
+ * Dispatched when a priced wholesale quotation reaches its validity expiration date.
  */
-class QuotationPriced implements ShouldDispatchAfterCommit
+class QuotationExpired implements ShouldDispatchAfterCommit
 {
     use Dispatchable, SerializesModels;
 
