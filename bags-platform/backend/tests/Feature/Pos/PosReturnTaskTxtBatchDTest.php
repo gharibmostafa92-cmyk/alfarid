@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Feature;
+namespace Tests\Feature\Pos;
 
 use App\Enums\Finance\TreasuryType;
 use App\Models\Order;

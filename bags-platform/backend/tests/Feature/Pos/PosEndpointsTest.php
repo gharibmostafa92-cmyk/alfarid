@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Feature;
+namespace Tests\Feature\Pos;
 
 use App\Enums\Catalog\ProductStatus;
 use App\Enums\Inventory\StockBucket;
