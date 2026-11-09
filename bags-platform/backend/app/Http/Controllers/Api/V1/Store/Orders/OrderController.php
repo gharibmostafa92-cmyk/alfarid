@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace App\Http\Controllers\Api\V1\Store;
+namespace App\Http\Controllers\Api\V1\Store\Orders;
 
 use App\Enums\OrderStatus;
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
-use App\Http\Resources\Store\OrderResource;
-use App\Http\Resources\Store\TrackOrderResource;
+use App\Http\Resources\Store\Orders\OrderResource;
+use App\Http\Resources\Store\Orders\TrackOrderResource;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Services\Orders\OrderService;

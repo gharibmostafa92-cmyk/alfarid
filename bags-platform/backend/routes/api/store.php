@@ -4,17 +4,17 @@ declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\AttachmentController;
 use App\Http\Controllers\Api\V1\Shared\NotificationController;
-use App\Http\Controllers\Api\V1\Store\AccountController;
-use App\Http\Controllers\Api\V1\Store\AuthController;
-use App\Http\Controllers\Api\V1\Store\BrandingController;
-use App\Http\Controllers\Api\V1\Store\CartController;
-use App\Http\Controllers\Api\V1\Store\CatalogController;
-use App\Http\Controllers\Api\V1\Store\CheckoutController;
-use App\Http\Controllers\Api\V1\Store\HomeController;
-use App\Http\Controllers\Api\V1\Store\OrderController as StoreOrderController;
-use App\Http\Controllers\Api\V1\Store\ProductController;
-use App\Http\Controllers\Api\V1\Store\ReturnController;
-use App\Http\Controllers\Api\V1\Store\WalletController;
+use App\Http\Controllers\Api\V1\Store\Customer\AccountController;
+use App\Http\Controllers\Api\V1\Store\Customer\AuthController;
+use App\Http\Controllers\Api\V1\Store\Catalog\BrandingController;
+use App\Http\Controllers\Api\V1\Store\Orders\CartController;
+use App\Http\Controllers\Api\V1\Store\Catalog\CatalogController;
+use App\Http\Controllers\Api\V1\Store\Orders\CheckoutController;
+use App\Http\Controllers\Api\V1\Store\Catalog\HomeController;
+use App\Http\Controllers\Api\V1\Store\Orders\OrderController as StoreOrderController;
+use App\Http\Controllers\Api\V1\Store\Catalog\ProductController;
+use App\Http\Controllers\Api\V1\Store\Orders\ReturnController;
+use App\Http\Controllers\Api\V1\Store\Customer\WalletController;
 use App\Http\Middleware\ProtectStorefrontCaching;
 use Illuminate\Support\Facades\Route;
 

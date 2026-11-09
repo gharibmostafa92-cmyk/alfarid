@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Http\Resources\Store;
+namespace App\Http\Resources\Store\Catalog;
 
 use App\Services\Catalog\StoreCatalogService;
 use Illuminate\Http\Request;

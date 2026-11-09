@@ -7,7 +7,7 @@ namespace App\Http\Resources\Wholesale;
 use App\Enums\OrderStatus;
 use App\Enums\ReturnStatus;
 use App\Enums\WholesalePaymentNoticeStatus;
-use App\Http\Resources\Store\OrderResource;
+use App\Http\Resources\Store\Orders\OrderResource;
 use App\Models\ReturnRequest;
 use App\Models\WholesalePaymentNotice;
 use Illuminate\Http\Request;

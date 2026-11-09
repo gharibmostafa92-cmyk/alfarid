@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace App\Http\Controllers\Api\V1\Store;
+namespace App\Http\Controllers\Api\V1\Store\Orders;
 
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Store\Checkout\CheckoutRequest;
 use App\Http\Requests\Store\Checkout\ShippingOptionsRequest;
-use App\Http\Resources\Store\OrderResource;
+use App\Http\Resources\Store\Orders\OrderResource;
 use App\Models\Cart;
 use App\Models\City;
 use App\Models\Coupon;

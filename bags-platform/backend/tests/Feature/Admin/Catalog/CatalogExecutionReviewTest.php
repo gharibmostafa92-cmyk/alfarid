@@ -6,7 +6,7 @@ namespace Tests\Feature\Admin\Catalog;
 
 use App\Enums\ProductStatus;
 use App\Exceptions\BusinessException;
-use App\Http\Resources\Store\StoreCategoryResource;
+use App\Http\Resources\Store\Catalog\StoreCategoryResource;
 use App\Models\Branch;
 use App\Models\Category;
 use App\Models\Product;

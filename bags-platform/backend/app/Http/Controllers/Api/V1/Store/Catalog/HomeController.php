@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace App\Http\Controllers\Api\V1\Store;
+namespace App\Http\Controllers\Api\V1\Store\Catalog;
 
 use App\Http\Controllers\Controller;
-use App\Http\Resources\Store\StoreBannerResource;
-use App\Http\Resources\Store\StoreProductCardResource;
+use App\Http\Resources\Store\Catalog\StoreBannerResource;
+use App\Http\Resources\Store\Catalog\StoreProductCardResource;
 use App\Models\Banner;
 use App\Services\Catalog\BannerLinkResolver;
 use App\Services\Catalog\StoreCatalogService;

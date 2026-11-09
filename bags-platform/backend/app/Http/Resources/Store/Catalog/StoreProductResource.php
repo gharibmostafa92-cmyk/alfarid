@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Http\Resources\Store;
+namespace App\Http\Resources\Store\Catalog;
 
 use App\Exceptions\BusinessException;
 use App\Services\Orders\CartService;

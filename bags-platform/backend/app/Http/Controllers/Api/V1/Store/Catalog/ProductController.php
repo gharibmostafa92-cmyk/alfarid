@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace App\Http\Controllers\Api\V1\Store;
+namespace App\Http\Controllers\Api\V1\Store\Catalog;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Store\ProductFilterRequest;
-use App\Http\Resources\Store\StoreProductCardResource;
-use App\Http\Resources\Store\StoreProductResource;
+use App\Http\Resources\Store\Catalog\StoreProductCardResource;
+use App\Http\Resources\Store\Catalog\StoreProductResource;
 use App\Services\Catalog\StoreCatalogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;

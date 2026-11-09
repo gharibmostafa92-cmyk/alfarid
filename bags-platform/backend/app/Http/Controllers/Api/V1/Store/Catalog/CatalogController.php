@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace App\Http\Controllers\Api\V1\Store;
+namespace App\Http\Controllers\Api\V1\Store\Catalog;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Store\ProductFilterRequest;
-use App\Http\Resources\Store\StoreBrandResource;
-use App\Http\Resources\Store\StoreCategoryResource;
-use App\Http\Resources\Store\StoreCityResource;
+use App\Http\Resources\Store\Catalog\StoreBrandResource;
+use App\Http\Resources\Store\Catalog\StoreCategoryResource;
+use App\Http\Resources\Store\Orders\StoreCityResource;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\City;

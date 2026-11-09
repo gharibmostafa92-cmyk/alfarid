@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Http\Resources\Store;
+namespace App\Http\Resources\Store\Orders;
 
 use App\Services\Pos\StorePaymentPolicy;
 use Illuminate\Http\Request;
