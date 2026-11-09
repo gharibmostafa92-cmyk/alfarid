@@ -137,13 +137,28 @@ const noSleep = async () => {};
 test('bootstrap populates cashier, branch, settings, held count', async () => {
   const http = fakeHttp({ [`GET ${API}/bootstrap`]: bootRes, [`GET ${API}/catalog`]: catalogRes() });
   const svc = new PosApiService(http, { sleep: noSleep });
-  await svc.bootstrap();
+  await Promise.all([svc.bootstrap(), svc.bootstrap()]);
+  assert.equal(http.calls.filter((call) => call.url === `${API}/bootstrap`).length, 1);
   assert.equal((await svc.getCashier()).initials, 'أس');
   assert.equal((await svc.getBranch()).code, 'B');
   assert.equal(svc.getSettings().max_discount_percent, 20);
   assert.equal(svc.getHeldCount(), 3);
   assert.equal(await svc.getCurrentShift(), null);
   assert.equal((await svc.getTreasuries())[0].state, 'free');
+});
+
+test('catalog revalidation works when CORS hides ETag and the catalog is empty', async () => {
+  const http = fakeHttp({
+    [`GET ${API}/catalog`]: (n) => n === 1
+      ? { status: 200, headers: {}, data: { data: [], meta: { catalog_version: 'v1' } } }
+      : { status: 304, headers: {}, data: '' },
+  });
+  const svc = new PosApiService(http);
+  assert.deepEqual(await svc.getProducts(), []);
+  assert.deepEqual(await svc.getProducts(), []);
+  assert.equal(http.calls.length, 1);
+  await svc.loadCatalog(true);
+  assert.equal(http.calls[1].a.headers['If-None-Match'], '"v1"');
 });
 
 test('catalog indexes: sync getProductById, ETag 304 reuses cache, Arabic search', async () => {
@@ -218,6 +233,17 @@ test('createSale sends Idempotency-Key and string money amounts', async () => {
   assert.equal(call.a.cash_amount, '190.00');
   assert.equal(call.a.items[0].discount_amount, '10.00');
   assert.ok(call.b.headers['Idempotency-Key']);
+});
+
+test('exchange prices replacement items for the customer on the original sale', async () => {
+  const http = fakeHttp({
+    [`POST ${API}/sales/quote`]: { status: 200, data: { data: { lines: [], subtotal: 80, discount_total: 0, grand_total: 80 } } },
+    [`POST ${API}/sales/5/exchange`]: { status: 200, data: { data: { exchange_order_id: 6, refund_amount: 60 } } },
+  });
+  const svc = new PosApiService(http);
+  await svc.processExchange(5, [{ id: 1, qty: 1, return_to: 'on_hand' }], [{ id: 2, qty: 1 }], 20, 9);
+  assert.equal(http.calls[0].a.customer_id, 9);
+  assert.equal(http.calls[1].a.cash_amount, '80.00');
 });
 
 test('resumeHeldSale posts to resume using cached server id', async () => {

@@ -422,7 +422,7 @@ export function Badge({
   className?: string;
 }) {
   return (
-    <span className={`badge t-${tone} ${className}`}>
+    <span className={`badge t-${tone} shrink-0 ${className}`}>
       {dot && <span className="dot" />}
       {children}
     </span>
@@ -531,20 +531,20 @@ export function PageHead({
   back?: { onClick: () => void; label: string };
 }) {
   return (
-    <div className="stg stg-1 flex flex-wrap items-end justify-between gap-4 pt-1">
-      <div className="min-w-0">
+    <div className="stg stg-1 flex flex-wrap items-end justify-between gap-4 pt-1" dir="rtl">
+      <div className="min-w-0 flex-1 text-right">
         {back && (
           <button onClick={back.onClick} className="btn btn-ghost btn-xs mb-2 -ms-2">
             <Icon name="chevR" size={14} />
             {back.label}
           </button>
         )}
-        <h1 className="font-display text-[30px] sm:text-[36px] font-medium tracking-[-0.01em] leading-tight tx1">
+        <h1 className="font-display text-[30px] sm:text-[36px] font-medium tracking-[-0.01em] leading-tight tx1 break-words text-right">
           {title}
         </h1>
-        {sub && <p className="text-[13.5px] mt-1 tx2 pretty">{sub}</p>}
+        {sub && <p className="text-[13.5px] mt-1 tx2 pretty break-words text-right">{sub}</p>}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2.5">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-2.5 shrink-0">{actions}</div>}
     </div>
   );
 }
@@ -620,7 +620,10 @@ export function KPI({
             </span>
           )}
         </div>
-        <div className={'font-display font-bold tracking-tight my-2.5 num truncate ' + (small ? 'text-[20px] sm:text-[22px]' : 'text-[24px] sm:text-[28px]')}>
+        <div
+          title={typeof value === 'number' || typeof value === 'string' ? String(value) : undefined}
+          className={'font-display font-bold tracking-tight my-2.5 num tabular-nums truncate ' + (small ? 'text-[20px] sm:text-[22px]' : 'text-[24px] sm:text-[28px]')}
+        >
           {metric}
         </div>
         {foot && <div className="text-[11px] text-white/80 truncate">{foot}</div>}
@@ -636,7 +639,10 @@ export function KPI({
           </span>
         )}
       </div>
-      <div className={'font-display font-bold tracking-tight my-2.5 tx1 num truncate ' + (small ? 'text-[20px] sm:text-[22px]' : 'text-[24px] sm:text-[28px]')}>
+      <div
+        title={typeof value === 'number' || typeof value === 'string' ? String(value) : undefined}
+        className={'font-display font-bold tracking-tight my-2.5 tx1 num tabular-nums truncate ' + (small ? 'text-[20px] sm:text-[22px]' : 'text-[24px] sm:text-[28px]')}
+      >
         {metric}
       </div>
       {foot && <div className="text-[11px] tx3 truncate">{foot}</div>}
@@ -663,7 +669,7 @@ export function SearchPill({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className={'bg-transparent text-[12px] outline-none tx1 w-full ' + w}
+        className={'bg-transparent text-[16px] sm:text-[12px] outline-none tx1 w-full ' + w}
       />
       {value && (
         <button type="button" onClick={() => onChange('')} className="tx3 hover:tx1" aria-label="مسح البحث">
@@ -722,7 +728,7 @@ export function FChip({
     <button
       type="button"
       onClick={onClick}
-      className={'pill-inp inline-flex items-center gap-1.5 font-medium ' + (on ? 'on' : '')}
+      className={'pill-inp inline-flex items-center gap-1.5 font-medium active:scale-[0.96] active:transition-none select-none [touch-action:manipulation] ' + (on ? 'on' : '')}
     >
       {icon && <Icon name={icon} size={13} />}
       {children}
@@ -746,7 +752,7 @@ export function FDate({
         type="date"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="bg-transparent outline-none text-[11.5px] tx1 num"
+        className="bg-transparent outline-none text-[16px] sm:text-[11.5px] tx1 num"
       />
     </label>
   );
@@ -767,7 +773,7 @@ export function TabsBar({
         <button
           key={t.value}
           onClick={() => onChange(t.value)}
-          className="px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-full text-[12.5px] sm:text-[13px] font-medium transition flex items-center gap-1.5 min-h-[38px]"
+          className="px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-full text-[12.5px] sm:text-[13px] font-medium transition active:scale-[0.97] active:transition-none select-none [touch-action:manipulation] flex items-center gap-1.5 min-h-[38px]"
           style={
             value === t.value
               ? { background: 'var(--pill-active-bg)', color: 'var(--pill-active-text)' }
@@ -941,6 +947,7 @@ export function Modal({
   return (
     <div className="modal-bd" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ maxWidth: width }} dir="rtl">
+        <div className="sm:hidden w-10 h-1 bg-[var(--toggle-off-bg)] rounded-full mx-auto mt-3 -mb-1" aria-hidden="true" />
         <div className="flex items-start justify-between gap-4 p-6 pb-4">
           <div className="flex items-start gap-3">
             {icon && (

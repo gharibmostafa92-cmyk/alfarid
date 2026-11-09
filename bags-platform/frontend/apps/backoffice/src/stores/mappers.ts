@@ -7,6 +7,8 @@ export const toStaffUser = (raw: unknown): StaffUser => {
     return { id: 0, name: '', email: '', roles: [], permissions: [] };
   }
 
+  const b = (u as unknown as { branch?: { id: number; name: string; code?: string } | null }).branch;
+
   return {
     id: u.id ?? 0,
     name: u.name ?? '',
@@ -14,5 +16,6 @@ export const toStaffUser = (raw: unknown): StaffUser => {
     roles: Array.isArray(u.roles) ? u.roles.map((r: unknown) => (typeof r === 'string' ? r : (r as { name: string })?.name ?? '')) : [],
     permissions: Array.isArray(u.permissions) ? u.permissions : [],
     branch_id: u.branch_id ?? null,
+    branch: b && typeof b === 'object' ? { id: b.id, name: b.name, code: b.code } : null,
   };
 };

@@ -92,7 +92,7 @@ export function Badge({ tone = 'neutral', children, className = '', dot }: { ton
     orange: 'v-badge-orange', neutral: 'v-badge-neutral', dark: 'v-badge-dark', outline: 'v-badge-outline',
   };
   return (
-    <span className={`${tones[tone]} inline-flex items-center gap-1.5 px-2.5 py-[3px] rounded-full text-[11px] font-semibold whitespace-nowrap ${className}`}>
+    <span className={`${tones[tone]} inline-flex items-center gap-1.5 px-2.5 py-[3px] rounded-full text-[11px] font-semibold whitespace-nowrap shrink-0 ${className}`}>
       {dot && <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'currentColor' }} />}
       {children}
     </span>
@@ -150,7 +150,7 @@ export function TextInput({ value, onChange, placeholder, icon, dir, type = 'tex
       {icon && <Icon name={icon} className="w-4 h-4 shrink-0" style={{ color: 'var(--text-muted)' }} />}
       <input type={type} value={value ?? ''} disabled={disabled} dir={dir} placeholder={placeholder}
         onChange={e => onChange(e.target.value)}
-        className="bg-transparent outline-none w-full text-[13px] h-full" style={{ color: 'var(--text-primary)' }} {...rest} />
+        className="bg-transparent outline-none w-full text-[16px] sm:text-[13px] h-full" style={{ color: 'var(--text-primary)' }} {...rest} />
       {suffix}
     </div>
   );
@@ -211,7 +211,7 @@ export function Select({ value, onChange, options, placeholder = 'اختر', sea
           {searchable && (
             <div className="v-subcard rounded-full px-3 h-9 flex items-center gap-2 mb-1.5">
               <Icon name="search" className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
-              <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="بحث..." className="bg-transparent outline-none text-[12.5px] w-full" style={{ color: 'var(--text-primary)' }} />
+              <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="بحث..." className="bg-transparent outline-none text-[16px] sm:text-[12.5px] w-full" style={{ color: 'var(--text-primary)' }} />
             </div>
           )}
           <div className="max-h-[240px] overflow-y-auto">
@@ -277,7 +277,7 @@ export function MultiSelect({ values, onChange, options, placeholder = 'اختر
         })}
         <input value={q} disabled={disabled} onChange={e => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)}
           placeholder={values.length ? '' : placeholder}
-          className="bg-transparent outline-none text-[13px] flex-1 min-w-[80px] px-1.5 h-7" style={{ color: 'var(--text-primary)' }} />
+          className="bg-transparent outline-none text-[16px] sm:text-[13px] flex-1 min-w-[80px] px-1.5 h-7" style={{ color: 'var(--text-primary)' }} />
       </div>
       {open && !disabled && (
         <div className="v-pop absolute z-40 mt-1.5 w-full p-1.5 max-h-[260px] overflow-y-auto">
@@ -357,7 +357,7 @@ export function PrimaryButton({ children, onClick, icon, className = '', disable
 }) {
   return (
     <button type={type} onClick={onClick} disabled={disabled || loading}
-      className={`h-10 px-5 rounded-full text-[13px] font-semibold flex items-center justify-center gap-2 transition hover:opacity-90 disabled:opacity-50 ${className}`}
+      className={`h-10 px-5 rounded-full text-[13px] font-semibold flex items-center justify-center gap-2 transition hover:opacity-90 active:scale-[0.97] active:transition-none disabled:opacity-50 select-none [touch-action:manipulation] ${className}`}
       style={{ background: 'var(--pill-active-bg)', color: 'var(--pill-active-text)' }}>
       {loading ? <span className="v-spinner" /> : icon && <Icon name={icon} className="w-4 h-4" strokeWidth={2.2} />}
       <span>{children}</span>
@@ -375,7 +375,7 @@ export function AccentButton({ children, onClick, icon, className = '', disabled
 }) {
   return (
     <button type="button" onClick={onClick} disabled={disabled || loading}
-      className={`h-10 px-5 rounded-full text-[13px] font-semibold flex items-center justify-center gap-2 transition hover:brightness-105 disabled:opacity-50 text-white v-accent-btn ${className}`}>
+      className={`h-10 px-5 rounded-full text-[13px] font-semibold flex items-center justify-center gap-2 transition hover:brightness-105 active:scale-[0.97] active:transition-none disabled:opacity-50 text-white select-none [touch-action:manipulation] v-accent-btn ${className}`}>
       {loading ? <span className="v-spinner is-light" /> : icon && <Icon name={icon} className="w-4 h-4" strokeWidth={2.2} />}
       <span>{children}</span>
     </button>
@@ -391,7 +391,7 @@ export function GhostButton({ children, onClick, icon, className = '', disabled 
 }) {
   return (
     <button type="button" onClick={onClick} disabled={disabled}
-      className={`v-subcard h-10 px-4 rounded-full text-[13px] font-semibold flex items-center justify-center gap-2 transition hover:opacity-85 disabled:opacity-50 ${className}`}
+      className={`v-subcard h-10 px-4 rounded-full text-[13px] font-semibold flex items-center justify-center gap-2 transition hover:opacity-85 active:scale-[0.97] active:transition-none disabled:opacity-50 select-none [touch-action:manipulation] ${className}`}
       style={{ color: 'var(--text-primary)' }}>
       {icon && <Icon name={icon} className="w-4 h-4" />}
       <span>{children}</span>
@@ -409,7 +409,7 @@ export function IconButton({ icon, onClick, title, disabled, tone, className = '
 }) {
   return (
     <button type="button" disabled={disabled} title={title} onClick={onClick}
-      className={`w-8 h-8 min-w-[32px] min-h-[32px] rounded-full v-subcard flex items-center justify-center hover:opacity-80 transition ${className}`}
+      className={`w-8 h-8 min-w-[32px] min-h-[32px] rounded-full v-subcard flex items-center justify-center hover:opacity-80 active:scale-[0.94] active:transition-none transition select-none [touch-action:manipulation] ${className}`}
       style={{ color: tone === 'danger' ? 'var(--badge-red-text)' : 'var(--text-secondary)' }}>
       <Icon name={icon} className="w-3.5 h-3.5" strokeWidth={2} />
     </button>
@@ -418,12 +418,12 @@ export function IconButton({ icon, onClick, title, disabled, tone, className = '
 
 export function PageHeader({ title, subtitle, action }: { title: string; subtitle?: string; action?: ReactNode }) {
   return (
-    <div className="stagger-item stagger-1 pt-1 flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <h1 className="font-display text-[26px] sm:text-[34px] md:text-[38px] font-semibold tracking-[-0.01em] leading-tight" style={{ color: 'var(--text-primary)' }}>{title}</h1>
-        {subtitle && <p className="text-[13px] sm:text-[13.5px] mt-1" style={{ color: 'var(--text-secondary)' }}>{subtitle}</p>}
+    <div className="stagger-item stagger-1 pt-1 flex flex-wrap items-end justify-between gap-4" dir="rtl">
+      <div className="min-w-0 flex-1 text-right">
+        <h1 className="font-display text-[26px] sm:text-[34px] md:text-[38px] font-semibold tracking-[-0.01em] leading-tight break-words text-right" style={{ color: 'var(--text-primary)' }}>{title}</h1>
+        {subtitle && <p className="text-[13px] sm:text-[13.5px] mt-1 break-words text-right" style={{ color: 'var(--text-secondary)' }}>{subtitle}</p>}
       </div>
-      {action}
+      {action && <div className="shrink-0">{action}</div>}
     </div>
   );
 }
@@ -539,8 +539,8 @@ export function Drawer({ open, onClose, children, width = 520 }: { open: boolean
   return (
     <div inert={!open} className={`fixed inset-0 z-50 ${open ? '' : 'invisible pointer-events-none'}`}>
       <div onClick={onClose} className={`absolute inset-0 v-scrim transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0'}`} />
-      <div className={`absolute inset-y-0 start-0 sm:top-3 sm:bottom-3 sm:start-3 v-card v-drawer flex flex-col transition-transform duration-[420ms] rounded-none sm:rounded-[26px] ${open ? 'translate-x-0' : 'translate-x-[calc(100%+24px)]'}`}
-        style={{ width: `min(${width}px, 100vw)`, maxWidth: '100vw', transitionTimingFunction: 'cubic-bezier(0.22,1,0.36,1)' }}>
+      <div className={`absolute inset-y-0 start-0 sm:top-3 sm:bottom-3 sm:start-3 v-card v-drawer flex flex-col transition-transform duration-[300ms] rounded-none sm:rounded-[26px] ${open ? 'translate-x-0' : 'translate-x-[calc(100%+24px)]'}`}
+        style={{ width: `min(${width}px, 100vw)`, maxWidth: '100vw', transitionTimingFunction: 'cubic-bezier(0.32,0.72,0,1)' }}>
         {children}
       </div>
     </div>

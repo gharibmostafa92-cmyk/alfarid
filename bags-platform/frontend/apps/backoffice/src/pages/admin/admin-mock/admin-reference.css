@@ -76,11 +76,21 @@
 
 * { box-sizing: border-box; -webkit-font-smoothing: antialiased; }
 
+:host {
+  all: initial;
+  display: block;
+  direction: rtl;
+  text-align: right;
+  min-width: 0;
+}
+
 .admin-mock-surface {
+  direction: rtl;
+  text-align: right;
   font-family: 'Plus Jakarta Sans', 'IBM Plex Sans Arabic', sans-serif;
   background: var(--bg-canvas);
   color: var(--text-primary);
-  min-height: 100vh;
+  min-height: 100dvh;
   transition: background-color 0.3s ease;
   overflow-x: hidden;
 }
@@ -184,11 +194,21 @@
   background: var(--bg-subcard);
   border: 1px solid transparent;
   border-radius: 14px;
-  transition: all 0.15s ease;
+  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.v-input:hover {
-  background: var(--bg-subcard-hover);
+@media (hover: hover) and (pointer: fine) {
+  .v-input:hover {
+    background: var(--bg-subcard-hover);
+  }
+}
+
+@media (pointer: coarse), (max-width: 639px) {
+  .v-input input,
+  .v-mini-input,
+  .inp {
+    font-size: 16px !important;
+  }
 }
 
 .v-input.is-focus,
@@ -508,8 +528,19 @@
   100% { opacity: 1; transform: scale(1); }
 }
 
+@keyframes vSheetSlideUp {
+  0% { transform: translateY(100%); opacity: 0.7; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
 .v-pop-in {
   animation: vPopIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (max-width: 639px) {
+  .v-pop-in {
+    animation: vSheetSlideUp 0.28s cubic-bezier(0.32, 0.72, 0, 1) both;
+  }
 }
 
 @keyframes vPulse {
@@ -564,34 +595,44 @@
 .b-orange { background: var(--accent-orange-light); color: var(--accent-orange); }
 .b-dark { background: var(--pill-active-bg); color: var(--pill-active-text); }
 
-.badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
 .badge .dot { width: 6px; height: 6px; border-radius: 99px; background: currentColor; }
 
-.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 999px; font-size: 13px; font-weight: 500; padding: 9px 18px; min-height: 40px; transition: opacity .15s, background .15s, transform .1s; white-space: nowrap; cursor: pointer; }
-.btn:active { transform: scale(.98); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 999px; font-size: 13px; font-weight: 500; padding: 9px 18px; min-height: 40px; transition: opacity .15s, background-color .15s, transform .1s; white-space: nowrap; cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+.btn:active { transform: scale(.97); }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
 .btn-dark { background: var(--pill-active-bg); color: var(--pill-active-text); }
-.btn-dark:hover:not(:disabled) { opacity: .9; }
+@media (hover: hover) and (pointer: fine) {
+  .btn-dark:hover:not(:disabled) { opacity: .9; }
+}
 .btn-soft { background: var(--bg-subcard); color: var(--text-primary); }
-.btn-soft:hover:not(:disabled) { background: var(--bg-subcard-hover); }
+@media (hover: hover) and (pointer: fine) {
+  .btn-soft:hover:not(:disabled) { background: var(--bg-subcard-hover); }
+}
 .btn-orange { background: var(--accent-orange); color: #fff; }
-.btn-orange:hover:not(:disabled) { opacity: .92; }
+@media (hover: hover) and (pointer: fine) {
+  .btn-orange:hover:not(:disabled) { opacity: .92; }
+}
 .btn-danger { background: var(--badge-red-bg); color: var(--badge-red-text); }
 .btn-sm { padding: 6px 13px; font-size: 12px; min-height: 34px; }
 
-.icon-btn { width: 34px; height: 34px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-secondary); transition: background .15s, color .15s; }
-.icon-btn:hover:not(:disabled) { background: var(--bg-subcard-hover); color: var(--text-primary); }
+.icon-btn { width: 34px; height: 34px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-secondary); transition: background-color .15s, color .15s, transform .1s; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+@media (hover: hover) and (pointer: fine) {
+  .icon-btn:hover:not(:disabled) { background: var(--bg-subcard-hover); color: var(--text-primary); }
+}
+.icon-btn:active { transform: scale(0.94); }
 .icon-btn:disabled { opacity: .3; cursor: not-allowed; }
 
 .field-label { font-size: 11.5px; font-weight: 500; color: var(--text-secondary); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
-.inp { width: 100%; background: var(--bg-subcard); border: 1px solid transparent; border-radius: 12px; padding: 9px 12px; font-size: 13px; color: var(--text-primary); outline: none; transition: border-color .15s, background .15s; font-family: inherit; }
+.inp { width: 100%; background: var(--bg-subcard); border: 1px solid transparent; border-radius: 12px; padding: 9px 12px; font-size: 13px; color: var(--text-primary); outline: none; transition: border-color .15s, background-color .15s; font-family: inherit; }
 .inp::placeholder { color: var(--text-muted); }
 .inp:focus { border-color: var(--accent-orange); background: var(--bg-card); }
 .inp.err { border-color: var(--badge-red-text); }
 .inp-sm { padding: 6px 10px; font-size: 12.5px; border-radius: 10px; }
 
 .seg { display: inline-flex; background: var(--bg-subcard); border-radius: 999px; padding: 3px; gap: 2px; }
-.seg button { padding: 6px 14px; border-radius: 999px; font-size: 12px; font-weight: 500; color: var(--text-secondary); transition: all .15s; }
+.seg button { padding: 6px 14px; border-radius: 999px; font-size: 12px; font-weight: 500; color: var(--text-secondary); transition: background-color .15s, color .15s, box-shadow .15s, transform .1s; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+.seg button:active { transform: scale(0.97); }
 .seg button.on { background: var(--seg-active-bg); color: var(--text-primary); box-shadow: 0 1px 2px rgba(0,0,0,.06); font-weight: 600; }
 
 @media (max-width: 1023px) {

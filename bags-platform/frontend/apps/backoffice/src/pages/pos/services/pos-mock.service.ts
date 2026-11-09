@@ -477,7 +477,8 @@ export class PosMockService {
     saleId: number,
     returnItems: { id: number; qty: number; return_to: 'on_hand' | 'damaged' }[],
     exchangeItems: { id: number; qty: number }[],
-    netDiff: number
+    netDiff: number,
+    _customerId?: number | null,
   ): Promise<void> {
     await delay(400);
     // Returns

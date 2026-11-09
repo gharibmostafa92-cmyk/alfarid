@@ -1,46 +1,67 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, MoneyInput, Api, Field, cx, useEsc } from '../ui/SharedUI';
 import { pos as posMockService } from '../../services/pos-data-source';
 import type { PosShift, ShiftStats } from '../../types/pos.types';
+import { fromCents, toCents } from '../../lib/money';
 
 interface CloseShiftModalProps {
   open: boolean;
   onClose: () => void;
   shift: PosShift | null;
   onClosed: (shift: PosShift) => void;
+  onCommitted: (shift: PosShift) => void;
 }
 
-export function CloseShiftModal({ open, onClose, shift, onClosed }: CloseShiftModalProps) {
+export function CloseShiftModal({ open, onClose, shift, onClosed, onCommitted }: CloseShiftModalProps) {
   const [actual, setActual] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [busy, setBusy] = useState<boolean>(false);
+  const submitting = useRef(false);
+  const [statsReady, setStatsReady] = useState(false);
+  const [error, setError] = useState('');
   const [closedResult, setClosedResult] = useState<PosShift | null>(null);
   const [stats, setStats] = useState<ShiftStats>({
-    cashSales: 7360,
-    cardSales: 2840,
-    returns: 450,
-    expenses: 180,
-    invoices: 23,
+    cashSales: 0,
+    cardSales: 0,
+    returns: 0,
+    expenses: 0,
+    invoices: 0,
   });
 
   useEffect(() => {
+    let active = true;
     if (open) {
       setActual('');
       setNotes('');
       setBusy(false);
       setClosedResult(null);
-      posMockService.getShiftStats().then(setStats);
+      setStatsReady(false);
+      setError('');
+      void posMockService.getShiftStats().then((summary) => {
+        if (!active) return;
+        setStats(summary);
+        setStatsReady(true);
+      }).catch((error: Error) => {
+        if (active) setError(error.message);
+      });
     }
+    return () => { active = false; };
   }, [open]);
 
-  useEsc(onClose, open);
+  const dismiss = () => {
+    if (submitting.current) return;
+    if (closedResult) onClosed(closedResult);
+    else onClose();
+  };
+  useEsc(dismiss, open);
   if (!open || !shift) return null;
 
-  const expected = shift.opening_cash + stats.cashSales - stats.returns - stats.expenses;
+  const expectedCents = toCents(shift.opening_cash) + toCents(stats.cashSales) - toCents(stats.returns) - toCents(stats.expenses);
+  const expected = fromCents(expectedCents);
   const has = actual !== '';
-  const diff = Number(actual || 0) - expected;
+  const diff = fromCents(toCents(actual) - expectedCents);
   const state: 'idle' | 'ok' | 'over' | 'short' = !has
     ? 'idle'
     : Math.abs(diff) < 0.01
@@ -50,7 +71,7 @@ export function CloseShiftModal({ open, onClose, shift, onClosed }: CloseShiftMo
     : 'short';
 
   const needNote = state === 'short' || state === 'over';
-  const canSubmit = has && (!needNote || notes.trim().length >= 3) && !busy;
+  const canSubmit = statsReady && has && (!needNote || notes.trim().length >= 3) && !busy;
 
   const diffLabel = {
     idle: 'أدخل النقد الفعلي لحساب الفرق',
@@ -69,12 +90,18 @@ export function CloseShiftModal({ open, onClose, shift, onClosed }: CloseShiftMo
   const started = new Date(shift.opened_at);
 
   const handleSubmit = async () => {
-    if (!canSubmit) return;
+    if (!canSubmit || submitting.current) return;
+    submitting.current = true;
+    setError('');
     setBusy(true);
     try {
       const res = await posMockService.closeShift(Number(actual), notes);
       setClosedResult(res);
+      onCommitted(res);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'تعذر إغلاق الوردية');
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   };
@@ -185,7 +212,7 @@ export function CloseShiftModal({ open, onClose, shift, onClosed }: CloseShiftMo
       dir="rtl"
       className={document.querySelector('.app')?.classList.contains('theme-dark') ? 'theme-dark' : ''}
     >
-      <div className="overlay" onClick={onClose} />
+      <div className="overlay" onClick={dismiss} />
       <div
         className="modal"
         style={{ width: 'min(860px, calc(100vw - 32px))' }}
@@ -211,10 +238,11 @@ export function CloseShiftModal({ open, onClose, shift, onClosed }: CloseShiftMo
                 </span>
               </div>
             </div>
-            <button className="icon-btn sm" onClick={onClose} aria-label="إغلاق">
+            <button className="icon-btn sm" disabled={busy} onClick={dismiss} aria-label="إغلاق">
               <Icon n="x" s={16} />
             </button>
           </div>
+          {error && <div className="banner b-bad" role="alert">{error}</div>}
 
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
             <div

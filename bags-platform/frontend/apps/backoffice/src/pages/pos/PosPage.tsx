@@ -8,7 +8,7 @@ import { pos as posMockService } from './services/pos-data-source';
 import tokensCss from './styles/tokens.css?inline';
 import posCss from './styles/pos.css?inline';
 
-/** Point of Sale page: restricted to cashier roles or pos.access permission. */
+/** Point of Sale page for authorized cashiers and stock counters. */
 export function PosPage() {
   const user = useAuthStore((s) => s.user);
   const logoutRemote = useAuthStore((s) => s.logoutRemote);
@@ -71,11 +71,11 @@ export function PosPage() {
     );
   }
 
-  if (!canPos) {
+  if (!canPos || (!canCreateSales && !canCount)) {
     return (
       <div style={{ padding: 40, textAlign: 'center' }} dir="rtl">
         <h1>غير مصرح</h1>
-        <p>صفحة نقطة البيع متاحة للمستخدمين المصرح لهم فقط (صلاحية pos.access).</p>
+        <p>تحتاج صلاحية دخول نقطة البيع وصلاحية البيع أو الجرد.</p>
       </div>
     );
   }

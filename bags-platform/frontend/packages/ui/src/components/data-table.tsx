@@ -24,12 +24,12 @@ export function DataTable<T extends Record<string, any>>({
   className,
 }: DataTableProps<T>) {
   return (
-    <div className={cn('w-full overflow-x-auto rounded-xl border border-zinc-200 bg-white', className)} dir="rtl">
-      <table className="w-full text-right text-sm">
+    <div className={cn('w-full overflow-x-auto rounded-xl border border-zinc-200 bg-white min-w-0', className)} dir="rtl">
+      <table className="w-full text-right text-sm [touch-action:manipulation]">
         <thead className="bg-zinc-50 border-b border-zinc-200 text-xs font-semibold text-zinc-600 uppercase">
           <tr>
             {columns.map((col, index) => (
-              <th key={index} className={cn('px-4 py-3.5', col.className)}>
+              <th key={index} className={cn('px-4 py-3.5 whitespace-nowrap', col.className)}>
                 {col.header}
               </th>
             ))}
@@ -53,9 +53,9 @@ export function DataTable<T extends Record<string, any>>({
             </tr>
           ) : (
             data.map((row, rowIndex) => (
-              <tr key={rowIndex} className="hover:bg-zinc-50/70 transition-colors">
+              <tr key={rowIndex} className="hover:bg-zinc-50/70 active:bg-zinc-100 transition-colors">
                 {columns.map((col, colIndex) => (
-                  <td key={colIndex} className={cn('px-4 py-3 text-zinc-700', col.className)}>
+                  <td key={colIndex} className={cn('px-4 py-3 text-zinc-700 [font-variant-numeric:tabular-nums]', col.className)}>
                     {col.cell ? col.cell(row) : col.accessorKey ? String(row[col.accessorKey] ?? '-') : null}
                   </td>
                 ))}

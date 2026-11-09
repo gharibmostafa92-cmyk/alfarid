@@ -19,7 +19,7 @@ function memStorage() {
   };
 }
 
-test('pending sale keeps same idempotency key for identical payload, new key for changed payload', () => {
+test('an unconfirmed sale keeps its key and cannot be overwritten by a different payment', () => {
   const storage = memStorage();
   const mgr = createPendingSaleManager({ storage });
   const p1 = { items: [{ product_variant_id: 1, qty: 1 }], cash_amount: '100.00' };
@@ -29,8 +29,53 @@ test('pending sale keeps same idempotency key for identical payload, new key for
   assert.equal(d1_again.key, d1.key);
 
   const p2 = { items: [{ product_variant_id: 1, qty: 2 }], cash_amount: '200.00' };
+  assert.throws(() => mgr.prepare(p2), /تأكيد/);
+  assert.equal(mgr.getSaved().key, d1.key);
+  mgr.clear();
   const d2 = mgr.prepare(p2);
   assert.notEqual(d2.key, d1.key);
+});
+
+test('opening checkout in a previous version does not leave a recoverable sale', () => {
+  const storage = memStorage();
+  storage.setItem('pos-pending-sale', JSON.stringify({
+    key: 'legacy', hash: 'preview', payload: { items: [{ id: 1, qty: 2 }], t: 42 },
+  }));
+  assert.equal(createPendingSaleManager({ storage }).getSaved(), null);
+});
+
+test('a pending payment cannot be replayed under another cashier or shift', async () => {
+  const storage = memStorage();
+  const first = createPendingSaleManager({ storage, owner: '1:10' });
+  const payload = { items: [{ product_variant_id: 1, qty: 1 }], cash_amount: '100.00' };
+  const draft = first.prepare(payload);
+  const second = createPendingSaleManager({ storage, owner: '2:11' });
+  let sent = false;
+  await assert.rejects(second.executeWithRetry(payload, draft.key, async () => { sent = true; }), /الوردية/);
+  assert.equal(sent, false);
+  assert.equal(first.getSaved().key, draft.key);
+});
+
+test('checkout collects the quoted total and submits the quoted discounts and manual prices', () => {
+  const { buildCheckoutPayload } = require(path.join(POS, 'lib/checkout.ts'));
+  const quote = {
+    subtotal: 22.01, discount_total: 1.01, grand_total: 21,
+    lines: [
+      { product_variant_id: 1, qty: 2, unit_price: 10, discount_amount: 0.99, line_total: 19.01, available: 4, error: null },
+      { product_variant_id: 2, qty: 1, unit_price: 2.01, discount_amount: 0.02, line_total: 1.99, available: 8, error: null },
+    ],
+  };
+  const payload = buildCheckoutPayload(quote, {
+    customerId: 3, method: 'mixed', cashCents: 1034, overridePrice: true, notes: '',
+  });
+  assert.deepEqual(payload, {
+    customer_id: 3, payment_method: 'mixed', cash_amount: 10.34, card_amount: 10.66,
+    override_price: true, notes: '',
+    items: [
+      { product_variant_id: 1, qty: 2, unit_price: 10, discount_amount: 0.99 },
+      { product_variant_id: 2, qty: 1, unit_price: 2.01, discount_amount: 0.02 },
+    ],
+  });
 });
 
 test('pending sale retries 3 times on network error (status 0) using exact same idempotency key', async () => {
@@ -73,6 +118,19 @@ test('pending sale persists draft if all retries fail with network error', async
   const saved = JSON.parse(storage.getItem('pos-pending-sale'));
   assert.equal(saved.key, d.key);
   assert.deepEqual(saved.payload, payload);
+});
+
+test('a retry rejected after a timeout preserves the unconfirmed sale', async () => {
+  const storage = memStorage();
+  const mgr = createPendingSaleManager({ storage, retryDelays: [0] });
+  const payload = { items: [{ product_variant_id: 1, qty: 1 }], cash_amount: '100.00' };
+  const draft = mgr.prepare(payload);
+  let attempts = 0;
+  await assert.rejects(mgr.executeWithRetry(payload, draft.key, async () => {
+    if (++attempts === 1) throw new Error('Connection lost');
+    throw { response: { status: 403, data: { code: 'no_open_shift', message: 'لا توجد وردية' } } };
+  }));
+  assert.equal(mgr.getSaved()?.key, draft.key);
 });
 
 // ---------- multi-tab duplicate coordinator ----------

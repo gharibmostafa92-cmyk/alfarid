@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, PImg, Api, Empty, Seg, Check, Search, useEsc } from '../ui/SharedUI';
@@ -20,6 +20,7 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
   const [repl, setRepl] = useState<{ id: number; qty: number }[]>([]);
   const [rq, setRq] = useState<string>('');
   const [busy, setBusy] = useState<boolean>(false);
+  const submitting = useRef(false);
   const [allProducts, setAllProducts] = useState<PosProduct[]>([]);
   const [replQuoteTotal, setReplQuoteTotal] = useState<number | null>(null);
 
@@ -39,15 +40,15 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
   }, [open]);
 
   useEffect(() => {
-    if (mode === 'exchange' && repl.length > 0) {
-      const items = repl.map((r) => ({ product_variant_id: r.id, qty: r.qty }));
-      posMockService.quoteSale({ items, customer_id: null })
-        .then((q) => setReplQuoteTotal(q.grand_total))
-        .catch(() => setReplQuoteTotal(null));
-    } else {
-      setReplQuoteTotal(null);
-    }
-  }, [mode, repl]);
+    setReplQuoteTotal(null);
+    if (!open || mode !== 'exchange' || !sale || !repl.length) return;
+    const controller = new AbortController();
+    const items = repl.map((r) => ({ product_variant_id: r.id, qty: r.qty }));
+    void posMockService.quoteSale({ items, customer_id: sale.customer_id ?? null }, controller.signal)
+      .then((q) => { if (!controller.signal.aborted) setReplQuoteTotal(q.grand_total); })
+      .catch((error: Error) => { if (!controller.signal.aborted) toast(error.message, 'bad'); });
+    return () => controller.abort();
+  }, [open, mode, repl, sale, toast]);
 
   useEsc(onClose, open);
   if (!open) return null;
@@ -85,7 +86,7 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
 
   const net = replTotal - retTotal;
   const anySel = Object.values(sel).some((v) => v.qty > 0);
-  const canSubmit = anySel && (mode === 'return' || repl.length > 0) && !busy;
+  const canSubmit = anySel && (mode === 'return' || replQuoteTotal != null) && !busy;
 
   const results = rq
     ? allProducts
@@ -98,7 +99,8 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
     : [];
 
   const handleSubmit = async () => {
-    if (!canSubmit || !sale) return;
+    if (!canSubmit || !sale || submitting.current) return;
+    submitting.current = true;
     setBusy(true);
     try {
       const returnPayload = Object.entries(sel)
@@ -119,7 +121,7 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
           toast('تم تسجيل المرتجع وتحديث المخزون', 'ok');
         }
       } else {
-        const res = await posMockService.processExchange(sale.id, returnPayload, repl, net);
+        const res = await posMockService.processExchange(sale.id, returnPayload, repl, net, sale.customer_id);
         const cardRefund = (res as any)?.card_refund_amount ?? 0;
         if (cardRefund > 0) {
           toast(`تم الاستبدال. يجب رد ${cardRefund} جنيه على الكارت يدويًا`, 'ok');
@@ -128,7 +130,10 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
         }
       }
       onClose();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'تعذر تسجيل العملية', 'bad');
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   };

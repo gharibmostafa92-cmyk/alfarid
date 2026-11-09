@@ -9,6 +9,7 @@ export interface StaffUser {
   roles: string[];
   permissions: string[];
   branch_id?: number | null;
+  branch?: { id: number; name: string; code?: string } | null;
 }
 
 interface AuthState {

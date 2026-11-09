@@ -1,5 +1,5 @@
 // Isolated Tailwind preflight, original design styles, then utilities (matching the prototype cascade).
-export const dashboardStyles = `:host{all:initial;display:block;min-height:100vh;direction:ltr;font-size:16px;font-weight:400;line-height:1.5;letter-spacing:normal;text-align:left;user-select:none;}*, ::before, ::after {
+export const dashboardStyles = `:host{all:initial;display:block;min-height:100dvh;direction:rtl;font-size:16px;font-weight:400;line-height:1.5;letter-spacing:normal;text-align:start;user-select:none;}*, ::before, ::after {
   --tw-border-spacing-x: 0;
   --tw-border-spacing-y: 0;
   --tw-translate-x: 0;
@@ -448,7 +448,7 @@ video {
       z-index: 10;
       background-color: var(--bg-canvas);
       color: var(--text-primary);
-      min-height: 100vh;
+      min-height: 100dvh;
       will-change: clip-path;
     }
 
@@ -878,7 +878,7 @@ video {
   min-height: 470px;
 }
 .min-h-screen {
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 .w-1 {
   width: 0.25rem;
@@ -1785,8 +1785,24 @@ video {
   color: var(--text-primary);
 }
 
+.v-aside-nav .side-nav-btn[aria-current="page"] {
+  background: var(--pill-active-bg) !important;
+  color: var(--pill-active-text) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
 .v-shell-header .top-nav-btn {
   padding-inline: 12px;
+  transition: background-color 150ms ease, color 150ms ease, transform 100ms ease;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+.v-shell-header .top-nav-btn:active {
+  transform: scale(0.97);
+}
+.v-shell-header .top-nav-btn[aria-current="page"] {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 
 @media (768px <= width < 1360px) {
@@ -1881,7 +1897,13 @@ video {
     font-size: 11px;
     font-weight: 600;
     line-height: 1.2;
-    transition: background-color 0.15s ease, color 0.15s ease;
+    transition: background-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+  }
+  .v-mobile-nav button:active {
+    transform: scale(0.94);
   }
   .v-mobile-nav button span {
     max-width: 100%;
@@ -1964,13 +1986,44 @@ video {
 .v-mobile-nav { display: none; }
 @media (max-width: 767px) { .v-mobile-nav { display: grid; } }
 .v-modal-card {
-  max-height: calc(100vh - 32px);
   max-height: calc(100dvh - 32px);
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
+  animation: vPopIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+#v-modal-backdrop {
+  animation: vBackdropFade 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes vBackdropFade {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+@keyframes vPopIn {
+  0% { opacity: 0; transform: scale(0.96); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes vSheetSlideUp {
+  0% { transform: translateY(100%); opacity: 0.7; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+@media (max-width: 639px) {
+  .v-modal-card {
+    max-height: calc(100dvh - 16px);
+    animation: vSheetSlideUp 0.28s cubic-bezier(0.32, 0.72, 0, 1) both;
+  }
+}
+@media (pointer: coarse), (max-width: 639px) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
 }
 .v-modal-card input { font-size: 16px; }
+.v-mobile-menu { direction: rtl; text-align: start; }
+.v-modal-card[dir="rtl"] { direction: rtl; text-align: start; }
+.v-mobile-nav { direction: rtl; }
 .v-mobile-menu nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 @media (max-width: 380px) {
   .v-mobile-menu nav { grid-template-columns: 1fr; gap: 6px; }
@@ -1989,8 +2042,11 @@ video {
   min-height: 48px; padding: 10px 12px; border-radius: 12px;
   color: var(--text-primary); background: var(--bg-subcard); font-size: 13px;
   font-weight: 500; transition: background-color 0.15s ease, transform 0.1s ease;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
 }
-.v-mobile-menu nav button:active { transform: scale(0.98); }
+.v-mobile-menu nav button:active { transform: scale(0.97); }
 .v-mobile-menu nav button svg { flex-shrink: 0; }
 .v-mobile-menu nav button span { min-width: 0; overflow-wrap: break-word; line-height: 1.3; }
 .v-mobile-menu nav button[aria-current="page"] { background: var(--pill-active-bg); color: var(--pill-active-text); font-weight: 600; }
@@ -1998,13 +2054,16 @@ video {
 .v-mobile-menu-tools button {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   width: 100%; min-height: 48px; padding: 10px 8px; font-size: 13.5px; font-weight: 500; color: var(--text-primary);
-  border-radius: 10px; transition: background-color 0.15s ease;
+  border-radius: 10px; transition: background-color 0.15s ease, transform 0.1s ease;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
 }
-.v-mobile-menu-tools button:hover,
-.v-mobile-menu-tools button:active { background: var(--bg-subcard); }
+@media (hover: hover) and (pointer: fine) {
+  .v-mobile-menu-tools button:hover { background: var(--bg-subcard); }
+}
+.v-mobile-menu-tools button:active { background: var(--bg-subcard); transform: scale(0.98); }
 .v-mobile-menu-tools button span { color: var(--text-secondary); font-size: 12px; }
-.v-mobile-menu-tools button span { color: var(--text-secondary); font-size: 12px; }
-@media (max-width: 639px) { .v-modal-card { max-height: calc(100dvh - 16px); } }
 
 /* Reduced motion support */
 @media (prefers-reduced-motion: reduce) {

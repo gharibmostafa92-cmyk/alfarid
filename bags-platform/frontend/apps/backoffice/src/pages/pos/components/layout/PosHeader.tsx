@@ -10,7 +10,7 @@ interface PosHeaderProps {
   cashier: CashierUser | null;
   shift: PosShift | null;
   onOpenCloseShift: () => void;
-  onOpenReturns: () => void;
+  onOpenReturns?: () => void;
   isDark: boolean;
   onToggleDark: () => void;
   onLogout?: () => void;
@@ -95,15 +95,17 @@ export function PosHeader({
           </button>
         )}
 
-        <button
-          className="btn btn-secondary btn-sm"
-          onClick={onOpenReturns}
-          title="مرتجع / استبدال (F8)"
-        >
-          <Icon n="ret" s={14} />
-          <span>مرتجع</span>
-          <Kbd>F8</Kbd>
-        </button>
+        {onOpenReturns && (
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={onOpenReturns}
+            title="مرتجع / استبدال (F8)"
+          >
+            <Icon n="ret" s={14} />
+            <span>مرتجع</span>
+            <Kbd>F8</Kbd>
+          </button>
+        )}
 
         <button
           className="icon-btn"

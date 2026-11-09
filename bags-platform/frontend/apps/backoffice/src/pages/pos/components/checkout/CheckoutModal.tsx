@@ -4,10 +4,11 @@ import { Icon } from '../ui/Icons';
 import { egp, fmt, PImg, Api, Kbd, MoneyInput, Field, cx, useEsc } from '../ui/SharedUI';
 import { ReceiptDone } from './ReceiptDone';
 import { pos as posMockService } from '../../services/pos-data-source';
-import type { PosCartLine, Customer, Branch, CashierUser } from '../../types/pos.types';
-import { toCents, fromCents, spreadDiscount } from '../../lib/money';
+import type { PosCartLine, Customer, Branch, CashierUser, QuoteResult } from '../../types/pos.types';
+import { toCents, fromCents } from '../../lib/money';
+import { buildCheckoutPayload } from '../../lib/checkout';
 import { createPendingSaleManager } from '../../lib/pending-sale';
-import { pushReceipt } from '../../lib/receipt-archive';
+import { pushReceipt, type ArchivedReceipt } from '../../lib/receipt-archive';
 import { normalizeError } from '../../lib/pos-error';
 
 interface CheckoutModalProps {
@@ -15,8 +16,11 @@ interface CheckoutModalProps {
   onClose: () => void;
   cart: PosCartLine[];
   customer: Customer | null;
-  discount: number;
+  quote: QuoteResult | null;
+  isQuoting: boolean;
   onPaid: () => void;
+  onAttemptSettled: () => void;
+  pendingOwner: string | undefined;
   branch?: Branch | null;
   cashier?: CashierUser | null;
 }
@@ -26,8 +30,11 @@ export function CheckoutModal({
   onClose,
   cart,
   customer,
-  discount,
+  quote,
+  isQuoting,
   onPaid,
+  onAttemptSettled,
+  pendingOwner,
   branch,
   cashier,
 }: CheckoutModalProps) {
@@ -40,13 +47,14 @@ export function CheckoutModal({
   const [retryStatus, setRetryStatus] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [idem, setIdem] = useState<string>('');
-  const [invoiceNumber, setInvoiceNumber] = useState<string>('');
+  const [receipt, setReceipt] = useState<ArchivedReceipt | null>(null);
 
   const isSubmittingRef = useRef(false);
-  const pendingMgrRef = useRef(createPendingSaleManager());
 
-  const subtotal = cart.reduce((s, l) => s + l.price * l.qty, 0);
-  const total = Math.max(0, subtotal - discount);
+  const subtotal = quote?.subtotal ?? 0;
+  const discount = quote?.discount_total ?? 0;
+  const totalCents = toCents(quote?.grand_total);
+  const total = fromCents(totalCents);
 
   useEffect(() => {
     if (open) {
@@ -58,16 +66,10 @@ export function CheckoutModal({
       setStage('pay');
       setRetryStatus('');
       setErrorMsg('');
-      isSubmittingRef.current = false;
-      const initialDraft = pendingMgrRef.current.prepare({
-        items: cart.map((l) => ({ id: l.id, qty: l.qty })),
-        discount,
-        t: Date.now(),
-      });
-      setIdem(initialDraft.key);
-      setInvoiceNumber('');
+      setIdem('');
+      setReceipt(null);
     }
-  }, [open, cart, discount]);
+  }, [open]);
 
   useEffect(() => {
     if (!open || stage !== 'pay') return;
@@ -93,15 +95,18 @@ export function CheckoutModal({
   useEsc(() => stage !== 'sending' && onClose(), open);
   if (!open) return null;
 
-  const rec = Number(received || 0);
-  const change = rec - total;
-  const cashA = Math.min(Number(cashPart || 0), total);
-  const cardA = Math.max(0, total - cashA);
+  const receivedCents = toCents(received);
+  const cashCents = Math.min(toCents(cashPart), totalCents);
+  const rec = fromCents(receivedCents);
+  const change = fromCents(receivedCents - totalCents);
+  const cashA = fromCents(cashCents);
+  const cardA = fromCents(totalCents - cashCents);
 
-  const valid =
+  const valid = quote && !isQuoting && quote.lines.length > 0 && !quote.lines.some((line) => line.error) && (
     method === 'card' ||
-    (method === 'cash' && rec >= total) ||
-    (method === 'mixed' && cashA > 0 && cardA > 0 && Math.abs(cashA + cardA - total) < 0.01);
+    (method === 'cash' && receivedCents >= totalCents) ||
+    (method === 'mixed' && cashCents > 0 && cashCents < totalCents)
+  );
 
   const roundUps = [
     ...new Set([
@@ -125,47 +130,38 @@ export function CheckoutModal({
   };
 
   const confirm = async () => {
-    if (!valid || stage === 'sending' || isSubmittingRef.current) return;
+    if (!pendingOwner || !quote || !valid || stage !== 'pay' || isSubmittingRef.current) return;
     isSubmittingRef.current = true;
     setStage('sending');
     setRetryStatus('');
     setErrorMsg('');
 
-    // Proportional discount spread per line in cents
-    const lineCents = cart.map((l) => ({ id: l.id, totalC: toCents(l.price * l.qty) }));
-    const distributed = spreadDiscount(lineCents, toCents(discount));
-    const discountMap = new Map(distributed.map((d) => [d.id, fromCents(d.d)]));
-
     const finalNotes = (method === 'card' || method === 'mixed') && cardDigits.trim()
       ? (notes.trim() ? `كارت ****${cardDigits.trim()} · ${notes.trim()}` : `كارت ****${cardDigits.trim()}`)
       : notes.trim();
 
-    const payload = {
-      items: cart.map((l) => ({
-        product_variant_id: l.id,
-        qty: l.qty,
-        unit_price: l.price,
-        discount_amount: discountMap.get(l.id) ?? 0,
-      })),
-      customer_id: customer?.id ?? null,
-      payment_method: method,
-      cash_amount: method === 'cash' ? total : method === 'mixed' ? cashA : 0,
-      card_amount: method === 'card' ? total : method === 'mixed' ? cardA : 0,
+    const payload = buildCheckoutPayload(quote, {
+      customerId: customer?.id ?? null,
+      method,
+      cashCents,
+      overridePrice: cart.some((line) => line.manualPrice),
       notes: finalNotes,
-    };
+    });
 
     try {
-      const res = await pendingMgrRef.current.executeWithRetry(
-        payload,
-        idem,
+      const pendingManager = createPendingSaleManager({ owner: pendingOwner });
+      const draft = pendingManager.prepare(payload);
+      setIdem(draft.key);
+      const res = await pendingManager.executeWithRetry(
+        draft.payload,
+        draft.key,
         (p, k) => posMockService.createSale(p, k),
         (attempt) => {
           setRetryStatus(`جاري التأكد… (محاولة ${attempt})`);
         }
       );
 
-      setInvoiceNumber(res.invoiceNumber);
-      pushReceipt({
+      const completedReceipt = {
         invoiceNumber: res.invoiceNumber,
         total,
         method,
@@ -180,14 +176,18 @@ export function CheckoutModal({
         branch,
         cashier,
         timestamp: Date.now(),
-      });
+      };
+      pushReceipt(completedReceipt);
+      setReceipt(completedReceipt);
       setStage('done');
+      onPaid();
     } catch (err: any) {
       const apiErr = normalizeError(err);
-      setErrorMsg(apiErr.message || 'تعذر تسجيل البيع');
+      setErrorMsg(apiErr.status === 0 ? 'لم يتأكد تسجيل الفاتورة بعد. أعد المحاولة لتأكيدها.' : apiErr.message);
       setStage('pay');
     } finally {
       isSubmittingRef.current = false;
+      onAttemptSettled();
     }
   };
 
@@ -210,7 +210,7 @@ export function CheckoutModal({
               <div className="co-main">
                 <div className="row between">
                   <h3 className="fs-16">الدفع وطرق التحصيل</h3>
-                  <button className="icon-btn sm" onClick={onClose} aria-label="إغلاق">
+                  <button className="icon-btn sm" disabled={stage === 'sending'} onClick={onClose} aria-label="إغلاق">
                     <Icon n="x" s={16} />
                   </button>
                 </div>
@@ -470,7 +470,7 @@ export function CheckoutModal({
                   </div>
                 )}
                 <div className="row gap-2" style={{ marginTop: 'auto' }}>
-                  <button className="btn btn-secondary btn-lg" onClick={onClose}>
+                  <button className="btn btn-secondary btn-lg" disabled={stage === 'sending'} onClick={onClose}>
                     رجوع
                   </button>
                   <button
@@ -561,25 +561,10 @@ export function CheckoutModal({
                 </div>
               </div>
             </div>
-          ) : (
+          ) : receipt && (
             <ReceiptDone
-              invoiceNumber={invoiceNumber}
-              total={total}
-              method={method}
-              received={rec}
-              change={change}
-              cashA={cashA}
-              cardA={cardA}
-              cart={cart}
-              customer={customer}
-              discount={discount}
-              notes={notes}
-              onNew={() => {
-                onPaid();
-                onClose();
-              }}
-              branch={branch}
-              cashier={cashier}
+              {...receipt}
+              onNew={onClose}
             />
           )}
         </div>

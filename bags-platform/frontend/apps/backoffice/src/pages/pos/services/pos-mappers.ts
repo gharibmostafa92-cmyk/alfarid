@@ -75,6 +75,7 @@ export const mapPastSale = (s: any): PastSale => ({
     ` — ${timeAr(s.created_at)}`,
   cashier: s.cashier?.name ?? '',
   customer: s.customer?.name ?? 'عميل نقدي',
+  customer_id: s.customer?.id == null ? null : Number(s.customer.id),
   method: METHOD_AR[s.payment_method] ?? s.payment_method ?? '',
   cash_amount: Number(s.cash_amount ?? 0),
   card_amount: Number(s.card_amount ?? 0),

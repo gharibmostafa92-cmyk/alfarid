@@ -44,15 +44,15 @@ interface KpiCardProps {
 
 function KpiCard({ label, value, icon, foot, accent, delay, loading, bar }: KpiCardProps) {
   return (
-    <div className={`${accent ? 'v-orange-earnings' : 'v-card'} rounded-[22px] p-5 flex flex-col justify-between min-h-[150px] stagger-item ${delay ?? ''}`}>
-      <div className="flex items-center justify-between">
-        <span className={`text-[13px] font-medium ${accent ? 'text-white/90' : ''}`} style={accent ? undefined : { color: 'var(--text-secondary)' }}>{label}</span>
-        <span className={`w-8 h-8 rounded-full flex items-center justify-center ${accent ? 'bg-white/15 text-white' : 'v-icon-well'}`}>
+    <div className={`${accent ? 'v-orange-earnings' : 'v-card'} rounded-[22px] p-5 flex flex-col justify-between min-h-[150px] min-w-0 overflow-hidden stagger-item ${delay ?? ''}`}>
+      <div className="flex items-center justify-between gap-2">
+        <span className={`text-[13px] font-medium truncate ${accent ? 'text-white/90' : ''}`} style={accent ? undefined : { color: 'var(--text-secondary)' }}>{label}</span>
+        <span className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${accent ? 'bg-white/15 text-white' : 'v-icon-well'}`}>
           <Icon name={icon} className="w-4 h-4" />
         </span>
       </div>
       {loading ? <Skeleton className="h-9 w-20 my-3 rounded-xl" style={accent ? { background: 'rgba(255,255,255,.25)' } : null} />
-        : <div className="font-display text-[34px] font-bold tracking-tight my-2 tabular-nums" style={accent ? undefined : { color: 'var(--text-primary)' }}>{typeof value === 'number' ? <AnimatedNumber value={value} /> : value}</div>}
+        : <div className="font-display text-[34px] font-bold tracking-tight my-2 tabular-nums truncate" title={typeof value === 'number' || typeof value === 'string' ? String(value) : undefined} style={accent ? undefined : { color: 'var(--text-primary)' }}>{typeof value === 'number' ? <AnimatedNumber value={value} /> : value}</div>}
       {bar != null && (
         <div className="h-3 w-full rounded-full overflow-hidden flex items-center gap-1 p-0.5 mb-2">
           <div className="h-full rounded-full transition-all duration-700" style={{ width: `${bar}%`, background: accent ? '#fff' : 'var(--accent-orange)' }} />
@@ -305,10 +305,10 @@ export function UsersScreen({ rolesLoading, can, onUsersChanged, roles, onNaviga
                       <div className="flex items-center gap-3">
                         <Avatar name={u.name} id={u.id} ring={isMe} />
                         <div className="min-w-0">
-                          <div className="font-semibold text-[13px] flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
-                            {u.name}{isMe && <Badge tone="orange" className="!py-0 !px-2 !text-[10px]">أنت</Badge>}
+                          <div className="font-semibold text-[13px] flex items-center gap-1.5 truncate" title={u.name} style={{ color: 'var(--text-primary)' }}>
+                            <span className="truncate">{u.name}</span>{isMe && <Badge tone="orange" className="!py-0 !px-2 !text-[10px] shrink-0">أنت</Badge>}
                           </div>
-                          <div className="text-[11.5px] mt-0.5" dir="ltr" style={{ color: 'var(--text-muted)', textAlign: 'right' }}>{u.email}</div>
+                          <div className="text-[11.5px] mt-0.5 truncate" dir="ltr" title={u.email} style={{ color: 'var(--text-muted)', textAlign: 'right' }}>{u.email}</div>
                         </div>
                       </div>
                     </td>

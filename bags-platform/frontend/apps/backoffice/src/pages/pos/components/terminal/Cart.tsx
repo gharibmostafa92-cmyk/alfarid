@@ -46,11 +46,13 @@ export function Cart({
   isQuoting,
   maxDiscountPercent = 100,
 }: CartProps) {
-  const canOverride = cashier?.perms?.includes('pos.override_price') ?? true;
-  const canDiscount = cashier?.perms?.includes('pos.discount') ?? true;
-  const subtotal = cart.reduce((s, l) => s + l.listPrice * l.qty, 0);
-  const lineAdj = cart.reduce((s, l) => s + (l.listPrice - l.price) * l.qty, 0);
-  const localTotal = Math.max(0, subtotal - lineAdj - discount);
+  const canOverride = cashier?.perms?.includes('pos.override_price') ?? false;
+  const canDiscount = cashier?.perms?.includes('pos.discount') ?? false;
+  const subtotalCents = cart.reduce((sum, line) => sum + toCents(line.listPrice) * line.qty, 0);
+  const pricedCents = cart.reduce((sum, line) => sum + toCents(line.price) * line.qty, 0);
+  const subtotal = fromCents(subtotalCents);
+  const lineAdj = fromCents(subtotalCents - pricedCents);
+  const localTotal = fromCents(Math.max(0, pricedCents - toCents(discount)));
   // The screen total is the server's; the local figure only shows until the first quote lands.
   const total = quote ? quote.grand_total : localTotal;
   const items = cart.reduce((s, l) => s + l.qty, 0);
@@ -58,7 +60,7 @@ export function Cart({
   const [discVal, setDiscVal] = useState('');
 
   const applyDiscount = () => {
-    const cap = fromCents(maxDiscountAmount(toCents(subtotal - lineAdj), maxDiscountPercent));
+    const cap = fromCents(maxDiscountAmount(pricedCents, maxDiscountPercent));
     const wanted = Math.min(Number(discVal || 0), subtotal);
     if (wanted > cap) {
       toast(`الحد الأقصى للخصم ${maxDiscountPercent}% (${egp(cap)} ج)`, 'bad');
@@ -91,7 +93,8 @@ export function Cart({
             <h4>الفاتورة فارغة</h4>
             <p>امسح باركود صنف أو اضغط على أي صنف من الكتالوج لإضافته.</p>
             <div className="row gap-2 fs-12 t-3" style={{ marginTop: 8 }}>
-              <Kbd>F2</Kbd> بحث <Kbd>F6</Kbd> المعلقة <Kbd>F8</Kbd> مرتجع
+              <Kbd>F2</Kbd> بحث <Kbd>F6</Kbd> المعلقة
+              {cashier?.perms?.includes('pos.sales.refund') && <><Kbd>F8</Kbd> مرتجع</>}
             </div>
           </div>
         ) : (

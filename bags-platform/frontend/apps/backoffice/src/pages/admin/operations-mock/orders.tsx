@@ -148,9 +148,9 @@ export function OrdersList({ go }: { go: (route: { m: string; id?: number | stri
     {
       h: 'العميل',
       r: (o) => (
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 min-w-0 max-w-[260px]">
           <Avatar name={o.customer} tone={o.id} size={28} />
-          <div className="leading-tight">
+          <div className="leading-tight min-w-0 flex-1">
             <div className="font-semibold tx1 flex items-center gap-1.5">
               {o.customer}
               {o.guest && <span className="badge t-gray !py-0 !px-1.5 !text-[10px]">زائر</span>}
@@ -478,11 +478,11 @@ export function OrderDetail({
                 {
                   h: 'المنتج',
                   r: (it) => (
-                    <div className="flex items-center gap-2.5">
+                    <div className="flex items-center gap-2.5 min-w-0 max-w-[260px]">
                       <span className="w-9 h-9 rounded-[10px] v-sub flex items-center justify-center tx3">
                         <Icon name="box" size={15} />
                       </span>
-                      <div className="leading-tight">
+                      <div className="leading-tight min-w-0 flex-1">
                         <div className="font-semibold tx1">{it.v.name}</div>
                         <div className="text-[11px] tx3 num ltr mt-0.5">{it.v.sku}</div>
                       </div>
@@ -1330,7 +1330,7 @@ export function ReturnDetail({
               {
                 h: 'المنتج',
                 r: (l) => (
-                  <div className="leading-tight">
+                  <div className="leading-tight min-w-0 flex-1">
                     <div className="font-semibold tx1">{l.v.name}</div>
                     <div className="text-[11px] tx3 num ltr">{l.v.sku}</div>
                   </div>
@@ -1356,7 +1356,7 @@ export function ReturnDetail({
               {
                 h: 'السبب والمرفقات',
                 r: (l) => (
-                  <div className="leading-tight">
+                  <div className="leading-tight min-w-0 flex-1">
                     <div className="text-[12px] tx1">{l.reason}</div>
                     {l.files > 0 && (
                       <div className="flex gap-1 mt-1.5">

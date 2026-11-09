@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { hasPermission } from '@alfarid/utils';
 import { PosHeader } from './layout/PosHeader';
 import { Catalog } from './terminal/Catalog';
 import { Cart } from './terminal/Cart';
@@ -17,7 +18,7 @@ import { pos as posMockService } from '../services/pos-data-source';
 import { usePosCart, posCartStore } from '../stores/pos-cart.store';
 import { createScanDetector } from '../lib/barcode-scanner';
 import { beepError, beepSuccess } from '../lib/sound';
-import { createPendingSaleManager } from '../lib/pending-sale';
+import { createPendingSaleManager, type PendingSaleDraft } from '../lib/pending-sale';
 import { createTabCoordinator } from '../lib/tab-coordinator';
 import { getLastReceipt } from '../lib/receipt-archive';
 import type {
@@ -41,13 +42,20 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
   const [currentShift, setCurrentShift] = useState<PosShift | null>(null);
   const [branch, setBranch] = useState<Branch | null>(null);
   const [cashier, setCashier] = useState<CashierUser | null>(null);
+  const [starting, setStarting] = useState(true);
+  const [startupError, setStartupError] = useState<string | null>(null);
+  const [startupAttempt, setStartupAttempt] = useState(0);
+  const canRefund = hasPermission(cashier?.perms, 'pos.sales.refund');
   const [isDark, setIsDark] = useState<boolean>(false);
 
   // Network & multi-tab coordination
   const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [hasTabConflict, setHasTabConflict] = useState<boolean>(false);
-  const [pendingSale, setPendingSale] = useState<any>(null);
+  const [pendingSale, setPendingSale] = useState<PendingSaleDraft | null>(null);
+  const pendingOwner = cashier && currentShift ? `${cashier.id}:${currentShift.id}` : undefined;
+  const canRecoverPending = Boolean(pendingOwner && pendingSale?.owner === pendingOwner);
   const [confirmingPending, setConfirmingPending] = useState<boolean>(false);
+  const confirmingPendingRef = useRef(false);
 
   // Cart, customer, discount and the live server quote live in the persisted cart store.
   const cart = usePosCart((s) => s.cart);
@@ -64,7 +72,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
   const [maxDiscountPercent, setMaxDiscountPercent] = useState<number>(100);
 
   // Modals state
-  const [isCloseShiftOpen, setIsCloseShiftOpen] = useState<boolean>(false);
+  const [closingShift, setClosingShift] = useState<PosShift | null>(null);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState<boolean>(false);
   const [isHoldOpen, setIsHoldOpen] = useState<boolean>(false);
   const [isHeldOpen, setIsHeldOpen] = useState<boolean>(false);
@@ -72,21 +80,10 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
 
   const scanInputRef = useRef<HTMLInputElement>(null);
 
-  const loadInitialData = useCallback(() => {
-    posMockService.getCurrentShift().then(setCurrentShift);
-    posMockService.getBranch().then(setBranch);
-    posMockService.getCashier().then(setCashier);
-    posMockService.getHeldSales().then(setHeldSales);
-    setMaxDiscountPercent(posMockService.getSettings().max_discount_percent);
-  }, []);
+  const [heldCount, setHeldCount] = useState(0);
 
   const checkPendingSale = useCallback(() => {
-    try {
-      const raw = localStorage.getItem('pos-pending-sale');
-      setPendingSale(raw ? JSON.parse(raw) : null);
-    } catch {
-      setPendingSale(null);
-    }
+    setPendingSale(createPendingSaleManager().getSaved());
   }, []);
 
   useEffect(() => {
@@ -115,15 +112,55 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
   }, []);
 
   useEffect(() => {
-    loadInitialData();
-    const unsub = posMockService.subscribe(loadInitialData);
-    return unsub;
-  }, [loadInitialData]);
+    let active = true;
+    let unsubscribe: (() => void) | undefined;
+    const refresh = async () => {
+      const [shift, loadedBranch, loadedCashier] = await Promise.all([
+        posMockService.getCurrentShift(), posMockService.getBranch(), posMockService.getCashier(),
+      ]);
+      if (!active) return;
+      setCurrentShift(shift);
+      setBranch(loadedBranch);
+      setCashier(loadedCashier);
+      setHeldCount(posMockService.getHeldCount());
+      setMaxDiscountPercent(posMockService.getSettings().max_discount_percent);
+    };
+
+    setStarting(true);
+    setStartupError(null);
+    void posMockService.bootstrap().then(async () => {
+      if (!active) return;
+      unsubscribe = posMockService.subscribe(() => void refresh().catch(() => undefined));
+      await refresh();
+      if (active) setStarting(false);
+    }).catch((error: Error) => {
+      if (!active) return;
+      setStartupError(error.message);
+      setStarting(false);
+    });
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
+  }, [startupAttempt]);
+
+  const loadHeldSales = useCallback(async () => {
+    const list = await posMockService.getHeldSales();
+    setHeldSales(list);
+    setHeldCount(list.length);
+  }, []);
+
+  useEffect(() => {
+    if (isHeldOpen && currentShift) {
+      void loadHeldSales().catch((error: Error) => toast(error.message, 'bad'));
+    }
+  }, [isHeldOpen, currentShift?.id, loadHeldSales, toast]);
 
   // One cart per cashier+shift: survives refresh / power loss (key pos-cart:{userId}:{shiftId}).
+  const cartShiftId = (closingShift ?? currentShift)?.id ?? null;
   useEffect(() => {
-    if (cashier) posCartStore.getState().bindContext(cashier.id, currentShift?.id ?? null);
-  }, [cashier?.id, currentShift?.id]);
+    if (cashier) posCartStore.getState().bindContext(cashier.id, cartShiftId);
+  }, [cashier?.id, cartShiftId]);
 
   // Add a product (click, scan bar or HID scanner): beep tells the cashier the outcome.
   const handleAddToCart = useCallback(
@@ -143,6 +180,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
 
   // Hardware scanner: works even when the scan box is not focused.
   useEffect(() => {
+    if (!currentShift || currentScreen !== 'terminal' || isCheckoutOpen || closingShift || hasTabConflict) return;
     const detect = createScanDetector({
       onScan: async (code) => {
         try {
@@ -160,17 +198,28 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
     });
     window.addEventListener('keydown', detect, true);
     return () => window.removeEventListener('keydown', detect, true);
-  }, [handleAddToCart, toast]);
+  }, [currentShift?.id, currentScreen, isCheckoutOpen, closingShift, hasTabConflict, handleAddToCart, toast]);
 
   // Pay waits for the current quote so the payment screen opens with a confirmed total.
   const handlePay = useCallback(async () => {
-    await posCartStore.getState().flushQuote();
+    if (createPendingSaleManager().getSaved()) {
+      toast('يجب تأكيد الفاتورة المعلقة أولًا', 'bad');
+      return;
+    }
+    if (isCheckoutOpen) return;
+    const result = await posCartStore.getState().flushQuote();
+    if (!result || posCartStore.getState().isQuoting) {
+      toast(posCartStore.getState().quoteError ?? 'تعذر تأكيد أسعار الفاتورة', 'bad');
+      return;
+    }
+    if (result.lines.some((line) => line.error)) return;
     setIsCheckoutOpen(true);
-  }, []);
+  }, [isCheckoutOpen, toast]);
 
   // Keyboard shortcuts (F2, F6, F8, Space, Ctrl+Z, +/-, Ctrl+P)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!currentShift || isCheckoutOpen || closingShift || hasTabConflict) return;
       const activeTag = (e.target as HTMLElement)?.tagName;
       const isInput = activeTag === 'INPUT' || activeTag === 'TEXTAREA';
 
@@ -183,7 +232,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
         e.preventDefault();
         setIsHeldOpen((o) => !o);
       }
-      if (e.key === 'F8') {
+      if (e.key === 'F8' && canRefund) {
         e.preventDefault();
         setIsReturnOpen((o) => !o);
       }
@@ -233,7 +282,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [cart, currentScreen, handlePay, lastAdded, toast]);
+  }, [cart, currentShift, currentScreen, isCheckoutOpen, closingShift, hasTabConflict, canRefund, handlePay, lastAdded, toast]);
 
   // Offer undo for 5s after a line is removed.
   const undoToastFor = useRef<number | null>(null);
@@ -247,20 +296,23 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
 
   // Confirm pending sale
   const handleConfirmPendingSale = async () => {
-    if (!pendingSale || confirmingPending) return;
+    if (!pendingSale || !canRecoverPending || isCheckoutOpen || confirmingPendingRef.current) return;
+    confirmingPendingRef.current = true;
     setConfirmingPending(true);
     try {
-      const mgr = createPendingSaleManager();
+      const mgr = createPendingSaleManager({ owner: pendingOwner });
       await mgr.executeWithRetry(
         pendingSale.payload,
         pendingSale.key,
         (p, k) => posMockService.createSale(p, k)
       );
+      posCartStore.getState().clearCart();
       setPendingSale(null);
       toast('تم تأكيد تسجيل الفاتورة المعلقة بنجاح');
     } catch (err: any) {
       toast(err?.message || 'تعذر تأكيد الفاتورة، حاول مرة أخرى', 'bad');
     } finally {
+      confirmingPendingRef.current = false;
       setConfirmingPending(false);
       checkPendingSale();
     }
@@ -292,6 +344,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
         });
       }
       setIsHeldOpen(false);
+      setHeldSales((list) => list.filter((item) => item.ref !== heldItem.ref));
       setCurrentScreen('terminal');
       toast(`تم استرجاع الفاتورة ${resumed.ref}`);
     } catch (err: any) {
@@ -301,6 +354,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
 
   const handleDeleteHeld = async (heldItem: PosHeldSale) => {
     await posMockService.deleteHeldSale(heldItem.ref);
+    setHeldSales((list) => list.filter((item) => item.ref !== heldItem.ref));
     toast(`تم حذف الفاتورة المعلقة ${heldItem.ref}`);
   };
 
@@ -380,6 +434,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
           <div className="row gap-2">
             <Icon n="alert" s={16} />
             <span>فيه فاتورة لم يتأكد تسجيلها</span>
+            {!canRecoverPending && <span>يلزم الرجوع للمسؤول إذا كانت الوردية الأصلية غير متاحة.</span>}
           </div>
           <button
             className="btn btn-sm"
@@ -389,7 +444,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
               fontWeight: 600,
               padding: '4px 12px',
             }}
-            disabled={confirmingPending}
+            disabled={confirmingPending || !canRecoverPending || isCheckoutOpen}
             onClick={handleConfirmPendingSale}
           >
             {confirmingPending ? 'جارِ التأكيد…' : 'تأكيد الآن'}
@@ -397,7 +452,18 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
         </div>
       )}
 
-      {!currentShift ? (
+      {starting ? (
+        <div className="gate" role="status">جارِ تحميل نقطة البيع…</div>
+      ) : startupError ? (
+        <div className="gate">
+          <div className="gate-card" role="alert">
+            <p>{startupError}</p>
+            <button className="btn btn-primary" onClick={() => setStartupAttempt((attempt) => attempt + 1)}>
+              إعادة المحاولة
+            </button>
+          </div>
+        </div>
+      ) : !currentShift ? (
         <OpenShiftGate onOpened={(shift) => setCurrentShift(shift)} />
       ) : (
         <>
@@ -407,8 +473,14 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
             branch={branch}
             cashier={cashier}
             shift={currentShift}
-            onOpenCloseShift={() => setIsCloseShiftOpen(true)}
-            onOpenReturns={() => setIsReturnOpen(true)}
+            onOpenCloseShift={() => {
+              if (createPendingSaleManager().getSaved()) {
+                toast('يجب تأكيد الفاتورة المعلقة قبل إغلاق الوردية', 'bad');
+                return;
+              }
+              setClosingShift(currentShift);
+            }}
+            onOpenReturns={canRefund ? () => setIsReturnOpen(true) : undefined}
             isDark={isDark}
             onToggleDark={toggleTheme}
             onLogout={onLogout}
@@ -431,7 +503,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
                 setDiscount={setDiscount}
                 onHold={() => setIsHoldOpen(true)}
                 onHeld={() => setIsHeldOpen(true)}
-                heldCount={heldSales.length}
+                heldCount={heldCount}
                 onPay={() => void handlePay()}
                 onClear={() => posCartStore.getState().clearCart()}
                 lastAdded={lastAdded}
@@ -453,25 +525,19 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
           {currentScreen === 'stocktake' && <StocktakePage toast={toast} />}
 
           {/* Modals & Overlays */}
-          <CloseShiftModal
-            open={isCloseShiftOpen}
-            onClose={() => setIsCloseShiftOpen(false)}
-            shift={currentShift}
-            onClosed={(closed) => {
-              posCartStore.getState().clearCart();
-              setCurrentShift(null);
-              setIsCloseShiftOpen(false);
-              toast(`تم إغلاق الوردية #${closed.shift_number} بنجاح`);
-            }}
-          />
-
           <CheckoutModal
             open={isCheckoutOpen}
-            onClose={() => setIsCheckoutOpen(false)}
+            onClose={() => {
+              setIsCheckoutOpen(false);
+              requestAnimationFrame(() => scanInputRef.current?.focus());
+            }}
             cart={cart}
             customer={customer}
-            discount={discount}
+            quote={quote}
+            isQuoting={isQuoting}
             onPaid={handleSalePaid}
+            onAttemptSettled={checkPendingSale}
+            pendingOwner={pendingOwner}
             branch={branch}
             cashier={cashier}
           />
@@ -495,11 +561,24 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
           />
 
           <ReturnModal
-            open={isReturnOpen}
+            open={canRefund && isReturnOpen}
             onClose={() => setIsReturnOpen(false)}
             toast={toast}
           />
         </>
+      )}
+      {closingShift && (
+        <CloseShiftModal
+          open
+          shift={closingShift}
+          onClose={() => setClosingShift(null)}
+          onClosed={() => setClosingShift(null)}
+          onCommitted={(closed) => {
+            posCartStore.getState().clearCart();
+            setCurrentShift(null);
+            toast(`تم إغلاق الوردية #${closed.shift_number} بنجاح`);
+          }}
+        />
       )}
     </div>
   );

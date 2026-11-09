@@ -119,6 +119,7 @@ export interface PastSale {
   date: string;
   cashier: string;
   customer: string;
+  customer_id?: number | null;
   method: string;
   items: PastSaleItem[];
   cash_amount?: number;

@@ -5,12 +5,15 @@ export interface PendingSaleDraft {
   key: string;
   payload: any;
   created_at?: number;
+  owner?: string;
+  submitted?: boolean;
 }
 
 export interface PendingSaleOptions {
   storage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
   retryDelays?: number[];
   storageKey?: string;
+  owner?: string;
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -27,7 +30,10 @@ export function createPendingSaleManager(opts: PendingSaleOptions = {}) {
     if (!storage) return null;
     try {
       const raw = storage.getItem(keyName);
-      return raw ? JSON.parse(raw) : null;
+      const draft = raw ? JSON.parse(raw) : null;
+      // Older checkout previews included a timestamp and items with only a local id.
+      if (draft?.payload?.t !== undefined && draft.payload.payment_method === undefined) return null;
+      return draft;
     } catch {
       return null;
     }
@@ -40,14 +46,16 @@ export function createPendingSaleManager(opts: PendingSaleOptions = {}) {
   const prepare = (payload: any): PendingSaleDraft => {
     const hash = JSON.stringify(payload);
     const existing = getSaved();
-    if (existing && existing.hash === hash) {
-      return existing;
+    if (existing) {
+      if (existing.owner === opts.owner && existing.hash === hash) return existing;
+      throw new PosApiError(409, 'يجب تأكيد الفاتورة المعلقة أولًا', 'pending_sale');
     }
     const draft: PendingSaleDraft = {
       hash,
       key: defaultUuid(),
       payload,
       created_at: Date.now(),
+      owner: opts.owner,
     };
     storage?.setItem(keyName, JSON.stringify(draft));
     return draft;
@@ -59,7 +67,13 @@ export function createPendingSaleManager(opts: PendingSaleOptions = {}) {
     sendFn: (payload: any, key: string) => Promise<T>,
     onRetrying?: (attempt: number, delayMs: number) => void,
   ): Promise<T> => {
-    // Keep draft saved while trying
+    const existing = getSaved();
+    if (existing && (existing.owner !== opts.owner || existing.key !== idempotencyKey || existing.hash !== JSON.stringify(payload))) {
+      throw new PosApiError(409, 'تعذر تأكيد الفاتورة خارج الوردية التي أُرسلت منها', 'pending_sale');
+    }
+
+    // A reload during the request must treat its result as unknown.
+    let uncertain = existing?.submitted === true;
     storage?.setItem(
       keyName,
       JSON.stringify({
@@ -67,6 +81,8 @@ export function createPendingSaleManager(opts: PendingSaleOptions = {}) {
         key: idempotencyKey,
         payload,
         created_at: Date.now(),
+        owner: opts.owner,
+        submitted: true,
       })
     );
 
@@ -83,6 +99,7 @@ export function createPendingSaleManager(opts: PendingSaleOptions = {}) {
 
         // Only retry status 0 (network abort, timeout, disconnected)
         const isNetworkFailure = apiErr.status === 0 || apiErr.code === 'network';
+        uncertain ||= isNetworkFailure || apiErr.status === 408 || apiErr.status >= 500 || apiErr.retryable;
         if (isNetworkFailure && attempt < delays.length) {
           const delayMs = delays[attempt];
           onRetrying?.(attempt + 1, delayMs);
@@ -90,8 +107,8 @@ export function createPendingSaleManager(opts: PendingSaleOptions = {}) {
           continue;
         }
 
-        // If it's a client error (e.g. 422, or 409 idempotency conflict), don't keep draft
-        if (apiErr.status >= 400 && apiErr.status < 500 && apiErr.status !== 408) {
+        // A rejection of this request cannot rule out an earlier commit.
+        if (!uncertain && apiErr.status >= 400 && apiErr.status < 500) {
           clear();
         }
         throw apiErr;

@@ -43,12 +43,20 @@ function AuthenticatedApp() {
   }, [routeWithQuery, route]);
   const can = useCallback((permission: string) =>
     hasPermission(user?.permissions, permission), [user]);
-  const cashierOnly = (user?.roles ?? []).includes('cashier') && !canAny(can,
+  const hasPosRole = (user?.roles ?? []).some((r) =>
+    r === 'cashier' ||
+    r === 'كاشير' ||
+    r.toLowerCase().includes('pos') ||
+    r.toLowerCase().includes('cashier') ||
+    r.includes('كاشير')
+  );
+  const hasAdminPermissions = canAny(can,
     'orders.view', 'treasuries.view', 'expenses.view', 'treasury_transfers.view', 'reports.view',
     'products.view', 'inventory.view', 'users.view', 'customers.view', 'roles.view', 'settings.view',
     'returns.view', 'shipping.view', 'price_lists.view', 'promotions.view', 'pos_shifts.view',
     'quotations.view', 'payment_notices.view',
   );
+  const cashierOnly = (hasPosRole || can('pos.access')) && !hasAdminPermissions;
 
   useEffect(() => {
     // Stocktake navigation guards may synchronously restore the accepted hash.
@@ -74,8 +82,8 @@ function AuthenticatedApp() {
 
   useEffect(() => {
     const isStore = ['/store', '/banners', '/settings/store', '/settings/banners'].includes(route);
-    if (cashierOnly && !['/', '/dashboard', '/pos', ...(can('ai_agent.use') ? ['/assistant'] : [])].includes(route)) {
-      window.location.replace('/dashboard');
+    if (cashierOnly && !['/pos', ...(can('ai_agent.use') ? ['/assistant'] : [])].includes(route)) {
+      window.location.replace('/pos');
     } else if (
       !['/', '/dashboard', '/categories', '/dealers', '/production', '/pos', '/users', '/roles', '/settings', '/assistant'].includes(route) &&
       !isStore &&
@@ -87,8 +95,11 @@ function AuthenticatedApp() {
     }
   }, [cashierOnly, route, isOperation, can]);
 
-  if (cashierOnly && !['/', '/dashboard', '/pos', ...(can('ai_agent.use') ? ['/assistant'] : [])].includes(route)) return null;
-  if (route === '/pos') return <PosPage />;
+  if (cashierOnly && route === '/assistant' && can('ai_agent.use')) {
+    // Allow POS assistant route if explicitly permitted
+  } else if (cashierOnly || route === '/pos') {
+    return <PosPage />;
+  }
 
   const categoriesActive = route === '/categories';
   const inventoryActive = route === '/inventory' || route.startsWith('/inventory/');

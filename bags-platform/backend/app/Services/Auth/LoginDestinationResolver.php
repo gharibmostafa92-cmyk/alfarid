@@ -31,13 +31,20 @@ final class LoginDestinationResolver
             if ($roles->isEmpty()) {
                 throw new BusinessException('حسابك غير مرتبط بأي صلاحية. تواصل مع الإدارة.', [], 403);
             }
-            if ($roles->count() === 1 && $roles->first() === StaffRole::Cashier->value) {
+            $isPosRole = $roles->count() === 1 && (
+                $roles->first() === StaffRole::Cashier->value
+                || $roles->first() === 'كاشير'
+                || str_contains(mb_strtolower((string) $roles->first()), 'pos')
+                || str_contains(mb_strtolower((string) $roles->first()), 'cashier')
+                || str_contains((string) $roles->first(), 'كاشير')
+            );
+            if ($isPosRole) {
                 // Block cashiers without an active assigned branch to prevent partially-functioning POS sessions.
                 if ($actor->branch_id === null || $actor->branch === null || ! $actor->branch->is_active) {
                     throw new BusinessException('حسابك غير مرتبط بفرع نشط.', [], 403);
                 }
 
-                return ['app' => 'backoffice', 'path' => '/dashboard', 'destination' => 'pos'];
+                return ['app' => 'backoffice', 'path' => '/pos', 'destination' => 'pos'];
             }
 
             return ['app' => 'backoffice', 'path' => '/dashboard', 'destination' => 'admin'];

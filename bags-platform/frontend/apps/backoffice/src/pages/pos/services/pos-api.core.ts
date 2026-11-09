@@ -87,6 +87,7 @@ export class PosApiService {
   private catalogInflight: Promise<void> | null = null;
 
   private held: PosHeldSale[] = [];
+  private bootstrapInflight: Promise<void> | null = null;
   private transfersIn: StockTransfer[] = [];
   private stocktakeId: number | null = null;
   private idemDrafts = new Map<string, { hash: string; key: string }>();
@@ -161,7 +162,14 @@ export class PosApiService {
     this.notify();
   }
 
-  public async bootstrap(): Promise<void> {
+  public bootstrap(): Promise<void> {
+    this.bootstrapInflight ??= this.fetchBootstrap().finally(() => {
+      this.bootstrapInflight = null;
+    });
+    return this.bootstrapInflight;
+  }
+
+  private async fetchBootstrap(): Promise<void> {
     const r = await this.call(() => this.http.get(EP.BOOTSTRAP));
     const d = r.data.data;
     this.syncActor({ ...d.user, branch: d.branch });
@@ -173,8 +181,8 @@ export class PosApiService {
     this.settings = d.settings;
     this.heldCount = d.held_count ?? 0;
     this.notify();
-    // Catalog failures are non-fatal here; screens call loadCatalog() again.
-    await this.loadCatalog().catch(() => undefined);
+    // The shift gate can render while the catalog loads in the background.
+    void this.loadCatalog().catch(() => undefined);
   }
 
   public getSettings(): PosSettings {
@@ -284,7 +292,7 @@ export class PosApiService {
   }
 
   public loadCatalog(force = false): Promise<void> {
-    if (!force && this.byId.size && Date.now() - this.catalogLoadedAt < CATALOG_STALE_MS) return Promise.resolve();
+    if (!force && Date.now() - this.catalogLoadedAt < CATALOG_STALE_MS) return Promise.resolve();
     if (this.catalogInflight) return this.catalogInflight;
     this.catalogInflight = this.fetchCatalog().finally(() => {
       this.catalogInflight = null;
@@ -310,7 +318,8 @@ export class PosApiService {
       cursor = next.data.meta?.next_cursor ?? null;
     }
     this.rebuild(items);
-    this.catalogEtag = first.headers?.etag ?? first.headers?.ETag ?? null;
+    const version = first.data.meta?.catalog_version;
+    this.catalogEtag = first.headers?.etag ?? first.headers?.ETag ?? (version ? `"${version}"` : null);
     this.catalogLoadedAt = Date.now();
     this.notify();
   }
@@ -510,8 +519,12 @@ export class PosApiService {
     returnItems: { id: number; qty: number; return_to: 'on_hand' | 'damaged' }[],
     exchangeItems: { id: number; qty: number }[],
     _netDiff: number,
+    customerId: number | null = null,
   ): Promise<void> {
-    const quote = await this.quoteSale({ items: exchangeItems.map((i) => ({ product_variant_id: i.id, qty: i.qty })) });
+    const quote = await this.quoteSale({
+      items: exchangeItems.map((i) => ({ product_variant_id: i.id, qty: i.qty })),
+      customer_id: customerId,
+    });
     await this.call(() =>
       this.http.post(EP.SALE_EXCHANGE(saleId), {
         returned_items: this.groupReturnLines(returnItems),

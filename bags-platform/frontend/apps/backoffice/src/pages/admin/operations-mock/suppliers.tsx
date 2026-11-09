@@ -228,11 +228,11 @@ export function SuppliersList({ go }: { go: (r: { m: string; id?: any; sub?: any
             {
               h: 'المورد',
               r: (s: SupplierRow) => (
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-2.5 min-w-0 max-w-[280px]">
                   <Avatar name={s.company || s.name} tone={s.id} size={32} />
-                  <div>
-                    <div className="font-semibold tx1">{s.company || s.name}</div>
-                    {s.company && <div className="text-[11.5px] tx3">{s.name}</div>}
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold tx1 truncate" title={s.company || s.name}>{s.company || s.name}</div>
+                    {s.company && <div className="text-[11.5px] tx3 truncate" title={s.name}>{s.name}</div>}
                   </div>
                 </div>
               ),

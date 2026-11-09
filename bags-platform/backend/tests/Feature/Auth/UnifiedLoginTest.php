@@ -86,7 +86,7 @@ class UnifiedLoginTest extends TestCase
         $staff->syncRoles([$this->staffRole('cashier')]);
 
         $this->postJson('/api/v1/auth/handoff/exchange', ['code' => $code])
-            ->assertOk()->assertJsonPath('redirect.path', '/dashboard');
+            ->assertOk()->assertJsonPath('redirect.path', '/pos');
 
         $this->assertSame(1, $staff->tokens()->count());
     }
@@ -208,7 +208,7 @@ class UnifiedLoginTest extends TestCase
         $this->login(['login' => 'cashier@example.test', 'password' => 'secret123'])
             ->assertOk()
             ->assertJsonPath('redirect.app', 'backoffice')
-            ->assertJsonPath('redirect.path', '/dashboard')
+            ->assertJsonPath('redirect.path', '/pos')
             ->assertJsonPath('actor.subtype', 'pos');
 
         $branchless = $this->makeStaff('cashier2@example.test', 'secret123');
