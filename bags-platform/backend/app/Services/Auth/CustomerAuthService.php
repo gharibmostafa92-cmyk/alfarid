@@ -14,7 +14,7 @@ use App\Jobs\SendCustomerPasswordReset;
 use App\Models\Customer;
 use App\Models\CustomerAuditLog;
 use App\Notifications\Channels\CustomerSmsChannel;
-use App\Notifications\CustomerPasswordReset;
+use App\Notifications\Auth\CustomerPasswordReset;
 use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Rules\UniqueCustomerEmail;
 use App\Services\Auth\StaffTokenService;

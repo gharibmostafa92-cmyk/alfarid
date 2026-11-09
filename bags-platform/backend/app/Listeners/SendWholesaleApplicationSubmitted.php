@@ -6,7 +6,7 @@ namespace App\Listeners;
 
 use App\Events\WholesaleApplicationSubmitted;
 use App\Notifications\StaffRecipients;
-use App\Notifications\WholesaleApplicationSubmittedNotification;
+use App\Notifications\Wholesale\WholesaleApplicationSubmittedNotification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;

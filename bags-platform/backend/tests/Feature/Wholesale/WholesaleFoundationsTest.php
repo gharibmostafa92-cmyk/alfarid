@@ -16,7 +16,7 @@ use App\Models\Quotation;
 use App\Models\Treasury;
 use App\Models\User;
 use App\Models\WholesalePaymentNotice;
-use App\Notifications\WholesaleDeskNotification;
+use App\Notifications\Wholesale\WholesaleDeskNotification;
 use App\Services\Ai\DomainRouter;
 use App\Services\Ai\Wholesale\WholesaleToolProvider;
 use App\Services\Orders\OrderService;

@@ -12,7 +12,7 @@ use App\Models\OrderStatusHistory;
 use App\Models\ProductVariant;
 use App\Models\Quotation;
 use App\Notifications\StaffRecipients;
-use App\Notifications\WholesaleDeskNotification;
+use App\Notifications\Wholesale\WholesaleDeskNotification;
 use App\Services\Ai\EntityResolver;
 use App\Services\Ai\GeminiClient;
 use App\Services\Wholesale\QuotationService;

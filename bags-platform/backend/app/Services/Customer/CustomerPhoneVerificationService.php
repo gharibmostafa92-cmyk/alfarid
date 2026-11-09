@@ -6,7 +6,7 @@ namespace App\Services\Customer;
 
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
-use App\Notifications\CustomerPhoneVerificationCode;
+use App\Notifications\Auth\CustomerPhoneVerificationCode;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;

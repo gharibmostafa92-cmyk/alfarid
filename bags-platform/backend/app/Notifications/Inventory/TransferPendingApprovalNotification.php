@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Notifications;
+namespace App\Notifications\Inventory;
 
 use App\Models\StockTransfer;
 use Illuminate\Bus\Queueable;

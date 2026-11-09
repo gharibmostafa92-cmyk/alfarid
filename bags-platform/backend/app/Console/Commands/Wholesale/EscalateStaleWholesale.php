@@ -9,7 +9,7 @@ use App\Enums\WholesalePaymentNoticeStatus;
 use App\Models\Quotation;
 use App\Models\WholesalePaymentNotice;
 use App\Notifications\StaffRecipients;
-use App\Notifications\WholesaleDeskNotification;
+use App\Notifications\Wholesale\WholesaleDeskNotification;
 use App\Services\Shared\SettingService;
 use App\Services\Wholesale\WholesaleOutbox;
 use Illuminate\Console\Command;

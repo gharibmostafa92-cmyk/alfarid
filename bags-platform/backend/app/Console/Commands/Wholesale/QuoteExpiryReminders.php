@@ -7,7 +7,7 @@ namespace App\Console\Commands\Wholesale;
 use App\Enums\QuotationStatus;
 use App\Models\OutboundMessage;
 use App\Models\Quotation;
-use App\Notifications\WholesaleDeskNotification;
+use App\Notifications\Wholesale\WholesaleDeskNotification;
 use App\Services\Wholesale\WholesaleOutbox;
 use Illuminate\Console\Command;
 

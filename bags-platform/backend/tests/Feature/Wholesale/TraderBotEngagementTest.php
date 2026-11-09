@@ -11,7 +11,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
-use App\Notifications\WholesaleDeskNotification;
+use App\Notifications\Wholesale\WholesaleDeskNotification;
 use App\Services\Wholesale\CustomerWholesaleAssistant;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;

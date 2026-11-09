@@ -14,7 +14,7 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
 use App\Models\User;
-use App\Notifications\CustomerPasswordReset;
+use App\Notifications\Auth\CustomerPasswordReset;
 use App\Services\Auth\CustomerAuthService;
 use App\Services\Catalog\StoreCatalogService;
 use Illuminate\Filesystem\FilesystemAdapter;

@@ -7,7 +7,7 @@ namespace App\Listeners;
 use App\Events\StockLowDetected;
 use App\Models\ProductVariant;
 use App\Notifications\StaffRecipients;
-use App\Notifications\TransferSuggestionNotification;
+use App\Notifications\Inventory\TransferSuggestionNotification;
 use App\Services\Ai\Inventory\InventoryCoverage;
 use App\Services\Shared\SettingService;
 use Illuminate\Contracts\Queue\ShouldQueue;

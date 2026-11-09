@@ -14,7 +14,7 @@ use App\Events\QuotationSubmitted;
 use App\Jobs\ScoreWholesaleReceipt;
 use App\Models\Customer;
 use App\Notifications\StaffRecipients;
-use App\Notifications\WholesaleDeskNotification;
+use App\Notifications\Wholesale\WholesaleDeskNotification;
 use App\Services\Wholesale\WholesaleOutbox;
 use Illuminate\Events\Dispatcher;
 use Illuminate\Support\Facades\Notification;

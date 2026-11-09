@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Auth;
 
 use App\Enums\StaffRole;
-use App\Notifications\StaffAuthenticationAlert;
+use App\Notifications\Auth\StaffAuthenticationAlert;
 use App\Notifications\StaffRecipients;
 use Illuminate\Support\Facades\Notification;
 

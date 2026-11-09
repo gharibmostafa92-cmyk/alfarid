@@ -6,7 +6,7 @@ namespace App\Console\Commands\Operations;
 
 use App\Enums\StockMovementType;
 use App\Models\Stocktake;
-use App\Notifications\InventoryAnomalyDigestNotification;
+use App\Notifications\Inventory\InventoryAnomalyDigestNotification;
 use App\Notifications\StaffRecipients;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Shared\SettingService;

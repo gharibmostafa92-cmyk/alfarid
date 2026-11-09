@@ -13,7 +13,7 @@ use App\Models\AiPendingAction;
 use App\Models\Customer;
 use App\Models\CustomerGroup;
 use App\Models\User;
-use App\Notifications\CustomerPasswordReset;
+use App\Notifications\Auth\CustomerPasswordReset;
 use App\Services\Ai\ToolRegistry;
 use App\Services\Customer\CustomerManagementService;
 use App\Services\Customer\CustomerMessageBudget;

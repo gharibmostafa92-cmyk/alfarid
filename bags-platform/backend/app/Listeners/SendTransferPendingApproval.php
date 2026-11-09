@@ -6,7 +6,7 @@ namespace App\Listeners;
 
 use App\Events\TransferPendingApproval;
 use App\Notifications\StaffRecipients;
-use App\Notifications\TransferPendingApprovalNotification;
+use App\Notifications\Inventory\TransferPendingApprovalNotification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Notifications;
+namespace App\Notifications\Wholesale;
 
 use App\Models\Customer;
 use Illuminate\Bus\Queueable;

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Console\Commands\Wholesale;
 
 use App\Notifications\StaffRecipients;
-use App\Notifications\WholesaleDeskNotification;
+use App\Notifications\Wholesale\WholesaleDeskNotification;
 use App\Services\Wholesale\WholesaleInsights;
 use App\Services\Wholesale\WholesaleOutbox;
 use Illuminate\Console\Command;

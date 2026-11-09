@@ -16,7 +16,7 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\User;
 use App\Notifications\Channels\CustomerSmsChannel;
-use App\Notifications\CustomerPasswordReset;
+use App\Notifications\Auth\CustomerPasswordReset;
 use App\Services\Auth\CustomerAuthService;
 use App\Services\Pricing\PricingService;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;

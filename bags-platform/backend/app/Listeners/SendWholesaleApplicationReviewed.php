@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Listeners;
 
 use App\Events\WholesaleApplicationReviewed;
-use App\Notifications\WholesaleApplicationReviewedNotification;
+use App\Notifications\Wholesale\WholesaleApplicationReviewedNotification;
 use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 
 /**

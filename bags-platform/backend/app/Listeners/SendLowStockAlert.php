@@ -6,7 +6,7 @@ namespace App\Listeners;
 
 use App\Events\StockLowDetected;
 use App\Models\ProductVariant;
-use App\Notifications\LowStockAlertNotification;
+use App\Notifications\Inventory\LowStockAlertNotification;
 use App\Notifications\StaffRecipients;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\Cache;

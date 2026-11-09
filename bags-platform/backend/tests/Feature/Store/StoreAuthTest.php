@@ -7,7 +7,7 @@ namespace Tests\Feature\Store;
 use App\Enums\CustomerStatus;
 use App\Enums\CustomerType;
 use App\Models\Customer;
-use App\Notifications\CustomerPasswordReset;
+use App\Notifications\Auth\CustomerPasswordReset;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;

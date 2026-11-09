@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use App\Models\Customer;
-use App\Notifications\CustomerPasswordReset;
+use App\Notifications\Auth\CustomerPasswordReset;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Notification;
