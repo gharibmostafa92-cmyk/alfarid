@@ -181,7 +181,7 @@ blob-report/
 # ------------------------------------------
 -e
 download
-store
+/bags-platform/backend/store
 probe-servers-tmp.cjs
 repomix-files.txt
 
@@ -195,7 +195,7 @@ repomix-files.txt
 docs/superpowers/
 
 # ------------------------------------------
-# Archived workspace clutter (preserved history)
+# Ignore new archive files while keeping tracked copies
 # ------------------------------------------
-!_archive_unused/**
+/_archive_unused/
 
