@@ -1,0 +1,35 @@
+import { defaultApiClient as apiClient } from '../axios-instance';
+import { SLOW_REQUEST_TIMEOUT } from './operations/http';
+
+const W = '/api/v1/wholesale';
+export const wholesaleEndpoints = {
+  applicationStatus: (signal?: AbortSignal) => apiClient.get(`${W}/auth/application-status`, { signal }).then((r) => r.data.data),
+  dashboard: (signal?: AbortSignal) => apiClient.get(`${W}/dashboard`, { signal }).then((r) => r.data.data),
+  products: (p: { search?: string; page?: number; per_page?: number }, signal?: AbortSignal) => apiClient.get(`${W}/products`, { params: p, signal }).then((r) => r.data),
+  exportPriceList: (format: 'pdf' | 'xlsx') => apiClient.get(`${W}/price-list/export`, { params: { format }, responseType: 'blob', timeout: SLOW_REQUEST_TIMEOUT }),
+  quickLookup: (items: Array<{ sku?: string; barcode?: string; qty: number }>) => apiClient.post(`${W}/quick-order/lookup`, { items }).then((r) => r.data),
+  quickImport: (file: File) => { const f = new FormData(); f.append('file', file); return apiClient.post(`${W}/quick-order/import`, f, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data.data); },
+  quickAddToCart: (items: Array<{ sku: string; qty: number }>) => apiClient.post(`${W}/quick-order/add-to-cart`, { items }).then((r) => r.data.data),
+  orders: (p: { group?: string; page?: number }, signal?: AbortSignal) => apiClient.get(`${W}/orders`, { params: p, signal }).then((r) => r.data),
+  order: (id: number, signal?: AbortSignal) => apiClient.get(`${W}/orders/${id}`, { signal }).then((r) => r.data.data),
+  reorder: (id: number) => apiClient.post(`${W}/orders/${id}/reorder`).then((r) => r.data.data),
+  invoices: (p: { payment_status?: 'paid' | 'unpaid'; page?: number }, signal?: AbortSignal) => apiClient.get(`${W}/invoices`, { params: p, signal }).then((r) => r.data),
+  invoicePdf: (id: number) => apiClient.get(`${W}/invoices/${id}/pdf`, { responseType: 'blob' }),
+  statement: (p: { from?: string; to?: string }, signal?: AbortSignal) => apiClient.get(`${W}/statement`, { params: p, signal }).then((r) => r.data.data),
+  notices: (p: { status?: string; page?: number }, signal?: AbortSignal) => apiClient.get(`${W}/payment-notices`, { params: p, signal }).then((r) => r.data),
+  notice: (id: number, signal?: AbortSignal) => apiClient.get(`${W}/payment-notices/${id}`, { signal }).then((r) => r.data.data),
+  outstanding: (signal?: AbortSignal) => apiClient.get(`${W}/payment-notices/outstanding`, { signal }).then((r) => r.data.data),
+  createNotice: (fd: FormData) => apiClient.post(`${W}/payment-notices`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data.data),
+  noticeReceipt: (id: number) => apiClient.get(`${W}/payment-notices/${id}/receipt`, { responseType: 'blob', params: { signed: 1 } }),
+  quotes: (p: { status?: string; page?: number }, signal?: AbortSignal) => apiClient.get(`${W}/quotations`, { params: p, signal }).then((r) => r.data),
+  quote: (id: number, signal?: AbortSignal) => apiClient.get(`${W}/quotations/${id}`, { signal }).then((r) => r.data.data),
+  createQuote: (body: unknown) => apiClient.post(`${W}/quotations`, body).then((r) => r.data.data),
+  updateQuote: (id: number, body: unknown) => apiClient.put(`${W}/quotations/${id}`, body).then((r) => r.data.data),
+  deleteQuote: (id: number) => apiClient.delete(`${W}/quotations/${id}`),
+  submitQuote: (id: number) => apiClient.post(`${W}/quotations/${id}/submit`).then((r) => r.data.data),
+  acceptQuote: (id: number) => apiClient.post(`${W}/quotations/${id}/accept`).then((r) => r.data.data),
+  rejectQuote: (id: number) => apiClient.post(`${W}/quotations/${id}/reject`).then((r) => r.data.data),
+  notifications: (page = 1, signal?: AbortSignal) => apiClient.get(`${W}/notifications`, { params: { page }, signal }).then((r) => r.data),
+  readNotification: (id: string) => apiClient.post(`${W}/notifications/${id}/read`).then((r) => r.data),
+  readAllNotifications: () => apiClient.post(`${W}/notifications/read-all`).then((r) => r.data),
+};
