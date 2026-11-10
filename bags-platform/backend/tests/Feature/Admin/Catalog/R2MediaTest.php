@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Tests\Feature\Admin\Catalog;
 
 use App\Models\Category;
+use App\Services\Media\UuidPathGenerator;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Tests\TestCase;
 
 class R2MediaTest extends TestCase
@@ -75,5 +77,46 @@ class R2MediaTest extends TestCase
             'filesystems.disks.r2_public.bucket' => 'catalog-bucket', 'filesystems.disks.r2_public.url' => 'https://catalog.example.test/alfarid',
             'filesystems.disks.r2.root' => 'alfarid', 'services.gemini.api_key' => 'secret-gemini-key', 'services.gemini.model' => 'test-model']);
         $this->artisan('integrations:check')->expectsOutput('R2 and Gemini are configured. Use --live to verify the services.')->assertSuccessful();
+    }
+
+    public function test_private_signed_url_ttl_cannot_exceed_one_hour(): void
+    {
+        $captured = null;
+        config([
+            'filesystems.catalog_disk' => 'r2',
+            'filesystems.disks.r2.key' => 'test-key',
+            'filesystems.disks.r2.secret' => 'test-secret',
+            'filesystems.disks.r2.bucket' => 'private-catalog',
+            'filesystems.disks.r2.endpoint' => 'https://r2.example.test',
+            'filesystems.disks.r2.download_url_ttl_seconds' => 999999,
+            'filesystems.disks.r2_public.bucket' => 'other-bucket',
+        ]);
+        Storage::disk('r2')->buildTemporaryUrlsUsing(function (string $path, $expiration) use (&$captured): string {
+            $captured = $expiration;
+
+            return 'https://storage.example.test/'.rawurlencode($path).'?signed=1';
+        });
+        $media = Category::factory()->create()->addMedia(UploadedFile::fake()->image('private.png'))->toMediaCollection('image');
+        $media->getUrl();
+
+        $this->assertNotNull($captured);
+        $this->assertTrue($captured->lessThanOrEqualTo(now()->addHour()->addSeconds(5)));
+        $this->assertTrue($captured->greaterThan(now()->addMinutes(50)));
+    }
+
+    public function test_non_empty_media_prefix_is_rejected(): void
+    {
+        config(['media-library.prefix' => 'tenant']);
+        $this->expectException(\LogicException::class);
+        app(UuidPathGenerator::class)->getPath(new Media);
+    }
+
+    public function test_staging_cannot_store_catalog_media_on_a_local_disk(): void
+    {
+        $this->app['env'] = 'staging';
+        config(['filesystems.catalog_disk' => 'public']);
+        Storage::fake('public');
+        $this->expectException(\LogicException::class);
+        Category::factory()->create()->addMedia(UploadedFile::fake()->image('staging.png'))->toMediaCollection('image');
     }
 }

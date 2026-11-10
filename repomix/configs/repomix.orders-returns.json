@@ -1,55 +1,57 @@
-{
-  "output": {
-    "filePath": "repomix/outputs/repomix-orders-returns.xml",
-    "style": "xml",
-    "parsableStyle": true,
-    "fileSummary": true,
-    "directoryStructure": true,
-    "removeComments": false,
-    "removeEmptyLines": true,
-    "topFilesLength": 20,
-    "showLineNumbers": true,
-    "copyToClipboard": false,
-    "instructionFilePath": "repomix/instructions/audit-security-prompt.md",
-    "headerText": "DOMAIN: ORDERS, RETURN REQUESTS LIFECYCLE & STORAGE ATTACHMENTS\nAuditing order state transitions, return request approval/receipt/refund pipelines, split refund distribution, order events, and return commands."
-  },
-  "include": [
-    "bags-platform/backend/app/Services/ReturnService.php",
-    "bags-platform/backend/app/Services/Orders/**",
-    "bags-platform/backend/app/Events/Orders/**",
-    "bags-platform/backend/app/Listeners/Orders/**",
-    "bags-platform/backend/app/Console/Commands/Orders/**",
-    "bags-platform/backend/app/Models/ReturnRequest.php",
-    "bags-platform/backend/app/Models/ReturnRequestItem.php",
-    "bags-platform/backend/app/Models/Order.php",
-    "bags-platform/backend/app/Models/OrderItem.php",
-    "bags-platform/backend/app/Models/OrderStatusHistory.php",
-    "bags-platform/backend/app/Enums/ReturnStatus.php",
-    "bags-platform/backend/app/Enums/RefundMethod.php",
-    "bags-platform/backend/app/Enums/OrderStatus.php",
-    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/ReturnController.php",
-    "bags-platform/backend/app/Http/Controllers/Api/V1/Store/ReturnController.php",
-    "bags-platform/backend/app/Http/Controllers/Api/V1/AttachmentController.php",
-    "bags-platform/backend/app/Http/Requests/Admin/Return/**",
-    "bags-platform/backend/app/Http/Requests/Store/Return/**",
-    "bags-platform/backend/app/Http/Resources/Admin/ReturnRequest*",
-    "bags-platform/backend/app/Http/Resources/Store/ReturnRequest*",
-    "bags-platform/backend/database/migrations/*return_request*.php",
-    "bags-platform/backend/database/migrations/*requires_refund*.php",
-    "bags-platform/backend/database/migrations/*attachment*.php",
-    "bags-platform/backend/database/seeders/ReturnPermissionSeeder.php",
-    "bags-platform/backend/tests/Feature/Orders/Return*",
-    "bags-platform/frontend/packages/api-client/src/endpoints/operations/orders.ts"
-  ],
-  "ignore": {
-    "useGitignore": true,
-    "useDefaultPatterns": true,
-    "customPatterns": [
-      "**/vendor/**",
-      "**/node_modules/**",
-      "**/.git/**",
-      "**/storage/**",
-      "**/*.log"
-    ]
-  }
+﻿{
+    "output":  {
+                   "filePath":  "repomix/outputs/repomix-orders-returns.xml",
+                   "style":  "xml",
+                   "parsableStyle":  true,
+                   "fileSummary":  true,
+                   "directoryStructure":  true,
+                   "removeComments":  false,
+                   "removeEmptyLines":  true,
+                   "topFilesLength":  20,
+                   "showLineNumbers":  true,
+                   "copyToClipboard":  false,
+                   "instructionFilePath":  "repomix/instructions/audit-security-prompt.md",
+                   "headerText":  "DOMAIN: ORDERS, RETURN REQUESTS LIFECYCLE \u0026 STORAGE ATTACHMENTS\nAuditing order state transitions, return request approval/receipt/refund pipelines, split refund distribution, order events, and return commands."
+               },
+    "include":  [
+                    "bags-platform/backend/app/Services/ReturnService.php",
+                    "bags-platform/backend/app/Services/Orders/**",
+                    "bags-platform/backend/app/Events/Orders/**",
+                    "bags-platform/backend/app/Listeners/Orders/**",
+                    "bags-platform/backend/app/Console/Commands/Orders/**",
+                    "bags-platform/backend/app/Models/ReturnRequest.php",
+                    "bags-platform/backend/app/Models/ReturnRequestItem.php",
+                    "bags-platform/backend/app/Models/Order.php",
+                    "bags-platform/backend/app/Models/OrderItem.php",
+                    "bags-platform/backend/app/Models/OrderStatusHistory.php",
+                    "bags-platform/backend/app/Enums/ReturnStatus.php",
+                    "bags-platform/backend/app/Enums/RefundMethod.php",
+                    "bags-platform/backend/app/Enums/OrderStatus.php",
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/ReturnController.php",
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Store/ReturnController.php",
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/AttachmentController.php",
+                    "bags-platform/backend/app/Http/Requests/Admin/Return/**",
+                    "bags-platform/backend/app/Http/Requests/Store/Return/**",
+                    "bags-platform/backend/app/Http/Resources/Admin/ReturnRequest*",
+                    "bags-platform/backend/app/Http/Resources/Store/ReturnRequest*",
+                    "bags-platform/backend/database/migrations/*return_request*.php",
+                    "bags-platform/backend/database/migrations/*requires_refund*.php",
+                    "bags-platform/backend/database/migrations/*attachment*.php",
+                    "bags-platform/backend/database/seeders/ReturnPermissionSeeder.php",
+                    "bags-platform/frontend/packages/api-client/src/endpoints/operations/orders.ts"
+                ],
+    "ignore":  {
+                   "useGitignore":  true,
+                   "useDefaultPatterns":  true,
+                   "customPatterns":  [
+                                          "**/tests/**",
+                                          "**/*.test.*",
+                                          "**/*.spec.*",
+                                          "**/vendor/**",
+                                          "**/node_modules/**",
+                                          "**/.git/**",
+                                          "**/storage/**",
+                                          "**/*.log"
+                                      ]
+               }
 }

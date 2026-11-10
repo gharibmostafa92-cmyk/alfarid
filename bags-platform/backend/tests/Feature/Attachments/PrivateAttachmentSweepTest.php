@@ -6,6 +6,7 @@ namespace Tests\Feature\Attachments;
 
 use App\Models\Customer;
 use App\Models\ReturnRequestItem;
+use App\Models\SupplierDelivery;
 use App\Models\SupplierInvoice;
 use App\Models\User;
 use App\Models\WholesalePaymentNotice;
@@ -15,11 +16,64 @@ use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class PrivateAttachmentSweepTest extends TestCase
 {
     use LazilyRefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->markStorageForCleanup('r2');
+    }
+
+    public function test_cleanup_refuses_a_disk_marked_for_another_database(): void
+    {
+        $disk = Storage::disk('r2');
+        $disk->put('.alfarid-cleanup-owner', 'another-environment');
+        $path = 'supplier_invoices/old/retained.pdf';
+        $disk->put($path, 'invoice');
+        touch($disk->path($path), now()->subDays(2)->timestamp);
+
+        $this->artisan('attachments:prune-orphans')->assertFailed();
+        $this->artisan('media:prune-orphans --disk=r2 --staging-only')->assertFailed();
+        $disk->assertExists($path);
+    }
+
+    public function test_a_reference_from_a_different_attachment_column_protects_the_file(): void
+    {
+        $path = 'supplier_invoices/old/cross-reference.pdf';
+        SupplierDelivery::factory()->create(['invoice_file_path' => $path]);
+        $disk = Storage::disk('r2');
+        $disk->put($path, 'invoice');
+        touch($disk->path($path), now()->subDays(2)->timestamp);
+
+        $this->artisan('attachments:prune-orphans')->assertSuccessful();
+        $disk->assertExists($path);
+    }
+
+    public function test_old_customer_uploads_without_a_document_row_are_reclaimed(): void
+    {
+        $customer = Customer::factory()->wholesale()->create();
+        $prefix = 'customer_documents/'.$customer->id.'/'.Str::uuid();
+        $orphan = $prefix.'/orphan.pdf';
+        $referenced = $prefix.'/referenced.pdf';
+        $customer->documents()->create([
+            'file_path' => $referenced, 'document_type' => 'other',
+            'original_name' => 'referenced.pdf', 'mime_type' => 'application/pdf',
+        ]);
+        $disk = Storage::disk('r2');
+        foreach ([$orphan, $referenced] as $path) {
+            $disk->put($path, 'document');
+            touch($disk->path($path), now()->subDays(2)->timestamp);
+        }
+
+        $this->artisan('attachments:prune-orphans')->assertSuccessful();
+        $disk->assertMissing($orphan);
+        $disk->assertExists($referenced);
+    }
 
     public function test_customer_document_is_staged_before_its_write_transaction_and_can_be_reviewed(): void
     {
@@ -99,6 +153,8 @@ class PrivateAttachmentSweepTest extends TestCase
         }
         $proxy = \Mockery::mock(FilesystemAdapter::class);
         $proxy->shouldReceive('getDriver')->andReturn($disk->getDriver());
+        $proxy->shouldReceive('exists')->with('.alfarid-cleanup-owner')->andReturnTrue();
+        $proxy->shouldReceive('get')->with('.alfarid-cleanup-owner')->andReturn('alfarid-test');
         $proxy->shouldReceive('delete')->with($failed)->once()->andReturnFalse();
         $proxy->shouldReceive('delete')->with($other)->once()->andReturnUsing(fn ($path) => $disk->delete($path));
         Storage::shouldReceive('disk')->with('r2')->andReturn($proxy);

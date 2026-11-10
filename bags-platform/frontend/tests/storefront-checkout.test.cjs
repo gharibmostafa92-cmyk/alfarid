@@ -114,12 +114,13 @@ test('tracking encodes an order number as one path segment and passes the phone 
 
 test('root categories with direct products remain navigable without fabricated subcategories', () => {
   const { toMegaDepartments } = load('apps/storefront/src/lib/sophie-mappers.ts', {
-    './catalog-mappers': { pick: (en, ar) => en || ar },
-    './store-routes': load('apps/storefront/src/lib/store-routes.ts'),
+    '@alfarid/utils': load('packages/utils/src/currency.ts'),
+    '@/lib/orders/store-routes': load('apps/storefront/src/lib/orders/store-routes.ts'),
   });
   const result = toMegaDepartments([{ slug: 'bags', name_en: 'Bags', products_count: 3, image: null, children: [] },
     { slug: 'empty', name_en: 'Empty', products_count: 0, children: [] }]);
   assert.deepEqual(Object.keys(result), ['bags']);
+  assert.equal(result.bags.href, '/shop?category=bags');
   assert.equal(result.bags.col1[0].links[0].slug, 'bags');
   assert.equal(result.bags.col1[0].links[0].count, 3);
 });

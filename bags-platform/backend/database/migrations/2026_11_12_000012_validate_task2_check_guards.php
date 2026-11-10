@@ -25,7 +25,7 @@ return new class extends Migration
             ['treasury_transfers', 'treasury_transfers_approver_required'],
             ['wholesale_payment_allocations', 'wholesale_payment_allocations_amount_positive'],
         ] as [$table, $constraint]) {
-            if (DB::selectOne('SELECT 1 AS x FROM pg_constraint WHERE conname = ?', [$constraint]) !== null) {
+            if (DB::selectOne('SELECT 1 FROM pg_constraint WHERE conname = ? AND conrelid = to_regclass(?)', [$constraint, $table]) !== null) {
                 DB::statement("ALTER TABLE {$table} VALIDATE CONSTRAINT {$constraint}");
             }
         }

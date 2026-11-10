@@ -24,6 +24,9 @@ class TraderBotMediaTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
+    // Ogg page with an Opus identification packet for MIME detection.
+    private const OGG_OPUS_HEADER = 'T2dnUwACAAAAAAAAAAABAAAAAAAAAAAAAAABE09wdXNIZWFkAQE4AYC7AAAAAAA=';
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -67,20 +70,12 @@ class TraderBotMediaTest extends TestCase
 
     private function fakeImage(string $name = 'sheet.jpg'): UploadedFile
     {
-        $path = tempnam(sys_get_temp_dir(), 'sheet');
-        file_put_contents($path, 'fake-image-bytes');
-        rename($path, $path.'.jpg');
-        $path .= '.jpg';
-
-        return new UploadedFile($path, $name, 'image/jpeg', null, true);
+        return UploadedFile::fake()->image($name);
     }
 
     private function fakeAudio(): UploadedFile
     {
-        $path = tempnam(sys_get_temp_dir(), 'voice');
-        file_put_contents($path, 'fake-audio-bytes');
-
-        return new UploadedFile($path, 'voice.ogg', 'audio/ogg', null, true);
+        return UploadedFile::fake()->createWithContent('voice.ogg', base64_decode(self::OGG_OPUS_HEADER))->mimeType('audio/ogg');
     }
 
     private function fakeGeminiStructured(array $data): void
@@ -141,7 +136,7 @@ class TraderBotMediaTest extends TestCase
         $this->stockedVariant('شنطة كروس بني', 'CROSS-1');
         Http::fakeSequence()
             ->push(['url' => 'https://fb.cdn/sheet1'], 200)
-            ->push('fake-image-bytes', 200)
+            ->push($this->fakeImage()->getContent(), 200)
             ->push([
                 'candidates' => [[
                     'finishReason' => 'STOP',
@@ -180,7 +175,7 @@ class TraderBotMediaTest extends TestCase
         $customer = $this->verifiedTrader();
         Http::fakeSequence()
             ->push(['url' => 'https://fb.cdn/voice1'], 200)
-            ->push('fake-audio-bytes', 200)
+            ->push($this->fakeAudio()->getContent(), 200)
             ->push([
                 'candidates' => [[
                     'finishReason' => 'STOP',

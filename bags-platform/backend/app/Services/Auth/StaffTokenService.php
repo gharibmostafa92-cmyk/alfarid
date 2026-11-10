@@ -38,8 +38,17 @@ final class StaffTokenService
             // Prune expired tokens and enforce FIFO token cap to prevent unbounded session table growth.
             self::pruneAndCap($user, (int) config('auth.staff_max_tokens', 20));
 
-            // M7: default 24h shift-friendly TTL; POS destinations get least-privilege ['pos'] ability.
+            // L8: abilities follow the roles committed before this lock, not a
+            // destination computed on the unlocked row.
+            $user->unsetRelation('roles');
+            $user->unsetRelation('permissions');
+            $user->load(['branch', 'roles.permissions', 'permissions']);
+            if ($user->roles->isNotEmpty()) {
+                $destination = app(LoginDestinationResolver::class)->resolve($user);
+                $abilities = ($destination['destination'] ?? null) === 'pos' ? ['pos'] : ['*'];
+            }
             $abilities = $abilities === [] ? ['*'] : array_values(array_unique($abilities));
+
             return $user->createToken('staff-token', $abilities, now()->addMinutes(max(1, (int) config('auth.staff_token_minutes', 1440))))->plainTextToken;
         });
     }

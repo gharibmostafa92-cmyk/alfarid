@@ -6,6 +6,7 @@ namespace App\Console\Commands\Maintenance;
 
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Support\StorageCleanupOwner;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -35,18 +36,40 @@ class PruneOrphanMediaFiles extends Command
             return self::FAILURE;
         }
         $dryRun = (bool) $this->option('dry-run');
+        if ($diskName === 'r2' && ! $this->option('staging-only')) {
+            $this->error('Only known staging rows can be pruned on the private disk.');
+
+            return self::FAILURE;
+        }
+        $privateBucket = config('filesystems.disks.r2.bucket');
+        if ($diskName === 'r2_public' && $privateBucket && $privateBucket === config('filesystems.disks.r2_public.bucket')) {
+            $this->error('Catalog cleanup requires a separate public bucket.');
+
+            return self::FAILURE;
+        }
         $cutoff = now()->subMinutes($olderThan)->getTimestamp();
 
         $disk = Storage::disk($diskName);
+        if (! $dryRun) {
+            try {
+                StorageCleanupOwner::assertMatches($disk);
+            } catch (Throwable $exception) {
+                report($exception);
+                $this->error('Storage cleanup ownership could not be verified.');
+
+                return self::FAILURE;
+            }
+        }
         $pruned = 0;
         $skipped = 0;
         $failures = 0;
 
         // A terminated video upload can leave its staging row behind. Remove
         // expired staging media so the UUID sweep can reclaim those files too.
-        Media::query()->whereIn('model_type', [Product::class, ProductVariant::class])->whereIn('collection_name', ['video_staging', 'images_staging'])
+        // task3 M-1: morph aliases, not FQCNs (matches ProductMediaService readers).
+        Media::query()->whereIn('model_type', [(new Product)->getMorphClass(), (new ProductVariant)->getMorphClass()])->whereIn('collection_name', ['video_staging', 'images_staging'])
             ->where('disk', $diskName)->where('created_at', '<', now()->subMinutes($olderThan))
-            ->chunkById(100, function ($media) use ($dryRun, &$failures): void {
+            ->chunkById(100, function ($media) use ($diskName, $dryRun, &$failures): void {
                 foreach ($media as $item) {
                     if ($dryRun) {
                         $this->line('Expired staging media: '.$item->id);
@@ -54,6 +77,9 @@ class PruneOrphanMediaFiles extends Command
                         continue;
                     }
                     try {
+                        if ($item->conversions_disk && $item->conversions_disk !== $diskName) {
+                            StorageCleanupOwner::assertMatches(Storage::disk($item->conversions_disk));
+                        }
                         $item->delete();
                     } catch (Throwable $exception) {
                         $failures++;

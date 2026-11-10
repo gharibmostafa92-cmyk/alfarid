@@ -41,10 +41,14 @@ final class TurnstileToken implements ValidationRule
             return;
         }
         try {
-            $ok = Http::asForm()->timeout(5)
+            $response = Http::asForm()->timeout(2)
                 ->post('https://challenges.cloudflare.com/turnstile/v0/siteverify', [
                     'secret' => $secret, 'response' => $value, 'remoteip' => $this->ip,
-                ])->json('success') === true;
+                ]);
+            $expectedHost = (string) config('services.turnstile.expected_hostname', '');
+            $hostname = (string) $response->json('hostname');
+            $ok = $response->json('success') === true
+                && ($expectedHost === '' || hash_equals($expectedHost, $hostname));
         } catch (\Throwable $e) {
             report($e);
             $ok = false;

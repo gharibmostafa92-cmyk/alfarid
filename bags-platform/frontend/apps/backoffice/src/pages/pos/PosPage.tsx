@@ -43,24 +43,6 @@ export function PosPage() {
     };
   }, []);
 
-  if ((user as any)?.must_change_password) {
-    return (
-      <div style={{ padding: 40, textAlign: 'center' }} dir="rtl">
-        <h1>تغيير كلمة المرور مطلوب</h1>
-        <p>يجب تغيير كلمة المرور للمتابعة إلى نقطة البيع.</p>
-        <button
-          className="btn btn-primary"
-          style={{ marginTop: 16 }}
-          onClick={() => {
-            window.location.hash = '#/change-password';
-          }}
-        >
-          تغيير كلمة المرور الآن
-        </button>
-      </div>
-    );
-  }
-
   const branchId = user?.branch_id ?? user?.branch?.id;
   if (!branchId) {
     return (
@@ -92,7 +74,7 @@ export function PosPage() {
 
   return (
     <ToastHost>
-      <PosApp onLogout={logoutRemote} />
+      <PosApp onLogout={() => logoutRemote('unified')} />
     </ToastHost>
   );
 }

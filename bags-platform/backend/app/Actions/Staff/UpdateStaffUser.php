@@ -9,8 +9,8 @@ use App\Models\Branch;
 use App\Models\User;
 use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Services\Ai\WhatsApp\WhatsAppIdentityService;
-use App\Services\Inventory\BranchAccess;
 use App\Services\Auth\StaffAdministration;
+use App\Services\Inventory\BranchAccess;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -82,11 +82,18 @@ final class UpdateStaffUser
             StaffAdministration::assertVersion($lockedUser, isset($validated['expected_version']) ? (int) $validated['expected_version'] : null);
             $before = StaffAdministration::userState($lockedUser);
             $originalPhone = (string) ($lockedUser->phone ?? '');
-            $ownCredentialsChanged = $currentUser->is($lockedUser) && (isset($userAttributes['password'])
-                || (isset($userAttributes['email']) && $userAttributes['email'] !== $lockedUser->email));
+            $emailChanged = isset($userAttributes['email']) && $userAttributes['email'] !== $lockedUser->email;
+            $credentialsChanged = array_key_exists('password', $userAttributes) || $emailChanged;
+            $ownCredentialsChanged = $currentUser->is($lockedUser) && $credentialsChanged;
             if ($ownCredentialsChanged && ($verifiedPasswordHash === null
                 || ! hash_equals($lockedUser->password, $verifiedPasswordHash))) {
                 throw ValidationException::withMessages(['current_password' => 'أدخل كلمة المرور الحالية الصحيحة لتغيير بيانات الدخول.']);
+            }
+            if (! $currentUser->is($lockedUser) && $credentialsChanged) {
+                $actorRow = User::query()->whereKey($currentUser->getKey())->lockForUpdate()->firstOrFail();
+                if ($verifiedPasswordHash === null || ! hash_equals($actorRow->password, $verifiedPasswordHash)) {
+                    throw ValidationException::withMessages(['current_password' => 'أدخل كلمة المرور الحالية الصحيحة لتغيير بيانات الدخول.']);
+                }
             }
             if (array_key_exists('branch_id', $userAttributes)) {
                 $branch = $this->branches->restrictedBranch($currentUser);

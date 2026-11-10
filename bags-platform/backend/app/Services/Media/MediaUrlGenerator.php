@@ -13,14 +13,12 @@ class MediaUrlGenerator extends DefaultUrlGenerator
 {
     /**
      * Resolves the media download URL, enforcing short-lived signed URLs for private R2 storage.
-     *
-     * @return string
      */
     public function getUrl(): string
     {
         // Force signed temporary URLs on private R2 storage to prevent accidental data leakage.
         if ($this->getDiskName() === 'r2') {
-            $ttl = max(60, min(604800, (int) config('filesystems.disks.r2.download_url_ttl_seconds', 3600)));
+            $ttl = max(60, min(3600, (int) config('filesystems.disks.r2.download_url_ttl_seconds', 3600)));
 
             return $this->getTemporaryUrl(now()->addSeconds($ttl));
         }

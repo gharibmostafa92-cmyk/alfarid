@@ -8,9 +8,7 @@ use App\Enums\Customer\CustomerStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
 use App\Models\CustomerAuditLog;
-use App\Models\SupplierUser;
 use App\Models\User;
-use App\Services\Auth\CustomerAuthService;
 use App\Rules\TurnstileToken;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
@@ -31,18 +29,19 @@ final class UnifiedAuthService
      *
      * @param  string  $login  Raw login identifier (email address or phone number).
      * @param  string  $password  Plaintext credentials.
-     * @return User|SupplierUser|Customer Authenticated model instance.
+     * @return User|Customer Authenticated model instance.
      *
      * @throws BusinessException If credentials are invalid (401) or account is suspended (403).
      * @throws TooManyRequestsHttpException If brute-force rate limit thresholds are exceeded (429).
      */
-    public function attempt(string $login, string $password): User|SupplierUser|Customer
+    public function attempt(string $login, string $password): User|Customer
     {
         $identifier = Customer::normalizeIdentifier($login) ?? '';
         // Hash identifier in cache keys to prevent exposing plaintext emails or phone numbers in key stores.
         $key = 'unified-login:failures:'.hash_hmac('sha256', $identifier, (string) config('app.key'));
-        $ipKey = 'unified-login:ip-failures:'.NetworkIdentity::key(request());
-        $pairKey = $key.':ip:'.NetworkIdentity::key(request()).':hour';
+        $networkKey = NetworkIdentity::key(request());
+        $ipKey = 'unified-login:ip-failures:'.$networkKey;
+        $pairKey = $key.':ip:'.$networkKey.':hour';
         $dayKey = $key.':day';
         $hourKey = $key.':hour';
         $dayLimit = max(1, (int) config('auth.unified_login_failures_day', 100));
@@ -50,7 +49,8 @@ final class UnifiedAuthService
         $pairLimit = max(1, (int) config('auth.unified_login_failures_hour', 10));
         $ipLimit = max(1, (int) config('auth.unified_login_ip_failures_hour', 1000));
         // H1: broader /48 bucket for IPv6 (one /48 holds 65,536 /64 networks).
-        $wideKey = 'unified-login:wide-failures:'.NetworkIdentity::wideKey(request());
+        $wideNetworkKey = NetworkIdentity::wideKey(request());
+        $wideKey = $wideNetworkKey !== $networkKey ? 'unified-login:wide-failures:'.$wideNetworkKey : null;
         $wideLimit = max(1, (int) config('auth.unified_login_wide_failures_hour', 200));
         // Reserve the per-identifier+network slot atomically before any bcrypt work (H2).
         if (RateLimiter::hit($pairKey, 3600) > $pairLimit) {
@@ -60,11 +60,14 @@ final class UnifiedAuthService
         $hourLimitReached = RateLimiter::tooManyAttempts($hourKey, $hourLimit);
         $broadLimitReached = RateLimiter::tooManyAttempts($ipKey, $ipLimit);
         $dayLimitReached = RateLimiter::tooManyAttempts($dayKey, $dayLimit);
-        $wideLimitReached = RateLimiter::tooManyAttempts($wideKey, $wideLimit);
+        $wideLimitReached = $wideKey !== null && RateLimiter::tooManyAttempts($wideKey, $wideLimit);
+        $globalKey = 'unified-login:global-failures';
+        $globalLimit = max(1, (int) config('auth.unified_login_global_failures_minute', 200));
+        $globalLimitReached = RateLimiter::tooManyAttempts($globalKey, $globalLimit);
         $suppressAudit = $hourLimitReached || $dayLimitReached || $broadLimitReached || $wideLimitReached;
         // H1: after any soft limit, do not burn bcrypt before a human challenge.
         // Legit users behind shared NAT complete Turnstile; bots and free bcrypt stop here.
-        if ($suppressAudit) {
+        if ($suppressAudit || $globalLimitReached) {
             $validator = Validator::make(
                 ['turnstile_token' => request('turnstile_token')],
                 ['turnstile_token' => [new TurnstileToken(request()->ip())]]
@@ -77,8 +80,11 @@ final class UnifiedAuthService
             $actor = $this->resolve($identifier, $password, $staff, $suppressAudit);
         } catch (BusinessException $exception) {
             if ($exception->status === 401) {
+                RateLimiter::hit($globalKey, 60);
                 RateLimiter::hit($hourKey, 3600);
-                RateLimiter::hit($wideKey, 3600);
+                if ($wideKey !== null) {
+                    RateLimiter::hit($wideKey, 3600);
+                }
                 if (RateLimiter::hit($ipKey, 3600) === $ipLimit) {
                     // ip_failures aggregates a network, not one account: never attribute it to the last identifier tried.
                     app(AuthenticationAlerts::class)->report('ip_failures', null);
@@ -98,7 +104,7 @@ final class UnifiedAuthService
         return $actor;
     }
 
-    private function resolve(string $login, string $password, ?User $staff = null, bool $suppressAudit = false): User|SupplierUser|Customer
+    private function resolve(string $login, string $password, ?User $staff = null, bool $suppressAudit = false): User|Customer
     {
         $login = trim($login);
 

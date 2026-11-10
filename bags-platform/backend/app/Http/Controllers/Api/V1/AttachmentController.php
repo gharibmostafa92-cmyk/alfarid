@@ -13,11 +13,11 @@ use App\Models\SupplierUser;
 use App\Models\User;
 use App\Models\WholesalePaymentNotice;
 use App\Services\Inventory\BranchAccess;
+use App\Support\ContentDisposition;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
-use Symfony\Component\HttpFoundation\HeaderUtils;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Throwable;
 
@@ -48,6 +48,7 @@ class AttachmentController extends Controller
         $item = $query->findOrFail($returnItem);
         if ($actor instanceof User) {
             $return = $item->returnRequest;
+            abort_if($return === null, 404);
             $branchId = $return->branch_id ?? $return->order?->allocated_branch_id;
             if ($branchId === null) {
                 $this->branchAccess->assertCentralAccess($actor);
@@ -151,11 +152,11 @@ class AttachmentController extends Controller
         return $this->download($request, $model->receipt_file_path);
     }
 
-    private function download(Request $request, ?string $path): RedirectResponse|JsonResponse
+    private function download(Request $request, mixed $path): RedirectResponse|JsonResponse
     {
         // Avoid proxying storage payload through PHP-FPM workers to prevent connection exhaustion.
         // Instead, authorize locally and redirect to a short-lived (2-minute) signed R2 URL.
-        abort_if($path === null, 404);
+        abort_if(! is_string($path) || trim($path) === '', 404);
 
         try {
             if (! $request->boolean('signed') && ! Storage::disk('r2')->exists($path)) {
@@ -166,7 +167,7 @@ class AttachmentController extends Controller
                 $path,
                 now()->addMinutes(2),
                 [
-                    'ResponseContentDisposition' => HeaderUtils::makeDisposition('attachment', basename($path), 'attachment'),
+                    'ResponseContentDisposition' => ContentDisposition::attachment($path),
                     // Prevent intermediate proxies or shared caches from storing private documents.
                     'ResponseCacheControl' => 'private, max-age=120',
                 ]

@@ -32,7 +32,10 @@ return new class extends Migration
             ], JSON_THROW_ON_ERROR)]);
         }
         DB::table('permissions')->where('guard_name', 'staff')->whereIn('name', self::UNUSED)->delete();
-        DB::afterCommit(fn () => Cache::forget('spatie.permission.cache'));
+        DB::afterCommit(function (): void {
+            Cache::forget('spatie.permission.cache');
+            Cache::forget('spatie.permission.cache.v2');
+        });
     }
 
     public function down(): void
@@ -64,6 +67,9 @@ return new class extends Migration
             }
         }
         Schema::drop('retired_staff_permissions');
-        DB::afterCommit(fn () => Cache::forget('spatie.permission.cache'));
+        DB::afterCommit(function (): void {
+            Cache::forget('spatie.permission.cache');
+            Cache::forget('spatie.permission.cache.v2');
+        });
     }
 };

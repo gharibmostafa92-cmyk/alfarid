@@ -84,6 +84,24 @@ class TaskAttachmentChecklistTest extends TestCase
         return $cases;
     }
 
+    public function test_staff_gets_not_found_for_invalid_attachment_values(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+        $staff = User::factory()->create();
+        $staff->givePermissionTo(['returns.view', 'inventory.all_branches']);
+        $return = ReturnRequest::factory()->create();
+        $item = ReturnRequestItem::factory()->create([
+            'return_request_id' => $return->id,
+            'attachments' => [[], '', 'return_requests/old/valid.jpg'],
+        ]);
+        $url = '/api/v1/admin/return-items/'.$item->id.'/attachments/';
+        $this->withToken($staff->createToken('checklist')->plainTextToken);
+
+        $this->getJson($url.'0?signed=1')->assertNotFound();
+        $this->getJson($url.'1?signed=1')->assertNotFound();
+        $this->getJson($url.'2?signed=1')->assertOk();
+    }
+
     #[DataProvider('staffAccess')]
     public function test_all_private_document_routes_enforce_permission_and_branch(string $kind, string $scope, bool $centralDocument, int $status): void
     {

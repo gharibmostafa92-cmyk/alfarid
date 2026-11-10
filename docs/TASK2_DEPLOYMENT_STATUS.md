@@ -1,6 +1,7 @@
 # task2 — Deployment Status
 
 Source roadmap: `_archive_unused/tasks_execution/task2.txt`
+Live Cloud Run revisions and the current audit are in [Task execution audit](TASKS_EXECUTION_AUDIT.md).
 Last deployed commit: `25ee590` (see `docs/.last-deployed`)
 Date: 2026-11-10
 
@@ -37,9 +38,9 @@ Code changes in working tree, pending commit + push + deploy:
   - Behavior: reject when `rawurldecode` is unstable across two passes.
 - ✅ L2 — cashier role exact match
   - Behavior: exact `cashier`/`كاشير`/`StaffRole::Cashier` or `pos.access` permission; no more `Deposit Clerk` → POS misroute.
-- ✅ M7 — staff token TTL + POS least-privilege
+- Partial M7 — configurable staff token TTL + POS least-privilege
   - Files: `StaffTokenService.php` (default 43200→1440 min, `abilities` param), `UnifiedAuthController.php` (POS → `['pos']`)
-  - Deploy notes: code-only default change; explicit `STAFF_TOKEN_MINUTES` env still wins. Existing 30d tokens stay valid until expiry; new logins get 24h.
+  - Current effective default is 43,200 minutes in `config/auth.php`; the 1,440-minute service fallback does not override it. Set `STAFF_TOKEN_MINUTES=1440` after agreeing on the cutover; it only affects newly issued tokens. Idle timeout remains open.
 - ✅ M3 — `StaffAdministration::lock` transaction guard + lock_timeout reset
   - File: `StaffAdministration.php`
   - Behavior: throws outside transactions; `SET LOCAL lock_timeout='0'` after lock so later `lockForUpdate` is not capped at 5s.

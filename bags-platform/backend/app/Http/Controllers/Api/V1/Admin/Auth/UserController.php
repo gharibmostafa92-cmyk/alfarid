@@ -14,9 +14,9 @@ use App\Http\Requests\Admin\Auth\UpdateUserRequest;
 use App\Http\Resources\Admin\Auth\UserResource;
 use App\Models\User;
 use App\Rules\PasswordByteLimit;
+use App\Services\Auth\StaffAdministration;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Shared\SearchTerm;
-use App\Services\Auth\StaffAdministration;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -135,18 +135,11 @@ class UserController extends Controller
         $validated = $request->validate([
             'expected_version' => ['required', 'integer', 'min:0'],
             'current_password' => ['required', 'string', 'max:255'],
-            'password' => ['required', 'string', Password::min(12)->letters()->numbers(), 'max:255', new PasswordByteLimit],
+            'password' => ['required', 'string', 'different:current_password', Password::min(12)->letters()->numbers(), 'max:255', new PasswordByteLimit],
         ]);
-        $limitKey = 'staff:current-password:'.$user->id;
-        if (RateLimiter::tooManyAttempts($limitKey, max(1, (int) config('auth.staff_current_password_failures', 5)))) {
-            throw new TooManyRequestsHttpException(RateLimiter::availableIn($limitKey));
-        }
-        if (! Hash::check($validated['current_password'], $user->password)) {
-            RateLimiter::hit($limitKey, 3600);
-
+        if (! $this->verifyCurrentPassword($user, $validated['current_password'])) {
             throw ValidationException::withMessages(['current_password' => 'أدخل كلمة المرور الحالية الصحيحة لتغيير بيانات الدخول.']);
         }
-        RateLimiter::clear($limitKey);
         $failure = app(UpdateStaffUser::class)(
             $user,
             $user,
@@ -183,28 +176,18 @@ class UserController extends Controller
         }
 
         $verifiedPasswordHash = null;
-        $credentialChange = $isCurrentUser && (isset($userAttributes['password'])
-            || (isset($userAttributes['email']) && $userAttributes['email'] !== $user->email));
-        $passwordLimitKey = 'staff:current-password:'.$user->id;
-        if ($credentialChange && RateLimiter::tooManyAttempts($passwordLimitKey, max(1, (int) config('auth.staff_current_password_failures', 5)))) {
-            throw new TooManyRequestsHttpException(RateLimiter::availableIn($passwordLimitKey));
-        }
-        if ($isCurrentUser && (isset($userAttributes['password'])
-            || (isset($userAttributes['email']) && $userAttributes['email'] !== $user->email))
-            && is_string($validated['current_password'] ?? null)
-            && Hash::check($validated['current_password'], $user->password)) {
-            $verifiedPasswordHash = $user->password;
-        }
-
-        if ($credentialChange && is_string($validated['current_password'] ?? null)) {
-            if ($verifiedPasswordHash === null) {
-                RateLimiter::hit($passwordLimitKey, 3600);
-            } else {
-                RateLimiter::clear($passwordLimitKey);
-            }
+        $credentialChange = isset($userAttributes['password'])
+            || (isset($userAttributes['email']) && $userAttributes['email'] !== $user->email);
+        $passwordSubject = $currentUser instanceof User ? $currentUser : $user;
+        if ($credentialChange && is_string($validated['current_password'] ?? null)
+            && $this->verifyCurrentPassword($passwordSubject, $validated['current_password'])) {
+            $verifiedPasswordHash = $passwordSubject->password;
         }
         if ($credentialChange && $verifiedPasswordHash === null) {
             throw ValidationException::withMessages(['current_password' => 'أدخل كلمة المرور الحالية الصحيحة لتغيير بيانات الدخول.']);
+        }
+        if ($credentialChange && isset($userAttributes['password']) && $userAttributes['password'] === $validated['current_password']) {
+            throw ValidationException::withMessages(['password' => 'اختر كلمة مرور مختلفة عن كلمة المرور الحالية.']);
         }
         if (isset($userAttributes['password'])) {
             $userAttributes['password'] = Hash::make($userAttributes['password']);
@@ -268,6 +251,23 @@ class UserController extends Controller
         return response()->json([
             'message' => 'لا يمكنك إدارة حساب أو إسناد دور يمتلك صلاحيات لا تملكها.',
         ], 403);
+    }
+
+    private function verifyCurrentPassword(User $user, string $password): bool
+    {
+        $key = 'staff:current-password:'.$user->id;
+        $limit = max(1, (int) config('auth.staff_current_password_failures', 5));
+        if (RateLimiter::hit($key, 3600) > $limit) {
+            throw new TooManyRequestsHttpException(RateLimiter::availableIn($key));
+        }
+
+        if (! Hash::check($password, $user->password)) {
+            return false;
+        }
+
+        RateLimiter::clear($key);
+
+        return true;
     }
 
     private function userResource(User $user): UserResource

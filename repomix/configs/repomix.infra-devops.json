@@ -14,25 +14,50 @@
     "headerText": "DOMAIN: INFRASTRUCTURE, HIGH AVAILABILITY & DEPLOYMENT\nAuditing Docker orchestration, HAProxy load balancing, PgBouncer connection pooling, Redis replication/sentinel, Cloud Run jobs, and k6 stress-testing configurations."
   },
   "include": [
+    "package.json",
+    "bags-platform/backend/composer.json",
+    "bags-platform/backend/bootstrap/app.php",
+    "bags-platform/backend/app/Http/Controllers/Controller.php",
+    "bags-platform/backend/app/Http/Controllers/HealthReadyController.php",
+    "bags-platform/backend/config/database.php",
+    "bags-platform/backend/config/app.php",
     "bags-platform/infrastructure/docker-compose*.yml",
     "bags-platform/infrastructure/docker/**",
     "bags-platform/infrastructure/haproxy/**",
     "bags-platform/infrastructure/pgbouncer/**",
     "bags-platform/infrastructure/redis/**",
-    "bags-platform/infrastructure/k6/**",
+    "bags-platform/infrastructure/keepalived/**",
+    "bags-platform/infrastructure/monitoring/**",
     "bags-platform/infrastructure/scripts/**",
     "bags-platform/infrastructure/cloud-run/**",
-    "bags-platform/infrastructure/tests/**"
+    "bags-platform/infrastructure/k6/**",
+    "bags-platform/backend/database/migrations/*statement_timeout*.php",
+    "bags-platform/backend/database/migrations/*bound_idle_transactions*.php",
+    "bags-platform/backend/database/migrations/*sequence*.php",
+    "bags-platform/backend/database/migrations/*cache*.php",
+    "bags-platform/backend/database/migrations/*jobs*.php",
+    "bags-platform/backend/database/migrations/*task2_check_guards*.php",
+    "bags-platform/backend/database/migrations/*task2_unique_guards*.php",
+    "bags-platform/backend/database/migrations/*drop_redundant*.php",
+    "bags-platform/backend/database/migrations/*ledger_immutability_guards*.php",
+    "bags-platform/backend/database/migrations/*fix_movement_sync_lock_cancel*.php",
+    "bags-platform/backend/database/migrations/*validate_task2_check_guards*.php",
+    "bags-platform/backend/database/migrations/*ledger_fk_restrict*.php"
   ],
   "ignore": {
     "useGitignore": true,
     "useDefaultPatterns": true,
     "customPatterns": [
+      "**/tests/**",
+      "**/*.test.*",
+      "**/*.spec.*",
+      "**/docker-compose.tests.yml",
+      "**/tests.Dockerfile",
       "**/*.log",
-      "**/*.json",
       "**/*.sql",
       "**/certs/**",
-      "**/data/**"
+      "**/data/**",
+      "**/k6/results/**"
     ]
   }
 }

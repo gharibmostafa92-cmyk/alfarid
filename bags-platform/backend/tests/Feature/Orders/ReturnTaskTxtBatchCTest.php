@@ -155,6 +155,7 @@ class ReturnTaskTxtBatchCTest extends TestCase
      */
     public function test_prune_returns_orphans_honors_grace_and_dry_run(): void
     {
+        $this->markStorageForCleanup('r2');
         $disk = Storage::disk('r2');
         $oldOrphan = 'return_requests/pending/aaa/old.jpg';
         $recentOrphan = 'return_requests/pending/bbb/recent.jpg';
@@ -182,11 +183,11 @@ class ReturnTaskTxtBatchCTest extends TestCase
     }
 
     /**
-     * task.txt القسم 3: أمر privatize يمرر التنفيذ لأمر الهجرة مع حذف المصدر.
+     * The legacy alias delegates in copy-only mode unless deletion is requested.
      */
     public function test_privatize_command_delegates_to_uploads_migrate(): void
     {
-        $expected = Artisan::call('uploads:migrate-to-r2', ['--delete-source' => true]);
+        $expected = Artisan::call('uploads:migrate-to-r2');
         $actual = Artisan::call('returns:privatize-attachments');
 
         $this->assertSame($expected, $actual);

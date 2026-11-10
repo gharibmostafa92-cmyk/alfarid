@@ -33,6 +33,8 @@ export interface StaffUserResource {
   branch_id: number | null;
   branch: { id: number; name: string } | null;
   is_active: boolean;
+  must_change_password: boolean;
+  version: number;
   roles: { id: number; name: string }[];
   permissions: string[];
 }
@@ -48,6 +50,10 @@ export const authEndpoints = {
   logout: () => apiClient.post('/api/v1/auth/logout'),
   exchangeHandoff: (code: string) =>
     apiClient.post<HandoffExchangeResponse>('/api/v1/auth/handoff/exchange', { code }).then((r) => r.data),
-  staffMe: () => apiClient.get<{ data: StaffUserResource }>('/api/v1/admin/me').then((r) => r.data.data),
+  staffMe: (signal?: AbortSignal) => apiClient.get<{ data: StaffUserResource }>('/api/v1/admin/me', { signal }).then((r) => r.data.data),
+  staffRotatePassword: (body: { current_password: string; password: string; expected_version: number }, token: string) =>
+    apiClient.put<{ data: StaffUserResource }>('/api/v1/admin/me/password', body, {
+      headers: { Authorization: `Bearer ${token}` },
+    }).then((r) => r.data.data),
   staffLogout: () => apiClient.post('/api/v1/admin/auth/logout'),
 };

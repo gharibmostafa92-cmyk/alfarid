@@ -2,12 +2,13 @@
 
 declare(strict_types=1);
 
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+
 /* F22: Spatie/SettingService calls inlined as raw DB + Cache calls; no app coupling. */
 return new class extends Migration
 {
@@ -119,7 +120,8 @@ return new class extends Migration
         if ($roleId !== null) {
             DB::table('role_has_permissions')->insertOrIgnore(['permission_id' => $permissionId, 'role_id' => $roleId]);
         }
-        \Illuminate\Support\Facades\Cache::forget('spatie.permission.cache');
+        Cache::forget('spatie.permission.cache');
+        Cache::forget('spatie.permission.cache.v2');
 
         DB::afterCommit(fn () => Cache::forever('app_settings_static_version', (string) Str::uuid()));
         DB::afterCommit(fn () => Cache::forget('app_settings_static'));

@@ -86,9 +86,10 @@ class UnifiedLoginTest extends TestCase
         $staff->syncRoles([$this->staffRole('cashier')]);
 
         $this->postJson('/api/v1/auth/handoff/exchange', ['code' => $code])
-            ->assertOk()->assertJsonPath('redirect.path', '/pos');
+            ->assertOk()->assertJsonPath('redirect.path', '/pos')
+            ->assertJsonPath('data.roles.0.name', 'cashier');
 
-        $this->assertSame(1, $staff->tokens()->count());
+        $this->assertSame(['pos'], $staff->tokens()->sole()->abilities);
     }
 
     #[TestWith(['//evil.example'])]

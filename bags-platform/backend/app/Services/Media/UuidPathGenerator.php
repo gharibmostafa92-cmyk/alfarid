@@ -20,6 +20,9 @@ class UuidPathGenerator implements PathGenerator
      */
     public function getPath(Media $media): string
     {
+        if ((string) config('media-library.prefix', '') !== '') {
+            throw new \LogicException('MEDIA_PREFIX is not applied by the UUID path generator; leave it empty.');
+        }
         // Avoid remote storage I/O during path generation; resolve legacy paths synchronously in memory.
         if ($media->getCustomProperty('path_layout') === 'uuid' && $media->uuid) {
             return $media->uuid.'/';

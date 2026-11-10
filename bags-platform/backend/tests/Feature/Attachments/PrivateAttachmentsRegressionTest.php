@@ -13,6 +13,28 @@ use Tests\TestCase;
 
 class PrivateAttachmentsRegressionTest extends TestCase
 {
+    public function test_it_preserves_the_upload_if_the_commit_acknowledgement_is_lost(): void
+    {
+        $original = new RuntimeException('connection lost while awaiting COMMIT');
+        $path = null;
+        DB::shouldReceive('transactionLevel')->andReturn(0);
+        DB::shouldReceive('transaction')->once()->andReturnUsing(function (callable $callback) use ($original): void {
+            $callback();
+            throw $original;
+        });
+
+        try {
+            PrivateAttachments::transaction(function (PrivateAttachments $files) use (&$path): void {
+                $path = $files->store(UploadedFile::fake()->create('receipt.pdf'), 'wholesale_payment_notices');
+            });
+            $this->fail('The transaction should surface the connection failure.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame($original, $exception);
+        }
+
+        Storage::disk('r2')->assertExists($path);
+    }
+
     public function test_a_successful_inner_upload_is_removed_when_its_outer_transaction_rolls_back(): void
     {
         $original = new RuntimeException('outer operation failed');

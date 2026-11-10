@@ -6,8 +6,9 @@ namespace App\Actions\Staff;
 
 use App\Enums\StaffRole;
 use App\Models\User;
-use App\Services\Inventory\BranchAccess;
+use App\Services\Ai\WhatsApp\WhatsAppIdentityService;
 use App\Services\Auth\StaffAdministration;
+use App\Services\Inventory\BranchAccess;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -45,6 +46,9 @@ final class DeactivateStaffUser
             $locked->forceFill(['is_active' => false])->save();
             StaffAdministration::audit($actor, 'user.deactivated', 'user', $locked->id, ['is_active'], $before, StaffAdministration::userState($locked), $via);
             $locked->tokens()->delete();
+            // task3 M8: a deactivated account must not keep a live WhatsApp
+            // AI identity (mirrors UpdateStaffUser's !is_active revoke).
+            app(WhatsAppIdentityService::class)->revoke($locked);
 
             return true;
         });

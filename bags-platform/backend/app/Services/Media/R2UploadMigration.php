@@ -67,7 +67,10 @@ class R2UploadMigration
 
     private function validateSource(string $disk, string $path): void
     {
-        if (! in_array($disk, ['local', 'public', 'r2', 'r2_public'], true) || str_contains($path, '..') || str_starts_with($path, '/')) {
+        $normalized = str_replace('\\', '/', $path);
+        if (! in_array($disk, ['local', 'public', 'r2', 'r2_public'], true)
+            || $normalized === '' || str_starts_with($normalized, '/')
+            || in_array('..', explode('/', $normalized), true)) {
             throw new RuntimeException('Unsupported upload source.');
         }
     }

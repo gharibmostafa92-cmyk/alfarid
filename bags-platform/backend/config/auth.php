@@ -20,6 +20,7 @@ return [
     'unified_login_ip_failures_hour' => (int) env('UNIFIED_LOGIN_IP_FAILURES_HOUR', 1000),
     'unified_login_failures_day' => (int) env('UNIFIED_LOGIN_FAILURES_DAY', 100),
     'unified_login_identifier_failures_hour' => (int) env('UNIFIED_LOGIN_IDENTIFIER_FAILURES_HOUR', 30),
+    'unified_login_global_failures_minute' => (int) env('UNIFIED_LOGIN_GLOBAL_FAILURES_MINUTE', 200),
     'unified_handoff_ip_minute' => (int) env('UNIFIED_HANDOFF_IP_MINUTE', 60),
     'customer_sms_verification_fraction' => (float) env('CUSTOMER_SMS_VERIFICATION_FRACTION', 0.6),
     'customer_sms_verification_network_daily_limit' => (int) env('CUSTOMER_SMS_VERIFICATION_NETWORK_DAILY_LIMIT', 10),

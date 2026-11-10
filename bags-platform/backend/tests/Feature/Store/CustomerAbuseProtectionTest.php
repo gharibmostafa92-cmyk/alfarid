@@ -364,6 +364,7 @@ class CustomerAbuseProtectionTest extends TestCase
     public function test_cleanup_only_removes_abandoned_staging(): void
     {
         $disk = $this->fakeUploads();
+        $this->markStorageForCleanup('r2');
         $old = 'customer_documents/pending/'.Str::uuid();
         $fresh = 'customer_documents/pending/'.Str::uuid();
         $disk->put($old.'/old.pdf', 'old');

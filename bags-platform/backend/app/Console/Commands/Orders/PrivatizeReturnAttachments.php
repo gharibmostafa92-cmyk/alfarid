@@ -11,7 +11,7 @@ use Illuminate\Console\Command;
  */
 class PrivatizeReturnAttachments extends Command
 {
-    protected $signature = 'returns:privatize-attachments';
+    protected $signature = 'returns:privatize-attachments {--delete-source : Remove local copies after verification}';
 
     // Kept as a backwards-compatible alias for existing runbooks and cron entries.
     // Migrates all legacy uploads (not returns only) via uploads:migrate-to-r2.
@@ -19,6 +19,6 @@ class PrivatizeReturnAttachments extends Command
 
     public function handle(): int
     {
-        return $this->call('uploads:migrate-to-r2', ['--delete-source' => true]);
+        return $this->call('uploads:migrate-to-r2', ['--delete-source' => (bool) $this->option('delete-source')]);
     }
 }

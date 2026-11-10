@@ -26,7 +26,7 @@ class MediaResource extends JsonResource
             'mime_type' => $this->mime_type,
             'size' => $this->size,
             'order' => $this->order_column,
-            'variant_id' => $this->model_type === ProductVariant::class ? $this->model_id : null,
+            'variant_id' => $this->model_type === (new ProductVariant)->getMorphClass() ? $this->model_id : null,
         ];
     }
 }

@@ -1,0 +1,80 @@
+105 matches in 8 files:
+
+bags-platform/backend/app\Http\Controllers\Api\V1\Admin\Finance\PosShiftAdminController.php:81:$this->branchAccess->assertBranch($request->user()->id, $shift->branch_id);
+bags-platform/backend/app\Http\Controllers\Api\V1\Admin\Finance\PosShiftAdminController.php:84:'data' => $shift->load(['cashier', 'treasury', 'branch', 'approver', 'expense...
+bags-platform/backend/app\Http\Controllers\Api\V1\Admin\Finance\PosShiftAdminController.php:99:$this->branchAccess->assertBranch($approver->id, $shift->branch_id);
+bags-platform/backend/app\Http\Controllers\Api\V1\Admin\Finance\PosShiftAdminController.php:105:'data' => $shift->load(['cashier', 'treasury', 'branch', 'approver']),
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosSaleController.php:64:['shift_id' => $shift->id, ...$data], fn () => $this->pos->createSale($shift,...
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosSaleController.php:151:branchId: (int) $shift->branch_id,
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php:50:$shift->load(['cashier', 'treasury', 'branch']);
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php:89:'data'    => $this->formatShift($shift->load(['cashier', 'treasury', 'branch'...
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php:151:'id'                    => $shift->id,
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php:152:'shift_number'          => $shift->shift_number,
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php:153:'status'                => $shift->status->value,
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php:154:'opened_at'             => $shift->opened_at,
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php:155:'closed_at'             => $shift->closed_at,
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php:156:'approved_at'           => $shift->approved_at,
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php:157:'opening_cash'          => $shift->opening_cash,
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php:158:'cash_sales_total'      => $shift->cash_sales_total,
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php:159:'card_sales_total'      => $shift->card_sales_total,
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php:160:'cash_returns_total'    => $shift->cash_returns_total,
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php:161:'cash_expenses_total'   => $shift->cash_expenses_total,
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php:162:'expected_closing_cash' => $shift->expected_closing_cash,
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php:163:'actual_closing_cash'   => $shift->actual_closing_cash,
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php:164:'cash_difference'       => $shift->cash_difference,
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php:165:'notes'                 => $shift->notes,
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php:166:'cashier'               => $shift->relationLoaded('cashier') ? [
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php:167:'id'   => $shift->cashier->id,
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php:168:'name' => $shift->cashier->name,
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php:170:'treasury'              => $shift->relationLoaded('treasury') ? [
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php:171:'id'   => $shift->treasury->id,
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php:172:'name' => $shift->treasury->name,
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php:173:'code' => $shift->treasury->code,
+bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php:175:'branch'                => $shift->relationLoaded('branch') ? [
+  +2 more in bags-platform/backend/app\Http\Controllers\Api\V1\Pos\PosShiftController.php [+2 hidden: rtk recall 87c2ee5fbf5d]
+bags-platform/backend/app\Services\Ai\Finance\Tools\DailyCloseBriefingTool.php:109:$diff = $shift->cash_difference === null ? null : (float) $shift->cash_differ...
+bags-platform/backend/app\Services\Ai\Finance\Tools\DailyCloseBriefingTool.php:116:'number' => $shift->shift_number,
+bags-platform/backend/app\Services\Ai\Finance\Tools\DailyCloseBriefingTool.php:117:'status' => $shift->status instanceof \BackedEnum ? $shift->status->value : (...
+bags-platform/backend/app\Services\Ai\Finance\Tools\DailyCloseBriefingTool.php:118:'cashier' => $this->presenter->untrusted($shift->cashier?->name, 150),
+bags-platform/backend/app\Services\Ai\Finance\Tools\DailyCloseBriefingTool.php:119:'expected' => $shift->expected_closing_cash === null ? null : (float) $shift-...
+bags-platform/backend/app\Services\Ai\Finance\Tools\DailyCloseBriefingTool.php:120:'actual' => $shift->actual_closing_cash === null ? null : (float) $shift->act...
+bags-platform/backend/app\Services\Ai\Finance\Tools\GetTreasuryTool.php:107:$openShift = ['shift_number' => $shift->shift_number, 'opened_at' => $shift->...
+bags-platform/backend/app\Services\Auth\StaffTokenService.php:41:// M7: default 24h shift-friendly TTL; POS destinations get least-privilege [...
+bags-platform/backend/app\Services\Pos\PosService.php:143:'treasury_id' => $mainSafe->id, 'shift_id' => $shift->id,
+bags-platform/backend/app\Services\Pos\PosService.php:145:'reference_type' => PosShift::class, 'reference_id' => $shift->id,
+bags-platform/backend/app\Services\Pos\PosService.php:150:'shift_id' => $shift->id,
+bags-platform/backend/app\Services\Pos\PosService.php:154:'reference_id' => $shift->id,
+bags-platform/backend/app\Services\Pos\PosService.php:298:if ($shift->status !== PosShiftStatus::Open) {
+bags-platform/backend/app\Services\Pos\PosService.php:304:app(BranchAccess::class)->lockActiveBranch((int) $shift->branch_id);
+bags-platform/backend/app\Services\Pos\PosService.php:313:$shift->update([
+bags-platform/backend/app\Services\Pos\PosService.php:326:return $shift->fresh();
+bags-platform/backend/app\Services\Pos\PosService.php:341:if ($shift->status !== PosShiftStatus::ClosedPendingApproval) {
+bags-platform/backend/app\Services\Pos\PosService.php:346:$shift = PosShift::query()->lockForUpdate()->findOrFail($shift->id);
+bags-platform/backend/app\Services\Pos\PosService.php:347:app(BranchAccess::class)->assertBranch($approver->id, $shift->branch_id);
+bags-platform/backend/app\Services\Pos\PosService.php:348:app(BranchAccess::class)->lockActiveBranch((int) $shift->branch_id);
+bags-platform/backend/app\Services\Pos\PosService.php:349:if ($shift->status !== PosShiftStatus::ClosedPendingApproval) {
+bags-platform/backend/app\Services\Pos\PosService.php:352:$shift->update([
+bags-platform/backend/app\Services\Pos\PosService.php:360:return $shift->fresh();
+bags-platform/backend/app\Services\Pos\PosService.php:383:if ($shift->status !== PosShiftStatus::Open) {
+bags-platform/backend/app\Services\Pos\PosService.php:389:$actor = User::findOrFail($shift->user_id);
+bags-platform/backend/app\Services\Pos\PosService.php:396:$stockRows = StockLevel::query()->where('branch_id', $shift->branch_id)
+bags-platform/backend/app\Services\Pos\PosService.php:406:$items = $this->resolveItems((int) $shift->branch_id, $payload['items'], $cus...
+bags-platform/backend/app\Services\Pos\PosService.php:439:'allocated_branch_id' => $shift->branch_id,
+bags-platform/backend/app\Services\Pos\PosService.php:440:'pos_shift_id' => $shift->id,
+bags-platform/backend/app\Services\Pos\PosService.php:459:'allocated_branch_id' => $shift->branch_id,
+bags-platform/backend/app\Services\Pos\PosService.php:474:'branch_id' => $shift->branch_id,
+bags-platform/backend/app\Services\Pos\PosService.php:482:'created_by' => $shift->user_id,
+bags-platform/backend/app\Services\Pos\PosService.php:497:'changed_by_id' => $shift->user_id,
+  +27 more in bags-platform/backend/app\Services\Pos\PosService.php [+27 hidden: rtk recall c03212749601]
+bags-platform/backend/app\Services\Pos\TreasuryService.php:240:->where('branch_id', $shift->branch_id)
+bags-platform/backend/app\Services\Pos\TreasuryService.php:250:$locked = $this->lockTreasuries([$shift->treasury_id, $mainSafe->id]);
+bags-platform/backend/app\Services\Pos\TreasuryService.php:252:$drawer = $locked->get($shift->treasury_id);
+bags-platform/backend/app\Services\Pos\TreasuryService.php:253:$amount = (string) BigDecimal::of((string) $shift->actual_closing_cash)->toSc...
+bags-platform/backend/app\Services\Pos\TreasuryService.php:254:$difference = BigDecimal::of((string) $shift->actual_closing_cash)
+bags-platform/backend/app\Services\Pos\TreasuryService.php:258:'treasury_id' => $drawer->id, 'shift_id' => $shift->id,
+bags-platform/backend/app\Services\Pos\TreasuryService.php:261:'reference_id' => $shift->id, 'created_by' => $approverId,
+bags-platform/backend/app\Services\Pos\TreasuryService.php:262:'notes' => 'تسوية فرق النقدية للوردية '.$shift->shift_number,...
+bags-platform/backend/app\Services\Pos\TreasuryService.php:271:$shift->treasury_id,
+bags-platform/backend/app\Services\Pos\TreasuryService.php:275:$shift->id,
+bags-platform/backend/app\Services\Pos\TreasuryService.php:277:"ترحيل إغلاق وردية #{$shift->shift_number}",
+bags-platform/backend/app\Services\Pos\TreasuryService.php:278:"ترحيل إغلاق وردية #{$shift->shift_number}"

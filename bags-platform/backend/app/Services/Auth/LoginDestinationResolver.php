@@ -31,13 +31,21 @@ final class LoginDestinationResolver
             if ($roles->isEmpty()) {
                 throw new BusinessException('حسابك غير مرتبط بأي صلاحية. تواصل مع الإدارة.', [], 403);
             }
+            // task3 C1: a Super Admin (or any multi-permission account) is never
+            // POS-only. POS means the account holds nothing outside pos.*.
+            if ($actor->hasRole(StaffRole::SuperAdmin->value, 'staff')) {
+                return ['app' => 'backoffice', 'path' => '/dashboard', 'destination' => 'admin'];
+            }
             $firstRole = mb_strtolower(trim((string) $roles->first()));
-            $isPosRole = $roles->count() === 1 && (
-                $firstRole === mb_strtolower(StaffRole::Cashier->value)
+            $isCashierName = $firstRole === mb_strtolower(StaffRole::Cashier->value)
                 || $firstRole === 'cashier'
-                || $firstRole === 'كاشير'
-                || $actor->can('pos.access')
-            );
+                || $firstRole === 'كاشير';
+            // A single custom role that only carries pos.* permissions is POS-only
+            // too, but it must not swallow accounts that also hold admin rights.
+            $onlyPosPermissions = $actor->getAllPermissions()
+                ->every(fn ($permission) => str_starts_with($permission->name, 'pos.'));
+            $isPosRole = $roles->count() === 1 && ($isCashierName
+                || ($actor->can('pos.access') && $onlyPosPermissions));
             if ($isPosRole) {
                 // Block cashiers without an active assigned branch to prevent partially-functioning POS sessions.
                 if ($actor->branch_id === null || $actor->branch === null || ! $actor->branch->is_active) {

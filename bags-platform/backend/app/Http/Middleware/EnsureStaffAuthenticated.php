@@ -6,11 +6,11 @@ namespace App\Http\Middleware;
 
 use App\Enums\StaffRole;
 use App\Models\Branch;
-use Illuminate\Support\Facades\Cache;
 use App\Models\User;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -37,7 +37,12 @@ class EnsureStaffAuthenticated
 
         // Temporary passwords must be rotated upon first login; restrict access exclusively
         // to own profile viewing, password updates, and logout until completed.
-        if ((bool) $user->must_change_password && ! $this->isPasswordRotationRequest($request, $user)) {
+        // task3 H1: the rotation endpoints must also survive the ability check
+        // below, otherwise a ['pos'] token can never rotate and the account is
+        // locked out. Scoped to profile view + password rotation only — logout
+        // stays forbidden for pos tokens (committed least-privilege contract).
+        $isRotationRequest = $this->isPasswordRotationRequest($request, $user);
+        if ((bool) $user->must_change_password && ! $isRotationRequest) {
             return response()->json([
                 'message' => 'يجب تغيير كلمة المرور المؤقتة قبل المتابعة.',
                 'code' => 'password_change_required',
@@ -45,8 +50,9 @@ class EnsureStaffAuthenticated
         }
 
         $token = $user->currentAccessToken();
+        $posReachable = $request->is('api/v1/pos/*') || $this->isBranchLockExempt($request);
         if ($token !== null && ! $token->can('*')
-            && ! ($request->is('api/v1/pos/*') && $token->can('pos'))) {
+            && ! ($posReachable && $token->can('pos'))) {
             return response()->json(['message' => 'التوكن غير مصرح له بهذه الواجهة.'], 403);
         }
 

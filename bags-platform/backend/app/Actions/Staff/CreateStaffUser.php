@@ -8,8 +8,8 @@ use App\Enums\StaffRole;
 use App\Models\Branch;
 use App\Models\User;
 use App\Rules\EmailNotUsedByOtherAccountType;
-use App\Services\Inventory\BranchAccess;
 use App\Services\Auth\StaffAdministration;
+use App\Services\Inventory\BranchAccess;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -63,6 +63,10 @@ final class CreateStaffUser
             $attrs['password'] = $plain;
 
             // Generated temporary credentials must be rotated upon first login.
+            $attrs['must_change_password'] = true;
+        } elseif (array_key_exists('password', $attrs)) {
+            // task3 M4: a manager-chosen password is known to someone other
+            // than the owner, so it must be rotated on first login too.
             $attrs['must_change_password'] = true;
         }
         $attrs['password'] = Hash::make($attrs['password']);

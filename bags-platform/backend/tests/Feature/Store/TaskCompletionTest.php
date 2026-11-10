@@ -239,6 +239,7 @@ class TaskCompletionTest extends TestCase
 
     public function test_orphan_cleanup_removes_only_expired_staging_media_and_respects_dry_run(): void
     {
+        $this->markStorageForCleanup('r2_public');
         $product = Product::factory()->create();
         $media = [];
         foreach (['old', 'recent'] as $name) {

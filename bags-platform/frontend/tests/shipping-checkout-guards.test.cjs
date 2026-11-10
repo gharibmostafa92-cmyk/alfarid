@@ -121,8 +121,8 @@ function mountCheckout({ endpoints, cart, session, router }) {
     '@/stores/cart-store': { getCartSession: session, useCartStore: (select) => select(cart) },
     '@/store/auth.store': { useAuthStore: (select) => select({ user: null, token: null }) },
     '@/hooks/use-auth-hydrated': { useAuthHydrated: () => true },
-    '@/lib/viewer-key': { viewerKey: () => 'guest' },
-    '@/lib/guest-orders': { rememberGuestOrder() {} },
+    '@/lib/core/viewer-key': loadTs('../apps/storefront/src/lib/core/viewer-key.ts'),
+    '@/lib/orders/guest-orders': { rememberGuestOrder() {} },
   });
   return {
     render() {

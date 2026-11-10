@@ -7,14 +7,17 @@ namespace App\Http\Controllers\Api\V1\Admin\Ai;
 use App\Http\Controllers\Controller;
 use App\Models\AiAttachment;
 use App\Models\AiConversation;
+use App\Models\User;
 use App\Rules\MaxImagePixels;
 use App\Services\Ai\AgentOrchestrator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Throwable;
 
 /**
  * Handles secure file uploads (images and price lists) for AI assistant conversations.
@@ -49,49 +52,66 @@ class AiAttachmentController extends Controller
 
         // Enforce a per-user pending attachment quota to prevent storage exhaustion from unconsumed files.
         $quota = max(1, (int) config('services.gemini.max_pending_attachments_per_user', 40));
-        $pending = AiAttachment::query()->where('user_id', $user->id)->whereNull('consumed_at')->count();
-        abort_if($pending + count($request->file('files')) > $quota, 429, 'وصلت للحد الأقصى من المرفقات غير المستخدمة؛ استخدمها أو احذف المحادثة أولًا.');
-
         /** @var list<UploadedFile> $files */
         $files = array_values((array) $request->file('files', []));
+        $this->assertCapacity($user->id, count($files), $quota);
+
         // Use shared private disk so queued workers and web nodes share access across prepare, execute, and prune.
         $disk = Storage::disk('ai_private');
-        $created = [];
+        $paths = [];
+        $rows = [];
+        $written = false;
+        $outermost = DB::transactionLevel() === 0;
 
-        foreach ($files as $file) {
-            $ulid = (string) Str::ulid();
-            $ext = strtolower($file->getClientOriginalExtension() ?: $file->extension() ?: 'jpg');
-            $relativePath = "ai-attachments/{$conversation->id}/{$ulid}.{$ext}";
-            $content = (string) $file->getContent();
-            $sha256 = hash('sha256', $content);
+        try {
+            foreach ($files as $file) {
+                $ulid = (string) Str::ulid();
+                $ext = strtolower($file->getClientOriginalExtension() ?: $file->extension() ?: 'jpg');
+                $relativePath = "ai-attachments/{$conversation->id}/{$ulid}.{$ext}";
+                $content = (string) $file->getContent();
+                $paths[] = $relativePath;
 
-            $disk->put($relativePath, $content);
+                if (! $disk->put($relativePath, $content)) {
+                    throw new \RuntimeException('Attachment storage did not confirm the upload.');
+                }
 
-            try {
-                $attachment = AiAttachment::create([
-                    'id' => $ulid,
-                    'conversation_id' => $conversation->id,
-                    'user_id' => $user->id,
-                    'path' => $relativePath,
-                    'mime' => (string) $file->getMimeType(),
-                    'size' => (int) $file->getSize(),
-                    'sha256' => $sha256,
-                ]);
-            } catch (\Throwable $e) {
-                // Remove stored file if database creation fails to prevent orphaned artifacts.
-                $disk->delete($relativePath);
-
-                throw $e;
+                $rows[] = [
+                    'id' => $ulid, 'conversation_id' => $conversation->id, 'user_id' => $user->id,
+                    'path' => $relativePath, 'mime' => (string) $file->getMimeType(),
+                    'size' => (int) $file->getSize(), 'sha256' => hash('sha256', $content),
+                ];
             }
 
-            $created[] = [
-                'id' => $attachment->id,
-                'mime' => $attachment->mime,
-                'size' => $attachment->size,
-                'sha256' => $attachment->sha256,
-            ];
+            DB::transaction(function () use ($rows, $user, $quota, &$written): void {
+                User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
+                $this->assertCapacity($user->id, count($rows), $quota);
+                foreach ($rows as $row) {
+                    AiAttachment::create($row);
+                }
+                $written = true;
+            });
+        } catch (Throwable $exception) {
+            if ($paths !== [] && (! $written || ! $outermost)) {
+                try {
+                    if (! $disk->delete($paths)) {
+                        report(new \RuntimeException('Attachment storage did not confirm batch cleanup.'));
+                    }
+                } catch (Throwable $cleanupError) {
+                    report($cleanupError);
+                }
+            }
+
+            throw $exception;
         }
 
+        $created = array_map(static fn (array $row): array => array_intersect_key($row, array_flip(['id', 'mime', 'size', 'sha256'])), $rows);
+
         return response()->json(['data' => $created], 201);
+    }
+
+    private function assertCapacity(int $userId, int $incoming, int $quota): void
+    {
+        $pending = AiAttachment::query()->where('user_id', $userId)->whereNull('consumed_at')->count();
+        abort_if($pending + $incoming > $quota, 429, 'وصلت للحد الأقصى من المرفقات غير المستخدمة؛ استخدمها أو احذف المحادثة أولًا.');
     }
 }

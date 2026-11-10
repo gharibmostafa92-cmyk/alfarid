@@ -50,7 +50,11 @@
     "bags-platform/backend/database/migrations/*widen_text*.php",
     "bags-platform/backend/database/migrations/*enforce_unique_document_numbers*.php",
     "bags-platform/backend/database/migrations/*apply_audit_fixes*.php",
-    "bags-platform/backend/database/migrations/*execution_review*.php"
+    "bags-platform/backend/database/migrations/*execution_review*.php",
+    "bags-platform/backend/database/migrations/*task2_check_guards*.php",
+    "bags-platform/backend/database/migrations/*task2_unique_guards*.php",
+    "bags-platform/backend/database/migrations/*validate_task2_check_guards*.php",
+    "bags-platform/backend/database/migrations/*ledger_fk_restrict*.php"
   ],
   "ignore": {
     "useGitignore": true,

@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { resolveServiceUrl } from '@alfarid/api-client';
 import { useAuthStore } from '../../stores/auth.store';
+import { RotateStaffPassword } from './RotateStaffPassword';
 
 const WEB_URL = resolveServiceUrl(import.meta.env.VITE_WEB_URL ?? 'http://localhost:3000');
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
-  const [verifiedToken, setVerifiedToken] = useState<string | null>(token);
+  const user = useAuthStore((s) => s.user);
+  const [verifiedToken, setVerifiedToken] = useState<string | null>(null);
   const [error, setError] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
@@ -19,12 +21,12 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
       window.location.replace(`${WEB_URL}/auth/login`);
       return;
     }
-    let cancelled = false;
+    const controller = new AbortController();
     setError(false);
-    useAuthStore.getState().bootstrap()
-      .then(() => { if (!cancelled) setVerifiedToken(token); })
+    useAuthStore.getState().bootstrap(controller.signal)
+      .then(() => { if (!controller.signal.aborted) setVerifiedToken(token); })
       .catch((err) => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         if (import.meta.env.DEV) {
           setVerifiedToken(token);
           return;
@@ -34,7 +36,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
           window.location.replace(`${WEB_URL}/auth/login`);
         } else if (err?.response?.status !== 401) setError(true);
       });
-    return () => { cancelled = true; };
+    return () => controller.abort();
   }, [token, attempt]);
 
   if (error && !import.meta.env.DEV) return (
@@ -90,7 +92,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
       </div>
     </div>
   );
-  if (!import.meta.env.DEV && (!token || verifiedToken !== token)) return (
+  if (token ? verifiedToken !== token : !import.meta.env.DEV) return (
     <div
       dir="rtl"
       style={{
@@ -120,5 +122,8 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
       </p>
     </div>
   );
+  if (token && user?.must_change_password) {
+    return <RotateStaffPassword key={user.id} token={token} version={user.version} />;
+  }
   return <>{children}</>;
 }

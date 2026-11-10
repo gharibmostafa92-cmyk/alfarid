@@ -476,6 +476,7 @@ class CustomerVerificationBudgetAndMaintenanceTest extends TestCase
     public function test_27_prune_customer_artifacts_selective_deletion_and_storage_failure_isolation(): void
     {
         $disk = $this->fakeUploads();
+        $this->markStorageForCleanup('r2');
 
         // 1. Pending folder 2 hours old vs 10 minutes old
         $oldPending = 'customer_documents/pending/'.Str::uuid();
@@ -550,11 +551,31 @@ class CustomerVerificationBudgetAndMaintenanceTest extends TestCase
         ]);
 
         $failingDisk = \Mockery::mock(FilesystemAdapter::class);
+        $failingDisk->shouldReceive('exists')->with('.alfarid-cleanup-owner')->andReturnTrue();
+        $failingDisk->shouldReceive('get')->with('.alfarid-cleanup-owner')->andReturn('alfarid-test');
         $failingDisk->shouldReceive('directories')->andThrow(new \RuntimeException('R2 outage'));
         Storage::shouldReceive('disk')->with('r2')->andReturn($failingDisk);
 
         $this->artisan('customers:prune-artifacts')->assertFailed();
         $this->assertDatabaseCount('customer_phone_verifications', 0);
+    }
+
+    public function test_customer_artifact_pruner_rejects_another_databases_storage_but_still_cleans_database(): void
+    {
+        $this->markStorageForCleanup('r2');
+        $disk = Storage::disk('r2');
+        $disk->put('.alfarid-cleanup-owner', 'different-database');
+        $path = 'customer_documents/pending/'.Str::uuid().'/keep.pdf';
+        $disk->put($path, 'document');
+        touch($disk->path($path), now()->subHours(2)->timestamp);
+        DB::table('customer_phone_verifications')->insert([
+            'phone_key' => hash('sha256', 'expired-phone'), 'code_hash' => 'hash',
+            'created_at' => now()->subHours(3), 'expires_at' => now()->subHours(2),
+        ]);
+
+        $this->artisan('customers:prune-artifacts')->assertFailed();
+        $this->assertDatabaseCount('customer_phone_verifications', 0);
+        $disk->assertExists($path);
     }
 
     /**

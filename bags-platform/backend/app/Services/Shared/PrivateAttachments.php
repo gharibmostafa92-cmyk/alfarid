@@ -51,23 +51,34 @@ class PrivateAttachments
         }
 
         // Attach rollback cleanup to outer transaction to ensure savepoint rollbacks still purge remote storage.
-        if (DB::transactionLevel() > 0) {
+        $nested = DB::transactionLevel() > 0;
+        if ($nested) {
             $pending = $files;
             DB::afterRollBack(static function () use ($pending): void {
                 $pending->deleteStoredQuietly();
             });
         }
 
+        $callbackCompleted = false;
         try {
-            $result = DB::transaction(fn () => $callback($files));
+            $result = DB::transaction(function () use ($callback, $files, &$callbackCompleted): mixed {
+                $result = $callback($files);
+                $callbackCompleted = true;
+
+                return $result;
+            });
             $unused = array_diff(array_values($files->prepared), $files->claimed);
             $files->deletePathsQuietly($unused);
             $files->stored = array_values(array_diff($files->stored, $unused));
 
             return $result;
         } catch (Throwable $exception) {
-            // Suppress cleanup failures so the original business or database exception surfaces to the caller.
-            $files->deleteStoredQuietly();
+            // Once the outer callback returns, a failed COMMIT acknowledgement
+            // does not tell us whether the database references these files.
+            // Leave them for reference-checked orphan cleanup.
+            if ($nested || ! $callbackCompleted) {
+                $files->deleteStoredQuietly();
+            }
 
             throw $exception;
         }

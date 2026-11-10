@@ -300,6 +300,7 @@ class CustomerAdditionalReviewTest extends TestCase
     public function test_cleanup_prunes_old_orphans_and_keeps_soft_deleted_customer_documents(): void
     {
         $disk = $this->fakeUploads();
+        $this->markStorageForCleanup('r2');
         $customer = Customer::factory()->create();
         $customer->delete();
         $kept = 'customer_documents/'.$customer->id.'/kept.pdf';

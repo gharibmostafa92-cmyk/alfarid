@@ -30,8 +30,8 @@ Schedule::command('media:prune-orphans --disk=r2_public --older-than=60')->daily
     ->onFailure(fn () => logger()->error('Scheduled orphan media cleanup failed.'));
 Schedule::command('media:prune-orphans --disk=r2_public --older-than=60 --staging-only')->hourly()->withoutOverlapping(120)->onOneServer()
     ->onFailure(fn () => logger()->error('Scheduled staging media cleanup failed.'));
-// Clean orphaned UUID directories from private R2 disk without affecting customer documents or invoices.
-Schedule::command('media:prune-orphans --disk=r2 --older-than=120')->dailyAt('04:35')
+// Only delete media with a known staging row on the private disk.
+Schedule::command('media:prune-orphans --disk=r2 --older-than=120 --staging-only')->dailyAt('04:35')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer()
     ->onFailure(fn () => logger()->error('Scheduled private-disk orphan media cleanup failed.'));
 // Prune read notifications older than 90 days to prevent high table cardinality from degrading unread count queries.

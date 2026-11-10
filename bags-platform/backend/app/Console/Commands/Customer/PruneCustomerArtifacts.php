@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Console\Commands\Customer;
 
 use App\Models\Customer;
+use App\Support\StorageCleanupOwner;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Support\Facades\DB;
@@ -28,14 +29,25 @@ class PruneCustomerArtifacts extends Command
     public function handle(): int
     {
         $failures = 0;
-        $disk = Storage::disk('r2');
+        $disk = null;
+        if (filled(config('filesystems.cleanup_owner'))) {
+            try {
+                $candidate = Storage::disk('r2');
+                StorageCleanupOwner::assertMatches($candidate);
+                $disk = $candidate;
+            } catch (Throwable $exception) {
+                $failures++;
+                report($exception);
+                $this->error('Customer storage cleanup ownership could not be verified.');
+            }
+        }
 
         $cutoffTimestamp = now()->subHour()->timestamp;
 
         // Isolate each cleanup phase so an R2 storage exception does not prevent the database cleanups
         // from executing. Candidate customer existence is resolved in chunks of 500 to avoid N+1 queries.
         try {
-            foreach ($disk->directories('customer_documents/pending') as $directory) {
+            foreach ($disk?->directories('customer_documents/pending') ?? [] as $directory) {
                 if (! preg_match('~^customer_documents/pending/[a-f0-9-]{36}$~D', $directory)) {
                     continue;
                 }
@@ -50,7 +62,7 @@ class PruneCustomerArtifacts extends Command
         try {
             $candidateIds = [];
             $dirById = [];
-            foreach ($disk->directories('customer_documents') as $directory) {
+            foreach ($disk?->directories('customer_documents') ?? [] as $directory) {
                 if (preg_match('~^customer_documents/([0-9]+)$~D', $directory, $matches)) {
                     $candidateIds[] = (int) $matches[1];
                     $dirById[(int) $matches[1]] = $directory;
@@ -105,11 +117,19 @@ class PruneCustomerArtifacts extends Command
     {
         try {
             $newest = 0;
-            foreach ($disk->allFiles($directory) as $file) {
+            $files = $disk->allFiles($directory);
+            foreach ($files as $file) {
                 $newest = max($newest, $disk->lastModified($file));
             }
             if ($newest < $cutoffTimestamp) {
-                $disk->deleteDirectory($directory);
+                foreach (array_chunk($files, 500) as $paths) {
+                    if (DB::table('customer_documents')->whereIn('file_path', $paths)->exists()) {
+                        return;
+                    }
+                }
+                if (! $disk->deleteDirectory($directory)) {
+                    throw new \RuntimeException('Storage did not confirm customer document cleanup.');
+                }
             }
         } catch (Throwable $exception) {
             $failures++;

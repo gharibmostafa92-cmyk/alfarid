@@ -35,6 +35,7 @@
     "bags-platform/backend/app/Services/Shared/ProportionalDistribution.php",
     "bags-platform/backend/app/Services/Shared/IdempotencyFingerprint.php",
     "bags-platform/backend/app/Services/Concerns/HandlesIdempotentCreation.php",
+    "bags-platform/backend/app/Support/**",
     "bags-platform/backend/app/Models/ReturnRequest.php",
     "bags-platform/backend/app/Models/ReturnRequestItem.php",
     "bags-platform/backend/app/Models/Order.php",

@@ -9,19 +9,16 @@ use App\Http\Requests\Admin\Auth\AdminLoginRequest;
 use App\Http\Resources\Admin\Auth\UserResource;
 use App\Models\User;
 use App\Services\Auth\LoginDestinationResolver;
-use App\Services\Auth\StaffAuthenticationAudit;
 use App\Services\Auth\StaffHandoffService;
 use App\Services\Auth\StaffTokenService;
+use App\Services\Auth\UnifiedAuthService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Http\Response;
-use Illuminate\Support\Facades\Hash;
 
 class AuthController extends Controller
 {
-    private const DUMMY_PASSWORD_HASH = '$2y$12$dRibbzvWAKqkXBRPna4QCuri7dR8TKHRGDIt.RsplFZRfRcJzmPlq';
-
     public function __construct(
         private readonly LoginDestinationResolver $destinationResolver,
         private readonly StaffTokenService $tokenService,
@@ -30,25 +27,18 @@ class AuthController extends Controller
     public function login(AdminLoginRequest $request): JsonResource|JsonResponse
     {
         $credentials = $request->validated();
-        $user = User::query()
-            ->whereRaw('LOWER(email) = ?', [$credentials['email']])
-            ->first();
-        $storedHash = $user instanceof User ? $user->password : self::DUMMY_PASSWORD_HASH;
-        $passwordMatches = Hash::check($credentials['password'], $storedHash);
-
-        if (! $user instanceof User || ! $user->is_active || $user->is_system || ! $passwordMatches) {
-            StaffAuthenticationAudit::record($user, 'failed');
-
+        $actor = app(UnifiedAuthService::class)->attempt($credentials['email'], $credentials['password']);
+        if (! $actor instanceof User) {
             return response()->json([
                 'message' => 'بيانات تسجيل الدخول غير صحيحة أو الحساب غير نشط.',
             ], 401);
         }
 
-        $redirect = $this->destinationResolver->resolve($user);
-        $token = $this->tokenService->issue($user, StaffHandoffService::credentialFingerprint($user));
-        StaffAuthenticationAudit::record($user, 'success');
+        $token = $this->tokenService->issue($actor, StaffHandoffService::credentialFingerprint($actor));
+        $actor->load(['branch', 'roles.permissions', 'permissions']);
+        $redirect = $this->destinationResolver->resolve($actor);
 
-        return $this->userResource($user)->additional(['token' => $token, 'redirect' => $redirect]);
+        return $this->userResource($actor)->additional(['token' => $token, 'redirect' => $redirect]);
     }
 
     public function me(Request $request): JsonResource

@@ -1,47 +1,49 @@
-{
-  "output": {
-    "filePath": "repomix/outputs/repomix-finance-treasury.xml",
-    "style": "xml",
-    "parsableStyle": true,
-    "fileSummary": true,
-    "directoryStructure": true,
-    "removeComments": false,
-    "removeEmptyLines": true,
-    "topFilesLength": 20,
-    "showLineNumbers": true,
-    "copyToClipboard": false,
-    "instructionFilePath": "repomix/instructions/audit-security-prompt.md",
-    "headerText": "DOMAIN: TREASURY, CASH MANAGEMENT & FINANCIAL ACCOUNTING\nAuditing treasury double-entry records, cash drawer tracking, branch money segregation, expense voids, and customer wallet balance mutations."
-  },
-  "include": [
-    "bags-platform/backend/app/Services/Finance/**",
-    "bags-platform/backend/app/Services/Pos/TreasuryService.php",
-    "bags-platform/backend/app/Services/Pos/ExpenseService.php",
-    "bags-platform/backend/app/Console/Commands/Operations/ReconcileFinance.php",
-    "bags-platform/backend/app/Models/Treasury.php",
-    "bags-platform/backend/app/Models/TreasuryTransaction.php",
-    "bags-platform/backend/app/Models/TreasuryTransfer.php",
-    "bags-platform/backend/app/Models/FinanceReconcileRun.php",
-    "bags-platform/backend/app/Models/Expense.php",
-    "bags-platform/backend/app/Models/CustomerWalletTransaction.php",
-    "bags-platform/backend/app/Models/WalletAdjustment.php",
-    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Treasury*.php",
-    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Expense*.php",
-    "bags-platform/backend/database/migrations/*treasur*.php",
-    "bags-platform/backend/database/migrations/*wallet*.php",
-    "bags-platform/backend/database/migrations/*expense*.php",
-    "bags-platform/backend/tests/Feature/Finance/**",
-    "bags-platform/frontend/packages/api-client/src/endpoints/operations/finance.ts"
-  ],
-  "ignore": {
-    "useGitignore": true,
-    "useDefaultPatterns": true,
-    "customPatterns": [
-      "**/vendor/**",
-      "**/node_modules/**",
-      "**/.git/**",
-      "**/storage/**",
-      "**/*.log"
-    ]
-  }
+﻿{
+    "output":  {
+                   "filePath":  "repomix/outputs/repomix-finance-treasury.xml",
+                   "style":  "xml",
+                   "parsableStyle":  true,
+                   "fileSummary":  true,
+                   "directoryStructure":  true,
+                   "removeComments":  false,
+                   "removeEmptyLines":  true,
+                   "topFilesLength":  20,
+                   "showLineNumbers":  true,
+                   "copyToClipboard":  false,
+                   "instructionFilePath":  "repomix/instructions/audit-security-prompt.md",
+                   "headerText":  "DOMAIN: TREASURY, CASH MANAGEMENT \u0026 FINANCIAL ACCOUNTING\nAuditing treasury double-entry records, cash drawer tracking, branch money segregation, expense voids, and customer wallet balance mutations."
+               },
+    "include":  [
+                    "bags-platform/backend/app/Services/Finance/**",
+                    "bags-platform/backend/app/Services/Pos/TreasuryService.php",
+                    "bags-platform/backend/app/Services/Pos/ExpenseService.php",
+                    "bags-platform/backend/app/Console/Commands/Operations/ReconcileFinance.php",
+                    "bags-platform/backend/app/Models/Treasury.php",
+                    "bags-platform/backend/app/Models/TreasuryTransaction.php",
+                    "bags-platform/backend/app/Models/TreasuryTransfer.php",
+                    "bags-platform/backend/app/Models/FinanceReconcileRun.php",
+                    "bags-platform/backend/app/Models/Expense.php",
+                    "bags-platform/backend/app/Models/CustomerWalletTransaction.php",
+                    "bags-platform/backend/app/Models/WalletAdjustment.php",
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Treasury*.php",
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Expense*.php",
+                    "bags-platform/backend/database/migrations/*treasur*.php",
+                    "bags-platform/backend/database/migrations/*wallet*.php",
+                    "bags-platform/backend/database/migrations/*expense*.php",
+                    "bags-platform/frontend/packages/api-client/src/endpoints/operations/finance.ts"
+                ],
+    "ignore":  {
+                   "useGitignore":  true,
+                   "useDefaultPatterns":  true,
+                   "customPatterns":  [
+                                          "**/tests/**",
+                                          "**/*.test.*",
+                                          "**/*.spec.*",
+                                          "**/vendor/**",
+                                          "**/node_modules/**",
+                                          "**/.git/**",
+                                          "**/storage/**",
+                                          "**/*.log"
+                                      ]
+               }
 }

@@ -168,6 +168,7 @@ class CatalogCompletionReviewTest extends TestCase
 
     public function test_pruner_keeps_live_recent_and_non_uuid_files_and_supports_dry_run(): void
     {
+        $this->markStorageForCleanup('r2_public');
         $disk = Storage::disk('r2_public');
         $live = Product::factory()->create()->addMedia(UploadedFile::fake()->image('live.jpg'))->toMediaCollection('images');
         $old = '11111111-2222-4333-8444-555555555555/orphan.jpg';
@@ -186,6 +187,19 @@ class CatalogCompletionReviewTest extends TestCase
         $disk->assertExists($live->getPathRelativeToRoot());
         $this->artisan('media:prune-orphans', ['--disk' => 'local'])->assertFailed();
         $this->artisan('media:prune-orphans', ['--older-than' => 1])->assertFailed();
+    }
+
+    public function test_pruner_rejects_a_public_disk_pointing_at_the_private_bucket(): void
+    {
+        $this->markStorageForCleanup('r2_public');
+        config(['filesystems.disks.r2.bucket' => 'shared', 'filesystems.disks.r2_public.bucket' => 'shared']);
+        $disk = Storage::disk('r2_public');
+        $path = '11111111-2222-4333-8444-555555555555/other-private-file.pdf';
+        $disk->put($path, 'private document');
+        touch($disk->path($path), now()->subDays(2)->timestamp);
+
+        $this->artisan('media:prune-orphans')->assertFailed();
+        $disk->assertExists($path);
     }
 
     public function test_shared_image_pixel_rule_rejects_oversized_headers_without_decoding_them(): void

@@ -16,6 +16,7 @@ return [
     'default' => env('FILESYSTEM_DISK', 'r2'),
 
     'banners_disk' => env('BANNERS_DISK', 'r2'),
+    'cleanup_owner' => env('R2_CLEANUP_OWNER'),
 
     // Catalog media (products, variants, categories, brands). Production uses
     // the public R2 bucket; local dev without R2 sets MEDIA_CATALOG_DISK=public

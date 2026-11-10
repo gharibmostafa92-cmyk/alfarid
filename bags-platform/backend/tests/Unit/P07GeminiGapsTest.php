@@ -7,8 +7,11 @@ namespace Tests\Unit;
 use App\Services\Ai\GeminiClient;
 use App\Services\Ai\GeminiException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
+use InvalidArgumentException;
 use LogicException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
@@ -133,5 +136,51 @@ class P07GeminiGapsTest extends TestCase
         $result = app(GeminiClient::class)->generateStructured('Give JSON', ['type' => 'OBJECT']);
         $this->assertSame(['a' => 1], $result['data']);
         Http::assertSent(fn (Request $request) => ($request['generationConfig']['responseMimeType'] ?? null) === 'application/json');
+    }
+
+    #[DataProvider('invalidSingleAttachments')]
+    public function test_structured_generation_rejects_invalid_single_attachments_before_http(string $name, int $kilobytes, string $mime): void
+    {
+        Http::fake(['generativelanguage.googleapis.com/*' => Http::response($this->completion('{"a":1}'))]);
+        $file = UploadedFile::fake()->create($name, $kilobytes, $mime);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('الصورة يجب أن تكون JPG أو PNG أو WebP وبحد أقصى 4MB.');
+        try {
+            app(GeminiClient::class)->generateStructured('Give JSON', ['type' => 'OBJECT'], $file);
+        } finally {
+            Http::assertNothingSent();
+        }
+    }
+
+    public static function invalidSingleAttachments(): array
+    {
+        return [
+            'unsupported MIME' => ['sheet.svg', 1, 'image/svg+xml'],
+            'over byte limit' => ['sheet.png', 4097, 'image/png'],
+        ];
+    }
+
+    public function test_structured_generation_uses_detected_mime_for_supported_single_attachments(): void
+    {
+        Http::fake(['generativelanguage.googleapis.com/*' => Http::response($this->completion('{"a":1}'))]);
+        $attachments = [
+            'image/png' => UploadedFile::fake()->image('sheet.png'),
+            // Ogg page containing an Opus identification packet, enough for MIME detection.
+            'audio/ogg' => UploadedFile::fake()->createWithContent('voice.ogg', base64_decode('T2dnUwACAAAAAAAAAAABAAAAAAAAAAAAAAABE09wdXNIZWFkAQE4AYC7AAAAAAA=')),
+            'application/pdf' => UploadedFile::fake()->createWithContent('receipt.pdf', "%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n"),
+        ];
+
+        foreach ($attachments as $mime => $fixture) {
+            $file = new UploadedFile($fixture->getPathname(), 'upload.jpg', 'image/jpeg', null, true);
+            $result = app(GeminiClient::class)->generateStructured('Give JSON', ['type' => 'OBJECT'], $file);
+
+            $this->assertSame(['a' => 1], $result['data']);
+            Http::assertSent(fn (Request $request) => $request['contents'][0]['parts'][1]['inlineData'] === [
+                'mimeType' => $mime,
+                'data' => base64_encode($file->getContent()),
+            ]);
+        }
+        Http::assertSentCount(3);
     }
 }

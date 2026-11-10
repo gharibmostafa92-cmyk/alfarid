@@ -10,6 +10,8 @@ export interface StaffUser {
   permissions: string[];
   branch_id?: number | null;
   branch?: { id: number; name: string; code?: string } | null;
+  must_change_password?: boolean;
+  version?: number;
 }
 
 interface AuthState {
@@ -19,8 +21,8 @@ interface AuthState {
   login: (token: string, user: StaffUser) => void;
   setUser: (user: StaffUser) => void;
   logout: () => void;
-  logoutRemote: () => Promise<void>;
-  bootstrap: () => Promise<void>;
+  logoutRemote: (scope?: 'staff' | 'unified') => Promise<void>;
+  bootstrap: (signal?: AbortSignal) => Promise<void>;
 }
 
 const WEB_URL = resolveServiceUrl((import.meta.env.VITE_WEB_URL as string | undefined) ?? 'http://localhost:3000');
@@ -114,22 +116,23 @@ export const useAuthStore = create<AuthState>((set, get) => {
       setAuthToken(null);
       set({ user: null, token: null, isAuthenticated: false });
     },
-    logoutRemote: async () => {
+    logoutRemote: async (scope = 'staff') => {
       try {
-        await authEndpoints.staffLogout();
+        if (scope === 'unified') await authEndpoints.logout();
+        else await authEndpoints.staffLogout();
       } catch {
         // Continue local cleanup even if remote invalidation fails
       }
       get().logout();
       window.location.href = `${WEB_URL}/auth/login`;
     },
-    bootstrap: async () => {
+    bootstrap: async (signal) => {
       const currentToken = get().token;
       if (!currentToken) return;
 
       try {
-        const rawUser = await authEndpoints.staffMe();
-        if (get().token !== currentToken || localStorage.getItem('backoffice_token') !== currentToken) return;
+        const rawUser = await authEndpoints.staffMe(signal);
+        if (signal?.aborted || get().token !== currentToken || localStorage.getItem('backoffice_token') !== currentToken) return;
         const staffUser = toStaffUser(rawUser);
         if (staffUser) {
           set({ user: staffUser, isAuthenticated: true });
@@ -148,7 +151,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
           get().logout();
         }
       } catch (err) {
-        if (get().token !== currentToken || localStorage.getItem('backoffice_token') !== currentToken) return;
+        if (signal?.aborted || get().token !== currentToken || localStorage.getItem('backoffice_token') !== currentToken) return;
         if (import.meta.env.DEV) {
           set({
             user: {

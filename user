@@ -1,0 +1,24 @@
+bags-platform/backend/app/Http/Middleware\EnsureCustomerAuthenticated.php:16:    public function handle(Request $request, Closure $next): Response
+bags-platform/backend/app/Http/Middleware\EnsureCustomerAuthenticated.php:18:        Auth::shouldUse('customer');
+bags-platform/backend/app/Http/Middleware\EnsureCustomerAuthenticated.php:19:        $user = $request->user('customer');
+bags-platform/backend/app/Http/Middleware\EnsureCustomerAuthenticated.php:21:        if ($request->user('sanctum') === null) {
+bags-platform/backend/app/Http/Middleware\EnsureCustomerAuthenticated.php:27:        $canInspectRejection = $request->routeIs('wholesale.auth.application-status', 'store.auth.logout');
+bags-platform/backend/app/Http/Middleware\EnsureSupplierAuthenticated.php:15:    public function handle(Request $request, Closure $next): Response
+bags-platform/backend/app/Http/Middleware\EnsureSupplierAuthenticated.php:17:        Auth::shouldUse('supplier');
+bags-platform/backend/app/Http/Middleware\EnsureSupplierAuthenticated.php:18:        $user = $request->user('supplier');
+bags-platform/backend/app/Http/Middleware\EnsureSupplierAuthenticated.php:20:        if ($request->user('sanctum') === null) {
+bags-platform/backend/app/Http/Middleware\EnsureWholesaleApproved.php:20:    public function handle(Request $request, Closure $next): Response
+bags-platform/backend/app/Http/Middleware\EnsureWholesaleApproved.php:22:        Auth::shouldUse('customer');
+bags-platform/backend/app/Http/Middleware\EnsureWholesaleApproved.php:23:        $user = $request->user('customer');
+bags-platform/backend/app/Http/Middleware\EnsureWholesaleApproved.php:25:        if ($request->user('sanctum') === null) {
+bags-platform/backend/app/Http/Middleware\EnsureStaffAuthenticated.php:21:    public function handle(Request $request, Closure $next): Response
+bags-platform/backend/app/Http/Middleware\EnsureStaffAuthenticated.php:23:        Auth::shouldUse('staff');
+bags-platform/backend/app/Http/Middleware\EnsureStaffAuthenticated.php:24:        $user = $request->user('staff');
+bags-platform/backend/app/Http/Middleware\EnsureStaffAuthenticated.php:26:        if ($request->user('sanctum') === null) {
+bags-platform/backend/app/Http/Middleware\EnsureStaffAuthenticated.php:53:        $posReachable = $request->is('api/v1/pos/*') || $this->isBranchLockExempt($request);
+bags-platform/backend/app/Http/Middleware\EnsureStaffAuthenticated.php:62:            && ! $request->is('api/v1/admin/auth/logout') && ! $request->is('api/v1/auth/logout')
+bags-platform/backend/app/Http/Middleware\EnsureStaffAuthenticated.php:84:        if ($request->isMethod('GET') && $request->is('api/v1/admin/me')) {
+bags-platform/backend/app/Http/Middleware\EnsureStaffAuthenticated.php:87:        if (in_array($request->method(), ['PUT', 'PATCH'], true) && $request->is('api/v1/admin/me/password')) {
+bags-platform/backend/app/Http/Middleware\EnsureStaffAuthenticated.php:91:        return $request->is('api/v1/admin/auth/logout') || $request->is('api/v1/auth/logout');
+bags-platform/backend/app/Http/Middleware\EnsureStaffAuthenticated.php:96:        if ($request->isMethod('GET') && $request->is('api/v1/admin/me')) {
+bags-platform/backend/app/Http/Middleware\EnsureStaffAuthenticated.php:99:        if (in_array($request->method(), ['PUT', 'PATCH'], true) && $request->is('api/v1/admin/me/password')) {

@@ -19,6 +19,31 @@ class R2UploadMigrationTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
+    public function test_legacy_alias_preserves_source_unless_deletion_is_explicit(): void
+    {
+        $source = Storage::fake('local');
+        $path = 'return_requests/1/photo.png';
+        $source->put($path, 'photo');
+
+        $this->artisan('returns:privatize-attachments')->assertSuccessful();
+        $source->assertExists($path);
+        Storage::disk('r2')->assertExists($path);
+    }
+
+    public function test_copy_accepts_dots_in_a_filename_and_rejects_parent_segments(): void
+    {
+        $source = Storage::fake('local');
+        $path = 'return_requests/1/photo..png';
+        $source->put($path, 'photo');
+        $migration = app(R2UploadMigration::class);
+
+        $migration->copy('local', $path);
+        Storage::disk('r2')->assertExists($path);
+
+        $this->expectExceptionMessage('Unsupported upload source.');
+        $migration->copy('local', 'return_requests/../photo..png');
+    }
+
     public function test_catalog_originals_and_derived_files_move_together_and_keep_their_paths(): void
     {
         $source = Storage::fake('public');

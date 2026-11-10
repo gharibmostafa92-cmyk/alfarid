@@ -33,10 +33,13 @@ final class StaffAdministration
         }
         // Advisory lock timeout (55P03) indicates a transient concurrency conflict converted to a retryable 409.
         try {
+            // task3 M2: 0 means "wait forever", not "the default" — save and
+            // restore the previous value so role/database timeouts survive.
+            $previousLockTimeout = (string) DB::selectOne("SELECT current_setting('lock_timeout') AS setting")->setting;
             DB::statement("SET LOCAL lock_timeout = '5s'");
             DB::select('SELECT pg_advisory_xact_lock(79301, 1)');
-            // M3: restore the default so later lockForUpdate in the same transaction is not capped at 5s.
-            DB::statement("SET LOCAL lock_timeout = '0'");
+            // M3: restore the previous value so later lockForUpdate in the same transaction is not capped at 5s.
+            DB::selectOne('SELECT set_config(?, ?, true) AS setting', ['lock_timeout', $previousLockTimeout]);
         } catch (QueryException $e) {
             if (($e->errorInfo[0] ?? null) === '55P03') {
                 throw new RetryableConflict('النظام مشغول حاليًا؛ حاول مرة أخرى.', $e);
@@ -104,7 +107,6 @@ final class StaffAdministration
      *
      * @param  User|null  $actor  Staff user attempting permission assignment.
      * @param  list<string>  $permissions  Permissions requested to be granted.
-     * @return bool
      */
     public static function mayGrantPermissions(?User $actor, array $permissions): bool
     {
@@ -122,7 +124,6 @@ final class StaffAdministration
      * @param  mixed  $actor  Staff user initiating management action.
      * @param  User|null  $target  Target user being modified, or null if creating.
      * @param  list<string>  $roles  Roles being assigned to the target user.
-     * @return bool
      */
     public static function mayManageUser(mixed $actor, ?User $target = null, array $roles = []): bool
     {
@@ -223,7 +224,6 @@ final class StaffAdministration
      * @param  array<string, mixed>  $before  Pre-modification snapshot.
      * @param  array<string, mixed>  $after  Post-modification snapshot.
      * @param  array<string, mixed>  $via  Audit trail origin metadata.
-     * @return void
      */
     public static function audit(?User $actor, string $action, string $targetType, int|string|null $targetId, array $fields, array $before = [], array $after = [], array $via = []): void
     {

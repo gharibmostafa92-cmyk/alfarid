@@ -29,23 +29,22 @@ class BackfillMediaPathLayouts extends Command
         Media::query()->whereNull('custom_properties->path_layout')->chunkById(100, function ($items) use (&$count, &$missing): void {
             foreach ($items as $item) {
                 try {
-                    DB::transaction(function () use ($item, &$count, &$missing): void {
+                    $disk = Storage::disk($item->disk);
+                    $hasIdPath = $disk->exists($item->id.'/'.$item->file_name);
+                    $hasUuidPath = ! $hasIdPath && $disk->exists($item->uuid.'/'.$item->file_name);
+                    if (! $hasIdPath && ! $hasUuidPath) {
+                        $missing++;
+                        logger()->warning('Backfill: media file missing on both layouts.', ['media_id' => $item->id]);
+
+                        continue;
+                    }
+                    $layout = $hasIdPath ? 'id' : 'uuid';
+                    DB::transaction(function () use ($item, $layout, &$count): void {
                         $media = Media::whereKey($item->id)->lockForUpdate()->first();
                         if (! $media || $media->hasCustomProperty('path_layout')) {
                             return;
                         }
-                        $disk = Storage::disk($media->disk);
-                        // One-time console probe (never at request time): legacy rows
-                        // live under id/<file>, newer rows under uuid/<file>.
-                        $hasIdPath = $disk->exists($media->id.'/'.$media->file_name);
-                        $hasUuidPath = ! $hasIdPath && $disk->exists($media->uuid.'/'.$media->file_name);
-                        if (! $hasIdPath && ! $hasUuidPath) {
-                            $missing++;
-                            logger()->warning('Backfill: media file missing on both layouts.', ['media_id' => $media->id]);
-
-                            return;
-                        }
-                        $media->setCustomProperty('path_layout', $hasIdPath ? 'id' : 'uuid');
+                        $media->setCustomProperty('path_layout', $layout);
                         $media->save();
                         $count++;
                     });

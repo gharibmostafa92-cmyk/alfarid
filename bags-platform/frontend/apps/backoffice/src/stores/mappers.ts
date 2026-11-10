@@ -15,6 +15,8 @@ export const toStaffUser = (raw: unknown): StaffUser => {
     email: u.email ?? '',
     roles: Array.isArray(u.roles) ? u.roles.map((r: unknown) => (typeof r === 'string' ? r : (r as { name: string })?.name ?? '')) : [],
     permissions: Array.isArray(u.permissions) ? u.permissions : [],
+    must_change_password: u.must_change_password === true,
+    version: u.version,
     branch_id: u.branch_id ?? null,
     branch: b && typeof b === 'object' ? { id: b.id, name: b.name, code: b.code } : null,
   };

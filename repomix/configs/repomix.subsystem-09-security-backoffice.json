@@ -69,7 +69,10 @@
     "bags-platform/backend/database/migrations/*customer*.php",
     "bags-platform/backend/database/migrations/*auth_lookup*.php",
     "bags-platform/backend/database/migrations/*widen_text*.php",
-    "bags-platform/backend/database/migrations/*message_budget*.php"
+    "bags-platform/backend/database/migrations/*message_budget*.php",
+    "bags-platform/backend/database/migrations/*roles*.php",
+    "bags-platform/backend/database/migrations/*least_privilege_roles*.php",
+    "bags-platform/backend/database/migrations/*scope_phone_unique*.php"
   ],
   "ignore": {
     "useGitignore": true,

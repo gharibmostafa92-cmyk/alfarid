@@ -7,6 +7,7 @@ namespace App\Services\Auth;
 use App\Enums\StaffRole;
 use App\Notifications\Auth\StaffAuthenticationAlert;
 use App\Notifications\StaffRecipients;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Notification;
 
 final class AuthenticationAlerts
@@ -15,7 +16,7 @@ final class AuthenticationAlerts
     {
         logger()->warning('auth.failure_threshold', ['reason' => $reason, 'staff_id' => $staffId]);
         // M5: dedup identical alerts within a 15-minute window to survive credential-stuffing storms.
-        if (! \Illuminate\Support\Facades\Cache::add('auth-alert:'.$reason, 1, now()->addMinutes(15))) {
+        if (! Cache::add('auth-alert:'.$reason.':'.($staffId ?? 'none'), 1, now()->addMinutes(15))) {
             return;
         }
         try {

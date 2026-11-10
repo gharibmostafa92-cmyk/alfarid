@@ -49,7 +49,9 @@ return new class extends Migration
         DB::statement(<<<SQL
             DO \$\$
             BEGIN
-                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '{$constraint}') THEN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = '{$constraint}' AND conrelid = '{$table}'::regclass
+                ) THEN
                     ALTER TABLE {$table} ADD CONSTRAINT {$constraint} CHECK {$expr} NOT VALID;
                 END IF;
             END

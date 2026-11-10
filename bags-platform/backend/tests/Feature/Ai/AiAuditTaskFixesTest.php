@@ -249,6 +249,34 @@ class AiAuditTaskFixesTest extends TestCase
         );
     }
 
+    public function test_a_failed_second_attachment_leaves_no_partial_batch(): void
+    {
+        $staff = $this->staff(['ai_agent.use']);
+        $conversation = $this->conv($staff);
+        $created = 0;
+        $event = 'eloquent.creating: '.AiAttachment::class;
+        \Illuminate\Support\Facades\Event::listen($event, function () use (&$created): void {
+            if (++$created === 2) {
+                throw new \RuntimeException('simulated failure on the second row');
+            }
+        });
+
+        try {
+            $this->withToken($this->token($staff))->postJson(
+                "/api/v1/admin/ai/conversations/{$conversation->id}/attachments",
+                ['files' => [
+                    \Illuminate\Http\UploadedFile::fake()->image('first.jpg'),
+                    \Illuminate\Http\UploadedFile::fake()->image('second.jpg'),
+                ]]
+            )->assertServerError();
+        } finally {
+            \Illuminate\Support\Facades\Event::forget($event);
+        }
+
+        $this->assertDatabaseCount('ai_attachments', 0);
+        $this->assertSame([], \Illuminate\Support\Facades\Storage::disk('ai_private')->allFiles("ai-attachments/{$conversation->id}"));
+    }
+
     // ── L1: quota + ai_enabled guard on uploads ──
     public function test_l1_attachment_upload_quota_and_disabled_guard(): void
     {

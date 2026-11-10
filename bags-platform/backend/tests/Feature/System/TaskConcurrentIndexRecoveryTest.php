@@ -57,6 +57,43 @@ class TaskConcurrentIndexRecoveryTest extends TestCase
         $this->assertSame(1, DB::table('webhook_logs')->where('provider', 'checklist')->count());
     }
 
+    public function test_media_client_upload_migration_rebuilds_an_invalid_index(): void
+    {
+        $migration = require database_path('migrations/2026_11_12_000014_repair_media_client_upload_index.php');
+        DB::statement('DROP INDEX CONCURRENTLY IF EXISTS media_client_upload_id_unique');
+        $properties = json_encode(['client_upload_id' => 'same-upload']);
+        foreach ([1, 2] as $ignored) {
+            DB::table('media')->insert([
+                'model_type' => 'checklist',
+                'model_id' => 1,
+                'uuid' => (string) Str::uuid(),
+                'collection_name' => 'images',
+                'name' => 'photo',
+                'file_name' => 'photo.jpg',
+                'disk' => 'r2_public',
+                'size' => 1,
+                'manipulations' => '[]',
+                'custom_properties' => $properties,
+                'generated_conversions' => '[]',
+                'responsive_images' => '[]',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+        $index = 'media_client_upload_id_unique';
+        try {
+            DB::statement("CREATE UNIQUE INDEX CONCURRENTLY {$index} ON media (model_type, model_id, (custom_properties->>'client_upload_id')) WHERE custom_properties->>'client_upload_id' IS NOT NULL");
+            $this->fail('Duplicate client upload ids must invalidate the concurrent build.');
+        } catch (QueryException $exception) {
+            $this->assertSame('23505', $exception->errorInfo[0]);
+        }
+        $this->assertFalse($this->valid($index));
+        DB::table('media')->where('model_type', 'checklist')->orderBy('id')->limit(1)->delete();
+        $migration->up();
+        $migration->up();
+        $this->assertTrue($this->valid($index));
+    }
+
     private function valid(string $index): bool
     {
         return DB::selectOne('SELECT i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid WHERE c.relname = ? AND c.relnamespace = current_schema()::regnamespace', [$index])->indisvalid;

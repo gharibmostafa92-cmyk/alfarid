@@ -9,6 +9,7 @@ use App\Models\SupplierUser;
 use App\Models\User;
 use App\Rules\EmailNotUsedByOtherAccountType;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 class EmailUniquenessTest extends TestCase
@@ -67,5 +68,18 @@ class EmailUniquenessTest extends TestCase
 
         $this->assertFalse($this->fails('customers', null));
         $this->assertFalse($this->fails('customers', '   '));
+    }
+
+    public function test_verifying_a_retail_email_rejects_an_address_taken_by_staff(): void
+    {
+        $customer = Customer::factory()->create([
+            'email' => 'later@example.test',
+            'email_verified_at' => null,
+            'type' => 'retail',
+        ]);
+        User::factory()->create(['email' => 'later@example.test']);
+
+        $this->expectException(ValidationException::class);
+        $customer->forceFill(['email_verified_at' => now()])->save();
     }
 }

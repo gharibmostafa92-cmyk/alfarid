@@ -16,6 +16,8 @@ use LogicException;
  */
 class GeminiClient
 {
+    private const IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
+
     /**
      * Determines whether a connection exception is a safe-to-retry connect or DNS failure.
      *
@@ -107,7 +109,7 @@ class GeminiClient
 
         $parts = array_merge(
             [['text' => $prompt]],
-            self::buildMediaParts($images ?? [], ['image/jpeg', 'image/png', 'image/webp'])
+            self::buildMediaParts($images ?? [], self::IMAGE_MIMES)
         );
 
         $payload = [
@@ -190,7 +192,7 @@ class GeminiClient
      *
      * @param  string  $prompt  User or prompt text.
      * @param  array<string, mixed>  $schema  Target JSON schema specification.
-     * @param  list<UploadedFile>|UploadedFile|null  $images  Optional image/audio attachment(s) for multimodal analysis.
+     * @param  list<UploadedFile>|UploadedFile|null  $images  Optional raster images, or a single Ogg voice note or PDF receipt.
      * @param  string|null  $model  Specific model identifier to route to.
      * @return array{data: array<string, mixed>, model: string, usage: array{input_tokens: int, output_tokens: int, total_tokens: int}}
      *
@@ -206,12 +208,10 @@ class GeminiClient
             throw new InvalidArgumentException('مخطط الاستجابة مطلوب.');
         }
 
-        $parts = array_merge(
-            [['text' => $prompt]],
-            $images instanceof UploadedFile
-                ? [['inlineData' => ['mimeType' => $images->getClientMimeType() ?: ($images->getMimeType() ?: 'image/jpeg'), 'data' => base64_encode((string) $images->getContent())]]]
-                : self::buildMediaParts($images, ['image/jpeg', 'image/png', 'image/webp'])
-        );
+        $allowedMimes = $images instanceof UploadedFile
+            ? [...self::IMAGE_MIMES, 'audio/ogg', 'application/pdf']
+            : self::IMAGE_MIMES;
+        $parts = array_merge([['text' => $prompt]], self::buildMediaParts($images, $allowedMimes));
 
         $payload = [
             'contents' => [['role' => 'user', 'parts' => $parts]],

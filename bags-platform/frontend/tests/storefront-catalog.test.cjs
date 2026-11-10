@@ -167,7 +167,7 @@ test('clearing a guest cart session clears both persistent and in-memory fallbac
     const cart = { customer_id: null, cart_token: 'guest-session', items: [], totals: { total: 0 } };
     const { useCartStore, clearGuestCartSession, resetCartIdentity } = load('apps/storefront/src/stores/cart-store.ts', {
       '@alfarid/api-client': { getAuthToken: () => null, cartEndpoints: { get: async session => { sessions.push(session); return cart; } } },
-      '@/lib/viewer-key': load('apps/storefront/src/lib/viewer-key.ts'),
+      '@/lib/core/viewer-key': load('apps/storefront/src/lib/core/viewer-key.ts'),
     });
     await useCartStore.getState().loadCart();
     assert.equal(storage.get('cart_session'), 'guest-session');

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Auth;
 
+use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\Supplier;
 use App\Models\SupplierUser;
@@ -11,6 +12,7 @@ use App\Models\User;
 use App\Services\Auth\StaffHandoffService;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Models\Role;
 use Symfony\Component\Process\Process;
@@ -107,6 +109,41 @@ class AuthConcurrencyTest extends TestCase
             .'echo $response->getStatusCode() === 200 ? "OK" : "REJECTED";';
         $this->race([$job, $job]);
         $this->assertSame(1, $user->tokens()->count());
+    }
+
+    public function test_exchange_issues_pos_token_when_role_change_commits_at_user_lock(): void
+    {
+        $branch = Branch::factory()->create(['is_active' => true]);
+        $staff = User::factory()->create(['branch_id' => $branch->id]);
+        $staff->assignRole(Role::create(['name' => 'manager', 'guard_name' => 'staff']));
+        $cashier = Role::create(['name' => 'cashier', 'guard_name' => 'staff']);
+        $code = app(StaffHandoffService::class)->issue($staff);
+        config(['database.connections.role_editor' => config('database.connections.pgsql')]);
+
+        // Commit the role replacement on a separate session just before the exchange takes its user lock.
+        $roleChanged = false;
+        DB::connection()->beforeExecuting(function (string $query) use ($staff, $cashier, &$roleChanged): void {
+            if ($roleChanged || ! str_contains($query, 'from "users"') || ! str_ends_with($query, 'for update')) {
+                return;
+            }
+
+            DB::connection('role_editor')->transaction(function () use ($staff, $cashier): void {
+                User::on('role_editor')->lockForUpdate()->findOrFail($staff->id)->syncRoles([$cashier]);
+            });
+            $roleChanged = true;
+        });
+
+        try {
+            $response = $this->postJson('/api/v1/auth/handoff/exchange', ['code' => $code]);
+        } finally {
+            DB::purge('role_editor');
+        }
+
+        $this->assertTrue($roleChanged);
+        $response->assertOk()
+            ->assertJsonPath('redirect.path', '/pos')
+            ->assertJsonPath('data.roles.0.name', 'cashier');
+        $this->assertSame(['pos'], $staff->tokens()->sole()->abilities);
     }
 
     public function test_concurrent_customer_registrations_claim_a_case_insensitive_email_once(): void

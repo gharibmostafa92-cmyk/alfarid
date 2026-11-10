@@ -72,6 +72,16 @@ class UnifiedLoginHardeningTest extends TestCase
         $this->login(['login' => '+201012345678', 'password' => 'wrong'])->assertStatus(429);
     }
 
+    public function test_ipv4_uses_the_ip_limit_without_the_ipv6_prefix_limit(): void
+    {
+        config(['auth.unified_login_ip_failures_hour' => 2, 'auth.unified_login_wide_failures_hour' => 1]);
+
+        $this->login(['login' => 'first@invalid.example', 'password' => 'wrong'])->assertUnauthorized();
+        $this->login(['login' => 'second@invalid.example', 'password' => 'wrong'])->assertUnauthorized();
+        $this->login(['login' => 'third@invalid.example', 'password' => 'wrong'])
+            ->assertStatus(429)->assertJsonPath('code', 'challenge_required');
+    }
+
     public function test_cashier_with_inactive_branch_is_forbidden(): void
     {
         $branch = Branch::factory()->create(['is_active' => false]);

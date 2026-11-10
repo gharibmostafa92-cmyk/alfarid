@@ -19,7 +19,9 @@ RUN APP_ENV=local composer dump-autoload --no-dev --optimize --no-interaction \
 
 COPY infrastructure/docker/php/opcache.ini /usr/local/etc/php/conf.d/zz-opcache.ini
 COPY infrastructure/docker/entrypoint.d/ /etc/entrypoint.d/
-RUN chmod +x /etc/entrypoint.d/50-laravel.sh
+RUN find /etc/entrypoint.d -type f -name '*.sh' -exec sed -i 's/\r$//' {} + \
+    && chmod +x /etc/entrypoint.d/50-laravel.sh \
+    && rm -f /etc/entrypoint.d/.gitattributes
 
 # The image defaults to port 8080; HAProxy talks to appN:8080 on the appnet network.
 EXPOSE 8080

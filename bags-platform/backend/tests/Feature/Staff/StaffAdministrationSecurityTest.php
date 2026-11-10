@@ -8,9 +8,9 @@ use App\Exceptions\BusinessException;
 use App\Models\Branch;
 use App\Models\User;
 use App\Notifications\StaffRecipients;
+use App\Services\Auth\StaffAdministration;
 use App\Services\Auth\UnifiedAuthService;
 use App\Services\Shared\SettingService;
-use App\Services\Auth\StaffAdministration;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
@@ -182,7 +182,11 @@ class StaffAdministrationSecurityTest extends TestCase
     {
         $actor = $this->staff(['users.manage', 'inventory.all_branches']);
         $target = User::factory()->create();
-        $this->api($actor, 'PATCH', '/users/'.$target->id, ['password' => 'Never-log-this12'])->assertOk();
+        $this->api($actor, 'PATCH', '/users/'.$target->id, ['password' => 'Never-log-this12'])->assertUnprocessable();
+        $this->api($actor, 'PATCH', '/users/'.$target->id, [
+            'password' => 'Never-log-this12',
+            'current_password' => 'password',
+        ])->assertOk();
         $log = DB::table('staff_audit_logs')->where('target_id', $target->id)->first();
         $this->assertSame($actor->id, $log->actor_id);
         $this->assertSame('user.updated', $log->action);

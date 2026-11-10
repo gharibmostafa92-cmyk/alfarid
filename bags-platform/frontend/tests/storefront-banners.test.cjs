@@ -26,6 +26,7 @@ function loadTypeScript(relativePath, dependencies = {}) {
 
 const { cardToSophie, mapCards } = loadTypeScript('apps/storefront/src/lib/sophie-mappers.ts', {
   '@alfarid/utils': loadTypeScript('packages/utils/src/currency.ts'),
+  '@/lib/orders/store-routes': loadTypeScript('apps/storefront/src/lib/orders/store-routes.ts'),
 });
 const { fromApi, toFormData, isoToLocalInput, localInputToIso } = loadTypeScript('apps/backoffice/src/pages/admin/admin-mock/banner-mappers.ts');
 const card = (overrides = {}) => ({

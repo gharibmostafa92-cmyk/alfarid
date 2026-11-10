@@ -24,6 +24,8 @@ use Spatie\MediaLibrary\MediaCollections\Models\Media;
  */
 class ProductMediaService
 {
+    public const MAX_IMAGES_PER_OWNER = 200;
+
     /**
      * Lists all active media items for a product and its associated variants.
      *
@@ -33,10 +35,12 @@ class ProductMediaService
     public function index(Product $product): Collection
     {
         $variantIds = $product->variants()->withTrashed()->pluck('id');
+        // task3 M-1: compare morph aliases, not FQCNs, so a future morphMap
+        // entry for products cannot silently empty listings or break deletes.
         $media = Media::query()
             ->whereIn('collection_name', ['images', 'video'])
-            ->where(fn ($q) => $q->where(['model_type' => Product::class, 'model_id' => $product->id])
-                ->orWhere(fn ($w) => $w->where('model_type', ProductVariant::class)->whereIn('model_id', $variantIds)))
+            ->where(fn ($q) => $q->where(['model_type' => $product->getMorphClass(), 'model_id' => $product->id])
+                ->orWhere(fn ($w) => $w->where('model_type', (new ProductVariant)->getMorphClass())->whereIn('model_id', $variantIds)))
             ->orderBy('order_column')->orderBy('id')->get();
 
         return $media;
@@ -72,24 +76,25 @@ class ProductMediaService
                     $media->update(['collection_name' => 'video']);
                 });
             } catch (\Throwable $exception) {
-                $media->delete();
+                $this->deleteMediaQuietly($media);
                 throw $exception;
             }
 
             return collect([$media]);
         }
 
-        // Process images individually so client_upload_id idempotency keys can replay without duplicating files.
         $clientIds = array_values((array) ($data['client_upload_ids'] ?? []));
+        $files = array_values($files);
 
-        return collect(array_values($files))->map(fn ($image, $index) => $this->storeOne($owner, $image, $clientIds[$index] ?? null));
-    }
+        return $this->withMediaLock($product->id, function () use ($owner, $files, $clientIds): Collection {
+            $requestedKeys = array_filter(array_slice($clientIds, 0, count($files)), fn ($id) => is_string($id) && $id !== '');
+            $uniqueKeys = array_values(array_unique($requestedKeys));
+            $replays = $uniqueKeys === [] ? 0 : $owner->media()->where('collection_name', 'images')
+                ->whereIn('custom_properties->client_upload_id', $uniqueKeys)->count();
+            $this->assertImageCapacity($owner, count($files) - count($requestedKeys) + count($uniqueKeys) - $replays);
 
-    private function storeOne(Product|ProductVariant $owner, UploadedFile $image, ?string $clientUploadId): Media
-    {
-        $productId = $owner instanceof Product ? $owner->id : $owner->product_id;
-
-        return $this->withMediaLock($productId, fn () => $this->storeOneUnlocked($owner, $image, $clientUploadId));
+            return collect($files)->map(fn ($image, $index) => $this->storeOneUnlocked($owner, $image, $clientIds[$index] ?? null));
+        });
     }
 
     private function withMediaLock(int $productId, \Closure $operation): mixed
@@ -124,6 +129,8 @@ class ProductMediaService
             }
         }
 
+        $this->assertImageCapacity($owner);
+
         // Upload to staging collection outside database locks to prevent slow cloud network I/O from blocking concurrent requests.
         $stagingId = (string) Str::uuid();
         try {
@@ -132,7 +139,10 @@ class ProductMediaService
                 $properties['client_upload_id'] = $clientUploadId;
             }
             $adder = $owner->addMedia($image)->withCustomProperties($properties);
-            $media = $adder->toMediaCollection('images_staging');
+            // task3 HIGH-1: route explicitly to the catalog disk like the video
+            // path, so a future collection-registration change cannot spill
+            // images onto the private disk (registration covers it today).
+            $media = $adder->toMediaCollection('images_staging', CatalogMedia::disk());
             try {
                 DB::transaction(function () use ($owner, $media): void {
                     $productId = $owner instanceof Product ? $owner->id : $owner->product_id;
@@ -140,6 +150,7 @@ class ProductMediaService
                     if ($owner instanceof ProductVariant) {
                         ProductVariant::whereKey($owner->id)->where('product_id', $productId)->lockForUpdate()->firstOrFail();
                     }
+                    $this->assertImageCapacity($owner);
                     $media->update(['collection_name' => 'images']);
                     DB::afterCommit(function () use ($media): void {
                         try {
@@ -150,7 +161,7 @@ class ProductMediaService
                     });
                 });
             } catch (\Throwable $exception) {
-                $media->delete();
+                $this->deleteMediaQuietly($media);
                 throw $exception;
             }
 
@@ -172,8 +183,24 @@ class ProductMediaService
         } catch (\Throwable $exception) {
             Media::query()->where('model_type', $owner->getMorphClass())->where('model_id', $owner->id)
                 ->where('collection_name', 'images_staging')->where('custom_properties->staging_upload_id', $stagingId)
-                ->get()->each->delete();
+                ->get()->each(fn (Media $row) => $this->deleteMediaQuietly($row));
             throw $exception;
+        }
+    }
+
+    private function deleteMediaQuietly(Media $media): void
+    {
+        try {
+            $media->delete();
+        } catch (\Throwable $cleanup) {
+            report($cleanup);
+        }
+    }
+
+    private function assertImageCapacity(Product|ProductVariant $owner, int $incoming = 1): void
+    {
+        if ($incoming > 0 && $owner->media()->where('collection_name', 'images')->count() + $incoming > self::MAX_IMAGES_PER_OWNER) {
+            throw new BusinessException('وصلت مجموعة الصور إلى الحد الأقصى المسموح به.');
         }
     }
 
@@ -183,7 +210,6 @@ class ProductMediaService
      * @param  Product  $product  Parent product model.
      * @param  list<int>  $ids  Ordered list of media identifiers.
      * @param  list<int>|null  $expectedIds  Optional optimistic concurrency expectation.
-     * @return void
      *
      * @throws BusinessException If order changed concurrently or list is incomplete.
      */
@@ -212,7 +238,6 @@ class ProductMediaService
      *
      * @param  Product  $product  Parent product model.
      * @param  Media  $media  Target media model to delete.
-     * @return void
      *
      * @throws BusinessException If deleting the last photo of a published product.
      */
@@ -236,8 +261,8 @@ class ProductMediaService
     {
         $variantIds = $product->variants()->withTrashed()->pluck('id')->all();
         $count = Media::whereIn('id', $ids)->where(fn ($q) => $q
-            ->where(fn ($w) => $w->where('model_type', Product::class)->where('model_id', $product->id))
-            ->orWhere(fn ($w) => $w->where('model_type', ProductVariant::class)->whereIn('model_id', $variantIds))
+            ->where(fn ($w) => $w->where('model_type', $product->getMorphClass())->where('model_id', $product->id))
+            ->orWhere(fn ($w) => $w->where('model_type', (new ProductVariant)->getMorphClass())->whereIn('model_id', $variantIds))
         )->count();
         if ($count !== count(array_unique($ids))) {
             abort(404, 'ملف غير تابع لهذا المنتج');
@@ -253,8 +278,8 @@ class ProductMediaService
             ->where('collection_name', 'images')
             ->whereKeyNot($exceptMediaId)
             ->where(fn ($q) => $q
-                ->where(fn ($w) => $w->where('model_type', Product::class)->where('model_id', $product->id))
-                ->orWhere(fn ($w) => $w->where('model_type', ProductVariant::class)->whereIn('model_id', $variantIds)))
+                ->where(fn ($w) => $w->where('model_type', $product->getMorphClass())->where('model_id', $product->id))
+                ->orWhere(fn ($w) => $w->where('model_type', (new ProductVariant)->getMorphClass())->whereIn('model_id', $variantIds)))
             ->exists();
     }
 

@@ -24,8 +24,8 @@ class TransactionalMediaObserver extends MediaObserver
         // (e.g. `public`), allow exactly that configured disk outside production
         // so developers can work without R2 credentials.
         $configuredCatalog = (string) config('filesystems.catalog_disk', 'r2_public');
-        $localCatalog = $configuredCatalog !== 'r2' && $configuredCatalog !== 'r2_public'
-            && ! app()->environment('production')
+        $localCatalog = app()->environment(['local', 'testing'])
+            && $configuredCatalog !== 'r2' && $configuredCatalog !== 'r2_public'
             && $media->disk === $configuredCatalog
             && in_array($media->conversions_disk, ['', $configuredCatalog], true);
         // Store catalog entities in public storage while restricting sensitive customer uploads to private buckets.

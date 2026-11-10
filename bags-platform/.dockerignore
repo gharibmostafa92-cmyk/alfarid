@@ -20,3 +20,7 @@ repomix-*.xml
 backend/storage/app/**
 backend/storage/framework/testing/**
 backend/storage/framework/sessions/**
+backend/tests
+backend/docs
+backend/phpunit.xml
+backend/.phpunit.cache
