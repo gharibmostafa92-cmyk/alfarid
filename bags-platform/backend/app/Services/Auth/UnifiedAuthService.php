@@ -34,7 +34,7 @@ final class UnifiedAuthService
      * @throws BusinessException If credentials are invalid (401) or account is suspended (403).
      * @throws TooManyRequestsHttpException If brute-force rate limit thresholds are exceeded (429).
      */
-    public function attempt(string $login, string $password): User|Customer
+    public function attempt(string $login, string $password, bool $staffOnly = false): User|Customer
     {
         $identifier = Customer::normalizeIdentifier($login) ?? '';
         // Hash identifier in cache keys to prevent exposing plaintext emails or phone numbers in key stores.
@@ -53,9 +53,13 @@ final class UnifiedAuthService
         $wideKey = $wideNetworkKey !== $networkKey ? 'unified-login:wide-failures:'.$wideNetworkKey : null;
         $wideLimit = max(1, (int) config('auth.unified_login_wide_failures_hour', 200));
         // Reserve the per-identifier+network slot atomically before any bcrypt work (H2).
-        if (RateLimiter::hit($pairKey, 3600) > $pairLimit) {
+        // M-1: past the soft limit, demand Turnstile instead of locking the real owner out
+        // behind shared NAT/CGNAT; keep a hard ceiling at 5x the limit.
+        $pairHits = RateLimiter::hit($pairKey, 3600);
+        if ($pairHits > $pairLimit * 5) {
             throw new TooManyRequestsHttpException(RateLimiter::availableIn($pairKey), 'محاولات دخول كثيرة؛ حاول لاحقًا.');
         }
+        $pairLimitReached = $pairHits > $pairLimit;
         $staff = str_contains($identifier, '@') ? User::query()->whereRaw('LOWER(email) = ?', [$identifier])->first() : null;
         $hourLimitReached = RateLimiter::tooManyAttempts($hourKey, $hourLimit);
         $broadLimitReached = RateLimiter::tooManyAttempts($ipKey, $ipLimit);
@@ -64,10 +68,15 @@ final class UnifiedAuthService
         $globalKey = 'unified-login:global-failures';
         $globalLimit = max(1, (int) config('auth.unified_login_global_failures_minute', 200));
         $globalLimitReached = RateLimiter::tooManyAttempts($globalKey, $globalLimit);
-        $suppressAudit = $hourLimitReached || $dayLimitReached || $broadLimitReached || $wideLimitReached;
-        // H1: after any soft limit, do not burn bcrypt before a human challenge.
-        // Legit users behind shared NAT complete Turnstile; bots and free bcrypt stop here.
-        if ($suppressAudit || $globalLimitReached) {
+        $suppressAudit = $pairLimitReached || $hourLimitReached || $dayLimitReached || $broadLimitReached || $wideLimitReached;
+        // A global spike tightens the limits for affected networks and identifiers.
+        // A first attempt from an unaffected network and identifier still works.
+        $globalChallenge = $globalLimitReached && (
+            RateLimiter::attempts($dayKey) > 0
+            || RateLimiter::attempts($ipKey) > 0
+            || ($wideKey !== null && RateLimiter::attempts($wideKey) > 0)
+        );
+        if ($suppressAudit || $globalChallenge) {
             $validator = Validator::make(
                 ['turnstile_token' => request('turnstile_token')],
                 ['turnstile_token' => [new TurnstileToken(request()->ip())]]
@@ -77,7 +86,7 @@ final class UnifiedAuthService
             }
         }
         try {
-            $actor = $this->resolve($identifier, $password, $staff, $suppressAudit);
+            $actor = $this->resolve($identifier, $password, $staff, $suppressAudit, $staffOnly);
         } catch (BusinessException $exception) {
             if ($exception->status === 401) {
                 RateLimiter::hit($globalKey, 60);
@@ -94,7 +103,15 @@ final class UnifiedAuthService
                 }
                 // Broad IP/Day quotas must not lock out valid credentials behind shared NAT or enterprise proxies.
                 if ($broadLimitReached || $dayLimitReached || $hourLimitReached || $wideLimitReached) {
-                    throw new TooManyRequestsHttpException(60, 'محاولات دخول كثيرة؛ حاول لاحقًا.');
+                    // L-5: report the real wait (hour/day windows), not a misleading 60s.
+                    $reached = array_filter([
+                        $broadLimitReached ? $ipKey : null,
+                        $dayLimitReached ? $dayKey : null,
+                        $hourLimitReached ? $hourKey : null,
+                        $wideLimitReached ? $wideKey : null,
+                    ]);
+                    $retryAfter = max(1, ...array_map(fn (string $k): int => RateLimiter::availableIn($k), $reached));
+                    throw new TooManyRequestsHttpException($retryAfter, 'محاولات دخول كثيرة؛ حاول لاحقًا.');
                 }
             }
             throw $exception;
@@ -104,7 +121,7 @@ final class UnifiedAuthService
         return $actor;
     }
 
-    private function resolve(string $login, string $password, ?User $staff = null, bool $suppressAudit = false): User|Customer
+    private function resolve(string $login, string $password, ?User $staff = null, bool $suppressAudit = false, bool $staffOnly = false): User|Customer
     {
         $login = trim($login);
 
@@ -113,7 +130,8 @@ final class UnifiedAuthService
 
             // Enforce constant-time verification using dummy hash when candidate is missing to prevent user enumeration.
             // L4: supplier portal has its own AuthController; unified login only serves staff + customers.
-            $customer = $this->customerAuth->findForLogin($email);
+            // L-6: the legacy staff endpoint must not verify (or audit) customer credentials.
+            $customer = $staffOnly ? null : $this->customerAuth->findForLogin($email);
 
             // Log security warning if identical email exists across multiple user tables.
             $present = array_values(array_filter([$staff, $customer]));
@@ -196,6 +214,10 @@ final class UnifiedAuthService
             return $matched;
         }
 
+        if ($staffOnly) {
+            Hash::check($password, CustomerAuthService::dummyHash());
+            throw new BusinessException('بيانات الدخول غير صحيحة.', [], 401);
+        }
         return $this->customerAuth->login($login, $password);
     }
 

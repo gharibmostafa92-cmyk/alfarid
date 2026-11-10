@@ -14,6 +14,10 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // Driver guard: PostgreSQL-only DDL (roles, pg_index); a no-op on other drivers such as SQLite tests.
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
         $db = '"' . str_replace('"', '""', DB::getDatabaseName()) . '"';
         DB::unprepared(<<<'SQL'
             DO $$
@@ -44,6 +48,9 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
         $db = '"' . str_replace('"', '""', DB::getDatabaseName()) . '"';
         // Revoke in dependency order: database/schema ACLs first, then object
         // grants, then memberships — otherwise DROP ROLE fails with 2BP01.

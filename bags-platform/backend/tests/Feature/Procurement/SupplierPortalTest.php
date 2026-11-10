@@ -240,6 +240,7 @@ class SupplierPortalTest extends TestCase
         $admin = User::factory()->create();
         $admin->assignRole('Super Admin');
         $adminToken = $admin->createToken('t')->plainTextToken;
+        \Illuminate\Support\Facades\Auth::forgetGuards();
         $this->withToken($adminToken)->postJson("/api/v1/admin/purchase-orders/{$po->id}/receive", [
             'supplier_delivery_id' => $delivery['id'],
             'items' => [['purchase_order_item_id' => $itemId, 'qty' => 5]],
@@ -285,6 +286,7 @@ class SupplierPortalTest extends TestCase
         ])->assertCreated();
 
         $token = $this->login(email: $user->email)->assertOk()->json('token');
+        \Illuminate\Support\Facades\Auth::forgetGuards();
         $stmt = $this->withToken($token)
             ->getJson('/api/v1/supplier/statement?from_date=2026-09-01&to_date=2026-10-31')
             ->assertOk()->json('data');

@@ -24,6 +24,7 @@ class UpdateRoleRequest extends StoreRoleRequest
                 'regex:/^[\p{Arabic}\p{Latin}\d _-]+$/u',
                 new UniqueStaffRoleName($this->route('role')?->id),
             ],
+            'current_password' => ['sometimes', 'nullable', 'string', 'max:255'],
             'permissions' => ['sometimes', 'array'],
             'permissions.*' => [
                 'string',

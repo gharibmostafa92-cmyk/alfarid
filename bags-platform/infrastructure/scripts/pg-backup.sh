@@ -15,6 +15,17 @@ STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 FILE="${BACKUP_DIR}/alfarid-${STAMP}.dump"
 TMP="${FILE}.tmp"
 mkdir -p "${BACKUP_DIR}"
+METRICS_DIR=${BACKUP_METRICS_DIR:-${BACKUP_DIR}}
+mkdir -p "${METRICS_DIR}"
+write_metric() { # $1=file $2=name $3=value  (node-exporter textfile format, atomic)
+  printf '# TYPE %s gauge\n%s %s\n' "$2" "$2" "$3" > "${METRICS_DIR}/$1.$$" && mv "${METRICS_DIR}/$1.$$" "${METRICS_DIR}/$1"
+}
+cleanup() {
+  rc=$?
+  rm -f "${TMP}"
+  [ "$rc" -eq 0 ] || write_metric alfarid_backup_run.prom alfarid_backup_last_run_success 0
+}
+trap cleanup EXIT
 pg_dump -h "${PGHOST:?}" -p "${PGPORT:-5432}" -U "${PGUSER:?}" -Fc "${PGDATABASE:-alfarid}" -f "${TMP}"
 pg_restore --list "${TMP}" >/dev/null
 mv "${TMP}" "${FILE}"
@@ -35,4 +46,6 @@ else
 fi
 ls -1t "${BACKUP_DIR}"/alfarid-*.dump | tail -n +"$((RETENTION + 1))" | xargs -r rm -f
 date -u +%Y%m%dT%H%M%SZ > "${BACKUP_DIR}/.last-success"
+write_metric alfarid_backup_run.prom alfarid_backup_last_run_success 1
+write_metric alfarid_backup_success.prom alfarid_backup_last_success_timestamp_seconds "$(date -u +%s)"
 echo "backup written: ${FILE}"

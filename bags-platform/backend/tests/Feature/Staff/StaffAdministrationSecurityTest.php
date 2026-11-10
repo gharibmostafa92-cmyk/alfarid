@@ -54,7 +54,7 @@ class StaffAdministrationSecurityTest extends TestCase
         $this->api($actor, 'GET', '/users?branch_id='.$b->id)->assertOk()->assertJsonCount(0, 'data');
         foreach ([$other, $central] as $target) {
             $this->api($actor, 'GET', '/users/'.$target->id)->assertForbidden();
-            $this->api($actor, 'PATCH', '/users/'.$target->id, ['password' => 'Replacement12'])->assertForbidden();
+            $this->api($actor, 'PATCH', '/users/'.$target->id, ['password' => 'Replacement12', 'current_password' => 'password'])->assertForbidden();
             $this->api($actor, 'DELETE', '/users/'.$target->id)->assertForbidden();
         }
         foreach ([null, $b->id] as $branch) {

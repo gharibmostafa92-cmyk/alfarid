@@ -50,13 +50,14 @@ export interface UserListParams {
 }
 
 export interface CreateUserBody {
+  current_password?: string;
   name: string; email: string; phone?: string | null; password: string;
   branch_id?: number | null; is_active?: boolean; roles?: string[];
 }
 
 export type UpdateUserBody = Partial<Omit<CreateUserBody, 'password'>> & { password?: string; current_password?: string; expected_version?: number };
 
-export interface RoleBody { expected_version?: number; name?: string; permissions?: string[] }
+export interface RoleBody { expected_version?: number; name?: string; permissions?: string[]; current_password?: string }
 
 export type ApiBannerPosition = 'main_slider' | 'middle_banner' | 'popup';
 export interface ApiBanner {

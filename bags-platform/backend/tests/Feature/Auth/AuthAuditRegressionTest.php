@@ -126,8 +126,21 @@ class AuthAuditRegressionTest extends TestCase
     {
         $user = User::factory()->create();
         $this->withToken($user->createToken('pos', ['pos'])->plainTextToken)
-            ->postJson('/api/v1/admin/auth/logout')->assertForbidden()
+            ->getJson('/api/v1/admin/users')->assertForbidden()
             ->assertJsonPath('message', 'التوكن غير مصرح له بهذه الواجهة.');
+    }
+
+    public function test_admin_logout_revokes_only_the_current_pos_token_even_when_rotation_is_required(): void
+    {
+        $branch = Branch::factory()->create(['is_active' => false]);
+        $user = User::factory()->create(['branch_id' => $branch->id, 'must_change_password' => true]);
+        $current = $user->createToken('pos-current', ['pos']);
+        $other = $user->createToken('pos-other', ['pos']);
+
+        $this->withToken($current->plainTextToken)->postJson('/api/v1/admin/auth/logout')->assertNoContent();
+
+        $this->assertModelMissing($current->accessToken);
+        $this->assertModelExists($other->accessToken);
     }
 
     public function test_legacy_pos_login_enforces_token_lifetime_count_and_active_branch(): void

@@ -14,10 +14,9 @@ class EnsureSupplierAuthenticated
 {
     public function handle(Request $request, Closure $next): Response
     {
-        Auth::shouldUse('supplier');
-        $user = $request->user('supplier');
+        $user = $request->user('sanctum');
 
-        if ($request->user('sanctum') === null) {
+        if ($user === null) {
             return response()->json([
                 'message' => 'يرجى تسجيل الدخول أولًا.',
             ], 401);
@@ -29,6 +28,9 @@ class EnsureSupplierAuthenticated
                 'message' => 'غير مصرح لك بالدخول كمستخدم مورد أو الحساب غير نشط.',
             ], 403);
         }
+
+        Auth::guard('supplier')->setUser($user);
+        Auth::shouldUse('supplier');
 
         return $next($request);
     }

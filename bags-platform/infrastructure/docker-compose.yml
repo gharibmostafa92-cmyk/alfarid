@@ -30,7 +30,8 @@ x-app: &app
     LOG_STACK: stderr
     LOG_STDERR_FORMATTER: Monolog\Formatter\JsonFormatter
     PHP_FPM_PM_CONTROL: static
-    PHP_FPM_PM_MAX_CHILDREN: ${APP_MAXCONN:-32}
+    # M-2: HAProxy sends APP_MAXCONN (be_api) + APP_SLOW_MAXCONN (be_api_slow) per node.
+    PHP_FPM_PM_MAX_CHILDREN: ${PHP_FPM_MAX_CHILDREN:-40}
   networks: [appnet]
   restart: unless-stopped
   depends_on: [pgbouncer, haproxy-data]
@@ -152,6 +153,11 @@ services:
       DB_USERNAME: ${DB_USERNAME:?set DB_USERNAME}
       DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
     volumes: [./pgbouncer/pgbouncer.ini:/opt/pgbouncer.ini:ro]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -p 6432 -q']
+      interval: 5s
+      timeout: 3s
+      retries: 6
     depends_on:
       postgres: {condition: service_healthy}
     networks: [appnet]
@@ -255,7 +261,8 @@ services:
     profiles: [frontend]
   backup:
     image: alfarid-data:local
-    entrypoint: [sh, -c, 'while true; do /opt/pg-backup.sh || exit 1; sleep 86400; done']
+    # H-9: fixed daily slot (BACKUP_HOUR_UTC); a failure is recorded as a metric, never a restart storm.
+    entrypoint: [sh, -c, 'while true; do now=$$(date -u +%s); next=$$(( now / 86400 * 86400 + $${BACKUP_HOUR_UTC:-0} * 3600 )); [ $$next -gt $$now ] || next=$$((next + 86400)); sleep $$((next - now)); /opt/pg-backup.sh || echo "pg-backup failed" >&2; done']
     env_file: .env
     environment:
       PGHOST: postgres

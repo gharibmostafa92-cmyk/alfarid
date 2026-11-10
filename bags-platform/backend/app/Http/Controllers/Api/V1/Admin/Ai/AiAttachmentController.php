@@ -86,7 +86,9 @@ class AiAttachmentController extends Controller
                 User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
                 $this->assertCapacity($user->id, count($rows), $quota);
                 foreach ($rows as $row) {
-                    AiAttachment::create($row);
+                    $attachment = new AiAttachment($row);
+                    $attachment->id = $row['id'];
+                    $attachment->save();
                 }
                 $written = true;
             });

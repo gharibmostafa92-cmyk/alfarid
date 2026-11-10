@@ -39,6 +39,7 @@ class StoreUserRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email'), new EmailNotUsedByOtherAccountType('users')],
+            'current_password' => ['sometimes', 'nullable', 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'max:30'],
             'password' => ['required', 'string', Password::min(12)->letters()->numbers(), 'max:255', new PasswordByteLimit],
             'branch_id' => ['nullable', 'integer', Rule::exists('branches', 'id')],

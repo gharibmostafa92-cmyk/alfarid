@@ -15,10 +15,9 @@ class EnsureCustomerAuthenticated
 {
     public function handle(Request $request, Closure $next): Response
     {
-        Auth::shouldUse('customer');
-        $user = $request->user('customer');
+        $user = $request->user('sanctum');
 
-        if ($request->user('sanctum') === null) {
+        if ($user === null) {
             return response()->json([
                 'message' => 'يرجى تسجيل الدخول أولًا.',
             ], 401);
@@ -32,6 +31,9 @@ class EnsureCustomerAuthenticated
                 'message' => 'غير مصرح لك بالدخول كعميل.',
             ], 403);
         }
+
+        Auth::guard('customer')->setUser($user);
+        Auth::shouldUse('customer');
 
         return $next($request);
     }

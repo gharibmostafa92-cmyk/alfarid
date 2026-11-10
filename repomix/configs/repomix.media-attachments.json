@@ -1,6 +1,6 @@
 {
   "output": {
-    "filePath": "repomix/outputs/repomix-media-attachments.xml",
+    "filePath": "repomix/outputs/started/repomix-media-attachments.xml",
     "style": "xml",
     "parsableStyle": true,
     "fileSummary": true,
@@ -33,7 +33,8 @@
     "bags-platform/backend/app/Models/ProductMedia.php",
     "bags-platform/backend/config/media-library.php",
     "bags-platform/backend/database/migrations/*media*.php",
-    "bags-platform/backend/database/migrations/*attachment*.php"
+    "bags-platform/backend/database/migrations/*attachment*.php",
+    "bags-platform/backend/database/migrations/*index_private_attachment_paths*.php"
   ],
   "ignore": {
     "useGitignore": true,

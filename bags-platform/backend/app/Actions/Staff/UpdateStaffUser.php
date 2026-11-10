@@ -41,7 +41,7 @@ final class UpdateStaffUser
      *
      * @throws ValidationException If password verification fails or email collision occurs.
      */
-    public function __invoke(User $actor, User $target, array $validated, array $via = [], ?string $verifiedPasswordHash = null, bool $selfRotation = false): ?string
+    public function __invoke(User $actor, User $target, array $validated, array $via = [], ?string $verifiedPasswordHash = null, bool $selfRotation = false, ?string $currentPassword = null): ?string
     {
         abort_if($target->is_system, 404);
         if (($via['channel'] ?? null) === 'ai') {
@@ -63,7 +63,7 @@ final class UpdateStaffUser
             $isSuperAdminRequester,
             $assigningSuperAdmin,
             $validated,
-            $verifiedPasswordHash, $via, $selfRotation,
+            $verifiedPasswordHash, $via, $selfRotation, $currentPassword,
         ): ?string {
             StaffAdministration::lock();
             if (! $selfRotation) {
@@ -127,6 +127,10 @@ final class UpdateStaffUser
 
             if (! StaffAdministration::mayManageUser($currentUser, $lockedUser, $roles ?? [])) {
                 return 'insufficient_permissions';
+            }
+
+            if (array_diff($roles ?? [], $before['roles']) !== []) {
+                StaffAdministration::requireGrantPassword($currentUser, $currentPassword, $verifiedPasswordHash);
             }
 
             // Re-validate email uniqueness under lock to prevent unique index collisions from concurrent edits.

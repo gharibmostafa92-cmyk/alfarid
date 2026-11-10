@@ -21,7 +21,7 @@ class PrunePrivateAttachments extends Command
         'customer_documents' => ['customer_documents', 'file_path'],
     ];
 
-    protected $signature = 'attachments:prune-orphans {--hours=24} {--dry-run}';
+    protected $signature = 'attachments:prune-orphans {--hours=24} {--dry-run} {--max-deletions=1000}';
 
     protected $description = 'Remove old private attachments with no database reference';
 
@@ -30,6 +30,13 @@ class PrunePrivateAttachments extends Command
         $hours = filter_var($this->option('hours'), FILTER_VALIDATE_INT);
         if ($hours === false || $hours < 24) {
             $this->error('Use a grace period of at least 24 hours.');
+
+            return self::FAILURE;
+        }
+
+        $max = filter_var($this->option('max-deletions'), FILTER_VALIDATE_INT);
+        if ($max === false || $max < 1) {
+            $this->error('--max-deletions must be a positive integer.');
 
             return self::FAILURE;
         }
@@ -45,7 +52,16 @@ class PrunePrivateAttachments extends Command
             }
         }
         $cutoff = now()->subHours($hours)->timestamp;
-        $failures = 0;
+        $candidates = [];
+        $references = array_values(self::REFERENCES);
+        $collect = function (array $batch) use (&$candidates, $references, $max): void {
+            foreach ($this->unreferenced($batch, $references) as $path) {
+                if (count($candidates) >= $max) {
+                    throw new \OverflowException('Deletion budget of '.$max.' exceeded; no files were deleted.');
+                }
+                $candidates[] = $path;
+            }
+        };
         foreach (array_keys(self::REFERENCES) as $prefix) {
             try {
                 $batch = [];
@@ -57,18 +73,35 @@ class PrunePrivateAttachments extends Command
                     if ($entry->isFile() && ($entry->lastModified() ?? PHP_INT_MAX) < $cutoff) {
                         $batch[] = $entry->path();
                         if (count($batch) === 500) {
-                            $failures += $this->prune($disk, $batch);
+                            $collect($batch);
                             $batch = [];
                         }
                     }
                 }
                 if ($batch !== []) {
-                    $failures += $this->prune($disk, $batch);
+                    $collect($batch);
                 }
+            } catch (\OverflowException $exception) {
+                $this->error($exception->getMessage());
+
+                return self::FAILURE;
             } catch (Throwable $exception) {
                 report($exception);
                 $this->error('Private attachment cleanup failed for '.$prefix);
-                $failures++;
+                return self::FAILURE;
+            }
+        }
+
+        $failures = 0;
+        foreach (array_chunk($candidates, 500) as $batch) {
+            try {
+                // Protect references written while the rest of the disk was scanned.
+                $failures += $this->prune($disk, $this->unreferenced($batch, $references));
+            } catch (Throwable $exception) {
+                report($exception);
+                $this->error('Could not recheck attachment references.');
+
+                return self::FAILURE;
             }
         }
 
@@ -77,27 +110,8 @@ class PrunePrivateAttachments extends Command
 
     private function prune(FilesystemAdapter $disk, array $paths): int
     {
-        // Files can be referenced by a different document type than their key prefix.
-        $references = array_values(self::REFERENCES);
-        foreach ($references as [$table, $column]) {
-            $paths = array_diff($paths, $this->referencedPaths($paths, $table, $column));
-            if ($paths === []) {
-                return 0;
-            }
-        }
-
         $failures = 0;
         foreach ($paths as $path) {
-            // A reference may have committed since the batch lookup.
-            foreach ($references as [$table, $column]) {
-                $query = DB::table($table);
-                $exists = $column === 'attachments'
-                    ? $query->whereJsonContains($column, $path)->exists()
-                    : $query->where($column, $path)->exists();
-                if ($exists) {
-                    continue 2;
-                }
-            }
             try {
                 if ($this->option('dry-run')) {
                     $this->line('[dry-run] '.$path);
@@ -114,9 +128,21 @@ class PrunePrivateAttachments extends Command
         return $failures;
     }
 
+    private function unreferenced(array $paths, array $references): array
+    {
+        foreach ($references as [$table, $column]) {
+            $paths = array_values(array_diff($paths, $this->referencedPaths($paths, $table, $column)));
+            if ($paths === []) {
+                return [];
+            }
+        }
+
+        return $paths;
+    }
+
     private function referencedPaths(array $paths, string $table, string $column): array
     {
-        $query = DB::table($table);
+        $query = DB::table($table)->useWritePdo();
         if ($column === 'attachments') {
             $query->where(function ($query) use ($paths): void {
                 foreach ($paths as $path) {

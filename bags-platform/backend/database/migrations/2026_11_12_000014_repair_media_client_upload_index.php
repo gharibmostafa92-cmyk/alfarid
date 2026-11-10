@@ -32,10 +32,6 @@ return new class extends Migration
 
     public function down(): void
     {
-        if (DB::getDriverName() !== 'pgsql') {
-            return;
-        }
-
-        DB::statement('DROP INDEX CONCURRENTLY IF EXISTS media_client_upload_id_unique');
+        // L2: the index belongs to 000003; rolling back this repair must not drop it.
     }
 };

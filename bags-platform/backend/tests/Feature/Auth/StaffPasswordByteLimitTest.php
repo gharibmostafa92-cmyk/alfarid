@@ -63,7 +63,7 @@ class StaffPasswordByteLimitTest extends TestCase
         $replacement = str_repeat('ع', 35).'a1';
         Auth::forgetGuards();
         $this->withToken($token)->patchJson('/api/v1/admin/users/'.$target->id, [
-            'expected_version' => $target->lock_version, 'password' => $replacement,
+            'expected_version' => $target->lock_version, 'password' => $replacement, 'current_password' => 'password',
         ])->assertOk();
         $this->assertTrue(Hash::check($replacement, $target->fresh()->password));
     }

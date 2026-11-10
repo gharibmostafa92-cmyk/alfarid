@@ -39,16 +39,17 @@ class StaffFinalReviewTest extends TestCase
     public function test_password_and_email_changes_invalidate_previously_issued_handoffs(): void
     {
         $admin = $this->admin();
+        $admin->update(['password' => 'Admin-current-password12']);
         $target = User::factory()->create(['password' => 'Original-password12']);
         $target->assignRole(Role::findOrCreate('Operator', 'staff'));
         foreach ([['password' => 'Replacement-password12'], ['email' => 'updated-login@example.test']] as $change) {
-            $code = app(StaffHandoffService::class)->issue($target->fresh());
-            $this->api($admin, 'PATCH', '/users/'.$target->id, $change)->assertOk();
+            $code = app(StaffHandoffService::class)->issue($target->fresh(), \Illuminate\Http\Request::create('/'));
+            $this->api($admin, 'PATCH', '/users/'.$target->id, $change + ['current_password' => 'Admin-current-password12'])->assertOk();
             Auth::forgetGuards();
             $this->postJson('/api/v1/auth/handoff/exchange', ['code' => $code])->assertUnauthorized();
             $this->assertSame(0, $target->tokens()->count());
         }
-        $code = app(StaffHandoffService::class)->issue($target->fresh());
+        $code = app(StaffHandoffService::class)->issue($target->fresh(), \Illuminate\Http\Request::create('/'));
         Auth::forgetGuards();
         $this->postJson('/api/v1/auth/handoff/exchange', ['code' => $code])->assertOk();
         $this->assertSame(1, $target->tokens()->count());
@@ -103,7 +104,7 @@ class StaffFinalReviewTest extends TestCase
     public function test_staff_tokens_expire_after_two_hours(): void
     {
         config(['auth.staff_token_minutes' => 120, 'sanctum.expiration' => 1440]);
-        $user = User::factory()->create();
+        $user = $this->admin();
         $token = app(StaffTokenService::class)->issue($user);
         $this->assertEqualsWithDelta(120, now()->diffInMinutes($user->tokens()->latest('id')->first()->expires_at), 0.1);
         $this->travel(121)->minutes();
@@ -111,25 +112,26 @@ class StaffFinalReviewTest extends TestCase
         $this->withToken($token)->getJson('/api/v1/admin/me')->assertUnauthorized();
     }
 
-    public function test_default_store_and_staff_tokens_survive_for_their_configured_days(): void
+    public function test_default_store_and_staff_tokens_expire_at_their_configured_limits(): void
     {
         $this->freezeSecond();
-        $staff = User::factory()->create();
+        $issuedAt = now();
+        $staff = $this->admin();
         $customer = Customer::factory()->create();
         $staffToken = app(StaffTokenService::class)->issue($staff);
         $customerToken = app(CustomerAuthService::class)->issueToken($customer, 'store');
-        $this->assertTrue($staff->tokens()->sole()->expires_at->equalTo(now()->addDays(30)));
+        $this->assertTrue($staff->tokens()->sole()->expires_at->equalTo($issuedAt->copy()->addHours(12)));
         $this->assertTrue($customer->tokens()->sole()->expires_at->equalTo(now()->addDays(60)));
 
-        $this->travel(29)->days();
+        $this->travelTo($issuedAt->copy()->addHours(11));
         Auth::forgetGuards();
         $this->withToken($staffToken)->getJson('/api/v1/admin/me')->assertOk();
-        $this->travel(2)->days();
+        $this->travelTo($issuedAt->copy()->addHours(13));
         Auth::forgetGuards();
         $this->withToken($staffToken)->getJson('/api/v1/admin/me')->assertUnauthorized();
         Auth::forgetGuards();
         $this->withToken($customerToken)->getJson('/api/v1/auth/me')->assertOk();
-        $this->travel(30)->days();
+        $this->travelTo($issuedAt->copy()->addDays(61));
         Auth::forgetGuards();
         $this->withToken($customerToken)->getJson('/api/v1/auth/me')->assertUnauthorized();
     }
@@ -152,11 +154,20 @@ class StaffFinalReviewTest extends TestCase
 
     public function test_pair_budget_remains_strict(): void
     {
-        config(['auth.unified_login_failures_hour' => 2]);
+        config(['auth.unified_login_failures_hour' => 2, 'services.turnstile.secret_key' => 'test-secret']);
         $user = User::factory()->create(['password' => 'Good-password12']);
         $auth = app(UnifiedAuthService::class);
         $this->wrong($auth, $user->email);
         $this->wrong($auth, $user->email);
+        try {
+            $auth->attempt($user->email, 'Good-password12');
+            $this->fail('The soft limit should require human verification.');
+        } catch (BusinessException $exception) {
+            $this->assertSame(429, $exception->status);
+        }
+        for ($i = 0; $i < 7; $i++) {
+            $this->wrong($auth, $user->email);
+        }
         $this->expectException(TooManyRequestsHttpException::class);
         $auth->attempt($user->email, 'Good-password12');
     }

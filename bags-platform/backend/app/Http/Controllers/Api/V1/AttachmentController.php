@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Models\WholesalePaymentNotice;
 use App\Services\Inventory\BranchAccess;
 use App\Support\ContentDisposition;
+use Illuminate\Filesystem\AwsS3V3Adapter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -159,16 +160,16 @@ class AttachmentController extends Controller
         abort_if(! is_string($path) || trim($path) === '', 404);
 
         try {
-            if (! $request->boolean('signed') && ! Storage::disk('r2')->exists($path)) {
+            // H2: probe with a tight budget and no SDK retries, so a degraded R2 cannot pin
+            // FPM workers for ~140s. temporaryUrl() below is local signing (no network).
+            if (! $request->boolean('signed') && ! $this->probeDisk()->exists($path)) {
                 abort(404);
             }
-
             $url = Storage::disk('r2')->temporaryUrl(
                 $path,
                 now()->addMinutes(2),
                 [
                     'ResponseContentDisposition' => ContentDisposition::attachment($path),
-                    // Prevent intermediate proxies or shared caches from storing private documents.
                     'ResponseCacheControl' => 'private, max-age=120',
                 ]
             );
@@ -176,8 +177,8 @@ class AttachmentController extends Controller
             if ((int) ($exception->getCode() ?: 0) === 404 || $exception instanceof HttpException) {
                 throw $exception;
             }
-
-            // R2 outage (throw => true) is a dependency failure, not a bug.
+            // M5: outages and programming errors must reach the error tracker.
+            report($exception);
             abort(503, 'Document storage is temporarily unavailable.');
         }
 
@@ -186,5 +187,19 @@ class AttachmentController extends Controller
         }
 
         return redirect()->to($url)->header('Cache-Control', 'private, no-store');
+    }
+
+    private static ?\Illuminate\Contracts\Filesystem\Filesystem $probe = null;
+    private function probeDisk(): \Illuminate\Contracts\Filesystem\Filesystem
+    {
+        $disk = Storage::disk('r2');
+        if (! $disk instanceof AwsS3V3Adapter) {
+            return $disk; // Storage::fake() / local dev
+        }
+        $config = config('filesystems.disks.r2');
+        return self::$probe ??= Storage::build(array_replace($config, [
+            'http' => ['connect_timeout' => 2, 'timeout' => 3, 'verify' => $config['http']['verify'] ?? true],
+            'retries' => 0,
+        ]));
     }
 }

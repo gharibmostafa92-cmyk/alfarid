@@ -78,8 +78,12 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->report(function (QueryException $e) {
             $state = (string) ($e->errorInfo[0] ?? $e->getCode());
             if ($state === '57014' || str_starts_with($state, '08')) {
-                logger()->warning('Database operation unavailable.', ['sqlstate' => $state]);
-
+                // M-7: keep it out of the error tracker but make runaway statements diagnosable (no bindings).
+                logger()->warning('Database operation unavailable.', [
+                    'sqlstate' => $state,
+                    'connection' => $e->getConnectionName(),
+                    'sql' => mb_substr($e->getSql(), 0, 2000),
+                ]);
                 return false;
             }
 
@@ -106,6 +110,12 @@ return Application::configure(basePath: dirname(__DIR__))
             if (($request->is('api/*') || $request->expectsJson())
                 && in_array($e->errorInfo[0] ?? $e->getCode(), ['23503'], true)) {
                 return response()->json(['message' => 'تعذر تنفيذ العملية لوجود سجلات مرتبطة أو لتغيّر السجل المرجعي؛ حدّث البيانات وأعد المحاولة.'], 409);
+            }
+
+            // M-7: CHECK violations (e.g. coupon usage race) are a conflict, not an internal error.
+            if (($request->is('api/*') || $request->expectsJson())
+                && ($e->errorInfo[0] ?? $e->getCode()) === '23514') {
+                return response()->json(['message' => 'تعذر تنفيذ العملية لأنها تخالف قيدًا على البيانات؛ حدّث البيانات وأعد المحاولة.'], 409);
             }
 
             if (($request->is('api/*') || $request->expectsJson())

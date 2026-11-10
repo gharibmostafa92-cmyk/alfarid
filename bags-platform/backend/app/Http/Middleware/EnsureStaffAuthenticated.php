@@ -20,10 +20,10 @@ class EnsureStaffAuthenticated
 {
     public function handle(Request $request, Closure $next): Response
     {
-        Auth::shouldUse('staff');
-        $user = $request->user('staff');
-
-        if ($request->user('sanctum') === null) {
+        // M-3: resolve the bearer token once (sanctum guard) and share it with the staff guard,
+        // instead of a second token lookup + user load through an independent RequestGuard.
+        $user = $request->user('sanctum');
+        if ($user === null) {
             return response()->json([
                 'message' => 'يرجى تسجيل الدخول أولًا.',
             ], 401);
@@ -35,14 +35,15 @@ class EnsureStaffAuthenticated
             ], 403);
         }
 
+        Auth::guard('staff')->setUser($user);
+        Auth::shouldUse('staff');
+
         // Temporary passwords must be rotated upon first login; restrict access exclusively
         // to own profile viewing, password updates, and logout until completed.
-        // task3 H1: the rotation endpoints must also survive the ability check
-        // below, otherwise a ['pos'] token can never rotate and the account is
-        // locked out. Scoped to profile view + password rotation only — logout
-        // stays forbidden for pos tokens (committed least-privilege contract).
-        $isRotationRequest = $this->isPasswordRotationRequest($request, $user);
-        if ((bool) $user->must_change_password && ! $isRotationRequest) {
+        $isLogout = $request->isMethod('POST')
+            && $request->is('api/v1/admin/auth/logout', 'api/v1/auth/logout');
+        $isAccountMaintenance = $isLogout || $this->isPasswordRotationRequest($request);
+        if ((bool) $user->must_change_password && ! $isAccountMaintenance) {
             return response()->json([
                 'message' => 'يجب تغيير كلمة المرور المؤقتة قبل المتابعة.',
                 'code' => 'password_change_required',
@@ -50,7 +51,7 @@ class EnsureStaffAuthenticated
         }
 
         $token = $user->currentAccessToken();
-        $posReachable = $request->is('api/v1/pos/*') || $this->isBranchLockExempt($request);
+        $posReachable = $request->is('api/v1/pos/*') || $isAccountMaintenance;
         if ($token !== null && ! $token->can('*')
             && ! ($posReachable && $token->can('pos'))) {
             return response()->json(['message' => 'التوكن غير مصرح له بهذه الواجهة.'], 403);
@@ -58,8 +59,7 @@ class EnsureStaffAuthenticated
 
         // Staff assigned to a deactivated branch are fail-closed everywhere
         // except own profile/password rotation and logout, mirroring BranchAccess.
-        if (! $this->isBranchLockExempt($request)
-            && ! $request->is('api/v1/admin/auth/logout') && ! $request->is('api/v1/auth/logout')
+        if (! $isAccountMaintenance
             && ! $user->hasRole(StaffRole::SuperAdmin->value, 'staff')
             && ! $user->can('inventory.all_branches')
             && $user->branch_id !== null
@@ -76,22 +76,7 @@ class EnsureStaffAuthenticated
         return (bool) Cache::remember('branch-active:'.$branchId, 30, fn () => (bool) Branch::query()->whereKey($branchId)->value('is_active'));
     }
 
-    private function isPasswordRotationRequest(Request $request, User $user): bool
-    {
-        // Temporary-password rotation is scoped to own profile views, own
-        // password rotation, and logout. admin.users.update self-access is
-        // intentionally NOT exempt here; use me/password instead (M1).
-        if ($request->isMethod('GET') && $request->is('api/v1/admin/me')) {
-            return true;
-        }
-        if (in_array($request->method(), ['PUT', 'PATCH'], true) && $request->is('api/v1/admin/me/password')) {
-            return true;
-        }
-
-        return $request->is('api/v1/admin/auth/logout') || $request->is('api/v1/auth/logout');
-    }
-
-    private function isBranchLockExempt(Request $request): bool
+    private function isPasswordRotationRequest(Request $request): bool
     {
         if ($request->isMethod('GET') && $request->is('api/v1/admin/me')) {
             return true;

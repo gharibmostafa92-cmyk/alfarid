@@ -36,6 +36,7 @@ class StoreRoleRequest extends FormRequest
                 'regex:/^[\p{Arabic}\p{Latin}\d _-]+$/u',
                 new UniqueStaffRoleName,
             ],
+            'current_password' => ['sometimes', 'nullable', 'string', 'max:255'],
             'permissions' => ['sometimes', 'array'],
             'permissions.*' => [
                 'string',

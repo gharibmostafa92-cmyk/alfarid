@@ -101,7 +101,7 @@ class AuthConcurrencyTest extends TestCase
         Cache::setDefaultDriver('database');
         $user = User::factory()->create();
         $user->assignRole(Role::firstOrCreate(['name' => 'manager', 'guard_name' => 'staff']));
-        $code = app(StaffHandoffService::class)->issue($user);
+        $code = app(StaffHandoffService::class)->issue($user, \Illuminate\Http\Request::create('/'));
         $job = '$kernel = $app->make(Illuminate\\Contracts\\Http\\Kernel::class);'
             .'$request = Illuminate\\Http\\Request::create("/api/v1/auth/handoff/exchange", "POST", ["code" => "'.$code.'"], [], [], ["HTTP_ACCEPT" => "application/json"]);'
             .'$response = $kernel->handle($request);'
@@ -117,7 +117,7 @@ class AuthConcurrencyTest extends TestCase
         $staff = User::factory()->create(['branch_id' => $branch->id]);
         $staff->assignRole(Role::create(['name' => 'manager', 'guard_name' => 'staff']));
         $cashier = Role::create(['name' => 'cashier', 'guard_name' => 'staff']);
-        $code = app(StaffHandoffService::class)->issue($staff);
+        $code = app(StaffHandoffService::class)->issue($staff, \Illuminate\Http\Request::create('/'));
         config(['database.connections.role_editor' => config('database.connections.pgsql')]);
 
         // Commit the role replacement on a separate session just before the exchange takes its user lock.

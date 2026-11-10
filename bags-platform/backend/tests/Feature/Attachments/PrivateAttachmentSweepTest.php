@@ -11,6 +11,7 @@ use App\Models\SupplierInvoice;
 use App\Models\User;
 use App\Models\WholesalePaymentNotice;
 use App\Services\Customer\CustomerManagementService;
+use App\Support\StorageCleanupOwner;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -52,6 +53,39 @@ class PrivateAttachmentSweepTest extends TestCase
 
         $this->artisan('attachments:prune-orphans')->assertSuccessful();
         $disk->assertExists($path);
+    }
+
+    public function test_a_copied_database_owner_cannot_use_a_marker_without_a_database_fingerprint(): void
+    {
+        $disk = Storage::disk('r2');
+        $disk->put(StorageCleanupOwner::MARKER, 'alfarid-test');
+        $path = 'supplier_invoices/old/copied-database.pdf';
+        $disk->put($path, 'invoice');
+        touch($disk->path($path), now()->subDays(2)->timestamp);
+
+        $this->assertSame(1, $this->realArtisan('attachments:prune-orphans'));
+        $disk->assertExists($path);
+    }
+
+    public function test_max_deletions_circuit_breaker_stops_a_runaway_sweep(): void
+    {
+        $disk = Storage::disk('r2');
+        $paths = ['return_requests/old/a.pdf', 'supplier_invoices/old/b.pdf', 'supplier_deliveries/old/c.pdf'];
+        foreach ($paths as $path) {
+            $disk->put($path, 'invoice');
+            touch($disk->path($path), now()->subDays(2)->timestamp);
+        }
+
+        $this->assertSame(1, $this->realArtisan('attachments:prune-orphans', ['--max-deletions' => 2]));
+        $this->assertSame(1, $this->realArtisan('attachments:prune-orphans', ['--max-deletions' => 2]));
+        foreach ($paths as $path) {
+            $disk->assertExists($path);
+        }
+        $this->assertSame(1, $this->realArtisan('attachments:prune-orphans', ['--max-deletions' => 0]));
+        $this->assertSame(0, $this->realArtisan('attachments:prune-orphans', ['--max-deletions' => 3]));
+        foreach ($paths as $path) {
+            $disk->assertMissing($path);
+        }
     }
 
     public function test_old_customer_uploads_without_a_document_row_are_reclaimed(): void
@@ -154,7 +188,7 @@ class PrivateAttachmentSweepTest extends TestCase
         $proxy = \Mockery::mock(FilesystemAdapter::class);
         $proxy->shouldReceive('getDriver')->andReturn($disk->getDriver());
         $proxy->shouldReceive('exists')->with('.alfarid-cleanup-owner')->andReturnTrue();
-        $proxy->shouldReceive('get')->with('.alfarid-cleanup-owner')->andReturn('alfarid-test');
+        $proxy->shouldReceive('get')->with('.alfarid-cleanup-owner')->andReturn($disk->get(StorageCleanupOwner::MARKER));
         $proxy->shouldReceive('delete')->with($failed)->once()->andReturnFalse();
         $proxy->shouldReceive('delete')->with($other)->once()->andReturnUsing(fn ($path) => $disk->delete($path));
         Storage::shouldReceive('disk')->with('r2')->andReturn($proxy);

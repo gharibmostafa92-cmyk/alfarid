@@ -22,11 +22,9 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\ValidationException;
-use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
 
 class UserController extends Controller
 {
@@ -111,7 +109,7 @@ class UserController extends Controller
             return $this->insufficientPermissionsResponse();
         }
 
-        $user = app(CreateStaffUser::class)($currentUser, $validated)['user'];
+        $user = app(CreateStaffUser::class)($currentUser, Arr::except($validated, ['current_password']), currentPassword: $validated['current_password'] ?? null)['user'];
 
         return $this->userResource($user)->response()->setStatusCode(201);
     }
@@ -137,7 +135,7 @@ class UserController extends Controller
             'current_password' => ['required', 'string', 'max:255'],
             'password' => ['required', 'string', 'different:current_password', Password::min(12)->letters()->numbers(), 'max:255', new PasswordByteLimit],
         ]);
-        if (! $this->verifyCurrentPassword($user, $validated['current_password'])) {
+        if (! StaffAdministration::verifyCurrentPassword($user, $validated['current_password'])) {
             throw ValidationException::withMessages(['current_password' => 'أدخل كلمة المرور الحالية الصحيحة لتغيير بيانات الدخول.']);
         }
         $failure = app(UpdateStaffUser::class)(
@@ -180,7 +178,7 @@ class UserController extends Controller
             || (isset($userAttributes['email']) && $userAttributes['email'] !== $user->email);
         $passwordSubject = $currentUser instanceof User ? $currentUser : $user;
         if ($credentialChange && is_string($validated['current_password'] ?? null)
-            && $this->verifyCurrentPassword($passwordSubject, $validated['current_password'])) {
+            && StaffAdministration::verifyCurrentPassword($passwordSubject, $validated['current_password'])) {
             $verifiedPasswordHash = $passwordSubject->password;
         }
         if ($credentialChange && $verifiedPasswordHash === null) {
@@ -203,7 +201,8 @@ class UserController extends Controller
             && array_diff(array_keys($validated), ['password', 'current_password', 'expected_version']) === [];
         $failure = app(UpdateStaffUser::class)($currentUser, $user, $actionData,
             ['current_token_id' => $selfRotation ? $request->user('staff')?->currentAccessToken()?->id : null],
-            verifiedPasswordHash: $verifiedPasswordHash, selfRotation: $selfRotation);
+            verifiedPasswordHash: $verifiedPasswordHash, selfRotation: $selfRotation,
+            currentPassword: $validated['current_password'] ?? null);
 
         if ($failure !== null) {
             if ($failure === 'insufficient_permissions') {
@@ -224,7 +223,6 @@ class UserController extends Controller
     {
         abort_if($user->is_system, 404);
         $currentUser = $request->user('staff');
-        $validated = $request->validate(['expected_version' => ['required', 'integer', 'min:0']]);
 
         if ($currentUser instanceof User && $currentUser->is($user)) {
             return response()->json([
@@ -232,6 +230,7 @@ class UserController extends Controller
             ], 403);
         }
 
+        $validated = $request->validate(['expected_version' => ['required', 'integer', 'min:0']]);
         $deleted = app(DeactivateStaffUser::class)($currentUser, $user, (int) $validated['expected_version']);
 
         if (! $deleted) {
@@ -253,22 +252,6 @@ class UserController extends Controller
         ], 403);
     }
 
-    private function verifyCurrentPassword(User $user, string $password): bool
-    {
-        $key = 'staff:current-password:'.$user->id;
-        $limit = max(1, (int) config('auth.staff_current_password_failures', 5));
-        if (RateLimiter::hit($key, 3600) > $limit) {
-            throw new TooManyRequestsHttpException(RateLimiter::availableIn($key));
-        }
-
-        if (! Hash::check($password, $user->password)) {
-            return false;
-        }
-
-        RateLimiter::clear($key);
-
-        return true;
-    }
 
     private function userResource(User $user): UserResource
     {

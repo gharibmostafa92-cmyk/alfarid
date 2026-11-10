@@ -40,7 +40,7 @@ final class CreateStaffUser
      *
      * @throws ValidationException If email conflict occurs.
      */
-    public function __invoke(User $actor, array $validated, array $via = [], bool $generatePassword = false): array
+    public function __invoke(User $actor, array $validated, array $via = [], bool $generatePassword = false, ?string $currentPassword = null): array
     {
         $roles = $validated['roles'] ?? [];
         $branch = $this->branches->restrictedBranch($actor);
@@ -70,13 +70,20 @@ final class CreateStaffUser
             $attrs['must_change_password'] = true;
         }
         $attrs['password'] = Hash::make($attrs['password']);
-        $user = DB::transaction(function () use ($attrs, $roles, $actor, $via): User {
+        $user = DB::transaction(function () use ($attrs, $roles, $actor, $via, $currentPassword): User {
             StaffAdministration::lock();
             StaffAdministration::authorize($actor, ['users.create', 'users.manage']);
             $branch = $this->branches->restrictedBranch($actor);
             abort_if($branch !== null && (int) ($attrs['branch_id'] ?? 0) !== $branch, 403);
             StaffAdministration::lockRoles($roles);
             abort_unless(StaffAdministration::mayManageUser($actor, roles: $roles), 403);
+            if ($roles !== []) {
+                StaffAdministration::requireGrantPassword($actor, $currentPassword);
+            }
+            // L-9: re-check branch activity under a row lock so a concurrent deactivation cannot slip past.
+            if ((int) ($attrs['branch_id'] ?? 0) > 0) {
+                abort_unless((bool) Branch::query()->whereKey((int) $attrs['branch_id'])->lockForUpdate()->value('is_active'), 422, 'لا يمكن تعيين موظف على فرع متوقف.');
+            }
 
             // Re-run email uniqueness validation under lock to guard against concurrent creations.
             Validator::make(

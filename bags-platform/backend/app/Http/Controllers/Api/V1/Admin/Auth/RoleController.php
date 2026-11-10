@@ -18,6 +18,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
+use Illuminate\Support\Arr;
 use Spatie\Permission\Models\Role;
 
 class RoleController extends Controller
@@ -59,7 +60,7 @@ class RoleController extends Controller
             ], 403);
         }
 
-        $role = app(CreateRole::class)($currentUser, $validated);
+        $role = app(CreateRole::class)($currentUser, Arr::except($validated, ['current_password']), currentPassword: $validated['current_password'] ?? null);
 
         return $this->roleResource($role)->response()->setStatusCode(201);
     }
@@ -89,7 +90,7 @@ class RoleController extends Controller
             ], 403);
         }
 
-        $failure = app(UpdateRole::class)($currentUser, $role, $validated);
+        $failure = app(UpdateRole::class)($currentUser, $role, Arr::except($validated, ['current_password']), currentPassword: $validated['current_password'] ?? null);
 
         if ($failure !== null) {
             return response()->json([

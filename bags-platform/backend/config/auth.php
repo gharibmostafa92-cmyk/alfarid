@@ -9,7 +9,8 @@ return [
     'customer_max_tokens' => (int) env('CUSTOMER_MAX_TOKENS', 10),
     'customer_token_minutes' => (int) env('CUSTOMER_TOKEN_MINUTES', 86400),
     'supplier_max_tokens' => (int) env('SUPPLIER_MAX_TOKENS', 5),
-    'staff_token_minutes' => (int) env('STAFF_TOKEN_MINUTES', 43200),
+    // M-4: 12h instead of 30 days for a '*' admin token held in localStorage.
+    'staff_token_minutes' => (int) env('STAFF_TOKEN_MINUTES', 720),
     'staff_current_password_failures' => (int) env('STAFF_CURRENT_PASSWORD_FAILURES', 5),
     'staff_admin_mutations_minute' => (int) env('STAFF_ADMIN_MUTATIONS_MINUTE', 60),
     'staff_audit_retention_days' => (int) env('STAFF_AUDIT_RETENTION_DAYS', 365),
@@ -20,6 +21,7 @@ return [
     'unified_login_ip_failures_hour' => (int) env('UNIFIED_LOGIN_IP_FAILURES_HOUR', 1000),
     'unified_login_failures_day' => (int) env('UNIFIED_LOGIN_FAILURES_DAY', 100),
     'unified_login_identifier_failures_hour' => (int) env('UNIFIED_LOGIN_IDENTIFIER_FAILURES_HOUR', 30),
+    'unified_login_wide_failures_hour' => (int) env('UNIFIED_LOGIN_WIDE_FAILURES_HOUR', 200),
     'unified_login_global_failures_minute' => (int) env('UNIFIED_LOGIN_GLOBAL_FAILURES_MINUTE', 200),
     'unified_handoff_ip_minute' => (int) env('UNIFIED_HANDOFF_IP_MINUTE', 60),
     'customer_sms_verification_fraction' => (float) env('CUSTOMER_SMS_VERIFICATION_FRACTION', 0.6),

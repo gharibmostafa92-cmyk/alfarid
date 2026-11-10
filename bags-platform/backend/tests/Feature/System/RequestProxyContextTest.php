@@ -24,7 +24,7 @@ class RequestProxyContextTest extends TestCase
             }
         });
         Route::get('/proxy-context-probe', function (Request $request) {
-            Log::info('proxy-context-probe');
+            Log::error('proxy-context-probe');
 
             return response()->json(['ip' => $request->ip()]);
         });

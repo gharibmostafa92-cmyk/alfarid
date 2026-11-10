@@ -1,6 +1,6 @@
 {
   "output": {
-    "filePath": "repomix/outputs/repomix-system-overview.xml",
+    "filePath": "repomix/outputs/started/repomix-system-overview.xml",
     "style": "xml",
     "parsableStyle": true,
     "fileSummary": true,
@@ -30,6 +30,9 @@
     "useGitignore": true,
     "useDefaultPatterns": true,
     "customPatterns": [
+      "**/tests/**",
+      "**/*.test.*",
+      "**/*.spec.*",
       "**/vendor/**",
       "**/node_modules/**",
       "**/.git/**",

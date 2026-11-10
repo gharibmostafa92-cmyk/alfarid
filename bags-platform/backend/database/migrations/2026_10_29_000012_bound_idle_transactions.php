@@ -16,8 +16,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        if (DB::getDriverName() === 'pgsql') {
-            DB::unprepared('ALTER ROLE CURRENT_USER RESET idle_in_transaction_session_timeout');
-        }
+        // H-3: a rollback on alfarid_testing must not strip production budgets
+        // from the shared role. Scoped settings are handled by 2026_11_12_000017.
     }
 };

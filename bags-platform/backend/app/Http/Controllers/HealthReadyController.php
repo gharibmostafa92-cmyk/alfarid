@@ -22,7 +22,8 @@ final class HealthReadyController
                 $connection->select('select 1');
             });
             $checks['db'] = 'ok';
-        } catch (Throwable) {
+        } catch (Throwable $e) {
+            logger()->warning('readiness.db_failed', ['error' => $e->getMessage()]);
             $checks['db'] = 'fail';
         }
 
@@ -31,7 +32,8 @@ final class HealthReadyController
             try {
                 Redis::connection('health')->ping();
                 $checks['redis'] = 'ok';
-            } catch (Throwable) {
+            } catch (Throwable $e) {
+                logger()->warning('readiness.redis_failed', ['error' => $e->getMessage()]);
                 $checks['redis'] = 'fail';
             }
         }

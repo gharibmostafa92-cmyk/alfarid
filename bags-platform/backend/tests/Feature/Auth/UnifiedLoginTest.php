@@ -233,6 +233,27 @@ class UnifiedLoginTest extends TestCase
             ->assertJsonPath('message', 'بيانات الدخول غير صحيحة.');
     }
 
+    public function test_handoff_exchange_requires_the_issuing_browser_context(): void
+    {
+        $staff = User::factory()->create(['password' => 'secret123']);
+        $staff->assignRole(Role::findOrCreate('manager', 'staff'));
+        $code = $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.10'])
+            ->postJson('/api/v1/auth/login', ['login' => $staff->email, 'password' => 'secret123'], ['User-Agent' => 'Staff browser'])
+            ->assertOk()->json('handoff_code');
+
+        $this->postJson('/api/v1/auth/handoff/exchange', ['code' => $code], ['User-Agent' => 'Different browser'])
+            ->assertUnauthorized();
+        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.11'])
+            ->postJson('/api/v1/auth/handoff/exchange', ['code' => $code], ['User-Agent' => 'Staff browser'])
+            ->assertUnauthorized();
+        $this->assertSame(0, $staff->tokens()->count());
+
+        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.10'])
+            ->postJson('/api/v1/auth/handoff/exchange', ['code' => $code], ['User-Agent' => 'Staff browser'])
+            ->assertOk();
+        $this->assertSame(1, $staff->tokens()->count());
+    }
+
     public function test_handoff_exchange_issues_staff_token_single_use_and_expirable(): void
     {
         $staff = $this->makeStaff('exchange@example.test', 'secret123');

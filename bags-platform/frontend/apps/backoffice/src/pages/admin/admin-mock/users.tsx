@@ -145,7 +145,7 @@ export function UsersScreen({ rolesLoading, can, onUsersChanged, roles, onNaviga
     }
     const result = await runMutation(() => {
       if (mode === 'create') return adminApi.createUser({name: data.name!.trim(), email: data.email!.trim(), phone: data.phone || null,
-        password: data.password!, branch_id: data.branch_id ?? null, is_active: data.is_active ?? true, roles: roleNames});
+        password: data.password!, current_password: data.current_password, branch_id: data.branch_id ?? null, is_active: data.is_active ?? true, roles: roleNames});
       const body: UpdateUserBody = {expected_version: original?.version, name: data.name?.trim(), email: data.email?.trim(), phone: data.phone || null};
       if (branches.length && data.branch_id !== original?.branch_id) body.branch_id = data.branch_id ?? null;
       if (data.password) body.password = data.password;
@@ -447,6 +447,11 @@ function UserDrawer({ state, onClose, onSave, roles, branches, meId, myPerms, se
   }, [state]);
 
   const isMe = mode === 'edit' && 'user' in (state || {}) && (state as any)?.user?.id === meId;
+  const changesCredentials = state?.mode === 'edit'
+    && (Boolean(f.password) || f.email.trim().toLowerCase() !== state.user.email.trim().toLowerCase());
+  const originalRoles = state?.mode === 'edit' ? state.user.roles : [];
+  const grantsRoles = f.roles.some(id => !originalRoles.includes(id));
+  const needsCurrentPassword = changesCredentials || grantsRoles;
   const set = (k: string, v: any) => { setF(p => ({ ...p, [k]: v })); setErrors(e => ({ ...e, [k]: undefined })); };
 
   const validate = () => {
@@ -457,7 +462,8 @@ function UserDrawer({ state, onClose, onSave, roles, branches, meId, myPerms, se
     else if (!/^\S+@\S+\.\S+$/.test(f.email)) e.email = 'صيغة البريد غير صحيحة';
     if (mode === 'create' && !f.password) e.password = 'كلمة المرور مطلوبة عند الإنشاء';
     else if (f.password && (f.password.length < 12 || !/[A-Za-z\p{L}]/u.test(f.password) || !/\d/.test(f.password))) e.password = 'يجب ألا تقل عن 12 حرفًا وتحتوي على حروف وأرقام';
-    if (isMe && state?.mode === 'edit' && (f.password || f.email.trim().toLowerCase() !== state.user.email.toLowerCase()) && !f.current_password) e.current_password = 'كلمة المرور الحالية مطلوبة لتغيير بيانات الدخول';
+    if (needsCurrentPassword && !f.current_password) e.current_password = grantsRoles
+      ? 'كلمة مرورك الحالية مطلوبة لمنح الأدوار' : 'كلمة مرورك الحالية مطلوبة لتغيير بيانات الدخول';
     if (f.phone && f.phone.length > 30) e.phone = 'الحد الأقصى 30 حرفاً';
     setErrors(e);
     return !Object.keys(e).length;
@@ -465,11 +471,11 @@ function UserDrawer({ state, onClose, onSave, roles, branches, meId, myPerms, se
 
   const persist = async () => {
     setSaving(true);
-    try { await onSave({ ...f, phone: f.phone || null }, mode); } finally { setSaving(false); setConfirmSelf(false); }
+    try { await onSave({ ...f, current_password: needsCurrentPassword ? f.current_password : undefined, phone: f.phone || null }, mode); } finally { setSaving(false); setConfirmSelf(false); }
   };
   const submit = async () => {
     if (saving || !validate()) return;
-    if (isMe && state?.mode === 'edit' && (f.email !== state.user.email || f.password)) { setConfirmSelf(true); return; }
+    if (isMe && changesCredentials) { setConfirmSelf(true); return; }
     await persist();
   };
 
@@ -512,9 +518,9 @@ function UserDrawer({ state, onClose, onSave, roles, branches, meId, myPerms, se
             <Field label="البريد الإلكتروني" required error={errors.email}>
               <TextInput value={f.email} onChange={v => set('email', v)} placeholder="name@company.com" dir="ltr" icon="mail" error={errors.email} />
             </Field>
-            {isMe && state?.mode === 'edit' && (f.password || f.email.trim().toLowerCase() !== state.user.email.toLowerCase()) && (
-              <Field label="كلمة المرور الحالية" required error={errors.current_password}>
-                <TextInput value={f.current_password} onChange={v => set('current_password', v)} type="password" dir="ltr" icon="lock" placeholder="أدخل كلمة المرور الحالية" error={errors.current_password} />
+            {needsCurrentPassword && (
+              <Field label="كلمة مرورك الحالية" required error={errors.current_password}>
+                <TextInput value={f.current_password} onChange={v => set('current_password', v)} type="password" dir="ltr" icon="lock" placeholder="أدخل كلمة مرور حسابك" error={errors.current_password} />
               </Field>
             )}
             <div ref={pwdRef}>

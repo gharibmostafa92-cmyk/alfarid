@@ -5,6 +5,7 @@ namespace Tests;
 use App\Support\StorageCleanupOwner;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 abstract class TestCase extends BaseTestCase
@@ -31,6 +32,10 @@ abstract class TestCase extends BaseTestCase
     protected function markStorageForCleanup(string $disk): void
     {
         config(['filesystems.cleanup_owner' => 'alfarid-test']);
-        Storage::disk($disk)->put(StorageCleanupOwner::MARKER, 'alfarid-test');
+        DB::table('settings')->updateOrInsert(
+            ['key' => StorageCleanupOwner::SETTING_KEY],
+            ['group' => 'storage', 'value' => 'alfarid-test'],
+        );
+        Storage::disk($disk)->put(StorageCleanupOwner::MARKER, StorageCleanupOwner::markerFor('alfarid-test'));
     }
 }

@@ -26,7 +26,8 @@ interface AuthState {
 }
 
 const WEB_URL = resolveServiceUrl((import.meta.env.VITE_WEB_URL as string | undefined) ?? 'http://localhost:3000');
-const DEV_TOKEN = '25|azrKmywY4EgTG82FHiWucCkkl4LmHsMWEIU86jxQa0fe7687';
+// H-2: never commit a real token. Put VITE_DEV_STAFF_TOKEN in an untracked .env.local.
+const DEV_TOKEN = (import.meta.env.VITE_DEV_STAFF_TOKEN as string | undefined) ?? '';
 
 const ALL_PERMISSIONS = [
   'ai_agent.use', 'ai_agent.execute', 'ai_agent.logs.view', 'ai_agent.settings',
@@ -72,7 +73,7 @@ const ALL_PERMISSIONS = [
 
 export const useAuthStore = create<AuthState>((set, get) => {
   let initialToken = typeof localStorage !== 'undefined' ? localStorage.getItem('backoffice_token') : null;
-  if (!initialToken && import.meta.env.DEV) {
+  if (!initialToken && import.meta.env.DEV && DEV_TOKEN) {
     initialToken = DEV_TOKEN;
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('backoffice_token', DEV_TOKEN);
@@ -134,7 +135,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
         const rawUser = await authEndpoints.staffMe(signal);
         if (signal?.aborted || get().token !== currentToken || localStorage.getItem('backoffice_token') !== currentToken) return;
         const staffUser = toStaffUser(rawUser);
-        if (staffUser) {
+        if (staffUser.id > 0) {
           set({ user: staffUser, isAuthenticated: true });
         } else if (import.meta.env.DEV) {
           set({

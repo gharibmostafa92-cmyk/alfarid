@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\V1\Store\Customer;
 
 use App\Http\Controllers\Controller;
+use App\Models\Customer;
 use App\Models\CustomerWalletTransaction;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -13,7 +14,8 @@ class WalletController extends Controller
 {
     public function index(Request $request, \App\Services\Ai\Finance\FinancePresenter $presenter): JsonResponse
     {
-        $query = CustomerWalletTransaction::query()->where('customer_id', $request->user()->id);
+        $customerId = $request->user()->id;
+        $query = CustomerWalletTransaction::query()->useWritePdo()->where('customer_id', $customerId);
         if (in_array($request->query('direction'), ['credit', 'debit'], true)) {
             $query->where('amount', $request->query('direction') === 'credit' ? '>' : '<', 0);
         }
@@ -39,6 +41,8 @@ class WalletController extends Controller
             'created_at' => $tx->created_at,
         ]);
 
-        return response()->json(['balance' => $request->user()->wallet_balance, 'transactions' => $entries]);
+        $balance = Customer::query()->useWritePdo()->whereKey($customerId)->firstOrFail(['wallet_balance'])->wallet_balance;
+
+        return response()->json(['balance' => $balance, 'transactions' => $entries]);
     }
 }

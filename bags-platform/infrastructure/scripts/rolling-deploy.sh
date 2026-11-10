@@ -20,11 +20,27 @@ hap() {
   if [[ -n "$result" ]]; then echo "$proxy: $result" >&2; return 1; fi
 }
 
+current_node=''
+node_recreated=false
+restore_node() {
+  local rc=$?
+  # M-6: a failure before recreation must not leave a healthy node drained/maint.
+  if [[ -n $current_node && $node_recreated != true ]]; then
+    echo "Aborted before $current_node was recreated; returning it to ready" >&2
+    for proxy in haproxy1 haproxy2; do
+      for backend in be_api be_api_slow; do hap "$proxy" "set server $backend/$current_node state ready" || true; done
+    done
+  fi
+  exit "$rc"
+}
+trap restore_node EXIT
+
 if [[ ${SKIP_BUILD:-0} != 1 ]]; then "${DC[@]}" build app1; fi
 "${DC[@]}" run --rm --no-deps -e DB_HOST=postgres -e DB_PORT=5432 \
   -e 'PGOPTIONS=-c statement_timeout=0 -c idle_in_transaction_session_timeout=0 -c lock_timeout=10000' \
   app1 php artisan migrate --force --isolated=75
 for node in "${NODES[@]}"; do
+  current_node=$node; node_recreated=false
   echo "Draining $node on both proxies and both API backends"
   for proxy in haproxy1 haproxy2; do
     for backend in be_api be_api_slow; do hap "$proxy" "set server $backend/$node state drain"; done
@@ -40,20 +56,25 @@ for node in "${NODES[@]}"; do
     if ((active == 0)); then drained=true; break; fi
     sleep 2
   done
-  if [[ $drained != true ]]; then echo "Drain timed out; $node remains drained" >&2; exit 1; fi
+  if [[ $drained != true ]]; then echo "Drain timed out for $node" >&2; exit 1; fi
   for proxy in haproxy1 haproxy2; do
     for backend in be_api be_api_slow; do hap "$proxy" "set server $backend/$node state maint"; done
   done
   "${DC[@]}" up -d --no-deps --no-build --force-recreate "$node"
+  node_recreated=true
   ready=false
   for ((i=0; i<60; i++)); do
-    if "${DC[@]}" exec -T "$node" curl -fsS http://localhost:8080/health/ready >/dev/null; then ready=true; break; fi
+    if "${DC[@]}" exec -T "$node" curl -fsS --max-time 5 http://localhost:8080/health/ready >/dev/null; then ready=true; break; fi
     sleep 2
   done
   if [[ $ready != true ]]; then echo "Readiness failed; $node remains in maintenance" >&2; exit 1; fi
   for proxy in haproxy1 haproxy2; do
     for backend in be_api be_api_slow; do hap "$proxy" "set server $backend/$node state ready"; done
   done
+  current_node=''
 done
-"${DC[@]}" up -d --no-deps --no-build --force-recreate worker worker2 media-worker scheduler
+# M-6: one at a time so queue processing never stops entirely.
+for svc in worker worker2 media-worker scheduler; do
+  "${DC[@]}" up -d --no-deps --no-build --force-recreate "$svc"
+done
 echo 'Deploy complete'

@@ -43,13 +43,11 @@ final class StaffTokenService
             $user->unsetRelation('roles');
             $user->unsetRelation('permissions');
             $user->load(['branch', 'roles.permissions', 'permissions']);
-            if ($user->roles->isNotEmpty()) {
-                $destination = app(LoginDestinationResolver::class)->resolve($user);
-                $abilities = ($destination['destination'] ?? null) === 'pos' ? ['pos'] : ['*'];
-            }
-            $abilities = $abilities === [] ? ['*'] : array_values(array_unique($abilities));
-
-            return $user->createToken('staff-token', $abilities, now()->addMinutes(max(1, (int) config('auth.staff_token_minutes', 1440))))->plainTextToken;
+            // L-1: fail closed. A user without roles makes the resolver throw 403 here,
+            // inside the transaction, so no token (and no orphan) is ever committed.
+            $destination = app(LoginDestinationResolver::class)->resolve($user);
+            $abilities = ($destination['destination'] ?? null) === 'pos' ? ['pos'] : ['*'];
+            return $user->createToken('staff-token', $abilities, now()->addMinutes(max(1, (int) config('auth.staff_token_minutes', 720))))->plainTextToken;
         });
     }
 

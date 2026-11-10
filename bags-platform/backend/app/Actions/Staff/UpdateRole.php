@@ -22,7 +22,7 @@ final class UpdateRole
     public function __construct(private BranchAccess $access) {}
 
     /** @param array{name?:string,permissions?:list<string>|null,expected_version?:int|null} $data @param array<string,mixed> $via @return string|null failure code */
-    public function __invoke(User $actor, Role $role, array $data, array $via = []): ?string
+    public function __invoke(User $actor, Role $role, array $data, array $via = [], ?string $currentPassword = null): ?string
     {
         $permissions = $data['permissions'] ?? null;
         if (array_key_exists('name', $data) && StaffRole::isReserved((string) $data['name'])) {
@@ -32,7 +32,7 @@ final class UpdateRole
             abort(403, 'لا يمكنك إسناد صلاحيات لا تملكها.');
         }
 
-        return DB::transaction(function () use ($actor, $role, $data, $permissions, $via): ?string {
+        return DB::transaction(function () use ($actor, $role, $data, $permissions, $via, $currentPassword): ?string {
             StaffAdministration::lock();
             StaffAdministration::authorize($actor, ['roles.update', 'roles.manage']);
             $this->access->assertCentralAccess($actor);
@@ -44,6 +44,9 @@ final class UpdateRole
                 return 'protected';
             }
             abort_unless(StaffAdministration::mayGrantPermissions($actor, array_unique(array_merge($locked->permissions()->pluck('name')->all(), $permissions ?? []))), 403);
+            if (array_diff($permissions ?? [], $before['permissions']) !== []) {
+                StaffAdministration::requireGrantPassword($actor, $currentPassword);
+            }
             StaffAdministration::clearPermissionCacheAfterCommit();
             if (array_key_exists('name', $data)) {
                 $locked->name = $data['name'];

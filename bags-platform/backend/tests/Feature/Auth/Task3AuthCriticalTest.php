@@ -114,10 +114,9 @@ class Task3AuthCriticalTest extends TestCase
 
     public function test_staff_token_ttl_follows_explicit_configuration(): void
     {
-        // Lifetime is config-driven; the default stays at the committed 30d
-        // until the H2 product decision lands (see docs/TASK3_DEPLOYMENT_STATUS.md).
         config(['auth.staff_token_minutes' => 1440]);
         $user = User::factory()->create(['is_active' => true]);
+        $user->assignRole(Role::findOrCreate('Super Admin', 'staff'));
         app(StaffTokenService::class)->issue($user);
 
         $this->assertEqualsWithDelta(1440, (int) now()->diffInMinutes($user->tokens()->latest('id')->first()->expires_at), 1);

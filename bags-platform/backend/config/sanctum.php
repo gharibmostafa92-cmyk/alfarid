@@ -66,7 +66,8 @@ return [
     |
     */
 
-    'token_prefix' => env('SANCTUM_TOKEN_PREFIX', ''),
+    // H-2: a recognisable prefix lets secret scanners flag leaked tokens. Existing tokens stay valid.
+    'token_prefix' => env('SANCTUM_TOKEN_PREFIX', 'alf_'),
 
     /*
     |--------------------------------------------------------------------------

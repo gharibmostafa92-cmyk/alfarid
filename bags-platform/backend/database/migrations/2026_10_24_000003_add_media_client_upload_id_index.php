@@ -14,11 +14,19 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         DB::statement("CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS media_client_upload_id_unique ON media (model_type, model_id, (custom_properties->>'client_upload_id')) WHERE custom_properties->>'client_upload_id' IS NOT NULL");
     }
 
     public function down(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         DB::statement('DROP INDEX CONCURRENTLY IF EXISTS media_client_upload_id_unique');
     }
 };

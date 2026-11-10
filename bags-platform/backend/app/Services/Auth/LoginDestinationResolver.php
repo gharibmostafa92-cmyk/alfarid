@@ -44,8 +44,9 @@ final class LoginDestinationResolver
             // too, but it must not swallow accounts that also hold admin rights.
             $onlyPosPermissions = $actor->getAllPermissions()
                 ->every(fn ($permission) => str_starts_with($permission->name, 'pos.'));
-            $isPosRole = $roles->count() === 1 && ($isCashierName
-                || ($actor->can('pos.access') && $onlyPosPermissions));
+            // L-3: a cashier-named role that also carries non-pos permissions keeps admin access.
+            $isPosRole = $roles->count() === 1 && $onlyPosPermissions
+                && ($isCashierName || $actor->can('pos.access'));
             if ($isPosRole) {
                 // Block cashiers without an active assigned branch to prevent partially-functioning POS sessions.
                 if ($actor->branch_id === null || $actor->branch === null || ! $actor->branch->is_active) {

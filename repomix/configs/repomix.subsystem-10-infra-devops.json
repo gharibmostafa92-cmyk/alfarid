@@ -54,7 +54,9 @@
     "bags-platform/backend/database/migrations/*task2_check_guards*.php",
     "bags-platform/backend/database/migrations/*task2_unique_guards*.php",
     "bags-platform/backend/database/migrations/*validate_task2_check_guards*.php",
-    "bags-platform/backend/database/migrations/*ledger_fk_restrict*.php"
+    "bags-platform/backend/database/migrations/*ledger_fk_restrict*.php",
+    "bags-platform/backend/database/migrations/*scope_db_timeouts*.php",
+    "bags-platform/backend/database/migrations/*xact_advisory_locks*.php"
   ],
   "ignore": {
     "useGitignore": true,

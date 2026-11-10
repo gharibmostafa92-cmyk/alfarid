@@ -186,6 +186,7 @@ class FinanceReadToolsTest extends TestCase
 
     public function test_explain_treasury_balance_sums_match_current_balance(): void
     {
+        $this->travelTo(\Carbon\CarbonImmutable::parse('2026-11-11 00:30:00', 'Africa/Cairo'));
         ['admin' => $admin, 'branchA' => $branchA] = $this->scaffold();
         $treasury = $this->treasury($branchA);
         $svc = app(TreasuryService::class);
@@ -194,7 +195,7 @@ class FinanceReadToolsTest extends TestCase
 
         $outcome = app(ToolRegistry::class)->dispatch($admin, $this->conv($admin), [
             'name' => 'explain_treasury_balance',
-            'args' => ['treasury_id' => $treasury->id, 'from_date' => now()->subDays(30)->toDateString(), 'to_date' => now()->toDateString()],
+            'args' => ['treasury_id' => $treasury->id, 'from_date' => '2026-11-11', 'to_date' => '2026-11-11'],
         ]);
 
         $this->assertSame('data', $outcome->type);

@@ -13,6 +13,8 @@ use App\Services\Ai\Finance\FinancePresenter;
 use App\Services\Ai\ToolKind;
 use App\Services\Ai\ToolOutcome;
 use App\Services\Inventory\BranchAccess;
+use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Validator;
 
 final class ExplainTreasuryBalanceTool implements AgentTool
 {
@@ -68,17 +70,25 @@ final class ExplainTreasuryBalanceTool implements AgentTool
         }
         $treasury = $resolved['treasury'];
 
-        $to = ! empty($args['to_date']) ? (string) $args['to_date'] : now(config('app.business_timezone', 'Africa/Cairo'))->toDateString();
-        $from = ! empty($args['from_date']) ? (string) $args['from_date'] : now(config('app.business_timezone', 'Africa/Cairo'))->startOfMonth()->toDateString();
+        $zone = config('app.business_timezone', 'Africa/Cairo');
+        $today = CarbonImmutable::now($zone);
+        $to = ! empty($args['to_date']) ? (string) $args['to_date'] : $today->toDateString();
+        $from = ! empty($args['from_date']) ? (string) $args['from_date'] : $today->startOfMonth()->toDateString();
+        Validator::make(['from_date' => $from, 'to_date' => $to], [
+            'from_date' => ['required', 'date_format:Y-m-d'],
+            'to_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:from_date'],
+        ])->validate();
+        $start = CarbonImmutable::parse($from, $zone)->startOfDay()->utc()->toDateTimeString();
+        $endExclusive = CarbonImmutable::parse($to, $zone)->startOfDay()->addDay()->utc()->toDateTimeString();
 
         $openingTx = TreasuryTransaction::query()->where('treasury_id', $treasury->id)
-            ->where('created_at', '<', $from.' 00:00:00')
+            ->where('created_at', '<', $start)
             ->orderByDesc('id')->first(['balance_after']);
         $opening = $openingTx ? (float) $openingTx->balance_after : 0.0;
 
         $grouped = TreasuryTransaction::query()->where('treasury_id', $treasury->id)
-            ->where('created_at', '>=', $from.' 00:00:00')
-            ->where('created_at', '<=', $to.' 23:59:59')
+            ->where('created_at', '>=', $start)
+            ->where('created_at', '<', $endExclusive)
             ->selectRaw('type, COUNT(*) AS movements_count, SUM(amount) AS total')
             ->groupBy('type')->orderBy('type')->get();
 
@@ -97,11 +107,11 @@ final class ExplainTreasuryBalanceTool implements AgentTool
 
         $ending = round($opening + $periodTotal, 2);
         $current = (float) $treasury->current_balance;
-        $isCurrentPeriod = $to === now(config('app.business_timezone', 'Africa/Cairo'))->toDateString();
+        $isCurrentPeriod = $to === $today->toDateString();
 
         $timeline = TreasuryTransaction::query()->where('treasury_id', $treasury->id)
-            ->where('created_at', '>=', $from.' 00:00:00')
-            ->where('created_at', '<=', $to.' 23:59:59')
+            ->where('created_at', '>=', $start)
+            ->where('created_at', '<', $endExclusive)
             ->orderByDesc('id')->limit(20)->get()
             ->map(function (TreasuryTransaction $tx) {
                 $txType = $tx->type instanceof \BackedEnum ? $tx->type->value : (string) $tx->type;

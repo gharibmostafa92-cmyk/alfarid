@@ -11,9 +11,12 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
+use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
 
 /**
  * Staff administration guardrails and security coordinator.
@@ -46,6 +49,36 @@ final class StaffAdministration
             }
             throw $e;
         }
+    }
+
+    public static function verifyCurrentPassword(User $actor, string $password): bool
+    {
+        $key = 'staff:current-password:'.$actor->id;
+        $limit = max(1, (int) config('auth.staff_current_password_failures', 5));
+        if (RateLimiter::hit($key, 3600) > $limit) {
+            throw new TooManyRequestsHttpException(RateLimiter::availableIn($key));
+        }
+
+        if (! Hash::check($password, $actor->password)) {
+            return false;
+        }
+
+        RateLimiter::clear($key);
+
+        return true;
+    }
+
+    public static function requireGrantPassword(User $actor, ?string $password, ?string $verifiedHash = null): void
+    {
+        $lockedActor = User::query()->whereKey($actor->getKey())->lockForUpdate()->firstOrFail();
+        if ($verifiedHash !== null && hash_equals($lockedActor->password, $verifiedHash)) {
+            return;
+        }
+        if ($password !== null && self::verifyCurrentPassword($lockedActor, $password)) {
+            return;
+        }
+
+        throw ValidationException::withMessages(['current_password' => 'أدخل كلمة مرورك الحالية لتأكيد منح الصلاحيات.']);
     }
 
     /**

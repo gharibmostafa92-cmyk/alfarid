@@ -107,6 +107,7 @@ class RolePermissionEndpointsTest extends TestCase
         $created = $this->requestWithToken($token, 'POST', '/api/v1/admin/roles', [
             'name' => 'Operator',
             'permissions' => ['users.view'],
+            'current_password' => 'password',
         ]);
         $created->assertCreated()
             ->assertJsonPath('data.guard_name', 'staff')
@@ -116,6 +117,7 @@ class RolePermissionEndpointsTest extends TestCase
         $this->requestWithToken($token, 'PATCH', "/api/v1/admin/roles/{$roleId}", [
             'name' => 'Senior Operator',
             'permissions' => ['users.create'],
+            'current_password' => 'password',
         ])->assertOk()
             ->assertJsonPath('data.name', 'Senior Operator')
             ->assertJsonPath('data.permissions.0', 'users.create');

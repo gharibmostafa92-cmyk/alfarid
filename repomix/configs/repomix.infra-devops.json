@@ -1,6 +1,6 @@
 {
   "output": {
-    "filePath": "repomix/outputs/repomix-infra-devops.xml",
+    "filePath": "repomix/outputs/started/repomix-infra-devops.xml",
     "style": "xml",
     "parsableStyle": true,
     "fileSummary": true,
@@ -42,7 +42,9 @@
     "bags-platform/backend/database/migrations/*ledger_immutability_guards*.php",
     "bags-platform/backend/database/migrations/*fix_movement_sync_lock_cancel*.php",
     "bags-platform/backend/database/migrations/*validate_task2_check_guards*.php",
-    "bags-platform/backend/database/migrations/*ledger_fk_restrict*.php"
+    "bags-platform/backend/database/migrations/*ledger_fk_restrict*.php",
+    "bags-platform/backend/database/migrations/*scope_db_timeouts*.php",
+    "bags-platform/backend/database/migrations/*xact_advisory_locks*.php"
   ],
   "ignore": {
     "useGitignore": true,

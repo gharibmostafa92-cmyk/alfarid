@@ -74,7 +74,7 @@ class UnifiedLoginHardeningTest extends TestCase
 
     public function test_ipv4_uses_the_ip_limit_without_the_ipv6_prefix_limit(): void
     {
-        config(['auth.unified_login_ip_failures_hour' => 2, 'auth.unified_login_wide_failures_hour' => 1]);
+        config(['auth.unified_login_ip_failures_hour' => 2, 'auth.unified_login_wide_failures_hour' => 1, 'services.turnstile.secret_key' => 'test-secret']);
 
         $this->login(['login' => 'first@invalid.example', 'password' => 'wrong'])->assertUnauthorized();
         $this->login(['login' => 'second@invalid.example', 'password' => 'wrong'])->assertUnauthorized();
@@ -140,7 +140,7 @@ class UnifiedLoginHardeningTest extends TestCase
         $staff->assignRole(Role::firstOrCreate(['name' => 'manager', 'guard_name' => 'staff']));
         $staff->createToken('other-device');
         $staff->createToken('pos-device');
-        $code = app(StaffHandoffService::class)->issue($staff);
+        $code = app(StaffHandoffService::class)->issue($staff, \Illuminate\Http\Request::create('/'));
 
         $this->postJson('/api/v1/auth/handoff/exchange', ['code' => $code])->assertOk();
 
@@ -163,7 +163,7 @@ class UnifiedLoginHardeningTest extends TestCase
 
     public function test_successful_logins_do_not_consume_the_failure_budget(): void
     {
-        config()->set('auth.unified_login_failures_hour', 2);
+        config(['auth.unified_login_failures_hour' => 2, 'services.turnstile.secret_key' => 'test-secret']);
         $customer = Customer::factory()->create(['password' => 'cust-pass']);
         for ($i = 0; $i < 3; $i++) {
             $this->login(['login' => $customer->phone, 'password' => 'cust-pass'])->assertOk();
@@ -173,7 +173,7 @@ class UnifiedLoginHardeningTest extends TestCase
         }
         $this->travel(61)->seconds();
         $this->login(['login' => '+20'.substr($customer->phone, 1), 'password' => 'cust-pass'])
-            ->assertStatus(429)->assertHeader('Retry-After');
+            ->assertStatus(429)->assertJsonPath('code', 'challenge_required');
     }
 
     public function test_daily_failure_budget_survives_the_hourly_window(): void

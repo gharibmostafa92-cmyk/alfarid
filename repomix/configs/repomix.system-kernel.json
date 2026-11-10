@@ -1,6 +1,6 @@
 ﻿{
     "output":  {
-                   "filePath":  "repomix/outputs/repomix-system-kernel.xml",
+                   "filePath":  "repomix/outputs/started/repomix-system-kernel.xml",
                    "style":  "xml",
                    "parsableStyle":  true,
                    "fileSummary":  true,

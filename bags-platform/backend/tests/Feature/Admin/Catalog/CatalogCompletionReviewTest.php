@@ -189,6 +189,28 @@ class CatalogCompletionReviewTest extends TestCase
         $this->artisan('media:prune-orphans', ['--older-than' => 1])->assertFailed();
     }
 
+    public function test_pruner_counts_staging_rows_and_orphan_directories_before_deleting(): void
+    {
+        $this->markStorageForCleanup('r2_public');
+        $disk = Storage::disk('r2_public');
+        $staged = Product::factory()->create()->addMedia(UploadedFile::fake()->image('staged.jpg'))
+            ->toMediaCollection('images_staging', 'r2_public');
+        $staged->forceFill(['created_at' => now()->subHours(2)])->save();
+        $stagedPath = $staged->getPathRelativeToRoot();
+        $orphan = '11111111-2222-4333-8444-555555555555/orphan.jpg';
+        $disk->put($orphan, 'content');
+        touch($disk->path($orphan), now()->subHours(2)->timestamp);
+
+        $this->assertSame(1, $this->realArtisan('media:prune-orphans', ['--max-deletions' => 1]));
+        $disk->assertExists($orphan);
+        $disk->assertExists($stagedPath);
+        $this->assertModelExists($staged);
+
+        $this->assertSame(0, $this->realArtisan('media:prune-orphans', ['--max-deletions' => 2]));
+        $disk->assertMissing($orphan);
+        $this->assertModelMissing($staged);
+    }
+
     public function test_pruner_rejects_a_public_disk_pointing_at_the_private_bucket(): void
     {
         $this->markStorageForCleanup('r2_public');

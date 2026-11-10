@@ -45,7 +45,7 @@ class UnifiedAuthController extends Controller
         $redirect = $this->destinations->resolve($actor, $data['redirect'] ?? null);
 
         if ($actor instanceof User) {
-            return $this->respond('staff', $redirect, null, $this->handoff->issue($actor),
+            return $this->respond('staff', $redirect, null, $this->handoff->issue($actor, $request),
                 ['id' => $actor->id, 'name' => $actor->name], 'active');
         }
 
@@ -70,7 +70,7 @@ class UnifiedAuthController extends Controller
      */
     public function exchange(HandoffExchangeRequest $request): JsonResponse
     {
-        $payload = $this->handoff->consume($request->validated()['code']);
+        $payload = $this->handoff->consume($request->validated()['code'], $request);
         $user = $payload ? User::query()->find($payload['user_id']) : null;
 
         if (! $user instanceof User || ! $user->is_active || $user->is_system || ! is_string($payload['credentials'] ?? null)) {

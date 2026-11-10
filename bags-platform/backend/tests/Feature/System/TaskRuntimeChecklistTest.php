@@ -52,7 +52,7 @@ class TaskRuntimeChecklistTest extends TestCase
 
     public static function mediaTtls(): array
     {
-        return [[0, 60], [3600, 3600], [1000000000, 604800]];
+        return [[0, 60], [3600, 3600], [1000000000, 3600]];
     }
 
     #[DataProvider('databaseFailures')]

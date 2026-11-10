@@ -44,6 +44,21 @@ else
   sed -i '/^requirepass[[:space:]]/d; /^sentinel auth-pass[[:space:]]/d' runtime.conf
   printf 'requirepass %s\nsentinel auth-pass mymaster %s\n' "$REDIS_PASSWORD" "$REDIS_PASSWORD" >> runtime.conf
 fi
+if [ "$1" != sentinel ]; then
+  # H-1: a returning ex-master must not boot as master. Ask Sentinel who the master is now;
+  # if no Sentinel answers (cold start), keep the persisted role as before.
+  self=$(hostname -i 2>/dev/null | awk '{print $1}')
+  master=''
+  for s in ${SENTINEL_HOSTS:-sentinel1 sentinel2 sentinel3}; do
+    master=$(REDISCLI_AUTH="$REDIS_PASSWORD" timeout 2 redis-cli -h "$s" -p 26379 \
+      SENTINEL get-master-addr-by-name mymaster 2>/dev/null | head -n1) || master=''
+    [ -n "$master" ] && break
+  done
+  if [ -n "$master" ]; then
+    sed -i '/^replicaof[[:space:]]/d; /^slaveof[[:space:]]/d' runtime.conf
+    [ "$master" = "$self" ] || echo "replicaof $master 6379" >> runtime.conf
+  fi
+fi
 chown -R redis:redis /data
 if [ "$1" = sentinel ]; then
   # Stagger failure detection so three co-located Sentinels do not all vote for

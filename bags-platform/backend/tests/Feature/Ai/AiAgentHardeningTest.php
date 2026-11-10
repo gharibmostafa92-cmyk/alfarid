@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Tests\Feature\Ai;
 
 use App\Actions\Staff\CreateStaffUser;
-use App\Actions\Staff\UpdateStaffUser;
 use App\Jobs\PruneAiConversations;
 use App\Models\AiConversation;
 use App\Models\AiPendingAction;
@@ -20,7 +19,6 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
@@ -129,10 +127,11 @@ class AiAgentHardeningTest extends TestCase
         $admin = $this->staff(['ai_agent.use', 'users.update', 'users.manage', 'inventory.all_branches']);
         $target = User::factory()->create();
         $this->assertFalse((bool) $target->must_change_password);
-        $failure = app(UpdateStaffUser::class)(
-            $admin, $target, ['password' => Hash::make('AdminSet12345')]
-        );
-        $this->assertNull($failure);
+        $this->withToken($this->token($admin))->patchJson('/api/v1/admin/users/'.$target->id, [
+            'password' => 'AdminSet12345',
+            'current_password' => 'password',
+            'expected_version' => (int) $target->lock_version,
+        ])->assertOk();
         $this->assertTrue((bool) $target->fresh()->must_change_password);
     }
 

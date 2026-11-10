@@ -17,7 +17,7 @@ class Task3SecurityCloseoutTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
-    public function test_global_login_failures_demand_a_challenge_before_another_password_check(): void
+    public function test_global_login_failures_only_challenge_identifiers_or_networks_with_local_failures(): void
     {
         config([
             'auth.unified_login_global_failures_minute' => 1,
@@ -31,6 +31,14 @@ class Task3SecurityCloseoutTest extends TestCase
         $this->postJson('/api/v1/auth/login', ['login' => 'nobody-b@example.test', 'password' => 'wrong-password-2'])
             ->assertStatus(429)
             ->assertJsonPath('code', 'challenge_required');
+
+        $staff = User::factory()->for(Branch::factory()->create(['is_active' => true]))
+            ->create(['password' => 'Staff-password12']);
+        $staff->assignRole(Role::findOrCreate('cashier', 'staff'));
+        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.11'])
+            ->postJson('/api/v1/auth/login', ['login' => $staff->email, 'password' => 'Staff-password12'])
+            ->assertOk()
+            ->assertJsonStructure(['handoff_code']);
         Http::assertNothingSent();
     }
 
@@ -41,17 +49,22 @@ class Task3SecurityCloseoutTest extends TestCase
         $this->assertTrue($grants->contains('INSERT'));
         $this->assertFalse($grants->contains('UPDATE'));
         $this->assertFalse($grants->contains('DELETE'));
+        $this->assertFalse($grants->contains('TRUNCATE'));
+        $this->assertTrue(DB::scalar("SELECT has_function_privilege('alfarid_app', 'alfarid_prune_staff_audit_logs(timestamptz)', 'EXECUTE')"));
 
-        DB::table('staff_audit_logs')->insert([
+        $audit = [
             'actor_id' => null,
-            'action' => 'old.entry',
             'target_type' => 'user',
             'target_id' => 1,
             'metadata' => '{}',
-            'created_at' => now()->subDays(40),
+        ];
+        DB::table('staff_audit_logs')->insert([
+            $audit + ['action' => 'old.entry', 'created_at' => now()->subDays(400)],
+            $audit + ['action' => 'within.retention', 'created_at' => now()->subDays(40)],
         ]);
-        $this->assertSame(1, (int) DB::scalar('SELECT alfarid_prune_staff_audit_logs(?)', [now()->subDays(30)]));
+        $this->assertSame(1, (int) DB::scalar('SELECT alfarid_prune_staff_audit_logs(?)', [now()]));
         $this->assertDatabaseMissing('staff_audit_logs', ['action' => 'old.entry']);
+        $this->assertDatabaseHas('staff_audit_logs', ['action' => 'within.retention']);
     }
 
     public function test_legacy_staff_login_uses_the_unified_limits_and_pos_abilities(): void

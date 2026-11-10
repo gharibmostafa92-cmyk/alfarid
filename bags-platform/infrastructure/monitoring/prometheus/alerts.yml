@@ -54,3 +54,42 @@ groups:
           severity: critical
         annotations:
           summary: 'Redis evicted security counters or locks; check the runtime memory policy'
+      - alert: PostgresDown
+        expr: pg_up == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: 'PostgreSQL is down'}
+      - alert: PgBouncerDown
+        expr: pgbouncer_up == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: 'PgBouncer is down'}
+      - alert: PgBouncerClientsWaiting
+        expr: max by (database) (pgbouncer_pools_client_waiting_connections) > 0
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: 'PgBouncer pool saturated (clients waiting)'}
+      - alert: RedisReplicaMissing
+        expr: max(redis_connected_slaves) < 1
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: 'Redis master has no connected replica'}
+      - alert: DiskAlmostFull
+        expr: node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"} < 0.15
+        for: 10m
+        labels: {severity: critical}
+        annotations: {summary: 'Less than 15% disk free'}
+      - alert: ApiLatencyHigh
+        expr: haproxy_backend_response_time_average_seconds{proxy="be_api"} > 1
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: 'Production API average response time above 1s'}
+      - alert: BackupFailed
+        expr: alfarid_backup_last_run_success == 0
+        labels: {severity: critical}
+        annotations: {summary: 'Last PostgreSQL backup run failed'}
+      - alert: BackupTooOld
+        expr: time() - alfarid_backup_last_success_timestamp_seconds > 26 * 3600 or absent(alfarid_backup_last_success_timestamp_seconds)
+        for: 30m
+        labels: {severity: critical}
+        annotations: {summary: 'No successful backup in the last 26 hours'}

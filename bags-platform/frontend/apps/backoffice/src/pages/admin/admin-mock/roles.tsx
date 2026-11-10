@@ -36,6 +36,8 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
   useQueryError(permissionsQ.error?.status === 403 ? undefined : permissionsQ.error);
   const { iAmSuper, myPerms, centralAccess } = useMe();
   const [nameError, setNameError] = useState<string>();
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [passwordError, setPasswordError] = useState<string>();
   const [deleteConflict, setDeleteConflict] = useState<string>();
   const loading = rolesLoading || permissionsQ.loading;
   const [selId, setSelId] = useState<number | null>(initialRoleId ?? null);
@@ -69,7 +71,13 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
     }
   }, [selId, roles]);
 
+  useEffect(() => {
+    setCurrentPassword('');
+    setPasswordError(undefined);
+  }, [selId, draft?.isNew]);
+
   const original = draft?.isNew ? { name: '', perms: [] as string[] } : sel;
+  const grantsPermissions = draft?.perms.some(permission => !original?.perms.includes(permission)) ?? false;
   const isDirty = draft && original && (draft.isNew || draft.name !== original.name || draft.perms.length !== original.perms.length || draft.perms.some(p => !original.perms.includes(p)));
   const changeCount = draft && original && !draft.isNew
     ? draft.perms.filter(p => !original.perms.includes(p)).length + original.perms.filter(p => !draft.perms.includes(p)).length + (draft.name !== original.name ? 1 : 0)
@@ -115,17 +123,26 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
     if (!draft || !editable || saving) return;
     if (!draft.name.trim()) { setNameError('اسم الدور مطلوب'); return; }
     if ((!draft.builtin || draft.isNew) && ['super admin', 'cashier'].includes(draft.name.normalize('NFKC').trim().toLowerCase())) { setNameError('هذا الاسم محجوز'); return; }
-    setSaving(true); setNameError(undefined);
+    if (grantsPermissions && !currentPassword) {
+      setPasswordError('كلمة مرورك الحالية مطلوبة لمنح الصلاحيات');
+      return;
+    }
+    setSaving(true); setNameError(undefined); setPasswordError(undefined);
+    const confirmation = grantsPermissions ? { current_password: currentPassword } : {};
     const result = await runMutation(() => draft.isNew
-      ? adminApi.createRole({name: draft.name.trim(), permissions: draft.perms})
-      : adminApi.updateRole(draft.id!, buildRolePatch(draft, sel)));
+      ? adminApi.createRole({name: draft.name.trim(), permissions: draft.perms, ...confirmation})
+      : adminApi.updateRole(draft.id!, { ...buildRolePatch(draft, sel), ...confirmation }));
     setSaving(false);
     if (!result.ok) {
-      if (result.error.status === 422) setNameError(result.error.fields.name?.[0]);
+      if (result.error.status === 422) {
+        setNameError(result.error.fields.name?.[0]);
+        setPasswordError(result.error.fields.current_password?.[0]);
+      }
       if (result.error.status === 404 || result.error.status === 409) reloadRoles();
       if (result.error.status !== 401) toast(result.error.message, 'err');
       return;
     }
+    setCurrentPassword('');
     setDraft({...draft, id: result.data.id, isNew: false}); setSelId(result.data.id); reloadRoles();
     toast(draft.isNew ? 'تم إنشاء الدور بنجاح' : 'تم حفظ صلاحيات الدور');
   };
@@ -360,6 +377,14 @@ export function RolesScreen({ roles, rolesLoading, reloadRoles, can, onNavigate,
         </div>
       </div>
 
+      {grantsPermissions && !isSystem && editable && (
+        <div className="px-6 pb-4">
+          <Field label="كلمة مرورك الحالية" required error={passwordError}>
+            <TextInput value={currentPassword} onChange={value => { setCurrentPassword(value); setPasswordError(undefined); }}
+              type="password" dir="ltr" placeholder="أدخل كلمة مرور حسابك" error={passwordError} />
+          </Field>
+        </div>
+      )}
       <StickyBar show={!!isDirty && !isSystem && editable} onSave={save} onReset={reset} saving={saving}
         message={draft?.isNew ? 'دور جديد غير محفوظ' : 'تغييرات غير محفوظة على الدور'} count={changeCount} />
 

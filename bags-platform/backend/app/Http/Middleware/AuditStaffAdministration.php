@@ -28,10 +28,10 @@ final class AuditStaffAdministration
         $actor = $request->user('staff');
         $key = 'staff:admin-mutations:'.($actor?->id ?? 'guest');
         $limit = max(1, (int) config('auth.staff_admin_mutations_minute', 60));
-        if (RateLimiter::tooManyAttempts($key, $limit)) {
+        // L-2: hit-then-compare is atomic; check-then-hit let concurrent requests overshoot.
+        if (RateLimiter::hit($key, 60) > $limit) {
             return response()->json(['message' => 'طلبات إدارية كثيرة؛ حاول بعد قليل.'], 429);
         }
-        RateLimiter::hit($key, 60);
         try {
             $response = $next($request);
         } catch (Throwable $exception) {

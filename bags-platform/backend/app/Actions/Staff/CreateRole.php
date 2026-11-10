@@ -19,7 +19,7 @@ final class CreateRole
     public function __construct(private BranchAccess $access) {}
 
     /** @param array{name:string,permissions?:list<string>} $data @param array<string,mixed> $via */
-    public function __invoke(User $actor, array $data, array $via = []): Role
+    public function __invoke(User $actor, array $data, array $via = [], ?string $currentPassword = null): Role
     {
         if (StaffRole::isReserved($data['name'])) {
             abort(403, 'هذا الاسم محجوز لدور أساسي في النظام.');
@@ -29,11 +29,14 @@ final class CreateRole
             abort(403, 'لا يمكنك إسناد صلاحيات لا تملكها.');
         }
 
-        return DB::transaction(function () use ($actor, $data, $permissions, $via): Role {
+        return DB::transaction(function () use ($actor, $data, $permissions, $via, $currentPassword): Role {
             StaffAdministration::lock();
             StaffAdministration::authorize($actor, ['roles.create', 'roles.manage']);
             $this->access->assertCentralAccess($actor);
             abort_unless(StaffAdministration::mayGrantPermissions($actor, $permissions), 403);
+            if ($permissions !== []) {
+                StaffAdministration::requireGrantPassword($actor, $currentPassword);
+            }
             StaffAdministration::clearPermissionCacheAfterCommit();
             try {
                 $role = Role::create(['name' => $data['name'], 'guard_name' => 'staff']);

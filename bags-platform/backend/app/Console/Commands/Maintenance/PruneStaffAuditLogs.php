@@ -23,9 +23,9 @@ final class PruneStaffAuditLogs extends Command
      */
     public function handle(): int
     {
-        $cutoff = now()->subDays(max(30, (int) config('auth.staff_audit_retention_days', 365)));
+        $cutoff = now()->subDays(max(365, (int) config('auth.staff_audit_retention_days', 365)));
         do {
-            $removed = (int) DB::scalar('SELECT alfarid_prune_staff_audit_logs(?)', [$cutoff]);
+            $removed = (int) DB::scalar('SELECT alfarid_prune_staff_audit_logs(?)', [$cutoff], false);
         } while ($removed === 1000);
 
         return self::SUCCESS;

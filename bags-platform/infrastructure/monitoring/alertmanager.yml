@@ -1,3 +1,8 @@
+global:
+  smtp_smarthost: 'smtp.example.com:587'
+  smtp_from: 'alerts@example.com'
+  smtp_auth_username: 'alerts@example.com'
+  smtp_auth_password_file: /etc/alertmanager/smtp_password
 route:
   receiver: local
   group_by: [alertname]
@@ -6,4 +11,6 @@ route:
   repeat_interval: 4h
 receivers:
   - name: local
-# Add email_configs or telegram_configs with the operator's destination.
+    email_configs:
+      - to: 'ops@example.com'
+        send_resolved: true

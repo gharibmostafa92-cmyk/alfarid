@@ -36,7 +36,9 @@ class UploadProductMediaRequest extends FormRequest
             // Bound decoded memory as well as compressed size for synchronous GD conversions.
             'files.*' => ['image', 'mimes:jpg,jpeg,png,webp', 'extensions:jpg,jpeg,png,webp', 'max:5120', new MaxImagePixels],
             'client_upload_ids' => ['nullable', 'array', 'max:4', function (string $attribute, mixed $value, \Closure $fail): void {
-                if (is_array($value) && count($value) !== count($this->file('files', []))) {
+                $files = $this->file('files', []);
+                $fileCount = is_array($files) ? count($files) : 1; // L1: a single "files" upload is not an array
+                if (is_array($value) && count($value) !== $fileCount) {
                     $fail('يجب إرسال معرف رفع لكل صورة.');
                 }
             }],

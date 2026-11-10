@@ -27,7 +27,7 @@ class AuthController extends Controller
     public function login(AdminLoginRequest $request): JsonResource|JsonResponse
     {
         $credentials = $request->validated();
-        $actor = app(UnifiedAuthService::class)->attempt($credentials['email'], $credentials['password']);
+        $actor = app(UnifiedAuthService::class)->attempt($credentials['email'], $credentials['password'], staffOnly: true);
         if (! $actor instanceof User) {
             return response()->json([
                 'message' => 'بيانات تسجيل الدخول غير صحيحة أو الحساب غير نشط.',

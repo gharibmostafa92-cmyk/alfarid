@@ -59,7 +59,7 @@ class StaffAdministrationFollowupTest extends TestCase
         $actor = $this->staff(['roles.manage', 'users.view', 'users.update', 'inventory.all_branches']);
         $role = Role::create(['name' => 'Concurrent role', 'guard_name' => 'staff']);
         $version = $this->api($actor, 'GET', '/roles/'.$role->id)->assertOk()->json('data.version');
-        $this->api($actor, 'PATCH', '/roles/'.$role->id, ['expected_version' => $version, 'permissions' => ['users.view']])
+        $this->api($actor, 'PATCH', '/roles/'.$role->id, ['expected_version' => $version, 'permissions' => ['users.view'], 'current_password' => 'password'])
             ->assertOk()->assertJsonPath('data.version', $version + 1);
         $this->api($actor, 'PATCH', '/roles/'.$role->id, ['expected_version' => $version, 'permissions' => ['users.update']])->assertConflict();
         $this->assertSame(['users.view'], $role->fresh()->permissions->pluck('name')->all());
@@ -71,7 +71,7 @@ class StaffAdministrationFollowupTest extends TestCase
         $target = User::factory()->create();
         $role = Role::create(['name' => 'Operator', 'guard_name' => 'staff']);
         $version = $this->api($actor, 'GET', '/users/'.$target->id)->json('data.version');
-        $this->api($actor, 'PATCH', '/users/'.$target->id, ['roles' => [$role->name], 'expected_version' => $version])
+        $this->api($actor, 'PATCH', '/users/'.$target->id, ['roles' => [$role->name], 'expected_version' => $version, 'current_password' => 'password'])
             ->assertOk()->assertJsonPath('data.version', $version + 1);
         $this->api($actor, 'PATCH', '/users/'.$target->id, ['roles' => [], 'expected_version' => $version])->assertConflict();
         $this->assertTrue($target->fresh()->hasRole($role));
@@ -107,7 +107,7 @@ class StaffAdministrationFollowupTest extends TestCase
         }
         $this->api($actor, 'PATCH', '/roles/'.$cashier->id, ['name' => 'Operator'])->assertForbidden();
         $this->api($actor, 'DELETE', '/roles/'.$cashier->id)->assertForbidden();
-        $this->api($actor, 'PATCH', '/roles/'.$cashier->id, ['permissions' => ['pos.sales.create']])->assertOk()
+        $this->api($actor, 'PATCH', '/roles/'.$cashier->id, ['permissions' => ['pos.sales.create'], 'current_password' => 'password'])->assertOk()
             ->assertJsonPath('data.is_builtin', true)->assertJsonPath('data.name', 'cashier');
         $this->api($actor, 'POST', '/roles', ['name' => 'Ｏperator'])->assertCreated()->assertJsonPath('data.name', 'Operator');
     }
@@ -157,8 +157,8 @@ class StaffAdministrationFollowupTest extends TestCase
         $branch = Branch::factory()->create();
         $target = User::factory()->create(['branch_id' => null]);
         $role = Role::create(['name' => 'Audit role', 'guard_name' => 'staff']);
-        $this->api($actor, 'PATCH', '/roles/'.$role->id, ['permissions' => ['pos.sales.create']])->assertOk();
-        $this->api($actor, 'PATCH', '/users/'.$target->id, ['roles' => [$role->name], 'branch_id' => $branch->id, 'is_active' => false])->assertOk();
+        $this->api($actor, 'PATCH', '/roles/'.$role->id, ['permissions' => ['pos.sales.create'], 'current_password' => 'password'])->assertOk();
+        $this->api($actor, 'PATCH', '/users/'.$target->id, ['roles' => [$role->name], 'branch_id' => $branch->id, 'is_active' => false, 'current_password' => 'password'])->assertOk();
         $log = DB::table('staff_audit_logs')->where('action', 'user.updated')->where('target_id', $target->id)->first();
         $data = json_decode($log->metadata, true);
         $this->assertSame([], $data['before']['roles']);

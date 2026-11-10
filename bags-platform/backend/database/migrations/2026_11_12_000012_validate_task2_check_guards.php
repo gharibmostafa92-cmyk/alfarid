@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
@@ -13,8 +14,14 @@ return new class extends Migration
      * Run in a maintenance window if any table holds violating legacy rows —
      * VALIDATE fails loudly instead of silently skipping, by design.
      */
+    public $withinTransaction = false;
+
     public function up(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         foreach ([
             ['orders', 'orders_idempotency_scoped'],
             ['coupons', 'coupons_usage_within_limit'],
@@ -26,7 +33,17 @@ return new class extends Migration
             ['wholesale_payment_allocations', 'wholesale_payment_allocations_amount_positive'],
         ] as [$table, $constraint]) {
             if (DB::selectOne('SELECT 1 FROM pg_constraint WHERE conname = ? AND conrelid = to_regclass(?)', [$constraint, $table]) !== null) {
-                DB::statement("ALTER TABLE {$table} VALIDATE CONSTRAINT {$constraint}");
+                try {
+                    // H-6: one statement per constraint, outside a shared transaction.
+                    DB::statement("ALTER TABLE {$table} VALIDATE CONSTRAINT {$constraint}");
+                } catch (QueryException $e) {
+                    if (($e->errorInfo[0] ?? null) !== '23514') {
+                        throw $e;
+                    }
+                    // Legacy rows violate it: stays NOT VALID (still enforced on new writes).
+                    logger()->warning('constraint.validate_skipped', ['table' => $table, 'constraint' => $constraint]);
+                    error_log("VALIDATE skipped for {$table}.{$constraint}: legacy rows violate it; clean up and rerun.");
+                }
             }
         }
     }

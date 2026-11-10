@@ -258,19 +258,21 @@ class AiAgentAuditFixesTest extends TestCase
         $this->assertEquals(50.0, (float) $tx->balance_after);
     }
 
-    public function test_l1_password_rotation_via_users_self_update_is_exempt(): void
+    public function test_l1_required_password_rotation_uses_the_dedicated_endpoint(): void
     {
         $user = User::factory()->create(['password' => 'Old-password12', 'must_change_password' => true]);
         // Central administrative user verifies middleware authentication requirements.
         $user->givePermissionTo(Permission::findOrCreate('users.update', 'staff'));
         $user->givePermissionTo(Permission::findOrCreate('inventory.all_branches', 'staff'));
 
-        $response = $this->withToken($this->token($user))->putJson("/api/v1/admin/users/{$user->id}", [
+        $payload = [
             'current_password' => 'Old-password12',
             'password' => 'New-password12',
             'expected_version' => 0,
-        ]);
-        $response->assertOk();
+        ];
+        $this->withToken($this->token($user))->putJson("/api/v1/admin/users/{$user->id}", $payload)
+            ->assertForbidden()->assertJsonPath('code', 'password_change_required');
+        $this->putJson('/api/v1/admin/me/password', $payload)->assertOk();
         $this->assertFalse($user->fresh()->must_change_password);
     }
 

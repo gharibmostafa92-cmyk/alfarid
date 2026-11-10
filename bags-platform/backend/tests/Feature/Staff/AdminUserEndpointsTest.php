@@ -80,6 +80,7 @@ class AdminUserEndpointsTest extends TestCase
             'password' => 'long-password12',
             'branch_id' => $branch->id,
             'roles' => ['Cashier'],
+            'current_password' => 'password',
         ]);
         $created->assertCreated()
             ->assertJsonPath('data.name', 'New Cashier')
@@ -105,6 +106,32 @@ class AdminUserEndpointsTest extends TestCase
         $this->requestWithToken($token, 'GET', "/api/v1/admin/users/{$userId}")
             ->assertOk()
             ->assertJsonPath('data.email', 'cashier@example.test');
+    }
+
+    public function test_granting_staff_roles_and_role_permissions_requires_the_actors_password(): void
+    {
+        $actor = User::factory()->create(['password' => 'Actor-password12']);
+        $actor->assignRole(Role::findOrCreate('Super Admin', 'staff'));
+        $token = $actor->createToken('test')->plainTextToken;
+        $target = User::factory()->create();
+        $role = Role::findOrCreate('Operator', 'staff');
+        $permission = Permission::findOrCreate('products.view', 'staff');
+
+        $mutations = [
+            ['PATCH', "/api/v1/admin/users/{$target->id}", ['roles' => [$role->name]], 200],
+            ['POST', '/api/v1/admin/users', ['name' => 'New operator', 'email' => 'operator-test@example.test', 'password' => 'Target-password12', 'roles' => [$role->name]], 201],
+            ['PATCH', "/api/v1/admin/roles/{$role->id}", ['permissions' => [$permission->name]], 200],
+            ['POST', '/api/v1/admin/roles', ['name' => 'New operator role', 'permissions' => [$permission->name]], 201],
+        ];
+
+        foreach ($mutations as [$method, $path, $body, $status]) {
+            $this->requestWithToken($token, $method, $path, $body)
+                ->assertUnprocessable()->assertJsonValidationErrors('current_password');
+            $this->requestWithToken($token, $method, $path, $body + ['current_password' => 'Wrong-password12'])
+                ->assertUnprocessable()->assertJsonValidationErrors('current_password');
+            $this->requestWithToken($token, $method, $path, $body + ['current_password' => 'Actor-password12'])
+                ->assertStatus($status);
+        }
     }
 
     public function test_user_index_filters_by_branch_and_staff_role_with_pagination(): void
@@ -193,6 +220,7 @@ class AdminUserEndpointsTest extends TestCase
         $this->requestWithToken($adminToken, 'PATCH', "/api/v1/admin/users/{$superAdmin->id}", [
             'email' => 'new-root@example.test',
             'password' => 'replacement-password12',
+            'current_password' => 'password',
         ])->assertForbidden();
 
         $superAdminActor = User::factory()->create();
@@ -251,6 +279,7 @@ class AdminUserEndpointsTest extends TestCase
         $passwordToken = $passwordTarget->createToken('stolen-password-session')->plainTextToken;
         $this->requestWithToken($managerToken, 'PATCH', "/api/v1/admin/users/{$passwordTarget->id}", [
             'password' => 'new-password-for-user12',
+            'current_password' => 'password',
         ])->assertOk();
 
         $this->assertDatabaseMissing('personal_access_tokens', [
@@ -281,6 +310,7 @@ class AdminUserEndpointsTest extends TestCase
         $targetToken = $target->createToken('old-email-session')->plainTextToken;
         $this->requestWithToken($managerToken, 'PATCH', "/api/v1/admin/users/{$target->id}", [
             'email' => 'updated-identity@example.test',
+            'current_password' => 'password',
         ])->assertOk();
         $this->assertSame('updated-identity@example.test', $target->fresh()->email);
         $this->assertSame(0, $target->tokens()->count());
@@ -320,6 +350,7 @@ class AdminUserEndpointsTest extends TestCase
         $this->requestWithToken($token, 'PATCH', "/api/v1/admin/users/{$target->id}", [
             'email' => 'takeover@example.test',
             'password' => 'replacement-password12',
+            'current_password' => 'password',
         ])->assertForbidden();
         $this->requestWithToken($token, 'DELETE', "/api/v1/admin/users/{$target->id}")
             ->assertForbidden();
@@ -341,6 +372,7 @@ class AdminUserEndpointsTest extends TestCase
 
         $this->requestWithToken($token, 'PATCH', "/api/v1/admin/users/{$target->id}", [
             'roles' => ['Finance Manager'],
+            'current_password' => 'password',
         ])->assertOk();
         $this->assertTrue($target->refresh()->hasRole($role, 'staff'));
 
@@ -354,6 +386,7 @@ class AdminUserEndpointsTest extends TestCase
             'email' => 'authorized-finance@example.test',
             'password' => 'long-password12',
             'roles' => ['Finance Manager'],
+            'current_password' => 'password',
         ])->assertCreated();
         $this->assertTrue(User::where('email', 'authorized-finance@example.test')->firstOrFail()->hasRole($role, 'staff'));
     }

@@ -18,7 +18,7 @@ class MediaUrlGenerator extends DefaultUrlGenerator
     {
         // Force signed temporary URLs on private R2 storage to prevent accidental data leakage.
         if ($this->getDiskName() === 'r2') {
-            $ttl = max(60, min(3600, (int) config('filesystems.disks.r2.download_url_ttl_seconds', 3600)));
+            $ttl = max(60, min(3600, (int) config('filesystems.disks.r2.download_url_ttl_seconds', 300)));
 
             return $this->getTemporaryUrl(now()->addSeconds($ttl));
         }

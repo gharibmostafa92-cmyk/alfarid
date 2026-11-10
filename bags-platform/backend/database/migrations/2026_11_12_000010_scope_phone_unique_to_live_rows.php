@@ -16,7 +16,11 @@ return new class extends Migration
 
     public function up(): void
     {
-        $dup = DB::selectOne('SELECT 1 AS x FROM customers WHERE deleted_at IS NULL GROUP BY phone HAVING COUNT(*) > 1 LIMIT 1');
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+        // M-5: NULL phones group together; they are not duplicates.
+        $dup = DB::selectOne('SELECT 1 AS x FROM customers WHERE deleted_at IS NULL AND phone IS NOT NULL GROUP BY phone HAVING COUNT(*) > 1 LIMIT 1');
         if ($dup) {
             throw new RuntimeException('Resolve duplicate live phones before scoping customers_phone_unique to live rows.');
         }
@@ -25,7 +29,10 @@ return new class extends Migration
 
     public function down(): void
     {
-        $dup = DB::selectOne('SELECT 1 AS x FROM customers GROUP BY phone HAVING COUNT(*) > 1 LIMIT 1');
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+        $dup = DB::selectOne('SELECT 1 AS x FROM customers WHERE phone IS NOT NULL GROUP BY phone HAVING COUNT(*) > 1 LIMIT 1');
         if ($dup) {
             throw new RuntimeException('Resolve duplicate phones (including soft-deleted rows) before restoring the unscoped index.');
         }
@@ -38,11 +45,19 @@ return new class extends Migration
         if ($index !== null && ! $index->indisvalid) {
             DB::statement("DROP INDEX CONCURRENTLY {$replacement}");
         }
-
         if (! $index?->indisvalid) {
             DB::statement("CREATE UNIQUE INDEX CONCURRENTLY {$replacement} ON customers (phone){$predicate}");
         }
-
+        // M-5: Laravel's ->unique() on PostgreSQL creates a CONSTRAINT, which DROP INDEX cannot remove (2BP01).
+        $constraint = DB::selectOne("SELECT 1 AS x FROM pg_constraint WHERE conname = 'customers_phone_unique' AND conrelid = 'customers'::regclass");
+        if ($constraint !== null) {
+            DB::statement("SET lock_timeout = '2s'");
+            try {
+                DB::statement('ALTER TABLE customers DROP CONSTRAINT customers_phone_unique');
+            } finally {
+                DB::statement('RESET lock_timeout');
+            }
+        }
         // Leave the valid replacement in place if dropping or renaming is interrupted.
         DB::statement('DROP INDEX CONCURRENTLY IF EXISTS customers_phone_unique');
         DB::statement("ALTER INDEX {$replacement} RENAME TO customers_phone_unique");

@@ -74,6 +74,14 @@ class ProductMediaService
                     $fresh = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
                     $fresh->media()->where('collection_name', 'video')->get()->each->delete();
                     $media->update(['collection_name' => 'video']);
+                    // Conversions may be registered per collection; generate them after the move out of staging.
+                    DB::afterCommit(function () use ($media): void {
+                        try {
+                            app(FileManipulator::class)->createDerivedFiles($media);
+                        } catch (\Throwable $exception) {
+                            report($exception);
+                        }
+                    });
                 });
             } catch (\Throwable $exception) {
                 $this->deleteMediaQuietly($media);
@@ -100,7 +108,7 @@ class ProductMediaService
     private function withMediaLock(int $productId, \Closure $operation): mixed
     {
         try {
-            return Cache::lock('catalog-media:'.$productId, 300)->block(5, $operation);
+            return Cache::lock('catalog-media:'.$productId, 120)->block(15, $operation);
         } catch (LockTimeoutException) {
             throw new BusinessException('جاري رفع أو ترتيب وسائط المنتج؛ أعد المحاولة بعد لحظات.', [], 409);
         }
@@ -246,7 +254,7 @@ class ProductMediaService
         // Defer remote file deletions until afterCommit via TransactionalMediaObserver to preserve files if transaction rolls back.
         DB::transaction(function () use ($product, $media): void {
             $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
-            $media = Media::whereKey($media->id)->firstOrFail();
+            $media = Media::whereKey($media->id)->whereIn('collection_name', ['images', 'video'])->firstOrFail();
             $this->assertMediaBelongs($product, [$media->id]);
             // Validate last-image restriction before invoking delete to ensure file cleanup observer is never triggered on rejected deletes.
             if ($product->status === ProductStatus::Published && $media->collection_name === 'images'

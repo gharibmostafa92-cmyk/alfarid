@@ -46,7 +46,14 @@ class TransactionalMediaObserver extends MediaObserver
     public function created(Media $media): void
     {
         if ($media->getConnection()->transactionLevel() > 0) {
-            $media->getConnection()->afterRollBack(fn () => app(Filesystem::class)->removeAllFiles($media));
+            $media->getConnection()->afterRollBack(function () use ($media): void {
+                try {
+                    app(Filesystem::class)->removeAllFiles($media);
+                } catch (\Throwable $exception) {
+                    // Never mask the original rollback cause; leftovers are reclaimed by media:prune-orphans.
+                    report($exception);
+                }
+            });
         }
     }
 

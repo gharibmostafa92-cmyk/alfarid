@@ -28,6 +28,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
+use PHPUnit\Framework\Attributes\TestWith;
 use Tests\Concerns\ExercisesHistoricalResale;
 use Tests\TestCase;
 
@@ -520,6 +521,45 @@ class TaskTxtProcurementGapsTest extends TestCase
         $this->assertSecretsHidden($output);
         $this->assertStringContainsString('HTTP 403', $output);
         $this->assertSame([], Storage::disk('r2')->allFiles());
+    }
+
+    #[TestWith([true])]
+    #[TestWith([false])]
+    public function test_integration_probe_only_succeeds_if_the_temporary_object_is_removed(bool $canDelete): void
+    {
+        config([
+            'filesystems.disks.r2.key' => 'probe-key',
+            'filesystems.disks.r2.secret' => 'probe-secret',
+            'filesystems.disks.r2.bucket' => 'private-probe',
+            'filesystems.disks.r2.endpoint' => 'https://r2.example.test',
+            'filesystems.disks.r2.root' => 'probe',
+            'filesystems.disks.r2_public.bucket' => 'public-probe',
+            'filesystems.disks.r2_public.url' => 'https://catalog.example.test',
+            'services.gemini.api_key' => 'probe-gemini-key',
+            'services.gemini.model' => 'probe-model',
+        ]);
+        $disk = Storage::fake('r2');
+        $disk->buildTemporaryUrlsUsing(fn (): string => 'https://signed.example/check.png');
+        if (! $canDelete) {
+            $proxy = \Mockery::mock($disk);
+            $proxy->shouldReceive('delete')->once()->andReturn(false);
+            Storage::shouldReceive('disk')->with('r2')->andReturn($proxy);
+        }
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://signed.example/*' => fn () => Http::response($disk->get($disk->allFiles('_setup-check')[0]), 200),
+            'https://generativelanguage.googleapis.com/*' => Http::response([
+                'candidates' => [['content' => ['parts' => [['text' => 'OK']]], 'finishReason' => 'STOP']],
+            ]),
+        ]);
+
+        $this->assertSame($canDelete ? 0 : 1, \Artisan::call('integrations:check', ['--live' => true]));
+        $output = \Artisan::output();
+        $this->assertStringContainsString('Gemini text generation: OK.', $output);
+        $this->assertCount($canDelete ? 0 : 1, $disk->allFiles('_setup-check'));
+        if (! $canDelete) {
+            $this->assertStringContainsString('verification image cleanup failed', $output);
+        }
     }
 
     private function assertSupplierLedger(SupplierFinanceService $service, Supplier $supplier): void

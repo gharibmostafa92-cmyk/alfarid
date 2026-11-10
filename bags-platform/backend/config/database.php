@@ -172,10 +172,10 @@ $config = [
             // Enforce short timeouts so unresponsive Redis nodes do not exhaust PHP-FPM worker pools.
             'timeout' => (float) env('REDIS_TIMEOUT', 2.0),
             'read_timeout' => (float) env('REDIS_READ_TIMEOUT', 2.0),
-            'max_retries' => env('REDIS_MAX_RETRIES', 3),
+            'max_retries' => env('REDIS_MAX_RETRIES', 1),
             'backoff_algorithm' => env('REDIS_BACKOFF_ALGORITHM', 'decorrelated_jitter'),
             'backoff_base' => env('REDIS_BACKOFF_BASE', 100),
-            'backoff_cap' => env('REDIS_BACKOFF_CAP', 1000),
+            'backoff_cap' => env('REDIS_BACKOFF_CAP', 200),
         ],
 
         'cache' => [
@@ -188,19 +188,22 @@ $config = [
             // Match the default fail-fast timeout budget.
             'timeout' => (float) env('REDIS_TIMEOUT', 2.0),
             'read_timeout' => (float) env('REDIS_READ_TIMEOUT', 2.0),
-            'max_retries' => env('REDIS_MAX_RETRIES', 3),
+            'max_retries' => env('REDIS_MAX_RETRIES', 1),
             'backoff_algorithm' => env('REDIS_BACKOFF_ALGORITHM', 'decorrelated_jitter'),
             'backoff_base' => env('REDIS_BACKOFF_BASE', 100),
-            'backoff_cap' => env('REDIS_BACKOFF_CAP', 1000),
+            'backoff_cap' => env('REDIS_BACKOFF_CAP', 200),
         ],
 
     ],
 
 ];
 
+// H-3: role that receives statement/idle timeouts (the runtime login, not the migrator).
+$config['connections']['pgsql']['runtime_role'] = env('DB_RUNTIME_ROLE');
+
 // Readiness uses its own connection budget.
 $config['connections']['pgsql-health'] = $config['connections']['pgsql'];
-$config['connections']['pgsql-health']['options'][PDO::ATTR_TIMEOUT] = 1;
+$config['connections']['pgsql-health']['options'][PDO::ATTR_TIMEOUT] = 2;
 $config['redis']['health'] = array_replace($config['redis']['default'], [
     'timeout' => 0.25, 'read_timeout' => 0.25, 'max_retries' => 0, 'persistent' => false,
 ]);

@@ -72,7 +72,11 @@ services:
     networks: [appnet]
   alertmanager:
     image: prom/alertmanager:v0.27.0
-    volumes: [./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro]
+    volumes:
+      - type: bind
+        source: ${ALERTMANAGER_CONFIG_DIR:-./monitoring}
+        target: /etc/alertmanager
+        read_only: true
     networks: [appnet]
     restart: unless-stopped
 volumes:
