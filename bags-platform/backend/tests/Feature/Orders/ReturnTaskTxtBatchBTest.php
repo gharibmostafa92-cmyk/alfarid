@@ -4,30 +4,38 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Orders;
 
-use App\Enums\Orders\ReturnStatus;
+use App\Enums\OrderStatus;
 use App\Models\Branch;
 use App\Models\City;
 use App\Models\Customer;
 use App\Models\Location;
 use App\Models\Order;
+use App\Models\OrderItem;
+use App\Models\OrderStatusHistory;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\ReturnRequest;
+use App\Models\ReturnRequestItem;
+use App\Models\ShippingCompany;
+use App\Models\StockLevel;
 use App\Models\User;
 use App\Services\Orders\OrderService;
 use App\Services\Orders\ReturnService;
-use App\Services\Shared\SettingService;
 use App\Services\Orders\ShipmentService;
+use App\Services\Shared\SettingService;
 use Database\Seeders\ReturnPermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Concerns\RunsConcurrentAuditJobs;
 use Tests\TestCase;
 
@@ -79,7 +87,7 @@ class ReturnTaskTxtBatchBTest extends TestCase
     private function giveStock(ProductVariant $variant, float $qty): void
     {
         $location = Location::factory()->create(['branch_id' => $this->branch->id]);
-        \App\Models\StockLevel::query()->forceCreate([
+        StockLevel::query()->forceCreate([
             'branch_id' => $this->branch->id, 'location_id' => $location->id,
             'product_variant_id' => $variant->id, 'on_hand' => $qty, 'reserved' => 0,
         ]);
@@ -106,10 +114,10 @@ class ReturnTaskTxtBatchBTest extends TestCase
 
         $order = Order::findOrFail($orderId);
         $service = app(OrderService::class);
-        $service->changeStatus($order, \App\Enums\OrderStatus::Confirmed, $this->staff);
-        $company = \App\Models\ShippingCompany::factory()->create(['code' => 'SHIPX-'.uniqid()]);
+        $service->changeStatus($order, OrderStatus::Confirmed, $this->staff);
+        $company = ShippingCompany::factory()->create(['code' => 'SHIPX-'.uniqid()]);
         app(ShipmentService::class)->createForOrder($order->fresh(), $company->id, null, $this->staff);
-        $service->changeStatus($order->fresh(), \App\Enums\OrderStatus::Delivered, $this->staff);
+        $service->changeStatus($order->fresh(), OrderStatus::Delivered, $this->staff);
 
         return $order->fresh();
     }
@@ -146,20 +154,20 @@ class ReturnTaskTxtBatchBTest extends TestCase
 
         // طلب قناته pos يُرفض من مسار المتجر.
         $posOrder = Order::factory()->create([
-            'customer_id' => $customer->id, 'status' => \App\Enums\OrderStatus::Delivered,
+            'customer_id' => $customer->id, 'status' => OrderStatus::Delivered,
             'channel' => 'pos', 'allocated_branch_id' => $this->branch->id,
         ]);
-        $posItem = \App\Models\OrderItem::factory()->create(['order_id' => $posOrder->id, 'qty' => 2]);
-        \App\Models\OrderStatusHistory::create([
-            'order_id' => $posOrder->id, 'from_status' => \App\Enums\OrderStatus::Confirmed->value,
-            'to_status' => \App\Enums\OrderStatus::Delivered->value, 'changed_by_id' => $this->staff->id,
+        $posItem = OrderItem::factory()->create(['order_id' => $posOrder->id, 'qty' => 2]);
+        OrderStatusHistory::create([
+            'order_id' => $posOrder->id, 'from_status' => OrderStatus::Confirmed->value,
+            'to_status' => OrderStatus::Delivered->value, 'changed_by_id' => $this->staff->id,
         ]);
         $this->storeCreateReturn($customer, $posOrder, $posItem->id, 1)
             ->assertUnprocessable()
             ->assertJsonFragment(['message' => 'مرتجعات نقطة البيع تُنفَّذ من مسار POS لمنع تكرار الرد بين مسارين.']);
 
         // بند من طلب آخر.
-        $otherItem = \App\Models\OrderItem::factory()->create(['qty' => 1]);
+        $otherItem = OrderItem::factory()->create(['qty' => 1]);
         $this->storeCreateReturn($customer, $order, $otherItem->id, 1)
             ->assertUnprocessable()
             ->assertJsonFragment(['message' => 'أحد البنود المطلوب إرجاعها لا يتبع هذا الطلب.']);
@@ -227,8 +235,8 @@ class ReturnTaskTxtBatchBTest extends TestCase
 
     private function backdateDelivery(Order $order, \DateTimeInterface $deliveredAt): void
     {
-        \App\Models\OrderStatusHistory::query()->where('order_id', $order->id)
-            ->where('to_status', \App\Enums\OrderStatus::Delivered->value)
+        OrderStatusHistory::query()->where('order_id', $order->id)
+            ->where('to_status', OrderStatus::Delivered->value)
             ->update(['created_at' => $deliveredAt]);
     }
 
@@ -282,11 +290,11 @@ class ReturnTaskTxtBatchBTest extends TestCase
         // بلا سجل تسليم إطلاقًا.
         $customer = Customer::factory()->create();
         $ghost = Order::factory()->create([
-            'customer_id' => $customer->id, 'status' => \App\Enums\OrderStatus::Delivered,
+            'customer_id' => $customer->id, 'status' => OrderStatus::Delivered,
             'channel' => 'store', 'payment_status' => 'paid', 'payment_method' => 'cod',
             'allocated_branch_id' => $this->branch->id,
         ]);
-        $ghostItem = \App\Models\OrderItem::factory()->create(['order_id' => $ghost->id, 'qty' => 1]);
+        $ghostItem = OrderItem::factory()->create(['order_id' => $ghost->id, 'qty' => 1]);
         $this->storeCreateReturn($customer, $ghost, $ghostItem->id, 1)
             ->assertUnprocessable()
             ->assertJsonFragment(['message' => 'لا يوجد سجل تسليم موثوق لحساب فترة الاسترجاع.']);
@@ -295,12 +303,125 @@ class ReturnTaskTxtBatchBTest extends TestCase
         // ملاحظة: created_at ليس fillable في OrderStatusHistory لذا يُضبط باستعلام مباشر.
         [$customer, $order, $itemId] = $makeDelivered();
         $this->backdateDelivery($order, now()->subDays(20));
-        $older = \App\Models\OrderStatusHistory::forceCreate([
-            'order_id' => $order->id, 'from_status' => \App\Enums\OrderStatus::Delivered->value,
-            'to_status' => \App\Enums\OrderStatus::Delivered->value, 'changed_by_id' => $this->staff->id,
+        $older = OrderStatusHistory::forceCreate([
+            'order_id' => $order->id, 'from_status' => OrderStatus::Delivered->value,
+            'to_status' => OrderStatus::Delivered->value, 'changed_by_id' => $this->staff->id,
         ]);
-        \App\Models\OrderStatusHistory::query()->whereKey($older->id)->update(['created_at' => now()->subDays(30)]);
+        OrderStatusHistory::query()->whereKey($older->id)->update(['created_at' => now()->subDays(30)]);
         $this->storeCreateReturn($customer, $order, $itemId, 1)->assertUnprocessable();
+    }
+
+    #[DataProvider('malformedReturnPayloads')]
+    public function test_store_rejects_malformed_return_payloads_without_creating_a_return(string $field, mixed $value, string $error): void
+    {
+        $customer = Customer::factory()->create();
+        $order = Order::factory()->create(['customer_id' => $customer->id]);
+        $item = OrderItem::factory()->create(['order_id' => $order->id]);
+        $payload = [
+            'order_id' => $order->id,
+            'reason' => 'Wrong size',
+            'items' => [['order_item_id' => $item->id, 'requested_qty' => 1]],
+        ];
+        Arr::set($payload, $field, $value);
+
+        $this->withToken($this->customerToken($customer))->postJson('/api/v1/store/account/returns', $payload)
+            ->assertUnprocessable()->assertJsonValidationErrors($error);
+        $this->assertDatabaseMissing('return_requests', ['order_id' => $order->id]);
+    }
+
+    public static function malformedReturnPayloads(): iterable
+    {
+        $tooManyItems = array_map(
+            fn (int $id): array => ['order_item_id' => $id, 'requested_qty' => 1],
+            range(1, 51),
+        );
+
+        yield 'text items' => ['items', 'invalid', 'items'];
+        yield 'numeric items' => ['items', 1, 'items'];
+        yield 'empty items' => ['items', [], 'items'];
+        yield 'too many items' => ['items', $tooManyItems, 'items'];
+        yield 'long reason' => ['reason', str_repeat('a', 2001), 'reason'];
+        yield 'unknown refund method' => ['refund_method', 'unknown', 'refund_method'];
+        foreach (['zero' => 0, 'negative' => -1, 'fractional' => 1.5, 'too large' => 100000000, 'text' => 'invalid'] as $case => $quantity) {
+            yield "{$case} quantity" => ['items.0.requested_qty', $quantity, 'items.0.requested_qty'];
+        }
+    }
+
+    public function test_postgres_enforces_return_status_method_and_unique_number(): void
+    {
+        $return = ReturnRequest::factory()->create();
+        $other = ReturnRequest::factory()->create();
+
+        foreach ([
+            [$return->id, ['status' => 'unknown'], '23514', 'return_requests_status_check'],
+            [$return->id, ['refund_method' => 'unknown'], '23514', 'return_requests_refund_method_check'],
+            [$other->id, ['return_number' => $return->return_number], '23505', 'return_requests_return_number_unique'],
+        ] as [$id, $attributes, $sqlState, $constraint]) {
+            try {
+                DB::transaction(fn () => DB::table('return_requests')->where('id', $id)->update($attributes));
+                $this->fail("Expected constraint {$constraint} to reject the update.");
+            } catch (QueryException $exception) {
+                $this->assertSame($sqlState, $exception->errorInfo[0]);
+                $this->assertStringContainsString($constraint, $exception->getMessage());
+            }
+        }
+    }
+
+    public function test_return_uploads_are_removed_after_request_failure_or_rollback(): void
+    {
+        $variant = $this->purchasableVariant();
+        $this->giveStock($variant, 2);
+        $customer = Customer::factory()->create();
+        $order = $this->deliveredOrder($customer, $variant, 1);
+        $itemId = $order->items()->sole()->id;
+        $disk = Storage::disk('r2');
+
+        $this->createWithFiles($customer, $order, [[
+            'order_item_id' => $itemId,
+            'requested_qty' => 2,
+            'attachments' => [UploadedFile::fake()->image('over-quota.jpg')],
+        ]])->assertUnprocessable();
+        $this->assertSame([], $disk->allFiles('return_requests'));
+        $this->assertDatabaseMissing('return_requests', ['order_id' => $order->id]);
+
+        $failedUpload = \Mockery::mock(UploadedFile::class);
+        $failedUpload->shouldReceive('store')->with(\Mockery::type('string'), 'r2')->once()->andReturn(false);
+        try {
+            app(ReturnService::class)->createReturnRequest($order, [
+                'reason' => 'Wrong size',
+                'items' => [[
+                    'order_item_id' => $itemId,
+                    'requested_qty' => 1,
+                    'attachments' => [UploadedFile::fake()->image('first.jpg'), $failedUpload],
+                ]],
+            ], $customer);
+            $this->fail('Expected the return to fail when an attachment could not be stored.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('تعذر حفظ المرفق؛ لم يتم تسجيل العملية.', $exception->getMessage());
+        }
+        $this->assertSame([], $disk->allFiles('return_requests'));
+        $this->assertDatabaseMissing('return_requests', ['order_id' => $order->id]);
+
+        DB::beginTransaction();
+        try {
+            $this->createWithFiles($customer, $order, [[
+                'order_item_id' => $itemId,
+                'requested_qty' => 1,
+                'attachments' => [UploadedFile::fake()->image('one.jpg'), UploadedFile::fake()->image('two.jpg')],
+            ]])->assertCreated();
+            $return = ReturnRequest::query()->where('order_id', $order->id)->sole();
+            $attachments = $return->items()->sole()->attachments;
+            $this->assertCount(2, $attachments);
+            foreach ($attachments as $path) {
+                $this->assertStringStartsWith('return_requests/pending/', $path);
+                $disk->assertExists($path);
+            }
+        } finally {
+            DB::rollBack();
+        }
+
+        $this->assertSame([], $disk->allFiles('return_requests'));
+        $this->assertDatabaseMissing('return_requests', ['order_id' => $order->id]);
     }
 
     private function createWithFiles(Customer $customer, Order $order, array $items): TestResponse
@@ -309,6 +430,33 @@ class ReturnTaskTxtBatchBTest extends TestCase
         $payload = ['order_id' => $order->id, 'reason' => 'مرفقات', 'items' => $items];
 
         return $this->withToken($this->customerToken($customer))->post('/api/v1/store/account/returns', $payload);
+    }
+
+    public function test_deleting_a_return_keeps_its_attachment_until_commit(): void
+    {
+        $item = ReturnRequestItem::factory()->create(['attachments' => ['return_requests/pending/test/photo.jpg']]);
+        $return = $item->returnRequest;
+        $path = $item->attachments[0];
+        $disk = Storage::disk('r2');
+        $disk->put($path, 'image');
+        $service = app(ReturnService::class);
+
+        DB::beginTransaction();
+        try {
+            $service->delete($return);
+            $disk->assertExists($path);
+        } finally {
+            DB::rollBack();
+        }
+        $disk->assertExists($path);
+        $this->assertDatabaseHas('return_requests', ['id' => $return->id]);
+
+        DB::transaction(function () use ($service, $return, $disk, $path): void {
+            $service->delete($return);
+            $disk->assertExists($path);
+        });
+        $disk->assertMissing($path);
+        $this->assertDatabaseMissing('return_requests', ['id' => $return->id]);
     }
 
     /**
@@ -347,7 +495,7 @@ class ReturnTaskTxtBatchBTest extends TestCase
 
         // 6 صور لبند واحد (الحد 5).
         $customer = Customer::factory()->create();
-        [$order,] = $makeOrder($customer, 1, 50);
+        [$order] = $makeOrder($customer, 1, 50);
         $this->createWithFiles($customer, $order, [[
             'order_item_id' => $order->items->first()->id, 'requested_qty' => 1,
             'attachments' => $images(6),
@@ -355,7 +503,7 @@ class ReturnTaskTxtBatchBTest extends TestCase
 
         // 11 صورة إجمالًا على بندين (الحد 10).
         $customer = Customer::factory()->create();
-        [$order,] = $makeOrder($customer, 2, 50);
+        [$order] = $makeOrder($customer, 2, 50);
         $ids = $order->items->pluck('id')->all();
         $this->createWithFiles($customer, $order, [
             ['order_item_id' => $ids[0], 'requested_qty' => 1, 'attachments' => $images(5)],
@@ -364,7 +512,7 @@ class ReturnTaskTxtBatchBTest extends TestCase
 
         // PDF مرفوض (صور فقط).
         $customer = Customer::factory()->create();
-        [$order,] = $makeOrder($customer, 1, 50);
+        [$order] = $makeOrder($customer, 1, 50);
         $this->createWithFiles($customer, $order, [[
             'order_item_id' => $order->items->first()->id, 'requested_qty' => 1,
             'attachments' => [UploadedFile::fake()->create('doc.pdf', 100, 'application/pdf')],
@@ -372,7 +520,7 @@ class ReturnTaskTxtBatchBTest extends TestCase
 
         // صورة أكبر من 5MB تُرفض.
         $customer = Customer::factory()->create();
-        [$order,] = $makeOrder($customer, 1, 50);
+        [$order] = $makeOrder($customer, 1, 50);
         $this->createWithFiles($customer, $order, [[
             'order_item_id' => $order->items->first()->id, 'requested_qty' => 1,
             'attachments' => [UploadedFile::fake()->create('big.jpg', 5121, 'image/jpeg')],
@@ -380,7 +528,7 @@ class ReturnTaskTxtBatchBTest extends TestCase
 
         // إجمالي أكبر من 25MB يُرفض (6 ملفات × 5MB على بندين، وكل ملف ضمن حده).
         $customer = Customer::factory()->create();
-        [$order,] = $makeOrder($customer, 2, 50);
+        [$order] = $makeOrder($customer, 2, 50);
         $ids = $order->items->pluck('id')->all();
         $big = fn (int $n): array => array_map(
             fn (int $i): UploadedFile => UploadedFile::fake()->create("b{$i}.jpg", 5000, 'image/jpeg'),
@@ -455,14 +603,14 @@ class ReturnTaskTxtBatchBTest extends TestCase
 
         // طلب بلا فرع ومرتجع بلا فرع: موظف الفرع مرفوض.
         $ghostOrder = Order::factory()->create([
-            'customer_id' => $customer->id, 'status' => \App\Enums\OrderStatus::Delivered,
+            'customer_id' => $customer->id, 'status' => OrderStatus::Delivered,
             'channel' => 'store', 'payment_status' => 'paid', 'payment_method' => 'cod',
             'allocated_branch_id' => null,
         ]);
-        $ghostItem = \App\Models\OrderItem::factory()->create(['order_id' => $ghostOrder->id, 'qty' => 1]);
-        \App\Models\OrderStatusHistory::forceCreate([
-            'order_id' => $ghostOrder->id, 'from_status' => \App\Enums\OrderStatus::Confirmed->value,
-            'to_status' => \App\Enums\OrderStatus::Delivered->value, 'changed_by_id' => $this->staff->id,
+        $ghostItem = OrderItem::factory()->create(['order_id' => $ghostOrder->id, 'qty' => 1]);
+        OrderStatusHistory::forceCreate([
+            'order_id' => $ghostOrder->id, 'from_status' => OrderStatus::Confirmed->value,
+            'to_status' => OrderStatus::Delivered->value, 'changed_by_id' => $this->staff->id,
         ]);
         $ghostReturn = $this->storeCreateReturn($customer, $ghostOrder, $ghostItem->id, 1)->assertCreated()->json('data.id');
         $this->branchAdminRequest($tokenB, 'getJson', "/api/v1/admin/returns/{$ghostReturn}")->assertForbidden();

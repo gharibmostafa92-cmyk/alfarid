@@ -83,7 +83,9 @@ SQL);
 
         $this->createFunction(array_merge(self::LEGAL_INVOICE_TYPES, self::NEW_TYPES));
 
-        // Legal invoice types retain pessimistic row locking because strictly gapless contiguous numbering is legally required.
+        // F18: LEGAL types below keep the gapless row-lock path (document_next_number minimum branch).
+        // Only NEW_TYPES move to sequences here; sequences may leave gaps on rollback, so they
+        // must never be used for document types where strict contiguity is legally required.
         DB::table('settings')
             ->where(function ($q): void {
                 $q->whereIn('key', collect(self::NEW_TYPES)->map(fn (string $t): string => $t.'_next_number')->all());

@@ -1,0 +1,38 @@
+{
+  "output": {
+    "filePath": "repomix/outputs/repomix-infra-devops.xml",
+    "style": "xml",
+    "parsableStyle": true,
+    "fileSummary": true,
+    "directoryStructure": true,
+    "removeComments": false,
+    "removeEmptyLines": true,
+    "topFilesLength": 20,
+    "showLineNumbers": true,
+    "copyToClipboard": false,
+    "instructionFilePath": "repomix/instructions/audit-performance-prompt.md",
+    "headerText": "DOMAIN: INFRASTRUCTURE, HIGH AVAILABILITY & DEPLOYMENT\nAuditing Docker orchestration, HAProxy load balancing, PgBouncer connection pooling, Redis replication/sentinel, Cloud Run jobs, and k6 stress-testing configurations."
+  },
+  "include": [
+    "bags-platform/infrastructure/docker-compose*.yml",
+    "bags-platform/infrastructure/docker/**",
+    "bags-platform/infrastructure/haproxy/**",
+    "bags-platform/infrastructure/pgbouncer/**",
+    "bags-platform/infrastructure/redis/**",
+    "bags-platform/infrastructure/k6/**",
+    "bags-platform/infrastructure/scripts/**",
+    "bags-platform/infrastructure/cloud-run/**",
+    "bags-platform/infrastructure/tests/**"
+  ],
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": [
+      "**/*.log",
+      "**/*.json",
+      "**/*.sql",
+      "**/certs/**",
+      "**/data/**"
+    ]
+  }
+}

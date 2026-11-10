@@ -22,6 +22,7 @@ class UnifiedLoginRequest extends FormRequest
             'login' => ['required', 'string', 'max:255'],
             'password' => ['required', 'string', 'max:255'],
             'redirect' => ['nullable', 'string', 'max:255'],
+            'turnstile_token' => ['nullable', 'string', 'max:2048'],
         ];
     }
 }

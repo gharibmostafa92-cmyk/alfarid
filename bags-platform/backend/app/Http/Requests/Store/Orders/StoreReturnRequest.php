@@ -40,9 +40,14 @@ class StoreReturnRequest extends FormRequest
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $validator): void {
+            $items = $this->input('items');
+            if (! is_array($items)) {
+                return;
+            }
+
             $files = 0;
             $kilobytes = 0;
-            foreach (array_keys($this->input('items', []) ?? []) as $index) {
+            foreach (array_keys($items) as $index) {
                 $itemFiles = $this->file("items.{$index}.attachments");
                 $itemFiles = is_array($itemFiles) ? $itemFiles : ($itemFiles !== null ? [$itemFiles] : []);
                 foreach ($itemFiles as $file) {

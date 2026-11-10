@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Pos;
 
-use App\Enums\Orders\OrderStatus;
 use App\Enums\Finance\PosShiftStatus;
-use App\Enums\Inventory\StockMovementType;
 use App\Enums\Finance\TreasuryTransactionType;
 use App\Enums\Finance\TreasuryType;
+use App\Enums\Inventory\StockMovementType;
+use App\Enums\Orders\OrderStatus;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\PosShift;
@@ -20,9 +20,7 @@ use App\Models\User;
 use App\Services\Pos\PosService;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Hash;
 use Spatie\Permission\Models\Permission;
-use Spatie\Permission\Models\Role;
 
 /**
  * task.txt §2 scenarios 5, 6, 7 (returns, refunds, exchanges) + §3 return edge cases.
@@ -51,6 +49,14 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
         $sale = $this->withToken($token)->postJson('/api/v1/pos/sales', $this->salePayload(300, 0, 3), $this->idem());
         $sale->assertStatus(201);
         $saleId = $sale->json('data.id');
+
+        $returnLine = ['product_variant_id' => $this->variant->id, 'qty' => 1];
+        foreach ([['qty', 0], ['qty', 1.5], ['return_to', 'unknown']] as [$field, $value]) {
+            $this->withToken($token)->postJson("/api/v1/pos/sales/{$saleId}/return", [
+                'items' => [array_replace($returnLine, [$field => $value])],
+            ])->assertUnprocessable()->assertJsonValidationErrors("items.0.{$field}");
+        }
+        $this->assertDatabaseMissing('orders', ['return_of_order_id' => $saleId]);
 
         // 4 > 3 rejected.
         $this->withToken($token)->postJson("/api/v1/pos/sales/{$saleId}/return", [
@@ -182,6 +188,12 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
         $sale = $this->withToken($token)->postJson('/api/v1/pos/sales', $this->salePayload(100, 0, 1), $this->idem());
         $sale->assertStatus(201);
         $saleId = $sale->json('data.id');
+        $levels = StockLevel::query()
+            ->where('branch_id', $this->branch->id)
+            ->where('product_variant_id', $this->variant->id);
+        $onHandAfterSale = (float) $levels->sum('on_hand');
+        $damagedAfterSale = (float) $levels->sum('damaged');
+        $availableAfterSale = (float) $levels->sum('available');
 
         $this->withToken($token)->postJson("/api/v1/pos/sales/{$saleId}/return", [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1, 'return_to' => 'damaged']],
@@ -193,6 +205,9 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
         $this->assertSame(1, StockMovement::query()
             ->where('reference_id', $saleId)
             ->where('type', StockMovementType::Damage)->count());
+        $this->assertSame($onHandAfterSale + 1, (float) $levels->sum('on_hand'));
+        $this->assertSame($damagedAfterSale + 1, (float) $levels->sum('damaged'));
+        $this->assertSame($availableAfterSale, (float) $levels->sum('available'));
     }
 
     public function test_06_return_from_another_shift_uses_current_drawer(): void

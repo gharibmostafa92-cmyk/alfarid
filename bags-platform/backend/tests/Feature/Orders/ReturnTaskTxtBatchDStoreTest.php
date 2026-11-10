@@ -5,14 +5,20 @@ declare(strict_types=1);
 namespace Tests\Feature\Orders;
 
 use App\Enums\Orders\OrderStatus;
+use App\Enums\StockMovementType;
 use App\Models\Branch;
 use App\Models\City;
 use App\Models\Customer;
 use App\Models\Location;
 use App\Models\Order;
+use App\Models\OrderItem;
+use App\Models\OrderStatusHistory;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\ReturnRequest;
+use App\Models\ReturnRequestItem;
+use App\Models\ShippingCompany;
+use App\Models\StockLevel;
 use App\Models\StockMovement;
 use App\Models\User;
 use App\Services\Orders\OrderService;
@@ -72,7 +78,7 @@ class ReturnTaskTxtBatchDStoreTest extends TestCase
     private function giveStock(ProductVariant $variant, float $qty): void
     {
         $location = Location::factory()->create(['branch_id' => $this->branch->id]);
-        \App\Models\StockLevel::query()->forceCreate([
+        StockLevel::query()->forceCreate([
             'branch_id' => $this->branch->id, 'location_id' => $location->id,
             'product_variant_id' => $variant->id, 'on_hand' => $qty, 'reserved' => 0,
         ]);
@@ -100,7 +106,7 @@ class ReturnTaskTxtBatchDStoreTest extends TestCase
         $order = Order::findOrFail($orderId);
         $service = app(OrderService::class);
         $service->changeStatus($order, OrderStatus::Confirmed, $this->staff);
-        $company = \App\Models\ShippingCompany::factory()->create(['code' => 'SHIPX-'.uniqid()]);
+        $company = ShippingCompany::factory()->create(['code' => 'SHIPX-'.uniqid()]);
         app(ShipmentService::class)->createForOrder($order->fresh(), $company->id, null, $this->staff);
         $service->changeStatus($order->fresh(), OrderStatus::Delivered, $this->staff);
 
@@ -240,11 +246,11 @@ class ReturnTaskTxtBatchDStoreTest extends TestCase
             'channel' => 'store', 'payment_status' => 'paid', 'payment_method' => 'cod',
             'allocated_branch_id' => $this->branch->id,
         ]);
-        \App\Models\OrderStatusHistory::forceCreate([
+        OrderStatusHistory::forceCreate([
             'order_id' => $order->id, 'from_status' => OrderStatus::Confirmed->value,
             'to_status' => OrderStatus::Delivered->value, 'changed_by_id' => $this->staff->id,
         ]);
-        $orderItem = \App\Models\OrderItem::factory()->forVariant($variant)->create([
+        $orderItem = OrderItem::factory()->forVariant($variant)->create([
             'order_id' => $order->id, 'qty' => 1,
             'unit_price' => 100, 'discount_amount' => 0, 'tax_amount' => 0, 'line_total' => 100,
         ]);
@@ -264,11 +270,64 @@ class ReturnTaskTxtBatchDStoreTest extends TestCase
 
         // حركات استلام المرتجع تُسجَّل بمرجع طلب المرتجع (لا الطلب الأصلي).
         $movement = StockMovement::query()
-            ->where('reference_type', (new \App\Models\ReturnRequest)->getMorphClass())
+            ->where('reference_type', (new ReturnRequest)->getMorphClass())
             ->where('reference_id', $return->id)
-            ->where('type', \App\Enums\StockMovementType::SaleReturn)
+            ->where('type', StockMovementType::SaleReturn)
             ->firstOrFail();
         $this->assertNull($movement->unit_cost);
+    }
+
+    public function test_approval_and_receipt_reject_invalid_line_quantities_without_side_effects(): void
+    {
+        $return = ReturnRequest::factory()->create();
+        $items = collect([1, 2])->map(function (int $quantity) use ($return): ReturnRequestItem {
+            $line = OrderItem::factory()->create(['order_id' => $return->order_id, 'qty' => $quantity]);
+
+            return ReturnRequestItem::factory()->create([
+                'return_request_id' => $return->id,
+                'order_item_id' => $line->id,
+                'product_variant_id' => $line->product_variant_id,
+                'requested_qty' => $quantity,
+            ]);
+        });
+        [$first, $second] = $items->all();
+        $foreign = ReturnRequestItem::factory()->create();
+        $inactive = Branch::factory()->create(['is_active' => false]);
+        $approve = "/api/v1/admin/returns/{$return->id}/approve";
+
+        $this->adminPost($approve, ['branch_id' => $inactive->id])->assertUnprocessable()
+            ->assertJsonPath('message', 'فرع الاستلام غير نشط.');
+        $this->adminPost($approve, ['branch_id' => $this->branch->id, 'items' => [
+            ['id' => $first->id, 'approved_qty' => 1],
+            ['id' => $second->id, 'approved_qty' => 3],
+        ]])->assertUnprocessable();
+        $this->adminPost($approve, ['branch_id' => $this->branch->id, 'items' => [
+            ['id' => $first->id, 'approved_qty' => 0],
+            ['id' => $second->id, 'approved_qty' => 0],
+        ]])->assertUnprocessable()->assertJsonPath('message', 'لا توجد كميات معتمدة؛ ارفض الطلب بدلًا من اعتماده إن لم يُقبل أي بند.');
+        $this->adminPost($approve, ['branch_id' => $this->branch->id, 'items' => [
+            ['id' => $foreign->id, 'approved_qty' => 1],
+        ]])->assertUnprocessable()->assertJsonPath('message', 'أحد البنود المعتمدة لا يتبع طلب المرتجع هذا.');
+        $this->assertDatabaseHas('return_requests', ['id' => $return->id, 'status' => 'pending']);
+        $this->assertSame('0.0000', $first->fresh()->approved_qty);
+
+        $this->adminPost($approve, ['branch_id' => $this->branch->id])->assertOk();
+        $this->assertSame('1.0000', $first->fresh()->approved_qty);
+        $this->assertSame('2.0000', $second->fresh()->approved_qty);
+
+        $receive = "/api/v1/admin/returns/{$return->id}/receive";
+        $firstReceipt = ['id' => $first->id, 'received_good_qty' => 1, 'received_damaged_qty' => 0];
+        $this->adminPost($receive, ['items' => [$firstReceipt]])->assertUnprocessable()
+            ->assertJsonPath('message', 'بيانات الاستلام يجب أن تغطي كل بنود المرتجع (بند بلا استلام فعلي يُرسل بصفر).');
+        $this->adminPost($receive, ['items' => [
+            $firstReceipt,
+            ['id' => $second->id, 'received_good_qty' => 2, 'received_damaged_qty' => 1],
+        ]])->assertUnprocessable();
+        $this->assertDatabaseHas('return_requests', ['id' => $return->id, 'status' => 'approved']);
+        $this->assertSame('0.0000', $first->fresh()->received_good_qty);
+        $this->assertDatabaseMissing('stock_movements', [
+            'reference_type' => $return->getMorphClass(), 'reference_id' => $return->id,
+        ]);
     }
 
     private function storeCreateReturn(Customer $customer, Order $order): TestResponse

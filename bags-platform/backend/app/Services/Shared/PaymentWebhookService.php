@@ -4,11 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services\Shared;
 
-use App\Services\Orders\OrderService;
-
 use App\Enums\Orders\OrderStatus;
 use App\Models\Order;
 use App\Models\WebhookLog;
+use App\Services\Orders\OrderService;
 use Illuminate\Database\DeadlockException;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -162,7 +161,12 @@ class PaymentWebhookService
                     $order->update(['payment_status' => 'paid']);
                     if ($order->status === OrderStatus::Pending) {
                         try {
-                            $this->orders->changeStatus($order, OrderStatus::Confirmed, null, "تأكيد تلقائي بعد نجاح الدفع عبر {$gateway}");
+                            // Nested transaction is a savepoint. A constraint failure inside
+                            // changeStatus aborts only that savepoint (25P02), so the captured
+                            // payment can still be flagged instead of returning 500.
+                            DB::transaction(function () use ($order, $gateway): void {
+                                $this->orders->changeStatus($order, OrderStatus::Confirmed, null, "تأكيد تلقائي بعد نجاح الدفع عبر {$gateway}");
+                            });
                         } catch (DeadlockException $e) {
                             // Re-throw database deadlock so the gateway retries delivery
                             throw $e;
@@ -177,6 +181,7 @@ class PaymentWebhookService
                                 'gateway' => $gateway,
                                 'exception' => $e->getMessage(),
                             ]);
+                            $order->refresh();
                             $order->update(['needs_attention' => true]);
                             $note = 'تم الدفع لكن تأكيد الطلب فشل: '.$e->getMessage();
                         } catch (Throwable $e) {
@@ -187,6 +192,7 @@ class PaymentWebhookService
                                 'gateway' => $gateway,
                                 'exception' => $e->getMessage(),
                             ]);
+                            $order->refresh();
                             $order->update(['needs_attention' => true]);
                             $note = 'تم الدفع لكن تأكيد الطلب فشل: '.$e->getMessage();
                         }

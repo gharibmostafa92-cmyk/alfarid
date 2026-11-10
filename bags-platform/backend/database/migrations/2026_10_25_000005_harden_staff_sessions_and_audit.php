@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use App\Models\User;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -19,7 +18,8 @@ return new class extends Migration
         Schema::table('staff_audit_logs', fn (Blueprint $table) => $table->index(['actor_id', 'created_at']));
         // Expire historical staff tokens too; never alter customer/supplier token lifetimes.
         $minutes = max(1, (int) config('auth.staff_token_minutes', 120));
-        DB::table('personal_access_tokens')->where('tokenable_type', User::class)->update([
+        // F22: frozen morph string (User has no morph-map alias).
+        DB::table('personal_access_tokens')->where('tokenable_type', 'App\Models\User')->update([
             'expires_at' => DB::raw("LEAST(COALESCE(expires_at, created_at + INTERVAL '{$minutes} minutes'), created_at + INTERVAL '{$minutes} minutes')"),
         ]);
     }

@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use App\Models\SupplierUser;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -36,8 +35,11 @@ return new class extends Migration
             ->pluck('su.id');
         if ($orphanIds->isNotEmpty()) {
             DB::table('supplier_users')->whereIn('id', $orphanIds)->update(['is_active' => false, 'supplier_id' => null]);
+            // F22: frozen morph string — SupplierUser has no custom morph-map
+            // alias, so getMorphClass() resolves to the FQCN. Inlined to keep
+            // this migration independent of App\ model code.
             DB::table('personal_access_tokens')
-                ->where('tokenable_type', (new SupplierUser)->getMorphClass())
+                ->where('tokenable_type', 'App\Models\SupplierUser')
                 ->whereIn('tokenable_id', $orphanIds)
                 ->delete();
         }

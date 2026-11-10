@@ -6,6 +6,8 @@ RUN pnpm install --frozen-lockfile
 ARG APP
 ARG VITE_API_URL
 ARG VITE_WEB_URL
+ARG VITE_CSP_CONNECT_ORIGINS
+ARG VITE_POS_SOURCE
 ENV VITE_API_URL=$VITE_API_URL VITE_WEB_URL=$VITE_WEB_URL
 RUN pnpm --filter @alfarid/${APP} build
 COPY infrastructure/docker/pos-security.mjs /tmp/pos-security.mjs

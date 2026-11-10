@@ -1,0 +1,60 @@
+{
+  "output": {
+    "filePath": "repomix/outputs/repomix-subsystem-08-procurement-suppliers.xml",
+    "style": "xml",
+    "parsableStyle": true,
+    "fileSummary": true,
+    "directoryStructure": true,
+    "removeComments": false,
+    "removeEmptyLines": true,
+    "truncateBase64": true,
+    "topFilesLength": 20,
+    "showLineNumbers": true,
+    "copyToClipboard": false,
+    "instructionFilePath": "repomix/instructions/subsystem-audit-master-prompt.md",
+    "headerText": "SUBSYSTEM 8: PROCUREMENT, SUPPLIER PORTALS & GOODS INWARD\nAll-in-one stack: Supplier web portal UI, supplier authentication and API controllers, purchase requests, purchase orders, supplier delivery tracking, goods receipt vouchers, supplier invoicing, and all database schema migrations for procurement foreign keys and indexes."
+  },
+  "include": [
+    "bags-platform/frontend/src/app/supplier/**",
+    "bags-platform/backend/routes/api/supplier.php",
+    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Procurement/**",
+    "bags-platform/backend/app/Http/Controllers/Api/V1/Supplier/**",
+    "bags-platform/backend/app/Http/Requests/Admin/Procurement/**",
+    "bags-platform/backend/app/Http/Requests/Supplier/**",
+    "bags-platform/backend/app/Http/Middleware/EnsureSupplierAuthenticated.php",
+    "bags-platform/backend/app/Services/Procurement/**",
+    "bags-platform/backend/app/Models/PurchaseOrder.php",
+    "bags-platform/backend/app/Models/PurchaseOrderItem.php",
+    "bags-platform/backend/app/Models/PurchaseRequest.php",
+    "bags-platform/backend/app/Models/PurchaseRequestItem.php",
+    "bags-platform/backend/app/Models/Supplier.php",
+    "bags-platform/backend/app/Models/SupplierDelivery.php",
+    "bags-platform/backend/app/Models/SupplierDeliveryItem.php",
+    "bags-platform/backend/app/Models/SupplierInvoice.php",
+    "bags-platform/backend/app/Models/SupplierPayment.php",
+    "bags-platform/backend/app/Models/SupplierUser.php",
+    "bags-platform/backend/app/Enums/Procurement/**",
+    "bags-platform/backend/app/Events/Procurement/**",
+    "bags-platform/backend/app/Listeners/Procurement/**",
+    "bags-platform/backend/database/migrations/*supplier*.php",
+    "bags-platform/backend/database/migrations/*purchase*.php",
+    "bags-platform/backend/database/migrations/*procurement*.php",
+    "bags-platform/backend/database/migrations/*report*.php",
+    "bags-platform/backend/database/migrations/*enforce_unique_document_numbers*.php"
+  ],
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": [
+      "**/tests/**",
+      "**/*.test.*",
+      "**/*.spec.*",
+      "**/vendor/**",
+      "**/node_modules/**",
+      "**/.git/**",
+      "**/storage/**",
+      "**/*.log",
+      "**/dist/**"
+    ]
+  }
+}

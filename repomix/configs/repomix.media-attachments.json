@@ -1,0 +1,39 @@
+{
+  "output": {
+    "filePath": "repomix/outputs/repomix-media-attachments.xml",
+    "style": "xml",
+    "parsableStyle": true,
+    "fileSummary": true,
+    "directoryStructure": true,
+    "removeComments": false,
+    "removeEmptyLines": true,
+    "topFilesLength": 20,
+    "showLineNumbers": true,
+    "copyToClipboard": false,
+    "instructionFilePath": "repomix/instructions/audit-security-prompt.md",
+    "headerText": "DOMAIN: PRIVATE ATTACHMENTS, CLOUDFLARE R2 OBJECT STORAGE & MEDIA PIPELINES\nAuditing signed URL expiration, path traversal guards, attachment privatization, R2 upload migration, and automated orphan media pruning."
+  },
+  "include": [
+    "bags-platform/backend/app/Services/Media/**",
+    "bags-platform/backend/app/Services/Shared/PrivateAttachments.php",
+    "bags-platform/backend/app/Http/Controllers/Api/V1/AttachmentController.php",
+    "bags-platform/backend/app/Console/Commands/Orders/PrivatizeReturnAttachments.php",
+    "bags-platform/backend/app/Console/Commands/Maintenance/*Media*.php",
+    "bags-platform/backend/app/Console/Commands/Maintenance/*Attachment*.php",
+    "bags-platform/backend/app/Console/Commands/Maintenance/MigrateUploadsToR2.php",
+    "bags-platform/backend/app/Models/AiAttachment.php",
+    "bags-platform/backend/database/migrations/*attachment*.php",
+    "bags-platform/backend/tests/Feature/Attachments/**"
+  ],
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": [
+      "**/vendor/**",
+      "**/node_modules/**",
+      "**/.git/**",
+      "**/storage/**",
+      "**/*.log"
+    ]
+  }
+}

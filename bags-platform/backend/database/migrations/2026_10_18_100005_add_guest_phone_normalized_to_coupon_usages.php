@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use App\Models\Customer;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -14,6 +13,39 @@ use Illuminate\Support\Facades\Schema;
  */
 return new class extends Migration
 {
+    /**
+     * F22: frozen copy of the phone normalization rules as of this migration.
+     * Migrations must not call App\Models\Customer (renames/deletes would
+     * break already-applied deploys on fresh installs).
+     */
+    private const ARABIC_DIGITS = [
+        '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4',
+        '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
+        '۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4',
+        '۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9',
+    ];
+
+    private static function normalizePhone(string $phone): string
+    {
+        $trimmed = preg_replace('/^\s+|\s+$/u', '', $phone) ?? trim($phone);
+        if (preg_match('/^legacy-[0-9]+$/', $trimmed)) {
+            return $trimmed;
+        }
+        $phone = strtr($trimmed, self::ARABIC_DIGITS);
+        $phone = preg_replace('/[\s().-]+/u', '', $phone);
+        if (preg_match('/^201[0125][0-9]{8}$/', $phone)) {
+            return '0'.substr($phone, 2);
+        }
+        if (str_starts_with($phone, '+20')) {
+            return '0'.substr($phone, 3);
+        }
+        if (str_starts_with($phone, '0020')) {
+            return '0'.substr($phone, 4);
+        }
+
+        return $phone;
+    }
+
     public function up(): void
     {
         Schema::table('coupon_usages', function (Blueprint $table): void {
@@ -30,7 +62,7 @@ return new class extends Migration
             ->chunk(500, function ($rows): void {
                 foreach ($rows as $row) {
                     DB::table('coupon_usages')->where('id', $row->usage_id)
-                        ->update(['guest_phone_normalized' => Customer::normalizePhone((string) $row->guest_phone)]);
+                        ->update(['guest_phone_normalized' => self::normalizePhone((string) $row->guest_phone)]);
                 }
             });
     }

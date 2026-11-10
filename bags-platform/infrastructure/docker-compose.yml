@@ -135,6 +135,8 @@ services:
       POSTGRES_USER: ${DB_USERNAME:?set DB_USERNAME}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
     volumes: [pgdata:/var/lib/postgresql/data]
+    # M10: parallel queries need >64MB docker default shm (could not resize shared memory segment).
+    shm_size: 1g
     networks: [appnet]
     restart: unless-stopped
     healthcheck:
@@ -253,7 +255,7 @@ services:
     profiles: [frontend]
   backup:
     image: alfarid-data:local
-    entrypoint: [sh, -c, 'while true; do /opt/pg-backup.sh; sleep 86400; done']
+    entrypoint: [sh, -c, 'while true; do /opt/pg-backup.sh || exit 1; sleep 86400; done']
     env_file: .env
     environment:
       PGHOST: postgres
@@ -261,9 +263,10 @@ services:
       PGPASSWORD: ${DB_PASSWORD:?}
       PGDATABASE: alfarid
       PGSSLMODE: require
+      REQUIRE_R2_BACKUP: '1'
     volumes: [backups:/backups]
     networks: [appnet]
-    profiles: [backup]
+    # C1: backup runs with every deploy (no profile gate); failures exit loudly.
     restart: unless-stopped
 
 networks:

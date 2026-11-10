@@ -30,10 +30,15 @@ class DocumentNumberingConcurrencyTest extends TestCase
         for ($i = 0; $i < 50; $i++) {
             $rollback = $rollbackHalf && $i % 2 === 0;
             $jobs[] = '$ready(); Illuminate\\Support\\Facades\\DB::beginTransaction();'
-                .'$number = app(App\\Services\\SettingService::class)->generateNextNumber('.var_export($type, true).');'
+                .'$number = app(App\\Services\\Shared\\SettingService::class)->generateNextNumber('.var_export($type, true).');'
                 .'Illuminate\\Support\\Facades\\DB::'.($rollback ? 'rollBack' : 'commit').'(); return '.($rollback ? 'null' : '$number').';';
         }
-        $numbers = array_values(array_filter($this->concurrentJobs($jobs), fn ($value) => $value !== null));
+        // F16: every worker must resolve the service (wrong namespace fails here, not silently).
+        // Rollback workers intentionally return null; all others must return a number.
+        $raw = $this->concurrentJobs($jobs);
+        $this->assertCount(50, $raw);
+        $this->assertCount($rollbackHalf ? 25 : 0, array_filter($raw, fn ($value) => $value === null));
+        $numbers = array_values(array_filter($raw, fn ($value) => $value !== null));
         $this->assertCount($rollbackHalf ? 25 : 50, $numbers);
         $this->assertCount(count($numbers), array_unique($numbers));
         if ($type === 'invoice') {
@@ -51,9 +56,14 @@ class DocumentNumberingConcurrencyTest extends TestCase
         $service = app(SettingService::class);
         $prefix = (string) $service->get('invoice_prefix');
         $base = (int) DB::table('settings')->where('key', 'invoice_next_number')->value('value');
-        $job = '$ready(); $numbers = []; $service = app(App\\Services\\SettingService::class);'
+        $job = '$ready(); $numbers = []; $service = app(App\\Services\\Shared\\SettingService::class);'
             .'for ($i = 0; $i < 20; $i++) { $numbers[] = $service->generateNextNumber("invoice"); } return $numbers;';
-        $numbers = array_merge(...$this->concurrentJobs(array_fill(0, 50, $job)));
+        $rawBatches = $this->concurrentJobs(array_fill(0, 50, $job));
+        foreach ($rawBatches as $batch) {
+            $this->assertIsArray($batch);
+            $this->assertCount(20, $batch);
+        }
+        $numbers = array_merge(...$rawBatches);
         $this->assertCount(1000, $numbers);
         $this->assertCount(1000, array_unique($numbers));
         $numeric = array_map(fn ($number) => (int) substr($number, strlen($prefix)), $numbers);

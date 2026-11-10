@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use App\Services\Shared\SettingService;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
@@ -26,7 +25,8 @@ return new class extends Migration
             'updated_at' => $now,
         ], $keys));
 
-        DB::afterCommit(fn () => app(SettingService::class)->clearCache());
+        DB::afterCommit(fn () => \Illuminate\Support\Facades\Cache::forever('app_settings_static_version', (string) \Illuminate\Support\Str::uuid()));
+        DB::afterCommit(fn () => \Illuminate\Support\Facades\Cache::forget('app_settings_static'));
     }
 
     public function down(): void

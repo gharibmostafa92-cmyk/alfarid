@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Wholesale;
 
-use App\Enums\Orders\OrderStatus;
 use App\Enums\Finance\TreasuryType;
+use App\Enums\Orders\OrderStatus;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\ReturnRequest;
@@ -83,6 +83,35 @@ class TaskTxtStatementParityTest extends TestCase
         $this->assertSame(400.0, $statement['closing_balance']);
         $this->assertSame('400.00', $breakdown['outstanding']);
         $this->assertSame($statement['closing_balance'], (float) $breakdown['outstanding']);
+    }
+
+    public function test_statement_range_keeps_opening_balance_and_orders_same_day_debits_first(): void
+    {
+        $this->creditOrder(500)->forceFill(['created_at' => '2026-10-19 23:59:59'])->save();
+        $start = $this->creditOrder(300);
+        $start->forceFill(['created_at' => '2026-10-20 00:00:00'])->save();
+        $end = $this->creditOrder(200);
+        $end->forceFill(['created_at' => '2026-10-20 23:59:59'])->save();
+        $this->creditOrder(900)->forceFill(['created_at' => '2026-10-21 00:00:00'])->save();
+        $notice = $this->approveFree(100);
+        $notice->forceFill(['approved_at' => '2026-10-20 00:00:00'])->save();
+
+        $token = $this->customer->createToken('wholesale-statement')->plainTextToken;
+        $entries = $this->withToken($token)->getJson('/api/v1/wholesale/statement?from=2026-10-20&to=2026-10-20')
+            ->assertOk()
+            ->assertJsonPath('data.opening_balance', '500.00')
+            ->assertJsonPath('data.closing_balance', '900.00')
+            ->assertJsonCount(3, 'data.entries')
+            ->assertJsonPath('data.entries.2.reference', $notice->notice_number)
+            ->json('data.entries');
+        $this->assertEqualsCanonicalizing(
+            [$start->order_number, $end->order_number],
+            array_column(array_slice($entries, 0, 2), 'reference'),
+        );
+        $this->getJson('/api/v1/wholesale/statement?from=2026-10-21&to=2026-10-20')
+            ->assertUnprocessable()->assertJsonValidationErrors('to');
+        $this->getJson('/api/v1/wholesale/invoices?per_page=101')
+            ->assertUnprocessable()->assertJsonValidationErrors('per_page');
     }
 
     public function test_cancelled_orders_and_rejected_notices_stay_out_while_refund_is_a_single_credit(): void

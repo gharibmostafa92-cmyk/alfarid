@@ -1,7 +1,7 @@
 <?php
 
-use App\Support\ConcurrentIndex;
 use Illuminate\Database\Migrations\Migration;
+use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
@@ -10,14 +10,52 @@ return new class extends Migration
     public function up(): void
     {
         foreach ($this->indexes() as $name => $definition) {
-            ConcurrentIndex::ensure($name, $definition);
+            $this->ensureIndex($name, $definition);
         }
     }
 
     public function down(): void
     {
-        ConcurrentIndex::drop('products_catalog_retail_price_index');
-        ConcurrentIndex::drop('products_occasions_gin');
+        $this->dropIndex('products_catalog_retail_price_index');
+        $this->dropIndex('products_occasions_gin');
+    }
+
+    // F22: frozen copy of App\Support\ConcurrentIndex logic (2026-11-10) so
+    // this migration never depends on App\ code. CONCURRENTLY is skipped in
+    // the testing environment where migrations run inside transactions.
+    private function ensureIndex(string $name, string $definition): void
+    {
+        $this->validateIndexName($name);
+        $index = DB::selectOne('SELECT i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = ?', [$name]);
+        if ($index !== null && ! $index->indisvalid) {
+            $this->dropIndex($name);
+        }
+        DB::statement('CREATE INDEX '.$this->concurrently().'IF NOT EXISTS '.$name.' '.$definition);
+    }
+
+    private function dropIndex(string $name): void
+    {
+        $this->validateIndexName($name);
+        DB::statement('DROP INDEX '.$this->concurrently().'IF EXISTS '.$name);
+    }
+
+    private function validateIndexName(string $name): void
+    {
+        if (! preg_match('/\A[a-z_][a-z0-9_]*\z/', $name)) {
+            throw new \InvalidArgumentException('Invalid index name.');
+        }
+    }
+
+    private function concurrently(): string
+    {
+        if (app()->environment('testing')) {
+            return '';
+        }
+        if (DB::transactionLevel() > 0) {
+            throw new \LogicException('Concurrent index builds require an independent migration.');
+        }
+
+        return 'CONCURRENTLY ';
     }
 
     private function indexes(): array

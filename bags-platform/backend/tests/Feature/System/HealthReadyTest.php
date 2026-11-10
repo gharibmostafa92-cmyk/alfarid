@@ -32,6 +32,16 @@ class HealthReadyTest extends TestCase
             ->assertJsonPath('status', 'fail')->assertJsonPath('checks.redis', 'fail');
     }
 
+    public function test_readiness_can_skip_redis_for_a_database_only_deployment(): void
+    {
+        config(['app.readiness_check_redis' => false]);
+        Redis::shouldReceive('connection')->never();
+
+        $this->get('/health/ready')->assertOk()
+            ->assertJsonPath('checks.db', 'ok')
+            ->assertJsonPath('checks.redis', 'skipped');
+    }
+
     public function test_health_ready_returns_structured_payload_with_request_id(): void
     {
         $response = $this->get('/health/ready');

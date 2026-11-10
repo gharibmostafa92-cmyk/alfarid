@@ -1,0 +1,41 @@
+{
+  "output": {
+    "filePath": "repomix/outputs/repomix-pos-terminal.xml",
+    "style": "xml",
+    "parsableStyle": true,
+    "fileSummary": true,
+    "directoryStructure": true,
+    "removeComments": false,
+    "removeEmptyLines": true,
+    "topFilesLength": 20,
+    "showLineNumbers": true,
+    "copyToClipboard": false,
+    "instructionFilePath": "repomix/instructions/audit-security-prompt.md",
+    "headerText": "DOMAIN: POINT OF SALE TERMINAL, CASHIER SHIFTS & DRAWER RECONCILIATION\nAuditing POS cash register shifts, blind drop reconciliation, USB barcode scanner handling, split payments (cash/card), offline mock switch, and POS returns."
+  },
+  "include": [
+    "bags-platform/backend/app/Http/Controllers/Api/V1/Pos/**",
+    "bags-platform/backend/app/Services/Pos/**",
+    "bags-platform/backend/app/Models/PosShift.php",
+    "bags-platform/backend/app/Models/Order.php",
+    "bags-platform/backend/app/Models/OrderItem.php",
+    "bags-platform/backend/routes/api/pos.php",
+    "bags-platform/backend/tests/Feature/Pos/**",
+    "bags-platform/frontend/apps/pos/src/stores/**",
+    "bags-platform/frontend/apps/pos/src/services/**",
+    "bags-platform/frontend/apps/pos/src/components/**",
+    "bags-platform/frontend/apps/pos/src/types/**",
+    "bags-platform/frontend/apps/pos/src/pages/**"
+  ],
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": [
+      "**/vendor/**",
+      "**/node_modules/**",
+      "**/.git/**",
+      "**/storage/**",
+      "**/*.log"
+    ]
+  }
+}

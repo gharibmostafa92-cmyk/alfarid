@@ -2,15 +2,13 @@
 
 declare(strict_types=1);
 
-use App\Services\Shared\SettingService;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Spatie\Permission\Models\Permission;
-use Spatie\Permission\Models\Role;
-use Spatie\Permission\PermissionRegistrar;
-
+use Illuminate\Support\Str;
+/* F22: Spatie/SettingService calls inlined as raw DB + Cache calls; no app coupling. */
 return new class extends Migration
 {
     public function up(): void
@@ -115,12 +113,16 @@ return new class extends Migration
             ['group' => 'policy', 'key' => 'wholesale_default_payment_terms_days', 'value' => '30', 'type' => 'integer', 'created_at' => $now, 'updated_at' => $now],
         ]);
 
-        Permission::findOrCreate('ai_agent.wholesale', 'staff');
-        $role = Role::query()->where('name', 'Super Admin')->where('guard_name', 'staff')->first();
-        $role?->givePermissionTo('ai_agent.wholesale');
-        app(PermissionRegistrar::class)->forgetCachedPermissions();
+        DB::table('permissions')->insertOrIgnore(['name' => 'ai_agent.wholesale', 'guard_name' => 'staff', 'created_at' => $now, 'updated_at' => $now]);
+        $permissionId = (int) DB::table('permissions')->where('name', 'ai_agent.wholesale')->where('guard_name', 'staff')->value('id');
+        $roleId = DB::table('roles')->where('name', 'Super Admin')->where('guard_name', 'staff')->value('id');
+        if ($roleId !== null) {
+            DB::table('role_has_permissions')->insertOrIgnore(['permission_id' => $permissionId, 'role_id' => $roleId]);
+        }
+        \Illuminate\Support\Facades\Cache::forget('spatie.permission.cache');
 
-        DB::afterCommit(fn () => app(SettingService::class)->clearCache());
+        DB::afterCommit(fn () => Cache::forever('app_settings_static_version', (string) Str::uuid()));
+        DB::afterCommit(fn () => Cache::forget('app_settings_static'));
     }
 
     public function down(): void

@@ -19,6 +19,10 @@ if (!mediaDestination) mediaDestination = `${mediaApi.origin}/storage/:path*`;
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  ...(process.env.STOREFRONT_STANDALONE === '1' ? {
+    output: 'standalone',
+    outputFileTracingRoot: resolve(import.meta.dirname, '../..'),
+  } : {}),
   reactStrictMode: true,
   devIndicators: false,
   transpilePackages: ['@alfarid/ui', '@alfarid/api-client', '@alfarid/utils', '@alfarid/config'],
@@ -38,3 +42,4 @@ const nextConfig = {
 };
 
 export default nextConfig;
+import { resolve } from 'node:path';

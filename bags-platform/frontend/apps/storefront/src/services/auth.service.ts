@@ -11,9 +11,9 @@ async function revokePreviousSession(nextToken?: string | null) {
   } catch { /* The previous session may already have expired. */ }
 }
 
-export async function loginUnified(login: string, password: string, redirect?: string | null) {
+export async function loginUnified(login: string, password: string, redirect?: string | null, turnstileToken?: string | null) {
   const guestSession = getCartSession();
-  const res = await authEndpoints.login({ login, password, redirect: redirect ?? undefined }, guestSession);
+  const res = await authEndpoints.login({ login, password, redirect: redirect ?? undefined, ...(turnstileToken ? { turnstile_token: turnstileToken } : {}) }, guestSession);
   await revokePreviousSession(res.token);
 
   if (res.redirect.app === 'backoffice') {

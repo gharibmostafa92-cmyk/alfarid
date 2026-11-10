@@ -51,8 +51,8 @@ class EnsureStaffAuthenticated
         }
 
         // Staff assigned to a deactivated branch are fail-closed everywhere
-        // except password rotation and logout, mirroring BranchAccess.
-        if (! $this->isPasswordRotationRequest($request, $user)
+        // except own profile/password rotation and logout, mirroring BranchAccess.
+        if (! $this->isBranchLockExempt($request)
             && ! $request->is('api/v1/admin/auth/logout') && ! $request->is('api/v1/auth/logout')
             && ! $user->hasRole(StaffRole::SuperAdmin->value, 'staff')
             && ! $user->can('inventory.all_branches')
@@ -72,23 +72,28 @@ class EnsureStaffAuthenticated
 
     private function isPasswordRotationRequest(Request $request, User $user): bool
     {
-        // Read-only self views, own password rotation, and logout stay usable.
+        // Temporary-password rotation is scoped to own profile views, own
+        // password rotation, and logout. admin.users.update self-access is
+        // intentionally NOT exempt here; use me/password instead (M1).
         if ($request->isMethod('GET') && $request->is('api/v1/admin/me')) {
             return true;
         }
         if (in_array($request->method(), ['PUT', 'PATCH'], true) && $request->is('api/v1/admin/me/password')) {
             return true;
         }
-        if ($request->is('api/v1/admin/auth/logout') || $request->is('api/v1/auth/logout')) {
+
+        return $request->is('api/v1/admin/auth/logout') || $request->is('api/v1/auth/logout');
+    }
+
+    private function isBranchLockExempt(Request $request): bool
+    {
+        if ($request->isMethod('GET') && $request->is('api/v1/admin/me')) {
             return true;
         }
-        $routeUser = $request->route('user');
-        $targetId = $routeUser instanceof User ? $routeUser->getKey() : $routeUser;
+        if (in_array($request->method(), ['PUT', 'PATCH'], true) && $request->is('api/v1/admin/me/password')) {
+            return true;
+        }
 
-        // Match the exact named route admin.users.update targeting the authenticated user's own ID,
-        // preventing route segment count bugs and ensuring sub-resources remain blocked during rotation.
-        return in_array($request->method(), ['PUT', 'PATCH'], true)
-            && $request->routeIs('admin.users.update')
-            && (int) $targetId === (int) $user->getKey();
+        return false;
     }
 }

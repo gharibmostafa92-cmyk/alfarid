@@ -57,15 +57,8 @@ return new class extends Migration
 
     public function down(): void
     {
-        if (Schema::hasColumn('customer_wallet_transactions', 'created_by')) {
-            Schema::table('customer_wallet_transactions', function (Blueprint $table): void {
-                $table->dropConstrainedForeignId('created_by');
-            });
-        }
-
-        Schema::table('treasury_transactions', function (Blueprint $table): void {
-            $table->dropIndex('treasury_transactions_reference_index');
-        });
+        // F15: created_by predates this migration (added in 10_19); never drop it here.
+        DB::statement('DROP INDEX IF EXISTS treasury_transactions_reference_index');
 
         Schema::dropIfExists('wallet_adjustments');
 

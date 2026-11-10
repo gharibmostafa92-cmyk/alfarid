@@ -1,0 +1,37 @@
+{
+  "output": {
+    "filePath": "repomix/outputs/repomix-ai-trader-gateway.xml",
+    "style": "xml",
+    "parsableStyle": true,
+    "fileSummary": true,
+    "directoryStructure": true,
+    "removeComments": false,
+    "removeEmptyLines": true,
+    "topFilesLength": 20,
+    "showLineNumbers": true,
+    "copyToClipboard": false,
+    "instructionFilePath": "repomix/instructions/audit-security-prompt.md",
+    "headerText": "DOMAIN: AI TRADER AGENT, GEMINI TOOLS & WHATSAPP WEBHOOK GATEWAY\nAuditing Baileys WhatsApp Node gateway, HMAC signature validation, Gemini autonomous trading tools, Egyptian dialect prompt bounds, and AI write-action guards."
+  },
+  "include": [
+    "bags-platform/wa-gateway/src/**",
+    "bags-platform/wa-gateway/package.json",
+    "bags-platform/backend/app/Http/Controllers/Api/V1/Webhook/**",
+    "bags-platform/backend/routes/api/webhooks.php",
+    "bags-platform/backend/app/Services/Ai/**",
+    "bags-platform/backend/config/ai.php",
+    ".github/workflows/ai-agent-evaluation.yml",
+    "bags-platform/backend/tests/Feature/Ai/**"
+  ],
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": [
+      "**/vendor/**",
+      "**/node_modules/**",
+      "**/.git/**",
+      "**/storage/**",
+      "**/*.log"
+    ]
+  }
+}

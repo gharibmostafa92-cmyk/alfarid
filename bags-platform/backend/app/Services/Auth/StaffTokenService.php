@@ -22,9 +22,9 @@ final class StaffTokenService
      *
      * @throws BusinessException If the user is inactive, a system account, or credentials mismatch.
      */
-    public function issue(User $user, ?string $credentials = null): string
+    public function issue(User $user, ?string $credentials = null, array $abilities = ['*']): string
     {
-        return DB::transaction(function () use ($user, $credentials): string {
+        return DB::transaction(function () use ($user, $credentials, $abilities): string {
             // Pessimistic row lock serializes simultaneous logins and prevents token race conditions.
             $user = User::query()->lockForUpdate()->findOrFail($user->id);
             if (! $user->is_active || $user->is_system) {
@@ -38,7 +38,9 @@ final class StaffTokenService
             // Prune expired tokens and enforce FIFO token cap to prevent unbounded session table growth.
             self::pruneAndCap($user, (int) config('auth.staff_max_tokens', 20));
 
-            return $user->createToken('staff-token', ['*'], now()->addMinutes(max(1, (int) config('auth.staff_token_minutes', 43200))))->plainTextToken;
+            // M7: default 24h shift-friendly TTL; POS destinations get least-privilege ['pos'] ability.
+            $abilities = $abilities === [] ? ['*'] : array_values(array_unique($abilities));
+            return $user->createToken('staff-token', $abilities, now()->addMinutes(max(1, (int) config('auth.staff_token_minutes', 1440))))->plainTextToken;
         });
     }
 

@@ -1,0 +1,61 @@
+{
+  "output": {
+    "filePath": "repomix/outputs/repomix-subsystem-05-ai-trader-gateway.xml",
+    "style": "xml",
+    "parsableStyle": true,
+    "fileSummary": true,
+    "directoryStructure": true,
+    "removeComments": false,
+    "removeEmptyLines": true,
+    "truncateBase64": true,
+    "topFilesLength": 20,
+    "showLineNumbers": true,
+    "copyToClipboard": false,
+    "instructionFilePath": "repomix/instructions/subsystem-audit-master-prompt.md",
+    "headerText": "SUBSYSTEM 5: AUTONOMOUS AI TRADER, GEMINI FUNCTION-CALLING TOOLS & WHATSAPP GATEWAY\nAll-in-one stack: Node.js Baileys WhatsApp gateway daemon, webhook verification controllers, multi-domain AI orchestrator, Gemini client, tool registry across Wholesale/Pricing/Catalog/Inventory/Storefront, pending action guard, async message processing jobs, and all AI agent database schema migrations."
+  },
+  "include": [
+    "bags-platform/wa-gateway/src/**",
+    "bags-platform/wa-gateway/package.json",
+    "bags-platform/backend/routes/api/webhooks.php",
+    "bags-platform/backend/config/ai*.php",
+    ".github/workflows/ai-agent-evaluation.yml",
+    "bags-platform/backend/app/Http/Controllers/Api/V1/Webhook/**",
+    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Ai/**",
+    "bags-platform/backend/app/Services/Ai/**",
+    "bags-platform/backend/app/Services/Shared/PaymentWebhookService.php",
+    "bags-platform/backend/app/Services/Shared/WebhookSignatureVerifier.php",
+    "bags-platform/backend/app/Services/Shared/SpokenQuantity.php",
+    "bags-platform/backend/app/Services/Customer/CustomerMessageBudget.php",
+    "bags-platform/backend/app/Models/Ai*.php",
+    "bags-platform/backend/app/Models/WebhookLog.php",
+    "bags-platform/backend/app/Jobs/ProcessWhatsAppMessage.php",
+    "bags-platform/backend/app/Jobs/PruneAiConversations.php",
+    "bags-platform/backend/app/Jobs/SendOutboundMessage.php",
+    "bags-platform/backend/app/Console/Commands/EvaluateAiAgent.php",
+    "bags-platform/backend/app/Console/Commands/Maintenance/WatchWhatsAppConnection.php",
+    "bags-platform/backend/app/Console/Commands/Maintenance/PruneAiConversations.php",
+    "bags-platform/backend/app/Console/Commands/Maintenance/PruneWebhookLogs.php",
+    "bags-platform/backend/database/migrations/*webhook*.php",
+    "bags-platform/backend/database/migrations/*ai*.php",
+    "bags-platform/backend/database/migrations/*whatsapp*.php",
+    "bags-platform/backend/database/migrations/*message_budget*.php",
+    "bags-platform/backend/database/migrations/*bulk_child*.php",
+    "bags-platform/backend/database/migrations/*audit_fixes*.php"
+  ],
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": [
+      "**/tests/**",
+      "**/*.test.*",
+      "**/*.spec.*",
+      "**/vendor/**",
+      "**/node_modules/**",
+      "**/.git/**",
+      "**/storage/**",
+      "**/*.log",
+      "**/dist/**"
+    ]
+  }
+}

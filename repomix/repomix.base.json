@@ -1,0 +1,53 @@
+{
+  "output": {
+    "style": "xml",
+    "parsableStyle": true,
+    "fileSummary": true,
+    "directoryStructure": true,
+    "removeComments": false,
+    "removeEmptyLines": true,
+    "truncateBase64": true,
+    "topFilesLength": 20,
+    "showLineNumbers": true,
+    "copyToClipboard": false
+  },
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": [
+      "**/tests/**",
+      "**/*.test.*",
+      "**/*.spec.*",
+      "**/vendor/**",
+      "**/node_modules/**",
+      "**/.git/**",
+      "**/storage/**",
+      "**/*.log",
+      "**/*.lock",
+      "**/pnpm-lock.yaml",
+      "**/composer.lock",
+      "**/package-lock.json",
+      "**/dist/**",
+      "**/.next/**",
+      "**/out/**",
+      "**/build/**",
+      "**/*.png",
+      "**/*.jpg",
+      "**/*.jpeg",
+      "**/*.webp",
+      "**/*.gif",
+      "**/*.svg",
+      "**/*.pdf",
+      "**/*.ico",
+      "**/*.mp3",
+      "**/*.wav",
+      "**/*.ogg",
+      "**/*.zip",
+      "**/*.tar.gz",
+      "**/.phpunit.result.cache",
+      "**/*.cache",
+      "repomix/outputs/**",
+      "_archive_unused/**"
+    ]
+  }
+}

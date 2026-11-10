@@ -100,7 +100,11 @@ class UnifiedAuthController extends Controller
         $user->load(['branch', 'roles.permissions', 'permissions']);
         $redirect = $this->destinations->resolve($user);
 
-        $token = app(StaffTokenService::class)->issue($user, $payload['credentials']);
+        $token = app(StaffTokenService::class)->issue(
+            $user,
+            $payload['credentials'],
+            ($redirect['destination'] ?? null) === 'pos' ? ['pos'] : ['*']
+        );
 
         logger()->info('staff.handoff', ['user_id' => $user->id, 'ip' => $request->ip(), 'result' => 'success']);
 

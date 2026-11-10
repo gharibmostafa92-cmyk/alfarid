@@ -36,6 +36,13 @@ if [ "$1" != sentinel ]; then
   # must receive policy updates too. Apply this before handing ownership back.
   sed -i '/^maxmemory-policy[[:space:]]/d' runtime.conf
   echo 'maxmemory-policy noeviction' >> runtime.conf
+  # M3: a rotated REDIS_PASSWORD must take effect on restart; the persisted
+  # runtime.conf would otherwise keep the old secret and AUTH would fail cluster-wide.
+  sed -i '/^requirepass[[:space:]]/d; /^masterauth[[:space:]]/d' runtime.conf
+  printf 'requirepass %s\nmasterauth %s\n' "$REDIS_PASSWORD" "$REDIS_PASSWORD" >> runtime.conf
+else
+  sed -i '/^requirepass[[:space:]]/d; /^sentinel auth-pass[[:space:]]/d' runtime.conf
+  printf 'requirepass %s\nsentinel auth-pass mymaster %s\n' "$REDIS_PASSWORD" "$REDIS_PASSWORD" >> runtime.conf
 fi
 chown -R redis:redis /data
 if [ "$1" = sentinel ]; then

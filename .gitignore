@@ -39,6 +39,16 @@ next-env.d.ts
 .vercel/
 
 # ------------------------------------------
+# Repomix Generated Bundles & Dumps
+# ------------------------------------------
+repomix/outputs/*
+!repomix/outputs/.gitkeep
+repomix-*.xml
+repomix-*.md
+repomix-output.xml
+repomix-output.md
+
+# ------------------------------------------
 # Laravel Storage & Generated Files
 # ------------------------------------------
 **/public/build/

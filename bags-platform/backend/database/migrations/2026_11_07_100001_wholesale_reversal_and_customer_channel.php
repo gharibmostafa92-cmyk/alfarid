@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use App\Services\Shared\SettingService;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -48,11 +47,19 @@ return new class extends Migration
             ['name' => 'staff_escalation', 'language' => 'ar', 'body' => '{{message}}', 'variables' => json_encode(['message']), 'status' => 'draft', 'created_at' => $now, 'updated_at' => $now],
         ]);
 
-        DB::afterCommit(fn () => app(SettingService::class)->clearCache());
+        DB::afterCommit(fn () => \Illuminate\Support\Facades\Cache::forever('app_settings_static_version', (string) \Illuminate\Support\Str::uuid()));
+        DB::afterCommit(fn () => \Illuminate\Support\Facades\Cache::forget('app_settings_static'));
     }
 
     public function down(): void
     {
+        // F24: refuse to roll back while rows use the new states this migration introduced.
+        if (DB::table('wholesale_payment_notices')->whereIn('status', ['reversed'])->exists()) {
+            throw new \RuntimeException('Cannot roll back: wholesale_payment_notices rows with status reversed exist. Resolve them first.');
+        }
+        if (DB::table('treasury_transactions')->whereIn('type', ['customer_receipt_reversal'])->exists()) {
+            throw new \RuntimeException('Cannot roll back: treasury_transactions rows with type customer_receipt_reversal exist. Reverse them first.');
+        }
         Schema::table('customer_channels', function (Blueprint $table): void {
             $table->dropColumn(['verification_code_hash', 'verification_expires_at']);
         });

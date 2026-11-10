@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use App\Models\User;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -19,7 +18,8 @@ return new class extends Migration
         DB::table('users')->whereIn('email', array_unique([
             'system@alfarid.local', (string) config('orders.system_user_email', 'system@alfarid.local'),
         ]))->update(['is_system' => true, 'is_active' => false]);
-        DB::table('personal_access_tokens')->where('tokenable_type', User::class)
+        // F22: frozen morph string (User has no morph-map alias).
+        DB::table('personal_access_tokens')->where('tokenable_type', 'App\Models\User')
             ->whereIn('tokenable_id', DB::table('users')->select('id')->where('is_system', true))->delete();
         Schema::create('staff_audit_logs', function (Blueprint $table): void {
             $table->id();

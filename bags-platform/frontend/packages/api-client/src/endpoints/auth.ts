@@ -38,7 +38,7 @@ export interface StaffUserResource {
 }
 
 export const authEndpoints = {
-  login: (body: { login: string; password: string; redirect?: string }, cartSession?: string | null) =>
+  login: (body: { login: string; password: string; redirect?: string; turnstile_token?: string }, cartSession?: string | null) =>
     apiClient
       .post<UnifiedLoginResponse>('/api/v1/auth/login', body, {
         headers: cartSession ? { 'X-Cart-Session': cartSession } : {},

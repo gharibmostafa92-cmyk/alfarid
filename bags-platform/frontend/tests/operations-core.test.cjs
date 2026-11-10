@@ -123,6 +123,21 @@ test('report periods reject impossible dates, missing boundaries, reversed and o
   }
   assert.equal(validatePeriod('2024-01-01','2024-12-31'), null);
   assert.equal(validatePeriod('2026-10-27','2026-10-27'), null);
+  const day = 86_400_000;
+  const stamp = (value) => Date.parse(value + 'T00:00:00Z');
+  for (let i = 0; i < 40; i++) {
+    const start = Date.UTC(2020, 0, 1) + (i * 17) * day;
+    const inclusive = 1 + (i % 400);
+    const from = new Date(start).toISOString().slice(0, 10);
+    const to = new Date(start + (inclusive - 1) * day).toISOString().slice(0, 10);
+    const backendAccepts = (stamp(to) - stamp(from)) / day + 1 <= 366;
+    assert.equal(validatePeriod(from, to) === null, backendAccepts, `${from}/${to}`);
+  }
+});
+test('cleanParams drops empty query values before they reach Laravel', () => {
+  assert.deepEqual(http.cleanParams({ branch_id: '', dead_days: 30, only_differences: false, q: undefined, note: null }), {
+    dead_days: 30, only_differences: 0,
+  });
 });
 test('reports preserve rows/totals, encode booleans and notifications retain UUID/meta', async () => {
   const calls = [], envelope = { rows: [{ period: '2026-10-01', gross_sales: 200 }], totals: { gross_sales: 200 } };

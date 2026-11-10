@@ -2,6 +2,7 @@
 
 return [
     'trusted_proxies' => env('TRUSTED_PROXIES'),
+    'readiness_check_redis' => env('READINESS_CHECK_REDIS', true),
 
     'expose_node_header' => (bool) env('APP_EXPOSE_NODE_HEADER', false),
 

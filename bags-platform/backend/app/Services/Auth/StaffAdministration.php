@@ -27,10 +27,16 @@ final class StaffAdministration
      */
     public static function lock(): void
     {
+        // M3: xact locks are meaningless outside a transaction (released at statement end).
+        if (DB::transactionLevel() === 0) {
+            throw new \LogicException('Staff administration lock requires a transaction.');
+        }
         // Advisory lock timeout (55P03) indicates a transient concurrency conflict converted to a retryable 409.
         try {
             DB::statement("SET LOCAL lock_timeout = '5s'");
             DB::select('SELECT pg_advisory_xact_lock(79301, 1)');
+            // M3: restore the default so later lockForUpdate in the same transaction is not capped at 5s.
+            DB::statement("SET LOCAL lock_timeout = '0'");
         } catch (QueryException $e) {
             if (($e->errorInfo[0] ?? null) === '55P03') {
                 throw new RetryableConflict('النظام مشغول حاليًا؛ حاول مرة أخرى.', $e);
@@ -44,6 +50,11 @@ final class StaffAdministration
      */
     public static function assertVersion(Model $record, ?int $expected): void
     {
+        // L8: null expected_version currently bypasses optimistic locking. Log it so we can
+        // measure legacy clients before enforcing required versioning in a follow-up.
+        if ($expected === null) {
+            logger()->warning('staff.missing_expected_version', ['model' => $record::class, 'id' => $record->getKey()]);
+        }
         // Detects concurrent permission/profile updates occurring within the same second
         abort_if($expected !== null && (int) $record->lock_version !== $expected, 409,
             'تم تعديل السجل بواسطة مستخدم آخر؛ أعد التحميل قبل الحفظ.');
@@ -234,7 +245,7 @@ final class StaffAdministration
             'metadata' => json_encode(['fields' => array_values(array_diff($fields, ['password', 'current_password', 'expected_version', 'cost_price'])),
                 'before' => $before, 'after' => $after,
                 'via' => array_intersect_key($via, array_flip(['channel', 'tool', 'entity', 'conversation_id', 'action_id', 'source'])),
-                'ip' => request()->ip(), 'method' => request()->method()], JSON_THROW_ON_ERROR),
+                'ip' => request()->ip(), 'method' => request()->method()], JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE),
             'created_at' => now(),
         ]);
     }

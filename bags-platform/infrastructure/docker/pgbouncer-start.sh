@@ -8,6 +8,11 @@ printf '\nadmin_users = %s\nstats_users = %s\n' "$DB_USERNAME" "$DB_USERNAME" >>
 printf '"%s" "%s"\n' "$DB_USERNAME" "$DB_PASSWORD" > /tmp/pgbouncer/userlist.txt
 openssl req -x509 -newkey rsa:2048 -nodes -days 365 -subj /CN=pgbouncer \
   -keyout /tmp/pgbouncer/tls/server.key -out /tmp/pgbouncer/tls/server.crt 2>/dev/null
+if [ -n "${PGSSLCACERT:-}" ] && [ -f "$PGSSLCACERT" ]; then
+  # F23: verify-full is opt-in — needs the Postgres CA mounted at PGSSLCACERT.
+  sed -i 's/^server_tls_sslmode = .*/server_tls_sslmode = verify-full/' /tmp/pgbouncer/pgbouncer.ini
+  printf 'server_tls_ca_file = %s\n' "$PGSSLCACERT" >> /tmp/pgbouncer/pgbouncer.ini
+fi
 chown -R postgres:postgres /tmp/pgbouncer
 chmod 700 /tmp/pgbouncer
 chmod 600 /tmp/pgbouncer/userlist.txt /tmp/pgbouncer/tls/server.key

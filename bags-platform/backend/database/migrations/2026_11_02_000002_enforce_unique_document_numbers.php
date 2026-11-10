@@ -37,6 +37,8 @@ return new class extends Migration
                  WHERE t.oid = to_regclass(?)
                    AND i.indisunique
                    AND i.indnkeyatts = 1
+                   AND i.indpred IS NULL
+                   AND i.indexprs IS NULL
                    AND a.attname = ?
                  LIMIT 1',
                 [$table, $column],

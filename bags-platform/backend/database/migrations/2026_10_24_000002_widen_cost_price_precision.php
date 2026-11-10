@@ -12,11 +12,15 @@ return new class extends Migration
      */
     public function up(): void
     {
-        DB::statement('ALTER TABLE product_variants ALTER COLUMN cost_price TYPE numeric(14,4)');
+        // F14: only widen when still narrow; re-running must not take ACCESS EXCLUSIVE for nothing.
+        $type = DB::selectOne("SELECT numeric_precision, numeric_scale FROM information_schema.columns WHERE table_name = 'product_variants' AND column_name = 'cost_price'");
+        if ($type === null || (int) $type->numeric_precision !== 14 || (int) $type->numeric_scale !== 4) {
+            DB::statement('ALTER TABLE product_variants ALTER COLUMN cost_price TYPE numeric(14,4)');
+        }
     }
 
     public function down(): void
     {
-        DB::statement('ALTER TABLE product_variants ALTER COLUMN cost_price TYPE numeric(12,2)');
+        // F14: narrowing truncates 4-decimal costs; keep 14,4 (reversal is a no-op by design).
     }
 };

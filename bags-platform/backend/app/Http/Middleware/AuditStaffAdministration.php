@@ -21,6 +21,10 @@ final class AuditStaffAdministration
             || ! preg_match('~^api/v1/admin/(users|roles|settings|branches|ai)(?:/([0-9a-zA-Z\-]+))?(?:/.*)?$~', $request->path(), $target)) {
             return $next($request);
         }
+        // L7: AI conversations have their own throttle; counting them here lets chat lock out admin work.
+        if (str_starts_with($request->path(), 'api/v1/admin/ai/conversations')) {
+            return $next($request);
+        }
         $actor = $request->user('staff');
         $key = 'staff:admin-mutations:'.($actor?->id ?? 'guest');
         $limit = max(1, (int) config('auth.staff_admin_mutations_minute', 60));

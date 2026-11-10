@@ -31,12 +31,12 @@ final class LoginDestinationResolver
             if ($roles->isEmpty()) {
                 throw new BusinessException('حسابك غير مرتبط بأي صلاحية. تواصل مع الإدارة.', [], 403);
             }
+            $firstRole = mb_strtolower(trim((string) $roles->first()));
             $isPosRole = $roles->count() === 1 && (
-                $roles->first() === StaffRole::Cashier->value
-                || $roles->first() === 'كاشير'
-                || str_contains(mb_strtolower((string) $roles->first()), 'pos')
-                || str_contains(mb_strtolower((string) $roles->first()), 'cashier')
-                || str_contains((string) $roles->first(), 'كاشير')
+                $firstRole === mb_strtolower(StaffRole::Cashier->value)
+                || $firstRole === 'cashier'
+                || $firstRole === 'كاشير'
+                || $actor->can('pos.access')
             );
             if ($isPosRole) {
                 // Block cashiers without an active assigned branch to prevent partially-functioning POS sessions.
@@ -80,6 +80,10 @@ final class LoginDestinationResolver
         }
 
         $decoded = rawurldecode($path);
+        // Reject double-encoded paths: a second decode must be stable (L1).
+        if (rawurldecode($decoded) !== $decoded) {
+            return null;
+        }
         $pathname = explode('?', explode('#', $decoded, 2)[0], 2)[0];
         if (! str_starts_with($decoded, '/') || str_starts_with($decoded, '//')
             || str_contains($decoded, '\\') || str_contains($decoded, '://')

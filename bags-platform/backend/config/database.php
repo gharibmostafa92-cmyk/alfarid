@@ -97,11 +97,12 @@ $config = [
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
+            'sslrootcert' => env('DB_SSLROOTCERT'),
             // PHP 8.3 issues SQL DEALLOCATE for named statements, which is not
             // compatible with PgBouncer transaction pooling. Keep bound values
             // in the PostgreSQL protocol, using an unnamed statement instead.
             'options' => extension_loaded('pdo_pgsql') ? [
-                PDO::PGSQL_ATTR_DISABLE_PREPARES => (bool) env('DB_DISABLE_PREPARES', false),
+                PDO::PGSQL_ATTR_DISABLE_PREPARES => (bool) env('DB_DISABLE_PREPARES', true),
                 // Fail fast on unreachable database/PgBouncer backends; statement timeouts are governed at role/session level.
                 PDO::ATTR_TIMEOUT => (int) env('DB_CONNECT_TIMEOUT', 5),
             ] : [],

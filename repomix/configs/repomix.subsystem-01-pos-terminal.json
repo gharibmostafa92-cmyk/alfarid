@@ -1,0 +1,57 @@
+{
+  "output": {
+    "filePath": "repomix/outputs/repomix-subsystem-01-pos-terminal.xml",
+    "style": "xml",
+    "parsableStyle": true,
+    "fileSummary": true,
+    "directoryStructure": true,
+    "removeComments": false,
+    "removeEmptyLines": true,
+    "truncateBase64": true,
+    "topFilesLength": 20,
+    "showLineNumbers": true,
+    "copyToClipboard": false,
+    "instructionFilePath": "repomix/instructions/subsystem-audit-master-prompt.md",
+    "headerText": "SUBSYSTEM 1: POINT OF SALE TERMINAL, CASHIER SHIFTS & DRAWER RECONCILIATION\nAll-in-one stack: React 19 POS desktop terminal, scanner handlers, cashier shift lifecycle, POS controllers, PosService, shared idempotency/split math, and all underlying database migrations."
+  },
+  "include": [
+    "bags-platform/frontend/apps/pos/src/**",
+    "bags-platform/frontend/apps/pos/package.json",
+    "bags-platform/frontend/packages/utils/src/**",
+    "bags-platform/backend/app/Http/Controllers/Controller.php",
+    "bags-platform/backend/app/Http/Controllers/Api/V1/Pos/**",
+    "bags-platform/backend/app/Http/Requests/Pos/**",
+    "bags-platform/backend/app/Http/Middleware/EnsureOpenPosShift.php",
+    "bags-platform/backend/routes/api/pos.php",
+    "bags-platform/backend/app/Services/Pos/**",
+    "bags-platform/backend/app/Services/Shared/OperationIdempotencyService.php",
+    "bags-platform/backend/app/Services/Shared/DiscreteQuantity.php",
+    "bags-platform/backend/app/Services/Shared/ProportionalDistribution.php",
+    "bags-platform/backend/app/Services/Shared/CostAccess.php",
+    "bags-platform/backend/app/Models/PosShift.php",
+    "bags-platform/backend/app/Models/PosHeldSale.php",
+    "bags-platform/backend/app/Models/Order.php",
+    "bags-platform/backend/app/Models/OrderItem.php",
+    "bags-platform/backend/app/Enums/*Shift*.php",
+    "bags-platform/backend/database/migrations/*pos*.php",
+    "bags-platform/backend/database/migrations/*shift*.php",
+    "bags-platform/backend/database/migrations/*held_sale*.php",
+    "bags-platform/backend/database/migrations/*payment_method*.php",
+    "bags-platform/backend/database/migrations/*enforce_unique_document_numbers*.php"
+  ],
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": [
+      "**/tests/**",
+      "**/*.test.*",
+      "**/*.spec.*",
+      "**/vendor/**",
+      "**/node_modules/**",
+      "**/.git/**",
+      "**/storage/**",
+      "**/*.log",
+      "**/dist/**"
+    ]
+  }
+}

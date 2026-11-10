@@ -12,6 +12,20 @@ services:
       QUEUE_CONNECTION: sync
       SESSION_DRIVER: array
       APP_MAINTENANCE_DRIVER: file
+      MAIL_MAILER: array
+      FILESYSTEM_DISK: local
+      AWS_ACCESS_KEY_ID: ''
+      AWS_SECRET_ACCESS_KEY: ''
+      AWS_BUCKET: ''
+      AWS_ENDPOINT: ''
+      R2_ACCESS_KEY_ID: ''
+      R2_SECRET_ACCESS_KEY: ''
+      R2_BUCKET: ''
+      R2_ENDPOINT: ''
+      WHATSAPP_TOKEN: ''
+      WA_GATEWAY_SECRET: ''
+      WA_SESSION_KEY: ''
+      TURNSTILE_SECRET_KEY: ''
     healthcheck: {disable: true}
     restart: 'no'
     profiles: [test]

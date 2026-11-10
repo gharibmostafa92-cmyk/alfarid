@@ -34,6 +34,12 @@ class WalletService
     public function record(int $customerId, float $amount, string $type, string $referenceType, int $referenceId, ?int $createdBy = null): CustomerWalletTransaction
     {
         return DB::transaction(function () use ($customerId, $amount, $type, $referenceType, $referenceId, $createdBy): CustomerWalletTransaction {
+            // F9: order-scoped refunds share one (reference, type) key per order, so a second
+            // partial refund would either collide (false 500) or double-spend. Route refunds
+            // through wallet_adjustment documents, which are unique per adjustment.
+            if ($type === 'refund' && in_array($referenceType, ['order', 'orders', \App\Models\Order::class], true)) {
+                throw new BusinessException('استرداد المحفظة يتم عبر مستند تسوية فقط.', [], 422);
+            }
             // Lock customer row to serialize concurrent debits/credits on the same balance
             $customer = Customer::query()->lockForUpdate()->findOrFail($customerId);
             if ($type === 'checkout_payment' && $customer->status !== CustomerStatus::Approved) {

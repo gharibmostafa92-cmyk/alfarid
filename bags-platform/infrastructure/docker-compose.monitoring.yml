@@ -9,6 +9,7 @@ services:
     ports: ['127.0.0.1:${PROMETHEUS_PORT:-9098}:9090']
     command: ['--config.file=/etc/prometheus/prometheus.yml', '--web.enable-remote-write-receiver']
     networks: [appnet]
+    restart: unless-stopped
   grafana:
     image: grafana/grafana:11.1.0
     ports: ['127.0.0.1:${GRAFANA_PORT:-3008}:3000']
@@ -19,6 +20,7 @@ services:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
     networks: [appnet]
+    restart: unless-stopped
   loki:
     image: grafana/loki:3.0.0
     user: '0:0'
@@ -26,6 +28,7 @@ services:
       - ./monitoring/loki-config.yml:/etc/loki/local-config.yaml:ro
       - loki-data:/tmp/loki
     networks: [appnet]
+    restart: unless-stopped
   promtail:
     image: grafana/promtail:3.0.0
     volumes:
@@ -33,16 +36,19 @@ services:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks: [appnet]
+    restart: unless-stopped
   node-exporter:
     image: prom/node-exporter:v1.8.2
     command: ['--path.rootfs=/host']
     volumes: ['/:/host:ro']
     networks: [appnet]
+    restart: unless-stopped
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.49.1
     privileged: true
     volumes: ['/:/rootfs:ro', '/var/run:/var/run:ro', '/sys:/sys:ro', '/var/lib/docker:/var/lib/docker:ro']
     networks: [appnet]
+    restart: unless-stopped
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:v0.15.0
     environment:
@@ -50,12 +56,14 @@ services:
     command: ['--extend.query-path=/etc/exporter/queries.yml']
     volumes: [./monitoring/postgres-queries.yml:/etc/exporter/queries.yml:ro]
     networks: [appnet]
+    restart: unless-stopped
   redis-exporter:
     image: oliver006/redis_exporter:v1.61.0
     environment:
       REDIS_ADDR: redis://haproxy-data:6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:?}
     networks: [appnet]
+    restart: unless-stopped
   pgbouncer-exporter:
     image: prometheuscommunity/pgbouncer-exporter:v0.8.0
     restart: unless-stopped
@@ -66,6 +74,7 @@ services:
     image: prom/alertmanager:v0.27.0
     volumes: [./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro]
     networks: [appnet]
+    restart: unless-stopped
 volumes:
   grafana-data:
   prometheus-data:

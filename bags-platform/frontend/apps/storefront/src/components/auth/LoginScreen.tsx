@@ -6,7 +6,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import '../../styles/luxuryAuth.css';
 import { AuthHalftone } from '@alfarid/ui';
 import { useAuthStore } from '@/store/auth.store';
-import { loginUnified } from '@/services/auth.service';
+import { loginUnified, getRegistrationOptions } from '@/services/auth.service';
+import { HumanVerification } from './HumanVerification';
 import { AccountForm, type AuthView } from './AccountForm';
 import { createSessionNonce } from './session-nonce';
 import { safeReturnPath } from '@/lib/orders/safe-return-path';
@@ -28,6 +29,9 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
   const [staffCheckPending, setStaffCheckPending] = useState(initialView === 'login');
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [formError, setFormError] = useState('');
+  const [challengeRequired, setChallengeRequired] = useState(false);
+  const [siteKey, setSiteKey] = useState<string | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState('');
 
   useEffect(() => {
     setIsReady(true);
@@ -125,7 +129,7 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
     setErrors({});
     setFormError('');
     try {
-      const path = await loginUnified(login, password, params.get('redirect'));
+      const path = await loginUnified(login, password, params.get('redirect'), turnstileToken || undefined);
       if (path) router.replace(path);
     } catch (err: any) {
       const status = err?.response?.status;
@@ -133,6 +137,12 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
       if (status === 422) setErrors(err.response.data.errors ?? {});
       else if (status === 401) setFormError(lang === 'ar' ? 'بيانات الدخول غير صحيحة.' : 'Invalid credentials.');
       else if (status === 403) setFormError(msg ?? 'غير مسموح.');
+      else if (status === 429 && err?.response?.data?.code === 'challenge_required') {
+        setChallengeRequired(true);
+        setTurnstileToken('');
+        setFormError(lang === 'ar' ? 'أكمل التحقق البشري ثم سجّل الدخول مرة أخرى.' : 'Complete human verification, then sign in again.');
+        getRegistrationOptions().then((options) => setSiteKey(options.turnstile_site_key)).catch(() => setSiteKey(null));
+      }
       else if (status === 429) {
         const s = err.response.headers['retry-after'] ?? 60;
         setFormError(lang === 'ar' ? `محاولات كثيرة، حاول بعد ${s} ثانية.` : `Too many attempts, retry in ${s}s.`);
@@ -305,6 +315,10 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
                       <p className="luxury-form-error" role="alert">
                         {formError}
                       </p>
+                    )}
+
+                    {challengeRequired && siteKey && (
+                      <HumanVerification siteKey={siteKey} lang={lang} onChange={setTurnstileToken} />
                     )}
 
                     <div style={{ paddingTop: '4px' }}>

@@ -35,6 +35,14 @@ export default defineConfig(({ mode }) => {
       });
     },
     generateBundle() {
+      this.emitFile({ type: 'asset', fileName: '_headers', source: `/*
+  Content-Security-Policy: ${policy}
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+/auth/session
+  ! X-Frame-Options
+  Content-Security-Policy: frame-ancestors 'self' ${webOrigin}
+` });
       // Include HTTP headers for static hosting; meta CSP cannot enforce frame-ancestors.
       this.emitFile({ type: 'asset', fileName: 'security-headers.nginx-map.conf', source: `map $request_uri $backoffice_frame_ancestors {
     default "'none'";

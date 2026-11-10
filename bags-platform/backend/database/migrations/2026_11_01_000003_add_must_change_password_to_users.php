@@ -23,7 +23,9 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('users', function (Blueprint $table): void {
-            $table->dropColumn('must_change_password');
+            if (Schema::hasColumn('users', 'must_change_password')) {
+                $table->dropColumn('must_change_password');
+            }
         });
     }
 };
