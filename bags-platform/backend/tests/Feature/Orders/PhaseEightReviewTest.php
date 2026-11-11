@@ -55,6 +55,8 @@ class PhaseEightReviewTest extends TestCase
         config(['webhooks.payment.testpay' => [
             'secret' => self::PAY_SECRET,
             'signature_header' => 'X-Webhook-Signature',
+            // WH-M8: بوابة الاختبار لا ترسل مبالغ — تعلن ذلك صراحةً تحت الافتراضي الصارم الجديد
+            'require_amount' => false,
         ]]);
         foreach (['orders.view', 'orders.update', 'orders.allocate'] as $permission) {
             Permission::findOrCreate($permission, 'staff');

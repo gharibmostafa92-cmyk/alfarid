@@ -153,7 +153,16 @@ class PaymentWebhookService
 
             $note = null;
             if ($outcome === 'paid') {
-                if ($order->status === OrderStatus::Cancelled) {
+                if ($order->payment_status === 'refunded') {
+                    // WH-H2: البوابات لا تضمن ترتيب التسليم — paid متأخر يجب ألا يقلب
+                    // مستردًا إلى paid؛ يُرفع للمراجعة البشرية بلا تغيير حالة.
+                    $order->update(['needs_attention' => true]);
+                    $note = 'حدث دفع ناجح على طلب مسترد مسبقًا — تحقق من التحصيل قبل الشحن';
+                } elseif ($order->payment_status === 'paid') {
+                    // WH-H2: حدث ناجح ثاني بمعرّف مختلف = تحصيل مزدوج محتمل لا يلاحظه أحد.
+                    $order->update(['needs_attention' => true]);
+                    $note = 'حدث دفع ناجح مكرر لطلب مدفوع مسبقًا — تحقق من تحصيل مزدوج';
+                } elseif ($order->status === OrderStatus::Cancelled) {
                     // Payment captured after order cancellation: record payment and mark for refund without reviving order
                     $order->update(['payment_status' => 'paid', 'requires_refund' => true]);
                     $note = 'دفع ناجح على طلب ملغي — يحتاج استردادًا';
@@ -175,26 +184,29 @@ class PaymentWebhookService
                             if (in_array($state, ['55P03', '40P01', '08006', '08003'], true)) {
                                 throw $e;
                             }
+                            // WH-L5: رسالة الاستثناء قد تحمل نص SQL وقيماً — تُسجَّل كاملة
+                            // في السجل فقط، والملاحظة المعروضة للموظفين تبقى عامة.
+                            report($e);
                             Log::warning('Payment captured but order auto-confirm failed.', [
                                 'order_id' => $order->id,
                                 'order_number' => $order->order_number,
                                 'gateway' => $gateway,
-                                'exception' => $e->getMessage(),
+                                'sqlstate' => $state,
                             ]);
                             $order->refresh();
                             $order->update(['needs_attention' => true]);
-                            $note = 'تم الدفع لكن تأكيد الطلب فشل: '.$e->getMessage();
+                            $note = 'تم الدفع لكن تأكيد الطلب فشل — راجع سجلات النظام';
                         } catch (Throwable $e) {
                             // Captured payment with confirmation failure requires visible staff attention
+                            report($e);
                             Log::warning('Payment captured but order auto-confirm failed.', [
                                 'order_id' => $order->id,
                                 'order_number' => $order->order_number,
                                 'gateway' => $gateway,
-                                'exception' => $e->getMessage(),
                             ]);
                             $order->refresh();
                             $order->update(['needs_attention' => true]);
-                            $note = 'تم الدفع لكن تأكيد الطلب فشل: '.$e->getMessage();
+                            $note = 'تم الدفع لكن تأكيد الطلب فشل — راجع سجلات النظام';
                         }
                     }
                 }
@@ -205,21 +217,48 @@ class PaymentWebhookService
 
                     return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
                 }
+                if ($order->payment_status === 'refunded') {
+                    // WH-H2: فشل متأخر لا يمحو حقيقة استرداد مُثبت.
+                    $log->update(['status' => 'ignored', 'error' => 'حدث فشل على طلب مسترد — يُتجاهل']);
+
+                    return ['http' => 200, 'body' => ['received' => true, 'ignored' => true]];
+                }
                 $order->update(['payment_status' => 'failed']);
             } else { // refunded
-                // Mark non-cancelled orders for staff review and block shipping dispatch
-                $order->update([
-                    'payment_status' => 'refunded',
-                    'needs_attention' => $order->status !== OrderStatus::Cancelled,
-                ]);
-                Log::warning('Payment refunded for a non-cancelled order.', [
-                    'order_number' => $order->order_number,
-                    'gateway' => $gateway,
-                ]);
-                if (in_array($order->status, [OrderStatus::Shipped, OrderStatus::Delivered], true)) {
-                    $note = 'استرداد على طلب مشحون/مُسلَّم — يحتاج مراجعة';
+                $refundAmount = $this->refundAmount($payload, $config);
+                $isPartialRefund = $refundAmount !== null
+                    && $refundAmount > 0
+                    && $this->sameMoney($refundAmount, (float) $order->grand_total) === false;
+                if ($isPartialRefund) {
+                    // WH-M7: استرداد جزئي يجب ألا يعلّم الطلب كله refunded — يبقى مدفوعًا
+                    // موسومًا للمراجعة والشحن محجوب حتى تدقيق المحاسبة.
+                    $order->update(['needs_attention' => true]);
+                    $note = sprintf(
+                        'استرداد جزئي بمبلغ %s من إجمالي %s — الطلب لا يزال مدفوعًا ويحتاج مراجعة',
+                        number_format($refundAmount, 2),
+                        number_format((float) $order->grand_total, 2),
+                    );
+                    Log::warning('Partial refund received on a paid order.', [
+                        'order_number' => $order->order_number,
+                        'gateway' => $gateway,
+                        'refund_amount' => $refundAmount,
+                        'grand_total' => (float) $order->grand_total,
+                    ]);
                 } else {
-                    $note = 'تم استرداد الدفع — الطلب موسوم للانتباه ولن يخرج للشحن قبل مراجعة الدفع';
+                    // Mark non-cancelled orders for staff review and block shipping dispatch
+                    $order->update([
+                        'payment_status' => 'refunded',
+                        'needs_attention' => $order->status !== OrderStatus::Cancelled,
+                    ]);
+                    Log::warning('Payment refunded for a non-cancelled order.', [
+                        'order_number' => $order->order_number,
+                        'gateway' => $gateway,
+                    ]);
+                    if (in_array($order->status, [OrderStatus::Shipped, OrderStatus::Delivered], true)) {
+                        $note = 'استرداد على طلب مشحون/مُسلَّم — يحتاج مراجعة';
+                    } else {
+                        $note = 'تم استرداد الدفع — الطلب موسوم للانتباه ولن يخرج للشحن قبل مراجعة الدفع';
+                    }
                 }
             }
 
@@ -264,6 +303,17 @@ class PaymentWebhookService
         }
         if (in_array($status, self::FAILED, true)) {
             return 'failed';
+        }
+        if ($status !== '') {
+            // WH-H1: حالة صريحة وغير معروفة (مثل unpaid على checkout.session.completed
+            // لوسيلة دفع مؤجلة) لا يجوز ترقيتها إلى paid عبر استدلال النوع — استنتاج
+            // الفشل المعلن فقط يظل مسموحًا، وغير ذلك يُصنَّف ignored لمراجعة بشرية.
+            $type = strtolower((string) ($this->firstValue($payload, ['type', 'event_type', 'event']) ?? ''));
+            if ($type !== '' && (str_contains($type, 'fail') || str_contains($type, 'declin'))) {
+                return 'failed';
+            }
+
+            return 'ignored';
         }
 
         // Stripe events specify the outcome in the event 'type' attribute rather than an inner status field
@@ -315,11 +365,37 @@ class PaymentWebhookService
             }
         }
         if ($amount === null) {
-            // Respect gateway configuration specifying whether an explicit amount is strictly required
-            return ! ($config['require_amount'] ?? false);
+            // WH-M8: الغياب التام للمبلغ لا يؤكد الدفع افتراضيًا — البوابات التي لا
+            // ترسل مبالغ تحتاج ضبط require_amount=false صريحًا في config/webhooks.php.
+            return ! ($config['require_amount'] ?? true);
         }
 
         return $this->sameMoney(((float) $amount) / $divisor, (float) $order->grand_total);
+    }
+
+    /**
+     * Extract the refunded amount from a refund webhook payload, if the gateway reports one.
+     *
+     * Stripe charge objects carry amount_refunded in minor units (cents); generic gateways
+     * report major units scaled by the configured amount_divisor. Returns null when the
+     * payload carries no explicit refund amount (treated as a full refund).
+     *
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $config
+     */
+    private function refundAmount(array $payload, array $config): ?float
+    {
+        $stripeCents = $this->firstValue($payload, ['data.object.amount_refunded']);
+        if ($stripeCents !== null) {
+            return ((float) $stripeCents) / 100.0;
+        }
+
+        $amount = $this->firstValue($payload, ['amount_refunded', 'data.amount_refunded', 'obj.amount_refunded']);
+        if ($amount !== null) {
+            return ((float) $amount) / (float) ($config['amount_divisor'] ?? 1);
+        }
+
+        return null;
     }
 
     private function extractOrderNumber(array $payload): ?string

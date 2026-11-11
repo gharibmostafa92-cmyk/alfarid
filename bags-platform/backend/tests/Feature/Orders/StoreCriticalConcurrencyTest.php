@@ -472,7 +472,7 @@ class StoreCriticalConcurrencyTest extends TestCase
         $payload = ['event_id' => 'evt_concurrent', 'order_number' => $order->order_number, 'status' => 'paid'];
         $signature = hash_hmac('sha256', json_encode($payload, JSON_THROW_ON_ERROR), 'race-secret');
 
-        return 'config(["webhooks.payment.testpay" => ["secret" => "race-secret", "signature_header" => "X-Webhook-Signature"]]);'
+        return 'config(["webhooks.payment.testpay" => ["secret" => "race-secret", "signature_header" => "X-Webhook-Signature", "require_amount" => false]]);'
             .$this->httpJob('', 'POST', '/api/v1/webhooks/payment/testpay', $payload, [
                 'HTTP_X_WEBHOOK_SIGNATURE' => $signature,
             ]);

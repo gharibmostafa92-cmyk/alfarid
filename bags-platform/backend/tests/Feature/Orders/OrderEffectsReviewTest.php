@@ -317,7 +317,7 @@ class OrderEffectsReviewTest extends TestCase
 
     public function test_paid_but_unconfirmable_order_is_flagged_and_system_user_owns_auto_movements(): void
     {
-        config(['webhooks.payment.testpay' => ['secret' => 'pay-secret', 'signature_header' => 'X-Webhook-Signature']]);
+        config(['webhooks.payment.testpay' => ['secret' => 'pay-secret', 'signature_header' => 'X-Webhook-Signature', 'require_amount' => false]]);
         $variant = $this->purchasableVariant(100);
         // طلب بإجمالي معروف وبند بلا أي مخزون: التأكيد التلقائي سيفشل في التوزيع
         $order = Order::factory()->create([

@@ -49,6 +49,8 @@ class WebhookTest extends TestCase
         config(['webhooks.payment.testpay' => [
             'secret' => self::PAY_SECRET,
             'signature_header' => 'X-Webhook-Signature',
+            // WH-M8: بوابة الاختبار لا ترسل مبالغ — تعلن ذلك صراحةً تحت الافتراضي الصارم الجديد
+            'require_amount' => false,
         ]]);
         $this->staff = User::factory()->create();
         // منفّذ نظام: تأكيد الويب هوك بلا فاعل موظف — يسقط على أول Super Admin
@@ -191,6 +193,137 @@ class WebhookTest extends TestCase
         $this->postWebhook('/api/v1/webhooks/shipping/bosta', [
             'event_id' => 'ev_y', 'awb_number' => 'NOPE-1', 'status' => 'delivered',
         ], 'bad')->assertForbidden();
+    }
+
+    public function test_checkout_completed_with_unknown_deferred_status_is_not_inferred_paid(): void
+    {
+        $variant = $this->purchasableVariant(100);
+        $this->giveStock($variant, 5);
+        $order = $this->makeOrder($variant, 1, 'card');
+        $cents = (int) round(((float) $order->grand_total) * 100);
+
+        // Stripe checkout.session.completed لوسيلة دفع مؤجلة: الحالة الصريحة unpaid
+        // يجب ألا تُرقَّى إلى paid عبر استدلال النوع (المعاينة في task.txt WH-H1).
+        $this->postWebhook('/api/v1/webhooks/payment/testpay', [
+            'event_id' => 'evt_deferred', 'order_number' => $order->order_number,
+            'type' => 'checkout.session.completed',
+            'data' => ['object' => ['payment_status' => 'unpaid', 'amount_total' => $cents]],
+        ], self::PAY_SECRET)->assertOk()->assertJsonPath('ignored', true);
+
+        $this->assertSame('unpaid', $order->fresh()->payment_status);
+        $this->assertSame('ignored', WebhookLog::query()->sole()->status);
+    }
+
+    public function test_second_paid_event_on_paid_order_flags_double_payment(): void
+    {
+        $variant = $this->purchasableVariant(100);
+        $this->giveStock($variant, 10);
+        $order = $this->makeOrder($variant, 2, 'card');
+        $total = (float) $order->grand_total;
+
+        $this->postWebhook('/api/v1/webhooks/payment/testpay', [
+            'event_id' => 'evt_pay_1', 'order_number' => $order->order_number,
+            'status' => 'paid', 'amount' => $total,
+        ], self::PAY_SECRET)->assertOk();
+
+        $reserved = (string) $this->level($variant->id)->reserved;
+        $this->postWebhook('/api/v1/webhooks/payment/testpay', [
+            'event_id' => 'evt_pay_2', 'order_number' => $order->order_number,
+            'status' => 'paid', 'amount' => $total,
+        ], self::PAY_SECRET)->assertOk();
+
+        $order = $order->fresh();
+        $this->assertSame('paid', $order->payment_status);
+        $this->assertSame(OrderStatus::Confirmed, $order->status);
+        $this->assertTrue($order->needs_attention); // تحصيل مزدوج محتمل يستوجب مراجعة
+        $this->assertSame($reserved, (string) $this->level($variant->id)->reserved);
+    }
+
+    public function test_paid_event_after_refund_does_not_revert_refund(): void
+    {
+        $variant = $this->purchasableVariant(100);
+        $this->giveStock($variant, 5);
+        $order = $this->makeOrder($variant, 1, 'card');
+        $total = (float) $order->grand_total;
+
+        $this->postWebhook('/api/v1/webhooks/payment/testpay', [
+            'event_id' => 'evt_refund_1', 'order_number' => $order->order_number, 'status' => 'refunded',
+        ], self::PAY_SECRET)->assertOk();
+        $this->assertSame('refunded', $order->fresh()->payment_status);
+
+        // البوابات لا تضمن ترتيب التسليم: paid متأخر يجب ألا يقلب مستردًا إلى paid.
+        $this->postWebhook('/api/v1/webhooks/payment/testpay', [
+            'event_id' => 'evt_pay_late', 'order_number' => $order->order_number,
+            'status' => 'paid', 'amount' => $total,
+        ], self::PAY_SECRET)->assertOk();
+
+        $order = $order->fresh();
+        $this->assertSame('refunded', $order->payment_status);
+        $this->assertTrue($order->needs_attention);
+    }
+
+    public function test_failed_event_does_not_overwrite_refund(): void
+    {
+        $variant = $this->purchasableVariant(100);
+        $this->giveStock($variant, 5);
+        $order = $this->makeOrder($variant, 1, 'card');
+
+        $this->postWebhook('/api/v1/webhooks/payment/testpay', [
+            'event_id' => 'evt_refund_2', 'order_number' => $order->order_number, 'status' => 'refunded',
+        ], self::PAY_SECRET)->assertOk();
+
+        $this->postWebhook('/api/v1/webhooks/payment/testpay', [
+            'event_id' => 'evt_fail_late', 'order_number' => $order->order_number, 'status' => 'failed',
+        ], self::PAY_SECRET)->assertOk()->assertJsonPath('ignored', true);
+
+        $this->assertSame('refunded', $order->fresh()->payment_status);
+    }
+
+    public function test_partial_refund_keeps_paid_status_and_flags_attention(): void
+    {
+        $variant = $this->purchasableVariant(100);
+        $this->giveStock($variant, 5);
+        $order = $this->makeOrder($variant, 2, 'card'); // grand_total > مبلغ الاسترداد الجزئي
+        $total = (float) $order->grand_total;
+        $this->assertGreaterThan(10.0, $total);
+
+        $this->postWebhook('/api/v1/webhooks/payment/testpay', [
+            'event_id' => 'evt_pay_3', 'order_number' => $order->order_number,
+            'status' => 'paid', 'amount' => $total,
+        ], self::PAY_SECRET)->assertOk();
+        $this->assertSame('paid', $order->fresh()->payment_status);
+
+        // استرداد 10 جنيهات من طلب أكبر يجب ألا يعلّم الطلب كله refunded.
+        $this->postWebhook('/api/v1/webhooks/payment/testpay', [
+            'event_id' => 'evt_refund_partial', 'order_number' => $order->order_number,
+            'status' => 'refunded', 'amount_refunded' => 10.0,
+        ], self::PAY_SECRET)->assertOk();
+
+        $order = $order->fresh();
+        $this->assertSame('paid', $order->payment_status);
+        $this->assertTrue($order->needs_attention);
+    }
+
+    public function test_signed_success_without_amount_flags_attention_by_default(): void
+    {
+        // بوابة مستقلة بلا require_amount — تُجرّب الافتراضي الصارم الجديد في amountMatches
+        config(['webhooks.payment.strictpay' => [
+            'secret' => self::PAY_SECRET,
+            'signature_header' => 'X-Webhook-Signature',
+        ]]);
+        $variant = $this->purchasableVariant(100);
+        $this->giveStock($variant, 5);
+        $order = $this->makeOrder($variant, 1, 'card');
+
+        // حدث موقّع بلا أي حقل مبلغ: افتراضيًا يجب ألا يؤكد الطلب (WH-M8).
+        $this->postWebhook('/api/v1/webhooks/payment/strictpay', [
+            'event_id' => 'evt_no_amount', 'order_number' => $order->order_number, 'status' => 'paid',
+        ], self::PAY_SECRET)->assertOk()->assertJsonPath('received', false);
+
+        $order = $order->fresh();
+        $this->assertSame('unpaid', $order->payment_status);
+        $this->assertTrue($order->needs_attention);
+        $this->assertSame(OrderStatus::Pending, $order->status);
     }
 
     // ---------- helpers ----------
