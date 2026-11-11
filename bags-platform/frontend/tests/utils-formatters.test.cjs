@@ -78,6 +78,16 @@ test('toLatinDigits normalizes Arabic-Indic and Eastern Arabic digits and comma 
   assert.equal(toLatinDigits(123), '123');
 });
 
+test('toLatinDigits strips unambiguous thousands separators without breaking decimal commas', () => {
+  assert.equal(toLatinDigits('1,500'), '1500');
+  assert.equal(toLatinDigits('1,234.50'), '1234.50');
+  assert.equal(toLatinDigits('١٬٥٠٠'), '1500');
+  assert.equal(parseNumericAmount('1,500'), 1500);
+  // Pinned contract: a lone comma keeps decimal meaning.
+  assert.equal(toLatinDigits('١٢,٣٤'), '12.34');
+  assert.equal(toLatinDigits('١٢٫٣٤'), '12.34');
+});
+
 test('parseNumericAmount correctly parses Arabic numerals via toLatinDigits', () => {
   assert.equal(parseNumericAmount('١٥٠'), 150);
   assert.equal(parseNumericAmount('١٥٠.٥'), 150.5);

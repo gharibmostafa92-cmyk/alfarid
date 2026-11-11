@@ -65,7 +65,7 @@ class OperationIdempotencyService
                 $record = DB::table('operation_idempotency_keys')->where($scope)->lockForUpdate()->first();
             } catch (QueryException $e) {
                 // Postgres 55P03 triggers when insertOrIgnore waits on an uncommitted concurrent transaction.
-                if (($e->errorInfo[0] ?? null) === '55P03') {
+                if (in_array($e->errorInfo[0] ?? null, ['55P03', '40P01', '40001'], true)) {
                     throw new RetryableConflict('العملية مشغولة؛ أعد المحاولة بنفس المفتاح.', $e);
                 }
                 throw $e;
@@ -86,7 +86,19 @@ class OperationIdempotencyService
 
                 return $result;
             }
-            $result = $execute();
+            try {
+                $result = $execute();
+            } catch (QueryException $e) {
+                // M5: deadlock / serialization failure (or lock timeout) inside the
+                // callback rolls the whole transaction — including the key row —
+                // back, so nothing was written and the client may safely retry with
+                // the same key. Never retry implicitly here (attempts stay 1) to
+                // avoid repeating non-transactional side effects.
+                if (in_array($e->errorInfo[0] ?? null, ['55P03', '40P01', '40001'], true)) {
+                    throw new RetryableConflict('العملية مشغولة؛ أعد المحاولة بنفس المفتاح.', $e);
+                }
+                throw $e;
+            }
             DB::table('operation_idempotency_keys')->where($scope)->update([
                 // Store morph aliases instead of FQCNs to prevent model namespace refactoring from breaking historical replays.
                 'result_type' => array_search($result::class, self::RESULT_TYPES, true) ?: $result->getMorphClass(), 'result_id' => $result->getKey(),

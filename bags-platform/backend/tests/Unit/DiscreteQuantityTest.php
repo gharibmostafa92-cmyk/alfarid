@@ -38,6 +38,30 @@ class DiscreteQuantityTest extends TestCase
         $this->assertTrue(true);
     }
 
+    public function test_accepts_fractional_quantities_between_zero_and_one(): void
+    {
+        $this->assertTrue(DiscreteQuantity::isValid(0.5));
+        $this->assertTrue(DiscreteQuantity::isValid('0.25'));
+        $this->assertTrue(DiscreteQuantity::isValid(0.0001));
+        $this->assertTrue(DiscreteQuantity::isValid(0.0001, allowZero: true));
+
+        DiscreteQuantity::assert(0.5);
+        DiscreteQuantity::assert('0.25');
+        $this->assertTrue(true);
+    }
+
+    public function test_assert_whole_rejects_values_above_max_decimal(): void
+    {
+        foreach ([100000000, 1e15, '1e20'] as $bad) {
+            try {
+                DiscreteQuantity::assertWhole($bad);
+                $this->fail('Expected rejection for '.var_export($bad, true));
+            } catch (BusinessException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+    }
+
     public function test_assert_whole_accepts_positive_integers_and_rejects_fractions(): void
     {
         DiscreteQuantity::assertWhole(1);

@@ -81,6 +81,7 @@ class TaskHardeningRegressionTest extends TestCase
             'customer-password-reset', 'customer-reset-confirm', 'customer-login',
             'coupon', 'cart', 'checkout', 'unified-login', 'unified-handoff',
             'admin-login', 'supplier-login', 'pos-login', 'order-tracking', 'webhooks',
+            'webhooks-payment', 'webhooks-shipping', 'webhooks-whatsapp',
         ]);
     }
 

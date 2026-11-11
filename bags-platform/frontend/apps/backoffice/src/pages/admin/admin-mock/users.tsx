@@ -89,7 +89,7 @@ export function UsersScreen({ rolesLoading, can, onUsersChanged, roles, onNaviga
   const perPage = 8;
   const [drawer, setDrawer] = useState<{ mode: 'create' } | { mode: 'edit'; user: AdminUser; focusPwd?: boolean } | null>(null);
   const [confirm, setConfirm] = useState<AdminUser | null>(null);
-  const linkedUser = useApi(signal => initialUserId ? adminApi.getUser(initialUserId, signal) : Promise.resolve(null), [initialUserId]);
+  const linkedUser = useApi(signal => initialUserId ? adminApi.getUser(initialUserId, signal) : Promise.resolve(null), [initialUserId], { keepPreviousData: false });
   useQueryError(linkedUser.error);
   const mayEditLinkedUser = canAny(can, 'users.update', 'users.manage');
   useEffect(() => {

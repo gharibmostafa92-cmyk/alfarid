@@ -11,11 +11,16 @@
     "showLineNumbers": true,
     "copyToClipboard": false,
     "instructionFilePath": "repomix/instructions/audit-performance-prompt.md",
-    "headerText": "DOMAIN: SYSTEM SKELETON & GLOBAL ARCHITECTURAL TOPOLOGY\nHigh-level architectural map: composer & package manifests, bootstrap lifecycles, route registrars, service providers, and database seeder orchestrations."
+    "headerText": "DOMAIN: SYSTEM SKELETON & GLOBAL ARCHITECTURAL TOPOLOGY\nHigh-level architectural map: composer & package manifests, bootstrap lifecycles, route registrars, service providers, configuration, and database seeder orchestrations."
   },
   "include": [
     "README.md",
+    "docs/TASK_DEPLOYMENT_STATUS.md",
     "bags-platform/backend/composer.json",
+    "bags-platform/backend/config/auth.php",
+    "bags-platform/backend/config/sanctum.php",
+    "bags-platform/backend/config/permission.php",
+    "bags-platform/backend/.env.example",
     "bags-platform/backend/bootstrap/**",
     "bags-platform/backend/routes/web.php",
     "bags-platform/backend/routes/console.php",
@@ -37,7 +42,10 @@
       "**/node_modules/**",
       "**/.git/**",
       "**/storage/**",
-      "**/*.log"
+      "**/*.log",
+      "**/dist/**",
+      "**/.next/**",
+      "repomix/outputs/**"
     ]
   }
 }

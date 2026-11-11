@@ -1,42 +1,45 @@
 ﻿{
-    "output":  {
-                   "filePath":  "repomix/outputs/started/repomix-system-kernel.xml",
-                   "style":  "xml",
-                   "parsableStyle":  true,
-                   "fileSummary":  true,
-                   "directoryStructure":  true,
-                   "removeComments":  false,
-                   "removeEmptyLines":  true,
-                   "topFilesLength":  20,
-                   "showLineNumbers":  true,
-                   "copyToClipboard":  false,
-                   "instructionFilePath":  "repomix/instructions/audit-performance-prompt.md",
-                   "headerText":  "DOMAIN: SYSTEM KERNEL, OPERATION IDEMPOTENCY \u0026 SHARED CORE UTILITIES\nAuditing shared OperationIdempotencyService, DiscreteQuantity unit enforcement, ProportionalDistribution math, maintenance pruning commands, and system concurrency benchmarks."
-               },
-    "include":  [
-                    "bags-platform/backend/app/Services/Shared/**",
-                    "bags-platform/backend/app/Support/**",
-                    "bags-platform/backend/app/Rules/**",
-                    "bags-platform/backend/app/Exceptions/**",
-                    "bags-platform/backend/app/Console/Commands/Maintenance/**",
-                    "bags-platform/backend/app/Models/Setting.php",
-                    "bags-platform/backend/app/Models/InventoryIdempotencyKey.php",
-                    "bags-platform/backend/app/Models/WebhookLog.php",
-                    "bags-platform/frontend/packages/utils/src/**",
-                    "bags-platform/frontend/packages/ui/src/**"
-                ],
-    "ignore":  {
-                   "useGitignore":  true,
-                   "useDefaultPatterns":  true,
-                   "customPatterns":  [
-                                          "**/tests/**",
-                                          "**/*.test.*",
-                                          "**/*.spec.*",
-                                          "**/vendor/**",
-                                          "**/node_modules/**",
-                                          "**/.git/**",
-                                          "**/storage/**",
-                                          "**/*.log"
-                                      ]
-               }
+    "output": {
+        "filePath": "repomix/outputs/started/repomix-system-kernel.xml",
+        "style": "xml",
+        "parsableStyle": true,
+        "fileSummary": true,
+        "directoryStructure": true,
+        "removeComments": false,
+        "removeEmptyLines": true,
+        "topFilesLength": 20,
+        "showLineNumbers": true,
+        "copyToClipboard": false,
+        "instructionFilePath": "repomix/instructions/audit-performance-prompt.md",
+        "headerText": "DOMAIN: SYSTEM KERNEL, OPERATION IDEMPOTENCY & SHARED CORE UTILITIES\nAuditing shared OperationIdempotencyService, DiscreteQuantity unit enforcement, ProportionalDistribution math, maintenance pruning commands, and system concurrency benchmarks."
+    },
+    "include": [
+        "bags-platform/backend/app/Services/Shared/**",
+        "bags-platform/backend/app/Support/**",
+        "bags-platform/backend/app/Rules/**",
+        "bags-platform/backend/app/Exceptions/**",
+        "bags-platform/backend/app/Console/Commands/Maintenance/**",
+        "bags-platform/backend/app/Models/Setting.php",
+        "bags-platform/backend/app/Models/InventoryIdempotencyKey.php",
+        "bags-platform/backend/app/Models/WebhookLog.php",
+        "bags-platform/frontend/packages/utils/src/**",
+        "bags-platform/frontend/packages/ui/src/**"
+    ],
+    "ignore": {
+        "useGitignore": true,
+        "useDefaultPatterns": true,
+        "customPatterns": [
+            "**/tests/**",
+            "**/*.test.*",
+            "**/*.spec.*",
+            "**/vendor/**",
+            "**/node_modules/**",
+            "**/.git/**",
+            "**/storage/**",
+            "**/*.log",
+            "**/dist/**",
+            "**/.next/**",
+            "repomix/outputs/**"
+        ]
+    }
 }

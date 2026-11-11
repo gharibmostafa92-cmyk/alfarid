@@ -1,36 +1,39 @@
 ﻿{
-    "output":  {
-                   "filePath":  "repomix/outputs/repomix-database-schema.xml",
-                   "style":  "xml",
-                   "parsableStyle":  true,
-                   "fileSummary":  true,
-                   "directoryStructure":  true,
-                   "removeComments":  false,
-                   "removeEmptyLines":  true,
-                   "topFilesLength":  20,
-                   "showLineNumbers":  true,
-                   "copyToClipboard":  false,
-                   "instructionFilePath":  "repomix/instructions/audit-database-performance.md",
-                   "headerText":  "DOMAIN: DATABASE SCHEMA, COMPOSITE INDEXES, LOCKS \u0026 MIGRATIONS\nComprehensive audit of all 156 PostgreSQL schema migrations, composite indexes, foreign key coverage, sequence concurrency, and statement timeout guards."
-               },
-    "include":  [
-                    "bags-platform/backend/database/migrations/*.php",
-                    "bags-platform/backend/database/seeders/*.php",
-                    "bags-platform/backend/config/database.php",
-                    "bags-platform/infrastructure/pgbouncer/pgbouncer.ini"
-                ],
-    "ignore":  {
-                   "useGitignore":  true,
-                   "useDefaultPatterns":  true,
-                   "customPatterns":  [
-                                          "**/tests/**",
-                                          "**/*.test.*",
-                                          "**/*.spec.*",
-                                          "**/vendor/**",
-                                          "**/node_modules/**",
-                                          "**/.git/**",
-                                          "**/storage/**",
-                                          "**/*.log"
-                                      ]
-               }
+    "output": {
+        "filePath": "repomix/outputs/started/repomix-database-schema.xml",
+        "style": "xml",
+        "parsableStyle": true,
+        "fileSummary": true,
+        "directoryStructure": true,
+        "removeComments": false,
+        "removeEmptyLines": true,
+        "topFilesLength": 20,
+        "showLineNumbers": true,
+        "copyToClipboard": false,
+        "instructionFilePath": "repomix/instructions/audit-database-performance.md",
+        "headerText": "DOMAIN: DATABASE SCHEMA, COMPOSITE INDEXES, LOCKS & MIGRATIONS\nComprehensive audit of all 156 PostgreSQL schema migrations, composite indexes, foreign key coverage, sequence concurrency, and statement timeout guards."
+    },
+    "include": [
+        "bags-platform/backend/database/migrations/*.php",
+        "bags-platform/backend/database/seeders/*.php",
+        "bags-platform/backend/config/database.php",
+        "bags-platform/infrastructure/pgbouncer/pgbouncer.ini"
+    ],
+    "ignore": {
+        "useGitignore": true,
+        "useDefaultPatterns": true,
+        "customPatterns": [
+            "**/tests/**",
+            "**/*.test.*",
+            "**/*.spec.*",
+            "**/vendor/**",
+            "**/node_modules/**",
+            "**/.git/**",
+            "**/storage/**",
+            "**/*.log",
+            "**/dist/**",
+            "**/.next/**",
+            "repomix/outputs/**"
+        ]
+    }
 }

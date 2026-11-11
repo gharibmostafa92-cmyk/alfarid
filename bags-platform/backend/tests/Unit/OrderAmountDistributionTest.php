@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit;
 
+use App\Exceptions\BusinessException;
 use App\Services\Shared\ProportionalDistribution;
 use PHPUnit\Framework\TestCase;
 use Random\Engine\Mt19937;
@@ -30,6 +31,28 @@ class OrderAmountDistributionTest extends TestCase
                 static fn (float $share): int => (int) round($share * 100),
                 $shares,
             )), "Sample {$sample}");
+        }
+    }
+
+    public function test_zero_path_preserves_original_keys(): void
+    {
+        $this->assertSame(
+            [17 => 0.0, 42 => 0.0],
+            ProportionalDistribution::distribute(0.0, [17 => 5.0, 42 => 15.0])
+        );
+        $this->assertSame(
+            [17 => 0.0, 42 => 0.0],
+            ProportionalDistribution::distribute(100.0, [17 => 0.0, 42 => 0.0])
+        );
+    }
+
+    public function test_negative_weight_is_rejected(): void
+    {
+        try {
+            ProportionalDistribution::distribute(100.0, [50.0, -5.0]);
+            $this->fail('negative weight must be rejected');
+        } catch (BusinessException) {
+            $this->addToAssertionCount(1);
         }
     }
 

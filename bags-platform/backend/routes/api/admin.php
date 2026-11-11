@@ -106,7 +106,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
     ->group(function (): void {
         Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');
         Route::get('dashboard', [DashboardController::class, 'index'])->middleware('permission:reports.view')->name('dashboard');
-        Route::prefix('reports')->name('reports.')->middleware(['permission:reports.view', 'throttle:30,1'])->group(function (): void {
+        Route::prefix('reports')->name('reports.')->middleware(['permission:reports.view', 'throttle:admin-reports'])->group(function (): void {
             Route::get('sales', [ReportController::class, 'sales'])->name('sales');
             Route::get('inventory', [ReportController::class, 'inventory'])->name('inventory');
             Route::get('profit', [ReportController::class, 'profit'])->name('profit');
@@ -193,7 +193,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
         Route::put('products/{product}/media/reorder', [ProductMediaController::class, 'reorder'])->name('products.media.reorder');
         Route::get('products/{product}/media', [ProductMediaController::class, 'index'])->name('products.media.index');
         // Throttle product media uploads to prevent CPU saturation from synchronous image processing.
-        Route::post('products/{product}/media', [ProductMediaController::class, 'store'])->middleware('throttle:30,1')->name('products.media.store');
+        Route::post('products/{product}/media', [ProductMediaController::class, 'store'])->middleware('throttle:admin-media-uploads')->name('products.media.store');
         Route::delete('products/{product}/media/{media}', [ProductMediaController::class, 'destroy'])->name('products.media.destroy');
 
         // Inventory management
@@ -203,7 +203,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
         Route::prefix('inventory')->name('inventory.')->group(function () {
             Route::get('/', [InventoryController::class, 'index'])->name('index');
             Route::get('/movements', [InventoryController::class, 'movements'])->name('movements');
-            Route::post('/adjustments', [InventoryController::class, 'adjustments'])->name('adjustments');
+            Route::post('/adjustments', [InventoryController::class, 'adjustments'])->middleware('permission:inventory.adjust')->name('adjustments');
         });
 
         // Stock transfers
@@ -216,15 +216,15 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
         // Stocktake sessions
         Route::apiResource('stocktakes', StocktakeController::class);
         Route::patch('stocktakes/{stocktake}/items', [StocktakeController::class, 'updateItems'])->name('stocktakes.items.update');
-        Route::post('stocktakes/{stocktake}/approve', [StocktakeController::class, 'approve'])->name('stocktakes.approve');
+        Route::post('stocktakes/{stocktake}/approve', [StocktakeController::class, 'approve'])->middleware('permission:stocktakes.approve')->name('stocktakes.approve');
 
         // Pricing and customer groups
         Route::apiResource('customer-groups', CustomerGroupController::class);
 
         Route::apiResource('price-lists', PriceListController::class);
-        Route::post('price-lists/{price_list}/import', [PriceListController::class, 'import'])->name('price-lists.import');
-        Route::get('price-lists/{price_list}/export', [PriceListController::class, 'export'])->name('price-lists.export');
-        Route::post('price-lists/{price_list}/apply-percentage', [PriceListController::class, 'applyPercentage'])->name('price-lists.apply-percentage');
+        Route::post('price-lists/{price_list}/import', [PriceListController::class, 'import'])->middleware('throttle:admin-heavy')->name('price-lists.import');
+        Route::get('price-lists/{price_list}/export', [PriceListController::class, 'export'])->middleware('throttle:admin-heavy')->name('price-lists.export');
+        Route::post('price-lists/{price_list}/apply-percentage', [PriceListController::class, 'applyPercentage'])->middleware('permission:price_lists.update')->name('price-lists.apply-percentage');
 
         Route::scopeBindings()->group(function () {
             Route::apiResource('price-lists.items', PriceListItemController::class);
@@ -232,20 +232,21 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
 
         // Customer management
         Route::apiResource('customers', CustomerController::class);
-        Route::post('customers/{customer}/documents', [CustomerController::class, 'storeDocument'])->name('customers.documents.store');
+        Route::post('customers/{customer}/documents', [CustomerController::class, 'storeDocument'])->middleware('throttle:admin-heavy')->name('customers.documents.store');
         Route::post('customers/{customer}/restore', [CustomerController::class, 'restore'])->withTrashed()->name('customers.restore');
         Route::post('customers/{customer}/approve', [CustomerController::class, 'approve'])->name('customers.approve');
         Route::post('customers/{customer}/reject', [CustomerController::class, 'reject'])->name('customers.reject');
         Route::post('customers/{customer}/suspend', [CustomerController::class, 'suspend'])->name('customers.suspend');
         Route::post('customers/{customer}/reactivate', [CustomerController::class, 'reactivate'])->name('customers.reactivate');
         Route::get('customers/{customer}/history', [CustomerController::class, 'history'])->name('customers.history');
-        Route::get('customers/{customer}/wallet', [CustomerWalletController::class, 'show'])->name('customers.wallet.show');
-        Route::get('customers/{customer}/wallet/summary', [CustomerWalletController::class, 'summary'])->name('customers.wallet.summary');
-        Route::get('customers/{customer}/wallet/adjustments', [CustomerWalletController::class, 'adjustments'])->name('customers.wallet.adjustments.index');
-        Route::post('customers/{customer}/wallet/adjustments', [CustomerWalletController::class, 'storeAdjustment'])->name('customers.wallet.adjustments.store');
-        Route::delete('wallet-adjustments/{adjustment}', [CustomerWalletController::class, 'reverseAdjustment'])->name('wallet.adjustments.reverse');
+        Route::get('customers/{customer}/wallet', [CustomerWalletController::class, 'show'])->middleware('permission:customers.wallet.view')->name('customers.wallet.show');
+        Route::get('customers/{customer}/wallet/summary', [CustomerWalletController::class, 'summary'])->middleware('permission:customers.wallet.view')->name('customers.wallet.summary');
+        Route::get('customers/{customer}/wallet/adjustments', [CustomerWalletController::class, 'adjustments'])->middleware('permission:customers.wallet.adjust')->name('customers.wallet.adjustments.index');
+        Route::post('customers/{customer}/wallet/adjustments', [CustomerWalletController::class, 'storeAdjustment'])->middleware('permission:customers.wallet.adjust')->name('customers.wallet.adjustments.store');
+        Route::delete('wallet-adjustments/{adjustment}', [CustomerWalletController::class, 'reverseAdjustment'])->where('adjustment', '[0-9]{1,18}')->middleware('permission:customers.wallet.adjust')->name('wallet.adjustments.reverse');
         Route::scopeBindings()->group(function (): void {
             Route::patch('customers/{customer}/documents/{document}', [CustomerController::class, 'reviewDocument'])
+                ->middleware('throttle:admin-heavy')
                 ->name('customers.documents.update');
             Route::get('customers/{customer}/documents/{document}/download', [CustomerController::class, 'downloadDocument'])
                 ->name('customers.documents.download');
@@ -256,10 +257,10 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
         Route::get('orders/stats', [OrderController::class, 'stats'])->name('orders.stats');
         Route::get('orders/{order}', [OrderController::class, 'show'])->name('orders.show');
         Route::patch('orders/{order}/status', [OrderController::class, 'updateStatus'])->name('orders.update-status');
-        Route::post('orders/{order}/payment', [OrderController::class, 'updatePayment'])->name('orders.update-payment');
-        Route::post('orders/{order}/allocate', [OrderController::class, 'allocate'])->name('orders.allocate');
+        Route::post('orders/{order}/payment', [OrderController::class, 'updatePayment'])->middleware('permission:orders.payment')->name('orders.update-payment');
+        Route::post('orders/{order}/allocate', [OrderController::class, 'allocate'])->middleware('permission:orders.allocate')->name('orders.allocate');
         // Releases allocated branch stock for an order back into available inventory.
-        Route::post('orders/{order}/deallocate', [OrderController::class, 'deallocate'])->name('orders.deallocate');
+        Route::post('orders/{order}/deallocate', [OrderController::class, 'deallocate'])->middleware('permission:orders.allocate')->name('orders.deallocate');
         Route::post('orders/{order}/shipment', [OrderController::class, 'createShipment'])->name('orders.shipment');
 
         // Shipping carriers, zones, and rates
@@ -271,25 +272,25 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
         Route::apiResource('promotions', PromotionController::class);
         Route::apiResource('coupons', CouponController::class);
 
-        Route::get('return-items/{return_item}/attachments/{attachment}', [AttachmentController::class, 'returnFile'])->whereNumber(['return_item', 'attachment'])->name('return-items.attachments.show');
-        Route::get('supplier-invoices/{invoice}/attachment', [AttachmentController::class, 'invoice'])->whereNumber('invoice')->name('supplier-invoices.attachment');
-        Route::get('supplier-deliveries/{delivery}/invoice', [AttachmentController::class, 'delivery'])->whereNumber('delivery')->name('deliveries.invoice');
+        Route::get('return-items/{return_item}/attachments/{attachment}', [AttachmentController::class, 'returnFile'])->where(['return_item' => '[0-9]{1,18}', 'attachment' => '[0-9]{1,18}'])->name('return-items.attachments.show');
+        Route::get('supplier-invoices/{invoice}/attachment', [AttachmentController::class, 'invoice'])->where('invoice', '[0-9]{1,18}')->name('supplier-invoices.attachment');
+        Route::get('supplier-deliveries/{delivery}/invoice', [AttachmentController::class, 'delivery'])->where('delivery', '[0-9]{1,18}')->name('deliveries.invoice');
         // Wholesale quotations and payment notices
         Route::get('quotations', [QuotationController::class, 'index'])->name('quotations.index');
-        Route::get('quotations/{quotation}', [QuotationController::class, 'show'])->whereNumber('quotation')->name('quotations.show');
-        Route::post('quotations/{quotation}/price', [QuotationController::class, 'price'])->whereNumber('quotation')->name('quotations.price');
-        Route::post('quotations/{quotation}/expire', [QuotationController::class, 'expire'])->whereNumber('quotation')->name('quotations.expire');
+        Route::get('quotations/{quotation}', [QuotationController::class, 'show'])->where('quotation', '[0-9]{1,18}')->name('quotations.show');
+        Route::post('quotations/{quotation}/price', [QuotationController::class, 'price'])->where('quotation', '[0-9]{1,18}')->middleware('permission:quotations.price')->name('quotations.price');
+        Route::post('quotations/{quotation}/expire', [QuotationController::class, 'expire'])->where('quotation', '[0-9]{1,18}')->name('quotations.expire');
         Route::get('payment-notices', [WholesalePaymentNoticeController::class, 'index'])->name('payment-notices.index');
-        Route::get('payment-notices/{payment_notice}', [WholesalePaymentNoticeController::class, 'show'])->whereNumber('payment_notice')->name('payment-notices.show');
-        Route::post('payment-notices/{payment_notice}/approve', [WholesalePaymentNoticeController::class, 'approve'])->whereNumber('payment_notice')->name('payment-notices.approve');
-        Route::post('payment-notices/{payment_notice}/reject', [WholesalePaymentNoticeController::class, 'reject'])->whereNumber('payment_notice')->name('payment-notices.reject');
-        Route::get('payment-notices/{notice}/receipt', [AttachmentController::class, 'paymentNotice'])->whereNumber('notice')->name('payment-notices.receipt');
+        Route::get('payment-notices/{payment_notice}', [WholesalePaymentNoticeController::class, 'show'])->where('payment_notice', '[0-9]{1,18}')->name('payment-notices.show');
+        Route::post('payment-notices/{payment_notice}/approve', [WholesalePaymentNoticeController::class, 'approve'])->where('payment_notice', '[0-9]{1,18}')->middleware('permission:payment_notices.approve')->name('payment-notices.approve');
+        Route::post('payment-notices/{payment_notice}/reject', [WholesalePaymentNoticeController::class, 'reject'])->where('payment_notice', '[0-9]{1,18}')->middleware('permission:payment_notices.reject')->name('payment-notices.reject');
+        Route::get('payment-notices/{notice}/receipt', [AttachmentController::class, 'paymentNotice'])->where('notice', '[0-9]{1,18}')->name('payment-notices.receipt');
 
         // Return requests (RMA)
         Route::apiResource('returns', ReturnController::class)->parameters(['returns' => 'return_request']);
         Route::post('returns/{return_request}/approve', [ReturnController::class, 'approve'])->name('returns.approve');
         Route::post('returns/{return_request}/receive', [ReturnController::class, 'receive'])->name('returns.receive');
-        Route::post('returns/{return_request}/refund', [ReturnController::class, 'refund'])->name('returns.refund');
+        Route::post('returns/{return_request}/refund', [ReturnController::class, 'refund'])->middleware('permission:returns.refund')->name('returns.refund');
 
         // Procurement, suppliers, and purchase orders
         Route::apiResource('suppliers', SupplierController::class);
@@ -314,13 +315,13 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
 
         Route::apiResource('supplier-invoices', SupplierInvoiceController::class)
             ->parameters(['supplier-invoices' => 'supplier_invoice']);
-        Route::post('supplier-invoices/{supplier_invoice}/post', [SupplierInvoiceController::class, 'post'])->name('supplier-invoices.post');
-        Route::post('supplier-invoices/{supplier_invoice}/cancel', [SupplierInvoiceController::class, 'cancel'])->name('supplier-invoices.cancel');
+        Route::post('supplier-invoices/{supplier_invoice}/post', [SupplierInvoiceController::class, 'post'])->middleware('permission:supplier_invoices.post')->name('supplier-invoices.post');
+        Route::post('supplier-invoices/{supplier_invoice}/cancel', [SupplierInvoiceController::class, 'cancel'])->middleware('permission:supplier_invoices.cancel')->name('supplier-invoices.cancel');
 
         Route::apiResource('supplier-payments', SupplierPaymentController::class)
             ->parameters(['supplier-payments' => 'supplier_payment']);
-        Route::post('supplier-payments/{supplier_payment}/allocate', [SupplierPaymentController::class, 'allocate'])->name('supplier-payments.allocate');
-        Route::post('supplier-payments/{supplier_payment}/void', [SupplierPaymentController::class, 'void'])->name('supplier-payments.void');
+        Route::post('supplier-payments/{supplier_payment}/allocate', [SupplierPaymentController::class, 'allocate'])->middleware('permission:supplier_payments.update')->name('supplier-payments.allocate');
+        Route::post('supplier-payments/{supplier_payment}/void', [SupplierPaymentController::class, 'void'])->middleware('permission:supplier_payments.delete')->name('supplier-payments.void');
 
         Route::middleware('permission:store.manage|settings.view')->group(function (): void {
             Route::get('banners', [BannerController::class, 'index'])->name('banners.index');
@@ -328,8 +329,8 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
         });
         Route::middleware('permission:store.manage')->group(function (): void {
             Route::put('banners/reorder', [BannerController::class, 'reorder'])->name('banners.reorder');
-            Route::post('banners', [BannerController::class, 'store'])->middleware('throttle:30,1')->name('banners.store');
-            Route::post('banners/{banner}', [BannerController::class, 'update'])->middleware('throttle:30,1')->name('banners.update');
+            Route::post('banners', [BannerController::class, 'store'])->middleware('throttle:admin-banners')->name('banners.store');
+            Route::post('banners/{banner}', [BannerController::class, 'update'])->middleware('throttle:admin-banners')->name('banners.update');
             Route::patch('banners/{banner}/toggle', [BannerController::class, 'toggle'])->name('banners.toggle');
             Route::delete('banners/{banner}', [BannerController::class, 'destroy'])->name('banners.destroy');
         });
@@ -345,20 +346,51 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
         Route::pattern('treasury', '[0-9]{1,18}');
         Route::pattern('expense', '[0-9]{1,18}');
         Route::pattern('treasury_transfer', '[0-9]{1,18}');
+        Route::pattern('treasuryTransfer', '[0-9]{1,18}');
+        Route::pattern('identity', '[0-9]{1,18}');
         Route::pattern('shift', '[0-9]{1,18}');
 
-        Route::apiResource('treasuries', TreasuryController::class);
+        Route::apiResource('treasuries', TreasuryController::class)
+            ->only(['index', 'show'])
+            ->middleware('permission:treasuries.view');
+        Route::apiResource('treasuries', TreasuryController::class)
+            ->only(['store'])
+            ->middleware('permission:treasuries.create');
+        Route::apiResource('treasuries', TreasuryController::class)
+            ->only(['update'])
+            ->middleware('permission:treasuries.update');
+        Route::apiResource('treasuries', TreasuryController::class)
+            ->only(['destroy'])
+            ->middleware('permission:treasuries.delete');
 
-        Route::apiResource('expenses', ExpenseController::class);
-        Route::get('expenses/{expense}/attachment', [ExpenseController::class, 'attachment'])->name('expenses.attachment');
-        Route::post('expenses/{expense}/void', [ExpenseController::class, 'void'])->name('expenses.void');
+        Route::apiResource('expenses', ExpenseController::class)
+            ->only(['index', 'show'])
+            ->middleware('permission:expenses.view');
+        Route::apiResource('expenses', ExpenseController::class)
+            ->only(['store'])
+            ->middleware('permission:expenses.create');
+        Route::apiResource('expenses', ExpenseController::class)
+            ->only(['update'])
+            ->middleware('permission:expenses.update');
+        Route::apiResource('expenses', ExpenseController::class)
+            ->only(['destroy'])
+            ->middleware('permission:expenses.delete');
+        Route::get('expenses/{expense}/attachment', [ExpenseController::class, 'attachment'])->middleware('permission:expenses.view')->name('expenses.attachment');
+        Route::post('expenses/{expense}/void', [ExpenseController::class, 'void'])->middleware('permission:expenses.delete')->name('expenses.void');
 
         Route::apiResource('treasury-transfers', TreasuryTransferController::class)
             ->parameters(['treasury-transfers' => 'treasuryTransfer'])
-            ->only(['index', 'store', 'show']);
+            ->only(['index', 'show'])
+            ->middleware('permission:treasury_transfers.view');
+        Route::apiResource('treasury-transfers', TreasuryTransferController::class)
+            ->parameters(['treasury-transfers' => 'treasuryTransfer'])
+            ->only(['store'])
+            ->middleware('permission:treasury_transfers.create');
         Route::post('treasury-transfers/{treasuryTransfer}/approve', [TreasuryTransferController::class, 'approve'])
+            ->middleware('permission:treasury_transfers.approve')
             ->name('treasury-transfers.approve');
         Route::post('treasury-transfers/{treasuryTransfer}/reject', [TreasuryTransferController::class, 'reject'])
+            ->middleware('permission:treasury_transfers.approve')
             ->name('treasury-transfers.reject');
 
         Route::get('shifts', [PosShiftAdminController::class, 'index'])
@@ -387,16 +419,16 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
             Route::post('conversations/{conversation}/stream', [AiMessageController::class, 'stream'])->middleware('throttle:ai-chat')->name('conversations.stream');
             Route::get('conversations', [AiConversationController::class, 'index'])->name('conversations.index');
             // Throttle conversation creation to rate-limit conversation record and initial title setup.
-            Route::post('conversations', [AiConversationController::class, 'store'])->middleware('throttle:30,1')->name('conversations.store');
+            Route::post('conversations', [AiConversationController::class, 'store'])->middleware('throttle:ai-conversations')->name('conversations.store');
             Route::get('conversations/{conversation}', [AiConversationController::class, 'show'])->name('conversations.show');
             Route::delete('conversations/{conversation}', [AiConversationController::class, 'destroy'])->name('conversations.destroy');
             Route::post('conversations/{conversation}/messages', [AiMessageController::class, 'store'])->middleware('throttle:ai-chat')->name('conversations.messages.store');
-            Route::post('conversations/{conversation}/attachments', [AiAttachmentController::class, 'store'])->middleware('throttle:30,1')->name('conversations.attachments.store');
+            Route::post('conversations/{conversation}/attachments', [AiAttachmentController::class, 'store'])->middleware('throttle:ai-attachments')->name('conversations.attachments.store');
             Route::post('actions/{action}/confirm', [AiActionController::class, 'confirm'])->middleware('permission:ai_agent.execute')->name('actions.confirm');
             Route::post('actions/{action}/cancel', [AiActionController::class, 'cancel'])->name('actions.cancel');
             Route::post('actions/{action}/undo', [AiActionController::class, 'undo'])->middleware('permission:ai_agent.execute')->name('actions.undo');
             // Throttle debounced autocomplete queries on staff and product mentions.
-            Route::get('mentions', [AiMentionController::class, 'search'])->middleware('throttle:60,1')->name('mentions');
+            Route::get('mentions', [AiMentionController::class, 'search'])->middleware('throttle:ai-mentions')->name('mentions');
             Route::get('welcome', [AiWelcomeController::class, 'show'])->name('welcome');
         });
     });

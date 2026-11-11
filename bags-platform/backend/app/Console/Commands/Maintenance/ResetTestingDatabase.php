@@ -15,10 +15,24 @@ class ResetTestingDatabase extends Command
 
     public function handle(): int
     {
+        // M10: never drop schemas outside local/testing — the connection this
+        // command opens uses production-shaped credentials on the same host.
+        if (! app()->environment('local', 'testing')) {
+            $this->error('Refusing to reset: db:reset-testing runs only in local/testing environments.');
+
+            return self::FAILURE;
+        }
+
         $host = config('database.connections.pgsql.host', '127.0.0.1');
         $port = config('database.connections.pgsql.port', '5432');
         $user = config('database.connections.pgsql.username', 'postgres');
-        $pass = config('database.connections.pgsql.password', '123456');
+        // M10: no default password — fail loud instead of guessing '123456'.
+        $pass = config('database.connections.pgsql.password');
+        if (! is_string($pass) || $pass === '') {
+            $this->error('Refusing to reset: database password is not configured.');
+
+            return self::FAILURE;
+        }
 
         $pdo = new PDO("pgsql:host={$host};port={$port};dbname=alfarid_testing", $user, $pass);
         $pdo->exec('DROP SCHEMA IF EXISTS public CASCADE;');

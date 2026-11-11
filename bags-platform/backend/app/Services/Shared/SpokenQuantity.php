@@ -106,7 +106,12 @@ final class SpokenQuantity
             $matched++;
             // WORDS holds ints; strict float comparisons below need a float.
             $v = (float) self::WORDS[$token];
-            if ($v === 1000.0 || $v === 100.0) {
+            if ($v === 100.0) {
+                // M11: hundreds accumulate in the open group so a following
+                // thousand multiplies them ("مية ألف" = 100000), instead of
+                // flushing 100 into the total first (which yielded 1100).
+                $group = ($group > 0 ? $group : 1) * $v;
+            } elseif ($v === 1000.0) {
                 $group = ($group > 0 ? $group : 1) * $v;
                 $total += $group;
                 $group = 0.0;
@@ -120,6 +125,12 @@ final class SpokenQuantity
             return null;
         }
 
-        return $total + $group;
+        $result = $total + $group;
+        // Match the numeric path's upper bound (999999).
+        if ($result > 999999) {
+            return null;
+        }
+
+        return $result;
     }
 }

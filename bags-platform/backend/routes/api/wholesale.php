@@ -33,35 +33,35 @@ Route::middleware(['auth:sanctum', 'auth.customer', 'wholesale.approved'])->grou
 
     // Catalog browsing and price list exports (PDF / Excel)
     Route::get('products', [ProductController::class, 'index'])->name('products.index');
-    Route::get('price-list/export', [ProductController::class, 'exportPriceList'])->name('price-list.export');
+    Route::get('price-list/export', [ProductController::class, 'exportPriceList'])->middleware('throttle:wholesale-heavy')->name('price-list.export');
 
     // Quick order lookup, spreadsheet import, and reordering
     Route::post('quick-order/lookup', [QuickOrderController::class, 'lookup'])->name('quick-order.lookup');
-    Route::post('quick-order/import', [QuickOrderController::class, 'import'])->name('quick-order.import');
+    Route::post('quick-order/import', [QuickOrderController::class, 'import'])->middleware('throttle:wholesale-heavy')->name('quick-order.import');
     Route::post('quick-order/add-to-cart', [QuickOrderController::class, 'addToCart'])->name('quick-order.add-to-cart');
     Route::get('orders', [OrderController::class, 'index'])->name('orders.index');
-    Route::get('orders/{order}', [OrderController::class, 'show'])->whereNumber('order')->name('orders.show');
-    Route::post('orders/{order}/reorder', [OrderController::class, 'reorder'])->whereNumber('order')->name('orders.reorder');
+    Route::get('orders/{order}', [OrderController::class, 'show'])->where('order', '[0-9]{1,18}')->name('orders.show');
+    Route::post('orders/{order}/reorder', [OrderController::class, 'reorder'])->where('order', '[0-9]{1,18}')->name('orders.reorder');
 
     // Invoices, account statements, and payment proof submissions
     Route::get('invoices', [InvoiceController::class, 'index'])->name('invoices.index');
-    Route::get('invoices/{order}/pdf', [InvoiceController::class, 'pdf'])->whereNumber('order')->name('invoices.pdf');
+    Route::get('invoices/{order}/pdf', [InvoiceController::class, 'pdf'])->where('order', '[0-9]{1,18}')->middleware('throttle:wholesale-heavy')->name('invoices.pdf');
     Route::get('statement', [InvoiceController::class, 'statement'])->name('statement');
-    Route::post('payment-notices', [InvoiceController::class, 'storePaymentNotice'])->name('payment-notices.store');
+    Route::post('payment-notices', [InvoiceController::class, 'storePaymentNotice'])->middleware('throttle:wholesale-heavy')->name('payment-notices.store');
     // Payment notice ledger status and receipt downloads
     Route::get('payment-notices', [PaymentNoticeController::class, 'index'])->name('payment-notices.index');
     Route::get('payment-notices/outstanding', [PaymentNoticeController::class, 'outstanding'])->name('payment-notices.outstanding');
-    Route::get('payment-notices/{payment_notice}', [PaymentNoticeController::class, 'show'])->whereNumber('payment_notice')->name('payment-notices.show');
-    Route::get('payment-notices/{notice}/receipt', [AttachmentController::class, 'paymentNotice'])->whereNumber('notice')->name('payment-notices.receipt');
+    Route::get('payment-notices/{payment_notice}', [PaymentNoticeController::class, 'show'])->where('payment_notice', '[0-9]{1,18}')->name('payment-notices.show');
+    Route::get('payment-notices/{notice}/receipt', [AttachmentController::class, 'paymentNotice'])->where('notice', '[0-9]{1,18}')->name('payment-notices.receipt');
 
     // Price quotations lifecycle
-    Route::apiResource('quotations', QuotationController::class)->parameters(['quotations' => 'quotation'])->where(['quotation' => '[0-9]+']);
-    Route::post('quotations/{quotation}/submit', [QuotationController::class, 'submit'])->whereNumber('quotation')->name('quotations.submit');
-    Route::post('quotations/{quotation}/accept', [QuotationController::class, 'accept'])->whereNumber('quotation')->name('quotations.accept');
-    Route::post('quotations/{quotation}/reject', [QuotationController::class, 'reject'])->whereNumber('quotation')->name('quotations.reject');
+    Route::apiResource('quotations', QuotationController::class)->parameters(['quotations' => 'quotation'])->where(['quotation' => '[0-9]{1,18}']);
+    Route::post('quotations/{quotation}/submit', [QuotationController::class, 'submit'])->where('quotation', '[0-9]{1,18}')->name('quotations.submit');
+    Route::post('quotations/{quotation}/accept', [QuotationController::class, 'accept'])->where('quotation', '[0-9]{1,18}')->name('quotations.accept');
+    Route::post('quotations/{quotation}/reject', [QuotationController::class, 'reject'])->where('quotation', '[0-9]{1,18}')->name('quotations.reject');
 
     // Merchant notifications
     Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');
-    Route::post('notifications/{id}/read', [NotificationController::class, 'markAsRead'])->name('notifications.read');
+    Route::post('notifications/{id}/read', [NotificationController::class, 'markAsRead'])->whereUuid('id')->name('notifications.read');
     Route::post('notifications/read-all', [NotificationController::class, 'readAll'])->name('notifications.read-all');
 });

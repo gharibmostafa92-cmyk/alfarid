@@ -70,5 +70,5 @@ Route::middleware(['auth:sanctum', 'auth.staff', 'permission:pos.access'])->grou
 
     // Staff notifications
     Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');
-    Route::post('notifications/{id}/read', [NotificationController::class, 'markAsRead'])->name('notifications.read');
+    Route::post('notifications/{id}/read', [NotificationController::class, 'markAsRead'])->whereUuid('id')->name('notifications.read');
 });

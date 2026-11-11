@@ -92,7 +92,7 @@ class TraderBotEngagementTest extends TestCase
     public function test_customer_webhook_is_rate_limited(): void
     {
         config(['services.whatsapp_business.webhook_secret' => 'cloud-secret']);
-        RateLimiter::for('webhooks', fn () => \Illuminate\Cache\RateLimiting\Limit::perMinute(5));
+        RateLimiter::for('webhooks-whatsapp', fn () => \Illuminate\Cache\RateLimiting\Limit::perMinute(5));
 
         $last = null;
         for ($i = 0; $i < 6; $i++) {

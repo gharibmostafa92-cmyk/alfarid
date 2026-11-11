@@ -147,6 +147,28 @@ class AppServiceProvider extends ServiceProvider
             fn ($event) => logger()->error('Queue backlog exceeded its configured threshold.', ['connection' => $event->connectionName, 'queue' => $event->queue, 'size' => $event->size]));
     }
 
+    /**
+     * Whether a TRUSTED_PROXIES value is safe for production: explicit IPs/CIDRs
+     * or 'none'. Wildcards and /0 CIDRs (0.0.0.0/0, ::/0) trust every address,
+     * letting any client forge X-Forwarded-For past every IP-based limit.
+     */
+    public static function trustedProxyConfigIsSafe(mixed $proxies): bool
+    {
+        if (! is_string($proxies) || trim($proxies) === '' || trim($proxies) === 'none') {
+            return trim((string) $proxies) === 'none';
+        }
+        if (preg_match('/(?:^|,)\s*\*{1,2}\s*(?:,|$)/', $proxies)) {
+            return false;
+        }
+        foreach (explode(',', $proxies) as $entry) {
+            if (preg_match('#/0\s*$#', trim($entry))) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private function configureSecurityAndGates(): void
     {
         Gate::before(fn ($user) => $user instanceof User
@@ -165,7 +187,7 @@ class AppServiceProvider extends ServiceProvider
         }
 
         $proxies = config('app.trusted_proxies');
-        if (! is_string($proxies) || trim($proxies) === '' || preg_match('/(?:^|,)\s*\*{1,2}\s*(?:,|$)/', $proxies)) {
+        if (! self::trustedProxyConfigIsSafe($proxies)) {
             throw new \LogicException('Set TRUSTED_PROXIES to explicit proxy IPs/CIDRs, or none for direct access. Wildcards are not allowed in production.');
         }
         if (in_array(config('cache.default'), ['file', 'array'], true)) {
@@ -322,9 +344,27 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('order-tracking', fn (Request $request) => [
             Limit::perMinute(10)->by('order-tracking-ip:'.$networkIp($request)),
         ]);
+        // M14: the readiness probe hits PostgreSQL (and optionally Redis) —
+        // cap it generously so floods cannot convert health checks into a DB DoS
+        // while load-balancer probes (a few per minute) never notice.
+        RateLimiter::for('health-ready', fn (Request $request) => [
+            Limit::perMinute(120)->by('health-ready:'.$networkIp($request)),
+        ]);
         RateLimiter::for('webhooks', fn (Request $request) => [
             Limit::perMinute(120)->by('webhooks-ip:'.$networkIp($request)),
         ]);
+        // H4: isolated buckets per webhook purpose so a WhatsApp peak cannot
+        // starve payment notifications (which would expire orders via
+        // orders:expire-pending while the provider keeps retrying).
+        RateLimiter::for('webhooks-payment', fn (Request $request) => Limit::perMinute(120)->by(
+            'webhooks-payment:'.(string) $request->route('gateway').':'.$networkIp($request)
+        ));
+        RateLimiter::for('webhooks-shipping', fn (Request $request) => Limit::perMinute(120)->by(
+            'webhooks-shipping:'.(string) $request->route('company').':'.$networkIp($request)
+        ));
+        RateLimiter::for('webhooks-whatsapp', fn (Request $request) => Limit::perMinute(120)->by(
+            'webhooks-whatsapp:'.$networkIp($request)
+        ));
 
         RateLimiter::for('supplier-login', function (Request $request) use ($networkIp): array {
             $email = $request->input('email');
@@ -386,10 +426,41 @@ class AppServiceProvider extends ServiceProvider
                 // Combined IP and identifier rate limiting protects against targeted credential stuffing across shared network gateways.
                 Limit::perMinute((int) config('auth.unified_login_ip_minute', 120))->by('ip:'.$networkIp($request)),
                 Limit::perMinute(5)->by('id:'.$id.':'.$networkIp($request)),
+                // Per-account hourly/daily ceilings independent of IP so distributed
+                // credential-stuffing across many source addresses cannot bypass the account budget.
+                Limit::perHour((int) config('auth.unified_login_id_hour', 30))->by('unified-login-id-hour:'.$id),
+                Limit::perDay((int) config('auth.unified_login_id_day', 100))->by('unified-login-id-day:'.$id),
             ];
         });
 
         RateLimiter::for('unified-handoff', fn (Request $request) => Limit::perMinute((int) config('auth.unified_handoff_ip_minute', 60))->by($networkIp($request)));
+
+        // H1: named limiters replace inline numeric throttles so each surface owns
+        // its bucket, keyed by authenticated identity (never shared across routes or user types).
+        $staffKey = fn (Request $request): string => 'staff:'.($request->user('staff')?->id ?? $networkIp($request));
+        RateLimiter::for('admin-reports', fn (Request $request) => Limit::perMinute(30)->by('admin-reports:'.$staffKey($request)));
+        RateLimiter::for('admin-media-uploads', fn (Request $request) => Limit::perMinute(30)->by('admin-media-uploads:'.$staffKey($request)));
+        RateLimiter::for('admin-banners', fn (Request $request) => Limit::perMinute(30)->by('admin-banners:'.$staffKey($request)));
+        RateLimiter::for('ai-conversations', fn (Request $request) => Limit::perMinute(30)->by('ai-conversations:'.$staffKey($request)));
+        RateLimiter::for('ai-attachments', fn (Request $request) => Limit::perMinute(30)->by('ai-attachments:'.$staffKey($request)));
+        RateLimiter::for('ai-mentions', fn (Request $request) => Limit::perMinute(60)->by('ai-mentions:'.$staffKey($request)));
+        RateLimiter::for('supplier-portal', fn (Request $request) => Limit::perMinute(120)->by('supplier-portal:'.($request->user('supplier')?->id ?? $networkIp($request))));
+        RateLimiter::for('store-returns', function (Request $request) use ($networkIp) {
+            $customer = auth('sanctum')->user();
+            $identity = $customer instanceof Customer ? 'customer:'.$customer->id : $networkIp($request);
+
+            return Limit::perHour(10)->by('store-returns:'.$identity);
+        });
+        // M6: CPU-heavy endpoints (PDF/Excel generation, spreadsheet
+        // parsing, document uploads) get tight dedicated buckets so one actor
+        // cannot saturate every PHP-FPM worker with repeated heavy requests.
+        RateLimiter::for('wholesale-heavy', function (Request $request) use ($networkIp) {
+            $customer = auth('sanctum')->user();
+            $identity = $customer instanceof Customer ? 'customer:'.$customer->id : $networkIp($request);
+
+            return Limit::perMinute(10)->by('wholesale-heavy:'.$identity);
+        });
+        RateLimiter::for('admin-heavy', fn (Request $request) => Limit::perMinute(10)->by('admin-heavy:'.$staffKey($request)));
         RateLimiter::for('ai-chat', fn (Request $request) => Limit::perMinute(20)->by('ai-chat:'.($request->user('staff')?->id ?? $networkIp($request))));
     }
 }

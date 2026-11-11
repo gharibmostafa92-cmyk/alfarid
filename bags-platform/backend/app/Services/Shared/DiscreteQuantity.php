@@ -30,7 +30,10 @@ final class DiscreteQuantity
         }
         $value = (float) $qty;
         // Epsilon comparison guards against IEEE-754 floating point inaccuracies during decimal checks.
-        if ($value < ($allowZero ? 0 : 1) || $value > self::MAX_DECIMAL || abs($value - round($value, 4)) > 1e-9) {
+        // M1: the lower bound without zero is "greater than zero", not 1, so
+        // fractional continuous quantities (0.5kg, 0.25m) validate; over-precise
+        // values (0.00001) still fail the 4-decimal check below.
+        if (($allowZero ? $value < 0 : $value <= 0) || $value > self::MAX_DECIMAL || abs($value - round($value, 4)) > 1e-9) {
             return false;
         }
 
@@ -68,7 +71,9 @@ final class DiscreteQuantity
         }
         $value = (float) $qty;
         // Discrete piece counts cannot be subdivided into fractional merchandise units.
-        if (floor($value) !== $value || $value < ($allowZero ? 0 : 1)) {
+        // M2: cap at MAX_DECIMAL so huge values fail here with 422 instead of
+        // overflowing decimal(12,4) with a 500 after partial business logic ran.
+        if (floor($value) !== $value || $value < ($allowZero ? 0 : 1) || $value > self::MAX_DECIMAL) {
             throw new BusinessException($customMessage ?? 'الكمية يجب أن تكون عددًا صحيحًا من القطع.');
         }
     }

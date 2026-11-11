@@ -86,8 +86,8 @@ Route::middleware(['auth:sanctum', 'auth.customer'])->prefix('account')->name('a
     Route::get('orders', [StoreOrderController::class, 'index'])->name('orders.index');
     Route::post('orders/{order}/cancel', [StoreOrderController::class, 'cancel'])->name('orders.cancel');
     // Return requests (RMA) for delivered orders
-    Route::get('return-items/{return_item}/attachments/{attachment}', [AttachmentController::class, 'returnFile'])->whereNumber(['return_item', 'attachment'])->name('return-items.attachments.show');
+    Route::get('return-items/{return_item}/attachments/{attachment}', [AttachmentController::class, 'returnFile'])->where(['return_item' => '[0-9]{1,18}', 'attachment' => '[0-9]{1,18}'])->name('return-items.attachments.show');
     Route::get('returns', [ReturnController::class, 'index'])->name('returns.index');
-    Route::get('returns/{return_request}', [ReturnController::class, 'show'])->whereNumber('return_request')->name('returns.show');
-    Route::post('returns', [ReturnController::class, 'store'])->middleware('throttle:10,60')->name('returns.store');
+    Route::get('returns/{return_request}', [ReturnController::class, 'show'])->where('return_request', '[0-9]{1,18}')->name('returns.show');
+    Route::post('returns', [ReturnController::class, 'store'])->middleware('throttle:store-returns')->name('returns.store');
 });

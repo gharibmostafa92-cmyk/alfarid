@@ -65,9 +65,10 @@ SQL);
     public function down(): void
     {
         DB::statement('DROP FUNCTION IF EXISTS inventory_movement_number(bigint)');
-        Schema::table('inventory_idempotency_keys', function (Blueprint $table): void {
-            $table->dropIndex(['created_at']);
-        });
+        // Tolerant drop: the auto-named index may already be gone (e.g. rolled back
+        // twice, or removed by a later migration), and a bare DROP turns that into
+        // a 42704 rollback crash.
+        DB::statement('DROP INDEX IF EXISTS inventory_idempotency_keys_created_at_index');
         Schema::table('stocktake_items', function (Blueprint $table): void {
             $table->dropColumn('snapshot_movement_id');
         });

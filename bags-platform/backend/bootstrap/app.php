@@ -26,7 +26,7 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
         then: function (): void {
-            Route::get('health/ready', HealthReadyController::class);
+            Route::get('health/ready', HealthReadyController::class)->middleware('throttle:health-ready');
             Route::middleware('api')
                 ->prefix('api/v1/admin')
                 ->group(base_path('routes/api/admin.php'));
