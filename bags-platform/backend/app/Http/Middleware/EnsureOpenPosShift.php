@@ -30,21 +30,32 @@ class EnsureOpenPosShift
             ], 403);
         }
 
-        $shift = PosShift::query()
+        $shifts = PosShift::query()
             ->where('user_id', $user->id)
             ->where('branch_id', $user->branch_id)
             ->where('status', PosShiftStatus::Open)
-            ->latest('id')
-            ->first();
+            ->orderBy('id')
+            ->get();
 
-        if ($shift === null) {
+        if ($shifts->isEmpty()) {
             return response()->json([
                 'message' => 'لا توجد وردية مفتوحة. افتح وردية أولًا لإتمام العملية.',
                 'code'    => 'no_open_shift',
             ], 403);
         }
 
-        $request->attributes->set('pos_shift', $shift);
+        if ($shifts->count() > 1) {
+            // M5/H3: never silently pick one of several open shifts (the
+            // partial unique index normally forbids this; when it is missing
+            // — e.g. an unapplied production migration — fail loudly instead
+            // of posting sales to an arbitrary drawer).
+            return response()->json([
+                'message' => 'يوجد أكثر من وردية مفتوحة. أغلق الورديات الزائدة قبل إتمام العملية.',
+                'code'    => 'multiple_open_shifts',
+            ], 409);
+        }
+
+        $request->attributes->set('pos_shift', $shifts->first());
 
         return $next($request);
     }

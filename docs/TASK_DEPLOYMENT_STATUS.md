@@ -4,7 +4,8 @@ Source roadmap: `_archive_unused/tasks_execution/task.txt`
 Live Cloud Run revisions and the current audit are in [Task execution audit](TASKS_EXECUTION_AUDIT.md).
 Last deployed commit: `25ee590` (see `docs/.last-deployed`)
 Date: 2026-11-11
-Branch: `fixes/task-audit-roadmap` (user reviews before merge; no push)
+Branch: `fixes/task-audit-roadmap` (committed `25ee590..3b91e5c`, working tree clean, unpushed; user reviews before merge)
+Repomix map: there is no `repomix.auth-security.json` — the `Repomix:` notes below resolve to the `started` bundles `repomix-system-kernel.xml`, `repomix-system-overview.xml`, `repomix-database-schema.xml` (regenerated 2026-11-11); backoffice UI files live in `repomix-subsystem-09-security-backoffice.xml`. The release checklist (migrations/env/queue/scheduler/build) is in [Task execution audit](TASKS_EXECUTION_AUDIT.md#deployed-vs-pending-deployment-2026-11-11).
 
 ## 1. Already Deployed on Server / Cloud
 

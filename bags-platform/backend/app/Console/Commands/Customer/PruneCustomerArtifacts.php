@@ -89,11 +89,13 @@ class PruneCustomerArtifacts extends Command
         try {
             DB::table('customer_phone_verifications')->where('expires_at', '<', now()->subHour())->delete();
             DB::table('customer_message_budgets')->where('date', '<', now()->subDays(30)->toDateString())->delete();
-            DB::table('customer_audit_logs')->whereIn('action', ['login_failed', 'login_succeeded', 'token_issued'])
-                ->where('created_at', '<', now()->subDays(90))
-                ->select('id')->chunkById(1000, function ($rows): void {
-                    DB::table('customer_audit_logs')->whereIn('id', $rows->pluck('id'))->delete();
-                });
+            // F-27: audit retention goes through the SECURITY DEFINER function
+            // (mirroring staff audit retention) because the app login no longer
+            // holds DELETE on customer_audit_logs.
+            $auditCutoff = now()->subDays(90);
+            do {
+                $removed = (int) DB::scalar('SELECT alfarid_prune_customer_audit_logs(?)', [$auditCutoff], false);
+            } while ($removed > 0);
         } catch (Throwable $exception) {
             $failures++;
             report($exception);

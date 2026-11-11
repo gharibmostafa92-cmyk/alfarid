@@ -57,7 +57,7 @@ export function formatStorePrice(v: number | string | null | undefined): string 
  *
  * @param amount Raw numeric value or price string.
  * @param options Locale, currency code, and fraction digit boundaries.
- * @return Localized formatted currency string.
+ * @return Localized formatted currency string, or '—' when no amount was provided.
  */
 export function formatCurrency(
   amount: number | string | null | undefined,
@@ -69,6 +69,12 @@ export function formatCurrency(
     minimumFractionDigits = 2,
     maximumFractionDigits = 2,
   } = options;
+
+  // L11: a missing amount is not zero — render the missing-value dash so
+  // unloaded data is never mistaken for a real 0 price.
+  if (amount === null || amount === undefined || (typeof amount === 'string' && amount.trim() === '')) {
+    return '—';
+  }
 
   const numericAmount = parseNumericAmount(amount, 0);
 
@@ -84,9 +90,13 @@ export function formatCurrency(
  * Formats shipping cost, displaying 'Free' for zero or uncharged deliveries.
  *
  * @param cost Shipping fee amount.
- * @return 'Free' for 0 values or formatted price string.
+ * @return '—' when no cost was provided, 'Free' for 0 values, or formatted price string.
  */
 export function formatShippingPrice(cost: number | string | null | undefined): string {
+  // L11: a missing quote is not free shipping — render the missing-value dash.
+  if (cost === null || cost === undefined || (typeof cost === 'string' && cost.trim() === '')) {
+    return '—';
+  }
   const numeric = parseNumericAmount(cost, 0);
   if (numeric === 0) {
     return 'Free';

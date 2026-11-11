@@ -128,7 +128,29 @@ class PaymentWebhookService
             ? $preVerifyKey
             : $this->buildEventId($extractedId ?? $preVerifyKey, $outcome, $refundAmount);
 
-        $log = $this->startLog($provider, $eventId, $payload, $ip);
+        if ($isPaymob && $outcome === 'refunded' && $refundAmount === null) {
+            // L1: a failed refund inquiry (auth error, timeout) leaves the
+            // cumulative refund total unknown; marking processed would lose the
+            // refund and 200 would stop redelivery. Fail transiently instead.
+            $this->slimLog($provider, $eventId, 'failed', 'refund inquiry unavailable', $ip);
+
+            return ['http' => 503, 'body' => ['received' => false, 'message' => 'refund inquiry unavailable']];
+        }
+
+        if (WebhookLog::query()->where('provider', $provider)->where('event_id', $eventId)->where('status', 'processed')->exists()) {
+            // M3: a redelivery of an already-processed event must not store
+            // another full payload row; a sampled slim entry is enough.
+            $this->sampledSlimLog($provider, $eventId, 'duplicate', null, $ip);
+
+            return ['http' => 200, 'body' => ['received' => true, 'duplicate' => true]];
+        }
+
+        // M3: the Paymob HMAC covers obj only; persist obj (+type) instead of
+        // the full payload with attacker-controlled extra keys.
+        $storedPayload = $isPaymob
+            ? ['obj' => $payload['obj'] ?? null, 'type' => $payload['type'] ?? null]
+            : $payload;
+        $log = $this->startLog($provider, $eventId, $storedPayload, $ip);
         $log->update(['signature_valid' => true]);
 
         try {
@@ -155,8 +177,8 @@ class PaymentWebhookService
                     : null;
                 if ($order === null) {
                     $log->update(['status' => 'failed', 'error' => 'طلب غير موجود: '.($orderReference ?? '—')]);
-
-                    return ['http' => 200, 'body' => ['received' => false, 'message' => 'order not found']];
+                    // Non-2xx so the gateway redelivers once the order commit becomes visible.
+                    return ['http' => 409, 'body' => ['received' => false, 'message' => 'order not found']];
                 }
 
                 if (in_array($order->payment_method, ['wallet', 'bank_transfer'], true)) {
@@ -431,7 +453,8 @@ class PaymentWebhookService
      *
      * Stripe charge objects carry amount_refunded in minor units (cents); generic gateways
      * report major units scaled by the configured amount_divisor. Returns null when the
-     * payload carries no explicit refund amount (treated as a full refund).
+     * payload carries no explicit, verifiable refund amount; callers must treat null as
+     * unknown (flag for review), never as a full refund.
      *
      * @param  array<string, mixed>  $payload
      * @param  array<string, mixed>  $config

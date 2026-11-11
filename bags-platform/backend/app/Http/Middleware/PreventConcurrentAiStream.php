@@ -24,9 +24,15 @@ class PreventConcurrentAiStream
             return $next($request);
         }
 
-        $lock = Cache::lock('ai-stream:'.$user->id, 60);
+        // L5: the cap must cover the longest possible stream (PHP execution
+        // ceiling plus margin), or the lock lapses mid-stream and a second
+        // concurrent stream slips through.
+        $maxExecution = (int) ini_get('max_execution_time');
+        $ttl = (int) config('ai.stream_lock_ttl_seconds', $maxExecution > 0 ? $maxExecution + 120 : 600);
+        $lock = Cache::lock('ai-stream:'.$user->id, max($ttl, 60));
         if (! $lock->get()) {
-            return response()->json(['message' => 'يوجد بث ذكاء اصطناعي قيد التنفيذ بالفعل؛ انتظر انتهاءه.'], 429);
+            return response()->json(['message' => 'يوجد بث ذكاء اصطناعي قيد التنفيذ بالفعل؛ انتظر انتهاءه.'], 429)
+                ->header('Retry-After', (string) max($ttl, 60));
         }
         $request->attributes->set('ai_stream_lock', $lock);
 

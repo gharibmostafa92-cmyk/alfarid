@@ -13,8 +13,10 @@ final class LimitPaymentWebhookBody
 {
     public function handle(Request $request, Closure $next): Response
     {
+        // M2: every unauthenticated webhook path (payment, shipping, whatsapp
+        // inbound/customers) is capped before Laravel decodes unbounded JSON.
         if ($request->isMethod('POST')
-            && $request->is('api/v1/webhooks/payment/*')
+            && $request->is('api/v1/webhooks/*')
             && ((int) $request->headers->get('Content-Length') > PaymentWebhookService::MAX_BODY_BYTES
                 || strlen($request->getContent()) > PaymentWebhookService::MAX_BODY_BYTES)) {
             return response()->json(['received' => false, 'message' => 'payload too large'], 413);

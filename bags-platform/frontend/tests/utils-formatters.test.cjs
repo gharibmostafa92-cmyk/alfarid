@@ -56,8 +56,22 @@ test('formatShippingPrice handles free and formatted amounts', () => {
   assert.equal(formatShippingPrice(0), 'Free');
   assert.equal(formatShippingPrice('0'), 'Free');
   assert.equal(formatShippingPrice('0.00'), 'Free');
-  assert.equal(formatShippingPrice(null), 'Free');
   assert.ok(formatShippingPrice(50).includes('50'));
+});
+
+test('nullish amounts render a missing-value dash instead of hiding unloaded data (L11)', () => {
+  // L11: formatShippingPrice(undefined) showed 'Free' and formatCurrency(null)
+  // showed 0, hiding data that had not loaded yet.
+  assert.equal(formatShippingPrice(null), '—');
+  assert.equal(formatShippingPrice(undefined), '—');
+  assert.equal(formatShippingPrice(''), '—');
+  assert.equal(formatCurrency(null), '—');
+  assert.equal(formatCurrency(undefined), '—');
+  assert.equal(formatCurrency(''), '—');
+  // Zero is a real value and keeps formatting (ar-EG uses Arabic-Indic digits).
+  assert.notEqual(formatCurrency(0), '—');
+  assert.notEqual(formatCurrency('12.50'), '—');
+  assert.equal(formatShippingPrice(0), 'Free');
 });
 
 test('getStatusLabel handles case insensitivity and fallbacks', () => {
@@ -76,6 +90,20 @@ test('toLatinDigits normalizes Arabic-Indic and Eastern Arabic digits and comma 
   assert.equal(toLatinDigits('١٢٫٣٤'), '12.34');
   assert.equal(toLatinDigits('١٢,٣٤'), '12.34');
   assert.equal(toLatinDigits(123), '123');
+});
+
+test('numbers.ts avoids regex lookbehind so old Safari/WebView bundles still load', () => {
+  // H3: (?<=...) throws a SyntaxError at module parse time on Safari < 16.4,
+  // blank-screening every screen that imports utils.
+  const source = fs.readFileSync(path.join(__dirname, '../packages/utils/src/numbers.ts'), 'utf8');
+  assert.ok(!source.includes('(?<='), 'numbers.ts must not use lookbehind assertions');
+  assert.ok(!source.includes('(?<!'), 'numbers.ts must not use negated lookbehind assertions');
+});
+
+test('toLatinDigits strips multi-group thousands separators identically', () => {
+  assert.equal(toLatinDigits('1,234,567'), '1234567');
+  assert.equal(toLatinDigits('12,345,678.90'), '12345678.90');
+  assert.equal(toLatinDigits('1,234,567.89'), '1234567.89');
 });
 
 test('toLatinDigits strips unambiguous thousands separators without breaking decimal commas', () => {

@@ -136,14 +136,14 @@ final class CustomerWholesaleAssistant
                 ['phone' => $phone, 'verification_status' => 'unverified'],
             );
             if ($channel->phone !== $phone) {
-                $channel->update([
+                $channel->forceFill([
                     'phone' => $phone,
                     'verified_at' => null,
                     'verification_status' => 'unverified',
                     'verification_code_hash' => null,
                     'verification_expires_at' => null,
                     'verification_attempts' => 0,
-                ]);
+                ])->save();
             }
 
             return $channel->verified_at === null ? $this->verify($channel, trim(ArabicDigits::normalize($text))) : null;
@@ -165,23 +165,23 @@ final class CustomerWholesaleAssistant
                 return 'رمز التحقق غير صحيح.';
             }
 
-            $channel->update([
+            $channel->forceFill([
                 'verified_at' => now(),
                 'verification_status' => 'verified',
                 'verification_code_hash' => null,
                 'verification_expires_at' => null,
                 'verification_attempts' => 0,
-            ]);
+            ])->save();
 
             return 'تم ربط الرقم. اسأل عن رصيدك أو كشف الحساب.';
         }
 
         $code = (string) random_int(100000, 999999);
-        $channel->update([
+        $channel->forceFill([
             'verification_code_hash' => Hash::make($code),
             'verification_expires_at' => now()->addMinutes(10),
             'verification_attempts' => 0,
-        ]);
+        ])->save();
         $payload = ['channel_id' => $channel->id, 'expires_at' => $channel->verification_expires_at->timestamp];
         if (! $this->settings->getBool('ai_wholesale_shadow_mode', true)) {
             $payload['code'] = $code;

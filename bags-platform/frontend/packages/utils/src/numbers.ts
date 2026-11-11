@@ -27,7 +27,10 @@ function normalizeSeparators(s: string): string {
   // Display values support grouped numbers such as '1,500' and decimal commas
   // such as '12,34'. Editable amounts handle ambiguous commas separately.
   s = s.split(ARABIC_THOUSANDS_MARK).join('');
-  s = s.replace(/(?<=\d),(?=\d{3}(?:\D|$))/g, '');
+  // No lookbehind assertions here: the lookbehind form throws a SyntaxError
+  // at module parse time on Safari/iOS < 16.4 and kills the whole bundle.
+  // The captured digit is re-emitted, so behavior is identical.
+  s = s.replace(/(\d),(?=\d{3}(?:\D|$))/g, '$1');
   return s.split(ARABIC_DECIMAL_MARK).join('.').replace(/,/g, '.');
 }
 

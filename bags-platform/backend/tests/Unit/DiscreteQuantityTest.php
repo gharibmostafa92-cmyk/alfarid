@@ -38,6 +38,22 @@ class DiscreteQuantityTest extends TestCase
         $this->assertTrue(true);
     }
 
+    public function test_rejects_values_that_decimal_storage_would_silently_round(): void
+    {
+        // M1: decimal(12,4) stores 0.0000 for 1e-10 and 1.0000 for
+        // 1.00000000001; an epsilon float check would accept both past a
+        // "greater than zero" rule and risk divide-by-zero cost math.
+        foreach (['0.0000000001', 1e-10, '1.00000000001', 0.0000000001] as $bad) {
+            $this->assertFalse(DiscreteQuantity::isValid($bad), 'must reject '.var_export($bad, true));
+            try {
+                DiscreteQuantity::assert($bad);
+                $this->fail('Expected rejection for '.var_export($bad, true));
+            } catch (BusinessException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+    }
+
     public function test_accepts_fractional_quantities_between_zero_and_one(): void
     {
         $this->assertTrue(DiscreteQuantity::isValid(0.5));

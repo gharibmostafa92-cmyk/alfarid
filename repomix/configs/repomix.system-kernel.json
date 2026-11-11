@@ -19,6 +19,7 @@
         "bags-platform/backend/app/Rules/**",
         "bags-platform/backend/app/Exceptions/**",
         "bags-platform/backend/app/Http/Middleware/**",
+        "bags-platform/backend/app/Jobs/**",
         "bags-platform/backend/app/Console/Commands/Maintenance/**",
         "bags-platform/backend/app/Models/Setting.php",
         "bags-platform/backend/app/Models/InventoryIdempotencyKey.php",

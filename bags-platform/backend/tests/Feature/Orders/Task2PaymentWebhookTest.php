@@ -49,6 +49,20 @@ class Task2PaymentWebhookTest extends TestCase
         $this->branch = Branch::factory()->create();
     }
 
+    public function test_missing_order_returns_conflict_so_the_gateway_redelivers(): void
+    {
+        // H1: a 2xx tells the gateway "delivered" and a paid order stays pending
+        // with no retry. A non-2xx keeps the log failed so redelivery succeeds.
+        $this->postWebhook([
+            'event_id' => 'evt_missing_order',
+            'order_number' => 'ORD-DOES-NOT-EXIST',
+            'status' => 'paid',
+            'amount' => 100,
+        ])->assertStatus(409)->assertJsonPath('received', false);
+
+        $this->assertSame('failed', WebhookLog::query()->latest('id')->first()->status);
+    }
+
     public function test_oversized_body_is_rejected_without_a_webhook_log(): void
     {
         $this->postWebhook(['padding' => str_repeat('x', 256 * 1024)])
@@ -107,11 +121,14 @@ class Task2PaymentWebhookTest extends TestCase
             'is_refunded' => true,
             'refunded_amount_cents' => (int) round((float) $order->grand_total * 100),
         ]);
-        $this->postPaymob($obj)->assertOk()->assertJsonPath('received', true);
+        // L1: without an authenticated cumulative total the refund is unknown;
+        // the gateway must redeliver instead of the event being marked processed.
+        $this->postPaymob($obj)->assertStatus(503)->assertJsonPath('received', false);
 
         $order = $order->fresh();
         $this->assertSame('paid', $order->payment_status);
-        $this->assertTrue($order->needs_attention);
+        $this->assertFalse($order->needs_attention);
+        $this->assertSame('failed', WebhookLog::query()->latest('id')->first()->status);
     }
 
     public function test_paymob_refund_uses_authenticated_cumulative_amount(): void
@@ -250,6 +267,69 @@ class Task2PaymentWebhookTest extends TestCase
         $order = $order->fresh();
         $this->assertSame('unpaid', $order->payment_status);
         $this->assertTrue($order->needs_attention);
+    }
+
+    public function test_paymob_refund_with_failed_inquiry_returns_service_unavailable(): void
+    {
+        // L1: a failed refund inquiry (auth error/timeout) leaves the cumulative
+        // refund total unknown. Marking processed would lose the refund; fail
+        // transiently so Paymob redelivers and the inquiry is retried.
+        $order = $this->paidCardOrder(1);
+        $order->update(['gateway_order_id' => '7654321']);
+        config(['webhooks.payment.paymob' => [
+            'driver' => 'paymob', 'secret' => 'paymob-secret', 'currency' => 'EGP',
+            'api_key' => 'test-inquiry-key',
+        ]]);
+        Http::fake([
+            'https://accept.paymob.com/api/auth/tokens' => Http::response(['message' => 'denied'], 500),
+        ]);
+
+        $processedBefore = WebhookLog::query()->where('status', 'processed')->count();
+
+        $this->postPaymob($this->paymobObj($order, [
+            'id' => '123456', 'is_refunded' => true,
+            'order' => ['id' => '7654321'],
+        ]))->assertStatus(503)->assertJsonPath('received', false);
+
+        $order = $order->fresh();
+        $this->assertSame('paid', $order->payment_status);
+        $this->assertFalse($order->needs_attention);
+        $this->assertSame($processedBefore, WebhookLog::query()->where('status', 'processed')->count());
+        $this->assertSame('failed', WebhookLog::query()->latest('id')->first()->status);
+    }
+
+    public function test_duplicate_processed_event_is_deduplicated_before_storing_payload(): void
+    {
+        // M3: a redelivered event whose id is already processed must not store
+        // another full payload row; a slim duplicate entry is enough.
+        $order = $this->freshCardOrder(1);
+        $payload = [
+            'event_id' => 'evt_dedup_paid',
+            'order_number' => $order->order_number,
+            'status' => 'paid',
+            'amount' => (float) $order->grand_total,
+        ];
+
+        $this->postWebhook($payload)->assertOk()->assertJsonPath('received', true);
+        $this->postWebhook($payload)->assertOk()->assertJsonPath('duplicate', true);
+
+        $this->assertSame(1, WebhookLog::query()->whereNotNull('payload')->count());
+    }
+
+    public function test_paymob_stores_only_signed_fields(): void
+    {
+        // M3: the HMAC covers obj only, so persist obj (+type) instead of the
+        // full untrusted payload with attacker-controlled extra keys.
+        $order = $this->paidCardOrder(1);
+        $order->update(['gateway_order_id' => 'pm-order-9']);
+        config(['webhooks.payment.paymob' => [
+            'driver' => 'paymob', 'secret' => 'paymob-secret', 'currency' => 'EGP',
+        ]]);
+
+        $this->postPaymob($this->paymobObj($order))->assertOk();
+
+        $stored = WebhookLog::query()->latest('id')->first()->payload;
+        $this->assertEqualsCanonicalizing(['obj', 'type'], array_keys($stored));
     }
 
     /** @param array<string, mixed> $overrides */

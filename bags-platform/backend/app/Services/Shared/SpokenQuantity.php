@@ -25,7 +25,11 @@ final class SpokenQuantity
         'اربعين' => 40, 'خمسين' => 50, 'ستين' => 60, 'سبعين' => 70,
         'تمانين' => 80, 'تسعين' => 90, 'ميه' => 100, 'ميت' => 100,
         'مايه' => 100, 'مائه' => 100, 'ميتين' => 200, 'الف' => 1000, 'دسته' => 12,
+        'دستة' => 12, 'دست' => 12,
     ];
+
+    /** @var list<string> Dozen spellings act as a ×12 multiplier, not an addition. */
+    private const DOZENS = ['دسته', 'دستة', 'دست'];
 
     /** @var list<string> */
     private const FILLER = ['قطعه', 'قطع', 'حبه', 'حبات', 'علبه', 'علب', 'كرتونه'];
@@ -86,6 +90,7 @@ final class SpokenQuantity
         $total = 0.0;
         $group = 0.0;
         $matched = 0;
+        $lastSmall = null;
         foreach ($tokens as $i => $token) {
             if ($token === '' || $token === 'و') {
                 continue;
@@ -111,15 +116,30 @@ final class SpokenQuantity
                 // thousand multiplies them ("مية ألف" = 100000), instead of
                 // flushing 100 into the total first (which yielded 1100).
                 $group = ($group > 0 ? $group : 1) * $v;
+                $lastSmall = null;
             } elseif ($v === 1000.0) {
                 $group = ($group > 0 ? $group : 1) * $v;
                 $total += $group;
                 $group = 0.0;
+                $lastSmall = null;
+            } elseif (in_array($token, self::DOZENS, true)) {
+                // M2: "دسته" (dozen) multiplies a preceding count ("تلاته
+                // دسته" = 36), it is never added to it.
+                $group = ($group > 0 ? $group : 1) * $v;
+                $lastSmall = null;
             } elseif ($v === 200.0) {
                 // M10: "ميتين ألف" = 200 * 1000, not 200 + 1000. Keep the
                 // hundred in the open group so a following thousand multiplies it.
                 $group += $v;
+                $lastSmall = null;
             } else {
+                // M2: a repeated ones/tens value ("خمسه خمسه") is a
+                // speech-recognition stutter, not an addition — reject it
+                // instead of silently doubling the count.
+                if ($lastSmall !== null && $v === $lastSmall) {
+                    return null;
+                }
+                $lastSmall = $v;
                 $group += $v;
             }
         }

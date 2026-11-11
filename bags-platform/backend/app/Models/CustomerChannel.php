@@ -22,10 +22,17 @@ class CustomerChannel extends Model
         'verification_status',
         'opt_in_at',
         'verified_at',
-        'verification_code_hash',
         'verification_expires_at',
-        'verification_attempts',
     ];
+
+    /**
+     * M6: the OTP code hash brute-forces offline in fractions of a second, so
+     * it must never leave the model through toArray()/toJson(), and it is set
+     * explicitly via forceFill() in the service instead of mass assignment.
+     *
+     * @var list<string>
+     */
+    protected $hidden = ['verification_code_hash'];
 
     protected function casts(): array
     {

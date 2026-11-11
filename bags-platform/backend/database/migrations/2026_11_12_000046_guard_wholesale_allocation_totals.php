@@ -12,6 +12,9 @@ return new class extends Migration
         DB::unprepared(<<<'SQL'
             SET LOCAL lock_timeout = '2s';
             LOCK TABLE orders, wholesale_payment_notices, wholesale_payment_allocations IN SHARE ROW EXCLUSIVE MODE;
+            -- F-03: only approved notices grant allocation capacity; any other
+            -- status grants zero, so a reversal or rejection cannot leave the
+            -- order "paid" with money that never arrived.
             CREATE OR REPLACE FUNCTION wholesale_notice_overallocated(notice bigint) RETURNS boolean
             LANGUAGE sql STABLE AS $$
                 SELECT EXISTS (
@@ -22,17 +25,24 @@ return new class extends Migration
                         (SELECT coalesce(sum(a.amount), 0)
                          FROM wholesale_payment_allocations a JOIN orders target ON target.id = a.order_id
                          WHERE a.notice_id = n.id AND target.status <> 'cancelled') >
-                            CASE WHEN n.status = 'approved' AND linked.status <> 'cancelled' THEN 0 ELSE n.amount END
+                            CASE WHEN n.status = 'approved'
+                                AND (linked.id IS NULL OR linked.status <> 'cancelled')
+                                THEN n.amount ELSE 0 END
                     )
                 );
             $$;
 
+            -- F-03: the order cap counts only allocations that ride on
+            -- approved notices; allocations of reversed/rejected notices no
+            -- longer masquerade as payment.
             CREATE OR REPLACE FUNCTION wholesale_order_overallocated(target bigint) RETURNS boolean
             LANGUAGE sql STABLE AS $$
                 SELECT EXISTS (
                     SELECT 1 FROM orders o
                     WHERE o.id = target AND o.status <> 'cancelled' AND (
-                        (SELECT coalesce(sum(a.amount), 0) FROM wholesale_payment_allocations a WHERE a.order_id = o.id) +
+                        (SELECT coalesce(sum(a.amount), 0) FROM wholesale_payment_allocations a
+                         JOIN wholesale_payment_notices sn ON sn.id = a.notice_id
+                         WHERE a.order_id = o.id AND sn.status = 'approved') +
                         (SELECT coalesce(sum(n.amount), 0) FROM wholesale_payment_notices n
                          WHERE n.order_id = o.id AND n.status = 'approved') >
                             CASE WHEN o.grand_total::text = 'NaN' THEN 0 ELSE o.grand_total END

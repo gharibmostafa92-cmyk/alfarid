@@ -109,6 +109,14 @@ return Application::configure(basePath: dirname(__DIR__))
         });
         $exceptions->render(function (QueryException $e, Request $request) {
             $state = (string) ($e->errorInfo[0] ?? $e->getCode());
+            // M1: carriers treat 4xx as final, so every database failure on a
+            // webhook path must be transient (503) and retried — except a
+            // caller-supplied duplicate (23505), which would never succeed.
+            if ($request->is('api/v1/webhooks/*')
+                && ! $e instanceof UniqueConstraintViolationException) {
+                return response()->json(['message' => 'تعذر معالجة الإشعار مؤقتًا؛ ستتم إعادة المحاولة تلقائيًا.'], 503)
+                    ->header('Retry-After', '5');
+            }
             if (($request->is('api/*') || $request->expectsJson())
                 && ($state === '57014' || str_starts_with($state, '08'))) {
                 $response = response()->json(['message' => 'الخدمة غير متاحة مؤقتًا؛ أعد المحاولة بعد لحظات.'], 503);

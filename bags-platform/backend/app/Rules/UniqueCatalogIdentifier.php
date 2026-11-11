@@ -10,7 +10,16 @@ use Illuminate\Support\Facades\DB;
 
 class UniqueCatalogIdentifier implements ValidationRule
 {
-    public function __construct(private string $table, private string $column, private ?int $ignoreId = null) {}
+    public function __construct(private string $table, private string $column, private ?int $ignoreId = null)
+    {
+        // L7: table/column interpolate into raw SQL — reject anything that is
+        // not a plain identifier instead of trusting every caller.
+        foreach (['table' => $table, 'column' => $column] as $kind => $identifier) {
+            if (preg_match('/\A[a-z_][a-z0-9_]*\z/', $identifier) !== 1) {
+                throw new \InvalidArgumentException("Invalid catalog {$kind} identifier [{$identifier}].");
+            }
+        }
+    }
 
     public function validate(string $attribute, mixed $value, Closure $fail): void
     {

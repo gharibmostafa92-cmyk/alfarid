@@ -30,12 +30,23 @@ class PruneWebhookLogs extends Command
         $deleted = 0;
         $scrubbed = 0;
 
-        $obsolete = WebhookLog::query()
-            ->where('created_at', '<', $cutoff)
-            ->where(fn ($query) => $query->where('status', '!=', 'processed')->orWhere('created_at', '<', $dedupCutoff));
+        // M9: one OR query would defeat the (created_at, id) index and
+        // re-scan processed rows on every batch; two single-range deletes
+        // each walk the index directly.
+        $obsoleteUnprocessed = WebhookLog::query()
+            ->where('status', '!=', 'processed')
+            ->where('created_at', '<', $cutoff);
         do {
-            $ids = (clone $obsolete)->orderBy('created_at')->orderBy('id')->limit(1000)->pluck('id');
-            $deleted += $ids->isEmpty() ? 0 : (clone $obsolete)->whereIn('id', $ids)->delete();
+            $ids = (clone $obsoleteUnprocessed)->orderBy('created_at')->orderBy('id')->limit(1000)->pluck('id');
+            $deleted += $ids->isEmpty() ? 0 : (clone $obsoleteUnprocessed)->whereIn('id', $ids)->delete();
+        } while ($ids->count() === 1000);
+
+        $obsoleteProcessed = WebhookLog::query()
+            ->where('status', 'processed')
+            ->where('created_at', '<', $dedupCutoff);
+        do {
+            $ids = (clone $obsoleteProcessed)->orderBy('created_at')->orderBy('id')->limit(1000)->pluck('id');
+            $deleted += $ids->isEmpty() ? 0 : (clone $obsoleteProcessed)->whereIn('id', $ids)->delete();
         } while ($ids->count() === 1000);
 
         $expiredPayload = WebhookLog::query()->where('status', 'processed')

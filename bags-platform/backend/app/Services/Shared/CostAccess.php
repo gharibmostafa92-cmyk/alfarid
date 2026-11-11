@@ -6,9 +6,11 @@ namespace App\Services\Shared;
 
 use App\Models\User;
 use Illuminate\Contracts\Support\Arrayable;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use JsonSerializable;
 use stdClass;
+use Throwable;
 
 /**
  * Authorizes access to confidential product and inventory unit cost values.
@@ -29,14 +31,19 @@ final class CostAccess
      *
      * @var list<string>
      */
-    public const DEFAULT_KEYS = ['cost_price', 'cost', 'unit_cost', 'total_cost', 'avg_cost', 'average_cost', 'last_cost_price'];
+    public const DEFAULT_KEYS = [
+        'cost_price', 'cost', 'unit_cost', 'total_cost', 'avg_cost', 'average_cost', 'last_cost_price',
+        // M8: derived fields reveal cost arithmetically (price - margin = cost).
+        'margin', 'profit', 'inventory_value', 'purchase_price',
+    ];
 
     /**
      * Recursively remove confidential unit cost keys from data payloads.
      *
-     * Nested Eloquent models, collections, and other Arrayable values are
-     * normalized via toArray() first so cost attributes cannot slip through
-     * as objects (JsonResource is left untouched — it needs request context).
+     * Nested Eloquent models, collections, JsonResource instances, and other
+     * Arrayable values are normalized first so cost attributes cannot slip
+     * through as objects. Resources resolve against the current HTTP request
+     * when one is bound, otherwise against a blank request.
      *
      * @param  array<string,mixed>  $payload
      * @param  list<string>|null  $keys  Explicit key list; defaults to DEFAULT_KEYS.
@@ -51,9 +58,7 @@ final class CostAccess
                 continue;
             }
             if ($value instanceof JsonResource) {
-                $out[$key] = $value;
-
-                continue;
+                $value = self::resolveResource($value);
             }
             // DB::table() rows and DTOs are not Arrayable; normalize them so
             // confidential keys cannot slip through as object properties.
@@ -69,5 +74,26 @@ final class CostAccess
         }
 
         return $out;
+    }
+
+    /**
+     * Resolve a nested resource to a plain array for cost filtering.
+     *
+     * @return array<string,mixed>
+     */
+    private static function resolveResource(JsonResource $resource): array
+    {
+        try {
+            $request = app('request');
+        } catch (Throwable) {
+            $request = null;
+        }
+        if (! $request instanceof Request) {
+            // Queue/console context: a blank request keeps toArray(Request)
+            // satisfiable; its default user resolver yields null.
+            $request = new Request;
+        }
+
+        return $resource->resolve($request);
     }
 }

@@ -232,21 +232,89 @@ class AppServiceProvider extends ServiceProvider
         if (! self::trustedProxyConfigIsSafe($proxies)) {
             throw new \LogicException('Set TRUSTED_PROXIES to explicit proxy IPs/CIDRs, or none for direct access. Wildcards are not allowed in production.');
         }
+        $onCloudRun = is_string(getenv('K_SERVICE')) && getenv('K_SERVICE') !== '';
+        if ($onCloudRun && trim((string) $proxies) === 'none') {
+            // H1: Cloud Run always fronts the app (Google Front End), so the
+            // peer is a proxy and 'none' would resolve every client to the
+            // proxy IP — globalizing every IP-based limit and audit trail.
+            throw new \LogicException('Cloud Run always fronts the app (K_SERVICE is set); TRUSTED_PROXIES=none makes every IP-based limit global. Set TRUSTED_PROXIES to the observed peer range.');
+        }
         if (in_array(config('cache.default'), ['file', 'array'], true)) {
             logger()->critical('AI agent locks require a shared atomic cache store (redis/database).');
         }
+        // M6: array disables every rate limit and file is per-instance, which
+        // on Cloud Run means one bucket per container — no shared ceiling.
+        $limiter = config('cache.limiter') ?? config('cache.default');
+        if (in_array($limiter, ['array', 'file', null], true)) {
+            throw new \LogicException('Rate limits need a shared atomic store in production. Set CACHE_LIMITER=redis (array disables limits, file is per-instance).');
+        }
         // Disallow log mailer and plaintext database connections in production to prevent credential leakage.
-        if (config('mail.default') === 'log') {
+        // M6: failover silently falls back to the log mailer and array drops
+        // password resets and OTP codes without a trace.
+        if (in_array(config('mail.default'), ['log', 'failover', 'array'], true)) {
             throw new \LogicException('Set MAIL_MAILER to a real mailer in production. The log mailer writes password-reset links and OTP codes to the log file.');
         }
-        $sslmode = config('database.connections.pgsql.sslmode');
+        $sslmode = $this->effectivePgsqlSslmode();
         if (config('database.default') === 'pgsql' && in_array($sslmode, ['prefer', 'allow', 'disable'], true)) {
             throw new \LogicException("Set DB_SSLMODE=require (or stricter) in production. '{$sslmode}' allows a plaintext database connection.");
+        }
+        if ($onCloudRun) {
+            // H7: the container filesystem is ephemeral memory — file logs
+            // never reach Cloud Logging and grow until the instance OOMs.
+            foreach ($this->productionLogChannels() as $channel) {
+                $driver = config("logging.channels.{$channel}.driver");
+                if (in_array($driver, ['single', 'daily', 'monthly'], true)) {
+                    throw new \LogicException("Cloud Run's filesystem is ephemeral: log channel [{$channel}] writes to disk and never reaches Cloud Logging. Set LOG_CHANNEL=stderr (LOG_STACK=stderr).");
+                }
+            }
         }
         // Require shared lockable cache store across workers in production for multi-node staff handoff synchronization.
         if (! in_array((string) config('cache.default'), ['redis', 'database', 'memcached', 'dynamodb'], true)) {
             throw new \LogicException('Staff handoff requires a shared lockable cache store in production. Use Redis or a shared database cache.');
         }
+    }
+
+    /**
+     * Effective PostgreSQL sslmode: a sslmode query parameter inside DB_URL
+     * merges into the connection at connect time, so the raw key alone does
+     * not describe what the driver enforces.
+     */
+    private function effectivePgsqlSslmode(): ?string
+    {
+        $mode = config('database.connections.pgsql.sslmode');
+        $url = (string) config('database.connections.pgsql.url');
+        if ($url !== '') {
+            $query = parse_url($url, PHP_URL_QUERY);
+            if (is_string($query) && $query !== '') {
+                parse_str($query, $params);
+                if (isset($params['sslmode']) && is_string($params['sslmode']) && $params['sslmode'] !== '') {
+                    $mode = $params['sslmode'];
+                }
+            }
+        }
+
+        return is_string($mode) ? strtolower($mode) : null;
+    }
+
+    /**
+     * Concrete log channels behind the configured default (stack expands to
+     * its members).
+     *
+     * @return list<string>
+     */
+    private function productionLogChannels(): array
+    {
+        $default = config('logging.default');
+        if ($default === 'stack') {
+            $channels = config('logging.channels.stack.channels', []);
+            if (is_string($channels)) {
+                $channels = explode(',', $channels);
+            }
+
+            return array_map(trim(...), (array) $channels);
+        }
+
+        return [trim((string) $default)];
     }
 
     private function configureMorphMaps(): void
@@ -314,6 +382,9 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('customer-reset-confirm', fn (Request $request) => [
             Limit::perMinute(config('auth.customer_limits.reset_confirm_ip_minute', 120))->by('reset-confirm-ip:'.$networkIp($request)),
             ...array_map(fn (string $key): Limit => Limit::perMinute(10)->by('reset-confirm-id:'.$key), $resetIdentifiers($request)),
+            // M4: a daily per-identifier ceiling caps a slow 10/min attack that
+            // would otherwise send ~14,400 guesses a day against one account.
+            ...array_map(fn (string $key): Limit => Limit::perDay(config('auth.customer_limits.reset_confirm_id_day', 50))->by('reset-confirm-id-day:'.$key), $resetIdentifiers($request)),
         ]);
         $phoneKey = fn (Request $request): string => hash('sha256', is_string($request->input('phone')) ? Customer::normalizePhone($request->input('phone')) : 'invalid');
         RateLimiter::for('customer-phone-send', fn (Request $request) => [
@@ -476,6 +547,9 @@ class AppServiceProvider extends ServiceProvider
             Limit::perMinute(config('auth.customer_limits.reset_ip_minute', 20))->by('customer-password-reset:'.$networkIp($request)),
             Limit::perDay(config('auth.customer_limits.reset_ip_day', 500))->by('customer-password-reset-day:'.$networkIp($request)),
             ...array_map(fn (string $key): Limit => Limit::perMinute(5)->by('customer-password-reset-id:'.$key), $resetIdentifiers($request)),
+            // M4: a daily per-identifier ceiling stops mailbox flooding of a
+            // single victim (~7,200 mails a day at 5/min) via slow dripping.
+            ...array_map(fn (string $key): Limit => Limit::perDay(config('auth.customer_limits.reset_id_day', 25))->by('customer-password-reset-id-day:'.$key), $resetIdentifiers($request)),
         ]);
 
         // Cashier POS terminal login rate limits by staff email and client IP.

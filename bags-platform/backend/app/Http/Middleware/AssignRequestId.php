@@ -18,15 +18,20 @@ final class AssignRequestId
 {
     public function handle(Request $request, Closure $next): Response
     {
-        $id = $request->headers->get('X-Request-ID');
-        if (! is_string($id) || ! preg_match('/\A[A-Za-z0-9._:-]{8,128}\z/', $id)) {
-            $id = (string) Str::uuid();
+        $clientId = $request->headers->get('X-Request-ID');
+        if (! is_string($clientId) || ! preg_match('/\A[A-Za-z0-9._:-]{8,128}\z/', $clientId)) {
+            $clientId = null;
         }
+        // L8: a client-supplied id is only adopted behind a trusted proxy that
+        // strips spoofed forwarding headers; otherwise the server mints the
+        // correlation id and the client value is kept aside for debugging.
+        $id = ($clientId !== null && $request->isFromTrustedProxy()) ? $clientId : (string) Str::uuid();
 
         // Laravel 11 Context propagates request_id into queued jobs dispatched within this lifecycle,
         // while Log::withContext ensures consistent stdout/stderr log formatting in the current process.
         Context::add([
             'request_id' => $id,
+            'client_request_id' => $clientId,
             'node' => gethostname(),
             'client_ip' => $request->ip(),
         ]);

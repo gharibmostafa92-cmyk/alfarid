@@ -13,6 +13,7 @@ use App\Models\SupplierInvoice;
 use App\Models\SupplierPayment;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Database\DeadlockException;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use LogicException;
@@ -89,6 +90,9 @@ class OperationIdempotencyService
             }
             try {
                 $result = $execute();
+            } catch (DeadlockException $e) {
+                // Nested-transaction concurrency failure: the outer transaction (incl. the key row) will roll back.
+                throw new RetryableConflict('العملية مشغولة؛ أعد المحاولة بنفس المفتاح.', $e);
             } catch (QueryException $e) {
                 // M5: deadlock / serialization failure (or lock timeout) inside the
                 // callback rolls the whole transaction — including the key row —

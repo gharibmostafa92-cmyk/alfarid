@@ -1187,12 +1187,15 @@ class PosService
 
     private function lockOpenShift(PosShift $shift): PosShift
     {
-        $shift = PosShift::query()->lockForUpdate()->findOrFail($shift->id);
-        if ($shift->status !== PosShiftStatus::Open) {
+        // M5: re-check the open status under the row lock inside the sale
+        // transaction — a supervisor close racing the sale must abort it
+        // instead of posting to a closed drawer.
+        $locked = PosShift::query()->whereKey($shift->id)->where('status', PosShiftStatus::Open)->lockForUpdate()->first();
+        if ($locked === null) {
             throw new BusinessException('الوردية غير مفتوحة.');
         }
 
-        return $shift;
+        return $locked;
     }
 
     /**

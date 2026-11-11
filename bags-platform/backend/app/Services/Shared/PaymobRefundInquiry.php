@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Shared;
 
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -31,15 +32,34 @@ final class PaymobRefundInquiry
         }
 
         $client = Http::acceptJson()->withoutRedirecting()->connectTimeout(2)->timeout(4);
-        try {
-            $auth = $client->post($host.'/api/auth/tokens', ['api_key' => $key]);
-            $token = $auth->successful() ? $auth->json('token') : null;
-            if (! is_string($token) || $token === '') {
-                Log::warning('Paymob refund inquiry authentication failed.', ['status' => $auth->status()]);
+        // L2: one auth token request per cache TTL, not one per refund
+        // webhook; auth and inquiry share the client's short timeouts.
+        $token = Cache::remember(
+            'paymob:refund-auth:'.sha1($host.'|'.$key),
+            now()->addHours(20),
+            function () use ($client, $host, $key) {
+                try {
+                    $auth = $client->post($host.'/api/auth/tokens', ['api_key' => $key]);
+                } catch (ConnectionException) {
+                    Log::warning('Paymob refund inquiry connection failed.');
 
-                return null;
+                    return null;
+                }
+                $token = $auth->successful() ? $auth->json('token') : null;
+                if (! is_string($token) || $token === '') {
+                    Log::warning('Paymob refund inquiry authentication failed.', ['status' => $auth->status()]);
+
+                    return null;
+                }
+
+                return $token;
             }
+        );
+        if (! is_string($token) || $token === '') {
+            return null;
+        }
 
+        try {
             $response = $client->withToken($token)->get($host.'/api/acceptance/transactions/'.$transactionId);
         } catch (ConnectionException) {
             Log::warning('Paymob refund inquiry connection failed.');

@@ -48,6 +48,9 @@ return [
         'login_id_day' => (int) env('CUSTOMER_LOGIN_ID_DAY', 100),
         'phone_id_day' => (int) env('CUSTOMER_PHONE_ID_DAY', 5),
         'phone_verify_id_day' => (int) env('CUSTOMER_PHONE_VERIFY_ID_DAY', 20),
+        // M4: per-identifier daily ceilings stop slow OTP/reset harvesting.
+        'reset_confirm_id_day' => (int) env('CUSTOMER_RESET_CONFIRM_ID_DAY', 50),
+        'reset_id_day' => (int) env('CUSTOMER_RESET_ID_DAY', 25),
         'cart_guest_ip_minute' => (int) env('CART_GUEST_IP_MINUTE', 120),
         'cart_guest_ip_day' => (int) env('CART_GUEST_IP_DAY', 2000),
         'coupon_guest_ip_minute' => (int) env('COUPON_GUEST_IP_MINUTE', 30),

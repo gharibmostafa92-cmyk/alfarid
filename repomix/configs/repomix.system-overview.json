@@ -27,7 +27,10 @@
     "bags-platform/backend/routes/console.php",
     "bags-platform/backend/routes/api/*.php",
     "bags-platform/backend/app/Providers/**",
-    "bags-platform/backend/database/seeders/DatabaseSeeder.php",
+    "bags-platform/backend/database/seeders/*.php",
+    "bags-platform/infrastructure/cloud-run/pilot.ps1",
+    "bags-platform/frontend/apps/storefront/src/lib/core/cloud-run-api.ts",
+    "bags-platform/frontend/apps/storefront/src/app/api/v1/[...path]/route.ts",
     "bags-platform/frontend/package.json",
     "bags-platform/frontend/turbo.json",
     "bags-platform/frontend/packages/api-client/src/index.ts"

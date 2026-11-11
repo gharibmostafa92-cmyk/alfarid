@@ -61,6 +61,10 @@ class WebhookLog extends Model
         'expmonth', 'expyear', 'expiry', 'firstname', 'lastname',
         'phonenumber', 'email', 'street', 'building', 'floor', 'apartment',
         'city', 'state', 'country', 'postalcode',
+        // L3: Stripe nests customer PII under billing_details with different
+        // key spellings (phone not phonenumber, address line1/line2), and card
+        // fingerprints/last4 re-identify the cardholder across payloads.
+        'billingdetails', 'name', 'phone', 'line1', 'line2', 'last4', 'fingerprint',
     ];
 
     /**

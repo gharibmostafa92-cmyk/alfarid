@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Services\Shared;
 
 use App\Exceptions\BusinessException;
+use Brick\Math\BigDecimal;
+use Brick\Math\Exception\MathException;
 
 /**
  * Validates inventory and transaction quantities against domain boundary limits.
@@ -28,16 +30,25 @@ final class DiscreteQuantity
         if (! is_numeric($qty) || ! is_finite((float) $qty)) {
             return false;
         }
-        $value = (float) $qty;
-        // Epsilon comparison guards against IEEE-754 floating point inaccuracies during decimal checks.
-        // M1: the lower bound without zero is "greater than zero", not 1, so
-        // fractional continuous quantities (0.5kg, 0.25m) validate; over-precise
-        // values (0.00001) still fail the 4-decimal check below.
-        if (($allowZero ? $value < 0 : $value <= 0) || $value > self::MAX_DECIMAL || abs($value - round($value, 4)) > 1e-9) {
+        try {
+            // M1: evaluate by exact decimal text (floats by their shortest
+            // representation) so values decimal(12,4) would silently round —
+            // 1e-10 stored as 0.0000, 1.00000000001 stored as 1.0000 — are
+            // rejected instead of slipping past an epsilon float comparison.
+            $decimal = BigDecimal::of((string) $qty);
+        } catch (MathException) {
+            return false;
+        }
+        if ($decimal->getScale() > 4) {
+            return false;
+        }
+        // The lower bound without zero is "greater than zero", not 1, so
+        // fractional continuous quantities (0.5kg, 0.25m) still validate.
+        if ($allowZero ? $decimal->isNegative() : ! $decimal->isPositive()) {
             return false;
         }
 
-        return true;
+        return $decimal->compareTo(BigDecimal::of('99999999.9999')) <= 0;
     }
 
     /**

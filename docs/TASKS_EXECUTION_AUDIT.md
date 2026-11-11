@@ -101,3 +101,21 @@ The Europe image swap kept the storefront image and removed the unused API diges
 Repository `sizeBytes` still lags deletion and was above the 375,809,638-byte push gate after the new image landed. Treat that figure as stale until Artifact Registry reclaims unreferenced blobs. The cleanup policy remains: keep the two newest versions, and delete versions older than seven days.
 
 Rehearse the pending migrations against an isolated Neon branch using the migration owner before applying them to production. The serving runtime role still cannot migrate. Check the storefront and the two Cloud Run Jobs separately; updating the API image does not update them.
+
+## Deployed vs pending deployment (2026-11-11)
+
+### Already deployed
+
+- Git marker `25ee590` (`docs/.last-deployed`): `fix(tests): avoid duplicate generated brand slugs`.
+- Live serving image: Europe `alfarid-api-rel20261110b` (`api@sha256:617d6f76075126f11308858f45598677e6dc93b8a96ec1104f681282be74ea1b`); `us-central1` disabled.
+- None of the roadmap fixes below are deployed, and no pending migration has run in production.
+
+### Ready / pending (branch `fixes/task-audit-roadmap`, committed `25ee590..3b91e5c`, working tree clean, unpushed)
+
+Six commits: `f457dde`, `44964de`, `9be53c1`, `e85c298` (payment webhook guards), `e70892b` (auth throttles, kernel, route guards, repomix configs), `3b91e5c` (task2 database integrity). Detail per fix lives in [deployment status](TASK_DEPLOYMENT_STATUS.md); the release steps are:
+
+- Migrations: ~44 new files (`2026_11_12_000001` POS catalog lookup indexes, `000002`–`000028` task2 guards with gaps, `000032`, `000040`–`000043`, `000045`–`000047`, `000049`–`000050`). Rehearse on a Neon branch with the migration-owner role first (legacy CHECK/UNIQUE violations and duplicate wallet references block validation), then apply with that role — the runtime role cannot migrate. The ~40 edited historic migrations are forward no-ops in production (already recorded in `migrations`); they only affect fresh installs and rollback paths.
+- Env: set new `UNIFIED_LOGIN_ID_HOUR`/`UNIFIED_LOGIN_ID_DAY`, identifier/wide/global failure limits, `CUSTOMER_PHONE_ID_DAY`, cart/guest/checkout limiters, `SUPPLIER_TOKEN_MINUTES`, `R2_CLEANUP_OWNER` (plus endpoint-bound storage markers), and `PAYMOB_INQUIRY_API_KEY`. Changed defaults take effect on deploy: `STAFF_TOKEN_MINUTES` 43200→720, `SANCTUM_EXPIRATION` 86400→43200, `R2_DOWNLOAD_URL_TTL_SECONDS` 3600→300, `DB_DISABLE_PREPARES` false→true. Shorter staff tokens force faster re-login; verify role matrices before release (finance routes now 403 for ungranted staff).
+- Queue: restart queue workers for the `SendOutboundMessage` OTP verification change (stale OTP payloads are now skipped and redacted). Scheduler-side queue monitors run every five minutes; no new queues or connections.
+- Scheduler (`routes/console.php`): new `db:verify-schema` daily 05:30 (pg-only); full/incremental `inventory:reconcile` share one mutex; `cache:prune-expired` deletes in bounded 500-row batches; private-disk `media:prune-orphans` is now `--staging-only`. Scheduler must run on exactly one server (`onOneServer`) as configured.
+- Build: new `.github/workflows/frontend-checks.yml` gate; rebuild the API image from branch HEAD (entrypoint CRLF stripping already in tree); rebuild the storefront (new Cloud Run proxy route + `cloud-run-api.ts`) and backoffice (staff password-rotation UI) separately. `pilot.ps1 -Action DeployApi` is single-region initial deploy only, not the two-region upgrade; Cloud Run Jobs are independent of the API image swap. Repomix `started` bundles (system-kernel, system-overview, database-schema) are regenerated from this branch.
