@@ -14,6 +14,8 @@ use Illuminate\Support\Facades\Schema;
  */
 return new class extends Migration
 {
+    public $withinTransaction = false;
+
     /** @var array<string, array{setting: string, table: ?string, column: ?string}> */
     private const DOCUMENT_SEQUENCES = [
         'order' => ['setting' => 'order_next_number', 'table' => 'orders', 'column' => 'order_number'],
@@ -29,6 +31,24 @@ return new class extends Migration
     ];
 
     public function up(): void
+    {
+        // A failure while validating the payment status check can resume after
+        // the historical supplier payment and numbering setup has committed.
+        if (! Schema::hasColumn('supplier_payments', 'voided_at')) {
+            DB::transaction(function (): void {
+                DB::statement("SET LOCAL lock_timeout = '3s'");
+                $this->prepareLedger();
+            });
+        }
+        DB::transaction(function (): void {
+            DB::statement("SET LOCAL lock_timeout = '3s'");
+            DB::statement("ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_payment_status_check,
+                ADD CONSTRAINT orders_payment_status_check CHECK (payment_status IN ('unpaid', 'paid', 'failed', 'refunded', 'partially_refunded')) NOT VALID");
+        });
+        DB::statement('ALTER TABLE orders VALIDATE CONSTRAINT orders_payment_status_check');
+    }
+
+    private function prepareLedger(): void
     {
         foreach (array_keys(self::DOCUMENT_SEQUENCES) as $type) {
             DB::statement("CREATE SEQUENCE IF NOT EXISTS document_{$type}_number_seq");
@@ -95,9 +115,6 @@ SQL);
 
         DB::statement("CREATE UNIQUE INDEX return_requests_refund_reference_unique ON return_requests (lower(btrim(refund_reference))) WHERE refund_reference IS NOT NULL AND btrim(refund_reference) <> '' AND status NOT IN ('rejected', 'cancelled')");
 
-        DB::statement('ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_payment_status_check');
-        DB::statement("ALTER TABLE orders ADD CONSTRAINT orders_payment_status_check CHECK (payment_status IN ('unpaid', 'paid', 'failed', 'refunded', 'partially_refunded'))");
-
         DB::statement('ALTER TABLE purchase_order_items ADD CONSTRAINT purchase_order_items_qty_bounds CHECK (ordered_qty > 0 AND received_qty >= 0 AND received_qty <= ordered_qty AND unit_cost >= 0 AND line_total >= 0)');
         DB::statement('ALTER TABLE supplier_invoices ADD CONSTRAINT supplier_invoices_amounts_check CHECK (subtotal >= 0 AND tax_amount >= 0 AND paid_amount >= 0 AND paid_amount <= total_amount AND total_amount = round(subtotal + tax_amount, 2))');
         DB::statement('ALTER TABLE supplier_payments ADD CONSTRAINT supplier_payments_amount_positive CHECK (amount > 0)');
@@ -117,6 +134,14 @@ SQL);
     }
 
     public function down(): void
+    {
+        DB::transaction(function (): void {
+            DB::statement("SET LOCAL lock_timeout = '3s'");
+            $this->rollbackLedger();
+        });
+    }
+
+    private function rollbackLedger(): void
     {
         DB::table('settings')->where('key', 'allow_self_approve_purchases')->delete();
         DB::statement('DROP INDEX IF EXISTS supplier_users_email_lower_unique');

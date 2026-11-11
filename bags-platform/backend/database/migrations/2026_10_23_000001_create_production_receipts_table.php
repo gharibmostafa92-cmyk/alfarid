@@ -13,33 +13,47 @@ return new class extends Migration
 
     public function up(): void
     {
-        DB::statement('ALTER TABLE stock_movements DROP CONSTRAINT stock_movements_valid_type');
-        // Adding constraint as NOT VALID followed by VALIDATE avoids prolonged ACCESS EXCLUSIVE table locks.
-        DB::statement('ALTER TABLE stock_movements ADD CONSTRAINT stock_movements_valid_type CHECK (type IN ('.self::LEGACY_TYPES.", 'production_receipt')) NOT VALID");
-        DB::statement('ALTER TABLE stock_movements VALIDATE CONSTRAINT stock_movements_valid_type');
-        Schema::create('production_receipts', function (Blueprint $table) {
-            $table->id();
-            $table->string('batch_number', 100)->unique();
-            $table->foreignId('branch_id')->constrained()->restrictOnDelete();
-            $table->foreignId('location_id')->nullable()->constrained()->restrictOnDelete();
-            $table->foreignId('created_by')->constrained('users')->restrictOnDelete();
-            $table->string('idempotency_key', 128);
-            $table->string('request_hash', 64);
-            $table->json('items');
-            $table->text('notes')->nullable();
-            $table->timestamps();
-            $table->unique(['created_by', 'idempotency_key']);
-            $table->index(['branch_id', 'id']);
+        $this->replaceTypes(self::LEGACY_TYPES.", 'production_receipt'");
+        DB::transaction(function (): void {
+            DB::statement("SET LOCAL lock_timeout = '3s'");
+            if (Schema::hasTable('production_receipts')) {
+                return;
+            }
+
+            Schema::create('production_receipts', function (Blueprint $table) {
+                $table->id();
+                $table->string('batch_number', 100)->unique();
+                $table->foreignId('branch_id')->constrained()->restrictOnDelete();
+                $table->foreignId('location_id')->nullable()->constrained()->restrictOnDelete();
+                $table->foreignId('created_by')->constrained('users')->restrictOnDelete();
+                $table->string('idempotency_key', 128);
+                $table->string('request_hash', 64);
+                $table->json('items');
+                $table->text('notes')->nullable();
+                $table->timestamps();
+                $table->unique(['created_by', 'idempotency_key']);
+                $table->index(['branch_id', 'id']);
+            });
         });
     }
 
     public function down(): void
     {
-        if (DB::table('production_receipts')->exists() || DB::table('stock_movements')->where('type', 'production_receipt')->exists()) {
+        if ((Schema::hasTable('production_receipts') && DB::table('production_receipts')->exists()) || DB::table('stock_movements')->where('type', 'production_receipt')->exists()) {
             throw new RuntimeException('Cannot roll back recorded production receipts; preserve the inventory audit trail.');
         }
+        $this->replaceTypes(self::LEGACY_TYPES);
         Schema::dropIfExists('production_receipts');
-        DB::statement('ALTER TABLE stock_movements DROP CONSTRAINT stock_movements_valid_type');
-        DB::statement('ALTER TABLE stock_movements ADD CONSTRAINT stock_movements_valid_type CHECK (type IN ('.self::LEGACY_TYPES.'))');
+    }
+
+    private function replaceTypes(string $types): void
+    {
+        DB::transaction(function () use ($types): void {
+            DB::statement("SET LOCAL lock_timeout = '3s'");
+            DB::statement("ALTER TABLE stock_movements
+                DROP CONSTRAINT stock_movements_valid_type,
+                ADD CONSTRAINT stock_movements_valid_type CHECK (type IN ({$types})) NOT VALID");
+        });
+        DB::statement('ALTER TABLE stock_movements VALIDATE CONSTRAINT stock_movements_valid_type');
     }
 };

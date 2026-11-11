@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Orders;
 
-use App\Enums\Orders\OrderStatus;
 use App\Enums\Inventory\StockBucket;
 use App\Enums\Inventory\StockMovementType;
+use App\Enums\Orders\OrderStatus;
 use App\Models\Branch;
 use App\Models\Cart;
 use App\Models\Order;
@@ -246,8 +246,15 @@ class WebhookTest extends TestCase
         $order = $this->makeOrder($variant, 1, 'card');
         $total = (float) $order->grand_total;
 
+        // A refund only applies to captured money: pay first, then refund.
+        $this->postWebhook('/api/v1/webhooks/payment/testpay', [
+            'event_id' => 'evt_pay_before_refund', 'order_number' => $order->order_number,
+            'status' => 'paid', 'amount' => $total,
+        ], self::PAY_SECRET)->assertOk();
+
         $this->postWebhook('/api/v1/webhooks/payment/testpay', [
             'event_id' => 'evt_refund_1', 'order_number' => $order->order_number, 'status' => 'refunded',
+            'amount_refunded' => (float) $order->grand_total,
         ], self::PAY_SECRET)->assertOk();
         $this->assertSame('refunded', $order->fresh()->payment_status);
 
@@ -269,7 +276,12 @@ class WebhookTest extends TestCase
         $order = $this->makeOrder($variant, 1, 'card');
 
         $this->postWebhook('/api/v1/webhooks/payment/testpay', [
+            'event_id' => 'evt_pay_before_refund_2', 'order_number' => $order->order_number, 'status' => 'paid',
+        ], self::PAY_SECRET)->assertOk();
+
+        $this->postWebhook('/api/v1/webhooks/payment/testpay', [
             'event_id' => 'evt_refund_2', 'order_number' => $order->order_number, 'status' => 'refunded',
+            'amount_refunded' => (float) $order->grand_total,
         ], self::PAY_SECRET)->assertOk();
 
         $this->postWebhook('/api/v1/webhooks/payment/testpay', [

@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Wholesale;
 
+use App\Enums\Finance\TreasuryType;
 use App\Enums\Orders\OrderStatus;
 use App\Enums\Wholesale\QuotationStatus;
-use App\Enums\Finance\TreasuryType;
 use App\Exceptions\BusinessException;
 use App\Jobs\SendOutboundMessage;
 use App\Models\AiPendingAction;
@@ -33,6 +33,7 @@ use Database\Seeders\SettingSeeder;
 use Database\Seeders\WholesalePortalPermissionSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
@@ -158,6 +159,55 @@ class WholesaleExecutionTest extends TestCase
 
         $this->assertSame(1, InboundMessage::query()->count());
         $this->assertSame(0, WholesalePaymentNotice::query()->count());
+    }
+
+    public function test_customer_otp_attempt_budget_survives_repeated_requests(): void
+    {
+        $this->freezeTime();
+        $customer = Customer::factory()->create([
+            'type' => 'wholesale', 'status' => 'approved', 'phone' => '01012345678',
+        ]);
+        $channel = CustomerChannel::query()->create([
+            'customer_id' => $customer->id,
+            'provider' => 'whatsapp_cloud',
+            'phone' => '0020 101 234 5678',
+            'verification_code_hash' => Hash::make('123456'),
+            'verification_expires_at' => now()->addMinutes(10),
+        ]);
+        $assistant = app(CustomerWholesaleAssistant::class);
+
+        $this->assertSame('+201012345678', $channel->phone);
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $this->assertStringContainsString('غير صحيح', $assistant->reply($customer, '654321'));
+        }
+        $this->assertStringContainsString('المحاولات خلص', $assistant->reply($customer, '123456'));
+        $this->assertSame(5, $channel->fresh()->verification_attempts);
+        $this->assertNull($channel->fresh()->verified_at);
+        $this->assertDatabaseCount('outbound_messages', 0);
+
+        $this->travel(11)->minutes();
+        $this->assertStringContainsString('بعتنا رمز', $assistant->reply($customer, 'رصيد'));
+        $this->assertSame(0, $channel->fresh()->verification_attempts);
+        $this->assertDatabaseCount('outbound_messages', 1);
+    }
+
+    public function test_old_whatsapp_number_cannot_use_a_verified_channel(): void
+    {
+        $customer = Customer::factory()->create([
+            'type' => 'wholesale', 'status' => 'approved', 'phone' => '01012345678',
+            'whatsapp_phone' => '01112345678',
+        ]);
+        $channel = CustomerChannel::query()->create([
+            'customer_id' => $customer->id, 'provider' => 'whatsapp_cloud',
+            'phone' => $customer->phone, 'verified_at' => now(), 'verification_status' => 'verified',
+        ]);
+        $assistant = app(CustomerWholesaleAssistant::class);
+
+        $this->assertStringContainsString('غير متاح', $assistant->reply($customer, 'رصيد', sender: '+201012345678'));
+        $this->assertSame('+201012345678', $channel->fresh()->phone);
+        $this->assertStringContainsString('بعتنا رمز', $assistant->reply($customer, 'رصيد', sender: '+201112345678'));
+        $this->assertSame('+201112345678', $channel->fresh()->phone);
+        $this->assertNull($channel->fresh()->verified_at);
     }
 
     public function test_accept_button_rejects_a_stale_total_hash(): void

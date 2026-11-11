@@ -144,7 +144,7 @@ alfarid/
 ### Prerequisites
 - **PHP** >= 8.3 (with `pdo_pgsql`, `redis`, `gd`, `intl`, `bcmath`)
 - **Composer** >= 2.7
-- **Node.js** >= 20.x
+- **Node.js** >= 22.6.0
 - **pnpm** 10.34.4
 - **PostgreSQL** >= 16.x
 

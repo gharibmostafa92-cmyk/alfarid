@@ -7,8 +7,10 @@ use App\Models\User;
 return [
     'require_phone_verification' => env('CUSTOMER_REQUIRE_PHONE_VERIFICATION', false),
     'customer_max_tokens' => (int) env('CUSTOMER_MAX_TOKENS', 10),
-    'customer_token_minutes' => (int) env('CUSTOMER_TOKEN_MINUTES', 86400),
+    'customer_token_minutes' => (int) env('CUSTOMER_TOKEN_MINUTES', 43200),
     'supplier_max_tokens' => (int) env('SUPPLIER_MAX_TOKENS', 5),
+    // M4: supplier portal tokens expose financial statements; keep them short.
+    'supplier_token_minutes' => (int) env('SUPPLIER_TOKEN_MINUTES', 10080),
     // M-4: 12h instead of 30 days for a '*' admin token held in localStorage.
     'staff_token_minutes' => (int) env('STAFF_TOKEN_MINUTES', 720),
     'staff_current_password_failures' => (int) env('STAFF_CURRENT_PASSWORD_FAILURES', 5),
@@ -48,6 +50,7 @@ return [
         'phone_verify_id_day' => (int) env('CUSTOMER_PHONE_VERIFY_ID_DAY', 20),
         'cart_guest_ip_minute' => (int) env('CART_GUEST_IP_MINUTE', 120),
         'cart_guest_ip_day' => (int) env('CART_GUEST_IP_DAY', 2000),
+        'coupon_guest_ip_minute' => (int) env('COUPON_GUEST_IP_MINUTE', 30),
         'checkout_guest_ip_minute' => (int) env('CHECKOUT_GUEST_IP_MINUTE', 30),
         'checkout_guest_ip_day' => (int) env('CHECKOUT_GUEST_IP_DAY', 200),
         'checkout_phone_day' => (int) env('CHECKOUT_PHONE_DAY', 20),

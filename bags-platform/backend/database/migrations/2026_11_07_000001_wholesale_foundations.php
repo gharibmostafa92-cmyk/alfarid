@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Support\ConcurrentIndex;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
@@ -12,7 +13,25 @@ use Illuminate\Support\Str;
 /* F22: Spatie/SettingService calls inlined as raw DB + Cache calls; no app coupling. */
 return new class extends Migration
 {
+    public $withinTransaction = false;
+
     public function up(): void
+    {
+        // The schema/data work commits atomically. Its last table marks that
+        // phase complete if either concurrent index build needs to be retried.
+        if (! Schema::hasTable('inbound_messages')) {
+            DB::transaction(function (): void {
+                DB::statement("SET LOCAL lock_timeout = '3s'");
+                $this->prepareTables();
+            });
+        }
+
+        ConcurrentIndex::ensure('orders_payment_method_payment_status_due_at_index', 'ON orders (payment_method, payment_status, due_at)');
+        ConcurrentIndex::ensure('wholesale_payment_notices_reference_number_index', 'ON wholesale_payment_notices (reference_number)');
+        ConcurrentIndex::ensure('wholesale_payment_notices_receipt_sha256_active', "ON wholesale_payment_notices (receipt_sha256) WHERE receipt_sha256 IS NOT NULL AND status <> 'rejected'", unique: true);
+    }
+
+    private function prepareTables(): void
     {
         Schema::table('customers', function (Blueprint $table): void {
             $table->unsignedSmallInteger('payment_terms_days')->nullable()->after('credit_limit');
@@ -23,7 +42,6 @@ return new class extends Migration
 
         Schema::table('orders', function (Blueprint $table): void {
             $table->timestamp('due_at')->nullable()->after('payment_status');
-            $table->index(['payment_method', 'payment_status', 'due_at']);
         });
 
         Schema::table('quotations', function (Blueprint $table): void {
@@ -38,15 +56,12 @@ return new class extends Migration
             $table->char('receipt_sha256', 64)->nullable()->after('receipt_file_path');
             $table->json('ocr_payload')->nullable()->after('receipt_sha256');
             $table->decimal('match_score', 5, 2)->nullable()->after('ocr_payload');
-            $table->index('reference_number');
         });
 
         DB::table('wholesale_payment_notices')
             ->where('status', 'approved')
             ->whereNull('approved_at')
             ->update(['approved_at' => DB::raw('updated_at')]);
-
-        DB::statement("CREATE UNIQUE INDEX wholesale_payment_notices_receipt_sha256_active ON wholesale_payment_notices (receipt_sha256) WHERE receipt_sha256 IS NOT NULL AND status <> 'rejected'");
 
         Schema::create('customer_channels', function (Blueprint $table): void {
             $table->id();
@@ -134,10 +149,11 @@ return new class extends Migration
         Schema::dropIfExists('message_templates');
         Schema::dropIfExists('customer_channels');
 
-        DB::statement('DROP INDEX IF EXISTS wholesale_payment_notices_receipt_sha256_active');
+        ConcurrentIndex::drop('wholesale_payment_notices_receipt_sha256_active');
+        ConcurrentIndex::drop('wholesale_payment_notices_reference_number_index');
+        ConcurrentIndex::drop('orders_payment_method_payment_status_due_at_index');
 
         Schema::table('wholesale_payment_notices', function (Blueprint $table): void {
-            $table->dropIndex(['reference_number']);
             $table->dropColumn(['approved_at', 'receipt_sha256', 'ocr_payload', 'match_score']);
         });
 
@@ -147,7 +163,6 @@ return new class extends Migration
         });
 
         Schema::table('orders', function (Blueprint $table): void {
-            $table->dropIndex(['payment_method', 'payment_status', 'due_at']);
             $table->dropColumn('due_at');
         });
 

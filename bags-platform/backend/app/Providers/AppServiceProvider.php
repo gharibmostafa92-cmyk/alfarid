@@ -5,6 +5,8 @@ namespace App\Providers;
 use App\Enums\StaffRole;
 use App\Listeners\Wholesale\WholesaleLifecycleSubscriber;
 use App\Models\Branch;
+use App\Models\Brand;
+use App\Models\Category;
 use App\Models\Customer;
 use App\Models\Expense;
 use App\Models\Location;
@@ -12,6 +14,7 @@ use App\Models\Order;
 use App\Models\PosShift;
 use App\Models\PriceList;
 use App\Models\PriceListItem;
+use App\Models\Product;
 use App\Models\ProductionReceipt;
 use App\Models\ProductVariant;
 use App\Models\PurchaseOrder;
@@ -19,8 +22,10 @@ use App\Models\ReturnRequest;
 use App\Models\StockLevel;
 use App\Models\Stocktake;
 use App\Models\StockTransfer;
+use App\Models\SupplierUser;
 use App\Models\TreasuryTransfer;
 use App\Models\User;
+use App\Models\WalletAdjustment;
 use App\Models\WholesalePaymentNotice;
 use App\Observers\CatalogRetailPriceObserver;
 use App\Services\Ai\Catalog\CatalogToolProvider;
@@ -35,10 +40,10 @@ use App\Services\Ai\ToolRegistry;
 use App\Services\Ai\WhatsApp\WhatsAppActorContext;
 use App\Services\Ai\Wholesale\WholesaleToolProvider;
 use App\Services\Auth\NetworkIdentity;
+use App\Services\Catalog\StoreCatalogService;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Pricing\PricingService;
 use App\Services\Shared\SettingService;
-use App\Services\Catalog\StoreCatalogService;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Events\TransactionBeginning;
@@ -154,19 +159,54 @@ class AppServiceProvider extends ServiceProvider
      */
     public static function trustedProxyConfigIsSafe(mixed $proxies): bool
     {
-        if (! is_string($proxies) || trim($proxies) === '' || trim($proxies) === 'none') {
-            return trim((string) $proxies) === 'none';
-        }
-        if (preg_match('/(?:^|,)\s*\*{1,2}\s*(?:,|$)/', $proxies)) {
+        if (! is_string($proxies)) {
             return false;
         }
-        foreach (explode(',', $proxies) as $entry) {
-            if (preg_match('#/0\s*$#', trim($entry))) {
+        $value = trim($proxies);
+        if ($value === '') {
+            return false;
+        }
+        if ($value === 'none') {
+            return true;
+        }
+        if (preg_match('/(?:^|,)\s*\*{1,2}\s*(?:,|$)/', $value)) {
+            return false;
+        }
+        foreach (explode(',', $value) as $entry) {
+            if (! self::trustedProxyEntryIsSafe(trim($entry))) {
                 return false;
             }
         }
 
         return true;
+    }
+
+    /** Accept only a literal IP or a narrow CIDR; hostnames and special tokens are ambiguous. */
+    private static function trustedProxyEntryIsSafe(string $entry): bool
+    {
+        if ($entry === '' || strcasecmp($entry, 'REMOTE_ADDR') === 0) {
+            return false;
+        }
+        [$address, $prefix] = array_pad(explode('/', $entry, 2), 2, null);
+        $address = trim((string) $address);
+        $isV4 = filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false;
+        $isV6 = ! $isV4 && filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false;
+        if (! $isV4 && ! $isV6) {
+            return false;
+        }
+        if ($prefix === null) {
+            return true;
+        }
+        $prefix = trim((string) $prefix);
+        if ($prefix === '' || ! ctype_digit($prefix)) {
+            return false;
+        }
+        $prefix = (int) $prefix;
+        $max = $isV4 ? 32 : 128;
+
+        // M1: a /0 (including "00") trusts every peer; equally broad /1-/7
+        // ranges are an operational mistake, not a proxy definition.
+        return $prefix >= ($isV4 ? 8 : 16) && $prefix <= $max;
     }
 
     private function configureSecurityAndGates(): void
@@ -182,7 +222,9 @@ class AppServiceProvider extends ServiceProvider
 
     private function enforceProductionGuards(): void
     {
-        if (! $this->app->environment('production')) {
+        // M2: staging/demo often carries real data; only local and testing may
+        // run with weak proxy, mailer, cache, and database settings.
+        if ($this->app->environment(['local', 'testing'])) {
             return;
         }
 
@@ -210,7 +252,7 @@ class AppServiceProvider extends ServiceProvider
     private function configureMorphMaps(): void
     {
         // Morph map aliases decouple ledger reference records (e.g. stock_movements) from PHP class namespaces.
-        Relation::morphMap([
+        Relation::enforceMorphMap([
             'production_receipt' => ProductionReceipt::class,
             'stock_transfer' => StockTransfer::class,
             'stocktake' => Stocktake::class,
@@ -221,6 +263,15 @@ class AppServiceProvider extends ServiceProvider
             'expense' => Expense::class,
             'treasury_transfer' => TreasuryTransfer::class,
             'wholesale_payment_notice' => WholesalePaymentNotice::class,
+            // Keep the historical identity used by Spatie roles, media and idempotency records.
+            User::class => User::class,
+            Customer::class => Customer::class,
+            SupplierUser::class => SupplierUser::class,
+            Product::class => Product::class,
+            ProductVariant::class => ProductVariant::class,
+            Brand::class => Brand::class,
+            Category::class => Category::class,
+            WalletAdjustment::class => WalletAdjustment::class,
         ]);
     }
 
@@ -247,16 +298,22 @@ class AppServiceProvider extends ServiceProvider
                     ? [Limit::perMinute(config('auth.customer_limits.price_ip_minute', 60))->by('store-price-query:'.$identity)] : []),
             ];
         });
-        $identifierKey = function (Request $request): string {
+        $resetIdentifiers = function (Request $request): array {
             $email = $request->input('email');
             $phone = $request->input('phone');
+            $identifiers = [];
+            if (is_string($email) && trim($email) !== '') {
+                $identifiers[] = 'email:'.mb_strtolower(trim($email));
+            }
+            if (is_string($phone) && trim($phone) !== '') {
+                $identifiers[] = 'phone:'.Customer::normalizePhone($phone);
+            }
 
-            return hash('sha256', is_string($email) && $email !== '' ? mb_strtolower(trim($email))
-                : (is_string($phone) ? Customer::normalizePhone($phone) : 'invalid'));
+            return array_map(fn (string $identifier): string => hash('sha256', $identifier), $identifiers);
         };
         RateLimiter::for('customer-reset-confirm', fn (Request $request) => [
             Limit::perMinute(config('auth.customer_limits.reset_confirm_ip_minute', 120))->by('reset-confirm-ip:'.$networkIp($request)),
-            Limit::perMinute(10)->by('reset-confirm-id:'.$identifierKey($request)),
+            ...array_map(fn (string $key): Limit => Limit::perMinute(10)->by('reset-confirm-id:'.$key), $resetIdentifiers($request)),
         ]);
         $phoneKey = fn (Request $request): string => hash('sha256', is_string($request->input('phone')) ? Customer::normalizePhone($request->input('phone')) : 'invalid');
         RateLimiter::for('customer-phone-send', fn (Request $request) => [
@@ -301,14 +358,13 @@ class AppServiceProvider extends ServiceProvider
                 Limit::perDay(config('auth.customer_limits.cart_guest_ip_day', 2000))->by('cart-ip-day:'.$networkIp($request)),
             ];
         });
-        // Key coupon rate limiting on network IP and cart session to prevent brute-force discount code guessing.
         RateLimiter::for('coupon', function (Request $request) use ($networkIp): array {
-            $identity = $request->bearerToken() ?? $request->header('X-Cart-Session') ?? 'guest';
+            $customer = auth('sanctum')->user();
+            if ($customer instanceof Customer) {
+                return [Limit::perMinute(10)->by('coupon-customer:'.$customer->id)];
+            }
 
-            return [
-                Limit::perMinute(10)->by('coupon-ip:'.$networkIp($request)),
-                Limit::perMinute(10)->by('coupon-id:'.hash('sha256', (string) $identity)),
-            ];
+            return [Limit::perMinute(config('auth.customer_limits.coupon_guest_ip_minute', 30))->by('coupon-ip:'.$networkIp($request))];
         });
         // Authenticated checkout is keyed by customer ID; guest checkout limits apply daily network ceilings and per-phone limits.
         RateLimiter::for('checkout', function (Request $request) use ($networkIp): array {
@@ -327,16 +383,12 @@ class AppServiceProvider extends ServiceProvider
                 // Guest checkout limits enforce daily quotas per IP and per destination phone number.
                 $limits[] = Limit::perMinute(config('auth.customer_limits.checkout_guest_ip_minute', 30))->by('checkout-ip:'.$networkIp($request));
                 $limits[] = Limit::perDay(config('auth.customer_limits.checkout_guest_ip_day', 200))->by('checkout-ip-day:'.$networkIp($request));
-                $packedIp = inet_pton((string) $request->ip());
-                if ($packedIp !== false && str_starts_with($networkIp($request), 'net64:')) {
-                    $networkKey = hash('sha256', substr($packedIp, 0, 8));
-                    $limits[] = Limit::perDay((int) config('inventory.checkout_daily_network_limit', 100))->by('checkout-network-day:'.$networkKey);
-                }
             }
 
             if ($customer === null && $normalized !== null && preg_match('/\d/', $normalized) === 1) {
                 $phoneKey = hash('sha256', $normalized);
                 $limits[] = Limit::perMinute(5)->by('checkout-phone:'.$phoneKey);
+                $limits[] = Limit::perDay(config('auth.customer_limits.checkout_phone_day', 20))->by('checkout-phone-day:'.$phoneKey);
             }
 
             return $limits;
@@ -356,15 +408,41 @@ class AppServiceProvider extends ServiceProvider
         // H4: isolated buckets per webhook purpose so a WhatsApp peak cannot
         // starve payment notifications (which would expire orders via
         // orders:expire-pending while the provider keeps retrying).
-        RateLimiter::for('webhooks-payment', fn (Request $request) => Limit::perMinute(120)->by(
-            'webhooks-payment:'.(string) $request->route('gateway').':'.$networkIp($request)
-        ));
-        RateLimiter::for('webhooks-shipping', fn (Request $request) => Limit::perMinute(120)->by(
-            'webhooks-shipping:'.(string) $request->route('company').':'.$networkIp($request)
-        ));
-        RateLimiter::for('webhooks-whatsapp', fn (Request $request) => Limit::perMinute(120)->by(
-            'webhooks-whatsapp:'.$networkIp($request)
-        ));
+        // H3: an attacker-supplied gateway slug must not mint unbounded buckets.
+        // Unknown slugs collapse into one bucket and every request also counts
+        // against a per-IP outer ceiling.
+        RateLimiter::for('webhooks-payment', function (Request $request) use ($networkIp): array {
+            $gateway = strtolower((string) $request->route('gateway'));
+            $bucket = array_key_exists($gateway, (array) config('webhooks.payment', [])) ? $gateway : 'unknown';
+
+            return [
+                Limit::perMinute((int) config('webhooks.rate_limits.payment_ip_per_minute', 240))
+                    ->by('webhooks-payment-ip:'.$networkIp($request)),
+                Limit::perMinute((int) config('webhooks.rate_limits.payment_per_minute', 120))
+                    ->by('webhooks-payment:'.$bucket.':'.$networkIp($request)),
+            ];
+        });
+        RateLimiter::for('webhooks-shipping', function (Request $request) use ($networkIp): array {
+            return [
+                Limit::perMinute((int) config('webhooks.rate_limits.shipping_ip_per_minute', 240))
+                    ->by('webhooks-shipping-ip:'.$networkIp($request)),
+                Limit::perMinute((int) config('webhooks.rate_limits.shipping_per_minute', 120))
+                    ->by('webhooks-shipping:'.strtolower((string) $request->route('company')).':'.$networkIp($request)),
+            ];
+        });
+        // H4: the merchant gateway and Meta webhooks no longer share a bucket,
+        // and the trusted gateway gets a larger (still bounded) allowance.
+        RateLimiter::for('webhooks-whatsapp', function (Request $request) use ($networkIp): array {
+            $inbound = $request->route()?->getName() === 'webhooks.whatsapp.inbound';
+            $internal = $inbound && $this->internalWhatsAppGateway($request);
+            $limit = match (true) {
+                $internal => (int) config('webhooks.rate_limits.whatsapp_internal_per_minute', 600),
+                $inbound => (int) config('webhooks.rate_limits.whatsapp_inbound_per_minute', 120),
+                default => (int) config('webhooks.rate_limits.whatsapp_customers_per_minute', 120),
+            };
+
+            return [Limit::perMinute($limit)->by('webhooks-whatsapp:'.($inbound ? 'inbound' : 'customers').':'.$networkIp($request))];
+        });
 
         RateLimiter::for('supplier-login', function (Request $request) use ($networkIp): array {
             $email = $request->input('email');
@@ -397,8 +475,7 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('customer-password-reset', fn (Request $request) => [
             Limit::perMinute(config('auth.customer_limits.reset_ip_minute', 20))->by('customer-password-reset:'.$networkIp($request)),
             Limit::perDay(config('auth.customer_limits.reset_ip_day', 500))->by('customer-password-reset-day:'.$networkIp($request)),
-            Limit::perMinute(5)->by('customer-password-reset-id:'.$identifierKey($request)),
-            Limit::perDay(10)->by('customer-password-reset-id-day:'.$identifierKey($request)),
+            ...array_map(fn (string $key): Limit => Limit::perMinute(5)->by('customer-password-reset-id:'.$key), $resetIdentifiers($request)),
         ]);
 
         // Cashier POS terminal login rate limits by staff email and client IP.
@@ -426,10 +503,9 @@ class AppServiceProvider extends ServiceProvider
                 // Combined IP and identifier rate limiting protects against targeted credential stuffing across shared network gateways.
                 Limit::perMinute((int) config('auth.unified_login_ip_minute', 120))->by('ip:'.$networkIp($request)),
                 Limit::perMinute(5)->by('id:'.$id.':'.$networkIp($request)),
-                // Per-account hourly/daily ceilings independent of IP so distributed
-                // credential-stuffing across many source addresses cannot bypass the account budget.
-                Limit::perHour((int) config('auth.unified_login_id_hour', 30))->by('unified-login-id-hour:'.$id),
-                Limit::perDay((int) config('auth.unified_login_id_day', 100))->by('unified-login-id-day:'.$id),
+                // H5: per-account ceilings live in UnifiedAuthService and count
+                // failures only; counting every attempt here let an attacker lock
+                // the real owner out of every IP with a handful of successes.
             ];
         });
 
@@ -437,14 +513,16 @@ class AppServiceProvider extends ServiceProvider
 
         // H1: named limiters replace inline numeric throttles so each surface owns
         // its bucket, keyed by authenticated identity (never shared across routes or user types).
-        $staffKey = fn (Request $request): string => 'staff:'.($request->user('staff')?->id ?? $networkIp($request));
+        $staffKey = fn (Request $request): string => ($actor = $request->user()) instanceof User
+            ? 'staff:'.$actor->id : $networkIp($request);
         RateLimiter::for('admin-reports', fn (Request $request) => Limit::perMinute(30)->by('admin-reports:'.$staffKey($request)));
         RateLimiter::for('admin-media-uploads', fn (Request $request) => Limit::perMinute(30)->by('admin-media-uploads:'.$staffKey($request)));
         RateLimiter::for('admin-banners', fn (Request $request) => Limit::perMinute(30)->by('admin-banners:'.$staffKey($request)));
         RateLimiter::for('ai-conversations', fn (Request $request) => Limit::perMinute(30)->by('ai-conversations:'.$staffKey($request)));
         RateLimiter::for('ai-attachments', fn (Request $request) => Limit::perMinute(30)->by('ai-attachments:'.$staffKey($request)));
         RateLimiter::for('ai-mentions', fn (Request $request) => Limit::perMinute(60)->by('ai-mentions:'.$staffKey($request)));
-        RateLimiter::for('supplier-portal', fn (Request $request) => Limit::perMinute(120)->by('supplier-portal:'.($request->user('supplier')?->id ?? $networkIp($request))));
+        RateLimiter::for('supplier-portal', fn (Request $request) => Limit::perMinute(120)
+            ->by(($actor = $request->user()) instanceof SupplierUser ? 'supplier:'.$actor->id : $networkIp($request)));
         RateLimiter::for('store-returns', function (Request $request) use ($networkIp) {
             $customer = auth('sanctum')->user();
             $identity = $customer instanceof Customer ? 'customer:'.$customer->id : $networkIp($request);
@@ -458,9 +536,20 @@ class AppServiceProvider extends ServiceProvider
             $customer = auth('sanctum')->user();
             $identity = $customer instanceof Customer ? 'customer:'.$customer->id : $networkIp($request);
 
-            return Limit::perMinute(10)->by('wholesale-heavy:'.$identity);
+            return Limit::perMinute(10)->by('wholesale-heavy:'.$identity.':'.($request->route()?->getName() ?? 'unknown'));
         });
-        RateLimiter::for('admin-heavy', fn (Request $request) => Limit::perMinute(10)->by('admin-heavy:'.$staffKey($request)));
-        RateLimiter::for('ai-chat', fn (Request $request) => Limit::perMinute(20)->by('ai-chat:'.($request->user('staff')?->id ?? $networkIp($request))));
+        RateLimiter::for('admin-heavy', fn (Request $request) => Limit::perMinute(10)->by('admin-heavy:'.$staffKey($request).':'.($request->route()?->getName() ?? 'unknown')));
+        RateLimiter::for('ai-chat', fn (Request $request) => Limit::perMinute(20)->by($staffKey($request)));
+        RateLimiter::for('pos-customers', fn (Request $request) => Limit::perMinute(30)->by($staffKey($request)));
+    }
+
+    /** The merchant's own WhatsApp gateway authenticates with the shared secret header. */
+    private function internalWhatsAppGateway(Request $request): bool
+    {
+        $expected = config('services.whatsapp_gateway.secret');
+        $provided = $request->header('X-WA-Gateway-Secret');
+
+        return is_string($expected) && $expected !== ''
+            && is_string($provided) && hash_equals($expected, $provided);
     }
 }

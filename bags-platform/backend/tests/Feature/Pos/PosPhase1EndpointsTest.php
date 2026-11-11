@@ -4,24 +4,37 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Pos;
 
-use App\Enums\Finance\PosShiftStatus;
 use App\Enums\Catalog\ProductStatus;
+use App\Enums\CustomerStatus;
+use App\Enums\CustomerType;
+use App\Enums\Finance\TreasuryType;
 use App\Enums\Inventory\StockBucket;
 use App\Enums\Inventory\StockMovementType;
-use App\Enums\Finance\TreasuryType;
+use App\Enums\PriceListType;
+use App\Enums\StocktakeStatus;
+use App\Enums\TransferStatus;
 use App\Models\Branch;
 use App\Models\Brand;
 use App\Models\Category;
+use App\Models\Customer;
 use App\Models\PosHeldSale;
 use App\Models\PosShift;
+use App\Models\PriceList;
+use App\Models\PriceListItem;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Models\Stocktake;
+use App\Models\StocktakeItem;
+use App\Models\StockTransfer;
+use App\Models\StockTransferItem;
 use App\Models\Treasury;
 use App\Models\User;
 use App\Services\Inventory\InventoryService;
 use App\Services\Pos\PosService;
+use App\Support\ArabicDigits;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Spatie\Permission\Models\Permission;
@@ -532,15 +545,15 @@ class PosPhase1EndpointsTest extends TestCase
 
         // 2. Approved wholesale customer quote
         $this->variant->update(['wholesale_price' => 110.00]);
-        $wholesaleCustomer = \App\Models\Customer::create([
+        $wholesaleCustomer = Customer::create([
             'name' => 'Wholesale Merchant',
             'phone' => '01022223333',
             'password' => 'secret123',
             'company_name' => 'Alfarid Wholesale Co.',
             'tax_number' => '123456789',
             'commercial_register' => '654321',
-            'type' => \App\Enums\CustomerType::Wholesale,
-            'status' => \App\Enums\CustomerStatus::Approved,
+            'type' => CustomerType::Wholesale,
+            'status' => CustomerStatus::Approved,
         ]);
 
         $quoteWholesale = $this->withToken($this->token)->postJson('/api/v1/pos/sales/quote', [
@@ -641,7 +654,7 @@ class PosPhase1EndpointsTest extends TestCase
 
         // Extract digits and convert to Arabic-Indic numerals
         $digitsOnly = preg_replace('/\D+/', '', $orderNumber);
-        $arabicDigits = strtr($digitsOnly, array_flip(\App\Support\ArabicDigits::MAP));
+        $arabicDigits = strtr($digitsOnly, array_flip(ArabicDigits::MAP));
 
         // 1. Lookup with Arabic digits without prefix
         $lookup1 = $this->withToken($this->token)->getJson('/api/v1/pos/sales/lookup?number='.urlencode($arabicDigits));
@@ -690,7 +703,7 @@ class PosPhase1EndpointsTest extends TestCase
             $otherCashier->givePermissionTo(Permission::findOrCreate($perm, 'staff'));
         }
         $otherToken = $otherCashier->createToken('pos', ['pos'])->plainTextToken;
-        \Illuminate\Support\Facades\Auth::forgetGuards();
+        Auth::forgetGuards();
         $this->withToken($otherToken)->postJson('/api/v1/pos/shifts/open', [
             'treasury_id' => $otherDrawer->id,
             'opening_cash' => 0,
@@ -751,7 +764,7 @@ class PosPhase1EndpointsTest extends TestCase
         ]);
         $otherCashier->givePermissionTo(Permission::findOrCreate('pos.access', 'staff'));
         $otherToken = $otherCashier->createToken('pos', ['pos'])->plainTextToken;
-        \Illuminate\Support\Facades\Auth::forgetGuards();
+        Auth::forgetGuards();
         $this->withToken($otherToken)->postJson('/api/v1/pos/shifts/open', [
             'treasury_id' => $otherDrawer->id,
             'opening_cash' => 0,
@@ -762,7 +775,7 @@ class PosPhase1EndpointsTest extends TestCase
         $this->withToken($otherToken)->deleteJson("/api/v1/pos/sales/held/{$heldId2}")->assertStatus(403);
 
         // Switch back to main cashier
-        \Illuminate\Support\Facades\Auth::forgetGuards();
+        Auth::forgetGuards();
 
         // First resume succeeds and returns items_payload
         $resumeRes = $this->withToken($this->token)->postJson("/api/v1/pos/sales/held/{$heldId1}/resume");
@@ -788,14 +801,14 @@ class PosPhase1EndpointsTest extends TestCase
         ]);
 
         // Add branch price list item overriding retail to 140.00
-        $retailList = \App\Models\PriceList::create([
+        $retailList = PriceList::create([
             'name' => 'Cairo Promo',
-            'type' => \App\Enums\PriceListType::Retail,
+            'type' => PriceListType::Retail,
             'branch_id' => $this->branch->id,
             'priority' => 10,
             'is_active' => true,
         ]);
-        \App\Models\PriceListItem::create([
+        PriceListItem::create([
             'price_list_id' => $retailList->id,
             'product_variant_id' => $this->variant->id,
             'min_qty' => 1,
@@ -854,35 +867,50 @@ class PosPhase1EndpointsTest extends TestCase
 
     public function test_customers_index_and_store_search_by_arabic_digits_and_create_retail_or_wholesale(): void
     {
-        \App\Models\Customer::create([
+        Customer::create([
             'name' => 'مها فتحي',
             'phone' => '01012345678',
             'password' => 'secret123456',
             'company_name' => 'شركة مها',
             'tax_number' => '111222333',
             'commercial_register' => '444555',
-            'type' => \App\Enums\CustomerType::Wholesale,
-            'status' => \App\Enums\CustomerStatus::Approved,
+            'type' => CustomerType::Wholesale,
+            'status' => CustomerStatus::Approved,
         ]);
 
-        \App\Models\Customer::create([
+        Customer::create([
             'name' => 'كريم عبد الله',
             'phone' => '01155550912',
             'password' => 'secret123456',
-            'type' => \App\Enums\CustomerType::Retail,
-            'status' => \App\Enums\CustomerStatus::Approved,
+            'type' => CustomerType::Retail,
+            'status' => CustomerStatus::Approved,
         ]);
 
         // Suspended customer should be excluded
-        \App\Models\Customer::create([
+        Customer::create([
             'name' => 'عميل موقوف',
             'phone' => '01299998888',
             'password' => 'secret123456',
-            'type' => \App\Enums\CustomerType::Retail,
-            'status' => \App\Enums\CustomerStatus::Suspended,
+            'type' => CustomerType::Retail,
+            'status' => CustomerStatus::Suspended,
         ]);
 
-        // 1. Search by Arabic-Indic phone digits (callable before shift open)
+        $this->withToken($this->token)->getJson('/api/v1/pos/customers')
+            ->assertForbidden()->assertJsonPath('code', 'no_open_shift');
+        // 3. POST customers requires active shift
+        $this->withToken($this->token)->postJson('/api/v1/pos/customers', [
+            'name' => 'أحمد علي',
+            'phone' => '01066667777',
+            'type' => 'retail',
+        ])->assertStatus(403);
+
+        // Open shift
+        $this->withToken($this->token)->postJson('/api/v1/pos/shifts/open', [
+            'treasury_id' => $this->posDrawer1->id,
+            'opening_cash' => 200.00,
+        ])->assertCreated();
+
+        // 1. Search by Arabic-Indic phone digits
         $resPhone = $this->withToken($this->token)->getJson('/api/v1/pos/customers?q='.urlencode('٠١٠١٢٣٤'));
         $resPhone->assertOk()
             ->assertJsonCount(1, 'data')
@@ -901,29 +929,16 @@ class PosPhase1EndpointsTest extends TestCase
 
         // 2b. Max 10 active customers returned when more than 10 exist
         for ($i = 1; $i <= 12; $i++) {
-            \App\Models\Customer::create([
+            Customer::create([
                 'name' => "عميل تجريبي {$i}",
                 'phone' => '0151111'.str_pad((string) $i, 4, '0', STR_PAD_LEFT),
                 'password' => 'secret123456',
-                'type' => \App\Enums\CustomerType::Retail,
-                'status' => \App\Enums\CustomerStatus::Approved,
+                'type' => CustomerType::Retail,
+                'status' => CustomerStatus::Approved,
             ]);
         }
         $resMax10 = $this->withToken($this->token)->getJson('/api/v1/pos/customers');
         $resMax10->assertOk()->assertJsonCount(10, 'data');
-
-        // 3. POST customers requires active shift
-        $this->withToken($this->token)->postJson('/api/v1/pos/customers', [
-            'name' => 'أحمد علي',
-            'phone' => '01066667777',
-            'type' => 'retail',
-        ])->assertStatus(403);
-
-        // Open shift
-        $this->withToken($this->token)->postJson('/api/v1/pos/shifts/open', [
-            'treasury_id' => $this->posDrawer1->id,
-            'opening_cash' => 200.00,
-        ])->assertCreated();
 
         // 4. Create retail customer (with Arabic digits in phone)
         $createRetail = $this->withToken($this->token)->postJson('/api/v1/pos/customers', [
@@ -997,17 +1012,17 @@ class PosPhase1EndpointsTest extends TestCase
         $this->assertNotContains($this->branch->id, $sourceIds);
 
         // 2. GET /api/v1/pos/transfers/incoming (only shipped transfers to this branch)
-        $shippedTransfer = \App\Models\StockTransfer::create([
+        $shippedTransfer = StockTransfer::create([
             'transfer_number' => 'TRF-001001',
             'from_branch_id' => $warehouse->id,
             'to_branch_id' => $this->branch->id,
-            'status' => \App\Enums\TransferStatus::Shipped,
+            'status' => TransferStatus::Shipped,
             'created_by' => $this->cashier->id,
             'approved_by' => $this->cashier->id,
             'shipped_at' => now(),
             'notes' => 'شحنة الصباح',
         ]);
-        $transferItem = \App\Models\StockTransferItem::create([
+        $transferItem = StockTransferItem::create([
             'stock_transfer_id' => $shippedTransfer->id,
             'product_variant_id' => $this->variant->id,
             'requested_qty' => 10,
@@ -1016,11 +1031,11 @@ class PosPhase1EndpointsTest extends TestCase
         ]);
 
         // Draft transfer to this branch should NOT appear in incoming
-        \App\Models\StockTransfer::create([
+        StockTransfer::create([
             'transfer_number' => 'TRF-001002',
             'from_branch_id' => $warehouse->id,
             'to_branch_id' => $this->branch->id,
-            'status' => \App\Enums\TransferStatus::Draft,
+            'status' => TransferStatus::Draft,
             'created_by' => $this->cashier->id,
         ]);
 
@@ -1045,14 +1060,14 @@ class PosPhase1EndpointsTest extends TestCase
             ->assertExactJson(['data' => null]);
 
         // Create active stocktake
-        $stocktake = \App\Models\Stocktake::create([
+        $stocktake = Stocktake::create([
             'stocktake_number' => 'STK-001001',
             'branch_id' => $this->branch->id,
-            'status' => \App\Enums\StocktakeStatus::InProgress,
+            'status' => StocktakeStatus::InProgress,
             'created_by' => $this->cashier->id,
             'notes' => 'جرد مسائي',
         ]);
-        \App\Models\StocktakeItem::create([
+        StocktakeItem::create([
             'stocktake_id' => $stocktake->id,
             'product_variant_id' => $this->variant->id,
             'system_qty' => 50,
@@ -1075,7 +1090,7 @@ class PosPhase1EndpointsTest extends TestCase
 
         // Grant stocktakes.approve -> system_qty becomes visible
         $this->cashier->givePermissionTo(Permission::findOrCreate('stocktakes.approve', 'staff'));
-        \Illuminate\Support\Facades\Auth::forgetGuards();
+        Auth::forgetGuards();
 
         $stApproverRes = $this->withToken($this->token)->getJson('/api/v1/pos/stocktakes/current');
         $stApproverRes->assertOk();

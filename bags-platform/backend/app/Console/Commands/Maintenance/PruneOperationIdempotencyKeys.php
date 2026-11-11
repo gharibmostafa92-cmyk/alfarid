@@ -28,7 +28,7 @@ class PruneOperationIdempotencyKeys extends Command
         $deleted = 0;
         do {
             $ids = DB::table('operation_idempotency_keys')->where('created_at', '<', $cutoff)
-                ->orderBy('id')->limit(1000)->pluck('id');
+                ->orderBy('created_at')->limit(1000)->pluck('id');
             if ($ids->isEmpty()) {
                 break;
             }

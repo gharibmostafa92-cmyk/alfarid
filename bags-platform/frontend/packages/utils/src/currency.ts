@@ -34,8 +34,11 @@ function getFormatter(locale: string, currency: string, minDigits: number, maxDi
  */
 export function parseNumericAmount(value: number | string | null | undefined, fallback = 0): number {
   if (value === null || value === undefined) return fallback;
-  const raw = typeof value === 'string' ? parseFloat(toLatinDigits(value)) : value;
-  return Number.isFinite(raw) ? raw : fallback;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : fallback;
+  const normalized = toLatinDigits(value).trim();
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(normalized)) return fallback;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 /**

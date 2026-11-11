@@ -3,15 +3,12 @@
 declare(strict_types=1);
 
 use Illuminate\Database\Migrations\Migration;
-use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
     public function up(): void
     {
-        if (DB::getDriverName() === 'pgsql') {
-            DB::unprepared("ALTER ROLE CURRENT_USER SET idle_in_transaction_session_timeout = '60s'");
-        }
+        // Runtime role settings are applied per database by 2026_11_12_000017.
     }
 
     public function down(): void

@@ -15,14 +15,12 @@ use App\Notifications\StaffRecipients;
 use App\Notifications\Wholesale\WholesaleDeskNotification;
 use App\Services\Ai\EntityResolver;
 use App\Services\Ai\GeminiClient;
-use App\Services\Wholesale\QuotationService;
 use App\Services\Shared\SearchTerm;
 use App\Services\Shared\SettingService;
 use App\Services\Shared\SpokenQuantity;
-use App\Services\Wholesale\WholesalePaymentNoticeService;
-use App\Services\Wholesale\WholesaleQuickOrderService;
 use App\Support\ArabicDigits;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 use Throwable;
@@ -35,6 +33,8 @@ use Throwable;
  */
 final class CustomerWholesaleAssistant
 {
+    private const MAX_OTP_ATTEMPTS = 5;
+
     private const ORDER_VERBS_REGEX = '/عايز|عاوز|محتاج|اطلب|ابعت/u';
 
     public function __construct(
@@ -54,16 +54,14 @@ final class CustomerWholesaleAssistant
      * @param  string|null  $buttonId  Interactive button payload if triggered via quick reply.
      * @return string Merchant-facing reply message in Arabic.
      */
-    public function reply(Customer $customer, string $text, ?string $buttonId = null): string
+    public function reply(Customer $customer, string $text, ?string $buttonId = null, ?string $sender = null): string
     {
         // Block non-wholesale accounts early since credit and statement queries expose trade terms.
         if (! $this->allowed($customer)) {
             return 'الحساب ده مش تاجر جملة معتمد.';
         }
-        $channel = $this->channel($customer);
-        // Require one-time OTP verification before revealing account balances or taking orders.
-        if ($channel->verified_at === null) {
-            return $this->verify($channel, $text);
+        if (($verification = $this->requireVerifiedChannel($customer, $text, $sender)) !== null) {
+            return $verification;
         }
         if ($buttonId !== null && str_starts_with($buttonId, 'accept:')) {
             return $this->acceptButton($customer, $buttonId);
@@ -120,43 +118,76 @@ final class CustomerWholesaleAssistant
         return $customer->isWholesaleApproved();
     }
 
-    private function channel(Customer $customer): CustomerChannel
+    public function requireVerifiedChannel(Customer $customer, string $text = '', ?string $sender = null): ?string
     {
-        return CustomerChannel::query()->firstOrCreate(
-            ['customer_id' => $customer->id, 'provider' => 'whatsapp_cloud'],
-            ['phone' => (string) ($customer->whatsapp_phone ?: $customer->phone), 'verification_status' => 'unverified'],
-        );
+        if (! $this->allowed($customer)) {
+            return 'الحساب ده مش تاجر جملة معتمد.';
+        }
+
+        return DB::transaction(function () use ($customer, $text, $sender): ?string {
+            $customer = Customer::query()->lockForUpdate()->findOrFail($customer->id);
+            $phone = CustomerChannel::canonicalPhone((string) ($customer->whatsapp_phone ?: $customer->phone));
+            if ($phone === null || ($sender !== null && $sender !== $phone) || ! $this->allowed($customer)) {
+                return 'رقم واتساب غير متاح للحساب.';
+            }
+
+            $channel = CustomerChannel::query()->firstOrCreate(
+                ['customer_id' => $customer->id, 'provider' => 'whatsapp_cloud'],
+                ['phone' => $phone, 'verification_status' => 'unverified'],
+            );
+            if ($channel->phone !== $phone) {
+                $channel->update([
+                    'phone' => $phone,
+                    'verified_at' => null,
+                    'verification_status' => 'unverified',
+                    'verification_code_hash' => null,
+                    'verification_expires_at' => null,
+                    'verification_attempts' => 0,
+                ]);
+            }
+
+            return $channel->verified_at === null ? $this->verify($channel, trim(ArabicDigits::normalize($text))) : null;
+        });
     }
 
     private function verify(CustomerChannel $channel, string $text): string
     {
-        if (
-            preg_match('/^\d{6}$/', $text) === 1
-            && $channel->verification_code_hash !== null
-            && $channel->verification_expires_at !== null
-            && $channel->verification_expires_at->isFuture()
-            && Hash::check($text, $channel->verification_code_hash)
-        ) {
+        if ($channel->verification_code_hash !== null && $channel->verification_expires_at?->isFuture()) {
+            if ($channel->verification_attempts >= self::MAX_OTP_ATTEMPTS) {
+                return 'عدد المحاولات خلص. اطلب رمز جديد بعد انتهاء صلاحية الرمز الحالي.';
+            }
+            if (preg_match('/\A[0-9]{6}\z/', $text) !== 1) {
+                return 'ابعت رمز التحقق الحالي المكوّن من 6 أرقام.';
+            }
+            if (! Hash::check($text, $channel->verification_code_hash)) {
+                $channel->increment('verification_attempts');
+
+                return 'رمز التحقق غير صحيح.';
+            }
+
             $channel->update([
                 'verified_at' => now(),
                 'verification_status' => 'verified',
                 'verification_code_hash' => null,
+                'verification_expires_at' => null,
+                'verification_attempts' => 0,
             ]);
 
             return 'تم ربط الرقم. اسأل عن رصيدك أو كشف الحساب.';
         }
+
         $code = (string) random_int(100000, 999999);
         $channel->update([
             'verification_code_hash' => Hash::make($code),
             'verification_expires_at' => now()->addMinutes(10),
+            'verification_attempts' => 0,
         ]);
-        $payload = ['channel_id' => $channel->id];
-        // Suppress OTP in shadow mode to prevent test runs from transmitting live WhatsApp messages.
+        $payload = ['channel_id' => $channel->id, 'expires_at' => $channel->verification_expires_at->timestamp];
         if (! $this->settings->getBool('ai_wholesale_shadow_mode', true)) {
             $payload['code'] = $code;
         }
         $this->outbox->queue(
-            'customer-otp:'.$channel->id.':'.now()->format('YmdHi'),
+            'customer-otp:'.$channel->id.':'.$channel->verification_expires_at->timestamp,
             'customer_whatsapp',
             $channel->customer_id,
             'customer_otp',

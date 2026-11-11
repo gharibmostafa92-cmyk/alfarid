@@ -41,4 +41,16 @@ class ConcurrentIndexRecoveryTest extends TestCase
             ConcurrentIndex::drop('audit_broken_index');
         }
     }
+
+    public function test_a_valid_index_with_the_same_name_and_different_definition_is_rejected(): void
+    {
+        DB::statement('CREATE INDEX audit_definition_index ON products (name_en) WHERE deleted_at IS NULL');
+        try {
+            $this->assertFalse(ConcurrentIndex::ensure('audit_definition_index', 'ON products (name_en) WHERE deleted_at IS NULL'));
+            $this->expectExceptionMessage('Existing index audit_definition_index has a different definition');
+            ConcurrentIndex::ensure('audit_definition_index', 'ON products (name_en)');
+        } finally {
+            ConcurrentIndex::drop('audit_definition_index');
+        }
+    }
 }

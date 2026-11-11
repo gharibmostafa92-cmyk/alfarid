@@ -3,7 +3,6 @@
 declare(strict_types=1);
 
 return [
-    'checkout_daily_network_limit' => (int) env('CHECKOUT_DAILY_NETWORK_LIMIT', 100),
     /*
     |--------------------------------------------------------------------------
     | Stocktake Stale Snapshot Approval Policy

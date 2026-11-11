@@ -14,8 +14,8 @@ use App\Models\CouponUsage;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\User;
-use App\Services\Pricing\CouponService;
 use App\Services\Orders\OrderService;
+use App\Services\Pricing\CouponService;
 use Database\Seeders\PricingPermissionSeeder;
 use Database\Seeders\PromotionPermissionSeeder;
 use Database\Seeders\SettingSeeder;
@@ -229,6 +229,7 @@ class P07CouponsTest extends TestCase
     // ── item 27: the store coupon route throttles at 10/minute ──
     public function test_store_coupon_route_throttles_repeated_guesses(): void
     {
+        config(['auth.customer_limits.coupon_guest_ip_minute' => 10]);
         $cart = Cart::factory()->create();
         $last = null;
         for ($i = 0; $i < 11; $i++) {

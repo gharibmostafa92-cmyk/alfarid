@@ -22,7 +22,14 @@ class MaxImagePixels implements ValidationRule
         }
         // Highly compressed images bypass filesize limits; cap total pixel count to prevent GD memory exhaustion bombs.
         $size = @getimagesize($value->getPathname());
-        if (is_array($size) && $this->maxPixels < $size[0] * $size[1]) {
+        // M11: an unreadable/corrupt image must fail closed. Previously a
+        // false return from getimagesize silently passed the rule.
+        if (! is_array($size) || ! isset($size[0], $size[1]) || $size[0] < 1 || $size[1] < 1) {
+            $fail('تعذر قراءة أبعاد الصورة.');
+
+            return;
+        }
+        if ($this->maxPixels < $size[0] * $size[1]) {
             $fail('الصورة تتجاوز الحد الأقصى لعدد البكسلات ('.number_format($this->maxPixels).').');
         }
     }

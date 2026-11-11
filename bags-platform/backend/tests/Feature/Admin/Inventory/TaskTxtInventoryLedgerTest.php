@@ -4,11 +4,10 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Admin\Inventory;
 
-use App\Enums\Inventory\StockBucket;
-use App\Enums\Inventory\StockMovementType;
 use App\Models\Branch;
 use App\Models\InventoryIdempotencyKey;
 use App\Models\InventoryReconcileRun;
+use App\Models\Location;
 use App\Models\ProductVariant;
 use App\Models\StockLevel;
 use App\Models\StockMovement;
@@ -349,6 +348,13 @@ class TaskTxtInventoryLedgerTest extends TaskTxtInventoryCase
         $variant = ProductVariant::factory()->create();
         $this->seedStock($token, $branch, $variant, 10);
 
+        $work = DB::table('inventory_reconcile_work')->where('branch_id', $branch->id)
+            ->where('product_variant_id', $variant->id);
+        $revision = $work->value('revision');
+        DB::table('stock_levels')->where('branch_id', $branch->id)
+            ->where('product_variant_id', $variant->id)->update(['reorder_level' => 3]);
+        $this->assertSame($revision, $work->value('revision'));
+
         $this->artisan('inventory:reconcile', ['--incremental' => true])->assertSuccessful();
 
         $oldId = DB::table('inventory_reconcile_runs')->insertGetId([
@@ -436,7 +442,7 @@ class TaskTxtInventoryLedgerTest extends TaskTxtInventoryCase
             'branch_id' => $branch->id, 'items' => $items,
         ])->assertUnprocessable();
 
-        $foreignLocation = \App\Models\Location::factory()->create(['branch_id' => $other->id]);
+        $foreignLocation = Location::factory()->create(['branch_id' => $other->id]);
         $this->requestWithToken($token, 'POST', '/api/v1/admin/inventory/adjustments', [
             'branch_id' => $branch->id,
             'location_id' => $foreignLocation->id,
@@ -488,7 +494,7 @@ class TaskTxtInventoryLedgerTest extends TaskTxtInventoryCase
         $token = $this->tokenFor($admin);
         $branch = $this->freshBranch();
         $variant = ProductVariant::factory()->create();
-        $location = \App\Models\Location::factory()->create(['branch_id' => $branch->id, 'is_active' => false]);
+        $location = Location::factory()->create(['branch_id' => $branch->id, 'is_active' => false]);
 
         $this->requestWithToken($token, 'POST', '/api/v1/admin/inventory/adjustments', [
             'branch_id' => $branch->id,

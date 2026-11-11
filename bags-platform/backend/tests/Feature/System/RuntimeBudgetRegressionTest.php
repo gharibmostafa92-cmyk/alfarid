@@ -27,8 +27,15 @@ class RuntimeBudgetRegressionTest extends TestCase
             throw new QueryException('pgsql', 'SELECT confidential_field FROM customers', [], $cause);
         });
 
-        $this->getJson('/api/runtime-budget-regression')->assertStatus(503)->assertHeader('Retry-After', '1')
+        $response = $this->getJson('/api/runtime-budget-regression')->assertStatus(503)
             ->assertDontSee('confidential_field')->assertDontSee('private database detail');
+        if ($state === '57014') {
+            $retryAfter = (int) $response->headers->get('Retry-After');
+            $this->assertGreaterThanOrEqual(5, $retryAfter);
+            $this->assertLessThanOrEqual(15, $retryAfter);
+        } else {
+            $response->assertHeader('Retry-After', '1');
+        }
     }
 
     public static function transientStates(): array

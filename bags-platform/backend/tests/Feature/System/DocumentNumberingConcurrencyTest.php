@@ -6,6 +6,7 @@ namespace Tests\Feature\System;
 
 use App\Services\Shared\SettingService;
 use Database\Seeders\SettingSeeder;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\TestWith;
@@ -48,6 +49,34 @@ class DocumentNumberingConcurrencyTest extends TestCase
             $this->assertSame(range($base, $base + count($numbers) - 1), $numeric);
             $this->assertSame($base + count($numbers), (int) DB::table('settings')->where('key', 'invoice_next_number')->value('value'));
         }
+    }
+
+    #[TestWith(['SELECT inventory_movement_number()', 'SELECT inventory_movement_number(1000)'])]
+    #[TestWith(["SELECT document_next_number('order')", "SELECT document_next_number('order', 1000)"])]
+    public function test_administrative_number_sync_fails_when_an_allocation_holds_the_shared_lock(string $allocate, string $sync): void
+    {
+        $other = DB::build([...DB::connection()->getConfig(), 'name' => 'numbering_contention_test']);
+        DB::beginTransaction();
+
+        try {
+            $this->assertNotSame(DB::scalar('SELECT pg_backend_pid()'), $other->scalar('SELECT pg_backend_pid()'));
+            DB::selectOne($allocate);
+            $this->expectException(QueryException::class);
+            $this->expectExceptionCode('55P03');
+            $other->selectOne($sync);
+        } finally {
+            DB::rollBack();
+            $other->disconnect();
+        }
+    }
+
+    public function test_runtime_role_can_synchronize_numbering_sequences(): void
+    {
+        DB::transaction(function (): void {
+            DB::statement('SET LOCAL ROLE alfarid_app');
+            $this->assertSame(1000, (int) DB::scalar('SELECT inventory_movement_number(1000)'));
+            $this->assertSame(1000, (int) DB::scalar("SELECT document_next_number('order', 1000)"));
+        });
     }
 
     public function test_one_thousand_invoice_numbers_across_fifty_workers_are_unique_and_contiguous(): void

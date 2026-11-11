@@ -392,7 +392,7 @@ export const Wallet = () => {
   const { go } = useApp();
   const [direction, setDirection] = useState('all');
   const [days, setDays] = useState('all');
-  const fromDate = days === 'all' ? undefined : (() => { const d = new Date(); d.setDate(d.getDate() - Number(days)); return d.toISOString().slice(0, 10); })();
+  const fromDate = days === 'all' ? undefined : (() => { const d = new Date(); d.setDate(d.getDate() - Number(days)); return calendarDay(d); })();
   const api = useApi(() => accountEndpoints.wallet(page, {
     ...(direction === 'all' ? {} : { direction }),
     ...(fromDate ? { from: fromDate } : {}),

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Support\ConcurrentIndex;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -9,7 +10,18 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+    public $withinTransaction = false;
+
     public function up(): void
+    {
+        DB::transaction(function (): void {
+            DB::statement("SET LOCAL lock_timeout = '3s'");
+            $this->prepareTables();
+        });
+        ConcurrentIndex::ensure('treasury_transactions_reference_index', 'ON treasury_transactions (reference_type, reference_id)');
+    }
+
+    private function prepareTables(): void
     {
         if (! Schema::hasColumn('treasury_transfers', 'rejection_reason')) {
             Schema::table('treasury_transfers', function (Blueprint $table): void {
@@ -35,17 +47,6 @@ return new class extends Migration
             });
         }
 
-        // The money-trail tool queries treasury_transactions by polymorphic
-        // reference; the existing migrations only index treasury_id/shift_id.
-        $referenceIndex = DB::selectOne(
-            "SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'treasury_transactions_reference_index'"
-        );
-        if ($referenceIndex === null) {
-            Schema::table('treasury_transactions', function (Blueprint $table): void {
-                $table->index(['reference_type', 'reference_id'], 'treasury_transactions_reference_index');
-            });
-        }
-
         // WalletService::record() writes created_by, but the original wallet
         // migration file does not show the column; backfill it when missing.
         if (! Schema::hasColumn('customer_wallet_transactions', 'created_by')) {
@@ -58,7 +59,7 @@ return new class extends Migration
     public function down(): void
     {
         // F15: created_by predates this migration (added in 10_19); never drop it here.
-        DB::statement('DROP INDEX IF EXISTS treasury_transactions_reference_index');
+        ConcurrentIndex::drop('treasury_transactions_reference_index');
 
         Schema::dropIfExists('wallet_adjustments');
 

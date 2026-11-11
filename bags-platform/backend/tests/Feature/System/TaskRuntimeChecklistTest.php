@@ -8,9 +8,9 @@ use App\Exceptions\BusinessException;
 use App\Http\Middleware\AssignRequestId;
 use App\Notifications\Channels\CustomerSmsChannel;
 use App\Providers\AppServiceProvider;
+use App\Services\Finance\StatementBudget;
 use App\Services\Media\MediaUrlGenerator;
 use App\Services\Media\UuidPathGenerator;
-use App\Services\Finance\StatementBudget;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
@@ -65,7 +65,13 @@ class TaskRuntimeChecklistTest extends TestCase
         });
         $response = $this->json($method, '/api/checklist/database-error')->assertStatus($status)
             ->assertDontSee('secret_column')->assertDontSee('private connection details');
-        if ($state !== '23503') {
+        if ($state === '23503' || ($method === 'POST' && ($state === '57014' || str_starts_with($state, '08')))) {
+            $response->assertHeaderMissing('Retry-After');
+        } elseif ($state === '57014') {
+            $retryAfter = (int) $response->headers->get('Retry-After');
+            $this->assertGreaterThanOrEqual(5, $retryAfter);
+            $this->assertLessThanOrEqual(15, $retryAfter);
+        } else {
             $response->assertHeader('Retry-After', '1');
         }
     }

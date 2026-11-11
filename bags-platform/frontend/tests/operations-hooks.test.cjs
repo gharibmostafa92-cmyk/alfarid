@@ -2,12 +2,60 @@ const {test}=require('node:test');const assert=require('node:assert/strict');con
 function harness(relative,flags={USE_MOCK:false,FALLBACK_ON_ERROR:false},other={}) {
  const slots=[],effects=[];let cursor=0,pending=[];
  const react={useState(initial){const i=cursor++;if(!(i in slots))slots[i]=typeof initial==='function'?initial():initial;return [slots[i],v=>{slots[i]=typeof v==='function'?v(slots[i]):v;}];},useRef(initial){const i=cursor++;return slots[i]??(slots[i]={current:initial});},useCallback(fn,deps){const i=cursor++,prev=slots[i];if(!prev||!deps||deps.some((d,j)=>!Object.is(d,prev.deps[j])))slots[i]={fn,deps};return slots[i].fn;},useEffect(fn,deps){const i=cursor++;const prev=effects[i];if(!prev||deps.some((d,j)=>!Object.is(d,prev.deps[j])))pending.push(()=>{prev?.cleanup?.();effects[i]={deps,cleanup:fn()};});}};
+ react.useMemo = (factory, deps) => {
+  const index = cursor++;
+  const previous = slots[index];
+  if (!previous || deps.some((value, i) => !Object.is(value, previous.deps[i]))) {
+   slots[index] = { value: factory(), deps };
+  }
+  return slots[index].value;
+ };
  const filename=path.resolve(__dirname,'../apps/backoffice/src/pages/admin/operations-mock/api',relative),mod=new Module(filename,module);mod.filename=filename;mod.paths=Module._nodeModulePaths(path.dirname(filename));
  mod.require=name=>name==='react'?react:name==='./source'?flags:name==='@alfarid/api-client'?{isAxiosCancel:()=>false,parseApiError:e=>({status:e.status??null,message:e.message??'Failed',fieldErrors:e.fields??{}}),...other.api}:name==='../data'?{NOTIFS:other.notes??[]}:Module.prototype.require.call(mod,name);
  mod._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,filename);
  return {hook:mod.exports,slots,render(fn){cursor=0;const r=fn();const queue=pending;pending=[];queue.forEach(run=>run());return r;},unmount(){effects.forEach(e=>e?.cleanup?.());}};
 }
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
+
+test('wholesale requests clear data at the identity boundary and idle when disabled', async () => {
+ const h = harness(path.resolve(__dirname, '../packages/ui/src/wholesale-portal/data/useApi.js'));
+ const pending = [];
+ const fetcher = signal => new Promise(resolve => pending.push({ signal, resolve }));
+ const render = (id, enabled = true) => h.render(() => h.hook.useApi(fetcher, [id], enabled));
+ try {
+  assert.equal(render('first', false).state, 'idle');
+  await tick();
+  assert.equal(pending.length, 0);
+
+  assert.equal(render('first').state, 'loading');
+  await tick();
+  pending[0].resolve('first result');
+  await tick();
+  const first = render('first');
+  assert.equal(first.data, 'first result');
+
+  const next = render('second');
+  assert.equal(next.state, 'loading');
+  assert.equal(next.data, null);
+  await tick();
+  const disabled = render('second', false);
+  assert.equal(disabled.state, 'idle');
+  assert.equal(disabled.data, null);
+  assert.equal(pending[1].signal.aborted, true);
+  pending[1].resolve('aborted result');
+  await tick();
+  assert.equal(render('second', false).data, null);
+
+  assert.equal(render('second').state, 'loading');
+  await tick();
+  pending[2].resolve('second result');
+  await tick();
+  first.setData('stale mutation');
+  assert.equal(render('second').data, 'second result');
+ } finally {
+  h.unmount();
+ }
+});
 test('mock mode never makes network requests even without a fixture',async()=>{
  const h=harness('useRemote.ts',{USE_MOCK:true,FALLBACK_ON_ERROR:true});let requests=0;
  const r=h.render(()=>h.hook.useRemote(async()=>{requests++;return 1;},[]));await tick();

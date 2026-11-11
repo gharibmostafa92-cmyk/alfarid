@@ -28,4 +28,16 @@ class TrustedProxyConfigTest extends TestCase
         $this->assertFalse(AppServiceProvider::trustedProxyConfigIsSafe('::/0'));
         $this->assertFalse(AppServiceProvider::trustedProxyConfigIsSafe('10.0.0.0/8, 0.0.0.0/0'));
     }
+
+    public function test_ambiguous_or_overly_broad_entries_are_unsafe(): void
+    {
+        $this->assertFalse(AppServiceProvider::trustedProxyConfigIsSafe('REMOTE_ADDR'));
+        $this->assertFalse(AppServiceProvider::trustedProxyConfigIsSafe('proxy.internal'));
+        $this->assertFalse(AppServiceProvider::trustedProxyConfigIsSafe('10.0.0.1/'));
+        $this->assertFalse(AppServiceProvider::trustedProxyConfigIsSafe('10.0.0.1/abc'));
+        $this->assertFalse(AppServiceProvider::trustedProxyConfigIsSafe('0.0.0.0/00'));
+        $this->assertFalse(AppServiceProvider::trustedProxyConfigIsSafe('0.0.0.0/1,128.0.0.0/1'));
+        $this->assertFalse(AppServiceProvider::trustedProxyConfigIsSafe('2001:db8::/15'));
+        $this->assertFalse(AppServiceProvider::trustedProxyConfigIsSafe('10.0.0.1/33'));
+    }
 }

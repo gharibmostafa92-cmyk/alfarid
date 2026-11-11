@@ -36,7 +36,7 @@ class TaskConcurrentIndexRecoveryTest extends TestCase
         $this->assertTrue($this->valid('notifications_unread_recipient_created_idx'));
     }
 
-    public function test_webhook_migration_repairs_an_invalid_unique_index_and_removes_processed_duplicates(): void
+    public function test_webhook_migration_repairs_an_invalid_unique_index_and_preserves_delivery_audit_rows(): void
     {
         $migration = require database_path('migrations/2026_10_29_000003_webhook_processed_unique.php');
         $migration->down();
@@ -54,7 +54,8 @@ class TaskConcurrentIndexRecoveryTest extends TestCase
         $migration->up();
         $migration->up();
         $this->assertTrue($this->valid($index));
-        $this->assertSame(1, DB::table('webhook_logs')->where('provider', 'checklist')->count());
+        $this->assertSame(['processed', 'duplicate'], DB::table('webhook_logs')
+            ->where('provider', 'checklist')->orderBy('id')->pluck('status')->all());
     }
 
     public function test_media_client_upload_migration_rebuilds_an_invalid_index(): void

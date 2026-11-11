@@ -14,7 +14,7 @@ return new class extends Migration
     {
         if (DB::table('customers')->whereNotNull('email')->selectRaw('LOWER(TRIM(email))')
             ->groupByRaw('LOWER(TRIM(email))')->havingRaw('COUNT(*) > 1')->exists()
-            || DB::table('customers')->selectRaw('TRIM(phone)')->groupByRaw('TRIM(phone)')->havingRaw('COUNT(*) > 1')->exists()) {
+            || DB::table('customers')->whereNotNull('phone')->selectRaw('TRIM(phone)')->groupByRaw('TRIM(phone)')->havingRaw('COUNT(*) > 1')->exists()) {
             throw new RuntimeException('Resolve duplicate customer identities before normalizing them.');
         }
         DB::statement('UPDATE customers SET email = LOWER(TRIM(email)), phone = TRIM(phone)');

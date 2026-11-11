@@ -134,7 +134,7 @@ class CouponService
             ? 'phone:'.$phoneKey
             : ($customer !== null ? 'customer:'.$customer->id : 'anonymous');
         // Advisory transaction lock serializes concurrent checkouts per identity without locking table rows.
-        DB::statement('SELECT pg_advisory_xact_lock(hashtext(?))', ['coupon-usage:'.$coupon->id.':'.$identity]);
+        DB::statement('SELECT pg_advisory_xact_lock(104, hashtext(?))', ['coupon-usage:'.$coupon->id.':'.$identity]);
 
         // Re-evaluate identity limit under the lock to prevent race conditions.
         $this->assertPerIdentityAllowed($coupon, $customer, $guestPhoneNormalized);

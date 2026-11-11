@@ -7,6 +7,8 @@ use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
+    public $withinTransaction = false;
+
     /**
      * F3/F5/F8/F10/F12: add NOT VALID check guards (no table scan, no long locks).
      * Run VALIDATE CONSTRAINT in a follow-up deploy step per table.
@@ -40,7 +42,10 @@ return new class extends Migration
             ['treasury_transfers', 'treasury_transfers_approver_required'],
             ['wholesale_payment_allocations', 'wholesale_payment_allocations_amount_positive'],
         ] as [$table, $constraint]) {
-            DB::statement("ALTER TABLE {$table} DROP CONSTRAINT IF EXISTS {$constraint}");
+            DB::transaction(function () use ($table, $constraint): void {
+                DB::statement("SET LOCAL lock_timeout = '3s'");
+                DB::statement("ALTER TABLE {$table} DROP CONSTRAINT IF EXISTS {$constraint}");
+            });
         }
     }
 
@@ -49,6 +54,7 @@ return new class extends Migration
         DB::statement(<<<SQL
             DO \$\$
             BEGIN
+                PERFORM set_config('lock_timeout', '3s', true);
                 IF NOT EXISTS (
                     SELECT 1 FROM pg_constraint WHERE conname = '{$constraint}' AND conrelid = '{$table}'::regclass
                 ) THEN

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\System;
 
 use App\Http\Controllers\Api\V1\Shared\NotificationController;
+use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\User;
 use Illuminate\Console\Scheduling\Schedule;
@@ -104,10 +105,12 @@ class TaskMaintenanceChecklistTest extends TestCase
             $rows[] = ['provider' => 'checklist', 'event_id' => $status, 'status' => $status, 'payload' => '{"private":"data"}', 'created_at' => now()->subDays(91), 'updated_at' => now()];
         }
         $rows[] = ['provider' => 'checklist', 'event_id' => 'boundary', 'status' => 'failed', 'payload' => '{}', 'created_at' => now()->subDays(90), 'updated_at' => now()];
+        $rows[] = ['provider' => 'checklist', 'event_id' => 'expired-dedup', 'status' => 'processed', 'payload' => null, 'created_at' => now()->subDays(366), 'updated_at' => now()];
         DB::table('webhook_logs')->insert($rows);
         $this->artisan('webhooks:prune-logs')->assertSuccessful();
         $this->assertDatabaseCount('webhook_logs', 2);
         $this->assertDatabaseHas('webhook_logs', ['provider' => 'checklist', 'event_id' => 'processed', 'payload' => null]);
+        $this->assertDatabaseMissing('webhook_logs', ['event_id' => 'expired-dedup']);
         $this->assertSame('{}', DB::table('webhook_logs')->where('event_id', 'boundary')->value('payload'));
         $this->artisan('webhooks:prune-logs')->assertSuccessful();
         $this->assertDatabaseCount('webhook_logs', 2);
@@ -147,7 +150,7 @@ class TaskMaintenanceChecklistTest extends TestCase
             'branch_id' => null, 'checked' => 0, 'problem_count' => 0, 'samples' => '[]',
             'created_at' => now()->subDays(15),
         ]);
-        $branches = \App\Models\Branch::factory()->count(2)->create(['is_active' => true]);
+        $branches = Branch::factory()->count(2)->create(['is_active' => true]);
 
         $this->artisan('inventory:reconcile --all-branches')->assertSuccessful();
 
@@ -155,6 +158,17 @@ class TaskMaintenanceChecklistTest extends TestCase
             $this->assertDatabaseHas('inventory_reconcile_runs', ['branch_id' => $branch->id]);
         }
         $this->assertDatabaseMissing('inventory_reconcile_runs', ['id' => $oldId]);
+    }
+
+    public function test_inventory_reconciliation_schedules_share_a_mutex_and_prioritize_the_full_scan(): void
+    {
+        $events = collect(app(Schedule::class)->events())
+            ->filter(fn ($event) => str_contains((string) $event->command, 'inventory:reconcile'))
+            ->values();
+
+        $this->assertCount(2, $events);
+        $this->assertStringContainsString('--all-branches', $events[0]->command);
+        $this->assertSame($events[0]->mutexName(), $events[1]->mutexName());
     }
 
     public function test_every_scheduled_event_has_a_finite_overlap_lock_and_single_server_guard(): void

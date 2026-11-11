@@ -16,22 +16,29 @@ function blockRange(start: number): RegExp {
   return new RegExp('[' + lo + '-' + hi + ']', 'g');
 }
 
-export function toLatinDigits(value: string | number | null | undefined): string {
-  if (value === null || value === undefined) return '';
-  let s = String(value);
+function latinNumerals(value: string | number | null | undefined): string {
   // Subtract contiguous unicode base offsets (0x0660 / 0x06F0) to map regional numeral glyphs to 0-9.
-  s = s.replace(blockRange(ARABIC_INDIC_START), (d) => String(d.charCodeAt(0) - ARABIC_INDIC_START));
-  s = s.replace(blockRange(EASTERN_ARABIC_START), (d) => String(d.charCodeAt(0) - EASTERN_ARABIC_START));
-  // Strip thousands separators: the Arabic thousands mark (U+066C) always, and
-  // ASCII commas only in unambiguous thousands positions (a comma followed by
-  // exactly three digits and then a non-digit or the end). A lone comma keeps
-  // its pinned decimal meaning (e.g. '12,34' -> '12.34') instead of guessing.
+  return String(value ?? '')
+    .replace(blockRange(ARABIC_INDIC_START), (d) => String(d.charCodeAt(0) - ARABIC_INDIC_START))
+    .replace(blockRange(EASTERN_ARABIC_START), (d) => String(d.charCodeAt(0) - EASTERN_ARABIC_START));
+}
+
+function normalizeSeparators(s: string): string {
+  // Display values support grouped numbers such as '1,500' and decimal commas
+  // such as '12,34'. Editable amounts handle ambiguous commas separately.
   s = s.split(ARABIC_THOUSANDS_MARK).join('');
   s = s.replace(/(?<=\d),(?=\d{3}(?:\D|$))/g, '');
-  // Replace the Arabic decimal separator (U+066B) and any remaining comma
-  // with a standard period for parseFloat compatibility.
-  s = s.split(ARABIC_DECIMAL_MARK).join('.').replace(/,/g, '.');
-  return s;
+  return s.split(ARABIC_DECIMAL_MARK).join('.').replace(/,/g, '.');
+}
+
+export function toLatinDigits(value: string | number | null | undefined): string {
+  return normalizeSeparators(latinNumerals(value));
+}
+
+export function normalizeNumericInput(value: string | number | null | undefined): string {
+  const input = latinNumerals(value).trim();
+  // Preserve the ambiguous separator so the field's numeric validator rejects it.
+  return /^[+-]?\d+,\d{3}$/.test(input) ? input : normalizeSeparators(input);
 }
 
 /** Regex matching positive quantities with up to 4 decimal places matching decimal(12,4). */

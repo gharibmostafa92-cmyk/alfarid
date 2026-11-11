@@ -88,6 +88,7 @@ class PrunePrivateAttachments extends Command
             } catch (Throwable $exception) {
                 report($exception);
                 $this->error('Private attachment cleanup failed for '.$prefix);
+
                 return self::FAILURE;
             }
         }
@@ -142,18 +143,19 @@ class PrunePrivateAttachments extends Command
 
     private function referencedPaths(array $paths, string $table, string $column): array
     {
-        $query = DB::table($table)->useWritePdo();
-        if ($column === 'attachments') {
-            $query->where(function ($query) use ($paths): void {
-                foreach ($paths as $path) {
-                    $query->orWhereJsonContains('attachments', $path);
-                }
-            });
-            $referenced = $query->pluck($column)->flatMap(fn ($value) => json_decode($value, true, 512, JSON_THROW_ON_ERROR))->all();
-        } else {
-            $referenced = $query->whereIn($column, $paths)->pluck($column)->all();
+        if ($column !== 'attachments') {
+            return DB::table($table)->useWritePdo()->whereIn($column, $paths)->pluck($column)->all();
         }
 
-        return $referenced;
+        // The existing GIN index supports both containment shapes.
+        return array_column(DB::selectFromWriteConnection(<<<'SQL'
+            SELECT candidate.path
+            FROM jsonb_array_elements_text(?::jsonb) AS candidate(path)
+            WHERE EXISTS (
+                SELECT 1 FROM return_request_items item
+                WHERE item.attachments::jsonb @> jsonb_build_array(candidate.path)
+                   OR item.attachments::jsonb @> jsonb_build_array(jsonb_build_object('path', candidate.path))
+            )
+            SQL, [json_encode($paths, JSON_THROW_ON_ERROR)]), 'path');
     }
 }

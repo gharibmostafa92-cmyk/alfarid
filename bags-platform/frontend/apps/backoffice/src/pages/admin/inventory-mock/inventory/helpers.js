@@ -1,7 +1,7 @@
 // Shared inventory UI helpers: digits, formatting, names, permissions, 422 keys.
 
 export {
-  toLatinDigits,
+  normalizeNumericInput,
   canAny,
   formatQty,
   QTY_RE,

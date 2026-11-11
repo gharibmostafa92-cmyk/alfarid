@@ -11,86 +11,52 @@ use App\Http\Controllers\Api\V1\Admin\Ai\AiMessageController;
 use App\Http\Controllers\Api\V1\Admin\Ai\AiWelcomeController;
 use App\Http\Controllers\Api\V1\Admin\Ai\WhatsAppAdminController;
 use App\Http\Controllers\Api\V1\Admin\Auth\AuthController;
+use App\Http\Controllers\Api\V1\Admin\Auth\PermissionController;
+use App\Http\Controllers\Api\V1\Admin\Auth\RoleController;
+use App\Http\Controllers\Api\V1\Admin\Auth\SettingController;
+use App\Http\Controllers\Api\V1\Admin\Auth\UserController;
 use App\Http\Controllers\Api\V1\Admin\Catalog\BannerController;
-use App\Http\Controllers\Api\V1\Admin\Inventory\BranchController;
 use App\Http\Controllers\Api\V1\Admin\Catalog\BrandController;
 use App\Http\Controllers\Api\V1\Admin\Catalog\CategoryController;
-use App\Http\Controllers\Api\V1\Admin\Pricing\CouponController;
+use App\Http\Controllers\Api\V1\Admin\Catalog\ProductController;
+use App\Http\Controllers\Api\V1\Admin\Catalog\ProductMediaController;
+use App\Http\Controllers\Api\V1\Admin\Catalog\ProductVariantController;
 use App\Http\Controllers\Api\V1\Admin\Customer\CustomerController;
 use App\Http\Controllers\Api\V1\Admin\Customer\CustomerGroupController;
 use App\Http\Controllers\Api\V1\Admin\Customer\CustomerWalletController;
 use App\Http\Controllers\Api\V1\Admin\Finance\DashboardController;
 use App\Http\Controllers\Api\V1\Admin\Finance\ExpenseController;
+use App\Http\Controllers\Api\V1\Admin\Finance\PosShiftAdminController;
+use App\Http\Controllers\Api\V1\Admin\Finance\ReportController;
+use App\Http\Controllers\Api\V1\Admin\Finance\TreasuryController;
+use App\Http\Controllers\Api\V1\Admin\Finance\TreasuryTransferController;
+use App\Http\Controllers\Api\V1\Admin\Inventory\BranchController;
 use App\Http\Controllers\Api\V1\Admin\Inventory\InventoryController;
 use App\Http\Controllers\Api\V1\Admin\Inventory\LocationController;
-use App\Http\Controllers\Api\V1\Admin\Orders\OrderController;
-use App\Http\Controllers\Api\V1\Admin\Auth\PermissionController;
-use App\Http\Controllers\Api\V1\Admin\Finance\PosShiftAdminController;
-use App\Http\Controllers\Api\V1\Admin\Pricing\PriceListController;
-use App\Http\Controllers\Api\V1\Admin\Pricing\PriceListItemController;
-use App\Http\Controllers\Api\V1\Admin\Catalog\ProductController;
 use App\Http\Controllers\Api\V1\Admin\Inventory\ProductionReceiptController;
-use App\Http\Controllers\Api\V1\Admin\Catalog\ProductMediaController;
-use App\Http\Controllers\Api\V1\Admin\Catalog\ProductVariantController;
-use App\Http\Controllers\Api\V1\Admin\Pricing\PromotionController;
-use App\Http\Controllers\Api\V1\Admin\Procurement\PurchaseOrderController;
-use App\Http\Controllers\Api\V1\Admin\Procurement\PurchaseRequestController;
+use App\Http\Controllers\Api\V1\Admin\Inventory\StocktakeController;
+use App\Http\Controllers\Api\V1\Admin\Inventory\TransferController;
+use App\Http\Controllers\Api\V1\Admin\Orders\OrderController;
 use App\Http\Controllers\Api\V1\Admin\Orders\QuotationController;
-use App\Http\Controllers\Api\V1\Admin\Finance\ReportController;
 use App\Http\Controllers\Api\V1\Admin\Orders\ReturnController;
-use App\Http\Controllers\Api\V1\Admin\Auth\RoleController;
-use App\Http\Controllers\Api\V1\Admin\Auth\SettingController;
 use App\Http\Controllers\Api\V1\Admin\Orders\ShippingCompanyController;
 use App\Http\Controllers\Api\V1\Admin\Orders\ShippingRateController;
 use App\Http\Controllers\Api\V1\Admin\Orders\ShippingZoneController;
-use App\Http\Controllers\Api\V1\Admin\Inventory\StocktakeController;
+use App\Http\Controllers\Api\V1\Admin\Orders\WholesalePaymentNoticeController;
+use App\Http\Controllers\Api\V1\Admin\Pricing\CouponController;
+use App\Http\Controllers\Api\V1\Admin\Pricing\PriceListController;
+use App\Http\Controllers\Api\V1\Admin\Pricing\PriceListItemController;
+use App\Http\Controllers\Api\V1\Admin\Pricing\PromotionController;
+use App\Http\Controllers\Api\V1\Admin\Procurement\PurchaseOrderController;
+use App\Http\Controllers\Api\V1\Admin\Procurement\PurchaseRequestController;
 use App\Http\Controllers\Api\V1\Admin\Procurement\SupplierController;
 use App\Http\Controllers\Api\V1\Admin\Procurement\SupplierInvoiceController;
 use App\Http\Controllers\Api\V1\Admin\Procurement\SupplierPaymentController;
-use App\Http\Controllers\Api\V1\Admin\Inventory\TransferController;
-use App\Http\Controllers\Api\V1\Admin\Finance\TreasuryController;
-use App\Http\Controllers\Api\V1\Admin\Finance\TreasuryTransferController;
-use App\Http\Controllers\Api\V1\Admin\Auth\UserController;
-use App\Http\Controllers\Api\V1\Admin\Orders\WholesalePaymentNoticeController;
 use App\Http\Controllers\Api\V1\AttachmentController;
 use App\Http\Controllers\Api\V1\Shared\NotificationController;
 use App\Http\Middleware\AuditStaffAdministration;
+use App\Http\Middleware\PreventConcurrentAiStream;
 use Illuminate\Support\Facades\Route;
-
-// Enforce numeric route patterns: non-numeric segments yield 404 instead of Postgres type errors (500).
-Route::pattern('category', '[0-9]{1,18}');
-Route::pattern('brand', '[0-9]{1,18}');
-Route::pattern('product', '[0-9]{1,18}');
-Route::pattern('variant', '[0-9]{1,18}');
-Route::pattern('media', '[0-9]{1,18}');
-Route::pattern('transfer', '[0-9]{1,18}');
-Route::pattern('stocktake', '[0-9]{1,18}');
-Route::pattern('customer_group', '[0-9]{1,18}');
-Route::pattern('customer', '[0-9]{1,18}');
-Route::pattern('document', '[0-9]{1,18}');
-Route::pattern('price_list', '[0-9]{1,18}');
-Route::pattern('item', '[0-9]{1,18}');
-Route::pattern('order', '[0-9]{1,18}');
-Route::pattern('coupon', '[0-9]{1,18}');
-Route::pattern('promotion', '[0-9]{1,18}');
-Route::pattern('return_request', '[0-9]{1,18}');
-Route::pattern('shipping_company', '[0-9]{1,18}');
-Route::pattern('shipping_zone', '[0-9]{1,18}');
-Route::pattern('shipping_rate', '[0-9]{1,18}');
-Route::pattern('supplier', '[0-9]{1,18}');
-Route::pattern('role', '[0-9]{1,18}');
-Route::pattern('branch', '[0-9]{1,18}');
-Route::pattern('location', '[0-9]{1,18}');
-Route::pattern('user', '[0-9]{1,18}');
-Route::pattern('banner', '[0-9]{1,18}');
-Route::pattern('purchase_request', '[0-9]{1,18}');
-Route::pattern('purchase_order', '[0-9]{1,18}');
-Route::pattern('supplier_invoice', '[0-9]{1,18}');
-Route::pattern('supplier_payment', '[0-9]{1,18}');
-// Constrain AI route parameters: conversation IDs are numeric and action IDs are 26-char ULIDs,
-// failing cleanly with 404 rather than triggering PostgreSQL syntax casting errors (22P02).
-Route::pattern('conversation', '[0-9]{1,18}');
-Route::pattern('action', '[0-9A-Za-z]{26}');
 
 // Public admin authentication endpoint (legacy — prefer /api/v1/auth/login).
 // Disabled when LEGACY_LOGIN_ENABLED=false to avoid splitting brute-force rate limits across endpoints.
@@ -241,7 +207,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
         Route::get('customers/{customer}/history', [CustomerController::class, 'history'])->name('customers.history');
         Route::get('customers/{customer}/wallet', [CustomerWalletController::class, 'show'])->middleware('permission:customers.wallet.view')->name('customers.wallet.show');
         Route::get('customers/{customer}/wallet/summary', [CustomerWalletController::class, 'summary'])->middleware('permission:customers.wallet.view')->name('customers.wallet.summary');
-        Route::get('customers/{customer}/wallet/adjustments', [CustomerWalletController::class, 'adjustments'])->middleware('permission:customers.wallet.adjust')->name('customers.wallet.adjustments.index');
+        Route::get('customers/{customer}/wallet/adjustments', [CustomerWalletController::class, 'adjustments'])->middleware('permission:customers.wallet.view')->name('customers.wallet.adjustments.index');
         Route::post('customers/{customer}/wallet/adjustments', [CustomerWalletController::class, 'storeAdjustment'])->middleware('permission:customers.wallet.adjust')->name('customers.wallet.adjustments.store');
         Route::delete('wallet-adjustments/{adjustment}', [CustomerWalletController::class, 'reverseAdjustment'])->where('adjustment', '[0-9]{1,18}')->middleware('permission:customers.wallet.adjust')->name('wallet.adjustments.reverse');
         Route::scopeBindings()->group(function (): void {
@@ -294,10 +260,10 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
 
         // Procurement, suppliers, and purchase orders
         Route::apiResource('suppliers', SupplierController::class);
-        Route::get('suppliers/{supplier}/users', [SupplierController::class, 'users'])->name('suppliers.users.index');
-        Route::post('suppliers/{supplier}/users', [SupplierController::class, 'storeUser'])->name('suppliers.users.store');
-        Route::put('suppliers/{supplier}/users/{user}', [SupplierController::class, 'updateUser'])->name('suppliers.users.update');
-        Route::delete('suppliers/{supplier}/users/{user}', [SupplierController::class, 'destroyUser'])->name('suppliers.users.destroy');
+        Route::get('suppliers/{supplier}/users', [SupplierController::class, 'users'])->middleware('permission:suppliers.view')->name('suppliers.users.index');
+        Route::post('suppliers/{supplier}/users', [SupplierController::class, 'storeUser'])->middleware('permission:suppliers.update')->name('suppliers.users.store');
+        Route::put('suppliers/{supplier}/users/{user}', [SupplierController::class, 'updateUser'])->middleware('permission:suppliers.update')->name('suppliers.users.update');
+        Route::delete('suppliers/{supplier}/users/{user}', [SupplierController::class, 'destroyUser'])->middleware('permission:suppliers.update')->name('suppliers.users.destroy');
 
         Route::apiResource('purchase-requests', PurchaseRequestController::class)
             ->parameters(['purchase-requests' => 'purchase_request']);
@@ -343,12 +309,6 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
             ->name('settings.update');
 
         // Treasuries, expenses, transfers, and shifts
-        Route::pattern('treasury', '[0-9]{1,18}');
-        Route::pattern('expense', '[0-9]{1,18}');
-        Route::pattern('treasury_transfer', '[0-9]{1,18}');
-        Route::pattern('treasuryTransfer', '[0-9]{1,18}');
-        Route::pattern('identity', '[0-9]{1,18}');
-        Route::pattern('shift', '[0-9]{1,18}');
 
         Route::apiResource('treasuries', TreasuryController::class)
             ->only(['index', 'show'])
@@ -393,12 +353,9 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
             ->middleware('permission:treasury_transfers.approve')
             ->name('treasury-transfers.reject');
 
-        Route::get('shifts', [PosShiftAdminController::class, 'index'])
-            ->name('shifts.index');
-        Route::get('shifts/{shift}', [PosShiftAdminController::class, 'show'])
-            ->name('shifts.show');
-        Route::post('shifts/{shift}/approve', [PosShiftAdminController::class, 'approve'])
-            ->name('shifts.approve');
+        Route::get('shifts', [PosShiftAdminController::class, 'index'])->name('shifts.index');
+        Route::get('shifts/{shift}', [PosShiftAdminController::class, 'show'])->name('shifts.show');
+        Route::post('shifts/{shift}/approve', [PosShiftAdminController::class, 'approve'])->name('shifts.approve');
 
         Route::prefix('ai')->name('ai.')->middleware('permission:ai_agent.use')->group(function (): void {
             Route::get('settings', [AiAdministrationController::class, 'settings'])->middleware('permission:ai_agent.settings')->name('settings');
@@ -416,7 +373,9 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
                 Route::get('whatsapp/monitor', [WhatsAppAdminController::class, 'monitor'])->name('whatsapp.monitor');
             });
             Route::patch('conversations/{conversation}/pin', [AiConversationController::class, 'pin'])->name('conversations.pin');
-            Route::post('conversations/{conversation}/stream', [AiMessageController::class, 'stream'])->middleware('throttle:ai-chat')->name('conversations.stream');
+            Route::post('conversations/{conversation}/stream', [AiMessageController::class, 'stream'])
+                ->middleware(['throttle:ai-chat', PreventConcurrentAiStream::class])
+                ->name('conversations.stream');
             Route::get('conversations', [AiConversationController::class, 'index'])->name('conversations.index');
             // Throttle conversation creation to rate-limit conversation record and initial title setup.
             Route::post('conversations', [AiConversationController::class, 'store'])->middleware('throttle:ai-conversations')->name('conversations.store');

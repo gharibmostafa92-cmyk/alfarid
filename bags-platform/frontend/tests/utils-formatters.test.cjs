@@ -25,7 +25,7 @@ function loadTs(relativePath) {
 
 const { formatDate } = loadTs('../packages/utils/src/date.ts');
 const { formatCurrency, formatStorePrice, formatShippingPrice, parseNumericAmount } = loadTs('../packages/utils/src/currency.ts');
-const { toLatinDigits, formatQty, QTY_RE, QTY_MAX } = loadTs('../packages/utils/src/numbers.ts');
+const { toLatinDigits, normalizeNumericInput, formatQty, QTY_RE, QTY_MAX } = loadTs('../packages/utils/src/numbers.ts');
 const { getStatusLabel, OrderStatusLabelsAr } = loadTs('../packages/utils/src/enums.ts');
 const { splitIndexedErrorKey, groupIndexedErrors } = loadTs('../packages/utils/src/errors.ts');
 
@@ -92,6 +92,23 @@ test('parseNumericAmount correctly parses Arabic numerals via toLatinDigits', ()
   assert.equal(parseNumericAmount('١٥٠'), 150);
   assert.equal(parseNumericAmount('١٥٠.٥'), 150.5);
   assert.equal(parseNumericAmount('١٥٠٫٧٥'), 150.75);
+});
+
+test('parseNumericAmount requires the complete string to be numeric', () => {
+  assert.equal(parseNumericAmount('1,234.50'), 1234.5);
+  assert.equal(parseNumericAmount('١٬٢٣٤٫٥٠'), 1234.5);
+  assert.equal(parseNumericAmount('42 EGP', -1), -1);
+  assert.equal(parseNumericAmount('42.5.6', -1), -1);
+});
+
+test('editable numeric fields reject a comma followed by three digits without a decimal point', () => {
+  for (const value of ['1,500', '١,٥٠٠', '۱,۵۰۰']) {
+    assert.equal(QTY_RE.test(normalizeNumericInput(value)), false);
+  }
+  assert.equal(normalizeNumericInput('1.500'), '1.500');
+  assert.equal(normalizeNumericInput('1,500.00'), '1500.00');
+  assert.equal(normalizeNumericInput('١٬٥٠٠'), '1500');
+  assert.equal(normalizeNumericInput('١٢,٣٤'), '12.34');
 });
 
 test('formatQty formats quantities with up to 4 decimal places and handles Arabic input', () => {

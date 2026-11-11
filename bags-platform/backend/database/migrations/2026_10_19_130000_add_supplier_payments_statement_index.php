@@ -2,8 +2,8 @@
 
 declare(strict_types=1);
 
+use App\Support\ConcurrentIndex;
 use Illuminate\Database\Migrations\Migration;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Adds composite index on (supplier_id, payment_date) CONCURRENTLY outside a transaction
@@ -15,11 +15,11 @@ return new class extends Migration
 
     public function up(): void
     {
-        DB::statement('CREATE INDEX CONCURRENTLY IF NOT EXISTS supplier_payments_supplier_date_index ON supplier_payments (supplier_id, payment_date)');
+        ConcurrentIndex::ensure('supplier_payments_supplier_date_index', 'ON supplier_payments (supplier_id, payment_date)');
     }
 
     public function down(): void
     {
-        DB::statement('DROP INDEX CONCURRENTLY IF EXISTS supplier_payments_supplier_date_index');
+        ConcurrentIndex::drop('supplier_payments_supplier_date_index');
     }
 };

@@ -7,7 +7,9 @@ use App\Http\Middleware\EnsureOpenPosShift;
 use App\Http\Middleware\EnsureStaffAuthenticated;
 use App\Http\Middleware\EnsureSupplierAuthenticated;
 use App\Http\Middleware\EnsureWholesaleApproved;
+use App\Http\Middleware\LimitPaymentWebhookBody;
 use App\Http\Middleware\ManufacturingBusiness;
+use App\Http\Middleware\WarnUntrustedProxyHeaders;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -26,6 +28,20 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
         then: function (): void {
+            foreach ([
+                'adjustment', 'attachment', 'banner', 'branch', 'brand', 'category', 'conversation',
+                'coupon', 'customer', 'customer_group', 'delivery', 'document', 'expense',
+                'held_sale', 'identity', 'invoice', 'item', 'location', 'media', 'notice', 'order',
+                'payment_notice', 'price_list', 'product', 'promotion', 'purchase_order',
+                'purchase_request', 'quotation', 'return_item', 'return_request', 'role', 'sale',
+                'shift', 'shipping_company', 'shipping_rate', 'shipping_zone', 'stocktake',
+                'supplier', 'supplier_invoice', 'supplier_payment', 'transfer', 'treasury',
+                'treasuryTransfer', 'treasury_transfer', 'user', 'variant',
+            ] as $parameter) {
+                Route::pattern($parameter, '[0-9]{1,18}');
+            }
+            Route::pattern('action', '[0-9A-Za-z]{26}');
+
             Route::get('health/ready', HealthReadyController::class)->middleware('throttle:health-ready');
             Route::middleware('api')
                 ->prefix('api/v1/admin')
@@ -61,8 +77,9 @@ return Application::configure(basePath: dirname(__DIR__))
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->prepend(LimitPaymentWebhookBody::class);
         // Resolve trusted forwarding headers before recording client_ip.
-        $middleware->append([AssignRequestId::class]);
+        $middleware->append([AssignRequestId::class, WarnUntrustedProxyHeaders::class]);
         $middleware->api(prepend: [ManufacturingBusiness::class]);
         $middleware->alias([
             'auth.staff' => EnsureStaffAuthenticated::class,
@@ -84,6 +101,7 @@ return Application::configure(basePath: dirname(__DIR__))
                     'connection' => $e->getConnectionName(),
                     'sql' => mb_substr($e->getSql(), 0, 2000),
                 ]);
+
                 return false;
             }
 
@@ -93,8 +111,12 @@ return Application::configure(basePath: dirname(__DIR__))
             $state = (string) ($e->errorInfo[0] ?? $e->getCode());
             if (($request->is('api/*') || $request->expectsJson())
                 && ($state === '57014' || str_starts_with($state, '08'))) {
-                return response()->json(['message' => 'الخدمة غير متاحة مؤقتًا؛ أعد المحاولة بعد لحظات.'], 503)
-                    ->header('Retry-After', '1');
+                $response = response()->json(['message' => 'الخدمة غير متاحة مؤقتًا؛ أعد المحاولة بعد لحظات.'], 503);
+                if ($request->isMethodSafe() || filled($request->header('Idempotency-Key'))) {
+                    $response->header('Retry-After', $state === '57014' ? (string) random_int(5, 15) : '1');
+                }
+
+                return $response;
             }
             // Map concurrency errors (lock timeout 55P03, deadlock 40P01, serialization 40001):
             // return 503 with Retry-After for safe methods and webhooks, 409 for non-idempotent writes.
@@ -108,7 +130,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
             // Return 409 instead of 500 when foreign key delete restrictions (23503) are violated by related records.
             if (($request->is('api/*') || $request->expectsJson())
-                && in_array($e->errorInfo[0] ?? $e->getCode(), ['23503'], true)) {
+                && in_array($state, ['23503', '23001'], true)) {
                 return response()->json(['message' => 'تعذر تنفيذ العملية لوجود سجلات مرتبطة أو لتغيّر السجل المرجعي؛ حدّث البيانات وأعد المحاولة.'], 409);
             }
 
@@ -116,6 +138,14 @@ return Application::configure(basePath: dirname(__DIR__))
             if (($request->is('api/*') || $request->expectsJson())
                 && ($e->errorInfo[0] ?? $e->getCode()) === '23514') {
                 return response()->json(['message' => 'تعذر تنفيذ العملية لأنها تخالف قيدًا على البيانات؛ حدّث البيانات وأعد المحاولة.'], 409);
+            }
+
+            // M5: SQLSTATE class 22 is a data exception (bad numeric/text input,
+            // invalid encoding) and is the caller's fault, not a server fault.
+            if (($request->is('api/*') || $request->expectsJson())
+                && ! $e instanceof UniqueConstraintViolationException
+                && str_starts_with($state, '22')) {
+                return response()->json(['message' => 'قيمة غير صالحة في بيانات الطلب؛ تحقق من الحقول وأعد المحاولة.'], 422);
             }
 
             if (($request->is('api/*') || $request->expectsJson())
@@ -136,10 +166,14 @@ return Application::configure(basePath: dirname(__DIR__))
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
 
-        // Concurrent unique constraint violation: map 23505 collision to 409 conflict instead of 500
+        // M6: a 23505 collision is a caller-supplied duplicate (double submit or
+        // a concurrent create), not a server fault: report it as a validation error.
         $exceptions->render(function (UniqueConstraintViolationException $e, Request $request) {
             if ($request->is('api/*') || $request->expectsJson()) {
-                return response()->json(['message' => 'توجد بيانات متعارضة. أعد المحاولة'], 409);
+                return response()->json([
+                    'message' => 'توجد بيانات متعارضة؛ تحقق من القيم المكررة وأعد المحاولة.',
+                    'errors' => ['duplicate' => ['توجد بيانات متعارضة؛ تحقق من القيم المكررة.']],
+                ], 422);
             }
 
             return null;

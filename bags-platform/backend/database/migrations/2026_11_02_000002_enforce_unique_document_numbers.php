@@ -2,11 +2,16 @@
 
 declare(strict_types=1);
 
+use App\Support\ConcurrentIndex;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
+    public $withinTransaction = false;
+
+    private const OWNER_MARK = 'Created by enforce_unique_document_numbers';
+
     /** @var array<string, array{0: string, 1: string}> */
     private const TARGETS = [
         'order' => ['orders', 'order_number'],
@@ -29,46 +34,39 @@ return new class extends Migration
     public function up(): void
     {
         foreach (self::TARGETS as [$table, $column]) {
-            $index = $table.'_'.$column.'_unique';
+            $index = $table.'_'.$column.'_docnum_unique';
             $exists = DB::selectOne(
                 'SELECT 1 FROM pg_index i
                  JOIN pg_class t ON t.oid = i.indrelid
                  JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = i.indkey[0]
                  WHERE t.oid = to_regclass(?)
                    AND i.indisunique
+                   AND i.indisvalid
                    AND i.indnkeyatts = 1
                    AND i.indpred IS NULL
                    AND i.indexprs IS NULL
                    AND a.attname = ?
                  LIMIT 1',
                 [$table, $column],
+                false,
             );
             if ($exists !== null) {
                 continue;
             }
 
-            DB::statement(sprintf(
-                'CREATE UNIQUE INDEX IF NOT EXISTS "%s" ON "%s" ("%s")',
-                $index,
-                $table,
-                $column,
-            ));
+            if (ConcurrentIndex::ensure($index, "ON {$table} ({$column})", unique: true)) {
+                DB::statement("COMMENT ON INDEX {$index} IS '".self::OWNER_MARK."'");
+            }
         }
     }
 
     public function down(): void
     {
         foreach (self::TARGETS as [$table, $column]) {
-            $index = $table.'_'.$column.'_unique';
-            // Some uniques pre-date this migration as table CONSTRAINTS (e.g.
-            // orders.order_number): their backing index cannot be DROPped —
-            // and must not be, since this migration did not create it.
-            $backed = DB::selectOne(
-                'SELECT 1 FROM pg_constraint WHERE conindid = (SELECT oid FROM pg_class WHERE relname = ?)',
-                [$index],
-            );
-            if ($backed === null) {
-                DB::statement(sprintf('DROP INDEX IF EXISTS "%s"', $index));
+            $index = $table.'_'.$column.'_docnum_unique';
+            $owner = DB::scalar("SELECT obj_description(to_regclass(?), 'pg_class')", [$index], false);
+            if ($owner === self::OWNER_MARK) {
+                ConcurrentIndex::drop($index);
             }
         }
     }

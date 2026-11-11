@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Jobs;
 
+use App\Models\CustomerChannel;
 use App\Models\OutboundMessage;
 use App\Services\Shared\SettingService;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -36,8 +37,11 @@ class SendOutboundMessage implements ShouldQueue
             return;
         }
 
+        $otp = $message->template === 'customer_otp';
+        $redacted = $otp ? ['payload' => []] : [];
+
         if ($settings->getBool('ai_wholesale_shadow_mode', true)) {
-            $message->update(['status' => 'shadow', 'error' => null]);
+            $message->update(['status' => 'shadow', 'error' => null, ...$redacted]);
 
             return;
         }
@@ -45,9 +49,26 @@ class SendOutboundMessage implements ShouldQueue
         $message->loadMissing('customer');
         $to = $message->customer?->whatsapp_phone ?: $message->customer?->phone;
         if ($message->customer_id === null || ! is_string($to) || $to === '') {
-            $message->update(['status' => 'skipped', 'error' => 'no_customer_destination']);
+            $message->update(['status' => 'skipped', 'error' => 'no_customer_destination', ...$redacted]);
 
             return;
+        }
+
+        $parameters = $message->payload ?? [];
+        if ($otp) {
+            $channel = CustomerChannel::query()->where('customer_id', $message->customer_id)
+                ->where('provider', 'whatsapp_cloud')->find($parameters['channel_id'] ?? null);
+            $destination = CustomerChannel::canonicalPhone($to);
+            if (! is_string($parameters['code'] ?? null) || $channel === null || $channel->phone !== $destination
+                || $channel->verification_code_hash === null
+                || ! $channel->verification_expires_at?->isFuture()
+                || $channel->verification_expires_at->timestamp !== ($parameters['expires_at'] ?? null)) {
+                $message->update(['status' => 'skipped', 'error' => 'otp_no_longer_current', 'payload' => []]);
+
+                return;
+            }
+            $to = ltrim($channel->phone, '+');
+            $parameters = [$parameters['code']];
         }
 
         $token = config('services.whatsapp_business.token');
@@ -56,6 +77,7 @@ class SendOutboundMessage implements ShouldQueue
             $message->update([
                 'status' => 'skipped',
                 'error' => 'provider_not_configured',
+                ...$redacted,
             ]);
 
             return;
@@ -73,7 +95,7 @@ class SendOutboundMessage implements ShouldQueue
                         'language' => ['code' => 'ar'],
                         'components' => [[
                             'type' => 'body',
-                            'parameters' => collect($message->payload ?? [])
+                            'parameters' => collect($parameters)
                                 ->map(fn ($value) => ['type' => 'text', 'text' => (string) $value])
                                 ->values()
                                 ->all(),
@@ -81,13 +103,13 @@ class SendOutboundMessage implements ShouldQueue
                     ],
                 ]);
         } catch (Throwable $e) {
-            $message->update(['status' => 'error', 'error' => mb_substr($e->getMessage(), 0, 180)]);
+            $message->update(['status' => 'error', 'error' => $otp ? 'otp_provider_error' : mb_substr($e->getMessage(), 0, 180), ...$redacted]);
 
             return;
         }
 
         if (! $response->successful()) {
-            $message->update(['status' => 'error', 'error' => mb_substr($response->body(), 0, 180)]);
+            $message->update(['status' => 'error', 'error' => $otp ? 'otp_provider_error' : mb_substr($response->body(), 0, 180), ...$redacted]);
 
             return;
         }
@@ -96,6 +118,7 @@ class SendOutboundMessage implements ShouldQueue
             'status' => 'sent',
             'provider_message_id' => $response->json('messages.0.id'),
             'error' => null,
+            ...$redacted,
         ]);
     }
 }

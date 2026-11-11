@@ -4,17 +4,17 @@ declare(strict_types=1);
 
 use App\Http\Controllers\Api\V1\AttachmentController;
 use App\Http\Controllers\Api\V1\Shared\NotificationController;
+use App\Http\Controllers\Api\V1\Store\Catalog\BrandingController;
+use App\Http\Controllers\Api\V1\Store\Catalog\CatalogController;
+use App\Http\Controllers\Api\V1\Store\Catalog\HomeController;
+use App\Http\Controllers\Api\V1\Store\Catalog\ProductController;
 use App\Http\Controllers\Api\V1\Store\Customer\AccountController;
 use App\Http\Controllers\Api\V1\Store\Customer\AuthController;
-use App\Http\Controllers\Api\V1\Store\Catalog\BrandingController;
-use App\Http\Controllers\Api\V1\Store\Orders\CartController;
-use App\Http\Controllers\Api\V1\Store\Catalog\CatalogController;
-use App\Http\Controllers\Api\V1\Store\Orders\CheckoutController;
-use App\Http\Controllers\Api\V1\Store\Catalog\HomeController;
-use App\Http\Controllers\Api\V1\Store\Orders\OrderController as StoreOrderController;
-use App\Http\Controllers\Api\V1\Store\Catalog\ProductController;
-use App\Http\Controllers\Api\V1\Store\Orders\ReturnController;
 use App\Http\Controllers\Api\V1\Store\Customer\WalletController;
+use App\Http\Controllers\Api\V1\Store\Orders\CartController;
+use App\Http\Controllers\Api\V1\Store\Orders\CheckoutController;
+use App\Http\Controllers\Api\V1\Store\Orders\OrderController as StoreOrderController;
+use App\Http\Controllers\Api\V1\Store\Orders\ReturnController;
 use App\Http\Middleware\ProtectStorefrontCaching;
 use Illuminate\Support\Facades\Route;
 
@@ -56,8 +56,6 @@ Route::middleware(['throttle:store-catalog', ProtectStorefrontCaching::class])->
 });
 
 // Numeric route identifier patterns: non-numeric inputs 404 rather than triggering database errors
-Route::pattern('item', '[0-9]{1,18}');
-Route::pattern('order', '[0-9]{1,18}');
 
 // Cart and checkout endpoints (supports guest X-Cart-Session and authenticated customer tokens)
 Route::middleware('throttle:cart')->prefix('cart')->name('cart.')->group(function (): void {
@@ -77,6 +75,7 @@ Route::middleware('throttle:checkout')->prefix('checkout')->name('checkout.')->g
 
 // Public order tracking with strict rate limiting to prevent enumeration attacks
 Route::get('orders/{number}/track', [StoreOrderController::class, 'track'])
+    ->where('number', '[A-Za-z0-9-]{1,40}')
     ->middleware('throttle:order-tracking')->name('orders.track');
 
 // Authenticated customer account routes

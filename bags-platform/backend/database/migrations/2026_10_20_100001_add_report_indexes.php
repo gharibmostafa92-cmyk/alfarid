@@ -2,36 +2,27 @@
 
 declare(strict_types=1);
 
+use App\Support\ConcurrentIndex;
 use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 
 /**
  * Indexes to accelerate financial reporting: supplier invoice aging queries and stock movement COGS date aggregations.
  */
 return new class extends Migration
 {
+    public $withinTransaction = false;
+
     public function up(): void
     {
-        Schema::table('supplier_invoices', function (Blueprint $table): void {
-            $table->index(['supplier_id', 'status'], 'supplier_invoices_supplier_status_index');
-            $table->index('due_date', 'supplier_invoices_due_date_index');
-        });
-
-        Schema::table('stock_movements', function (Blueprint $table): void {
-            $table->index(['type', 'created_at'], 'stock_movements_type_created_index');
-        });
+        ConcurrentIndex::ensure('supplier_invoices_supplier_status_index', 'ON supplier_invoices (supplier_id, status)');
+        ConcurrentIndex::ensure('supplier_invoices_due_date_index', 'ON supplier_invoices (due_date)');
+        ConcurrentIndex::ensure('stock_movements_type_created_index', 'ON stock_movements (type, created_at)');
     }
 
     public function down(): void
     {
-        Schema::table('supplier_invoices', function (Blueprint $table): void {
-            $table->dropIndex('supplier_invoices_supplier_status_index');
-            $table->dropIndex('supplier_invoices_due_date_index');
-        });
-
-        Schema::table('stock_movements', function (Blueprint $table): void {
-            $table->dropIndex('stock_movements_type_created_index');
-        });
+        ConcurrentIndex::drop('stock_movements_type_created_index');
+        ConcurrentIndex::drop('supplier_invoices_due_date_index');
+        ConcurrentIndex::drop('supplier_invoices_supplier_status_index');
     }
 };

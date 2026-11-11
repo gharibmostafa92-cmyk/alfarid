@@ -4,20 +4,18 @@ declare(strict_types=1);
 
 namespace App\Services\Auth;
 
-use App\Services\Customer\CustomerMessageBudget;
-use App\Services\Customer\CustomerPhoneVerificationService;
-
 use App\Enums\Customer\CustomerStatus;
 use App\Enums\Customer\CustomerType;
 use App\Exceptions\BusinessException;
 use App\Jobs\SendCustomerPasswordReset;
 use App\Models\Customer;
 use App\Models\CustomerAuditLog;
-use App\Notifications\Channels\CustomerSmsChannel;
 use App\Notifications\Auth\CustomerPasswordReset;
+use App\Notifications\Channels\CustomerSmsChannel;
 use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Rules\UniqueCustomerEmail;
-use App\Services\Auth\StaffTokenService;
+use App\Services\Customer\CustomerMessageBudget;
+use App\Services\Customer\CustomerPhoneVerificationService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -131,7 +129,7 @@ class CustomerAuthService
         $email = mb_strtolower(trim($email));
         DB::select('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [$email]);
         Validator::make(['email' => $email], [
-            'email' => [new UniqueCustomerEmail, new EmailNotUsedByOtherAccountType('customers')],
+            'email' => [new UniqueCustomerEmail, new EmailNotUsedByOtherAccountType('customers', true)],
         ])->validate();
     }
 

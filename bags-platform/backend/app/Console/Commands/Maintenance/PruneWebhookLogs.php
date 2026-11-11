@@ -12,7 +12,7 @@ use Illuminate\Console\Command;
  */
 class PruneWebhookLogs extends Command
 {
-    protected $signature = 'webhooks:prune-logs {--days=90 : Number of days of webhook records to retain}';
+    protected $signature = 'webhooks:prune-logs {--days=90 : Days to keep webhook payloads} {--dedup-days=365 : Days to retain processed event IDs}';
 
     protected $description = 'Delete webhook log rows older than the retention window';
 
@@ -24,48 +24,28 @@ class PruneWebhookLogs extends Command
     public function handle(): int
     {
         $days = max(1, (int) $this->option('days'));
+        $dedupDays = max(365, $days, (int) $this->option('dedup-days'));
         $cutoff = now()->subDays($days);
+        $dedupCutoff = now()->subDays($dedupDays);
         $deleted = 0;
         $scrubbed = 0;
 
-        // Retain 'processed' records to prevent duplicate event replays, but nullify large payloads to reclaim storage space.
-        // Keyset cursor pagination prevents repeatedly reprocessing already scrubbed rows.
-        $lastScrubbedId = 0;
+        $obsolete = WebhookLog::query()
+            ->where('created_at', '<', $cutoff)
+            ->where(fn ($query) => $query->where('status', '!=', 'processed')->orWhere('created_at', '<', $dedupCutoff));
         do {
-            $ids = WebhookLog::query()
-                ->where('status', 'processed')
-                ->where('created_at', '<', $cutoff)
-                ->whereNotNull('payload')
-                ->where('id', '>', $lastScrubbedId)
-                ->orderBy('id')
-                ->limit(1000)
-                ->pluck('id');
-            if ($ids->isEmpty()) {
-                break;
-            }
-            WebhookLog::query()->whereIn('id', $ids->all())->update(['payload' => null]);
-            $scrubbed += $ids->count();
-            $lastScrubbedId = $ids->max();
+            $ids = (clone $obsolete)->orderBy('created_at')->orderBy('id')->limit(1000)->pluck('id');
+            $deleted += $ids->isEmpty() ? 0 : (clone $obsolete)->whereIn('id', $ids)->delete();
         } while ($ids->count() === 1000);
 
-        // Non-processed statuses carry no deduplication guarantees and are deleted in chunks to avoid table lock escalation.
-        $lastDeletedId = 0;
+        $expiredPayload = WebhookLog::query()->where('status', 'processed')
+            ->where('created_at', '<', $cutoff)->whereNotNull('payload');
         do {
-            $ids = WebhookLog::query()
-                ->where('created_at', '<', $cutoff)
-                ->where('status', '!=', 'processed')
-                ->where('id', '>', $lastDeletedId)
-                ->orderBy('id')
-                ->limit(1000)
-                ->pluck('id');
-            if ($ids->isEmpty()) {
-                break;
-            }
-            $deleted += WebhookLog::query()->whereIn('id', $ids->all())->delete();
-            $lastDeletedId = $ids->max();
+            $ids = (clone $expiredPayload)->orderBy('created_at')->orderBy('id')->limit(1000)->pluck('id');
+            $scrubbed += $ids->isEmpty() ? 0 : (clone $expiredPayload)->whereIn('id', $ids)->update(['payload' => null]);
         } while ($ids->count() === 1000);
 
-        $this->info("Pruned {$deleted} webhook log rows and scrubbed {$scrubbed} processed rows older than {$days} days.");
+        $this->info("Pruned {$deleted} webhook rows and scrubbed {$scrubbed} processed payloads. Deduplication retained for {$dedupDays} days.");
 
         return self::SUCCESS;
     }

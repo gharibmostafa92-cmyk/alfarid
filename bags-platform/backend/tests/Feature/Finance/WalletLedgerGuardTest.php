@@ -8,6 +8,7 @@ use App\Enums\Customer\CustomerStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
 use App\Models\CustomerWalletTransaction;
+use App\Models\Order;
 use App\Services\Finance\WalletService;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
@@ -46,6 +47,35 @@ class WalletLedgerGuardTest extends TestCase
 
         $this->assertSame('100.00', $customer->fresh()->wallet_balance);
         $this->assertSame(1, CustomerWalletTransaction::query()->where('customer_id', $customer->id)->count());
+    }
+
+    public function test_legacy_order_reference_cannot_be_replayed_with_the_alias(): void
+    {
+        $customer = Customer::factory()->create(['wallet_balance' => 100]);
+        $entry = [
+            'customer_id' => $customer->id,
+            'reference_id' => 7,
+            'reference_type' => Order::class,
+            'type' => 'order_reversal',
+            'amount' => 100,
+            'balance_after' => 100,
+        ];
+        DB::table('customer_wallet_transactions')->insert($entry);
+
+        try {
+            app(WalletService::class)->record($customer->id, 100, 'order_reversal', 'order', 7);
+            $this->fail('Expected a duplicate wallet entry conflict.');
+        } catch (BusinessException $exception) {
+            $this->assertSame(409, $exception->status);
+        }
+
+        $this->assertSame('100.00', $customer->fresh()->wallet_balance);
+        $this->expectException(QueryException::class);
+        $this->expectExceptionCode('23505');
+        DB::transaction(fn () => DB::table('customer_wallet_transactions')->insert([
+            ...$entry,
+            'reference_type' => 'order',
+        ]));
     }
 
     #[TestWith(['update'])]

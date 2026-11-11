@@ -1,5 +1,31 @@
 # Task execution audit
 
+## Current review of the two archived files
+
+This review covers the current copies of `_archive_unused/tasks_execution/task.txt` and `task2.txt`. The sections below record earlier revisions and deployments.
+
+| Area | Verified in code or corrected in this review |
+| --- | --- |
+| Payment webhooks | The 256 KiB limit runs before Laravel decodes JSON. Unknown gateways are rejected without an audit write, and invalid signatures have bounded audit sampling. Stripe charge refunds use the event ID and verified amount. Missing amounts, individual refund events and Paymob refund callbacks without a signed total flag the order for review. Payment success keeps its previous event key for replay compatibility. |
+| Wallet | Adjustments and their ledger entries commit together. A database constraint permits one counter-entry per original adjustment. Adjustment rows reject updates, deletes and truncation. The ledger treats the historical order and return reference forms as the same source. Order cancellation can locate an original payment stored under a legacy reference. |
+| Database | The follow-up migration revalidates the task2 checks and stops on legacy violations. Checkout migrations reject negative amounts and coupon counters, invalid percentages, nonpositive quantities and dangling coupon references. The runtime group gets UPDATE on the named numbering sequences. Administrative synchronization uses a transaction-level try lock to avoid queuing new number allocations. |
+| Maintenance | Notification retention uses separate partial indexes for read and unread rows. Idempotency cleanup orders by indexed creation time. The reset command always targets `alfarid_testing` and rebuilds its schema in a transaction. Reconciliation only queues stock-level updates that change quantities or the stock identity. Scheduled full and incremental reconciliation share an overlap mutex. |
+| API permissions and shared code | The regression suites cover supplier-user administration, shift authorization, webhook limits, proxy validation and single-stream limits. Wallet history uses the wallet read permission and mutations require the adjustment permission. Cost filtering covers serialized objects and last purchase cost. Normal-sized ID fingerprints remain compatible with stored hashes. |
+
+The Paymob callback authenticates a fixed field list. Automatic confirmation of a full Paymob refund requires a trusted transaction inquiry or another authenticated source of the cumulative amount. Stripe refund objects have their own lifecycle, so the charge event is used for the cumulative state. [Paymob HMAC](https://developers.paymob.com/paymob-docs/developers/webhook-callbacks-and-hmac/hmac), [Stripe event reference](https://docs.stripe.com/api/events/retrieve).
+
+### Local verification
+
+The final selected regression run passed 264 tests with 9,195 assertions against a fresh PostgreSQL 18 instance on port 55439. It covered payment webhooks, wallet and coupon flows, permissions, login hardening, document allocation concurrency, inventory reconciliation and maintenance. PHP syntax checks passed for 67 modified or added PHP files. The scratch instance was stopped afterward. The normal Windows PostgreSQL service stopped when the system drive ran out of space, and Windows denied the restart attempt.
+
+### Open findings
+
+- Database integrity still needs a commit-time guarantee that wallet and treasury balances match their ledger chains, and a database check for aggregate wholesale allocation limits. The application already serializes coupon redemption by coupon and identity. The database does not yet enforce the full order total formula across sales channels.
+- Historical migrations still include blocking DDL and concurrent indexes that need recovery and lock review. Financial foreign-key delete policies, retention, monetary precision and redundant indexes need a legacy data and query-plan review. The invoice counter is row-locked. Other sequence-backed numbering can leave gaps after rollback.
+- The new migrations have to be rehearsed against a production-shaped database. Duplicate wallet references or multiple reversals need reconciliation before the corresponding unique indexes can be built. Existing invalid CHECK values and orphan coupon references must be corrected before validation can finish.
+- Deploy the wallet reversal code to all workers before enabling the adjustment immutability trigger. Older workers link reversals with a separate UPDATE and cannot run against the new trigger. Assign the new POS shift permissions to the authorized staff roles before switching traffic. Rehearse the actual login's grants, TLS and proxy configuration, new and existing connection timeouts, scheduler overlap, provider callbacks, and the release gate in staging.
+- Production Redis, PgBouncer, failover, backup recovery, and rollout verification remain open. Performance decisions such as dropping stock indexes or changing worker and connection limits require workload measurements.
+
 The initial review on 2026-11-10 covered `task.txt`, `task2.txt`, and `task3.txt`. The follow-up below covers all five files in `_archive_unused/tasks_execution/`. A local fix, a passing test, and a serving revision are separate pieces of evidence.
 
 | Source | Evidence and remaining work |

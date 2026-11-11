@@ -4,13 +4,12 @@ declare(strict_types=1);
 
 namespace App\Services\Finance;
 
-use App\Services\Shared\OperationIdempotencyService;
-
 use App\Enums\StaffRole;
 use App\Exceptions\BusinessException;
 use App\Models\Customer;
 use App\Models\User;
 use App\Models\WalletAdjustment;
+use App\Services\Shared\OperationIdempotencyService;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 
@@ -35,6 +34,11 @@ final class WalletAdjustmentService
      * @param  array{customer_id: int, kind: string, amount: mixed, direction?: string, reason: string, source?: string, ai_action_id?: string|null}  $data
      */
     public function adjust(array $data, User $actor, ?string $idempotencyKey): WalletAdjustment
+    {
+        return $this->recordAdjustment($data, $actor, $idempotencyKey);
+    }
+
+    private function recordAdjustment(array $data, User $actor, ?string $idempotencyKey, ?int $reversesId = null): WalletAdjustment
     {
         $kind = (string) ($data['kind'] ?? 'adjustment');
         if (! in_array($kind, self::KINDS, true)) {
@@ -61,8 +65,18 @@ final class WalletAdjustmentService
         $payload = ['customer_id' => (int) $data['customer_id'], 'kind' => $kind,
             'amount' => (string) $amount, 'direction' => $direction, 'reason' => $reason, 'source' => $source];
 
+        if ($reversesId !== null) {
+            $payload['reverses_id'] = $reversesId;
+        }
+
         return $this->idempotency->run('wallet_adjustment', $actor, $idempotencyKey, $payload,
-            function () use ($data, $actor, $amount, $direction, $reason, $source, $signed, $walletType): WalletAdjustment {
+            function () use ($data, $actor, $amount, $direction, $reason, $source, $signed, $walletType, $reversesId): WalletAdjustment {
+                if ($reversesId !== null) {
+                    $original = WalletAdjustment::query()->lockForUpdate()->findOrFail($reversesId);
+                    if ($original->reversals()->exists()) {
+                        throw new BusinessException('هذا التعديل معكوس بالفعل.');
+                    }
+                }
                 $customer = Customer::query()->lockForUpdate()->findOrFail((int) $data['customer_id']);
                 $adjustment = WalletAdjustment::create([
                     'customer_id' => $customer->id,
@@ -72,6 +86,7 @@ final class WalletAdjustmentService
                     'source' => $source,
                     'created_by' => $actor->id,
                     'ai_action_id' => $data['ai_action_id'] ?? null,
+                    'reverses_id' => $reversesId,
                     'created_at' => now(),
                 ]);
                 $this->wallet->record($customer->id, (float) (string) $signed, $walletType,
@@ -88,9 +103,6 @@ final class WalletAdjustmentService
      */
     public function reverse(WalletAdjustment $adjustment, User $actor, ?string $idempotencyKey, ?string $reason = null): WalletAdjustment
     {
-        if ($adjustment->reversals()->exists()) {
-            throw new BusinessException('هذا التعديل معكوس بالفعل.');
-        }
         $isCreator = (int) $adjustment->created_by === (int) $actor->id;
         $isSuperAdmin = method_exists($actor, 'hasRole') && $actor->hasRole(StaffRole::SuperAdmin->value, 'staff');
         if (! $isCreator && ! $isSuperAdmin) {
@@ -98,18 +110,13 @@ final class WalletAdjustmentService
         }
         $opposite = $adjustment->direction === 'credit' ? 'debit' : 'credit';
 
-        $reversal = $this->adjust([
+        return $this->recordAdjustment([
             'customer_id' => $adjustment->customer_id,
             'kind' => 'adjustment',
             'amount' => (string) $adjustment->amount,
             'direction' => $opposite,
             'reason' => mb_substr('عكس تعديل #'.$adjustment->id.($reason !== null && trim($reason) !== '' ? ': '.trim($reason) : ': '.$adjustment->reason), 0, 500),
             'source' => $adjustment->source,
-        ] + ($adjustment->ai_action_id !== null ? ['ai_action_id' => $adjustment->ai_action_id] : []), $actor, $idempotencyKey);
-        if ($reversal->reverses_id === null) {
-            $reversal->update(['reverses_id' => $adjustment->id]);
-        }
-
-        return $reversal->fresh() ?? $reversal;
+        ] + ($adjustment->ai_action_id !== null ? ['ai_action_id' => $adjustment->ai_action_id] : []), $actor, $idempotencyKey, $adjustment->id);
     }
 }

@@ -3,7 +3,7 @@ import { useApp } from './context';
 import { wholesaleEndpoints, cartEndpoints, checkoutEndpoints, accountEndpoints } from '@alfarid/api-client';
 import { useApi } from './data/useApi';
 import { DataBoundary } from './data/DataBoundary';
-import { apiError, saveBlob, pageMeta, num, day } from './data/helpers';
+import { apiError, saveBlob, pageMeta, num, day, tierPrice } from './data/helpers';
 import { mapProduct, mapOrder, mapShippingOptions, mapQuickLookup } from './data/mappers';
 import { ORDER_STATUS, PAY_METHOD, PAY_STATUS, QUOTE_STATUS } from './data/constants';
 import { fmt, Money } from './data/format';
@@ -175,8 +175,6 @@ export const Catalog = () => {
     </>
   );
 };
-
-export const tierPrice = (v, qty) => { let p = v.price; (v.tiers || []).forEach(([m, pr]) => { if (qty >= m) p = pr; }); return p; };
 
 export const VariantModal = ({ product, onClose, onAdd }) => {
   const [qty, setQty] = useState(Object.fromEntries(product.variants.map((v) => [v.id, 0])));

@@ -65,8 +65,9 @@ transaction budget. Reports and wholesale export queries explicitly use
 150-second transaction-local budgets; reconciliation uses 300 seconds. Local
 settings are restored before returning and roll back with savepoints, so pooled
 sessions do not retain them. Migrations connect directly to PostgreSQL with
-`PGOPTIONS` disabling those two budgets and bounding lock waits to 10 seconds.
-Deploy uses `migrate --isolated`; concurrent unique-index builds avoid blocking
+`PGOPTIONS` disabling those two budgets and bounding lock waits to five seconds.
+Deploy uses `migrate --isolated` and verifies PostgreSQL catalog health before
+draining nodes. Concurrent unique-index builds avoid blocking
 table writes. Existing valid webhook indexes are retained. An interrupted
 concurrent build leaves an invalid index, removed before retrying the migration.
 

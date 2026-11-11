@@ -28,6 +28,21 @@ class EmailUniquenessTest extends TestCase
         $this->assertDatabaseMissing('customers', ['phone' => '01088997766']);
     }
 
+    public function test_public_registration_does_not_reveal_the_owning_account_type(): void
+    {
+        User::factory()->create(['email' => 'owner@example.test']);
+
+        $response = $this->postJson('/api/v1/store/auth/register', [
+            'name' => 'New customer', 'phone' => '01088997767',
+            'email' => 'owner@example.test', 'password' => 'customer-pass',
+        ])->assertUnprocessable()->assertJsonValidationErrors('email');
+
+        $this->assertSame(
+            'تعذر استخدام بيانات التسجيل المقدمة.',
+            (string) $response->json('errors.email.0'),
+        );
+    }
+
     private function fails(string $ownTable, ?string $value): bool
     {
         $failed = false;

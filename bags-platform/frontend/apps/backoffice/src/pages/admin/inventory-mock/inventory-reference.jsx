@@ -6,7 +6,7 @@ import { adjustmentsApi, branchesApi, locationsApi, movementsApi, productionApi,
 import { useAuthStore } from '../../../stores/auth.store';
 import { formatCurrency, formatDate, hasPermission } from '@alfarid/utils';
 import { ADJ_MOCK_TO_API, BRANCH_TYPES, LOCATION_TYPES, MOVE_TYPE_LABELS, STOCKTAKE_STATUS, TRANSFER_STATUS } from './inventory/labels';
-import { canAny, formatQty, groupItemsErrors, pickName, QTY_MAX, QTY_RE, toLatinDigits } from './inventory/helpers';
+import { canAny, formatQty, groupItemsErrors, pickName, QTY_MAX, QTY_RE, normalizeNumericInput } from './inventory/helpers';
 import { apiPhase, fetchAllBranches, fetchAllLocations, fetchAllPages } from './inventory/api';
 import { useIdempotencyKey } from './inventory/useIdempotencyKey';
 const INV_NAV = [
@@ -662,7 +662,7 @@ function CountDetail({ go, params }) {
   const onRetry = () => { query.reload(); };
 
   // "" means "not counted yet", "0" means an actual zero — never coerce "" to 0.
-  const countedOf = v => (v === '' || v === undefined ? null : Number(toLatinDigits(v)));
+  const countedOf = v => (v === '' || v === undefined ? null : Number(normalizeNumericInput(v)));
   const rows = ((c?.items) || []).map(it => {
     const v = vals[it.product_variant_id];
     const a = countedOf(v);
@@ -681,7 +681,7 @@ function CountDetail({ go, params }) {
     if (busy) return;
     if (rows.some(r => {
       const v = vals[r.product_variant_id];
-      return v !== '' && v !== undefined && (!QTY_RE.test(toLatinDigits(v)) || Number(toLatinDigits(v)) > QTY_MAX);
+      return v !== '' && v !== undefined && (!QTY_RE.test(normalizeNumericInput(v)) || Number(normalizeNumericInput(v)) > QTY_MAX);
     })) { setErr('الكمية يجب أن تكون صفرًا أو أكبر، وبحد أقصى أربع خانات عشرية.'); return; }
     setBusy(true); setErr(null);
     const targets = only ? rows.filter(r => only.includes(r.product_variant_id)) : rows.filter(r => {
@@ -924,15 +924,15 @@ function ProductionForm({ open, onClose, branches, onSaved }) {
   const upd = (k, p) => { setLines(ls => ls.map(l => l.key === k ? { ...l, ...p } : l)); setRowErrs({}); };
   const bad = l => {
     if (!l.variantId) return true;
-    const qv = toLatinDigits(l.qty);
+    const qv = normalizeNumericInput(l.qty);
     if (!/^\d+$/.test(qv) || !(Number(qv) >= 1) || Number(qv) > 99999999) return true;
-    const cv = toLatinDigits(l.cost);
+    const cv = normalizeNumericInput(l.cost);
     if (cv === '' || !QTY_RE.test(cv) || Number(cv) < 0 || Number(cv) > QTY_MAX) return true;
     return false;
   };
   const valid = f.batch.trim() && f.batch.trim().length <= 100 && f.branchId && lines.length && lines.length <= PRD_MAX && lines.every(l => !bad(l));
   const dupes = lines.filter((l, i) => l.variantId && lines.findIndex(x => x.variantId === l.variantId) !== i).length;
-  const total = lines.reduce((a, l) => a + (Number(toLatinDigits(l.qty)) || 0) * (Number(toLatinDigits(l.cost)) || 0), 0);
+  const total = lines.reduce((a, l) => a + (Number(normalizeNumericInput(l.qty)) || 0) * (Number(normalizeNumericInput(l.cost)) || 0), 0);
   const locOpts = ((branches.find(b => b.id === f.branchId)?.locations) || []).map(l => ({ value: l.id, label: l.name }));
   const submit = async () => {
     setTried(true); if (!valid || dupes || busy) return;
@@ -941,7 +941,7 @@ function ProductionForm({ open, onClose, branches, onSaved }) {
       batch_number: f.batch.trim(), branch_id: f.branchId,
       ...(f.locId ? { location_id: f.locId } : {}),
       notes: f.note.trim() ? f.note.trim().slice(0, 1000) : null,
-      items: lines.map(l => ({ product_variant_id: l.variantId, quantity: Number(toLatinDigits(l.qty)), unit_cost: Number(toLatinDigits(l.cost)) })),
+      items: lines.map(l => ({ product_variant_id: l.variantId, quantity: Number(normalizeNumericInput(l.qty)), unit_cost: Number(normalizeNumericInput(l.cost)) })),
     };
     try {
       // Idempotency-Key is REQUIRED here (422 without it); same payload reuses
@@ -993,7 +993,7 @@ function ProductionForm({ open, onClose, branches, onSaved }) {
                       {re.quantity && <div className="text-[10.5px] mt-1" style={{ color: 'var(--badge-red-text)' }}>{re.quantity}</div>}</td>
                     <td><NumInput small decimals={4} value={l.cost} onChange={v => upd(l.key, { cost: v })} err={(tried && bad(l)) || re.unit_cost} placeholder="0.00" />
                       {re.unit_cost && <div className="text-[10.5px] mt-1" style={{ color: 'var(--badge-red-text)' }}>{re.unit_cost}</div>}</td>
-                    <td className="t-num num c-primary font-semibold">{formatCurrency((Number(toLatinDigits(l.qty)) || 0) * (Number(toLatinDigits(l.cost)) || 0))}</td>
+                    <td className="t-num num c-primary font-semibold">{formatCurrency((Number(normalizeNumericInput(l.qty)) || 0) * (Number(normalizeNumericInput(l.cost)) || 0))}</td>
                     <td><button className="icon-btn" disabled={lines.length === 1} onClick={() => setLines(ls => ls.filter(x => x.key !== l.key))}><Icon n="trash" s={14} /></button></td>
                   </tr>
                   );
@@ -1195,7 +1195,7 @@ function AdjustScreen({ go, params }) {
   const lineErr = l => {
     const e = {};
     if (!l.variantId) e.variantId = true;
-    const qv = toLatinDigits(l.qty);
+    const qv = normalizeNumericInput(l.qty);
     if (!qv || !QTY_RE.test(qv) || !(Number(qv) > 0) || Number(qv) > QTY_MAX) e.qty = 'كمية موجبة حتى 4 منازل عشرية';
     if (!l.reason.trim()) e.reason = true;
     else if (l.reason.trim().length > 1000) e.reason = true;
@@ -1216,7 +1216,7 @@ function AdjustScreen({ go, params }) {
     const payload = {
       branch_id: effBranch,
       ...(locId ? { location_id: locId } : {}),
-      items: lines.map(l => ({ product_variant_id: l.variantId, adjustment_type: l.type, quantity: Number(toLatinDigits(l.qty)), reason: l.reason.trim() || null })),
+      items: lines.map(l => ({ product_variant_id: l.variantId, adjustment_type: l.type, quantity: Number(normalizeNumericInput(l.qty)), reason: l.reason.trim() || null })),
     };
     try {
       const res = await adjustmentsApi.create(payload, keyFor(payload));
@@ -1337,7 +1337,7 @@ function AdjustScreen({ go, params }) {
               <div key={l.key}>
                 <div className="flex items-center justify-between text-[12px]">
                   <span className="flex items-center gap-2"><Sku>{variantCache.get(Number(l.variantId))?.sku || `#${l.variantId}`}</Sku><Badge cls={ADJ_API_TYPES[l.type].cls}>{ADJ_API_TYPES[l.type].label}</Badge></span>
-                  <span className="num font-semibold c-primary">{formatQty(toLatinDigits(l.qty))}</span>
+                  <span className="num font-semibold c-primary">{QTY_RE.test(normalizeNumericInput(l.qty)) ? formatQty(normalizeNumericInput(l.qty)) : '—'}</span>
                 </div>
                 {(rowErrs[fi]?.quantity || rowErrs[fi]?.product_variant_id) && <div className="text-[11px] mt-1 text-right" style={{ color: 'var(--badge-red-text)' }}>{rowErrs[fi]?.quantity || rowErrs[fi]?.product_variant_id}</div>}
               </div>
@@ -1603,7 +1603,7 @@ function TransferEdit({ go, params }) {
   const upd = (key, p) => { setLines(ls => ls.map(l => l.key === key ? { ...l, ...p } : l)); setRowErrs({}); };
   const lineBad = l => {
     if (!l.variantId) return true;
-    const qv = toLatinDigits(l.req);
+    const qv = normalizeNumericInput(l.req);
     return !QTY_RE.test(qv) || !(Number(qv) > 0) || Number(qv) > QTY_MAX;
   };
   const valid = from && to && !same && lines.length && lines.length <= 100 && lines.every(l => !lineBad(l));
@@ -1617,7 +1617,7 @@ function TransferEdit({ go, params }) {
         product_variant_id: l.variantId,
         ...(l.fromLoc ? { from_location_id: l.fromLoc } : {}),
         ...(l.toLoc ? { to_location_id: l.toLoc } : {}),
-        requested_qty: Number(toLatinDigits(l.req)),
+        requested_qty: Number(normalizeNumericInput(l.req)),
       })),
     };
     try {
@@ -1743,7 +1743,7 @@ function TransferDetail({ go, params }) {
     const m = stageMeta[stage];
     return {
       expected_version: t.version,
-      items: (t.items || []).map((l, i) => ({ id: l.id, [m.col]: Number(toLatinDigits(qtys[i])) })),
+      items: (t.items || []).map((l, i) => ({ id: l.id, [m.col]: Number(normalizeNumericInput(qtys[i])) })),
     };
   };
   const commit = async () => {
@@ -1799,7 +1799,7 @@ function TransferDetail({ go, params }) {
   const nextNeedsPerm = t && !stage && actions.length === 0 && !['received', 'cancelled'].includes(t.status);
 
   const steps = [['draft', 'مسودة', 'edit'], ['approved', 'معتمد', 'check'], ['shipped', 'مشحون', 'truck'], ['received', 'مستلم', 'inbox']];
-  const shortage = stage === 'receive' && t ? (t.items || []).reduce((a, l, i) => a + (Number(l.shipped_qty || 0) - (Number(toLatinDigits(qtys[i])) || 0)), 0) : 0;
+  const shortage = stage === 'receive' && t ? (t.items || []).reduce((a, l, i) => a + (Number(l.shipped_qty || 0) - (Number(normalizeNumericInput(qtys[i])) || 0)), 0) : 0;
 
   return (
     <section className="space-y-5">
@@ -1844,7 +1844,7 @@ function TransferDetail({ go, params }) {
                       const cell = (col) => {
                         if (stage && stageMeta[stage].col === col) {
                           const max = Number(l[stageMeta[stage].srcCol]);
-                          const over = !QTY_RE.test(toLatinDigits(qtys[i])) || Number(toLatinDigits(qtys[i])) > Math.min(max, QTY_MAX);
+                          const over = !QTY_RE.test(normalizeNumericInput(qtys[i])) || Number(normalizeNumericInput(qtys[i])) > Math.min(max, QTY_MAX);
                           const fieldError = stageErrors[i]?.[col];
                           return <td className="t-num" style={{ width: 110 }}><NumInput small value={qtys[i]} onChange={v => { setStageErrors({}); setQtys(q => ({ ...q, [i]: v })); }} err={over || fieldError} className="!bg-[var(--accent-orange-light)]" />{(over || fieldError) && <div className="text-[10px] mt-0.5" style={{ color: 'var(--badge-red-text)' }}>{fieldError || `الكمية من صفر إلى ${formatQty(max)} وبحد أقصى أربع خانات عشرية`}</div>}</td>;
                         }
@@ -1867,7 +1867,7 @@ function TransferDetail({ go, params }) {
                 <div className="flex items-center gap-2.5 mt-4 pt-4" style={{ borderTop: '1px solid var(--divider-color)' }}>
                   <button className="btn btn-orange" onClick={() => {
                     const m = stageMeta[stage];
-                    if ((t.items || []).some((l, i) => !QTY_RE.test(toLatinDigits(qtys[i])) || Number(toLatinDigits(qtys[i])) > Math.min(QTY_MAX, Number(l[m.srcCol])))) {
+                    if ((t.items || []).some((l, i) => !QTY_RE.test(normalizeNumericInput(qtys[i])) || Number(normalizeNumericInput(qtys[i])) > Math.min(QTY_MAX, Number(l[m.srcCol])))) {
                       setErr('راجع الكميات: مطلوب صفر أو أكثر، حتى كمية المرحلة السابقة وبحد أقصى أربع خانات عشرية.'); return;
                     }
                     setErr(null); setConfirm('stage');
@@ -2307,14 +2307,14 @@ function VariantPicker({ value, onChange, placeholder = 'ابحث بالاسم �
 const Sku = ({ children }) => <span dir="ltr" className="mono text-[11.5px] font-semibold px-2 py-0.5 rounded-md c-primary" style={{ background: 'var(--icon-well-bg)' }}>{children}</span>;
 
 function NumInput({ value, onChange, decimals = 4, integer, small, placeholder = '0', className = '', err }) {
+  const ambiguous = normalizeNumericInput(value).includes(',');
   return (
-    <input dir="ltr" inputMode={integer ? 'numeric' : 'decimal'} value={value ?? ''} placeholder={placeholder}
-      onChange={e => {
-        // Normalize the keyboard without silently changing the quantity:
-        // 5.5 must not become 55 in an integer production field.
-        onChange(toLatinDigits(e.target.value));
-      }}
-      className={`inp ${small ? 'inp-sm' : ''} num text-left ${err ? 'err' : ''} ${className}`} />
+    <>
+      <input dir="ltr" inputMode={integer ? 'numeric' : 'decimal'} value={value ?? ''} placeholder={placeholder}
+        onChange={e => onChange(e.target.value)} aria-invalid={Boolean(err) || ambiguous}
+        className={`inp ${small ? 'inp-sm' : ''} num text-left ${err || ambiguous ? 'err' : ''} ${className}`} />
+      {ambiguous && <div className="text-[10px] mt-0.5" role="alert" style={{ color: 'var(--badge-red-text)' }}>اكتب الرقم بدون فواصل آلاف، واستخدم النقطة العشرية.</div>}
+    </>
   );
 }
 

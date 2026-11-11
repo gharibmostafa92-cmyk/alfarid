@@ -40,10 +40,6 @@ class OrderAmountDistributionTest extends TestCase
             [17 => 0.0, 42 => 0.0],
             ProportionalDistribution::distribute(0.0, [17 => 5.0, 42 => 15.0])
         );
-        $this->assertSame(
-            [17 => 0.0, 42 => 0.0],
-            ProportionalDistribution::distribute(100.0, [17 => 0.0, 42 => 0.0])
-        );
     }
 
     public function test_negative_weight_is_rejected(): void
@@ -56,12 +52,27 @@ class OrderAmountDistributionTest extends TestCase
         }
     }
 
+    public function test_distribution_rejects_fractional_cents_and_missing_weights(): void
+    {
+        foreach ([[1.005, [1]], [100.0, [0, 0]], [100.0, []]] as [$total, $weights]) {
+            try {
+                ProportionalDistribution::distribute($total, $weights);
+                $this->fail('Expected invalid distribution to be rejected.');
+            } catch (BusinessException $exception) {
+                $this->assertSame(422, $exception->status);
+            }
+        }
+    }
+
     public function test_proportional_distribution_handles_edge_cases(): void
     {
-        $this->assertSame([], ProportionalDistribution::distribute(100.0, []));
+        $this->assertSame([], ProportionalDistribution::distribute(0.0, []));
         $this->assertSame([0.0, 0.0], ProportionalDistribution::distribute(0.0, [10.0, 20.0]));
-        $this->assertSame([0.0, 0.0], ProportionalDistribution::distribute(-50.0, [10.0, 20.0]));
-        $this->assertSame([0.0, 0.0], ProportionalDistribution::distribute(100.0, [0.0, 0.0]));
         $this->assertSame([33.34, 33.33, 33.33], ProportionalDistribution::distribute(100.0, [1.0, 1.0, 1.0]));
+
+        // task2 M1: a negative total is a refund/credit, not a distribution.
+        // It must fail loud instead of silently returning zero shares.
+        $this->expectException(BusinessException::class);
+        ProportionalDistribution::distribute(-50.0, [10.0, 20.0]);
     }
 }

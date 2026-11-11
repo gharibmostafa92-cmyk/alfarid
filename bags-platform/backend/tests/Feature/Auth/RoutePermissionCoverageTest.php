@@ -54,6 +54,10 @@ class RoutePermissionCoverageTest extends TestCase
         'admin.stocktakes.approve' => 'permission:stocktakes.approve',
         'admin.price-lists.apply-percentage' => 'permission:price_lists.update',
         'admin.quotations.price' => 'permission:quotations.price',
+        'admin.suppliers.users.index' => 'permission:suppliers.view',
+        'admin.suppliers.users.store' => 'permission:suppliers.update',
+        'admin.suppliers.users.update' => 'permission:suppliers.update',
+        'admin.suppliers.users.destroy' => 'permission:suppliers.update',
     ];
 
     public function test_financial_routes_carry_route_level_permission(): void
@@ -70,6 +74,7 @@ class RoutePermissionCoverageTest extends TestCase
         foreach (self::REQUIRED as $name => $permission) {
             if (! isset($routes[$name])) {
                 $offenders[] = $name.' (route missing)';
+
                 continue;
             }
             $found = false;

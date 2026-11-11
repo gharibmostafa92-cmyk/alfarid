@@ -2,6 +2,10 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
+Use Node.js 22.6.0 or later with the pnpm version declared in `package.json`.
+Run `pnpm test` for the frontend unit suite or `pnpm test:utils` for the
+formatter tests.
+
 First, run the development server:
 
 ```bash

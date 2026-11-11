@@ -135,9 +135,10 @@ class PrivateAttachmentSweepTest extends TestCase
         $disk = Storage::disk('r2');
         $returnPath = 'return_requests/old/kept.jpg';
         $noticePath = 'wholesale_payment_notices/old/kept.pdf';
-        ReturnRequestItem::factory()->create(['attachments' => [$returnPath]]);
+        $legacyPath = 'return_requests/old/legacy-object.jpg';
+        ReturnRequestItem::factory()->create(['attachments' => [$returnPath, ['path' => $legacyPath, 'name' => 'proof.jpg']]]);
         WholesalePaymentNotice::factory()->create(['receipt_file_path' => $noticePath]);
-        $old = [$returnPath, $noticePath, 'return_requests/pending/orphan.jpg', 'supplier_invoices/old/orphan.pdf', 'supplier_deliveries/old/orphan.pdf', 'wholesale_payment_notices/old/orphan.pdf'];
+        $old = [$returnPath, $legacyPath, $noticePath, 'return_requests/pending/orphan.jpg', 'supplier_invoices/old/orphan.pdf', 'supplier_deliveries/old/orphan.pdf', 'wholesale_payment_notices/old/orphan.pdf'];
         foreach ($old as $path) {
             $disk->put($path, 'private data');
             touch($disk->path($path), now()->subDays(2)->timestamp);
@@ -149,10 +150,10 @@ class PrivateAttachmentSweepTest extends TestCase
             $disk->assertExists($path);
         }
         $this->artisan('attachments:prune-orphans')->assertSuccessful();
-        foreach ([$returnPath, $noticePath, $recent] as $path) {
+        foreach ([$returnPath, $legacyPath, $noticePath, $recent] as $path) {
             $disk->assertExists($path);
         }
-        foreach (array_diff($old, [$returnPath, $noticePath]) as $path) {
+        foreach (array_diff($old, [$returnPath, $legacyPath, $noticePath]) as $path) {
             $disk->assertMissing($path);
         }
     }

@@ -41,25 +41,44 @@ Schedule::command('attachments:prune-orphans --hours=24')->dailyAt('05:00')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer()
     ->onFailure(fn () => logger()->error('Private attachment cleanup failed.'));
 Schedule::call(function (): void {
-    if (config('cache.default') === 'database') {
-        DB::connection(config('cache.stores.database.connection'))
-            ->table(config('cache.stores.database.table', 'cache'))->where('expiration', '<', now()->timestamp)->delete();
-        DB::connection(config('cache.stores.database.lock_connection') ?? config('cache.stores.database.connection'))
-            ->table(config('cache.stores.database.lock_table') ?? 'cache_locks')->where('expiration', '<', now()->timestamp)->delete();
+    if (config('cache.default') !== 'database') {
+        return;
     }
-})->name('cache:prune-expired')->hourly()->withoutOverlapping(120)->onOneServer();
+    // M7: delete in bounded batches so a large limiter table cannot produce a
+    // huge WAL burst or exceed statement_timeout in one statement.
+    $connection = config('cache.stores.database.connection');
+    $targets = [
+        [config('cache.stores.database.table', 'cache'), $connection],
+        [config('cache.stores.database.lock_table') ?? 'cache_locks',
+            config('cache.stores.database.lock_connection') ?? $connection],
+    ];
+    foreach ($targets as [$table, $targetConnection]) {
+        do {
+            $keys = DB::connection($targetConnection)->table($table)
+                ->where('expiration', '<', now()->timestamp)->limit(500)->pluck('key');
+            if ($keys->isNotEmpty()) {
+                DB::connection($targetConnection)->table($table)->whereIn('key', $keys->all())->delete();
+            }
+        } while ($keys->count() === 500);
+    }
+})->name('cache:prune-expired')->hourly()->withoutOverlapping(120)->onOneServer()
+    ->onFailure(fn () => logger()->error('Scheduled cache pruning failed.'));
 // Monitor both default and dedicated media queues for backlog accumulation.
 Schedule::command('queue:monitor '.config('queue.default', 'database').':default --max=100')
     ->everyFiveMinutes()->withoutOverlapping(10)->onOneServer();
 Schedule::command('queue:monitor '.config('media-library.queue_connection_name', 'database-media').':'.(config('media-library.queue_name') ?: 'media').' --max=1000')
     ->everyFiveMinutes()->withoutOverlapping(10)->onOneServer();
 
-Schedule::command('inventory:reconcile --incremental --limit=1000')->everyFifteenMinutes()
-    ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(30)->onOneServer()
-    ->onFailure(fn () => logger()->error('Incremental inventory reconciliation failed.'));
+// Give the full scan priority when both schedules are due. The shared mutex
+// prevents the incremental scan from starting on another scheduler process.
 Schedule::command('inventory:reconcile --all-branches')->weeklyOn(0, '02:00')
-    ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(360)->onOneServer()
+    ->timezone(config('app.business_timezone', 'Africa/Cairo'))->createMutexNameUsing('inventory-reconciliation')
+    ->withoutOverlapping(360)->onOneServer()
     ->onFailure(fn () => logger()->error('Scheduled inventory reconciliation failed.'));
+Schedule::command('inventory:reconcile --incremental --limit=1000')->everyFifteenMinutes()
+    ->timezone(config('app.business_timezone', 'Africa/Cairo'))->createMutexNameUsing('inventory-reconciliation')
+    ->withoutOverlapping(30)->onOneServer()
+    ->onFailure(fn () => logger()->error('Incremental inventory reconciliation failed.'));
 Schedule::command('quotations:expire')->hourly()
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer()
     ->onFailure(fn () => logger()->error('Scheduled quotation expiry failed.'));
@@ -102,6 +121,10 @@ Schedule::command('inventory:detect-anomalies')->weeklyOn(1, '06:00')
 Schedule::command('finance:reconcile')->dailyAt('02:30')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer()
     ->onFailure(fn () => logger()->error('Scheduled finance reconciliation failed.'));
+Schedule::command('db:verify-schema')->dailyAt('05:30')
+    ->when(fn () => DB::connection()->getDriverName() === 'pgsql')
+    ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(15)->onOneServer()
+    ->onFailure(fn () => logger()->error('Scheduled PostgreSQL schema verification failed.'));
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());

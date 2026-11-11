@@ -6,17 +6,20 @@ namespace Tests\Feature\Finance;
 
 use App\Enums\Orders\OrderStatus;
 use App\Enums\StaffRole;
+use App\Exceptions\BusinessException;
 use App\Models\Customer;
 use App\Models\CustomerWalletTransaction;
 use App\Models\Order;
+use App\Models\TreasuryTransaction;
 use App\Models\User;
 use App\Models\WalletAdjustment;
-use App\Services\Orders\OrderService;
 use App\Services\Finance\WalletAdjustmentService;
 use App\Services\Finance\WalletService;
+use App\Services\Orders\OrderService;
 use Database\Seeders\AiAgentPermissionSeeder;
 use Database\Seeders\FinancialPermissionSeeder;
 use Database\Seeders\SettingSeeder;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -102,7 +105,7 @@ class FinanceWalletTest extends TestCase
         $this->assertSame($first->id, $second->id);
         $this->assertSame(50.0, (float) $customer->fresh()->wallet_balance);
 
-        $this->expectException(\App\Exceptions\BusinessException::class);
+        $this->expectException(BusinessException::class);
         $this->svc()->adjust(['customer_id' => $customer->id, 'kind' => 'adjustment',
             'amount' => '50.00', 'direction' => 'credit', 'reason' => 'تسوية'], $admin, null);
     }
@@ -120,19 +123,20 @@ class FinanceWalletTest extends TestCase
         try {
             $this->svc()->reverse($adj, $other, 'wallet-rev-x');
             $this->fail('expected 403');
-        } catch (\App\Exceptions\BusinessException $e) {
+        } catch (BusinessException $e) {
             $this->assertSame(403, $e->status);
         }
 
         $reversal = $this->svc()->reverse($adj, $admin, 'wallet-rev-2');
         $this->assertSame($adj->id, $reversal->reverses_id);
+        $this->assertTrue($reversal->is($this->svc()->reverse($adj, $admin, 'wallet-rev-2')));
         $this->assertSame('debit', $reversal->direction);
         $this->assertSame(0.0, (float) $customer->fresh()->wallet_balance);
 
         try {
             $this->svc()->reverse($adj, $admin, 'wallet-rev-3');
             $this->fail('expected rejection');
-        } catch (\App\Exceptions\BusinessException $e) {
+        } catch (BusinessException $e) {
             $this->assertSame('هذا التعديل معكوس بالفعل.', $e->getMessage());
         }
     }
@@ -192,7 +196,7 @@ class FinanceWalletTest extends TestCase
             try {
                 DB::transaction($attempt);
                 $this->fail('expected trigger rejection');
-            } catch (\Illuminate\Database\QueryException) {
+            } catch (QueryException) {
                 $this->assertTrue(true);
             }
         }
@@ -214,8 +218,8 @@ class FinanceWalletTest extends TestCase
         $this->assertSame('refunded', $order->fresh()->payment_status);
         $this->assertSame(150.0, (float) $customer->fresh()->wallet_balance);
         $this->assertSame(1, CustomerWalletTransaction::where('type', 'order_reversal')->count());
-        $this->assertSame(0, \App\Models\TreasuryTransaction::query()
-            ->whereIn('reference_type', ['order', \App\Models\Order::class])
+        $this->assertSame(0, TreasuryTransaction::query()
+            ->whereIn('reference_type', ['order', Order::class])
             ->where('reference_id', $order->id)->count());
     }
 
@@ -228,7 +232,7 @@ class FinanceWalletTest extends TestCase
 
         $this->assertSame('cancelled', $order->fresh()->status->value);
         $this->assertSame(0, CustomerWalletTransaction::query()->where('reference_id', $order->id)->count());
-        $this->assertSame(0, \App\Models\TreasuryTransaction::query()->where('reference_id', $order->id)->count());
+        $this->assertSame(0, TreasuryTransaction::query()->where('reference_id', $order->id)->count());
     }
 
     public function test_backfill_repairs_null_wallet_types(): void

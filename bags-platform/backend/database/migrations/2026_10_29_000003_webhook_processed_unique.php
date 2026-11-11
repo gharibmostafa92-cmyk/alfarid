@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Support\ConcurrentIndex;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
@@ -24,30 +25,23 @@ return new class extends Migration
             return;
         }
 
-        // Clean pre-existing processed duplicates so the index can build.
+        // Keep every delivery and mark later processed attempts as duplicates.
         DB::unprepared(<<<'SQL'
-            DELETE FROM webhook_logs a USING webhook_logs b
-            WHERE a.status = 'processed' AND b.status = 'processed'
-              AND a.provider = b.provider
-              AND a.event_id = b.event_id
-              AND a.id > b.id
+            WITH ranked AS (
+                SELECT id, row_number() OVER (PARTITION BY provider, event_id ORDER BY id) AS delivery
+                FROM webhook_logs
+                WHERE status = 'processed' AND event_id IS NOT NULL
+            )
+            UPDATE webhook_logs
+            SET status = 'duplicate'
+            FROM ranked
+            WHERE webhook_logs.id = ranked.id AND ranked.delivery > 1
             SQL);
 
         // PostgreSQL unique indexes allow separate NULLs. Preserve records
         // without an event ID; they do not establish a deduplication key.
 
-        $index = DB::selectOne("SELECT i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid WHERE c.relname = 'webhook_logs_processed_provider_event_unique' AND c.relnamespace = current_schema()::regnamespace");
-        if ($index !== null && ! $index->indisvalid) {
-            DB::unprepared('DROP INDEX CONCURRENTLY webhook_logs_processed_provider_event_unique');
-        }
-
-        if ($index === null || ! $index->indisvalid) {
-            DB::unprepared(<<<'SQL'
-                CREATE UNIQUE INDEX CONCURRENTLY webhook_logs_processed_provider_event_unique
-                ON webhook_logs (provider, event_id)
-                WHERE status = 'processed'
-                SQL);
-        }
+        ConcurrentIndex::ensure('webhook_logs_processed_provider_event_unique', "ON webhook_logs (provider, event_id) WHERE status = 'processed'", unique: true);
     }
 
     public function down(): void
@@ -56,6 +50,6 @@ return new class extends Migration
             return;
         }
 
-        DB::unprepared('DROP INDEX CONCURRENTLY IF EXISTS webhook_logs_processed_provider_event_unique');
+        ConcurrentIndex::drop('webhook_logs_processed_provider_event_unique');
     }
 };

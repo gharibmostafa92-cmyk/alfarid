@@ -20,18 +20,19 @@ Cloud Scheduler invokes the Jobs API with scoped IAM, so both tasks can reuse th
 2. Use a migration owner with DDL access and a distinct runtime login. Grant the runtime role only the app's required DML on the migrated objects, usage on the schema and required sequences, and appropriate default privileges for future objects. Rehearse both roles on fresh/sanitized data.
 3. Use the runtime's system CA bundle and `DB_SSLMODE=verify-full`. The deploy script supplies both `DB_SSLROOTCERT` and the libpq `PGSSLROOTCERT`. Verify in the built image that the valid Neon hostname connects and a wrong CA/hostname fails. Use the direct endpoint for both roles in the pilot.
 4. Pick a clean reviewed commit containing the existing opt-out for the Redis readiness check. The pilot uses database cache, limiter, sessions and locks. Verify the schema contains `cache`, `cache_locks`, `sessions` and `jobs`. Laravel readiness should report Redis skipped and return 503 when DB is unavailable. Preserve the default Redis behavior for other environments.
-5. In `bags-platform/`, build locally. On a clean checkout, use a local runtime-only env file containing migration credentials for two serialized rehearsal runs. Keep it out of the repo, shell history and image. Never use the migration login for the deployed API.
+5. In `bags-platform/`, build locally. On a clean checkout, use a local env file containing migration credentials for two serialized rehearsal runs. Set `DB_RUNTIME_ROLE` to the deployed API's actual PostgreSQL login. Keep the file out of the repo, shell history and image.
 
 ```powershell
 docker buildx build --platform linux/amd64 -f infrastructure/docker/app.Dockerfile -t alfarid-api:pilot --load .
 docker run --rm --entrypoint php alfarid-api:pilot -m
 docker run --rm --entrypoint composer alfarid-api:pilot check-platform-reqs --no-dev
-docker run --rm --env-file $migrationEnvPath --entrypoint php alfarid-api:pilot artisan migrate --force
-docker run --rm --env-file $migrationEnvPath --entrypoint php alfarid-api:pilot artisan migrate --force
+docker run --rm --env-file $migrationEnvPath -e 'PGOPTIONS=-c statement_timeout=0 -c idle_in_transaction_session_timeout=0 -c lock_timeout=5000' --entrypoint php alfarid-api:pilot artisan migrate --force
+docker run --rm --env-file $migrationEnvPath -e 'PGOPTIONS=-c statement_timeout=0 -c idle_in_transaction_session_timeout=0 -c lock_timeout=5000' --entrypoint php alfarid-api:pilot artisan migrate --force
 docker run --rm --env-file $migrationEnvPath --entrypoint php alfarid-api:pilot artisan migrate:status
+docker run --rm --env-file $migrationEnvPath --entrypoint php alfarid-api:pilot artisan db:verify-schema
 ```
 
-Check for `pcntl` and `pdo_pgsql`. The second migrate run must report nothing to migrate. Validate the image contents and its compressed layer sizes before publishing. Authenticate Docker with `gcloud auth configure-docker REGION-docker.pkg.dev`, tag with the release SHA, push to the same-region private repo, and record the immutable digest.
+Check for `pcntl` and `pdo_pgsql`. The second migrate run must report nothing to migrate and schema verification must pass. Validate the image contents and its compressed layer sizes before publishing. Authenticate Docker with `gcloud auth configure-docker REGION-docker.pkg.dev`, tag with the release SHA, push to the same-region private repo, and record the immutable digest.
 
 Run the storage gate immediately before each push. It sums repository storage across billed projects and adds the full local image size, without assuming any deduplication. It stops the push workflow if a measurement fails or the total exceeds 70% of 0.5 GiB. Check the billing report separately for usage already accrued this month. Backoffice and POS on Cloudflare Pages need no Registry image.
 

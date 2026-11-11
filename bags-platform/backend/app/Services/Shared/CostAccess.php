@@ -7,6 +7,8 @@ namespace App\Services\Shared;
 use App\Models\User;
 use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Http\Resources\Json\JsonResource;
+use JsonSerializable;
+use stdClass;
 
 /**
  * Authorizes access to confidential product and inventory unit cost values.
@@ -27,7 +29,7 @@ final class CostAccess
      *
      * @var list<string>
      */
-    public const DEFAULT_KEYS = ['cost_price', 'cost', 'unit_cost', 'total_cost', 'avg_cost', 'average_cost'];
+    public const DEFAULT_KEYS = ['cost_price', 'cost', 'unit_cost', 'total_cost', 'avg_cost', 'average_cost', 'last_cost_price'];
 
     /**
      * Recursively remove confidential unit cost keys from data payloads.
@@ -50,10 +52,18 @@ final class CostAccess
             }
             if ($value instanceof JsonResource) {
                 $out[$key] = $value;
+
                 continue;
             }
+            // DB::table() rows and DTOs are not Arrayable; normalize them so
+            // confidential keys cannot slip through as object properties.
             if ($value instanceof Arrayable) {
                 $value = $value->toArray();
+            } elseif ($value instanceof JsonSerializable) {
+                $value = $value->jsonSerialize();
+            }
+            if ($value instanceof stdClass) {
+                $value = (array) $value;
             }
             $out[$key] = is_array($value) ? self::strip($value, $keys) : $value;
         }

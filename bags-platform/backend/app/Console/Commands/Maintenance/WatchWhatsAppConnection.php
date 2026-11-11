@@ -35,9 +35,12 @@ class WatchWhatsAppConnection extends Command
 
             return self::SUCCESS;
         }
-        $since = Cache::remember('wa-gateway-disconnected-since', now()->addDay(), fn () => now()->toIso8601String());
-        $longClose = in_array($state, ['close', 'reconnecting', 'unreachable'], true)
-            && Carbon::parse($since)->lte(now()->subMinutes(10));
+        // L5: keys live longer than any realistic outage, so a 24h expiry cannot
+        // silently reset the "since" clock and hide a multi-day outage.
+        $since = Cache::remember('wa-gateway-disconnected-since', now()->addDays(7), fn () => now()->toIso8601String());
+        // L5: any non-connected state (connecting, qr, or a future unknown state)
+        // that persists is an outage, not just close/reconnecting/unreachable.
+        $longClose = Carbon::parse($since)->lte(now()->subMinutes(10));
         if ($state !== 'logged_out' && ! $longClose) {
             return self::SUCCESS;
         }

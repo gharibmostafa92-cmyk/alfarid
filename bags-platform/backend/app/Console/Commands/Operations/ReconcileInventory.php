@@ -33,6 +33,11 @@ class ReconcileInventory extends Command
 
             return self::INVALID;
         }
+        if ($branch !== null && ! Branch::query()->whereKey((int) $branch)->exists()) {
+            $this->error('الفرع غير موجود.');
+
+            return self::INVALID;
+        }
 
         // Running branch-by-branch avoids locking large ledger sections and reduces statement duration.
         if ((bool) $this->option('all-branches')) {
@@ -125,31 +130,26 @@ SQL;
             $sql = str_replace('SELECT * FROM stock_levels WHERE', 'SELECT * FROM stock_levels WHERE '.$matches('stock_levels').' AND', $sql);
             $sql = str_replace('FROM stock_movements WHERE', 'FROM stock_movements WHERE '.$matches('stock_movements').' AND', $sql);
             $sql = str_replace("\nSELECT (SELECT COUNT(*) FROM levels)", <<<'SQL'
-, cleaned AS (
-    DELETE FROM inventory_reconcile_work w USING chosen c
-    WHERE w.key = c.key AND w.revision = c.revision
-        AND NOT EXISTS (SELECT 1 FROM problems p WHERE p.branch_id = c.branch_id
-            AND p.product_variant_id = c.product_variant_id AND COALESCE(p.location_id, 0) = COALESCE(c.location_id, 0))
+, locked AS MATERIALIZED (
+    SELECT w.key, EXISTS (SELECT 1 FROM problems p WHERE p.branch_id = c.branch_id
+        AND p.product_variant_id = c.product_variant_id AND COALESCE(p.location_id, 0) = COALESCE(c.location_id, 0)) AS has_problem
+    FROM inventory_reconcile_work w JOIN chosen c USING (key)
+    WHERE w.revision = c.revision
+    ORDER BY w.key FOR UPDATE OF w SKIP LOCKED
+), cleaned AS (
+    DELETE FROM inventory_reconcile_work w USING locked l
+    WHERE w.key = l.key AND NOT l.has_problem
+    RETURNING w.key
+), checked AS (
+    UPDATE inventory_reconcile_work w SET checked_at = CURRENT_TIMESTAMP FROM locked l
+    WHERE w.key = l.key AND l.has_problem
     RETURNING w.key
 )
 SELECT (SELECT COUNT(*) FROM levels)
 SQL, $sql);
-            $sql = str_replace(
-                "COALESCE((SELECT json_agg(p) FROM (SELECT * FROM problems ORDER BY branch_id, product_variant_id, id LIMIT 100) p), '[]'::json) AS samples",
-                "COALESCE((SELECT json_agg(p) FROM (SELECT * FROM problems ORDER BY branch_id, product_variant_id, id LIMIT 100) p), '[]'::json) AS samples, (SELECT COALESCE(json_agg(key), '[]'::json) FROM chosen) AS examined",
-                $sql
-            );
         }
         $bindings = array_fill(0, $incremental ? 6 : 4, $branch);
-        $result = DB::selectOne($sql, $bindings);
-
-        if ($incremental) {
-            // Mark examined keys to ensure unresolvable issues sink below unchecked keys in subsequent runs.
-            $examined = json_decode((string) ($result->examined ?? '[]'), true) ?? [];
-            if ($examined !== []) {
-                DB::table('inventory_reconcile_work')->whereIn('key', $examined)->update(['checked_at' => now()]);
-            }
-        }
+        $result = DB::selectOne($sql, $bindings, false);
 
         // Persist latest run outcome for the inventory_health assistant tool to avoid expensive real-time audits.
         InventoryReconcileRun::query()->create([

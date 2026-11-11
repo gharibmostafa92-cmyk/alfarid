@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api\V1\Webhook;
 
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
+use App\Models\CustomerChannel;
 use App\Models\InboundMessage;
 use App\Services\Shared\WebhookSignatureVerifier;
 use App\Services\Wholesale\CustomerWholesaleAssistant;
@@ -66,13 +67,18 @@ final class CustomerWhatsAppWebhookController extends Controller
         }
 
         $phone = Customer::normalizePhone($message['from']);
-        $customer = Customer::query()->whereAnyPhone($phone)->first();
+        $sender = CustomerChannel::canonicalPhone($message['from']);
+        $matches = Customer::query()->whereAnyPhone($phone)->get()->filter(
+            fn (Customer $customer): bool => $sender !== null
+                && CustomerChannel::canonicalPhone((string) ($customer->whatsapp_phone ?: $customer->phone)) === $sender,
+        );
+        $customer = $matches->count() === 1 ? $matches->first() : null;
         // Acknowledge unlinked senders with 200 OK to prevent webhook replay loops while ignoring untracked traffic.
         if ($customer === null) {
             return response()->json(['ok' => true, 'linked' => false]);
         }
         InboundMessage::query()->where('provider_message_id', $message['id'])->update(['customer_id' => $customer->id]);
-        $reply = $this->respond($customer, $message);
+        $reply = $this->respond($customer, $message, $sender);
 
         return response()->json(['ok' => true, 'reply' => $reply]);
     }
@@ -82,9 +88,13 @@ final class CustomerWhatsAppWebhookController extends Controller
      *
      * @param  array{id: string, from: string, text: string, button_id: ?string, kind: string, media_id: ?string}  $message
      */
-    private function respond(Customer $customer, array $message): string
+    private function respond(Customer $customer, array $message, string $sender): string
     {
         if (in_array($message['kind'], ['image', 'audio'], true) && $message['media_id'] !== null) {
+            if (($verification = $this->assistant->requireVerifiedChannel($customer, sender: $sender)) !== null) {
+                return $verification;
+            }
+
             $bytes = $this->downloadMedia($message['media_id']);
             if ($bytes === null) {
                 return 'الملف موصلش. ابعته تاني من فضلك.';
@@ -108,7 +118,7 @@ final class CustomerWhatsAppWebhookController extends Controller
             }
         }
 
-        return $this->assistant->reply($customer, $message['text'], $message['button_id']);
+        return $this->assistant->reply($customer, $message['text'], $message['button_id'], $sender);
     }
 
     /**

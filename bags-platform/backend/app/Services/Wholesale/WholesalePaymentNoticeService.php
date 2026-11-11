@@ -4,14 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\Wholesale;
 
-use App\Services\Inventory\BranchAccess;
-use App\Services\Pos\TreasuryService;
-use App\Services\Shared\PrivateAttachments;
-use App\Services\Shared\SettingService;
-
-use App\Enums\Orders\OrderStatus;
 use App\Enums\Finance\TreasuryTransactionType;
 use App\Enums\Finance\TreasuryType;
+use App\Enums\Orders\OrderStatus;
 use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Events\Wholesale\PaymentNoticeReviewed;
 use App\Events\Wholesale\PaymentNoticeSubmitted;
@@ -23,6 +18,10 @@ use App\Models\Treasury;
 use App\Models\User;
 use App\Models\WholesalePaymentAllocation;
 use App\Models\WholesalePaymentNotice;
+use App\Services\Inventory\BranchAccess;
+use App\Services\Pos\TreasuryService;
+use App\Services\Shared\PrivateAttachments;
+use App\Services\Shared\SettingService;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Carbon\Carbon;
@@ -93,7 +92,7 @@ class WholesalePaymentNoticeService
             if (! empty($data['order_id'])) {
                 // Pessimistic lock inside transaction serializes concurrent submissions against remaining balance.
                 $order = $this->assertCreditableOrder($customer, (int) $data['order_id']);
-                $this->assertOrderCapacity($order, (string) $data['amount']);
+                $this->assertOrderCapacity($order, (string) $amount);
             }
 
             $path = $files->store($receipt, "wholesale_payment_notices/{$customer->id}");
@@ -329,8 +328,8 @@ class WholesalePaymentNoticeService
     public function approve(WholesalePaymentNotice $notice, int $adminId, ?int $treasuryId = null, ?string $adminNotes = null): WholesalePaymentNotice
     {
         return DB::transaction(function () use ($notice, $adminId, $treasuryId, $adminNotes): WholesalePaymentNotice {
-            $notice = WholesalePaymentNotice::query()->lockForUpdate()->findOrFail($notice->id);
             $customer = Customer::query()->lockForUpdate()->findOrFail($notice->customer_id);
+            $notice = WholesalePaymentNotice::query()->lockForUpdate()->findOrFail($notice->id);
 
             if ($notice->status !== WholesalePaymentNoticeStatus::PendingReview) {
                 throw new BusinessException('إشعار السداد هذا تمت مراجعته من قبل.');
@@ -340,6 +339,9 @@ class WholesalePaymentNoticeService
                 $order = Order::query()->lockForUpdate()->findOrFail($notice->order_id);
                 if ($order->payment_status === 'paid') {
                     throw new BusinessException('الطلب المرتبط تم سداده بالفعل؛ لا يمكن اعتماد إشعار السداد.');
+                }
+                if ($order->status !== OrderStatus::Cancelled) {
+                    $this->assertOrderCapacity($order, (string) $notice->amount, includePending: false);
                 }
             }
 
@@ -428,8 +430,8 @@ class WholesalePaymentNoticeService
         }
 
         return DB::transaction(function () use ($notice, $adminId, $reason): WholesalePaymentNotice {
-            $notice = WholesalePaymentNotice::query()->lockForUpdate()->findOrFail($notice->id);
             Customer::query()->lockForUpdate()->findOrFail($notice->customer_id);
+            $notice = WholesalePaymentNotice::query()->lockForUpdate()->findOrFail($notice->id);
 
             if ($notice->status !== WholesalePaymentNoticeStatus::Approved || $notice->reversed_at !== null) {
                 throw new BusinessException('لا يمكن عكس إشعار غير معتمد أو سبق عكسه.');
@@ -490,18 +492,16 @@ class WholesalePaymentNoticeService
         return $order;
     }
 
-    private function assertOrderCapacity(Order $order, string $newAmount): void
+    private function assertOrderCapacity(Order $order, string $newAmount, bool $includePending = true): void
     {
-        // Include pending reviews so concurrent submissions cannot collectively overcommit the order.
-        $committed = (string) WholesalePaymentNotice::query()
-            ->where('order_id', $order->id)
-            ->whereIn('status', [
-                WholesalePaymentNoticeStatus::PendingReview->value,
-                WholesalePaymentNoticeStatus::Approved->value,
-            ])
-            ->sum('amount');
-
-        $total = BigDecimal::of($committed)->plus(BigDecimal::of($newAmount))->toScale(2, RoundingMode::HalfUp);
+        $total = $this->orderCoveredAmount((int) $order->id)->plus($newAmount);
+        if ($includePending) {
+            // Pending reviews reserve capacity for new submissions only.
+            $total = $total->plus((string) WholesalePaymentNotice::query()
+                ->where('order_id', $order->id)
+                ->where('status', WholesalePaymentNoticeStatus::PendingReview->value)
+                ->sum('amount'));
+        }
         if ($total->compareTo(BigDecimal::of((string) $order->grand_total)) > 0) {
             throw new BusinessException('مبلغ الإشعار يتجاوز المتبقي غير المسدد من هذا الطلب.');
         }
@@ -511,16 +511,11 @@ class WholesalePaymentNoticeService
     {
         $order = Order::query()->lockForUpdate()->find($orderId);
 
-        if ($order === null || $order->payment_status !== 'unpaid') {
+        if ($order === null || $order->payment_status !== 'unpaid' || $order->status === OrderStatus::Cancelled) {
             return;
         }
 
-        $approved = (string) WholesalePaymentNotice::query()
-            ->where('order_id', $order->id)
-            ->where('status', WholesalePaymentNoticeStatus::Approved->value)
-            ->sum('amount');
-
-        if (BigDecimal::of($approved)->compareTo(BigDecimal::of((string) $order->grand_total)) >= 0) {
+        if ($this->orderCoveredAmount((int) $order->id)->compareTo((string) $order->grand_total) >= 0) {
             $this->markOrderPaid($order, $adminId, "تسوية آجل بالإشعار {$noticeNumber}");
         }
     }

@@ -12,7 +12,7 @@ node scripts/setup.mjs
 docker compose build app1 postgres haproxy1
 node scripts/setup.mjs --certs
 bash scripts/compose.sh --profile frontend --profile vip up -d --build
-docker compose run --rm --no-deps -e DB_HOST=postgres -e DB_PORT=5432 app1 php artisan migrate --force
+docker compose run --rm --no-deps migrate
 ```
 
 `setup.mjs` preserves existing `.env`, generates random local credentials for a
@@ -21,6 +21,33 @@ Configure real domains, R2, SMTP, CORS and host ports in `.env` for production.
 Only certificate/key PEM bundles belong in `haproxy/certs/`: loose `.crt` files
 are also loaded by HAProxy and fail without a matching key. Use URL-safe database
 and Redis passwords.
+
+The migration service connects directly to PostgreSQL on port 5432. It
+disables the runtime statement and idle transaction budgets for its own
+connections, bounds lock waits to five seconds, and runs `db:verify-schema`
+before the rollout drains any node. A failed index build or an unvalidated
+constraint stops the rollout and prints the affected object. After repair,
+rerun the same migration service. The scheduler logs schema findings daily.
+
+The local demo uses the same database login for both services. For a role
+cutover on an initialized cluster, put the schema-owner `DB_USERNAME` and
+`DB_PASSWORD` in the ignored `.env.migration` file. Set the runtime login and
+password in `.env` after provisioning its grants. The migration service passes
+the runtime login as `DB_RUNTIME_ROLE` so timeouts target that login directly.
+Use an independent read-only backup login with all required dump grants via
+`BACKUP_PGUSER` and `BACKUP_PGPASSWORD` in the ignored `.env.backup` file.
+Before switching traffic, rehearse the grants with an initialized staging
+cluster and reconnect PgBouncer so existing sessions pick up role settings.
+
+For verified database TLS, place the CA bundle in `tls/ca/root.crt` and the
+server certificate and key in `tls/postgres/server.crt` and
+`tls/postgres/server.key`. The PostgreSQL certificate must cover the Compose
+hostname `postgres`. Use the same filenames in `tls/pgbouncer/` for the
+certificate covering `pgbouncer`. Set `DB_SSLMODE=verify-full` and
+`DB_SSLROOTCERT=/run/alfarid-db-ca/root.crt`. The CA must be readable by the app
+user. Set `DB_TLS_DIR` to override the host-side directory. Restart and verify
+both database hops with the correct CA and a mismatched CA before routing
+traffic. The demo's default `require` uses generated local certificates.
 
 The generated local example uses 8 PHP workers per node for an 8 GB Docker VM.
 `APP_MAXCONN` controls both PHP-FPM workers and HAProxy's regular connection limit;
@@ -51,9 +78,10 @@ bash scripts/test-backend.sh
 
 This builds a separate development-dependency image and explicitly sets
 `DB_DATABASE=alfarid_testing` before PHP starts. The suite resets this test DB.
-Never point it at a live database. PHP 8.3 uses `DB_DISABLE_PREPARES=true` through
-PgBouncer: bound parameters remain in the PostgreSQL protocol without named
-prepared statements. Direct connections retain the existing default behavior.
+Never point it at a live database. The test container uses direct PostgreSQL
+because the tests run migrations. PHP 8.3 uses `DB_DISABLE_PREPARES=true` through
+PgBouncer so bound parameters remain in the PostgreSQL protocol using unnamed
+statements.
 
 For a disposable demo dataset (creates demo accounts/catalog):
 

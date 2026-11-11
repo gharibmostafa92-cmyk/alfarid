@@ -10,6 +10,7 @@ use App\Models\Category;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\Catalog\ProductService;
+use App\Services\Catalog\RetailPriceSnapshot;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 
@@ -97,9 +98,11 @@ class CatalogSeeder extends Seeder
         }
 
         $service = app(ProductService::class);
+        $ids = [];
         foreach ($this->catalog($categories, $brands) as $data) {
-            $service->create($data, $author);
+            $ids[] = $service->create($data, $author)->id;
         }
+        app(RetailPriceSnapshot::class)->refresh($ids);
     }
 
     /**

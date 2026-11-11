@@ -1,5 +1,6 @@
 <?php
 
+use App\Support\ConcurrentIndex;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
@@ -11,22 +12,13 @@ return new class extends Migration
 
     public function up(): void
     {
-        foreach (['pos_shifts_one_open_user', 'pos_shifts_one_unsettled_drawer'] as $index) {
-            $existing = DB::selectOne('SELECT i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid WHERE c.relname = ?', [$index]);
-            if ($existing !== null && ! $existing->indisvalid) {
-                DB::statement('DROP INDEX CONCURRENTLY '.$index);
-            }
-        }
-        DB::statement("CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS pos_shifts_one_open_user ON pos_shifts (user_id) WHERE status = 'open'");
-        DB::statement("CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS pos_shifts_one_unsettled_drawer ON pos_shifts (treasury_id) WHERE status IN ('open','closed_pending_approval')");
+        ConcurrentIndex::ensure('pos_shifts_one_open_user', "ON pos_shifts (user_id) WHERE status = 'open'", unique: true);
+        ConcurrentIndex::ensure('pos_shifts_one_unsettled_drawer', "ON pos_shifts (treasury_id) WHERE status IN ('open','closed_pending_approval')", unique: true);
+        $this->replaceCheck('treasuries', 'treasuries_nonnegative_cash', "type = 'bank_account' OR current_balance >= 0");
+        $this->replaceCheck('treasury_transactions', 'treasury_transactions_type_check', 'type IN ('.self::LEGACY_TYPES.", 'cash_shortage','cash_overage')");
+        $this->replaceCheck('orders', 'orders_payment_status_check', "payment_status IN ('unpaid','paid','failed','refunded','partially_refunded','refund_pending')");
         DB::transaction(function (): void {
-            DB::statement('ALTER TABLE treasuries DROP CONSTRAINT IF EXISTS treasuries_nonnegative_cash');
-            DB::statement("ALTER TABLE treasuries ADD CONSTRAINT treasuries_nonnegative_cash CHECK (type = 'bank_account' OR current_balance >= 0) NOT VALID");
-            DB::statement('ALTER TABLE treasuries VALIDATE CONSTRAINT treasuries_nonnegative_cash');
-            DB::statement('ALTER TABLE treasury_transactions DROP CONSTRAINT IF EXISTS treasury_transactions_type_check');
-            DB::statement('ALTER TABLE treasury_transactions ADD CONSTRAINT treasury_transactions_type_check CHECK (type IN ('.self::LEGACY_TYPES.", 'cash_shortage','cash_overage'))");
-            DB::statement('ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_payment_status_check');
-            DB::statement("ALTER TABLE orders ADD CONSTRAINT orders_payment_status_check CHECK (payment_status IN ('unpaid','paid','failed','refunded','partially_refunded','refund_pending'))");
+            DB::statement("SET LOCAL lock_timeout = '3s'");
             DB::statement('ALTER TABLE treasury_transfers DROP CONSTRAINT IF EXISTS treasury_transfers_separate_approver');
             DB::statement("ALTER TABLE treasury_transfers ADD CONSTRAINT treasury_transfers_separate_approver CHECK (status <> 'approved' OR approved_by <> created_by) NOT VALID");
             DB::unprepared(<<<'SQL'
@@ -57,13 +49,21 @@ SQL);
         DB::statement('DROP FUNCTION IF EXISTS prevent_treasury_type_change()');
         DB::statement('ALTER TABLE treasuries DROP CONSTRAINT IF EXISTS treasuries_nonnegative_cash');
         DB::statement('ALTER TABLE treasury_transfers DROP CONSTRAINT IF EXISTS treasury_transfers_separate_approver');
-        DB::statement('ALTER TABLE treasury_transactions DROP CONSTRAINT treasury_transactions_type_check');
-        DB::statement('ALTER TABLE treasury_transactions ADD CONSTRAINT treasury_transactions_type_check CHECK (type IN ('.self::LEGACY_TYPES.'))');
-        DB::statement('ALTER TABLE orders DROP CONSTRAINT orders_payment_status_check');
-        DB::statement("ALTER TABLE orders ADD CONSTRAINT orders_payment_status_check CHECK (payment_status IN ('unpaid','paid','failed','refunded','partially_refunded'))");
+        $this->replaceCheck('treasury_transactions', 'treasury_transactions_type_check', 'type IN ('.self::LEGACY_TYPES.')');
+        $this->replaceCheck('orders', 'orders_payment_status_check', "payment_status IN ('unpaid','paid','failed','refunded','partially_refunded')");
         DB::statement('DROP INDEX CONCURRENTLY IF EXISTS pos_shifts_one_open_user');
         DB::statement('DROP INDEX CONCURRENTLY IF EXISTS pos_shifts_one_unsettled_drawer');
         DB::statement('CREATE INDEX CONCURRENTLY IF NOT EXISTS stock_movements_stale_check_index ON stock_movements (branch_id, location_id, affected_bucket, product_variant_id, id)');
         DB::statement('CREATE INDEX CONCURRENTLY IF NOT EXISTS stock_movements_branch_id_index ON stock_movements (branch_id)');
+    }
+
+    private function replaceCheck(string $table, string $constraint, string $expression): void
+    {
+        DB::transaction(function () use ($table, $constraint, $expression): void {
+            DB::statement("SET LOCAL lock_timeout = '3s'");
+            DB::statement("ALTER TABLE {$table} DROP CONSTRAINT IF EXISTS {$constraint},
+                ADD CONSTRAINT {$constraint} CHECK ({$expression}) NOT VALID");
+        });
+        DB::statement("ALTER TABLE {$table} VALIDATE CONSTRAINT {$constraint}");
     }
 };

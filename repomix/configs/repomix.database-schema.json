@@ -11,12 +11,14 @@
         "showLineNumbers": true,
         "copyToClipboard": false,
         "instructionFilePath": "repomix/instructions/audit-database-performance.md",
-        "headerText": "DOMAIN: DATABASE SCHEMA, COMPOSITE INDEXES, LOCKS & MIGRATIONS\nComprehensive audit of all 156 PostgreSQL schema migrations, composite indexes, foreign key coverage, sequence concurrency, and statement timeout guards."
+        "headerText": "DOMAIN: DATABASE SCHEMA, COMPOSITE INDEXES, LOCKS & MIGRATIONS\nComprehensive audit of all 175+ PostgreSQL schema migrations, composite indexes, foreign key coverage, sequence concurrency, and statement timeout guards."
     },
     "include": [
         "bags-platform/backend/database/migrations/*.php",
         "bags-platform/backend/database/seeders/*.php",
+        "bags-platform/backend/database/factories/*.php",
         "bags-platform/backend/config/database.php",
+        "bags-platform/backend/app/Console/Commands/Maintenance/VerifyDatabaseSchema.php",
         "bags-platform/infrastructure/pgbouncer/pgbouncer.ini"
     ],
     "ignore": {

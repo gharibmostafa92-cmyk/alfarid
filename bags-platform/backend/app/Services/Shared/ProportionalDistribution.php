@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Services\Shared;
 
 use App\Exceptions\BusinessException;
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 
 /**
  * Distributes a currency amount proportionally across line weights
@@ -22,63 +24,49 @@ final class ProportionalDistribution
      * @param  array<int, float>  $weights  Proportional weighting for each target bucket. Keys are preserved.
      * @return array<int, float> Distributed amounts summing exactly to total, keyed like the input weights.
      *
-     * @throws BusinessException If any weight is negative.
+     * @throws BusinessException If the inputs cannot represent a valid distribution.
      */
     public static function distribute(float $total, array $weights): array
     {
-        $count = count($weights);
-        if ($count === 0) {
-            return [];
+        $roundedTotal = round($total, 2);
+        if (! is_finite($total) || $total < 0 || $total > 999999999999.99
+            || abs($total - $roundedTotal) > max(1.0, abs($total)) * PHP_FLOAT_EPSILON * 2) {
+            throw new BusinessException('الإجمالي يجب أن يكون مبلغًا غير سالب بدقة خانتين عشريتين.');
         }
 
-        // M3: a negative weight (e.g. a discount line) would silently produce
-        // negative shares while the sum stays positive — fail loud instead.
-        foreach ($weights as $weight) {
-            if ((float) $weight < 0) {
-                throw new BusinessException('الوزن يجب أن يكون رقمًا غير سالب.');
+        $totalCents = (int) round($roundedTotal * 100);
+        $weightSum = BigDecimal::zero();
+        $decimalWeights = [];
+        foreach ($weights as $key => $weight) {
+            if (! is_numeric($weight) || ! is_finite((float) $weight) || (float) $weight < 0) {
+                throw new BusinessException('الوزن يجب أن يكون رقمًا غير سالب ومحدودًا.');
             }
+            $decimalWeights[$key] = BigDecimal::of(json_encode((float) $weight, JSON_THROW_ON_ERROR));
+            $weightSum = $weightSum->plus($decimalWeights[$key]);
         }
 
-        // Convert to integer cents upfront to eliminate floating-point drift during penny apportionment.
-        $totalCents = (int) round($total * 100);
-        $weightSum = array_sum($weights);
-        if ($totalCents <= 0 || $weightSum <= 0) {
-            // M3: preserve the caller's keys so $shares[$itemId] keeps working
-            // on the zero path instead of returning 0..n-1 keys.
-            // NOTE: a non-positive total intentionally yields zero shares — pinned
-            // by OrderAmountDistributionTest::test_proportional_distribution_handles_edge_cases.
-            $zeros = [];
-            foreach ($weights as $i => $weight) {
-                $zeros[$i] = 0.0;
-            }
-
-            return $zeros;
+        if ($totalCents === 0) {
+            return array_fill_keys(array_keys($weights), 0.0);
+        }
+        if ($weightSum->isZero()) {
+            throw new BusinessException('توزيع مبلغ موجب يتطلب وزنًا موجبًا.');
         }
 
         $floorCents = [];
         $remainders = [];
-        $assigned = 0;
-        foreach ($weights as $i => $weight) {
-            $exact = $totalCents * ((float) $weight / $weightSum);
-            $floor = (int) floor($exact);
-            $floorCents[$i] = $floor;
-            $remainders[$i] = $exact - $floor;
-            $assigned += $floor;
+        $left = $totalCents;
+        foreach ($decimalWeights as $key => $weight) {
+            $numerator = $weight->multipliedBy($totalCents);
+            $floor = $numerator->dividedBy($weightSum, 0, RoundingMode::Down)->toInt();
+            $floorCents[$key] = $floor;
+            $remainders[$key] = $numerator->minus($weightSum->multipliedBy($floor));
+            $left -= $floor;
         }
 
-        $left = $totalCents - $assigned;
-        // Allocate remaining surplus cents to positions with the largest truncation remainder.
-        arsort($remainders);
-        foreach (array_keys($remainders) as $i) {
-            if ($left <= 0) {
-                break;
-            }
-            $floorCents[$i]++;
-            $left--;
+        uasort($remainders, static fn (BigDecimal $first, BigDecimal $second): int => $second->compareTo($first));
+        foreach (array_slice(array_keys($remainders), 0, $left) as $key) {
+            $floorCents[$key]++;
         }
-
-        // Restore original index ordering to match input line sequence.
-        ksort($floorCents);
 
         return array_map(static fn (int $cents): float => $cents / 100, $floorCents);
     }

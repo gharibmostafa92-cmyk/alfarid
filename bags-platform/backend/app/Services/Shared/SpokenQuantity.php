@@ -116,7 +116,9 @@ final class SpokenQuantity
                 $total += $group;
                 $group = 0.0;
             } elseif ($v === 200.0) {
-                $total += $v;
+                // M10: "ميتين ألف" = 200 * 1000, not 200 + 1000. Keep the
+                // hundred in the open group so a following thousand multiplies it.
+                $group += $v;
             } else {
                 $group += $v;
             }

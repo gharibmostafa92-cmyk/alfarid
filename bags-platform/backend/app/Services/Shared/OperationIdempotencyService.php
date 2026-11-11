@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use LogicException;
 
 /**
  * Coordinates scoped idempotent execution for state-changing operations.
@@ -99,13 +100,18 @@ class OperationIdempotencyService
                 }
                 throw $e;
             }
+            // L2: persisting result_id = null would make every later replay
+            // report "record deleted". An unsaved result is a programming error.
+            if ($result->getKey() === null) {
+                throw new LogicException('Idempotent operation returned an unsaved model; persist it before returning.');
+            }
             DB::table('operation_idempotency_keys')->where($scope)->update([
                 // Store morph aliases instead of FQCNs to prevent model namespace refactoring from breaking historical replays.
                 'result_type' => array_search($result::class, self::RESULT_TYPES, true) ?: $result->getMorphClass(), 'result_id' => $result->getKey(),
             ]);
 
             return $result;
-        // Limit to 1 attempt to avoid repeating non-transactional side effects (e.g., file storage, notifications).
+            // Limit to 1 attempt to avoid repeating non-transactional side effects (e.g., file storage, notifications).
         }, 1);
     }
 
@@ -114,7 +120,6 @@ class OperationIdempotencyService
      *
      * @param  mixed  $type  Morph alias or legacy fully-qualified class name.
      * @param  mixed  $id  Model primary key.
-     * @return Model|null
      */
     private static function findResult(mixed $type, mixed $id): ?Model
     {

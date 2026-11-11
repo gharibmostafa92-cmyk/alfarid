@@ -27,21 +27,24 @@ class PruneNotifications extends Command
         $unreadCutoff = now()->subDays($unreadDays);
         $deleted = 0;
 
-        do {
-            $ids = DB::table('notifications')
-                ->where(fn ($query) => $query
-                    ->where(fn ($read) => $read->whereNotNull('read_at')->where('created_at', '<', $cutoff))
-                    ->orWhere(fn ($unread) => $unread->whereNull('read_at')->where('created_at', '<', $unreadCutoff)))
-                ->orderBy('created_at')->orderBy('id')
-                ->limit(1000)
-                ->pluck('id');
-
-            if ($ids->isEmpty()) {
-                break;
+        foreach ([true, false] as $read) {
+            $expired = DB::table('notifications')->where('created_at', '<', $read ? $cutoff : $unreadCutoff);
+            if ($read) {
+                $expired->whereNotNull('read_at');
+            } else {
+                $expired->whereNull('read_at');
             }
 
-            $deleted += DB::table('notifications')->whereIn('id', $ids->all())->delete();
-        } while ($ids->count() === 1000);
+            do {
+                $ids = (clone $expired)->orderBy('created_at')->orderBy('id')->limit(1000)->pluck('id');
+                if ($ids->isEmpty()) {
+                    break;
+                }
+
+                // Recheck the read state in case it changed after selection.
+                $deleted += (clone $expired)->whereIn('id', $ids)->delete();
+            } while ($ids->count() === 1000);
+        }
 
         $this->info("Pruned {$deleted} expired notifications (read: {$days} days; unread: {$unreadDays} days).");
 

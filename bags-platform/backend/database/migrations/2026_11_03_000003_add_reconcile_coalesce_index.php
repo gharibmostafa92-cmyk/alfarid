@@ -2,8 +2,8 @@
 
 declare(strict_types=1);
 
+use App\Support\ConcurrentIndex;
 use Illuminate\Database\Migrations\Migration;
-use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
@@ -18,12 +18,11 @@ return new class extends Migration
      */
     public function up(): void
     {
-        DB::statement('CREATE INDEX CONCURRENTLY IF NOT EXISTS stock_movements_reconcile_coalesce_index
-            ON stock_movements (branch_id, product_variant_id, (COALESCE(location_id, 0)), affected_bucket, id)');
+        ConcurrentIndex::ensure('stock_movements_reconcile_coalesce_index', 'ON stock_movements (branch_id, product_variant_id, (COALESCE(location_id, 0)), affected_bucket, id)');
     }
 
     public function down(): void
     {
-        DB::statement('DROP INDEX CONCURRENTLY IF EXISTS stock_movements_reconcile_coalesce_index');
+        ConcurrentIndex::drop('stock_movements_reconcile_coalesce_index');
     }
 };

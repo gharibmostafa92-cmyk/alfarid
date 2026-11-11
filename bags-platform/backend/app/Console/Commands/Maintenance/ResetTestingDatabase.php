@@ -23,7 +23,7 @@ class ResetTestingDatabase extends Command
             return self::FAILURE;
         }
 
-        $host = config('database.connections.pgsql.host', '127.0.0.1');
+        $host = (string) config('database.connections.pgsql.host', '127.0.0.1');
         $port = config('database.connections.pgsql.port', '5432');
         $user = config('database.connections.pgsql.username', 'postgres');
         // M10: no default password — fail loud instead of guessing '123456'.
@@ -35,10 +35,10 @@ class ResetTestingDatabase extends Command
         }
 
         $pdo = new PDO("pgsql:host={$host};port={$port};dbname=alfarid_testing", $user, $pass);
+        $pdo->beginTransaction();
         $pdo->exec('DROP SCHEMA IF EXISTS public CASCADE;');
         $pdo->exec('CREATE SCHEMA public;');
-        $pdo->exec('GRANT ALL ON SCHEMA public TO postgres;');
-        $pdo->exec('GRANT ALL ON SCHEMA public TO public;');
+        $pdo->commit();
 
         $this->info('alfarid_testing schema successfully reset.');
 

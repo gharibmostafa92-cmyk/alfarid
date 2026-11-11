@@ -37,6 +37,7 @@ class RolePermissionSeeder extends Seeder
         'settings' => ['view', 'update', 'manage'],
         'store' => ['manage'],
         'pos' => ['access', 'sales.view', 'sales.create', 'sales.refund'],
+        'pos_shifts' => ['view', 'approve'],
     ];
 
     public function run(): void

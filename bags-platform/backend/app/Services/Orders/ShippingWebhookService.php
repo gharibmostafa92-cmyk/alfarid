@@ -4,15 +4,15 @@ declare(strict_types=1);
 
 namespace App\Services\Orders;
 
-use App\Services\Shared\WebhookSignatureVerifier;
-
 use App\Enums\Orders\OrderStatus;
 use App\Enums\Orders\ShipmentStatus;
 use App\Models\Shipment;
 use App\Models\ShippingCompany;
 use App\Models\WebhookLog;
+use App\Services\Shared\WebhookSignatureVerifier;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\RateLimiter;
 use Throwable;
 
 /**
@@ -67,6 +67,10 @@ class ShippingWebhookService
      */
     public function handle(string $companyCode, array $payload, string $rawBody, ?string $signature, ?string $ip): array
     {
+        $companyCode = strtolower($companyCode);
+        if (preg_match('/\A[a-z0-9_-]{1,32}\z/', $companyCode) !== 1) {
+            return ['http' => 403, 'body' => ['received' => false, 'message' => 'invalid signature']];
+        }
         $provider = 'shipping:'.$companyCode;
         // Pre-verification key uses raw body hash because unverified payload fields cannot be trusted
         $preVerifyKey = 'sha256:'.hash('sha256', $rawBody);
@@ -103,7 +107,7 @@ class ShippingWebhookService
         $log->update(['signature_valid' => true]);
 
         return DB::transaction(function () use ($provider, $payload, $log, $company): array {
-            DB::statement('SELECT pg_advisory_xact_lock(hashtext(?))', [$provider.':'.$log->event_id]);
+            DB::statement('SELECT pg_advisory_xact_lock(102, hashtext(?))', [$provider.':'.$log->event_id]);
 
             if ($this->alreadyProcessed($provider, $log)) {
                 $log->update(['status' => 'duplicate']);
@@ -328,7 +332,8 @@ class ShippingWebhookService
      */
     private function slimLog(string $provider, string $eventId, string $status, ?string $error, ?string $ip): void
     {
-        WebhookLog::create([
+        $key = 'shipping-rejected:'.hash('sha256', ($ip ?? 'unknown').'|'.$status);
+        RateLimiter::attempt($key, 30, fn () => WebhookLog::create([
             'provider' => $provider,
             'event_id' => $eventId,
             'payload' => null,
@@ -336,13 +341,13 @@ class ShippingWebhookService
             'status' => $status,
             'error' => $error,
             'ip_address' => $ip,
-        ]);
+        ]), 60);
     }
 
     private function alreadyProcessed(string $provider, WebhookLog $current): bool
     {
         return WebhookLog::query()
-            ->where('provider', $provider)
+            ->whereRaw('lower(provider) = ?', [$provider])
             ->where('event_id', $current->event_id)
             ->where('id', '!=', $current->id)
             ->where('status', 'processed')

@@ -14,11 +14,11 @@ use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
 use App\Models\User;
 use App\Services\Inventory\InventoryService;
-use App\Services\Pos\PosService;
-use App\Services\Shared\SettingService;
 use App\Services\Inventory\StocktakeService;
 use App\Services\Inventory\TransferService;
+use App\Services\Pos\PosService;
 use App\Services\Pos\TreasuryService;
+use App\Services\Shared\SettingService;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Spatie\Permission\Models\Permission;
@@ -322,7 +322,7 @@ PHP;
     {
         $branch = Branch::factory()->create();
         $creator = User::factory()->create(['branch_id' => $branch->id]);
-        $from = Treasury::create(['name' => 'From', 'code' => 'FROM', 'branch_id' => $branch->id, 'type' => 'main_safe', 'current_balance' => 100, 'is_active' => true]);
+        $from = app(TreasuryService::class)->createAccount(['name' => 'From', 'code' => 'FROM', 'branch_id' => $branch->id, 'type' => 'main_safe', 'is_active' => true], $this->staff, '100.00');
         $to = Treasury::create(['name' => 'To', 'code' => 'TO', 'branch_id' => $branch->id, 'type' => 'main_safe', 'current_balance' => 0, 'is_active' => true]);
         $transfer = app(TreasuryService::class)->createTransfer(['from_treasury_id' => $from->id, 'to_treasury_id' => $to->id, 'amount' => 30], $creator->id);
         $jobs = [];
@@ -333,13 +333,13 @@ PHP;
         $approved = $transfer->fresh()->status->value === 'approved';
         $this->assertSame($approved ? '70.00' : '100.00', $from->fresh()->current_balance);
         $this->assertSame($approved ? '30.00' : '0.00', $to->fresh()->current_balance);
-        $this->assertDatabaseCount('treasury_transactions', $approved ? 2 : 0);
+        $this->assertDatabaseCount('treasury_transactions', $approved ? 3 : 1);
     }
 
     public function test_concurrent_shift_approval_settles_cash_once(): void
     {
         $branch = Branch::factory()->create();
-        $safe = Treasury::create(['name' => 'Safe', 'code' => 'SAFE', 'branch_id' => $branch->id, 'type' => 'main_safe', 'current_balance' => 1000, 'is_active' => true]);
+        $safe = app(TreasuryService::class)->createAccount(['name' => 'Safe', 'code' => 'SAFE', 'branch_id' => $branch->id, 'type' => 'main_safe', 'is_active' => true], $this->staff, '1000.00');
         $drawer = Treasury::create(['name' => 'Drawer', 'code' => 'DRAWER', 'branch_id' => $branch->id, 'type' => 'pos_drawer', 'is_active' => true]);
         $shift = app(PosService::class)->openShift($this->staff, $branch->id, $drawer->id, 200);
         app(PosService::class)->closeShift($shift, 180, null);

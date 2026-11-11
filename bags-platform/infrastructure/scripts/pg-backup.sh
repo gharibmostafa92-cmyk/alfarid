@@ -26,7 +26,8 @@ cleanup() {
   [ "$rc" -eq 0 ] || write_metric alfarid_backup_run.prom alfarid_backup_last_run_success 0
 }
 trap cleanup EXIT
-pg_dump -h "${PGHOST:?}" -p "${PGPORT:-5432}" -U "${PGUSER:?}" -Fc "${PGDATABASE:-alfarid}" -f "${TMP}"
+PGPASSWORD="${BACKUP_PGPASSWORD:-${PGPASSWORD:-}}" pg_dump -h "${PGHOST:?}" -p "${PGPORT:-5432}" \
+  -U "${BACKUP_PGUSER:-${PGUSER:?}}" -Fc "${PGDATABASE:-alfarid}" -f "${TMP}"
 pg_restore --list "${TMP}" >/dev/null
 mv "${TMP}" "${FILE}"
 if [ -n "${R2_BACKUP_SYNC:-}" ]; then

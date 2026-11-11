@@ -39,8 +39,8 @@ services:
     restart: unless-stopped
   node-exporter:
     image: prom/node-exporter:v1.8.2
-    command: ['--path.rootfs=/host']
-    volumes: ['/:/host:ro']
+    command: ['--path.rootfs=/host', '--collector.textfile.directory=/backup-metrics']
+    volumes: ['/:/host:ro', 'backup-metrics:/backup-metrics:ro']
     networks: [appnet]
     restart: unless-stopped
   cadvisor:

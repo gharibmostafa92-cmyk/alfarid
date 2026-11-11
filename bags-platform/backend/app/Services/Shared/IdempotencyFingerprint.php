@@ -55,8 +55,12 @@ final class IdempotencyFingerprint
         }
 
         if (is_string($value) && is_numeric($value)
-            && ($field === 'id' || str_ends_with($field ?? '', '_id')
-                || in_array($field, ['qty', 'amount', 'received_good_qty', 'received_damaged_qty', 'quantity', 'requested_qty', 'counted_qty', 'approved_qty', 'shipped_qty', 'received_qty'], true))) {
+            && ($field === 'id' || str_ends_with($field ?? '', '_id'))) {
+            // L1: (string) + 0 collapses identifiers above 2^53 onto the same
+            // float ("99999999999999999999" and "...998"). Normalize as text.
+            $value = self::normalizeIdentifier($value);
+        } elseif (is_string($value) && is_numeric($value)
+            && in_array($field, ['qty', 'amount', 'received_good_qty', 'received_damaged_qty', 'quantity', 'requested_qty', 'counted_qty', 'approved_qty', 'shipped_qty', 'received_qty'], true)) {
             $value = $value + 0;
         }
 
@@ -83,6 +87,26 @@ final class IdempotencyFingerprint
         }
 
         return $mapped;
+    }
+
+    /**
+     * Preserve the stored fingerprint for IDs within the PHP integer range,
+     * and keep larger identifiers as exact decimal strings.
+     */
+    private static function normalizeIdentifier(string $value): int|string
+    {
+        $canonical = self::normalizeDecimal($value);
+        if ($canonical === '0') {
+            return 0;
+        }
+        if (preg_match('/\A(-?\d{1,19})e(\d{1,2})\z/', $canonical, $parts) !== 1
+            || strlen(ltrim($parts[1], '-')) + (int) $parts[2] > 19) {
+            return $canonical;
+        }
+
+        $integer = filter_var($parts[1].str_repeat('0', (int) $parts[2]), FILTER_VALIDATE_INT);
+
+        return $integer === false ? $canonical : $integer;
     }
 
     /**

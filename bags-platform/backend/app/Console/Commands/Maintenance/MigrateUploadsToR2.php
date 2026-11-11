@@ -41,43 +41,9 @@ class MigrateUploadsToR2 extends Command
                         }
                     }
                     try {
-                        DB::transaction(function () use ($item, $migration, &$count): void {
-                            $media = Media::query()->lockForUpdate()->findOrFail($item->id);
-                            $target = $this->targetDiskFor($media);
-                            $base = app(UuidPathGenerator::class)->getPath($media);
-                            $rekey = $target === 'r2_public' && $base !== $media->uuid.'/';
-                            if ($media->disk === $target && ($media->conversions_disk ?: $media->disk) === $target && ! $rekey) {
-                                return;
-                            }
-                            if ($rekey && ! $media->uuid) {
-                                throw new \RuntimeException('Catalog media requires a UUID: '.$media->id);
-                            }
-                            $targetBase = $rekey ? $media->uuid.'/' : $base;
-                            if (! Storage::disk($media->disk)->exists($base.$media->file_name)) {
-                                // A single missing original must not abort the entire run;
-                                // log it and proceed to the next record.
-                                throw new \RuntimeException('Missing media original; record unchanged: '.$media->id);
-                            }
-                            $sources = $media->getCustomProperty('r2_migration_sources', []);
-                            foreach (array_unique([$media->disk, $media->conversions_disk ?: $media->disk]) as $disk) {
-                                if ($disk === $target && ! $rekey) {
-                                    continue;
-                                }
-                                foreach (Storage::disk($disk)->allFiles(rtrim($base, '/')) as $path) {
-                                    $targetPath = $targetBase.substr($path, strlen($base));
-                                    $migration->copy($disk, $path, $target, $targetPath);
-                                    $sources[] = [$disk, $path, $target, $targetPath];
-                                }
-                            }
-                            $media->disk = $target;
-                            $media->conversions_disk = $target;
-                            if ($rekey) {
-                                $media->setCustomProperty('path_layout', 'uuid');
-                            }
-                            $media->setCustomProperty('r2_migration_sources', $sources);
-                            $media->save();
+                        if ($this->copyMedia($item, $migration)) {
                             $count++;
-                        });
+                        }
                         if ($this->option('delete-source')) {
                             $this->deleteSources($item->id, $migration);
                         }
@@ -130,6 +96,53 @@ class MigrateUploadsToR2 extends Command
         $this->info('R2 migration verified: '.$count.' media records / remaining files processed.');
 
         return self::SUCCESS;
+    }
+
+    private function copyMedia(Media $snapshot, R2UploadMigration $migration): bool
+    {
+        $target = $this->targetDiskFor($snapshot);
+        $base = app(UuidPathGenerator::class)->getPath($snapshot);
+        $rekey = $target === 'r2_public' && $base !== $snapshot->uuid.'/';
+        $sourceDisks = array_unique([$snapshot->disk, $snapshot->conversions_disk ?: $snapshot->disk]);
+        if ($sourceDisks === [$target] && ! $rekey) {
+            return false;
+        }
+        if ($rekey && ! $snapshot->uuid) {
+            throw new \RuntimeException('Catalog media requires a UUID: '.$snapshot->id);
+        }
+        if (! Storage::disk($snapshot->disk)->exists($base.$snapshot->file_name)) {
+            throw new \RuntimeException('Missing media original; record unchanged: '.$snapshot->id);
+        }
+
+        $targetBase = $rekey ? $snapshot->uuid.'/' : $base;
+        $sources = $snapshot->getCustomProperty('r2_migration_sources', []);
+        foreach ($sourceDisks as $disk) {
+            if ($disk === $target && ! $rekey) {
+                continue;
+            }
+            foreach (Storage::disk($disk)->allFiles(rtrim($base, '/')) as $path) {
+                $targetPath = $targetBase.substr($path, strlen($base));
+                $migration->copy($disk, $path, $target, $targetPath);
+                $sources[] = [$disk, $path, $target, $targetPath];
+            }
+        }
+
+        DB::transaction(function () use ($snapshot, $target, $rekey, $sources): void {
+            $media = Media::query()->lockForUpdate()->findOrFail($snapshot->id);
+            if ($media->getRawOriginal() !== $snapshot->getRawOriginal()) {
+                throw new \RuntimeException('Media changed during copy; source preserved: '.$snapshot->id);
+            }
+
+            $media->disk = $target;
+            $media->conversions_disk = $target;
+            if ($rekey) {
+                $media->setCustomProperty('path_layout', 'uuid');
+            }
+            $media->setCustomProperty('r2_migration_sources', $sources);
+            $media->save();
+        });
+
+        return true;
     }
 
     private function targetDiskFor(Media $media): string

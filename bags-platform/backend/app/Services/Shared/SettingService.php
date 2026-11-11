@@ -4,11 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services\Shared;
 
-use App\Services\Auth\StaffAdministration;
-
 use App\Exceptions\BusinessException;
 use App\Http\Requests\Admin\Auth\UpdateSettingsRequest;
 use App\Models\Setting;
+use App\Services\Auth\StaffAdministration;
 use Brick\Math\BigDecimal;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -35,12 +34,18 @@ class SettingService
     /** @var array<string, mixed>|null Per-request in-memory cache to avoid repeated serialization and cache lookups. */
     private ?array $requestCache = null;
 
+    private ?string $requestCacheVersion = null;
+
+    private ?string $numberingConfigVersion = null;
+
     public function resetReadSnapshot(bool $transactionBoundary = false): void
     {
         $this->transactionSnapshot = null;
         if ($transactionBoundary) {
             $this->uncommittedSettings = false;
             $this->requestCache = null;
+            $this->requestCacheVersion = null;
+            $this->numberingConfigVersion = null;
         }
     }
 
@@ -231,8 +236,9 @@ class SettingService
             $version = Cache::get(self::CACHE_VERSION_KEY);
         }
 
-        // Cache resolved settings in request memory to avoid repeated cache roundtrips and deserialization overhead.
-        if ($this->requestCache !== null) {
+        // M5: long-lived workers (queue/Octane/scheduler) must notice a version
+        // bump from another process instead of serving a frozen snapshot forever.
+        if ($this->requestCache !== null && $this->requestCacheVersion === $version) {
             return $this->requestCache;
         }
         $key = self::CACHE_KEY.':'.$version;
@@ -245,6 +251,7 @@ class SettingService
         // Guard against concurrent version bump during read to prevent pinning stale snapshots in request cache.
         if (Cache::get(self::CACHE_VERSION_KEY) === $version) {
             $this->requestCache = $result;
+            $this->requestCacheVersion = $version;
         }
 
         return $result;
@@ -319,17 +326,10 @@ class SettingService
             // Collision scan covers the next number AND any future number:
             // any existing document sharing this prefix whose numeric suffix
             // is >= the proposed counter would collide now or later.
-            $existing = DB::table($target[0])->where($target[1], 'like', SearchTerm::prefix($prefix))->pluck($target[1]);
-            $max = null;
-            foreach ($existing as $number) {
-                // The remainder after the prefix must be purely numeric:
-                // that numeric suffix is what future counters would reproduce.
-                $tail = trim(substr((string) $number, strlen($prefix)));
-                if ($tail === '' || ! ctype_digit($tail)) {
-                    continue;
-                }
-                $max = max($max ?? 0, (int) $tail);
-            }
+            // H3: aggregate MAX in SQL instead of loading every matching document
+            // (a common prefix can pull millions of rows into PHP while the
+            // settings rows are locked).
+            $max = self::maxNumericSuffix($target[0], $target[1], $prefix);
 
             if ($max !== null && $max >= $next) {
                 throw ValidationException::withMessages([
@@ -337,6 +337,34 @@ class SettingService
                 ]);
             }
         }
+    }
+
+    /**
+     * Largest purely-numeric suffix after $prefix in a document table, computed
+     * in PostgreSQL. The {1,18} guard keeps CAST from overflowing bigint on
+     * malformed or oversized suffixes.
+     */
+    private static function maxNumericSuffix(string $table, string $column, string $prefix): ?int
+    {
+        $table = self::quoteIdentifier($table);
+        $column = self::quoteIdentifier($column);
+        $start = mb_strlen($prefix) + 1;
+        $sql = "SELECT MAX(CAST(SUBSTRING({$column} FROM {$start}) AS BIGINT)) AS max_suffix"
+            ." FROM {$table}"
+            ." WHERE {$column} LIKE ?"
+            ." AND SUBSTRING({$column} FROM {$start}) ~ '^[0-9]{1,18}$'";
+        $row = DB::selectOne($sql, [SearchTerm::prefix($prefix)]);
+
+        return $row?->max_suffix !== null ? (int) $row->max_suffix : null;
+    }
+
+    private static function quoteIdentifier(string $identifier): string
+    {
+        if (preg_match('/\A[A-Za-z_][A-Za-z0-9_]*\z/', $identifier) !== 1) {
+            throw new InvalidArgumentException('Invalid SQL identifier ['.$identifier.'].');
+        }
+
+        return '"'.$identifier.'"';
     }
 
     /**
@@ -488,6 +516,14 @@ class SettingService
      */
     private function numberingConfig(string $type, string $prefixKey, string $paddingKey): array
     {
+        // M5: numbering prefix/padding must also follow version bumps so a
+        // long-lived worker cannot keep issuing numbers with a stale prefix.
+        $version = Cache::get(self::CACHE_VERSION_KEY);
+        if ($this->numberingConfigVersion !== $version) {
+            $this->numberingConfig = [];
+            $this->numberingConfigVersion = is_string($version) ? $version : null;
+        }
+
         return $this->numberingConfig[$type] ??= (function () use ($prefixKey, $paddingKey): array {
             $settings = Setting::query()->whereIn('key', [$prefixKey, $paddingKey])->pluck('value', 'key');
 
@@ -506,7 +542,9 @@ class SettingService
         Cache::forever(self::CACHE_VERSION_KEY, (string) Str::uuid());
         Cache::forget(self::CACHE_KEY); // Retire the cache key used before versioning.
         $this->numberingConfig = [];
+        $this->numberingConfigVersion = null;
         $this->requestCache = null;
+        $this->requestCacheVersion = null;
         $this->resetReadSnapshot();
     }
 

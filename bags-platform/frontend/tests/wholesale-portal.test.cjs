@@ -79,6 +79,23 @@ test('dates use the local calendar at the start of a month', () => {
   assert.equal(calendarDay(localMidnight), '2026-11-01');
 });
 
+test('wholesale invoice timestamps use the Cairo calendar day', () => {
+  const { day } = load(`${root}helpers.js`);
+  assert.equal(mappers.mapInvoice({ created_at: '2026-11-03T22:30:00Z' }).date, '2026-11-04');
+  assert.equal(day('2026-11-03'), '2026-11-03');
+  assert.equal(day('invalid'), null);
+});
+
+test('wholesale tier pricing uses the greatest eligible minimum from unsorted tiers', () => {
+  const { tierPrice } = load(`${root}helpers.js`);
+  const variant = { price: 100, tiers: [[25, 75], [10, 90], [50, 60], [null, 1]] };
+  assert.equal(tierPrice(variant, 9), 100);
+  assert.equal(tierPrice(variant, 24), 90);
+  assert.equal(tierPrice(variant, 25), 75);
+  assert.equal(tierPrice(variant, 50), 60);
+  assert.deepEqual(variant.tiers, [[25, 75], [10, 90], [50, 60], [null, 1]]);
+});
+
 test('eligible order selectors read every API page and surface a failed later page', async () => {
   const { allPages } = load(`${root}helpers.js`);
   const pages = [];

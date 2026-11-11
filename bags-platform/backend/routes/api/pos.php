@@ -12,12 +12,6 @@ use App\Http\Controllers\Api\V1\Pos\PosStockController;
 use App\Http\Controllers\Api\V1\Shared\NotificationController;
 use Illuminate\Support\Facades\Route;
 
-// Numeric route identifier patterns
-Route::pattern('sale', '[0-9]{1,18}');
-Route::pattern('transfer', '[0-9]{1,18}');
-Route::pattern('stocktake', '[0-9]{1,18}');
-Route::pattern('held_sale', '[0-9]{1,18}');
-
 // Legacy POS cashier login; disabled when LEGACY_LOGIN_ENABLED=false in favor of /api/v1/auth/login.
 if (config('auth.legacy_login_enabled', false)) {
     Route::post('auth/login', [PosAuthController::class, 'login'])
@@ -34,9 +28,8 @@ Route::middleware(['auth:sanctum', 'auth.staff', 'permission:pos.access'])->grou
     Route::post('shifts/open', [PosShiftController::class, 'open'])->name('shifts.open');
     Route::get('shifts/current', [PosShiftController::class, 'current'])->name('shifts.current');
 
-    // Product catalog, lookup, customers, and held carts accessible prior to shift opening.
+    // Product catalog, lookup, and held carts accessible prior to shift opening.
     Route::get('catalog', [PosProductController::class, 'catalog'])->name('catalog');
-    Route::get('customers', [PosCustomerController::class, 'index'])->name('customers.index');
     Route::get('products/lookup', [PosProductController::class, 'lookup'])->name('products.lookup');
     Route::get('sales/held', [PosSaleController::class, 'held'])->name('sales.held');
 
@@ -55,7 +48,9 @@ Route::middleware(['auth:sanctum', 'auth.staff', 'permission:pos.access'])->grou
         Route::post('sales/{sale}/return', [PosSaleController::class, 'processReturn'])->middleware('permission:pos.sales.refund')->name('sales.return');
         Route::post('sales/{sale}/exchange', [PosSaleController::class, 'processExchange'])->middleware('permission:pos.sales.refund')->name('sales.exchange');
 
-        // Customers quick creation during active shift.
+        // Restrict customer lookup and creation to an active shift.
+        Route::get('customers', [PosCustomerController::class, 'index'])
+            ->middleware('throttle:pos-customers')->name('customers.index');
         Route::post('customers', [PosCustomerController::class, 'store'])->name('customers.store');
 
         // Branch inventory, transfers, and barcode scanning.

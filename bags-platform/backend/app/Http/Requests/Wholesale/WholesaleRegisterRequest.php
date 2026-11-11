@@ -11,6 +11,7 @@ use App\Rules\PasswordByteLimit;
 use App\Rules\UniqueCustomerEmail;
 use App\Services\Customer\CustomerPhoneVerificationService;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Arr;
 use Illuminate\Validation\Rule;
 
@@ -35,7 +36,7 @@ class WholesaleRegisterRequest extends FormRequest
 
         return [
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['nullable', 'email', 'max:255', new EmailNotUsedByOtherAccountType('customers'), new UniqueCustomerEmail],
+            'email' => ['nullable', 'email', 'max:255', new EmailNotUsedByOtherAccountType('customers', true), new UniqueCustomerEmail],
             'phone' => ['required', 'string', 'regex:/^01[0125][0-9]{8}$/', Rule::unique('customers', 'phone')],
             'password' => ['required', 'string', new PasswordByteLimit, 'min:12', 'max:72'],
             'phone_verification_token' => ['nullable', 'string', 'size:64'],
@@ -50,7 +51,7 @@ class WholesaleRegisterRequest extends FormRequest
                 'mimetypes:application/pdf,image/jpeg,image/png',
                 'max:5120',
                 static function (string $attribute, mixed $value, \Closure $fail): void {
-                    if (! $value instanceof \Illuminate\Http\UploadedFile || $value->getRealPath() === false) {
+                    if (! $value instanceof UploadedFile || $value->getRealPath() === false) {
                         return;
                     }
                     $head = (string) @file_get_contents($value->getRealPath(), false, null, 0, 4);

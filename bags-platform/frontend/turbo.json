@@ -3,14 +3,20 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
+      "env": ["API_INTERNAL_URL", "PRIVATE_CLOUD_RUN_API_ORIGIN", "R2_PUBLIC_URL", "STOREFRONT_STANDALONE"],
+      "inputs": ["$TURBO_DEFAULT$", ".env", ".env.local", ".env.production", ".env.production.local"],
       "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+    },
+    "//#test": {
+      "cache": false
     },
     "lint": {
       "dependsOn": ["^lint"]
     },
     "dev": {
       "cache": false,
-      "persistent": true
+      "persistent": true,
+      "passThroughEnv": ["API_INTERNAL_URL", "API_PROXY_ALLOWED_ORIGINS", "PRIVATE_CLOUD_RUN_API_ORIGIN", "R2_PUBLIC_URL", "STOREFRONT_STANDALONE"]
     },
     "clean": {
       "cache": false

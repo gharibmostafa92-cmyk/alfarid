@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Finance;
 
+use App\Enums\CustomerStatus;
 use App\Enums\StaffRole;
 use App\Models\AiConversation;
 use App\Models\AiPendingAction;
@@ -11,6 +12,8 @@ use App\Models\Customer;
 use App\Models\User;
 use App\Models\WalletAdjustment;
 use App\Services\Ai\ToolRegistry;
+use App\Services\Finance\WalletAdjustmentService;
+use App\Services\Finance\WalletService;
 use App\Services\Shared\SettingService;
 use Database\Seeders\AiAgentPermissionSeeder;
 use Database\Seeders\FinancialPermissionSeeder;
@@ -163,7 +166,7 @@ class FinanceWalletToolsTest extends TestCase
             'direction' => 'credit', 'reason' => 'تسوية', 'idempotency_key' => 'w13-stale',
         ]);
         $action = AiPendingAction::findOrFail($outcome->data['pending_action_id']);
-        app(\App\Services\Finance\WalletService::class)->record($customer->id, 5.0, 'opening', 'customer', $customer->id);
+        app(WalletService::class)->record($customer->id, 5.0, 'opening', 'customer', $customer->id);
 
         $this->confirm($admin, $action, $this->last4($customer))->assertStatus(409);
     }
@@ -177,7 +180,7 @@ class FinanceWalletToolsTest extends TestCase
             'direction' => 'credit', 'reason' => 'تسوية', 'idempotency_key' => 'w13-offset',
         ]);
         $action = AiPendingAction::findOrFail($outcome->data['pending_action_id']);
-        $wallet = app(\App\Services\Finance\WalletService::class);
+        $wallet = app(WalletService::class);
         $wallet->record($customer->id, 5.0, 'opening', 'customer', $customer->id);
         $wallet->record($customer->id, -5.0, 'checkout_payment', 'order', 987654);
 
@@ -188,8 +191,8 @@ class FinanceWalletToolsTest extends TestCase
     public function test_adjust_preview_warnings_and_movements(): void
     {
         $admin = $this->admin();
-        $customer = Customer::factory()->create(['status' => \App\Enums\CustomerStatus::Pending]);
-        app(\App\Services\Finance\WalletAdjustmentService::class)->adjust([
+        $customer = Customer::factory()->create(['status' => CustomerStatus::Pending]);
+        app(WalletAdjustmentService::class)->adjust([
             'customer_id' => $customer->id, 'kind' => 'adjustment', 'amount' => '100.00',
             'direction' => 'credit', 'reason' => 'رصيد افتتاحي', 'source' => 'admin',
         ], $admin, 'w13-seed');
@@ -241,7 +244,7 @@ class FinanceWalletToolsTest extends TestCase
         ]);
         $action = AiPendingAction::findOrFail($outcome->data['pending_action_id']);
         $this->confirm($admin, $action, $this->last4($customer))->assertOk();
-        app(\App\Services\Finance\WalletService::class)->record($customer->id, -90.0, 'checkout_payment', 'order', 987654);
+        app(WalletService::class)->record($customer->id, -90.0, 'checkout_payment', 'order', 987654);
 
         $this->assertFalse(app(ToolRegistry::class)->canUndo($action->fresh()));
         $this->undo($admin, $action->fresh())->assertStatus(409);
@@ -278,11 +281,12 @@ class FinanceWalletToolsTest extends TestCase
     {
         $admin = $this->admin();
         $customer = Customer::factory()->create();
-        $adj = app(\App\Services\Finance\WalletAdjustmentService::class)->adjust([
+        $this->travel(-20)->minutes();
+        $adj = app(WalletAdjustmentService::class)->adjust([
             'customer_id' => $customer->id, 'kind' => 'adjustment', 'amount' => '10.00',
             'direction' => 'credit', 'reason' => 'قديم', 'source' => 'admin',
         ], $admin, 'w13-old');
-        DB::table('wallet_adjustments')->where('id', $adj->id)->update(['created_at' => now()->subMinutes(20)]);
+        $this->travelBack();
 
         $out = $this->propose($admin, 'reverse_wallet_adjustment', ['adjustment_id' => $adj->id, 'idempotency_key' => 'w14-old']);
         $this->assertSame('denied', $out->type);
@@ -292,7 +296,7 @@ class FinanceWalletToolsTest extends TestCase
     {
         $admin = $this->admin();
         $customer = Customer::factory()->create();
-        $adj = app(\App\Services\Finance\WalletAdjustmentService::class)->adjust([
+        $adj = app(WalletAdjustmentService::class)->adjust([
             'customer_id' => $customer->id, 'kind' => 'adjustment', 'amount' => '10.00',
             'direction' => 'credit', 'reason' => 'تسوية', 'source' => 'admin',
         ], $admin, 'w13-stranger');

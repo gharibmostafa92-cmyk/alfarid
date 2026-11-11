@@ -13,7 +13,9 @@ x-app: &app
     DB_HOST: pgbouncer
     DB_PORT: '6432'
     DB_DATABASE: alfarid
-    DB_SSLMODE: require
+    DB_SSLMODE: ${DB_SSLMODE:-require}
+    DB_SSLROOTCERT: ${DB_SSLROOTCERT:-}
+    PGSSLROOTCERT: ${DB_SSLROOTCERT:-}
     DB_DISABLE_PREPARES: 'true'
     DB_URL: ''
     REDIS_CLIENT: phpredis
@@ -32,6 +34,7 @@ x-app: &app
     PHP_FPM_PM_CONTROL: static
     # M-2: HAProxy sends APP_MAXCONN (be_api) + APP_SLOW_MAXCONN (be_api_slow) per node.
     PHP_FPM_PM_MAX_CHILDREN: ${PHP_FPM_MAX_CHILDREN:-40}
+  volumes: ['${DB_TLS_DIR:-./tls}/ca:/run/alfarid-db-ca:ro']
   networks: [appnet]
   restart: unless-stopped
   depends_on: [pgbouncer, haproxy-data]
@@ -77,6 +80,23 @@ services:
     <<: *app
     hostname: app3
     healthcheck: *app-health
+  migrate:
+    <<: *app
+    profiles: [migration]
+    env_file:
+      - .env
+      - path: .env.migration
+        required: false
+    environment:
+      <<: *app-env
+      DB_HOST: postgres
+      DB_PORT: '5432'
+      DB_RUNTIME_ROLE: ${DB_USERNAME:?set DB_USERNAME}
+      PGOPTIONS: '-c statement_timeout=0 -c idle_in_transaction_session_timeout=0 -c lock_timeout=5000'
+    command: [sh, -ec, 'php artisan migrate --force --isolated=75 && php artisan db:verify-schema']
+    depends_on:
+      postgres: {condition: service_healthy}
+    restart: 'no'
   worker:
     <<: *app
     command: [php, artisan, 'queue:work', '--queue=default', '--tries=3', '--max-time=3600']
@@ -135,7 +155,10 @@ services:
       POSTGRES_DB: alfarid
       POSTGRES_USER: ${DB_USERNAME:?set DB_USERNAME}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
-    volumes: [pgdata:/var/lib/postgresql/data]
+      DB_SSLMODE: ${DB_SSLMODE:-require}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - '${DB_TLS_DIR:-./tls}/postgres:/run/alfarid-db-tls:ro'
     # M10: parallel queries need >64MB docker default shm (could not resize shared memory segment).
     shm_size: 1g
     networks: [appnet]
@@ -152,7 +175,11 @@ services:
     environment:
       DB_USERNAME: ${DB_USERNAME:?set DB_USERNAME}
       DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
-    volumes: [./pgbouncer/pgbouncer.ini:/opt/pgbouncer.ini:ro]
+      DB_SSLMODE: ${DB_SSLMODE:-require}
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/opt/pgbouncer.ini:ro
+      - '${DB_TLS_DIR:-./tls}/pgbouncer:/run/alfarid-db-tls:ro'
+      - '${DB_TLS_DIR:-./tls}/ca:/run/alfarid-db-ca:ro'
     healthcheck:
       test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -p 6432 -q']
       interval: 5s
@@ -263,15 +290,23 @@ services:
     image: alfarid-data:local
     # H-9: fixed daily slot (BACKUP_HOUR_UTC); a failure is recorded as a metric, never a restart storm.
     entrypoint: [sh, -c, 'while true; do now=$$(date -u +%s); next=$$(( now / 86400 * 86400 + $${BACKUP_HOUR_UTC:-0} * 3600 )); [ $$next -gt $$now ] || next=$$((next + 86400)); sleep $$((next - now)); /opt/pg-backup.sh || echo "pg-backup failed" >&2; done']
-    env_file: .env
+    env_file:
+      - .env
+      - path: .env.backup
+        required: false
     environment:
       PGHOST: postgres
       PGUSER: ${DB_USERNAME:?}
       PGPASSWORD: ${DB_PASSWORD:?}
       PGDATABASE: alfarid
-      PGSSLMODE: require
+      PGSSLMODE: ${DB_SSLMODE:-require}
+      PGSSLROOTCERT: ${DB_SSLROOTCERT:-}
+      BACKUP_METRICS_DIR: /backup-metrics
       REQUIRE_R2_BACKUP: '1'
-    volumes: [backups:/backups]
+    volumes:
+      - backups:/backups
+      - backup-metrics:/backup-metrics
+      - '${DB_TLS_DIR:-./tls}/ca:/run/alfarid-db-ca:ro'
     networks: [appnet]
     # C1: backup runs with every deploy (no profile gate); failures exit loudly.
     restart: unless-stopped
@@ -289,3 +324,4 @@ volumes:
   sentinel2-data:
   sentinel3-data:
   backups:
+  backup-metrics:

@@ -6,6 +6,8 @@ services:
     entrypoint: [sh, -c, 'php artisan config:clear && php artisan test "$@"', '--']
     environment:
       APP_ENV: testing
+      DB_HOST: postgres
+      DB_PORT: '5432'
       DB_DATABASE: alfarid_testing
       CACHE_STORE: array
       CACHE_LIMITER: array

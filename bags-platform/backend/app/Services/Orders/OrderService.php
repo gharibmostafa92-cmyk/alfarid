@@ -4,18 +4,11 @@ declare(strict_types=1);
 
 namespace App\Services\Orders;
 
-use App\Services\Finance\WalletService;
-use App\Services\Inventory\InventoryService;
-use App\Services\Pricing\CouponService;
-use App\Services\Shared\ProportionalDistribution;
-use App\Services\Shared\SettingService;
-use App\Services\Wholesale\WholesalePaymentNoticeService;
-
 use App\Enums\Customer\CustomerStatus;
-use App\Enums\Orders\OrderStatus;
-use App\Enums\Orders\ReturnStatus;
 use App\Enums\Inventory\StockBucket;
 use App\Enums\Inventory\StockMovementType;
+use App\Enums\Orders\OrderStatus;
+use App\Enums\Orders\ReturnStatus;
 use App\Enums\Wholesale\WholesalePaymentNoticeStatus;
 use App\Events\Orders\OrderCreated;
 use App\Exceptions\BusinessException;
@@ -32,6 +25,12 @@ use App\Models\ReturnRequest;
 use App\Models\StockMovement;
 use App\Models\User;
 use App\Models\WholesalePaymentNotice;
+use App\Services\Finance\WalletService;
+use App\Services\Inventory\InventoryService;
+use App\Services\Pricing\CouponService;
+use App\Services\Shared\ProportionalDistribution;
+use App\Services\Shared\SettingService;
+use App\Services\Wholesale\WholesalePaymentNoticeService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -111,7 +110,7 @@ class OrderService
         $created = DB::transaction(function () use ($cart, $data, $customer, $idempotencyKey, $idempotencyScope, $guestPhoneNormalized, $phoneDayKey): Order {
             // Transaction-level advisory lock serializes concurrent checkouts with the same idempotency key.
             if ($idempotencyKey !== null && $idempotencyScope !== null) {
-                DB::statement('SELECT pg_advisory_xact_lock(hashtext(?))', ['order-idem:'.$idempotencyScope.':'.$idempotencyKey]);
+                DB::statement('SELECT pg_advisory_xact_lock(103, hashtext(?))', ['order-idem:'.$idempotencyScope.':'.$idempotencyKey]);
                 $existing = Order::query()
                     ->where('idempotency_key', $idempotencyKey)
                     ->where('idempotency_scope', $idempotencyScope)
@@ -151,7 +150,7 @@ class OrderService
             if ($customer === null) {
                 $pendingCap = (int) config('store.guest_pending_orders_cap', 3);
                 if ($pendingCap > 0 && $guestPhoneNormalized !== null) {
-                    DB::statement('SELECT pg_advisory_xact_lock(hashtext(?))', ['pending-guest:'.$guestPhoneNormalized]);
+                    DB::statement('SELECT pg_advisory_xact_lock(103, hashtext(?))', ['pending-guest:'.$guestPhoneNormalized]);
                     $pendingForPhone = Order::query()
                         ->whereNull('customer_id')
                         ->where('status', OrderStatus::Pending)
@@ -164,7 +163,7 @@ class OrderService
             } elseif (! $isWholesale) {
                 $pendingCap = (int) config('store.customer_pending_orders_cap', 5);
                 if ($pendingCap > 0) {
-                    DB::statement('SELECT pg_advisory_xact_lock(hashtext(?))', ['pending-customer:'.$customer->id]);
+                    DB::statement('SELECT pg_advisory_xact_lock(103, hashtext(?))', ['pending-customer:'.$customer->id]);
                     $pendingForCustomer = Order::query()
                         ->where('customer_id', $customer->id)
                         ->where('status', OrderStatus::Pending)
@@ -522,7 +521,7 @@ class OrderService
 
             if ($order->payment_method === 'wallet' && $order->payment_status === 'paid'
                 && ($to === OrderStatus::Cancelled || ($to === OrderStatus::Returned && $returnEffects))) {
-                $payment = CustomerWalletTransaction::query()->where('reference_type', 'order')->where('reference_id', $order->id)
+                $payment = CustomerWalletTransaction::query()->whereIn('reference_type', WalletService::ORDER_REFERENCES)->where('reference_id', $order->id)
                     ->where('type', 'checkout_payment')->first();
                 if ($payment !== null) {
                     app(WalletService::class)->record($payment->customer_id, -(float) $payment->amount,

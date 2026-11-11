@@ -39,7 +39,7 @@ final class InventoryPresenter
         return ToolOutcome::present($data, $uiBlock, $message, (int) $this->settings->get('ai_tool_result_max_chars', 16000));
     }
 
-    private const COST_KEYS = ['cost_price', 'cost', 'unit_cost', 'total_value', 'tied_value', 'value_impact', 'cost_before', 'cost_after'];
+    private const COST_KEYS = [...CostAccess::DEFAULT_KEYS, 'total_value', 'tied_value', 'value_impact', 'cost_before', 'cost_after'];
 
     /** @return array<string,mixed> */
     public function stripCost(array $payload): array

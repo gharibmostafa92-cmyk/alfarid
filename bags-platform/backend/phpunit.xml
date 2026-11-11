@@ -41,6 +41,7 @@
         <env name="R2_SECRET_ACCESS_KEY" value="" force="true"/>
         <env name="R2_BUCKET" value="" force="true"/>
         <env name="R2_ENDPOINT" value="" force="true"/>
+        <env name="PAYMOB_INQUIRY_API_KEY" value="" force="true"/>
         <env name="WHATSAPP_TOKEN" value="" force="true"/>
         <env name="TURNSTILE_SECRET_KEY" value="" force="true"/>
         <env name="MEDIA_QUEUE_CONNECTION" value="sync" force="true"/>

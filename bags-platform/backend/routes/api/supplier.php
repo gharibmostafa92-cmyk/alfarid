@@ -11,10 +11,6 @@ use App\Http\Controllers\Api\V1\Supplier\DeliveryController;
 use App\Http\Controllers\Api\V1\Supplier\PurchaseOrderController;
 use Illuminate\Support\Facades\Route;
 
-// Enforce numeric route patterns to return 404 rather than casting exceptions.
-Route::pattern('purchase_order', '[0-9]{1,18}');
-Route::pattern('delivery', '[0-9]{1,18}');
-
 // Legacy supplier authentication; disabled when LEGACY_LOGIN_ENABLED=false in favor of /api/v1/auth/login.
 if (config('auth.legacy_login_enabled', false)) {
     Route::post('auth/login', [AuthController::class, 'login'])

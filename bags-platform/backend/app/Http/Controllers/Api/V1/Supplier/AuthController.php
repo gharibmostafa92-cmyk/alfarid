@@ -8,8 +8,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Supplier\LoginRequest;
 use App\Http\Resources\Admin\Procurement\SupplierUserResource;
 use App\Models\SupplierUser;
-use App\Services\Auth\StaffTokenService;
 use App\Services\Auth\CustomerAuthService;
+use App\Services\Auth\StaffTokenService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -71,7 +71,8 @@ class AuthController extends Controller
             $user = SupplierUser::query()->lockForUpdate()->findOrFail($user->id);
             StaffTokenService::pruneAndCap($user, (int) config('auth.supplier_max_tokens', 5));
 
-            return $user->createToken('supplier-token')->plainTextToken;
+            return $user->createToken('supplier-token', ['*'],
+                now()->addMinutes(max(1, (int) config('auth.supplier_token_minutes', 10080))))->plainTextToken;
         });
     }
 

@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Pos;
 
-use App\Enums\Orders\OrderStatus;
 use App\Enums\Inventory\StockBucket;
 use App\Enums\Inventory\StockMovementType;
+use App\Enums\Orders\OrderStatus;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;
 use App\Models\Location;
@@ -18,15 +18,15 @@ use App\Models\PurchaseOrderItem;
 use App\Models\StockLevel;
 use App\Models\Treasury;
 use App\Models\User;
-use App\Services\Shared\CostAccess;
-use App\Services\Inventory\InventoryService;
-use App\Services\Orders\OrderService;
-use App\Services\Pos\PosService;
-use App\Services\Procurement\ProcurementService;
 use App\Services\Finance\ReportService;
-use App\Services\Orders\ReturnService;
+use App\Services\Inventory\InventoryService;
 use App\Services\Inventory\StocktakeService;
+use App\Services\Orders\OrderService;
+use App\Services\Orders\ReturnService;
+use App\Services\Pos\PosService;
 use App\Services\Pos\TreasuryService;
+use App\Services\Procurement\ProcurementService;
+use App\Services\Shared\CostAccess;
 use Carbon\CarbonImmutable;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -285,16 +285,13 @@ class CExecutionReviewTest extends TestCase
     public function test_ipv6_rotating_addresses_share_daily_checkout_quota(): void
     {
         $limiter = RateLimiter::limiter('checkout');
-        $keys = [];
         $ipKeys = [];
         foreach (['2001:db8:1:2::1', '2001:db8:1:2::ffff', '2001:db8:1:3::1'] as $ip) {
             $request = Request::create('/api/v1/orders', 'POST', ['recipient_phone' => '01012345678'], server: ['REMOTE_ADDR' => $ip]);
             $limits = $limiter($request);
-            $keys[] = collect($limits)->first(fn ($limit) => str_starts_with($limit->key, 'checkout-network-day:'))->key;
+            $this->assertCount(1, collect($limits)->filter(fn ($limit) => $limit->decaySeconds === 86400 && ! str_starts_with($limit->key, 'checkout-phone-day:')));
             $ipKeys[] = collect($limits)->first(fn ($limit) => str_starts_with($limit->key, 'checkout-ip-day:'))->key;
         }
-        $this->assertSame($keys[0], $keys[1]);
-        $this->assertNotSame($keys[0], $keys[2]);
         // Per-IP buckets collapse IPv6 to /64, so two addresses in the
         // same /64 share the per-IP daily key (rotating the low 64 bits no
         // longer dodges the bucket); a different /64 gets a different key.

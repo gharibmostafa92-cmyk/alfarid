@@ -36,9 +36,7 @@ restore_node() {
 trap restore_node EXIT
 
 if [[ ${SKIP_BUILD:-0} != 1 ]]; then "${DC[@]}" build app1; fi
-"${DC[@]}" run --rm --no-deps -e DB_HOST=postgres -e DB_PORT=5432 \
-  -e 'PGOPTIONS=-c statement_timeout=0 -c idle_in_transaction_session_timeout=0 -c lock_timeout=10000' \
-  app1 php artisan migrate --force --isolated=75
+"${DC[@]}" run --rm --no-deps migrate
 for node in "${NODES[@]}"; do
   current_node=$node; node_recreated=false
   echo "Draining $node on both proxies and both API backends"

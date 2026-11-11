@@ -28,7 +28,7 @@ class PruneIdempotencyKeys extends Command
         $cutoff = now()->subDays(7);
         do {
             $ids = InventoryIdempotencyKey::query()->where('created_at', '<', $cutoff)
-                ->orderBy('id')->limit(1000)->pluck('id');
+                ->orderBy('created_at')->limit(1000)->pluck('id');
             if ($ids->isEmpty()) {
                 break;
             }

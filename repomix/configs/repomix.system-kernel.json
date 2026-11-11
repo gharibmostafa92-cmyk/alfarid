@@ -18,10 +18,12 @@
         "bags-platform/backend/app/Support/**",
         "bags-platform/backend/app/Rules/**",
         "bags-platform/backend/app/Exceptions/**",
+        "bags-platform/backend/app/Http/Middleware/**",
         "bags-platform/backend/app/Console/Commands/Maintenance/**",
         "bags-platform/backend/app/Models/Setting.php",
         "bags-platform/backend/app/Models/InventoryIdempotencyKey.php",
         "bags-platform/backend/app/Models/WebhookLog.php",
+        "bags-platform/backend/app/Models/CustomerChannel.php",
         "bags-platform/frontend/packages/utils/src/**",
         "bags-platform/frontend/packages/ui/src/**"
     ],

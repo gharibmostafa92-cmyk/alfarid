@@ -13,7 +13,10 @@ use Illuminate\Support\Facades\DB;
  */
 final class EmailNotUsedByOtherAccountType implements ValidationRule
 {
-    public function __construct(private readonly string $ownTable) {}
+    /**
+     * @param  bool  $conceal  Hide which account realm owns the address on public signup paths.
+     */
+    public function __construct(private readonly string $ownTable, private readonly bool $conceal = false) {}
 
     /**
      * Validates that the submitted email is not registered in another account realm.
@@ -40,7 +43,9 @@ final class EmailNotUsedByOtherAccountType implements ValidationRule
                     ->orWhereIn('type', ['wholesale', 'distributor']));
             }
             if ($query->exists()) {
-                $fail('هذا البريد مستخدم بحساب آخر في النظام.');
+                $fail($this->conceal
+                    ? 'تعذر استخدام بيانات التسجيل المقدمة.'
+                    : 'هذا البريد مستخدم بحساب آخر في النظام.');
 
                 return;
             }

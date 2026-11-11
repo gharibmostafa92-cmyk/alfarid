@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { wholesaleEndpoints } from '@alfarid/api-client';
 import { useApi } from './data/useApi';
 import { DataBoundary } from './data/DataBoundary';
-import { apiError } from './data/helpers';
+import { apiError, day } from './data/helpers';
 import { APP_STATUS, DOC_STATUS, DOC_TYPE } from './data/constants';
 
 /* Screens 4–5 — share the luxury-auth split frame (luxuryAuth.css). */
@@ -73,7 +73,7 @@ export const ApplicationStatus = ({ onLogout, onEnter }) => {
               <div className="luxury-field-label" style={{ margin: 0, color: '#737373', fontWeight: 400 }}>حالة الحساب</div>
               <div className="as-status-label">{s.label}</div>
             </div>
-            {status === 'approved' && d?.approved_at && <div className="as-date"><span>تاريخ الاعتماد</span><b className="num">{String(d.approved_at).slice(0, 10)}</b></div>}
+            {status === 'approved' && d?.approved_at && <div className="as-date"><span>تاريخ الاعتماد</span><b className="num">{day(d.approved_at)}</b></div>}
           </div>
 
           {reason && <p className="luxury-form-error" role="alert"><b>{status === 'rejected' ? 'سبب الرفض: ' : 'سبب الإيقاف: '}</b>{reason}</p>}

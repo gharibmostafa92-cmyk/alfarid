@@ -7,11 +7,13 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * Migrates high-volume document numbering from settings table row locks to database sequences to eliminate lock contention.
- * Moves shift, pos_invoice, expense, treasury_transfer, and payment_notice to dedicated sequences to prevent commit bottlenecks.
+ * Sequence-backed documents can have gaps after rollback. The invoice counter
+ * stays on the settings row-lock path. The POS invoice sequence is reserved;
+ * POS sales currently persist the unique orders.order_number.
  */
 return new class extends Migration
 {
-    private const LEGAL_INVOICE_TYPES = ['order', 'purchase_order', 'quotation', 'transfer', 'stocktake', 'return', 'purchase_request', 'delivery', 'supplier_invoice', 'supplier_payment'];
+    private const EXISTING_SEQUENCE_TYPES = ['order', 'purchase_order', 'quotation', 'transfer', 'stocktake', 'return', 'purchase_request', 'delivery', 'supplier_invoice', 'supplier_payment'];
 
     private const NEW_TYPES = ['shift', 'pos_invoice', 'expense', 'treasury_transfer', 'payment_notice'];
 
@@ -81,9 +83,8 @@ SQL);
         ), false)");
         }
 
-        $this->createFunction(array_merge(self::LEGAL_INVOICE_TYPES, self::NEW_TYPES));
+        $this->createFunction(array_merge(self::EXISTING_SEQUENCE_TYPES, self::NEW_TYPES));
 
-        // F18: LEGAL types below keep the gapless row-lock path (document_next_number minimum branch).
         // Only NEW_TYPES move to sequences here; sequences may leave gaps on rollback, so they
         // must never be used for document types where strict contiguity is legally required.
         DB::table('settings')
@@ -95,7 +96,7 @@ SQL);
 
     public function down(): void
     {
-        $this->createFunction(self::LEGAL_INVOICE_TYPES);
+        $this->createFunction(self::EXISTING_SEQUENCE_TYPES);
         foreach (self::NEW_TYPES as $type) {
             // Persist the latest sequence value into settings before dropping sequences to prevent duplicate document numbers.
             try {
@@ -104,7 +105,7 @@ SQL);
                     $next = (int) $row->last_value + ($row->is_called ? 1 : 0);
                     DB::table('settings')->where('key', $this->meta()[$type]['setting'])->update(['value' => (string) max(1, $next)]);
                 }
-            } catch (\Throwable) {
+            } catch (Throwable) {
                 // Sequence does not exist; nothing to persist during rollback.
             }
             DB::statement("DROP SEQUENCE IF EXISTS document_{$type}_number_seq");
