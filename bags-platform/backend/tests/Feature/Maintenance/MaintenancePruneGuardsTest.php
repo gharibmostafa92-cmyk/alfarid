@@ -38,7 +38,8 @@ class MaintenancePruneGuardsTest extends TestCase
         // M9: non-processed rows die after --days; processed event IDs survive
         // --dedup-days; recent processed rows keep the row but lose the payload.
         $old = now()->subDays(400)->toDateTimeString();
-        $recentProcessed = now()->subDays(10)->toDateTimeString();
+        // Older than --days (payload scrubbed) but newer than --dedup-days (row kept).
+        $recentProcessed = now()->subDays(100)->toDateTimeString();
         $oldFailed = WebhookLog::query()->create([
             'provider' => 'payment:test', 'event_id' => 'evt-old-failed',
             'payload' => ['x' => 1], 'status' => 'failed', 'ip_address' => '127.0.0.1',
