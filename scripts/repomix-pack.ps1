@@ -22,7 +22,9 @@ param (
     [switch]$All,
     [switch]$TokenTree,
     [switch]$Clean,
-    [switch]$VerifyMigrations
+    [switch]$VerifyMigrations,
+    [switch]$Sync,
+    [switch]$Started
 )
 
 $ErrorActionPreference = 'Stop'
@@ -101,6 +103,27 @@ function Test-MigrationCoverage {
     }
 }
 
+if ($Sync) {
+    Write-Host "Triggering automated Repomix synchronization..." -ForegroundColor Cyan
+    & "$PSScriptRoot\repomix-started-sync.ps1"
+    if (-not $Domain -and -not $All -and -not $Started) { return }
+}
+
+if ($Started) {
+    Write-Host "Packing all 'started' audit bundles..." -ForegroundColor Green
+    $startedFiles = Get-ChildItem -Path $ConfigsDir -Filter "repomix.*.json" | Where-Object {
+        $c = Get-Content $_.FullName -Raw | ConvertFrom-Json
+        $c.output.filePath -match 'started'
+    }
+    foreach ($sf in $startedFiles) {
+        $cfgRel = "repomix/configs/$($sf.Name)"
+        Write-Host "Packing started config: $($sf.Name)" -ForegroundColor Cyan
+        npx repomix -c $cfgRel
+    }
+    Write-Host "All started audit bundles packed successfully!" -ForegroundColor Green
+    if (-not $Domain -and -not $All) { return }
+}
+
 if ($VerifyMigrations) {
     Test-MigrationCoverage
     if (-not $Domain -and -not $All) { return }
@@ -165,4 +188,6 @@ if ($All) {
     Write-Host '  .\scripts\repomix-pack.ps1 -VerifyMigrations'
     Write-Host '  .\scripts\repomix-pack.ps1 -All'
     Write-Host '  .\scripts\repomix-pack.ps1 -Clean'
+    Write-Host '  .\scripts\repomix-pack.ps1 -Sync'
+    Write-Host '  .\scripts\repomix-pack.ps1 -Started'
 }

@@ -18,6 +18,7 @@ use App\Models\Location;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Models\Shipment;
 use App\Models\StockLevel;
 use App\Models\User;
 use App\Services\Orders\CartService;
@@ -499,6 +500,7 @@ class StoreCriticalAssuranceTest extends TestCase
     public function test_shipping_without_a_reservation_is_rejected(): void
     {
         $order = Order::factory()->create(['status' => OrderStatus::Confirmed]);
+        Shipment::factory()->create(['order_id' => $order->id]);
 
         try {
             app(OrderService::class)->changeStatus($order, OrderStatus::Shipped);

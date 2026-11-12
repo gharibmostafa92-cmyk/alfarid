@@ -22,7 +22,10 @@
                     "bags-platform/frontend/packages/api-client/src/endpoints/store.ts",
                     "bags-platform/frontend/apps/storefront/src/**",
                     "bags-platform/frontend/apps/storefront/next.config.mjs",
-                    "bags-platform/frontend/apps/storefront/package.json"
+                    "bags-platform/frontend/apps/storefront/package.json",
+                    "bags-platform/backend/app/Services/Auth/CustomerAuthService.php",
+                    "bags-platform/backend/app/Services/Pricing/CouponService.php",
+                    "bags-platform/frontend/apps/storefront/.env.example"
                 ],
     "ignore":  {
                    "useGitignore":  true,

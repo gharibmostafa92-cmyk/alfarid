@@ -38,6 +38,7 @@ class DashboardController extends Controller
                 SupplierPayment::query()
                     ->with('invoice:id,invoice_number')
                     ->where('supplier_id', $user->supplier_id)
+                    ->whereNull('voided_at')
                     ->latest('payment_date')->latest('id')
                     ->limit(5)
                     ->get()

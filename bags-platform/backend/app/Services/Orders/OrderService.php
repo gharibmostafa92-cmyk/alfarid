@@ -107,6 +107,20 @@ class OrderService
             throw new BusinessException('تجاوزت عدد الطلبات اليومية المسموحة لهذا الرقم؛ حاول غدًا.', [], 429);
         }
 
+        // M3: redeem rate limiting must run before the transaction. A database
+        // cache store takes a row lock on increment, which would otherwise be
+        // held for the whole checkout and serialize every coupon redemption.
+        if ($cart->coupon_id !== null) {
+            $couponForLimit = Coupon::query()->find($cart->coupon_id);
+            if ($couponForLimit !== null) {
+                try {
+                    $this->couponService->enforceRateLimit($couponForLimit, 'redeem');
+                } catch (BusinessException $e) {
+                    throw new BusinessException($e->getMessage(), $e->errors, $e->status, 'coupon_invalid');
+                }
+            }
+        }
+
         $created = DB::transaction(function () use ($cart, $data, $customer, $idempotencyKey, $idempotencyScope, $guestPhoneNormalized, $phoneDayKey): Order {
             // Transaction-level advisory lock serializes concurrent checkouts with the same idempotency key.
             if ($idempotencyKey !== null && $idempotencyScope !== null) {
@@ -198,7 +212,6 @@ class OrderService
                     // Tag coupon invalidation so the front-end can prompt coupon removal.
                     throw new BusinessException($e->getMessage(), $e->errors, $e->status, 'coupon_invalid');
                 }
-                $this->couponService->enforceRateLimit($coupon, 'redeem');
                 $couponDiscount = $this->couponService->discountFor($coupon, $totals['items_total']);
                 $couponId = $coupon->id;
                 $couponCode = $coupon->code;
@@ -298,6 +311,7 @@ class OrderService
                     'qty' => $line['qty'],
                     'unit_price' => $line['unit_price'],
                     'discount_amount' => round($line['line_discount'] + $couponShares[$i], 2),
+                    'coupon_discount_amount' => $couponShares[$i],
                     'tax_amount' => $taxShares[$i],
                     'line_total' => $line['line_total'],
                 ]);
@@ -603,6 +617,9 @@ class OrderService
      */
     private function shipOrder(Order $order, ?int $actorId): void
     {
+        if (! $order->shipments()->exists()) {
+            throw new BusinessException('لا يمكن تعليم الطلب كمشحون قبل إصدار بوليصة.');
+        }
         $net = $this->netReservations($order);
         if ($net->isEmpty()) {
             throw new BusinessException('لا توجد حجوزات مخزون لهذا الطلب؛ لا يمكن الشحن قبل التأكيد والتوزيع.');
@@ -699,7 +716,15 @@ class OrderService
             ])
             ->filter(fn (array $row): bool => $row['net_qty'] < -1e-9)
             ->sortBy(fn (array $row): string => $row['branch_id'].':'.$row['location_id'].':'.$row['product_variant_id'])
-            ->values();
+            ->values()
+            ->map(function (array $row): array {
+                $receiving = $this->inventoryService->receivingLocation($row['branch_id']);
+                if ($receiving !== null) {
+                    $row['location_id'] = $receiving;
+                }
+
+                return $row;
+            });
 
         if ($net->isEmpty()) {
             return false;

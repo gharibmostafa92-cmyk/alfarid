@@ -12,4 +12,5 @@ enum SupplierDeliveryStatus: string
     case PendingReceipt = 'pending_receipt';
     case Received = 'received';
     case Rejected = 'rejected';
+    case ClosedShort = 'closed_short';
 }

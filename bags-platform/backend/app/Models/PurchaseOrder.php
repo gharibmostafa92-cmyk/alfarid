@@ -34,6 +34,7 @@ class PurchaseOrder extends Model
         'grand_total',
         'created_by',
         'approved_by',
+        'last_modified_by',
     ];
 
     protected function casts(): array

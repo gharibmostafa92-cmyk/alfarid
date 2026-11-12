@@ -451,7 +451,7 @@ class ReturnTaskTxtCoverageTest extends TestCase
                 [$return, $item] = $makeState($state);
                 $payload = match ($action) {
                     'approve' => $payloads['approve'],
-                    'receive' => ['items' => [['id' => $item->id, 'received_good_qty' => 0, 'received_damaged_qty' => 0]]],
+                    'receive' => ['items' => [['id' => $item->id, 'received_good_qty' => 2, 'received_damaged_qty' => 0]]],
                     'refund' => ['refund_method' => 'cash'],
                     'delete' => [],
                     default => $payloads[$action],

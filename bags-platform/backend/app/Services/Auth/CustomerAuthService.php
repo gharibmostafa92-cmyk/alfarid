@@ -230,7 +230,7 @@ class CustomerAuthService
             if ($current === null || $current->status === CustomerStatus::Suspended) {
                 return false;
             }
-            if ($email && ($current->email_verified_at === null || $current->email !== mb_strtolower(trim($email)))) {
+            if ($email && ($current->email_verified_at === null || mb_strtolower((string) $current->email) !== mb_strtolower(trim($email)))) {
                 return false;
             }
             $existing = DB::table('password_reset_tokens')->where('email', $key)->first();

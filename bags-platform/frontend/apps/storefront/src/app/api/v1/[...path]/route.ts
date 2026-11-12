@@ -12,6 +12,7 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
     upstream,
     origins: (process.env.API_PROXY_ALLOWED_ORIGINS ?? '').split(',').map(origin => origin.trim()),
     identityToken: cloudRunIdentityToken,
+    clientIpSecret: process.env.API_PROXY_CLIENT_IP_SECRET,
   });
 }
 

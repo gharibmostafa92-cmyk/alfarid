@@ -1,11 +1,20 @@
+import { isIP } from 'node:net';
+
 const namespaces = new Set(['auth', 'store', 'admin', 'pos', 'wholesale', 'supplier']);
+const webhooksNamespace = 'webhooks';
 const methods = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'];
 const requestHeaders = [
-  'accept', 'authorization', 'content-type', 'idempotency-key', 'if-match', 'if-none-match',
-  'last-event-id', 'range', 'x-cart-session', 'x-requested-with',
+  'accept', 'accept-language', 'authorization', 'content-type', 'idempotency-key', 'if-match', 'if-none-match',
+  'last-event-id', 'range', 'user-agent', 'x-cart-session', 'x-requested-with',
+];
+// Provider callbacks authenticate with their own signatures. Forward exactly the
+// headers their verifiers need, and never a browser/user credential.
+const webhookHeaders = [
+  'content-type', 'stripe-signature', 'x-hub-signature-256', 'x-paymob-signature',
+  'x-wa-gateway-secret', 'x-wa-signature', 'x-wa-timestamp', 'user-agent',
 ];
 const responseHeaders = [
-  'accept-ranges', 'content-disposition', 'content-range', 'content-type', 'etag',
+  'accept-ranges', 'cache-control', 'content-disposition', 'content-range', 'content-type', 'etag',
   'last-modified', 'retry-after', 'x-request-id',
 ];
 
@@ -13,6 +22,7 @@ type ProxyConfig = {
   upstream: string;
   origins: readonly string[];
   identityToken: (audience: string) => Promise<string>;
+  clientIpSecret?: string;
   send?: typeof fetch;
 };
 
@@ -43,7 +53,40 @@ export function cloudRunIdentityToken(audience: string): Promise<string> {
   return token;
 }
 
+/**
+ * The platform appends the TCP peer to X-Forwarded-For. Earlier entries can
+ * be supplied by the client, so the signed address is the last valid one.
+ */
+function clientAddress(request: Request): string | null {
+  const forwarded = (request.headers.get('x-forwarded-for') ?? '')
+    .split(',')
+    .map(part => part.trim())
+    .filter(part => isIP(part) !== 0);
+  if (forwarded.length > 0) return forwarded[forwarded.length - 1];
+  const real = request.headers.get('x-real-ip')?.trim();
+  if (real && isIP(real) !== 0) return real;
+
+  return null;
+}
+
+async function signClientAddress(secret: string, address: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(address));
+
+  return Array.from(new Uint8Array(signature), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function pathIsSafe(path: string[]): boolean {
+  return path.length >= 2
+    && (namespaces.has(path[0]) || path[0] === webhooksNamespace)
+    && path.every(segment => segment !== '' && segment !== '.' && segment !== '..' && !/[/\\%\u0000-\u001f\u007f]/u.test(segment));
+}
+
 export async function proxyCloudRunApi(request: Request, path: string[], config: ProxyConfig) {
+  const isWebhook = path[0] === webhooksNamespace;
   const headers = new Headers({
     'cache-control': 'no-store',
     'content-security-policy': "default-src 'none'; sandbox",
@@ -52,14 +95,16 @@ export async function proxyCloudRunApi(request: Request, path: string[], config:
   });
   const fail = (status: number, message: string) => Response.json({ message }, { status, headers });
   const origin = request.headers.get('origin');
-  if (origin && !config.origins.includes(origin)) return fail(403, 'Origin is not permitted');
-  if (origin) headers.set('access-control-allow-origin', origin);
-  if (path.length < 2 || !namespaces.has(path[0])
-    || path.some(segment => !segment || segment === '.' || segment === '..' || /[/\\%\u0000-\u001f\u007f]/u.test(segment))) {
+  if (pathIsSafe(path) && !isWebhook) {
+    if (origin && !config.origins.includes(origin)) return fail(403, 'Origin is not permitted');
+    if (origin) headers.set('access-control-allow-origin', origin);
+  }
+  if (!pathIsSafe(path)) {
     return fail(404, 'API route is not available');
   }
+  if (isWebhook && request.method !== 'POST') return fail(405, 'Method is not permitted');
 
-  if (request.method === 'OPTIONS') {
+  if (!isWebhook && request.method === 'OPTIONS') {
     const method = request.headers.get('access-control-request-method');
     const requested = (request.headers.get('access-control-request-headers') ?? '')
       .split(',').map(name => name.trim().toLowerCase()).filter(Boolean);
@@ -80,9 +125,14 @@ export async function proxyCloudRunApi(request: Request, path: string[], config:
     upstream.pathname = '/api/v1/' + path.map(encodeURIComponent).join('/');
     upstream.search = new URL(request.url).search;
     const forwarded = new Headers();
-    for (const name of requestHeaders) {
+    for (const name of isWebhook ? webhookHeaders : requestHeaders) {
       const value = request.headers.get(name);
       if (value !== null) forwarded.set(name, value);
+    }
+    const address = clientAddress(request);
+    if (address !== null && config.clientIpSecret) {
+      forwarded.set('x-alfarid-client-ip', address);
+      forwarded.set('x-alfarid-client-ip-signature', await signClientAddress(config.clientIpSecret, address));
     }
     forwarded.set('x-serverless-authorization', 'Bearer ' + await config.identityToken(upstream.origin));
     const init: RequestInit & { duplex?: 'half' } = {
@@ -105,7 +155,10 @@ export async function proxyCloudRunApi(request: Request, path: string[], config:
       const value = response.headers.get(name);
       if (value !== null) headers.set(name, value);
     }
-    headers.set('access-control-expose-headers', responseHeaders.join(', '));
+    // The backend already marks authenticated responses private, but enforce it
+    // here too so a misconfigured upstream can never cache a user's response.
+    if (!isWebhook && request.headers.has('authorization')) headers.set('cache-control', 'no-store');
+    if (!isWebhook) headers.set('access-control-expose-headers', responseHeaders.join(', '));
     return new Response(response.body, { status: response.status, headers });
   } catch {
     return fail(502, 'API is temporarily unavailable');

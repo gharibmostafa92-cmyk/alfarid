@@ -14,8 +14,8 @@ use App\Http\Resources\Admin\Procurement\SupplierUserResource;
 use App\Models\Supplier;
 use App\Models\SupplierUser;
 use App\Rules\EmailNotUsedByOtherAccountType;
-use App\Services\Shared\SearchTerm;
 use App\Services\Procurement\SupplierService;
+use App\Services\Shared\SearchTerm;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -150,7 +150,14 @@ class SupplierController extends Controller implements HasMiddleware
         }
         $user = DB::transaction(function () use ($supplier, $user, $data): SupplierUser {
             $user = $supplier->users()->lockForUpdate()->findOrFail($user->id);
-            $emailChanged = isset($data['email']) && $data['email'] !== $user->email;
+            $lockEmail = isset($data['email']) ? mb_strtolower(trim((string) $data['email'])) : '';
+            if ($lockEmail !== '') {
+                DB::select('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [$lockEmail]);
+                Validator::make(['email' => $lockEmail], [
+                    'email' => ['required', 'email', Rule::unique('supplier_users', 'email')->ignore($user->id), new EmailNotUsedByOtherAccountType('supplier_users')],
+                ])->validate();
+            }
+            $emailChanged = $lockEmail !== '' && $lockEmail !== mb_strtolower((string) $user->email);
             $user->update($data);
             if (isset($data['password']) || $emailChanged || (isset($data['is_active']) && ! $data['is_active'])) {
                 $user->tokens()->delete();

@@ -11,9 +11,10 @@ use App\Http\Middleware\EnsureWholesaleApproved;
 use App\Http\Middleware\LimitPaymentWebhookBody;
 use App\Http\Middleware\ManufacturingBusiness;
 use App\Http\Middleware\ThrottleApiBeforeAuthentication;
+use App\Http\Middleware\TrustProxyClientIp;
 use App\Http\Middleware\WarnUntrustedProxyHeaders;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Application;
@@ -46,6 +47,7 @@ return Application::configure(basePath: dirname(__DIR__))
             Route::pattern('action', '[0-9A-Za-z]{26}');
 
             Route::get('health/ready', HealthReadyController::class)->middleware('throttle:health-ready');
+            Route::get('health/scheduler', [HealthReadyController::class, 'schedulerStatus'])->middleware('throttle:health-ready');
             Route::middleware('api')
                 ->prefix('api/v1/admin')
                 ->group(base_path('routes/api/admin.php'));
@@ -81,8 +83,9 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->prepend(LimitPaymentWebhookBody::class);
-        // Resolve trusted forwarding headers before recording client_ip.
-        $middleware->append([AssignRequestId::class, WarnUntrustedProxyHeaders::class]);
+        // Resolve trusted forwarding headers before recording client_ip or
+        // running any IP-keyed limiter.
+        $middleware->append([TrustProxyClientIp::class, AssignRequestId::class, WarnUntrustedProxyHeaders::class]);
         $middleware->api(prepend: [ThrottleApiBeforeAuthentication::class, ManufacturingBusiness::class]);
         $middleware->prependToPriorityList(AuthenticatesRequests::class, ThrottleApiBeforeAuthentication::class);
         $middleware->alias([

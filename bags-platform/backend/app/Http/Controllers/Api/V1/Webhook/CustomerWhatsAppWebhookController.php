@@ -66,16 +66,25 @@ final class CustomerWhatsAppWebhookController extends Controller
             return response()->json(['ok' => true, 'duplicate' => true]);
         }
 
-        $sender = CustomerChannel::canonicalPhone($message['from']);
-        $customer = $sender === null ? null : $this->customerForSender($sender);
-        // Acknowledge unlinked senders with 200 OK to prevent webhook replay loops while ignoring untracked traffic.
-        if ($customer === null) {
-            return response()->json(['ok' => true, 'linked' => false]);
-        }
-        InboundMessage::query()->where('provider_message_id', $message['id'])->update(['customer_id' => $customer->id]);
-        $reply = $this->respond($customer, $message, $sender);
+        try {
+            $sender = CustomerChannel::canonicalPhone($message['from']);
+            $customer = $sender === null ? null : $this->customerForSender($sender);
+            // Acknowledge unlinked senders with 200 OK to prevent webhook replay loops while ignoring untracked traffic.
+            if ($customer === null) {
+                return response()->json(['ok' => true, 'linked' => false]);
+            }
+            InboundMessage::query()->where('provider_message_id', $message['id'])->update(['customer_id' => $customer->id]);
+            $reply = $this->respond($customer, $message, $sender);
 
-        return response()->json(['ok' => true, 'reply' => $reply]);
+            return response()->json(['ok' => true, 'reply' => $reply]);
+        } catch (Throwable $e) {
+            // M4: the dedup row is written before processing. If processing
+            // fails, remove it so Meta's redelivery is processed instead of
+            // being answered as a duplicate and losing the message.
+            InboundMessage::query()->where('provider_message_id', $message['id'])->delete();
+
+            throw $e;
+        }
     }
 
     private function customerForSender(string $sender): ?Customer
@@ -141,12 +150,13 @@ final class CustomerWhatsAppWebhookController extends Controller
         }
         try {
             // Meta Graph API requires fetching the temporary CDN URL metadata first before downloading the binary.
-            $meta = Http::withToken($token)->get("https://graph.facebook.com/v21.0/{$mediaId}");
+            // M4: bound both hops so a slow CDN cannot pin a PHP worker indefinitely.
+            $meta = Http::withToken($token)->connectTimeout(3)->timeout(10)->get("https://graph.facebook.com/v21.0/{$mediaId}");
             $url = $meta->json('url');
             if (! is_string($url) || $url === '') {
                 return null;
             }
-            $bin = Http::withToken($token)->get($url);
+            $bin = Http::withToken($token)->connectTimeout(3)->timeout(10)->get($url);
             if (! $bin->successful()) {
                 return null;
             }

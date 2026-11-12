@@ -87,10 +87,10 @@ switch ($Action) {
         $runtime = @("--image=$Image", "--service-account=$RuntimeServiceAccount", '--cpu=1', '--memory=512Mi', "--set-secrets=$secrets")
 
         if ($Action -eq 'DeployApi') {
-            $apiEnvironment = ($environment + @('PHP_FPM_PM_MAX_CHILDREN=4')) -join ','
+            $apiEnvironment = ($environment + @('PHP_FPM_PM_MAX_CHILDREN=8')) -join ','
             Invoke-Gcloud -Arguments (@(
                 'run', 'deploy', 'alfarid-api', '--no-allow-unauthenticated', '--invoker-iam-check',
-                '--cpu-throttling', '--no-cpu-boost', '--min=0', '--max=1', '--concurrency=4',
+                '--cpu-throttling', '--no-cpu-boost', '--min=0', '--max=10', '--concurrency=8',
                 '--port=8080', '--timeout=60s', "--set-env-vars=$apiEnvironment"
             ) + $scope + $runtime)
             return

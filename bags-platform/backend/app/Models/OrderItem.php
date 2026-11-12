@@ -27,6 +27,7 @@ class OrderItem extends Model
         'returned_qty',
         'unit_price',
         'discount_amount',
+        'coupon_discount_amount',
         'tax_amount',
         'line_total',
     ];
@@ -38,6 +39,7 @@ class OrderItem extends Model
             'returned_qty' => 'decimal:4',
             'unit_price' => 'decimal:2',
             'discount_amount' => 'decimal:2',
+            'coupon_discount_amount' => 'decimal:2',
             'tax_amount' => 'decimal:2',
             'line_total' => 'decimal:2',
         ];

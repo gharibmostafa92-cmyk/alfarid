@@ -27,24 +27,51 @@ class HealthReadyTest extends TestCase
             ->assertJsonPath('checks.scheduler', 'ok');
     }
 
-    public function test_readiness_fails_when_the_scheduler_heartbeat_is_stale(): void
+    public function test_readiness_stays_healthy_when_the_scheduler_heartbeat_is_stale(): void
     {
-        // H6: a dead scheduler must page via readiness instead of rotting silently.
+        // H3: the scheduler is reported but never gates HTTP readiness, otherwise
+        // a stuck scheduler blocks rolling deploys of the scheduler fix itself.
+        Redis::shouldReceive('connection')->with('health')->andReturn(new class
+        {
+            public function ping(): bool
+            {
+                return true;
+            }
+        });
         Cache::put('scheduler_heartbeat_at', now()->subMinutes(11)->toIso8601String(), 600);
 
-        $response = $this->get('/health/ready');
-
-        $response->assertStatus(503)
-            ->assertJsonPath('status', 'fail')
+        $this->get('/health/ready')->assertOk()
+            ->assertJsonPath('status', 'ok')
             ->assertJsonPath('checks.scheduler', 'fail');
     }
 
-    public function test_readiness_fails_when_the_scheduler_never_reported(): void
+    public function test_readiness_stays_healthy_when_the_scheduler_never_reported(): void
     {
+        Redis::shouldReceive('connection')->with('health')->andReturn(new class
+        {
+            public function ping(): bool
+            {
+                return true;
+            }
+        });
         Cache::forget('scheduler_heartbeat_at');
 
-        $this->get('/health/ready')->assertStatus(503)
+        $this->get('/health/ready')->assertOk()
+            ->assertJsonPath('status', 'ok')
             ->assertJsonPath('checks.scheduler', 'fail');
+    }
+
+    public function test_the_dedicated_scheduler_probe_reports_failure_independently(): void
+    {
+        Cache::put('scheduler_heartbeat_at', now()->subMinutes(11)->toIso8601String(), 600);
+        $this->get('/health/scheduler')->assertStatus(503)
+            ->assertJsonPath('status', 'fail')
+            ->assertJsonPath('checks.scheduler', 'fail');
+
+        Cache::put('scheduler_heartbeat_at', now()->toIso8601String(), 600);
+        $this->get('/health/scheduler')->assertOk()
+            ->assertJsonPath('status', 'ok')
+            ->assertJsonPath('checks.scheduler', 'ok');
     }
 
     public function test_readiness_returns_service_unavailable_when_redis_fails(): void

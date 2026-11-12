@@ -6,6 +6,7 @@ namespace App\Services\Procurement;
 
 use App\Exceptions\BusinessException;
 use App\Models\Supplier;
+use App\Models\SupplierUser;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -21,7 +22,6 @@ class SupplierService
      * Create a new supplier record and initialize current balance to opening balance.
      *
      * @param  array<string, mixed>  $data
-     * @return Supplier
      */
     public function create(array $data): Supplier
     {
@@ -35,9 +35,7 @@ class SupplierService
     /**
      * Update supplier details, allowing opening balance adjustment only prior to recorded financial transactions.
      *
-     * @param  Supplier  $supplier
      * @param  array<string, mixed>  $data
-     * @return Supplier
      *
      * @throws BusinessException
      */
@@ -56,6 +54,11 @@ class SupplierService
                     + (float) $data['opening_balance'] - (float) $supplier->opening_balance, 2);
             }
             $supplier->update($data);
+            if (array_key_exists('is_active', $data) && $data['is_active'] === false && $supplier->wasChanged('is_active')) {
+                $supplier->users()->each(function (SupplierUser $user): void {
+                    $user->tokens()->delete();
+                });
+            }
 
             return $supplier->fresh();
         });

@@ -71,7 +71,7 @@ class AuthController extends Controller
             $user = SupplierUser::query()->lockForUpdate()->findOrFail($user->id);
             StaffTokenService::pruneAndCap($user, (int) config('auth.supplier_max_tokens', 5));
 
-            return $user->createToken('supplier-token', ['*'],
+            return $user->createToken('supplier-token', ['supplier'],
                 now()->addMinutes(max(1, (int) config('auth.supplier_token_minutes', 10080))))->plainTextToken;
         });
     }
@@ -83,7 +83,10 @@ class AuthController extends Controller
     {
         /** @var SupplierUser $user */
         $user = $request->user();
-        $user->currentAccessToken()?->delete();
+        $token = $user->currentAccessToken();
+        if ($token !== null && method_exists($token, 'delete')) {
+            $token->delete();
+        }
 
         return response()->json(['message' => 'تم تسجيل الخروج.']);
     }

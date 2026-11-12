@@ -117,6 +117,14 @@ class PaymentWebhookService
             }
         }
 
+        if ($isPaymob && $outcome === 'refunded' && $extractedId !== null
+            && WebhookLog::query()->where('provider', $provider)->where('status', 'processed')
+                ->where('event_id', 'like', $extractedId.':refunded:%')->exists()) {
+            $this->sampledSlimLog($provider, $extractedId.':refunded', 'duplicate', null, $ip);
+
+            return ['http' => 200, 'body' => ['received' => true, 'duplicate' => true]];
+        }
+
         $refundAmount = null;
         if ($outcome === 'refunded') {
             // The callback HMAC does not authenticate Paymob's cumulative refund total.
@@ -177,6 +185,7 @@ class PaymentWebhookService
                     : null;
                 if ($order === null) {
                     $log->update(['status' => 'failed', 'error' => 'طلب غير موجود: '.($orderReference ?? '—')]);
+
                     // Only a valid reference can become visible after the order commits.
                     return ['http' => $orderReference === null ? 409 : 503, 'body' => ['received' => false, 'message' => 'order not found']];
                 }
@@ -420,6 +429,10 @@ class PaymentWebhookService
         $currency = $this->firstValue($payload, [
             'currency', 'data.currency', 'data.object.currency', 'obj.currency', 'obj.order.currency',
         ]);
+        $requireAmount = (bool) ($config['require_amount'] ?? true);
+        if ($requireAmount && ($currency === null || trim((string) $currency) === '')) {
+            return false;
+        }
         if ($currency !== null && strtoupper((string) $currency) !== $expectedCurrency) {
             return false;
         }

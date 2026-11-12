@@ -4,17 +4,12 @@ declare(strict_types=1);
 
 namespace App\Services\Procurement;
 
-use App\Services\Inventory\InventoryService;
-use App\Services\Shared\DiscreteQuantity;
-use App\Services\Shared\OperationIdempotencyService;
-use App\Services\Shared\PrivateAttachments;
-use App\Services\Shared\SettingService;
-
-use App\Enums\Procurement\PurchaseOrderStatus;
-use App\Enums\Procurement\PurchaseRequestStatus;
 use App\Enums\Inventory\StockBucket;
 use App\Enums\Inventory\StockMovementType;
+use App\Enums\Procurement\PurchaseOrderStatus;
+use App\Enums\Procurement\PurchaseRequestStatus;
 use App\Enums\Procurement\SupplierDeliveryStatus;
+use App\Enums\Procurement\SupplierInvoiceStatus;
 use App\Events\Procurement\PurchaseOrderSentToSupplier;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;
@@ -28,6 +23,11 @@ use App\Models\SupplierDelivery;
 use App\Models\SupplierDeliveryItem;
 use App\Models\SupplierUser;
 use App\Models\User;
+use App\Services\Inventory\InventoryService;
+use App\Services\Shared\DiscreteQuantity;
+use App\Services\Shared\OperationIdempotencyService;
+use App\Services\Shared\PrivateAttachments;
+use App\Services\Shared\SettingService;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 
@@ -53,8 +53,6 @@ class ProcurementService
      * Create a draft internal purchase request for a branch.
      *
      * @param  array{branch_id: int, notes?: string|null, items: list<array{product_variant_id: int, requested_qty: float|int|string, notes?: string|null}>}  $data
-     * @param  User  $requester
-     * @return PurchaseRequest
      */
     public function createPurchaseRequest(array $data, User $requester): PurchaseRequest
     {
@@ -75,9 +73,7 @@ class ProcurementService
     /**
      * Update an unapproved draft purchase request.
      *
-     * @param  PurchaseRequest  $pr
      * @param  array{branch_id?: int, notes?: string|null, items?: list<array{product_variant_id: int, requested_qty: float|int|string, notes?: string|null}>}  $data
-     * @return PurchaseRequest
      *
      * @throws BusinessException
      */
@@ -100,9 +96,6 @@ class ProcurementService
 
     /**
      * Submit a draft purchase request for management approval.
-     *
-     * @param  PurchaseRequest  $pr
-     * @return PurchaseRequest
      */
     public function submitPurchaseRequest(PurchaseRequest $pr): PurchaseRequest
     {
@@ -111,9 +104,6 @@ class ProcurementService
 
     /**
      * Approve a pending purchase request, making it eligible for PO conversion.
-     *
-     * @param  PurchaseRequest  $pr
-     * @return PurchaseRequest
      */
     public function approvePurchaseRequest(PurchaseRequest $pr): PurchaseRequest
     {
@@ -122,9 +112,6 @@ class ProcurementService
 
     /**
      * Reject a pending purchase request.
-     *
-     * @param  PurchaseRequest  $pr
-     * @return PurchaseRequest
      */
     public function rejectPurchaseRequest(PurchaseRequest $pr): PurchaseRequest
     {
@@ -145,9 +132,7 @@ class ProcurementService
     }
 
     /**
-     * @param  PurchaseRequest  $pr
      * @param  list<array{product_variant_id: int, requested_qty: float|int|string, notes?: string|null}>  $items
-     * @return void
      */
     private function syncRequestItems(PurchaseRequest $pr, array $items): void
     {
@@ -170,8 +155,6 @@ class ProcurementService
      * using current variant cost prices, and the request transitions to converted_to_po.
      *
      * @param  array{supplier_id: int, branch_id?: int|null, purchase_request_id?: int|null, expected_delivery_date?: string|null, discount_amount?: float|int|string|null, items?: list<array{product_variant_id: int, ordered_qty: float|int|string, unit_cost: float|int|string, tax_rate?: float|int|string|null}>}  $data
-     * @param  User  $creator
-     * @return PurchaseOrder
      *
      * @throws BusinessException
      */
@@ -232,9 +215,7 @@ class ProcurementService
     /**
      * Update an unreceived draft or revision-requested purchase order.
      *
-     * @param  PurchaseOrder  $po
      * @param  array{supplier_id?: int, branch_id?: int, expected_delivery_date?: string|null, discount_amount?: float|int|string|null, items?: list<array{product_variant_id: int, ordered_qty: float|int|string, unit_cost: float|int|string, tax_rate?: float|int|string|null}>}  $data
-     * @return PurchaseOrder
      *
      * @throws BusinessException
      */
@@ -254,6 +235,10 @@ class ProcurementService
                     || (isset($data['branch_id']) && (int) $data['branch_id'] !== (int) $po->branch_id))) {
                 throw new BusinessException('لا يمكن تغيير المورد أو الفرع أو البنود بعد تسجيل إشعار توريد.');
             }
+            if (array_intersect(['supplier_id', 'branch_id', 'items', 'discount_amount'], array_keys($data)) !== []
+                && $po->invoices()->where('status', '!=', SupplierInvoiceStatus::Cancelled)->exists()) {
+                throw new BusinessException('لا يمكن تعديل شروط أمر شراء مرتبط بفاتورة غير ملغاة.');
+            }
             // Modifying core commercial terms invalidates prior internal approval
             if (array_intersect(['supplier_id', 'branch_id', 'items', 'discount_amount', 'expected_delivery_date'], array_keys($data))) {
                 $data['approved_by'] = null;
@@ -264,9 +249,13 @@ class ProcurementService
             if (isset($data['branch_id'])) {
                 $this->assertActiveBranch((int) $data['branch_id']);
             }
-            $po->update(array_intersect_key($data, array_flip([
+            $attributes = array_intersect_key($data, array_flip([
                 'supplier_id', 'branch_id', 'expected_delivery_date', 'discount_amount', 'approved_by',
-            ])));
+            ]));
+            if (auth()->id() !== null) {
+                $attributes['last_modified_by'] = auth()->id();
+            }
+            $po->update($attributes);
             if (isset($data['items'])) {
                 $po->items()->delete();
                 $this->syncOrderItems($po, $data['items']);
@@ -280,9 +269,6 @@ class ProcurementService
     /**
      * Approve a purchase order internally (separation of duties enforced unless self-approval is enabled).
      *
-     * @param  PurchaseOrder  $po
-     * @param  User  $admin
-     * @return PurchaseOrder
      *
      * @throws BusinessException
      */
@@ -293,9 +279,11 @@ class ProcurementService
             if (! in_array($po->status, [PurchaseOrderStatus::Draft, PurchaseOrderStatus::ChangeRequested], true)) {
                 throw new BusinessException('لا يمكن اعتماد أمر شراء إلا وهو مسودة أو بانتظار معالجة التعديلات.');
             }
-            if ((int) $po->created_by === (int) $admin->id
-                && ! (bool) $this->settings->get('allow_self_approve_purchases', false)) {
-                throw new BusinessException('لا يجوز لمن أنشأ أمر الشراء اعتماده بنفسه.');
+            $lastModifiedBy = $po->last_modified_by !== null ? (int) $po->last_modified_by : null;
+            if (! (bool) $this->settings->get('allow_self_approve_purchases', false)
+                && ((int) $po->created_by === (int) $admin->id
+                    || ($lastModifiedBy !== null && $lastModifiedBy === (int) $admin->id))) {
+                throw new BusinessException('لا يجوز لمن أنشأ أمر الشراء أو آخر من عدّله اعتماده بنفسه.');
             }
             $po->update(['approved_by' => $admin->id]);
 
@@ -306,8 +294,6 @@ class ProcurementService
     /**
      * Dispatch an approved purchase order to the vendor and fire notification event.
      *
-     * @param  PurchaseOrder  $po
-     * @return PurchaseOrder
      *
      * @throws BusinessException
      */
@@ -337,8 +323,6 @@ class ProcurementService
     /**
      * Cancel an active purchase order and reject any pending vendor delivery notices.
      *
-     * @param  PurchaseOrder  $po
-     * @return PurchaseOrder
      *
      * @throws BusinessException
      */
@@ -349,6 +333,9 @@ class ProcurementService
             if ($po->items()->where('received_qty', '>', 0)->exists()) {
                 throw new BusinessException('لا يمكن إلغاء أمر شراء بدأ استلام بضاعته.');
             }
+            if ($po->invoices()->where('status', '!=', SupplierInvoiceStatus::Cancelled)->exists()) {
+                throw new BusinessException('لا يمكن إلغاء أمر شراء عليه فواتير غير ملغاة.');
+            }
             if (! in_array($po->status, [
                 PurchaseOrderStatus::Draft, PurchaseOrderStatus::SentToSupplier,
                 PurchaseOrderStatus::SupplierAccepted, PurchaseOrderStatus::ChangeRequested,
@@ -356,19 +343,15 @@ class ProcurementService
                 throw new BusinessException("لا يمكن إلغاء أمر شراء في حالة ({$po->status->value}).");
             }
             $po->update(['status' => PurchaseOrderStatus::Cancelled]);
-            $po->deliveries()->where('status', SupplierDeliveryStatus::PendingReceipt)->update(['status' => SupplierDeliveryStatus::Rejected]);
-            if ($po->purchase_request_id !== null) {
-                PurchaseRequest::query()->whereKey($po->purchase_request_id)->where('status', PurchaseRequestStatus::ConvertedToPo)->update(['status' => PurchaseRequestStatus::Approved]);
-            }
+            $this->rejectOrClosePendingDeliveries($po);
+            $this->releasePurchaseRequestIfUnused($po);
 
             return $po->fresh(['items']);
         });
     }
 
     /**
-     * @param  PurchaseOrder  $po
      * @param  list<array{product_variant_id: int, ordered_qty: float|int|string, unit_cost: float|int|string, tax_rate?: float|int|string|null}>  $items
-     * @return void
      */
     private function syncOrderItems(PurchaseOrder $po, array $items): void
     {
@@ -412,8 +395,6 @@ class ProcurementService
      *
      * Orders with deliveries, received stock, or supplier invoices must be preserved for accounting audit trails.
      *
-     * @param  PurchaseOrder  $po
-     * @return void
      *
      * @throws BusinessException
      */
@@ -426,11 +407,7 @@ class ProcurementService
                 || $po->invoices()->exists()) {
                 throw new BusinessException('لا يمكن حذف أمر شراء له استلام أو توريدات أو فواتير؛ احتفظ بالمستند للتدقيق.');
             }
-            if ($po->purchase_request_id !== null) {
-                PurchaseRequest::query()->whereKey($po->purchase_request_id)
-                    ->where('status', PurchaseRequestStatus::ConvertedToPo)
-                    ->update(['status' => PurchaseRequestStatus::Approved]);
-            }
+            $this->releasePurchaseRequestIfUnused($po);
             $po->delete();
         });
     }
@@ -438,8 +415,6 @@ class ProcurementService
     /**
      * Mark a partially received order as completed to write off outstanding balances.
      *
-     * @param  PurchaseOrder  $po
-     * @return PurchaseOrder
      *
      * @throws BusinessException
      */
@@ -450,11 +425,75 @@ class ProcurementService
             if ($po->status !== PurchaseOrderStatus::PartiallyReceived) {
                 throw new BusinessException('إغلاق النقص متاح لأمر مستلم جزئيًا فقط.');
             }
-            $po->deliveries()->where('status', SupplierDeliveryStatus::PendingReceipt)->update(['status' => SupplierDeliveryStatus::Rejected]);
+            $this->rejectOrClosePendingDeliveries($po);
             $po->update(['status' => PurchaseOrderStatus::Completed]);
 
             return $po->fresh(['items']);
         });
+    }
+
+    /**
+     * Close one pending delivery notice without closing the whole purchase order.
+     */
+    public function closeDeliveryShort(SupplierDelivery $delivery): SupplierDelivery
+    {
+        return DB::transaction(function () use ($delivery): SupplierDelivery {
+            $delivery = SupplierDelivery::query()->lockForUpdate()->findOrFail($delivery->id);
+            if ($delivery->status !== SupplierDeliveryStatus::PendingReceipt) {
+                throw new BusinessException('لا يمكن إغلاق إشعار توريد إلا وهو بانتظار الاستلام.');
+            }
+            $this->lockOrder($delivery->purchaseOrder);
+            $delivery->update(['status' => $this->deliveryCloseStatus($delivery)]);
+
+            return $delivery->fresh(['items']);
+        });
+    }
+
+    /**
+     * Delete a draft purchase request under a row lock so a concurrent approval cannot lose the row.
+     */
+    public function deletePurchaseRequest(PurchaseRequest $purchaseRequest): void
+    {
+        DB::transaction(function () use ($purchaseRequest): void {
+            $purchaseRequest = PurchaseRequest::query()->lockForUpdate()->findOrFail($purchaseRequest->id);
+            if ($purchaseRequest->status !== PurchaseRequestStatus::Draft) {
+                throw new BusinessException('لا يمكن حذف طلب شراء إلا وهو مسودة.');
+            }
+            $purchaseRequest->delete();
+        });
+    }
+
+    private function releasePurchaseRequestIfUnused(PurchaseOrder $po): void
+    {
+        if ($po->purchase_request_id === null) {
+            return;
+        }
+        $stillLive = PurchaseOrder::query()
+            ->where('purchase_request_id', $po->purchase_request_id)
+            ->where('id', '!=', $po->id)
+            ->where('status', '!=', PurchaseOrderStatus::Cancelled)
+            ->exists();
+        if ($stillLive) {
+            return;
+        }
+        PurchaseRequest::query()->whereKey($po->purchase_request_id)
+            ->where('status', PurchaseRequestStatus::ConvertedToPo)
+            ->update(['status' => PurchaseRequestStatus::Approved]);
+    }
+
+    private function rejectOrClosePendingDeliveries(PurchaseOrder $po): void
+    {
+        $pending = $po->deliveries()->where('status', SupplierDeliveryStatus::PendingReceipt)->lockForUpdate()->get();
+        foreach ($pending as $delivery) {
+            $delivery->update(['status' => $this->deliveryCloseStatus($delivery)]);
+        }
+    }
+
+    private function deliveryCloseStatus(SupplierDelivery $delivery): SupplierDeliveryStatus
+    {
+        $receivedAny = $delivery->items()->where('received_qty', '>', 0)->exists();
+
+        return $receivedAny ? SupplierDeliveryStatus::ClosedShort : SupplierDeliveryStatus::Rejected;
     }
 
     private function lockOrder(PurchaseOrder $po): PurchaseOrder
@@ -471,13 +510,7 @@ class ProcurementService
      * When linked to an Advance Shipping Notice (ASN / supplierDeliveryId), received quantities
      * reconcile against ASN lines and mark the delivery as completed when fully received.
      *
-     * @param  PurchaseOrder  $po
      * @param  list<array{purchase_order_item_id: int, qty: float|int|string}>  $receivedItems
-     * @param  int|null  $locationId
-     * @param  int|null  $supplierDeliveryId
-     * @param  int|null  $performedBy
-     * @param  string|null  $idempotencyKey
-     * @return PurchaseOrder
      *
      * @throws BusinessException
      */
@@ -510,7 +543,17 @@ class ProcurementService
             $poItems = $po->items()->orderBy('product_variant_id')->orderBy('id')->lockForUpdate()->get()->keyBy('id');
             usort($receivedItems, fn (array $a, array $b): int => [($poItems->get((int) $a['purchase_order_item_id'])?->product_variant_id ?? 0), (int) $a['purchase_order_item_id']]
                 <=> [($poItems->get((int) $b['purchase_order_item_id'])?->product_variant_id ?? 0), (int) $b['purchase_order_item_id']]);
-            $variants = ProductVariant::query()->whereIn('id', $poItems->pluck('product_variant_id'))->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+            $variantIds = [];
+            foreach ($receivedItems as $itemData) {
+                $line = $poItems->get((int) $itemData['purchase_order_item_id']);
+                if ($line !== null && (float) $itemData['qty'] > 0) {
+                    $variantIds[] = (int) $line->product_variant_id;
+                }
+            }
+            if ($variantIds === []) {
+                throw new BusinessException('يجب استلام كمية موجبة من بند واحد على الأقل.');
+            }
+            $variants = ProductVariant::query()->whereIn('id', array_values(array_unique($variantIds)))->orderBy('id')->lockForUpdate()->get()->keyBy('id');
             $costFactor = bccomp((string) $po->subtotal, '0', 2) > 0
                 ? bcsub('1', bcdiv((string) $po->discount_amount, (string) $po->subtotal, 12), 12) : '1';
             if (bccomp($costFactor, '0', 12) < 0) {
@@ -617,9 +660,6 @@ class ProcurementService
     /**
      * Accept a purchase order via the vendor portal.
      *
-     * @param  PurchaseOrder  $po
-     * @param  SupplierUser  $user
-     * @return PurchaseOrder
      *
      * @throws BusinessException
      */
@@ -642,10 +682,6 @@ class ProcurementService
     /**
      * Request price, quantity, or delivery date modifications from the vendor portal.
      *
-     * @param  PurchaseOrder  $po
-     * @param  SupplierUser  $user
-     * @param  string  $notes
-     * @return PurchaseOrder
      *
      * @throws BusinessException
      */
@@ -676,12 +712,7 @@ class ProcurementService
      *
      * Enforces cumulative dispatched quantity caps (already received + pending in ASNs + current).
      *
-     * @param  PurchaseOrder  $po
-     * @param  SupplierUser  $user
      * @param  array{delivery_date: string, supplier_invoice_no?: string|null, notes?: string|null, items: list<array{purchase_order_item_id: int, shipped_qty: float|int|string}>}  $data
-     * @param  UploadedFile|null  $invoiceFile
-     * @param  string|null  $idempotencyKey
-     * @return SupplierDelivery
      *
      * @throws BusinessException
      */
@@ -775,6 +806,9 @@ class ProcurementService
     {
         if ((int) $po->supplier_id !== (int) $user->supplier_id) {
             throw new BusinessException('أمر الشراء غير موجود.', [], 404);
+        }
+        if (! $user->is_active || ! Supplier::query()->whereKey($user->supplier_id)->where('is_active', true)->exists()) {
+            throw new BusinessException('حساب المورد غير نشط.', [], 403);
         }
     }
 

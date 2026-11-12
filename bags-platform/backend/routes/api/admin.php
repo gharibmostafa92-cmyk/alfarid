@@ -277,6 +277,7 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
         Route::post('purchase-orders/{purchase_order}/send', [PurchaseOrderController::class, 'send'])->name('purchase-orders.send');
         Route::post('purchase-orders/{purchase_order}/cancel', [PurchaseOrderController::class, 'cancel'])->name('purchase-orders.cancel');
         Route::post('purchase-orders/{purchase_order}/close-short', [PurchaseOrderController::class, 'closeShort'])->name('purchase-orders.close-short');
+        Route::post('supplier-deliveries/{delivery}/close-short', [PurchaseOrderController::class, 'closeDeliveryShort'])->where('delivery', '[0-9]{1,18}')->name('supplier-deliveries.close-short');
         Route::post('purchase-orders/{purchase_order}/receive', [PurchaseOrderController::class, 'receive'])->name('purchase-orders.receive');
 
         Route::apiResource('supplier-invoices', SupplierInvoiceController::class)

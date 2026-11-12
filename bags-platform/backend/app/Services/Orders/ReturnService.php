@@ -4,17 +4,11 @@ declare(strict_types=1);
 
 namespace App\Services\Orders;
 
-use App\Services\Finance\WalletService;
-use App\Services\Inventory\InventoryService;
-use App\Services\Shared\DiscreteQuantity;
-use App\Services\Shared\PrivateAttachments;
-use App\Services\Shared\SettingService;
-
+use App\Enums\Inventory\StockBucket;
+use App\Enums\Inventory\StockMovementType;
 use App\Enums\Orders\OrderStatus;
 use App\Enums\Orders\RefundMethod;
 use App\Enums\Orders\ReturnStatus;
-use App\Enums\Inventory\StockBucket;
-use App\Enums\Inventory\StockMovementType;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;
 use App\Models\Customer;
@@ -25,6 +19,12 @@ use App\Models\ReturnRequest;
 use App\Models\ReturnRequestItem;
 use App\Models\StockMovement;
 use App\Models\User;
+use App\Services\Finance\WalletService;
+use App\Services\Inventory\InventoryService;
+use App\Services\Shared\DiscreteQuantity;
+use App\Services\Shared\PrivateAttachments;
+use App\Services\Shared\SettingService;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -57,13 +57,17 @@ class ReturnService
      */
     public function createReturnRequest(Order $order, array $data, ?Customer $customer = null): ReturnRequest
     {
+        if ($data['items'] === []) {
+            throw new BusinessException('طلب الإرجاع يجب أن يتضمن بندًا واحدًا على الأقل.');
+        }
+        $returnNumber = $this->settings->generateNextNumber('return');
         $uploads = [];
         foreach ($data['items'] as $item) {
             foreach ($item['attachments'] ?? [] as $file) {
                 $uploads[] = [$file, 'return_requests/pending'];
             }
         }
-        $return = PrivateAttachments::transaction(function (PrivateAttachments $files) use ($order, $data, $customer): ReturnRequest {
+        $return = PrivateAttachments::transaction(function (PrivateAttachments $files) use ($order, $data, $customer, $returnNumber): ReturnRequest {
             // Lock order row to serialize concurrent return requests against line item quantities.
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
 
@@ -111,7 +115,7 @@ class ReturnService
             }
 
             $return = ReturnRequest::create([
-                'return_number' => $this->settings->generateNextNumber('return'),
+                'return_number' => $returnNumber,
                 'order_id' => $order->id,
                 'customer_id' => $order->customer_id,
                 'status' => ReturnStatus::Pending,
@@ -227,6 +231,14 @@ class ReturnService
                     throw new BusinessException('بيانات الاستلام يجب أن تغطي كل بنود المرتجع (بند بلا استلام فعلي يُرسل بصفر).');
                 }
             }
+            $receivedTotal = 0.0;
+            foreach ($return->items as $item) {
+                $line = $lines->get($item->id);
+                $receivedTotal += (float) $line['received_good_qty'] + (float) $line['received_damaged_qty'];
+            }
+            if ($receivedTotal <= 0) {
+                throw new BusinessException('لا يمكن تثبيت استلام كميته صفر؛ ألغِ المرتجع بدلًا من ذلك.');
+            }
 
             // Aggregate prior returned quantities across order items in a single query to avoid N+1 queries.
             $previousByOrderItem = ReturnRequestItem::query()
@@ -244,7 +256,7 @@ class ReturnService
             ])->all());
             $costs = StockMovement::query()->whereIn('reference_type', array_unique([$order->getMorphClass(), Order::class]))
                 ->where('reference_id', $order->id)->where('type', StockMovementType::Sale)
-                ->whereNotNull('unit_cost')->pluck('unit_cost', 'product_variant_id');
+                ->whereNotNull('unit_cost')->orderBy('id')->pluck('unit_cost', 'product_variant_id');
 
             $refundTotal = 0.0;
             foreach ($return->items as $item) {
@@ -356,6 +368,9 @@ class ReturnService
             if ($order->payment_method === 'wallet' && $method !== RefundMethod::Wallet->value) {
                 throw new BusinessException('طلب مدفوع بالمحفظة يُرد إلى المحفظة فقط.');
             }
+            if ($method === RefundMethod::OriginalPayment->value && $order->payment_method === 'cod') {
+                throw new BusinessException('طلب الدفع عند الاستلام لا يُرد إلى بوابة الدفع.');
+            }
             $reference = $reference !== null ? trim((string) $reference) : $reference;
             if ($reference !== null && $reference !== '' && ReturnRequest::query()
                 ->where('id', '!=', $return->id)
@@ -373,13 +388,17 @@ class ReturnService
                     'return_refund', 'return_request', $return->id, $admin->id);
             }
 
-            $return->update([
-                'refund_method' => $method,
-                'refund_reference' => $reference,
-                'status' => ReturnStatus::Refunded,
-                'refunded_by' => $admin->id,
-                'refunded_at' => now(),
-            ]);
+            try {
+                $return->update([
+                    'refund_method' => $method,
+                    'refund_reference' => $reference,
+                    'status' => ReturnStatus::Refunded,
+                    'refunded_by' => $admin->id,
+                    'refunded_at' => now(),
+                ]);
+            } catch (UniqueConstraintViolationException) {
+                throw new BusinessException('مرجع الرد مسجّل سابقًا.', [], 409);
+            }
 
             $this->syncOrderPaymentStatusAfterRefund($order);
             if ($this->isOrderFullyReturned($order)) {
@@ -410,7 +429,11 @@ class ReturnService
             $paths = $return->items()->get()->flatMap(fn ($item) => $item->attachments ?? [])->all();
             $return->delete();
             DB::afterCommit(function () use ($paths): void {
-                Storage::disk('r2')->delete($paths);
+                try {
+                    Storage::disk('r2')->delete($paths);
+                } catch (\Throwable $e) {
+                    report($e);
+                }
             });
         });
     }
@@ -420,7 +443,7 @@ class ReturnService
      */
     public function reject(ReturnRequest $return, User $admin, ?string $notes = null): ReturnRequest
     {
-        return DB::transaction(function () use ($return, $notes): ReturnRequest {
+        return DB::transaction(function () use ($return, $admin, $notes): ReturnRequest {
             $return = ReturnRequest::query()->lockForUpdate()->findOrFail($return->id);
             if ($return->status !== ReturnStatus::Pending) {
                 throw new BusinessException('لا يمكن رفض طلب مرتجع إلا وهو قيد المراجعة.');
@@ -428,6 +451,8 @@ class ReturnService
             $return->update([
                 'status' => ReturnStatus::Rejected,
                 'admin_notes' => $notes ?? $return->admin_notes,
+                'rejected_by' => $admin->id,
+                'rejected_at' => now(),
             ]);
 
             return $return->fresh(['items']);
@@ -447,6 +472,8 @@ class ReturnService
             $return->update([
                 'status' => ReturnStatus::Cancelled,
                 'admin_notes' => $notes ?? $return->admin_notes,
+                'cancelled_by' => auth()->id(),
+                'cancelled_at' => now(),
             ]);
 
             return $return->fresh(['items']);
@@ -460,6 +487,10 @@ class ReturnService
      */
     public function updateDetails(ReturnRequest $return, User $admin, array $data): ReturnRequest
     {
+        if (array_key_exists('status', $data) && $data['status'] !== null
+            && ! in_array($data['status'], [ReturnStatus::Rejected->value, ReturnStatus::Cancelled->value], true)) {
+            throw new BusinessException('حالة المرتجع لا تُغيَّر من هنا إلا إلى مرفوض أو ملغى.');
+        }
         if (($data['status'] ?? null) === ReturnStatus::Rejected->value) {
             return $this->reject($return, $admin, $data['admin_notes'] ?? null);
         }
@@ -534,9 +565,15 @@ class ReturnService
      */
     private function netLineRefundCents(OrderItem $orderItem): int
     {
-        $net = (float) $orderItem->unit_price * (float) $orderItem->qty
-            - (float) $orderItem->discount_amount
-            + (float) $orderItem->tax_amount;
+        if ($orderItem->coupon_discount_amount !== null) {
+            $net = (float) $orderItem->line_total
+                - (float) $orderItem->coupon_discount_amount
+                + (float) $orderItem->tax_amount;
+        } else {
+            $net = (float) $orderItem->unit_price * (float) $orderItem->qty
+                - (float) $orderItem->discount_amount
+                + (float) $orderItem->tax_amount;
+        }
 
         return (int) round(max(0.0, $net) * 100);
     }

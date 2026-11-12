@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Admin\Procurement;
 
-use App\Enums\Procurement\PurchaseRequestStatus;
-use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Procurement\PurchaseRequestRequest;
 use App\Http\Resources\Admin\Procurement\PurchaseRequestResource;
@@ -86,10 +84,7 @@ class PurchaseRequestController extends Controller implements HasMiddleware
      */
     public function destroy(PurchaseRequest $purchaseRequest): JsonResponse
     {
-        if ($purchaseRequest->status !== PurchaseRequestStatus::Draft) {
-            throw new BusinessException('لا يمكن حذف طلب شراء إلا وهو مسودة.');
-        }
-        $purchaseRequest->delete();
+        $this->procurement->deletePurchaseRequest($purchaseRequest);
 
         return response()->json(['message' => 'تم حذف طلب الشراء.']);
     }

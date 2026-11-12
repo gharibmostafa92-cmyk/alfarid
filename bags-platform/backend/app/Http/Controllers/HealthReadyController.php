@@ -52,10 +52,34 @@ final class HealthReadyController
             $checks['scheduler'] = 'fail';
         }
 
-        $ok = ! in_array('fail', $checks, true);
+        // H3: readiness answers "can this instance serve traffic?", which the
+        // scheduler does not affect. A lagging scheduler is reported through
+        // schedulerStatus() and must not pull the API out of rotation.
+        $ok = $checks['db'] === 'ok'
+            && $checks['redis'] !== 'fail'
+            && $checks['storage'] === 'ok';
 
         return response()
             ->json(['status' => $ok ? 'ok' : 'fail', 'checks' => $checks], $ok ? 200 : 503)
+            ->header('Cache-Control', 'no-store');
+    }
+
+    /**
+     * Report scheduler liveness independently from HTTP readiness.
+     */
+    public function schedulerStatus(): JsonResponse
+    {
+        $ok = false;
+        try {
+            $heartbeat = Cache::get('scheduler_heartbeat_at');
+            $heartbeatAt = is_string($heartbeat) ? Carbon::parse($heartbeat) : null;
+            $ok = $heartbeatAt !== null && $heartbeatAt->greaterThan(now()->subMinutes(10));
+        } catch (Throwable) {
+            $ok = false;
+        }
+
+        return response()
+            ->json(['status' => $ok ? 'ok' : 'fail', 'checks' => ['scheduler' => $ok ? 'ok' : 'fail']], $ok ? 200 : 503)
             ->header('Cache-Control', 'no-store');
     }
 }

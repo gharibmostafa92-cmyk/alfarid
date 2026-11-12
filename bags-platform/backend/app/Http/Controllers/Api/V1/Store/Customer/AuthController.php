@@ -15,14 +15,13 @@ use App\Http\Resources\Store\CustomerResource;
 use App\Jobs\SendCustomerPhoneVerification;
 use App\Models\Customer;
 use App\Rules\TurnstileToken;
-use App\Services\Orders\CartService;
 use App\Services\Auth\CustomerAuthService;
 use App\Services\Customer\CustomerMessageBudget;
 use App\Services\Customer\CustomerPhoneVerificationService;
+use App\Services\Orders\CartService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\ValidationException;
 
 /**
  * Handles retail customer authentication, self-registration, session tokens, and password recovery.
@@ -129,7 +128,6 @@ class AuthController extends Controller
      * Dispatch an SMS OTP code to verify mobile number ownership.
      *
      * @throws BusinessException If IP subnet cannot be resolved.
-     * @throws ValidationException If phone is already registered.
      */
     public function sendPhoneVerification(PhoneVerificationRequest $request): JsonResponse
     {
@@ -141,18 +139,17 @@ class AuthController extends Controller
             throw new BusinessException('تعذر التحقق من الشبكة، حاول مرة أخرى.');
         }
 
-        // Pre-validate phone existence before dispatching queued job to return synchronous feedback to the user.
-        $existing = Customer::withTrashed()->where('phone', $phone)->first(['id', 'deleted_at']);
-        if ($existing !== null) {
-            throw ValidationException::withMessages(['phone' => $existing->trashed()
-                ? 'الرقم مرتبط بحساب محذوف؛ تواصل مع الدعم لاستعادته.'
-                : 'الرقم مسجل بالفعل؛ سجّل الدخول أو استخدم استعادة كلمة المرور.']);
+        // M5: never disclose whether a phone number already belongs to an
+        // account. Known numbers get the same acknowledgement as new ones and
+        // no SMS is sent, so the endpoint cannot be used to enumerate customers.
+        $existing = Customer::withTrashed()->where('phone', $phone)->exists();
+
+        if (! $existing) {
+            SendCustomerPhoneVerification::dispatch($phone, $networkKey)
+                ->onConnection(config('auth.customer_password_reset.connection', 'database'));
         }
 
-        SendCustomerPhoneVerification::dispatch($phone, $networkKey)
-            ->onConnection(config('auth.customer_password_reset.connection', 'database'));
-
-        return response()->json(['message' => 'سيتم إرسال رمز التحقق إلى الرقم.']);
+        return response()->json(['message' => 'سيتم إرسال رمز التحقق إلى الرقم إذا كان متاحًا.']);
     }
 
     /**

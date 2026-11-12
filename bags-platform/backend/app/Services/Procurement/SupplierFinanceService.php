@@ -4,10 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Procurement;
 
-use App\Services\Shared\OperationIdempotencyService;
-use App\Services\Shared\PrivateAttachments;
-use App\Services\Shared\SettingService;
-
 use App\Enums\Procurement\PurchaseOrderStatus;
 use App\Enums\Procurement\SupplierInvoiceStatus;
 use App\Exceptions\BusinessException;
@@ -16,6 +12,9 @@ use App\Models\Supplier;
 use App\Models\SupplierInvoice;
 use App\Models\SupplierPayment;
 use App\Models\User;
+use App\Services\Shared\OperationIdempotencyService;
+use App\Services\Shared\PrivateAttachments;
+use App\Services\Shared\SettingService;
 use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -36,8 +35,6 @@ class SupplierFinanceService
      * Create a draft supplier invoice with optional PDF attachment.
      *
      * @param  array{supplier_id: int, purchase_order_id?: int|null, supplier_invoice_no: string, issue_date: string, due_date?: string|null, subtotal: float|int|string, tax_amount?: float|int|string|null}  $data
-     * @param  UploadedFile|null  $attachment
-     * @return SupplierInvoice
      *
      * @throws BusinessException
      */
@@ -84,10 +81,7 @@ class SupplierFinanceService
     /**
      * Update an unposted draft supplier invoice.
      *
-     * @param  SupplierInvoice  $invoice
      * @param  array{supplier_invoice_no?: string, purchase_order_id?: int|null, issue_date?: string, due_date?: string|null, subtotal?: float|int|string, tax_amount?: float|int|string|null}  $data
-     * @param  UploadedFile|null  $attachment
-     * @return SupplierInvoice
      *
      * @throws BusinessException
      */
@@ -143,8 +137,6 @@ class SupplierFinanceService
     /**
      * Post a draft invoice and credit the supplier's accounts payable balance.
      *
-     * @param  SupplierInvoice  $invoice
-     * @return SupplierInvoice
      *
      * @throws BusinessException
      */
@@ -156,6 +148,9 @@ class SupplierFinanceService
             if ($invoice->status !== SupplierInvoiceStatus::Draft) {
                 throw new BusinessException('لا يمكن اعتماد فاتورة إلا وهي مسودة.');
             }
+            if ($invoice->purchase_order_id !== null) {
+                $this->assertInvoiceDoesNotExceedOrder((int) $invoice->purchase_order_id, (float) $invoice->total_amount, $invoice->id);
+            }
             $supplier->increment('current_balance', (float) $invoice->total_amount);
             $invoice->update(['status' => SupplierInvoiceStatus::Posted]);
 
@@ -166,8 +161,6 @@ class SupplierFinanceService
     /**
      * Cancel a draft invoice or reverse a posted un-paid invoice from the vendor balance.
      *
-     * @param  SupplierInvoice  $invoice
-     * @return SupplierInvoice
      *
      * @throws BusinessException
      */
@@ -195,8 +188,6 @@ class SupplierFinanceService
     /**
      * Delete an unposted draft invoice and remove its stored attachment.
      *
-     * @param  SupplierInvoice  $invoice
-     * @return void
      *
      * @throws BusinessException
      */
@@ -220,9 +211,6 @@ class SupplierFinanceService
      * Record a payment to a supplier, decrementing accounts payable balance and settling linked invoice.
      *
      * @param  array{supplier_id: int, supplier_invoice_id?: int|null, amount: float|int|string, payment_method: string, reference_no?: string|null, payment_date: string, notes?: string|null}  $data
-     * @param  User  $creator
-     * @param  string|null  $idempotencyKey
-     * @return SupplierPayment
      *
      * @throws BusinessException
      */
@@ -285,9 +273,7 @@ class SupplierFinanceService
     /**
      * Update payment metadata such as method, reference number, or notes.
      *
-     * @param  SupplierPayment  $payment
      * @param  array{payment_method?: string, reference_no?: string|null, notes?: string|null}  $data
-     * @return SupplierPayment
      *
      * @throws BusinessException
      */
@@ -329,11 +315,6 @@ class SupplierFinanceService
 
     /**
      * Void a payment to reverse its ledger effects while preserving the audit record.
-     *
-     * @param  SupplierPayment  $payment
-     * @param  User|null  $actor
-     * @param  string|null  $reason
-     * @return void
      */
     public function deletePayment(SupplierPayment $payment, ?User $actor = null, ?string $reason = null): void
     {
@@ -343,10 +324,6 @@ class SupplierFinanceService
     /**
      * Void a supplier payment, restoring vendor payable balance and deducting paid_amount on linked invoice.
      *
-     * @param  SupplierPayment  $payment
-     * @param  User|null  $actor
-     * @param  string|null  $reason
-     * @return SupplierPayment
      *
      * @throws BusinessException
      */
@@ -380,9 +357,6 @@ class SupplierFinanceService
     /**
      * Allocate an unlinked payment toward an existing posted invoice.
      *
-     * @param  SupplierPayment  $payment
-     * @param  int  $invoiceId
-     * @return SupplierPayment
      *
      * @throws BusinessException
      */
@@ -476,6 +450,9 @@ class SupplierFinanceService
         if ($po->status === PurchaseOrderStatus::Cancelled) {
             throw new BusinessException('لا يمكن ربط فاتورة بأمر شراء ملغى.');
         }
+        if ($po->status === PurchaseOrderStatus::Draft) {
+            throw new BusinessException('لا يمكن ربط فاتورة بأمر شراء لم يُرسل بعد.');
+        }
 
         return $po->id;
     }
@@ -494,25 +471,49 @@ class SupplierFinanceService
             ->where('status', '!=', SupplierInvoiceStatus::Cancelled)
             ->when($exceptInvoiceId, fn ($q) => $q->where('id', '!=', $exceptInvoiceId))
             ->sum('total_amount');
-        if (round($existing + $thisTotal, 2) > round((float) $po->grand_total, 2)) {
+        if (round($existing + $thisTotal, 2) > $this->invoiceCeiling($po)) {
             throw new BusinessException('مجموع فواتير أمر الشراء يتجاوز إجمالي الأمر.');
         }
     }
 
     /**
+     * Ordered grand total until the order is closed; after completion the ceiling is the received value.
+     */
+    private function invoiceCeiling(PurchaseOrder $po): float
+    {
+        if ($po->status !== PurchaseOrderStatus::Completed) {
+            return round((float) $po->grand_total, 2);
+        }
+        $po->loadMissing('items');
+        $receivedSubtotal = 0.0;
+        $receivedTax = 0.0;
+        foreach ($po->items as $item) {
+            $line = round((float) $item->received_qty * (float) $item->unit_cost, 2);
+            $receivedSubtotal += $line;
+            $receivedTax += round($line * (float) $item->tax_rate / 100, 2);
+        }
+        $receivedSubtotal = round($receivedSubtotal, 2);
+        $discountShare = (float) $po->subtotal > 0
+            ? round((float) $po->discount_amount * $receivedSubtotal / (float) $po->subtotal, 2)
+            : 0.0;
+
+        return round($receivedSubtotal - $discountShare + $receivedTax, 2);
+    }
+
+    /**
      * Generate chronological supplier ledger statement with period opening balance and running totals.
      *
-     * @param  Supplier  $supplier
-     * @param  string|null  $fromDate
-     * @param  string|null  $toDate
      * @return array<string, mixed>
      *
      * @throws BusinessException
      */
-    public function statement(Supplier $supplier, ?string $fromDate = null, ?string $toDate = null): array
+    public function statement(Supplier $supplier, ?string $fromDate = null, ?string $toDate = null, bool $internal = false): array
     {
-        $to = $toDate !== null ? Carbon::parse($toDate)->toDateString() : now()->toDateString();
-        $from = $fromDate !== null ? Carbon::parse($fromDate)->toDateString() : Carbon::parse($to)->subDays(365)->toDateString();
+        $zone = (string) config('app.timezone');
+        $to = $toDate !== null ? Carbon::parse($toDate, $zone)->toDateString() : Carbon::now($zone)->toDateString();
+        $from = $fromDate !== null ? Carbon::parse($fromDate, $zone)->toDateString() : Carbon::parse($to, $zone)->subDays(365)->toDateString();
+        $fromStart = Carbon::parse($from, $zone)->startOfDay();
+        $toExclusive = Carbon::parse($to, $zone)->addDay()->startOfDay();
         if (Carbon::parse($from)->gt(Carbon::parse($to)) || Carbon::parse($from)->diffInDays(Carbon::parse($to)) > 366) {
             throw new BusinessException('فترة كشف الحساب يجب ألا تتجاوز 366 يومًا وبترتيب زمني صحيح.');
         }
@@ -534,7 +535,7 @@ class SupplierFinanceService
         $voidCreditBefore = (float) SupplierPayment::query()
             ->where('supplier_id', $supplier->id)
             ->whereNotNull('voided_at')
-            ->whereDate('voided_at', '<', $from)
+            ->where('voided_at', '<', $fromStart)
             ->sum('amount');
         $running = round((float) $supplier->opening_balance + $creditBefore - $debitBefore + $voidCreditBefore, 2);
         $periodOpening = $running;
@@ -571,14 +572,14 @@ class SupplierFinanceService
         $voids = SupplierPayment::query()
             ->where('supplier_id', $supplier->id)
             ->whereNotNull('voided_at')
-            ->whereDate('voided_at', '>=', $from)
-            ->whereDate('voided_at', '<=', $to)
+            ->where('voided_at', '>=', $fromStart)
+            ->where('voided_at', '<', $toExclusive)
             ->get()
             ->map(fn (SupplierPayment $pay): array => [
                 'date' => $pay->voided_at->toDateString(),
                 'type' => 'payment_void',
                 'reference' => $pay->payment_number,
-                'description' => 'إلغاء دفعة '.$pay->payment_number.($pay->void_reason ? ' — '.$pay->void_reason : ''),
+                'description' => 'إلغاء دفعة '.$pay->payment_number.($internal && $pay->void_reason ? ' — '.$pay->void_reason : ''),
                 'credit' => round((float) $pay->amount, 2),
                 'debit' => 0.0,
                 'sort' => [$pay->voided_at->toDateString(), 2, $pay->id],

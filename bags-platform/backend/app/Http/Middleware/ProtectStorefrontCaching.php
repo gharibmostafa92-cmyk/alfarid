@@ -16,6 +16,8 @@ class ProtectStorefrontCaching
         $response->setVary('Authorization', false);
         if ($request->bearerToken() !== null || auth('sanctum')->check()) {
             $response->headers->set('Cache-Control', 'private, no-store');
+        } elseif ($request->isMethod('GET') && $response->isSuccessful()) {
+            $response->headers->set('Cache-Control', 'public, max-age=0, s-maxage=60');
         }
 
         return $response;

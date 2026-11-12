@@ -20,7 +20,8 @@
                     "bags-platform/backend/routes/api/webhooks.php",
                     "bags-platform/backend/app/Services/Ai/**",
                     "bags-platform/backend/config/ai.php",
-                    ".github/workflows/ai-agent-evaluation.yml"
+                    ".github/workflows/ai-agent-evaluation.yml",
+                    "bags-platform/backend/app/Jobs/SendOutboundMessage.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

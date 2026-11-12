@@ -16,6 +16,12 @@ use Illuminate\Support\Facades\Notification;
  */
 class SendPurchaseOrderSent implements ShouldQueue
 {
+    /**
+     * M8: never notify a supplier about a purchase order whose transaction
+     * rolled back (the event is dispatched from inside the DB transaction).
+     */
+    public bool $afterCommit = true;
+
     public function handle(PurchaseOrderSentToSupplier $event): void
     {
         $users = SupplierUser::query()

@@ -56,7 +56,7 @@ class ShipmentService
             }
 
             // Non-COD orders require confirmed payment before warehouse dispatch.
-            if ($order->payment_method !== 'cod' && $order->payment_status !== 'paid') {
+            if (! in_array($order->payment_method, ['cod', 'credit'], true) && $order->payment_status !== 'paid') {
                 throw new BusinessException('لا يمكن شحن طلب دفع مسبق لم يُدفع بعد (الحالة الحالية: '.$order->payment_status.').');
             }
             $company = ShippingCompany::query()->where('is_active', true)->find($companyId);

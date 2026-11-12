@@ -59,7 +59,10 @@ final class WholesaleOutbox
         }
 
         if ($deliver) {
-            SendOutboundMessage::dispatch($message->id)->afterCommit();
+            $pending = SendOutboundMessage::dispatch($message->id)->afterCommit();
+            if ($message->scheduled_for !== null && $message->scheduled_for->isFuture()) {
+                $pending->delay($message->scheduled_for);
+            }
         }
     }
 

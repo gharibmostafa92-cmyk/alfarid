@@ -118,12 +118,14 @@ export interface ReturnRequestItem {
   product_variant_id?: number | null;
   product_name?: string | null;
   sku?: string | null;
-  requested_qty: number;
-  approved_qty: number | null;
-  received_good_qty: number | null;
-  received_damaged_qty: number | null;
+  requested_qty: number | string;
+  approved_qty: number | string | null;
+  received_good_qty: number | string | null;
+  received_damaged_qty: number | string | null;
   unit_refund_price?: string | null;
+  refund_amount?: string | null;
   item_reason?: string | null;
+  attachments?: string[];
 }
 
 /** Maps directly to backend ReturnRequestResource payload. */

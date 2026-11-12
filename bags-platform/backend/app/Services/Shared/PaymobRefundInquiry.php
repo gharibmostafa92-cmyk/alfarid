@@ -5,12 +5,17 @@ declare(strict_types=1);
 namespace App\Services\Shared;
 
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 final class PaymobRefundInquiry
 {
+    /** Paymob auth tokens expire after roughly an hour; refresh before that. */
+    private const TOKEN_TTL_MINUTES = 50;
+
     public function amount(?string $transactionId, ?string $orderId, array $config): ?float
     {
         $key = $config['api_key'] ?? null;
@@ -32,46 +37,36 @@ final class PaymobRefundInquiry
         }
 
         $client = Http::acceptJson()->withoutRedirecting()->connectTimeout(2)->timeout(4);
-        // L2: one auth token request per cache TTL, not one per refund
-        // webhook; auth and inquiry share the client's short timeouts.
+        // M2: one auth token request per cache TTL, not one per refund
+        // webhook; auth and inquiry share the client's short timeouts. The TTL
+        // stays below Paymob's ~1h token lifetime.
         $tokenCacheKey = 'paymob:refund-auth:'.sha1($host.'|'.$key);
         $token = Cache::remember(
             $tokenCacheKey,
-            now()->addHours(20),
-            function () use ($client, $host, $key) {
-                try {
-                    $auth = $client->post($host.'/api/auth/tokens', ['api_key' => $key]);
-                } catch (ConnectionException) {
-                    Log::warning('Paymob refund inquiry connection failed.');
-
-                    return null;
-                }
-                $token = $auth->successful() ? $auth->json('token') : null;
-                if (! is_string($token) || $token === '') {
-                    Log::warning('Paymob refund inquiry authentication failed.', ['status' => $auth->status()]);
-
-                    return null;
-                }
-
-                return $token;
-            }
+            now()->addMinutes(self::TOKEN_TTL_MINUTES),
+            fn () => $this->fetchToken($client, $host, $key),
         );
         if (! is_string($token) || $token === '') {
             return null;
         }
 
-        try {
-            $response = $client->withToken($token)->get($host.'/api/acceptance/transactions/'.$transactionId);
-        } catch (ConnectionException) {
-            Log::warning('Paymob refund inquiry connection failed.');
-
+        $response = $this->inquiry($client, $host, $token, $transactionId);
+        if ($response === null) {
             return null;
         }
-
         if (in_array($response->status(), [401, 403], true)) {
+            // M2: the cached token aged out early (or was revoked). Refresh once
+            // and retry in the same call instead of failing the webhook.
             Cache::forget($tokenCacheKey);
-
-            return null;
+            $token = $this->fetchToken($client, $host, $key);
+            if (! is_string($token) || $token === '') {
+                return null;
+            }
+            Cache::put($tokenCacheKey, $token, now()->addMinutes(self::TOKEN_TTL_MINUTES));
+            $response = $this->inquiry($client, $host, $token, $transactionId);
+            if ($response === null || in_array($response->status(), [401, 403], true)) {
+                return null;
+            }
         }
 
         $transaction = $response->successful() ? $response->json() : null;
@@ -93,5 +88,40 @@ final class PaymobRefundInquiry
         }
 
         return (float) $amount / 100;
+    }
+
+    private function fetchToken(PendingRequest $client, string $host, string $key): ?string
+    {
+        try {
+            $auth = $client->post($host.'/api/auth/tokens', ['api_key' => $key]);
+        } catch (ConnectionException) {
+            Log::warning('Paymob refund inquiry connection failed.');
+
+            return null;
+        }
+
+        $token = $auth->successful() ? $auth->json('token') : null;
+        if (! is_string($token) || $token === '') {
+            Log::warning('Paymob refund inquiry authentication failed.', ['status' => $auth->status()]);
+
+            return null;
+        }
+
+        return $token;
+    }
+
+    private function inquiry(
+        PendingRequest $client,
+        string $host,
+        string $token,
+        string $transactionId,
+    ): ?Response {
+        try {
+            return $client->withToken($token)->get($host.'/api/acceptance/transactions/'.$transactionId);
+        } catch (ConnectionException) {
+            Log::warning('Paymob refund inquiry connection failed.');
+
+            return null;
+        }
     }
 }

@@ -305,35 +305,21 @@ class CheckoutReservationReviewTest extends TestCase
 
     // ---------- F-04: حد كوبون الزائر من العمود الموحد ----------
 
-    public function test_guest_coupon_limit_uses_the_stored_normalized_phone(): void
+    public function test_guest_cannot_redeem_a_coupon_limited_per_customer(): void
     {
         $variant = $this->makeVariant();
         $this->giveStock($variant->id, 10);
-        $city = City::factory()->create(['shipping_cost' => 0]);
         $coupon = Coupon::create([
             'code' => 'ONCE', 'type' => 'fixed', 'value' => 10, 'is_active' => true,
             'usage_limit' => null, 'usage_limit_per_customer' => 1,
         ]);
 
-        $buy = function (string $phone) use ($variant, $city, $coupon): TestResponse {
-            $add = $this->postJson('/api/v1/store/cart/items', ['product_variant_id' => $variant->id, 'qty' => 1]);
-            $token = $add->json('data.cart_token');
-            $this->withHeaders(['X-Cart-Session' => $token])
-                ->postJson('/api/v1/store/cart/coupon', ['code' => $coupon->code])->assertOk();
-
-            return $this->withHeaders(['X-Cart-Session' => $token])->postJson('/api/v1/store/checkout', [
-                'recipient_name' => 'زائر', 'recipient_phone' => $phone, 'shipping_address_line' => 'عنوان',
-                'city_id' => $city->id, 'payment_method' => 'cod',
-            ]);
-        };
-
-        $buy('0100 123 4567')->assertCreated();
-        // الاستخدام مخزّن بالهاتف الموحد على سجل الاستخدام نفسه
-        $this->assertDatabaseHas('coupon_usages', [
-            'coupon_id' => $coupon->id, 'guest_phone_normalized' => Customer::normalizePhone('0100 123 4567'),
-        ]);
-        // نفس الرقم بصيغة دولية: الحد (1) يمنع الشراء الثاني
-        $buy('+201001234567')->assertStatus(422);
+        $add = $this->postJson('/api/v1/store/cart/items', ['product_variant_id' => $variant->id, 'qty' => 1]);
+        $token = $add->json('data.cart_token');
+        $this->withHeaders(['X-Cart-Session' => $token])
+            ->postJson('/api/v1/store/cart/coupon', ['code' => $coupon->code])
+            ->assertStatus(422);
+        $this->assertDatabaseMissing('coupon_usages', ['coupon_id' => $coupon->id]);
     }
 
     // ---------- F-05: الاسترداد يوقف الشحن ----------

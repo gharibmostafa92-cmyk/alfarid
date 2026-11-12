@@ -29,6 +29,7 @@ class ReturnRequestItemResource extends JsonResource
             'received_good_qty' => $this->received_good_qty,
             'received_damaged_qty' => $this->received_damaged_qty,
             'unit_refund_price' => $this->unit_refund_price,
+            'refund_amount' => $this->refund_amount,
             'item_reason' => $this->item_reason,
             'attachments' => array_map(
                 fn (int $index): string => url('/api/v1/admin/return-items/'.$this->id.'/attachments/'.$index),

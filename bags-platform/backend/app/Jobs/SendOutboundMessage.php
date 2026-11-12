@@ -9,7 +9,10 @@ use App\Models\OutboundMessage;
 use App\Services\Shared\SettingService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Support\Facades\Http;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -22,7 +25,22 @@ class SendOutboundMessage implements ShouldQueue
 {
     use Queueable;
 
+    /** Transient provider failures are retried with backoff instead of lost. */
+    public int $tries = 5;
+
+    /** @var list<int> */
+    public array $backoff = [30, 120, 300, 600];
+
     public function __construct(public int $messageId) {}
+
+    /**
+     * A message is processed by one worker at a time; the scheduled_for path
+     * releases and re-enters the queue, so overlap is the normal case.
+     */
+    public function middleware(): array
+    {
+        return [(new WithoutOverlapping('outbound-message:'.$this->messageId))->releaseAfter(10)->expireAfter(300)];
+    }
 
     public function handle(SettingService $settings): void
     {
@@ -32,7 +50,10 @@ class SendOutboundMessage implements ShouldQueue
         }
 
         if ($message->scheduled_for !== null && $message->scheduled_for->isFuture()) {
-            $this->release($message->scheduled_for->diffInSeconds(now()));
+            // Carbon 3 reports signed differences (now - scheduled_for), so the
+            // old diffInSeconds() released immediately. Hand the DateTime itself
+            // to the queue so "future" always means future.
+            $this->release($message->scheduled_for);
 
             return;
         }
@@ -100,6 +121,10 @@ class SendOutboundMessage implements ShouldQueue
                         ]],
                     ],
                 ]);
+        } catch (ConnectionException $e) {
+            // Timeouts and connection resets are transient: retry with backoff
+            // rather than marking the message permanently failed.
+            throw $e;
         } catch (Throwable $e) {
             $message->update(['status' => 'error', 'error' => $otp ? 'otp_provider_error' : mb_substr($e->getMessage(), 0, 180), ...$redacted]);
 
@@ -107,6 +132,12 @@ class SendOutboundMessage implements ShouldQueue
         }
 
         if (! $response->successful()) {
+            // Meta rate limits and 5xx responses are retryable; 4xx means the
+            // request itself is invalid and a retry would fail identically.
+            if ($response->status() === 429 || $response->status() >= 500) {
+                throw new RuntimeException('whatsapp_transient_http_'.$response->status());
+            }
+
             $message->update(['status' => 'error', 'error' => $otp ? 'otp_provider_error' : mb_substr($response->body(), 0, 180), ...$redacted]);
 
             return;

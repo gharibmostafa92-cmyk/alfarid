@@ -11,6 +11,8 @@ use App\Models\Coupon;
 use App\Models\CouponUsage;
 use App\Models\Customer;
 use App\Models\Order;
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 
@@ -102,14 +104,21 @@ class CouponService
         }
 
         $discount = $coupon->type === 'percentage'
-            ? $subtotal * (float) $coupon->value / 100
-            : (float) $coupon->value;
+            ? BigDecimal::of((string) $subtotal)->multipliedBy((string) $coupon->value)->dividedBy('100', 2, RoundingMode::HalfUp)
+            : BigDecimal::of((string) $coupon->value)->toScale(2, RoundingMode::HalfUp);
 
         if ($coupon->max_discount_amount !== null) {
-            $discount = min($discount, (float) $coupon->max_discount_amount);
+            $cap = BigDecimal::of((string) $coupon->max_discount_amount);
+            if ($discount->isGreaterThan($cap)) {
+                $discount = $cap;
+            }
+        }
+        $subtotalDecimal = BigDecimal::of((string) $subtotal);
+        if ($discount->isGreaterThan($subtotalDecimal)) {
+            $discount = $subtotalDecimal;
         }
 
-        return round(min($discount, $subtotal), 2);
+        return $discount->toScale(2, RoundingMode::HalfUp)->toFloat();
     }
 
     /**
@@ -139,9 +148,13 @@ class CouponService
         // Re-evaluate identity limit under the lock to prevent race conditions.
         $this->assertPerIdentityAllowed($coupon, $customer, $guestPhoneNormalized);
 
-        // Conditional atomic increment ensures usage_limit is never exceeded without locking coupon row.
+        // Conditional atomic increment ensures usage_limit is never exceeded
+        // without locking the coupon row. L2: re-check activation and expiry
+        // under the lock so a concurrent pause/expiry cannot be redeemed.
         $incremented = Coupon::query()
             ->whereKey($coupon->id)
+            ->where('is_active', true)
+            ->where(fn ($q) => $q->whereNull('ends_at')->orWhere('ends_at', '>', now()))
             ->where(fn ($q) => $q->whereNull('usage_limit')->orWhereColumn('used_count', '<', 'usage_limit'))
             ->increment('used_count');
         if ($incremented === 0) {
@@ -225,6 +238,9 @@ class CouponService
         $limit = (int) $coupon->usage_limit_per_customer;
         if ($limit <= 0) {
             return;
+        }
+        if ($customer === null) {
+            throw new BusinessException(self::NOT_REDEEMABLE);
         }
 
         $phones = array_values(array_unique(array_filter([

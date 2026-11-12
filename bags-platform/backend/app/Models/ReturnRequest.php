@@ -36,9 +36,13 @@ class ReturnRequest extends Model
         'approved_by',
         'received_by',
         'refunded_by',
+        'rejected_by',
+        'cancelled_by',
         'approved_at',
         'received_at',
         'refunded_at',
+        'rejected_at',
+        'cancelled_at',
     ];
 
     protected function casts(): array
@@ -50,6 +54,8 @@ class ReturnRequest extends Model
             'approved_at' => 'datetime',
             'received_at' => 'datetime',
             'refunded_at' => 'datetime',
+            'rejected_at' => 'datetime',
+            'cancelled_at' => 'datetime',
         ];
     }
 

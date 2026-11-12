@@ -26,6 +26,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Testing\TestResponse;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
@@ -239,18 +240,22 @@ class AuditRoundTwoVerificationTest extends TestCase
         $this->assertNotSame($key1, $keyOther);
     }
 
-    /** Phone verification rate limit check rejects duplicate attempts before dispatching to queue. */
-    public function test_send_phone_verification_clear_error_for_existing_customer(): void
+    /**
+     * M5: the public verification endpoint must not reveal whether a phone is
+     * already registered, and must not spend an SMS on a known number.
+     */
+    public function test_send_phone_verification_is_generic_for_existing_customer(): void
     {
+        Queue::fake();
         Customer::factory()->create(['phone' => '01033333333']);
 
         $res = $this->postJson('/api/v1/store/auth/phone-verification/send', [
             'phone' => '01033333333',
         ]);
 
-        $res->assertStatus(422);
-        $res->assertJsonValidationErrors('phone');
-        $this->assertStringContainsString('الرقم مسجل بالفعل', $res->json('errors.phone.0'));
+        $res->assertOk();
+        $this->assertArrayNotHasKey('errors', $res->json());
+        Queue::assertNothingPushed();
 
         // Deleted account
         $trashed = Customer::factory()->create(['phone' => '01044444444']);
@@ -259,8 +264,8 @@ class AuditRoundTwoVerificationTest extends TestCase
         $resTrashed = $this->postJson('/api/v1/store/auth/phone-verification/send', [
             'phone' => '01044444444',
         ]);
-        $resTrashed->assertStatus(422);
-        $this->assertStringContainsString('الرقم مرتبط بحساب محذوف', $resTrashed->json('errors.phone.0'));
+        $resTrashed->assertOk();
+        $this->assertArrayNotHasKey('errors', $resTrashed->json());
     }
 
     /** Deleting a CustomerGroup referenced by soft-deleted customers is prohibited. */

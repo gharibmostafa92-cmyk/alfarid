@@ -2,6 +2,9 @@
 
 return [
     'trusted_proxies' => env('TRUSTED_PROXIES'),
+    // Shared secret used by the Next.js storefront proxy to sign the client
+    // address it forwards; empty disables header trust entirely.
+    'proxy_client_ip_secret' => env('PROXY_CLIENT_IP_SECRET'),
     'readiness_check_redis' => env('READINESS_CHECK_REDIS', true),
 
     'expose_node_header' => (bool) env('APP_EXPOSE_NODE_HEADER', false),

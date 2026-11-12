@@ -9,6 +9,7 @@ use App\Http\Requests\Admin\Procurement\PurchaseOrderRequest;
 use App\Http\Requests\Admin\Procurement\ReceivePurchaseOrderRequest;
 use App\Http\Resources\Admin\Procurement\PurchaseOrderResource;
 use App\Models\PurchaseOrder;
+use App\Models\SupplierDelivery;
 use App\Models\User;
 use App\Services\Procurement\ProcurementService;
 use App\Services\Shared\SearchTerm;
@@ -30,7 +31,7 @@ class PurchaseOrderController extends Controller implements HasMiddleware
             new Middleware('can:purchases.create', only: ['store']),
             new Middleware('can:purchases.update', only: ['update', 'send', 'cancel']),
             new Middleware('can:purchases.approve', only: ['approve']),
-            new Middleware('can:purchases.receive', only: ['receive', 'closeShort']),
+            new Middleware('can:purchases.receive', only: ['receive', 'closeShort', 'closeDeliveryShort']),
             new Middleware('can:purchases.delete', only: ['destroy']),
         ];
     }
@@ -128,6 +129,19 @@ class PurchaseOrderController extends Controller implements HasMiddleware
     public function closeShort(PurchaseOrder $purchaseOrder): PurchaseOrderResource
     {
         return PurchaseOrderResource::make($this->procurement->closeShort($purchaseOrder));
+    }
+
+    /**
+     * Close one pending supplier delivery without completing the purchase order.
+     */
+    public function closeDeliveryShort(SupplierDelivery $delivery): JsonResponse
+    {
+        $closed = $this->procurement->closeDeliveryShort($delivery);
+
+        return response()->json(['data' => [
+            'id' => $closed->id,
+            'status' => $closed->status->value,
+        ]]);
     }
 
     /**
