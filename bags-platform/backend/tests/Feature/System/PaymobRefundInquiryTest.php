@@ -34,4 +34,26 @@ class PaymobRefundInquiryTest extends TestCase
         );
         $this->assertCount(1, $authHits);
     }
+
+    public function test_provider_auth_rejection_invalidates_the_cached_token(): void
+    {
+        Http::fake([
+            'https://accept.paymob.com/api/auth/tokens' => Http::sequence()
+                ->push(['token' => 'expired-token'])
+                ->push(['token' => 'replacement-token']),
+            'https://accept.paymob.com/api/acceptance/transactions/123456' => Http::sequence()
+                ->pushStatus(401)
+                ->push([
+                    'id' => 123456, 'order' => ['id' => 7654321], 'currency' => 'EGP',
+                    'success' => true, 'pending' => false, 'refunded_amount_cents' => 5000,
+                ]),
+        ]);
+
+        $config = ['api_key' => 'expired-cache-probe-key', 'currency' => 'EGP'];
+        $inquiry = new PaymobRefundInquiry;
+        $this->assertNull($inquiry->amount('123456', '7654321', $config));
+        $this->assertSame(50.0, $inquiry->amount('123456', '7654321', $config));
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/transactions/')
+            && $request->hasHeader('Authorization', 'Bearer replacement-token'));
+    }
 }

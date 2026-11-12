@@ -6,17 +6,21 @@ namespace Tests\Feature\System;
 
 use App\Exceptions\BusinessException;
 use App\Http\Middleware\AssignRequestId;
+use App\Http\Middleware\ThrottleApiBeforeAuthentication;
 use App\Notifications\Channels\CustomerSmsChannel;
 use App\Providers\AppServiceProvider;
 use App\Services\Finance\StatementBudget;
 use App\Services\Media\MediaUrlGenerator;
 use App\Services\Media\UuidPathGenerator;
+use Illuminate\Auth\Middleware\Authenticate;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
 use Illuminate\Notifications\Notification;
+use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -28,6 +32,36 @@ use Tests\TestCase;
 
 class TaskRuntimeChecklistTest extends TestCase
 {
+    public function test_api_limit_runs_before_sanctum_reads_the_token(): void
+    {
+        $router = app(Router::class);
+        $route = $router->getRoutes()->getByName('unified-auth.me');
+        $middleware = $router->gatherRouteMiddleware($route);
+
+        $throttle = array_search(ThrottleApiBeforeAuthentication::class, $middleware, true);
+        $auth = array_search(Authenticate::class.':sanctum', $middleware, true);
+        $this->assertIsInt($throttle);
+        $this->assertIsInt($auth);
+        $this->assertLessThan($auth, $throttle);
+    }
+
+    #[DataProvider('legacyLoginLimiters')]
+    public function test_legacy_login_limit_for_one_network_does_not_lock_another(string $name): void
+    {
+        $limiter = RateLimiter::limiter($name);
+        $credentials = ['login' => 'employee@example.test', 'email' => 'employee@example.test'];
+        $first = Request::create('/', 'POST', $credentials, [], [], ['REMOTE_ADDR' => '192.0.2.1']);
+        $second = Request::create('/', 'POST', $credentials, [], [], ['REMOTE_ADDR' => '198.51.100.1']);
+
+        $keys = fn (Request $request): array => array_map(fn ($limit) => $limit->key, $limiter($request));
+        $this->assertSame([], array_intersect($keys($first), $keys($second)));
+    }
+
+    public static function legacyLoginLimiters(): array
+    {
+        return [['customer-login'], ['supplier-login'], ['admin-login'], ['pos-login']];
+    }
+
     #[DataProvider('mediaTtls')]
     public function test_private_media_urls_are_always_signed_with_bounded_lifetimes(int $configured, int $expected): void
     {
@@ -106,10 +140,17 @@ class TaskRuntimeChecklistTest extends TestCase
     public function test_production_boot_rejects_unsafe_settings(string $setting, mixed $value, string $message): void
     {
         $this->app['env'] = 'production';
-        config(['app.trusted_proxies' => 'none', 'mail.default' => 'smtp', 'database.default' => 'pgsql', 'database.connections.pgsql.sslmode' => 'require', $setting => $value]);
-        $this->expectException(LogicException::class);
-        $this->expectExceptionMessage($message);
-        (new AppServiceProvider($this->app))->boot();
+        // Assume the runtime login (non-owner) like production; the suite
+        // connects as the table owner.
+        DB::statement("SET ROLE 'alfarid_app'");
+        try {
+            config(['app.trusted_proxies' => 'none', 'mail.default' => 'smtp', 'database.default' => 'pgsql', 'database.connections.pgsql.sslmode' => 'verify-full', 'cache.limiter' => 'redis', $setting => $value]);
+            $this->expectException(LogicException::class);
+            $this->expectExceptionMessage($message);
+            (new AppServiceProvider($this->app))->boot();
+        } finally {
+            DB::statement('RESET ROLE');
+        }
     }
 
     public static function productionSettings(): array
@@ -128,8 +169,13 @@ class TaskRuntimeChecklistTest extends TestCase
     public function test_safe_production_settings_allow_direct_access(): void
     {
         $this->app['env'] = 'production';
-        config(['app.trusted_proxies' => 'none', 'mail.default' => 'smtp', 'database.default' => 'pgsql', 'database.connections.pgsql.sslmode' => 'require', 'cache.default' => 'database']);
-        (new AppServiceProvider($this->app))->boot();
+        DB::statement("SET ROLE 'alfarid_app'");
+        try {
+            config(['app.trusted_proxies' => 'none', 'mail.default' => 'smtp', 'database.default' => 'pgsql', 'database.connections.pgsql.sslmode' => 'verify-full', 'cache.default' => 'database', 'cache.limiter' => 'redis']);
+            (new AppServiceProvider($this->app))->boot();
+        } finally {
+            DB::statement('RESET ROLE');
+        }
         $request = Request::create('/', 'GET', [], [], [], ['REMOTE_ADDR' => '192.0.2.1', 'HTTP_X_FORWARDED_FOR' => '198.51.100.1']);
         (new TrustProxies)->handle($request, function ($request) {
             $this->assertSame('192.0.2.1', $request->ip());
@@ -146,7 +192,12 @@ class TaskRuntimeChecklistTest extends TestCase
         $request->headers->set('X-Request-ID', $id);
         $response = (new AssignRequestId)->handle($request, fn () => response('ok'));
         $actual = $response->headers->get('X-Request-ID');
-        $valid ? $this->assertSame($id, $actual) : $this->assertTrue(Str::isUuid($actual));
+        // L8: without a trusted proxy the server always mints the
+        // correlation id; a well-formed client value is kept aside, never adopted.
+        $this->assertTrue(Str::isUuid((string) $actual));
+        if ($valid) {
+            $this->assertNotSame($id, $actual);
+        }
         $this->assertSame($expose, $response->headers->has('X-Served-By'));
     }
 

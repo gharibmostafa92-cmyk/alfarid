@@ -79,7 +79,7 @@ switch ($Action) {
             "DB_DATABASE=$DatabaseName", "DB_USERNAME=$DatabaseUser", 'DB_SSLMODE=verify-full',
             'PGSSLROOTCERT=/etc/ssl/certs/ca-certificates.crt',
             'DB_SSLROOTCERT=/etc/ssl/certs/ca-certificates.crt',
-            'CACHE_STORE=database', 'CACHE_LIMITER=database', 'SESSION_DRIVER=database',
+            'CACHE_STORE=database', 'CACHE_LIMITER=database', 'SESSION_DRIVER=array',
             'APP_MAINTENANCE_DRIVER=cache', 'APP_MAINTENANCE_STORE=database',
             'READINESS_CHECK_REDIS=false', 'QUEUE_CONNECTION=database', 'LOG_STACK=stderr'
         )

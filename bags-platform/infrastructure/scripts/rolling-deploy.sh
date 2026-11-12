@@ -37,6 +37,8 @@ trap restore_node EXIT
 
 if [[ ${SKIP_BUILD:-0} != 1 ]]; then "${DC[@]}" build app1; fi
 "${DC[@]}" run --rm --no-deps migrate
+# The first new API instance requires a heartbeat before it can join the pool.
+"${DC[@]}" up -d --no-deps --no-build --force-recreate scheduler
 for node in "${NODES[@]}"; do
   current_node=$node; node_recreated=false
   echo "Draining $node on both proxies and both API backends"
@@ -72,7 +74,7 @@ for node in "${NODES[@]}"; do
   current_node=''
 done
 # M-6: one at a time so queue processing never stops entirely.
-for svc in worker worker2 media-worker scheduler; do
+for svc in worker worker2 media-worker; do
   "${DC[@]}" up -d --no-deps --no-build --force-recreate "$svc"
 done
 echo 'Deploy complete'

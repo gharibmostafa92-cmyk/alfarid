@@ -212,7 +212,7 @@ class CatalogHardeningTest extends TestCase
 
     // ---------- M2: سباق الـ unique يرجع 409 ----------
 
-    public function test_unique_constraint_violation_renders_as_409(): void
+    public function test_unique_constraint_violation_renders_as_a_duplicate_validation_error(): void
     {
         $request = Request::create('/api/v1/admin/products', 'POST');
         $request->headers->set('Accept', 'application/json');
@@ -222,7 +222,8 @@ class CatalogHardeningTest extends TestCase
         );
         $response = app(ExceptionHandler::class)->render($request, $exception);
 
-        $this->assertSame(409, $response->getStatusCode());
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertArrayHasKey('duplicate', json_decode($response->getContent(), true)['errors']);
     }
 
     // ---------- M3: صيغة الباركود الداخلي محجوزة ----------

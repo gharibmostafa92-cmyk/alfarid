@@ -170,7 +170,8 @@ class TaskTxtAttachmentsTest extends TestCase
         $conv = $this->conv($u);
 
         // 4600KB passes the 5120KB upload cap…
-        $big = UploadedFile::fake()->create('big.jpg', 4600, 'image/jpeg');
+        $big = UploadedFile::fake()->image('big.jpg')->size(4600);
+        file_put_contents($big->getPathname(), str_repeat("\0", 4600 * 1024 - filesize($big->getPathname())), FILE_APPEND);
         $res = $this->upload($u, $conv, [$big])->assertCreated();
 
         // …but Gemini accepts max 4MB. The tool must fail loudly with the

@@ -24,6 +24,9 @@ class ProductionReceiptController extends Controller implements HasMiddleware
     {
         return [
             new Middleware('can:inventory.view', only: ['options', 'index']),
+            // H2: receiving production adds inventory — cashiers with
+            // pos-only access must not reach it.
+            new Middleware('can:inventory.adjust', only: ['store']),
         ];
     }
 

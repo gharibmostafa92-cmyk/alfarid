@@ -72,6 +72,13 @@ final class CreateStaffUser
         $attrs['password'] = Hash::make($attrs['password']);
         $user = DB::transaction(function () use ($attrs, $roles, $actor, $via, $currentPassword): User {
             StaffAdministration::lock();
+            // M7: same advisory key as customer/supplier registration
+            // (normalized email) so the cross-table re-check below cannot race
+            // a concurrent signup in another account realm.
+            $lockEmail = mb_strtolower(trim((string) ($attrs['email'] ?? '')));
+            if ($lockEmail !== '') {
+                DB::select('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [$lockEmail]);
+            }
             StaffAdministration::authorize($actor, ['users.create', 'users.manage']);
             $branch = $this->branches->restrictedBranch($actor);
             abort_if($branch !== null && (int) ($attrs['branch_id'] ?? 0) !== $branch, 403);

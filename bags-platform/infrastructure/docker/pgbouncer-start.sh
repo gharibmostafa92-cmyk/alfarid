@@ -7,7 +7,7 @@ mkdir -p /tmp/pgbouncer/tls
 cp /opt/pgbouncer.ini /tmp/pgbouncer/pgbouncer.ini
 printf '\nstats_users = %s\n' "$DB_USERNAME" >> /tmp/pgbouncer/pgbouncer.ini
 printf '"%s" "%s"\n' "$DB_USERNAME" "$DB_PASSWORD" > /tmp/pgbouncer/userlist.txt
-if [ "${DB_SSLMODE:-require}" = verify-full ]; then
+if [ "${DB_SSLMODE:-verify-full}" = verify-full ]; then
   cp /run/alfarid-db-tls/server.crt /tmp/pgbouncer/tls/server.crt
   cp /run/alfarid-db-tls/server.key /tmp/pgbouncer/tls/server.key
   ca_cert=/run/alfarid-db-ca/root.crt
@@ -18,8 +18,9 @@ else
 fi
 if [ -n "$ca_cert" ]; then
   cp "$ca_cert" /tmp/pgbouncer/tls/root.crt
-  sed -i 's/^server_tls_sslmode = .*/server_tls_sslmode = verify-full/' /tmp/pgbouncer/pgbouncer.ini
-  printf 'server_tls_ca_file = /tmp/pgbouncer/tls/root.crt\n' >> /tmp/pgbouncer/pgbouncer.ini
+else
+  sed -i -e 's/^server_tls_sslmode = .*/server_tls_sslmode = require/' \
+    -e '/^server_tls_ca_file = /d' /tmp/pgbouncer/pgbouncer.ini
 fi
 chown -R postgres:postgres /tmp/pgbouncer
 chmod 700 /tmp/pgbouncer

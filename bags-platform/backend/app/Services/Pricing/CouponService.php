@@ -154,6 +154,10 @@ class CouponService
             'order_id' => $order->id,
             'discount_amount' => $discountAmount,
             'guest_phone_normalized' => $guestPhoneNormalized,
+            // F-15: phone on every row (not guests only) so a delete +
+            // re-register with the same phone cannot reset the per-customer
+            // limit; $phoneKey already prefers the guest phone.
+            'phone_normalized' => $phoneKey,
         ]);
     }
 
@@ -169,7 +173,9 @@ class CouponService
      */
     private function findRedeemable(string $code, float $subtotal, ?Customer $customer): Coupon
     {
-        $coupon = Coupon::query()->where('code', strtoupper(trim($code)))->first();
+        // F-21: match the case-insensitive unique index; the case-sensitive
+        // btree is dropped so exact-match lookups would lose their index.
+        $coupon = Coupon::query()->whereRaw('upper(code) = ?', [strtoupper(trim($code))])->first();
         if ($coupon === null) {
             throw new BusinessException(self::NOT_REDEEMABLE);
         }
@@ -238,16 +244,20 @@ class CouponService
 
         // Exclude cancelled orders so customers regain their allowance when an order is cancelled.
         // A registered checkout and a later guest checkout with the same phone share one allowance.
+        // F-15: count on phone_normalized (present on every row with a phone)
+        // so re-registration under a new customer_id keeps the old usage.
         $usageCount = $coupon->usages()
             ->where(function ($query) use ($customerIds, $phones): void {
                 if ($customerIds !== []) {
                     $query->whereIn('customer_id', $customerIds);
                 }
                 if ($phones !== []) {
+                    $phoneMatch = fn ($query) => $query->whereIn('phone_normalized', $phones)
+                        ->orWhereIn('guest_phone_normalized', $phones);
                     if ($customerIds === []) {
-                        $query->whereIn('guest_phone_normalized', $phones);
+                        $phoneMatch($query);
                     } else {
-                        $query->orWhereIn('guest_phone_normalized', $phones);
+                        $query->orWhere($phoneMatch);
                     }
                 }
             })

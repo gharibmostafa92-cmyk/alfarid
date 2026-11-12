@@ -308,21 +308,6 @@ class OrderService
             $this->allocationService->allocate($order, performedBy: $this->inventoryActorId($customer));
             $order->refresh();
 
-            // Free shipping coupon without actual shipping cost does not consume user redemption limit.
-            if ($coupon !== null
-                && ! ($coupon->type === 'free_shipping' && $waivedShipping <= 0)) {
-                try {
-                    $this->couponService->recordUsage(
-                        $coupon,
-                        $order,
-                        $customer,
-                        $coupon->type === 'free_shipping' ? $waivedShipping : $couponDiscount,
-                    );
-                } catch (BusinessException $e) {
-                    throw new BusinessException($e->getMessage(), $e->errors, $e->status, 'coupon_invalid');
-                }
-            }
-
             if (($data['payment_method'] ?? 'cod') === 'wallet') {
                 if ($customer === null || $customer->fresh()->status !== CustomerStatus::Approved) {
                     throw new BusinessException('الدفع بالمحفظة يتطلب حساب عميل نشطًا.');
@@ -364,6 +349,23 @@ class OrderService
             $cart->update(['coupon_id' => null]);
 
             $created = $order->fresh(['items', 'statusHistories']);
+
+            // Keep the coupon counter lock until commit for as little time as possible.
+            // Free shipping without a shipping fee does not consume a redemption.
+            if ($coupon !== null
+                && ! ($coupon->type === 'free_shipping' && $waivedShipping <= 0)) {
+                try {
+                    $this->couponService->recordUsage(
+                        $coupon,
+                        $order,
+                        $customer,
+                        $coupon->type === 'free_shipping' ? $waivedShipping : $couponDiscount,
+                    );
+                } catch (BusinessException $e) {
+                    throw new BusinessException($e->getMessage(), $e->errors, $e->status, 'coupon_invalid');
+                }
+            }
+
             OrderCreated::dispatch($created);
 
             if ($phoneDayKey !== null) {

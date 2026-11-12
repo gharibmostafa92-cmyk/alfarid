@@ -51,8 +51,8 @@ class DocumentNumberingConcurrencyTest extends TestCase
         }
     }
 
-    #[TestWith(['SELECT inventory_movement_number()', 'SELECT inventory_movement_number(1000)'])]
-    #[TestWith(["SELECT document_next_number('order')", "SELECT document_next_number('order', 1000)"])]
+    #[TestWith(['SELECT pg_advisory_xact_lock_shared(7042961051501)', 'SELECT inventory_movement_number(1000)'])]
+    #[TestWith(["SELECT pg_advisory_xact_lock_shared(hashtext('document-number:order'))", "SELECT document_next_number('order', 1000)"])]
     public function test_administrative_number_sync_fails_when_an_allocation_holds_the_shared_lock(string $allocate, string $sync): void
     {
         $other = DB::build([...DB::connection()->getConfig(), 'name' => 'numbering_contention_test']);
@@ -68,6 +68,43 @@ class DocumentNumberingConcurrencyTest extends TestCase
             DB::rollBack();
             $other->disconnect();
         }
+    }
+
+    public function test_allocated_number_does_not_block_sync_until_order_commit(): void
+    {
+        $other = DB::build([...DB::connection()->getConfig(), 'name' => 'numbering_release_test']);
+        DB::beginTransaction();
+
+        try {
+            $allocated = (int) DB::scalar("SELECT document_next_number('order')");
+            $minimum = $allocated + 100;
+            $this->assertSame($minimum, (int) $other->scalar("SELECT document_next_number('order', ?)", [$minimum]));
+            $this->assertSame($minimum, (int) DB::scalar("SELECT document_next_number('order')"));
+        } finally {
+            DB::rollBack();
+            $other->disconnect();
+        }
+    }
+
+    public function test_settings_retry_preserves_lock_conflict_and_rolls_back_the_save(): void
+    {
+        $this->seed(SettingSeeder::class);
+        $original = DB::table('settings')->where('key', 'order_next_number')->value('value');
+        $other = DB::build([...DB::connection()->getConfig(), 'name' => 'numbering_retry_test']);
+        $other->beginTransaction();
+
+        try {
+            $other->selectOne("SELECT pg_advisory_xact_lock_shared(hashtext('document-number:order'))");
+            app(SettingService::class)->updateBatch(['order_next_number' => 100000]);
+            $this->fail('Expected the numbering lock conflict.');
+        } catch (QueryException $e) {
+            $this->assertSame('55P03', $e->errorInfo[0]);
+        } finally {
+            $other->rollBack();
+            $other->disconnect();
+        }
+
+        $this->assertSame($original, DB::table('settings')->where('key', 'order_next_number')->value('value'));
     }
 
     public function test_runtime_role_can_synchronize_numbering_sequences(): void

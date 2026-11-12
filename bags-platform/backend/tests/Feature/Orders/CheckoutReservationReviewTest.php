@@ -378,7 +378,9 @@ class CheckoutReservationReviewTest extends TestCase
             $body)->assertOk();
 
         $order->refresh();
-        $this->assertSame('refunded', $order->payment_status);
+        // L4: a refund callback that carries no verifiable amount flags the
+        // order for review without flipping its payment state.
+        $this->assertSame('paid', $order->payment_status);
         $this->assertTrue($order->needs_attention);
     }
 
@@ -444,10 +446,12 @@ class CheckoutReservationReviewTest extends TestCase
         $this->assertSame('paid', $order->fresh()->payment_status);
         $send($obj, $sign())->assertOk()->assertJsonPath('duplicate', true);
 
-        $send(array_replace($obj, ['is_refunded' => true]), $sign(refunded: true))->assertOk();
-        $this->assertSame('refunded', $order->fresh()->payment_status);
-        $this->assertTrue($order->fresh()->needs_attention);
-        $this->assertSame('processed', WebhookLog::query()->where('event_id', '777:refunded')->sole()->status);
+        // L1: without an authenticated cumulative total the Paymob refund is
+        // unknown; the gateway must redeliver instead of the event being processed.
+        $send(array_replace($obj, ['is_refunded' => true]), $sign(refunded: true))->assertStatus(503)->assertJsonPath('received', false);
+        $this->assertSame('paid', $order->fresh()->payment_status);
+        $this->assertFalse($order->fresh()->needs_attention);
+        $this->assertSame('failed', WebhookLog::query()->latest('id')->first()->status);
     }
 
     public function test_moyasar_secret_token_scheme(): void
@@ -474,12 +478,13 @@ class CheckoutReservationReviewTest extends TestCase
         $response = $this->call('POST', '/api/v1/webhooks/payment/testpay', [], [], [],
             ['CONTENT_TYPE' => 'application/json', 'HTTP_X_WEBHOOK_SIGNATURE' => hash_hmac('sha256', $body, 's7')],
             $body);
-        $response->assertOk()->assertJsonPath('message', 'order not found');
+        // H1: a missing order fails non-2xx so the gateway redelivers.
+        $response->assertStatus(409)->assertJsonPath('message', 'order not found');
         $invalidJson = '{"status":';
         $this->call('POST', '/api/v1/webhooks/payment/testpay', [], [], [], [
             'CONTENT_TYPE' => 'application/json',
             'HTTP_X_WEBHOOK_SIGNATURE' => hash_hmac('sha256', $invalidJson, 's7'),
-        ], $invalidJson)->assertOk()->assertJsonPath('message', 'order not found');
+        ], $invalidJson)->assertStatus(409)->assertJsonPath('message', 'order not found');
         $this->assertDatabaseHas('webhook_logs', ['signature_valid' => true, 'status' => 'failed']);
 
         // بوابة باسم طويل جدًا: قيد المسار يرد 404 لا 500 بقاعدة البيانات

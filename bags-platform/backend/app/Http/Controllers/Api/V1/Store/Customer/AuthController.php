@@ -7,7 +7,7 @@ namespace App\Http\Controllers\Api\V1\Store\Customer;
 use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Store\Customer\ForgotPasswordRequest;
-use App\Http\Requests\Supplier\LoginRequest;
+use App\Http\Requests\Store\Customer\LoginRequest;
 use App\Http\Requests\Store\Customer\PhoneVerificationRequest;
 use App\Http\Requests\Store\Customer\RegisterRequest;
 use App\Http\Requests\Store\Customer\ResetPasswordRequest;

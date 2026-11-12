@@ -79,7 +79,8 @@ class TaskTxtPosConcurrencyTest extends PosScenarioFixture
         $this->assertSame(1, PosShift::query()->where('treasury_id', $drawer->id)->count());
         $this->assertSame('100.00', $drawer->fresh()->current_balance);
         $this->assertSame('900.00', $this->safe->fresh()->current_balance);
-        $this->assertDatabaseCount('treasury_transactions', 2);
+        // Opening fixture entry plus the winner's transfer pair.
+        $this->assertDatabaseCount('treasury_transactions', 3);
     }
 
     public function test_parallel_cashiers_can_resume_a_held_cart_only_once(): void

@@ -49,16 +49,16 @@ class Task2PaymentWebhookTest extends TestCase
         $this->branch = Branch::factory()->create();
     }
 
-    public function test_missing_order_returns_conflict_so_the_gateway_redelivers(): void
+    public function test_missing_order_returns_service_unavailable_so_the_gateway_redelivers(): void
     {
         // H1: a 2xx tells the gateway "delivered" and a paid order stays pending
-        // with no retry. A non-2xx keeps the log failed so redelivery succeeds.
+        // with no retry. A 503 keeps the delivery retryable and the log failed.
         $this->postWebhook([
             'event_id' => 'evt_missing_order',
             'order_number' => 'ORD-DOES-NOT-EXIST',
             'status' => 'paid',
             'amount' => 100,
-        ])->assertStatus(409)->assertJsonPath('received', false);
+        ])->assertServiceUnavailable()->assertJsonPath('received', false);
 
         $this->assertSame('failed', WebhookLog::query()->latest('id')->first()->status);
     }

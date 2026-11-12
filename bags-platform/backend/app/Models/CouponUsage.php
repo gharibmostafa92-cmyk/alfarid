@@ -20,6 +20,7 @@ class CouponUsage extends Model
         'order_id',
         'discount_amount',
         'guest_phone_normalized',
+        'phone_normalized',
     ];
 
     protected function casts(): array

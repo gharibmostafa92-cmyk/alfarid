@@ -12,6 +12,13 @@ return new class extends Migration
 
     public function up(): void
     {
+        // F-08: a user with two open shifts in different branches would fail
+        // CREATE UNIQUE INDEX and leave an INVALID index behind that every
+        // retry trips over — reconcile first with a clear message.
+        $dupUser = DB::scalar("SELECT user_id FROM pos_shifts WHERE status = 'open' GROUP BY user_id HAVING COUNT(*) > 1 LIMIT 1");
+        if ($dupUser !== null) {
+            throw new RuntimeException("pos_shifts has multiple open shifts for user {$dupUser}; reconcile before creating pos_shifts_one_open_user.");
+        }
         // Verify the covering indexes before removing the narrower copies.
         ConcurrentIndex::ensure('stock_movements_variant_id_id_index', 'ON stock_movements (product_variant_id, id DESC)');
         ConcurrentIndex::ensure('stock_movements_type_created_index', 'ON stock_movements (type, created_at)');

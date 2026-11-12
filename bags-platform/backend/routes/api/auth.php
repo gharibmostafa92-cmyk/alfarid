@@ -9,7 +9,7 @@ Route::post('login', [UnifiedAuthController::class, 'login'])
 Route::post('handoff/exchange', [UnifiedAuthController::class, 'exchange'])
     ->middleware('throttle:unified-handoff')->name('handoff.exchange');
 
-Route::middleware('auth:sanctum')->group(function (): void {
+Route::middleware(['auth:sanctum', 'unified.active'])->group(function (): void {
     Route::get('me', [UnifiedAuthController::class, 'me'])->name('me');
     Route::post('logout', [UnifiedAuthController::class, 'logout'])->name('logout');
 });

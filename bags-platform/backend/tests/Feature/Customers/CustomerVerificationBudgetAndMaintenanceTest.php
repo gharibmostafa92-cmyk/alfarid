@@ -158,7 +158,7 @@ class CustomerVerificationBudgetAndMaintenanceTest extends TestCase
 
         $service->send($phone, $netKey);
         $code = '';
-        Notification::assertSentOnDemand(\App\Notifications\CustomerPhoneVerificationCode::class, function ($n, $ch, $notifiable) use (&$code) {
+        Notification::assertSentOnDemand(\App\Notifications\Auth\CustomerPhoneVerificationCode::class, function ($n, $ch, $notifiable) use (&$code) {
             preg_match('/([0-9]{6})/', $n->toSms($notifiable), $m);
             $code = $m[1];
 
@@ -199,7 +199,7 @@ class CustomerVerificationBudgetAndMaintenanceTest extends TestCase
         $phone2 = '01055556667';
         Carbon::setTestNow(now()->addMinutes(2));
         $service->send($phone2, $netKey);
-        Notification::assertSentOnDemand(\App\Notifications\CustomerPhoneVerificationCode::class, function ($n, $ch, $notifiable) use (&$code) {
+        Notification::assertSentOnDemand(\App\Notifications\Auth\CustomerPhoneVerificationCode::class, function ($n, $ch, $notifiable) use (&$code) {
             preg_match('/([0-9]{6})/', $n->toSms($notifiable), $m);
             $code = $m[1];
 
@@ -313,7 +313,7 @@ class CustomerVerificationBudgetAndMaintenanceTest extends TestCase
         $channel = new \App\Notifications\Channels\CustomerSmsChannel;
         $customer = Customer::factory()->make(['phone' => '01012345678']);
         $otpCode = '654321';
-        $notification = new \App\Notifications\CustomerPhoneVerificationCode($otpCode);
+        $notification = new \App\Notifications\Auth\CustomerPhoneVerificationCode($otpCode);
         $secretToken = 'super-secret-gateway-token-xyz';
 
         // (د) URL with http:// -> BusinessException 503 + Retry-After: 1
@@ -373,6 +373,7 @@ class CustomerVerificationBudgetAndMaintenanceTest extends TestCase
      */
     public function test_26_normalize_customer_phones_command_and_php_sql_equivalence(): void
     {
+        DB::statement('SET CONSTRAINTS wallet_ledger_check_account IMMEDIATE');
         // Drop phone CHECK constraint temporarily to seed legacy unnormalized phones
         DB::statement('ALTER TABLE customers DROP CONSTRAINT IF EXISTS customers_valid_phone');
 

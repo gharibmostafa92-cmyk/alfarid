@@ -157,7 +157,7 @@ class StoreHardeningReviewTest extends TestCase
         $this->call('POST', '/api/v1/webhooks/payment/testpay', [], [], [],
             ['CONTENT_TYPE' => 'application/json', 'HTTP_X_WEBHOOK_SIGNATURE' => 'x'], $big)
             ->assertStatus(413);
-        $this->assertNull(WebhookLog::query()->sole()->payload);
+        $this->assertDatabaseCount('webhook_logs', 0);
     }
 
     // ---------- M5 ----------

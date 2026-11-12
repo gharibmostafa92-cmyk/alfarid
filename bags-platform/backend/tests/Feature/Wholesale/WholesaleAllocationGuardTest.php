@@ -16,6 +16,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
 /** F-03: only approved notices grant allocation capacity; unapproved notices grant zero. */
@@ -29,9 +30,12 @@ class WholesaleAllocationGuardTest extends TestCase
         $this->seed(SettingSeeder::class);
     }
 
-    public function test_pending_notice_grants_no_allocation_capacity(): void
+    #[TestWith([OrderStatus::Delivered])]
+    #[TestWith([OrderStatus::Cancelled])]
+    public function test_pending_notice_grants_no_allocation_capacity(OrderStatus $status): void
     {
         $order = $this->creditOrder(1000.0);
+        $order->update(['status' => $status]);
         $notice = $this->makeNotice($order, 1000.0, WholesalePaymentNoticeStatus::PendingReview);
 
         try {

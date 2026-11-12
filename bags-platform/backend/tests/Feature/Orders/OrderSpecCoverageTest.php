@@ -70,6 +70,17 @@ class OrderSpecCoverageTest extends TestCase
             $order->forceFill(['grand_total' => 500])->save();
         }
 
+        // M9: refunds apply to captured money — capture first, like the real flow.
+        $this->stripe([
+            'id' => 'evt_paid_first',
+            'type' => 'payment_intent.succeeded',
+            'data' => ['object' => [
+                'id' => 'pi_first', 'status' => 'succeeded', 'amount' => 50000,
+                'currency' => 'egp', 'metadata' => ['order_number' => $refunded->order_number],
+            ]],
+        ])->assertOk();
+        $this->assertSame('paid', $refunded->fresh()->payment_status);
+
         $this->stripe([
             'id' => 'evt_refund',
             'type' => 'charge.refunded',
@@ -80,7 +91,7 @@ class OrderSpecCoverageTest extends TestCase
         ])->assertOk();
         $this->assertSame('refunded', $refunded->fresh()->payment_status);
         $this->assertTrue($refunded->fresh()->needs_attention);
-        $this->assertSame(OrderStatus::Pending, $refunded->fresh()->status);
+        $this->assertSame(OrderStatus::Confirmed, $refunded->fresh()->status);
 
         $this->stripe([
             'id' => 'evt_fail',
@@ -640,7 +651,7 @@ class OrderSpecCoverageTest extends TestCase
         ]);
 
         $this->artisan('webhooks:prune-logs', ['--days' => 90])
-            ->expectsOutputToContain('Pruned 2500 webhook log rows and scrubbed 2500 processed rows')
+            ->expectsOutputToContain('Pruned 2500 webhook rows and scrubbed 2500 processed payloads')
             ->assertSuccessful();
         $this->assertSame(2500, WebhookLog::query()->where('status', 'processed')->whereNull('payload')->count());
         $this->assertSame(0, WebhookLog::query()->where('status', 'failed')->where('id', '!=', $recent->id)->count());
@@ -663,9 +674,9 @@ class OrderSpecCoverageTest extends TestCase
         $this->stripe($payload, 'whsec_prune')->assertOk();
         $processed = WebhookLog::query()->where('status', 'processed')->where('event_id', 'like', 'pi_keep:%')->firstOrFail();
         $processed->forceFill(['created_at' => $old, 'payload' => ['keep' => true]])->saveQuietly();
-        $this->artisan('webhooks:prune-logs', ['--days' => 0])
-            ->expectsOutputToContain('older than 1 days')
-            ->assertSuccessful();
+        $recent->forceFill(['created_at' => now()->subHours(12)])->saveQuietly();
+        $this->artisan('webhooks:prune-logs', ['--days' => 0])->assertSuccessful();
+        $this->assertNotNull($recent->fresh()->payload);
         $this->assertNull($processed->fresh()->payload);
         $this->stripe($payload, 'whsec_prune')->assertOk()->assertJsonPath('duplicate', true);
         $this->assertSame(1, WebhookLog::query()->where('event_id', 'like', 'pi_keep:%')->where('status', 'processed')->count());

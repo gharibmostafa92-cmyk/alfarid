@@ -51,7 +51,11 @@ class EnsureStaffAuthenticated
         }
 
         $token = $user->currentAccessToken();
-        $posReachable = $request->is('api/v1/pos/*') || $isAccountMaintenance;
+        // Rotation self-service stays reachable for accounts flagged for
+        // rotation; every other POS-scoped token is refused outside POS and
+        // logout (item 14: a normal POS token must not read admin/me).
+        $rotationFlow = $this->isPasswordRotationRequest($request) && (bool) $user->must_change_password;
+        $posReachable = $request->is('api/v1/pos/*') || $isLogout || $rotationFlow;
         if ($token !== null && ! $token->can('*')
             && ! ($posReachable && $token->can('pos'))) {
             return response()->json(['message' => 'التوكن غير مصرح له بهذه الواجهة.'], 403);

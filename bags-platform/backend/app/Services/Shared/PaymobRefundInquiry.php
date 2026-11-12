@@ -34,8 +34,9 @@ final class PaymobRefundInquiry
         $client = Http::acceptJson()->withoutRedirecting()->connectTimeout(2)->timeout(4);
         // L2: one auth token request per cache TTL, not one per refund
         // webhook; auth and inquiry share the client's short timeouts.
+        $tokenCacheKey = 'paymob:refund-auth:'.sha1($host.'|'.$key);
         $token = Cache::remember(
-            'paymob:refund-auth:'.sha1($host.'|'.$key),
+            $tokenCacheKey,
             now()->addHours(20),
             function () use ($client, $host, $key) {
                 try {
@@ -63,6 +64,12 @@ final class PaymobRefundInquiry
             $response = $client->withToken($token)->get($host.'/api/acceptance/transactions/'.$transactionId);
         } catch (ConnectionException) {
             Log::warning('Paymob refund inquiry connection failed.');
+
+            return null;
+        }
+
+        if (in_array($response->status(), [401, 403], true)) {
+            Cache::forget($tokenCacheKey);
 
             return null;
         }

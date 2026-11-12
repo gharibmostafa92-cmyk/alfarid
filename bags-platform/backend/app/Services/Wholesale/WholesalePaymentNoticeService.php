@@ -329,14 +329,15 @@ class WholesalePaymentNoticeService
     {
         return DB::transaction(function () use ($notice, $adminId, $treasuryId, $adminNotes): WholesalePaymentNotice {
             $customer = Customer::query()->lockForUpdate()->findOrFail($notice->customer_id);
+            // Allocations lock the order before the notice. Use the same order for linked approvals.
+            $order = $notice->order_id === null ? null : Order::query()->lockForUpdate()->findOrFail($notice->order_id);
             $notice = WholesalePaymentNotice::query()->lockForUpdate()->findOrFail($notice->id);
 
             if ($notice->status !== WholesalePaymentNoticeStatus::PendingReview) {
                 throw new BusinessException('إشعار السداد هذا تمت مراجعته من قبل.');
             }
 
-            if ($notice->order_id !== null) {
-                $order = Order::query()->lockForUpdate()->findOrFail($notice->order_id);
+            if ($order !== null) {
                 if ($order->payment_status === 'paid') {
                     throw new BusinessException('الطلب المرتبط تم سداده بالفعل؛ لا يمكن اعتماد إشعار السداد.');
                 }
@@ -381,7 +382,7 @@ class WholesalePaymentNoticeService
             PaymentNoticeReviewed::dispatch($notice);
 
             return $notice;
-        });
+        }, attempts: 3);
     }
 
     /**
@@ -467,7 +468,12 @@ class WholesalePaymentNoticeService
                 'reviewed_by' => $adminId,
             ]);
 
-            foreach (array_unique(array_map('intval', $orderIds)) as $orderId) {
+            // F-06: lock rows in a fixed (id-sorted) order so two concurrent
+            // reversals/approvals cannot deadlock on opposite orders; residual
+            // 40P01 still surfaces as retryable via the exception mapper.
+            $orderIds = array_unique(array_map('intval', $orderIds));
+            sort($orderIds, SORT_NUMERIC);
+            foreach ($orderIds as $orderId) {
                 $this->reopenOrderIfUncovered($orderId, $adminId, $notice->notice_number);
             }
 

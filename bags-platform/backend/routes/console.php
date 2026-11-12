@@ -4,6 +4,7 @@ use App\Console\Commands\RaceWorkerCommand;
 use App\Services\Catalog\RetailPriceSnapshot;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schedule;
 
@@ -11,8 +12,10 @@ Artisan::command('store:refresh-retail-prices', function (RetailPriceSnapshot $s
     $snapshots->refresh();
     $this->info('Public catalog price snapshots refreshed.');
 })->purpose('Refresh public retail sorting prices, including stock and timed price lists');
-// Single scheduler container runs these (docker-compose), plus onOneServer() as
-// extra protection when the cache store is shared (Redis in production).
+// M7: exactly one scheduler drives these — the docker-compose scheduler
+// container locally, a single Cloud Run Job (schedule:run every minute) in
+// production — plus onOneServer() as extra protection when the cache store
+// is shared (Redis in production).
 // Each withoutOverlapping() carries an explicit expiry calibrated to worst-case execution time,
 // preventing 24-hour locks caused by abrupt container termination.
 Schedule::command('store:refresh-retail-prices')->everyFiveMinutes()->withoutOverlapping(10)->onOneServer();
@@ -68,6 +71,12 @@ Schedule::command('queue:monitor '.config('queue.default', 'database').':default
     ->everyFiveMinutes()->withoutOverlapping(10)->onOneServer();
 Schedule::command('queue:monitor '.config('media-library.queue_connection_name', 'database-media').':'.(config('media-library.queue_name') ?: 'media').' --max=1000')
     ->everyFiveMinutes()->withoutOverlapping(10)->onOneServer();
+// H6: heartbeat proves schedule:run itself is alive; readiness fails when
+// stale, so a dead scheduler (expired reservations, missed reconciliations,
+// silent monitoring) pages instead of rotting unnoticed.
+Schedule::call(function (): void {
+    Cache::put('scheduler_heartbeat_at', now()->toIso8601String(), 600);
+})->everyMinute()->name('scheduler-heartbeat')->withoutOverlapping(10)->onOneServer();
 
 // Give the full scan priority when both schedules are due. The shared mutex
 // prevents the incremental scan from starting on another scheduler process.

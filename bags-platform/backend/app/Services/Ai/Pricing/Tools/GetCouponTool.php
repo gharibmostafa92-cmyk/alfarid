@@ -59,7 +59,7 @@ final class GetCouponTool implements AgentTool
         if (! empty($args['coupon_id'])) {
             $coupon = Coupon::query()->find((int) $args['coupon_id']);
         } elseif (! empty($args['code'])) {
-            $coupon = Coupon::query()->where('code', strtoupper(trim((string) $args['code'])))->first();
+            $coupon = Coupon::query()->whereRaw('upper(code) = ?', [strtoupper(trim((string) $args['code']))])->first();
         }
         if (! $coupon) {
             return ToolOutcome::denied('الكوبون مش موجود.', auditable: false);

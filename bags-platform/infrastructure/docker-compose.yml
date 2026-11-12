@@ -13,9 +13,9 @@ x-app: &app
     DB_HOST: pgbouncer
     DB_PORT: '6432'
     DB_DATABASE: alfarid
-    DB_SSLMODE: ${DB_SSLMODE:-require}
-    DB_SSLROOTCERT: ${DB_SSLROOTCERT:-}
-    PGSSLROOTCERT: ${DB_SSLROOTCERT:-}
+    DB_SSLMODE: ${DB_SSLMODE:-verify-full}
+    DB_SSLROOTCERT: ${DB_SSLROOTCERT:-/run/alfarid-db-ca/root.crt}
+    PGSSLROOTCERT: ${DB_SSLROOTCERT:-/run/alfarid-db-ca/root.crt}
     DB_DISABLE_PREPARES: 'true'
     DB_URL: ''
     REDIS_CLIENT: phpredis
@@ -23,8 +23,7 @@ x-app: &app
     REDIS_URL: ''
     CACHE_STORE: redis
     CACHE_LIMITER: redis
-    SESSION_DRIVER: redis
-    SESSION_CONNECTION: default
+    SESSION_DRIVER: array
     APP_MAINTENANCE_DRIVER: cache
     APP_MAINTENANCE_STORE: redis
     QUEUE_CONNECTION: database
@@ -155,7 +154,7 @@ services:
       POSTGRES_DB: alfarid
       POSTGRES_USER: ${DB_USERNAME:?set DB_USERNAME}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
-      DB_SSLMODE: ${DB_SSLMODE:-require}
+      DB_SSLMODE: ${DB_SSLMODE:-verify-full}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - '${DB_TLS_DIR:-./tls}/postgres:/run/alfarid-db-tls:ro'
@@ -175,7 +174,7 @@ services:
     environment:
       DB_USERNAME: ${DB_USERNAME:?set DB_USERNAME}
       DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
-      DB_SSLMODE: ${DB_SSLMODE:-require}
+      DB_SSLMODE: ${DB_SSLMODE:-verify-full}
     volumes:
       - ./pgbouncer/pgbouncer.ini:/opt/pgbouncer.ini:ro
       - '${DB_TLS_DIR:-./tls}/pgbouncer:/run/alfarid-db-tls:ro'
@@ -299,8 +298,8 @@ services:
       PGUSER: ${DB_USERNAME:?}
       PGPASSWORD: ${DB_PASSWORD:?}
       PGDATABASE: alfarid
-      PGSSLMODE: ${DB_SSLMODE:-require}
-      PGSSLROOTCERT: ${DB_SSLROOTCERT:-}
+      PGSSLMODE: ${DB_SSLMODE:-verify-full}
+      PGSSLROOTCERT: ${DB_SSLROOTCERT:-/run/alfarid-db-ca/root.crt}
       BACKUP_METRICS_DIR: /backup-metrics
       REQUIRE_R2_BACKUP: '1'
     volumes:

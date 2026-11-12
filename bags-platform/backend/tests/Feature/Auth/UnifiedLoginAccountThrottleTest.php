@@ -13,7 +13,7 @@ class UnifiedLoginAccountThrottleTest extends TestCase
 
     public function test_unified_login_throttles_same_account_across_ips_per_hour(): void
     {
-        config(['auth.unified_login_id_hour' => 2, 'auth.unified_login_id_day' => 100]);
+        config(['auth.unified_login_identifier_failures_hour' => 2, 'auth.unified_login_failures_day' => 100]);
 
         $login = 'hour-victim@example.test';
 
@@ -30,7 +30,7 @@ class UnifiedLoginAccountThrottleTest extends TestCase
 
     public function test_unified_login_throttles_same_account_across_ips_per_day(): void
     {
-        config(['auth.unified_login_id_hour' => 1000, 'auth.unified_login_id_day' => 2]);
+        config(['auth.unified_login_identifier_failures_hour' => 1000, 'auth.unified_login_failures_day' => 2]);
 
         $login = 'day-victim@example.test';
 

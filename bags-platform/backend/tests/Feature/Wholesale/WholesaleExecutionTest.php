@@ -27,6 +27,7 @@ use App\Services\Shared\SettingService;
 use App\Services\Wholesale\BankStatementMatcher;
 use App\Services\Wholesale\CustomerWholesaleAssistant;
 use App\Services\Wholesale\ReceiptMatchScorer;
+use App\Services\Wholesale\WholesaleOutbox;
 use App\Services\Wholesale\WholesalePaymentNoticeService;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\SettingSeeder;
@@ -171,9 +172,9 @@ class WholesaleExecutionTest extends TestCase
             'customer_id' => $customer->id,
             'provider' => 'whatsapp_cloud',
             'phone' => '0020 101 234 5678',
-            'verification_code_hash' => Hash::make('123456'),
             'verification_expires_at' => now()->addMinutes(10),
         ]);
+        $channel->forceFill(['verification_code_hash' => Hash::make('123456')])->save();
         $assistant = app(CustomerWholesaleAssistant::class);
 
         $this->assertSame('+201012345678', $channel->phone);
@@ -232,6 +233,25 @@ class WholesaleExecutionTest extends TestCase
 
         $this->assertStringContainsString('اتغير', $reply);
         $this->assertSame(QuotationStatus::PricedByAdmin, $quotation->fresh()->status);
+    }
+
+    public function test_outbox_waits_for_commit_and_sends_the_canonical_whatsapp_destination(): void
+    {
+        config([
+            'services.whatsapp_business.token' => 'token',
+            'services.whatsapp_business.phone_number_id' => '123',
+        ]);
+        app(SettingService::class)->updateBatch(['ai_wholesale_shadow_mode' => false]);
+        Http::fake(['graph.facebook.com/*' => Http::response(['messages' => [['id' => 'wamid.sent']]])]);
+        $customer = Customer::factory()->create(['phone' => '01012345678', 'whatsapp_phone' => '01112345678']);
+
+        DB::transaction(function () use ($customer): void {
+            app(WholesaleOutbox::class)->queue('canonical-destination', 'customer_whatsapp', $customer->id, 'quotation_priced', []);
+            Http::assertNothingSent();
+        });
+
+        Http::assertSent(fn ($request) => $request['to'] === '201112345678');
+        $this->assertDatabaseHas('outbound_messages', ['idempotency_key' => 'canonical-destination', 'status' => 'sent']);
     }
 
     public function test_shadow_mode_does_not_call_the_graph_api(): void

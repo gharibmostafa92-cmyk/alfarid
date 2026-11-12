@@ -19,6 +19,7 @@ use App\Models\ProductionReceipt;
 use App\Models\ProductVariant;
 use App\Models\PurchaseOrder;
 use App\Models\ReturnRequest;
+use App\Models\ShippingCompany;
 use App\Models\StockLevel;
 use App\Models\Stocktake;
 use App\Models\StockTransfer;
@@ -53,6 +54,8 @@ use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Queue\Events\QueueBusy;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
@@ -255,8 +258,31 @@ class AppServiceProvider extends ServiceProvider
             throw new \LogicException('Set MAIL_MAILER to a real mailer in production. The log mailer writes password-reset links and OTP codes to the log file.');
         }
         $sslmode = $this->effectivePgsqlSslmode();
-        if (config('database.default') === 'pgsql' && in_array($sslmode, ['prefer', 'allow', 'disable'], true)) {
-            throw new \LogicException("Set DB_SSLMODE=require (or stricter) in production. '{$sslmode}' allows a plaintext database connection.");
+        if (config('database.default') === 'pgsql' && $sslmode !== 'verify-full') {
+            throw new \LogicException("Set DB_SSLMODE=verify-full in production so PostgreSQL verifies the server certificate and hostname.");
+        }
+        $schemaCommand = $this->app->runningInConsole()
+            && in_array($_SERVER['argv'][1] ?? null, ['migrate', 'migrate:status', 'migrate:rollback', 'db:verify-schema'], true);
+        if (config('database.default') === 'pgsql' && ! $schemaCommand) {
+            [$dbUser, $dbPass] = $this->effectivePgsqlCredentials();
+            // F-24: the framework default (postgres superuser, empty password)
+            // must never reach production.
+            if (($dbUser === '' || strtolower($dbUser) === 'postgres') && $dbPass === '') {
+                throw new \LogicException('Set DB_USERNAME/DB_PASSWORD to the dedicated application login in production; the postgres/empty-password default is a superuser without authentication.');
+            }
+            if (strtolower($dbUser) === 'postgres') {
+                logger()->critical('Application connects as the postgres superuser; use a dedicated least-privilege login.');
+            }
+            // Owners, superusers, and logins that can assume an owner role can disable the guards.
+            $ownedTables = (int) DB::scalar(<<<'SQL'
+                SELECT count(*) FROM pg_class AS c
+                JOIN pg_namespace AS n ON n.oid = c.relnamespace
+                WHERE n.nspname = current_schema() AND c.relkind IN ('r', 'p')
+                  AND pg_has_role(current_user, c.relowner, 'MEMBER')
+                SQL);
+            if ($ownedTables > 0) {
+                throw new \LogicException("The application login owns or can assume ownership of {$ownedTables} tables; use a dedicated non-owner login.");
+            }
         }
         if ($onCloudRun) {
             // H7: the container filesystem is ephemeral memory — file logs
@@ -294,6 +320,24 @@ class AppServiceProvider extends ServiceProvider
         }
 
         return is_string($mode) ? strtolower($mode) : null;
+    }
+
+    /**
+     * Effective PostgreSQL credentials: userinfo embedded in DB_URL wins over
+     * the discrete keys, mirroring the driver's own merge.
+     *
+     * @return array{string, string}
+     */
+    private function effectivePgsqlCredentials(): array
+    {
+        $url = (string) config('database.connections.pgsql.url');
+        $urlUser = $url !== '' ? parse_url($url, PHP_URL_USER) : null;
+        $urlPass = $url !== '' ? parse_url($url, PHP_URL_PASS) : null;
+
+        return [
+            is_string($urlUser) && $urlUser !== '' ? $urlUser : (string) config('database.connections.pgsql.username'),
+            is_string($urlPass) && $urlPass !== '' ? $urlPass : (string) config('database.connections.pgsql.password'),
+        ];
     }
 
     /**
@@ -408,11 +452,14 @@ class AppServiceProvider extends ServiceProvider
                 ? hash('sha256', (string) Customer::normalizeIdentifier($identifier))
                 : 'none';
 
+            $network = $networkIp($request);
+            $identity = $idKey.':'.$network;
+
             return [
-                Limit::perMinute(5)->by('customer-login-id:'.$idKey),
-                Limit::perHour(config('auth.customer_limits.login_id_hour', 30))->by('customer-login-id-hour:'.$idKey),
-                Limit::perDay(config('auth.customer_limits.login_id_day', 100))->by('customer-login-id-day:'.$idKey),
-                Limit::perMinute(config('auth.customer_limits.login_ip_minute', 120))->by('customer-login-ip:'.$networkIp($request)),
+                Limit::perMinute(5)->by('customer-login-id:'.$identity),
+                Limit::perHour(config('auth.customer_limits.login_id_hour', 30))->by('customer-login-id-hour:'.$identity),
+                Limit::perDay(config('auth.customer_limits.login_id_day', 100))->by('customer-login-id-day:'.$identity),
+                Limit::perMinute(config('auth.customer_limits.login_ip_minute', 120))->by('customer-login-ip:'.$network),
             ];
         });
 
@@ -494,11 +541,17 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
         RateLimiter::for('webhooks-shipping', function (Request $request) use ($networkIp): array {
+            // L5: an attacker-controlled company slug must not mint unbounded
+            // limiter buckets (and cache rows). Unknown slugs collapse into
+            // one bucket, mirroring the payment gateway handling.
+            $company = strtolower((string) $request->route('company'));
+            $bucket = in_array($company, $this->activeShippingCompanies(), true) ? $company : 'unknown';
+
             return [
                 Limit::perMinute((int) config('webhooks.rate_limits.shipping_ip_per_minute', 240))
                     ->by('webhooks-shipping-ip:'.$networkIp($request)),
                 Limit::perMinute((int) config('webhooks.rate_limits.shipping_per_minute', 120))
-                    ->by('webhooks-shipping:'.strtolower((string) $request->route('company')).':'.$networkIp($request)),
+                    ->by('webhooks-shipping:'.$bucket.':'.$networkIp($request)),
             ];
         });
         // H4: the merchant gateway and Meta webhooks no longer share a bucket,
@@ -515,6 +568,11 @@ class AppServiceProvider extends ServiceProvider
             return [Limit::perMinute($limit)->by('webhooks-whatsapp:'.($inbound ? 'inbound' : 'customers').':'.$networkIp($request))];
         });
 
+        // M5: generous base ceiling on every API surface so a flood of forged
+        // tokens cannot saturate PHP-FPM workers. Keyed by network identity:
+        // the group throttle runs before authentication resolves a token.
+        RateLimiter::for('api-base', fn (Request $request) => Limit::perMinute(600)->by('api-base:'.$networkIp($request)));
+
         RateLimiter::for('supplier-login', function (Request $request) use ($networkIp): array {
             $email = $request->input('email');
             $normalizedEmail = is_string($email)
@@ -522,10 +580,13 @@ class AppServiceProvider extends ServiceProvider
                 : '';
             $emailKey = hash('sha256', $normalizedEmail);
 
+            $network = $networkIp($request);
+            $identity = $emailKey.':'.$network;
+
             return [
-                Limit::perMinute(5)->by('supplier-login-email:'.$emailKey),
-                Limit::perHour(30)->by('supplier-login-email-hour:'.$emailKey),
-                Limit::perMinute(120)->by('supplier-login-ip:'.$networkIp($request)),
+                Limit::perMinute(5)->by('supplier-login-email:'.$identity),
+                Limit::perHour(30)->by('supplier-login-email-hour:'.$identity),
+                Limit::perMinute(120)->by('supplier-login-ip:'.$network),
             ];
         });
 
@@ -536,10 +597,13 @@ class AppServiceProvider extends ServiceProvider
                 : '';
             $emailKey = hash('sha256', $normalizedEmail);
 
+            $network = $networkIp($request);
+            $identity = $emailKey.':'.$network;
+
             return [
-                Limit::perMinute(5)->by('admin-login-email:'.$emailKey),
-                Limit::perHour(30)->by('admin-login-email-hour:'.$emailKey),
-                Limit::perMinute(120)->by('admin-login-ip:'.$networkIp($request)),
+                Limit::perMinute(5)->by('admin-login-email:'.$identity),
+                Limit::perHour(30)->by('admin-login-email-hour:'.$identity),
+                Limit::perMinute(120)->by('admin-login-ip:'.$network),
             ];
         });
 
@@ -557,10 +621,13 @@ class AppServiceProvider extends ServiceProvider
             $email = $request->input('email');
             $emailKey = hash('sha256', Str::lower(trim(is_string($email) ? $email : '')));
 
+            $network = $networkIp($request);
+            $identity = $emailKey.':'.$network;
+
             return [
-                Limit::perMinute(5)->by('pos-login-email:'.$emailKey),
-                Limit::perHour(30)->by('pos-login-email-hour:'.$emailKey),
-                Limit::perMinute(120)->by('pos-login-ip:'.$networkIp($request)),
+                Limit::perMinute(5)->by('pos-login-email:'.$identity),
+                Limit::perHour(30)->by('pos-login-email-hour:'.$identity),
+                Limit::perMinute(120)->by('pos-login-ip:'.$network),
             ];
         });
 
@@ -615,6 +682,25 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('admin-heavy', fn (Request $request) => Limit::perMinute(10)->by('admin-heavy:'.$staffKey($request).':'.($request->route()?->getName() ?? 'unknown')));
         RateLimiter::for('ai-chat', fn (Request $request) => Limit::perMinute(20)->by($staffKey($request)));
         RateLimiter::for('pos-customers', fn (Request $request) => Limit::perMinute(30)->by($staffKey($request)));
+    }
+
+    /**
+     * Active shipping company codes for webhook bucketing, cached for an
+     * hour. Unknown slugs collapse into a single 'unknown' bucket instead of
+     * minting unbounded limiter buckets and cache rows.
+     *
+     * @return list<string>
+     */
+    private function activeShippingCompanies(): array
+    {
+        try {
+            $codes = Cache::remember('shipping-company-codes', 3600, fn () => ShippingCompany::query()
+                ->where('is_active', true)->pluck('code')->all());
+        } catch (\Throwable) {
+            return [];
+        }
+
+        return array_values(array_map(strtolower(...), (array) $codes));
     }
 
     /** The merchant's own WhatsApp gateway authenticates with the shared secret header. */

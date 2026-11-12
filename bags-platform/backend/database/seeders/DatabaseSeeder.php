@@ -7,6 +7,7 @@ namespace Database\Seeders;
 use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
+use Spatie\Permission\PermissionRegistrar;
 
 class DatabaseSeeder extends Seeder
 {
@@ -46,5 +47,10 @@ class DatabaseSeeder extends Seeder
             // Demo catalog data for local and test environments only.
             $this->call(CatalogSeeder::class);
         }
+
+        // L9: WithoutModelEvents suppresses Spatie's automatic permission
+        // cache flush — expire it explicitly so seeded grants apply now
+        // instead of lingering stale until the 5-minute TTL.
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
 }

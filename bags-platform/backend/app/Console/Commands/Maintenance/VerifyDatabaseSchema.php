@@ -19,6 +19,18 @@ class VerifyDatabaseSchema extends Command
      * @var list<string>
      */
     private const EXPECTED_TRIGGERS = [
+        'stock_movements_immutable',
+        'stock_movements_no_truncate',
+        'wallet_immutable',
+        'wallet_no_truncate',
+        'treasury_transactions_immutable',
+        'treasury_transactions_no_truncate',
+        'wallet_ledger_lock_owner',
+        'wallet_ledger_check_entry',
+        'wallet_ledger_check_account',
+        'treasury_ledger_lock_owner',
+        'treasury_ledger_check_entry',
+        'treasury_ledger_check_account',
         'wallet_adjustments_immutable',
         'wallet_adjustments_no_truncate',
         'wallet_adjustments_validate_reversal',
@@ -37,6 +49,7 @@ class VerifyDatabaseSchema extends Command
     private const EXPECTED_CONSTRAINTS = [
         'wallet_adjustments_amount_positive',
         'orders_total_formula',
+        'orders_pos_tender_total',
     ];
 
     public function handle(): int
@@ -70,7 +83,7 @@ class VerifyDatabaseSchema extends Command
             JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = triggered_table.relnamespace
             WHERE namespace.nspname = current_schema()
                 AND NOT trigger_state.tgisinternal
-                AND trigger_state.tgenabled = 'D'
+                AND trigger_state.tgenabled IN ('D', 'R')
             ORDER BY issue, table_name, object_name
             SQL);
 
@@ -141,8 +154,9 @@ class VerifyDatabaseSchema extends Command
             WHERE c.contype = 'f' AND c.connamespace = current_schema()::regnamespace
                 AND NOT EXISTS (
                     SELECT 1 FROM pg_catalog.pg_index AS i
-                    WHERE i.indrelid = c.conrelid AND i.indisvalid
-                        AND (i.indkey::smallint[]::int[])[1:array_length(c.conkey, 1)] = c.conkey::int[]
+                    WHERE i.indrelid = c.conrelid AND i.indisvalid AND i.indisready AND i.indislive
+                        AND i.indpred IS NULL AND i.indnkeyatts >= cardinality(c.conkey)
+                        AND (i.indkey::smallint[])[0:cardinality(c.conkey) - 1] = c.conkey
                 )
             ORDER BY table_name, object_name
             SQL);

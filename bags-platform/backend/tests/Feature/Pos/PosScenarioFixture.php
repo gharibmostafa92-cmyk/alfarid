@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Tests\Feature\Pos;
 
 use App\Enums\Catalog\ProductStatus;
+use App\Enums\Finance\TreasuryTransactionType;
 use App\Enums\Inventory\StockBucket;
 use App\Enums\Inventory\StockMovementType;
 use App\Enums\Finance\TreasuryType;
+use App\Services\Pos\TreasuryService;
 use App\Models\Branch;
 use App\Models\Brand;
 use App\Models\Category;
@@ -76,8 +78,21 @@ abstract class PosScenarioFixture extends TestCase
         $this->safe = Treasury::create([
             'name' => 'Cairo Main Safe', 'code' => 'SAFE-CAIRO-'.Str::random(4),
             'branch_id' => $this->branch->id, 'type' => TreasuryType::MainSafe,
-            'current_balance' => 1000, 'is_active' => true,
+            'current_balance' => 0, 'is_active' => true,
         ]);
+        // The financial ledger guard requires stored balances to match the
+        // ledger chain: seed the opening float as a ledger entry instead of a
+        // bare balance, or committing tests trip the guard at fixture commit.
+        app(TreasuryService::class)->record([
+            'treasury_id' => $this->safe->id,
+            'type' => TreasuryTransactionType::OpeningBalance,
+            'amount' => 1000,
+            'reference_type' => null,
+            'reference_id' => null,
+            'created_by' => $this->cashier->id,
+            'notes' => 'رصيد افتتاحي للاختبارات',
+        ]);
+        $this->safe->refresh();
         $this->drawerB = Treasury::create([
             'name' => 'Alex Drawer', 'code' => 'DRW-ALEX-'.Str::random(4),
             'branch_id' => $this->branchB->id, 'type' => TreasuryType::PosDrawer,

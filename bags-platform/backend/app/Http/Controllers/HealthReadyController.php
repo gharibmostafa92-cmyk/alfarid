@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Redis;
 use Throwable;
@@ -39,6 +41,16 @@ final class HealthReadyController
         }
 
         $checks['storage'] = is_writable(storage_path('framework')) ? 'ok' : 'fail';
+
+        // H6: without a recent scheduler heartbeat, expirations,
+        // reconciliations and queue monitoring are silently dead.
+        try {
+            $heartbeat = Cache::get('scheduler_heartbeat_at');
+            $heartbeatAt = is_string($heartbeat) ? Carbon::parse($heartbeat) : null;
+            $checks['scheduler'] = ($heartbeatAt !== null && $heartbeatAt->greaterThan(now()->subMinutes(10))) ? 'ok' : 'fail';
+        } catch (Throwable) {
+            $checks['scheduler'] = 'fail';
+        }
 
         $ok = ! in_array('fail', $checks, true);
 

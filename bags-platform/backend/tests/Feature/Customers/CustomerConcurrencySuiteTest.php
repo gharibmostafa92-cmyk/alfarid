@@ -171,7 +171,7 @@ class CustomerConcurrencySuiteTest extends TestCase
         $service = app(CustomerPhoneVerificationService::class);
         $service->send($phone, CustomerMessageBudget::subnetKey('198.51.100.77'));
         $code = '';
-        Notification::assertSentOnDemand(\App\Notifications\CustomerPhoneVerificationCode::class, function ($n, $ch, $notifiable) use (&$code) {
+        Notification::assertSentOnDemand(\App\Notifications\Auth\CustomerPhoneVerificationCode::class, function ($n, $ch, $notifiable) use (&$code) {
             preg_match('/([0-9]{6})/', $n->toSms($notifiable), $m);
             $code = $m[1];
 

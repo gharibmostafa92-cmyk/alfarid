@@ -16,6 +16,10 @@ class ValidateCustomerDomains extends Command
 
     public function handle(): int
     {
+        // Flush deferred guard triggers (e.g. the financial ledger balance
+        // check) before taking the validation lock: callers inside a larger
+        // transaction with pending writes would otherwise fail with 55006.
+        DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
         foreach (['customers_nonnegative_credit', 'customers_approved_business', 'customers_valid_phone'] as $constraint) {
             try {
                 DB::statement('ALTER TABLE customers VALIDATE CONSTRAINT '.$constraint);

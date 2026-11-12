@@ -201,6 +201,9 @@ $config = [
 // H-3: role that receives statement/idle timeouts (the runtime login, not the migrator).
 $config['connections']['pgsql']['runtime_role'] = env('DB_RUNTIME_ROLE');
 
+// Cache operations and distributed locks must commit independently of business writes.
+$config['connections']['pgsql-cache'] = $config['connections']['pgsql'];
+
 // Readiness uses its own connection budget.
 $config['connections']['pgsql-health'] = $config['connections']['pgsql'];
 $config['connections']['pgsql-health']['options'][PDO::ATTR_TIMEOUT] = 2;

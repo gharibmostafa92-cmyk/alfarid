@@ -52,8 +52,8 @@ return new class extends Migration
             return;
         }
         $db = '"' . str_replace('"', '""', DB::getDatabaseName()) . '"';
-        // Revoke in dependency order: database/schema ACLs first, then object
-        // grants, then memberships — otherwise DROP ROLE fails with 2BP01.
+        // Roll back database-local ACLs. The roles and pg_monitor membership
+        // belong to the cluster and may be in use by other databases.
         DB::unprepared("REVOKE CONNECT ON DATABASE {$db} FROM alfarid_app, alfarid_monitor");
         DB::unprepared(<<<'SQL'
             REVOKE ALL ON SCHEMA public FROM alfarid_app, alfarid_monitor;
@@ -62,28 +62,6 @@ return new class extends Migration
             ALTER DEFAULT PRIVILEGES FOR ROLE CURRENT_USER IN SCHEMA public REVOKE ALL ON TABLES FROM alfarid_monitor;
             REVOKE ALL ON ALL TABLES IN SCHEMA public FROM alfarid_app, alfarid_monitor;
             REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM alfarid_app, alfarid_monitor;
-            REVOKE pg_monitor FROM alfarid_monitor;
-        SQL);
-        // Roles are cluster-global but this migration runs per-database. A
-        // shared local cluster (e.g. alfarid_local + alfarid_testing) may hold
-        // grants on a sibling database, which blocks DROP ROLE with 2BP01.
-        // Drop when possible; otherwise leave the now-privilege-less role and
-        // report instead of failing rollback (up() recreates idempotently).
-        DB::unprepared(<<<'SQL'
-            DO $$
-            BEGIN
-                BEGIN
-                    DROP ROLE IF EXISTS alfarid_monitor;
-                EXCEPTION WHEN dependent_objects_still_exist THEN
-                    RAISE NOTICE 'alfarid_monitor kept: dependencies remain on another database';
-                END;
-                BEGIN
-                    DROP ROLE IF EXISTS alfarid_app;
-                EXCEPTION WHEN dependent_objects_still_exist THEN
-                    RAISE NOTICE 'alfarid_app kept: dependencies remain on another database';
-                END;
-            END
-            $$;
         SQL);
     }
 };

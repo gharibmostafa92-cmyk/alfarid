@@ -2,11 +2,14 @@
 
 declare(strict_types=1);
 
+use App\Support\ConcurrentIndex;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
+    public $withinTransaction = false;
+
     private const LEDGERS = [
         ['customers', 'wallet_balance', 'customer_wallet_transactions', 'customer_id', 'wallet'],
         ['treasuries', 'current_balance', 'treasury_transactions', 'treasury_id', 'treasury'],
@@ -14,44 +17,16 @@ return new class extends Migration
 
     public function up(): void
     {
-        DB::statement("SET LOCAL lock_timeout = '2s'");
-
         foreach (self::LEDGERS as [$parent, $balance, $ledger, $owner, $name]) {
-            DB::unprepared(<<<SQL
-                LOCK TABLE {$parent}, {$ledger} IN SHARE ROW EXCLUSIVE MODE;
-                CREATE INDEX {$name}_ledger_owner_sequence_idx ON {$ledger} ({$owner}, id);
+            ConcurrentIndex::ensure("{$name}_ledger_owner_sequence_idx", "ON {$ledger} ({$owner}, id)");
+            $this->validateLedger($parent, $balance, $ledger, $owner);
 
-                DO \$\$
-                DECLARE
-                    invalid_id bigint;
-                BEGIN
-                    SELECT entry.id INTO invalid_id
-                    FROM (
-                        SELECT id, amount, balance_after,
-                            lag(balance_after, 1, 0::numeric) OVER (PARTITION BY {$owner} ORDER BY id) AS previous_balance
-                        FROM {$ledger}
-                    ) entry
-                    WHERE entry.amount::text = 'NaN' OR entry.balance_after::text = 'NaN'
-                        OR entry.previous_balance::text = 'NaN'
-                        OR entry.balance_after <> entry.previous_balance + entry.amount
-                    LIMIT 1;
-                    IF FOUND THEN
-                        RAISE EXCEPTION 'Reconcile {$ledger} entry % before enabling balance enforcement', invalid_id;
-                    END IF;
-
-                    SELECT account.id INTO invalid_id
-                    FROM {$parent} account
-                    LEFT JOIN LATERAL (
-                        SELECT balance_after FROM {$ledger}
-                        WHERE {$owner} = account.id ORDER BY id DESC LIMIT 1
-                    ) latest ON true
-                    WHERE account.{$balance} IS DISTINCT FROM coalesce(latest.balance_after, 0)
-                    LIMIT 1;
-                    IF FOUND THEN
-                        RAISE EXCEPTION 'Reconcile {$parent} account % before enabling balance enforcement', invalid_id;
-                    END IF;
-                END;
-                \$\$;
+            DB::transaction(function () use ($parent, $balance, $ledger, $owner, $name): void {
+                DB::statement("SET LOCAL lock_timeout = '2s'");
+                DB::unprepared(<<<SQL
+                DROP TRIGGER IF EXISTS {$name}_ledger_lock_owner ON {$ledger};
+                DROP TRIGGER IF EXISTS {$name}_ledger_check_entry ON {$ledger};
+                DROP TRIGGER IF EXISTS {$name}_ledger_check_account ON {$parent};
 
                 CREATE OR REPLACE FUNCTION lock_{$name}_ledger_owner() RETURNS trigger LANGUAGE plpgsql AS \$\$
                 BEGIN
@@ -114,20 +89,64 @@ return new class extends Migration
                 CREATE CONSTRAINT TRIGGER {$name}_ledger_check_account AFTER INSERT OR UPDATE OF {$balance}, id ON {$parent}
                     DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION check_{$name}_ledger_balance();
                 SQL);
+            });
+
+            // Catch writes committed between the preflight and trigger installation.
+            $this->validateLedger($parent, $balance, $ledger, $owner);
         }
+    }
+
+    private function validateLedger(string $parent, string $balance, string $ledger, string $owner): void
+    {
+        DB::unprepared(<<<SQL
+            DO \$\$
+            DECLARE
+                invalid_id bigint;
+            BEGIN
+                SELECT entry.id INTO invalid_id
+                FROM (
+                    SELECT id, amount, balance_after,
+                        lag(balance_after, 1, 0::numeric) OVER (PARTITION BY {$owner} ORDER BY id) AS previous_balance
+                    FROM {$ledger}
+                ) entry
+                WHERE entry.amount::text = 'NaN' OR entry.balance_after::text = 'NaN'
+                    OR entry.previous_balance::text = 'NaN'
+                    OR entry.balance_after <> entry.previous_balance + entry.amount
+                LIMIT 1;
+                IF FOUND THEN
+                    RAISE EXCEPTION 'Reconcile {$ledger} entry % before enabling balance enforcement', invalid_id;
+                END IF;
+
+                SELECT account.id INTO invalid_id
+                FROM {$parent} account
+                LEFT JOIN LATERAL (
+                    SELECT balance_after FROM {$ledger}
+                    WHERE {$owner} = account.id ORDER BY id DESC LIMIT 1
+                ) latest ON true
+                WHERE account.{$balance} IS DISTINCT FROM coalesce(latest.balance_after, 0)
+                LIMIT 1;
+                IF FOUND THEN
+                    RAISE EXCEPTION 'Reconcile {$parent} account % before enabling balance enforcement', invalid_id;
+                END IF;
+            END;
+            \$\$;
+            SQL);
     }
 
     public function down(): void
     {
         foreach (self::LEDGERS as [$parent, , $ledger, , $name]) {
-            DB::unprepared(<<<SQL
+            DB::transaction(function () use ($parent, $ledger, $name): void {
+                DB::statement("SET LOCAL lock_timeout = '2s'");
+                DB::unprepared(<<<SQL
                 DROP TRIGGER {$name}_ledger_check_account ON {$parent};
                 DROP TRIGGER {$name}_ledger_check_entry ON {$ledger};
                 DROP TRIGGER {$name}_ledger_lock_owner ON {$ledger};
                 DROP FUNCTION check_{$name}_ledger_balance();
                 DROP FUNCTION lock_{$name}_ledger_owner();
-                DROP INDEX {$name}_ledger_owner_sequence_idx;
                 SQL);
+            });
+            ConcurrentIndex::drop("{$name}_ledger_owner_sequence_idx");
         }
     }
 };

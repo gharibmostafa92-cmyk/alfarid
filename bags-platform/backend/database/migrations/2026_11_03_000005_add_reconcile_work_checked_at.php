@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Support\ConcurrentIndex;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
@@ -18,13 +19,14 @@ return new class extends Migration
     public function up(): void
     {
         DB::statement('ALTER TABLE inventory_reconcile_work ADD COLUMN IF NOT EXISTS checked_at timestamptz NULL');
-        DB::statement('CREATE INDEX CONCURRENTLY IF NOT EXISTS inventory_reconcile_work_branch_checked_index
-            ON inventory_reconcile_work (branch_id, checked_at NULLS FIRST, key)');
+        // F-16: ConcurrentIndex::ensure recovers an INVALID leftover from a
+        // failed concurrent build instead of skipping it forever.
+        ConcurrentIndex::ensure('inventory_reconcile_work_branch_checked_index', 'ON inventory_reconcile_work (branch_id, checked_at NULLS FIRST, key)');
     }
 
     public function down(): void
     {
-        DB::statement('DROP INDEX CONCURRENTLY IF EXISTS inventory_reconcile_work_branch_checked_index');
+        ConcurrentIndex::drop('inventory_reconcile_work_branch_checked_index');
         DB::statement('ALTER TABLE inventory_reconcile_work DROP COLUMN IF EXISTS checked_at');
     }
 };

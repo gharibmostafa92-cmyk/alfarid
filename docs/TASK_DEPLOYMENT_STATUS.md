@@ -28,10 +28,7 @@ Repomix map: there is no `repomix.auth-security.json` — the `Repomix:` notes b
 
 ### Task B — unified-login per-account throttle (uncommitted working tree)
 
-- ✅ H2 — `unified-login` limiter gains per-account hourly/daily ceilings independent of IP.
-  - Files: `bags-platform/backend/app/Providers/AppServiceProvider.php`, `bags-platform/backend/config/auth.php`, `bags-platform/backend/.env.example`
-  - Behavior: `Limit::perHour(auth.unified_login_id_hour, 30)` by `unified-login-id-hour:<id>` + `Limit::perDay(auth.unified_login_id_day, 100)` by `unified-login-id-day:<id>`; existing per-minute IP + per-minute id+IP limits unchanged.
-  - Deploy notes: code-only, no migration. New env vars `UNIFIED_LOGIN_ID_HOUR` (default 30), `UNIFIED_LOGIN_ID_DAY` (default 100) — set in prod to match; only affects newly counted attempts. An attacker can still force a temporary lockout of a targeted account (accepted trade-off per roadmap).
+- Unified login tracks failed attempts in `UnifiedAuthService`. The identifier limits use `UNIFIED_LOGIN_IDENTIFIER_FAILURES_HOUR` (30) and `UNIFIED_LOGIN_FAILURES_DAY` (100). Separate limits apply to the identifier and network pair, the network, and overall failed traffic.
 - Tests: new `tests/Feature/Auth/UnifiedLoginAccountThrottleTest.php` (2 passed, watched fail first with 401-vs-429); neighbors `UnifiedLoginTest` + `UnifiedLoginHardeningTest` 58/58 passed.
 - Repomix: `AppServiceProvider.php` added to `repomix/configs/repomix.auth-security.json` includes; regenerated `repomix/outputs/started/repomix-auth-security.xml` (80 files).
 

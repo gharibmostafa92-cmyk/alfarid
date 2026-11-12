@@ -257,21 +257,38 @@ class UnifiedLoginHardeningTest extends TestCase
     public function test_scheduled_database_cache_cleanup_preserves_live_entries_and_locks(): void
     {
         config()->set('cache.default', 'database');
-        DB::table('cache')->insert([
-            ['key' => 'expired', 'value' => serialize(1), 'expiration' => now()->subMinute()->timestamp],
-            ['key' => 'live', 'value' => serialize(1), 'expiration' => now()->addHour()->timestamp],
-        ]);
-        DB::table('cache_locks')->insert([
-            ['key' => 'expired-lock', 'owner' => 'owner', 'expiration' => now()->subMinute()->timestamp],
-            ['key' => 'live-lock', 'owner' => 'owner', 'expiration' => now()->addHour()->timestamp],
-        ]);
-        $event = collect(app(Schedule::class)->events())->firstWhere('description', 'cache:prune-expired');
-        $this->assertNotNull($event);
-        $event->run($this->app);
-        $this->assertDatabaseMissing('cache', ['key' => 'expired']);
-        $this->assertDatabaseMissing('cache_locks', ['key' => 'expired-lock']);
-        $this->assertDatabaseHas('cache', ['key' => 'live']);
-        $this->assertDatabaseHas('cache_locks', ['key' => 'live-lock']);
+        // Initialize the test schema before writing through the independent cache connection.
+        DB::selectOne('SELECT 1');
+        $cache = DB::connection(config('cache.stores.database.connection'));
+        $locks = DB::connection(config('cache.stores.database.lock_connection') ?: $cache->getName());
+        $prefix = 'prune-test-'.uniqid().'-';
+        $expired = $prefix.'expired';
+        $live = $prefix.'live';
+        $expiredLock = $prefix.'expired-lock';
+        $liveLock = $prefix.'live-lock';
+        $past = now()->subMinute()->timestamp;
+        $future = now()->addHour()->timestamp;
+
+        try {
+            $cache->table('cache')->insert([
+                ['key' => $expired, 'value' => serialize(1), 'expiration' => $past],
+                ['key' => $live, 'value' => serialize(1), 'expiration' => $future],
+            ]);
+            $locks->table('cache_locks')->insert([
+                ['key' => $expiredLock, 'owner' => 'owner', 'expiration' => $past],
+                ['key' => $liveLock, 'owner' => 'owner', 'expiration' => $future],
+            ]);
+            $event = collect(app(Schedule::class)->events())->firstWhere('description', 'cache:prune-expired');
+            $this->assertNotNull($event);
+            $event->run($this->app);
+            $this->assertDatabaseMissing('cache', ['key' => $expired], $cache->getName());
+            $this->assertDatabaseMissing('cache_locks', ['key' => $expiredLock], $locks->getName());
+            $this->assertDatabaseHas('cache', ['key' => $live], $cache->getName());
+            $this->assertDatabaseHas('cache_locks', ['key' => $liveLock], $locks->getName());
+        } finally {
+            $cache->table('cache')->whereIn('key', [$expired, $live])->delete();
+            $locks->table('cache_locks')->whereIn('key', [$expiredLock, $liveLock])->delete();
+        }
     }
 
     public function test_authentication_audit_retention_preserves_business_audits(): void

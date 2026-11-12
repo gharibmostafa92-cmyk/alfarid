@@ -69,6 +69,19 @@ class EmailUniquenessTest extends TestCase
         $this->assertFalse($this->fails('supplier_users', 'supplier-taken@example.test'));
     }
 
+    public function test_verified_email_can_be_reused_after_soft_deletion(): void
+    {
+        $old = Customer::factory()->create([
+            'email' => 'verified-closed@example.test', 'email_verified_at' => now(),
+        ]);
+        $old->delete();
+
+        $current = Customer::factory()->create([
+            'email' => 'VERIFIED-CLOSED@example.test', 'email_verified_at' => now(),
+        ]);
+        $this->assertNotNull($current->fresh()->email_verified_at);
+    }
+
     public function test_soft_deleted_customer_email_is_reusable(): void
     {
         $customer = Customer::factory()->create(['email' => 'gone@example.test']);

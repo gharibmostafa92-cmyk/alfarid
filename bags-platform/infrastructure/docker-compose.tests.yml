@@ -1,4 +1,17 @@
 services:
+  postgres-test:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: alfarid_testing
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: alfarid_testing
+    networks: [appnet]
+    healthcheck:
+      test: [CMD, pg_isready, -U, postgres, -d, alfarid_testing]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    profiles: [test]
   tests:
     extends: {file: docker-compose.yml, service: app1}
     image: alfarid-tests:local
@@ -6,9 +19,14 @@ services:
     entrypoint: [sh, -c, 'php artisan config:clear && php artisan test "$@"', '--']
     environment:
       APP_ENV: testing
-      DB_HOST: postgres
+      DB_HOST: postgres-test
       DB_PORT: '5432'
       DB_DATABASE: alfarid_testing
+      DB_USERNAME: postgres
+      DB_PASSWORD: alfarid_testing
+      DB_SSLMODE: disable
+      DB_URL: ''
+      DB_RUNTIME_ROLE: ''
       CACHE_STORE: array
       CACHE_LIMITER: array
       QUEUE_CONNECTION: sync

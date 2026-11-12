@@ -35,6 +35,31 @@ class Task2KernelGuardsTest extends TestCase
         Log::shouldHaveReceived('warning')->once();
     }
 
+    public function test_whatsapp_watch_alerts_after_three_separate_disconnects(): void
+    {
+        config()->set('services.whatsapp_gateway.url', 'http://wa.test');
+        config()->set('services.whatsapp_gateway.secret', 'secret');
+        config()->set('logging.channels.slack.url', null);
+        $this->freezeTime();
+        Cache::flush();
+        Http::fake(['*/status' => Http::sequence()
+            ->push(['state' => 'unreachable'])
+            ->push(['state' => 'connected'])
+            ->push(['state' => 'unreachable'])
+            ->push(['state' => 'connected'])
+            ->push(['state' => 'unreachable'])]);
+        Log::spy();
+
+        for ($probe = 0; $probe < 5; $probe++) {
+            $this->artisan('whatsapp:watch-connection')->assertSuccessful();
+            $this->travel(5)->minutes();
+        }
+
+        Log::shouldHaveReceived('warning')->with('اتصال واتساب واقع.', [
+            'state' => 'unreachable', 'repeated_disconnects' => true,
+        ])->once();
+    }
+
     public function test_numbering_collision_scan_uses_a_bounded_sql_max(): void
     {
         DB::statement('CREATE TEMPORARY TABLE t2_numbering_scan (number varchar(50))');

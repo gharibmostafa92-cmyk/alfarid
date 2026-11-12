@@ -78,7 +78,7 @@ class BranchLifecycleConcurrencyTest extends TestCase
         $token = $admin->createToken('race')->plainTextToken;
         $targets = User::factory()->count(2)->create();
         $jobs = $targets->map(fn ($user) => $this->httpJob($token, 'PUT', '/api/v1/admin/users/'.$user->id,
-            ['expected_version' => (int) $user->lock_version, 'email' => 'same-new-address@example.test']))->all();
+            ['expected_version' => (int) $user->lock_version, 'email' => 'same-new-address@example.test', 'current_password' => 'password']))->all();
         $results = $this->concurrentJobs($jobs);
         $this->assertEqualsCanonicalizing([200, 422], array_column($results, 'status'));
         $this->assertSame(1, User::where('email', 'same-new-address@example.test')->count());

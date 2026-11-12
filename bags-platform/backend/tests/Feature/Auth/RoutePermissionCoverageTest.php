@@ -37,7 +37,7 @@ class RoutePermissionCoverageTest extends TestCase
         'admin.treasury-transfers.reject' => 'permission:treasury_transfers.approve',
         'admin.customers.wallet.show' => 'permission:customers.wallet.view',
         'admin.customers.wallet.summary' => 'permission:customers.wallet.view',
-        'admin.customers.wallet.adjustments.index' => 'permission:customers.wallet.adjust',
+        'admin.customers.wallet.adjustments.index' => 'permission:customers.wallet.view',
         'admin.customers.wallet.adjustments.store' => 'permission:customers.wallet.adjust',
         'admin.wallet.adjustments.reverse' => 'permission:customers.wallet.adjust',
         'admin.orders.update-payment' => 'permission:orders.payment',

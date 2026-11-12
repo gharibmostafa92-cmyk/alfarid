@@ -50,13 +50,15 @@ class CustomerPhoneVerificationService
             return true;
         });
         if ($created) {
-            try {
-                Notification::route('customer_sms', $phone)->notify(new CustomerPhoneVerificationCode($code));
-                logger()->info('Customer OTP delivered.');
-            } catch (\Throwable $exception) {
-                logger()->error('Customer OTP delivery failed.', ['exception' => $exception::class]);
-                throw $exception;
-            }
+            DB::afterCommit(function () use ($phone, $code): void {
+                try {
+                    Notification::route('customer_sms', $phone)->notify(new CustomerPhoneVerificationCode($code));
+                    logger()->info('Customer OTP delivered.');
+                } catch (\Throwable $exception) {
+                    logger()->error('Customer OTP delivery failed.', ['exception' => $exception::class]);
+                    throw $exception;
+                }
+            });
         }
     }
 

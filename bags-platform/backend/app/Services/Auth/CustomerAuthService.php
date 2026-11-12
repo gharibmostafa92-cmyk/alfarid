@@ -250,11 +250,13 @@ class CustomerAuthService
             return;
         }
 
-        try {
-            $customer->notify(new CustomerPasswordReset($plainToken, $email ? 'mail' : CustomerSmsChannel::class));
-        } catch (\Throwable $exception) {
-            report($exception);
-        }
+        DB::afterCommit(function () use ($customer, $plainToken, $email): void {
+            try {
+                $customer->notify(new CustomerPasswordReset($plainToken, $email ? 'mail' : CustomerSmsChannel::class));
+            } catch (\Throwable $exception) {
+                report($exception);
+            }
+        });
     }
 
     /**

@@ -177,8 +177,8 @@ class PaymentWebhookService
                     : null;
                 if ($order === null) {
                     $log->update(['status' => 'failed', 'error' => 'طلب غير موجود: '.($orderReference ?? '—')]);
-                    // Non-2xx so the gateway redelivers once the order commit becomes visible.
-                    return ['http' => 409, 'body' => ['received' => false, 'message' => 'order not found']];
+                    // Only a valid reference can become visible after the order commits.
+                    return ['http' => $orderReference === null ? 409 : 503, 'body' => ['received' => false, 'message' => 'order not found']];
                 }
 
                 if (in_array($order->payment_method, ['wallet', 'bank_transfer'], true)) {
@@ -466,6 +466,15 @@ class PaymentWebhookService
         // report the cumulative charge total. Reconcile using charge.refunded.
         if (is_string($type) && str_contains(strtolower($type), 'refund.') && $type !== 'charge.refunded') {
             return null;
+        }
+
+        // A charge-level refunded event fires only when Stripe refunded that
+        // charge in full, so the charge amount itself is the refunded amount.
+        if (is_string($type) && strtolower($type) === 'charge.refunded') {
+            $chargeCents = data_get($payload, 'data.object.amount');
+            if (is_numeric($chargeCents) && (float) $chargeCents > 0 && floor((float) $chargeCents) === (float) $chargeCents) {
+                return (float) $chargeCents / 100;
+            }
         }
 
         $stripeCents = data_get($payload, 'data.object.amount_refunded');

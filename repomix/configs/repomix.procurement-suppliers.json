@@ -1,6 +1,6 @@
 ﻿{
     "output":  {
-                   "filePath":  "repomix/outputs/repomix-procurement-suppliers.xml",
+                   "filePath":  "repomix/outputs/started/repomix-procurement-suppliers.xml",
                    "style":  "xml",
                    "parsableStyle":  true,
                    "fileSummary":  true,

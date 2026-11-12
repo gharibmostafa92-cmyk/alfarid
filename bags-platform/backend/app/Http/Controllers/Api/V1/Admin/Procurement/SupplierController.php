@@ -13,6 +13,7 @@ use App\Http\Resources\Admin\Procurement\SupplierResource;
 use App\Http\Resources\Admin\Procurement\SupplierUserResource;
 use App\Models\Supplier;
 use App\Models\SupplierUser;
+use App\Rules\EmailNotUsedByOtherAccountType;
 use App\Services\Shared\SearchTerm;
 use App\Services\Procurement\SupplierService;
 use Illuminate\Http\JsonResponse;
@@ -21,6 +22,8 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 /**
  * Supplier profiles and portal staff administration with ledger balance tracking.
@@ -117,7 +120,20 @@ class SupplierController extends Controller implements HasMiddleware
      */
     public function storeUser(StoreSupplierUserRequest $request, Supplier $supplier): JsonResponse
     {
-        $user = $supplier->users()->create($request->validated());
+        $data = $request->validated();
+        $user = DB::transaction(function () use ($supplier, $data): SupplierUser {
+            // M7: same advisory key as the other registration paths so the
+            // re-check below cannot race a concurrent signup elsewhere.
+            $lockEmail = mb_strtolower(trim((string) ($data['email'] ?? '')));
+            if ($lockEmail !== '') {
+                DB::select('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [$lockEmail]);
+            }
+            Validator::make(['email' => $data['email'] ?? null], [
+                'email' => ['required', 'email', Rule::unique('supplier_users', 'email'), new EmailNotUsedByOtherAccountType('supplier_users')],
+            ])->validate();
+
+            return $supplier->users()->create($data);
+        });
 
         return SupplierUserResource::make($user)->response()->setStatusCode(201);
     }

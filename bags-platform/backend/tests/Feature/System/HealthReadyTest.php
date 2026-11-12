@@ -3,6 +3,7 @@
 namespace Tests\Feature\System;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Redis;
 use Tests\TestCase;
 
@@ -19,9 +20,31 @@ class HealthReadyTest extends TestCase
                 return true;
             }
         });
+        Cache::put('scheduler_heartbeat_at', now()->toIso8601String(), 600);
 
         $this->get('/health/ready')->assertOk()
-            ->assertJsonPath('status', 'ok')->assertJsonPath('checks.redis', 'ok');
+            ->assertJsonPath('status', 'ok')->assertJsonPath('checks.redis', 'ok')
+            ->assertJsonPath('checks.scheduler', 'ok');
+    }
+
+    public function test_readiness_fails_when_the_scheduler_heartbeat_is_stale(): void
+    {
+        // H6: a dead scheduler must page via readiness instead of rotting silently.
+        Cache::put('scheduler_heartbeat_at', now()->subMinutes(11)->toIso8601String(), 600);
+
+        $response = $this->get('/health/ready');
+
+        $response->assertStatus(503)
+            ->assertJsonPath('status', 'fail')
+            ->assertJsonPath('checks.scheduler', 'fail');
+    }
+
+    public function test_readiness_fails_when_the_scheduler_never_reported(): void
+    {
+        Cache::forget('scheduler_heartbeat_at');
+
+        $this->get('/health/ready')->assertStatus(503)
+            ->assertJsonPath('checks.scheduler', 'fail');
     }
 
     public function test_readiness_returns_service_unavailable_when_redis_fails(): void
@@ -36,6 +59,7 @@ class HealthReadyTest extends TestCase
     {
         config(['app.readiness_check_redis' => false]);
         Redis::shouldReceive('connection')->never();
+        Cache::put('scheduler_heartbeat_at', now()->toIso8601String(), 600);
 
         $this->get('/health/ready')->assertOk()
             ->assertJsonPath('checks.db', 'ok')
@@ -53,11 +77,15 @@ class HealthReadyTest extends TestCase
         $this->assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
     }
 
-    public function test_valid_custom_request_id_is_echoed(): void
+    public function test_client_request_id_is_not_adopted_without_a_trusted_proxy(): void
     {
+        // L8: without a trusted proxy the server mints the correlation id;
+        // the client value is kept aside instead of being adopted.
         $response = $this->get('/health/ready', ['X-Request-ID' => 'demo-probe-123']);
 
-        $response->assertHeader('X-Request-ID', 'demo-probe-123');
+        $id = $response->headers->get('X-Request-ID');
+        $this->assertIsString($id);
+        $this->assertNotSame('demo-probe-123', $id);
     }
 
     public function test_invalid_request_id_is_replaced_with_uuid(): void

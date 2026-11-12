@@ -59,11 +59,7 @@ final class WholesaleOutbox
         }
 
         if ($deliver) {
-            if ($template === 'customer_otp') {
-                SendOutboundMessage::dispatch($message->id)->afterCommit();
-            } else {
-                SendOutboundMessage::dispatch($message->id);
-            }
+            SendOutboundMessage::dispatch($message->id)->afterCommit();
         }
     }
 

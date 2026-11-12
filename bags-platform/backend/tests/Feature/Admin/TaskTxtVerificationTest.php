@@ -751,7 +751,7 @@ class TaskTxtVerificationTest extends TestCase
         $t1 = $uPass->createToken('d1')->plainTextToken;
         $t2 = $uPass->createToken('d2')->plainTextToken;
         $this->req($adminToken, 'PUT', "/api/v1/admin/users/{$uPass->id}", [
-            'expected_version' => (int) $uPass->fresh()->lock_version, 'password' => 'NewSecretPass123',
+            'expected_version' => (int) $uPass->fresh()->lock_version, 'password' => 'NewSecretPass123', 'current_password' => 'password',
         ])->assertOk();
         $this->assertSame(0, $uPass->tokens()->count());
         $this->req($t1, 'GET', '/api/v1/admin/me')->assertUnauthorized();
@@ -761,7 +761,7 @@ class TaskTxtVerificationTest extends TestCase
         $uMail = User::factory()->create(['email' => 'oldmail@example.test']);
         $tMail = $uMail->createToken('d1')->plainTextToken;
         $this->req($adminToken, 'PUT', "/api/v1/admin/users/{$uMail->id}", [
-            'expected_version' => (int) $uMail->fresh()->lock_version, 'email' => 'newmail@example.test',
+            'expected_version' => (int) $uMail->fresh()->lock_version, 'email' => 'newmail@example.test', 'current_password' => 'password',
         ])->assertOk();
         $this->req($tMail, 'GET', '/api/v1/admin/me')->assertUnauthorized();
 
@@ -771,7 +771,7 @@ class TaskTxtVerificationTest extends TestCase
         $vBefore = (int) $uRole->fresh()->lock_version;
         $tRole = $uRole->createToken('d1')->plainTextToken;
         $this->req($adminToken, 'PUT', "/api/v1/admin/users/{$uRole->id}", [
-            'expected_version' => $vBefore, 'roles' => ['Role Two'],
+            'expected_version' => $vBefore, 'roles' => ['Role Two'], 'current_password' => 'password',
         ])->assertOk();
         $this->assertSame($vBefore + 1, (int) $uRole->fresh()->lock_version);
         $this->req($tRole, 'GET', '/api/v1/admin/me')->assertUnauthorized();
@@ -779,7 +779,7 @@ class TaskTxtVerificationTest extends TestCase
         // 4. Sending identical current roles does NOT revoke tokens.
         $tSameRole = $uRole->createToken('d2')->plainTextToken;
         $this->req($adminToken, 'PUT', "/api/v1/admin/users/{$uRole->id}", [
-            'expected_version' => $uRole->fresh()->lock_version, 'roles' => ['Role Two'],
+            'expected_version' => $uRole->fresh()->lock_version, 'roles' => ['Role Two'], 'current_password' => 'password',
         ])->assertOk();
         $this->req($tSameRole, 'GET', '/api/v1/admin/me')->assertOk();
 
@@ -806,11 +806,11 @@ class TaskTxtVerificationTest extends TestCase
         $limitKey = 'staff:current-password:'.$user->id;
         \Illuminate\Support\Facades\RateLimiter::clear($limitKey);
 
-        // Missing current_password on PUT /users/{self} password change -> 422 on current_password.
+        // Accounts pending rotation may only use the dedicated password endpoint.
         $this->req($token, 'PUT', "/api/v1/admin/users/{$user->id}", [
             'expected_version' => $user->fresh()->lock_version,
             'password' => 'UpdatedPass1234',
-        ])->assertUnprocessable()->assertJsonValidationErrors('current_password');
+        ])->assertForbidden()->assertJsonPath('code', 'password_change_required');
 
         // 5 wrong attempts return 422; 6th returns 429.
         for ($i = 1; $i <= 5; $i++) {
@@ -1287,11 +1287,11 @@ class TaskTxtVerificationTest extends TestCase
     public function test_item27_prune_staff_audit_logs_batches_and_min_clamp(): void
     {
         $this->freezeTime();
-        // Configure retention = 10 days -> clamped to 30 days minimum.
+        // Configure retention = 10 days -> clamped to 365 days minimum.
         config(['auth.staff_audit_retention_days' => 10]);
 
         $rows = [];
-        $oldTime = now()->subDays(30)->subSecond();
+        $oldTime = now()->subDays(365)->subSecond();
         for ($i = 0; $i < 2500; $i++) {
             $rows[] = [
                 'actor_id' => null,
@@ -1305,9 +1305,9 @@ class TaskTxtVerificationTest extends TestCase
         foreach (array_chunk($rows, 500) as $chunk) {
             DB::table('staff_audit_logs')->insert($chunk);
         }
-        // Boundary (exactly 30 days ago) and recent (15 days ago, which would be deleted if 10 wasn't clamped to 30).
+        // Boundary (exactly 365 days ago) and recent (15 days ago, which would be deleted if 10 wasn't clamped to 30).
         DB::table('staff_audit_logs')->insert([
-            ['actor_id' => null, 'action' => 'boundary.entry', 'target_type' => 'branch', 'target_id' => 1, 'metadata' => '{}', 'created_at' => now()->subDays(30)],
+            ['actor_id' => null, 'action' => 'boundary.entry', 'target_type' => 'branch', 'target_id' => 1, 'metadata' => '{}', 'created_at' => now()->subDays(365)],
             ['actor_id' => null, 'action' => 'recent.15d', 'target_type' => 'branch', 'target_id' => 2, 'metadata' => '{}', 'created_at' => now()->subDays(15)],
         ]);
 
@@ -1549,7 +1549,7 @@ class TaskTxtVerificationTest extends TestCase
             'expected_version' => $v0, 'name' => 'renamed-cashier',
         ])->assertForbidden();
         $this->req($token, 'PUT', "/api/v1/admin/roles/{$cashier->id}", [
-            'expected_version' => $v0, 'permissions' => ['branches.view'],
+            'expected_version' => $v0, 'permissions' => ['branches.view'], 'current_password' => 'password',
         ])->assertOk()->assertJsonPath('data.version', $v0 + 1);
     }
 
@@ -1622,6 +1622,7 @@ class TaskTxtVerificationTest extends TestCase
         $this->freezeTime();
         config(['auth.staff_token_minutes' => 120]);
         $staff = User::factory()->create();
+        $staff->assignRole(Role::findOrCreate('Super Admin', 'staff'));
         $issued = app(\App\Services\Auth\StaffTokenService::class)->issue($staff);
 
         $this->travel(119)->minutes();

@@ -46,14 +46,19 @@ class TaskTxtWholesaleRateLimitTest extends TestCase
         $this->postJson('/api/v1/wholesale/auth/register', [])->assertStatus(429);
 
         // Documented in task.txt item 31 (owner decision pending):
-        // payment-notices and quick-order/import do not currently attach a dedicated route-level throttle.
+        // payment-notices and quick-order/import do not attach a dedicated
+        // route-level throttle; the generous M5 api-base ceiling is their
+        // only throttle.
         $noticesMiddleware = $routes->get('api/v1/wholesale/payment-notices')?->gatherMiddleware() ?? [];
         $importMiddleware = $routes->get('api/v1/wholesale/quick-order/import')?->gatherMiddleware() ?? [];
 
-        $hasDedicatedNoticeThrottle = collect($noticesMiddleware)->contains(fn (string $m) => str_contains($m, 'ThrottleRequests') || str_starts_with($m, 'throttle:'));
-        $hasDedicatedImportThrottle = collect($importMiddleware)->contains(fn (string $m) => str_contains($m, 'ThrottleRequests') || str_starts_with($m, 'throttle:'));
+        $isDedicated = fn ($m) => is_string($m) && (str_contains($m, 'ThrottleRequests') || (str_starts_with($m, 'throttle:') && $m !== 'throttle:api-base'));
+        $hasDedicatedNoticeThrottle = collect($noticesMiddleware)->contains($isDedicated);
+        $hasDedicatedImportThrottle = collect($importMiddleware)->contains($isDedicated);
 
         $this->assertFalse($hasDedicatedNoticeThrottle);
         $this->assertFalse($hasDedicatedImportThrottle);
+        $this->assertTrue(collect($noticesMiddleware)->contains('throttle:api-base'));
+        $this->assertTrue(collect($importMiddleware)->contains('throttle:api-base'));
     }
 }

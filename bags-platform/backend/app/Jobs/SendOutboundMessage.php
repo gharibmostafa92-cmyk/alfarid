@@ -47,8 +47,8 @@ class SendOutboundMessage implements ShouldQueue
         }
 
         $message->loadMissing('customer');
-        $to = $message->customer?->whatsapp_phone ?: $message->customer?->phone;
-        if ($message->customer_id === null || ! is_string($to) || $to === '') {
+        $destination = CustomerChannel::canonicalPhone((string) ($message->customer?->whatsapp_phone ?: $message->customer?->phone));
+        if ($destination === null) {
             $message->update(['status' => 'skipped', 'error' => 'no_customer_destination', ...$redacted]);
 
             return;
@@ -58,7 +58,6 @@ class SendOutboundMessage implements ShouldQueue
         if ($otp) {
             $channel = CustomerChannel::query()->where('customer_id', $message->customer_id)
                 ->where('provider', 'whatsapp_cloud')->find($parameters['channel_id'] ?? null);
-            $destination = CustomerChannel::canonicalPhone($to);
             if (! is_string($parameters['code'] ?? null) || $channel === null || $channel->phone !== $destination
                 || $channel->verification_code_hash === null
                 || ! $channel->verification_expires_at?->isFuture()
@@ -67,7 +66,6 @@ class SendOutboundMessage implements ShouldQueue
 
                 return;
             }
-            $to = ltrim($channel->phone, '+');
             $parameters = [$parameters['code']];
         }
 
@@ -88,7 +86,7 @@ class SendOutboundMessage implements ShouldQueue
                 ->timeout(15)
                 ->post("https://graph.facebook.com/v21.0/{$phoneId}/messages", [
                     'messaging_product' => 'whatsapp',
-                    'to' => $to,
+                    'to' => ltrim($destination, '+'),
                     'type' => 'template',
                     'template' => [
                         'name' => (string) $message->template,

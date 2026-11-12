@@ -66,13 +66,8 @@ final class CustomerWhatsAppWebhookController extends Controller
             return response()->json(['ok' => true, 'duplicate' => true]);
         }
 
-        $phone = Customer::normalizePhone($message['from']);
         $sender = CustomerChannel::canonicalPhone($message['from']);
-        $matches = Customer::query()->whereAnyPhone($phone)->get()->filter(
-            fn (Customer $customer): bool => $sender !== null
-                && CustomerChannel::canonicalPhone((string) ($customer->whatsapp_phone ?: $customer->phone)) === $sender,
-        );
-        $customer = $matches->count() === 1 ? $matches->first() : null;
+        $customer = $sender === null ? null : $this->customerForSender($sender);
         // Acknowledge unlinked senders with 200 OK to prevent webhook replay loops while ignoring untracked traffic.
         if ($customer === null) {
             return response()->json(['ok' => true, 'linked' => false]);
@@ -81,6 +76,20 @@ final class CustomerWhatsAppWebhookController extends Controller
         $reply = $this->respond($customer, $message, $sender);
 
         return response()->json(['ok' => true, 'reply' => $reply]);
+    }
+
+    private function customerForSender(string $sender): ?Customer
+    {
+        // Customer accounts index Egyptian numbers in local form. Convert the
+        // sender once and prefer an explicit WhatsApp number over the login phone.
+        $phone = Customer::normalizePhone($sender);
+        $matches = Customer::query()
+            ->where(fn ($query) => $query->where('whatsapp_phone', $phone)
+                ->orWhere(fn ($fallback) => $fallback->whereNull('whatsapp_phone')->where('phone', $phone)))
+            ->limit(2)
+            ->get();
+
+        return $matches->count() === 1 ? $matches->first() : null;
     }
 
     /**

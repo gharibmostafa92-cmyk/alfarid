@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\System;
 
 use App\Providers\AppServiceProvider;
+use Illuminate\Support\Facades\DB;
 use ReflectionMethod;
 use Tests\TestCase;
 
@@ -14,6 +15,10 @@ class ProductionGuardsTest extends TestCase
     protected function tearDown(): void
     {
         putenv('K_SERVICE');
+        try {
+            DB::statement('RESET ROLE');
+        } catch (\Throwable) {
+        }
         parent::tearDown();
     }
 
@@ -86,9 +91,9 @@ class ProductionGuardsTest extends TestCase
     public function test_sslmode_inside_db_url_cannot_bypass_the_check(): void
     {
         // M6: pgsql connections merge DB_URL query parameters, so an embedded
-        // sslmode=prefer would silently re-enable plaintext connections.
+        // sslmode=require would skip verification of the server identity.
         $this->forceProduction([
-            'database.connections.pgsql.url' => 'pgsql://runtime:secret@127.0.0.1:5432/alfarid?sslmode=prefer',
+            'database.connections.pgsql.url' => 'pgsql://runtime:secret@127.0.0.1:5432/alfarid?sslmode=require',
             'database.connections.pgsql.sslmode' => 'verify-full',
         ]);
 
@@ -106,9 +111,45 @@ class ProductionGuardsTest extends TestCase
         $this->assertTrue(true);
     }
 
-    /** @param array<string, mixed> $overrides */
-    private function forceProduction(array $overrides = []): void
+    public function test_owner_login_is_refused(): void
     {
+        // F-02: an owner login voids every REVOKE the migrations granted.
+        $this->forceProduction([], true);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessageMatches('/owns or can assume ownership of .* tables/');
+        $this->runGuards();
+    }
+
+    public function test_superuser_default_credentials_are_refused(): void
+    {
+        // F-24: postgres/empty-password must never reach production.
+        $this->forceProduction([
+            'database.connections.pgsql.username' => 'postgres',
+            'database.connections.pgsql.password' => '',
+            'database.connections.pgsql.url' => null,
+        ]);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessageMatches('/DB_USERNAME\/DB_PASSWORD/');
+        $this->runGuards();
+    }
+
+    /**
+     * @param array<string, mixed> $overrides
+     * @param bool $asOwner Leave the suite's owner connection as-is (F-02 case).
+     */
+    private function forceProduction(array $overrides = [], bool $asOwner = false): void
+    {
+        // Open the database handle before tightening sslmode: the guards under
+        // test only run SELECTs on it, while building a NEW handle with
+        // verify-full against the local non-SSL server would fail to connect.
+        DB::selectOne('SELECT 1');
+        if (! $asOwner) {
+            // The suite connects as the table owner; assume the runtime login
+            // so the ownership check observes a non-owner, like production.
+            DB::statement("SET ROLE 'alfarid_app'");
+        }
         app()->instance('env', 'production');
         config()->set(array_merge([
             'app.trusted_proxies' => '10.0.0.5',

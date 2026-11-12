@@ -10,6 +10,7 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Services\Media\R2UploadMigration;
 use App\Services\Media\UuidPathGenerator;
+use Generator;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -28,7 +29,7 @@ class MigrateUploadsToR2 extends Command
     public function handle(R2UploadMigration $migration): int
     {
         $count = 0;
-        $failures = [];
+        $failures = 0;
         $catalogPrefixes = [];
         Media::query()
             ->when($this->option('catalog-only'), fn ($query) => $query->whereIn('model_type', [Product::class, ProductVariant::class, Category::class, Brand::class]))
@@ -48,7 +49,7 @@ class MigrateUploadsToR2 extends Command
                             $this->deleteSources($item->id, $migration);
                         }
                     } catch (Throwable $e) {
-                        $failures[] = $item->id.': '.$e->getMessage();
+                        $failures++;
                         $this->error('Skipped media '.$item->id.': '.$e->getMessage());
                     }
                 }
@@ -58,35 +59,31 @@ class MigrateUploadsToR2 extends Command
         $directories = ['customer_documents', 'return_requests', 'supplier_deliveries', 'supplier_invoices', 'wholesale_payment_notices'];
         foreach ($this->option('catalog-only') ? [] : ['public', 'local'] as $disk) {
             try {
-                $paths = $disk === 'public' ? Storage::disk($disk)->allFiles() : collect($directories)
-                    ->flatMap(fn ($directory) => Storage::disk($disk)->allFiles($directory))->all();
-            } catch (Throwable $e) {
-                $failures[] = $disk.': '.$e->getMessage();
-                $this->error('Skipped disk '.$disk.': '.$e->getMessage());
-
-                continue;
-            }
-            foreach ($paths as $path) {
-                if (basename($path) === '.gitignore') {
-                    continue;
-                }
-                if ($disk === 'public' && isset($catalogPrefixes[explode('/', $path, 2)[0]])) {
-                    continue;
-                }
-                try {
-                    $migration->copy($disk, $path);
-                    if ($this->option('delete-source')) {
-                        $migration->deleteVerifiedSource($disk, $path);
+                foreach ($this->filePaths($disk, $disk === 'public' ? [''] : $directories) as $path) {
+                    if (basename($path) === '.gitignore') {
+                        continue;
                     }
-                    $count++;
-                } catch (Throwable $e) {
-                    $failures[] = $path.': '.$e->getMessage();
-                    $this->error('Skipped file '.$path.': '.$e->getMessage());
+                    if ($disk === 'public' && isset($catalogPrefixes[explode('/', $path, 2)[0]])) {
+                        continue;
+                    }
+                    try {
+                        $migration->copy($disk, $path);
+                        if ($this->option('delete-source')) {
+                            $migration->deleteVerifiedSource($disk, $path);
+                        }
+                        $count++;
+                    } catch (Throwable $e) {
+                        $failures++;
+                        $this->error('Skipped file '.$path.': '.$e->getMessage());
+                    }
                 }
+            } catch (Throwable $e) {
+                $failures++;
+                $this->error('Skipped disk '.$disk.': '.$e->getMessage());
             }
         }
-        if ($failures !== []) {
-            $this->error('R2 migration finished with '.count($failures).' failures; rerun after fixing them.');
+        if ($failures > 0) {
+            $this->error('R2 migration finished with '.$failures.' failures; rerun after fixing them.');
             $this->info('R2 migration verified: '.$count.' media records / remaining files processed.');
 
             return self::FAILURE;
@@ -96,6 +93,19 @@ class MigrateUploadsToR2 extends Command
         $this->info('R2 migration verified: '.$count.' media records / remaining files processed.');
 
         return self::SUCCESS;
+    }
+
+    /** @param list<string> $directories */
+    private function filePaths(string $disk, array $directories): Generator
+    {
+        $filesystem = Storage::disk($disk)->getDriver();
+        foreach ($directories as $directory) {
+            foreach ($filesystem->listContents($directory, true) as $entry) {
+                if ($entry->isFile()) {
+                    yield $entry->path();
+                }
+            }
+        }
     }
 
     private function copyMedia(Media $snapshot, R2UploadMigration $migration): bool
@@ -120,7 +130,7 @@ class MigrateUploadsToR2 extends Command
             if ($disk === $target && ! $rekey) {
                 continue;
             }
-            foreach (Storage::disk($disk)->allFiles(rtrim($base, '/')) as $path) {
+            foreach ($this->filePaths($disk, [rtrim($base, '/')]) as $path) {
                 $targetPath = $targetBase.substr($path, strlen($base));
                 $migration->copy($disk, $path, $target, $targetPath);
                 $sources[] = [$disk, $path, $target, $targetPath];

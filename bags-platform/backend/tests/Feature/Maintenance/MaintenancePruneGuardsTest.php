@@ -8,6 +8,7 @@ use App\Models\CustomerAuditLog;
 use App\Models\WebhookLog;
 use App\Rules\UniqueCatalogIdentifier;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use Tests\TestCase;
@@ -16,6 +17,29 @@ use Tests\TestCase;
 class MaintenancePruneGuardsTest extends TestCase
 {
     use LazilyRefreshDatabase;
+
+    public function test_database_cache_writes_and_locks_commit_independently_of_business_transactions(): void
+    {
+        DB::selectOne('SELECT 1');
+        $cache = Cache::store('database');
+        $key = 'cache-transaction-audit';
+        $lock = $cache->lock($key, 30);
+
+        try {
+            DB::beginTransaction();
+            try {
+                $cache->put($key, 'committed', 30);
+                $this->assertTrue($lock->get());
+                $this->assertDatabaseHas('cache_locks', ['key' => $cache->getStore()->getPrefix().$key]);
+            } finally {
+                DB::rollBack();
+            }
+            $this->assertSame('committed', $cache->get($key));
+        } finally {
+            $lock->release();
+            $cache->forget($key);
+        }
+    }
 
     public function test_verify_schema_passes_on_healthy_schema(): void
     {

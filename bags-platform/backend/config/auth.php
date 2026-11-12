@@ -19,8 +19,9 @@ return [
     'staff_max_tokens' => (int) env('STAFF_MAX_TOKENS', 20),
     'legacy_login_enabled' => env('LEGACY_LOGIN_ENABLED', false),
     'unified_login_ip_minute' => (int) env('UNIFIED_LOGIN_IP_MINUTE', 120),
-    'unified_login_id_hour' => (int) env('UNIFIED_LOGIN_ID_HOUR', 30),
-    'unified_login_id_day' => (int) env('UNIFIED_LOGIN_ID_DAY', 100),
+    // M7: per-account attempt ceilings live in UnifiedAuthService and count
+    // failures only (auth.unified_login_*_failures_*); the old id_hour/id_day
+    // keys were unread and have been removed to avoid building on dead knobs.
     'unified_login_failures_hour' => (int) env('UNIFIED_LOGIN_FAILURES_HOUR', 10),
     'unified_login_ip_failures_hour' => (int) env('UNIFIED_LOGIN_IP_FAILURES_HOUR', 1000),
     'unified_login_failures_day' => (int) env('UNIFIED_LOGIN_FAILURES_DAY', 100),

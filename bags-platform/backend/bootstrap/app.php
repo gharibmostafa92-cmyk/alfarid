@@ -6,11 +6,14 @@ use App\Http\Middleware\EnsureCustomerAuthenticated;
 use App\Http\Middleware\EnsureOpenPosShift;
 use App\Http\Middleware\EnsureStaffAuthenticated;
 use App\Http\Middleware\EnsureSupplierAuthenticated;
+use App\Http\Middleware\EnsureUnifiedAccountActive;
 use App\Http\Middleware\EnsureWholesaleApproved;
 use App\Http\Middleware\LimitPaymentWebhookBody;
 use App\Http\Middleware\ManufacturingBusiness;
+use App\Http\Middleware\ThrottleApiBeforeAuthentication;
 use App\Http\Middleware\WarnUntrustedProxyHeaders;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Application;
@@ -80,11 +83,13 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->prepend(LimitPaymentWebhookBody::class);
         // Resolve trusted forwarding headers before recording client_ip.
         $middleware->append([AssignRequestId::class, WarnUntrustedProxyHeaders::class]);
-        $middleware->api(prepend: [ManufacturingBusiness::class]);
+        $middleware->api(prepend: [ThrottleApiBeforeAuthentication::class, ManufacturingBusiness::class]);
+        $middleware->prependToPriorityList(AuthenticatesRequests::class, ThrottleApiBeforeAuthentication::class);
         $middleware->alias([
             'auth.staff' => EnsureStaffAuthenticated::class,
             'auth.customer' => EnsureCustomerAuthenticated::class,
             'auth.supplier' => EnsureSupplierAuthenticated::class,
+            'unified.active' => EnsureUnifiedAccountActive::class,
             'wholesale.approved' => EnsureWholesaleApproved::class,
             'role' => RoleMiddleware::class,
             'permission' => PermissionMiddleware::class,
@@ -95,8 +100,9 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->report(function (QueryException $e) {
             $state = (string) ($e->errorInfo[0] ?? $e->getCode());
             if ($state === '57014' || str_starts_with($state, '08')) {
-                // M-7: keep it out of the error tracker but make runaway statements diagnosable (no bindings).
-                logger()->warning('Database operation unavailable.', [
+                // Keep SQL bindings out of the report while exposing connection outages to error alerts.
+                $level = $state === '57014' ? 'warning' : 'error';
+                logger()->log($level, 'Database operation unavailable.', [
                     'sqlstate' => $state,
                     'connection' => $e->getConnectionName(),
                     'sql' => mb_substr($e->getSql(), 0, 2000),

@@ -9,6 +9,7 @@ use App\Http\Requests\Admin\Auth\UpdateSettingsRequest;
 use App\Models\Setting;
 use App\Services\Auth\StaffAdministration;
 use Brick\Math\BigDecimal;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -448,14 +449,39 @@ class SettingService
                 ['settings' => $this->auditableSettings($before)], ['settings' => $this->auditableSettings($after)], $via);
             DB::afterCommit(fn () => $this->clearCache());
 
-            // Synchronize sequence within transaction: non-transactional sequence advance may leave gaps on rollback, but prevents duplicate document numbers.
-            if ($movementSequenceTarget !== null) {
-                DB::selectOne('SELECT inventory_movement_number(?) AS number', [$movementSequenceTarget]);
-            }
-            foreach ($documentSequenceTargets as $type => $minimum) {
-                DB::selectOne('SELECT document_next_number(?, ?) AS number', [$type, $minimum]);
-            }
+            // Synchronize sequences within the transaction: a non-transactional
+            // sequence advance may leave gaps on rollback, but prevents
+            // duplicate document numbers.
+            $this->synchronizeSequences($movementSequenceTarget, $documentSequenceTargets);
         }, attempts: 3);
+    }
+
+    /**
+     * Advance the movement/document sequences to at least the synchronized
+     * targets. A concurrent allocation can hold the numbering lock while it
+     * accesses the sequence. Retry the sync with backoff on 55P03.
+     *
+     * @param  array<string, int>  $documentSequenceTargets
+     *
+     * @throws JsonException
+     */
+    private function synchronizeSequences(?int $movementSequenceTarget, array $documentSequenceTargets): void
+    {
+        // PostgreSQL aborts the current transaction on 55P03. Roll back to a
+        // savepoint before retrying so subsequent queries can actually run.
+        retry(
+            3,
+            fn () => DB::transaction(function () use ($movementSequenceTarget, $documentSequenceTargets): void {
+                if ($movementSequenceTarget !== null) {
+                    DB::selectOne('SELECT inventory_movement_number(?) AS number', [$movementSequenceTarget]);
+                }
+                foreach ($documentSequenceTargets as $type => $minimum) {
+                    DB::selectOne('SELECT document_next_number(?, ?) AS number', [$type, $minimum]);
+                }
+            }),
+            fn (int $attempt): int => 500 * $attempt,
+            fn (\Throwable $e): bool => $e instanceof QueryException && ($e->errorInfo[0] ?? null) === '55P03',
+        );
     }
 
     /**

@@ -36,6 +36,21 @@ class CustomerAbuseProtectionTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
+    public function test_verification_and_reset_delivery_wait_for_the_outer_commit(): void
+    {
+        Notification::fake();
+        $customer = Customer::factory()->create(['phone' => '01112345678']);
+
+        DB::transaction(function () use ($customer): void {
+            app(CustomerPhoneVerificationService::class)->send('01012345678', 'test-network');
+            app(CustomerAuthService::class)->sendPasswordReset(null, $customer->phone);
+            Notification::assertNothingSent();
+        });
+
+        Notification::assertSentOnDemand(CustomerPhoneVerificationCode::class);
+        Notification::assertSentTo($customer, CustomerPasswordReset::class);
+    }
+
     private function staff(array $permissions): array
     {
         $staff = User::factory()->create();
@@ -433,6 +448,7 @@ class CustomerAbuseProtectionTest extends TestCase
 
     public function test_legacy_phone_normalization_is_a_dry_run_until_explicit_apply(): void
     {
+        DB::statement('SET CONSTRAINTS wallet_ledger_check_account IMMEDIATE');
         $customer = Customer::factory()->create(['phone' => '01001234567']);
         DB::statement('ALTER TABLE customers DROP CONSTRAINT customers_valid_phone');
         DB::table('customers')->where('id', $customer->id)->update(['phone' => '+201001234567']);
@@ -446,6 +462,7 @@ class CustomerAbuseProtectionTest extends TestCase
 
     public function test_legacy_phone_collisions_require_manual_repair_without_modifying_accounts(): void
     {
+        DB::statement('SET CONSTRAINTS wallet_ledger_check_account IMMEDIATE');
         $first = Customer::factory()->create(['phone' => '01001234567']);
         $second = Customer::factory()->create();
         DB::statement('ALTER TABLE customers DROP CONSTRAINT customers_valid_phone');

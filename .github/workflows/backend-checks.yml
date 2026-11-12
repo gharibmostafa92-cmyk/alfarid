@@ -1,0 +1,64 @@
+name: Backend checks
+
+on:
+  pull_request:
+    paths:
+      - 'bags-platform/backend/**'
+      - '.github/workflows/backend-checks.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'bags-platform/backend/**'
+      - '.github/workflows/backend-checks.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bags-platform/backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: alfarid_testing
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # M8: artisan boots production guards without APP_ENV=testing; the suite
+      # itself forces testing via phpunit.xml, but every artisan call before
+      # it (install scripts, migrate) needs the same environment.
+      APP_ENV: testing
+      APP_KEY: base64:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: alfarid_testing
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      CACHE_STORE: array
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_pgsql, pgsql, mbstring, intl, bcmath, gd, redis
+          coverage: none
+      - uses: actions/cache@v4
+        with:
+          path: bags-platform/backend/vendor
+          key: composer-${{ hashFiles('bags-platform/backend/composer.lock') }}
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - run: php artisan migrate --force
+      - run: php artisan db:verify-schema
+      - run: php artisan test

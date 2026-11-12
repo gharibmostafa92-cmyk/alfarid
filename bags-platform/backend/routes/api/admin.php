@@ -381,7 +381,10 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
             Route::post('conversations', [AiConversationController::class, 'store'])->middleware('throttle:ai-conversations')->name('conversations.store');
             Route::get('conversations/{conversation}', [AiConversationController::class, 'show'])->name('conversations.show');
             Route::delete('conversations/{conversation}', [AiConversationController::class, 'destroy'])->name('conversations.destroy');
-            Route::post('conversations/{conversation}/messages', [AiMessageController::class, 'store'])->middleware('throttle:ai-chat')->name('conversations.messages.store');
+            // L1: the synchronous turn runs the same agent pipeline as the
+            // SSE stream, so it shares the single-stream lock; otherwise a
+            // stream plus a store call run two models concurrently.
+            Route::post('conversations/{conversation}/messages', [AiMessageController::class, 'store'])->middleware(['throttle:ai-chat', PreventConcurrentAiStream::class])->name('conversations.messages.store');
             Route::post('conversations/{conversation}/attachments', [AiAttachmentController::class, 'store'])->middleware('throttle:ai-attachments')->name('conversations.attachments.store');
             Route::post('actions/{action}/confirm', [AiActionController::class, 'confirm'])->middleware('permission:ai_agent.execute')->name('actions.confirm');
             Route::post('actions/{action}/cancel', [AiActionController::class, 'cancel'])->name('actions.cancel');

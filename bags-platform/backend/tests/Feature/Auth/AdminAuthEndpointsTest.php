@@ -10,7 +10,6 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Testing\TestResponse;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -130,25 +129,21 @@ class AdminAuthEndpointsTest extends TestCase
         $this->getAsToken($otherToken, '/api/v1/admin/me')->assertOk();
     }
 
-    public function test_login_attempts_are_limited_per_account_across_different_ips(): void
+    public function test_legacy_login_limits_failed_requests_on_one_network_without_blocking_another(): void
     {
-        $emailKey = hash('sha256', 'target@example.test');
-        RateLimiter::clear('admin-login-email:'.$emailKey);
-        RateLimiter::clear('admin-login-email-hour:'.$emailKey);
+        $user = User::factory()->create(['email' => 'target@example.test']);
+        $user->assignRole(Role::findOrCreate('Super Admin', 'staff'));
+        $credentials = ['email' => $user->email, 'password' => 'wrong-password'];
 
-        for ($attempt = 1; $attempt <= 5; $attempt++) {
-            $this->withServerVariables(['REMOTE_ADDR' => "198.51.100.{$attempt}"])
-                ->postJson('/api/v1/admin/auth/login', [
-                    'email' => 'target@example.test',
-                    'password' => 'wrong-password',
-                ])->assertUnauthorized();
+        $this->withServerVariables(['REMOTE_ADDR' => '198.51.100.1']);
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $this->postJson('/api/v1/admin/auth/login', $credentials)->assertUnauthorized();
         }
+        $this->postJson('/api/v1/admin/auth/login', $credentials)->assertTooManyRequests();
 
         $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.80'])
-            ->postJson('/api/v1/admin/auth/login', [
-                'email' => 'target@example.test',
-                'password' => 'wrong-password',
-            ])->assertStatus(429);
+            ->postJson('/api/v1/admin/auth/login', ['email' => $user->email, 'password' => 'password'])
+            ->assertOk();
     }
 
     private function getAsToken(string $token, string $uri): TestResponse
