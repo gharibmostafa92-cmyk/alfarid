@@ -24,7 +24,14 @@
                     "bags-platform/frontend/apps/pos/src/services/**",
                     "bags-platform/frontend/apps/pos/src/components/**",
                     "bags-platform/frontend/apps/pos/src/types/**",
-                    "bags-platform/frontend/apps/pos/src/pages/**"
+                    "bags-platform/frontend/apps/pos/src/pages/**",
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Finance/PosShiftAdminController.php",
+                    "bags-platform/frontend/apps/backoffice/src/pages/pos/components/shift/CloseShiftModal.tsx",
+                    "bags-platform/frontend/apps/backoffice/src/pages/pos/components/terminal/ScanBar.tsx",
+                    "bags-platform/frontend/apps/backoffice/src/pages/pos/services/pos-api.core.ts",
+                    "bags-platform/frontend/apps/backoffice/src/pages/pos/services/pos-data-source.ts",
+                    "bags-platform/backend/app/Console/Commands/Pos/PruneHeldSales.php",
+                    "bags-platform/backend/database/migrations/2026_11_12_000070_align_treasury_shift_expense_precision.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

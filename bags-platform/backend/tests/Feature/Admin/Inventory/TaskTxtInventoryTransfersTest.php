@@ -112,6 +112,191 @@ class TaskTxtInventoryTransfersTest extends TaskTxtInventoryCase
         $this->assertSame('0.0000', $this->level($variant->id, $from->id)->reserved);
     }
 
+    // ---------- §9b: approve/retry + cancel/retry idempotency ----------
+
+    public function test_approve_retry_after_success_replays_without_side_effects(): void
+    {
+        $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
+        $token = $this->tokenFor($admin);
+        $from = Branch::factory()->create(['is_active' => true]);
+        $to = Branch::factory()->create(['is_active' => true]);
+        $variant = ProductVariant::factory()->create();
+        $this->seedStock($token, $from, $variant, 10);
+
+        $transfer = $this->makeTransfer($token, $from, $to, $variant, 6);
+        $itemId = $transfer['items'][0]['id'];
+        $payload = ['expected_version' => $transfer['version'], 'items' => [['id' => $itemId, 'approved_qty' => 5]]];
+
+        $approved = $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/approve", $payload)
+            ->assertOk()->json('data');
+
+        // Retrying with the same quantities and the current version replays the stage.
+        $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/approve", [
+            'expected_version' => $approved['version'],
+            'items' => [['id' => $itemId, 'approved_qty' => 5]],
+        ])->assertOk()->assertJsonPath('data.status', 'approved');
+        $this->assertSame('5.0000', $this->level($variant->id, $from->id)->reserved);
+        $this->assertSame(1, StockMovement::where('product_variant_id', $variant->id)->where('type', StockMovementType::Reserve->value)->count());
+
+        // Retrying with different quantities is a conflict, not a silent success.
+        $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/approve", [
+            'expected_version' => $approved['version'],
+            'items' => [['id' => $itemId, 'approved_qty' => 4]],
+        ])->assertConflict();
+    }
+
+    public function test_cancel_retry_after_success_returns_entity(): void
+    {
+        $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
+        $token = $this->tokenFor($admin);
+        $from = Branch::factory()->create(['is_active' => true]);
+        $to = Branch::factory()->create(['is_active' => true]);
+        $variant = ProductVariant::factory()->create();
+        $this->seedStock($token, $from, $variant, 10);
+
+        $transfer = $this->makeTransfer($token, $from, $to, $variant, 6);
+        $itemId = $transfer['items'][0]['id'];
+        $approved = $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/approve", [
+            'expected_version' => $transfer['version'],
+            'items' => [['id' => $itemId, 'approved_qty' => 5]],
+        ])->assertOk()->json('data');
+
+        $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/cancel")
+            ->assertOk()->assertJsonPath('data.status', 'cancelled');
+
+        // Retrying a completed cancellation returns the entity instead of an error.
+        $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/cancel")
+            ->assertOk()->assertJsonPath('data.status', 'cancelled');
+        $this->assertSame('0.0000', $this->level($variant->id, $from->id)->reserved);
+        $this->assertSame(1, StockMovement::where('product_variant_id', $variant->id)->where('type', StockMovementType::Reserve->value)->count());
+        $this->assertSame(1, StockMovement::where('product_variant_id', $variant->id)->where('type', StockMovementType::ReleaseReserve->value)->count());
+    }
+
+    // ---------- M-2: shortage write-off needs its own permission ----------
+
+    public function test_receive_with_shortage_requires_shortage_permission(): void
+    {
+        $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
+        $adminToken = $this->tokenFor($admin);
+        $receiver = $this->staffWithPermissions([
+            'inventory.view', 'inventory.all_branches',
+            'transfers.view', 'transfers.create', 'transfers.receive',
+        ]);
+        $receiverToken = $this->tokenFor($receiver);
+        $from = Branch::factory()->create(['is_active' => true]);
+        $to = Branch::factory()->create(['is_active' => true]);
+        $variant = ProductVariant::factory()->create();
+        $this->seedStock($adminToken, $from, $variant, 10);
+
+        $transfer = $this->makeTransfer($adminToken, $from, $to, $variant, 6);
+        $itemId = $transfer['items'][0]['id'];
+        $approved = $this->requestWithToken($adminToken, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/approve", [
+            'expected_version' => $transfer['version'],
+            'items' => [['id' => $itemId, 'approved_qty' => 6]],
+        ])->assertOk()->json('data');
+        $shipped = $this->requestWithToken($adminToken, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/ship", [
+            'expected_version' => $approved['version'],
+            'items' => [['id' => $itemId, 'shipped_qty' => 4]],
+        ])->assertOk()->json('data');
+
+        // Declaring a shortage without the shortage permission is forbidden and writes nothing.
+        $this->requestWithToken($receiverToken, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/receive", [
+            'expected_version' => $shipped['version'],
+            'items' => [['id' => $itemId, 'received_qty' => 3]],
+        ])->assertForbidden();
+        $this->assertSame('4.0000', $this->level($variant->id, $to->id)->in_transit);
+        $this->assertSame(0, StockMovement::where('product_variant_id', $variant->id)->where('type', StockMovementType::TransferShortage->value)->count());
+
+        // A full receipt with no shortage still works without the extra permission.
+        $this->requestWithToken($receiverToken, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/receive", [
+            'expected_version' => $shipped['version'],
+            'items' => [['id' => $itemId, 'received_qty' => 4]],
+        ])->assertOk()->assertJsonPath('data.status', 'received');
+        $this->assertSame('4.0000', $this->level($variant->id, $to->id)->on_hand);
+    }
+
+    public function test_receive_with_shortage_succeeds_with_shortage_permission(): void
+    {
+        $admin = $this->staffWithPermissions(array_merge(self::ALL_PERMISSIONS, ['transfers.approve_shortage']));
+        $token = $this->tokenFor($admin);
+        $from = Branch::factory()->create(['is_active' => true]);
+        $to = Branch::factory()->create(['is_active' => true]);
+        $variant = ProductVariant::factory()->create();
+        $this->seedStock($token, $from, $variant, 10);
+
+        $transfer = $this->makeTransfer($token, $from, $to, $variant, 6);
+        $itemId = $transfer['items'][0]['id'];
+        $approved = $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/approve", [
+            'expected_version' => $transfer['version'],
+            'items' => [['id' => $itemId, 'approved_qty' => 6]],
+        ])->assertOk()->json('data');
+        $shipped = $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/ship", [
+            'expected_version' => $approved['version'],
+            'items' => [['id' => $itemId, 'shipped_qty' => 4]],
+        ])->assertOk()->json('data');
+
+        $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/receive", [
+            'expected_version' => $shipped['version'],
+            'items' => [['id' => $itemId, 'received_qty' => 3]],
+        ])->assertOk()->assertJsonPath('data.status', 'received');
+        $this->assertSame('3.0000', $this->level($variant->id, $to->id)->on_hand);
+        $this->assertSame(1, StockMovement::where('product_variant_id', $variant->id)->where('type', StockMovementType::TransferShortage->value)->count());
+    }
+
+    // ---------- L-6: destination branch or creator may edit/cancel a draft ----------
+
+    public function test_destination_branch_user_can_update_and_cancel_draft(): void
+    {
+        $from = Branch::factory()->create(['is_active' => true]);
+        $to = Branch::factory()->create(['is_active' => true]);
+        $variant = ProductVariant::factory()->create();
+        $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
+        $this->seedStock($this->tokenFor($admin), $from, $variant, 10);
+
+        $destination = $this->staffWithPermissions([
+            'inventory.view', 'transfers.view', 'transfers.create', 'transfers.update',
+        ], $to->id);
+        $destinationToken = $this->tokenFor($destination);
+
+        // Destination user creates the draft (allowed) then edits and cancels it.
+        $transfer = $this->requestWithToken($destinationToken, 'POST', '/api/v1/admin/transfers', [
+            'from_branch_id' => $from->id,
+            'to_branch_id' => $to->id,
+            'items' => [['product_variant_id' => $variant->id, 'requested_qty' => 4]],
+        ])->assertCreated()->json('data');
+
+        $this->requestWithToken($destinationToken, 'PATCH', "/api/v1/admin/transfers/{$transfer['id']}", [
+            'notes' => 'destination edit',
+        ])->assertOk()->assertJsonPath('data.notes', 'destination edit');
+
+        $this->requestWithToken($destinationToken, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/cancel", [])
+            ->assertOk()->assertJsonPath('data.status', 'cancelled');
+    }
+
+    public function test_unrelated_branch_user_cannot_touch_draft(): void
+    {
+        $from = Branch::factory()->create(['is_active' => true]);
+        $to = Branch::factory()->create(['is_active' => true]);
+        $other = Branch::factory()->create(['is_active' => true]);
+        $variant = ProductVariant::factory()->create();
+        $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
+        $this->seedStock($this->tokenFor($admin), $from, $variant, 10);
+
+        $outsider = $this->staffWithPermissions([
+            'inventory.view', 'transfers.view', 'transfers.update',
+        ], $other->id);
+        $outsiderToken = $this->tokenFor($outsider);
+
+        $transfer = $this->makeTransfer($this->tokenFor($admin), $from, $to, $variant, 4);
+
+        $this->requestWithToken($outsiderToken, 'PATCH', "/api/v1/admin/transfers/{$transfer['id']}", [
+            'notes' => 'hijack',
+        ])->assertForbidden();
+        $this->requestWithToken($outsiderToken, 'POST', "/api/v1/admin/transfers/{$transfer['id']}/cancel", [])
+            ->assertForbidden();
+        $this->assertSame('draft', $transfer['status']);
+    }
+
     // ---------- §8c: updated_at without version (service level) ----------
 
     public function test_service_rejects_updated_at_without_version(): void
@@ -248,8 +433,10 @@ class TaskTxtInventoryTransfersTest extends TaskTxtInventoryCase
         $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$draft['id']}/cancel", [])->assertOk();
         $this->assertSame($movesBefore, StockMovement::query()->count());
 
-        // Cancelled again → 422.
-        $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$draft['id']}/cancel", [])->assertUnprocessable();
+        // Cancelled again → idempotent replay of the entity.
+        $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$draft['id']}/cancel", [])
+            ->assertOk()->assertJsonPath('data.status', 'cancelled');
+        $this->assertSame($movesBefore, StockMovement::query()->count());
 
         // Approved: cancel releases the reserve.
         $transfer = $this->makeTransfer($token, $from, $to, $variant, 5);

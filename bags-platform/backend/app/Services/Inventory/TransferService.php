@@ -17,6 +17,7 @@ use App\Models\ProductVariant;
 use App\Models\StockMovement;
 use App\Models\StockTransfer;
 use App\Models\StockTransferItem;
+use App\Models\User;
 use App\Services\Concerns\HandlesIdempotentCreation;
 use Carbon\Carbon;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -128,8 +129,15 @@ class TransferService
         return DB::transaction(function () use ($transfer, $data, $userId): StockTransfer {
             $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
             $this->assertStatus($transfer, TransferStatus::Draft, 'التعديل');
-            app(BranchAccess::class)->assertBranch($userId, $transfer->from_branch_id);
-            app(BranchAccess::class)->assertBranch($userId, (int) ($data['from_branch_id'] ?? $transfer->from_branch_id));
+            $this->assertDraftAccess($transfer, $userId);
+            // Moving the draft across branches requires access to the new side; leaving
+            // the branches untouched keeps the relaxed draft access above.
+            if (array_key_exists('from_branch_id', $data) && (int) $data['from_branch_id'] !== (int) $transfer->from_branch_id) {
+                app(BranchAccess::class)->assertBranch($userId, (int) $data['from_branch_id']);
+            }
+            if (array_key_exists('to_branch_id', $data) && (int) $data['to_branch_id'] !== (int) $transfer->to_branch_id) {
+                app(BranchAccess::class)->assertBranch($userId, (int) $data['to_branch_id']);
+            }
 
             $fromBranch = $data['from_branch_id'] ?? $transfer->from_branch_id;
             $toBranch = $data['to_branch_id'] ?? $transfer->to_branch_id;
@@ -171,6 +179,10 @@ class TransferService
             $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
             $transfer->load('items.variant');
             app(BranchAccess::class)->assertBranch($userId, $transfer->from_branch_id);
+            if ($transfer->status === TransferStatus::Approved) {
+                // Retry after a timeout: same quantities replay the stage, different ones conflict.
+                return $this->replayCompletedStage($transfer, $itemsPayload, 'approved_qty');
+            }
             $this->assertPayloadMatchesLockedItems($transfer, $itemsPayload, $expectedUpdatedAt, $expectedVersion);
             $this->assertStatus($transfer, TransferStatus::Draft, 'الاعتماد');
             // Early validation prevents approving transfers targeted at inactive or unreceivable branches.
@@ -429,6 +441,12 @@ class TransferService
                 }
             }
 
+            if ($shortageNotes !== [] && ! User::query()->findOrFail($userId)->can('transfers.approve_shortage')) {
+                // Writing off in-transit stock as a shortage moves value out of the books with
+                // no counter-entry: only a second authorized approver may declare it.
+                throw new BusinessException('تسجيل عجز عند الاستلام يتطلب صلاحية اعتماد العجز.', [], 403);
+            }
+
             if ($qtyUpdates !== []) {
                 StockTransferItem::query()->upsert($qtyUpdates, ['id'], ['received_qty', 'updated_at']);
             }
@@ -461,7 +479,21 @@ class TransferService
         return DB::transaction(function () use ($transfer, $userId): StockTransfer {
             $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
             $transfer->load('items.variant');
-            app(BranchAccess::class)->assertBranch($userId, $transfer->from_branch_id);
+
+            if ($transfer->status === TransferStatus::Cancelled) {
+                // Retry after a timeout: a completed cancellation returns the entity as-is.
+                // Same access rule as the draft it was cancelled from, so a destination-side
+                // retry does not fail after the first cancellation succeeded.
+                $this->assertDraftAccess($transfer, $userId);
+
+                return $transfer->load(['items.variant', 'fromBranch', 'toBranch']);
+            }
+
+            if ($transfer->status === TransferStatus::Draft) {
+                $this->assertDraftAccess($transfer, $userId);
+            } else {
+                app(BranchAccess::class)->assertBranch($userId, $transfer->from_branch_id);
+            }
 
             if ($transfer->status === TransferStatus::Approved) {
                 $levels = $this->lockTransferLevels($transfer, true, false);
@@ -509,7 +541,11 @@ class TransferService
     {
         DB::transaction(function () use ($transfer, $userId): void {
             $transfer = StockTransfer::query()->lockForUpdate()->findOrFail($transfer->id);
-            app(BranchAccess::class)->assertBranch($userId, $transfer->from_branch_id);
+            if ($transfer->status === TransferStatus::Draft) {
+                $this->assertDraftAccess($transfer, $userId);
+            } else {
+                app(BranchAccess::class)->assertBranch($userId, $transfer->from_branch_id);
+            }
 
             if (! in_array($transfer->status, [TransferStatus::Draft, TransferStatus::Cancelled], true)) {
                 throw new BusinessException('لا يمكن حذف تحويل إلا في حالة المسودة أو الملغي.');
@@ -573,6 +609,31 @@ class TransferService
     }
 
     /**
+     * Authorize draft changes from the source branch, the destination branch, or the creator.
+     *
+     * A draft initiated by the destination store manager must remain manageable by that
+     * side: the creator or anyone with destination-branch access may edit or cancel it.
+     */
+    private function assertDraftAccess(StockTransfer $transfer, int $userId): void
+    {
+        if ((int) $transfer->created_by === $userId || $this->hasBranchAccess($userId, (int) $transfer->to_branch_id)) {
+            return;
+        }
+        app(BranchAccess::class)->assertBranch($userId, $transfer->from_branch_id);
+    }
+
+    private function hasBranchAccess(int $userId, int $branchId): bool
+    {
+        try {
+            app(BranchAccess::class)->assertBranch($userId, $branchId);
+
+            return true;
+        } catch (AuthorizationException) {
+            return false;
+        }
+    }
+
+    /**
      * Authorize transfer initiation from either source or destination branch.
      *
      * Transfers can be initiated by source warehouse dispatchers or destination store managers.
@@ -614,9 +675,14 @@ class TransferService
             throw new BusinessException('أحد أصناف التحويل غير نشط أو لم يعد موجودًا؛ راجع البنود قبل المتابعة.');
         }
 
-        foreach ($transfer->items as $item) {
-            if ($item->to_location_id !== null && ! Location::query()->whereKey($item->to_location_id)
-                ->where('branch_id', $transfer->to_branch_id)->where('is_active', true)->exists()) {
+        // Single query for all destination locations instead of one EXISTS per item.
+        $toLocationIds = $transfer->items->map(fn ($item) => $item->to_location_id)
+            ->filter(fn ($id) => $id !== null)->map(fn ($id) => (int) $id)->unique()->values()->all();
+        if ($toLocationIds !== []) {
+            $validLocationIds = Location::query()->whereIn('id', $toLocationIds)
+                ->where('branch_id', $transfer->to_branch_id)->where('is_active', true)
+                ->pluck('id')->map(fn ($id) => (int) $id)->all();
+            if (count($validLocationIds) !== count($toLocationIds)) {
                 throw new BusinessException('موقع الاستلام غير نشط أو لا يتبع الفرع الوجهة.');
             }
         }

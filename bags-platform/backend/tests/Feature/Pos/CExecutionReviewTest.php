@@ -47,6 +47,8 @@ class CExecutionReviewTest extends TestCase
 
     private User $cashier;
 
+    private User $supervisor;
+
     private Treasury $safe;
 
     private Treasury $drawer;
@@ -61,6 +63,7 @@ class CExecutionReviewTest extends TestCase
         $this->seed(SettingSeeder::class);
         $this->branch = Branch::factory()->create(['is_active' => true]);
         $this->cashier = User::factory()->create(['branch_id' => $this->branch->id]);
+        $this->supervisor = User::factory()->create(['branch_id' => $this->branch->id]);
         $base = ['branch_id' => $this->branch->id, 'is_active' => true];
         $this->safe = Treasury::create([...$base, 'name' => 'Safe', 'code' => 'SAFE', 'type' => 'main_safe', 'current_balance' => 1000]);
         $this->drawer = Treasury::create([...$base, 'name' => 'Drawer', 'code' => 'DRAWER', 'type' => 'pos_drawer', 'current_balance' => 0]);
@@ -115,13 +118,13 @@ class CExecutionReviewTest extends TestCase
     {
         $this->assertSame('800.00', $this->safe->fresh()->current_balance);
         $this->assertSame('200.00', $this->drawer->fresh()->current_balance);
-        $closed = app(PosService::class)->closeShift($this->shift, 180, null);
-        app(PosService::class)->approveShift($closed, $this->cashier);
+        $closed = app(PosService::class)->closeShift($this->shift, 180, 'shortage');
+        app(PosService::class)->approveShift($closed, $this->supervisor);
         $this->assertSame('980.00', $this->safe->fresh()->current_balance);
         $this->assertSame('0.00', $this->drawer->fresh()->current_balance);
         $this->assertDatabaseHas('treasury_transactions', ['type' => 'cash_shortage', 'amount' => '-20.00']);
         try {
-            app(PosService::class)->approveShift($closed, $this->cashier);
+            app(PosService::class)->approveShift($closed, $this->supervisor);
             $this->fail('A stale closed model must not settle twice.');
         } catch (BusinessException) {
             $this->assertSame('980.00', $this->safe->fresh()->current_balance);
@@ -131,8 +134,8 @@ class CExecutionReviewTest extends TestCase
     public function test_overage_is_recorded_and_stale_open_shift_cannot_sell(): void
     {
         $this->stock();
-        $closed = app(PosService::class)->closeShift($this->shift, 210, null);
-        app(PosService::class)->approveShift($closed, $this->cashier);
+        $closed = app(PosService::class)->closeShift($this->shift, 210, 'overage');
+        app(PosService::class)->approveShift($closed, $this->supervisor);
         $this->assertSame('1010.00', $this->safe->fresh()->current_balance);
         $this->assertDatabaseHas('treasury_transactions', ['type' => 'cash_overage', 'amount' => '10.00']);
         $this->expectException(BusinessException::class);
@@ -229,7 +232,8 @@ class CExecutionReviewTest extends TestCase
     public function test_transfer_requires_another_approver_and_stale_approval_cannot_repeat(): void
     {
         $service = app(TreasuryService::class);
-        $transfer = $service->createTransfer(['from_treasury_id' => $this->safe->id, 'to_treasury_id' => $this->drawer->id, 'amount' => 10], $this->cashier->id);
+        $target = Treasury::create(['branch_id' => $this->branch->id, 'name' => 'Target Safe', 'code' => 'TARGET-SAFE', 'type' => 'main_safe', 'current_balance' => 0, 'is_active' => true]);
+        $transfer = $service->createTransfer(['from_treasury_id' => $this->safe->id, 'to_treasury_id' => $target->id, 'amount' => 10], $this->cashier->id);
         try {
             $service->approveTransfer($transfer, $this->cashier->id);
             $this->fail('Self approval must fail.');

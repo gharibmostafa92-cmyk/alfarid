@@ -18,6 +18,7 @@ use App\Services\Pos\PosService;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Testing\TestResponse;
+use Spatie\Permission\Models\Permission;
 
 /**
  * task.txt الدفعة الرابعة (POS): إسناد الورديات (19)، والبحث عن الفواتير (20).
@@ -110,13 +111,13 @@ class PosReturnTaskTxtBatchDTest extends PosScenarioFixture
         // وتنفيذ إرجاع ثانٍ مرفوض (422).
         $this->as($token)->postJson("/api/v1/pos/sales/{$saleId}/return", [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 2]],
-        ])->assertOk();
+        ], $this->idemHeaders())->assertOk();
         $this->lookup($token, '12_345')->assertOk()->assertJsonPath('data.items.0.returnable_qty', 0);
         $returnNumber = Order::query()->where('return_of_order_id', $saleId)->value('order_number');
         $this->lookup($token, (string) $returnNumber)->assertNotFound();
         $this->as($token)->postJson("/api/v1/pos/sales/{$saleId}/return", [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
-        ])->assertStatus(422)
+        ], $this->idemHeaders())->assertStatus(422)
             ->assertJsonFragment(['message' => 'كمية المرتجع (1) تتجاوز المتبقي القابل للإرجاع (0).']);
     }
 
@@ -143,7 +144,7 @@ class PosReturnTaskTxtBatchDTest extends PosScenarioFixture
         // المرتجع عبر وردية B يُسجَّل عليها.
         $this->as($tokenB)->postJson("/api/v1/pos/sales/{$saleId}/return", [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
-        ])->assertOk();
+        ], $this->idemHeaders())->assertOk();
         $returnOrder = Order::query()->where('return_of_order_id', $saleId)->firstOrFail();
         $this->assertSame($shiftB->id, (int) $returnOrder->pos_shift_id);
 
@@ -188,7 +189,7 @@ class PosReturnTaskTxtBatchDTest extends PosScenarioFixture
         $this->lookup($token, $mixedSale['order_number'])->assertOk()->assertJsonPath('data.id', $mixedSale['id']);
         $this->postJson("/api/v1/pos/sales/{$mixedSale['id']}/return", [
             'items' => [['product_variant_id' => $refundVariant->id, 'qty' => 1]],
-        ])->assertOk()->assertJsonPath('data.refund_amount', 150);
+        ], $this->idemHeaders())->assertOk()->assertJsonPath('data.refund_amount', 150);
 
         $shift = PosShift::query()->where('treasury_id', $this->drawerB->id)->firstOrFail();
         $expense = app(PosService::class)->recordExpense($shift, ['category' => 'Supplies', 'amount' => 50], $this->cashierB->id);
@@ -199,6 +200,9 @@ class PosReturnTaskTxtBatchDTest extends PosScenarioFixture
             'voided_by' => $this->cashierB->id,
             'void_reason' => 'Duplicate expense',
         ])->save();
+
+        $this->cashierB->givePermissionTo(Permission::findOrCreate('pos_shifts.view_expected', 'staff'));
+        Auth::forgetGuards();
 
         $this->getJson('/api/v1/pos/shifts/current/summary')->assertOk()
             ->assertJsonPath('data.cash_sales_total', '1300.00')
@@ -212,7 +216,7 @@ class PosReturnTaskTxtBatchDTest extends PosScenarioFixture
             'exchange_items' => [['product_variant_id' => $replacement->id, 'qty' => 1]],
             'cash_amount' => 0,
             'card_amount' => 100,
-        ])->assertOk()->json('data.exchange_order_id');
+        ], $this->idemHeaders())->assertOk()->json('data.exchange_order_id');
         $this->assertDatabaseHas('orders', [
             'id' => $exchangeOrderId, 'pos_shift_id' => $shift->id, 'card_amount' => 100,
         ]);

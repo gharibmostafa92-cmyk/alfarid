@@ -226,7 +226,7 @@ class TaskTxtPosScenariosDTest extends PosScenarioFixture
 
     public function test_19_transfer_request_receive_shortage_and_replay(): void
     {
-        $token = $this->tokenFor($this->cashier, ['transfers.create', 'transfers.receive']);
+        $token = $this->tokenFor($this->cashier, ['transfers.create', 'transfers.receive', 'transfers.approve_shortage']);
         $this->stockIn($this->branchB->id, $this->variant, 10, $this->cashierB->id);
 
         // Idempotent creation: same key + payload yields one transfer.
@@ -374,7 +374,7 @@ class TaskTxtPosScenariosDTest extends PosScenarioFixture
         $this->getJson('/api/v1/pos/sales/lookup?number='.urlencode('POS-%'))->assertNotFound();
         $ret = $this->withToken($token)->postJson("/api/v1/pos/sales/{$sale->json('data.id')}/return", [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
-        ])->assertOk();
+        ], $this->idemHeaders())->assertOk();
         $returnNumber = Order::findOrFail($ret->json('data.return_order_id'))->order_number;
         $this->withToken($token)->getJson('/api/v1/pos/sales/lookup?number='.urlencode($returnNumber))->assertStatus(404);
         Order::query()->whereKey($sale->json('data.id'))->update(['channel' => 'store']);

@@ -91,9 +91,9 @@ class TaskTxtInventoryConcurrencyTest extends TestCase
         $this->assertSame(2, StockMovement::query()->count());
     }
 
-    // ---------- §8b: parallel approves with the same version ----------
+    // ---------- §8b: parallel approves with the same version apply only once ----------
 
-    public function test_parallel_approves_with_same_version_allow_only_one(): void
+    public function test_parallel_approves_with_same_version_apply_only_once(): void
     {
         $variant = ProductVariant::factory()->create();
         $from = Branch::factory()->create();
@@ -109,7 +109,9 @@ class TaskTxtInventoryConcurrencyTest extends TestCase
         ], $this->staff->id);
 
         $job = 'app(App\Services\Inventory\TransferService::class)->approve(App\Models\StockTransfer::findOrFail('.$transfer->id.'), [], '.$this->staff->id.', null, 1);';
-        $this->race([$job, $job], ['OK', 'REJECTED']);
+        // Same payload from both racers: the loser replays the completed stage instead of
+        // double-applying. A single reservation must still be the only side effect.
+        $this->race([$job, $job], ['OK', 'OK']);
 
         $level = StockLevel::query()->where('product_variant_id', $variant->id)->where('branch_id', $from->id)->firstOrFail();
         $this->assertSame('4.0000', $level->reserved);

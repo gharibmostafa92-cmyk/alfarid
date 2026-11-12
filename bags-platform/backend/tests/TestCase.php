@@ -7,6 +7,7 @@ use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 abstract class TestCase extends BaseTestCase
 {
@@ -14,6 +15,16 @@ abstract class TestCase extends BaseTestCase
     {
         parent::setUp();
         $this->fakeUploads();
+    }
+
+    /**
+     * Headers for money-moving POS endpoints that require an idempotency key.
+     *
+     * @return array<string, string>
+     */
+    protected function idemHeaders(): array
+    {
+        return ['Idempotency-Key' => (string) Str::uuid()];
     }
 
     protected function fakeUploads(): FilesystemAdapter

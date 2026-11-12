@@ -201,7 +201,7 @@ class TaskTxtPosScenariosCTest extends PosScenarioFixture
         $this->withToken($tokenA)->getJson('/api/v1/pos/sales/lookup?number='.$saleB->json('data.order_number'))->assertStatus(403);
         $this->withToken($tokenA)->postJson("/api/v1/pos/sales/{$saleBId}/return", [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
-        ])->assertStatus(403);
+        ], $this->idemHeaders())->assertStatus(403);
         $this->assertSame(0, Order::query()->where('return_of_order_id', $saleBId)->count());
 
         // Receiving a transfer bound for B from A: rejected.
@@ -260,7 +260,7 @@ class TaskTxtPosScenariosCTest extends PosScenarioFixture
         $this->withToken($baseToken)->getJson('/api/v1/pos/sales/lookup?number='.$sale->json('data.order_number'))->assertStatus(403);
         $this->withToken($baseToken)->postJson("/api/v1/pos/sales/{$saleId}/return", [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
-        ])->assertStatus(403);
+        ], $this->idemHeaders())->assertStatus(403);
         $this->withToken($baseToken)->postJson("/api/v1/pos/sales/{$saleId}/exchange", [
             'returned_items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
             'exchange_items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
@@ -268,7 +268,7 @@ class TaskTxtPosScenariosCTest extends PosScenarioFixture
         ], $this->idem())->assertStatus(403);
         $this->assertSame(0, Order::query()->where('return_of_order_id', $saleId)->count());
         Auth::forgetGuards();
-        $refundToken = $this->tokenFor($this->cashier, ['pos.sales.refund']);
+        $refundToken = $this->tokenFor($this->cashier, ['pos.sales.refund'], $this->idemHeaders());
         $this->withToken($refundToken)->getJson('/api/v1/pos/sales/lookup?number='.$sale->json('data.order_number'))->assertOk();
 
         // transfers.create / transfers.receive.
@@ -371,9 +371,14 @@ class TaskTxtPosScenariosCTest extends PosScenarioFixture
         $this->assertSame([$this->drawer->id, $this->safe->id], $locks->keys()->all());
 
         // Creator cannot approve their own treasury transfer (service + DB guard).
+        $target = \App\Models\Treasury::create([
+            'name' => 'Scenario C Target', 'code' => 'SCEN-C-TARGET',
+            'branch_id' => $this->branch->id, 'type' => \App\Enums\Finance\TreasuryType::MainSafe,
+            'current_balance' => 0, 'is_active' => true,
+        ]);
         $transfer = app(\App\Services\Pos\TreasuryService::class)->createTransfer([
             'from_treasury_id' => $this->safe->id,
-            'to_treasury_id' => $this->drawer->id,
+            'to_treasury_id' => $target->id,
             'amount' => 100,
         ], $this->cashier->id);
         $this->expectExceptionObject(new \App\Exceptions\BusinessException('يجب أن يعتمد تحويل الخزينة موظف آخر غير منشئه.'));
@@ -387,7 +392,7 @@ class TaskTxtPosScenariosCTest extends PosScenarioFixture
         $sale = $this->withToken($token)->postJson('/api/v1/pos/sales', $this->salePayload(50, 50, 1), $this->idem())->assertStatus(201);
         $this->withToken($token)->postJson("/api/v1/pos/sales/{$sale->json('data.id')}/return", [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
-        ])->assertOk();
+        ], $this->idemHeaders())->assertOk();
 
         $txns = TreasuryTransaction::query()->where('treasury_id', $this->drawer->id)->orderBy('id')->get();
         $this->assertNotEmpty($txns);
@@ -404,21 +409,31 @@ class TaskTxtPosScenariosCTest extends PosScenarioFixture
     {
         $token = $this->tokenFor($this->cashier, ['pos.sales.refund']);
 
-        // hold with 10k lines and unknown variant are accepted today (decision needed).
-        $manyItems = array_fill(0, 10000, ['product_variant_id' => $this->variant->id, 'qty' => 1]);
-        $this->withToken($token)->postJson('/api/v1/pos/sales/hold', ['items' => $manyItems])->assertStatus(201);
+        // Hold carts are capped at 100 lines (F8).
+        $this->withToken($token)->postJson('/api/v1/pos/sales/hold', [
+            'items' => array_fill(0, 101, ['product_variant_id' => $this->variant->id, 'qty' => 1]),
+        ])->assertStatus(422);
+        $this->withToken($token)->postJson('/api/v1/pos/sales/hold', [
+            'items' => array_fill(0, 10000, ['product_variant_id' => $this->variant->id, 'qty' => 1]),
+        ])->assertStatus(422);
+        // Duplicate variant lines are rejected (F8) instead of silently merging.
+        $this->withToken($token)->postJson('/api/v1/pos/sales/hold', [
+            'items' => [
+                ['product_variant_id' => $this->variant->id, 'qty' => 1],
+                ['product_variant_id' => $this->variant->id, 'qty' => 1],
+            ],
+        ])->assertStatus(422);
+        // An unknown variant may still be parked as a snapshot (decision unchanged).
         $this->withToken($token)->postJson('/api/v1/pos/sales/hold', [
             'items' => [['product_variant_id' => 999999999, 'qty' => 1]],
         ])->assertStatus(201);
 
-        // store with unknown customer proceeds with a null customer (decision needed).
-        $res = $this->withToken($token)->postJson('/api/v1/pos/sales', [
+        // Unknown customer is rejected instead of silently dropping the link.
+        $this->withToken($token)->postJson('/api/v1/pos/sales', [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
             'payment_method' => 'cash', 'cash_amount' => 100, 'card_amount' => 0,
             'customer_id' => 999999999,
-        ], $this->idem());
-        $res->assertStatus(201);
-        $this->assertNull(Order::findOrFail($res->json('data.id'))->customer_id);
+        ], $this->idem())->assertStatus(422);
 
         // Duplicate lines whose sum exceeds stock: rejected.
         $this->withToken($token)->postJson('/api/v1/pos/sales', [

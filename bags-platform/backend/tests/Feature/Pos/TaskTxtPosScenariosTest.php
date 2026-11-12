@@ -291,6 +291,7 @@ class TaskTxtPosScenariosTest extends TestCase
         $override = [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1, 'unit_price' => 80]],
             'override_price' => true,
+            'override_reason' => 'تصفية',
         ];
         $payment = ['payment_method' => 'cash', 'cash_amount' => 80];
         $this->postJson('/api/v1/pos/sales/quote', $override)->assertForbidden();
@@ -382,7 +383,7 @@ class TaskTxtPosScenariosTest extends TestCase
     }
 
     /** @return array<string, string> */
-    private function idemHeaders(): array
+    protected function idemHeaders(): array
     {
         return ['Idempotency-Key' => 'k-'.Str::random(16)];
     }

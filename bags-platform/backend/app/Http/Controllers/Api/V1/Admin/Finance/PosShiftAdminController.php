@@ -26,7 +26,8 @@ class PosShiftAdminController extends Controller implements HasMiddleware
     {
         return [
             new Middleware('can:pos_shifts.view', only: ['index', 'show']),
-            new Middleware('can:pos_shifts.approve', only: ['approve']),
+            new Middleware('can:pos_shifts.approve', only: ['approve', 'reject', 'reopen']),
+            new Middleware('can:pos_shifts.force_close', only: ['forceClose']),
         ];
     }
 
@@ -102,6 +103,56 @@ class PosShiftAdminController extends Controller implements HasMiddleware
 
         return response()->json([
             'message' => 'تم اعتماد الوردية وترحيل النقدية للخزنة الرئيسية.',
+            'data' => $shift->load(['cashier', 'treasury', 'branch', 'approver']),
+        ]);
+    }
+
+    /**
+     * Rejects a pending closure and reopens the shift for a fresh cash count.
+     */
+    public function reject(Request $request, PosShift $shift): JsonResponse
+    {
+        return $this->reopen($request, $shift, 'تم رفض الإغلاق وإعادة فتح الوردية لإعادة الجرد.');
+    }
+
+    /**
+     * Reopens a pending closure for recount.
+     */
+    public function reopen(Request $request, PosShift $shift, ?string $message = null): JsonResponse
+    {
+        $data = $request->validate([
+            'reason' => ['required', 'string', 'min:3', 'max:500'],
+        ]);
+
+        /** @var User $approver */
+        $approver = $request->user();
+        $this->branchAccess->assertBranch($approver->id, $shift->branch_id);
+
+        $shift = $this->pos->reopenShiftForRecount($shift, $approver, $data['reason']);
+
+        return response()->json([
+            'message' => $message ?? 'تمت إعادة فتح الوردية لإعادة الجرد.',
+            'data' => $shift->load(['cashier', 'treasury', 'branch', 'approver']),
+        ]);
+    }
+
+    /**
+     * Force-closes an open shift at its computed expected cash.
+     */
+    public function forceClose(Request $request, PosShift $shift): JsonResponse
+    {
+        $data = $request->validate([
+            'reason' => ['required', 'string', 'min:3', 'max:500'],
+        ]);
+
+        /** @var User $approver */
+        $approver = $request->user();
+        $this->branchAccess->assertBranch($approver->id, $shift->branch_id);
+
+        $shift = $this->pos->forceCloseShift($shift, $approver, $data['reason']);
+
+        return response()->json([
+            'message' => 'تم الإغلاق القسري للوردية وهي بانتظار الاعتماد.',
             'data' => $shift->load(['cashier', 'treasury', 'branch', 'approver']),
         ]);
     }

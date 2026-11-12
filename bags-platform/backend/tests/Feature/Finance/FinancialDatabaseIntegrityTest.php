@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Finance;
 
 use App\Enums\Finance\TreasuryTransactionType;
+use App\Exceptions\BusinessException;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Treasury;
@@ -29,7 +30,7 @@ class FinancialDatabaseIntegrityTest extends TestCase
         app(WalletService::class)->record($customer->id, 100, 'adjustment', 'test', 1);
         app(WalletService::class)->record($customer->id, -30, 'adjustment', 'test', 2);
         app(TreasuryService::class)->record([
-            'treasury_id' => $treasury->id, 'type' => TreasuryTransactionType::OpeningBalance,
+            'treasury_id' => $treasury->id, 'type' => TreasuryTransactionType::Expense,
             'amount' => '-20.00', 'created_by' => $staff->id,
         ]);
 
@@ -120,6 +121,37 @@ class FinancialDatabaseIntegrityTest extends TestCase
             $this->assertContains($exception->errorInfo[0], ['23001', '23503']);
             $this->assertStringContainsString('wholesale_payment_notices_customer_id_foreign', $exception->getMessage());
         }
+    }
+
+    public function test_treasury_service_rejects_sign_mismatch_and_zero_amounts(): void
+    {
+        $treasury = Treasury::create([
+            'name' => 'Sign Guard Safe', 'code' => 'SIGN-GUARD', 'type' => 'main_safe',
+            'is_active' => true,
+        ]);
+        $staff = User::factory()->create();
+        $service = app(TreasuryService::class);
+
+        $invalid = [
+            [TreasuryTransactionType::Expense, '10.00'],
+            [TreasuryTransactionType::PosSale, '-10.00'],
+            [TreasuryTransactionType::OpeningBalance, '0.00'],
+        ];
+
+        foreach ($invalid as [$type, $amount]) {
+            try {
+                $service->record([
+                    'treasury_id' => $treasury->id, 'type' => $type,
+                    'amount' => $amount, 'created_by' => $staff->id,
+                ]);
+                $this->fail("Expected {$type->value} with amount {$amount} to be rejected.");
+            } catch (BusinessException $exception) {
+                $this->assertNotSame('', $exception->getMessage());
+            }
+        }
+
+        $this->assertSame('0.00', (string) $treasury->fresh()->current_balance);
+        $this->assertDatabaseCount('treasury_transactions', 0);
     }
 
     private function createNotice(Customer $customer, string $number, int $amount, ?Order $order = null): int

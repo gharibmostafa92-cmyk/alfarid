@@ -36,16 +36,19 @@ class PosSaleController extends Controller
     {
         $data = $request->validate([
             'items' => ['required', 'array', 'min:1', 'max:100'],
-            'items.*.product_variant_id' => ['required', 'integer', 'min:1'],
+            'items.*.product_variant_id' => ['required', 'integer', 'min:1', 'distinct'],
             'items.*.qty' => ['required', 'integer', 'min:1', 'max:9999'],
             'items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
             'items.*.discount_amount' => ['nullable', 'numeric', 'min:0'],
-            'customer_id' => ['nullable', 'integer', 'min:1'],
+            'items.*.override_reason' => ['nullable', 'string', 'max:255'],
+            'customer_id' => ['nullable', 'integer', 'min:1', 'exists:customers,id'],
             'payment_method' => ['nullable', 'string', 'in:cash,card,mixed'],
             'cash_amount' => ['nullable', 'numeric', 'min:0'],
             'card_amount' => ['nullable', 'numeric', 'min:0'],
             'override_price' => ['nullable', 'boolean'],
+            'override_reason' => ['nullable', 'string', 'max:255'],
             'notes' => ['nullable', 'string', 'max:500'],
+            'held_sale_id' => ['nullable', 'integer', 'exists:pos_held_sales,id'],
         ]);
 
         /** @var PosShift $shift */
@@ -78,12 +81,12 @@ class PosSaleController extends Controller
     public function hold(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'items' => ['required', 'array', 'min:1'],
-            'items.*.product_variant_id' => ['required', 'integer', 'min:1'],
+            'items' => ['required', 'array', 'min:1', 'max:100'],
+            'items.*.product_variant_id' => ['required', 'integer', 'min:1', 'distinct'],
             'items.*.qty' => ['required', 'integer', 'min:1'],
             'items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
             'items.*.discount_amount' => ['nullable', 'numeric', 'min:0'],
-            'customer_id' => ['nullable', 'integer', 'min:1'],
+            'customer_id' => ['nullable', 'integer', 'exists:customers,id'],
             'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
@@ -106,11 +109,17 @@ class PosSaleController extends Controller
     {
         /** @var User $user */
         $user = $request->user('staff');
-        $held = PosHeldSale::query()
+        $query = PosHeldSale::query()
             ->where('branch_id', $user->branch_id)
-            ->with(['customer'])
+            ->with(['customer:id,name,phone'])
             ->orderByDesc('created_at')
-            ->get();
+            ->limit(100);
+
+        if (! $user->can('pos.held.view_all')) {
+            $query->where('user_id', $user->id);
+        }
+
+        $held = $query->get();
 
         return response()->json(['data' => $held]);
     }
@@ -121,13 +130,15 @@ class PosSaleController extends Controller
     public function quote(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'items' => ['required', 'array', 'min:1'],
-            'items.*.product_variant_id' => ['required', 'integer'],
-            'items.*.qty' => ['required', 'numeric', 'gt:0'],
+            'items' => ['required', 'array', 'min:1', 'max:100'],
+            'items.*.product_variant_id' => ['required', 'integer', 'distinct'],
+            'items.*.qty' => ['required', 'numeric', 'gt:0', 'max:9999'],
             'items.*.discount_amount' => ['nullable', 'numeric', 'min:0'],
             'items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
+            'items.*.override_reason' => ['nullable', 'string', 'max:255'],
             'customer_id' => ['nullable', 'integer', 'exists:customers,id'],
             'override_price' => ['nullable', 'boolean'],
+            'override_reason' => ['nullable', 'string', 'max:255'],
         ]);
 
         /** @var PosShift $shift */
@@ -146,12 +157,20 @@ class PosSaleController extends Controller
 
         $customer = isset($data['customer_id']) ? Customer::find($data['customer_id']) : null;
 
+        if ($override && filled($data['override_reason'] ?? null)) {
+            $data['items'] = array_map(
+                fn (array $item): array => [...$item, 'override_reason' => $item['override_reason'] ?? $data['override_reason']],
+                $data['items'],
+            );
+        }
+
         return response()->json([
             'data' => $this->pos->quote(
                 branchId: (int) $shift->branch_id,
                 items: $data['items'],
                 c: $customer,
                 override: $override,
+                actor: $user,
             ),
         ]);
     }
@@ -307,36 +326,34 @@ class PosSaleController extends Controller
         /** @var User $user */
         $user = $request->user('staff');
 
-        $data = DB::transaction(function () use ($held_sale, $user): array {
-            $heldSale = PosHeldSale::query()
-                ->whereKey($held_sale)
-                ->lockForUpdate()
-                ->with('customer')
-                ->first();
+        $heldSale = PosHeldSale::query()
+            ->whereKey($held_sale)
+            ->with('customer:id,name,phone')
+            ->first();
 
-            if ($heldSale === null) {
-                abort(404, 'الفاتورة المعلقة غير موجودة.');
-            }
+        if ($heldSale === null) {
+            abort(404, 'الفاتورة المعلقة غير موجودة.');
+        }
 
-            app(BranchAccess::class)->assertBranch($user->id, (int) $heldSale->branch_id);
+        app(BranchAccess::class)->assertBranch($user->id, (int) $heldSale->branch_id);
 
-            $payload = [
-                'id' => $heldSale->id,
-                'hold_reference' => $heldSale->hold_reference,
-                'customer_id' => $heldSale->customer_id,
-                'customer' => $heldSale->customer !== null ? [
-                    'id' => $heldSale->customer->id,
-                    'name' => $heldSale->customer->name,
-                    'phone' => $heldSale->customer->phone,
-                ] : null,
-                'notes' => $heldSale->notes,
-                'items_payload' => $heldSale->items_payload,
-            ];
+        if ($heldSale->user_id !== $user->id && ! $user->can('pos.held.view_all')) {
+            abort(403, 'لا تملك صلاحية استئناف فاتورة معلقة لمصرفي آخر.');
+        }
 
-            $heldSale->delete();
-
-            return $payload;
-        });
+        $data = [
+            'held_sale_id' => $heldSale->id,
+            'id' => $heldSale->id,
+            'hold_reference' => $heldSale->hold_reference,
+            'customer_id' => $heldSale->customer_id,
+            'customer' => $heldSale->customer !== null ? [
+                'id' => $heldSale->customer->id,
+                'name' => $heldSale->customer->name,
+                'phone' => $heldSale->customer->phone,
+            ] : null,
+            'notes' => $heldSale->notes,
+            'items_payload' => $heldSale->items_payload,
+        ];
 
         return response()->json([
             'message' => 'تم استعادة الفاتورة المعلقة بنجاح.',
@@ -358,6 +375,10 @@ class PosSaleController extends Controller
         }
 
         app(BranchAccess::class)->assertBranch($user->id, (int) $heldSale->branch_id);
+
+        if ($heldSale->user_id !== $user->id && ! $user->can('pos.held.delete_any')) {
+            abort(403, 'لا تملك صلاحية حذف فاتورة معلقة لمصرفي آخر.');
+        }
 
         $heldSale->delete();
 
@@ -383,11 +404,29 @@ class PosSaleController extends Controller
 
         $sale->load('items');
 
-        $result = $this->pos->processReturn($shift, $sale, $data['items']);
+        /** @var User $user */
+        $user = $request->user('staff');
+
+        /** @var Order $returnOrder */
+        $returnOrder = app(OperationIdempotencyService::class)->run(
+            'pos_return',
+            $user,
+            $this->requiredIdempotencyKey($request),
+            ['sale_id' => $sale->id, 'items' => $data['items']],
+            function () use ($shift, $sale, $data): Order {
+                $result = $this->pos->processReturn($shift, $sale, $data['items']);
+
+                return Order::findOrFail($result['return_order_id']);
+            },
+        );
 
         return response()->json([
             'message' => 'تم تسجيل المرتجع بنجاح.',
-            'data' => $result,
+            'data' => [
+                'return_order_id' => $returnOrder->id,
+                'exchange_order_id' => null,
+                'refund_amount' => (float) $returnOrder->grand_total,
+            ],
         ]);
     }
 
@@ -402,7 +441,7 @@ class PosSaleController extends Controller
             'returned_items.*.qty' => ['required', 'integer', 'min:1'],
             'returned_items.*.return_to' => ['nullable', 'string', 'in:on_hand,damaged'],
             'exchange_items' => ['required', 'array', 'min:1'],
-            'exchange_items.*.product_variant_id' => ['required', 'integer', 'min:1'],
+            'exchange_items.*.product_variant_id' => ['required', 'integer', 'min:1', 'distinct'],
             'exchange_items.*.qty' => ['required', 'integer', 'min:1'],
             'exchange_items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
             'exchange_items.*.discount_amount' => ['nullable', 'numeric', 'min:0'],
@@ -412,10 +451,11 @@ class PosSaleController extends Controller
 
         /** @var PosShift $shift */
         $shift = $request->attributes->get('pos_shift');
+        /** @var User $user */
+        $user = $request->user('staff');
 
         $sale->load('items');
 
-        // Atomically process return and replacement sale order in a single transaction.
         $exchangePayload = [
             'items' => $data['exchange_items'],
             'customer_id' => $sale->customer_id,
@@ -426,17 +466,52 @@ class PosSaleController extends Controller
         if (array_key_exists('card_amount', $data)) {
             $exchangePayload['card_amount'] = $data['card_amount'];
         }
-        $result = DB::transaction(function () use ($shift, $sale, $data, $exchangePayload): array {
-            $result = $this->pos->processReturn($shift, $sale, $data['returned_items']);
-            $exchangeOrder = $this->pos->createSale($shift, $exchangePayload);
-            $result['exchange_order_id'] = $exchangeOrder->id;
 
-            return $result;
-        }, 3);
+        // Choose the order that keeps the drawer solvent: when the replacement
+        // costs at least the refund we can take the sale first, otherwise the
+        // refund has to come out of existing cash (and returning first avoids a
+        // same-variant stock conflict when the shelf is empty).
+        $returnEstimate = $this->pos->estimateReturnValue($sale, $data['returned_items']);
+        $quote = $this->pos->quote(
+            (int) $shift->branch_id,
+            $data['exchange_items'],
+            $sale->customer_id ? Customer::find($sale->customer_id) : null,
+            false,
+            $user,
+        );
+        $saleFirst = (float) $quote['grand_total'] >= $returnEstimate;
+
+        /** @var Order $returnOrder */
+        $returnOrder = app(OperationIdempotencyService::class)->run(
+            'pos_exchange',
+            $user,
+            $this->requiredIdempotencyKey($request),
+            ['sale_id' => $sale->id, ...$data],
+            function () use ($shift, $sale, $data, $exchangePayload, $saleFirst): Order {
+                $createSale = fn (): Order => $this->pos->createSale($shift, $exchangePayload);
+
+                if ($saleFirst) {
+                    $exchangeOrder = $createSale();
+                    $result = $this->pos->processReturn($shift, $sale, $data['returned_items']);
+                } else {
+                    $result = $this->pos->processReturn($shift, $sale, $data['returned_items']);
+                    $exchangeOrder = $createSale();
+                }
+
+                $returnOrder = Order::findOrFail($result['return_order_id']);
+                $returnOrder->update(['exchange_order_id' => $exchangeOrder->id]);
+
+                return $returnOrder;
+            },
+        );
 
         return response()->json([
             'message' => 'تم تسجيل الاستبدال بنجاح.',
-            'data' => $result,
+            'data' => [
+                'return_order_id' => $returnOrder->id,
+                'exchange_order_id' => $returnOrder->exchange_order_id,
+                'refund_amount' => (float) $returnOrder->grand_total,
+            ],
         ]);
     }
 

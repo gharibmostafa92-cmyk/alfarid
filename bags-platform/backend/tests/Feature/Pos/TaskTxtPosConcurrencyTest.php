@@ -83,24 +83,34 @@ class TaskTxtPosConcurrencyTest extends PosScenarioFixture
         $this->assertDatabaseCount('treasury_transactions', 3);
     }
 
-    public function test_parallel_cashiers_can_resume_a_held_cart_only_once(): void
+    public function test_parallel_resumes_are_read_only_and_held_cart_is_consumed_once(): void
     {
         $held = $this->withToken($this->token)->postJson('/api/v1/pos/sales/hold', [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
         ])->assertCreated();
         $heldId = $held->json('data.id');
-        $cashier = $this->makeCashier('resume@example.test', $this->branch->id, ['pos.access']);
-        $secondToken = $this->openShift($cashier, $this->secondDrawer(), 0);
         $url = "/api/v1/pos/sales/held/{$heldId}/resume";
 
         $results = $this->concurrentJobs([
             $this->httpJob($this->token, 'POST', $url),
-            $this->httpJob($secondToken, 'POST', $url),
+            $this->httpJob($this->token, 'POST', $url),
         ]);
 
-        $this->assertEqualsCanonicalizing([200, 404], array_column($results, 'status'));
-        $winner = collect($results)->firstWhere('status', 200);
-        $this->assertSame($this->variant->id, $winner['body']['data']['items_payload'][0]['product_variant_id']);
+        $this->assertEqualsCanonicalizing([200, 200], array_column($results, 'status'));
+        $this->assertSame($this->variant->id, $results[0]['body']['data']['items_payload'][0]['product_variant_id']);
+        $this->assertDatabaseHas('pos_held_sales', ['id' => $heldId]);
+
+        $salePayload = [
+            'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
+            'cash_amount' => 100.00,
+            'held_sale_id' => $heldId,
+        ];
+        $sales = $this->concurrentJobs([
+            $this->httpJob($this->token, 'POST', '/api/v1/pos/sales', $salePayload, $this->idemHeaders()),
+            $this->httpJob($this->token, 'POST', '/api/v1/pos/sales', $salePayload, $this->idemHeaders()),
+        ]);
+
+        $this->assertEqualsCanonicalizing([201, 422], array_column($sales, 'status'));
         $this->assertDatabaseMissing('pos_held_sales', ['id' => $heldId]);
     }
 

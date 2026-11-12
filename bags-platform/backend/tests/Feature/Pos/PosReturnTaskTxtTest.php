@@ -71,8 +71,8 @@ class PosReturnTaskTxtTest extends PosScenarioFixture
         $saleId = $this->cashSale($token, 3, 300);
 
         // إرسال متتابع لنفس المرتجع الجزئي (قطعة واحدة من 3).
-        $this->as($token)->postJson($this->returnUrl($saleId), $this->returnPayload(1))->assertOk();
-        $this->as($token)->postJson($this->returnUrl($saleId), $this->returnPayload(1))->assertOk();
+        $this->as($token)->postJson($this->returnUrl($saleId), $this->returnPayload(1), $this->idemHeaders())->assertOk();
+        $this->as($token)->postJson($this->returnUrl($saleId), $this->returnPayload(1), $this->idemHeaders())->assertOk();
 
         // السلوك الحالي (بانتظار قرار صاحب المشروع): أمران مرتجعان وخصم خزينة مزدوج.
         $this->assertSame(2, Order::query()->where('return_of_order_id', $saleId)->count());
@@ -81,8 +81,10 @@ class PosReturnTaskTxtTest extends PosScenarioFixture
         $this->assertSame(2.0, (float) OrderItem::query()->where('order_id', $saleId)->sum('returned_qty'));
 
         // وإعادة الإرسال المتزامنة على المتبقي (قطعة واحدة) يقبل واحدًا فقط.
-        $job = $this->httpJob($token, 'POST', $this->returnUrl($saleId), $this->returnPayload(1));
-        $results = $this->concurrentJobs([$job, $job]);
+        $results = $this->concurrentJobs([
+            $this->httpJob($token, 'POST', $this->returnUrl($saleId), $this->returnPayload(1), $this->idemHeaders()),
+            $this->httpJob($token, 'POST', $this->returnUrl($saleId), $this->returnPayload(1), $this->idemHeaders()),
+        ]);
         $this->assertEqualsCanonicalizing([200, 422], array_column($results, 'status'));
         $this->assertSame(3.0, (float) OrderItem::query()->where('order_id', $saleId)->sum('returned_qty'));
     }
@@ -92,7 +94,7 @@ class PosReturnTaskTxtTest extends PosScenarioFixture
         $secondCashier = $this->makeCashier('second@example.test', $this->branch->id, ['pos.access']);
         $secondDrawer = Treasury::create([
             'name' => 'Second drawer', 'code' => 'DRW-PARALLEL-2',
-            'branch_id' => $this->branch->id, 'type' => \App\Enums\TreasuryType::PosDrawer,
+            'branch_id' => $this->branch->id, 'type' => \App\Enums\Finance\TreasuryType::PosDrawer,
             'current_balance' => 0, 'is_active' => true,
         ]);
         $tokenA = $this->refundToken($this->cashier);
@@ -105,8 +107,8 @@ class PosReturnTaskTxtTest extends PosScenarioFixture
         $saleId = $this->cashSale($tokenA, 2, 200);
 
         $results = $this->concurrentJobs([
-            $this->httpJob($tokenA, 'POST', $this->returnUrl($saleId), $this->returnPayload(2)),
-            $this->httpJob($tokenB, 'POST', $this->returnUrl($saleId), $this->returnPayload(2)),
+            $this->httpJob($tokenA, 'POST', $this->returnUrl($saleId), $this->returnPayload(2), $this->idemHeaders()),
+            $this->httpJob($tokenB, 'POST', $this->returnUrl($saleId), $this->returnPayload(2), $this->idemHeaders()),
         ]);
 
         $this->assertEqualsCanonicalizing([200, 422], array_column($results, 'status'));

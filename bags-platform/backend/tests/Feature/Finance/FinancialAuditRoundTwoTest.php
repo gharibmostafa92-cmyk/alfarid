@@ -14,6 +14,7 @@ use App\Models\StockMovement;
 use App\Models\User;
 use App\Services\Finance\ReportService;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
@@ -148,6 +149,22 @@ class FinancialAuditRoundTwoTest extends TestCase
         $returnPeriod = $this->report('2026-03-01', '2026-03-31');
         $this->assertSame(-900.0, (float) $returnPeriod['net_sales_revenue']);
         $this->assertSame(-200.0, (float) $returnPeriod['cogs']);
+    }
+
+    public function test_manual_return_period_uses_returned_at_instead_of_last_update(): void
+    {
+        [$order] = $this->shippedSale(['status' => 'returned']);
+        // A later unrelated edit must not move the return into April.
+        DB::table('orders')->where('id', $order->id)->update([
+            'returned_at' => '2026-03-05 12:00:00',
+            'updated_at' => '2026-04-10 12:00:00',
+        ]);
+
+        $march = $this->report('2026-03-01', '2026-03-31');
+        $this->assertSame(-900.0, (float) $march['net_sales_revenue']);
+
+        $april = $this->report('2026-04-01', '2026-04-30');
+        $this->assertSame(0.0, (float) $april['net_sales_revenue']);
     }
 
     public function test_missing_historical_cost_is_flagged_and_never_replaced_with_current_cost(): void

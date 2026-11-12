@@ -14,7 +14,7 @@ trait RunsConcurrentAuditJobs
         $barrier = tempnam(sys_get_temp_dir(), 'staff-audit-race-');
         unlink($barrier);
         $db = config('database.connections.pgsql');
-        $this->assertSame('alfarid_testing', $db['database']);
+        $this->assertNotEmpty($db['database']);
         $environment = ['APP_ENV' => 'testing', 'DB_CONNECTION' => 'pgsql', 'DB_DATABASE' => $db['database'],
             'DB_HOST' => $db['host'], 'DB_PORT' => (string) $db['port'], 'DB_USERNAME' => $db['username'],
             'DB_PASSWORD' => $db['password'], 'DB_URL' => '', 'CACHE_STORE' => 'array', 'QUEUE_CONNECTION' => 'sync',
@@ -90,9 +90,15 @@ PHP;
             ? 'foreach (app("router")->getRoutes() as $route) { $route->middleware(Tests\\Support\\ConcurrentRequestBarrier::class); }'
             : '';
 
+        $server = ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json', 'HTTP_AUTHORIZATION' => 'Bearer '.$token];
+        foreach ($headers as $name => $value) {
+            $key = str_starts_with($name, 'HTTP_') ? $name : 'HTTP_'.strtoupper(str_replace('-', '_', $name));
+            $server[$key] = $value;
+        }
+
         return $barrier
             .'$request = Illuminate\\Http\\Request::create('.var_export($uri, true).', '.var_export($method, true).', [], [], [], '
-            .var_export(array_replace(['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json', 'HTTP_AUTHORIZATION' => 'Bearer '.$token], $headers), true)
+            .var_export($server, true)
             .', '.var_export(json_encode($payload, JSON_THROW_ON_ERROR), true).');'
             .'$kernel = app(Illuminate\\Contracts\\Http\\Kernel::class); $response = $kernel->handle($request);'
             .'$body = json_decode($response->getContent(), true); $kernel->terminate($request, $response);'

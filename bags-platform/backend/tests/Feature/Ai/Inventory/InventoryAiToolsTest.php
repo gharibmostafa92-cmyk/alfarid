@@ -324,7 +324,7 @@ class InventoryAiToolsTest extends TestCase
 
     private function transferStaff(): User
     {
-        return $this->staff(['ai_agent.use', 'ai_agent.execute', 'transfers.create', 'transfers.update', 'transfers.approve', 'transfers.ship', 'transfers.receive', 'transfers.view', 'inventory.view', 'inventory.all_branches']);
+        return $this->staff(['ai_agent.use', 'ai_agent.execute', 'transfers.create', 'transfers.update', 'transfers.approve', 'transfers.ship', 'transfers.receive', 'transfers.approve_shortage', 'transfers.view', 'inventory.view', 'inventory.all_branches']);
     }
 
     private function seedTransferStock(Branch $from, ProductVariant $variant, float $qty = 20): void

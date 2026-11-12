@@ -141,12 +141,119 @@ class StocktakeScanIdempotencyTest extends TestCase
         }
         $this->assertSame(10.0, (float) $stocktake->fresh()->items()->firstOrFail()->counted_qty);
 
-        // After a recount the snapshot cursor advances and scanning resumes.
+        // After a recount the snapshot cursor advances and the count restarts from zero.
         $service->upsertSomeItems($stocktake->fresh(), [
             ['product_variant_id' => $this->variant->id, 'recount' => true],
         ], $this->cashier->id);
+        $this->assertSame(0.0, (float) $stocktake->fresh()->items()->firstOrFail()->counted_qty);
         $service->incrementItemCount($stocktake->fresh(), $this->variant->id, 1, $this->cashier->id);
-        $this->assertSame(11.0, (float) $stocktake->fresh()->items()->firstOrFail()->counted_qty);
+        $this->assertSame(1.0, (float) $stocktake->fresh()->items()->firstOrFail()->counted_qty);
+    }
+
+    public function test_reused_scan_id_with_different_payload_is_rejected(): void
+    {
+        $service = app(StocktakeService::class);
+        $stocktake = $service->create([
+            'branch_id' => $this->branch->id, 'items' => [],
+        ], $this->cashier->id);
+        $scanId = (string) Str::uuid();
+        $service->incrementItemCount($stocktake, $this->variant->id, 2, $this->cashier->id, $scanId);
+
+        // Same scan_id with a different quantity must not be swallowed as a duplicate.
+        try {
+            $service->incrementItemCount($stocktake->fresh(), $this->variant->id, 5, $this->cashier->id, $scanId);
+            $this->fail('Mismatched scan replay must be rejected.');
+        } catch (BusinessException $e) {
+            $this->assertSame(409, $e->status);
+        }
+
+        // Same scan_id for a different variant must also be rejected.
+        $other = ProductVariant::create([
+            'product_id' => $this->variant->product_id, 'sku' => 'SCAN-002',
+            'barcode' => '622999000002', 'is_active' => true,
+        ]);
+        try {
+            $service->incrementItemCount($stocktake->fresh(), $other->id, 2, $this->cashier->id, $scanId);
+            $this->fail('Cross-variant scan replay must be rejected.');
+        } catch (BusinessException $e) {
+            $this->assertSame(409, $e->status);
+        }
+
+        $this->assertSame(2.0, (float) $stocktake->fresh()->items()->firstOrFail()->counted_qty);
+    }
+
+    public function test_recount_without_explicit_count_restarts_from_zero(): void
+    {
+        $service = app(StocktakeService::class);
+        app(InventoryService::class)->recordMovement([
+            'product_variant_id' => $this->variant->id, 'branch_id' => $this->branch->id,
+            'type' => StockMovementType::AdjustmentIn, 'affected_bucket' => StockBucket::OnHand,
+            'quantity' => 10, 'created_by' => $this->cashier->id,
+        ]);
+
+        $stocktake = $service->create(['branch_id' => $this->branch->id, 'items' => []], $this->cashier->id);
+        $service->incrementItemCount($stocktake, $this->variant->id, 10, $this->cashier->id);
+
+        // A sale lands after the count; the baseline is now stale.
+        app(InventoryService::class)->recordMovement([
+            'product_variant_id' => $this->variant->id, 'branch_id' => $this->branch->id,
+            'type' => StockMovementType::Sale, 'affected_bucket' => StockBucket::OnHand,
+            'quantity' => -1, 'created_by' => $this->cashier->id,
+        ]);
+
+        // Recount without an explicit count restarts from zero against the fresh baseline.
+        $service->upsertSomeItems($stocktake->fresh(), [
+            ['product_variant_id' => $this->variant->id, 'recount' => true],
+        ], $this->cashier->id);
+        $item = $stocktake->fresh()->items()->firstOrFail();
+        $this->assertSame(0.0, (float) $item->counted_qty);
+        $this->assertSame(9.0, (float) $item->system_qty);
+
+        // Re-scanning the full shelf matches the fresh baseline: no phantom gain.
+        $service->incrementItemCount($stocktake->fresh(), $this->variant->id, 9, $this->cashier->id);
+        $service->approve($stocktake->fresh(), $this->cashier->id);
+        $this->assertSame('9.0000', \App\Models\StockLevel::where('product_variant_id', $this->variant->id)->firstOrFail()->on_hand);
+        $this->assertSame(0, \App\Models\StockMovement::whereIn('type', [
+            StockMovementType::StocktakeGain->value, StockMovementType::StocktakeLoss->value,
+        ])->count());
+    }
+
+    public function test_correcting_a_count_after_movement_demands_explicit_recount(): void
+    {
+        $service = app(StocktakeService::class);
+        app(InventoryService::class)->recordMovement([
+            'product_variant_id' => $this->variant->id, 'branch_id' => $this->branch->id,
+            'type' => StockMovementType::AdjustmentIn, 'affected_bucket' => StockBucket::OnHand,
+            'quantity' => 10, 'created_by' => $this->cashier->id,
+        ]);
+
+        $stocktake = $service->create(['branch_id' => $this->branch->id, 'items' => [
+            ['product_variant_id' => $this->variant->id, 'counted_qty' => 10],
+        ]], $this->cashier->id);
+
+        app(InventoryService::class)->recordMovement([
+            'product_variant_id' => $this->variant->id, 'branch_id' => $this->branch->id,
+            'type' => StockMovementType::Sale, 'affected_bucket' => StockBucket::OnHand,
+            'quantity' => -1, 'created_by' => $this->cashier->id,
+        ]);
+
+        // Silently re-baselining a corrected count against post-sale stock is rejected.
+        try {
+            $service->update($stocktake->fresh(), ['items' => [
+                ['product_variant_id' => $this->variant->id, 'counted_qty' => 12],
+            ]], $this->cashier->id);
+            $this->fail('Correcting a stale count must demand an explicit recount.');
+        } catch (BusinessException $e) {
+            $this->assertStringContainsString('أعد عدّه', $e->getMessage());
+        }
+        $this->assertSame(10.0, (float) $stocktake->fresh()->items()->firstOrFail()->counted_qty);
+
+        // The same correction with an explicit recount is accepted against the fresh baseline.
+        $updated = $service->update($stocktake->fresh(), ['items' => [
+            ['product_variant_id' => $this->variant->id, 'counted_qty' => 12, 'recount' => true],
+        ]], $this->cashier->id);
+        $this->assertSame(12.0, (float) $updated->items()->firstOrFail()->counted_qty);
+        $this->assertSame(9.0, (float) $updated->items()->firstOrFail()->system_qty);
     }
 
     public function test_scans_are_cleaned_up_after_cancel(): void

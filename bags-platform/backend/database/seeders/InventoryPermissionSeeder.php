@@ -26,6 +26,7 @@ class InventoryPermissionSeeder extends Seeder
             'inventory.view_cost',    // View unit cost in ledger movements
             'transfers.view', 'transfers.create', 'transfers.update', 'transfers.delete',
             'transfers.approve', 'transfers.ship', 'transfers.receive',
+            'transfers.approve_shortage', // Record a shortage write-off when receiving
             'stocktakes.view', 'stocktakes.create', 'stocktakes.update', 'stocktakes.delete',
             'stocktakes.approve',
         ];

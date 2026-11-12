@@ -51,17 +51,28 @@ class PosShiftController extends Controller
 
         $totals = $this->pos->computeShiftTotals($shift);
 
-        return response()->json([
-            'data' => array_merge($this->formatShift($shift), [
-                'opening_cash'          => number_format((float) $totals['opening_cash'], 2, '.', ''),
-                'cash_sales_total'      => number_format((float) $totals['cash_sales_total'], 2, '.', ''),
-                'card_sales_total'      => number_format((float) $totals['card_sales_total'], 2, '.', ''),
-                'cash_returns_total'    => number_format((float) $totals['cash_returns_total'], 2, '.', ''),
-                'cash_expenses_total'   => number_format((float) $totals['cash_expenses_total'], 2, '.', ''),
-                'expected_closing_cash' => number_format((float) $totals['expected_closing_cash'], 2, '.', ''),
-                'invoices_count'        => (int) $totals['invoices_count'],
-            ]),
+        $data = array_merge($this->formatShift($shift), [
+            'opening_cash'          => number_format((float) $totals['opening_cash'], 2, '.', ''),
+            'cash_sales_total'      => number_format((float) $totals['cash_sales_total'], 2, '.', ''),
+            'card_sales_total'      => number_format((float) $totals['card_sales_total'], 2, '.', ''),
+            'cash_returns_total'    => number_format((float) $totals['cash_returns_total'], 2, '.', ''),
+            'cash_expenses_total'   => number_format((float) $totals['cash_expenses_total'], 2, '.', ''),
+            'expected_closing_cash' => number_format((float) $totals['expected_closing_cash'], 2, '.', ''),
+            'invoices_count'        => (int) $totals['invoices_count'],
         ]);
+
+        // Blind close: the cashier must count physical cash without seeing the
+        // live expected ledger. Supervisors with the explicit permission still do.
+        if (! $request->user('staff')?->can('pos_shifts.view_expected')) {
+            unset(
+                $data['cash_sales_total'],
+                $data['cash_returns_total'],
+                $data['cash_expenses_total'],
+                $data['expected_closing_cash'],
+            );
+        }
+
+        return response()->json(['data' => $data]);
     }
 
     /**
@@ -86,7 +97,7 @@ class PosShiftController extends Controller
 
         return response()->json([
             'message' => 'تم فتح الوردية بنجاح.',
-            'data'    => $this->formatShift($shift->load(['cashier', 'treasury', 'branch'])),
+            'data'    => $this->formatShiftFor($user, $shift->load(['cashier', 'treasury', 'branch'])),
         ], 201);
     }
 
@@ -111,7 +122,7 @@ class PosShiftController extends Controller
         }
 
         return response()->json([
-            'data'           => $this->formatShift($shift),
+            'data'           => $this->formatShiftFor($user, $shift),
             'has_open_shift' => true,
         ]);
     }
@@ -137,13 +148,35 @@ class PosShiftController extends Controller
 
         return response()->json([
             'message' => 'تم إغلاق الوردية وهي بانتظار اعتماد المدير.',
-            'data'    => $this->formatShift($shift),
+            'data'    => $this->formatShiftFor($request->user('staff'), $shift),
         ]);
     }
 
     // ===================================================================
     //  Helper
     // ===================================================================
+
+    /**
+     * Blind-close projection: hide the live expected ledger and variance from
+     * cashiers, including in the close response, unless they hold the explicit
+     * pos_shifts.view_expected permission.
+     */
+    private function formatShiftFor(User $user, PosShift $shift): array
+    {
+        $data = $this->formatShift($shift);
+
+        if (! $user->can('pos_shifts.view_expected')) {
+            unset(
+                $data['expected_closing_cash'],
+                $data['cash_sales_total'],
+                $data['cash_returns_total'],
+                $data['cash_expenses_total'],
+                $data['cash_difference'],
+            );
+        }
+
+        return $data;
+    }
 
     private function formatShift(PosShift $shift): array
     {

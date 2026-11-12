@@ -118,6 +118,8 @@ Schedule::command('webhooks:prune-logs')->dailyAt('04:00')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer();
 Schedule::command('carts:prune-guests')->dailyAt('04:15')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer();
+Schedule::command('pos:prune-held-sales --days=7')->dailyAt('04:20')
+    ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer();
 Schedule::command('inventory:prune-idempotency-keys')->dailyAt('03:00')
     ->timezone(config('app.business_timezone', 'Africa/Cairo'))->withoutOverlapping(120)->onOneServer()
     ->onFailure(fn () => logger()->error('Scheduled inventory idempotency cleanup failed.'));

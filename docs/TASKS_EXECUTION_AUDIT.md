@@ -119,3 +119,30 @@ Six commits: `f457dde`, `44964de`, `9be53c1`, `e85c298` (payment webhook guards)
 - Queue: restart queue workers for the `SendOutboundMessage` OTP verification change (stale OTP payloads are now skipped and redacted). Scheduler-side queue monitors run every five minutes; no new queues or connections.
 - Scheduler (`routes/console.php`): new `db:verify-schema` daily 05:30 (pg-only); full/incremental `inventory:reconcile` share one mutex; `cache:prune-expired` deletes in bounded 500-row batches; private-disk `media:prune-orphans` is now `--staging-only`. Scheduler must run on exactly one server (`onOneServer`) as configured.
 - Build: new `.github/workflows/frontend-checks.yml` gate; rebuild the API image from branch HEAD (entrypoint CRLF stripping already in tree); rebuild the storefront (new Cloud Run proxy route + `cloud-run-api.ts`) and backoffice (staff password-rotation UI) separately. `pilot.ps1 -Action DeployApi` is single-region initial deploy only, not the two-region upgrade; Cloud Run Jobs are independent of the API image swap. Repomix `started` bundles (system-kernel, system-overview, database-schema) are regenerated from this branch.
+
+## Task2 audit roadmap closeout (2026-11-12)
+
+Branch `fixes/task-audit-roadmap`, uncommitted working tree; nothing below is deployed.
+
+| Finding | Local status |
+| --- | --- |
+| F1 | ✅ Original adjustment locked in a transaction, reversal existence checked under the lock, `reverses_id` written in the same insert, partial unique index. |
+| F2 | ✅ `adjust()`/`reverse()` wrapped in `DB::transaction`. |
+| F3 | ✅ Shift re-locked, status checked, `actual_closing_cash` required, prior settlement rejected. |
+| F4 | ✅ Expense create/update whitelists, positive-amount and precision checks. |
+| F5 | ✅ Treasury unique reference index + sign-per-type CHECK; append-only/TRUNCATE triggers already exist in `000008`. |
+| F6 | ✅ `customer_receipt_reversal` accepted by the DB type constraint. |
+| F7 | ✅ `orders.returned_at` written on transition; reports use `COALESCE(returned_at, updated_at)`. |
+| F8 | ✅ Period pushdown into every UNION branch and `$saleDates`, report index, 25s statement budget, existing route rate limit. |
+| F9 | ✅ Reject checks both treasuries' branch access, stores `rejected_by`, requires a reason. |
+| F10 | ✅ Integer casts, self-transfer/positive-amount rejection, two-active-treasury check. |
+| F11 | ✅ Disabling a non-zero treasury is rejected in the service. |
+| F12 | ✅ Customer-scoped duplicate guard, type/sign validation, idempotent replay with 409 on changed amount/reference. |
+| F13 | ⏳ Deferred: legacy wallet type rename/backfill and migration-pattern change need a separate data window. |
+| F14 | ✅ `treasuries.branch_id` RESTRICT; `expenses.shift_id` and `treasury_transactions.shift_id` already RESTRICT in `000032`. |
+| F15 | ✅ Branch lock is FOR SHARE; numbering uses advisory/sequence paths. |
+| F16 | ✅ Root report transaction is REPEATABLE READ + READ ONLY; shifts expose `truncated`; suppliers limited to 500. |
+| F17 | ⚠️ Partial: string amounts, `(14,2)` precision, frontend string amount, `ai_action_id` inheritance removed. Reversal `kind` column and `crud().remove` remain open. |
+| F18 | ⏳ Documented only: overdraft, opening balance on existing treasury, shift zeroing are product decisions. |
+
+Evidence: Finance suite 127/127 (1,122 assertions); targeted POS shift tests 3/3; new treasury sign-guard and `returned_at` period tests pass; `php -l` clean. Frontend `pnpm -r typecheck` 7/7 clean and `pnpm -r build` passed. The shared tree still carries task3 inventory WIP (transfer branch-access failures in POS scenarios) and pre-existing Orders coupon/webhook/shipment-guard failures; neither is caused by this roadmap. A parallel task3 test run can drop `alfarid_testing` mid-suite. Local `alfarid_local` was wiped by `migrate:fresh --env=testing` (no `.env.testing`); only schema recovery remains.

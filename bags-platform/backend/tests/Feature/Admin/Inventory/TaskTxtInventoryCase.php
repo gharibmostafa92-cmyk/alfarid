@@ -26,7 +26,7 @@ abstract class TaskTxtInventoryCase extends TestCase
     protected const ALL_PERMISSIONS = [
         'inventory.view', 'inventory.adjust', 'inventory.all_branches',
         'transfers.view', 'transfers.create', 'transfers.update', 'transfers.delete',
-        'transfers.approve', 'transfers.ship', 'transfers.receive',
+        'transfers.approve', 'transfers.ship', 'transfers.receive', 'transfers.approve_shortage',
         'stocktakes.view', 'stocktakes.create', 'stocktakes.update', 'stocktakes.delete', 'stocktakes.approve',
         'products.view_cost', 'inventory.view_cost',
         'pos.access',
@@ -86,7 +86,7 @@ abstract class TaskTxtInventoryCase extends TestCase
 
         $drawer = \App\Models\Treasury::create([
             'name' => 'Drawer '.uniqid(), 'code' => 'DRW-'.uniqid(),
-            'branch_id' => $branch->id, 'type' => \App\Enums\TreasuryType::PosDrawer,
+            'branch_id' => $branch->id, 'type' => \App\Enums\Finance\TreasuryType::PosDrawer,
             'current_balance' => 0, 'is_active' => true,
         ]);
 

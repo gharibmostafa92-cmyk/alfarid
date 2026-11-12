@@ -56,8 +56,10 @@ class ProductionReceiptService
                 if (! $branch->is_active) {
                     throw new BusinessException('الفرع غير نشط.');
                 }
+                // FOR NO KEY UPDATE is enough for the cost_price update below and, unlike FOR UPDATE,
+                // does not block foreign-key checks against these hot variant rows from other branches.
                 $variants = ProductVariant::whereIn('id', array_column($data['items'], 'product_variant_id'))
-                    ->with('product:id,name_ar')->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+                    ->with('product:id,name_ar')->orderBy('id')->lock('for no key update')->get()->keyBy('id');
 
                 $sortedItems = collect($data['items'])->sortBy('product_variant_id')->values()->all();
                 $itemsWithLabels = [];
@@ -77,6 +79,14 @@ class ProductionReceiptService
                     ...$data, 'items' => $itemsWithLabels, 'created_by' => $userId, 'idempotency_key' => $key, 'request_hash' => $hash,
                 ]);
 
+                // Lock every receipt key once in global order and reuse the locked rows, so per-item
+                // movements do not open a nested transaction (SAVEPOINT) each.
+                $levels = $this->inventory->lockLevels(collect($sortedItems)->map(fn ($item) => [
+                    'product_variant_id' => $item['product_variant_id'],
+                    'branch_id' => (int) $data['branch_id'],
+                    'location_id' => $data['location_id'] ?? null,
+                ])->all());
+
                 foreach ($sortedItems as $item) {
                     $variant = $variants->get($item['product_variant_id']);
                     $quantity = (int) $item['quantity'];
@@ -89,6 +99,11 @@ class ProductionReceiptService
                         ->sum(DB::raw('on_hand + in_transit'));
                     $average = InventoryService::calculateWeightedAverageCost($onHandStr, (string) $variant->cost_price, $quantity, $unitCost);
                     $variant->update(['cost_price' => $average, 'last_cost_price' => $unitCost]);
+                    $level = $levels->get($this->inventory->levelKey([
+                        'product_variant_id' => $variant->id,
+                        'branch_id' => (int) $data['branch_id'],
+                        'location_id' => $data['location_id'] ?? null,
+                    ]));
                     $this->inventory->recordMovement([
                         'product_variant_id' => $variant->id,
                         'branch_id' => (int) $data['branch_id'],
@@ -98,7 +113,7 @@ class ProductionReceiptService
                         'quantity' => $quantity, 'unit_cost' => $unitCost,
                         'reference_type' => ProductionReceipt::class, 'reference_id' => $receipt->id,
                         'created_by' => $userId, 'notes' => $data['notes'] ?? null,
-                    ]);
+                    ], $level);
                 }
 
                 return $receipt;

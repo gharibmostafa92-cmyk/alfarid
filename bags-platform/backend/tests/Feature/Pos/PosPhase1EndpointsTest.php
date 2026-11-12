@@ -13,10 +13,12 @@ use App\Enums\Inventory\StockMovementType;
 use App\Enums\PriceListType;
 use App\Enums\StocktakeStatus;
 use App\Enums\TransferStatus;
+use App\Exceptions\BusinessException;
 use App\Models\Branch;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Customer;
+use App\Models\Order;
 use App\Models\PosHeldSale;
 use App\Models\PosShift;
 use App\Models\PriceList;
@@ -31,6 +33,7 @@ use App\Models\Treasury;
 use App\Models\User;
 use App\Services\Inventory\InventoryService;
 use App\Services\Pos\PosService;
+use App\Services\Pos\TreasuryService;
 use App\Support\ArabicDigits;
 use Database\Seeders\SettingSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
@@ -271,7 +274,7 @@ class PosPhase1EndpointsTest extends TestCase
             'items' => [
                 ['product_variant_id' => $this->variant->id, 'qty' => 1, 'return_to' => 'on_hand'],
             ],
-        ])->assertOk();
+        ], $this->idemHeaders())->assertOk();
 
         // Record petty cash expense of 30
         $shiftModel = PosShift::findOrFail($shiftId);
@@ -293,6 +296,21 @@ class PosPhase1EndpointsTest extends TestCase
             ->assertJsonPath('data.id', $shiftId)
             ->assertJsonPath('data.status', 'open')
             ->assertJsonPath('data.opening_cash', '200.00')
+            ->assertJsonPath('data.card_sales_total', '200.00')
+            ->assertJsonPath('data.invoices_count', 2);
+
+        // Blind close: cashier cannot see the live expected ledger.
+        $cashierView = $summaryRes->json('data');
+        $this->assertArrayNotHasKey('cash_sales_total', $cashierView);
+        $this->assertArrayNotHasKey('cash_returns_total', $cashierView);
+        $this->assertArrayNotHasKey('cash_expenses_total', $cashierView);
+        $this->assertArrayNotHasKey('expected_closing_cash', $cashierView);
+
+        // Supervisors with view_expected still get the full reconciliation ledger.
+        $this->cashier->givePermissionTo(Permission::findOrCreate('pos_shifts.view_expected', 'staff'));
+        Auth::forgetGuards();
+        $fullRes = $this->withToken($this->token)->getJson('/api/v1/pos/shifts/current/summary');
+        $fullRes->assertOk()
             ->assertJsonPath('data.cash_sales_total', '250.00')
             ->assertJsonPath('data.card_sales_total', '200.00')
             ->assertJsonPath('data.cash_returns_total', '100.00')
@@ -347,11 +365,20 @@ class PosPhase1EndpointsTest extends TestCase
         $resAfter->assertOk()
             ->assertJsonPath('data.shift.status', 'open')
             ->assertJsonPath('data.shift.opening_cash', '200.00')
-            ->assertJsonPath('data.shift.cash_sales_total', '150.00')
-            ->assertJsonPath('data.shift.expected_closing_cash', '350.00')
             ->assertJsonPath('data.shift.invoices_count', 1)
             ->assertJsonPath('data.drawers.0.busy', true)
             ->assertJsonPath('data.held_count', 1);
+
+        $cashierShift = $resAfter->json('data.shift');
+        $this->assertArrayNotHasKey('cash_sales_total', $cashierShift);
+        $this->assertArrayNotHasKey('expected_closing_cash', $cashierShift);
+
+        $this->cashier->givePermissionTo(Permission::findOrCreate('pos_shifts.view_expected', 'staff'));
+        Auth::forgetGuards();
+        $this->withToken($this->token)->getJson('/api/v1/pos/bootstrap')
+            ->assertOk()
+            ->assertJsonPath('data.shift.cash_sales_total', '150.00')
+            ->assertJsonPath('data.shift.expected_closing_cash', '350.00');
     }
 
     public function test_unassigned_user_is_denied_access_to_bootstrap_and_available_drawers(): void
@@ -399,6 +426,11 @@ class PosPhase1EndpointsTest extends TestCase
 
     public function test_phase_0_endpoint_json_contracts_are_consistent(): void
     {
+        // Full reconciliation fields require the explicit expected-ledger permission.
+        $this->cashier->givePermissionTo(Permission::findOrCreate('pos_shifts.view_expected', 'staff'));
+        Auth::forgetGuards();
+        $this->token = $this->cashier->createToken('pos', ['pos'])->plainTextToken;
+
         // 1. GET /api/v1/pos/shifts/current (no open shift)
         $currentNone = $this->withToken($this->token)->getJson('/api/v1/pos/shifts/current');
         $currentNone->assertOk()
@@ -473,11 +505,7 @@ class PosPhase1EndpointsTest extends TestCase
                         'status',
                         'opened_at',
                         'opening_cash',
-                        'cash_sales_total',
                         'card_sales_total',
-                        'cash_returns_total',
-                        'cash_expenses_total',
-                        'expected_closing_cash',
                         'invoices_count',
                         'cashier',
                         'treasury',
@@ -623,6 +651,9 @@ class PosPhase1EndpointsTest extends TestCase
 
     public function test_sales_lookup_for_return_supports_arabic_digits_and_prefixless_numbers_and_enforces_branch(): void
     {
+        // Deep discount is incidental to this lookup test.
+        config(['inventory.pos_max_discount_percent' => 100]);
+
         $this->withToken($this->token)->postJson('/api/v1/pos/shifts/open', [
             'treasury_id' => $this->posDrawer1->id,
             'opening_cash' => 200.00,
@@ -650,7 +681,7 @@ class PosPhase1EndpointsTest extends TestCase
             'items' => [
                 ['product_variant_id' => $this->variant->id, 'qty' => 1, 'return_to' => 'on_hand'],
             ],
-        ])->assertOk();
+        ], $this->idemHeaders())->assertOk();
 
         // Extract digits and convert to Arabic-Indic numerals
         $digitsOnly = preg_replace('/\D+/', '', $orderNumber);
@@ -777,16 +808,31 @@ class PosPhase1EndpointsTest extends TestCase
         // Switch back to main cashier
         Auth::forgetGuards();
 
-        // First resume succeeds and returns items_payload
+        // Resume is read-only: it returns the payload without consuming the hold.
         $resumeRes = $this->withToken($this->token)->postJson("/api/v1/pos/sales/held/{$heldId1}/resume");
         $resumeRes->assertOk()
+            ->assertJsonPath('data.held_sale_id', $heldId1)
             ->assertJsonPath('data.id', $heldId1)
             ->assertJsonPath('data.notes', 'Hold 1')
             ->assertJsonPath('data.items_payload.0.product_variant_id', $this->variant->id)
             ->assertJsonPath('data.items_payload.0.qty', 2);
 
-        // Second resume to the same ID returns 404
-        $this->withToken($this->token)->postJson("/api/v1/pos/sales/held/{$heldId1}/resume")->assertStatus(404);
+        $this->withToken($this->token)->postJson("/api/v1/pos/sales/held/{$heldId1}/resume")->assertOk();
+        $this->assertDatabaseHas('pos_held_sales', ['id' => $heldId1]);
+
+        // Completing the sale with held_sale_id consumes the hold atomically.
+        $items = [['product_variant_id' => $this->variant->id, 'qty' => 2]];
+        $total = (float) $this->withToken($this->token)
+            ->postJson('/api/v1/pos/sales/quote', ['items' => $items])
+            ->assertOk()
+            ->json('data.grand_total');
+
+        $this->withToken($this->token)->postJson('/api/v1/pos/sales', [
+            'items' => $items,
+            'cash_amount' => $total,
+            'held_sale_id' => $heldId1,
+        ])->assertCreated();
+        $this->assertDatabaseMissing('pos_held_sales', ['id' => $heldId1]);
 
         // Delete held sale 2 succeeds, then subsequent delete returns 404
         $this->withToken($this->token)->deleteJson("/api/v1/pos/sales/held/{$heldId2}")->assertSuccessful();
@@ -1097,6 +1143,376 @@ class PosPhase1EndpointsTest extends TestCase
         $approverItem = $stApproverRes->json('data.items.0');
         $this->assertArrayHasKey('system_qty', $approverItem);
         $this->assertEquals(50, (float) $approverItem['system_qty']);
+    }
+
+    public function test_self_approval_is_rejected_and_another_supervisor_can_approve(): void
+    {
+        $this->withToken($this->token)->postJson('/api/v1/pos/shifts/open', [
+            'treasury_id' => $this->posDrawer1->id,
+            'opening_cash' => 200.00,
+        ])->assertCreated();
+
+        $shift = PosShift::query()->where('user_id', $this->cashier->id)->firstOrFail();
+        $closed = app(PosService::class)->closeShift($shift, 200.00, null);
+
+        try {
+            app(PosService::class)->approveShift($closed, $this->cashier);
+            $this->fail('A cashier must not approve their own shift.');
+        } catch (BusinessException $e) {
+            $this->assertStringContainsString('بنفسك', $e->getMessage());
+        }
+
+        $supervisor = User::create([
+            'name' => 'Supervisor',
+            'email' => 'supervisor@example.com',
+            'phone' => '+201099990000',
+            'password' => Hash::make('secret123'),
+            'branch_id' => $this->branch->id,
+            'is_active' => true,
+        ]);
+        $supervisor->givePermissionTo(Permission::findOrCreate('pos_shifts.approve', 'staff'));
+
+        app(PosService::class)->approveShift($closed, $supervisor);
+        $this->assertSame('approved', $closed->fresh()->status->value);
+    }
+
+    public function test_closing_with_cash_difference_requires_a_note(): void
+    {
+        $this->withToken($this->token)->postJson('/api/v1/pos/shifts/open', [
+            'treasury_id' => $this->posDrawer1->id,
+            'opening_cash' => 200.00,
+        ])->assertCreated();
+
+        $this->withToken($this->token)->postJson('/api/v1/pos/shifts/close', [
+            'actual_closing_cash' => 190.00,
+        ])->assertStatus(422);
+
+        $this->withToken($this->token)->postJson('/api/v1/pos/shifts/close', [
+            'actual_closing_cash' => 190.00,
+            'notes' => 'نقص نقدي عند الجرد',
+        ])->assertOk();
+
+        // The variance is stored for approvers even though the cashier cannot see it.
+        $this->assertSame('-10.00', (string) PosShift::query()->latest('id')->firstOrFail()->cash_difference);
+    }
+
+    public function test_close_response_is_blind_for_cashiers_without_view_expected(): void
+    {
+        $this->withToken($this->token)->postJson('/api/v1/pos/shifts/open', [
+            'treasury_id' => $this->posDrawer1->id,
+            'opening_cash' => 200.00,
+        ])->assertCreated();
+
+        $close = $this->withToken($this->token)->postJson('/api/v1/pos/shifts/close', [
+            'actual_closing_cash' => 190.00,
+            'notes' => 'نقص نقدي عند الجرد',
+        ])->assertOk();
+
+        $data = $close->json('data');
+        foreach ([
+            'expected_closing_cash', 'cash_sales_total', 'cash_returns_total',
+            'cash_expenses_total', 'cash_difference',
+        ] as $key) {
+            $this->assertArrayNotHasKey($key, $data, "Close response leaked {$key} to a cashier.");
+        }
+        $this->assertArrayHasKey('card_sales_total', $data);
+        $this->assertArrayHasKey('actual_closing_cash', $data);
+    }
+
+    public function test_opening_float_above_the_cap_requires_override_permission(): void
+    {
+        config(['inventory.pos_max_opening_float' => 100]);
+
+        $this->withToken($this->token)->postJson('/api/v1/pos/shifts/open', [
+            'treasury_id' => $this->posDrawer1->id,
+            'opening_cash' => 200.00,
+        ])->assertStatus(422);
+
+        $this->cashier->givePermissionTo(Permission::findOrCreate('pos.override_opening_float', 'staff'));
+        Auth::forgetGuards();
+
+        $this->withToken($this->token)->postJson('/api/v1/pos/shifts/open', [
+            'treasury_id' => $this->posDrawer1->id,
+            'opening_cash' => 200.00,
+        ])->assertCreated();
+    }
+
+    public function test_admin_can_reopen_for_recount_and_force_close_a_shift(): void
+    {
+        $this->withToken($this->token)->postJson('/api/v1/pos/shifts/open', [
+            'treasury_id' => $this->posDrawer1->id,
+            'opening_cash' => 200.00,
+        ])->assertCreated();
+
+        $shift = PosShift::query()->where('user_id', $this->cashier->id)->firstOrFail();
+        app(PosService::class)->closeShift($shift, 200.00, null);
+
+        $manager = User::create([
+            'name' => 'Shift Manager',
+            'email' => 'shift-manager@example.com',
+            'phone' => '+201099990001',
+            'password' => Hash::make('secret123'),
+            'branch_id' => $this->branch->id,
+            'is_active' => true,
+        ]);
+        $manager->givePermissionTo(Permission::findOrCreate('pos_shifts.view', 'staff'));
+        $manager->givePermissionTo(Permission::findOrCreate('pos_shifts.approve', 'staff'));
+        $manager->givePermissionTo(Permission::findOrCreate('pos_shifts.force_close', 'staff'));
+        Auth::forgetGuards();
+        $adminToken = $manager->createToken('admin')->plainTextToken;
+
+        $this->withToken($adminToken)->postJson("/api/v1/admin/shifts/{$shift->id}/reject", [
+            'reason' => 'إعادة جرد الدرج',
+        ])->assertOk()->assertJsonPath('data.status', 'open');
+
+        $this->withToken($adminToken)->postJson("/api/v1/admin/shifts/{$shift->id}/force-close", [
+            'reason' => 'الموظف غادر دون إغلاق',
+        ])->assertOk()
+            ->assertJsonPath('data.status', 'closed_pending_approval')
+            ->assertJsonPath('data.cash_difference', '0.00');
+
+        $this->assertDatabaseHas('staff_audit_logs', [
+            'action' => 'pos_shift.reopen_for_recount',
+            'target_type' => PosShift::class,
+            'target_id' => $shift->id,
+        ]);
+        $this->assertDatabaseHas('staff_audit_logs', [
+            'action' => 'pos_shift.force_close',
+            'target_type' => PosShift::class,
+            'target_id' => $shift->id,
+        ]);
+    }
+
+    public function test_transfers_to_or_from_an_active_drawer_are_rejected(): void
+    {
+        $this->withToken($this->token)->postJson('/api/v1/pos/shifts/open', [
+            'treasury_id' => $this->posDrawer1->id,
+            'opening_cash' => 200.00,
+        ])->assertCreated();
+
+        $service = app(TreasuryService::class);
+
+        try {
+            $service->createTransfer([
+                'from_treasury_id' => $this->mainSafe->id,
+                'to_treasury_id' => $this->posDrawer1->id,
+                'amount' => 50,
+            ], $this->cashier->id);
+            $this->fail('Transfer into an active drawer must be rejected.');
+        } catch (BusinessException $e) {
+            $this->assertSame(409, $e->status);
+        }
+
+        try {
+            $service->createTransfer([
+                'from_treasury_id' => $this->posDrawer1->id,
+                'to_treasury_id' => $this->mainSafe->id,
+                'amount' => 50,
+            ], $this->cashier->id);
+            $this->fail('Transfer out of an active drawer must be rejected.');
+        } catch (BusinessException $e) {
+            $this->assertSame(409, $e->status);
+        }
+    }
+
+    public function test_sale_rejects_duplicate_variant_lines(): void
+    {
+        $this->withToken($this->token)->postJson('/api/v1/pos/shifts/open', [
+            'treasury_id' => $this->posDrawer1->id,
+            'opening_cash' => 200.00,
+        ])->assertCreated();
+
+        $this->withToken($this->token)->postJson('/api/v1/pos/sales', [
+            'items' => [
+                ['product_variant_id' => $this->variant->id, 'qty' => 1],
+                ['product_variant_id' => $this->variant->id, 'qty' => 1],
+            ],
+            'payment_method' => 'cash',
+            'cash_amount' => 300,
+        ])->assertStatus(422);
+    }
+
+    public function test_payment_method_is_derived_from_the_tender_split_and_notes_are_saved(): void
+    {
+        $this->withToken($this->token)->postJson('/api/v1/pos/shifts/open', [
+            'treasury_id' => $this->posDrawer1->id,
+            'opening_cash' => 200.00,
+        ])->assertCreated();
+
+        $sale = $this->withToken($this->token)->postJson('/api/v1/pos/sales', [
+            'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
+            // Deliberately wrong client value: the server must derive it.
+            'payment_method' => 'cash',
+            'cash_amount' => 100,
+            'card_amount' => 50,
+            'notes' => 'عميل استلام سريع',
+        ])->assertCreated();
+
+        $order = Order::findOrFail($sale->json('data.id'));
+        $this->assertSame('mixed', $order->payment_method);
+        $this->assertSame('عميل استلام سريع', $order->notes);
+    }
+
+    public function test_price_override_requires_reason_and_cannot_go_below_cost_without_permission(): void
+    {
+        $this->withToken($this->token)->postJson('/api/v1/pos/shifts/open', [
+            'treasury_id' => $this->posDrawer1->id,
+            'opening_cash' => 200.00,
+        ])->assertCreated();
+
+        $payload = [
+            'items' => [[
+                'product_variant_id' => $this->variant->id,
+                'qty' => 1,
+                'unit_price' => 120,
+            ]],
+            'payment_method' => 'cash',
+            'cash_amount' => 120,
+            'override_price' => true,
+        ];
+
+        // Without the override permission the request is rejected before pricing.
+        $this->withToken($this->token)->postJson('/api/v1/pos/sales', $payload)->assertForbidden();
+
+        $this->cashier->givePermissionTo(Permission::findOrCreate('pos.override_price', 'staff'));
+        Auth::forgetGuards();
+
+        // Missing reason is rejected for an authorised override.
+        $this->withToken($this->token)->postJson('/api/v1/pos/sales', $payload)->assertStatus(422);
+
+        // Below cost is rejected without the explicit below-cost permission.
+        $this->withToken($this->token)->postJson('/api/v1/pos/sales', [
+            ...$payload,
+            'override_reason' => 'تصفية',
+            'items' => [[
+                'product_variant_id' => $this->variant->id,
+                'qty' => 1,
+                'unit_price' => 50,
+            ]],
+            'cash_amount' => 50,
+        ])->assertStatus(422);
+
+        $this->cashier->givePermissionTo(Permission::findOrCreate('pos.override_price_below_cost', 'staff'));
+        Auth::forgetGuards();
+
+        $this->withToken($this->token)->postJson('/api/v1/pos/sales', [
+            ...$payload,
+            'override_reason' => 'تصفية بموافقة المدير',
+            'items' => [[
+                'product_variant_id' => $this->variant->id,
+                'qty' => 1,
+                'unit_price' => 50,
+            ]],
+            'cash_amount' => 50,
+        ])->assertCreated();
+    }
+
+    public function test_sale_rejects_an_inactive_parent_product(): void
+    {
+        $this->withToken($this->token)->postJson('/api/v1/pos/shifts/open', [
+            'treasury_id' => $this->posDrawer1->id,
+            'opening_cash' => 200.00,
+        ])->assertCreated();
+
+        Product::query()->whereKey($this->variant->product_id)->update([
+            'status' => ProductStatus::Draft,
+            'published_at' => null,
+        ]);
+
+        $this->withToken($this->token)->postJson('/api/v1/pos/sales', [
+            'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
+            'payment_method' => 'cash',
+            'cash_amount' => 150,
+        ])->assertStatus(422);
+    }
+
+    public function test_quote_rejects_more_than_one_hundred_lines(): void
+    {
+        $this->withToken($this->token)->postJson('/api/v1/pos/shifts/open', [
+            'treasury_id' => $this->posDrawer1->id,
+            'opening_cash' => 200.00,
+        ])->assertCreated();
+
+        $items = array_fill(0, 101, ['product_variant_id' => $this->variant->id, 'qty' => 1]);
+
+        $this->withToken($this->token)->postJson('/api/v1/pos/sales/quote', [
+            'items' => $items,
+        ])->assertStatus(422);
+    }
+
+    public function test_return_and_exchange_require_and_honour_idempotency_keys(): void
+    {
+        $this->withToken($this->token)->postJson('/api/v1/pos/shifts/open', [
+            'treasury_id' => $this->posDrawer1->id,
+            'opening_cash' => 200.00,
+        ])->assertCreated();
+
+        $sale = $this->withToken($this->token)->postJson('/api/v1/pos/sales', [
+            'items' => [['product_variant_id' => $this->variant->id, 'qty' => 2]],
+            'payment_method' => 'cash',
+            'cash_amount' => 300,
+        ])->assertCreated();
+
+        $saleId = $sale->json('data.id');
+        $returnUrl = "/api/v1/pos/sales/{$saleId}/return";
+
+        $this->withToken($this->token)->postJson($returnUrl, [
+            'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
+        ])->assertStatus(422);
+
+        $headers = ['Idempotency-Key' => 'retry-return-1'];
+        $first = $this->withToken($this->token)->postJson($returnUrl, [
+            'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
+        ], $headers)->assertOk();
+        $replay = $this->withToken($this->token)->postJson($returnUrl, [
+            'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
+        ], $headers)->assertOk();
+
+        $this->assertSame($first->json('data.return_order_id'), $replay->json('data.return_order_id'));
+        $this->assertSame(1, Order::query()->where('return_of_order_id', $saleId)->count());
+
+        $exchangeSale = $this->withToken($this->token)->postJson('/api/v1/pos/sales', [
+            'items' => [['product_variant_id' => $this->variant->id, 'qty' => 2]],
+            'payment_method' => 'cash',
+            'cash_amount' => 300,
+        ])->assertCreated();
+        $exchangeUrl = "/api/v1/pos/sales/{$exchangeSale->json('data.id')}/exchange";
+        $exchangeHeaders = ['Idempotency-Key' => 'retry-exchange-1'];
+        $exchangePayload = [
+            'returned_items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
+            'exchange_items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
+            'cash_amount' => 150,
+            'card_amount' => 0,
+        ];
+
+        $firstExchange = $this->withToken($this->token)->postJson($exchangeUrl, $exchangePayload, $exchangeHeaders)->assertOk();
+        $replayExchange = $this->withToken($this->token)->postJson($exchangeUrl, $exchangePayload, $exchangeHeaders)->assertOk();
+
+        $this->assertSame($firstExchange->json('data.return_order_id'), $replayExchange->json('data.return_order_id'));
+        $this->assertSame($firstExchange->json('data.exchange_order_id'), $replayExchange->json('data.exchange_order_id'));
+        $this->assertSame(1, Order::query()->where('return_of_order_id', $exchangeSale->json('data.id'))->count());
+    }
+
+    public function test_return_window_rejects_old_receipts(): void
+    {
+        config(['inventory.pos_return_window_days' => 30]);
+
+        $this->withToken($this->token)->postJson('/api/v1/pos/shifts/open', [
+            'treasury_id' => $this->posDrawer1->id,
+            'opening_cash' => 200.00,
+        ])->assertCreated();
+
+        $sale = $this->withToken($this->token)->postJson('/api/v1/pos/sales', [
+            'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
+            'payment_method' => 'cash',
+            'cash_amount' => 150,
+        ])->assertCreated();
+
+        Order::query()->whereKey($sale->json('data.id'))->update(['created_at' => now()->subDays(40)]);
+
+        $this->withToken($this->token)->postJson("/api/v1/pos/sales/{$sale->json('data.id')}/return", [
+            'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
+        ], ['Idempotency-Key' => 'old-return-1'])->assertStatus(422);
     }
 
     public function json($method, $uri, array $data = [], array $headers = [], $options = 0)

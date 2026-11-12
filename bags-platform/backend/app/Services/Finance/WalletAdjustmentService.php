@@ -89,7 +89,7 @@ final class WalletAdjustmentService
                     'reverses_id' => $reversesId,
                     'created_at' => now(),
                 ]);
-                $this->wallet->record($customer->id, (float) (string) $signed, $walletType,
+                $this->wallet->record($customer->id, (string) $signed, $walletType,
                     'wallet_adjustment', $adjustment->id, $actor->id);
 
                 return $adjustment;
@@ -117,6 +117,6 @@ final class WalletAdjustmentService
             'direction' => $opposite,
             'reason' => mb_substr('عكس تعديل #'.$adjustment->id.($reason !== null && trim($reason) !== '' ? ': '.trim($reason) : ': '.$adjustment->reason), 0, 500),
             'source' => $adjustment->source,
-        ] + ($adjustment->ai_action_id !== null ? ['ai_action_id' => $adjustment->ai_action_id] : []), $actor, $idempotencyKey, $adjustment->id);
+        ], $actor, $idempotencyKey, $adjustment->id);
     }
 }

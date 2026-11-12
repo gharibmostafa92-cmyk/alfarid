@@ -117,7 +117,7 @@ export function ExpenseForm({ onClose, onSaved }: { onClose: () => void; onSaved
     if (!f.v.branchId || !f.v.treasuryId || !f.v.category || !f.v.amount) return toast('أكمل الحقول المطلوبة', 'red');
     const r = await run(() => expensesApi.create({
       branch_id: Number(f.v.branchId),
-      treasury_id: Number(f.v.treasuryId), category: f.v.category, amount: Number(f.v.amount),
+      treasury_id: Number(f.v.treasuryId), category: f.v.category, amount: f.v.amount,
       expense_date: f.v.date, notes: f.v.notes || null,
     }, idemKey), { toast, success: 'تم تسجيل سند الصرف', onFieldErrors: (e) => f.setErrors(e as any) });
     if (r) { setIdemKey(newIdempotencyKey()); onSaved(); onClose(); }
@@ -497,6 +497,8 @@ export function TransfersTab({ recordId }: { recordId?: number } = {}) {
   const [st, setSt] = useState('');
   const [tr, setTr] = useState('');
   const [view, setView] = useState<any>(null);
+  const [rejecting, setRejecting] = useState<TreasuryTransfer | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
   const [form, setForm] = useState(false);
   const [src, setSrc] = useState('');
   const [idemKey, setIdemKey] = useState(() => newIdempotencyKey());
@@ -530,10 +532,11 @@ export function TransfersTab({ recordId }: { recordId?: number } = {}) {
     const r = await run(() => treasuryTransfersApi.approve(id), { toast, success: 'تم اعتماد التحويل' });
     if (r) { setView(null); list.reload(); treasures.reload(); }
   };
-  const reject = async (id: number) => {
+  const reject = async () => {
+    if (!rejecting) return;
     if (list.usingMock) return toast('البيانات المعروضة تجريبية — لم يتم الحفظ', 'red');
-    const r = await run(() => treasuryTransfersApi.reject(id), { toast, success: 'تم رفض التحويل' });
-    if (r) { setView(null); list.reload(); treasures.reload(); }
+    const r = await run(() => treasuryTransfersApi.reject(rejecting.id, rejectReason.trim()), { toast, success: 'تم رفض التحويل' });
+    if (r) { setRejecting(null); setRejectReason(''); setView(null); list.reload(); treasures.reload(); }
   };
   const create = async () => {
     if (!src || !dst || src === dst) return toast('اختر مصدرًا ووجهة مختلفين', 'red');
@@ -542,7 +545,7 @@ export function TransfersTab({ recordId }: { recordId?: number } = {}) {
       setUnresolved(true);
       try {
         return await treasuryTransfersApi.create({
-          from_treasury_id: Number(src), to_treasury_id: Number(dst), amount: Number(amount), notes: notes || null,
+          from_treasury_id: Number(src), to_treasury_id: Number(dst), amount, notes: notes || null,
         }, idemKey);
       } catch (error) {
         const { status } = parseApiError(error);
@@ -610,7 +613,7 @@ export function TransfersTab({ recordId }: { recordId?: number } = {}) {
               r: (x: TreasuryTransfer) =>
                 x.status === 'pending' && (
                   <RowActions>
-                    <button className="btn btn-danger btn-xs" disabled={busy} onClick={() => reject(x.id)}>
+                    <button className="btn btn-danger btn-xs" disabled={busy} onClick={() => { setRejecting(x); setRejectReason(''); }}>
                       رفض
                     </button>
                     <button className="btn btn-success btn-xs" disabled={busy} onClick={() => approve(x.id)}>
@@ -636,7 +639,7 @@ export function TransfersTab({ recordId }: { recordId?: number } = {}) {
                 <button
                   className="btn btn-danger"
                   disabled={busy}
-                  onClick={() => reject(view.id)}
+                  onClick={() => { setRejecting(view); setRejectReason(''); }}
                 >
                   رفض
                 </button>
@@ -738,6 +741,28 @@ export function TransfersTab({ recordId }: { recordId?: number } = {}) {
           <TextArea label="ملاحظات" value={notes} onChange={setNotes} />
         </fieldset>
       </Modal>
+      {rejecting && (
+        <Modal
+          open
+          onClose={() => { if (!busy) setRejecting(null); }}
+          title="رفض طلب التحويل"
+          icon="swap"
+          width={460}
+          footer={
+            <>
+              <button className="btn btn-soft" disabled={busy} onClick={() => setRejecting(null)}>
+                إلغاء
+              </button>
+              <button className="btn btn-danger" disabled={busy || rejectReason.trim().length < 3} onClick={reject}>
+                تأكيد الرفض
+              </button>
+            </>
+          }
+        >
+          <Note>لن يتم تحريك أي أرصدة؛ يُحفظ سبب الرفض في سجل التدقيق.</Note>
+          <TextArea label="سبب الرفض" req value={rejectReason} onChange={setRejectReason} />
+        </Modal>
+      )}
     </>
   );
 }

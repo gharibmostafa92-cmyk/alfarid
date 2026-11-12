@@ -160,7 +160,7 @@ class AuthAuditRegressionTest extends TestCase
             $this->assertTrue($token->expires_at->between(now()->addMinutes(119), now()->addMinutes(121)));
         }
         $branch->update(['is_active' => false]);
-        $this->postJson('/api/v1/pos/auth/login', $payload)->assertNotFound();
+        $this->postJson('/api/v1/pos/auth/login', $payload)->assertUnauthorized();
     }
 
     public function test_staff_login_success_and_failure_are_persisted_without_credentials(): void

@@ -30,7 +30,10 @@
                     "bags-platform/backend/database/migrations/*treasur*.php",
                     "bags-platform/backend/database/migrations/*wallet*.php",
                     "bags-platform/backend/database/migrations/*expense*.php",
-                    "bags-platform/frontend/packages/api-client/src/endpoints/operations/finance.ts"
+                    "bags-platform/frontend/packages/api-client/src/endpoints/operations/finance.ts",
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Finance/PosShiftAdminController.php",
+                    "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Finance/TreasuryTransferController.php",
+                    "bags-platform/backend/database/seeders/FinancialPermissionSeeder.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

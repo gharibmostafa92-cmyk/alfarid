@@ -13,6 +13,9 @@ use App\Exceptions\BusinessException;
 use App\Models\Expense;
 use App\Models\Treasury;
 use App\Models\User;
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -42,10 +45,19 @@ class ExpenseService
      */
     public function create(array $data, User $actor, ?string $idempotencyKey): Expense
     {
-        $treasury = Treasury::query()->findOrFail($data['treasury_id']);
-        $this->branchAccess->assertBranch($actor->id, (int) $data['branch_id']);
+        // Never spread the raw request: branch_id/treasury_id/created_by are
+        // financial fields and must not be overridable through the payload.
+        $payload = Arr::only($data, ['branch_id', 'treasury_id', 'category', 'amount', 'expense_date', 'notes', 'attachment_path']);
+        $amount = BigDecimal::of((string) ($payload['amount'] ?? '0'))->toScale(2, RoundingMode::HalfUp);
+        if (! $amount->isPositive()) {
+            throw new BusinessException('مبلغ المصروف يجب أن يكون أكبر من صفر.');
+        }
+        $payload['amount'] = (string) $amount;
+
+        $treasury = Treasury::query()->findOrFail($payload['treasury_id']);
+        $this->branchAccess->assertBranch($actor->id, (int) $payload['branch_id']);
         $this->branchAccess->assertTreasury($actor->id, $treasury);
-        if (! $treasury->is_active || ($treasury->branch_id !== null && (int) $treasury->branch_id !== (int) $data['branch_id'])) {
+        if (! $treasury->is_active || ($treasury->branch_id !== null && (int) $treasury->branch_id !== (int) $payload['branch_id'])) {
             throw new BusinessException('الخزينة غير مفعّلة أو لا تتبع الفرع المحدد.');
         }
         if ($treasury->type->value === 'pos_drawer') {
@@ -56,31 +68,30 @@ class ExpenseService
             'expense',
             $actor,
             $idempotencyKey,
-            $data,
-            fn () => DB::transaction(function () use ($data, $actor): Expense {
-                $lockedTreasury = Treasury::query()->lockForUpdate()->findOrFail($data['treasury_id']);
+            $payload,
+            fn () => DB::transaction(function () use ($payload, $amount, $actor): Expense {
+                $lockedTreasury = Treasury::query()->lockForUpdate()->findOrFail($payload['treasury_id']);
                 $this->branchAccess->assertTreasury($actor->id, $lockedTreasury);
                 if ($lockedTreasury->type->value === 'pos_drawer'
-                    || ($lockedTreasury->branch_id !== null && (int) $lockedTreasury->branch_id !== (int) $data['branch_id'])) {
+                    || ($lockedTreasury->branch_id !== null && (int) $lockedTreasury->branch_id !== (int) $payload['branch_id'])) {
                     throw new BusinessException('الخزينة لا تقبل مصروفات هذا الفرع من المسار الإداري.');
                 }
                 $expenseNumber = $this->settings->generateNextNumber('expense');
 
                 $expense = Expense::create([
-                    ...$data,
-                    'amount' => bcadd((string) $data['amount'], '0', 2),
+                    ...$payload,
                     'expense_number' => $expenseNumber,
                     'created_by' => $actor->id,
                 ]);
 
                 $this->treasury->record([
-                    'treasury_id' => $data['treasury_id'],
+                    'treasury_id' => $payload['treasury_id'],
                     'type' => TreasuryTransactionType::Expense,
-                    'amount' => bcsub('0', (string) $data['amount'], 2),
+                    'amount' => (string) $amount->negated(),
                     'reference_type' => Expense::class,
                     'reference_id' => $expense->id,
                     'created_by' => $actor->id,
-                    'notes' => "مصروف إداري: {$data['category']} #{$expenseNumber}",
+                    'notes' => "مصروف إداري: {$payload['category']} #{$expenseNumber}",
                 ]);
 
                 return $expense;
@@ -105,7 +116,7 @@ class ExpenseService
                 throw new BusinessException('لا يمكن تعديل مصروف ملغى.');
             }
 
-            $locked->update($data);
+            $locked->update(Arr::only($data, ['category', 'notes']));
 
             return $locked;
         });

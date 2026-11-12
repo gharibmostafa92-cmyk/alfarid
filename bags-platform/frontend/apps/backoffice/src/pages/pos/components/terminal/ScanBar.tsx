@@ -17,6 +17,7 @@ export function ScanBar({ products, customer, onAdd, inputRef }: ScanBarProps) {
   const [q, setQ] = useState('');
   const [hl, setHl] = useState(0);
   const [open, setOpen] = useState(false);
+  const [unknownBarcode, setUnknownBarcode] = useState<string | null>(null);
 
   const results = useMemo(() => {
     const s = normAr(q);
@@ -45,9 +46,31 @@ export function ScanBar({ products, customer, onAdd, inputRef }: ScanBarProps) {
     }
     if (e.key === 'Enter') {
       const code = normAr(q);
+      const isBarcode = /^\d{8,}$/.test(code);
       const exact = products.find((p) => normAr(p.barcode) === code || normAr(p.sku) === code);
       if (exact) {
         pick(exact);
+      } else if (isBarcode) {
+        // A scanner emitted a full barcode: never fall back to a fuzzy match,
+        // or a dropped digit can silently add the wrong product.
+        posMockService
+          .lookupByBarcode(code)
+          .then((p) => {
+            if (p) {
+              pick(p);
+            } else {
+              setUnknownBarcode(code);
+              setQ('');
+              setOpen(false);
+              beepError();
+            }
+          })
+          .catch(() => {
+            setUnknownBarcode(code);
+            setQ('');
+            setOpen(false);
+            beepError();
+          });
       } else if (results[hl]) {
         pick(results[hl]);
       } else if (code) {
@@ -73,6 +96,7 @@ export function ScanBar({ products, customer, onAdd, inputRef }: ScanBarProps) {
         data-scan-input
         value={q}
         onChange={(e) => {
+          setUnknownBarcode(null);
           setQ(e.target.value);
           setOpen(true);
         }}
@@ -82,6 +106,12 @@ export function ScanBar({ products, customer, onAdd, inputRef }: ScanBarProps) {
         placeholder="امسح الباركود أو ابحث بالاسم / الكود (SKU)…"
         aria-label="بحث الأصناف"
       />
+      {unknownBarcode && (
+        <span className="badge b-bad fs-12" role="alert">
+          {'\u0628\u0627\u0631\u0643\u0648\u062f \u063a\u064a\u0631 \u0645\u0639\u0631\u0648\u0641: '}
+          <b className="mono ltr">{unknownBarcode}</b>
+        </span>
+      )}
       <span className="row gap-1 fs-12 t-3">
         <Kbd>F2</Kbd>
       </span>

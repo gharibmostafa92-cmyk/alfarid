@@ -515,7 +515,10 @@ export class PosApiService {
     saleId: number,
     items: { id: number; qty: number; return_to: 'on_hand' | 'damaged' }[],
   ): Promise<void> {
-    await this.call(() => this.http.post(EP.SALE_RETURN(saleId), { items: this.groupReturnLines(items) }));
+    const body = { items: this.groupReturnLines(items) };
+    const key = this.idemKey(`return:${saleId}`, body);
+    await this.call(() => this.http.post(EP.SALE_RETURN(saleId), body, { headers: { 'Idempotency-Key': key } }));
+    this.idemDrafts.delete(`return:${saleId}`);
     this.restock(items);
     void this.refreshShift();
     this.notify();
@@ -533,14 +536,17 @@ export class PosApiService {
       items: exchangeItems.map((i) => ({ product_variant_id: i.id, qty: i.qty })),
       customer_id: customerId,
     });
+    const body = {
+      returned_items: this.groupReturnLines(returnItems),
+      exchange_items: exchangeItems.map((i) => ({ product_variant_id: i.id, qty: i.qty })),
+      cash_amount: toApi(toCents(quote.grand_total)),
+      card_amount: '0.00',
+    };
+    const key = this.idemKey(`exchange:${saleId}`, body);
     await this.call(() =>
-      this.http.post(EP.SALE_EXCHANGE(saleId), {
-        returned_items: this.groupReturnLines(returnItems),
-        exchange_items: exchangeItems.map((i) => ({ product_variant_id: i.id, qty: i.qty })),
-        cash_amount: toApi(toCents(quote.grand_total)),
-        card_amount: '0.00',
-      }),
+      this.http.post(EP.SALE_EXCHANGE(saleId), body, { headers: { 'Idempotency-Key': key } }),
     );
+    this.idemDrafts.delete(`exchange:${saleId}`);
     this.restock(returnItems);
     for (const i of exchangeItems) {
       const p = this.byId.get(i.id);

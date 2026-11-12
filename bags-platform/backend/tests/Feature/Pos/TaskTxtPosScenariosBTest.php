@@ -53,7 +53,7 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
         $returnLine = ['product_variant_id' => $this->variant->id, 'qty' => 1];
         foreach ([['qty', 0], ['qty', 1.5], ['return_to', 'unknown']] as [$field, $value]) {
             $this->withToken($token)->postJson("/api/v1/pos/sales/{$saleId}/return", [
-                'items' => [array_replace($returnLine, [$field => $value])],
+                'items' => [array_replace($returnLine, [$field => $value], $this->idemHeaders())],
             ])->assertUnprocessable()->assertJsonValidationErrors("items.0.{$field}");
         }
         $this->assertDatabaseMissing('orders', ['return_of_order_id' => $saleId]);
@@ -61,26 +61,26 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
         // 4 > 3 rejected.
         $this->withToken($token)->postJson("/api/v1/pos/sales/{$saleId}/return", [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 4]],
-        ])->assertStatus(422);
+        ], $this->idemHeaders())->assertStatus(422);
 
         // Two sequential single returns both succeed (row lock serializes them).
         $this->withToken($token)->postJson("/api/v1/pos/sales/{$saleId}/return", [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
-        ])->assertOk();
+        ], $this->idemHeaders())->assertOk();
         $this->withToken($token)->postJson("/api/v1/pos/sales/{$saleId}/return", [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
-        ])->assertOk();
+        ], $this->idemHeaders())->assertOk();
 
         // Remaining is 1: returning 3 or a grouped 1+1 (sum 2) is rejected.
         $this->withToken($token)->postJson("/api/v1/pos/sales/{$saleId}/return", [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 3]],
-        ])->assertStatus(422);
+        ], $this->idemHeaders())->assertStatus(422);
         $this->withToken($token)->postJson("/api/v1/pos/sales/{$saleId}/return", [
             'items' => [
                 ['product_variant_id' => $this->variant->id, 'qty' => 1],
                 ['product_variant_id' => $this->variant->id, 'qty' => 1],
             ],
-        ])->assertStatus(422);
+        ], $this->idemHeaders())->assertStatus(422);
 
         // Cumulative returned_qty never exceeds sold qty.
         $returned = (float) OrderItem::query()->where('order_id', $saleId)->sum('returned_qty');
@@ -91,7 +91,7 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
         // Unknown variant rejected.
         $this->withToken($token)->postJson("/api/v1/pos/sales/{$saleId}/return", [
             'items' => [['product_variant_id' => 999999, 'qty' => 1]],
-        ])->assertStatus(422);
+        ], $this->idemHeaders())->assertStatus(422);
 
         // Mixed destinations for the same variant in one request rejected.
         $this->withToken($token)->postJson("/api/v1/pos/sales/{$saleId}/return", [
@@ -99,7 +99,7 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
                 ['product_variant_id' => $this->variant->id, 'qty' => 1, 'return_to' => 'on_hand'],
                 ['product_variant_id' => $this->variant->id, 'qty' => 1, 'return_to' => 'damaged'],
             ],
-        ])->assertStatus(422);
+        ], $this->idemHeaders())->assertStatus(422);
     }
 
     public function test_05_return_of_return_non_pos_and_undelivered_rejected(): void
@@ -112,7 +112,7 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
 
         $ret = $this->withToken($token)->postJson("/api/v1/pos/sales/{$saleId}/return", [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
-        ]);
+        ], $this->idemHeaders());
         $ret->assertOk();
         $returnOrderId = $ret->json('data.return_order_id');
         $this->assertNotNull($returnOrderId);
@@ -120,13 +120,13 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
         // Return of a return rejected (status Returned, not Delivered).
         $this->withToken($token)->postJson("/api/v1/pos/sales/{$returnOrderId}/return", [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
-        ])->assertStatus(422);
+        ], $this->idemHeaders())->assertStatus(422);
 
         // Non-POS channel rejected.
         Order::query()->whereKey($saleId)->update(['channel' => 'store']);
         $this->withToken($token)->postJson("/api/v1/pos/sales/{$saleId}/return", [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
-        ])->assertStatus(422);
+        ], $this->idemHeaders())->assertStatus(422);
     }
 
     public function test_06_refund_splits_cash_card_to_the_cent_across_partial_returns(): void
@@ -147,13 +147,13 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
 
         $r1 = $this->withToken($token)->postJson("/api/v1/pos/sales/{$saleId}/return", [
             'items' => [['product_variant_id' => $variant->id, 'qty' => 1]],
-        ])->assertOk();
+        ], $this->idemHeaders())->assertOk();
         $r2 = $this->withToken($token)->postJson("/api/v1/pos/sales/{$saleId}/return", [
             'items' => [['product_variant_id' => $variant->id, 'qty' => 1]],
-        ])->assertOk();
+        ], $this->idemHeaders())->assertOk();
         $r3 = $this->withToken($token)->postJson("/api/v1/pos/sales/{$saleId}/return", [
             'items' => [['product_variant_id' => $variant->id, 'qty' => 1]],
-        ])->assertOk();
+        ], $this->idemHeaders())->assertOk();
 
         $refunds = [$r1->json('data.refund_amount'), $r2->json('data.refund_amount'), $r3->json('data.refund_amount')];
         $this->assertSame(99.98, round(array_sum($refunds), 2), 'partial refunds must sum to the net invoice');
@@ -197,7 +197,7 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
 
         $this->withToken($token)->postJson("/api/v1/pos/sales/{$saleId}/return", [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1, 'return_to' => 'damaged']],
-        ])->assertOk();
+        ], $this->idemHeaders())->assertOk();
 
         $this->assertSame(1, StockMovement::query()
             ->where('reference_id', $saleId)
@@ -232,7 +232,7 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
 
         $this->withToken($token2)->postJson("/api/v1/pos/sales/{$saleId}/return", [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
-        ])->assertOk();
+        ], $this->idemHeaders())->assertOk();
 
         // Refund debited the CURRENT drawer, not the sale's drawer.
         $this->assertSame(100.0, (float) $drawer2->fresh()->current_balance);
@@ -260,7 +260,7 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
         // Full 100 cash return cannot be covered.
         $res = $this->withToken($token)->postJson("/api/v1/pos/sales/{$saleId}/return", [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
-        ]);
+        ], $this->idemHeaders());
         $res->assertStatus(422);
         $this->assertStringContainsString('رصيد الخزينة غير كافٍ', $res->json('message'));
 
@@ -318,10 +318,10 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
             ->where('branch_id', $this->branch->id)->sum('on_hand'));
     }
 
-    public function test_07_exchange_rejected_when_return_exceeds_drawer_despite_new_payment(): void
+    public function test_07_exchange_succeeds_when_net_payment_covers_refund(): void
     {
-        // Documents §7 decision point: return runs before the new sale in one
-        // transaction, so a covered-later refund is still rejected atomically.
+        // F7: a positive-net exchange must not be rejected just because the
+        // refund runs while the drawer is temporarily short.
         $token = $this->refundToken();
 
         $sale = $this->withToken($token)->postJson('/api/v1/pos/sales', $this->salePayload(100, 0, 1), $this->idem());
@@ -340,8 +340,9 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
             'cash_amount' => 120,
             'card_amount' => 0,
         ], $this->idem());
-        $res->assertStatus(422);
-        $this->assertSame(0, Order::query()->where('return_of_order_id', $saleId)->count());
+        $res->assertOk();
+        $this->assertSame(1, Order::query()->where('return_of_order_id', $saleId)->count());
+        $this->assertNotNull($res->json('data.exchange_order_id'));
     }
 
     public function test_08_shift_open_matrix(): void
@@ -351,7 +352,7 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
         // Same cashier double-open rejected (one open shift per user).
         $this->withToken($token)->postJson('/api/v1/pos/shifts/open', [
             'treasury_id' => $this->drawer->id, 'opening_cash' => 0,
-        ])->assertStatus(422);
+        ], $this->idemHeaders())->assertStatus(422);
 
         // Second cashier on the same drawer rejected.
         $cashier2 = $this->makeCashier('second@example.com', $this->branch->id, ['pos.access']);
@@ -446,17 +447,25 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
         ], $this->idem())->assertStatus(201);
         $this->withToken($token)->postJson("/api/v1/pos/sales/{$s3->json('data.id')}/return", [
             'items' => [['product_variant_id' => $variant50->id, 'qty' => 1]],
-        ])->assertOk();
+        ], $this->idemHeaders())->assertOk();
         $shift = PosShift::query()->where('user_id', $this->cashier->id)->where('status', PosShiftStatus::Open)->firstOrFail();
         app(PosService::class)->recordExpense($shift->fresh(), ['category' => 'ضيافة', 'amount' => 20], $this->cashier->id);
 
         // expected = 500 + 350 - 50 - 20 = 780; close at 770 -> shortage 10.
-        $close = $this->withToken($token)->postJson('/api/v1/pos/shifts/close', ['actual_closing_cash' => 770]);
+        $close = $this->withToken($token)->postJson('/api/v1/pos/shifts/close', [
+            'actual_closing_cash' => 770,
+            'notes' => 'عجز 10 جنيهات عند الجرد',
+        ]);
         $close->assertOk();
         $shiftId = $close->json('data.id');
-        $close->assertJsonPath('data.expected_closing_cash', '780.00')
-            ->assertJsonPath('data.cash_difference', '-10.00')
-            ->assertJsonPath('data.status', 'closed_pending_approval');
+        $close->assertJsonPath('data.status', 'closed_pending_approval')
+            ->assertJsonMissingPath('data.expected_closing_cash')
+            ->assertJsonMissingPath('data.cash_difference');
+
+        // The settlement ledger is stored for approvers, not shown to the cashier.
+        $closedShift = PosShift::findOrFail($shiftId);
+        $this->assertSame('780.00', (string) $closedShift->expected_closing_cash);
+        $this->assertSame('-10.00', (string) $closedShift->cash_difference);
 
         // Foreign-branch manager is forbidden on a pending shift.
         $foreign = $this->makeCashier('foreign-mgr@example.com', $this->branchB->id, ['pos.access']);
@@ -483,7 +492,26 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
         $this->assertSame('approved', PosShift::findOrFail($shiftId)->status->value);
     }
 
-    public function test_14_held_resume_is_single_use(): void
+    public function test_15_stale_held_sales_are_pruned_and_recent_ones_kept(): void
+    {
+        $token = $this->token;
+
+        $staleId = $this->withToken($token)->postJson('/api/v1/pos/sales/hold', [
+            'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
+        ])->assertStatus(201)->json('data.id');
+        $freshId = $this->withToken($token)->postJson('/api/v1/pos/sales/hold', [
+            'items' => [['product_variant_id' => $this->variant->id, 'qty' => 2]],
+        ])->assertStatus(201)->json('data.id');
+
+        \App\Models\PosHeldSale::query()->whereKey($staleId)->update(['created_at' => now()->subDays(10)]);
+
+        $this->artisan('pos:prune-held-sales', ['--days' => 7])->assertSuccessful();
+
+        $this->assertDatabaseMissing('pos_held_sales', ['id' => $staleId]);
+        $this->assertDatabaseHas('pos_held_sales', ['id' => $freshId]);
+    }
+
+    public function test_14_held_resume_is_read_only_and_sale_consumes_hold(): void
     {
         $token = $this->token;
 
@@ -494,10 +522,16 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
         $heldId = $hold->json('data.id');
 
         $this->withToken($token)->postJson("/api/v1/pos/sales/held/{$heldId}/resume")->assertOk();
-        // Second resume: gone.
-        $this->withToken($token)->postJson("/api/v1/pos/sales/held/{$heldId}/resume")->assertStatus(404);
-        // Delete after resume: gone.
-        $this->withToken($token)->deleteJson("/api/v1/pos/sales/held/{$heldId}")->assertStatus(404);
+        $this->withToken($token)->postJson("/api/v1/pos/sales/held/{$heldId}/resume")->assertOk();
+        $this->assertDatabaseHas('pos_held_sales', ['id' => $heldId]);
+
+        $sale = $this->withToken($token)->postJson('/api/v1/pos/sales', [
+            'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
+            'cash_amount' => 100.00,
+            'held_sale_id' => $heldId,
+        ], $this->idemHeaders());
+        $sale->assertCreated();
+        $this->assertDatabaseMissing('pos_held_sales', ['id' => $heldId]);
 
         // Delete then resume: gone both ways.
         $hold2 = $this->withToken($token)->postJson('/api/v1/pos/sales/hold', [

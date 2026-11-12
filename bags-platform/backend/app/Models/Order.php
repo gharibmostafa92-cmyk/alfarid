@@ -33,10 +33,14 @@ class Order extends Model
         'city_id',
         'shipping_address_line',
         'shipping_notes',
+        'notes',
+        'override_reason',
         'allocated_branch_id',
         'pos_shift_id',
         'return_of_order_id',
+        'exchange_order_id',
         'status',
+        'returned_at',
         'payment_method',
         'payment_status',
         'due_at',
@@ -72,6 +76,7 @@ class Order extends Model
             'requires_refund' => 'boolean',
             'needs_attention' => 'boolean',
             'due_at' => 'datetime',
+            'returned_at' => 'datetime',
         ];
     }
 

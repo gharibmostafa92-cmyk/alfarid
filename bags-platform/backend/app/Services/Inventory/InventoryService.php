@@ -69,10 +69,8 @@ class InventoryService
                 }
                 $stock = $prelockedLevel;
             } else {
-                if ($locationId !== null && ! Location::query()->whereKey($locationId)->where('branch_id', $data['branch_id'])->exists()) {
-                    throw new BusinessException('الموقع لا يتبع الفرع المحدد.');
-                }
-
+                // Location-to-branch ownership is validated inside lockLevels (batched whereIn
+                // with the same message), so no separate EXISTS round trip here.
                 $stock = $this->lockLevels([[
                     'product_variant_id' => $data['product_variant_id'],
                     'branch_id' => $data['branch_id'],

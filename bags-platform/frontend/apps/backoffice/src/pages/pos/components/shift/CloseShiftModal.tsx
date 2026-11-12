@@ -59,9 +59,9 @@ export function CloseShiftModal({ open, onClose, shift, onClosed, onCommitted }:
   if (!open || !shift) return null;
 
   const expectedCents = toCents(shift.opening_cash) + toCents(stats.cashSales) - toCents(stats.returns) - toCents(stats.expenses);
-  const expected = fromCents(expectedCents);
+  const expected = closedResult ? closedResult.expected_closing_cash : fromCents(expectedCents);
   const has = actual !== '';
-  const diff = fromCents(toCents(actual) - expectedCents);
+  const diff = closedResult ? (closedResult.cash_difference ?? 0) : fromCents(toCents(actual) - expectedCents);
   const state: 'idle' | 'ok' | 'over' | 'short' = !has
     ? 'idle'
     : Math.abs(diff) < 0.01
@@ -70,8 +70,8 @@ export function CloseShiftModal({ open, onClose, shift, onClosed, onCommitted }:
     ? 'over'
     : 'short';
 
-  const needNote = state === 'short' || state === 'over';
-  const canSubmit = statsReady && has && (!needNote || notes.trim().length >= 3) && !busy;
+  const needNote = false;
+  const canSubmit = statsReady && has && !busy;
 
   const diffLabel = {
     idle: 'أدخل النقد الفعلي لحساب الفرق',
@@ -155,24 +155,24 @@ export function CloseShiftModal({ open, onClose, shift, onClosed, onCommitted }:
               </div>
               <div className="rr">
                 <span>مبيعات نقدية:</span>
-                <span className="num">{egp(stats.cashSales)} ج</span>
+                <span className="num">{egp(closedResult.cash_sales_total)} ج</span>
               </div>
               <div className="rr">
                 <span>مبيعات بطاقة:</span>
-                <span className="num">{egp(stats.cardSales)} ج</span>
+                <span className="num">{egp(closedResult.card_sales_total)} ج</span>
               </div>
               <div className="rr">
                 <span>مرتجعات نقدية:</span>
-                <span className="num">{egp(stats.returns)} ج</span>
+                <span className="num">{egp(closedResult.cash_returns_total)} ج</span>
               </div>
               <div className="rr">
                 <span>مصروفات:</span>
-                <span className="num">{egp(stats.expenses)} ج</span>
+                <span className="num">{egp(closedResult.cash_expenses_total)} ج</span>
               </div>
               <div className="dash" />
               <div className="rr">
                 <span>النقد المتوقع:</span>
-                <span className="num">{egp(expected)} ج</span>
+                <span className="num">{egp(closedResult.expected_closing_cash)} ج</span>
               </div>
               <div className="rr" style={{ fontWeight: 700 }}>
                 <span>النقد الفعلي:</span>
@@ -244,12 +244,13 @@ export function CloseShiftModal({ open, onClose, shift, onClosed, onCommitted }:
           </div>
           {error && <div className="banner b-bad" role="alert">{error}</div>}
 
-          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+          <div className="grid" style={{ gridTemplateColumns: '1fr' }}>
             <div
               style={{
                 padding: '18px 22px',
                 borderInlineEnd: '1px solid var(--line)',
                 background: 'var(--bg-sunken)',
+                display: 'none',
               }}
             >
               <div className="section-label" style={{ marginBottom: 6 }}>
@@ -297,21 +298,31 @@ export function CloseShiftModal({ open, onClose, shift, onClosed, onCommitted }:
             </div>
 
             <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div className="col gap-1 fs-13">
+                <div className="row between">
+                  <span>مبيعات البطاقات</span>
+                  <b className="num">{egp(stats.cardSales)}</b>
+                </div>
+                <div className="row between">
+                  <span>عدد الفواتير</span>
+                  <b className="num">{fmt(stats.invoices)}</b>
+                </div>
+              </div>
               <div className="col gap-2">
                 <span className="fs-13 fw-5">النقد الفعلي بالدرج</span>
                 <MoneyInput
                   value={actual}
                   onChange={setActual}
                   autoFocus
-                  placeholder={String(expected)}
+                  placeholder="0.00"
                 />
                 <div className="row gap-2">
-                  <button className="note-chip" onClick={() => setActual(String(expected))}>
+                  <button className="note-chip" style={{ display: 'none' }} onClick={() => setActual(String(expected))}>
                     مطابق للمتوقع
                   </button>
                 </div>
               </div>
-              <div className={cx('diff', state)}>
+              <div className={cx('diff', state)} style={{ display: 'none' }}>
                 <span className="diff-ic">
                   <Icon n={diffIcon} s={18} w={2} />
                 </span>

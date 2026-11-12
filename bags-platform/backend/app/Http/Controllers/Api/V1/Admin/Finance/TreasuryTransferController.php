@@ -53,7 +53,7 @@ class TreasuryTransferController extends Controller implements HasMiddleware
 
         $branch = $this->branchAccess->restrictedBranch($request->user());
         $transfers = TreasuryTransfer::query()->when($branch !== null, fn ($q) => $q->whereHas('fromTreasury', fn ($q) => $q->where('branch_id', $branch))->whereHas('toTreasury', fn ($q) => $q->where('branch_id', $branch)))
-            ->with(['fromTreasury', 'toTreasury', 'creator', 'approver'])
+            ->with(['fromTreasury', 'toTreasury', 'creator', 'approver', 'rejecter'])
             ->when($filters['from_treasury_id'] ?? null, fn ($q, $v) => $q->where('from_treasury_id', $v))
             ->when($filters['to_treasury_id'] ?? null, fn ($q, $v) => $q->where('to_treasury_id', $v))
             ->when($filters['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
@@ -104,7 +104,7 @@ class TreasuryTransferController extends Controller implements HasMiddleware
         $this->assertTransferAccess((int) $request->user()->id, $treasuryTransfer);
 
         return response()->json([
-            'data' => $treasuryTransfer->load(['fromTreasury', 'toTreasury', 'creator', 'approver']),
+            'data' => $treasuryTransfer->load(['fromTreasury', 'toTreasury', 'creator', 'approver', 'rejecter']),
         ]);
     }
 
@@ -135,12 +135,15 @@ class TreasuryTransferController extends Controller implements HasMiddleware
      */
     public function reject(Request $request, TreasuryTransfer $treasuryTransfer): JsonResponse
     {
+        $data = $request->validate([
+            'reason' => ['required', 'string', 'min:3', 'max:500'],
+        ]);
         $this->assertTransferAccess((int) $request->user()->id, $treasuryTransfer);
-        $transfer = $this->treasury->rejectTransfer($treasuryTransfer, (int) $request->user()->id);
+        $transfer = $this->treasury->rejectTransfer($treasuryTransfer, (int) $request->user()->id, $data['reason']);
 
         return response()->json([
             'message' => 'تم رفض تحويل الخزينة.',
-            'data' => $transfer,
+            'data' => $transfer->load(['fromTreasury', 'toTreasury', 'rejecter']),
         ]);
     }
 

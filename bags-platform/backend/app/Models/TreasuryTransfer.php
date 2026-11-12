@@ -21,6 +21,7 @@ class TreasuryTransfer extends Model
         'status',
         'created_by',
         'approved_by',
+        'rejected_by',
         'rejection_reason',
         'notes',
     ];
@@ -55,5 +56,11 @@ class TreasuryTransfer extends Model
     public function approver(): BelongsTo
     {
         return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    /** @return BelongsTo<User, $this> */
+    public function rejecter(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'rejected_by');
     }
 }

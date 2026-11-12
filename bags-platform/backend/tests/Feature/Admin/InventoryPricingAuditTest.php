@@ -163,8 +163,17 @@ class InventoryPricingAuditTest extends TestCase
             ['product_variant_id' => $variant->id, 'counted_qty' => 7],
         ]], $this->staff->id);
         $this->movement($variant, $branch, 5);
+        // Correcting a stale count after an intervening movement demands an explicit recount.
+        try {
+            $service->update($stocktake, ['items' => [
+                ['product_variant_id' => $variant->id, 'counted_qty' => 14],
+            ]], $this->staff->id);
+            $this->fail('Correcting a stale count must demand an explicit recount.');
+        } catch (\App\Exceptions\BusinessException $e) {
+            $this->assertStringContainsString('أعد عدّه', $e->getMessage());
+        }
         $updated = $service->update($stocktake, ['items' => [
-            ['product_variant_id' => $variant->id, 'counted_qty' => 14],
+            ['product_variant_id' => $variant->id, 'counted_qty' => 14, 'recount' => true],
         ]], $this->staff->id);
         $this->assertSame('15.0000', $updated->items->first()->system_qty);
         $this->assertSame('-1.0000', $updated->items->first()->difference);

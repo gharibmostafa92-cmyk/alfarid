@@ -73,7 +73,16 @@ if ($Commit) {
             $filePath = $line.Substring(3).Trim() -replace '\\', '/'
             # Filter ?? (untracked), A (added), M (modified)
             if ($code -match '^\?\?|A|M') {
-                $targetFiles.Add($filePath)
+                $fullCandidate = Join-Path $RootDir $filePath
+                if (Test-Path -Path $fullCandidate -PathType Container) {
+                    Get-ChildItem -Path $fullCandidate -File -Recurse | ForEach-Object {
+                        $relChild = Resolve-Path -Path $_.FullName -Relative
+                        $normChild = ($relChild -replace '^\.\\', '' -replace '^\./', '') -replace '\\', '/'
+                        $targetFiles.Add($normChild)
+                    }
+                } else {
+                    $targetFiles.Add($filePath)
+                }
             }
         }
     }
@@ -99,7 +108,10 @@ $ignorePatterns = @(
     '^storage/', '/storage/',
     '\.log$',
     '^repomix/outputs/',
-    '^repomix/configs/'
+    '^repomix/configs/',
+    '^tasks/',
+    '/tasks/',
+    'phpunit.*\.xml$'
 )
 
 foreach ($file in $targetFiles) {
@@ -183,6 +195,9 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
             if ($configs.ContainsKey('repomix.orders-returns.json')) { [void]$matchedConfigs.Add('repomix.orders-returns.json') }
             if ($configs.ContainsKey('repomix.subsystem-02-orders-returns.json')) { [void]$matchedConfigs.Add('repomix.subsystem-02-orders-returns.json') }
         }
+        if ($p -match 'stock|inventory|movement|stocktake|transfer|branch') {
+            if ($configs.ContainsKey('repomix.subsystem-03-inventory-ledger.json')) { [void]$matchedConfigs.Add('repomix.subsystem-03-inventory-ledger.json') }
+        }
         if ($p -match 'webhook|whatsapp|ai_') {
             if ($configs.ContainsKey('repomix.subsystem-05-ai-trader-gateway.json')) { [void]$matchedConfigs.Add('repomix.subsystem-05-ai-trader-gateway.json') }
         }
@@ -220,13 +235,13 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 5. POS Terminal
-    if ($p -match 'apps/pos/|/pos/|posservice|cashier|shift|drawer|terminal|receipt') {
+    if ($p -match 'apps/pos/|/pos/|posservice|cashier|shift|drawer|terminal|pos.*receipt|print.*receipt' -and $p -notmatch 'productionreceipt') {
         if ($configs.ContainsKey('repomix.subsystem-01-pos-terminal.json')) { [void]$matchedConfigs.Add('repomix.subsystem-01-pos-terminal.json') }
         if ($configs.ContainsKey('repomix.pos-terminal.json')) { [void]$matchedConfigs.Add('repomix.pos-terminal.json') }
     }
 
     # 6. Inventory & Ledger
-    if ($p -match 'transferservice|stocktake|inventoryledger|inventorymovement|branchstock|warehouse') {
+    if ($p -match 'transferservice|stocktake|inventoryledger|inventorymovement|branchstock|warehouse|inventoryservice|/inventory/|productionreceipt|inventory.*seeder') {
         if ($configs.ContainsKey('repomix.subsystem-03-inventory-ledger.json')) { [void]$matchedConfigs.Add('repomix.subsystem-03-inventory-ledger.json') }
         if ($configs.ContainsKey('repomix.inventory-ledger.json')) { [void]$matchedConfigs.Add('repomix.inventory-ledger.json') }
     }
@@ -255,7 +270,7 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 11. Finance & Treasury
-    if ($p -match 'treasury|doubleentry|expense|vault|financial') {
+    if ($p -match 'treasury|doubleentry|expense|vault|financial|/finance/|financeservice|wallet|budget|reportservice|statementbudget') {
         if ($configs.ContainsKey('repomix.subsystem-07-finance-treasury.json')) { [void]$matchedConfigs.Add('repomix.subsystem-07-finance-treasury.json') }
         if ($configs.ContainsKey('repomix.finance-treasury.json')) { [void]$matchedConfigs.Add('repomix.finance-treasury.json') }
     }
@@ -294,6 +309,7 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
 Write-Host "[3/4] Mapping files to Repomix configs..." -ForegroundColor Yellow
 
 $pendingAdditions = @{}
+$allActiveConfigs = [System.Collections.Generic.HashSet[string]]::new()
 
 foreach ($file in $filteredFiles) {
     $targetConfigKeys = Get-MatchingConfigsForFile -relPath $file -configs $allConfigs -startedOnly $StartedOnly
@@ -303,6 +319,7 @@ foreach ($file in $filteredFiles) {
     }
 
     foreach ($targetConfigKey in $targetConfigKeys) {
+        [void]$allActiveConfigs.Add($targetConfigKey)
         $cfgEntry = $allConfigs[$targetConfigKey]
         $currentIncludes = @($cfgEntry.Config.include)
 
@@ -373,8 +390,11 @@ if ($Pack -and -not $DryRun) {
         foreach ($m in $modifiedConfigs) {
             [void]$configsToPack.Add($m)
         }
-        # If not OnlyModified, also pack all configs in started/ to keep started bundles 100% fresh
+        # If not OnlyModified, also pack all configs affected by modified files & started configs
         if (-not $OnlyModified) {
+            foreach ($a in $allActiveConfigs) {
+                [void]$configsToPack.Add($a)
+            }
             foreach ($s in $startedConfigs.Keys) {
                 [void]$configsToPack.Add($s)
             }
@@ -407,6 +427,10 @@ if ($Pack -and -not $DryRun) {
             if (Test-Path $fullOut) {
                 $fItem = Get-Item $fullOut
                 $fileSizeKb = [math]::Round($fItem.Length / 1KB, 1)
+
+                # Ensure fresh copy in repomix/outputs/started/
+                $startedCopyPath = Join-Path $StartedDir (Split-Path $outPath -Leaf)
+                Copy-Item -Path $fullOut -Destination $startedCopyPath -Force
             }
             $summaryResults.Add([PSCustomObject]@{
                 Config = $cName

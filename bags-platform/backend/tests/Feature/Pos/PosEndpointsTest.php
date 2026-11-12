@@ -229,11 +229,16 @@ class PosEndpointsTest extends TestCase
             'notes' => 'جرد سليم مع زيادة 20',
         ]);
 
+        // Blind close: the cashier never receives the expected ledger or variance.
         $closeRes->assertOk()
             ->assertJsonPath('data.status', 'closed_pending_approval')
-            ->assertJsonPath('data.expected_closing_cash', '300.00')
             ->assertJsonPath('data.actual_closing_cash', '320.00')
-            ->assertJsonPath('data.cash_difference', '20.00');
+            ->assertJsonMissingPath('data.expected_closing_cash')
+            ->assertJsonMissingPath('data.cash_difference');
+
+        $closed = \App\Models\PosShift::findOrFail($closeRes->json('data.id'));
+        $this->assertSame('300.00', (string) $closed->expected_closing_cash);
+        $this->assertSame('20.00', (string) $closed->cash_difference);
 
         $admin = User::create([
             'name' => 'Finance Manager',
@@ -297,7 +302,7 @@ class PosEndpointsTest extends TestCase
             'items' => [
                 ['product_variant_id' => $this->variant->id, 'qty' => 1, 'return_to' => 'on_hand'],
             ],
-        ]);
+        ], $this->idemHeaders());
         $returnRes->assertOk()
             ->assertJsonPath('data.refund_amount', 150);
 
@@ -314,7 +319,7 @@ class PosEndpointsTest extends TestCase
     {
         // Thin POS interface: catalog search and destination-branch transfer requests.
         // استلام بالشكل الصحيح، ومسح باركود بلقطة من نطاق الجلسة.
-        foreach (['transfers.create', 'transfers.receive', 'stocktakes.update'] as $name) {
+        foreach (['transfers.create', 'transfers.receive', 'transfers.approve_shortage', 'stocktakes.update'] as $name) {
             $this->cashier->givePermissionTo(Permission::findOrCreate($name, 'staff'));
         }
         $hq = User::create([

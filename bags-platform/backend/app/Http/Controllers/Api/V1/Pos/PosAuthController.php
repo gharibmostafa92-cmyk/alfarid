@@ -49,7 +49,8 @@ class PosAuthController extends Controller
             && $user->is_active
             && ! $user->is_system
             && $user->can('pos.access')
-            && $user->branch_id === (int) $data['branch_id'];
+            && $user->branch_id === (int) $data['branch_id']
+            && Branch::query()->whereKey((int) $data['branch_id'])->where('is_active', true)->exists();
 
         if (! $user instanceof User || ! $passwordOk || ! $branchAllowed) {
             StaffAuthenticationAudit::record($user, 'failed');
@@ -58,9 +59,6 @@ class PosAuthController extends Controller
                 'message' => 'بيانات تسجيل الدخول غير صحيحة أو الحساب غير مصرح له على هذا الفرع.',
             ], 401);
         }
-
-        // Verify designated branch exists and is currently active.
-        Branch::query()->where('id', $data['branch_id'])->where('is_active', true)->firstOrFail();
 
         $user->load(['branch', 'roles.permissions', 'permissions']);
         app(LoginDestinationResolver::class)->resolve($user);

@@ -48,6 +48,8 @@ class PosCriticalFixesTest extends TestCase
         parent::setUp();
 
         $this->seed(SettingSeeder::class);
+        // These regression tests cover discounted totals, not the discount cap.
+        config(['inventory.pos_max_discount_percent' => 100]);
 
         $this->branch = Branch::create([
             'name' => 'Cairo Branch',
@@ -166,21 +168,21 @@ class PosCriticalFixesTest extends TestCase
         // الصافي للقطعة = (300-100)/2 = 100، فإرجاع قطعة يرد 100 لا 150.
         $retRes = $this->withToken($this->token)->postJson("/api/v1/pos/sales/{$saleId}/return", [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
-        ]);
+        ], $this->idemHeaders());
         $retRes->assertOk();
         $this->assertEquals(100.00, (float) $retRes->json('data.refund_amount'));
 
         // المتبقي قطعة واحدة: إرجاع قطعتين مرفوض، والسطران المكرران مجموعهما قطعتان مرفوض أيضًا.
         $this->withToken($this->token)->postJson("/api/v1/pos/sales/{$saleId}/return", [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 2]],
-        ])->assertStatus(422);
+        ], $this->idemHeaders())->assertStatus(422);
 
         $this->withToken($this->token)->postJson("/api/v1/pos/sales/{$saleId}/return", [
             'items' => [
                 ['product_variant_id' => $this->variant->id, 'qty' => 1],
                 ['product_variant_id' => $this->variant->id, 'qty' => 1],
             ],
-        ])->assertStatus(422);
+        ], $this->idemHeaders())->assertStatus(422);
     }
 
     public function test_return_of_return_is_rejected(): void
@@ -196,7 +198,7 @@ class PosCriticalFixesTest extends TestCase
 
         $retRes = $this->withToken($this->token)->postJson("/api/v1/pos/sales/{$saleId}/return", [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
-        ]);
+        ], $this->idemHeaders());
         $retRes->assertOk();
         $returnOrderId = $retRes->json('data.return_order_id');
         $this->assertNotNull($returnOrderId);
@@ -204,7 +206,7 @@ class PosCriticalFixesTest extends TestCase
         // "إرجاع المرتجع" مرفوض: طلب المرتجع حالته Returned وليست Delivered.
         $this->withToken($this->token)->postJson("/api/v1/pos/sales/{$returnOrderId}/return", [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
-        ])->assertStatus(422);
+        ], $this->idemHeaders())->assertStatus(422);
     }
 
     public function json($method, $uri, array $data = [], array $headers = [], $options = 0)

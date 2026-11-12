@@ -29,7 +29,7 @@ class InventorySystemTest extends TestCase
     private const ALL_PERMISSIONS = [
         'inventory.view', 'inventory.adjust', 'inventory.all_branches',
         'transfers.view', 'transfers.create', 'transfers.update', 'transfers.delete',
-        'transfers.approve', 'transfers.ship', 'transfers.receive',
+        'transfers.approve', 'transfers.ship', 'transfers.receive', 'transfers.approve_shortage',
         'stocktakes.view', 'stocktakes.create', 'stocktakes.update', 'stocktakes.delete', 'stocktakes.approve',
     ];
 
@@ -310,8 +310,9 @@ class InventorySystemTest extends TestCase
         $approved3 = $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$id}/approve", ['expected_version' => $transfer['version']])->assertOk()->json('data');
         $this->assertSame('5.0000', $this->level($variant->id, $from->id)->reserved);
 
-        // اعتماد مرتين ممنوع، وتعديل المعتمد ممنوع
-        $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$id}/approve", ['expected_version' => $approved3['version']])->assertUnprocessable();
+        // إعادة الاعتماد بنفس الحمولة تعيد تشغيل المرحلة دون آثار جانبية، وتعديل المعتمد ممنوع
+        $this->requestWithToken($token, 'POST', "/api/v1/admin/transfers/{$id}/approve", ['expected_version' => $approved3['version']])->assertOk();
+        $this->assertSame('5.0000', $this->level($variant->id, $from->id)->reserved);
         $this->requestWithToken($token, 'PUT', "/api/v1/admin/transfers/{$id}", ['notes' => 'x'])->assertUnprocessable();
 
         // الإلغاء يفك الحجز

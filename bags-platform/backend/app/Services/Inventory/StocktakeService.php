@@ -407,8 +407,21 @@ class StocktakeService
                     'updated_at' => now(),
                 ]);
                 if ($recorded === 0) {
-                    // Duplicate delivery of an already-applied scan: replay state, do not count again.
-                    return $stocktake->load(['items.variant', 'branch', 'location', 'creator']);
+                    // Duplicate delivery of an already-applied scan: replay state only when the
+                    // stored payload matches. A reused scan_id with different data is a client
+                    // UUID collision and must surface as a conflict instead of dropping a real scan.
+                    $stored = DB::table('stocktake_scans')
+                        ->where('stocktake_id', $stocktake->id)
+                        ->where('scan_id', $scanId)
+                        ->first();
+                    if ($stored !== null
+                        && ((int) $stored->product_variant_id !== (int) $variantId
+                            || (int) round((float) $stored->qty * 10000) !== (int) round($quantity * 10000))) {
+                        throw new BusinessException('مفتاح المسح مستخدم مسبقًا مع بيانات مختلفة؛ أعد المسح بمفتاح جديد.', [], 409);
+                    }
+                    if ($stored !== null) {
+                        return $stocktake->load(['items.variant', 'branch', 'location', 'creator']);
+                    }
                 }
             }
 
@@ -477,9 +490,24 @@ class StocktakeService
                 && $item['counted_qty'] !== null
                 && ($row->counted_qty === null || (float) $item['counted_qty'] !== (float) $row->counted_qty);
 
-            if ($countChanged || ! empty($item['recount'])) {
+            $recount = ! empty($item['recount']);
+
+            if ($row !== null && $row->counted_qty !== null && $countChanged && ! $recount) {
+                // A supervisor correcting an entry made before intervening movements must not
+                // silently re-baseline the variance against post-movement stock: demand an
+                // explicit recount, exactly like the scan path does.
+                $this->assertNoInterveningMovement($stocktake, $variantId, (int) $row->snapshot_movement_id);
+            }
+
+            if ($countChanged || $recount) {
                 $updates['system_qty'] = $currentOnHand;
                 $updates['snapshot_movement_id'] = $snapshotMovementId;
+            }
+
+            if ($recount && $row !== null && ! array_key_exists('counted_qty', $item)) {
+                // Recount means a fresh count from zero: never mix a stale pre-sale count
+                // with the post-sale baseline, otherwise the difference double-counts the sale.
+                $updates['counted_qty'] = 0;
             }
 
             if ($updates !== []) {

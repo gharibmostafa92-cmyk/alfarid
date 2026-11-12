@@ -20,7 +20,10 @@
                     "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Dashboard*.php",
                     "bags-platform/backend/app/Http/Controllers/Api/V1/Admin/Activity*.php",
                     "bags-platform/frontend/apps/backoffice/src/**",
-                    "bags-platform/frontend/apps/backoffice/package.json"
+                    "bags-platform/frontend/apps/backoffice/package.json",
+                    "bags-platform/backend/database/seeders/FinancialPermissionSeeder.php",
+                    "bags-platform/backend/database/seeders/InventoryPermissionSeeder.php",
+                    "bags-platform/backend/database/seeders/RolePermissionSeeder.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

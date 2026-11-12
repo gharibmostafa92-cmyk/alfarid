@@ -31,6 +31,7 @@ use App\Services\Pricing\CouponService;
 use App\Services\Shared\ProportionalDistribution;
 use App\Services\Shared\SettingService;
 use App\Services\Wholesale\WholesalePaymentNoticeService;
+use Brick\Math\BigDecimal;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -540,13 +541,22 @@ class OrderService
                 $payment = CustomerWalletTransaction::query()->whereIn('reference_type', WalletService::ORDER_REFERENCES)->where('reference_id', $order->id)
                     ->where('type', 'checkout_payment')->first();
                 if ($payment !== null) {
-                    app(WalletService::class)->record($payment->customer_id, -(float) $payment->amount,
-                        'order_reversal', 'order', $order->id, $actorId);
+                    app(WalletService::class)->record(
+                        $payment->customer_id,
+                        (string) BigDecimal::of((string) $payment->amount)->negated(),
+                        'order_reversal',
+                        'order',
+                        $order->id,
+                        $actorId,
+                    );
                     $order->update(['payment_status' => 'refunded', 'requires_refund' => false]);
                 }
             }
 
             $updates = ['status' => $to];
+            if ($to === OrderStatus::Returned) {
+                $updates['returned_at'] = $order->returned_at ?? now();
+            }
             if ($to === OrderStatus::Confirmed && $order->payment_method === 'credit' && $order->due_at === null && $order->customer_id !== null) {
                 $terms = Customer::query()->whereKey($order->customer_id)->value('payment_terms_days');
                 $days = $terms === null

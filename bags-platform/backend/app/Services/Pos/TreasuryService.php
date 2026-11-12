@@ -7,8 +7,10 @@ namespace App\Services\Pos;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Shared\SettingService;
 
+use App\Enums\Finance\PosShiftStatus;
 use App\Enums\Finance\TreasuryTransactionType;
 use App\Enums\Finance\TreasuryTransferStatus;
+use App\Enums\Finance\TreasuryType;
 use App\Exceptions\BusinessException;
 use App\Models\Branch;
 use App\Models\PosShift;
@@ -26,6 +28,26 @@ use Illuminate\Support\Facades\DB;
  */
 class TreasuryService
 {
+    /** Transaction types whose amount is always a credit (positive). */
+    private const POSITIVE_TYPES = [
+        TreasuryTransactionType::OpeningBalance,
+        TreasuryTransactionType::PosSale,
+        TreasuryTransactionType::ExpenseReversal,
+        TreasuryTransactionType::TransferIn,
+        TreasuryTransactionType::CustomerReceipt,
+        TreasuryTransactionType::CashOverage,
+    ];
+
+    /** Transaction types whose amount is always a debit (negative). */
+    private const NEGATIVE_TYPES = [
+        TreasuryTransactionType::PosReturn,
+        TreasuryTransactionType::Expense,
+        TreasuryTransactionType::TransferOut,
+        TreasuryTransactionType::SupplierPayment,
+        TreasuryTransactionType::CustomerReceiptReversal,
+        TreasuryTransactionType::CashShortage,
+    ];
+
     public function __construct(private readonly SettingService $settings) {}
 
     /**
@@ -83,8 +105,15 @@ class TreasuryService
                 && ($unsettled || bccomp($locked->current_balance, '0', 2) !== 0 || $locked->transactions()->exists())) {
                 throw new BusinessException('لا يمكن نقل خزينة لها رصيد أو سجل حركات إلى فرع آخر.');
             }
-            if ($unsettled && array_key_exists('is_active', $data) && ! $data['is_active']) {
-                throw new BusinessException('لا يمكن تعطيل درج له وردية لم تُسوَّ.');
+            if (array_key_exists('is_active', $data) && ! $data['is_active']) {
+                if ($unsettled) {
+                    throw new BusinessException('لا يمكن تعطيل درج له وردية لم تُسوَّ.');
+                }
+                // Disabling a non-empty account traps money: record() rejects every
+                // movement except reversals, so the balance could not even be moved out.
+                if (bccomp($locked->current_balance, '0', 2) !== 0) {
+                    throw new BusinessException('لا يمكن تعطيل خزينة لها رصيد غير صفري؛ رحّل الرصيد أولًا.');
+                }
             }
             $locked->update($data);
 
@@ -148,11 +177,16 @@ class TreasuryService
                 app(BranchAccess::class)->lockActiveBranch((int) $treasury->branch_id);
             }
 
-            if (! $treasury->is_active && ! in_array($data['type'], [TreasuryTransactionType::ExpenseReversal, TreasuryTransactionType::CustomerReceiptReversal], true)) {
+            $type = $data['type'] instanceof TreasuryTransactionType
+                ? $data['type']
+                : TreasuryTransactionType::from((string) $data['type']);
+
+            if (! $treasury->is_active && ! in_array($type, [TreasuryTransactionType::ExpenseReversal, TreasuryTransactionType::CustomerReceiptReversal], true)) {
                 throw new BusinessException('الخزينة غير نشطة.');
             }
 
             $amount = BigDecimal::of((string) $data['amount'])->toScale(2, RoundingMode::HalfUp);
+            $this->assertAmountSign($type, $amount);
             $balanceAfter = BigDecimal::of((string) $treasury->current_balance)->plus($amount)->toScale(2);
 
             // Bank accounts support overdrafts; physical safes and POS drawers cannot go negative.
@@ -163,7 +197,7 @@ class TreasuryService
             $transaction = TreasuryTransaction::create([
                 'treasury_id' => $treasury->id,
                 'shift_id' => $data['shift_id'] ?? null,
-                'type' => $data['type'],
+                'type' => $type,
                 'amount' => (string) $amount,
                 'balance_after' => (string) $balanceAfter,
                 'reference_type' => $data['reference_type'] ?? null,
@@ -178,6 +212,14 @@ class TreasuryService
 
             return $transaction;
         });
+    }
+
+    private function assertAmountSign(TreasuryTransactionType $type, BigDecimal $amount): void
+    {
+        if ((in_array($type, self::POSITIVE_TYPES, true) && ! $amount->isPositive())
+            || (in_array($type, self::NEGATIVE_TYPES, true) && ! $amount->isNegative())) {
+            throw new BusinessException('إشارة المبلغ غير متوافقة مع نوع حركة الخزينة.');
+        }
     }
 
     /**
@@ -202,12 +244,20 @@ class TreasuryService
             }
             $treasuries = $this->lockTreasuries([$transfer->from_treasury_id, $transfer->to_treasury_id], $approverId);
             app(BranchAccess::class)->lockActiveBranches($treasuries->pluck('branch_id')->filter());
-            $absAmount = (string) BigDecimal::of((string) $transfer->amount)->abs()->toScale(2, RoundingMode::HalfUp);
+            // A drawer bound to an open/pending shift must not receive or emit ad-hoc
+            // transfers, otherwise drawer reconciliation would be silently corrupted.
+            foreach ([$transfer->from_treasury_id, $transfer->to_treasury_id] as $treasuryId) {
+                $this->assertDrawerAvailableForTransfer((int) $treasuryId);
+            }
+            $amount = BigDecimal::of((string) $transfer->amount)->toScale(2, RoundingMode::HalfUp);
+            if (! $amount->isPositive()) {
+                throw new BusinessException('مبلغ التحويل يجب أن يكون أكبر من صفر.');
+            }
 
             $this->recordTransferPair(
                 $transfer->from_treasury_id,
                 $transfer->to_treasury_id,
-                $absAmount,
+                (string) $amount,
                 TreasuryTransfer::class,
                 $transfer->id,
                 $approverId,
@@ -235,6 +285,32 @@ class TreasuryService
     public function settleShiftToMainSafe(PosShift $shift, int $approverId): void
     {
         DB::transaction(function () use ($shift, $approverId): void {
+            // The caller's model is stale by definition; re-read under lock so two
+            // concurrent approvals cannot both settle the same drawer.
+            $shift = PosShift::query()->lockForUpdate()->findOrFail($shift->id);
+            // approveShift() marks the shift approved immediately before settling, so both
+            // states are valid here; the transaction-existence guard below is what makes
+            // settlement exactly-once.
+            if (! in_array($shift->status, [PosShiftStatus::ClosedPendingApproval, PosShiftStatus::Approved], true)) {
+                throw new BusinessException('لا يمكن تسوية وردية لم تُغلق بعد.');
+            }
+            if ($shift->actual_closing_cash === null) {
+                throw new BusinessException('لا يمكن اعتماد وردية دون نقدية فعلية عند الإغلاق.');
+            }
+            // Opening a shift already writes opening_balance/transfer_out rows against
+            // the shift reference, so only settlement-specific types prove a prior run.
+            if (TreasuryTransaction::query()
+                ->where('reference_type', PosShift::class)
+                ->where('reference_id', $shift->id)
+                ->whereIn('type', [
+                    TreasuryTransactionType::TransferIn->value,
+                    TreasuryTransactionType::CashShortage->value,
+                    TreasuryTransactionType::CashOverage->value,
+                ])
+                ->exists()) {
+                throw new BusinessException('تم اعتماد هذه الوردية وتسويتها مسبقًا.');
+            }
+
             // Deterministic selection picks the oldest active safe when multiple exist.
             $mainSafe = Treasury::query()
                 ->where('branch_id', $shift->branch_id)
@@ -249,6 +325,15 @@ class TreasuryService
 
             $locked = $this->lockTreasuries([$shift->treasury_id, $mainSafe->id]);
             app(BranchAccess::class)->lockActiveBranches($locked->pluck('branch_id')->filter());
+            // Settlement must not mix with a newer shift reusing the same drawer.
+            $otherActiveShift = PosShift::query()
+                ->where('treasury_id', $shift->treasury_id)
+                ->where('id', '!=', $shift->id)
+                ->whereIn('status', [PosShiftStatus::Open, PosShiftStatus::ClosedPendingApproval])
+                ->exists();
+            if ($otherActiveShift) {
+                throw new BusinessException('الدرج مرتبط بوردية أخرى نشطة؛ لا يمكن ترحيل هذه الوردية.', [], 409);
+            }
             $drawer = $locked->get($shift->treasury_id);
             $amount = (string) BigDecimal::of((string) $shift->actual_closing_cash)->toScale(2, RoundingMode::HalfUp);
             $difference = BigDecimal::of((string) $shift->actual_closing_cash)
@@ -292,22 +377,37 @@ class TreasuryService
     public function createTransfer(array $data, int $userId): TreasuryTransfer
     {
         return DB::transaction(function () use ($data, $userId): TreasuryTransfer {
-            $treasuries = Treasury::query()->whereIn('id', [$data['from_treasury_id'], $data['to_treasury_id']])->get();
-            foreach ($treasuries as $treasury) {
-                app(BranchAccess::class)->assertTreasury($userId, $treasury);
-            }
-            app(BranchAccess::class)->lockActiveBranches($treasuries->pluck('branch_id')->filter());
-            if ($data['from_treasury_id'] === $data['to_treasury_id']) {
+            $fromId = (int) ($data['from_treasury_id'] ?? 0);
+            $toId = (int) ($data['to_treasury_id'] ?? 0);
+            if ($fromId === $toId) {
                 throw new BusinessException('لا يمكن التحويل من خزينة إلى نفسها.');
             }
+
+            $amount = BigDecimal::of((string) ($data['amount'] ?? '0'))->toScale(2, RoundingMode::HalfUp);
+            if (! $amount->isPositive()) {
+                throw new BusinessException('مبلغ التحويل يجب أن يكون أكبر من صفر.');
+            }
+
+            $treasuries = Treasury::query()->whereIn('id', [$fromId, $toId])->get()->keyBy('id');
+            if ($treasuries->count() !== 2) {
+                throw new BusinessException('إحدى الخزائن المحددة غير موجودة.');
+            }
+            foreach ($treasuries as $treasury) {
+                app(BranchAccess::class)->assertTreasury($userId, $treasury);
+                if (! $treasury->is_active) {
+                    throw new BusinessException('لا يمكن تنفيذ التحويل من أو إلى خزينة غير نشطة.');
+                }
+                $this->assertDrawerAvailableForTransfer((int) $treasury->id);
+            }
+            app(BranchAccess::class)->lockActiveBranches($treasuries->pluck('branch_id')->filter());
 
             $number = $this->settings->generateNextNumber('treasury_transfer');
 
             return TreasuryTransfer::create([
                 'transfer_number' => $number,
-                'from_treasury_id' => $data['from_treasury_id'],
-                'to_treasury_id' => $data['to_treasury_id'],
-                'amount' => $data['amount'],
+                'from_treasury_id' => $fromId,
+                'to_treasury_id' => $toId,
+                'amount' => (string) $amount,
                 'status' => TreasuryTransferStatus::Pending,
                 'created_by' => $userId,
                 'notes' => $data['notes'] ?? null,
@@ -332,11 +432,40 @@ class TreasuryService
             if ($transfer->status !== TreasuryTransferStatus::Pending) {
                 throw new BusinessException('يمكن رفض التحويلات المعلقة فقط.');
             }
+            foreach (Treasury::query()->whereIn('id', [$transfer->from_treasury_id, $transfer->to_treasury_id])->get() as $treasury) {
+                app(BranchAccess::class)->assertTreasury($approverId, $treasury);
+            }
             // Rejections carry no financial movement, avoiding unnecessary row locking contention.
-            $transfer->update(['status' => TreasuryTransferStatus::Rejected, 'approved_by' => $approverId, 'rejection_reason' => $reason]);
+            $transfer->update(['status' => TreasuryTransferStatus::Rejected, 'rejected_by' => $approverId, 'rejection_reason' => $reason]);
 
             return $transfer->fresh();
         }, 3);
+    }
+
+    /**
+     * Refuse ad-hoc transfers touching a POS drawer that is bound to an active shift.
+     *
+     * @throws BusinessException With HTTP 409 when the drawer is locked by a shift
+     */
+    private function assertDrawerAvailableForTransfer(int $treasuryId): void
+    {
+        $treasury = Treasury::query()->whereKey($treasuryId)->first();
+        if ($treasury === null || $treasury->type !== TreasuryType::PosDrawer) {
+            return;
+        }
+
+        $active = PosShift::query()
+            ->where('treasury_id', $treasuryId)
+            ->whereIn('status', [PosShiftStatus::Open, PosShiftStatus::ClosedPendingApproval])
+            ->exists();
+
+        if ($active) {
+            throw new BusinessException(
+                'لا يمكن التحويل من أو إلى درج مرتبط بوردية نشطة أو منتظرة للاعتماد؛ أغلق الوردية واعتمدها أولًا.',
+                [],
+                409,
+            );
+        }
     }
 
     /**

@@ -23,5 +23,27 @@ return [
     |
     */
     'stocktake_max_items' => (int) env('STOCKTAKE_MAX_ITEMS', 500),
-    'pos_max_discount_percent' => (float) env('POS_MAX_DISCOUNT_PERCENT', 100),
+    'pos_max_discount_percent' => (float) env('POS_MAX_DISCOUNT_PERCENT', 20),
+
+    /*
+    |--------------------------------------------------------------------------
+    | POS Opening Float Cap
+    |--------------------------------------------------------------------------
+    |
+    | Maximum declared opening cash allowed without the explicit
+    | pos.override_opening_float permission.
+    |
+    */
+    'pos_max_opening_float' => (float) env('POS_MAX_OPENING_FLOAT', 10000),
+
+    /*
+    |--------------------------------------------------------------------------
+    | POS Return Window
+    |--------------------------------------------------------------------------
+    |
+    | Maximum age in days for a POS receipt to be refunded or exchanged.
+    | Set to 0 to allow returns regardless of the sale date.
+    |
+    */
+    'pos_return_window_days' => (int) env('POS_RETURN_WINDOW_DAYS', 30),
 ];

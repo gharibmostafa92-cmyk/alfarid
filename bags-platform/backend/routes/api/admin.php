@@ -357,6 +357,9 @@ Route::middleware(['auth:sanctum', 'auth.staff', AuditStaffAdministration::class
         Route::get('shifts', [PosShiftAdminController::class, 'index'])->name('shifts.index');
         Route::get('shifts/{shift}', [PosShiftAdminController::class, 'show'])->name('shifts.show');
         Route::post('shifts/{shift}/approve', [PosShiftAdminController::class, 'approve'])->name('shifts.approve');
+        Route::post('shifts/{shift}/reject', [PosShiftAdminController::class, 'reject'])->name('shifts.reject');
+        Route::post('shifts/{shift}/reopen', [PosShiftAdminController::class, 'reopen'])->name('shifts.reopen');
+        Route::post('shifts/{shift}/force-close', [PosShiftAdminController::class, 'forceClose'])->name('shifts.force-close');
 
         Route::prefix('ai')->name('ai.')->middleware('permission:ai_agent.use')->group(function (): void {
             Route::get('settings', [AiAdministrationController::class, 'settings'])->middleware('permission:ai_agent.settings')->name('settings');

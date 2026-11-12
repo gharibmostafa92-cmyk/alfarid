@@ -148,8 +148,12 @@ Not deployed. Apply on the server only after review. Do not treat a green local 
 
 ## Final verification evidence
 
-- Frontend (final, 2026-11-11): `pnpm -r --if-present typecheck` clean (7/7 packages); `node --test tests/utils-formatters.test.cjs` 10/10; `pnpm -r build` exit 0.
-- Backend: final full serial `php artisan test` running (zero parallel activity); result recorded here on completion.
+- Frontend (final, 2026-11-12): `pnpm -r typecheck` clean (7/7 workspace projects); `pnpm -r build` exit 0 (pos, backoffice, storefront all built; storefront "Server branding unavailable" lines are its pre-existing offline fallback, build still Done).
+- Backend full serial `php artisan test` (2026-11-12, shared DB, zero parallel activity, 57 min): **2844 passed / 75 failed (62520 assertions)**. Triage — none involve task3 files (`git diff` file list is the proof of non-involvement):
+  - M-2 permission boundary working as designed (3): `InventoryAiToolsTest transfer full lifecycle with shortage`, `TaskTxtPosScenariosDTest 19 transfer receive shortage and replay`, `PosEndpointsTest pos stock transfer receive` — actors lacked the new `transfers.approve_shortage`; permission lists extended in those test helpers (boundary itself covered in `TaskTxtInventoryTransfersTest`).
+  - Pre-existing dirty-tree breakage, unrelated to task3: `MaintenancePruneGuardsTest verify-schema` (60+ pre-existing missing FK indexes + unvalidated `treasury_transactions_type_sign_check` from untracked migration 000068); `StaffFinalReviewTest` token TTL (customer 60d expectation vs configured default — product decision); `TaskTxtVerificationTest item08` (untracked migration 000069 changed treasuries FK to RESTRICT; test still expects delete); `AdminRouteAuthorizationTest` (shifts routes lack permission middleware — other task's WIP); `TaskTxtWholesaleRateLimitTest` (throttle middleware — other task's WIP); coupon/POS-totals/webhook/procurement/shipping/customer suites (fail inside `CouponService`/POS/finance code modified by other pre-existing WIP — stacks contain no task3 frames); `PhaseFiveSixAuditTest` (55006 DDL-vs-trigger hazard in test migrations); `StatementBudget` READ ONLY fix already applied (would otherwise crash `inventory:reconcile` in production too).
+  - Marathon flakes, green on clean re-run: `TaskTxtInventoryConcurrencyTest lock-timeout` + `production receipt lock timeout` + `reversed item orders` (7/7 green isolated and on shared-DB re-run); Auth/Customer concurrency races re-verified by sampling (`AuthConcurrencyTest claim_a_case_insensitive_email` green isolated; timing-sensitive subprocess races under the 57-minute loaded run; no shared code with task3 paths).
+  - Environment note: an unrelated foreign `php artisan test tests/Feature/Finance` process raced the shared `alfarid_testing` DB mid-session (concurrent migrate/refresh corruption); all verification after that ran either serially on the shared DB after it exited, or on a temporary isolated DB (since dropped) for DB-name-guarded files.
 
 ### Task X — idempotency transient-error mapping (uncommitted working tree)
 
@@ -209,8 +213,72 @@ Not deployed. Apply on the server only after review. Do not treat a green local 
 - Parallel-run triage (2026-11-11): the background full suite finished 2337 passed / 388 failed with `deleted_at does not exist` leaders and defects carpeted across all suites — signature of `migrate:fresh` cross-talk from concurrent foreground runs on the shared `alfarid_testing` DB, not of the branch changes. Serial re-runs confirm: login suites 60/60, `tests/Unit` 189/189, `TaskTxtInventoryUnitsTest` + maintenance suites 28/28, `WholesaleExecutionTest` 9/9. A clean serial full suite is running for final evidence.
 - Repomix: `database/migrations/*.php` glob already covers the new migration — regenerated `started` bundles pick it up on next pack (no config change needed).
 
+### Task Z — task3.txt inventory stocktake/transfer/locks (uncommitted working tree)
+
+Source roadmap: `_archive_unused/tasks_execution/task3.txt` (C-1/M-1 recount, H-1..H-4, M-2..M-8, L-1..L-10 + INFO notes). No `task32.txt` exists anywhere — no scope expansion. Per-item verdict table + rulings live in `tasks/plan.md`; the archive file stays read-only per convention.
+
+- ✅ C-1 — recount restarts the count from zero unless an explicit count is sent (`StocktakeService::upsertItems` zeroes `counted_qty` on bare `recount:true`, refreshes `system_qty`/snapshot).
+- ✅ M-1 — correcting an existing count after intervening movements is rejected (`assertNoInterveningMovement`, "أعد عدّه") unless sent with explicit `recount:true`.
+  - Sanctioned test updates: `StocktakeScanIdempotencyTest` post-recount count 11.0→1.0 (+0.0 right after recount); `InventoryPricingAuditTest::test_stocktake_recounts_take_a_new_system_snapshot` now asserts the reject-then-recount flow.
+  - Tests: `StocktakeScanIdempotencyTest` 6/6 (2 watched fail first), `TaskTxtInventoryStocktakeTest`, `SecurityReviewRound3Test`, `InventoryPricingAuditTest` green.
+- ✅ L-2 — scan_id replay compares stored variant/qty; mismatch → 409 instead of silently swallowing a real scan (`incrementItemCount`).
+- ✅ L-3 — approve retry replays via `replayCompletedStage('approved_qty')` (same payload OK, different payload 409); cancelled-cancel returns the entity.
+  - Sanctioned updates: `TaskTxtInventoryTransfersTest::test_cancel_releases_reserve_only_from_approved` (cancelled-again 422→200) + `InventorySystemTest` double-approve (422→replay OK, reserve unchanged) + `TaskTxtInventoryConcurrencyTest::test_parallel_approves_with_same_version_apply_only_once` (loser replays OK, single reserve movement pinned).
+- ✅ M-2 — receiving with any shortage now requires `transfers.approve_shortage` (403 otherwise, nothing written); full receipts unaffected.
+  - Files: `TransferService::receive` gate, `InventoryPermissionSeeder` (new permission → SuperAdmin), `TaskTxtInventoryCase::ALL_PERMISSIONS` + `InventorySystemTest::ALL_PERMISSIONS` extended.
+  - Deploy notes: run `php artisan db:seed --class=InventoryPermissionSeeder` (or full role seed — `RolePermissionSeeder` syncs all staff permissions to SuperAdmin). Then grant `transfers.approve_shortage` to warehouse-manager roles; until granted, managers get 403 on shortage receives (intended control, full receipts keep working).
+- ✅ L-6 — draft update/delete/cancel allow the creator or destination-branch staff (`assertDraftAccess`); moving a draft across branches still requires access to the new side (also closed a to_branch-change gap). Unrelated branches still 403.
+- ✅ L-8 — `assertReceivableDestination` validates all destination locations with one `whereIn` (same message/semantics).
+- ✅ L-4 — `ProductionReceiptService::receive` locks all keys once via `lockLevels` and passes prelocked rows to `recordMovement` (no per-item nested transaction/SAVEPOINT).
+- ✅ M-5 — receipt variant lock is `for no key update` (cost_price update needs no more; no longer blocks FK checks from other branches). Branch-lock advisory swap explicitly NOT done (roadmap wording is observational).
+- ✅ M-7 — removed the duplicate `Location::exists()` in `recordMovement` (covered by `lockLevels` batched check, same message). Lock-ordering/timeout refactors explicitly NOT done (deadlock risk).
+- ✅ L-7 — canonicalized legacy `\App\Enums\TreasuryType::` → `\App\Enums\Finance\TreasuryType::` in `TaskTxtInventoryCase`, `FinanceProviderTest` (2×), `PosReturnTaskTxtTest` (alias mechanism untouched).
+- ✅ L-1 + Idempotency-Key boundary (tests pin implemented behavior) — new `TaskTxtInventoryLedgerTest` cases: 55P03/40P01/40001 → 409 + `Retry-After: 1` on writes, 503 on safe methods; 129-char key → 422 with no writes, 128-char boundary accepted.
+- Verified-present, no change: H-1 (receivingLocation + NULLS NOT DISTINCT unique + matrix test), H-2 (composite ledger indexes), H-4 (`UpdateBranch` blocks deactivation with approved/shipped transfers), M-4 (`ShouldDispatchAfterCommit` + events test), M-6 (integer rule + 422 test make the cast safe), M-8 (trigger split 000025/000051 + ledger test), L-5 (shared-xact numbering), L-9 (`scoped()` BranchAccess), L-10 (`$hidden` idempotency keys), H-3 (disproven: BASE self-consistent, PUT accepted, types mirror the resource).
+- Rulings: M-3 mandatory-version enforced at the HTTP boundary (3 FormRequests `required`), service null-path kept for internal callers (10+ committed tests use it; all in-repo callers pass versions); `LocationController` gets NO new permission gate (roadmap prescribes none — recorded as residual risk below); M-5/M-7 pared to the safe sub-items above.
+- Pre-existing breakage fixed (blocking, not task3): `StatementBudget::run` forced `READ ONLY`, crashing `inventory:reconcile` (production scheduler + 2 txt-concurrency tests, `25006`). Fix: `REPEATABLE READ` without `READ ONLY` (stable snapshot kept, writers work). File: `bags-platform/backend/app/Services/Finance/StatementBudget.php`.
+- Tests: task3 areas green in serial isolated runs — ScanIdempotency 6/6, Transfers 13/13, SystemTest file, StocktakeTest file, Round3 file, PricingAudit file, Ledger 23/23 (+2 new L-1/key tests), Receipts file, txt-Concurrency 7/7, Manufacturing file, main Concurrency file, FinanceProvider file, PosReturn 2/2, PosScenariosD + AI-tools transfer 51/51, PosEndpoints file.
+- Full suite `php artisan test` (serial, shared DB, 57 min): 2844 passed / 75 failed. Every failure triaged below — none trace to task3 files; do not treat as a release gate without reading the triage.
+- Deploy notes: code-only + seeder run (above). No migration, no env, no queue/scheduler change, no frontend change. Shortage-permission grants are the only post-deploy action.
+- Repomix: no config changes (all edited files already covered by `subsystem-03`/`subsystem-07` globs; seeders/tests/docs intentionally uncovered). Regenerated 2026-11-12: `repomix-subsystem-03-inventory-ledger.xml` (117 files, contains `assertDraftAccess` + `approve_shortage` gate) and `repomix-subsystem-07-finance-treasury.xml` (contains fixed `StatementBudget`). `outputs/started/*.xml` left untouched (unrelated legacy copies, no started configs exist for inventory). Pre-existing deletion `repomix.inventory-ledger.json` (unrelated flat config) left as-is.
+
+### Task 4 — task4.txt POS roadmap F1–F20 (uncommitted working tree)
+
+Source roadmap: `_archive_unused/tasks_execution/task4.txt` (F1–F20, POS only). Per-item ✅ markers are now in that file. Not deployed; `docs/.last-deployed` stays `25ee590`.
+
+- ✅ F1 — POS UI runs on the real API through `pos-data-source`/`pos-api.core` (mock only when `VITE_POS_MOCK=true`, production build refuses the mock); `Idempotency-Key` and per-line discount are sent; API errors surface to the cashier.
+- ✅ F2 — return/exchange require an idempotency key; replay returns the stored result via `OperationIdempotencyService`.
+- ✅ F3 — blind close: `expected_closing_cash`, `cash_sales_total`, `cash_returns_total`, `cash_expenses_total`, and `cash_difference` are hidden from cashiers without `pos_shifts.view_expected` in `summary`/`current`/`open`/`close`; `CloseShiftModal` no longer shows the expected amount or the "match expected" shortcut.
+- ✅ F4 — self-approval of a shift is rejected inside the lock.
+- ✅ F5 — treasury transfers are blocked while a drawer has an unsettled shift; settlement verifies `current_balance == expected_closing_cash` or returns 409.
+- ✅ F6 — `rejectShift`, `reopenForRecount`, and administrative `forceClose` with audit trail.
+- ✅ F7 — exchange leg order follows the net sign (sale-first when the new total covers the return value).
+- ✅ F8 — `distinct` variant lines on store/hold/quote/exchange and batched variant/stock loading.
+- ✅ F9 — default discount cap 20, override price floor (cost unless higher permission), `override_reason` + approver stored.
+- ✅ F10 — unit price rounded to 2 decimals before line totals.
+- ✅ F11 — held-sale resume is read-only; the sale consumes `held_sale_id` in the same transaction; delete is creator/supervisor only; limited customer projection; `pos:prune-held-sales`.
+- ✅ F12 — opening float cap from `inventory.pos_max_opening_float`; above-cap requires `pos.override_opening_float`.
+- ✅ F13 — scanner barcode (numeric, length ≥ 8) must match exactly; unknown barcode alerts instead of fuzzy-adding.
+- ✅ F14 — `payment_method` derived from amounts server-side; `notes` persisted.
+- ✅ F15 — quote capped at 100 lines; `customer_id` validated and pricing eligibility checked.
+- ✅ F16 — inactive/archived products rejected.
+- ✅ F17 — inactive branch returns 401, not 404 (no credential oracle).
+- ✅ F18 — close with a non-zero difference requires a note.
+- ✅ F19 — `inventory.pos_return_window_days` (default 30) bounds cash returns.
+- ✅ F20 — reviewed; card `refund_pending`/`card_sales_total` documented; partial unique indexes on `pos_shifts` deferred (application locks are correct); POS routes stay behind `permission:pos.access`.
+
+Deploy notes (local only, apply after review):
+
+- Migrations in tree for this work: `2026_11_12_000080_add_pos_checkout_fields_to_orders` and `2026_11_12_000081_add_exchange_order_id_to_orders` (untracked, new). Apply any still-pending POS migrations in filename order (`2026_10_19_200001_create_pos_and_treasury_tables`, `2026_11_12_000003_pos_shifts_single_open_unique` — `CONCURRENTLY`, outside a transaction, `2026_11_12_000061_guard_pos_tender_total`).
+- Seeders: run `php artisan db:seed --class=RolePermissionSeeder` (adds `pos.held.view_all`, `pos.held.delete_any`, `pos_shifts.view_expected`, `pos_shifts.force_close`, etc.) and `php artisan db:seed --class=FinancialPermissionSeeder` (`pos.override_opening_float`). Grant the new shift permissions to supervisor/manager roles before release; cashiers intentionally keep blind close.
+- Config: `inventory.pos_max_opening_float`, `inventory.pos_max_discount_percent` (default 20), `inventory.pos_return_window_days` (default 30). Set production values before go-live.
+- Scheduler: `pos:prune-held-sales --days=7` is registered in `routes/console.php`; restart the scheduler after deploy. No new queue jobs.
+- Frontend: rebuild backoffice/POS. Ensure `VITE_POS_MOCK` is unset/false in the production build (the build fails when it is `true`).
+- Tests: `php artisan test --configuration=phpunit.task4.xml tests/Feature/Pos` — **114 passed / 1186 assertions** (serial run, isolated `alfarid_task4_verify` DB). Do not run this suite in parallel against a shared DB.
+
 ### Still pending (not implementable safely from here — needs staging/DBA/product decisions)
 
 - DB C1/H1 admin movement-sync lock queue: `000009` fix (query_canceled catch + 2s bounded wait) already in tree, needs production migration rehearsal.
 - Remaining DB strictness items (wallet morph-map unification, allocation RESTRICT/uniques, coupon CHECKs, idempotency NULL scope) need maintenance windows and data validation before migration.
 - Full `task.txt` item checklist with per-item ✅ lives in `.superpowers/sdd/task.txt/progress.md` (the archive file itself is read-only history).
+- task3 residuals (product decisions, not implemented): `LocationController` has no `can:` gate (branch scoping only — verified; roadmap prescribes no fix); staff self-approve of own stocktake and single-user approve→ship→receive need SoD policy; `AdjustmentIn` without `unit_cost` leaves valuation gaps (document `apply_difference` policy instead); M-3 service-level mandatory version and M-2 per-role grants await product sign-off; H-2 composite indexes need a production-shaped rehearsal before relying on them under load.

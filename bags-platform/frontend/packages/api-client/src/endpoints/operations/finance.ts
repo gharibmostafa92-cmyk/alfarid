@@ -15,7 +15,7 @@ export interface Expense {
   treasury_id: number; expense_date: string; attachment_path?: string | null;
   voided_at?: string | null; voided_by?: number | null; void_reason?: string | null;
 }
-export interface ExpensePayload { branch_id: number; amount: number; category: string; notes?: string | null; treasury_id: number; expense_date: string }
+export interface ExpensePayload { branch_id: number; amount: string; category: string; notes?: string | null; treasury_id: number; expense_date: string }
 export const expensesApi = {
   ...crud<Expense, ExpensePayload>(`${ADMIN}/expenses`),
   openAttachment: (id: Id) => openProtectedFile(`${ADMIN}/expenses/${id}/attachment`),
@@ -26,17 +26,18 @@ export const expensesApi = {
 
 export interface TreasuryTransfer {
   id: number; from_treasury_id: number; to_treasury_id: number; amount: string; status: string; notes: string | null;
-  from_treasury?: Named; to_treasury?: Named; creator?: Named; approver?: Named; created_at?: string;
+  from_treasury?: Named; to_treasury?: Named; creator?: Named; approver?: Named; rejecter?: Named;
+  rejected_by?: number | null; rejection_reason?: string | null; created_at?: string;
 }
 const TT = `${ADMIN}/treasury-transfers`;
 export const treasuryTransfersApi = {
   list: (params?: object, signal?: AbortSignal) => api.get(TT, { params: cleanParams(params), signal }).then((r) => asPage<TreasuryTransfer>(r)),
   show: (id: Id, signal?: AbortSignal) => api.get(`${TT}/${id}`, { signal }).then((r) => one<TreasuryTransfer>(r)),
-  create: (body: { from_treasury_id: number; to_treasury_id: number; amount: number; notes?: string | null }, idempotencyKey: string) =>
+  create: (body: { from_treasury_id: number; to_treasury_id: number; amount: string; notes?: string | null }, idempotencyKey: string) =>
     api.post(TT, body, { headers: { 'Idempotency-Key': idempotencyKey } }).then((r) => one<TreasuryTransfer>(r)),
   approve: (id: Id, idempotencyKey?: string) =>
     api.post(`${TT}/${id}/approve`, {}, { headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined }).then((r) => one<TreasuryTransfer>(r)),
-  reject: (id: Id) => api.post(`${TT}/${id}/reject`).then((r) => one<TreasuryTransfer>(r)),
+  reject: (id: Id, reason: string) => api.post(`${TT}/${id}/reject`, { reason }).then((r) => one<TreasuryTransfer>(r)),
 };
 
 export interface PosShift {

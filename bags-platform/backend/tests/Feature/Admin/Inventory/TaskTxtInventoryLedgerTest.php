@@ -129,6 +129,55 @@ class TaskTxtInventoryLedgerTest extends TaskTxtInventoryCase
         $this->assertSame(0, (int) InventoryReconcileRun::query()->sum('problem_count'));
     }
 
+    // ---------- L-1: deadlock/serialization/lock-timeout map to retryable conflicts ----------
+
+    public function test_concurrency_sqlstates_map_to_retryable_conflict(): void
+    {
+        $handler = app(\Illuminate\Contracts\Debug\ExceptionHandler::class);
+        foreach (['55P03', '40P01', '40001'] as $state) {
+            $previous = new \PDOException('concurrency conflict');
+            $previous->errorInfo = [$state, 7, 'concurrency conflict'];
+            $exception = new \Illuminate\Database\QueryException('pgsql', 'select 1', [], $previous);
+
+            // Non-idempotent writes get 409 so clients retry with the same payload.
+            $write = \Illuminate\Http\Request::create('/api/v1/admin/inventory/adjustments', 'POST');
+            $writeResponse = $handler->render($write, $exception);
+            $this->assertSame(409, $writeResponse->getStatusCode());
+            $this->assertSame('1', $writeResponse->headers->get('Retry-After'));
+
+            // Safe methods and webhooks get 503 so carriers and browsers back off.
+            $read = \Illuminate\Http\Request::create('/api/v1/admin/inventory/adjustments', 'GET');
+            $readResponse = $handler->render($read, $exception);
+            $this->assertSame(503, $readResponse->getStatusCode());
+            $this->assertSame('1', $readResponse->headers->get('Retry-After'));
+        }
+    }
+
+    // ---------- Idempotency-Key boundary (1..128 chars) ----------
+
+    public function test_overlong_idempotency_key_is_rejected(): void
+    {
+        $admin = $this->staffWithPermissions(self::ALL_PERMISSIONS);
+        $token = $this->tokenFor($admin);
+        $branch = $this->freshBranch();
+        $variant = ProductVariant::factory()->create();
+        $before = StockMovement::query()->count();
+
+        $this->requestWithToken($token, 'POST', '/api/v1/admin/inventory/adjustments', [
+            'branch_id' => $branch->id,
+            'items' => [['product_variant_id' => $variant->id, 'adjustment_type' => 'increase', 'quantity' => 1]],
+        ], ['Idempotency-Key' => str_repeat('k', 129)])
+            ->assertUnprocessable()
+            ->assertJsonPath('message', 'قيمة Idempotency-Key غير صالحة (1 إلى 128 حرفًا).');
+        $this->assertSame($before, StockMovement::query()->count());
+
+        // The 128-char boundary itself is accepted.
+        $this->requestWithToken($token, 'POST', '/api/v1/admin/inventory/adjustments', [
+            'branch_id' => $branch->id,
+            'items' => [['product_variant_id' => $variant->id, 'adjustment_type' => 'increase', 'quantity' => 1]],
+        ], ['Idempotency-Key' => str_repeat('k', 128)])->assertCreated();
+    }
+
     private function adjPayload(int $branchId, int $variantId, string $type, float $qty): array
     {
         return [

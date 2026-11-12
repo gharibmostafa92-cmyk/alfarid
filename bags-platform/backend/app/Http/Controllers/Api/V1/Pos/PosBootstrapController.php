@@ -90,6 +90,17 @@ class PosBootstrapController extends Controller
                     'name' => $openShift->branch->name,
                 ] : null,
             ];
+
+            // Blind close: hide the expected cash ledger from cashiers during the
+            // open shift unless they hold the explicit supervisor permission.
+            if (! $user->can('pos_shifts.view_expected')) {
+                unset(
+                    $shiftData['cash_sales_total'],
+                    $shiftData['cash_returns_total'],
+                    $shiftData['cash_expenses_total'],
+                    $shiftData['expected_closing_cash'],
+                );
+            }
         }
 
         $categories = Category::query()
