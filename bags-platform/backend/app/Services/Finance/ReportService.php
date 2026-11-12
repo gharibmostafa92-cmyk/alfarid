@@ -6,7 +6,10 @@ namespace App\Services\Finance;
 
 use App\Enums\Customer\CustomerType;
 use App\Models\Order;
+use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Carbon\CarbonImmutable;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -43,13 +46,14 @@ class ReportService
                 ->get();
 
             $byChannel = ['store' => 0.0, 'wholesale' => 0.0, 'pos' => 0.0];
-            $total = 0.0;
+            $total = BigDecimal::zero();
             foreach ($rows as $row) {
-                $byChannel[$row->channel] = (float) $row->total;
-                $total += (float) $row->total;
+                $amount = BigDecimal::of((string) ($row->total ?? '0'));
+                $byChannel[$row->channel] = $this->moneyFloat($amount);
+                $total = $total->plus($amount);
             }
 
-            return ['total' => $total, 'by_channel' => $byChannel];
+            return ['total' => $this->moneyFloat($total), 'by_channel' => $byChannel];
         };
 
         $todaySales = $salesByChannel(fn ($q) => $q->where('created_at', '>=', $todayStart)->where('created_at', '<', $todayEnd));
@@ -133,12 +137,17 @@ class ReportService
      */
     public function salesReport(string $from, string $to, string $granularity = 'daily', ?string $groupBy = null, ?int $branchId = null): array
     {
-        return StatementBudget::run(25000, fn (): array => $this->calculateSalesReport($from, $to, $granularity, $groupBy, $branchId));
+        $bounds = $this->periodBounds($from, $to);
+
+        return StatementBudget::run(25000, fn (): array => $this->calculateSalesReport($bounds, $granularity, $groupBy, $branchId));
     }
 
-    private function calculateSalesReport(string $from, string $to, string $granularity = 'daily', ?string $groupBy = null, ?int $branchId = null): array
+    /**
+     * @param  array{0: string, 1: string, 2: string, 3: string}  $bounds
+     */
+    private function calculateSalesReport(array $bounds, string $granularity = 'daily', ?string $groupBy = null, ?int $branchId = null): array
     {
-        [$periodStart, $periodEnd] = $this->periodBounds($from, $to);
+        [$periodStart, $periodEnd] = $bounds;
         $zone = str_replace("'", "''", (string) config('app.business_timezone', 'Africa/Cairo'));
         $localCreated = "timezone('{$zone}', o.created_at AT TIME ZONE 'UTC')";
         $periodExpr = $granularity === 'monthly'
@@ -190,11 +199,11 @@ class ReportService
                 'group_key' => $row->group_key ?? null,
                 'group_label' => $row->group_label ?? ($row->group_key ?? null),
                 'orders_count' => (int) $row->orders_count,
-                'gross_sales' => (float) $row->gross_sales,
-                'discounts' => (float) $row->discounts,
-                'tax' => (float) $row->tax,
-                'shipping' => (float) $row->shipping,
-                'net_sales' => (float) $row->net_sales,
+                'gross_sales' => $this->moneyFloat((string) $row->gross_sales),
+                'discounts' => $this->moneyFloat((string) $row->discounts),
+                'tax' => $this->moneyFloat((string) $row->tax),
+                'shipping' => $this->moneyFloat((string) $row->shipping),
+                'net_sales' => $this->moneyFloat((string) $row->net_sales),
             ])->all();
 
         $totals = $this->salesEntries($branchId, 'entries', $periodStart, $periodEnd)
@@ -206,11 +215,11 @@ class ReportService
             'rows' => $rows,
             'totals' => [
                 'orders_count' => (int) $totals->orders_count,
-                'gross_sales' => (float) $totals->gross_sales,
-                'discounts' => (float) $totals->discounts,
-                'tax' => (float) $totals->tax,
-                'shipping' => (float) $totals->shipping,
-                'net_sales' => (float) $totals->net_sales,
+                'gross_sales' => $this->moneyFloat((string) $totals->gross_sales),
+                'discounts' => $this->moneyFloat((string) $totals->discounts),
+                'tax' => $this->moneyFloat((string) $totals->tax),
+                'shipping' => $this->moneyFloat((string) $totals->shipping),
+                'net_sales' => $this->moneyFloat((string) $totals->net_sales),
             ],
         ];
     }
@@ -218,10 +227,9 @@ class ReportService
     /**
      * Computes inventory valuation and identifies dead stock without physical movement within a threshold.
      *
-     * Results are cached for 5 minutes per (branch, dead-days, cost
-     * visibility) — branch-scoped managers must never share a cached payload
-     * with each other, and cost-blind callers must never hit a cache entry
-     * that contains unit-cost fields.
+     * Stores one internal raw snapshot per (branch, dead-days) guarded by a
+     * per-branch lock to prevent cache stampedes, and strictly strips all
+     * unit-cost fields via stripInventoryCosts() when !$withCosts.
      *
      * @param  int  $deadDays  Inactivity threshold in days
      * @param  int|null  $branchId  Branch filter
@@ -232,33 +240,66 @@ class ReportService
     public function inventoryReport(int $deadDays = 90, ?int $branchId = null, bool $withCosts = true, int $statementBudgetMs = 150000): array
     {
         $deadDays = max(1, min(3650, $deadDays));
-        $cacheKey = 'report.inventory.'.md5(($branchId ?? 'all').'|'.$deadDays.'|'.($withCosts ? 'cost' : 'nocost'));
+        $cacheKey = 'report.inventory.raw.'.md5(($branchId ?? 'all').'|'.$deadDays);
 
-        return Cache::remember($cacheKey, 300, function () use ($deadDays, $branchId, $withCosts, $statementBudgetMs): array {
-            $data = StatementBudget::run(
-                $statementBudgetMs,
-                fn (): array => $this->calculateInventoryReport($deadDays, $branchId)
-            );
-            if (! $withCosts) {
-                unset($data['total_value']);
-                $data['valuation'] = array_map(function (array $row): array {
-                    unset($row['total_value']);
+        $data = Cache::get($cacheKey);
+        if (! is_array($data)) {
+            $compute = function () use ($cacheKey, $deadDays, $branchId, $statementBudgetMs): array {
+                $existing = Cache::get($cacheKey);
+                if (is_array($existing)) {
+                    return $existing;
+                }
+                $fresh = StatementBudget::run(
+                    $statementBudgetMs,
+                    fn (): array => $this->calculateInventoryReport($deadDays, $branchId)
+                );
+                Cache::put($cacheKey, $fresh, 300);
 
-                    return $row;
-                }, $data['valuation']);
-                $data['dead_stock'] = array_map(function (array $row): array {
-                    unset($row['tied_value']);
+                return $fresh;
+            };
 
-                    return $row;
-                }, $data['dead_stock']);
+            try {
+                // Serialize heavy inventory scans per branch to prevent cache stampedes or dead_days cache-busting floods.
+                $data = Cache::lock('report.inventory.branch.'.($branchId ?? 'all'), 30)->block(15, $compute);
+            } catch (LockTimeoutException) {
+                $cachedAfterWait = Cache::get($cacheKey);
+                $data = is_array($cachedAfterWait)
+                    ? $cachedAfterWait
+                    : StatementBudget::run($statementBudgetMs, fn (): array => $this->calculateInventoryReport($deadDays, $branchId));
             }
+        }
 
-            return $data;
-        });
+        return $withCosts ? $data : $this->stripInventoryCosts($data);
+    }
+
+    /**
+     * Pure filter removing cost-derived valuation fields from a cached inventory report snapshot.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function stripInventoryCosts(array $data): array
+    {
+        unset($data['total_value']);
+        $data['valuation'] = array_map(function (array $row): array {
+            unset($row['total_value']);
+
+            return $row;
+        }, $data['valuation']);
+        $data['dead_stock'] = array_map(function (array $row): array {
+            unset($row['tied_value']);
+
+            return $row;
+        }, $data['dead_stock']);
+
+        return $data;
     }
 
     private function calculateInventoryReport(int $deadDays = 90, ?int $branchId = null): array
     {
+        $zone = (string) config('app.business_timezone', 'Africa/Cairo');
+        $deadCutoff = CarbonImmutable::now($zone)->subDays($deadDays)->utc()->toDateTimeString();
+
         $valuation = DB::table('stock_levels as sl')->when($branchId !== null, fn ($q) => $q->where('sl.branch_id', $branchId))
             ->join('product_variants as pv', 'pv.id', '=', 'sl.product_variant_id')
             ->leftJoin('branches as b', 'b.id', '=', 'sl.branch_id')
@@ -273,15 +314,15 @@ class ReportService
                 'branch_name' => $row->branch_name,
                 'variants_count' => (int) $row->variants_count,
                 'total_qty' => (float) $row->total_qty,
-                'total_value' => (float) $row->total_value,
+                'total_value' => $this->moneyFloat((string) $row->total_value),
             ])->all();
         $valuationTruncated = count($valuation) > self::INVENTORY_VALUATION_ROW_LIMIT;
         $valuation = array_slice($valuation, 0, self::INVENTORY_VALUATION_ROW_LIMIT);
 
-        $totalValue = (float) (DB::table('stock_levels as sl')->when($branchId !== null, fn ($q) => $q->where('sl.branch_id', $branchId))
+        $totalValue = $this->moneyFloat((string) (DB::table('stock_levels as sl')->when($branchId !== null, fn ($q) => $q->where('sl.branch_id', $branchId))
             ->join('product_variants as pv', 'pv.id', '=', 'sl.product_variant_id')
             ->selectRaw('COALESCE(SUM(sl.on_hand * COALESCE(pv.cost_price, 0)), 0) AS v')
-            ->first()?->v ?? 0);
+            ->first()?->v ?? '0'));
 
         $deadStock = DB::table('stock_levels as sl')->when($branchId !== null, fn ($q) => $q->where('sl.branch_id', $branchId))
             ->join('product_variants as pv', 'pv.id', '=', 'sl.product_variant_id')
@@ -297,7 +338,7 @@ class ReportService
             ->selectRaw('sl.product_variant_id, pv.sku, p.name_ar AS product_name, SUM(sl.on_hand) AS on_hand, COALESCE(SUM(sl.on_hand * COALESCE(pv.cost_price, 0)), 0) AS tied_value, lm.last_movement_at')
             ->groupBy('sl.product_variant_id', 'pv.sku', 'p.name_ar', 'lm.last_movement_at')
             ->havingRaw('SUM(sl.on_hand) > 0')
-            ->havingRaw('(lm.last_movement_at IS NULL OR lm.last_movement_at < NOW() - (? * INTERVAL \'1 day\'))', [$deadDays])
+            ->havingRaw('(lm.last_movement_at IS NULL OR lm.last_movement_at < ?)', [$deadCutoff])
             ->orderByDesc('tied_value')
             ->limit(100)
             ->get()
@@ -306,7 +347,7 @@ class ReportService
                 'sku' => $row->sku,
                 'product_name' => $row->product_name,
                 'on_hand' => (float) $row->on_hand,
-                'tied_value' => (float) $row->tied_value,
+                'tied_value' => $this->moneyFloat((string) $row->tied_value),
                 'last_movement_at' => $row->last_movement_at,
             ])->all();
 
@@ -329,47 +370,55 @@ class ReportService
      */
     public function profitReport(string $from, string $to, ?int $branchId = null): array
     {
-        return StatementBudget::run(25000, fn (): array => $this->calculateProfitReport($from, $to, $branchId));
+        $bounds = $this->periodBounds($from, $to);
+
+        return StatementBudget::run(25000, fn (): array => $this->calculateProfitReport($bounds, $branchId));
     }
 
-    private function calculateProfitReport(string $from, string $to, ?int $branchId = null): array
+    /**
+     * @param  array{0: string, 1: string, 2: string, 3: string}  $bounds
+     */
+    private function calculateProfitReport(array $bounds, ?int $branchId = null): array
     {
-        [$periodStart, $periodEnd] = $this->periodBounds($from, $to);
-        // Revenue recognition aligns with COGS ledger timestamps to prevent cross-period margin distortion.
+        [$periodStart, $periodEnd, $localFrom, $localTo] = $bounds;
+        // Recognize an order's revenue exactly once at its global first physical sale movement.
         $saleDates = DB::table('stock_movements')->where('type', 'sale')
             ->whereIn('reference_type', array_unique([Order::class, (new Order)->getMorphClass()]))
-            ->where('created_at', '>=', $periodStart)->where('created_at', '<', $periodEnd)
-            ->selectRaw('reference_id, MIN(created_at) AS recognized_at')->groupBy('reference_id');
-        $revenue = (float) $this->salesEntries($branchId)
+            ->selectRaw('reference_id, MIN(created_at) AS recognized_at')
+            ->groupBy('reference_id')
+            ->havingRaw('MIN(created_at) >= ? AND MIN(created_at) < ?', [$periodStart, $periodEnd]);
+        $revenue = BigDecimal::of((string) ($this->salesEntries($branchId, 'entries', $periodStart, $periodEnd, boundSalesToPeriod: false)
             ->leftJoinSub($saleDates, 'sales_event', 'sales_event.reference_id', '=', 'entries.id')
             ->where(fn ($q) => $q->where('entries.sale_count', 0)->orWhereNotNull('sales_event.recognized_at'))
             ->whereRaw('CASE WHEN entries.sale_count = 1 THEN sales_event.recognized_at ELSE entries.created_at END >= ?', [$periodStart])
             ->whereRaw('CASE WHEN entries.sale_count = 1 THEN sales_event.recognized_at ELSE entries.created_at END < ?', [$periodEnd])
-            ->selectRaw('COALESCE(SUM(entries.subtotal - entries.discount_amount), 0) AS revenue')->value('revenue');
+            ->selectRaw('COALESCE(SUM(entries.subtotal - entries.discount_amount), 0) AS revenue')
+            ->value('revenue') ?? '0'));
 
-        $cogs = (float) (DB::table('stock_movements as sm')->when($branchId !== null, fn ($q) => $q->where('sm.branch_id', $branchId))
+        $cogs = BigDecimal::of((string) (DB::table('stock_movements as sm')->when($branchId !== null, fn ($q) => $q->where('sm.branch_id', $branchId))
             ->whereIn('sm.type', ['sale', 'sale_return'])
             ->where('sm.created_at', '>=', $periodStart)->where('sm.created_at', '<', $periodEnd)
             ->selectRaw('COALESCE(SUM(-sm.quantity * sm.unit_cost), 0) AS c')
-            ->first()?->c ?? 0);
+            ->first()?->c ?? '0'));
 
-        $expenses = (float) DB::table('expenses')->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
+        $expenses = BigDecimal::of((string) DB::table('expenses')->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
             ->whereNull('voided_at')
-            ->whereBetween('expense_date', [$from, $to])
-            ->sum('amount');
+            ->whereBetween('expense_date', [$localFrom, $localTo])
+            ->sum('amount'));
 
-        $gross = $revenue - $cogs;
+        $gross = $revenue->minus($cogs);
+        $net = $gross->minus($expenses);
         $missingCosts = DB::table('stock_movements')->whereIn('type', ['sale', 'sale_return'])
             ->whereNull('unit_cost')->where('created_at', '>=', $periodStart)->where('created_at', '<', $periodEnd)
             ->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))->count();
 
         return [
-            'net_sales_revenue' => $revenue,
+            'net_sales_revenue' => $this->moneyFloat($revenue),
             'missing_cost_movements' => $missingCosts,
-            'cogs' => $cogs,
-            'gross_profit' => $gross,
-            'total_expenses' => $expenses,
-            'net_profit' => $gross - $expenses,
+            'cogs' => $this->moneyFloat($cogs),
+            'gross_profit' => $this->moneyFloat($gross),
+            'total_expenses' => $this->moneyFloat($expenses),
+            'net_profit' => $this->moneyFloat($net),
         ];
     }
 
@@ -385,16 +434,24 @@ class ReportService
 
     private function calculateSuppliersReport(): array
     {
+        $businessToday = CarbonImmutable::now((string) config('app.business_timezone', 'Africa/Cairo'))->toDateString();
+
         $aging = DB::table('supplier_invoices')
             ->selectRaw(implode(', ', [
                 'supplier_id',
                 'COALESCE(SUM(total_amount), 0) AS total_purchases',
-                'COALESCE(SUM(CASE WHEN (total_amount - paid_amount) > 0 AND (due_date IS NULL OR due_date >= CURRENT_DATE) THEN total_amount - paid_amount END), 0) AS not_due',
-                "COALESCE(SUM(CASE WHEN (total_amount - paid_amount) > 0 AND due_date < CURRENT_DATE AND due_date >= CURRENT_DATE - INTERVAL '30 days' THEN total_amount - paid_amount END), 0) AS overdue_1_30",
-                "COALESCE(SUM(CASE WHEN (total_amount - paid_amount) > 0 AND due_date < CURRENT_DATE - INTERVAL '30 days' AND due_date >= CURRENT_DATE - INTERVAL '60 days' THEN total_amount - paid_amount END), 0) AS overdue_31_60",
-                "COALESCE(SUM(CASE WHEN (total_amount - paid_amount) > 0 AND due_date < CURRENT_DATE - INTERVAL '60 days' AND due_date >= CURRENT_DATE - INTERVAL '90 days' THEN total_amount - paid_amount END), 0) AS overdue_61_90",
-                "COALESCE(SUM(CASE WHEN (total_amount - paid_amount) > 0 AND due_date < CURRENT_DATE - INTERVAL '90 days' THEN total_amount - paid_amount END), 0) AS overdue_90_plus",
-            ]))
+                'COALESCE(SUM(CASE WHEN (total_amount - paid_amount) > 0 AND (due_date IS NULL OR due_date >= ?::date) THEN total_amount - paid_amount END), 0) AS not_due',
+                "COALESCE(SUM(CASE WHEN (total_amount - paid_amount) > 0 AND due_date < ?::date AND due_date >= (?::date - INTERVAL '30 days')::date THEN total_amount - paid_amount END), 0) AS overdue_1_30",
+                "COALESCE(SUM(CASE WHEN (total_amount - paid_amount) > 0 AND due_date < (?::date - INTERVAL '30 days')::date AND due_date >= (?::date - INTERVAL '60 days')::date THEN total_amount - paid_amount END), 0) AS overdue_31_60",
+                "COALESCE(SUM(CASE WHEN (total_amount - paid_amount) > 0 AND due_date < (?::date - INTERVAL '60 days')::date AND due_date >= (?::date - INTERVAL '90 days')::date THEN total_amount - paid_amount END), 0) AS overdue_61_90",
+                "COALESCE(SUM(CASE WHEN (total_amount - paid_amount) > 0 AND due_date < (?::date - INTERVAL '90 days')::date THEN total_amount - paid_amount END), 0) AS overdue_90_plus",
+            ]), [
+                $businessToday,
+                $businessToday, $businessToday,
+                $businessToday, $businessToday,
+                $businessToday, $businessToday,
+                $businessToday,
+            ])
             ->whereIn('status', ['posted', 'partially_paid', 'paid'])
             ->groupBy('supplier_id');
 
@@ -407,14 +464,14 @@ class ReportService
             ->map(fn ($row): array => [
                 'supplier_id' => (int) $row->id,
                 'supplier_name' => $row->name,
-                'current_balance' => (float) $row->current_balance,
-                'total_purchases' => (float) $row->total_purchases,
+                'current_balance' => $this->moneyFloat((string) $row->current_balance),
+                'total_purchases' => $this->moneyFloat((string) $row->total_purchases),
                 'aging' => [
-                    'not_due' => (float) $row->not_due,
-                    'overdue_1_30' => (float) $row->overdue_1_30,
-                    'overdue_31_60' => (float) $row->overdue_31_60,
-                    'overdue_61_90' => (float) $row->overdue_61_90,
-                    'overdue_90_plus' => (float) $row->overdue_90_plus,
+                    'not_due' => $this->moneyFloat((string) $row->not_due),
+                    'overdue_1_30' => $this->moneyFloat((string) $row->overdue_1_30),
+                    'overdue_31_60' => $this->moneyFloat((string) $row->overdue_31_60),
+                    'overdue_61_90' => $this->moneyFloat((string) $row->overdue_61_90),
+                    'overdue_90_plus' => $this->moneyFloat((string) $row->overdue_90_plus),
                 ],
             ])->all();
     }
@@ -430,12 +487,17 @@ class ReportService
      */
     public function shiftsReport(string $from, string $to, bool $onlyDifferences = false, ?int $branchId = null): array
     {
-        return StatementBudget::run(150000, fn (): array => $this->calculateShiftsReport($from, $to, $onlyDifferences, $branchId));
+        $bounds = $this->periodBounds($from, $to);
+
+        return StatementBudget::run(150000, fn (): array => $this->calculateShiftsReport($bounds, $onlyDifferences, $branchId));
     }
 
-    private function calculateShiftsReport(string $from, string $to, bool $onlyDifferences = false, ?int $branchId = null): array
+    /**
+     * @param  array{0: string, 1: string, 2: string, 3: string}  $bounds
+     */
+    private function calculateShiftsReport(array $bounds, bool $onlyDifferences = false, ?int $branchId = null): array
     {
-        [$periodStart, $periodEnd] = $this->periodBounds($from, $to);
+        [$periodStart, $periodEnd] = $bounds;
         $base = fn () => DB::table('pos_shifts as ps')->when($branchId !== null, fn ($q) => $q->where('ps.branch_id', $branchId))
             ->leftJoin('users as u', 'u.id', '=', 'ps.user_id')
             ->leftJoin('branches as b', 'b.id', '=', 'ps.branch_id')
@@ -486,13 +548,13 @@ class ReportService
     }
 
     // Combines original sales with POS, RMA, and manual return reversals into a unified signed ledger stream.
-    private function salesEntries(?int $branchId, string $alias = 'entries', ?string $periodStart = null, ?string $periodEnd = null): Builder
+    private function salesEntries(?int $branchId, string $alias = 'entries', ?string $periodStart = null, ?string $periodEnd = null, bool $boundSalesToPeriod = true): Builder
     {
         $columns = 'o.id, o.channel, o.allocated_branch_id, o.pos_shift_id, o.payment_method, o.created_at, o.subtotal, o.discount_amount, o.tax_amount, o.shipping_cost, o.grand_total, 1 AS sale_count';
         $sales = DB::table('orders as o')->whereNull('o.return_of_order_id')
             ->whereIn('o.status', [...self::SALES_STATUSES, 'returned'])
-            ->when($periodStart !== null, fn ($q) => $q->where('o.created_at', '>=', $periodStart))
-            ->when($periodEnd !== null, fn ($q) => $q->where('o.created_at', '<', $periodEnd))
+            ->when($boundSalesToPeriod && $periodStart !== null, fn ($q) => $q->where('o.created_at', '>=', $periodStart))
+            ->when($boundSalesToPeriod && $periodEnd !== null, fn ($q) => $q->where('o.created_at', '<', $periodEnd))
             ->selectRaw($columns);
         $posReturns = DB::table('orders as o')->whereNotNull('o.return_of_order_id')
             ->when($periodStart !== null, fn ($q) => $q->where('o.created_at', '>=', $periodStart))
@@ -514,15 +576,32 @@ class ReportService
             ->when($branchId !== null, fn ($q) => $q->where($alias.'.allocated_branch_id', $branchId));
     }
 
+    /**
+     * @return array{0: string, 1: string, 2: string, 3: string}
+     */
     private function periodBounds(string $from, string $to): array
     {
-        $zone = config('app.business_timezone', 'Africa/Cairo');
-        $start = CarbonImmutable::parse($from, $zone)->startOfDay();
-        $end = CarbonImmutable::parse($to, $zone)->startOfDay();
+        $zone = (string) config('app.business_timezone', 'Africa/Cairo');
+        $trimmedFrom = trim($from);
+        $trimmedTo = trim($to);
+        $start = CarbonImmutable::createFromFormat('!Y-m-d', $trimmedFrom, $zone);
+        $end = CarbonImmutable::createFromFormat('!Y-m-d', $trimmedTo, $zone);
+        if ($start === false || $end === false || $start->format('Y-m-d') !== $trimmedFrom || $end->format('Y-m-d') !== $trimmedTo) {
+            throw ValidationException::withMessages(['from' => 'صيغة تاريخ التقرير غير صالحة (المتوقع YYYY-MM-DD).']);
+        }
+        $start = $start->startOfDay();
+        $end = $end->startOfDay();
         if ($end->lessThan($start) || $start->diffInDays($end) > 365) {
             throw ValidationException::withMessages(['to' => 'فترة التقرير يجب ألا تتجاوز 366 يومًا.']);
         }
 
-        return [$start->utc()->toDateTimeString(), $end->addDay()->utc()->toDateTimeString()];
+        return [$start->utc()->toDateTimeString(), $end->addDay()->utc()->toDateTimeString(), $start->toDateString(), $end->toDateString()];
+    }
+
+    private function moneyFloat(BigDecimal|string $value): float
+    {
+        $decimal = $value instanceof BigDecimal ? $value : BigDecimal::of($value !== '' ? $value : '0');
+
+        return (float) (string) $decimal->toScale(2, RoundingMode::HalfUp);
     }
 }

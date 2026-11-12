@@ -25,10 +25,10 @@ function load(relative, dependencies = {}) {
 }
 
 const currency = load('packages/utils/src/currency.ts');
-const mapper = load('apps/storefront/src/lib/catalog-mappers.ts', { '@alfarid/utils': currency });
-const query = load('apps/storefront/src/lib/catalog-query.ts');
-const { STORE_ROUTES } = load('apps/storefront/src/lib/store-routes.ts');
-const { initialProductSelection } = load('apps/storefront/src/lib/product-selection.ts');
+const mapper = load('apps/storefront/src/lib/catalog/catalog-mappers.ts', { '@alfarid/utils': currency });
+const query = load('apps/storefront/src/lib/catalog/catalog-query.ts');
+const { STORE_ROUTES } = load('apps/storefront/src/lib/orders/store-routes.ts');
+const { initialProductSelection } = load('apps/storefront/src/lib/catalog/product-selection.ts');
 
 test('product stage asks for missing options instead of selecting the first variant', () => {
   const detail = { sizes: ['Medium', 'Large'], colors: [{ key: 'rose' }, { key: 'camel' }], variants: [
@@ -54,13 +54,13 @@ test('products without sizes still require a color when multiple colors exist', 
 
 test('all filters round trip through a product link and API parameters preserve array and boolean contracts', () => {
   const state = { category: 'demo-backpacks', color: 'noir', priceMin: 800, priceMax: 1500,
-    occasions: ['work', 'casual'], sort: 'price_asc', search: 'a & b', inStock: true };
+    occasions: ['work', 'casual'], sort: 'price_asc', search: 'a & b', inStock: true, onSale: true };
   const search = query.buildSearch(state, { product: 'bag & leather' });
   assert.equal(new URLSearchParams(search).get('product'), 'bag & leather');
   assert.deepEqual(query.parseFilters(new URLSearchParams(search)), state);
   assert.deepEqual(query.toApiParams(state), { category: 'demo-backpacks', color: 'noir', price_min: 800,
-    price_max: 1500, occasions: ['work', 'casual'], search: 'a & b', in_stock: 1, sort: 'price_asc', per_page: 24 });
-  assert.deepEqual(query.toFacetParams(state), { category: 'demo-backpacks', occasions: ['work', 'casual'], search: 'a & b', in_stock: 1 });
+    price_max: 1500, occasions: ['work', 'casual'], search: 'a & b', in_stock: 1, on_sale: 1, sort: 'price_asc', per_page: 24 });
+  assert.deepEqual(query.toFacetParams(state), { category: 'demo-backpacks', occasions: ['work', 'casual'], search: 'a & b', in_stock: 1, on_sale: 1 });
   assert.equal(STORE_ROUTES.product('bag & leather'), '/shop?product=bag+%26+leather');
   assert.equal(STORE_ROUTES.shop({ sort: 'newest' }), '/shop?sort=newest');
 });
@@ -146,7 +146,7 @@ test('production CSP excludes local HTTP images while development previews retai
 });
 
 test('viewer identities are opaque and never reused across account switches', () => {
-  const { viewerKey } = load('apps/storefront/src/lib/viewer-key.ts');
+  const { viewerKey } = load('apps/storefront/src/lib/core/viewer-key.ts');
   assert.equal(viewerKey(null), 'guest');
   const first = viewerKey('secret-bearer-a');
   assert.equal(viewerKey('secret-bearer-a'), first);

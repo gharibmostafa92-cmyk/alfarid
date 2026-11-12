@@ -1,4 +1,5 @@
 export const guestOrdersKey = 'alfarid_guest_order_numbers';
+const GUEST_ORDER_LIMIT = 10;
 
 /**
  * Retrieve recent guest order numbers saved in the local browser session.
@@ -24,7 +25,10 @@ export function readGuestOrders(): string[] {
  */
 export function rememberGuestOrder(number: string): void {
   try {
-    localStorage.setItem(guestOrdersKey, JSON.stringify([number, ...readGuestOrders().filter((saved) => saved !== number)]));
+    localStorage.setItem(
+      guestOrdersKey,
+      JSON.stringify([number, ...readGuestOrders().filter((saved) => saved !== number)].slice(0, GUEST_ORDER_LIMIT)),
+    );
   } catch {
     // Storage quota limits or private-browsing restrictions must not interrupt post-checkout flows.
   }

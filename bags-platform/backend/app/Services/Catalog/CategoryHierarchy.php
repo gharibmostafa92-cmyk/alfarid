@@ -51,6 +51,12 @@ class CategoryHierarchy
 
     public static function activePath(?Category $category): bool
     {
+        if ($category === null) {
+            return false;
+        }
+        // Load the whole (max depth 3) chain in one eager query instead of
+        // walking parent ids with one query per level.
+        $category->loadMissing('parent.parent');
         $seen = [];
         while ($category) {
             if (! $category->is_active || isset($seen[$category->id]) || count($seen) >= 3) {
@@ -60,7 +66,7 @@ class CategoryHierarchy
             if ($category->parent_id === null) {
                 return true;
             }
-            $category = Category::find($category->parent_id);
+            $category = $category->parent;
         }
 
         return false;

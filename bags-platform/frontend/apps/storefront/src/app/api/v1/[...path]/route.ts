@@ -10,7 +10,7 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
   const { path } = await context.params;
   return proxyCloudRunApi(request, path, {
     upstream,
-    origins: (process.env.API_PROXY_ALLOWED_ORIGINS ?? '').split(',').map(origin => origin.trim()),
+    origins: (process.env.API_PROXY_ALLOWED_ORIGINS ?? '').split(',').map(origin => origin.trim()).filter(Boolean),
     identityToken: cloudRunIdentityToken,
     clientIpSecret: process.env.API_PROXY_CLIENT_IP_SECRET,
   });

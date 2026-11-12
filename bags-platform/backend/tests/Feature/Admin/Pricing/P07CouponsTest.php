@@ -94,16 +94,21 @@ class P07CouponsTest extends TestCase
     }
 
     // ── item 8c: guest without a phone has no per-customer cap (owner decision) ──
-    public function test_guest_without_phone_has_no_per_identity_cap(): void
+    public function test_guest_without_phone_is_refused_at_redemption(): void
     {
         $coupon = Coupon::factory()->create(['usage_limit' => null, 'usage_limit_per_customer' => 1]);
         $svc = app(CouponService::class);
 
-        $svc->recordUsage($coupon, $this->order(['guest_phone' => null, 'customer_id' => null]), null, 5.0);
-        // Current behavior: anonymous guests bypass the per-customer limit.
-        $svc->recordUsage($coupon, $this->order(['guest_phone' => null, 'customer_id' => null]), null, 5.0);
+        // Finding 7: redemption requires a real identity (customer or guest phone).
+        try {
+            $svc->recordUsage($coupon, $this->order(['guest_phone' => null, 'customer_id' => null]), null, 5.0);
+            $this->fail('expected NOT_REDEEMABLE for an anonymous guest');
+        } catch (BusinessException $e) {
+            $this->assertSame(self::NOT_REDEEMABLE, $e->getMessage());
+        }
 
-        $this->assertSame(2, CouponUsage::count());
+        $this->assertSame(0, CouponUsage::count());
+        $this->assertSame(0, (int) $coupon->fresh()->used_count);
     }
 
     // ── item 8d: cancelling restores the customer allowance ──

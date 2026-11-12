@@ -66,12 +66,21 @@ class FinanceReadToolsTest extends TestCase
 
     private function treasury(Branch $branch, array $attributes = []): Treasury
     {
-        return Treasury::create([
+        $balance = $attributes['current_balance'] ?? null;
+        unset($attributes['current_balance']);
+
+        $treasury = Treasury::create([
             'name' => 'خزينة '.Str::random(6), 'code' => 'SAFE-'.Str::uuid(),
             'branch_id' => $branch->id, 'type' => TreasuryType::MainSafe,
-            'current_balance' => '0.00', 'is_active' => true,
+            'is_active' => true,
             ...$attributes,
         ]);
+
+        if ($balance !== null) {
+            $treasury->forceFill(['current_balance' => $balance])->save();
+        }
+
+        return $treasury;
     }
 
     /** @return array{admin: User, branchA: Branch, branchB: Branch} */

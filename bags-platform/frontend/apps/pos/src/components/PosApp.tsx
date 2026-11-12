@@ -12,7 +12,7 @@ import { StockPage } from './inventory/StockPage';
 import { TransfersPage } from './inventory/TransfersPage';
 import { StocktakePage } from './inventory/StocktakePage';
 import { useToast } from './ui/SharedUI';
-import { posMockService } from '../services/pos-mock.service';
+import { pos as posMockService } from '../services/pos-data-source';
 import type {
   AppScreen,
   PosShift,
@@ -33,13 +33,15 @@ export function PosApp() {
   const [cashier, setCashier] = useState<CashierUser | null>(null);
   const [isDark, setIsDark] = useState<boolean>(false);
 
-  // Cart and sale state
-  const [cart, setCart] = useState<PosCartLine[]>([
-    { id: 101, qty: 1, price: 450, listPrice: 450 },
-    { id: 103, qty: 2, price: 285, listPrice: 285 },
-  ]);
+  // Cart and sale state: the cart always starts empty, never with demo lines.
+  const [cart, setCart] = useState<PosCartLine[]>([]);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [discount, setDiscount] = useState<number>(0);
+  const [maxDiscountPercent, setMaxDiscountPercent] = useState<number>(100);
+  // Cart-session idempotency key: stable across CheckoutModal re-opens for the
+  // same cart, renewed only when the cart session ends (paid / held / cleared).
+  const [saleSessionKey, setSaleSessionKey] = useState<string>(() => globalThis.crypto.randomUUID());
+  const renewSaleSessionKey = useCallback(() => setSaleSessionKey(globalThis.crypto.randomUUID()), []);
   const [heldSales, setHeldSales] = useState<PosHeldSale[]>([]);
   const [lastAdded, setLastAdded] = useState<{ id: number; k: number } | null>(null);
 
@@ -57,6 +59,7 @@ export function PosApp() {
     posMockService.getBranch().then(setBranch);
     posMockService.getCashier().then(setCashier);
     posMockService.getHeldSales().then(setHeldSales);
+    posMockService.getSettings().then((s) => setMaxDiscountPercent(s.max_discount_percent));
   }, []);
 
   useEffect(() => {
@@ -73,10 +76,33 @@ export function PosApp() {
       if (existing) {
         return prev.map((l) => (l.id === p.id ? { ...l, qty: l.qty + 1 } : l));
       }
-      return [...prev, { id: p.id, qty: 1, price: unitPrice, listPrice: p.price }];
+      return [...prev, { id: p.id, qty: 1, price: unitPrice, listPrice: p.price, manualPrice: false }];
     });
     setLastAdded({ id: p.id, k: Date.now() });
   };
+
+  // Reprice non-manual lines whenever the customer changes so the cart always
+  // matches the current customer's tier, regardless of scan/select order.
+  const handleCustomerChange = useCallback((c: Customer | null) => {
+    setCustomer(c);
+    setCart((prev) =>
+      prev.map((l) => {
+        if (l.manualPrice) return l;
+        if (c?.tier === 'wholesale') {
+          const p = posMockService.getProductById(l.id);
+          if (!p) return l;
+          return { ...l, price: p.wholesale };
+        }
+        return { ...l, price: l.listPrice };
+      }),
+    );
+  }, []);
+
+  const handleClearCart = useCallback(() => {
+    setCart([]);
+    setDiscount(0);
+    renewSaleSessionKey();
+  }, [renewSaleSessionKey]);
 
   // Keyboard shortcuts (F2, F6, F8, Space)
   useEffect(() => {
@@ -114,22 +140,32 @@ export function PosApp() {
     setCart([]);
     setCustomer(null);
     setDiscount(0);
+    renewSaleSessionKey();
     setIsHoldOpen(false);
     toast('تم تعليق الفاتورة بنجاح');
   };
 
-  // Handle resuming held sale
+  // Handle resuming held sale: merge with quantity-dedupe so the same variant
+  // never appears twice (no duplicate React keys, no distinct violations).
   const handleResumeHeld = (heldItem: PosHeldSale) => {
     const newLines = heldItem.items.map((i) => {
       const p = posMockService.getProductById(i.id);
       const price = p ? p.price : 100;
-      return { id: i.id, qty: i.qty, price, listPrice: price };
+      return { id: i.id, qty: i.qty, price, listPrice: price, manualPrice: false };
     });
 
-    setCart((prev) => [...prev, ...newLines]);
+    setCart((prev) => {
+      const next = prev.map((l) => ({ ...l }));
+      for (const nl of newLines) {
+        const existing = next.find((l) => l.id === nl.id);
+        if (existing) existing.qty += nl.qty;
+        else next.push({ ...nl });
+      }
+      return next;
+    });
     if (heldItem.customer) {
       posMockService.getCustomers(heldItem.customer).then((matches) => {
-        if (matches.length > 0) setCustomer(matches[0]);
+        if (matches.length > 0) handleCustomerChange(matches[0]);
       });
     }
     posMockService.deleteHeldSale(heldItem.ref);
@@ -147,6 +183,7 @@ export function PosApp() {
     setCart([]);
     setCustomer(null);
     setDiscount(0);
+    renewSaleSessionKey();
     toast('تم تسجيل الفاتورة بنجاح');
   };
 
@@ -185,17 +222,18 @@ export function PosApp() {
                 cart={cart}
                 setCart={setCart}
                 customer={customer}
-                setCustomer={setCustomer}
+                setCustomer={handleCustomerChange}
                 discount={discount}
                 setDiscount={setDiscount}
                 onHold={() => setIsHoldOpen(true)}
                 onHeld={() => setIsHeldOpen(true)}
                 heldCount={heldSales.length}
                 onPay={() => setIsCheckoutOpen(true)}
-                onClear={() => setCart([])}
+                onClear={handleClearCart}
                 lastAdded={lastAdded}
                 toast={toast}
                 cashier={cashier}
+                maxDiscountPercent={maxDiscountPercent}
               />
             </div>
           )}
@@ -226,6 +264,7 @@ export function PosApp() {
             cart={cart}
             customer={customer}
             discount={discount}
+            sessionKey={saleSessionKey}
             onPaid={handleSalePaid}
             branch={branch}
             cashier={cashier}

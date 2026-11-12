@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, PImg, Api, Empty, Seg, Check, Search, useEsc } from '../ui/SharedUI';
-import { posMockService } from '../../services/pos-mock.service';
+import { pos as posMockService } from '../../services/pos-data-source';
+import { serverMessage } from '../../lib/pos-error';
 import type { PastSale, PosProduct } from '../../types/pos.types';
 
 interface ReturnModalProps {
@@ -41,13 +42,18 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
 
   const find = async () => {
     if (!num.trim()) return;
-    const s = await posMockService.getPastSale(num);
-    if (s) {
-      setSale(s);
-      setErr('');
-    } else {
+    try {
+      const s = await posMockService.getPastSale(num);
+      if (s) {
+        setSale(s);
+        setErr('');
+      } else {
+        setSale(null);
+        setErr('لم يتم العثور على فاتورة بهذا الرقم في الفرع');
+      }
+    } catch (err) {
       setSale(null);
-      setErr('لم يتم العثور على فاتورة بهذا الرقم في الفرع');
+      setErr(serverMessage(err));
     }
   };
 
@@ -103,6 +109,8 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
         toast('تم الاستبدال وإصدار فاتورة جديدة');
       }
       onClose();
+    } catch (err) {
+      toast(serverMessage(err), 'bad');
     } finally {
       setBusy(false);
     }

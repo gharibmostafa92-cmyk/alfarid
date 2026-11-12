@@ -149,8 +149,8 @@ class FinanceWriteToolsTest extends TestCase
     {
         $admin = $this->admin();
         $branch = Branch::factory()->create(['is_active' => true]);
-        $rich = Treasury::create(['name' => 'مليانة', 'code' => 'SAFE-'.Str::uuid(), 'branch_id' => $branch->id,
-            'type' => TreasuryType::MainSafe, 'current_balance' => '100.00', 'is_active' => true]);
+        $rich = tap(Treasury::create(['name' => 'مليانة', 'code' => 'SAFE-'.Str::uuid(), 'branch_id' => $branch->id,
+            'type' => TreasuryType::MainSafe, 'is_active' => true]), fn (Treasury $t) => $t->forceFill(['current_balance' => '100.00'])->save());
         $empty = Treasury::create(['name' => 'فاضية', 'code' => 'SAFE-'.Str::uuid(), 'branch_id' => $branch->id,
             'type' => TreasuryType::MainSafe, 'current_balance' => '0.00', 'is_active' => true]);
 
@@ -173,8 +173,8 @@ class FinanceWriteToolsTest extends TestCase
     {
         $admin = $this->admin();
         $branch = Branch::factory()->create(['is_active' => true]);
-        $used = Treasury::create(['name' => 'مستخدمة', 'code' => 'SAFE-'.Str::uuid(), 'branch_id' => $branch->id,
-            'type' => TreasuryType::MainSafe, 'current_balance' => '1000.00', 'is_active' => true]);
+        $used = tap(Treasury::create(['name' => 'مستخدمة', 'code' => 'SAFE-'.Str::uuid(), 'branch_id' => $branch->id,
+            'type' => TreasuryType::MainSafe, 'is_active' => true]), fn (Treasury $t) => $t->forceFill(['current_balance' => '1000.00'])->save());
         app(TreasuryService::class)->record([
             'treasury_id' => $used->id, 'type' => \App\Enums\TreasuryTransactionType::OpeningBalance,
             'amount' => '1000.00', 'created_by' => $admin->id,

@@ -15,7 +15,6 @@ use App\Models\Coupon;
 use App\Models\Customer;
 use App\Services\Orders\CartService;
 use App\Services\Orders\OrderService;
-use App\Services\Shared\SettingService;
 use App\Services\Orders\ShippingQuoteService;
 use App\Services\Pos\StorePaymentPolicy;
 use Illuminate\Http\JsonResponse;
@@ -30,7 +29,6 @@ class CheckoutController extends Controller
         private readonly CartService $carts,
         private readonly OrderService $orders,
         private readonly ShippingQuoteService $shippingQuote,
-        private readonly SettingService $settings,
         private readonly StorePaymentPolicy $paymentPolicy,
     ) {}
 
@@ -65,14 +63,12 @@ class CheckoutController extends Controller
 
         $days = $rate !== null ? "من {$rate->estimated_days_min} إلى {$rate->estimated_days_max} أيام عمل" : null;
 
-        // Pre-compute expected total so the client can submit an expected_total guard to prevent price drift.
+        // Pre-compute expected total with the exact same decimal math used by
+        // OrderService::createFromCart so expected_total can never drift.
         $discountAmount = round($totals['pricing_discount'] + $totals['coupon_discount'], 2);
-        $taxAmount = 0.0;
-        if ($this->settings->getBool('tax_enabled') && ! $this->settings->getBool('prices_include_tax')) {
-            $taxRate = (float) $this->settings->get('default_tax_rate', 0);
-            $taxAmount = round(($totals['subtotal'] - $discountAmount) * $taxRate / 100, 2);
-        }
-        $grandTotal = round(($totals['subtotal'] - $discountAmount) + $cost + $quote['cod_fee'] + $taxAmount, 2);
+        $charges = $this->orders->calculateCharges($totals['subtotal'], $discountAmount, $cost, $quote['cod_fee']);
+        $taxAmount = $charges['tax'];
+        $grandTotal = $charges['grand_total'];
 
         return response()->json(['data' => [
             'city' => ['id' => $city->id, 'name_ar' => $city->name_ar, 'name_en' => $city->name_en],

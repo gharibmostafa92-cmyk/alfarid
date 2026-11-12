@@ -23,8 +23,11 @@ class PruneHeldSales extends Command
 
         $deleted = 0;
         do {
+            // Primary-key order keeps every batch on the created_at index in
+            // O(log N) instead of planner-driven scans as the table grows.
             $batch = PosHeldSale::query()
                 ->where('created_at', '<', $cutoff)
+                ->orderBy('id')
                 ->limit(500)
                 ->delete();
             $deleted += $batch;

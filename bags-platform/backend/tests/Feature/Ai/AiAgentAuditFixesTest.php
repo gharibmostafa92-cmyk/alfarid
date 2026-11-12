@@ -243,7 +243,7 @@ class AiAgentAuditFixesTest extends TestCase
     {
         $branch = Branch::factory()->create(['is_active' => false]);
         $admin = $this->staff(['inventory.all_branches']);
-        $branchSafe = Treasury::create(['name' => 'خزنة فرع', 'code' => 'BR-SAFE', 'branch_id' => $branch->id, 'type' => TreasuryType::MainSafe, 'current_balance' => 100, 'is_active' => true]);
+        $branchSafe = tap(Treasury::create(['name' => 'خزنة فرع', 'code' => 'BR-SAFE', 'branch_id' => $branch->id, 'type' => TreasuryType::MainSafe, 'is_active' => true]), fn (Treasury $t) => $t->forceFill(['current_balance' => 100])->save());
         $central = Treasury::create(['name' => 'بنك مركزي', 'code' => 'BANK-1', 'branch_id' => null, 'type' => TreasuryType::BankAccount, 'current_balance' => 0, 'is_active' => true]);
 
         // Inactive branch treasury fails closed with 403 status.

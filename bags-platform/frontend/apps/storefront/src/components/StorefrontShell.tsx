@@ -7,16 +7,36 @@ import { useBranding } from '@alfarid/ui/branding';
 import { useCartSync } from '@/hooks/use-cart-sync';
 import { SophieHeader } from './sophie/layout/SophieHeader';
 
+export type ShellLayout = 'storefront' | 'bare' | 'portal';
+
+const STORE_EXACT = new Set(['/', '/account']);
+const STORE_PREFIXES = ['/shop', '/categories', '/design', '/showcase', '/checkout', '/account', '/orders'];
+const BARE_PREFIXES = ['/auth', '/wholesale', '/supplier'];
+
+const matches = (pathname: string, prefix: string) =>
+  pathname === prefix || pathname.startsWith(`${prefix}/`);
+
+/** Deterministically map a pathname to one of the three shell layouts. */
+export function shellLayoutFor(pathname: string): ShellLayout {
+  if (STORE_EXACT.has(pathname) || STORE_PREFIXES.some((prefix) => matches(pathname, prefix))) {
+    return 'storefront';
+  }
+  if (BARE_PREFIXES.some((prefix) => matches(pathname, prefix))) {
+    return 'bare';
+  }
+
+  return 'portal';
+}
+
 export function StorefrontShell({ children }: { children: React.ReactNode }) {
   useCartSync();
   const { branding } = useBranding();
   const pathname = usePathname();
-  const isCheckout = pathname.startsWith('/checkout');
-  const isStorePage = ['/', '/shop', '/categories', '/design', '/showcase'].includes(pathname)
-    || isCheckout || pathname === '/account' || pathname.startsWith('/account/') || pathname.startsWith('/orders/');
-  if (isStorePage) {
+  const layout = shellLayoutFor(pathname);
+
+  if (layout === 'storefront') {
     return (
-      <div className={`store-page-shell${isCheckout ? ' is-checkout' : ''}`}>
+      <div className={`store-page-shell${matches(pathname, '/checkout') ? ' is-checkout' : ''}`}>
         <a href="#main-content" className="skip-to-content">
           Skip to main content
         </a>
@@ -30,18 +50,7 @@ export function StorefrontShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Pages that manage their own luxury header & layout or specialized portals
-  const isCustomLayout =
-    pathname === '/' ||
-    pathname.startsWith('/checkout') ||
-    pathname.startsWith('/auth/') ||
-    pathname.startsWith('/categories') ||
-    pathname.startsWith('/shop') ||
-    pathname.startsWith('/design') ||
-    pathname.startsWith('/showcase') ||
-    ['/wholesale/register', '/wholesale', '/wholesale/application-status', '/supplier'].includes(pathname);
-
-  if (isCustomLayout) {
+  if (layout === 'bare') {
     return (
       <>
         <a href="#main-content" className="skip-to-content">

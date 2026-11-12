@@ -156,7 +156,7 @@ class ExpenseController extends Controller implements HasMiddleware
             'void_reason' => ['required', 'string', 'max:500'],
         ]);
 
-        $expense = $this->expenses->void($expense, $data['void_reason'], $request->user());
+        $expense = $this->expenses->void($expense, $data['void_reason'], $request->user(), $request->header('Idempotency-Key'));
 
         return response()->json(['message' => 'تم إلغاء المصروف وعكس أثره على الخزينة.', 'data' => $expense]);
     }

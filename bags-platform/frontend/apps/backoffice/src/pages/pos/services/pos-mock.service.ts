@@ -18,6 +18,7 @@ import type {
   QuoteResult,
 } from '../types/pos.types';
 import type { QuoteRequest } from './pos-api.core';
+import { spreadDiscount, toCents } from '../lib/money';
 
 const INITIAL_BRANCH: Branch = { id: 3, name: 'فرع مدينة نصر', code: 'NSR', is_active: true };
 
@@ -64,9 +65,9 @@ const INITIAL_PRODUCTS: PosProduct[] = [
 ];
 
 const INITIAL_CUSTOMERS: Customer[] = [
-  { id: 15, name: 'مها فتحي', phone: '01012345678', tier: 'wholesale', points: 1240 },
-  { id: 22, name: 'كريم عبد الله', phone: '01155550912', tier: 'retail', points: 320 },
-  { id: 31, name: 'محلات النور للشنط', phone: '01228877410', tier: 'wholesale', points: 0 },
+  { id: 15, name: 'مها فتحي', phone: '01012345678', tier: 'wholesale', points: 1240, status: 'Approved' },
+  { id: 22, name: 'كريم عبد الله', phone: '01155550912', tier: 'retail', points: 320, status: 'Approved' },
+  { id: 31, name: 'محلات النور للشنط', phone: '01228877410', tier: 'wholesale', points: 0, status: 'Pending' },
 ];
 
 const INITIAL_HELD_SEED: PosHeldSale[] = [
@@ -352,6 +353,7 @@ export class PosMockService {
       phone: data.phone,
       tier: data.tier,
       points: 0,
+      status: data.tier === 'wholesale' ? 'Pending' : 'Approved',
     };
     this.customers.push(newCust);
     this.notify();
@@ -418,15 +420,31 @@ export class PosMockService {
     return [...this.heldSales];
   }
 
-  public async holdSale(cart: PosCartLine[], customer: Customer | null, note: string): Promise<PosHeldSale> {
+  public async holdSale(
+    cart: PosCartLine[],
+    customer: Customer | null,
+    note: string,
+    discountTotal = 0,
+  ): Promise<PosHeldSale> {
     await delay(250);
+    // Persist the effective unit_price and the cart-discount share per line so a
+    // resume restores prices instead of silently dropping them.
+    const shares = spreadDiscount(
+      cart.map((c) => ({ id: c.id, totalC: toCents(c.price) * c.qty })),
+      toCents(discountTotal),
+    );
     const newHeld: PosHeldSale = {
       ref: `HLD-NSR-${String(Math.floor(Math.random() * 9000) + 1000).padStart(4, '0')}`,
       at: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
       mins: 1,
       customer: customer ? customer.name : null,
       note,
-      items: cart.map((c) => ({ id: c.id, qty: c.qty })),
+      items: cart.map((c) => ({
+        id: c.id,
+        qty: c.qty,
+        unit_price: c.price,
+        discount_amount: (shares.find((s) => s.id === c.id)?.d ?? 0) / 100,
+      })),
     };
     this.heldSales.unshift(newHeld);
     this.notify();

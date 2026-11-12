@@ -167,10 +167,10 @@ class PosReturnTaskTxtBatchDTest extends PosScenarioFixture
 
     public function test_api_sale_lookup_return_exchange_and_close_reconcile_the_drawer(): void
     {
-        Treasury::create([
+        tap(Treasury::create([
             'name' => 'Branch B safe', 'code' => 'SAFE-POS-JOURNEY', 'branch_id' => $this->branchB->id,
-            'type' => TreasuryType::MainSafe, 'current_balance' => 1000, 'is_active' => true,
-        ]);
+            'type' => TreasuryType::MainSafe, 'is_active' => true,
+        ]), fn (Treasury $t) => $t->forceFill(['current_balance' => 1000])->save());
         $this->openShift($this->cashierB, $this->drawerB, 500);
         $token = $this->refundToken($this->cashierB);
         $refundVariant = $this->makeVariant(150);
@@ -211,22 +211,24 @@ class PosReturnTaskTxtBatchDTest extends PosScenarioFixture
             ->assertJsonPath('data.cash_expenses_total', '50.00')
             ->assertJsonPath('data.expected_closing_cash', '1600.00');
 
+        // Net tender: the 100 return credit covers the 100 replacement in full,
+        // so the drawer does not move and no card leg is booked.
         $exchangeOrderId = $this->postJson("/api/v1/pos/sales/{$cashSale['id']}/exchange", [
             'returned_items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
             'exchange_items' => [['product_variant_id' => $replacement->id, 'qty' => 1]],
             'cash_amount' => 0,
-            'card_amount' => 100,
+            'card_amount' => 0,
         ], $this->idemHeaders())->assertOk()->json('data.exchange_order_id');
         $this->assertDatabaseHas('orders', [
-            'id' => $exchangeOrderId, 'pos_shift_id' => $shift->id, 'card_amount' => 100,
+            'id' => $exchangeOrderId, 'pos_shift_id' => $shift->id, 'card_amount' => 0,
         ]);
-        $this->assertSame('1500.00', $this->drawerB->fresh()->current_balance);
+        $this->assertSame('1600.00', $this->drawerB->fresh()->current_balance);
 
-        $this->postJson('/api/v1/pos/shifts/close', ['actual_closing_cash' => 1500])->assertOk()
+        $this->postJson('/api/v1/pos/shifts/close', ['actual_closing_cash' => 1600])->assertOk()
             ->assertJsonPath('data.status', 'closed_pending_approval')
-            ->assertJsonPath('data.card_sales_total', '300.00')
-            ->assertJsonPath('data.cash_returns_total', '250.00')
-            ->assertJsonPath('data.expected_closing_cash', '1500.00')
+            ->assertJsonPath('data.card_sales_total', '200.00')
+            ->assertJsonPath('data.cash_returns_total', '150.00')
+            ->assertJsonPath('data.expected_closing_cash', '1600.00')
             ->assertJsonPath('data.cash_difference', '0.00');
         $this->getJson('/api/v1/pos/shifts/current')->assertOk()->assertJsonPath('has_open_shift', false);
     }

@@ -56,11 +56,11 @@ class FinanceForecastTest extends TestCase
 
     private function treasury(Branch $branch, string $balance): Treasury
     {
-        return Treasury::create([
+        return tap(Treasury::create([
             'name' => 'خزينة '.Str::random(6), 'code' => 'SAFE-'.Str::uuid(),
             'branch_id' => $branch->id, 'type' => TreasuryType::MainSafe,
-            'current_balance' => $balance, 'is_active' => true,
-        ]);
+            'is_active' => true,
+        ]), fn (Treasury $t) => $t->forceFill(['current_balance' => $balance])->save());
     }
 
     public function test_projected_balances_and_coverage_days(): void

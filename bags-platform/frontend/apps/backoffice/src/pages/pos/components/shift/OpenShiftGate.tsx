@@ -49,6 +49,10 @@ export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
 
   const submit = async () => {
     if (!treasury || busy) return;
+    if (!Number.isFinite(amount)) {
+      setError('مبلغ العهدة غير صالح — أدخل رقمًا بعشريتين على الأكثر');
+      return;
+    }
     setBusy(true);
     setError('');
     try {

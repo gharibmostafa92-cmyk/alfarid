@@ -475,10 +475,13 @@ class StoreCriticalAssuranceTest extends TestCase
             $cart = Cart::query()->create([]);
             $cart->items()->create(['product_variant_id' => $variant->id, 'qty' => 1]);
             $order = $service->createFromCart($cart, [
-                'recipient_name' => 'ضيف',
+                'recipient_name' => 'عميل',
                 'recipient_phone' => sprintf('01050000%03d', $index),
                 'payment_method' => 'cod',
             ]);
+            if (in_array('shipped', $path, true)) {
+                Shipment::factory()->create(['order_id' => $order->id]);
+            }
             foreach ($path as $next) {
                 $from = $order->status;
                 $to = OrderStatus::from($next);

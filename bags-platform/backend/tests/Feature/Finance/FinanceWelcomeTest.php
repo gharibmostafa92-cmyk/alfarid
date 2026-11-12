@@ -49,10 +49,10 @@ class FinanceWelcomeTest extends TestCase
         $approver->assignRole($role);
 
         $branch = Branch::factory()->create(['is_active' => true]);
-        $from = Treasury::create([
+        $from = tap(Treasury::create([
             'name' => 'من', 'code' => 'SAFE-'.Str::uuid(), 'branch_id' => $branch->id,
-            'type' => TreasuryType::MainSafe, 'current_balance' => '10000.00', 'is_active' => true,
-        ]);
+            'type' => TreasuryType::MainSafe, 'is_active' => true,
+        ]), fn (Treasury $t) => $t->forceFill(['current_balance' => '10000.00'])->save());
         $to = Treasury::create([
             'name' => 'إلى', 'code' => 'SAFE-'.Str::uuid(), 'branch_id' => $branch->id,
             'type' => TreasuryType::MainSafe, 'current_balance' => '0.00', 'is_active' => true,

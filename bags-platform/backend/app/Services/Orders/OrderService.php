@@ -32,6 +32,7 @@ use App\Services\Shared\ProportionalDistribution;
 use App\Services\Shared\SettingService;
 use App\Services\Wholesale\WholesalePaymentNoticeService;
 use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -208,6 +209,7 @@ class OrderService
                         $totals['items_total'],
                         $customer,
                         $customer === null ? ($data['recipient_phone'] ?? null) : null,
+                        true,
                     );
                 } catch (BusinessException $e) {
                     // Tag coupon invalidation so the front-end can prompt coupon removal.
@@ -217,7 +219,8 @@ class OrderService
                 $couponId = $coupon->id;
                 $couponCode = $coupon->code;
             }
-            $discountAmount = round($pricingDiscount + $couponDiscount, 2);
+            $discountAmount = BigDecimal::of((string) $pricingDiscount)
+                ->plus((string) $couponDiscount)->toScale(2, RoundingMode::HalfUp)->toFloat();
 
             // Calculate shipping quote and COD surcharge based on destination city and active rates.
             $city = null;
@@ -230,7 +233,7 @@ class OrderService
                 }
                 $quote = $this->shippingQuote->quoteForCity(
                     $city->id,
-                    $totals['items_total'] - $couponDiscount,
+                    max($totals['items_total'] - $couponDiscount, 0.0),
                     ($data['payment_method'] ?? 'cod') === 'cod',
                 );
                 $shippingCost = $quote['cost'];
@@ -242,15 +245,11 @@ class OrderService
                 $shippingCost = 0.0;
             }
 
-            // Apply sales tax from settings when enabled and not already included in catalog prices.
-            $taxAmount = 0.0;
-            $taxRate = 0.0;
-            if ($this->settings->getBool('tax_enabled') && ! $this->settings->getBool('prices_include_tax')) {
-                $taxRate = (float) $this->settings->get('default_tax_rate', 0);
-                $taxAmount = round(($subtotal - $discountAmount) * $taxRate / 100, 2);
-            }
-
-            $grandTotal = round(($subtotal - $discountAmount) + $shippingCost + $codFee + $taxAmount, 2);
+            // Apply sales tax and derive the grand total with the same decimal math the
+            // preview endpoint uses, so expected_total can never drift by a cent.
+            $charges = $this->calculateCharges($subtotal, $discountAmount, $shippingCost, $codFee);
+            $taxAmount = $charges['tax'];
+            $grandTotal = $charges['grand_total'];
 
             // Reject credit orders upfront if projected outstanding balance exceeds the approved credit limit.
             if (($data['payment_method'] ?? null) === 'credit' && $customer !== null) {
@@ -450,6 +449,35 @@ class OrderService
         }
 
         return $existing->load('items');
+    }
+
+    /**
+     * Shared money math for checkout previews and order placement. Net merchandise
+     * is floored at zero before tax, and every step rounds exactly once.
+     *
+     * @return array{net: float, tax: float, grand_total: float}
+     */
+    public function calculateCharges(float $subtotal, float $discountAmount, float $shippingCost, float $codFee): array
+    {
+        $net = BigDecimal::of((string) $subtotal)->minus((string) $discountAmount);
+        if ($net->isNegative()) {
+            $net = BigDecimal::zero();
+        }
+        $net = $net->toScale(2, RoundingMode::HalfUp);
+
+        $tax = BigDecimal::zero();
+        if ($this->settings->getBool('tax_enabled') && ! $this->settings->getBool('prices_include_tax')) {
+            $rate = (string) (float) $this->settings->get('default_tax_rate', 0);
+            $tax = $net->multipliedBy($rate)->dividedBy('100', 2, RoundingMode::HalfUp);
+        }
+
+        $grand = $net
+            ->plus(BigDecimal::of((string) $shippingCost)->toScale(2, RoundingMode::HalfUp))
+            ->plus(BigDecimal::of((string) $codFee)->toScale(2, RoundingMode::HalfUp))
+            ->plus($tax)
+            ->toScale(2, RoundingMode::HalfUp);
+
+        return ['net' => $net->toFloat(), 'tax' => $tax->toFloat(), 'grand_total' => $grand->toFloat()];
     }
 
     private function expectedTotalChanged(array $data, float $actualTotal): bool

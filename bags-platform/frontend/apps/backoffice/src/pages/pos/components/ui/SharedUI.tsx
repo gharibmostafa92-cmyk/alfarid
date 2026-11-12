@@ -23,10 +23,13 @@ export const nf2 = new Intl.NumberFormat('ar-EG', {
 });
 export const egp = (v: number): string => nf2.format(Math.round(v * 100) / 100);
 
-export const toAsciiNum = (s: string | number): string =>
-  String(s)
+export const toAsciiNum = (s: string | number): string => {
+  const cleaned = String(s)
     .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
     .replace(/[^\d.]/g, '');
+  const [intPart, ...rest] = cleaned.split('.');
+  return rest.length > 0 ? `${intPart}.${rest.join('').slice(0, 2)}` : intPart;
+};
 
 // Status dictionary
 export const STATUS: Record<string, Record<string, [string, string]>> = {

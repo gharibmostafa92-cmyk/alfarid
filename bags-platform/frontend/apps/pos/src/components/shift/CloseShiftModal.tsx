@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { Icon } from '../ui/Icons';
-import { egp, fmt, MoneyInput, Api, Field, cx, useEsc } from '../ui/SharedUI';
-import { posMockService } from '../../services/pos-mock.service';
+import { egp, fmt, MoneyInput, Api, Field, useEsc } from '../ui/SharedUI';
+import { pos as posMockService } from '../../services/pos-data-source';
+import { serverMessage } from '../../lib/pos-error';
 import type { PosShift, ShiftStats } from '../../types/pos.types';
 
 interface CloseShiftModalProps {
@@ -16,12 +17,13 @@ export function CloseShiftModal({ open, onClose, shift, onClosed }: CloseShiftMo
   const [actual, setActual] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [busy, setBusy] = useState<boolean>(false);
+  const [error, setError] = useState<string>('');
   const [stats, setStats] = useState<ShiftStats>({
-    cashSales: 7360,
-    cardSales: 2840,
-    returns: 450,
-    expenses: 180,
-    invoices: 23,
+    cashSales: 0,
+    cardSales: 0,
+    returns: 0,
+    expenses: 0,
+    invoices: 0,
   });
 
   useEffect(() => {
@@ -29,49 +31,36 @@ export function CloseShiftModal({ open, onClose, shift, onClosed }: CloseShiftMo
       setActual('');
       setNotes('');
       setBusy(false);
-      posMockService.getShiftStats().then(setStats);
+      setError('');
+      posMockService
+        .getShiftStats()
+        .then((s) => setStats({ ...s }))
+        .catch((err) => setError(serverMessage(err)));
     }
   }, [open]);
 
   useEsc(onClose, open);
   if (!open || !shift) return null;
 
-  const expected = shift.opening_cash + stats.cashSales - stats.returns - stats.expenses;
+  // Blind close: the cashier never sees the expected cash or any difference.
+  // Notes stay optional at close so a blind cashier is never stuck behind a
+  // 422 and can never oracle the expected total; the supervisor documents the
+  // difference at review/reopen-for-recount.
   const has = actual !== '';
-  const diff = Number(actual || 0) - expected;
-  const state: 'idle' | 'ok' | 'over' | 'short' = !has
-    ? 'idle'
-    : Math.abs(diff) < 0.01
-    ? 'ok'
-    : diff > 0
-    ? 'over'
-    : 'short';
-
-  const needNote = state === 'short' || state === 'over';
-  const canSubmit = has && (!needNote || notes.trim().length >= 3) && !busy;
-
-  const diffLabel = {
-    idle: 'أدخل النقد الفعلي لحساب الفرق',
-    ok: 'مطابق تمامًا',
-    over: 'زيادة في الدرج',
-    short: 'عجز في الدرج',
-  }[state];
-
-  const diffIcon = {
-    idle: 'info',
-    ok: 'check',
-    over: 'arrowUpLeft',
-    short: 'alert',
-  }[state];
+  const actualCash = Number(actual);
+  const canSubmit = has && Number.isFinite(actualCash) && !busy;
 
   const started = new Date(shift.opened_at);
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
+    setError('');
     setBusy(true);
     try {
-      const closedShift = await posMockService.closeShift(Number(actual), notes);
+      const closedShift = await posMockService.closeShift(actualCash, notes || undefined);
       onClosed(closedShift);
+    } catch (err) {
+      setError(serverMessage(err));
     } finally {
       setBusy(false);
     }
@@ -113,6 +102,13 @@ export function CloseShiftModal({ open, onClose, shift, onClosed }: CloseShiftMo
             </button>
           </div>
 
+          {error && (
+            <div className="banner b-bad" role="alert" style={{ margin: '0 22px' }}>
+              <Icon n="alert" s={16} />
+              {error}
+            </div>
+          )}
+
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
             <div
               style={{
@@ -122,33 +118,18 @@ export function CloseShiftModal({ open, onClose, shift, onClosed }: CloseShiftMo
               }}
             >
               <div className="section-label" style={{ marginBottom: 6 }}>
-                ملخص حركة النقدية
+                ملخص الوردية (إغلاق أعمى)
               </div>
               <div className="ledger">
                 <div className="lr">
                   <span className="op base">·</span>
-                  العهدة الافتتاحية
-                  <span className="amt">{egp(shift.opening_cash)}</span>
+                  عدد الفواتير
+                  <span className="amt">{fmt(stats.invoices)}</span>
                 </div>
                 <div className="lr">
-                  <span className="op plus">+</span>
-                  مبيعات نقدية <span className="t-3 fs-12">({fmt(stats.invoices)} فاتورة)</span>
-                  <span className="amt">{egp(stats.cashSales)}</span>
-                </div>
-                <div className="lr">
-                  <span className="op minus">−</span>
-                  مرتجعات نقدية
-                  <span className="amt">{egp(stats.returns)}</span>
-                </div>
-                <div className="lr">
-                  <span className="op minus">−</span>
-                  مصروفات نثرية
-                  <span className="amt">{egp(stats.expenses)}</span>
-                </div>
-                <div className="lr" style={{ paddingTop: 14 }}>
-                  <span className="op eq">=</span>
-                  <b>النقد المتوقع بالدرج</b>
-                  <span className="amt fs-20 fw-6">{egp(expected)}</span>
+                  <span className="op base">·</span>
+                  مبيعات البطاقة
+                  <span className="amt">{egp(stats.cardSales)}</span>
                 </div>
               </div>
               <div
@@ -160,64 +141,29 @@ export function CloseShiftModal({ open, onClose, shift, onClosed }: CloseShiftMo
                   border: '1px dashed var(--line-strong)',
                 }}
               >
-                <Icon n="card" s={15} />
-                مبيعات البطاقة <b className="num t-1">{egp(stats.cardSales)}</b> ج — لا تدخل في جرد الدرج
+                <Icon n="lock" s={15} />
+                الإغلاق أعمى: لا يظهر النقد المتوقع ولا الفرق — عدّ الدرج وسجّل الفعلي فقط
               </div>
             </div>
 
             <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div className="col gap-2">
                 <span className="fs-13 fw-5">النقد الفعلي بالدرج</span>
-                <MoneyInput
-                  value={actual}
-                  onChange={setActual}
-                  autoFocus
-                  placeholder={String(expected)}
-                />
-                <div className="row gap-2">
-                  <button className="note-chip" onClick={() => setActual(String(expected))}>
-                    مطابق للمتوقع
-                  </button>
-                </div>
-              </div>
-              <div className={cx('diff', state)}>
-                <span className="diff-ic">
-                  <Icon n={diffIcon} s={18} w={2} />
-                </span>
-                <div className="col">
-                  <span className="fs-12" style={{ opacity: 0.8 }}>
-                    الفرق
-                  </span>
-                  <b className="fs-13">{diffLabel}</b>
-                </div>
-                <span className="v">
-                  {has
-                    ? (diff > 0 ? '+' : diff < 0 ? '−' : '') + egp(Math.abs(diff))
-                    : '—'}
-                </span>
+                <MoneyInput value={actual} onChange={setActual} autoFocus placeholder="0.00" />
               </div>
               <Field
                 label={
                   <>
-                    ملاحظات{' '}
-                    {needNote ? (
-                      <span className="t-bad fs-12">(مطلوبة لتبرير الفرق)</span>
-                    ) : (
-                      <span className="t-3 fs-12">(اختياري)</span>
-                    )}
+                    ملاحظات <span className="t-3 fs-12">(اختياري)</span>
                   </>
                 }
               >
                 <textarea
-                  className={cx('input', needNote && notes.trim().length < 3 && 'is-error')}
+                  className="input"
                   rows={3}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder={
-                    state === 'short'
-                      ? `مثال: عجز ${egp(Math.abs(diff))} جنيه فرق فكة مع عميل`
-                      : 'أي ملاحظات على الوردية…'
-                  }
+                  placeholder="أي ملاحظات على الوردية…"
                 />
               </Field>
             </div>

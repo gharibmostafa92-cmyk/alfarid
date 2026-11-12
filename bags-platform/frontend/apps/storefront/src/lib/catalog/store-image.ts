@@ -9,9 +9,12 @@ export function storeImageSource(source: string | null | undefined): { src: stri
   return src === '' ? null : { src };
 }
 
+// Only these static asset prefixes may be served without an absolute origin.
+const STATIC_IMAGE_PREFIXES = ['/images/', '/store-media/'];
+
 function resolveStoreImage(source: string | null | undefined, allowHttp: boolean): string {
-  // Reject protocol-relative URLs, Windows backslashes, and control characters to prevent SSRF and open redirect exploits.
-  if (!source?.trim() || source.startsWith('//') || source.includes('\\') || /[\t\r\n]/.test(source)) return '';
+  // Reject protocol-relative URLs, Windows backslashes, traversal and control characters to prevent SSRF and open redirect exploits.
+  if (!source?.trim() || source.startsWith('//') || source.includes('\\') || source.includes('..') || /[\t\r\n]/.test(source)) return '';
   try {
     const api = new URL(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
     const url = new URL(source.startsWith('/storage/') ? api.origin + source : source);
@@ -25,7 +28,9 @@ function resolveStoreImage(source: string | null | undefined, allowHttp: boolean
     }
     if (url.protocol === 'https:' || (allowHttp && url.protocol === 'http:')) return source;
   } catch {
-    if (source.startsWith('/')) return source;
+    // A relative image may only ever point at a known static asset prefix; an
+    // arbitrary path such as /api/v1/... must never be fetched as an image.
+    if (STATIC_IMAGE_PREFIXES.some((prefix) => source.startsWith(prefix))) return source;
   }
   return '';
 }
@@ -36,4 +41,5 @@ function resolveStoreImage(source: string | null | undefined, allowHttp: boolean
  * @param source - Raw image URL or relative path.
  * @returns Sanitized media URL string, or an empty string if rejected.
  */
-export const storeImageUrl = (source: string | null | undefined) => resolveStoreImage(source, true);
+export const storeImageUrl = (source: string | null | undefined) =>
+  resolveStoreImage(source, process.env.NODE_ENV !== 'production');

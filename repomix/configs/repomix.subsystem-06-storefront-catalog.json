@@ -74,7 +74,10 @@
                     "bags-platform/backend/database/migrations/*listing*.php",
                     "bags-platform/backend/database/migrations/*hot_fk*.php",
                     "bags-platform/backend/app/Services/Auth/CustomerAuthService.php",
-                    "bags-platform/frontend/apps/storefront/.env.example"
+                    "bags-platform/frontend/apps/storefront/.env.example",
+                    "bags-platform/frontend/apps/pos/src/components/terminal/Cart.tsx",
+                    "bags-platform/frontend/apps/pos/src/components/terminal/CartLine.tsx",
+                    "bags-platform/frontend/apps/pos/src/components/terminal/Catalog.tsx"
                 ],
     "ignore":  {
                    "useGitignore":  true,

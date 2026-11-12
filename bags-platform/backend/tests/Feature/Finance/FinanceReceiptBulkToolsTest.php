@@ -93,9 +93,9 @@ class FinanceReceiptBulkToolsTest extends TestCase
 
     private function treasury(Branch $branch, string $balance = '5000.00'): Treasury
     {
-        return Treasury::create(['name' => 'خزينة '.Str::random(6), 'code' => 'SAFE-'.Str::uuid(),
+        return tap(Treasury::create(['name' => 'خزينة '.Str::random(6), 'code' => 'SAFE-'.Str::uuid(),
             'branch_id' => $branch->id, 'type' => TreasuryType::MainSafe,
-            'current_balance' => $balance, 'is_active' => true]);
+            'is_active' => true]), fn (Treasury $t) => $t->forceFill(['current_balance' => $balance])->save());
     }
 
     private function attach(AiConversation $conv, User $u): AiAttachment

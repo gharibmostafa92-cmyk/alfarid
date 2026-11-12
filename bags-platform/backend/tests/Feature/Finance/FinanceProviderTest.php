@@ -112,10 +112,10 @@ class FinanceProviderTest extends TestCase
         $branch = \App\Models\Branch::factory()->create(['is_active' => true]);
         $creator = $this->staff(['ai_agent.use', 'treasury_transfers.create'], $branch->id);
         $approver = $this->staff(['ai_agent.use', 'treasury_transfers.approve', 'treasuries.view'], $branch->id);
-        $from = \App\Models\Treasury::create([
+        $from = tap(\App\Models\Treasury::create([
             'name' => 'خزينة', 'code' => 'SAFE-'.Str::uuid(), 'branch_id' => $branch->id,
-            'type' => \App\Enums\Finance\TreasuryType::MainSafe, 'current_balance' => '1000.00', 'is_active' => true,
-        ]);
+            'type' => \App\Enums\Finance\TreasuryType::MainSafe, 'is_active' => true,
+        ]), fn (\App\Models\Treasury $t) => $t->forceFill(['current_balance' => '1000.00'])->save());
         $to = \App\Models\Treasury::create([
             'name' => 'خزينة 2', 'code' => 'SAFE-'.Str::uuid(), 'branch_id' => $branch->id,
             'type' => \App\Enums\Finance\TreasuryType::MainSafe, 'current_balance' => '0.00', 'is_active' => true,

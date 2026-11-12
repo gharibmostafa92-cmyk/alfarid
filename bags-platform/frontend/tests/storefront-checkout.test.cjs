@@ -68,7 +68,7 @@ test('InstaPay instructions expire at the deadline even beyond the maximum timer
 });
 
 test('retail return paths cannot escape the site or override restricted destinations', () => {
-  const { safeReturnPath } = load('apps/storefront/src/lib/safe-return-path.ts');
+  const { safeReturnPath } = load('apps/storefront/src/lib/orders/safe-return-path.ts');
   for (const value of [null, '//evil.test', '/\\evil.test', '/%2Fevil.test', '/%5Cevil.test', '/%61uth/login',
     '/checkout/../../auth/login', '/checkout/../../supplier', '/wholesale', '/checkout%0aLocation:evil', 'https://evil.test']) {
     assert.equal(safeReturnPath(value), null, value);
@@ -113,7 +113,7 @@ test('tracking encodes an order number as one path segment and passes the phone 
 });
 
 test('root categories with direct products remain navigable without fabricated subcategories', () => {
-  const { toMegaDepartments } = load('apps/storefront/src/lib/sophie-mappers.ts', {
+  const { toMegaDepartments } = load('apps/storefront/src/lib/catalog/sophie-mappers.ts', {
     '@alfarid/utils': load('packages/utils/src/currency.ts'),
     '@/lib/orders/store-routes': load('apps/storefront/src/lib/orders/store-routes.ts'),
   });
@@ -146,7 +146,7 @@ test('public API images use a same-origin path across surfaces without proxying 
   const previous = process.env.NEXT_PUBLIC_API_URL;
   process.env.NEXT_PUBLIC_API_URL = 'http://localhost:8000';
   try {
-    const { storeImageUrl } = load('apps/storefront/src/lib/store-image.ts');
+    const { storeImageUrl } = load('apps/storefront/src/lib/catalog/store-image.ts');
     assert.equal(storeImageUrl('http://localhost:8000/storage/product/conversions/thumb.webp'), '/store-media/product/conversions/thumb.webp');
     assert.equal(storeImageUrl('http://127.0.0.1:8000/storage/brand.svg'), '/store-media/brand.svg');
     assert.equal(storeImageUrl('/storage/product.jpg?v=2'), '/store-media/product.jpg?v=2');
@@ -163,7 +163,7 @@ test('public API images use a same-origin path across surfaces without proxying 
 });
 
 test('store image helpers reject unsafe schemes, protocol-relative paths and credentials', () => {
-  const { storeImageSource, storeImageUrl } = load('apps/storefront/src/lib/store-image.ts');
+  const { storeImageSource, storeImageUrl } = load('apps/storefront/src/lib/catalog/store-image.ts');
   for (const host of ['cdn.example.test', 'localhost:8000', '127.0.0.1:8000']) {
     for (const input of [
       `https://user:pass@${host}/bag.png`, `http://user@${host}/storage/bag.png`,
@@ -177,7 +177,7 @@ test('store image helpers reject unsafe schemes, protocol-relative paths and cre
 });
 
 test('catalog filters survive a URL round trip with generated valid combinations', () => {
-  const { buildSearch, parseFilters } = load('apps/storefront/src/lib/catalog-query.ts');
+  const { buildSearch, parseFilters } = load('apps/storefront/src/lib/catalog/catalog-query.ts');
   const sorts = ['featured', 'newest', 'best_selling', 'price_asc', 'price_desc', 'name'];
   const occasions = ['casual', 'work', 'weekend', 'evening'];
   for (let sample = 0; sample < 1000; sample++) {
@@ -190,6 +190,7 @@ test('catalog filters survive a URL round trip with generated valid combinations
       sort: sorts[sample % sorts.length],
       search: sample % 2 ? `شنطة + & # ${sample}` : '',
       inStock: sample % 4 === 0,
+      onSale: sample % 3 === 0,
     };
     const search = new URLSearchParams(buildSearch(state, { product: 'شنطة-جلد' }));
     assert.deepEqual(parseFilters(search), state);

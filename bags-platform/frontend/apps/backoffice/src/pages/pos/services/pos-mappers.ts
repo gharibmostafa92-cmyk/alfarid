@@ -22,7 +22,8 @@ export const mapShift = (s: any): PosShift => ({
   card_sales_total: Number(s.card_sales_total ?? 0),
   cash_returns_total: Number(s.cash_returns_total ?? 0),
   cash_expenses_total: Number(s.cash_expenses_total ?? 0),
-  expected_closing_cash: Number(s.expected_closing_cash ?? 0),
+  // Blind cashiers get no expected total: keep it undefined so the UI never renders a coerced 0.00.
+  expected_closing_cash: s.expected_closing_cash == null ? undefined : Number(s.expected_closing_cash),
   actual_closing_cash: s.actual_closing_cash == null ? null : Number(s.actual_closing_cash),
   cash_difference: s.cash_difference == null ? null : Number(s.cash_difference),
   opened_at: new Date(s.opened_at),
@@ -51,7 +52,12 @@ export const mapHeld = (h: any): PosHeldSale => ({
   mins: Math.max(0, Math.floor((Date.now() - +new Date(h.created_at ?? Date.now())) / 60000)),
   customer: h.customer?.name ?? null,
   note: h.notes ?? '',
-  items: (h.items_payload ?? []).map((i: any) => ({ id: Number(i.product_variant_id ?? i.id), qty: Number(i.qty) })),
+  items: (h.items_payload ?? []).map((i: any) => ({
+    id: Number(i.product_variant_id ?? i.id),
+    qty: Number(i.qty),
+    ...(i.unit_price != null ? { unit_price: Number(i.unit_price) } : {}),
+    ...(i.discount_amount != null ? { discount_amount: Number(i.discount_amount) } : {}),
+  })),
   serverId: Number(h.id),
   _id: Number(h.id),
 });
@@ -62,6 +68,7 @@ export const mapCustomer = (c: any): Customer => ({
   phone: c.phone ?? '',
   tier: c.type === 'wholesale' ? 'wholesale' : 'retail',
   points: Number(c.points ?? c.loyalty_points ?? 0),
+  status: c.status ?? null,
 });
 
 const METHOD_AR: Record<string, string> = { cash: 'نقدي', card: 'بطاقة', mixed: 'مختلط' };

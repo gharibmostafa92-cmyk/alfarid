@@ -33,7 +33,11 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function DELETE() {
+export async function DELETE(request: NextRequest) {
+  const origin = request.headers.get('origin');
+  if ((origin && origin !== request.nextUrl.origin) || request.headers.get('sec-fetch-site') === 'cross-site') {
+    return NextResponse.json({ error: 'Invalid origin' }, { status: 403 });
+  }
   const response = NextResponse.json({ success: true });
   response.cookies.delete('auth_token');
   return response;

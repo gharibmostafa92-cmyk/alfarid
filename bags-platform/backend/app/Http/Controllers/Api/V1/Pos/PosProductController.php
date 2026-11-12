@@ -34,6 +34,16 @@ class PosProductController extends Controller
         $branchId = (int) $user->branch_id;
         app(BranchAccess::class)->assertBranch($user->id, $branchId);
 
+        $cursor = $request->query('cursor');
+        if (is_string($cursor) && $cursor !== '') {
+            // Follow-up pages reuse the snapshot version the client already
+            // holds: recomputing per page would thrash the database and could
+            // shift the tag mid-pagination, so no ETag is emitted here.
+            $payload = $this->pos->getBranchCatalog($branchId, '', $cursor);
+
+            return response()->json($payload);
+        }
+
         $catalogVersion = $this->pos->computeCatalogVersion($branchId);
         $etag = "\"{$catalogVersion}\"";
 
@@ -45,8 +55,7 @@ class PosProductController extends Controller
             }
         }
 
-        $cursor = $request->query('cursor');
-        $payload = $this->pos->getBranchCatalog($branchId, $catalogVersion, is_string($cursor) ? $cursor : null);
+        $payload = $this->pos->getBranchCatalog($branchId, $catalogVersion);
 
         return response()->json($payload)->header('ETag', $etag);
     }
@@ -70,11 +79,18 @@ class PosProductController extends Controller
 
         /** @var \App\Models\User $user */
         $user     = $request->user('staff');
+        if ($user->branch_id === null) {
+            throw new AuthorizationException('حسابك غير مرتبط بأي فرع.');
+        }
+
+        $branchId = (int) $user->branch_id;
+        app(BranchAccess::class)->assertBranch($user->id, $branchId);
+
         $customer = isset($data['customer_id'])
             ? Customer::find($data['customer_id'])
             : null;
 
-        $results = $this->pos->lookupProducts($query, (int) $user->branch_id, $customer);
+        $results = $this->pos->lookupProducts($query, $branchId, $customer);
 
         return response()->json(['data' => $results]);
     }

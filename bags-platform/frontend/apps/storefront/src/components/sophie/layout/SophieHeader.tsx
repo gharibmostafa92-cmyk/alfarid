@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { useCartStore } from '@/stores/cart-store';
 import { SophieCartDrawer } from '../overlays/SophieCartDrawer';
 import { SophieMegaDropdown } from './SophieMegaDropdown';
@@ -19,6 +20,7 @@ import { BrandLogo, useBranding } from '@alfarid/ui/branding';
 export function SophieHeader() {
   const pathname = usePathname();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState('');
   const { branding } = useBranding();
@@ -148,7 +150,7 @@ export function SophieHeader() {
 
   const handleSearchSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    router.push(STORE_ROUTES.shop({ search: search.trim() }));
+    router.push(STORE_ROUTES.shop({ q: search.trim() }));
     setSearchOpen(false);
     setMobileMenuOpen(false);
   };
@@ -157,12 +159,12 @@ export function SophieHeader() {
   useEffect(() => {
     const w = window as unknown as { requestIdleCallback?: (cb: () => void) => number };
     if (typeof w.requestIdleCallback === 'function') {
-      w.requestIdleCallback(() => prefetchMegaMenu());
+      w.requestIdleCallback(() => void prefetchMegaMenu(queryClient));
     } else {
-      const t = setTimeout(() => prefetchMegaMenu(), 2000);
+      const t = setTimeout(() => void prefetchMegaMenu(queryClient), 2000);
       return () => clearTimeout(t);
     }
-  }, []);
+  }, [queryClient]);
 
   // Session is valid 24h: revalidate once on mount when a token exists.
   // On 401 the global setUnauthorizedHandler clears the session by itself.

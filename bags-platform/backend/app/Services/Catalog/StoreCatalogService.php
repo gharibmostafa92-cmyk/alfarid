@@ -33,6 +33,15 @@ class StoreCatalogService
 {
     public const HOME_CACHE_KEY = 'store_home_data:v2';
 
+    /**
+     * Drop cached public catalog ID sets after a product's visibility changes.
+     */
+    public static function forgetStorefrontCaches(): void
+    {
+        Cache::forget(self::HOME_CACHE_KEY);
+        Cache::forget('store:showcase:ids:'.(int) config('storefront.showcase_limit', 6));
+    }
+
     /** Per-request memo so facets/index resolve the category only once. */
     private array $categoryMemo = [];
 
@@ -160,16 +169,24 @@ class StoreCatalogService
      */
     public function publishedQuery(): Builder
     {
-        $query = Product::query()
-            ->publishedForRetail()
-            ->whereHas('category', fn ($q) => $q->activeHierarchy())
-            ->with([
-                'category', 'media',
-                'variants' => fn ($q) => $this->withVariantAvailability($this->pricing->withStorePrice($q->getQuery(), $this->customer()))
-                    ->where('is_active', true)->with('media')->orderBy('sort_order')->orderBy('id'),
-            ]);
+        $query = $this->publishedBaseQuery()->with([
+            'category', 'media',
+            'variants' => fn ($q) => $this->withVariantAvailability($this->pricing->withStorePrice($q->getQuery(), $this->customer()))
+                ->where('is_active', true)->with('media')->orderBy('sort_order')->orderBy('id'),
+        ]);
 
         return $this->withStoreAvailability($query);
+    }
+
+    /**
+     * Light published-product query for ID/facet aggregation where relationships,
+     * prices and stock subqueries are never read.
+     */
+    public function publishedBaseQuery(): Builder
+    {
+        return Product::query()
+            ->publishedForRetail()
+            ->whereHas('category', fn ($q) => $q->activeHierarchy());
     }
 
     /**
@@ -244,7 +261,39 @@ class StoreCatalogService
                 ->orWhereHas('variants', fn ($v) => $v->where('is_active', true)->whereRaw('LOWER(sku) LIKE ?', [$term])));
         }
 
+        if (! empty($filters['on_sale']) || ! empty($filters['discounted'])) {
+            $this->applyDiscountedFilter($query);
+        }
+
         return $this->applySort($query, $filters['sort'] ?? 'featured');
+    }
+
+    /**
+     * Restrict products to variants whose compare-at or price-list price is genuinely
+     * below the effective retail selling price, matching displayPrice().
+     */
+    private function applyDiscountedFilter(Builder $query): void
+    {
+        $sellingPrice = DB::raw('COALESCE(product_variants.retail_price, product_variants.base_price)');
+
+        $query->where(fn (Builder $q) => $q
+            ->whereHas('variants', fn ($v) => $v->where('is_active', true)
+                ->whereNotNull('compare_at_price')
+                ->whereColumn('compare_at_price', '>', $sellingPrice))
+            ->orWhereHas('variants', fn ($v) => $v->where('is_active', true)
+                ->whereExists(fn ($sub) => $sub->select(DB::raw(1))
+                    ->from('price_list_items')
+                    ->join('price_lists', 'price_lists.id', '=', 'price_list_items.price_list_id')
+                    ->whereColumn('price_list_items.product_variant_id', 'product_variants.id')
+                    ->where('price_lists.is_active', true)
+                    ->where('price_lists.type', 'retail')
+                    ->whereNull('price_lists.branch_id')
+                    ->where('price_list_items.min_qty', '<=', 1)
+                    ->where(fn ($w) => $w->whereNull('price_lists.starts_at')->orWhere('price_lists.starts_at', '<=', now()))
+                    ->where(fn ($w) => $w->whereNull('price_lists.ends_at')->orWhere('price_lists.ends_at', '>=', now()))
+                    ->where(fn ($w) => $w->whereNull('price_list_items.starts_at')->orWhere('price_list_items.starts_at', '<=', now()))
+                    ->where(fn ($w) => $w->whereNull('price_list_items.ends_at')->orWhere('price_list_items.ends_at', '>=', now()))
+                    ->whereColumn('price_list_items.price', '<', $sellingPrice))));
     }
 
     /**
@@ -470,7 +519,7 @@ class StoreCatalogService
     {
         $base = Arr::only($filters, ['category', 'search', 'occasions', 'in_stock']);
         $scope = fn (array $extra = []) => $this
-            ->applyFilters($this->publishedQuery()->withoutEagerLoads(), [...$base, ...$extra])
+            ->applyFilters($this->publishedBaseQuery(), [...$base, ...$extra])
             ->reorder();
 
         $colors = DB::table('product_variants')
@@ -483,13 +532,16 @@ class StoreCatalogService
             ->map(fn ($c) => [...(array) $c, 'count' => (int) $c->count]);
 
         // Aggregate occasion facets in a single query using PostgreSQL FILTER clauses instead of per-occasion queries.
-        $occasionBase = $this->applyFilters($this->publishedQuery()->withoutEagerLoads(),
+        $occasionBase = $this->applyFilters($this->publishedBaseQuery(),
             Arr::except($base, 'occasions'))->reorder()->select('products.id', 'products.occasions');
+        $selects = [];
+        $bindings = [];
+        foreach (Occasion::cases() as $occasion) {
+            $selects[] = 'COUNT(*) FILTER (WHERE occasion_scope.occasions @> ?::jsonb) AS "occ_'.$occasion->value.'"';
+            $bindings[] = json_encode([$occasion->value], JSON_THROW_ON_ERROR);
+        }
         $occasionCounts = DB::query()->fromSub($occasionBase->toBase(), 'occasion_scope')
-            ->selectRaw(collect(Occasion::cases())->map(fn (Occasion $o) => sprintf(
-                "COUNT(*) FILTER (WHERE occasion_scope.occasions @> '%s') AS %s",
-                json_encode([$o->value]), 'occ_'.$o->value
-            ))->implode(', '))
+            ->selectRaw(implode(', ', $selects), $bindings)
             ->first();
         $occasions = collect(Occasion::cases())->map(fn (Occasion $o) => [
             'id' => $o->value,
@@ -505,7 +557,7 @@ class StoreCatalogService
 
     private function computePriceRanges(array $filters): array
     {
-        $scope = $this->applyFilters($this->publishedQuery()->withoutEagerLoads(), Arr::only($filters, ['category', 'search', 'occasions', 'in_stock']))
+        $scope = $this->applyFilters($this->publishedBaseQuery(), Arr::only($filters, ['category', 'search', 'occasions', 'in_stock']))
             ->reorder()->select('products.id')->leftJoinLateral($this->minimumPriceQuery(), 'catalog_price')->addSelect('catalog_price.minimum_price');
         $query = DB::query()->fromSub($scope->toBase(), 'price_scope');
         foreach (array_values(config('storefront.price_ranges')) as $index => $range) {
@@ -535,10 +587,10 @@ class StoreCatalogService
     {
         $limit = (int) config('storefront.showcase_limit', 6);
         $load = function () use ($limit): array {
-            $featured = $this->applySort($this->publishedQuery()->withoutEagerLoads()->where('products.is_featured', true), 'featured')
+            $featured = $this->applySort($this->publishedBaseQuery()->where('products.is_featured', true), 'featured')
                 ->limit($limit)->pluck('products.id')->all();
             $fill = count($featured) < $limit
-                ? $this->applySort($this->publishedQuery()->withoutEagerLoads()->whereNotIn('products.id', $featured), 'best_selling')
+                ? $this->applySort($this->publishedBaseQuery()->whereNotIn('products.id', $featured), 'best_selling')
                     ->limit($limit - count($featured))->pluck('products.id')->all() : [];
 
             return [...$featured, ...$fill];
@@ -558,29 +610,12 @@ class StoreCatalogService
      */
     public function homeSectionIds(): array
     {
-        $latest = $this->publishedQuery()->reorder()->orderByDesc('products.created_at')->orderByDesc('products.id')->limit(12)->pluck('products.id')->all();
-        $best = $this->publishedQuery()->reorder()->orderByDesc('products.sales_count')->orderByDesc('products.id')->limit(12)->pluck('products.id')->all();
+        $latest = $this->publishedBaseQuery()->reorder()->orderByDesc('products.created_at')->orderByDesc('products.id')->limit(12)->pluck('products.id')->all();
+        $best = $this->publishedBaseQuery()->reorder()->orderByDesc('products.sales_count')->orderByDesc('products.id')->limit(12)->pluck('products.id')->all();
 
-        $discounted = $this->publishedQuery()->reorder()
-            ->where(fn ($q) => $q
-                ->whereHas('variants', fn ($v) => $v->where('is_active', true)
-                    ->whereNotNull('retail_price')
-                    ->whereNotNull('compare_at_price')
-                    ->whereColumn('compare_at_price', '>', 'base_price'))
-                ->orWhereHas('variants', fn ($v) => $v->where('is_active', true)
-                    ->whereExists(fn ($sub) => $sub->select(DB::raw(1))
-                        ->from('price_list_items')
-                        ->join('price_lists', 'price_lists.id', '=', 'price_list_items.price_list_id')
-                        ->whereColumn('price_list_items.product_variant_id', 'product_variants.id')
-                        ->where('price_lists.is_active', true)
-                        ->where('price_lists.type', 'retail')
-                        ->whereNull('price_lists.branch_id')
-                        ->where('price_list_items.min_qty', '<=', 1)
-                        ->where(fn ($w) => $w->whereNull('price_lists.starts_at')->orWhere('price_lists.starts_at', '<=', now()))
-                        ->where(fn ($w) => $w->whereNull('price_lists.ends_at')->orWhere('price_lists.ends_at', '>=', now()))
-                        ->where(fn ($w) => $w->whereNull('price_list_items.starts_at')->orWhere('price_list_items.starts_at', '<=', now()))
-                        ->where(fn ($w) => $w->whereNull('price_list_items.ends_at')->orWhere('price_list_items.ends_at', '>=', now()))
-                        ->whereColumn('price_list_items.price', '<', 'product_variants.base_price'))))
+        $discounted = $this->publishedBaseQuery()->reorder();
+        $this->applyDiscountedFilter($discounted);
+        $discounted = $discounted
             ->orderByDesc('products.sales_count')->orderByDesc('products.id')
             ->limit(12)->pluck('products.id')->all();
 

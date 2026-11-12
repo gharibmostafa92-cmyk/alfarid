@@ -18,16 +18,8 @@ interface PosShiftState {
 }
 
 export const usePosShiftStore = create<PosShiftState>((set) => ({
-  currentShift: {
-    id: 1,
-    branchId: 1,
-    branchName: 'فرع وسط البلد',
-    cashierName: 'محمد أحمد',
-    openedAt: new Date().toISOString(),
-    openingCash: 500,
-    status: 'open',
-  },
-  isOpen: true,
+  currentShift: null,
+  isOpen: false,
   openShift: (shift) => set({ currentShift: shift, isOpen: true }),
   closeShift: () => set({ currentShift: null, isOpen: false }),
 }));

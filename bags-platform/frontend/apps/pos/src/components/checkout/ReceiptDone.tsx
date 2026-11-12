@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, Kbd } from '../ui/SharedUI';
-import { posMockService } from '../../services/pos-mock.service';
+import { posMockService } from '../../services/pos-data-source';
 import type { PosCartLine, Customer, Branch, CashierUser } from '../../types/pos.types';
 
 interface ReceiptDoneProps {

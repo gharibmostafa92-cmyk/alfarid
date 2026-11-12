@@ -309,7 +309,9 @@ class CustomerAuthService
 
             StaffTokenService::pruneAndCap($customer, (int) config('auth.customer_max_tokens', 10));
 
-            $token = $customer->createToken($name, ['*'], now()->addMinutes(max(1, (int) config('auth.customer_token_minutes', 86400))));
+            // Scope the token to its channel instead of granting wildcard abilities,
+            // and keep the lifetime short because these tokens live in localStorage.
+            $token = $customer->createToken($name, [$name], now()->addMinutes(max(1, (int) config('auth.customer_token_minutes', 4320))));
             CustomerAuditLog::record($customer, 'token_issued', null, ['token_id' => $token->accessToken->id, 'channel' => $name]);
 
             return $token->plainTextToken;

@@ -3,6 +3,7 @@ import { CustomerBar } from './CustomerBar';
 import { CartLine } from './CartLine';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, Kbd, toAsciiNum } from '../ui/SharedUI';
+import { maxDiscountAmount, toCents, fromCents } from '../../lib/money';
 import type { PosCartLine, Customer, CashierUser } from '../../types/pos.types';
 
 interface CartProps {
@@ -20,6 +21,7 @@ interface CartProps {
   lastAdded: { id: number; k: number } | null;
   toast: (msg: string, tone?: 'ok' | 'bad') => void;
   cashier?: CashierUser | null;
+  maxDiscountPercent?: number;
 }
 
 export function Cart({
@@ -37,14 +39,27 @@ export function Cart({
   lastAdded,
   toast,
   cashier,
+  maxDiscountPercent = 100,
 }: CartProps) {
-  const canOverride = cashier?.perms?.includes('pos.override_price') ?? true;
+  const canOverride = cashier?.perms?.includes('pos.override_price') ?? false;
+  const canDiscount = cashier?.perms?.includes('pos.discount') ?? false;
   const subtotal = cart.reduce((s, l) => s + l.listPrice * l.qty, 0);
   const lineAdj = cart.reduce((s, l) => s + (l.listPrice - l.price) * l.qty, 0);
   const total = Math.max(0, subtotal - lineAdj - discount);
   const items = cart.reduce((s, l) => s + l.qty, 0);
   const [discOpen, setDiscOpen] = useState(false);
   const [discVal, setDiscVal] = useState('');
+
+  const applyDiscount = () => {
+    const pricedCents = cart.reduce((s, l) => s + toCents(l.price) * l.qty, 0);
+    const cap = fromCents(maxDiscountAmount(pricedCents, maxDiscountPercent));
+    const wanted = Math.min(Number(discVal || 0), subtotal);
+    if (wanted > cap) {
+      toast(`الحد الأقصى للخصم ${maxDiscountPercent}% (${egp(cap)} ج)`, 'bad');
+    }
+    setDiscount(Math.min(wanted, cap));
+    setDiscOpen(false);
+  };
 
   return (
     <aside className="cart">
@@ -84,7 +99,11 @@ export function Cart({
                 setCart((c) => c.map((x) => (x.id === l.id ? { ...x, qty: q } : x)))
               }
               onPrice={(pr) =>
-                setCart((c) => c.map((x) => (x.id === l.id ? { ...x, price: pr } : x)))
+                setCart((c) =>
+                  c.map((x) =>
+                    x.id === l.id ? { ...x, price: pr, manualPrice: pr !== x.listPrice } : x,
+                  ),
+                )
               }
               onRemove={() => setCart((c) => c.filter((x) => x.id !== l.id))}
             />
@@ -113,15 +132,9 @@ export function Cart({
                   value={discVal}
                   onChange={(e) => setDiscVal(toAsciiNum(e.target.value))}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      setDiscount(Math.min(Number(discVal || 0), subtotal));
-                      setDiscOpen(false);
-                    }
+                    if (e.key === 'Enter') applyDiscount();
                   }}
-                  onBlur={() => {
-                    setDiscount(Math.min(Number(discVal || 0), subtotal));
-                    setDiscOpen(false);
-                  }}
+                  onBlur={applyDiscount}
                   placeholder="0"
                 />
               </span>
@@ -132,11 +145,13 @@ export function Cart({
                   setDiscVal(discount ? String(discount) : '');
                   setDiscOpen(true);
                 }}
-                disabled={!cart.length}
+                disabled={!cart.length || !canDiscount}
+                title={canDiscount ? undefined : 'تحتاج صلاحية الخصم (pos.discount)'}
               >
                 {discount ? 'تعديل' : '+ إضافة'}
               </button>
             )}
+            {!canDiscount && <span className="fs-12 t-3">تحتاج صلاحية</span>}
           </span>
           <b className={discount ? 't-ok' : ''}>{discount ? '−' + egp(discount) : '٠'}</b>
         </div>

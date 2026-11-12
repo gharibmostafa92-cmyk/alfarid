@@ -11,7 +11,9 @@ use App\Models\User;
 use App\Models\WalletAdjustment;
 use App\Services\Shared\OperationIdempotencyService;
 use Brick\Math\BigDecimal;
+use Brick\Math\Exception\MathException;
 use Brick\Math\RoundingMode;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Manual wallet adjustments (disbursement / refund / correction).
@@ -44,9 +46,16 @@ final class WalletAdjustmentService
         if (! in_array($kind, self::KINDS, true)) {
             throw new BusinessException('نوع التعديل غير معروف.');
         }
-        $amount = BigDecimal::of((string) ($data['amount'] ?? '0'))->toScale(2, RoundingMode::HalfUp);
+        try {
+            $amount = BigDecimal::of((string) ($data['amount'] ?? '0'))->toScale(2, RoundingMode::HalfUp);
+        } catch (MathException) {
+            throw new BusinessException('مبلغ التعديل غير صالح.');
+        }
         if ($amount->isLessThanOrEqualTo('0')) {
             throw new BusinessException('مبلغ التعديل لازم يكون أكبر من صفر.');
+        }
+        if ($amount->isGreaterThan('9999999999.99')) {
+            throw new BusinessException('مبلغ التعديل يتجاوز الحد المسموح.');
         }
         $direction = $kind === 'disbursement' ? 'debit' : ($kind === 'refund' ? 'credit' : (string) ($data['direction'] ?? ''));
         if (! in_array($direction, self::DIRECTIONS, true)) {
@@ -70,7 +79,7 @@ final class WalletAdjustmentService
         }
 
         return $this->idempotency->run('wallet_adjustment', $actor, $idempotencyKey, $payload,
-            function () use ($data, $actor, $amount, $direction, $reason, $source, $signed, $walletType, $reversesId): WalletAdjustment {
+            fn (): WalletAdjustment => DB::transaction(function () use ($data, $actor, $amount, $direction, $reason, $source, $signed, $walletType, $reversesId): WalletAdjustment {
                 if ($reversesId !== null) {
                     $original = WalletAdjustment::query()->lockForUpdate()->findOrFail($reversesId);
                     if ($original->reversals()->exists()) {
@@ -93,7 +102,7 @@ final class WalletAdjustmentService
                     'wallet_adjustment', $adjustment->id, $actor->id);
 
                 return $adjustment;
-            });
+            }));
     }
 
     /**

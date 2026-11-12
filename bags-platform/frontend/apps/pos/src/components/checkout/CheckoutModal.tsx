@@ -3,7 +3,10 @@ import ReactDOM from 'react-dom';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, PImg, Api, Kbd, MoneyInput, Field, cx, useEsc } from '../ui/SharedUI';
 import { ReceiptDone } from './ReceiptDone';
-import { posMockService } from '../../services/pos-mock.service';
+import { pos as posMockService } from '../../services/pos-data-source';
+import { spreadDiscount, toCents } from '../../lib/money';
+import { serverMessage } from '../../lib/pos-error';
+import { beepError } from '../../lib/sound';
 import type { PosCartLine, Customer, Branch, CashierUser } from '../../types/pos.types';
 
 interface CheckoutModalProps {
@@ -12,16 +15,12 @@ interface CheckoutModalProps {
   cart: PosCartLine[];
   customer: Customer | null;
   discount: number;
+  /** Cart-session idempotency key owned by PosApp: stable across re-opens, renewed on clear/success. */
+  sessionKey: string;
   onPaid: () => void;
   branch?: Branch | null;
   cashier?: CashierUser | null;
 }
-
-const uuid = () =>
-  'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-  });
 
 export function CheckoutModal({
   open,
@@ -29,6 +28,7 @@ export function CheckoutModal({
   cart,
   customer,
   discount,
+  sessionKey,
   onPaid,
   branch,
   cashier,
@@ -38,7 +38,7 @@ export function CheckoutModal({
   const [cashPart, setCashPart] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [stage, setStage] = useState<'pay' | 'sending' | 'done'>('pay');
-  const [idem, setIdem] = useState<string>('');
+  const [errorMsg, setErrorMsg] = useState<string>('');
   const [invoiceNumber, setInvoiceNumber] = useState<string>('');
 
   const subtotal = cart.reduce((s, l) => s + l.price * l.qty, 0);
@@ -51,7 +51,7 @@ export function CheckoutModal({
       setCashPart('');
       setNotes('');
       setStage('pay');
-      setIdem(uuid());
+      setErrorMsg('');
       setInvoiceNumber('');
     }
   }, [open]);
@@ -86,9 +86,10 @@ export function CheckoutModal({
   const cardA = Math.max(0, total - cashA);
 
   const valid =
-    method === 'card' ||
-    (method === 'cash' && rec >= total) ||
-    (method === 'mixed' && cashA > 0 && cardA > 0 && Math.abs(cashA + cardA - total) < 0.01);
+    Number.isFinite(total) &&
+    (method === 'card' ||
+      (method === 'cash' && rec >= total) ||
+      (method === 'mixed' && cashA > 0 && cardA > 0 && Math.abs(cashA + cardA - total) < 0.01));
 
   const roundUps = [
     ...new Set([
@@ -113,24 +114,49 @@ export function CheckoutModal({
 
   const confirm = async () => {
     if (!valid || stage === 'sending') return;
+    if (!cart.every((l) => Number.isFinite(l.price) && Number.isFinite(l.qty))) {
+      setErrorMsg('أرقام غير صالحة في الفاتورة — راجع الأسعار والكميات');
+      beepError();
+      return;
+    }
     setStage('sending');
+    setErrorMsg('');
     try {
-      const res = await posMockService.createSale({
-        items: cart.map((l) => ({
-          product_variant_id: l.id,
-          qty: l.qty,
-          unit_price: l.price,
-          discount_amount: 0,
-        })),
-        customer_id: customer?.id ?? null,
-        payment_method: method,
-        cash_amount: method === 'cash' ? total : method === 'mixed' ? cashA : 0,
-        card_amount: method === 'card' ? total : method === 'mixed' ? cardA : 0,
-        notes,
-      });
+      // Spread the cart-level discount pro-rata (largest remainder) so the
+      // per-line discounts sum to the exact total the server will charge.
+      const shares = spreadDiscount(
+        cart.map((l) => ({ id: l.id, totalC: toCents(l.price) * l.qty })),
+        toCents(discount),
+      );
+      const res = await posMockService.createSale(
+        {
+          items: cart.map((l) => ({
+            product_variant_id: l.id,
+            qty: l.qty,
+            unit_price: l.price,
+            discount_amount: (shares.find((s) => s.id === l.id)?.d ?? 0) / 100,
+          })),
+          customer_id: customer?.id ?? null,
+          payment_method: method,
+          cash_amount: method === 'cash' ? total : method === 'mixed' ? cashA : 0,
+          card_amount: method === 'card' ? total : method === 'mixed' ? cardA : 0,
+          notes,
+          ...(cart.some((l) => l.manualPrice) ? { override_price: true } : {}),
+        },
+        sessionKey,
+      );
+
       setInvoiceNumber(res.invoiceNumber);
       setStage('done');
-    } catch {
+    } catch (err: any) {
+      const timedOut =
+        err?.code === 'ECONNABORTED' || err?.code === 'ERR_NETWORK' || (!err?.response && err?.code !== 'ERR_CANCELED');
+      setErrorMsg(
+        timedOut
+          ? 'انتهت مهلة الاتصال ولم يتأكد تسجيل الفاتورة. تحقق من آخر فاتورة في الوردية قبل تعديل السلة لتجنب فاتورة مكررة.'
+          : serverMessage(err),
+      );
+      beepError();
       setStage('pay');
     }
   };
@@ -158,6 +184,12 @@ export function CheckoutModal({
                     <Icon n="x" s={16} />
                   </button>
                 </div>
+                {errorMsg && (
+                  <div className="banner b-bad" role="alert">
+                    <Icon n="alert" s={16} />
+                    {errorMsg}
+                  </div>
+                )}
                 <div className="due">
                   <div className="col gap-1">
                     <span className="fs-13 t-2">المطلوب سداده</span>
@@ -491,7 +523,7 @@ export function CheckoutModal({
                       color: 'var(--text-2)',
                     }}
                   >
-                    {idem}
+                    {sessionKey}
                   </code>
                   <div className="fs-12 t-3">يمنع تكرار الخصم عند الضغط المزدوج</div>
                 </div>

@@ -20,7 +20,7 @@ import type {
 } from '../types/pos.types';
 import { normAr } from '../lib/arabic';
 import { normalizeError, PosApiError } from '../lib/pos-error';
-import { toApi, toCents } from '../lib/money';
+import { toApi, toCents, spreadDiscount } from '../lib/money';
 import {
   mapCustomer,
   mapHeld,
@@ -265,11 +265,12 @@ export class PosApiService {
     const r = await this.call(() => this.http.get(EP.SHIFT_SUMMARY));
     const s = r.data.data;
     if (this.currentShift) this.currentShift = mapShift(s);
+    // Blind cashiers get no cash fields from the server: default to 0, never NaN.
     return {
-      cashSales: Number(s.cash_sales_total),
-      cardSales: Number(s.card_sales_total),
-      returns: Number(s.cash_returns_total),
-      expenses: Number(s.cash_expenses_total),
+      cashSales: Number(s.cash_sales_total ?? 0),
+      cardSales: Number(s.card_sales_total ?? 0),
+      returns: Number(s.cash_returns_total ?? 0),
+      expenses: Number(s.cash_expenses_total ?? 0),
       invoices: Number(s.invoices_count ?? 0),
     };
   }
@@ -409,6 +410,7 @@ export class PosApiService {
       cash_amount: toApi(toCents(payload.cash_amount)),
       card_amount: toApi(toCents(payload.card_amount)),
       ...(payload.override_price ? { override_price: true } : {}),
+      ...(payload.held_sale_id != null ? { held_sale_id: payload.held_sale_id } : {}),
       notes: payload.notes ?? null,
     };
     const key = idempotencyKey ?? this.idemKey('sale', body);
@@ -449,10 +451,24 @@ export class PosApiService {
     return id;
   }
 
-  public async holdSale(cart: PosCartLine[], customer: Customer | null, note: string): Promise<PosHeldSale> {
+  public async holdSale(
+    cart: PosCartLine[],
+    customer: Customer | null,
+    note: string,
+    discountTotal = 0,
+  ): Promise<PosHeldSale> {
+    const shares = spreadDiscount(
+      cart.map((c) => ({ id: c.id, totalC: toCents(c.price) * c.qty })),
+      toCents(discountTotal),
+    );
     const r = await this.call(() =>
       this.http.post(EP.SALES_HOLD, {
-        items: cart.map((c) => ({ product_variant_id: c.id, qty: c.qty, discount_amount: '0.00' })),
+        items: cart.map((c) => ({
+          product_variant_id: c.id,
+          qty: c.qty,
+          unit_price: toApi(toCents(c.price)),
+          discount_amount: toApi(shares.find((s) => s.id === c.id)?.d ?? 0),
+        })),
         customer_id: customer?.id ?? null,
         notes: note,
       }),

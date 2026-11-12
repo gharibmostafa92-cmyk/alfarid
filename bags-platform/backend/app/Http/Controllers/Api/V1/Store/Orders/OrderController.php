@@ -67,6 +67,23 @@ class OrderController extends Controller
     }
 
     /**
+     * Return a single order belonging to the authenticated customer by public number.
+     */
+    public function show(Request $request, string $number): OrderResource
+    {
+        /** @var Customer $customer */
+        $customer = $request->user();
+
+        $order = Order::query()
+            ->where('customer_id', $customer->id)
+            ->where('order_number', $number)
+            ->with(['items.variant.product.media', 'items.variant.media'])
+            ->firstOrFail();
+
+        return OrderResource::make($order);
+    }
+
+    /**
      * Cancel an active order by the customer before warehouse fulfillment begins.
      *
      * @param  Request  $request

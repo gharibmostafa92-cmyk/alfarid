@@ -24,7 +24,7 @@ function loadTypeScript(relativePath, dependencies = {}) {
   return compiled.exports;
 }
 
-const { cardToSophie, mapCards } = loadTypeScript('apps/storefront/src/lib/sophie-mappers.ts', {
+const { cardToSophie, mapCards } = loadTypeScript('apps/storefront/src/lib/catalog/sophie-mappers.ts', {
   '@alfarid/utils': loadTypeScript('packages/utils/src/currency.ts'),
   '@/lib/orders/store-routes': loadTypeScript('apps/storefront/src/lib/orders/store-routes.ts'),
 });

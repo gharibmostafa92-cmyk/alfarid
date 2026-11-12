@@ -87,10 +87,16 @@ class PosShiftController extends Controller
 
         /** @var User $user */
         $user = $request->user('staff');
+        if ($user->branch_id === null) {
+            throw new AuthorizationException('حسابك غير مرتبط بأي فرع.');
+        }
+
+        $branchId = (int) $user->branch_id;
+        app(BranchAccess::class)->assertBranch($user->id, $branchId);
 
         $shift = $this->pos->openShift(
             user: $user,
-            branchId: (int) $user->branch_id,
+            branchId: $branchId,
             treasuryId: (int) $data['treasury_id'],
             openingCash: (float) $data['opening_cash'],
         );

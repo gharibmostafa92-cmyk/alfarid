@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, MoneyInput, Api } from '../ui/SharedUI';
-import { posMockService } from '../../services/pos-mock.service';
+import { pos as posMockService } from '../../services/pos-data-source';
+import { serverMessage } from '../../lib/pos-error';
 import type { PosShift, Treasury, Branch, CashierUser } from '../../types/pos.types';
 
 interface OpenShiftGateProps {
@@ -12,6 +13,7 @@ export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
   const [treasury, setTreasury] = useState<number>(1);
   const [cash, setCash] = useState<string>('500');
   const [busy, setBusy] = useState<boolean>(false);
+  const [error, setError] = useState<string>('');
   const [treasuries, setTreasuries] = useState<Treasury[]>([]);
   const [branch, setBranch] = useState<Branch | null>(null);
   const [cashier, setCashier] = useState<CashierUser | null>(null);
@@ -33,10 +35,17 @@ export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
 
   const submit = async () => {
     if (!treasury || busy) return;
+    if (!Number.isFinite(amount)) {
+      setError('مبلغ العهدة غير صالح — أدخل رقمًا بعشريتين على الأكثر');
+      return;
+    }
+    setError('');
     setBusy(true);
     try {
       const opened = await posMockService.openShift(treasury, amount);
       onOpened(opened);
+    } catch (err) {
+      setError(serverMessage(err));
     } finally {
       setBusy(false);
     }
@@ -131,7 +140,11 @@ export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
             <MoneyInput value={cash} onChange={setCash} autoFocus onEnter={submit} />
             <div className="denoms">
               {[200, 500, 1000].map((v) => (
-                <button key={v} className="denom" onClick={() => setCash(String(amount + v))}>
+                <button
+                  key={v}
+                  className="denom"
+                  onClick={() => setCash(String((Number.isFinite(amount) ? amount : 0) + v))}
+                >
                   +{fmt(v)}
                   <small>ج</small>
                 </button>
@@ -144,6 +157,12 @@ export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
         </div>
 
         <div style={{ padding: '16px 24px 22px' }}>
+          {error && (
+            <div className="banner b-bad" role="alert" style={{ marginBottom: 12 }}>
+              <Icon n="alert" s={16} />
+              {error}
+            </div>
+          )}
           <button
             className="pay-btn"
             style={{ margin: 0, width: '100%' }}

@@ -75,6 +75,7 @@ export const accountEndpoints = {
     lastPage: r.data.meta?.last_page ?? 1,
   })),
   cancelOrder: (id: number) => apiClient.post<{ data: StoreOrder }>(`/api/v1/store/account/orders/${id}/cancel`).then((r) => r.data.data),
+  order: (number: string) => apiClient.get<{ data: StoreOrder }>(`/api/v1/store/account/orders/${encodeURIComponent(number)}`).then((r) => r.data.data),
   wallet: (page = 1, filters: { direction?: 'credit' | 'debit'; type?: string; from?: string; to?: string } = {}) => apiClient.get<{ balance: number | string; transactions: { data: Array<{ id: number; type: string; type_label?: string | null; amount: number | string; balance_after: number | string; reference_type: string | null; reference_id: number | null; reference_label?: string | null; created_at: string }>; current_page: number; last_page: number; total: number } }>('/api/v1/store/account/wallet', { params: { page, ...filters } }).then((r) => r.data),
   returns: (page = 1) => apiClient.get<{ data: unknown[]; meta: { current_page: number; last_page: number; total: number } }>(`/api/v1/store/account/returns?page=${page}`).then((r) => r.data),
   returnDetail: (id: number) => apiClient.get<{ data: unknown }>(`/api/v1/store/account/returns/${id}`).then((r) => r.data.data),

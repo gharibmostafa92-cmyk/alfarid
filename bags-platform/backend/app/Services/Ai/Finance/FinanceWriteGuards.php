@@ -90,9 +90,10 @@ final class FinanceWriteGuards
             $blockers[] = 'ليها سجل حركات';
         }
         if ($includePendingOut && TreasuryTransfer::query()
-            ->where('from_treasury_id', $treasury->id)
-            ->where('status', \App\Enums\TreasuryTransferStatus::Pending)->exists()) {
-            $blockers[] = 'في تحويلات صادرة معلقة';
+            ->where(fn ($q) => $q->where('from_treasury_id', $treasury->id)->orWhere('to_treasury_id', $treasury->id))
+            ->where('status', \App\Enums\Finance\TreasuryTransferStatus::Pending)
+            ->exists()) {
+            $blockers[] = 'في تحويلات معلقة';
         }
 
         return $blockers;

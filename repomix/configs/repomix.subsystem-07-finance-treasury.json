@@ -37,6 +37,9 @@
                     "bags-platform/backend/database/migrations/*report*.php",
                     "bags-platform/backend/database/migrations/*audit_fixes*.php",
                     "bags-platform/backend/database/migrations/*enforce_unique_document_numbers*.php",
+                    "bags-platform/backend/database/migrations/2026_11_12_000082_add_settled_at_to_pos_shifts.php",
+                    "bags-platform/backend/app/Services/Ai/Finance/FinanceWriteGuards.php",
+                    "bags-platform/backend/app/Services/Ai/Finance/Tools/DeleteTreasuryTool.php",
                     "bags-platform/backend/database/seeders/FinancialPermissionSeeder.php"
                 ],
     "ignore":  {

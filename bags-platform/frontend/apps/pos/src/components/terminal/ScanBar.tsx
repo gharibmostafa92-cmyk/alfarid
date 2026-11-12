@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, PImg, Api, Kbd, cx } from '../ui/SharedUI';
+import { normAr } from '../../lib/arabic';
+import { beepError } from '../../lib/sound';
 import type { PosProduct, Customer } from '../../types/pos.types';
 
 interface ScanBarProps {
@@ -14,12 +16,13 @@ export function ScanBar({ products, customer, onAdd, inputRef }: ScanBarProps) {
   const [q, setQ] = useState('');
   const [hl, setHl] = useState(0);
   const [open, setOpen] = useState(false);
+  const [unknownBarcode, setUnknownBarcode] = useState<string | null>(null);
 
   const results = useMemo(() => {
-    const s = q.trim().toLowerCase();
+    const s = normAr(q);
     if (!s) return [];
     return products
-      .filter((p) => p.name.includes(s) || p.sku.toLowerCase().includes(s) || p.barcode.includes(s))
+      .filter((p) => normAr(p.name).includes(s) || normAr(p.sku).includes(s) || normAr(p.barcode).includes(s))
       .slice(0, 7);
   }, [q, products]);
 
@@ -41,13 +44,22 @@ export function ScanBar({ products, customer, onAdd, inputRef }: ScanBarProps) {
       setHl((h) => Math.max(h - 1, 0));
     }
     if (e.key === 'Enter') {
-      const exact = products.find(
-        (p) => p.barcode === q.trim() || p.sku.toLowerCase() === q.trim().toLowerCase()
-      );
+      const code = normAr(q);
+      const isBarcode = /^\d{8,}$/.test(code);
+      const exact = products.find((p) => normAr(p.barcode) === code || normAr(p.sku) === code);
       if (exact) {
         pick(exact);
+      } else if (isBarcode) {
+        // A scanner emitted a full barcode: never fall back to a fuzzy match,
+        // or a dropped digit can silently add the wrong product.
+        setUnknownBarcode(code);
+        setQ('');
+        setOpen(false);
+        beepError();
       } else if (results[hl]) {
         pick(results[hl]);
+      } else if (code) {
+        beepError();
       }
     }
     if (e.key === 'Escape') {
@@ -63,8 +75,10 @@ export function ScanBar({ products, customer, onAdd, inputRef }: ScanBarProps) {
       </span>
       <input
         ref={inputRef}
+        data-scan-input
         value={q}
         onChange={(e) => {
+          setUnknownBarcode(null);
           setQ(e.target.value);
           setOpen(true);
         }}
@@ -74,6 +88,12 @@ export function ScanBar({ products, customer, onAdd, inputRef }: ScanBarProps) {
         placeholder="امسح الباركود أو ابحث بالاسم / الكود (SKU)…"
         aria-label="بحث الأصناف"
       />
+      {unknownBarcode && (
+        <span className="badge b-bad fs-12" role="alert">
+          {'باركود غير معروف: '}
+          <b className="mono ltr">{unknownBarcode}</b>
+        </span>
+      )}
       <span className="row gap-1 fs-12 t-3">
         <Kbd>F2</Kbd>
       </span>

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Store\Catalog;
 
+use App\Exceptions\BusinessException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Store\ProductFilterRequest;
 use App\Http\Resources\Store\Catalog\StoreBrandResource;
@@ -13,8 +14,10 @@ use App\Models\Brand;
 use App\Models\Category;
 use App\Models\City;
 use App\Services\Catalog\StoreCatalogService;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Serves storefront taxonomy and reference metadata: category trees, filter facets, and shipping cities.
@@ -36,25 +39,29 @@ class CatalogController extends Controller
      */
     public function categories(Request $request): JsonResponse
     {
-        $childrenScope = fn ($q) => $q->where('is_active', true)
-            ->with('media')
-            ->withCount('activeProducts')
-            ->orderBy('sort_order')
-            ->orderBy('id');
+        $data = $this->cachedReference('store:categories:v1:'.app()->getLocale(), function () use ($request): array {
+            $childrenScope = fn ($q) => $q->where('is_active', true)
+                ->with('media')
+                ->withCount('activeProducts')
+                ->orderBy('sort_order')
+                ->orderBy('id');
 
-        $roots = Category::query()
-            ->whereNull('parent_id')
-            ->where('is_active', true)
-            ->with('media')
-            ->withCount('activeProducts')
-            ->with([
-                // Tie-break with ID keeps sibling ordering deterministic across pagination.
-                'children' => fn ($q) => $childrenScope($q)->with(['children' => $childrenScope]),
-            ])
-            ->orderBy('sort_order')->orderBy('id')
-            ->get();
+            $roots = Category::query()
+                ->whereNull('parent_id')
+                ->where('is_active', true)
+                ->with('media')
+                ->withCount('activeProducts')
+                ->with([
+                    // Tie-break with ID keeps sibling ordering deterministic across pagination.
+                    'children' => fn ($q) => $childrenScope($q)->with(['children' => $childrenScope]),
+                ])
+                ->orderBy('sort_order')->orderBy('id')
+                ->get();
 
-        return response()->json(['data' => StoreCategoryResource::collection($roots)->resolve($request)]);
+            return StoreCategoryResource::collection($roots)->resolve($request);
+        });
+
+        return response()->json(['data' => $data]);
     }
 
     /**
@@ -62,14 +69,18 @@ class CatalogController extends Controller
      */
     public function brands(Request $request): JsonResponse
     {
-        $brands = Brand::query()
-            ->with('media')
-            ->where('is_active', true)
-            ->orderBy('sort_order')
-            ->orderBy('name_ar')
-            ->get();
+        $data = $this->cachedReference('store:brands:v1:'.app()->getLocale(), function () use ($request): array {
+            $brands = Brand::query()
+                ->with('media')
+                ->where('is_active', true)
+                ->orderBy('sort_order')
+                ->orderBy('name_ar')
+                ->get();
 
-        return response()->json(['data' => StoreBrandResource::collection($brands)->resolve($request)]);
+            return StoreBrandResource::collection($brands)->resolve($request);
+        });
+
+        return response()->json(['data' => $data]);
     }
 
     /**
@@ -77,11 +88,38 @@ class CatalogController extends Controller
      */
     public function cities(Request $request): JsonResponse
     {
-        $cities = City::query()
-            ->where('is_active', true)
-            ->orderBy('name_ar')
-            ->get();
+        $data = $this->cachedReference('store:cities:v1:'.app()->getLocale(), function () use ($request): array {
+            $cities = City::query()
+                ->where('is_active', true)
+                ->orderBy('name_ar')
+                ->get();
 
-        return response()->json(['data' => StoreCityResource::collection($cities)->resolve($request)]);
+            return StoreCityResource::collection($cities)->resolve($request);
+        });
+
+        return response()->json(['data' => $data]);
+    }
+
+    /**
+     * Cache near-static reference payloads with a single builder lock so a burst of
+     * cold requests cannot stampede the database.
+     *
+     * @param  \Closure(): array<int|string, mixed>  $load
+     * @return array<int|string, mixed>
+     */
+    private function cachedReference(string $key, \Closure $load): array
+    {
+        if ((string) config('cache.default') === 'array') {
+            return $load();
+        }
+        $flexible = fn (): array => Cache::flexible($key, [300, 900], $load, ['seconds' => 120]);
+        if (Cache::has($key)) {
+            return $flexible();
+        }
+        try {
+            return Cache::lock($key.':build', 120)->block(5, $flexible);
+        } catch (LockTimeoutException) {
+            throw new BusinessException('جاري تحديث البيانات المرجعية؛ أعد المحاولة بعد لحظات.', [], 503);
+        }
     }
 }

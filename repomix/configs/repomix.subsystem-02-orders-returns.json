@@ -62,7 +62,8 @@
                     "bags-platform/backend/database/seeders/OrderPermissionSeeder.php",
                     "bags-platform/backend/app/Http/Resources/Admin/Orders/ReturnRequestItemResource.php",
                     "bags-platform/backend/app/Services/Shared/PaymentWebhookService.php",
-                    "bags-platform/backend/app/Services/Shared/PaymobRefundInquiry.php"
+                    "bags-platform/backend/app/Services/Shared/PaymobRefundInquiry.php",
+                    "bags-platform/frontend/apps/storefront/src/lib/orders/guest-orders.ts"
                 ],
     "ignore":  {
                    "useGitignore":  true,

@@ -82,14 +82,13 @@ class PosCriticalFixesTest extends TestCase
             'is_active' => true,
         ]);
 
-        Treasury::create([
+        tap(Treasury::create([
             'name' => 'Cairo Main Safe',
             'code' => 'SAFE-CAIRO',
             'branch_id' => $this->branch->id,
             'type' => TreasuryType::MainSafe,
-            'current_balance' => 1000,
             'is_active' => true,
-        ]);
+        ]), fn (Treasury $t) => $t->forceFill(['current_balance' => 1000])->save());
 
         $brand = Brand::create(['name_ar' => 'براند أ', 'name_en' => 'Brand A', 'slug' => 'brand-a', 'is_active' => true]);
         $cat = Category::create(['name_ar' => 'شنط', 'name_en' => 'Bags', 'slug' => 'bags', 'is_active' => true]);

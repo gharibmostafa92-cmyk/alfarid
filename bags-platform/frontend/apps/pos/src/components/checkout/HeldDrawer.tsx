@@ -1,7 +1,7 @@
 import React from 'react';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, PImg, Api, Empty, Drawer } from '../ui/SharedUI';
-import { posMockService } from '../../services/pos-mock.service';
+import { posMockService } from '../../services/pos-data-source';
 import type { PosHeldSale, Branch } from '../../types/pos.types';
 
 interface HeldDrawerProps {

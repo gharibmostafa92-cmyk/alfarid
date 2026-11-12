@@ -47,6 +47,8 @@ export interface Customer {
   phone: string;
   tier: 'retail' | 'wholesale';
   points: number;
+  /** Account review state: wholesale prices apply only when Approved. */
+  status?: string | null;
 }
 
 export interface PosCartLine {
@@ -54,6 +56,8 @@ export interface PosCartLine {
   qty: number;
   price: number;
   listPrice: number;
+  /** True when the cashier typed this price; customer changes must not overwrite it. */
+  manualPrice?: boolean;
 }
 
 export interface ShiftStats {
@@ -78,7 +82,8 @@ export interface PosShift {
   card_sales_total: number;
   cash_returns_total: number;
   cash_expenses_total: number;
-  expected_closing_cash: number;
+  /** Absent for blind cashiers: the server strips it from the summary. */
+  expected_closing_cash?: number;
   actual_closing_cash?: number | null;
   cash_difference?: number | null;
   notes?: string | null;
@@ -167,4 +172,8 @@ export interface CreateSalePayload {
   cash_amount: number;
   card_amount: number;
   notes?: string;
+  /** Present only when the cart resumes a held sale: lets the server consume it atomically. */
+  held_sale_id?: number | null;
+  /** When true every line's unit_price is sent and the server accepts the manual price. */
+  override_price?: boolean;
 }

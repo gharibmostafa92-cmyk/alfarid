@@ -59,6 +59,7 @@ class Order extends Model
         'grand_total',
         'cash_amount',
         'card_amount',
+        'exchange_credit',
     ];
 
     protected function casts(): array
@@ -73,6 +74,7 @@ class Order extends Model
             'grand_total' => 'decimal:2',
             'cash_amount' => 'decimal:2',
             'card_amount' => 'decimal:2',
+            'exchange_credit' => 'decimal:2',
             'requires_refund' => 'boolean',
             'needs_attention' => 'boolean',
             'due_at' => 'datetime',

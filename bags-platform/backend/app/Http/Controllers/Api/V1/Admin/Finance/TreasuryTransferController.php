@@ -52,7 +52,9 @@ class TreasuryTransferController extends Controller implements HasMiddleware
         ]);
 
         $branch = $this->branchAccess->restrictedBranch($request->user());
-        $transfers = TreasuryTransfer::query()->when($branch !== null, fn ($q) => $q->whereHas('fromTreasury', fn ($q) => $q->where('branch_id', $branch))->whereHas('toTreasury', fn ($q) => $q->where('branch_id', $branch)))
+        $transfers = TreasuryTransfer::query()->when($branch !== null, fn ($q) => $q->where(fn ($w) => $w
+            ->whereHas('fromTreasury', fn ($q) => $q->where('branch_id', $branch))
+            ->orWhereHas('toTreasury', fn ($q) => $q->where('branch_id', $branch))))
             ->with(['fromTreasury', 'toTreasury', 'creator', 'approver', 'rejecter'])
             ->when($filters['from_treasury_id'] ?? null, fn ($q, $v) => $q->where('from_treasury_id', $v))
             ->when($filters['to_treasury_id'] ?? null, fn ($q, $v) => $q->where('to_treasury_id', $v))
@@ -101,10 +103,11 @@ class TreasuryTransferController extends Controller implements HasMiddleware
      */
     public function show(Request $request, TreasuryTransfer $treasuryTransfer): JsonResponse
     {
-        $this->assertTransferAccess((int) $request->user()->id, $treasuryTransfer);
+        $treasuryTransfer->loadMissing(['fromTreasury', 'toTreasury', 'creator', 'approver', 'rejecter']);
+        $this->assertTransferReadAccess((int) $request->user()->id, $treasuryTransfer);
 
         return response()->json([
-            'data' => $treasuryTransfer->load(['fromTreasury', 'toTreasury', 'creator', 'approver', 'rejecter']),
+            'data' => $treasuryTransfer,
         ]);
     }
 
@@ -117,8 +120,18 @@ class TreasuryTransferController extends Controller implements HasMiddleware
      */
     public function approve(Request $request, TreasuryTransfer $treasuryTransfer): JsonResponse
     {
+        $treasuryTransfer->loadMissing(['fromTreasury', 'toTreasury']);
         $this->assertTransferAccess((int) $request->user()->id, $treasuryTransfer);
-        $transfer = $this->treasury->approveTransfer($treasuryTransfer, (int) $request->user()->id);
+        $idempotencyKey = $request->header('Idempotency-Key');
+        $transfer = $idempotencyKey !== null
+            ? $this->idempotency->run(
+                'treasury_transfer_approve',
+                $request->user(),
+                $idempotencyKey,
+                ['transfer_id' => $treasuryTransfer->id],
+                fn () => $this->treasury->approveTransfer($treasuryTransfer, (int) $request->user()->id),
+            )
+            : $this->treasury->approveTransfer($treasuryTransfer, (int) $request->user()->id);
 
         return response()->json([
             'message' => 'تم اعتماد تحويل الخزينة وتم تحديث أرصدة الخزائن.',
@@ -138,6 +151,7 @@ class TreasuryTransferController extends Controller implements HasMiddleware
         $data = $request->validate([
             'reason' => ['required', 'string', 'min:3', 'max:500'],
         ]);
+        $treasuryTransfer->loadMissing(['fromTreasury', 'toTreasury']);
         $this->assertTransferAccess((int) $request->user()->id, $treasuryTransfer);
         $transfer = $this->treasury->rejectTransfer($treasuryTransfer, (int) $request->user()->id, $data['reason']);
 
@@ -145,6 +159,24 @@ class TreasuryTransferController extends Controller implements HasMiddleware
             'message' => 'تم رفض تحويل الخزينة.',
             'data' => $transfer->load(['fromTreasury', 'toTreasury', 'rejecter']),
         ]);
+    }
+
+    private function assertTransferReadAccess(int $userId, TreasuryTransfer $transfer): void
+    {
+        $lastError = null;
+        foreach ([$transfer->fromTreasury, $transfer->toTreasury] as $treasury) {
+            try {
+                $this->branchAccess->assertTreasury($userId, $treasury);
+
+                return;
+            } catch (\Illuminate\Auth\Access\AuthorizationException $e) {
+                $lastError = $e;
+            }
+        }
+
+        if ($lastError !== null) {
+            throw $lastError;
+        }
     }
 
     private function assertTransferAccess(int $userId, TreasuryTransfer $transfer): void

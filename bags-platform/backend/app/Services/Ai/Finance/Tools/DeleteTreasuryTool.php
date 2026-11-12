@@ -9,6 +9,7 @@ use App\Models\AiPendingAction;
 use App\Models\PosShift;
 use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
+use App\Models\TreasuryTransfer;
 use App\Models\User;
 use App\Services\Ai\AgentTool;
 use App\Services\Ai\Contracts\LocksTargets;
@@ -133,6 +134,15 @@ final class DeleteTreasuryTool implements AgentTool, LocksTargets, WriteTool
         }
         if (TreasuryTransaction::query()->where('treasury_id', $treasury->id)->exists()) {
             $blockers[] = 'ليها سجل حركات';
+        }
+        if (PosShift::query()->where('treasury_id', $treasury->id)->exists()) {
+            $blockers[] = 'مرتبطة بورديات';
+        }
+        if (TreasuryTransfer::query()
+            ->where('from_treasury_id', $treasury->id)
+            ->orWhere('to_treasury_id', $treasury->id)
+            ->exists()) {
+            $blockers[] = 'مرتبطة بتحويلات خزينة';
         }
 
         return $blockers;

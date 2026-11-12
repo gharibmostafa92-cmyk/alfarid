@@ -7,7 +7,6 @@ namespace Tests\Unit;
 use App\Enums\Catalog\BannerLinkType;
 use App\Models\Banner;
 use App\Services\Catalog\BannerLinkResolver;
-use App\Services\Catalog\StoreCatalogService;
 use PHPUnit\Framework\TestCase;
 
 class BannerLinkResolverTest extends TestCase
@@ -17,8 +16,7 @@ class BannerLinkResolverTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $catalog = $this->createMock(StoreCatalogService::class);
-        $this->resolver = new BannerLinkResolver($catalog);
+        $this->resolver = new BannerLinkResolver();
     }
 
     public function test_sanitize_external_url_accepts_only_valid_https(): void

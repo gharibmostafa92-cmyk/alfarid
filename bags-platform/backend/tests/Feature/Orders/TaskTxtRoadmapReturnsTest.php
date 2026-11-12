@@ -6,6 +6,9 @@ namespace Tests\Feature\Orders;
 
 use App\Exceptions\BusinessException;
 use App\Models\Coupon;
+use App\Models\CouponUsage;
+use App\Models\Customer;
+use App\Models\Order;
 use App\Models\OrderItem;
 use App\Services\Orders\ReturnService;
 use App\Services\Pricing\CouponService;
@@ -40,7 +43,7 @@ class TaskTxtRoadmapReturnsTest extends TestCase
         $this->assertSame(16000, $cents);
     }
 
-    public function test_a_per_customer_coupon_is_refused_for_a_guest_phone(): void
+    public function test_a_per_customer_coupon_allows_a_guest_phone_only_until_its_allowance_is_used(): void
     {
         $coupon = Coupon::factory()->create([
             'usage_limit_per_customer' => 1,
@@ -48,9 +51,25 @@ class TaskTxtRoadmapReturnsTest extends TestCase
             'value' => 5,
             'is_active' => true,
         ]);
+        $service = app(CouponService::class);
+        $phone = Customer::normalizePhone('01000000000');
+
+        // Finding 7: a guest who supplies a phone may preview/redeem the coupon.
+        $this->assertSame($coupon->id, $service->redeemableById($coupon->id, 100, null, '01000000000')->id);
+
+        CouponUsage::create([
+            'coupon_id' => $coupon->id,
+            'order_id' => Order::factory()->create([
+                'guest_phone' => '01000000000',
+                'customer_id' => null,
+            ])->id,
+            'discount_amount' => 5,
+            'guest_phone_normalized' => $phone,
+            'phone_normalized' => $phone,
+        ]);
 
         $this->expectException(BusinessException::class);
-        app(CouponService::class)->redeemableById($coupon->id, 100, null, '01000000000');
+        $service->redeemableById($coupon->id, 100, null, '+20 100 000 0000');
     }
 
     public function test_percentage_discount_rounds_half_up_on_exact_decimals(): void

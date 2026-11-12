@@ -83,6 +83,9 @@ Route::middleware(['auth:sanctum', 'auth.customer'])->prefix('account')->name('a
     Route::get('addresses', [AccountController::class, 'addresses'])->name('addresses.index');
     Route::get('wallet', [WalletController::class, 'index'])->name('wallet.index');
     Route::get('orders', [StoreOrderController::class, 'index'])->name('orders.index');
+    Route::get('orders/{number}', [StoreOrderController::class, 'show'])
+        ->where('number', '[A-Za-z0-9-]{1,40}')
+        ->name('orders.show');
     Route::post('orders/{order}/cancel', [StoreOrderController::class, 'cancel'])->name('orders.cancel');
     // Return requests (RMA) for delivered orders
     Route::get('return-items/{return_item}/attachments/{attachment}', [AttachmentController::class, 'returnFile'])->where(['return_item' => '[0-9]{1,18}', 'attachment' => '[0-9]{1,18}'])->name('return-items.attachments.show');

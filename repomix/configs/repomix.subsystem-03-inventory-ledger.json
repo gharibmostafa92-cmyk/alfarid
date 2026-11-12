@@ -57,7 +57,12 @@
                     "bags-platform/backend/database/migrations/*production_receipt*.php",
                     "bags-platform/backend/database/migrations/*redundant_indexes*.php",
                     "bags-platform/backend/database/migrations/*enforce_unique_document_numbers*.php",
-                    "bags-platform/backend/database/seeders/InventoryPermissionSeeder.php"
+                    "bags-platform/backend/database/seeders/InventoryPermissionSeeder.php",
+                    "bags-platform/frontend/apps/pos/src/components/inventory/ReceiveTab.tsx",
+                    "bags-platform/frontend/apps/pos/src/components/inventory/RequestTab.tsx",
+                    "bags-platform/frontend/apps/pos/src/components/inventory/StockPage.tsx",
+                    "bags-platform/frontend/apps/pos/src/components/inventory/StocktakePage.tsx",
+                    "bags-platform/frontend/apps/pos/src/components/inventory/TransfersPage.tsx"
                 ],
     "ignore":  {
                    "useGitignore":  true,

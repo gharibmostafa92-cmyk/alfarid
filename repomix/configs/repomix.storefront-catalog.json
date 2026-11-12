@@ -25,7 +25,10 @@
                     "bags-platform/frontend/apps/storefront/package.json",
                     "bags-platform/backend/app/Services/Auth/CustomerAuthService.php",
                     "bags-platform/backend/app/Services/Pricing/CouponService.php",
-                    "bags-platform/frontend/apps/storefront/.env.example"
+                    "bags-platform/frontend/apps/storefront/.env.example",
+                    "bags-platform/frontend/apps/pos/src/components/terminal/Cart.tsx",
+                    "bags-platform/frontend/apps/pos/src/components/terminal/CartLine.tsx",
+                    "bags-platform/frontend/apps/pos/src/components/terminal/Catalog.tsx"
                 ],
     "ignore":  {
                    "useGitignore":  true,

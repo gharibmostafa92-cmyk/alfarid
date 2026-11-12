@@ -14,6 +14,7 @@ use App\Models\Expense;
 use App\Models\Treasury;
 use App\Models\User;
 use Brick\Math\BigDecimal;
+use Brick\Math\Exception\MathException;
 use Brick\Math\RoundingMode;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -48,7 +49,11 @@ class ExpenseService
         // Never spread the raw request: branch_id/treasury_id/created_by are
         // financial fields and must not be overridable through the payload.
         $payload = Arr::only($data, ['branch_id', 'treasury_id', 'category', 'amount', 'expense_date', 'notes', 'attachment_path']);
-        $amount = BigDecimal::of((string) ($payload['amount'] ?? '0'))->toScale(2, RoundingMode::HalfUp);
+        try {
+            $amount = BigDecimal::of((string) ($payload['amount'] ?? '0'))->toScale(2, RoundingMode::HalfUp);
+        } catch (MathException) {
+            throw new BusinessException('مبلغ المصروف غير صالح.');
+        }
         if (! $amount->isPositive()) {
             throw new BusinessException('مبلغ المصروف يجب أن يكون أكبر من صفر.');
         }
@@ -72,6 +77,9 @@ class ExpenseService
             fn () => DB::transaction(function () use ($payload, $amount, $actor): Expense {
                 $lockedTreasury = Treasury::query()->lockForUpdate()->findOrFail($payload['treasury_id']);
                 $this->branchAccess->assertTreasury($actor->id, $lockedTreasury);
+                if (! $lockedTreasury->is_active) {
+                    throw new BusinessException('الخزينة غير نشطة.');
+                }
                 if ($lockedTreasury->type->value === 'pos_drawer'
                     || ($lockedTreasury->branch_id !== null && (int) $lockedTreasury->branch_id !== (int) $payload['branch_id'])) {
                     throw new BusinessException('الخزينة لا تقبل مصروفات هذا الفرع من المسار الإداري.');
@@ -127,12 +135,16 @@ class ExpenseService
      *
      * @throws BusinessException If already voided or tied to a POS shift
      */
-    public function void(Expense $expense, string $reason, User $actor): Expense
+    public function void(Expense $expense, string $reason, User $actor, ?string $idempotencyKey = null): Expense
     {
-        $this->assertExpenseAccess($actor->id, $expense);
+        $reason = mb_substr(trim($reason), 0, 500);
+        if ($reason === '') {
+            throw new BusinessException('سبب إلغاء المصروف إجباري.');
+        }
 
-        return DB::transaction(function () use ($expense, $reason, $actor): Expense {
-            $locked = Expense::query()->lockForUpdate()->findOrFail($expense->id);
+        $execute = fn (): Expense => DB::transaction(function () use ($expense, $reason, $actor): Expense {
+            $locked = Expense::query()->with('treasury')->lockForUpdate()->findOrFail($expense->id);
+            $this->assertExpenseAccess($actor->id, $locked);
             if ($locked->voided_at !== null) {
                 throw new BusinessException('هذا المصروف ملغى سابقًا.');
             }
@@ -159,6 +171,18 @@ class ExpenseService
 
             return $locked->fresh();
         });
+
+        if ($idempotencyKey !== null) {
+            return $this->idempotency->run(
+                'expense_void',
+                $actor,
+                $idempotencyKey,
+                ['expense_id' => $expense->id, 'void_reason' => $reason],
+                $execute,
+            );
+        }
+
+        return $execute();
     }
 
     private function assertExpenseAccess(int $userId, Expense $expense): void

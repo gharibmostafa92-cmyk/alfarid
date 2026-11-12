@@ -295,7 +295,7 @@ export interface StoreProduct extends StoreProductCard {
 
 export interface StoreProductListParams {
   category?: string; color?: string; price_min?: number; price_max?: number;
-  occasions?: StoreOccasion[]; in_stock?: 0 | 1; search?: string;
+  occasions?: StoreOccasion[]; in_stock?: 0 | 1; search?: string; on_sale?: 0 | 1;
   sort?: StoreSort; page?: number; per_page?: number;
 }
 

@@ -101,23 +101,21 @@ class PosPhase1EndpointsTest extends TestCase
             'is_active' => true,
         ]);
 
-        $this->posDrawer2 = Treasury::create([
+        $this->posDrawer2 = tap(Treasury::create([
             'name' => 'درج 2',
             'code' => 'DRW-02',
             'branch_id' => $this->branch->id,
             'type' => TreasuryType::PosDrawer,
-            'current_balance' => 125.50,
             'is_active' => true,
-        ]);
+        ]), fn (Treasury $t) => $t->forceFill(['current_balance' => 125.50])->save());
 
-        $this->mainSafe = Treasury::create([
+        $this->mainSafe = tap(Treasury::create([
             'name' => 'Cairo Main Safe',
             'code' => 'SAFE-CAIRO',
             'branch_id' => $this->branch->id,
             'type' => TreasuryType::MainSafe,
-            'current_balance' => 1000,
             'is_active' => true,
-        ]);
+        ]), fn (Treasury $t) => $t->forceFill(['current_balance' => 1000])->save());
 
         $brand = Brand::create([
             'name_ar' => 'براند أ',
@@ -808,7 +806,8 @@ class PosPhase1EndpointsTest extends TestCase
         // Switch back to main cashier
         Auth::forgetGuards();
 
-        // Resume is read-only: it returns the payload without consuming the hold.
+        // Resume consumes the hold atomically: the payload is returned once,
+        // then the row is gone and a second resume 404s.
         $resumeRes = $this->withToken($this->token)->postJson("/api/v1/pos/sales/held/{$heldId1}/resume");
         $resumeRes->assertOk()
             ->assertJsonPath('data.held_sale_id', $heldId1)
@@ -817,10 +816,10 @@ class PosPhase1EndpointsTest extends TestCase
             ->assertJsonPath('data.items_payload.0.product_variant_id', $this->variant->id)
             ->assertJsonPath('data.items_payload.0.qty', 2);
 
-        $this->withToken($this->token)->postJson("/api/v1/pos/sales/held/{$heldId1}/resume")->assertOk();
-        $this->assertDatabaseHas('pos_held_sales', ['id' => $heldId1]);
+        $this->withToken($this->token)->postJson("/api/v1/pos/sales/held/{$heldId1}/resume")->assertStatus(404);
+        $this->assertDatabaseMissing('pos_held_sales', ['id' => $heldId1]);
 
-        // Completing the sale with held_sale_id consumes the hold atomically.
+        // Completing the sale with the consumed held_sale_id still succeeds.
         $items = [['product_variant_id' => $this->variant->id, 'qty' => 2]];
         $total = (float) $this->withToken($this->token)
             ->postJson('/api/v1/pos/sales/quote', ['items' => $items])
@@ -1265,11 +1264,22 @@ class PosPhase1EndpointsTest extends TestCase
             'reason' => 'إعادة جرد الدرج',
         ])->assertOk()->assertJsonPath('data.status', 'open');
 
+        // Force-close requires the supervisor's physically counted cash.
         $this->withToken($adminToken)->postJson("/api/v1/admin/shifts/{$shift->id}/force-close", [
+            'reason' => 'الموظف غادر دون إغلاق',
+        ])->assertStatus(422);
+
+        $this->withToken($adminToken)->postJson("/api/v1/admin/shifts/{$shift->id}/force-close", [
+            'actual_closing_cash' => 200.00,
             'reason' => 'الموظف غادر دون إغلاق',
         ])->assertOk()
             ->assertJsonPath('data.status', 'closed_pending_approval')
             ->assertJsonPath('data.cash_difference', '0.00');
+
+        $this->assertSame($manager->id, (int) PosShift::findOrFail($shift->id)->force_closed_by);
+
+        // Segregation of duties: the supervisor who force-closed cannot approve.
+        $this->withToken($adminToken)->postJson("/api/v1/admin/shifts/{$shift->id}/approve")->assertStatus(422);
 
         $this->assertDatabaseHas('staff_audit_logs', [
             'action' => 'pos_shift.reopen_for_recount',
@@ -1478,10 +1488,11 @@ class PosPhase1EndpointsTest extends TestCase
         ])->assertCreated();
         $exchangeUrl = "/api/v1/pos/sales/{$exchangeSale->json('data.id')}/exchange";
         $exchangeHeaders = ['Idempotency-Key' => 'retry-exchange-1'];
+        // Net tender: the 150 return credit covers the 150 replacement in full.
         $exchangePayload = [
             'returned_items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
             'exchange_items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
-            'cash_amount' => 150,
+            'cash_amount' => 0,
             'card_amount' => 0,
         ];
 

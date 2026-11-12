@@ -1,0 +1,188 @@
+  .track-order-shell {
+    min-height: 100vh;
+    min-height: 100dvh;
+    background-color: #f3f5f7;
+    display: flex;
+    flex-direction: column;
+    overflow-x: clip;
+  }
+  .track-order-shell .checkout-wrapper {
+    flex: 1;
+    padding-bottom: calc(32px + env(safe-area-inset-bottom, 0px));
+  }
+  .track-order-container {
+    width: 100%;
+    max-width: 720px;
+    margin: 0 auto;
+    padding: clamp(20px, 5vw, 44px) clamp(12px, 4vw, 24px);
+    box-sizing: border-box;
+  }
+  .track-top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .track-title-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .track-subtitle {
+    margin: 0;
+    font-size: 0.925rem;
+    color: #4b5563;
+    line-height: 1.5;
+  }
+  .track-order-shell .checkout-block {
+    background: #ffffff;
+    border-radius: 16px;
+    padding: clamp(18px, 4vw, 28px);
+    margin-bottom: 20px;
+    box-shadow: 0 4px 20px rgba(15, 23, 42, 0.04);
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    box-sizing: border-box;
+  }
+  .track-order-shell .checkout-fields-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  @media (min-width: 560px) {
+    .track-order-shell .checkout-fields-grid {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+  .track-field-label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 6px;
+  }
+  .track-order-shell .line-input {
+    width: 100%;
+    min-height: 48px;
+    font-size: max(16px, 1rem);
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid #d1d5db;
+    background: #f9fafb;
+    color: #111827;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .track-order-shell .line-input:focus {
+    outline: none;
+    background: #ffffff;
+    border-color: #111827;
+    box-shadow: 0 0 0 3px rgba(17, 24, 39, 0.08);
+  }
+  .track-submit-btn {
+    width: 100%;
+    min-height: 50px;
+    margin-top: 18px;
+    border-radius: 12px;
+    font-size: 1rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .track-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    background: #eff6ff;
+    color: #1d4ed8;
+  }
+  .track-status-badge.is-delivered {
+    background: #ecfdf5;
+    color: #047857;
+  }
+  .track-status-badge.is-cancelled {
+    background: #fef2f2;
+    color: #b91c1c;
+  }
+  .track-stepper {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin: 20px 0 24px;
+    padding: 16px 12px;
+    background: #f8fafc;
+    border-radius: 12px;
+    list-style: none;
+  }
+  .track-step-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 6px;
+    font-size: 0.78rem;
+    color: #6b7280;
+    font-weight: 500;
+  }
+  .track-step-dot {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    font-weight: 700;
+    background: #e2e8f0;
+    color: #475569;
+  }
+  .track-step-item.is-done {
+    color: #047857;
+  }
+  .track-step-item.is-done .track-step-dot {
+    background: #10b981;
+    color: #ffffff;
+  }
+  .track-step-item.is-current {
+    color: #111827;
+    font-weight: 700;
+  }
+  .track-step-item.is-current .track-step-dot {
+    background: #111827;
+    color: #ffffff;
+    box-shadow: 0 0 0 4px rgba(17, 24, 39, 0.12);
+  }
+  .track-sub-heading {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: #374151;
+    margin: 20px 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  .track-timeline-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .track-order-shell .bag-totals-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid #f1f5f9;
+    font-size: 0.95rem;
+  }
+  .track-order-shell .bag-totals-row:last-child {
+    border-bottom: none;
+  }

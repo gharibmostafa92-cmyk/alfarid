@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, PImg, cx, toAsciiNum } from '../ui/SharedUI';
-import { posMockService } from '../../services/pos-mock.service';
+import { posMockService } from '../../services/pos-data-source';
 import type { PosCartLine } from '../../types/pos.types';
 
 interface CartLineProps {

@@ -3,7 +3,7 @@ import { Icon } from '../ui/Icons';
 import { fmt } from '../ui/SharedUI';
 import { ReceiveTab } from './ReceiveTab';
 import { RequestTab } from './RequestTab';
-import { posMockService } from '../../services/pos-mock.service';
+import { posMockService } from '../../services/pos-data-source';
 import type { Branch, StockTransfer } from '../../types/pos.types';
 
 interface TransfersPageProps {

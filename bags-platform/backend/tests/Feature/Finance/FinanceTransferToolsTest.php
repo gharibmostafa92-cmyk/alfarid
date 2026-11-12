@@ -91,9 +91,9 @@ class FinanceTransferToolsTest extends TestCase
     /** @return array{from: Treasury, to: Treasury} */
     private function pair(Branch $branch, string $balance = '1000.00'): array
     {
-        $make = fn (string $name) => Treasury::create(['name' => $name, 'code' => 'SAFE-'.Str::uuid(),
+        $make = fn (string $name) => tap(Treasury::create(['name' => $name, 'code' => 'SAFE-'.Str::uuid(),
             'branch_id' => $branch->id, 'type' => TreasuryType::MainSafe,
-            'current_balance' => $balance, 'is_active' => true]);
+            'is_active' => true]), fn (Treasury $t) => $t->forceFill(['current_balance' => $balance])->save());
 
         return ['from' => $make('من'), 'to' => $make('إلى')];
     }

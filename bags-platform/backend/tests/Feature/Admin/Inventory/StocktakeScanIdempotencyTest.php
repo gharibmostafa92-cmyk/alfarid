@@ -62,10 +62,10 @@ class StocktakeScanIdempotencyTest extends TestCase
             'name' => 'Scan Drawer', 'code' => 'DRW-SCAN', 'branch_id' => $this->branch->id,
             'type' => TreasuryType::PosDrawer, 'current_balance' => 0, 'is_active' => true,
         ]);
-        Treasury::create([
+        tap(Treasury::create([
             'name' => 'Scan Safe', 'code' => 'SAFE-SCAN', 'branch_id' => $this->branch->id,
-            'type' => TreasuryType::MainSafe, 'current_balance' => 1000, 'is_active' => true,
-        ]);
+            'type' => TreasuryType::MainSafe, 'is_active' => true,
+        ]), fn (Treasury $t) => $t->forceFill(['current_balance' => 1000])->save());
 
         $brand = Brand::create(['name_ar' => 'ب', 'name_en' => 'B', 'slug' => 'brand-scan', 'is_active' => true]);
         $cat = Category::create(['name_ar' => 'ش', 'name_en' => 'C', 'slug' => 'cat-scan', 'is_active' => true]);

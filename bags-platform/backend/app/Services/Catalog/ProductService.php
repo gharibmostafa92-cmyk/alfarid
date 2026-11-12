@@ -158,6 +158,8 @@ class ProductService
                     $this->assertPublishable($product);
                 }
 
+                DB::afterCommit(fn () => StoreCatalogService::forgetStorefrontCaches());
+
                 return $product->fresh(['category.media', 'variants.media', 'media']);
             });
         } catch (UniqueConstraintViolationException $e) {
@@ -218,6 +220,8 @@ class ProductService
             }
             $product->status = $status;
             $product->save();
+
+            DB::afterCommit(fn () => StoreCatalogService::forgetStorefrontCaches());
         });
         $product->refresh();
     }
@@ -275,6 +279,8 @@ class ProductService
                 $variant->delete();
             }
             $product->delete();
+
+            DB::afterCommit(fn () => StoreCatalogService::forgetStorefrontCaches());
         });
         // TODO: Prevent deletion if product has existing orders; require archiving instead.
     }
@@ -302,6 +308,8 @@ class ProductService
             $product->clearMediaCollection('images');
             $product->clearMediaCollection('video');
             $product->forceDelete();
+
+            DB::afterCommit(fn () => StoreCatalogService::forgetStorefrontCaches());
         });
     }
 }

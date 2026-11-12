@@ -70,6 +70,9 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
   const [heldSales, setHeldSales] = useState<PosHeldSale[]>([]);
   const [lastAdded, setLastAdded] = useState<{ id: number; k: number } | null>(null);
   const [maxDiscountPercent, setMaxDiscountPercent] = useState<number>(100);
+  // Server id of the resumed held sale: sent as held_sale_id at checkout so the
+  // server consumes it atomically. Cleared whenever the cart session ends.
+  const [resumedHeldId, setResumedHeldId] = useState<number | null>(null);
 
   // Modals state
   const [closingShift, setClosingShift] = useState<PosShift | null>(null);
@@ -321,23 +324,35 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
   // Handle holding sale
   const handleHoldSale = async (note: string) => {
     if (!cart.length) return;
-    await posMockService.holdSale(cart, customer, note);
+    await posMockService.holdSale(cart, customer, note, discount);
     posCartStore.getState().clearCart();
+    setResumedHeldId(null);
     setIsHoldOpen(false);
     toast('تم تعليق الفاتورة بنجاح');
   };
 
-  // Handle resuming held sale
+  // Handle resuming held sale: merge with quantity-dedupe so the same variant
+  // never appears twice (no duplicate React keys, no distinct violations).
   const handleResumeHeld = async (heldItem: PosHeldSale) => {
     try {
       const resumed = await posMockService.resumeHeldSale(heldItem.ref);
       const newLines = resumed.items.map((i) => {
         const p = posMockService.getProductById(i.id);
-        const price = p ? p.price : 100;
-        return { id: i.id, qty: i.qty, price, listPrice: price };
+        const list = p ? p.price : 100;
+        const unit = i.unit_price ?? list;
+        return { id: i.id, qty: i.qty, price: unit, listPrice: list, manualPrice: unit !== list };
       });
 
-      setCart((prev) => [...prev, ...newLines]);
+      setCart((prev) => {
+        const next = prev.map((l) => ({ ...l }));
+        for (const nl of newLines) {
+          const existing = next.find((l) => l.id === nl.id);
+          if (existing) existing.qty += nl.qty;
+          else next.push({ ...nl });
+        }
+        return next;
+      });
+      setResumedHeldId(resumed.serverId ?? null);
       if (resumed.customer) {
         posMockService.getCustomers(resumed.customer).then((matches) => {
           if (matches.length > 0) setCustomer(matches[0]);
@@ -360,9 +375,15 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
 
   const handleSalePaid = () => {
     posCartStore.getState().clearCart();
+    setResumedHeldId(null);
     checkPendingSale();
     toast('تم تسجيل الفاتورة بنجاح');
   };
+
+  const handleClearCart = useCallback(() => {
+    posCartStore.getState().clearCart();
+    setResumedHeldId(null);
+  }, []);
 
   const toggleTheme = () => {
     setIsDark((d) => !d);
@@ -505,7 +526,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
                 onHeld={() => setIsHeldOpen(true)}
                 heldCount={heldCount}
                 onPay={() => void handlePay()}
-                onClear={() => posCartStore.getState().clearCart()}
+                onClear={handleClearCart}
                 lastAdded={lastAdded}
                 toast={toast}
                 cashier={cashier}
@@ -535,6 +556,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
             customer={customer}
             quote={quote}
             isQuoting={isQuoting}
+            heldSaleId={resumedHeldId}
             onPaid={handleSalePaid}
             onAttemptSettled={checkPendingSale}
             pendingOwner={pendingOwner}

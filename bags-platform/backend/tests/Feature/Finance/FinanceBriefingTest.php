@@ -66,10 +66,10 @@ class FinanceBriefingTest extends TestCase
             'name' => 'رئيسية', 'code' => 'SAFE-'.Str::uuid(), 'branch_id' => $branch->id,
             'type' => TreasuryType::MainSafe, 'current_balance' => '0.00', 'is_active' => true,
         ]);
-        $drawer = Treasury::create([
+        $drawer = tap(Treasury::create([
             'name' => 'درج 1', 'code' => 'POS-'.Str::uuid(), 'branch_id' => $branch->id,
-            'type' => TreasuryType::PosDrawer, 'current_balance' => '2500.00', 'is_active' => true,
-        ]);
+            'type' => TreasuryType::PosDrawer, 'is_active' => true,
+        ]), fn (Treasury $t) => $t->forceFill(['current_balance' => '2500.00'])->save());
         app(TreasuryService::class)->record([
             'treasury_id' => $safe->id, 'type' => TreasuryTransactionType::OpeningBalance,
             'amount' => '5000.00', 'created_by' => $admin->id,
@@ -95,10 +95,10 @@ class FinanceBriefingTest extends TestCase
             'opened_at' => now()->subHours(8), 'expected_closing_cash' => '1000.00',
             'actual_closing_cash' => '990.00', 'cash_difference' => '-10.00',
         ]);
-        $drawer2 = Treasury::create([
+        $drawer2 = tap(Treasury::create([
             'name' => 'درج 2', 'code' => 'POS-'.Str::uuid(), 'branch_id' => $branch->id,
-            'type' => TreasuryType::PosDrawer, 'current_balance' => '500.00', 'is_active' => true,
-        ]);
+            'type' => TreasuryType::PosDrawer, 'is_active' => true,
+        ]), fn (Treasury $t) => $t->forceFill(['current_balance' => '500.00'])->save());
         PosShift::create([
             'shift_number' => 'SHIFT-2', 'user_id' => $admin->id, 'branch_id' => $branch->id,
             'treasury_id' => $drawer2->id, 'status' => PosShiftStatus::Open, 'opened_at' => now()->subHour(),

@@ -46,12 +46,17 @@ class ExpenseVoidTest extends TestCase
 
     private function treasury(array $attributes = []): Treasury
     {
-        return Treasury::create([
+        $balance = $attributes['current_balance'] ?? '1000.00';
+        unset($attributes['current_balance']);
+
+        $treasury = Treasury::create([
             'name' => 'Main Safe', 'code' => 'SAFE-'.Str::uuid(),
             'branch_id' => Branch::factory()->create(['is_active' => true])->id,
-            'type' => TreasuryType::MainSafe, 'current_balance' => '1000.00', 'is_active' => true,
+            'type' => TreasuryType::MainSafe, 'is_active' => true,
             ...$attributes,
         ]);
+
+        return tap($treasury, fn (Treasury $t) => $t->forceFill(['current_balance' => $balance])->save());
     }
 
     private function payload(Treasury $treasury, array $attributes = []): array

@@ -37,12 +37,33 @@ class CouponService
      */
     public function validateAndApply(Cart $cart, string $code, float $subtotal, ?Customer $customer = null): float
     {
+        // IP-level limiting runs before any lookup so guessing nonexistent codes
+        // cannot bypass throttling; the per-coupon limiter follows the lookup.
+        $this->enforceIpRateLimit('apply');
         $coupon = $this->findRedeemable($code, $subtotal, $customer);
-        $this->enforceRateLimit($coupon, 'apply');
 
         $cart->update(['coupon_id' => $coupon->id]);
 
         return $this->discountFor($coupon, $subtotal);
+    }
+
+    /**
+     * Enforces an IP-scoped ceiling that also covers unknown coupon codes.
+     *
+     * @throws BusinessException If rate limit is exceeded
+     */
+    private function enforceIpRateLimit(string $action): void
+    {
+        $max = (int) config('store.coupon_apply_per_minute', 20);
+        if ($max <= 0) {
+            return;
+        }
+
+        $key = 'coupon:'.$action.':ip:'.(request()->ip() ?? 'unknown');
+        if (RateLimiter::tooManyAttempts($key, $max)) {
+            throw new BusinessException(self::NOT_REDEEMABLE, [], 429);
+        }
+        RateLimiter::hit($key, 60);
     }
 
     /**
@@ -78,13 +99,18 @@ class CouponService
      *
      * @throws BusinessException If coupon is not eligible
      */
-    public function redeemableById(int $couponId, float $subtotal, ?Customer $customer = null, ?string $guestPhone = null): Coupon
-    {
+    public function redeemableById(
+        int $couponId,
+        float $subtotal,
+        ?Customer $customer = null,
+        ?string $guestPhone = null,
+        bool $requireIdentity = false,
+    ): Coupon {
         $coupon = Coupon::query()->find($couponId);
         if ($coupon === null) {
             throw new BusinessException(self::NOT_REDEEMABLE);
         }
-        $this->assertRedeemable($coupon, $subtotal, $customer, $guestPhone);
+        $this->assertRedeemable($coupon, $subtotal, $customer, $guestPhone, $requireIdentity);
 
         return $coupon;
     }
@@ -146,7 +172,8 @@ class CouponService
         DB::statement('SELECT pg_advisory_xact_lock(104, hashtext(?))', ['coupon-usage:'.$coupon->id.':'.$identity]);
 
         // Re-evaluate identity limit under the lock to prevent race conditions.
-        $this->assertPerIdentityAllowed($coupon, $customer, $guestPhoneNormalized);
+        // Redemption always requires a real identity.
+        $this->assertPerIdentityAllowed($coupon, $customer, $guestPhoneNormalized, true);
 
         // Conditional atomic increment ensures usage_limit is never exceeded
         // without locking the coupon row. L2: re-check activation and expiry
@@ -154,6 +181,7 @@ class CouponService
         $incremented = Coupon::query()
             ->whereKey($coupon->id)
             ->where('is_active', true)
+            ->where(fn ($q) => $q->whereNull('starts_at')->orWhere('starts_at', '<=', now()))
             ->where(fn ($q) => $q->whereNull('ends_at')->orWhere('ends_at', '>', now()))
             ->where(fn ($q) => $q->whereNull('usage_limit')->orWhereColumn('used_count', '<', 'usage_limit'))
             ->increment('used_count');
@@ -192,6 +220,7 @@ class CouponService
         if ($coupon === null) {
             throw new BusinessException(self::NOT_REDEEMABLE);
         }
+        $this->enforceRateLimit($coupon, 'apply');
         $this->assertRedeemable($coupon, $subtotal, $customer);
 
         return $coupon;
@@ -207,8 +236,13 @@ class CouponService
      *
      * @throws BusinessException If coupon rules are violated
      */
-    private function assertRedeemable(Coupon $coupon, float $subtotal, ?Customer $customer, ?string $guestPhone = null): void
-    {
+    private function assertRedeemable(
+        Coupon $coupon,
+        float $subtotal,
+        ?Customer $customer,
+        ?string $guestPhone = null,
+        bool $requireIdentity = false,
+    ): void {
         if (! $coupon->isRedeemableNow()) {
             throw new BusinessException(self::NOT_REDEEMABLE);
         }
@@ -220,7 +254,7 @@ class CouponService
             ? Customer::normalizePhone($guestPhone)
             : null;
 
-        $this->assertPerIdentityAllowed($coupon, $customer, $guestPhoneNormalized);
+        $this->assertPerIdentityAllowed($coupon, $customer, $guestPhoneNormalized, $requireIdentity);
     }
 
     /**
@@ -233,14 +267,24 @@ class CouponService
      *
      * @throws BusinessException If identity usage limit is reached
      */
-    private function assertPerIdentityAllowed(Coupon $coupon, ?Customer $customer, ?string $guestPhoneNormalized): void
-    {
+    private function assertPerIdentityAllowed(
+        Coupon $coupon,
+        ?Customer $customer,
+        ?string $guestPhoneNormalized,
+        bool $requireIdentity = false,
+    ): void {
         $limit = (int) $coupon->usage_limit_per_customer;
         if ($limit <= 0) {
             return;
         }
-        if ($customer === null) {
-            throw new BusinessException(self::NOT_REDEEMABLE);
+        // During cart preview a guest has not supplied a phone yet; allow the
+        // coupon to be attached. Final redemption must present an identity.
+        if ($customer === null && $guestPhoneNormalized === null) {
+            if ($requireIdentity) {
+                throw new BusinessException(self::NOT_REDEEMABLE);
+            }
+
+            return;
         }
 
         $phones = array_values(array_unique(array_filter([

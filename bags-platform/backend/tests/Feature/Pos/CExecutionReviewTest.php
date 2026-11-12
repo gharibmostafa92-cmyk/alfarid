@@ -65,7 +65,7 @@ class CExecutionReviewTest extends TestCase
         $this->cashier = User::factory()->create(['branch_id' => $this->branch->id]);
         $this->supervisor = User::factory()->create(['branch_id' => $this->branch->id]);
         $base = ['branch_id' => $this->branch->id, 'is_active' => true];
-        $this->safe = Treasury::create([...$base, 'name' => 'Safe', 'code' => 'SAFE', 'type' => 'main_safe', 'current_balance' => 1000]);
+        $this->safe = tap(Treasury::create([...$base, 'name' => 'Safe', 'code' => 'SAFE', 'type' => 'main_safe']), fn (Treasury $t) => $t->forceFill(['current_balance' => 1000])->save());
         $this->drawer = Treasury::create([...$base, 'name' => 'Drawer', 'code' => 'DRAWER', 'type' => 'pos_drawer', 'current_balance' => 0]);
         $this->shift = app(PosService::class)->openShift($this->cashier, $this->branch->id, $this->drawer->id, 200);
         $this->variant = ProductVariant::factory()->create(['retail_price' => 10, 'cost_price' => 4]);

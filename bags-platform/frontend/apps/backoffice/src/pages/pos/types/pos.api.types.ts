@@ -154,6 +154,7 @@ export interface ApiCustomer {
   name: string;
   phone: string;
   type: 'retail' | 'wholesale';
+  status?: string | null;
   loyalty_points?: number;
   points?: number;
 }

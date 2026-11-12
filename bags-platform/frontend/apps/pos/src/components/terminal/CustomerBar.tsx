@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Icon } from '../ui/Icons';
 import { fmt, cx, toAsciiNum, Field, Seg, Modal, useOutside } from '../ui/SharedUI';
-import { posMockService } from '../../services/pos-mock.service';
+import { pos as posMockService } from '../../services/pos-data-source';
 import type { Customer } from '../../types/pos.types';
+
+const isPending = (c: Customer): boolean => c.status === 'Pending' || c.status === 'pending';
 
 interface CustomerBarProps {
   customer: Customer | null;
@@ -58,7 +60,11 @@ export function CustomerBar({ customer, setCustomer, toast }: CustomerBarProps) 
           <div className="grow">
             <div className="fs-13 fw-6 row gap-2">
               {customer.name}
-              {customer.tier === 'wholesale' ? (
+              {customer.tier === 'wholesale' && isPending(customer) ? (
+                <span className="badge b-warn" style={{ height: 20, fontSize: 11 }}>
+                  جملة (قيد المراجعة — تطبق أسعار التجزئة)
+                </span>
+              ) : customer.tier === 'wholesale' ? (
                 <span className="badge b-info" style={{ height: 20, fontSize: 11 }}>
                   أسعار جملة
                 </span>

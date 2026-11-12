@@ -48,6 +48,8 @@ export interface Customer {
   phone: string;
   tier: 'retail' | 'wholesale';
   points: number;
+  /** Account review state: wholesale prices apply only when Approved. */
+  status?: string | null;
 }
 
 export interface PosCartLine {
@@ -83,7 +85,8 @@ export interface PosShift {
   card_sales_total: number;
   cash_returns_total: number;
   cash_expenses_total: number;
-  expected_closing_cash: number;
+  /** Absent for blind cashiers: the server strips it from the summary. */
+  expected_closing_cash?: number;
   actual_closing_cash?: number | null;
   cash_difference?: number | null;
   notes?: string | null;
@@ -98,7 +101,7 @@ export interface PosHeldSale {
   mins: number;
   customer: string | null;
   note: string;
-  items: { id: number; qty: number }[];
+  items: { id: number; qty: number; unit_price?: number; discount_amount?: number }[];
   /** Server id (pos_held_sales.id) used for resume/delete. */
   serverId?: number;
   _id?: number;
@@ -186,6 +189,8 @@ export interface CreateSalePayload {
   notes?: string;
   /** When true every line's unit_price is sent and the server accepts the manual price. */
   override_price?: boolean;
+  /** When the cart resumes a held sale: lets the server consume it atomically. */
+  held_sale_id?: number | null;
 }
 
 export interface QuoteLineResult {

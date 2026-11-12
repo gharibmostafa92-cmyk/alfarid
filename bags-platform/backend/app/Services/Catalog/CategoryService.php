@@ -197,6 +197,13 @@ class CategoryService
         $apply = function (bool $exclusive) use ($items): bool {
             return DB::transaction(function () use ($items, $exclusive): bool {
                 CatalogLock::tree(shared: ! $exclusive);
+                // Lock every affected row in deterministic id order up front so
+                // the hierarchy snapshot cannot drift before the updates run.
+                Category::query()
+                    ->whereIn('id', array_map(fn (array $item): int => (int) $item['id'], $items))
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get(['id']);
                 $categories = Category::query()->get()->keyBy('id');
                 $nodes = $categories->toArray();
                 $moved = false;
@@ -224,10 +231,10 @@ class CategoryService
                 }
                 // Sort category updates by ID to enforce deterministic row-lock ordering and prevent deadlocks.
                 $ordered = collect($items)->sortBy('id')->values()->all();
-                $hasExpectedVersions = collect($ordered)->contains(fn ($item) => isset($item['expected_version']));
-                $lockedCategories = $hasExpectedVersions
-                    ? Category::whereIn('id', array_column($ordered, 'id'))->orderBy('id')->lockForUpdate()->get()->keyBy('id')
-                    : $categories;
+                // Always take row locks, even when the client omits expected_version,
+                // otherwise concurrent sort-only reorders can interleave.
+                $lockedCategories = Category::whereIn('id', array_column($ordered, 'id'))
+                    ->orderBy('id')->lockForUpdate()->get()->keyBy('id');
                 foreach ($ordered as $item) {
                     $locked = $lockedCategories->get($item['id'])
                         ?? throw new BusinessException('القسم لم يعد متاحًا؛ اطلب اقتراحًا جديدًا.', [], 409);

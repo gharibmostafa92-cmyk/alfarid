@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\V1\Pos;
 
+use App\Enums\Customer\CustomerStatus;
 use App\Enums\Orders\OrderStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
@@ -21,6 +22,7 @@ use App\Support\ArabicDigits;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 /**
  * POS terminal sales operations: direct checkout, cart hold/resume, returns, and item exchanges.
@@ -41,14 +43,18 @@ class PosSaleController extends Controller
             'items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
             'items.*.discount_amount' => ['nullable', 'numeric', 'min:0'],
             'items.*.override_reason' => ['nullable', 'string', 'max:255'],
-            'customer_id' => ['nullable', 'integer', 'min:1', 'exists:customers,id'],
+            'customer_id' => ['nullable', 'integer', 'min:1', Rule::exists('customers', 'id')
+                ->whereNull('deleted_at')
+                ->whereNotIn('status', [CustomerStatus::Suspended->value, CustomerStatus::Rejected->value])],
             'payment_method' => ['nullable', 'string', 'in:cash,card,mixed'],
             'cash_amount' => ['nullable', 'numeric', 'min:0'],
             'card_amount' => ['nullable', 'numeric', 'min:0'],
             'override_price' => ['nullable', 'boolean'],
             'override_reason' => ['nullable', 'string', 'max:255'],
             'notes' => ['nullable', 'string', 'max:500'],
-            'held_sale_id' => ['nullable', 'integer', 'exists:pos_held_sales,id'],
+            // A hold consumed by resumeHeld no longer exists; the service
+            // tolerates the missing row, so the rule must not reject it.
+            'held_sale_id' => ['nullable', 'integer', 'min:1'],
         ]);
 
         /** @var PosShift $shift */
@@ -60,6 +66,13 @@ class PosSaleController extends Controller
             if (! $user->can('pos.override_price')) {
                 return response()->json(['message' => 'لا تملك صلاحية تجاوز سعر البيع.'], 403);
             }
+        }
+
+        // Mirror quote(): manual line discounts need pos.discount before the
+        // idempotency run, so a rejected attempt never burns an idempotency key.
+        if (collect($data['items'])->contains(fn ($item) => (float) ($item['discount_amount'] ?? 0) > 0)
+            && ! $request->user('staff')->can('pos.discount')) {
+            return response()->json(['message' => 'لا تملك صلاحية تطبيق خصم يدوي.'], 403);
         }
 
         $order = app(OperationIdempotencyService::class)->run(
@@ -109,8 +122,15 @@ class PosSaleController extends Controller
     {
         /** @var User $user */
         $user = $request->user('staff');
+        if ($user->branch_id === null) {
+            throw new AuthorizationException('حسابك غير مرتبط بأي فرع.');
+        }
+
+        $branchId = (int) $user->branch_id;
+        app(BranchAccess::class)->assertBranch($user->id, $branchId);
+
         $query = PosHeldSale::query()
-            ->where('branch_id', $user->branch_id)
+            ->where('branch_id', $branchId)
             ->with(['customer:id,name,phone'])
             ->orderByDesc('created_at')
             ->limit(100);
@@ -136,7 +156,9 @@ class PosSaleController extends Controller
             'items.*.discount_amount' => ['nullable', 'numeric', 'min:0'],
             'items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
             'items.*.override_reason' => ['nullable', 'string', 'max:255'],
-            'customer_id' => ['nullable', 'integer', 'exists:customers,id'],
+            'customer_id' => ['nullable', 'integer', Rule::exists('customers', 'id')
+                ->whereNull('deleted_at')
+                ->whereNotIn('status', [CustomerStatus::Suspended->value, CustomerStatus::Rejected->value])],
             'override_price' => ['nullable', 'boolean'],
             'override_reason' => ['nullable', 'string', 'max:255'],
         ]);
@@ -221,25 +243,48 @@ class PosSaleController extends Controller
         $candidates = array_values(array_unique($candidates));
         $literalSuffix = strtr($stripped, ['!' => '!!', '%' => '!%', '_' => '!_']);
 
-        $matchCandidates = function ($q) use ($candidates, $stripped, $literalSuffix): void {
-            $q->whereIn('order_number', $candidates);
-            if ($stripped !== '') {
-                $q->orWhereRaw("order_number LIKE ? ESCAPE '!'", ['%-'.$literalSuffix]);
-                if (ctype_digit($stripped)) {
-                    $intVal = (string) ((int) $stripped);
-                    $q->orWhere('order_number', 'like', '%-'.str_pad($intVal, 6, '0', STR_PAD_LEFT));
-                }
-            }
-        };
-
+        // Hot path first: an exact index lookup on order_number (O(log N)).
+        // The LIKE '%-...' fallback below runs only on a miss, so the common
+        // case never forces a sequential scan over the orders table.
         $baseQuery = fn () => Order::query()
             ->where('channel', 'pos')
             ->where('status', OrderStatus::Delivered)
             ->whereNull('return_of_order_id')
-            ->where($matchCandidates)
             ->with(['items.variant.product', 'customer', 'posShift.cashier']);
 
-        $order = $baseQuery()->latest('id')->first();
+        $order = $baseQuery()->whereIn('order_number', $candidates)->latest('id')->first();
+
+        if ($order === null && $stripped !== '') {
+            // Fallback for custom branch prefixes not covered by $candidates,
+            // scoped to the cashier's branch and the return window so it stays
+            // narrow instead of scanning the whole orders history.
+            $returnWindowDays = (int) (app(SettingService::class)->get('pos.return_window_days')
+                ?? config('inventory.pos_return_window_days', 30));
+            $fallback = $baseQuery()
+                ->where(function ($q) use ($literalSuffix, $stripped): void {
+                    $q->whereRaw("order_number LIKE ? ESCAPE '!'", ['%-'.$literalSuffix]);
+                    if (ctype_digit($stripped)) {
+                        $intVal = (string) ((int) $stripped);
+                        $q->orWhere('order_number', 'like', '%-'.str_pad($intVal, 6, '0', STR_PAD_LEFT));
+                    }
+                });
+            if ($returnWindowDays > 0) {
+                $fallback->where('created_at', '>=', now()->subDays($returnWindowDays + 1));
+            }
+            try {
+                $scopedBranch = app(BranchAccess::class)->restrictedBranch($user);
+            } catch (AuthorizationException) {
+                $scopedBranch = false;
+            }
+            if (is_int($scopedBranch)) {
+                $fallback->where(function ($q) use ($scopedBranch): void {
+                    $q->where('allocated_branch_id', $scopedBranch)
+                        ->orWhereHas('posShift', fn ($s) => $s->where('branch_id', $scopedBranch));
+                });
+            }
+
+            $order = $fallback->latest('id')->first();
+        }
 
         if ($order === null) {
             abort(404, 'الفاتورة غير موجودة.');
@@ -257,6 +302,7 @@ class PosSaleController extends Controller
             $orderBranchId = (int) ($order->allocated_branch_id ?? $order->posShift?->branch_id ?? 0);
             if ($orderBranchId !== $scopedBranch) {
                 $scoped = $baseQuery()
+                    ->whereIn('order_number', $candidates)
                     ->where(function ($q) use ($scopedBranch): void {
                         $q->where('allocated_branch_id', $scopedBranch)
                             ->orWhereHas('posShift', fn ($s) => $s->where('branch_id', $scopedBranch));
@@ -326,34 +372,43 @@ class PosSaleController extends Controller
         /** @var User $user */
         $user = $request->user('staff');
 
-        $heldSale = PosHeldSale::query()
-            ->whereKey($held_sale)
-            ->with('customer:id,name,phone')
-            ->first();
+        // Lock, retrieve, and delete atomically so two cashiers resuming the
+        // same parked cart cannot both receive its payload.
+        $data = DB::transaction(function () use ($user, $held_sale): array {
+            $heldSale = PosHeldSale::query()
+                ->whereKey($held_sale)
+                ->lockForUpdate()
+                ->with('customer:id,name,phone')
+                ->first();
 
-        if ($heldSale === null) {
-            abort(404, 'الفاتورة المعلقة غير موجودة.');
-        }
+            if ($heldSale === null) {
+                abort(404, 'الفاتورة المعلقة غير موجودة.');
+            }
 
-        app(BranchAccess::class)->assertBranch($user->id, (int) $heldSale->branch_id);
+            app(BranchAccess::class)->assertBranch($user->id, (int) $heldSale->branch_id);
 
-        if ($heldSale->user_id !== $user->id && ! $user->can('pos.held.view_all')) {
-            abort(403, 'لا تملك صلاحية استئناف فاتورة معلقة لمصرفي آخر.');
-        }
+            if ($heldSale->user_id !== $user->id && ! $user->can('pos.held.view_all')) {
+                abort(403, 'لا تملك صلاحية استئناف فاتورة معلقة لمصرفي آخر.');
+            }
 
-        $data = [
-            'held_sale_id' => $heldSale->id,
-            'id' => $heldSale->id,
-            'hold_reference' => $heldSale->hold_reference,
-            'customer_id' => $heldSale->customer_id,
-            'customer' => $heldSale->customer !== null ? [
-                'id' => $heldSale->customer->id,
-                'name' => $heldSale->customer->name,
-                'phone' => $heldSale->customer->phone,
-            ] : null,
-            'notes' => $heldSale->notes,
-            'items_payload' => $heldSale->items_payload,
-        ];
+            $data = [
+                'held_sale_id' => $heldSale->id,
+                'id' => $heldSale->id,
+                'hold_reference' => $heldSale->hold_reference,
+                'customer_id' => $heldSale->customer_id,
+                'customer' => $heldSale->customer !== null ? [
+                    'id' => $heldSale->customer->id,
+                    'name' => $heldSale->customer->name,
+                    'phone' => $heldSale->customer->phone,
+                ] : null,
+                'notes' => $heldSale->notes,
+                'items_payload' => $heldSale->items_payload,
+            ];
+
+            $heldSale->delete();
+
+            return $data;
+        });
 
         return response()->json([
             'message' => 'تم استعادة الفاتورة المعلقة بنجاح.',
@@ -456,21 +511,9 @@ class PosSaleController extends Controller
 
         $sale->load('items');
 
-        $exchangePayload = [
-            'items' => $data['exchange_items'],
-            'customer_id' => $sale->customer_id,
-        ];
-        if (array_key_exists('cash_amount', $data)) {
-            $exchangePayload['cash_amount'] = $data['cash_amount'];
-        }
-        if (array_key_exists('card_amount', $data)) {
-            $exchangePayload['card_amount'] = $data['card_amount'];
-        }
-
-        // Choose the order that keeps the drawer solvent: when the replacement
-        // costs at least the refund we can take the sale first, otherwise the
-        // refund has to come out of existing cash (and returning first avoids a
-        // same-variant stock conflict when the shelf is empty).
+        // Net the return credit against the replacement total up front so only
+        // the net cash/card difference moves through the drawer: the request
+        // tender is the net amount, never the full replacement price.
         $returnEstimate = $this->pos->estimateReturnValue($sale, $data['returned_items']);
         $quote = $this->pos->quote(
             (int) $shift->branch_id,
@@ -479,7 +522,22 @@ class PosSaleController extends Controller
             false,
             $user,
         );
-        $saleFirst = (float) $quote['grand_total'] >= $returnEstimate;
+        $replacementTotal = (float) $quote['grand_total'];
+        $credit = min($returnEstimate, $replacementTotal);
+
+        $exchangePayload = [
+            'items' => $data['exchange_items'],
+            'customer_id' => $sale->customer_id,
+            'cash_amount' => (float) ($data['cash_amount'] ?? 0),
+            'card_amount' => (float) ($data['card_amount'] ?? 0),
+            'exchange_credit' => $credit,
+        ];
+
+        // Choose the order that keeps the drawer solvent: when the replacement
+        // costs at least the refund we can take the sale first, otherwise the
+        // refund has to come out of existing cash (and returning first avoids a
+        // same-variant stock conflict when the shelf is empty).
+        $saleFirst = $replacementTotal >= $returnEstimate;
 
         /** @var Order $returnOrder */
         $returnOrder = app(OperationIdempotencyService::class)->run(
@@ -487,14 +545,14 @@ class PosSaleController extends Controller
             $user,
             $this->requiredIdempotencyKey($request),
             ['sale_id' => $sale->id, ...$data],
-            function () use ($shift, $sale, $data, $exchangePayload, $saleFirst): Order {
+            function () use ($shift, $sale, $data, $exchangePayload, $credit, $saleFirst): Order {
                 $createSale = fn (): Order => $this->pos->createSale($shift, $exchangePayload);
 
                 if ($saleFirst) {
                     $exchangeOrder = $createSale();
-                    $result = $this->pos->processReturn($shift, $sale, $data['returned_items']);
+                    $result = $this->pos->processReturn($shift, $sale, $data['returned_items'], [], $credit);
                 } else {
-                    $result = $this->pos->processReturn($shift, $sale, $data['returned_items']);
+                    $result = $this->pos->processReturn($shift, $sale, $data['returned_items'], [], $credit);
                     $exchangeOrder = $createSale();
                 }
 

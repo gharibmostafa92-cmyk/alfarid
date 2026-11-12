@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { RequireActor } from '@/components/auth/RequireActor';
 
 const sections = [
   { href: '/account', label: 'My profile' },
@@ -13,15 +14,17 @@ const sections = [
 export default function AccountLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   return (
-    <div className="store-account">
-      <nav className="store-account-nav" aria-label="Account sections">
-        {sections.map(({ href, label }) => (
-          <Link key={href} href={href} aria-current={pathname === href ? 'page' : undefined}>
-            {label}
-          </Link>
-        ))}
-      </nav>
-      {children}
-    </div>
+    <RequireActor allow={['retail', 'wholesale']}>
+      <div className="store-account">
+        <nav className="store-account-nav" aria-label="Account sections">
+          {sections.map(({ href, label }) => (
+            <Link key={href} href={href} aria-current={pathname === href ? 'page' : undefined}>
+              {label}
+            </Link>
+          ))}
+        </nav>
+        {children}
+      </div>
+    </RequireActor>
   );
 }

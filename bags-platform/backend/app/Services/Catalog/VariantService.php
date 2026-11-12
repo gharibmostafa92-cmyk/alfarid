@@ -66,6 +66,8 @@ class VariantService
                         $this->publishability->assertPublishable($product);
                     }
 
+                    DB::afterCommit(fn () => app(RetailPriceSnapshot::class)->refresh($product->id));
+
                     return $variant;
                 });
             } catch (UniqueConstraintViolationException $e) {
@@ -119,6 +121,8 @@ class VariantService
                     $this->publishability->assertPublishable($product);
                 }
 
+                DB::afterCommit(fn () => app(RetailPriceSnapshot::class)->refresh($product->id));
+
                 return $variant->fresh(['media', 'product']);
             });
         } catch (UniqueConstraintViolationException $e) {
@@ -155,6 +159,8 @@ class VariantService
             if ($product->status === ProductStatus::Published) {
                 $this->publishability->assertPublishable($product);
             }
+
+            DB::afterCommit(fn () => app(RetailPriceSnapshot::class)->refresh($product->id));
         });
     }
 

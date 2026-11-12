@@ -370,8 +370,7 @@ export function useCheckout() {
     return true;
   }, [errors]);
 
-  const handleError = useCallback(
-    (err: unknown) => {
+  const handleError = useCallback(    (err: unknown) => {
       const status = (
         err as {
           response?: {
@@ -438,6 +437,24 @@ export function useCheckout() {
     },
     [loadCart, removeCoupon],
   );
+
+  /** Drop the remembered attempt so the shopper can edit the order and submit afresh. */
+  const clearPending = useCallback(() => {
+    pending.current = null;
+    keyRef.current = newIdempotencyKey();
+    try {
+      sessionStorage.removeItem('pending_checkout');
+    } catch {
+      /* Optional storage. */
+    }
+    setUncertain(false);
+  }, []);
+
+  const startNewAttempt = useCallback(() => {
+    clearPending();
+    setBanner(null);
+    void loadCart();
+  }, [clearPending, loadCart]);
 
   const submit = useCallback(async () => {
     if (submittingRef.current) return;
@@ -506,24 +523,38 @@ export function useCheckout() {
       router.replace(`/checkout/success?order=${encodeURIComponent(res.data.order_number)}`);
     } catch (e) {
       handleError(e);
-      const status = (e as { response?: { status: number } }).response?.status;
-      // Network errors and server failures may have committed the order. Retry the exact request and key.
-      if (
-        status &&
-        status >= 400 &&
-        status < 500 &&
-        status !== 408 &&
-        status !== 409 &&
-        status !== 429
-      ) {
-        pending.current = null;
-        try {
-          sessionStorage.removeItem('pending_checkout');
-        } catch {
-          /* Optional storage. */
+      const response = (
+        e as {
+          response?: {
+            status?: number;
+            data?: { message?: string; code?: string };
+          };
         }
-        setUncertain(false);
-        keyRef.current = newIdempotencyKey();
+      )?.response;
+      const status = response?.status;
+      const code = response?.data?.code;
+      // A 409 from the idempotency guard is a definitive rejection: the request
+      // was not committed, so clear the lock and let the shopper start over.
+      const definitiveConflict = status === 409 && code !== 'idempotency_in_progress';
+      // Any other 4xx except the retryable 408/429 is also definitive.
+      const definitiveClientError =
+        status !== undefined && status >= 400 && status < 500 && status !== 408 && status !== 409 && status !== 429;
+
+      if (definitiveConflict || definitiveClientError) {
+        clearPending();
+        // Keep the actionable banners produced by handleError (coupon removal,
+        // price refresh) instead of overwriting them with a generic message.
+        if (code !== 'price_changed' && code !== 'coupon_invalid') {
+          void loadCart();
+          setBanner({
+            kind: 'error',
+            text: definitiveConflict
+              ? response?.data?.message ||
+                'تم رفض المحاولة لأن السلة تغيّرت أو الطلب مسجّل ببيانات مختلفة. عدّل طلبك وابدأ من جديد.'
+              : response?.data?.message || 'لم يتم إنشاء الطلب. راجع بياناتك وحاول تاني.',
+            action: { label: 'بدء محاولة جديدة', onClick: startNewAttempt },
+          });
+        }
       } else {
         setUncertain(true);
         const retryAfter = (e as { response?: { headers?: Record<string, string> } }).response
@@ -533,6 +564,7 @@ export function useCheckout() {
           text:
             'تعذّر تأكيد نتيجة الطلب. اضغط إعادة المحاولة لتأكيد نفس الطلب بدون تكراره.' +
             (status === 429 ? ` محاولات كتيرة، حاول بعد ${retryAfter ?? 60} ثانية.` : ''),
+          action: { label: 'تعديل الطلب وبدء محاولة جديدة', onClick: startNewAttempt },
         });
       }
     } finally {
@@ -551,6 +583,8 @@ export function useCheckout() {
     router,
     handleError,
     attemptOwner,
+    clearPending,
+    startNewAttempt,
   ]);
 
   const step =
@@ -602,6 +636,7 @@ export function useCheckout() {
     removeCoupon,
     loadCart,
     submit,
+    startNewAttempt,
     submitting,
     step,
     addressLine,

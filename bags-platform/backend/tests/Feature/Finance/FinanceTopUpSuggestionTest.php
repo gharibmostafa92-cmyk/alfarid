@@ -57,11 +57,11 @@ class FinanceTopUpSuggestionTest extends TestCase
 
     private function treasury(Branch $branch, string $type, string $balance, string $name): Treasury
     {
-        return Treasury::create([
+        return tap(Treasury::create([
             'name' => $name, 'code' => 'SAFE-'.Str::uuid(),
             'branch_id' => $branch->id, 'type' => $type,
-            'current_balance' => $balance, 'is_active' => true,
-        ]);
+            'is_active' => true,
+        ]), fn (Treasury $t) => $t->forceFill(['current_balance' => $balance])->save());
     }
 
     private function confirm(User $u, AiPendingAction $action, ?string $typed = null)

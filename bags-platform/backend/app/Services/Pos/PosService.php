@@ -193,32 +193,32 @@ class PosService
             ')
             ->first();
 
-        $cashSales = (float) ($salesStats?->cash_sales ?? 0);
-        $cardSales = (float) ($salesStats?->card_sales ?? 0);
-
-        $cashReturns = (float) Order::query()
+        // Decimal-only ledger math: every operand arrives as a decimal string
+        // from the database, so no binary float ever enters the computation.
+        $openingCash = BigDecimal::of((string) ($s->opening_cash ?? '0'))->toScale(2, RoundingMode::HalfUp);
+        $cashSales = BigDecimal::of((string) ($salesStats?->cash_sales ?? '0'))->toScale(2, RoundingMode::HalfUp);
+        $cardSales = BigDecimal::of((string) ($salesStats?->card_sales ?? '0'))->toScale(2, RoundingMode::HalfUp);
+        $cashReturns = BigDecimal::of((string) (Order::query()
             ->where('pos_shift_id', $s->id)
             ->where('status', OrderStatus::Returned)
-            ->sum('cash_amount');
-
-        $cashExpenses = (float) Expense::query()
+            ->sum('cash_amount')))->toScale(2, RoundingMode::HalfUp);
+        $cashExpenses = BigDecimal::of((string) (Expense::query()
             ->where('shift_id', $s->id)
             ->whereNull('voided_at')
-            ->sum('amount');
-
-        $openingCash = (float) $s->opening_cash;
+            ->sum('amount')))->toScale(2, RoundingMode::HalfUp);
         $expectedClosingCash = $openingCash
-            + $cashSales
-            - $cashReturns
-            - $cashExpenses;
+            ->plus($cashSales)
+            ->minus($cashReturns)
+            ->minus($cashExpenses)
+            ->toScale(2, RoundingMode::HalfUp);
 
         return [
-            'opening_cash' => $openingCash,
-            'cash_sales_total' => $cashSales,
-            'card_sales_total' => $cardSales,
-            'cash_returns_total' => $cashReturns,
-            'cash_expenses_total' => $cashExpenses,
-            'expected_closing_cash' => $expectedClosingCash,
+            'opening_cash' => $openingCash->toFloat(),
+            'cash_sales_total' => $cashSales->toFloat(),
+            'card_sales_total' => $cardSales->toFloat(),
+            'cash_returns_total' => $cashReturns->toFloat(),
+            'cash_expenses_total' => $cashExpenses->toFloat(),
+            'expected_closing_cash' => $expectedClosingCash->toFloat(),
             'invoices_count' => Order::where('pos_shift_id', $s->id)->where('status', OrderStatus::Delivered)->count(),
         ];
     }
@@ -260,34 +260,39 @@ class PosService
     /**
      * Computes an MD5 version hash of the branch product catalog and stock levels.
      *
+     * The aggregates are O(1) in working memory: COUNT/MAX/SUM over a single
+     * pass with a commutative hash accumulator, so no ORDER BY sort and no
+     * giant string_agg buffer is ever built in PostgreSQL.
+     *
      * @param  int  $branchId  Target branch ID
      * @return string 32-character MD5 hex string
      */
     public function computeCatalogVersion(int $branchId): string
     {
-        $maxVariantUpdated = (string) (ProductVariant::query()->max('updated_at') ?? '');
-        // Catalog contents can change more than once in the same second.
-        $stockVersion = $this->catalogStockLevels($branchId)->toBase()->selectRaw(
-            "md5(string_agg(json_build_array(
-                id, product_variant_id, on_hand, available, reorder_level
-            )::text, ',' ORDER BY id)) as version"
-        )->value('version');
-        $productVersion = Product::query()
+        $variantMax = (string) (ProductVariant::query()->max('updated_at') ?? '');
+
+        // Catalog contents can change more than once in the same second, so
+        // row counts and content hashes join the timestamp in the version.
+        $stock = $this->catalogStockLevels($branchId)->toBase()->selectRaw(
+            "COUNT(*) AS c, MAX(updated_at) AS m, COALESCE(SUM(hashtextextended(concat_ws('|', id, product_variant_id, on_hand, available, reorder_level), 0)), 0) AS h"
+        )->first();
+        $products = Product::query()
             ->where('is_active', true)
             ->whereNotNull('published_at')
             ->toBase()
-            ->selectRaw("md5(string_agg(concat(id, ':', updated_at), ',' ORDER BY id)) as version")
-            ->value('version');
+            ->selectRaw('COUNT(*) AS c, MAX(updated_at) AS m')
+            ->first();
         // Use the eligible prices so schedule boundaries also change the tag.
-        $pricingVersion = $this->catalogPriceItems($branchId)->toBase()->selectRaw(
-            "md5(string_agg(json_build_array(
-                price_list_items.id, price_list_items.product_variant_id,
-                price_list_items.min_qty, price_list_items.price,
-                price_lists.type, price_lists.branch_id, price_lists.priority
-            )::text, ',' ORDER BY price_list_items.id)) as version"
-        )->value('version');
+        $pricing = $this->catalogPriceItems($branchId)->toBase()->selectRaw(
+            "COUNT(*) AS c, MAX(price_list_items.updated_at) AS m, COALESCE(SUM(hashtextextended(concat_ws('|', price_list_items.id, price_list_items.product_variant_id, price_list_items.min_qty, price_list_items.price), 0)), 0) AS h"
+        )->first();
 
-        return md5($maxVariantUpdated.'|'.$stockVersion.'|'.$productVersion.'|'.$pricingVersion);
+        return md5(implode('|', [
+            $variantMax,
+            $stock->c ?? 0, (string) ($stock->m ?? ''), (string) ($stock->h ?? 0),
+            $products->c ?? 0, (string) ($products->m ?? ''),
+            $pricing->c ?? 0, (string) ($pricing->m ?? ''), (string) ($pricing->h ?? 0),
+        ]));
     }
 
     /**
@@ -314,12 +319,15 @@ class PosService
             }
 
             $totals = $this->computeShiftTotals($shift);
-            $expectedClosingCash = $totals['expected_closing_cash'];
-            $cashDifference = $actualCash - $expectedClosingCash;
+            // Decimal compare: re-materialize both sides from their decimal
+            // strings so the cent difference is exact, never a float residue.
+            $expectedClosing = BigDecimal::of((string) $totals['expected_closing_cash'])->toScale(2, RoundingMode::HalfUp);
+            $actualClosing = BigDecimal::of((string) $actualCash)->toScale(2, RoundingMode::HalfUp);
+            $cashDifference = $actualClosing->minus($expectedClosing)->toScale(2, RoundingMode::HalfUp);
 
             // Cash discrepancies must carry an explanation; the server enforces it so
             // the requirement cannot be bypassed by a non-UI client.
-            if ($this->minor($cashDifference) !== 0 && trim((string) $notes) === '') {
+            if (! $cashDifference->isZero() && trim((string) $notes) === '') {
                 throw new BusinessException('ملاحظات الإغلاق مطلوبة عند وجود فرق في النقدية.');
             }
 
@@ -330,9 +338,9 @@ class PosService
                 'card_sales_total' => $totals['card_sales_total'],
                 'cash_returns_total' => $totals['cash_returns_total'],
                 'cash_expenses_total' => $totals['cash_expenses_total'],
-                'expected_closing_cash' => $expectedClosingCash,
-                'actual_closing_cash' => $actualCash,
-                'cash_difference' => $cashDifference,
+                'expected_closing_cash' => (string) $expectedClosing,
+                'actual_closing_cash' => (string) $actualClosing,
+                'cash_difference' => (string) $cashDifference,
                 'notes' => $notes,
             ]);
 
@@ -365,13 +373,22 @@ class PosService
             if ((int) $shift->user_id === (int) $approver->id) {
                 throw new BusinessException('لا يمكن اعتماد وردية فتحتها بنفسك؛ يلزم اعتماد موظف آخر.');
             }
+            // Segregation of duties: the supervisor who force-closed the
+            // drawer cannot also approve it; a second supervisor must review.
+            if ($shift->force_closed_by !== null && (int) $shift->force_closed_by === (int) $approver->id) {
+                throw new BusinessException('لا يمكن اعتماد وردية أغلقتها قسرياً بنفسك؛ يلزم اعتماد مشرف آخر.');
+            }
+
+            // Settle the drawer into the main safe BEFORE flipping the status
+            // so a zero-zero shift (or any retry) cannot be marked approved
+            // without its settlement marker, and repeats stay rejected.
+            $this->treasury->settleShiftToMainSafe($shift, $approver->id);
+
             $shift->update([
                 'status' => PosShiftStatus::Approved,
                 'approved_at' => now(),
                 'approved_by' => $approver->id,
             ]);
-
-            $this->treasury->settleShiftToMainSafe($shift, $approver->id);
 
             return $shift->fresh();
         });
@@ -407,6 +424,8 @@ class PosService
                 'closed_at' => null,
                 'actual_closing_cash' => null,
                 'cash_difference' => null,
+                // The voided force-closure no longer taints the next approval.
+                'force_closed_by' => null,
                 'notes' => $reason,
             ]);
 
@@ -417,29 +436,39 @@ class PosService
     }
 
     /**
-     * Force-closes an open shift at its computed expected cash when the cashier
-     * cannot close it (for example after losing the terminal session).
+     * Force-closes an open shift at the supervisor's physically counted cash
+     * when the cashier cannot close it (for example after losing the terminal
+     * session). The counted amount is mandatory: assuming expected == actual
+     * would silently move phantom cash into the branch main safe.
      *
      * @param  PosShift  $shift  Open shift
      * @param  User  $approver  Supervisor performing the forced close
+     * @param  float  $actualClosingCash  Physical cash counted by the supervisor
      * @param  string  $reason  Mandatory audit reason
      * @return PosShift Shift awaiting approval
      *
-     * @throws BusinessException If shift is not open
+     * @throws BusinessException If shift is not open or the counted cash is invalid
      */
-    public function forceCloseShift(PosShift $shift, User $approver, string $reason): PosShift
+    public function forceCloseShift(PosShift $shift, User $approver, float $actualClosingCash, string $reason): PosShift
     {
         if ($shift->status !== PosShiftStatus::Open) {
             throw new BusinessException('يمكن الإغلاق القسري للورديات المفتوحة فقط.');
         }
 
-        return DB::transaction(function () use ($shift, $approver, $reason): PosShift {
+        return DB::transaction(function () use ($shift, $approver, $actualClosingCash, $reason): PosShift {
             $shift = $this->lockOpenShift($shift);
             app(BranchAccess::class)->assertBranch($approver->id, $shift->branch_id);
             app(BranchAccess::class)->lockActiveBranch((int) $shift->branch_id);
 
+            if (! is_finite($actualClosingCash) || $actualClosingCash < 0) {
+                throw new BusinessException('النقدية الفعلية المجردة غير صالحة.');
+            }
+
             $totals = $this->computeShiftTotals($shift);
-            $expected = $totals['expected_closing_cash'];
+            // Decimal-only compare so cent fractions reconcile exactly.
+            $expectedClosing = BigDecimal::of((string) $totals['expected_closing_cash'])->toScale(2, RoundingMode::HalfUp);
+            $actualClosing = BigDecimal::of((string) $actualClosingCash)->toScale(2, RoundingMode::HalfUp);
+            $cashDifference = $actualClosing->minus($expectedClosing)->toScale(2, RoundingMode::HalfUp);
 
             $shift->update([
                 'status' => PosShiftStatus::ClosedPendingApproval,
@@ -448,9 +477,10 @@ class PosService
                 'card_sales_total' => $totals['card_sales_total'],
                 'cash_returns_total' => $totals['cash_returns_total'],
                 'cash_expenses_total' => $totals['cash_expenses_total'],
-                'expected_closing_cash' => $expected,
-                'actual_closing_cash' => $expected,
-                'cash_difference' => 0,
+                'expected_closing_cash' => (string) $expectedClosing,
+                'actual_closing_cash' => (string) $actualClosing,
+                'cash_difference' => (string) $cashDifference,
+                'force_closed_by' => $approver->id,
                 'notes' => $reason,
             ]);
 
@@ -491,6 +521,7 @@ class PosService
      *     payment_method?: string,
      *     cash_amount?: float,
      *     card_amount?: float,
+     *     exchange_credit?: float,
      *     notes?: string|null,
      *     override_price?: bool,
      * } $payload Sale parameters
@@ -508,20 +539,30 @@ class PosService
             $shift = $this->lockOpenShift($shift);
             $actor = User::findOrFail($shift->user_id);
 
+            // A hold already consumed by resumeHeld leaves no row behind; the
+            // sale proceeds as a normal sale and repeats are guarded by the
+            // Idempotency-Key. An existing row is still branch- and
+            // owner-checked, then consumed here so a direct (unresumed) sale
+            // cannot be replayed against the same parked cart.
             $heldSale = null;
             if (! empty($payload['held_sale_id'])) {
                 $heldSale = PosHeldSale::query()
                     ->whereKey((int) $payload['held_sale_id'])
-                    ->where('branch_id', $shift->branch_id)
                     ->lockForUpdate()
                     ->first();
 
-                if ($heldSale === null) {
-                    throw new BusinessException('الفاتورة المعلقة غير موجودة أو تم استخدامها بالفعل.');
-                }
+                if ($heldSale !== null) {
+                    app(BranchAccess::class)->assertBranch($actor->id, (int) $heldSale->branch_id);
+                    if ((int) $heldSale->branch_id !== (int) $shift->branch_id) {
+                        throw new BusinessException('الفاتورة المعلقة تخص فرعاً آخر.');
+                    }
 
-                if ($heldSale->user_id !== $actor->id && ! $actor->can('pos.held.view_all')) {
-                    throw new AuthorizationException('لا تملك صلاحية استئناف فاتورة معلقة لمصرفي آخر.');
+                    if ($heldSale->user_id !== $actor->id && ! $actor->can('pos.held.view_all')) {
+                        throw new AuthorizationException('لا تملك صلاحية استئناف فاتورة معلقة لمصرفي آخر.');
+                    }
+
+                    $heldSale->delete();
+                    $heldSale = null;
                 }
             }
             if (! empty($payload['override_price']) && ! $actor->can('pos.override_price')) {
@@ -536,8 +577,11 @@ class PosService
                 ->get(['branch_id', 'location_id', 'product_variant_id']);
             $levels = $this->inventory->lockLevels($stockRows->map->getAttributes()->all());
             $customer = isset($payload['customer_id'])
-                ? Customer::find($payload['customer_id'])
+                ? Customer::withTrashed()->find($payload['customer_id'])
                 : null;
+            if ($customer !== null && ($customer->trashed() || ! $customer->canShop())) {
+                throw new BusinessException('العميل المحدد غير صالح أو موقوف.');
+            }
 
             $overridePrice = (bool) ($payload['override_price'] ?? false);
             if ($overridePrice && filled($payload['override_reason'] ?? null)) {
@@ -555,23 +599,27 @@ class PosService
             $discountTotal = $totals['discount_total'];
             $grandTotal = $totals['grand_total'];
 
-            if ($grandTotal < 0) {
-                throw new BusinessException('إجمالي الفاتورة لا يمكن أن يكون سالبًا.');
+            // Split payments must reconcile down to the cent against the calculated grand total.
+            $grandCents = $this->minor($grandTotal);
+            if ($grandCents <= 0) {
+                throw new BusinessException('إجمالي الفاتورة يجب أن يكون أكبر من صفر.');
+            }
+            $creditCents = $this->minor($payload['exchange_credit'] ?? 0);
+            if ($creditCents < 0 || $creditCents > $grandCents) {
+                throw new BusinessException('رصيد الاستبدال غير صالح.');
             }
 
-            $cashAmount = (float) ($payload['cash_amount'] ?? $grandTotal);
+            $cashAmount = (float) ($payload['cash_amount'] ?? ($grandCents - $creditCents) / 100);
             $cardAmount = (float) ($payload['card_amount'] ?? 0);
 
             if ($cashAmount < 0 || $cardAmount < 0) {
                 throw new BusinessException('مبالغ الدفع يجب ألا تكون سالبة.');
             }
 
-            // Split payments must reconcile down to the cent against the calculated grand total.
-            $grandCents = $this->minor($grandTotal);
             $paidCents = $this->minor($cashAmount) + $this->minor($cardAmount);
 
-            if ($paidCents !== $grandCents) {
-                throw new BusinessException('مجموع المبالغ (نقدي + بطاقة) لا يساوي إجمالي الفاتورة.');
+            if ($paidCents + $creditCents !== $grandCents) {
+                throw new BusinessException('مجموع المبالغ (نقدي + بطاقة + رصيد استبدال) لا يساوي إجمالي الفاتورة.');
             }
 
             $orderNumber = $this->settings->generateNextNumber('order');
@@ -601,6 +649,7 @@ class PosService
                 'grand_total' => $grandTotal,
                 'cash_amount' => $cashAmount,
                 'card_amount' => $cardAmount,
+                'exchange_credit' => number_format($creditCents / 100, 2, '.', ''),
             ]);
 
             foreach ($items as $item) {
@@ -664,8 +713,6 @@ class PosService
                 ]);
             }
 
-            $heldSale?->delete();
-
             return $order->load(['items.variant', 'customer']);
         });
     }
@@ -685,7 +732,8 @@ class PosService
         PosShift $shift,
         Order $originalOrder,
         array $returnedItems,
-        array $exchangeItems = []
+        array $exchangeItems = [],
+        float $exchangeCredit = 0.0
     ): array {
         if ($shift->status !== PosShiftStatus::Open) {
             throw new BusinessException('الوردية غير مفتوحة — لا يمكن إجراء أي مرتجع.');
@@ -695,7 +743,7 @@ class PosService
             throw new BusinessException('يمكن مرتجع طلبات POS فقط من شاشة الـ POS.');
         }
 
-        return DB::transaction(function () use ($shift, $originalOrder, $returnedItems, $exchangeItems): array {
+        return DB::transaction(function () use ($shift, $originalOrder, $returnedItems, $exchangeItems, $exchangeCredit): array {
             $shift = $this->lockOpenShift($shift);
             // Lock original order row to serialize concurrent refund requests against the same receipt.
             /** @var Order $originalOrder */
@@ -805,6 +853,14 @@ class PosService
                 $maxCashRefund = round((float) $originalOrder->cash_amount - $previousCashRefunded, 2);
                 $cashRefund = min($returnValue, max(0.0, $maxCashRefund));
 
+                // Exchange netting: the portion of the refund consumed as credit
+                // against the replacement sale never touches the drawer. Cash is
+                // consumed first so card reversals shrink only when credit remains.
+                $credit = min(max(0.0, $exchangeCredit), $returnValue);
+                $cashCovered = min($cashRefund, $credit);
+                $cashRefund = round($cashRefund - $cashCovered, 2);
+                $cardRefund = round($returnValue - $credit - $cashRefund, 2);
+
                 $locationId = $this->inventory->receivingLocation((int) $shift->branch_id);
                 $levels = $this->inventory->lockLevels(array_map(fn ($variantId) => [
                     'product_variant_id' => $variantId, 'branch_id' => $shift->branch_id, 'location_id' => $locationId,
@@ -828,7 +884,17 @@ class PosService
                         ->where('reference_id', $originalOrder->id)->where('product_variant_id', $variantId)->where('type', 'sale')->value('unit_cost');
                     $this->inventory->recordMovement([...$base, 'unit_cost' => $saleCost], $level);
                     if ($line['return_to'] === 'damaged') {
-                        $this->inventory->recordMovement([...$base, 'type' => StockMovementType::Damage, 'affected_bucket' => StockBucket::Damaged], $level);
+                        // SaleReturn must stay pointed at OnHand (previous-quantity
+                        // accounting filters by type only), so move the unit out of
+                        // the sellable bucket explicitly before booking it damaged.
+                        $this->inventory->recordMovement([
+                            ...$base,
+                            'type' => StockMovementType::DamageWriteOff,
+                            'affected_bucket' => StockBucket::OnHand,
+                            'quantity' => -$line['qty'],
+                            'unit_cost' => $saleCost,
+                        ], $level);
+                        $this->inventory->recordMovement([...$base, 'type' => StockMovementType::Damage, 'affected_bucket' => StockBucket::Damaged, 'unit_cost' => $saleCost], $level);
                     }
                 }
 
@@ -848,7 +914,10 @@ class PosService
                     'tax_amount' => 0,
                     'grand_total' => $returnValue,
                     'cash_amount' => $cashRefund,
-                    'card_amount' => round($returnValue - $cashRefund, 2),
+                    'card_amount' => $cardRefund,
+                    // Credit consumed against the replacement sale: the tender
+                    // invariant reads cash + card + credit == grand total.
+                    'exchange_credit' => number_format($credit, 2, '.', ''),
                 ];
                 $returnAttrs['return_of_order_id'] = $originalOrder->id;
                 $returnAttrs['requires_refund'] = $returnAttrs['card_amount'] > 0;
@@ -1218,6 +1287,10 @@ class PosService
      */
     public function quote(int $branchId, array $items, ?Customer $c = null, bool $override = false, ?User $actor = null): array
     {
+        if ($c !== null && ($c->trashed() || ! $c->canShop())) {
+            throw new BusinessException('العميل المحدد غير صالح أو موقوف.');
+        }
+
         $resolved = $this->resolveItems($branchId, $items, $c, $override, false, $actor);
         $totals = $this->computeCartTotals($resolved);
 
@@ -1396,7 +1469,29 @@ class PosService
 
         return DB::transaction(function () use ($shift, $data, $userId): Expense {
             $shift = $this->lockOpenShift($shift);
+            $actor = User::findOrFail($userId);
+            app(BranchAccess::class)->assertBranch($actor->id, (int) $shift->branch_id);
+            if ((int) $actor->id !== (int) $shift->user_id && ! $actor->can('pos_shifts.approve')) {
+                throw new AuthorizationException('لا تملك صلاحية تسجيل مصروف على هذه الوردية.');
+            }
             app(BranchAccess::class)->lockActiveBranch((int) $shift->branch_id);
+
+            $category = trim((string) ($data['category'] ?? ''));
+            if ($category === '') {
+                throw new BusinessException('فئة المصروف مطلوبة.');
+            }
+            if (! array_key_exists('amount', $data) || $data['amount'] === null || trim((string) $data['amount']) === '') {
+                throw new BusinessException('مبلغ المصروف مطلوب.');
+            }
+            try {
+                $amount = BigDecimal::of((string) $data['amount'])->toScale(2, RoundingMode::HalfUp);
+            } catch (\Throwable) {
+                throw new BusinessException('المبلغ المالي غير صالح؛ يُسمح بخانتين عشريتين فقط.');
+            }
+            if (! $amount->isPositive()) {
+                throw new BusinessException('مبلغ المصروف يجب أن يكون أكبر من صفر.');
+            }
+
             $expenseNumber = $this->settings->generateNextNumber('expense');
 
             $expense = Expense::create([
@@ -1404,8 +1499,8 @@ class PosService
                 'branch_id' => $shift->branch_id,
                 'treasury_id' => $shift->treasury_id,
                 'shift_id' => $shift->id,
-                'category' => $data['category'],
-                'amount' => $data['amount'],
+                'category' => $category,
+                'amount' => (string) $amount,
                 'expense_date' => $data['expense_date'] ?? today(),
                 'attachment_path' => $data['attachment_path'] ?? null,
                 'notes' => $data['notes'] ?? null,
@@ -1416,11 +1511,11 @@ class PosService
                 'treasury_id' => $shift->treasury_id,
                 'shift_id' => $shift->id,
                 'type' => TreasuryTransactionType::Expense,
-                'amount' => -(float) $data['amount'],
+                'amount' => (string) $amount->negated(),
                 'reference_type' => Expense::class,
                 'reference_id' => $expense->id,
                 'created_by' => $userId,
-                'notes' => "مصروف: {$data['category']} #{$expenseNumber}",
+                'notes' => "مصروف: {$category} #{$expenseNumber}",
             ]);
 
             return $expense;

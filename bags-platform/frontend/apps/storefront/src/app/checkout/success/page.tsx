@@ -56,9 +56,9 @@ function CheckoutSuccessContent() {
       return;
     }
     accountEndpoints
-      .orders()
-      .then(({ data: orders }) => {
-        if (active) setOrder(orders.find((o) => o.order_number === orderNumber) ?? null);
+      .order(orderNumber)
+      .then((found) => {
+        if (active) setOrder(found ?? null);
       })
       .catch(() => {})
       .finally(() => {

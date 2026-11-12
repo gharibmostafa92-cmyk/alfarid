@@ -17,9 +17,16 @@ interface WebSession {
 
 export const useAuthStore = create<WebSession>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       token: null, actorType: null, destination: null, home: null, user: null,
-      setSession: (s) => { setAuthToken(s.token); resetCartIdentity(); set({ ...s }); },
+      // Re-verifying the same session must not wipe the guest cart, last order or
+      // pending checkout; only an actual identity switch invalidates cart state.
+      setSession: (s) => {
+        const switched = get().token !== s.token;
+        setAuthToken(s.token);
+        if (switched) resetCartIdentity();
+        set({ ...s });
+      },
       clear: () => { setAuthToken(null); resetCartIdentity(); set({ token: null, actorType: null, destination: null, home: null, user: null }); },
     }),
     {
@@ -40,7 +47,12 @@ if (typeof window !== 'undefined') {
   });
   setUnauthorizedHandler(() => {
     useAuthStore.getState().clear();
-    if (window.location.pathname.startsWith('/auth/') || window.location.pathname === '/wholesale/register') return;
-    window.location.href = `/auth/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+    const { pathname, search } = window.location;
+    if (pathname.startsWith('/auth/') || pathname === '/wholesale/register') return;
+    // Public storefront pages must degrade to a guest session instead of forcing a
+    // login redirect that also drops the current query string.
+    const protectedPrefixes = ['/account', '/supplier', '/wholesale'];
+    if (!protectedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) return;
+    window.location.href = `/auth/login?redirect=${encodeURIComponent(pathname + search)}`;
   });
 }

@@ -18,6 +18,8 @@ interface CheckoutModalProps {
   customer: Customer | null;
   quote: QuoteResult | null;
   isQuoting: boolean;
+  /** Server id of the resumed held sale: sent as held_sale_id so the server consumes it atomically. */
+  heldSaleId?: number | null;
   onPaid: () => void;
   onAttemptSettled: () => void;
   pendingOwner: string | undefined;
@@ -32,6 +34,7 @@ export function CheckoutModal({
   customer,
   quote,
   isQuoting,
+  heldSaleId,
   onPaid,
   onAttemptSettled,
   pendingOwner,
@@ -146,6 +149,7 @@ export function CheckoutModal({
       cashCents,
       overridePrice: cart.some((line) => line.manualPrice),
       notes: finalNotes,
+      heldSaleId: heldSaleId ?? null,
     });
 
     try {
@@ -183,7 +187,14 @@ export function CheckoutModal({
       onPaid();
     } catch (err: any) {
       const apiErr = normalizeError(err);
-      setErrorMsg(apiErr.status === 0 ? 'لم يتأكد تسجيل الفاتورة بعد. أعد المحاولة لتأكيدها.' : apiErr.message);
+      // A timeout (ECONNABORTED surfaces here as a status-0 network failure) must
+      // never be retried by editing the cart blindly: the first attempt may have
+      // committed, and a second sale would diverge from it.
+      setErrorMsg(
+        apiErr.status === 0
+          ? 'انتهت مهلة الاتصال ولم يتأكد تسجيل الفاتورة. تحقق من آخر فاتورة في الوردية قبل تعديل السلة لتجنب فاتورة مكررة.'
+          : apiErr.message,
+      );
       setStage('pay');
     } finally {
       isSubmittingRef.current = false;

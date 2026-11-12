@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Catalog;
 
+use App\Exceptions\BusinessException;
 use App\Models\Banner;
 use App\Support\BannerImage;
 use Carbon\CarbonImmutable;
@@ -91,7 +92,17 @@ final class BannerService
     public function reorder(string $position, array $ids): void
     {
         DB::transaction(function () use ($position, $ids): void {
-            foreach (array_values($ids) as $i => $id) {
+            $ordered = array_values(array_unique(array_map('intval', $ids)));
+            // Lock the affected rows in a deterministic id order so concurrent
+            // reorders cannot interleave or deadlock while assigning sort orders.
+            Banner::query()
+                ->whereIn('id', $ordered)
+                ->where('position', $position)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get(['id']);
+
+            foreach ($ordered as $i => $id) {
                 Banner::where('id', $id)->where('position', $position)->update(['sort_order' => $i + 1]);
             }
         });
@@ -142,7 +153,17 @@ final class BannerService
      */
     private function storeImage(UploadedFile $file): string
     {
-        $path = $file->storeAs('banners', Str::uuid().'.'.$file->extension(), BannerImage::disk());
+        // Never trust the client-supplied name or Symfony's guess: derive the
+        // extension from the sniffed MIME type and reject anything else.
+        $extension = match ($file->getMimeType()) {
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/webp' => 'webp',
+            'image/avif' => 'avif',
+            default => throw new BusinessException('صيغة صورة البانر غير مدعومة.', [], 422),
+        };
+
+        $path = $file->storeAs('banners', Str::uuid().'.'.$extension, BannerImage::disk());
         if ($path === false) {
             throw new \RuntimeException('The banner image could not be stored.');
         }

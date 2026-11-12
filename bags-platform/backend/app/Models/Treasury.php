@@ -20,7 +20,6 @@ class Treasury extends Model
         'code',
         'branch_id',
         'type',
-        'current_balance',
         'is_active',
     ];
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, PImg, Api, KPI, FilterSelect, Empty, cx } from '../ui/SharedUI';
-import { posMockService } from '../../services/pos-mock.service';
+import { posMockService } from '../../services/pos-data-source';
 import type { PosProduct, ProductCategory, Branch } from '../../types/pos.types';
 
 interface StockPageProps {

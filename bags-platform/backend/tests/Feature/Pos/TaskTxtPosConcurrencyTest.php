@@ -83,7 +83,7 @@ class TaskTxtPosConcurrencyTest extends PosScenarioFixture
         $this->assertDatabaseCount('treasury_transactions', 3);
     }
 
-    public function test_parallel_resumes_are_read_only_and_held_cart_is_consumed_once(): void
+    public function test_parallel_resume_consumes_hold_once_and_parallel_sales_dedupe_by_idempotency_key(): void
     {
         $held = $this->withToken($this->token)->postJson('/api/v1/pos/sales/hold', [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
@@ -96,21 +96,28 @@ class TaskTxtPosConcurrencyTest extends PosScenarioFixture
             $this->httpJob($this->token, 'POST', $url),
         ]);
 
-        $this->assertEqualsCanonicalizing([200, 200], array_column($results, 'status'));
-        $this->assertSame($this->variant->id, $results[0]['body']['data']['items_payload'][0]['product_variant_id']);
-        $this->assertDatabaseHas('pos_held_sales', ['id' => $heldId]);
+        // Exactly one resume wins the row lock; the loser 404s on the consumed hold.
+        $this->assertEqualsCanonicalizing([200, 404], array_column($results, 'status'));
+        $winner = $results[0]['status'] === 200 ? $results[0] : $results[1];
+        $this->assertSame($this->variant->id, $winner['body']['data']['items_payload'][0]['product_variant_id']);
+        $this->assertDatabaseMissing('pos_held_sales', ['id' => $heldId]);
 
+        // Both sales reference the consumed hold and share one Idempotency-Key,
+        // so exactly one order is created and both callers see it.
         $salePayload = [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
             'cash_amount' => 100.00,
             'held_sale_id' => $heldId,
         ];
+        $sharedKey = $this->idemHeaders();
         $sales = $this->concurrentJobs([
-            $this->httpJob($this->token, 'POST', '/api/v1/pos/sales', $salePayload, $this->idemHeaders()),
-            $this->httpJob($this->token, 'POST', '/api/v1/pos/sales', $salePayload, $this->idemHeaders()),
+            $this->httpJob($this->token, 'POST', '/api/v1/pos/sales', $salePayload, $sharedKey),
+            $this->httpJob($this->token, 'POST', '/api/v1/pos/sales', $salePayload, $sharedKey),
         ]);
 
-        $this->assertEqualsCanonicalizing([201, 422], array_column($sales, 'status'));
+        $this->assertSame([201, 201], array_column($sales, 'status'));
+        $this->assertSame($sales[0]['body']['data']['id'], $sales[1]['body']['data']['id']);
+        $this->assertSame(1, Order::query()->count());
         $this->assertDatabaseMissing('pos_held_sales', ['id' => $heldId]);
     }
 

@@ -10,6 +10,7 @@ use App\Models\PosShift;
 use App\Models\User;
 use App\Services\Inventory\BranchAccess;
 use App\Services\Pos\PosService;
+use App\Services\Shared\OperationIdempotencyService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -34,6 +35,7 @@ class PosShiftAdminController extends Controller implements HasMiddleware
     public function __construct(
         private readonly PosService $pos,
         private readonly BranchAccess $branchAccess,
+        private readonly OperationIdempotencyService $idempotency,
     ) {}
 
     /**
@@ -53,7 +55,12 @@ class PosShiftAdminController extends Controller implements HasMiddleware
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
-        $branch = $this->branchAccess->restrictedBranch($request->user());
+        // A branch-scoped admin probing another branch is rejected with 403
+        // via assertBranch instead of silently receiving an empty list.
+        $branch = $this->branchAccess->restrictedBranch($request->user('staff'));
+        if ($branch !== null && isset($filters['branch_id'])) {
+            $this->branchAccess->assertBranch($request->user('staff')->id, (int) $filters['branch_id']);
+        }
         $shifts = PosShift::query()->when($branch !== null, fn ($q) => $q->where('branch_id', $branch))
             ->with(['cashier', 'treasury', 'branch', 'approver'])
             ->when($filters['branch_id'] ?? null, fn ($q, $v) => $q->where('branch_id', $v))
@@ -79,7 +86,7 @@ class PosShiftAdminController extends Controller implements HasMiddleware
      */
     public function show(Request $request, PosShift $shift): JsonResponse
     {
-        $this->branchAccess->assertBranch($request->user()->id, $shift->branch_id);
+        $this->branchAccess->assertBranch($request->user('staff')->id, $shift->branch_id);
 
         return response()->json([
             'data' => $shift->load(['cashier', 'treasury', 'branch', 'approver', 'expenses']),
@@ -96,10 +103,19 @@ class PosShiftAdminController extends Controller implements HasMiddleware
     public function approve(Request $request, PosShift $shift): JsonResponse
     {
         /** @var User $approver */
-        $approver = $request->user();
+        $approver = $request->user('staff');
         $this->branchAccess->assertBranch($approver->id, $shift->branch_id);
 
-        $shift = $this->pos->approveShift($shift, $approver);
+        $idempotencyKey = $request->header('Idempotency-Key');
+        $shift = $idempotencyKey !== null
+            ? $this->idempotency->run(
+                'pos_shift_approve',
+                $approver,
+                $idempotencyKey,
+                ['shift_id' => $shift->id],
+                fn () => $this->pos->approveShift($shift, $approver),
+            )
+            : $this->pos->approveShift($shift, $approver);
 
         return response()->json([
             'message' => 'تم اعتماد الوردية وترحيل النقدية للخزنة الرئيسية.',
@@ -125,7 +141,7 @@ class PosShiftAdminController extends Controller implements HasMiddleware
         ]);
 
         /** @var User $approver */
-        $approver = $request->user();
+        $approver = $request->user('staff');
         $this->branchAccess->assertBranch($approver->id, $shift->branch_id);
 
         $shift = $this->pos->reopenShiftForRecount($shift, $approver, $data['reason']);
@@ -137,19 +153,20 @@ class PosShiftAdminController extends Controller implements HasMiddleware
     }
 
     /**
-     * Force-closes an open shift at its computed expected cash.
+     * Force-closes an open shift at the supervisor's physically counted cash.
      */
     public function forceClose(Request $request, PosShift $shift): JsonResponse
     {
         $data = $request->validate([
+            'actual_closing_cash' => ['required', 'numeric', 'min:0', 'max:9999999'],
             'reason' => ['required', 'string', 'min:3', 'max:500'],
         ]);
 
         /** @var User $approver */
-        $approver = $request->user();
+        $approver = $request->user('staff');
         $this->branchAccess->assertBranch($approver->id, $shift->branch_id);
 
-        $shift = $this->pos->forceCloseShift($shift, $approver, $data['reason']);
+        $shift = $this->pos->forceCloseShift($shift, $approver, (float) $data['actual_closing_cash'], $data['reason']);
 
         return response()->json([
             'message' => 'تم الإغلاق القسري للوردية وهي بانتظار الاعتماد.',

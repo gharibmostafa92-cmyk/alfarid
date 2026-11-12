@@ -220,13 +220,13 @@ test('checkout recovers a lost response after reload, then rotates the key after
 
 test('checkout blocks double submission and retries transient HTTP errors with the original request', async (t) => {
   const attempts = [];
-  const failures = [408, 409, 429];
+  const failures = [408, 408, 429, 503];
   let rejectFirst;
   const fixture = checkoutFixture(t, {
     async place(...args) {
       attempts.push(args);
       const status = failures.shift();
-      if (status === 408) return new Promise((resolve, reject) => { rejectFirst = reject; });
+      if (status === 408 && !rejectFirst) return new Promise((resolve, reject) => { rejectFirst = reject; });
       if (status) throw { response: { status } };
       return { data: { order_number: 'ORD-1' } };
     },
@@ -248,7 +248,7 @@ test('checkout blocks double submission and retries transient HTTP errors with t
   rejectFirst({ response: { status: 408 } });
   await inFlight;
 
-  for (const status of [408, 409, 429]) {
+  for (const status of [408, 429, 503]) {
     const view = checkout.render();
     assert.equal(view.uncertain, true, `HTTP ${status} leaves the result uncertain`);
     assert.equal(view.locked, true);
@@ -256,6 +256,97 @@ test('checkout blocks double submission and retries transient HTTP errors with t
   }
   assert.equal(attempts.length, 4);
   for (const attempt of attempts.slice(1)) assert.deepEqual(attempt, attempts[0]);
+  assert.equal(checkout.render().uncertain, true);
+
+  await checkout.render().submit();
+  assert.equal(attempts.length, 5);
+  assert.deepEqual(attempts[4], attempts[0]);
+  assert.equal(checkout.render().uncertain, false);
+  checkout.unmount();
+});
+
+test('checkout treats 409 as a definitive rejection and starts a fresh attempt', async (t) => {
+  const attempts = [];
+  let rejected = false;
+  const fixture = checkoutFixture(t, {
+    async place(...args) {
+      attempts.push(args);
+      if (!rejected) {
+        rejected = true;
+        throw {
+          response: {
+            status: 409,
+            data: { code: 'idempotency_conflict', message: 'هذا المفتاح مستخدم لطلب ببيانات مختلفة.' },
+          },
+        };
+      }
+      return { data: { order_number: 'ORD-2' } };
+    },
+  });
+  const checkout = fixture.mount();
+  const { set } = checkout.render();
+  set('fullName', 'Customer');
+  set('phone', '01012345678');
+  set('cityId', 1);
+  set('street', 'Nile');
+  set('agreeTerms', true);
+  checkout.render();
+  await advanceQuote(t);
+
+  await checkout.render().submit();
+  const rejectedView = checkout.render();
+  assert.equal(rejectedView.uncertain, false);
+  assert.equal(rejectedView.locked, false);
+  assert.equal(rejectedView.canSubmit, true);
+  assert.equal(fixture.storage.has('pending_checkout'), false);
+  assert.match(rejectedView.banner.text, /رفض|بيانات مختلفة/);
+  assert.equal(typeof rejectedView.banner.action.onClick, 'function');
+
+  await rejectedView.submit();
+  assert.equal(attempts.length, 2);
+  assert.notEqual(attempts[1][2], attempts[0][2]);
+  assert.equal(checkout.render().uncertain, false);
+  checkout.unmount();
+});
+
+test('uncertain checkout offers a banner action that unlocks editing and rotates the key', async (t) => {
+  const attempts = [];
+  let fail = true;
+  const fixture = checkoutFixture(t, {
+    async place(...args) {
+      attempts.push(args);
+      if (fail) throw { response: { status: 503 } };
+      return { data: { order_number: 'ORD-3' } };
+    },
+  });
+  const checkout = fixture.mount();
+  const { set } = checkout.render();
+  set('fullName', 'Customer');
+  set('phone', '01012345678');
+  set('cityId', 1);
+  set('street', 'Nile');
+  set('agreeTerms', true);
+  checkout.render();
+  await advanceQuote(t);
+
+  await checkout.render().submit();
+  const stuck = checkout.render();
+  assert.equal(stuck.uncertain, true);
+  assert.equal(stuck.locked, true);
+  assert.equal(typeof stuck.banner.action.onClick, 'function');
+  assert.equal(fixture.storage.has('pending_checkout'), true);
+
+  stuck.banner.action.onClick();
+  const freed = checkout.render();
+  assert.equal(freed.uncertain, false);
+  assert.equal(freed.locked, false);
+  assert.equal(freed.canSubmit, true);
+  assert.equal(fixture.storage.has('pending_checkout'), false);
+
+  fail = false;
+  await freed.submit();
+  assert.equal(attempts.length, 2);
+  assert.notEqual(attempts[1][2], attempts[0][2]);
   assert.equal(checkout.render().uncertain, false);
   checkout.unmount();
 });

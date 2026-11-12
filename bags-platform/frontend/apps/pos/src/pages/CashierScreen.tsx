@@ -4,6 +4,7 @@ import { usePosShiftStore } from '../stores/pos-shift.store';
 import { Button, Input, Modal, Badge } from '@alfarid/ui';
 import { useBranding } from '@alfarid/ui/branding';
 import { formatCurrency } from '@alfarid/utils';
+import { beepError } from '../lib/sound';
 import { Barcode, Trash2, Plus, Minus, CreditCard, Banknote, ShoppingCart, Clock } from 'lucide-react';
 
 export function CashierScreen() {
@@ -12,6 +13,7 @@ export function CashierScreen() {
   const { items, addItem, updateQuantity, removeItem, clearCart, total, subtotal } = usePosCartStore();
   const [barcodeInput, setBarcodeInput] = useState('');
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
   // Sample quick products for the cashier touch/click layout
@@ -30,17 +32,16 @@ export function CashierScreen() {
 
   const handleBarcodeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!barcodeInput.trim()) return;
-    const found = quickProducts.find((p) => p.barcode === barcodeInput.trim());
+    const code = barcodeInput.trim();
+    if (!code) return;
+    const found = quickProducts.find((p) => p.barcode === code);
     if (found) {
+      // Never fabricate a line: unknown barcodes only raise an alert.
+      setScanError(null);
       addItem(found);
     } else {
-      addItem({
-        id: Date.now(),
-        barcode: barcodeInput.trim(),
-        name: `صنف باركود (${barcodeInput.trim()})`,
-        price: 250,
-      });
+      setScanError(code);
+      beepError();
     }
     setBarcodeInput('');
   };
@@ -62,6 +63,12 @@ export function CashierScreen() {
             <span>الكاشير: <strong>{currentShift?.cashierName}</strong></span>
           </div>
         </div>
+
+        {scanError && (
+          <div role="alert" className="mb-3 rounded-xl border border-red-300 bg-red-50 px-4 py-2 text-sm font-medium text-red-700">
+            باركود غير معروف: <span dir="ltr" className="font-mono">{scanError}</span> — تحقق من الصنف ولا تضفه يدويًا
+          </div>
+        )}
 
         {/* Barcode scanner input */}
         <form onSubmit={handleBarcodeSubmit} className="mb-4">

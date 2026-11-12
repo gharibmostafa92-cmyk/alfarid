@@ -10,6 +10,8 @@ interface CustomerBarProps {
   toast: (msg: string, tone?: 'ok' | 'bad') => void;
 }
 
+const isPending = (c: Customer): boolean => c.status === 'Pending' || c.status === 'pending';
+
 export function CustomerBar({ customer, setCustomer, toast }: CustomerBarProps) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
@@ -58,7 +60,11 @@ export function CustomerBar({ customer, setCustomer, toast }: CustomerBarProps) 
           <div className="grow">
             <div className="fs-13 fw-6 row gap-2">
               {customer.name}
-              {customer.tier === 'wholesale' ? (
+              {customer.tier === 'wholesale' && isPending(customer) ? (
+                <span className="badge b-warn" style={{ height: 20, fontSize: 11 }}>
+                  جملة (قيد المراجعة — تطبق أسعار التجزئة)
+                </span>
+              ) : customer.tier === 'wholesale' ? (
                 <span className="badge b-info" style={{ height: 20, fontSize: 11 }}>
                   أسعار جملة
                 </span>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ScanBar } from './ScanBar';
 import { egp, fmt, PImg, cx } from '../ui/SharedUI';
-import { posMockService } from '../../services/pos-mock.service';
+import { posMockService } from '../../services/pos-data-source';
 import type { PosProduct, ProductCategory, Customer, PosCartLine } from '../../types/pos.types';
 
 interface CatalogProps {

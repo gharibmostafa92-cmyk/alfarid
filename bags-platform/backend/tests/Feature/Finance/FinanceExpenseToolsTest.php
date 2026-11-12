@@ -90,9 +90,9 @@ class FinanceExpenseToolsTest extends TestCase
 
     private function treasury(Branch $branch, string $balance = '5000.00'): Treasury
     {
-        return Treasury::create(['name' => 'خزينة '.Str::random(6), 'code' => 'SAFE-'.Str::uuid(),
+        return tap(Treasury::create(['name' => 'خزينة '.Str::random(6), 'code' => 'SAFE-'.Str::uuid(),
             'branch_id' => $branch->id, 'type' => TreasuryType::MainSafe,
-            'current_balance' => $balance, 'is_active' => true]);
+            'is_active' => true]), fn (Treasury $t) => $t->forceFill(['current_balance' => $balance])->save());
     }
 
     private function undo(User $u, AiPendingAction $action)
@@ -128,8 +128,8 @@ class FinanceExpenseToolsTest extends TestCase
     {
         $admin = $this->admin();
         $branch = Branch::factory()->create(['is_active' => true]);
-        $drawer = Treasury::create(['name' => 'درج', 'code' => 'POS-'.Str::uuid(), 'branch_id' => $branch->id,
-            'type' => TreasuryType::PosDrawer, 'current_balance' => '100.00', 'is_active' => true]);
+        $drawer = tap(Treasury::create(['name' => 'درج', 'code' => 'POS-'.Str::uuid(), 'branch_id' => $branch->id,
+            'type' => TreasuryType::PosDrawer, 'is_active' => true]), fn (Treasury $t) => $t->forceFill(['current_balance' => '100.00'])->save());
         $safe = $this->treasury($branch);
 
         $drawerOutcome = $this->propose($admin, 'create_expense', [

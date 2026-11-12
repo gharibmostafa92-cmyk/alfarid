@@ -205,9 +205,13 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
         $this->assertSame(1, StockMovement::query()
             ->where('reference_id', $saleId)
             ->where('type', StockMovementType::Damage)->count());
-        $this->assertSame($onHandAfterSale + 1, (float) $levels->sum('on_hand'));
+        // The damaged unit leaves the sellable bucket again: net OnHand movement is zero.
+        $this->assertSame(1, StockMovement::query()
+            ->where('reference_id', $saleId)
+            ->where('type', StockMovementType::DamageWriteOff)->count());
+        $this->assertSame($onHandAfterSale, (float) $levels->sum('on_hand'));
         $this->assertSame($damagedAfterSale + 1, (float) $levels->sum('damaged'));
-        $this->assertSame($availableAfterSale, (float) $levels->sum('available'));
+        $this->assertSame($availableAfterSale - 1, (float) $levels->sum('available'));
     }
 
     public function test_06_return_from_another_shift_uses_current_drawer(): void
@@ -284,10 +288,11 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
         $sale->assertStatus(201);
         $saleId = $sale->json('data.id');
 
+        // Net tender: the 100 return credit covers the 120 replacement, 20 cash walks in.
         $ex = $this->withToken($token)->postJson("/api/v1/pos/sales/{$saleId}/exchange", [
             'returned_items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
             'exchange_items' => [['product_variant_id' => $variantB->id, 'qty' => 1]],
-            'cash_amount' => 120,
+            'cash_amount' => 20,
             'card_amount' => 0,
         ], $this->idem());
         $ex->assertOk();
@@ -304,10 +309,11 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
             ->where('product_variant_id', $this->variant->id)
             ->where('branch_id', $this->branch->id)->sum('on_hand');
 
+        // Net tender: the 100 return credit covers the 50 replacement in full.
         $fail = $this->withToken($token)->postJson("/api/v1/pos/sales/{$sale2Id}/exchange", [
             'returned_items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
             'exchange_items' => [['product_variant_id' => $variantC->id, 'qty' => 1]],
-            'cash_amount' => 50,
+            'cash_amount' => 0,
             'card_amount' => 0,
         ], $this->idem());
         $fail->assertStatus(422);
@@ -334,10 +340,11 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
         $variantB = $this->makeVariant(120.00);
         $this->stockIn($this->branch->id, $variantB, 5);
 
+        // Net tender: the 100 return credit covers the 120 replacement, 20 cash walks in.
         $res = $this->withToken($token)->postJson("/api/v1/pos/sales/{$saleId}/exchange", [
             'returned_items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
             'exchange_items' => [['product_variant_id' => $variantB->id, 'qty' => 1]],
-            'cash_amount' => 120,
+            'cash_amount' => 20,
             'card_amount' => 0,
         ], $this->idem());
         $res->assertOk();
@@ -362,11 +369,11 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
         ])->assertStatus(422);
 
         // Drawer balance 300 vs opening 500 rejected.
-        $drawer3 = Treasury::create([
+        $drawer3 = tap(Treasury::create([
             'name' => 'Drawer 3', 'code' => 'DRW-03-X',
             'branch_id' => $this->branch->id, 'type' => TreasuryType::PosDrawer,
-            'current_balance' => 300, 'is_active' => true,
-        ]);
+            'is_active' => true,
+        ]), fn (Treasury $t) => $t->forceFill(['current_balance' => 300])->save());
         $cashier3 = $this->makeCashier('third@example.com', $this->branch->id, ['pos.access']);
         $token3 = $this->tokenFor($cashier3);
         $mismatch = $this->withToken($token3)->postJson('/api/v1/pos/shifts/open', [
@@ -511,7 +518,7 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
         $this->assertDatabaseHas('pos_held_sales', ['id' => $freshId]);
     }
 
-    public function test_14_held_resume_is_read_only_and_sale_consumes_hold(): void
+    public function test_14_held_resume_consumes_hold_and_sale_tolerates_consumed_hold(): void
     {
         $token = $this->token;
 
@@ -521,10 +528,12 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
         $hold->assertStatus(201);
         $heldId = $hold->json('data.id');
 
+        // Resume consumes the parked cart atomically: a second resume 404s.
         $this->withToken($token)->postJson("/api/v1/pos/sales/held/{$heldId}/resume")->assertOk();
-        $this->withToken($token)->postJson("/api/v1/pos/sales/held/{$heldId}/resume")->assertOk();
-        $this->assertDatabaseHas('pos_held_sales', ['id' => $heldId]);
+        $this->withToken($token)->postJson("/api/v1/pos/sales/held/{$heldId}/resume")->assertStatus(404);
+        $this->assertDatabaseMissing('pos_held_sales', ['id' => $heldId]);
 
+        // The follow-up sale references the consumed hold and still succeeds.
         $sale = $this->withToken($token)->postJson('/api/v1/pos/sales', [
             'items' => [['product_variant_id' => $this->variant->id, 'qty' => 1]],
             'cash_amount' => 100.00,

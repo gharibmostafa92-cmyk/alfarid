@@ -5,6 +5,7 @@ import { egp, fmt, MoneyInput, Api, Field, cx, useEsc } from '../ui/SharedUI';
 import { pos as posMockService } from '../../services/pos-data-source';
 import type { PosShift, ShiftStats } from '../../types/pos.types';
 import { fromCents, toCents } from '../../lib/money';
+import { normalizeError } from '../../lib/pos-error';
 
 interface CloseShiftModalProps {
   open: boolean;
@@ -59,7 +60,7 @@ export function CloseShiftModal({ open, onClose, shift, onClosed, onCommitted }:
   if (!open || !shift) return null;
 
   const expectedCents = toCents(shift.opening_cash) + toCents(stats.cashSales) - toCents(stats.returns) - toCents(stats.expenses);
-  const expected = closedResult ? closedResult.expected_closing_cash : fromCents(expectedCents);
+  const expected = closedResult ? (closedResult.expected_closing_cash ?? fromCents(expectedCents)) : fromCents(expectedCents);
   const has = actual !== '';
   const diff = closedResult ? (closedResult.cash_difference ?? 0) : fromCents(toCents(actual) - expectedCents);
   const state: 'idle' | 'ok' | 'over' | 'short' = !has
@@ -71,7 +72,7 @@ export function CloseShiftModal({ open, onClose, shift, onClosed, onCommitted }:
     : 'short';
 
   const needNote = false;
-  const canSubmit = statsReady && has && !busy;
+  const canSubmit = statsReady && has && Number.isFinite(Number(actual)) && !busy;
 
   const diffLabel = {
     idle: 'أدخل النقد الفعلي لحساب الفرق',
@@ -99,7 +100,12 @@ export function CloseShiftModal({ open, onClose, shift, onClosed, onCommitted }:
       setClosedResult(res);
       onCommitted(res);
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'تعذر إغلاق الوردية');
+      // Surface the server message (e.g. the 422 for a missing note) instead of a generic Error text.
+      try {
+        setError(normalizeError(error).message);
+      } catch {
+        setError('تعذر إغلاق الوردية');
+      }
     } finally {
       submitting.current = false;
       setBusy(false);
@@ -170,20 +176,24 @@ export function CloseShiftModal({ open, onClose, shift, onClosed, onCommitted }:
                 <span className="num">{egp(closedResult.cash_expenses_total)} ج</span>
               </div>
               <div className="dash" />
-              <div className="rr">
-                <span>النقد المتوقع:</span>
-                <span className="num">{egp(closedResult.expected_closing_cash)} ج</span>
-              </div>
+              {closedResult.expected_closing_cash !== undefined && (
+                <div className="rr">
+                  <span>النقد المتوقع:</span>
+                  <span className="num">{egp(closedResult.expected_closing_cash)} ج</span>
+                </div>
+              )}
               <div className="rr" style={{ fontWeight: 700 }}>
                 <span>النقد الفعلي:</span>
                 <span className="num">{egp(Number(actual))} ج</span>
               </div>
-              <div className="rr">
-                <span>الفرق:</span>
-                <span className="num">
-                  {diff > 0 ? `+${egp(diff)}` : diff < 0 ? `−${egp(Math.abs(diff))}` : '٠'} ج
-                </span>
-              </div>
+              {closedResult.cash_difference != null && (
+                <div className="rr">
+                  <span>الفرق:</span>
+                  <span className="num">
+                    {diff > 0 ? `+${egp(diff)}` : diff < 0 ? `−${egp(Math.abs(diff))}` : '٠'} ج
+                  </span>
+                </div>
+              )}
               {notes && (
                 <div style={{ marginTop: 8, fontSize: 11, color: '#6f6a76' }}>
                   ملاحظات: {notes}

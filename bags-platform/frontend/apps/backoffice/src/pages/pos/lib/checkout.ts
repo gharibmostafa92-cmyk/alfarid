@@ -7,6 +7,8 @@ interface CheckoutPayment {
   cashCents: number;
   overridePrice: boolean;
   notes: string;
+  /** Server id of the resumed held sale, so the server consumes it atomically. */
+  heldSaleId?: number | null;
 }
 
 export function buildCheckoutPayload(quote: QuoteResult, payment: CheckoutPayment): CreateSalePayload {
@@ -21,6 +23,7 @@ export function buildCheckoutPayload(quote: QuoteResult, payment: CheckoutPaymen
     cash_amount: fromCents(cashCents),
     card_amount: fromCents(totalCents - cashCents),
     ...(payment.overridePrice ? { override_price: true } : {}),
+    ...(payment.heldSaleId != null ? { held_sale_id: payment.heldSaleId } : {}),
     notes: payment.notes,
   };
 }

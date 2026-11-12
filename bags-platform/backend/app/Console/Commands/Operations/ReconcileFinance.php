@@ -21,7 +21,7 @@ class ReconcileFinance extends Command
 {
     protected $signature = 'finance:reconcile {--branch_id= : قصر فحص الخزائن على فرع واحد}';
 
-    protected $description = 'مطابقة أرصدة الخزائن والمحافظ مع دفاتر حركاتها وكشف أي كتابة مباشرة';
+    protected $description = 'مطابقة أرصدة الخزائن والمحافظ مع دفاتر حركاتها وكشف أي كتابة مباشرة (عند تمرير --branch_id تُفحص خزائن الفرع فقط دون محافظ العملاء العامة)';
 
     public function handle(): int
     {
@@ -68,8 +68,12 @@ WITH t_ledger AS (
         PARTITION BY wt.customer_id ORDER BY wt.id
     ) AS prev_balance
     FROM customer_wallet_transactions wt
+    WHERE ?::bigint IS NULL
 ), w_sums AS (
-    SELECT customer_id, SUM(amount) AS total FROM customer_wallet_transactions GROUP BY customer_id
+    SELECT customer_id, SUM(amount) AS total
+    FROM customer_wallet_transactions
+    WHERE ?::bigint IS NULL
+    GROUP BY customer_id
 ), w_problems AS (
     SELECT 'wallet_chain' AS issue, l.id AS ref_id, NULL::bigint AS treasury_id, l.customer_id,
         l.prev_balance AS expected, (l.balance_after - l.amount) AS actual
@@ -77,16 +81,21 @@ WITH t_ledger AS (
     UNION ALL
     SELECT 'wallet_balance', c.id, NULL, c.id, COALESCE(s.total, 0::numeric), COALESCE(c.wallet_balance, 0::numeric)
     FROM customers c LEFT JOIN w_sums s ON s.customer_id = c.id
-    WHERE COALESCE(c.wallet_balance, 0::numeric) <> COALESCE(s.total, 0::numeric)
+    WHERE ?::bigint IS NULL
+        AND COALESCE(c.wallet_balance, 0::numeric) <> COALESCE(s.total, 0::numeric)
 ), problems AS (
     SELECT * FROM t_problems UNION ALL SELECT * FROM w_problems
 )
 SELECT (SELECT COUNT(*) FROM treasuries WHERE (?::bigint IS NULL OR branch_id = ?::bigint))
-    + (SELECT COUNT(*) FROM customers) AS checked,
+    + CASE WHEN ?::bigint IS NULL THEN (SELECT COUNT(*) FROM customers) ELSE 0 END AS checked,
     (SELECT COUNT(*) FROM problems) AS problem_count,
     COALESCE((SELECT json_agg(p) FROM (SELECT * FROM problems ORDER BY issue, ref_id LIMIT 100) p), '[]'::json) AS samples
 SQL;
-        $result = DB::selectOne($sql, [$branch, $branch, $branch, $branch, $branch, $branch, $branch, $branch]);
+        $result = DB::selectOne($sql, [
+            $branch, $branch, $branch, $branch, $branch, $branch,
+            $branch, $branch, $branch,
+            $branch, $branch, $branch,
+        ]);
 
         FinanceReconcileRun::query()->create([
             'branch_id' => $branch,

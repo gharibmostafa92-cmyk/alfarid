@@ -98,6 +98,27 @@ test('shift filters preserve dates and serialize booleans using the shared contr
   assert.equal(f.calls[0].body.signal, signal);
 });
 
+test('shiftsApi and expensesApi support idempotency keys and shift lifecycle endpoints', async () => {
+  const f = finance();
+  await f.shiftsApi.approve(9, 'shift-approve-key');
+  await f.shiftsApi.reject(9, 'عد نقدي غير مطابق');
+  await f.shiftsApi.reopen(9, 'إعادة جرد الوردية');
+  await f.shiftsApi.forceClose(9, 'انصراف مفاجئ للكاشير');
+  await f.expensesApi.void(5, 'خطأ إدخال في الفاتورة', 'expense-void-key');
+
+  assert.equal(f.calls[0].url, '/api/v1/admin/shifts/9/approve');
+  assert.deepEqual(f.calls[0].config, { headers: { 'Idempotency-Key': 'shift-approve-key' } });
+  assert.equal(f.calls[1].url, '/api/v1/admin/shifts/9/reject');
+  assert.deepEqual(f.calls[1].body, { reason: 'عد نقدي غير مطابق' });
+  assert.equal(f.calls[2].url, '/api/v1/admin/shifts/9/reopen');
+  assert.deepEqual(f.calls[2].body, { reason: 'إعادة جرد الوردية' });
+  assert.equal(f.calls[3].url, '/api/v1/admin/shifts/9/force-close');
+  assert.deepEqual(f.calls[3].body, { reason: 'انصراف مفاجئ للكاشير' });
+  assert.equal(f.calls[4].url, '/api/v1/admin/expenses/5/void');
+  assert.deepEqual(f.calls[4].body, { void_reason: 'خطأ إدخال في الفاتورة' });
+  assert.deepEqual(f.calls[4].config, { headers: { 'Idempotency-Key': 'expense-void-key' } });
+});
+
 function transferFormHarness(api) {
   const filename = path.resolve(__dirname, '../apps/backoffice/src/pages/admin/operations-mock/finance.tsx');
   const compiled = new Module(filename, module);

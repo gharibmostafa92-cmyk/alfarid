@@ -488,7 +488,7 @@ class TaskTxtVerificationTest extends TestCase
 
         // Non-zero treasury blocks.
         $cashBranch = Branch::factory()->create(['is_active' => true]);
-        \App\Models\Treasury::create(['name' => 'TC', 'code' => 'T-CA-1', 'branch_id' => $cashBranch->id, 'type' => 'main_safe', 'current_balance' => 50]);
+        tap(\App\Models\Treasury::create(['name' => 'TC', 'code' => 'T-CA-1', 'branch_id' => $cashBranch->id, 'type' => 'main_safe']), fn ($t) => $t->forceFill(['current_balance' => 50])->save());
         $this->deactivate($token, $cashBranch)->assertStatus(422);
 
         // Clean branch deactivates; staff of a deactivated branch is fail-closed.

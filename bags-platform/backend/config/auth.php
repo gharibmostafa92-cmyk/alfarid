@@ -7,7 +7,8 @@ use App\Models\User;
 return [
     'require_phone_verification' => env('CUSTOMER_REQUIRE_PHONE_VERIFICATION', false),
     'customer_max_tokens' => (int) env('CUSTOMER_MAX_TOKENS', 10),
-    'customer_token_minutes' => (int) env('CUSTOMER_TOKEN_MINUTES', 43200),
+    // Storefront tokens are long-lived browser credentials; cap them at 72 hours.
+    'customer_token_minutes' => (int) env('CUSTOMER_TOKEN_MINUTES', 4320),
     'supplier_max_tokens' => (int) env('SUPPLIER_MAX_TOKENS', 5),
     // M4: supplier portal tokens expose financial statements; keep them short.
     'supplier_token_minutes' => (int) env('SUPPLIER_TOKEN_MINUTES', 10080),

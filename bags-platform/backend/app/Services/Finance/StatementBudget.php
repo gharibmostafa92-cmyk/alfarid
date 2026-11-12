@@ -27,10 +27,17 @@ final class StatementBudget
             }
             $previous = DB::selectOne("SELECT current_setting('statement_timeout') AS budget")->budget;
             DB::select("SELECT set_config('statement_timeout', ?, true)", [max(1, $milliseconds).'ms']);
-            $result = $callback();
-            DB::select("SELECT set_config('statement_timeout', ?, true)", [$previous]);
 
-            return $result;
+            try {
+                return $callback();
+            } finally {
+                try {
+                    DB::select("SELECT set_config('statement_timeout', ?, true)", [$previous]);
+                } catch (\Throwable) {
+                    // PostgreSQL aborts the active transaction on SQL error (25P02);
+                    // avoid masking the original exception, as ROLLBACK reverts local set_config.
+                }
+            }
         });
     }
 }

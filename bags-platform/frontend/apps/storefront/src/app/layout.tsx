@@ -5,8 +5,6 @@ import { QueryProvider } from '../providers/query-provider';
 import { StorefrontShell } from '@/components/StorefrontShell';
 import { StoreBrandingProvider } from '@/providers/store-branding-provider';
 import { getServerBranding } from '@/lib/core/server-branding';
-// Each document needs a fresh nonce; the branding fetch remains cached for one minute.
-export const revalidate = 60;
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -31,7 +29,9 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  await headers();
+  // Reading the per-request nonce keeps document rendering dynamic and lets Next.js
+  // stamp the same nonce on every generated script tag.
+  const nonce = (await headers()).get('x-nonce') ?? undefined;
   const branding = await getServerBranding();
   return (
     <html lang="en" dir="ltr">
@@ -41,10 +41,12 @@ export default async function RootLayout({
         <link
           href="https://fonts.googleapis.com/css2?family=Oswald:wght@300;400;500;600;700&family=Poppins:wght@300;400;500;600;700&family=Cairo:wght@400;600;700&display=swap"
           rel="stylesheet"
+          nonce={nonce}
         />
         <link
           rel="stylesheet"
           href="/vendor/fontawesome/css/all.min.css"
+          nonce={nonce}
         />
       </head>
       <body className="min-h-screen bg-white text-[#111111] antialiased overflow-x-clip selection:bg-[#159a8c]/15 selection:text-[#111111]">

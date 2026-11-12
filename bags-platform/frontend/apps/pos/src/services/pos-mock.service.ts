@@ -61,9 +61,9 @@ const INITIAL_PRODUCTS: PosProduct[] = [
 ];
 
 const INITIAL_CUSTOMERS: Customer[] = [
-  { id: 15, name: 'مها فتحي', phone: '01012345678', tier: 'wholesale', points: 1240 },
-  { id: 22, name: 'كريم عبد الله', phone: '01155550912', tier: 'retail', points: 320 },
-  { id: 31, name: 'محلات النور للشنط', phone: '01228877410', tier: 'wholesale', points: 0 },
+  { id: 15, name: 'مها فتحي', phone: '01012345678', tier: 'wholesale', points: 1240, status: 'Approved' },
+  { id: 22, name: 'كريم عبد الله', phone: '01155550912', tier: 'retail', points: 320, status: 'Approved' },
+  { id: 31, name: 'محلات النور للشنط', phone: '01228877410', tier: 'wholesale', points: 0, status: 'Pending' },
 ];
 
 const INITIAL_HELD_SEED: PosHeldSale[] = [
@@ -186,6 +186,11 @@ export class PosMockService {
     return { ...this.cashier };
   }
 
+  public async getSettings(): Promise<{ max_discount_percent: number; currency: string }> {
+    await delay(50);
+    return { max_discount_percent: 20, currency: 'EGP' };
+  }
+
   // Shift API
   public async getTreasuries(): Promise<Treasury[]> {
     await delay(120);
@@ -306,6 +311,7 @@ export class PosMockService {
       phone: data.phone,
       tier: data.tier,
       points: 0,
+      status: data.tier === 'wholesale' ? 'Pending' : 'Approved',
     };
     this.customers.push(newCust);
     this.notify();
@@ -313,7 +319,10 @@ export class PosMockService {
   }
 
   // Sales & Checkout
-  public async createSale(payload: CreateSalePayload): Promise<{ order: PastSale; invoiceNumber: string }> {
+  public async createSale(
+    payload: CreateSalePayload,
+    _idempotencyKey?: string,
+  ): Promise<{ order: PastSale; invoiceNumber: string }> {
     await delay(350);
 
     const invoiceNum = `POS-NSR-${Math.floor(Math.random() * 9000) + 10000}`;

@@ -7,6 +7,7 @@ namespace App\Services\Catalog;
 use App\Enums\Catalog\BannerLinkType;
 use App\Models\Banner;
 use App\Models\Category;
+use App\Models\Product;
 use Illuminate\Support\Collection;
 
 /**
@@ -15,8 +16,6 @@ use Illuminate\Support\Collection;
  */
 final class BannerLinkResolver
 {
-    public function __construct(private readonly StoreCatalogService $catalog) {}
-
     /**
      * Resolve and attach valid relative or HTTPS target URLs to banner records.
      *
@@ -28,9 +27,13 @@ final class BannerLinkResolver
         $productIds = self::extractTargetIds($banners, BannerLinkType::Product);
         $categoryIds = self::extractTargetIds($banners, BannerLinkType::Category);
 
-        // Batch-resolve slugs for published products and active categories only
-        $productSlugs = $productIds === [] ? collect() : $this->catalog->publishedQuery()
-            ->whereIn('products.id', $productIds)->pluck('products.slug', 'products.id');
+        // Batch-resolve slugs with a lightweight published query; the full
+        // catalog query adds availability joins that are irrelevant for links.
+        $productSlugs = $productIds === [] ? collect() : Product::query()
+            ->publishedForRetail()
+            ->whereHas('category', fn ($q) => $q->activeHierarchy())
+            ->whereIn('products.id', $productIds)
+            ->pluck('products.slug', 'products.id');
         $categorySlugs = $categoryIds === [] ? collect() : Category::query()
             ->whereIn('id', $categoryIds)->where('is_active', true)->pluck('slug', 'id');
 

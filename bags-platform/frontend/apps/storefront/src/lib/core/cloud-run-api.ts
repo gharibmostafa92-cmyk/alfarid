@@ -53,18 +53,36 @@ export function cloudRunIdentityToken(audience: string): Promise<string> {
   return token;
 }
 
+/** Strips an optional port without mangling bare IPv6 addresses. */
+function stripPort(value: string): string {
+  if (value.startsWith('[')) {
+    const end = value.indexOf(']');
+    return end > 0 ? value.slice(1, end) : value;
+  }
+  const first = value.indexOf(':');
+  if (first !== -1 && first === value.lastIndexOf(':') && /^\d{1,5}$/.test(value.slice(first + 1))) {
+    return value.slice(0, first);
+  }
+  return value;
+}
+
 /**
  * The platform appends the TCP peer to X-Forwarded-For. Earlier entries can
- * be supplied by the client, so the signed address is the last valid one.
+ * be supplied by the client, so only the raw final entry is trusted. If that
+ * entry is not a clean IP we refuse to sign anything rather than sliding back
+ * to attacker-controlled values. X-Real-IP is ignored unless a proxy is
+ * explicitly declared as its source.
  */
 function clientAddress(request: Request): string | null {
-  const forwarded = (request.headers.get('x-forwarded-for') ?? '')
-    .split(',')
-    .map(part => part.trim())
-    .filter(part => isIP(part) !== 0);
-  if (forwarded.length > 0) return forwarded[forwarded.length - 1];
-  const real = request.headers.get('x-real-ip')?.trim();
-  if (real && isIP(real) !== 0) return real;
+  const forwarded = request.headers.get('x-forwarded-for') ?? '';
+  const parts = forwarded.split(',');
+  const last = parts[parts.length - 1]?.trim();
+  const address = last ? stripPort(last) : '';
+  if (address && isIP(address) !== 0) return address;
+  if (process.env.API_PROXY_TRUST_X_REAL_IP === '1') {
+    const real = stripPort(request.headers.get('x-real-ip')?.trim() ?? '');
+    if (real && isIP(real) !== 0) return real;
+  }
 
   return null;
 }
@@ -95,9 +113,13 @@ export async function proxyCloudRunApi(request: Request, path: string[], config:
   });
   const fail = (status: number, message: string) => Response.json({ message }, { status, headers });
   const origin = request.headers.get('origin');
+  const selfOrigin = new URL(request.url).origin;
   if (pathIsSafe(path) && !isWebhook) {
-    if (origin && !config.origins.includes(origin)) return fail(403, 'Origin is not permitted');
-    if (origin) headers.set('access-control-allow-origin', origin);
+    // Same-origin requests are always legitimate; the allow-list is only needed
+    // for cross-origin clients such as the backoffice and POS apps.
+    if (origin && origin !== selfOrigin && !config.origins.includes(origin)) return fail(403, 'Origin is not permitted');
+    if (origin && origin === selfOrigin) headers.set('access-control-allow-origin', selfOrigin);
+    else if (origin) headers.set('access-control-allow-origin', origin);
   }
   if (!pathIsSafe(path)) {
     return fail(404, 'API route is not available');
