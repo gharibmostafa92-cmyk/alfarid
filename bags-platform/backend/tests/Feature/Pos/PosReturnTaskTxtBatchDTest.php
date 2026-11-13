@@ -207,9 +207,9 @@ class PosReturnTaskTxtBatchDTest extends PosScenarioFixture
         $this->getJson('/api/v1/pos/shifts/current/summary')->assertOk()
             ->assertJsonPath('data.cash_sales_total', '1300.00')
             ->assertJsonPath('data.card_sales_total', '200.00')
-            ->assertJsonPath('data.cash_returns_total', '150.00')
+            ->assertJsonPath('data.cash_returns_total', '0.00')
             ->assertJsonPath('data.cash_expenses_total', '50.00')
-            ->assertJsonPath('data.expected_closing_cash', '1600.00');
+            ->assertJsonPath('data.expected_closing_cash', '1750.00');
 
         // Net tender: the 100 return credit covers the 100 replacement in full,
         // so the drawer does not move and no card leg is booked.
@@ -222,13 +222,13 @@ class PosReturnTaskTxtBatchDTest extends PosScenarioFixture
         $this->assertDatabaseHas('orders', [
             'id' => $exchangeOrderId, 'pos_shift_id' => $shift->id, 'card_amount' => 0,
         ]);
-        $this->assertSame('1600.00', $this->drawerB->fresh()->current_balance);
+        $this->assertSame('1750.00', $this->drawerB->fresh()->current_balance);
 
-        $this->postJson('/api/v1/pos/shifts/close', ['actual_closing_cash' => 1600])->assertOk()
+        $this->postJson('/api/v1/pos/shifts/close', ['actual_closing_cash' => 1750])->assertOk()
             ->assertJsonPath('data.status', 'closed_pending_approval')
             ->assertJsonPath('data.card_sales_total', '200.00')
-            ->assertJsonPath('data.cash_returns_total', '150.00')
-            ->assertJsonPath('data.expected_closing_cash', '1600.00')
+            ->assertJsonPath('data.cash_returns_total', '0.00')
+            ->assertJsonPath('data.expected_closing_cash', '1750.00')
             ->assertJsonPath('data.cash_difference', '0.00');
         $this->getJson('/api/v1/pos/shifts/current')->assertOk()->assertJsonPath('has_open_shift', false);
     }

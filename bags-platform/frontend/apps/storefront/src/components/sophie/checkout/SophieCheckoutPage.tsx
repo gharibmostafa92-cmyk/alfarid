@@ -259,6 +259,16 @@ export function SophieCheckoutPage({
                   ? 'إعادة المحاولة'
                   : 'إتمام الطلب'}
             </button>
+            {vm.uncertain && (
+              <button
+                type="button"
+                className="checkout-readiness-btn"
+                style={{ marginTop: '0.75rem', width: '100%', textAlign: 'center' }}
+                onClick={vm.startNewAttempt}
+              >
+                تعديل الطلب وبدء محاولة جديدة
+              </button>
+            )}
           </div>
 
           <div>

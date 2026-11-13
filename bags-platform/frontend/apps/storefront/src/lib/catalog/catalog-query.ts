@@ -41,19 +41,23 @@ export function buildSearch(state: CatalogFilterState, extra: Record<string, str
 }
 
 export function toApiParams(s: CatalogFilterState, perPage = 24): StoreProductListParams {
+  const sanitizedSearch = s.search && s.search.trim().length >= 2 ? s.search.trim() : undefined;
   return {
     category: s.category ?? undefined, color: s.color ?? undefined,
     price_min: s.priceMin ?? undefined, price_max: s.priceMax ?? undefined,
     occasions: s.occasions.length ? s.occasions : undefined,
-    search: s.search || undefined, in_stock: s.inStock ? 1 : undefined,
+    search: sanitizedSearch, in_stock: s.inStock ? 1 : undefined,
     on_sale: s.onSale ? 1 : undefined,
     sort: s.sort, per_page: perPage,
   };
 }
 
 /** Category facets exclude color and price filters to preserve unconstrained option counts. */
-export const toFacetParams = (s: CatalogFilterState): StoreProductListParams => ({
-  category: s.category ?? undefined, occasions: s.occasions.length ? s.occasions : undefined,
-  search: s.search || undefined, in_stock: s.inStock ? 1 : undefined,
-  on_sale: s.onSale ? 1 : undefined,
-});
+export const toFacetParams = (s: CatalogFilterState): StoreProductListParams => {
+  const sanitizedSearch = s.search && s.search.trim().length >= 2 ? s.search.trim() : undefined;
+  return {
+    category: s.category ?? undefined, occasions: s.occasions.length ? s.occasions : undefined,
+    search: sanitizedSearch, in_stock: s.inStock ? 1 : undefined,
+    on_sale: s.onSale ? 1 : undefined,
+  };
+};

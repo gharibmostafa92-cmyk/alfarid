@@ -3,7 +3,7 @@ import { Icon } from '../ui/Icons';
 import { fmt } from '../ui/SharedUI';
 import { ReceiveTab } from './ReceiveTab';
 import { RequestTab } from './RequestTab';
-import { pos as posMockService } from '../../services/pos-data-source';
+import { pos } from '../../services/pos-data-source';
 import type { Branch, StockTransfer } from '../../types/pos.types';
 
 interface TransfersPageProps {
@@ -16,12 +16,12 @@ export function TransfersPage({ toast, branch }: TransfersPageProps) {
   const [transfers, setTransfers] = useState<StockTransfer[]>([]);
 
   const loadTransfers = () => {
-    posMockService.getTransfersIn().then(setTransfers);
+    pos.getTransfersIn().then(setTransfers);
   };
 
   useEffect(() => {
     loadTransfers();
-    const unsub = posMockService.subscribe(loadTransfers);
+    const unsub = pos.subscribe(loadTransfers);
     return unsub;
   }, []);
 

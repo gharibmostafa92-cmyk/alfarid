@@ -26,7 +26,12 @@ final class BannerService
     {
         $path = $this->storeImage($image);
         try {
-            return DB::transaction(fn () => Banner::create([...$this->normalize($data), 'image_path' => $path]));
+            return DB::transaction(function () use ($data, $path): Banner {
+                $banner = Banner::create([...$this->normalize($data), 'image_path' => $path]);
+                DB::afterCommit(fn () => StoreCatalogService::forgetStorefrontCaches());
+
+                return $banner;
+            });
         } catch (\Throwable $e) {
             $this->deleteIfUnreferenced($path);
             throw $e;
@@ -44,9 +49,12 @@ final class BannerService
                 $current = Banner::query()->lockForUpdate()->findOrFail($banner->id);
                 $oldPath = $current->image_path;
                 $current->update($this->normalize($newPath ? [...$data, 'image_path' => $newPath] : $data));
-                if ($newPath && $oldPath !== $newPath) {
-                    DB::afterCommit(fn () => $this->deleteIfUnreferenced($oldPath));
-                }
+                DB::afterCommit(function () use ($newPath, $oldPath): void {
+                    StoreCatalogService::forgetStorefrontCaches();
+                    if ($newPath && $oldPath !== $newPath) {
+                        $this->deleteIfUnreferenced($oldPath);
+                    }
+                });
 
                 return $current->refresh();
             });
@@ -67,7 +75,10 @@ final class BannerService
             $current = Banner::query()->lockForUpdate()->findOrFail($banner->id);
             $path = $current->image_path;
             $current->delete();
-            DB::afterCommit(fn () => $this->deleteIfUnreferenced($path));
+            DB::afterCommit(function () use ($path): void {
+                StoreCatalogService::forgetStorefrontCaches();
+                $this->deleteIfUnreferenced($path);
+            });
         });
     }
 
@@ -79,6 +90,7 @@ final class BannerService
         return DB::transaction(function () use ($banner, $active): Banner {
             $current = Banner::query()->lockForUpdate()->findOrFail($banner->id);
             $current->update(['is_active' => $active ?? ! $current->is_active]);
+            DB::afterCommit(fn () => StoreCatalogService::forgetStorefrontCaches());
 
             return $current;
         });
@@ -105,6 +117,7 @@ final class BannerService
             foreach ($ordered as $i => $id) {
                 Banner::where('id', $id)->where('position', $position)->update(['sort_order' => $i + 1]);
             }
+            DB::afterCommit(fn () => StoreCatalogService::forgetStorefrontCaches());
         });
     }
 

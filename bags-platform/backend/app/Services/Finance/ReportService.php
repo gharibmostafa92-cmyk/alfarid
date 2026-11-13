@@ -347,12 +347,22 @@ class ReportService
         $valuationTruncated = count($valuation) > self::INVENTORY_VALUATION_ROW_LIMIT;
         $valuation = array_slice($valuation, 0, self::INVENTORY_VALUATION_ROW_LIMIT);
 
-        $totalValue = $this->moneyFloat((string) (DB::table('stock_levels as sl')->when($branchId !== null, fn ($q) => $q->where('sl.branch_id', $branchId))
-            ->join('product_variants as pv', 'pv.id', '=', 'sl.product_variant_id')
-            ->selectRaw('COALESCE(SUM(sl.on_hand * COALESCE(pv.cost_price, 0)), 0) AS v')
-            ->first()?->v ?? '0'));
+        if (! $valuationTruncated) {
+            $totalValue = $this->moneyFloat((string) array_sum(array_column($valuation, 'total_value')));
+        } else {
+            $totalValue = $this->moneyFloat((string) (DB::table('stock_levels as sl')->when($branchId !== null, fn ($q) => $q->where('sl.branch_id', $branchId))
+                ->join('product_variants as pv', 'pv.id', '=', 'sl.product_variant_id')
+                ->selectRaw('COALESCE(SUM(sl.on_hand * COALESCE(pv.cost_price, 0)), 0) AS v')
+                ->first()?->v ?? '0'));
+        }
 
-        $deadStock = DB::table('stock_levels as sl')->when($branchId !== null, fn ($q) => $q->where('sl.branch_id', $branchId))
+        $activeVariants = DB::table('stock_levels')
+            ->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
+            ->selectRaw('product_variant_id, SUM(on_hand) AS on_hand')
+            ->groupBy('product_variant_id')
+            ->havingRaw('SUM(on_hand) > 0');
+
+        $deadStock = DB::query()->fromSub($activeVariants, 'sl')
             ->join('product_variants as pv', 'pv.id', '=', 'sl.product_variant_id')
             ->leftJoin('products as p', 'p.id', '=', 'pv.product_id')
             ->leftJoinLateral(
@@ -363,10 +373,8 @@ class ReportService
                     ->selectRaw('MAX(created_at) AS last_movement_at'),
                 'lm',
             )
-            ->selectRaw('sl.product_variant_id, pv.sku, p.name_ar AS product_name, SUM(sl.on_hand) AS on_hand, COALESCE(SUM(sl.on_hand * COALESCE(pv.cost_price, 0)), 0) AS tied_value, lm.last_movement_at')
-            ->groupBy('sl.product_variant_id', 'pv.sku', 'p.name_ar', 'lm.last_movement_at')
-            ->havingRaw('SUM(sl.on_hand) > 0')
-            ->havingRaw('(lm.last_movement_at IS NULL OR lm.last_movement_at < ?)', [$deadCutoff])
+            ->selectRaw('sl.product_variant_id, pv.sku, p.name_ar AS product_name, sl.on_hand, COALESCE(sl.on_hand * COALESCE(pv.cost_price, 0), 0) AS tied_value, lm.last_movement_at')
+            ->whereRaw('(lm.last_movement_at IS NULL OR lm.last_movement_at < ?)', [$deadCutoff])
             ->orderByDesc('tied_value')
             ->limit(100)
             ->get()
@@ -415,6 +423,7 @@ class ReportService
         $saleDates = DB::table('stock_movements')
             ->where('type', 'sale')
             ->whereIn('reference_type', array_unique([Order::class, (new Order)->getMorphClass()]))
+            ->where('created_at', '>=', $periodStart)
             ->where('created_at', '<', $periodEnd)
             ->selectRaw('reference_id, MIN(created_at) AS recognized_at')
             ->groupBy('reference_id')

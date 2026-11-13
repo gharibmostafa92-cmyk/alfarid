@@ -30,6 +30,10 @@ return new class extends Migration
 
     public function up(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         $pending = $this->columnsBelowPrecision(14);
         if ($pending === []) {
             return;
@@ -40,23 +44,32 @@ return new class extends Migration
 
     public function down(): void
     {
-        foreach (self::COLUMNS as $table => $columns) {
-            foreach ($columns as $column) {
-                $overflow = DB::table($table)
-                    ->whereRaw("ABS({$column}) >= 10000000000")
-                    ->exists();
-                if ($overflow) {
-                    throw new RuntimeException("Cannot shrink {$table}.{$column} to numeric(12, 2): values >= 10^10 exist.");
-                }
-            }
-        }
-
-        $pending = $this->columnsAbovePrecision(12);
-        if ($pending === []) {
+        if (DB::getDriverName() !== 'pgsql') {
             return;
         }
 
-        $this->setPrecision(12, $pending);
+        DB::transaction(function (): void {
+            DB::statement("SET LOCAL lock_timeout = '3s'");
+
+            foreach (self::COLUMNS as $table => $columns) {
+                foreach ($columns as $column) {
+                    $overflow = DB::table($table)
+                        ->lockForUpdate()
+                        ->whereRaw("ABS({$column}) >= 10000000000")
+                        ->exists();
+                    if ($overflow) {
+                        throw new RuntimeException("Cannot shrink {$table}.{$column} to numeric(12, 2): values >= 10^10 exist.");
+                    }
+                }
+            }
+
+            $pending = $this->columnsAbovePrecision(12);
+            if ($pending === []) {
+                return;
+            }
+
+            $this->setPrecision(12, $pending);
+        });
     }
 
     /**

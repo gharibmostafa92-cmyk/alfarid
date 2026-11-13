@@ -32,6 +32,10 @@ class PosCustomerController extends Controller
 
         $rawQuery = trim((string) ($data['q'] ?? ''));
 
+        if ($request->has('q') && ($rawQuery === '' || mb_strlen($rawQuery) < 2)) {
+            return response()->json(['data' => []]);
+        }
+
         $query = Customer::query()
             ->whereIn('status', [CustomerStatus::Approved, CustomerStatus::Pending]);
 
@@ -81,7 +85,18 @@ class PosCustomerController extends Controller
             ]);
         }
 
-        if (Customer::withTrashed()->where('phone', $normalizedPhone)->exists()) {
+        $existing = Customer::withTrashed()->where('phone', $normalizedPhone)->first();
+        if ($existing !== null) {
+            if ($existing->trashed()) {
+                throw ValidationException::withMessages([
+                    'phone' => ['رقم الموبايل مسجل لحساب عميل محذوف ناعمًا؛ يرجى استعادته من لوحة الإدارة.'],
+                ]);
+            }
+            if ($existing->status === CustomerStatus::Suspended) {
+                throw ValidationException::withMessages([
+                    'phone' => ['رقم الموبايل مسجل لحساب عميل موقوف؛ لا يمكن استخدامه حاليًا.'],
+                ]);
+            }
             throw ValidationException::withMessages([
                 'phone' => ['رقم الموبايل مسجل بالفعل.'],
             ]);

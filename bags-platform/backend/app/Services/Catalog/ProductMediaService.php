@@ -77,6 +77,7 @@ class ProductMediaService
                         $media->update(['collection_name' => 'video']);
                         // Conversions may be registered per collection; generate them after the move out of staging.
                         DB::afterCommit(function () use ($media): void {
+                            StoreCatalogService::forgetStorefrontCaches();
                             try {
                                 app(FileManipulator::class)->createDerivedFiles($media);
                             } catch (\Throwable $exception) {
@@ -164,6 +165,7 @@ class ProductMediaService
                     $this->assertImageCapacity($owner);
                     $media->update(['collection_name' => 'images']);
                     DB::afterCommit(function () use ($media): void {
+                        StoreCatalogService::forgetStorefrontCaches();
                         try {
                             app(FileManipulator::class)->createDerivedFiles($media);
                         } catch (\Throwable $exception) {
@@ -228,6 +230,7 @@ class ProductMediaService
     {
         $this->withMediaLock($product->id, fn () => DB::transaction(function () use ($product, $ids, $expectedIds): void {
             $product = Product::whereKey($product->id)->lockForUpdate()->firstOrFail();
+            $this->assertMediaBelongs($product, $ids);
             if ($expectedIds !== null) {
                 $first = Media::query()->whereIn('id', $ids)->first();
                 $currentIds = $first ? Media::query()->where('model_type', $first->model_type)
@@ -237,10 +240,10 @@ class ProductMediaService
                     throw new BusinessException('ترتيب الصور اتغير أثناء المراجعة؛ اطلب اقتراحًا جديدًا.', [], 409);
                 }
             }
-            $this->assertMediaBelongs($product, $ids);
             // Require complete collection ID list to prevent partial ordering from causing duplicate sequence indexes.
             $this->assertCompleteOrderList($ids);
             Media::setNewOrder($ids);
+            DB::afterCommit(fn () => StoreCatalogService::forgetStorefrontCaches());
         }));
     }
 
@@ -265,6 +268,7 @@ class ProductMediaService
                 throw new BusinessException('لا يمكن حذف آخر صورة لمنتج منشور');
             }
             $media->delete();
+            DB::afterCommit(fn () => StoreCatalogService::forgetStorefrontCaches());
         }));
     }
 

@@ -15,6 +15,7 @@ import type {
   StocktakeSession,
   CreateSalePayload,
   PosSettings,
+  ProcessReturnResult,
   QuoteResult,
 } from '../types/pos.types';
 import type { QuoteRequest } from './pos-api.core';
@@ -405,7 +406,7 @@ export class PosMockService {
       items: payload.items.map((i) => ({
         id: i.product_variant_id,
         qty: i.qty,
-        price: i.unit_price,
+        price: i.unit_price ?? this.products.find((p) => p.id === i.product_variant_id)?.price ?? 0,
       })),
     };
 
@@ -468,7 +469,7 @@ export class PosMockService {
   public async processReturn(
     saleId: number,
     items: { id: number; qty: number; return_to: 'on_hand' | 'damaged' }[]
-  ): Promise<void> {
+  ): Promise<ProcessReturnResult> {
     await delay(350);
     let totalRefund = 0;
     for (const item of items) {
@@ -490,6 +491,15 @@ export class PosMockService {
         (this.currentShift.cash_expenses_total ?? 0);
     }
     this.notify();
+
+    return {
+      return_order_id: Math.floor(Math.random() * 10000),
+      exchange_order_id: null,
+      refund_amount: totalRefund,
+      cash_refund_amount: totalRefund,
+      card_refund_amount: 0,
+      exchange_credit: 0,
+    };
   }
 
   public async processExchange(
@@ -499,7 +509,7 @@ export class PosMockService {
     netDiff: number,
     _customerId?: number | null,
     _payment?: { method?: 'cash' | 'card' | 'mixed'; cashAmount?: number },
-  ): Promise<void> {
+  ): Promise<ProcessReturnResult> {
     await delay(400);
     // Returns
     for (const item of returnItems) {
@@ -529,6 +539,15 @@ export class PosMockService {
         (this.currentShift.cash_expenses_total ?? 0);
     }
     this.notify();
+
+    return {
+      return_order_id: Math.floor(Math.random() * 10000),
+      exchange_order_id: Math.floor(Math.random() * 10000),
+      refund_amount: Math.max(0, -netDiff),
+      cash_refund_amount: Math.max(0, -netDiff),
+      card_refund_amount: 0,
+      exchange_credit: Math.max(0, netDiff),
+    };
   }
 
   // Transfers

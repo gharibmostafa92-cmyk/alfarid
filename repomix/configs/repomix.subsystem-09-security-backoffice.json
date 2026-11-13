@@ -81,7 +81,9 @@
                     "bags-platform/frontend/apps/storefront/src/components/auth/RequireActor.tsx",
                     "bags-platform/frontend/apps/storefront/src/services/auth.service.ts",
                     "bags-platform/frontend/apps/storefront/src/store/auth.store.ts",
-                    "bags-platform/frontend/apps/storefront/src/hooks/use-auth-me.ts"
+                    "bags-platform/frontend/apps/storefront/src/hooks/use-auth-me.ts",
+                    "bags-platform/frontend/apps/storefront/src/components/auth/HumanVerification.tsx",
+                    "bags-platform/frontend/apps/storefront/src/components/auth/LoginScreen.tsx"
                 ],
     "ignore":  {
                    "useGitignore":  true,

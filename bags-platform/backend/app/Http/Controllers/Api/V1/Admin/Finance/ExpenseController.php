@@ -94,7 +94,12 @@ class ExpenseController extends Controller implements HasMiddleware
             'treasury_id' => ['required', 'integer', 'min:1', 'exists:treasuries,id'],
             'category' => ['required', 'string', 'max:191'],
             'amount' => ['required', 'numeric', 'min:0.01', 'max:999999999999.99', 'decimal:0,2'],
-            'expense_date' => ['required', 'date_format:Y-m-d'],
+            'expense_date' => [
+                'required',
+                'date_format:Y-m-d',
+                'before_or_equal:today',
+                'after_or_equal:'.now()->subDays(90)->toDateString(),
+            ],
             'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
@@ -142,6 +147,10 @@ class ExpenseController extends Controller implements HasMiddleware
         $data = $request->validate([
             'category' => ['sometimes', 'string', 'max:191'],
             'notes' => ['nullable', 'string', 'max:500'],
+            'amount' => ['prohibited'],
+            'treasury_id' => ['prohibited'],
+            'branch_id' => ['prohibited'],
+            'expense_date' => ['prohibited'],
         ]);
 
         $expense = $this->expenses->update($expense, $data, $request->user('staff'));
@@ -177,8 +186,6 @@ class ExpenseController extends Controller implements HasMiddleware
      */
     public function void(Request $request, Expense $expense): JsonResponse
     {
-        $request->validate(['void_reason' => ['required', 'string', 'max:500']]);
-
         return $this->destroy($request, $expense);
     }
 

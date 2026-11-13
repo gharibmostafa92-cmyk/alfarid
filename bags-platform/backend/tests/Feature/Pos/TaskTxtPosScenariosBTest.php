@@ -164,8 +164,8 @@ class TaskTxtPosScenariosBTest extends PosScenarioFixture
         $this->assertSame(49.98, round((float) $returnOrders->sum('card_amount'), 2));
 
         // A return containing a card portion is pending + requires refund.
-        $this->assertTrue((bool) $returnOrders->last()->requires_refund);
-        $this->assertSame('refund_pending', $returnOrders->last()->payment_status);
+        $this->assertTrue((bool) $returnOrders->first()->requires_refund);
+        $this->assertSame('refund_pending', $returnOrders->first()->payment_status);
 
         // Treasury pos_return debits only the cash portion on the current drawer.
         $posReturnTotal = (float) TreasuryTransaction::query()

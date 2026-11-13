@@ -5,7 +5,7 @@
  * @returns Object with sanitized src URL, or null if invalid or unsafe.
  */
 export function storeImageSource(source: string | null | undefined): { src: string } | null {
-  const src = resolveStoreImage(source, false);
+  const src = resolveStoreImage(source, process.env.NODE_ENV !== 'production');
   return src === '' ? null : { src };
 }
 

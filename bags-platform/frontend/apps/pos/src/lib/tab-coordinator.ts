@@ -29,14 +29,22 @@ export function createTabCoordinator(opts: TabCoordinatorOptions = {}) {
       if (data.type === 'hello') {
         // We were here first, tell the new tab we are active
         channel?.postMessage({ type: 'here', from: myId });
-      } else if (data.type === 'here') {
-        // An existing tab is already running!
+      } else if (data.type === 'here' || data.type === 'takeover') {
+        // An existing tab is already running or another tab took over!
         opts.onDuplicate?.();
       }
     };
 
     // Announce ourselves to see if an older tab exists
     channel.postMessage({ type: 'hello', from: myId });
+  };
+
+  const claim = () => {
+    try {
+      channel?.postMessage({ type: 'takeover', from: myId });
+    } catch {
+      // ignore
+    }
   };
 
   const destroy = () => {
@@ -50,6 +58,7 @@ export function createTabCoordinator(opts: TabCoordinatorOptions = {}) {
 
   return {
     start,
+    claim,
     destroy,
   };
 }

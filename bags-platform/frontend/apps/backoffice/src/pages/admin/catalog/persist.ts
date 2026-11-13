@@ -374,10 +374,20 @@ export async function persistProduct(
   }
   // Execute uploads first, deletions second, and media reordering last to prevent temporary empty-gallery states.
   await runPendingRemovals();
-  if (next.media.general.length)
-    await productMediaApi.reorder(
-      next.id,
-      next.media.general.map((f: any) => f.serverId),
-    );
+  if (next.media.general.length) {
+    const originalIds = (original.media.general || [])
+      .map((f: any) => f.serverId)
+      .filter((id: any): id is number => typeof id === 'number');
+    const newIds = next.media.general
+      .map((f: any) => f.serverId)
+      .filter((id: any): id is number => typeof id === 'number');
+    if (newIds.length) {
+      await productMediaApi.reorder(
+        next.id,
+        newIds,
+        originalIds.length ? originalIds : undefined,
+      );
+    }
+  }
   return next;
 }

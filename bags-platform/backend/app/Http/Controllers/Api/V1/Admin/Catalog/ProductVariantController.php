@@ -58,6 +58,8 @@ class ProductVariantController extends Controller implements HasMiddleware
      */
     public function show(Product $product, ProductVariant $variant): VariantResource
     {
+        abort_unless($variant->product_id === $product->id, 404);
+
         return $this->variantResource($variant, $product);
     }
 
@@ -66,6 +68,8 @@ class ProductVariantController extends Controller implements HasMiddleware
      */
     public function update(UpdateVariantRequest $request, Product $product, ProductVariant $variant): VariantResource
     {
+        abort_unless($variant->product_id === $product->id, 404);
+
         $data = $this->filterCostPrice($request->validated(), $request);
         $variant = $this->service->update($variant, $data);
 
@@ -77,6 +81,8 @@ class ProductVariantController extends Controller implements HasMiddleware
      */
     public function destroy(Request $request, Product $product, ProductVariant $variant): JsonResponse
     {
+        abort_unless($variant->product_id === $product->id, 404);
+
         $validated = $request->validate(['expected_version' => ['nullable', 'integer', 'min:0']]);
         $this->service->delete($variant, isset($validated['expected_version']) ? (int) $validated['expected_version'] : null);
 

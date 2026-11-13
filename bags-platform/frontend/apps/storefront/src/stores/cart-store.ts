@@ -114,7 +114,24 @@ export const useCartStore = create<CartState>((set, get) => {
       }
     };
     const task = queue.then(async (): Promise<boolean> => {
-      if (typeof navigator !== 'undefined' && navigator.locks) return Boolean(await navigator.locks.request('alfarid-store-cart', execute));
+      if (typeof navigator !== 'undefined' && navigator.locks) {
+        try {
+          const signal = typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal
+            ? AbortSignal.timeout(15_000)
+            : undefined;
+          return Boolean(
+            await (signal
+              ? navigator.locks.request('alfarid-store-cart', { signal }, execute)
+              : navigator.locks.request('alfarid-store-cart', execute)),
+          );
+        } catch (e) {
+          if ((e as Error)?.name === 'AbortError' || (e as Error)?.name === 'TimeoutError') {
+            set({ busy: false, loading: false, error: 'تعذّر تحديث السلة بسبب بطء الاستجابة. حاول مجددًا.' });
+            return false;
+          }
+          throw e;
+        }
+      }
       return execute();
     });
     queue = task.catch(() => {});

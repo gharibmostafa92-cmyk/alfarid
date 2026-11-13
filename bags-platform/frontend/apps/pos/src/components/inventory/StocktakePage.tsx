@@ -22,6 +22,7 @@ export function StocktakePage({ toast }: StocktakePageProps) {
   const [qty, setQty] = useState('1');
   const [listening, setListening] = useState(false);
   const [heard, setHeard] = useState('');
+  const [lastScanned, setLastScanned] = useState<PosProduct | null>(null);
 
   const recognitionRef = useRef<any>(null);
 
@@ -102,6 +103,7 @@ export function StocktakePage({ toast }: StocktakePageProps) {
 
     try {
       const res = await pos.recordStocktakeScan(p.id, Number(qty || 1), 'barcode');
+      setLastScanned(p);
       if ((res as any)?.duplicate) {
         toast('تم تسجيل هذا المسح مسبقًا', 'bad');
       } else {
@@ -140,9 +142,9 @@ export function StocktakePage({ toast }: StocktakePageProps) {
         const transcript = event.results?.[0]?.[0]?.transcript?.trim() ?? '';
         setHeard(transcript);
         if (transcript) {
-          const targetProd = lp || scope[0];
+          const targetProd = lastScanned || lp;
           if (!targetProd) {
-            toast('اختر صنفًا أولًا عبر مسح الباركود', 'bad');
+            toast('امسح باركود الصنف أولًا قبل تسجيل الكمية بالصوت', 'bad');
             return;
           }
           try {
@@ -395,13 +397,14 @@ export function StocktakePage({ toast }: StocktakePageProps) {
                 );
               })}
             </div>
-            <div style={{ padding: 14, borderTop: '1px solid var(--line)' }}>
+            <div style={{ padding: 14, borderTop: '1px solid var(--line)', textAlign: 'center' }}>
               <button
                 className="btn btn-secondary"
-                style={{ width: '100%' }}
-                onClick={() => toast('تم إرسال مسودة الجرد للمراجعة')}
+                style={{ width: '100%', opacity: 0.85 }}
+                disabled
+                title="اعتماد الجرد وترحيل الفروقات يتم من لوحة الإدارة"
               >
-                إنهاء الجرد وإرساله للمراجعة
+                المسودة تُحفظ تلقائيًا مع كل مسح (الاعتماد من لوحة الإدارة)
               </button>
             </div>
           </div>

@@ -179,6 +179,15 @@ html, body { height: 100%; overflow: hidden; }
     background: #fff !important;
     margin: 0 !important;
     padding: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+  .app,
+  .modal-overlay,
+  .toast-container,
+  body > *:not(.print-receipt-host):not(.receipt) {
+    display: none !important;
   }
   body * {
     visibility: hidden;
@@ -191,9 +200,9 @@ html, body { height: 100%; overflow: hidden; }
     visibility: visible;
   }
   .receipt {
-    position: absolute;
-    left: 0;
-    top: 0;
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
     width: 72mm;
     margin: 0 auto;
     padding: 12px 8px;

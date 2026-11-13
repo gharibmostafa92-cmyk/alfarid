@@ -60,7 +60,9 @@
                     "bags-platform/backend/database/migrations/*pricing*.php",
                     "bags-platform/backend/database/migrations/*enforce_unique_document_numbers*.php",
                     "bags-platform/frontend/apps/backoffice/src/pages/pos/lib/wholesale.ts",
-                    "bags-platform/frontend/apps/pos/src/lib/wholesale.ts"
+                    "bags-platform/frontend/apps/pos/src/lib/wholesale.ts",
+                    "bags-platform/frontend/apps/storefront/src/app/wholesale/application-status/page.tsx",
+                    "bags-platform/backend/app/Http/Requests/Concerns/NormalizesCustomerInput.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

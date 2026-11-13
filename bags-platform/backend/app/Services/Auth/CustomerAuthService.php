@@ -17,6 +17,7 @@ use App\Rules\UniqueCustomerEmail;
 use App\Services\Customer\CustomerMessageBudget;
 use App\Services\Customer\CustomerPhoneVerificationService;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
@@ -127,7 +128,9 @@ class CustomerAuthService
             throw new \LogicException('Registration email claims require a transaction.');
         }
         $email = mb_strtolower(trim($email));
-        DB::select('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [$email]);
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            DB::select('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [$email]);
+        }
         Validator::make(['email' => $email], [
             'email' => [new UniqueCustomerEmail, new EmailNotUsedByOtherAccountType('customers', true)],
         ])->validate();
@@ -235,7 +238,7 @@ class CustomerAuthService
                 return false;
             }
             $existing = DB::table('password_reset_tokens')->where('email', $key)->first();
-            if ($existing && now()->subSeconds(60)->lt($existing->created_at)) {
+            if ($existing && $existing->created_at !== null && now()->subSeconds(60)->lt(Carbon::parse($existing->created_at))) {
                 return false;
             }
             if (! app(CustomerMessageBudget::class)->claim('reset:customer:'.$customer->id, sms: ! $email)) {
@@ -279,9 +282,10 @@ class CustomerAuthService
             $storedToken = $row?->token ?? '';
             $validToken = strlen($storedToken) === 64 ? hash_equals($storedToken, hash('sha256', $data['token']))
                 : Hash::check($data['token'], $storedToken ?: $dummyHash);
+            $createdAt = $row?->created_at !== null ? Carbon::parse($row->created_at) : null;
             if ($customer === null || $customer->status === CustomerStatus::Suspended || $row === null
-                || $row->created_at === null || now()->subMinutes(60)->gte($row->created_at)
-                || now()->lt($row->created_at) || ! $validToken) {
+                || $createdAt === null || now()->subMinutes(60)->gte($createdAt)
+                || now()->lt($createdAt) || ! $validToken) {
                 throw new BusinessException('رمز الاستعادة غير صالح أو انتهت صلاحيته.');
             }
             if ($customer->isCommercialTier() && mb_strlen($data['password']) < 12) {

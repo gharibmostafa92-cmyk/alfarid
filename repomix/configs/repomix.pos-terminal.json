@@ -60,7 +60,14 @@
                     "bags-platform/frontend/apps/backoffice/src/pages/pos/components/inventory/StocktakePage.tsx",
                     "bags-platform/frontend/apps/backoffice/src/pages/pos/components/returns/ReturnModal.tsx",
                     "bags-platform/frontend/apps/backoffice/src/pages/pos/lib/arabic.ts",
-                    "bags-platform/frontend/apps/backoffice/src/pages/pos/styles/pos.css"
+                    "bags-platform/frontend/apps/backoffice/src/pages/pos/styles/pos.css",
+                    "bags-platform/frontend/apps/pos/package.json",
+                    "bags-platform/frontend/apps/backoffice/src/pages/pos/components/inventory/ReceiveTab.tsx",
+                    "bags-platform/frontend/apps/backoffice/src/pages/pos/components/inventory/StockPage.tsx",
+                    "bags-platform/frontend/apps/backoffice/src/pages/pos/components/inventory/TransfersPage.tsx",
+                    "bags-platform/frontend/apps/backoffice/src/pages/pos/lib/barcode-scanner.ts",
+                    "bags-platform/frontend/apps/backoffice/src/pages/pos/lib/sound.ts",
+                    "bags-platform/frontend/apps/backoffice/src/pages/pos/lib/tab-coordinator.ts"
                 ],
     "ignore":  {
                    "useGitignore":  true,

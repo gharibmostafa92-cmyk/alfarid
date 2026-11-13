@@ -111,7 +111,8 @@ $ignorePatterns = @(
     '^repomix/configs/',
     '^tasks/',
     '/tasks/',
-    'phpunit.*\.xml$'
+    'phpunit.*\.xml$',
+    '^_archive_unused/', '/_archive_unused/'
 )
 
 foreach ($file in $targetFiles) {
@@ -140,11 +141,12 @@ $startedConfigs = @{}
 
 Get-ChildItem -Path $ConfigsDir -Filter "repomix.*.json" | ForEach-Object {
     $cfgObj = Get-Content $_.FullName -Raw | ConvertFrom-Json
+    $outFileName = Split-Path $cfgObj.output.filePath -Leaf
     $entry = @{
         Path = $_.FullName
         Name = $_.Name
         Config = $cfgObj
-        IsStarted = ($cfgObj.output.filePath -match 'started')
+        IsStarted = ($cfgObj.output.filePath -match 'started' -or (Test-Path (Join-Path $StartedDir $outFileName)))
     }
     $allConfigs[$_.Name] = $entry
     if ($entry.IsStarted) {
@@ -248,7 +250,7 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 7. Wholesale & B2B
-    if ($p -match 'wholesale|quotation|paymentnotice|fifodebt|b2b') {
+    if ($p -match 'wholesale|quotation|paymentnotice|fifodebt|b2b|normalizescustomerinput') {
         if ($configs.ContainsKey('repomix.subsystem-04-wholesale-b2b.json')) { [void]$matchedConfigs.Add('repomix.subsystem-04-wholesale-b2b.json') }
         if ($configs.ContainsKey('repomix.wholesale-b2b.json')) { [void]$matchedConfigs.Add('repomix.wholesale-b2b.json') }
     }
@@ -260,7 +262,7 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 9. Storefront & Catalog
-    if ($p -match 'apps/storefront/|catalog|category|cart|coupon|promotion|\bproduct\b|customer.*auth') {
+    if ($p -match 'apps/storefront/|catalog|category|cart|coupon|promotion|\bproduct\b|customer.*auth|normalizescustomerinput') {
         if ($configs.ContainsKey('repomix.subsystem-06-storefront-catalog.json')) { [void]$matchedConfigs.Add('repomix.subsystem-06-storefront-catalog.json') }
         if ($configs.ContainsKey('repomix.storefront-catalog.json')) { [void]$matchedConfigs.Add('repomix.storefront-catalog.json') }
     }
@@ -271,19 +273,27 @@ function Get-MatchingConfigsForFile([string]$relPath, [hashtable]$configs, [bool
     }
 
     # 11. Finance & Treasury
-    if ($p -match 'treasury|doubleentry|expense|vault|financial|/finance/|financeservice|wallet|budget|reportservice|statementbudget|reconcil') {
+    if ($p -match 'treasury|doubleentry|expense|vault|financial|\bfinance\b|financeservice|wallet|budget|reportservice|statementbudget|reconcil') {
         if ($configs.ContainsKey('repomix.subsystem-07-finance-treasury.json')) { [void]$matchedConfigs.Add('repomix.subsystem-07-finance-treasury.json') }
         if ($configs.ContainsKey('repomix.finance-treasury.json')) { [void]$matchedConfigs.Add('repomix.finance-treasury.json') }
     }
 
     # 12. Security & Backoffice
-    if (($p -match 'apps/backoffice/|permission|role|staff|throttle|sanctum|\bauth\b|/auth/|unifiedauth' -or ($p -match '\bguard\b' -and $p -notmatch 'procurement|order|supplier')) -and $p -notmatch 'procurement|supplier|customerauth') {
+    if (($p -match 'apps/backoffice/|permission|role|staff|throttle|sanctum|\bauth\b|/auth/|unifiedauth|serializesaccountemail|normalizescustomerinput' -or ($p -match '\bguard\b' -and $p -notmatch 'procurement|order|supplier')) -and $p -notmatch 'procurement|supplier|customerauth') {
         if ($configs.ContainsKey('repomix.subsystem-09-security-backoffice.json')) { [void]$matchedConfigs.Add('repomix.subsystem-09-security-backoffice.json') }
         if ($configs.ContainsKey('repomix.backoffice-operations.json')) { [void]$matchedConfigs.Add('repomix.backoffice-operations.json') }
     }
 
     # 13. Infrastructure & DevOps
-    if ($p -match 'infrastructure/|docker|k6/|haproxy|redis|cloud-run|\.env(\..+)?$|healthready|trustproxy') {
+    if ($p -match 'infrastructure/|docker|k6/|haproxy|redis|cloud-run|\.env(\..+)?$|healthready|trustproxy|exceptions/|businessexception') {
+        if ($configs.ContainsKey('repomix.subsystem-10-infra-devops.json')) { [void]$matchedConfigs.Add('repomix.subsystem-10-infra-devops.json') }
+    }
+
+    # 14. Shared Model Concerns
+    if ($p -match 'serializesaccountemail|models/concerns') {
+        if ($configs.ContainsKey('repomix.subsystem-09-security-backoffice.json')) { [void]$matchedConfigs.Add('repomix.subsystem-09-security-backoffice.json') }
+        if ($configs.ContainsKey('repomix.subsystem-06-storefront-catalog.json')) { [void]$matchedConfigs.Add('repomix.subsystem-06-storefront-catalog.json') }
+        if ($configs.ContainsKey('repomix.subsystem-08-procurement-suppliers.json')) { [void]$matchedConfigs.Add('repomix.subsystem-08-procurement-suppliers.json') }
         if ($configs.ContainsKey('repomix.subsystem-10-infra-devops.json')) { [void]$matchedConfigs.Add('repomix.subsystem-10-infra-devops.json') }
     }
 

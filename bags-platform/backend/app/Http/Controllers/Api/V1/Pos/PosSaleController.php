@@ -57,6 +57,8 @@ class PosSaleController extends Controller
             // A hold consumed by resumeHeld no longer exists; the service
             // tolerates the missing row, so the rule must not reject it.
             'held_sale_id' => ['nullable', 'integer', 'min:1'],
+            'held_sale_ids' => ['nullable', 'array'],
+            'held_sale_ids.*' => ['integer', 'min:1'],
         ]);
 
         /** @var PosShift $shift */
@@ -483,18 +485,27 @@ class PosSaleController extends Controller
         /** @var User $user */
         $user = $request->user('staff');
 
-        $heldSale = PosHeldSale::query()->find($held_sale);
-        if ($heldSale === null) {
-            abort(404, 'الفاتورة المعلقة غير موجودة.');
-        }
+        DB::transaction(function () use ($user, $held_sale): void {
+            $heldSale = PosHeldSale::query()->lockForUpdate()->find($held_sale);
+            if ($heldSale === null) {
+                abort(404, 'الفاتورة المعلقة غير موجودة.');
+            }
 
-        app(BranchAccess::class)->assertBranch($user->id, (int) $heldSale->branch_id);
+            app(BranchAccess::class)->assertBranch($user->id, (int) $heldSale->branch_id);
 
-        if ($heldSale->user_id !== $user->id && ! $user->can('pos.held.delete_any')) {
-            abort(403, 'لا تملك صلاحية حذف فاتورة معلقة لمصرفي آخر.');
-        }
+            if ($heldSale->user_id !== $user->id && ! $user->can('pos.held.delete_any') && ! $user->can('pos.held.view_all')) {
+                abort(403, 'لا تملك صلاحية حذف فاتورة معلقة لمصرفي آخر.');
+            }
 
-        $heldSale->delete();
+            if ($heldSale->resumed_at !== null
+                && $heldSale->resumed_at->gt(now()->subMinutes(5))
+                && $heldSale->resumed_by !== $user->id
+            ) {
+                throw new BusinessException('الفاتورة المعلقة قيد الاستئناف والدفع من مستخدم آخر حالياً.', status: 409);
+            }
+
+            $heldSale->delete();
+        });
 
         return response()->json([
             'message' => 'تم حذف الفاتورة المعلقة بنجاح.',
@@ -540,6 +551,9 @@ class PosSaleController extends Controller
                 'return_order_id' => $returnOrder->id,
                 'exchange_order_id' => null,
                 'refund_amount' => (float) $returnOrder->grand_total,
+                'cash_refund_amount' => (float) $returnOrder->cash_amount,
+                'card_refund_amount' => (float) $returnOrder->card_amount,
+                'exchange_credit' => (float) $returnOrder->exchange_credit,
             ],
         ]);
     }
@@ -568,6 +582,13 @@ class PosSaleController extends Controller
         /** @var User $user */
         $user = $request->user('staff');
 
+        $hasDiscounts = collect($data['exchange_items'])->some(
+            fn (array $item): bool => isset($item['discount_amount']) && (float) $item['discount_amount'] > 0
+        );
+        if ($hasDiscounts && ! $user->can('pos.discount')) {
+            throw new AuthorizationException('لا تملك صلاحية تطبيق خصم على أصناف الاستبدال.');
+        }
+
         /** @var Order $returnOrder */
         $returnOrder = app(OperationIdempotencyService::class)->run(
             'pos_exchange',
@@ -577,12 +598,17 @@ class PosSaleController extends Controller
             fn (): Order => $this->pos->processExchange($shift, $sale, $user, $data),
         );
 
+        $netRefund = round((float) $returnOrder->grand_total - (float) $returnOrder->exchange_credit, 2);
+
         return response()->json([
             'message' => 'تم تسجيل الاستبدال بنجاح.',
             'data' => [
                 'return_order_id' => $returnOrder->id,
                 'exchange_order_id' => $returnOrder->exchange_order_id,
-                'refund_amount' => (float) $returnOrder->grand_total,
+                'refund_amount' => $netRefund,
+                'cash_refund_amount' => (float) $returnOrder->cash_amount,
+                'card_refund_amount' => (float) $returnOrder->card_amount,
+                'exchange_credit' => (float) $returnOrder->exchange_credit,
             ],
         ]);
     }

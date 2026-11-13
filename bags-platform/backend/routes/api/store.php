@@ -39,7 +39,7 @@ Route::prefix('auth')->name('auth.')->group(function (): void {
     });
 });
 
-Route::get('branding', [BrandingController::class, 'show'])->middleware('throttle:store-branding')->name('branding');
+Route::get('branding', [BrandingController::class, 'show'])->middleware(['throttle:store-branding', ProtectStorefrontCaching::class])->name('branding');
 
 // Storefront catalog browsing (accessible by guests and authenticated customers)
 Route::middleware(['throttle:store-catalog', ProtectStorefrontCaching::class])->group(function (): void {

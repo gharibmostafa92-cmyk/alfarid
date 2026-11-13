@@ -9,6 +9,7 @@ import type {
   PosHeldSale,
   PosProduct,
   PosSettings,
+  ProcessReturnResult,
   PosShift,
   ProductCategory,
   QuoteResult,
@@ -406,12 +407,13 @@ export class PosApiService {
     const body = {
       items: payload.items.map((i) => {
         const reason = i.override_reason ?? payload.override_reason;
+        const isManual = i.unit_price !== undefined && (payload.override_price || Boolean(i.override_reason));
         return {
           product_variant_id: i.product_variant_id,
           qty: i.qty,
           discount_amount: toApi(toCents(i.discount_amount ?? 0)),
-          ...(payload.override_price ? { unit_price: toApi(toCents(i.unit_price)) } : {}),
-          ...(payload.override_price && reason ? { override_reason: reason } : {}),
+          ...(isManual ? { unit_price: toApi(toCents(i.unit_price!)) } : {}),
+          ...(isManual && reason ? { override_reason: reason } : {}),
         };
       }),
       customer_id: payload.customer_id,
@@ -420,6 +422,7 @@ export class PosApiService {
       card_amount: toApi(toCents(payload.card_amount)),
       ...(payload.override_price ? { override_price: true } : {}),
       ...(payload.held_sale_id != null ? { held_sale_id: payload.held_sale_id } : {}),
+      ...(payload.held_sale_ids && payload.held_sale_ids.length > 0 ? { held_sale_ids: payload.held_sale_ids } : {}),
       notes: payload.notes ?? null,
     };
     const key = idempotencyKey ?? this.idemKey('sale', body);
@@ -439,7 +442,11 @@ export class PosApiService {
       cashier: this.cashier?.name ?? '',
       customer: 'عميل نقدي',
       method: payload.payment_method === 'cash' ? 'نقدي' : payload.payment_method === 'card' ? 'بطاقة' : 'مختلط',
-      items: payload.items.map((i) => ({ id: i.product_variant_id, qty: i.qty, price: i.unit_price })),
+      items: payload.items.map((i) => ({
+        id: i.product_variant_id,
+        qty: i.qty,
+        price: i.unit_price ?? this.byId.get(i.product_variant_id)?.price ?? 0,
+      })),
     };
     void this.refreshShift();
     this.notify();
@@ -546,14 +553,17 @@ export class PosApiService {
   public async processReturn(
     saleId: number,
     items: { id: number; qty: number; return_to: 'on_hand' | 'damaged' }[],
-  ): Promise<void> {
+  ): Promise<ProcessReturnResult> {
     const body = { items: this.groupReturnLines(items) };
     const key = this.idemKey(`return:${saleId}`, body);
-    await this.call(() => this.http.post(EP.SALE_RETURN(saleId), body, { headers: { 'Idempotency-Key': key } }));
+    const r = await this.call(() =>
+      this.http.post(EP.SALE_RETURN(saleId), body, { headers: { 'Idempotency-Key': key } }),
+    );
     this.idemDrafts.delete(`return:${saleId}`);
     this.restock(items);
     void this.refreshShift();
     this.notify();
+    return r.data.data;
   }
 
   /** cash+card = net difference due from customer (0 when return credit covers replacements). */
@@ -564,7 +574,7 @@ export class PosApiService {
     netDiff: number,
     customerId: number | null = null,
     payment: ExchangePaymentOptions = {},
-  ): Promise<void> {
+  ): Promise<ProcessReturnResult> {
     await this.quoteSale({
       items: exchangeItems.map((i) => ({ product_variant_id: i.id, qty: i.qty })),
       customer_id: customerId,
@@ -590,7 +600,7 @@ export class PosApiService {
       card_amount: toApi(cardCents),
     };
     const key = this.idemKey(`exchange:${saleId}`, body);
-    await this.call(() =>
+    const r = await this.call(() =>
       this.http.post(EP.SALE_EXCHANGE(saleId), body, { headers: { 'Idempotency-Key': key } }),
     );
     this.idemDrafts.delete(`exchange:${saleId}`);
@@ -601,6 +611,7 @@ export class PosApiService {
     }
     void this.refreshShift();
     this.notify();
+    return r.data.data;
   }
 
   // ---- transfers ----

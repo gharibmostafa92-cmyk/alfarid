@@ -97,10 +97,19 @@ final class ExplainOrderMoneyTool implements AgentTool
                 ];
             })->values()->all();
 
-        $treasuryTxs = TreasuryTransaction::query()
+        $treasuryTxsQuery = TreasuryTransaction::query()
             ->where(fn ($q) => $q
                 ->where(fn ($w) => $w->whereIn('reference_type', ['order', Order::class])->where('reference_id', $order->id))
-                ->orWhere(fn ($w) => $w->whereIn('reference_type', ['return_request', ReturnRequest::class])->whereIn('reference_id', $returnIds)))
+                ->orWhere(fn ($w) => $w->whereIn('reference_type', ['return_request', ReturnRequest::class])->whereIn('reference_id', $returnIds === [] ? [-1] : $returnIds)));
+
+        $hasExternalTreasuryTx = false;
+        if ($branch !== null) {
+            $hasExternalTreasuryTx = (clone $treasuryTxsQuery)
+                ->whereHas('treasury', fn ($treasury) => $treasury->where('branch_id', '!=', $branch)->orWhereNull('branch_id'))
+                ->exists();
+        }
+
+        $treasuryTxs = (clone $treasuryTxsQuery)
             ->when($branch !== null, fn ($q) => $q->whereHas('treasury', fn ($treasury) => $treasury->where('branch_id', $branch)))
             ->with('treasury:id,name')->orderBy('id')->get()->map(function (TreasuryTransaction $tx) {
                 $txType = $tx->type instanceof \BackedEnum ? $tx->type->value : (string) $tx->type;
@@ -116,7 +125,9 @@ final class ExplainOrderMoneyTool implements AgentTool
             })->values()->all();
 
         $total = (float) $order->grand_total;
-        $walletIn = array_sum(array_map(fn ($w) => $w['amount'] < 0 ? abs($w['amount']) : 0.0, $walletTxs));
+        $walletDebits = array_sum(array_map(fn ($w) => $w['amount'] < 0 ? abs($w['amount']) : 0.0, $walletTxs));
+        $walletCredits = array_sum(array_map(fn ($w) => $w['amount'] > 0 ? $w['amount'] : 0.0, $walletTxs));
+        $walletIn = max(0.0, $walletDebits - $walletCredits);
         $treasuryNet = array_sum(array_column($treasuryTxs, 'amount'));
         $hasRefundTx = count(array_filter(
             $walletTxs,
@@ -128,7 +139,11 @@ final class ExplainOrderMoneyTool implements AgentTool
 
         $warnings = [];
         if (in_array($order->payment_status, ['paid', 'partially_refunded'], true) && $walletTxs === [] && $treasuryTxs === []) {
-            $warnings[] = 'حالة الدفع مسددة لكن لا توجد أي حركة مالية مرتبطة بالطلب.';
+            if ($hasExternalTreasuryTx) {
+                $warnings[] = 'توجد حركات مالية مسجلة للطلب في خزينة خارج نطاق هذا الفرع.';
+            } else {
+                $warnings[] = 'حالة الدفع مسددة لكن لا توجد أي حركة مالية مرتبطة بالطلب.';
+            }
         }
         if (in_array($order->payment_status, ['refunded', 'partially_refunded', 'refund_pending'], true) && ! $hasRefundTx) {
             $warnings[] = 'الطلب مسترد لكن لا يوجد قيد استرداد مرتبط به.';

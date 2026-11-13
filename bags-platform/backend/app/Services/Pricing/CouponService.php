@@ -24,6 +24,8 @@ class CouponService
     // Uniform error prevents code enumeration and policy leaking.
     private const NOT_REDEEMABLE = 'كود الخصم غير صحيح أو غير متاح أو انتهت صلاحيته أو استُنفد حد استخدامه.';
 
+    public const RATE_LIMIT_EXCEEDED = 'تم تجاوز عدد محاولات إدخال كود الخصم؛ يرجى المحاولة بعد قليل.';
+
     /**
      * Validates a coupon code and associates it with the cart.
      *
@@ -54,14 +56,17 @@ class CouponService
      */
     private function enforceIpRateLimit(string $action): void
     {
-        $max = (int) config('store.coupon_apply_per_minute', 20);
+        $max = (int) config('auth.customer_limits.coupon_guest_ip_minute', 30);
         if ($max <= 0) {
             return;
         }
 
-        $key = 'coupon:'.$action.':ip:'.(request()->ip() ?? 'unknown');
+        $ip = request()->ip() ?? 'unknown';
+        $cartToken = request()->header('X-Cart-Session') ?? request()->input('cart_token');
+        $identity = $cartToken ? $ip.':'.$cartToken : $ip;
+        $key = 'coupon:'.$action.':id:'.hash('sha256', (string) $identity);
         if (RateLimiter::tooManyAttempts($key, $max)) {
-            throw new BusinessException(self::NOT_REDEEMABLE, [], 429);
+            throw new BusinessException(self::RATE_LIMIT_EXCEEDED, [], 429, 'coupon_rate_limited');
         }
         RateLimiter::hit($key, 60);
     }
@@ -81,9 +86,12 @@ class CouponService
             return;
         }
 
-        $key = 'coupon:'.$action.':'.$coupon->id.':'.(request()->ip() ?? 'unknown');
+        $ip = request()->ip() ?? 'unknown';
+        $cartToken = request()->header('X-Cart-Session') ?? request()->input('cart_token');
+        $identity = $cartToken ? $ip.':'.$cartToken : $ip;
+        $key = 'coupon:'.$action.':'.$coupon->id.':'.hash('sha256', (string) $identity);
         if (RateLimiter::tooManyAttempts($key, $max)) {
-            throw new BusinessException(self::NOT_REDEEMABLE, [], 429);
+            throw new BusinessException(self::RATE_LIMIT_EXCEEDED, [], 429, 'coupon_rate_limited');
         }
         RateLimiter::hit($key, 60);
     }
@@ -170,7 +178,9 @@ class CouponService
             ? 'phone:'.$phoneKey
             : ($customer !== null ? 'customer:'.$customer->id : 'anonymous');
         // 64-bit advisory transaction lock avoids 32-bit hashtext collisions across identities/coupons.
-        DB::statement('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', ['coupon-usage:'.$coupon->id.':'.$identity]);
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            DB::statement('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', ['coupon-usage:'.$coupon->id.':'.$identity]);
+        }
 
         // Re-evaluate identity limit under the lock to prevent race conditions.
         // Redemption always requires a real identity.

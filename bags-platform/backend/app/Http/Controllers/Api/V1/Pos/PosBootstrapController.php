@@ -119,9 +119,14 @@ class PosBootstrapController extends Controller
             ?? $this->settings->get('pos_max_discount_percent')
             ?? config('inventory.pos_max_discount_percent', 20);
 
-        $heldCount = PosHeldSale::query()
-            ->where('branch_id', $branchId)
-            ->count();
+        $returnWindowDays = (int) ($this->settings->get('pos.return_window_days')
+            ?? config('inventory.pos_return_window_days', 30));
+
+        $heldQuery = PosHeldSale::query()->where('branch_id', $branchId);
+        if (! $user->can('pos.held.view_all')) {
+            $heldQuery->where('user_id', $user->id);
+        }
+        $heldCount = $heldQuery->count();
 
         return response()->json([
             'data' => [
@@ -132,10 +137,11 @@ class PosBootstrapController extends Controller
                     'code' => $branch->code,
                 ],
                 'shift'           => $shiftData,
-                'drawers'         => $this->pos->getAvailableDrawers($branchId),
+                'drawers'         => $this->pos->getAvailableDrawers($branchId, $user),
                 'categories'      => $categories,
                 'settings'        => [
                     'max_discount_percent' => (float) $maxDiscount,
+                    'return_window_days'   => $returnWindowDays,
                     'currency'             => 'EGP',
                 ],
                 'catalog_version' => $this->pos->computeCatalogVersion($branchId),

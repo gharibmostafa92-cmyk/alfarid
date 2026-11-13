@@ -60,12 +60,18 @@ export interface ExpensePayload {
   treasury_id: number;
   expense_date: string;
 }
-const { remove: _omitExpenseRemove, ...expenseCrud } = crud<
+export interface ExpenseUpdatePayload {
+  category?: string;
+  notes?: string | null;
+}
+const { remove: _omitExpenseRemove, update: _omitExpenseUpdate, ...expenseCrud } = crud<
   Expense,
   ExpensePayload
 >(`${ADMIN}/expenses`);
 export const expensesApi = {
   ...expenseCrud,
+  update: (id: Id, body: ExpenseUpdatePayload) =>
+    api.put(`${ADMIN}/expenses/${id}`, body).then((r) => one<Expense>(r)),
   openAttachment: (id: Id) =>
     openProtectedFile(`${ADMIN}/expenses/${id}/attachment`),
   create: (body: ExpensePayload, idempotencyKey: string) =>
@@ -90,6 +96,7 @@ export const expensesApi = {
 
 export interface TreasuryTransfer {
   id: number;
+  transfer_number: string;
   from_treasury_id: number;
   to_treasury_id: number;
   amount: string;
@@ -182,18 +189,26 @@ export const shiftsApi = {
       .then((r) => asPage<PosShift>(r)),
   show: (id: Id, signal?: AbortSignal) =>
     api.get(`${SH}/${id}`, { signal }).then((r) => one<PosShift>(r)),
-  approve: (id: Id, idempotencyKey?: string) =>
-    api
+  approve: (
+    id: Id,
+    payloadOrKey?: { notes?: string | null } | string,
+    idempotencyKey?: string,
+  ) => {
+    const isKey = typeof payloadOrKey === "string";
+    const body = isKey || !payloadOrKey ? {} : payloadOrKey;
+    const key = isKey ? payloadOrKey : idempotencyKey;
+    return api
       .post(
         `${SH}/${id}/approve`,
-        {},
+        body,
         {
           headers: {
-            "Idempotency-Key": idempotencyKey ?? newIdempotencyKey(),
+            "Idempotency-Key": key ?? newIdempotencyKey(),
           },
         },
       )
-      .then((r) => one<PosShift>(r)),
+      .then((r) => one<PosShift>(r));
+  },
   reject: (id: Id, reason: string, idempotencyKey?: string) =>
     api
       .post(

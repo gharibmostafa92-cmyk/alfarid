@@ -11,6 +11,9 @@ let loading: Promise<void> | undefined;
 
 function loadScript() {
   if (api()) return Promise.resolve();
+  if (loading && !api()) {
+    loading = undefined;
+  }
   if (!loading) {
     loading = new Promise<void>((resolve, reject) => {
       const script = document.createElement('script');
@@ -47,7 +50,12 @@ export function HumanVerification({ siteKey, lang, onChange }: {
     setFailed(false);
     loadScript().then(() => {
       if (cancelled || !element) return;
-      widget = api()!.render(element, {
+      const turnstile = api();
+      if (!turnstile) {
+        invalidate();
+        return;
+      }
+      widget = turnstile.render(element, {
         sitekey: siteKey, language: lang, size: 'compact', 'response-field': false,
         callback: (token: string) => { if (!cancelled) { onChange(token); setFailed(false); } },
         'expired-callback': invalidate, 'error-callback': invalidate, 'timeout-callback': invalidate,

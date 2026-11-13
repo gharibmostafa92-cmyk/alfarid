@@ -21,7 +21,7 @@ export function CartLine({ l, onQty, onRemove, onPrice, canOverride, flash }: Ca
   const visual = p ?? { cat: l.cat ?? 'hand', h: l.h ?? 240 };
   const [edit, setEdit] = useState(false);
   const [val, setVal] = useState(String(l.price));
-  const overridden = l.price !== l.listPrice;
+  const overridden = Boolean(l.manualPrice);
 
   return (
     <div className={cx('line', flash ? 'flash' : '', l.error && 'line-bad')}>

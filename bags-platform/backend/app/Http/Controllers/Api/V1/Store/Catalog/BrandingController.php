@@ -23,6 +23,7 @@ class BrandingController extends Controller
             );
 
         return response()->json(['data' => $data])
-            ->header('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+            ->header('Cache-Control', 'public, max-age=60, stale-while-revalidate=300')
+            ->header('Vary', 'Origin, Accept-Encoding');
     }
 }

@@ -194,10 +194,11 @@ export function useCheckout() {
   const removeCoupon = useCartStore((s) => s.removeCoupon);
   const user = useAuthStore((s) => s.user);
   const token = useAuthStore((s) => s.token);
+  const actorType = useAuthStore((s) => s.actorType);
   const hydrated = useAuthHydrated();
   const owner = viewerKey(token);
   const attemptOwner = token
-    ? `${useAuthStore.getState().actorType}:${String(user?.id ?? 'unknown')}`
+    ? `${actorType}:${String(user?.id ?? 'unknown')}`
     : 'guest';
   const quoteKey = JSON.stringify([
     owner,
@@ -225,8 +226,14 @@ export function useCheckout() {
         clearPendingStorage();
         return;
       }
+      const ownerMatches =
+        saved?.owner === attemptOwner ||
+        (Boolean(token) &&
+          typeof saved?.owner === 'string' &&
+          saved.owner.startsWith('customer:') &&
+          attemptOwner.startsWith('customer:'));
       if (
-        saved?.owner === attemptOwner &&
+        ownerMatches &&
         typeof saved.key === 'string' &&
         saved.body?.city_id &&
         saved.body?.recipient_phone &&
@@ -365,7 +372,22 @@ export function useCheckout() {
             return;
           }
           if (!allowed.includes(form.paymentMethod)) {
-            setForm((f) => ({ ...f, paymentMethod: allowed[0] as CheckoutPaymentMethod }));
+            const nextMethod = allowed[0] as CheckoutPaymentMethod;
+            setForm((f) => ({ ...f, paymentMethod: nextMethod }));
+            setBanner((prev) =>
+              prev?.kind === 'info' && prev.text === UNSUPPORTED_PAYMENT_BANNER ? null : prev,
+            );
+            setQuote(res);
+            setQuotedFor(
+              JSON.stringify([
+                owner,
+                form.cityId,
+                nextMethod,
+                couponCode,
+                items,
+                quoteRevision,
+              ]),
+            );
             return;
           }
           setBanner((prev) =>
@@ -614,7 +636,15 @@ export function useCheckout() {
       const definitiveClientError =
         status !== undefined && status >= 400 && status < 500 && status !== 408 && status !== 409 && status !== 429;
 
-      if (definitiveConflict || definitiveClientError) {
+      if (status === 429) {
+        setUncertain(false);
+        const retryAfter = (e as { response?: { headers?: Record<string, string> } }).response
+          ?.headers?.['retry-after'];
+        setBanner({
+          kind: 'error',
+          text: `طلبات كثيرة في وقت قصير. يرجى الانتظار ${retryAfter ?? 60} ثانية قبل إعادة المحاولة.`,
+        });
+      } else if (definitiveConflict || definitiveClientError) {
         clearPending();
         // Keep the actionable banners produced by handleError (coupon removal,
         // price refresh) instead of overwriting them with a generic message.
@@ -631,13 +661,10 @@ export function useCheckout() {
         }
       } else {
         setUncertain(true);
-        const retryAfter = (e as { response?: { headers?: Record<string, string> } }).response
-          ?.headers?.['retry-after'];
         setBanner({
           kind: 'error',
           text:
-            'تعذّر تأكيد نتيجة الطلب. اضغط إعادة المحاولة لتأكيد نفس الطلب بدون تكراره.' +
-            (status === 429 ? ` محاولات كتيرة، حاول بعد ${retryAfter ?? 60} ثانية.` : ''),
+            'تعذّر تأكيد نتيجة الطلب. اضغط إعادة المحاولة لتأكيد نفس الطلب بدون تكراره.',
           action: { label: 'تعديل الطلب وبدء محاولة جديدة', onClick: startNewAttempt },
         });
       }

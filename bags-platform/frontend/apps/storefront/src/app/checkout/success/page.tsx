@@ -29,6 +29,7 @@ function CheckoutSuccessContent() {
   const [copied, setCopied] = useState(false);
   const [transfer, setTransfer] = useState<{ orderNumber: string; details: NonNullable<TrackOrderResponse['instapay']> } | null>(null);
   const token = useAuthStore((s) => s.token);
+  const user = useAuthStore((s) => s.user);
   const hydrated = useAuthHydrated();
 
   useEffect(() => {
@@ -81,15 +82,17 @@ function CheckoutSuccessContent() {
   };
 
   useEffect(() => {
-    if (!order || order.order_number !== orderNumber || order.payment_method !== 'bank_transfer' || !order.recipient_phone) return;
+    const userPhone = typeof user?.phone === 'string' ? user.phone : undefined;
+    const contactPhone = order?.recipient_phone || userPhone;
+    if (!order || order.order_number !== orderNumber || order.payment_method !== 'bank_transfer' || !contactPhone) return;
     let active = true;
-    checkoutEndpoints.track(orderNumber, order.recipient_phone).then(({ instapay }) => {
+    checkoutEndpoints.track(orderNumber, contactPhone).then(({ instapay }) => {
       if (active) setTransfer(instapay ? { orderNumber, details: instapay } : null);
     }).catch(() => {});
     return () => {
       active = false;
     };
-  }, [order, orderNumber]);
+  }, [order, orderNumber, user?.phone]);
   const instapay = transfer?.orderNumber === orderNumber ? transfer.details : null;
 
   const visibleOrder = order?.order_number === orderNumber ? order : null;

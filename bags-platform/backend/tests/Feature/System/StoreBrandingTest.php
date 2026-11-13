@@ -36,6 +36,35 @@ class StoreBrandingTest extends TestCase
         $this->assertStringContainsString('max-age=60', $cacheControl);
         $this->assertStringContainsString('stale-while-revalidate=300', $cacheControl);
         $this->assertStringNotContainsString('no-store', $cacheControl);
+
+        $vary = (string) $response->headers->get('Vary');
+        $this->assertStringContainsString('Origin', $vary);
+        $this->assertStringContainsString('Accept-Encoding', $vary);
+        $this->assertStringContainsString('Authorization', $vary);
+    }
+
+    public function test_authenticated_branding_request_gets_private_no_store(): void
+    {
+        $this->seed(SettingSeeder::class);
+        $user = User::factory()->create();
+        $token = $user->createToken('test-branding')->plainTextToken;
+
+        $response = $this->withToken($token)->getJson('/api/v1/store/branding')->assertOk();
+        $cacheControl = (string) $response->headers->get('Cache-Control');
+        $this->assertStringContainsString('private', $cacheControl);
+        $this->assertStringContainsString('no-store', $cacheControl);
+    }
+
+    public function test_forget_taxonomy_caches_clears_cities_cache(): void
+    {
+        \Illuminate\Support\Facades\Cache::put('store:cities:v1:ar', ['test-city'], 3600);
+        \Illuminate\Support\Facades\Cache::put('store:cities:v1:en', ['test-city'], 3600);
+        $this->assertTrue(\Illuminate\Support\Facades\Cache::has('store:cities:v1:ar'));
+
+        \App\Services\Catalog\StoreCatalogService::forgetTaxonomyCaches();
+
+        $this->assertFalse(\Illuminate\Support\Facades\Cache::has('store:cities:v1:ar'));
+        $this->assertFalse(\Illuminate\Support\Facades\Cache::has('store:cities:v1:en'));
     }
 
     public function test_public_branding_caches_response_and_invalidates_after_settings_update(): void

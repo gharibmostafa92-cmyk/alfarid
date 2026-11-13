@@ -117,3 +117,92 @@ Auth slice: complete (H1–H2, M1–M8, L1–L8).
 - Full `php artisan test`: NOT RUN (hours-long; focused suites above cover all touched areas).
 - Frontend `pnpm -r build`: PASS 2026-11-10 (exit 0, all workspaces). Full `pnpm -r typecheck`: clean (7/7).
 - `haproxy -c`: unavailable locally — validate `haproxy.cfg` on staging before deploy.
+
+---
+
+# Deployed vs. Pending Deployment
+
+### A. Already Deployed on Server
+
+*Confirmed running in the live environment (Cloud Run / staging/production cluster):*
+- **Server Version / Git Commit:** `25ee590` (`fix(tests): avoid duplicate generated brand slugs`).
+- **Database Migrations Applied in Production:** Migrations up to `2026_11_12_000073_add_stock_movements_report_index.php`.
+- **Infrastructure & Environment:** Production Cloud Run instances, PgBouncer pooler (`6432`), Redis standalone, R2 private storage.
+- **Active Environment Configuration:** Production environment variables without local overrides.
+- **Queue and Scheduler:** Production queue workers running standard queues (`default`, `media`, `catalog`).
+- **Note:** No changes from the current working tree on branch `fixes/task-audit-roadmap` are currently deployed on the live server.
+
+### B. Ready / Pending Server Deployment
+
+*Implemented and verified locally; awaiting release deployment to the server:*
+
+#### 1. Database Migrations
+- `2026_11_12_000093_task2_treasury_and_wallet_schema_hardening.php`:
+  - Drops obsolete `treasury_transactions_type_check` constraint (`[CRITICAL-01]`).
+  - Adds composite index `treasury_transactions (treasury_id, id)` (`[MEDIUM-02]`).
+  - Adds composite index `customer_wallet_transactions (customer_id, id)` (`[MEDIUM-02]`).
+  - **Required Action:** Run `php artisan migrate --force` directly via PostgreSQL (`port 5432`, bypassing PgBouncer pooler).
+- `2026_11_12_000070_align_treasury_shift_expense_precision.php`:
+  - Driver guard: skips non-PostgreSQL drivers.
+  - Safe transactional rollback: replaces unsafe out-of-transaction check with transactional `lockForUpdate` check (`[HIGH-05]`).
+  - **Required Action:** Already applied or updated for future migration executions.
+
+#### 2. Backend Security & Financial Core
+- `TreasuryController::index`: Enforces 403 `BusinessException` on cross-branch queries (`[CRITICAL-02]`).
+- `TreasuryService::deleteAccount`: Wraps `from_treasury_id`/`to_treasury_id` query in Closure for proper SQL boolean precedence (`[CRITICAL-02]`).
+- `WalletAdjustmentService::reverse`: Encapsulates reversal in `idempotency->run` and adds pre-check for existing reversals (`[HIGH-03]`).
+- `WalletService::record`: Traps SQLSTATE `23505` unique constraint collisions (`wallet_transactions_reference_alias_unique`) and maps them to 409 `BusinessException`; enforces 422 on zero/negative values for single-event references (`[HIGH-06]`).
+- `CreateExpenseTool::undo`: Injects explicit idempotency key `ai-undo-expense-{$action->id}` (`[HIGH-03]`).
+- `ExpenseController::void`: Cleans redundant `$request->validate()` call (`[HIGH-03]`).
+- `ApproveTreasuryTransferTool::execute`: Reloads source treasury `fresh()` before shortfall checks (`[MEDIUM-01]`).
+- `CreateExpenseTool::execute`: Protects existing receipt attachments from deletion on creation failure (`[MEDIUM-01]`).
+- `TreasuryTransferController::index`: Replaces correlated `whereHas` on branch treasuries with indexed `whereIn` / `orWhereIn` (`[MEDIUM-03]`).
+- `FinanceWriteGuards::transferVersion`: Upgrades transfer version to SHA-256 hash of financial attributes and ISO-8601 Zulu timestamp (`[MEDIUM-06]`).
+- **Required Action:** Deploy updated backend codebase and reload PHP-FPM / restart container.
+
+#### 3. Financial Reports & AI Tooling Integrity
+- `StatementBudget::run`: Changes parameter default to `bool $readOnly = true` (`[HIGH-01]`).
+- `FinanceWriteGuards::suggestTopUp`: Restricts donor treasuries to `main_safe` and `bank_account`, subtracts pending outgoing transfers from available balance, and sanitizes prompts against indirect prompt injection (`[HIGH-02]`).
+- `DailyCloseBriefingTool::handle`: Uses business timezone (`Africa/Cairo`) start/end UTC bounds, and filters cash sales without returns (`[HIGH-04]`).
+- `ReportService::calculateProfitReport`: Constrains `stock_movements` subquery with `created_at >= periodStart` to prevent full table scans (`[HIGH-04]`).
+- `ExplainOrderMoneyTool`: Bounds empty `$returnIds` with `[-1]`, computes symmetric net wallet debit/credit, and detects external branch movements to eliminate false warnings (`[MEDIUM-04]`).
+- `ExpenseController::store` & `ExpenseService::create`: Enforce date format `Y-m-d` and bounds `[today - 90 days, today]` (`[MEDIUM-05]`).
+- `ExpenseController::update`: Explicitly prohibits modifications to financial fields (`amount`, `treasury_id`, `branch_id`, `expense_date`) (`[MEDIUM-07]`).
+- `VerifyDatabaseSchema`: Fixes 1-based array slice `[1:cardinality(c.conkey)]` in foreign key index check (`[LOW-01]`).
+- `ReportService::calculateInventoryReport`: Reuses calculated valuation sum when not truncated, and pre-aggregates active variants for dead stock calculation (`[LOW-02]`).
+- **Required Action:** Deploy backend codebase; clear configuration and route cache (`php artisan config:cache && php artisan route:cache`).
+
+#### 4. Frontend API Contracts
+- `finance.ts`:
+  - Added `ExpenseUpdatePayload` (`category?: string; notes?: string | null`) and decoupled `expensesApi.update` (`[MEDIUM-07]`).
+  - Added `transfer_number: string` to `TreasuryTransfer` interface (`[MEDIUM-07]`).
+  - Extended `shiftsApi.approve` signature to support optional notes payload: `(id, payloadOrKey, idempotencyKey)` (`[MEDIUM-07]`).
+- **Required Action:** Deploy updated frontend packages; run `pnpm -r build` and publish static assets.
+
+#### 5. Required Deployment Procedure
+1. Create release branch / merge `fixes/task-audit-roadmap` into deployment branch.
+2. Put application in maintenance window if necessary.
+3. Run database migrations:
+   ```bash
+   php artisan migrate --force
+   ```
+4. Clear and rebuild backend application caches:
+   ```bash
+   php artisan optimize:clear
+   php artisan config:cache
+   php artisan route:cache
+   php artisan view:cache
+   ```
+5. Build and deploy frontend assets:
+   ```bash
+   pnpm -r build
+   ```
+6. Restart queue workers:
+   ```bash
+   php artisan queue:restart
+   ```
+7. Verify deployment:
+   ```bash
+   php artisan db:verify-schema
+   ```
+

@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Icon } from '../ui/Icons';
 import { fmt, PImg, Api, Empty, Status, toAsciiNum, cx } from '../ui/SharedUI';
-import { pos as posMockService } from '../../services/pos-data-source';
+import { pos } from '../../services/pos-data-source';
+import { normalizeError } from '../../lib/pos-error';
 import type { StockTransfer } from '../../types/pos.types';
 
 interface ReceiveTabProps {
@@ -12,15 +13,21 @@ export function ReceiveTab({ toast }: ReceiveTabProps) {
   const [list, setList] = useState<StockTransfer[]>([]);
   const [cur, setCur] = useState<number | null>(null);
   const [rec, setRec] = useState<Record<number, string>>({});
+  const [busy, setBusy] = useState(false);
+  const submittingRef = useRef(false);
 
   useEffect(() => {
-    posMockService.getTransfersIn().then((transfers) => {
-      setList(transfers);
-      if (transfers.length > 0) {
-        setCur(transfers[0].id);
-      }
-    });
-  }, []);
+    pos.getTransfersIn()
+      .then((transfers) => {
+        setList(transfers);
+        if (transfers.length > 0) {
+          setCur(transfers[0].id);
+        }
+      })
+      .catch((err) => {
+        toast(normalizeError(err).message, 'bad');
+      });
+  }, [toast]);
 
   const t = list.find((x) => x.id === cur);
 
@@ -47,15 +54,43 @@ export function ReceiveTab({ toast }: ReceiveTabProps) {
   const diffs = t.items.filter((i) => Number(rec[i.id] || 0) !== i.qty).length;
 
   const handleReceive = async () => {
-    const quantities: Record<number, number> = {};
-    for (const [id, val] of Object.entries(rec)) {
-      quantities[Number(id)] = Number(val);
+    if (submittingRef.current || busy) return;
+
+    for (const item of t.items) {
+      const raw = rec[item.id];
+      if (raw === undefined || raw.trim() === '') {
+        toast('يرجى تحديد الكمية المستلمة لكل الأصناف', 'bad');
+        return;
+      }
+      const num = Number(raw);
+      if (!Number.isFinite(num) || num < 0) {
+        toast('الكميات المستلمة يجب أن تكون أرقاماً موجبة أو صفر', 'bad');
+        return;
+      }
+      if (num > item.qty) {
+        toast(`الكمية المستلمة للصنف لا يمكن أن تتجاوز الكمية المشحونة (${item.qty})`, 'bad');
+        return;
+      }
     }
-    await posMockService.receiveTransfer(t.id, quantities);
-    toast(`تم استلام ${t.number} ورفع رصيد الفرع`);
-    const rest = list.filter((x) => x.id !== t.id);
-    setList(rest);
-    setCur(rest[0]?.id || null);
+
+    submittingRef.current = true;
+    setBusy(true);
+    try {
+      const quantities: Record<number, number> = {};
+      for (const [id, val] of Object.entries(rec)) {
+        quantities[Number(id)] = Number(val);
+      }
+      await pos.receiveTransfer(t.id, quantities);
+      toast(`تم استلام ${t.number} ورفع رصيد الفرع`, 'ok');
+      const rest = list.filter((x) => x.id !== t.id);
+      setList(rest);
+      setCur(rest[0]?.id || null);
+    } catch (err) {
+      toast(normalizeError(err).message, 'bad');
+    } finally {
+      submittingRef.current = false;
+      setBusy(false);
+    }
   };
 
   return (
@@ -133,7 +168,7 @@ export function ReceiveTab({ toast }: ReceiveTabProps) {
           </thead>
           <tbody>
             {t.items.map((i) => {
-              const p = posMockService.getProductById(i.id);
+              const p = pos.getProductById(i.id);
               const r = Number(rec[i.id] || 0);
               const d = r - i.qty;
               const stock = p?.stock || 0;
@@ -156,7 +191,7 @@ export function ReceiveTab({ toast }: ReceiveTabProps) {
                       className={cx('qty-input', d !== 0 && 'bad')}
                       value={rec[i.id] ?? ''}
                       onChange={(e) =>
-                        setRec({ ...rec, [i.id]: toAsciiNum(e.target.value) })
+                        setRec({ ...rec, [i.id]: toAsciiNum(e.target.value, 4) })
                       }
                     />
                   </td>
@@ -207,9 +242,9 @@ export function ReceiveTab({ toast }: ReceiveTabProps) {
               </span>
             </div>
           </div>
-          <button className="btn btn-accent btn-lg" onClick={handleReceive}>
+          <button className="btn btn-accent btn-lg" onClick={handleReceive} disabled={busy}>
             <Icon n="check" s={16} w={2.4} />
-            تأكيد الاستلام ورفع الرصيد
+            {busy ? 'جاري الاستلام...' : 'تأكيد الاستلام ورفع الرصيد'}
           </button>
         </div>
       </div>

@@ -37,9 +37,9 @@ class CatalogController extends Controller
     /**
      * Retrieve hierarchical category tree with active product counts.
      */
-    public function categories(Request $request): JsonResponse
+    public function categories(): JsonResponse
     {
-        $data = $this->cachedReference('store:categories:v1:'.app()->getLocale(), function () use ($request): array {
+        $data = $this->cachedReference('store:categories:v1:'.app()->getLocale(), function (): array {
             $childrenScope = fn ($q) => $q->where('is_active', true)
                 ->with('media')
                 ->withCount('activeProducts')
@@ -58,7 +58,7 @@ class CatalogController extends Controller
                 ->orderBy('sort_order')->orderBy('id')
                 ->get();
 
-            return StoreCategoryResource::collection($roots)->resolve($request);
+            return StoreCategoryResource::collection($roots)->resolve(Request::create('/'));
         });
 
         return response()->json(['data' => $data]);
@@ -67,9 +67,9 @@ class CatalogController extends Controller
     /**
      * Retrieve active brands for legacy client compatibility.
      */
-    public function brands(Request $request): JsonResponse
+    public function brands(): JsonResponse
     {
-        $data = $this->cachedReference('store:brands:v1:'.app()->getLocale(), function () use ($request): array {
+        $data = $this->cachedReference('store:brands:v1:'.app()->getLocale(), function (): array {
             $brands = Brand::query()
                 ->with('media')
                 ->where('is_active', true)
@@ -77,7 +77,7 @@ class CatalogController extends Controller
                 ->orderBy('name_ar')
                 ->get();
 
-            return StoreBrandResource::collection($brands)->resolve($request);
+            return StoreBrandResource::collection($brands)->resolve(Request::create('/'));
         });
 
         return response()->json(['data' => $data]);
@@ -86,15 +86,15 @@ class CatalogController extends Controller
     /**
      * Retrieve active shipping cities for checkout delivery selection.
      */
-    public function cities(Request $request): JsonResponse
+    public function cities(): JsonResponse
     {
-        $data = $this->cachedReference('store:cities:v1:'.app()->getLocale(), function () use ($request): array {
+        $data = $this->cachedReference('store:cities:v1:'.app()->getLocale(), function (): array {
             $cities = City::query()
                 ->where('is_active', true)
                 ->orderBy('name_ar')
                 ->get();
 
-            return StoreCityResource::collection($cities)->resolve($request);
+            return StoreCityResource::collection($cities)->resolve(Request::create('/'));
         });
 
         return response()->json(['data' => $data]);

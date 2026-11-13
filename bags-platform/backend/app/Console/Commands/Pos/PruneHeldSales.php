@@ -23,15 +23,25 @@ class PruneHeldSales extends Command
 
         $deleted = 0;
         do {
-            // Primary-key order keeps every batch on the created_at index in
-            // O(log N) instead of planner-driven scans as the table grows.
-            $batch = PosHeldSale::query()
+            // Fetch batch IDs excluding actively leased carts, safe for PostgreSQL syntax
+            $ids = PosHeldSale::query()
                 ->where('created_at', '<', $cutoff)
+                ->where(function ($q): void {
+                    $q->whereNull('resumed_at')
+                        ->orWhere('resumed_at', '<', now()->subMinutes(10));
+                })
                 ->orderBy('id')
                 ->limit(500)
-                ->delete();
-            $deleted += $batch;
-        } while ($batch === 500);
+                ->pluck('id')
+                ->all();
+
+            if (empty($ids)) {
+                break;
+            }
+
+            $count = PosHeldSale::query()->whereIn('id', $ids)->delete();
+            $deleted += $count;
+        } while (count($ids) === 500);
 
         $this->info("Pruned {$deleted} held sale(s) older than {$days} day(s).");
 

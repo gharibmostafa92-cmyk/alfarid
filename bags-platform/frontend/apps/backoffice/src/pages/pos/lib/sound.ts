@@ -22,6 +22,14 @@ function tone(freq: number, seconds: number, type: OscillatorType, delay = 0): v
     gain.gain.setValueAtTime(0.15, start);
     gain.gain.exponentialRampToValueAtTime(0.0001, start + seconds);
     osc.connect(gain).connect(c.destination);
+    osc.onended = () => {
+      try {
+        osc.disconnect();
+        gain.disconnect();
+      } catch {
+        /* best-effort cleanup */
+      }
+    };
     osc.start(start);
     osc.stop(start + seconds);
   } catch {

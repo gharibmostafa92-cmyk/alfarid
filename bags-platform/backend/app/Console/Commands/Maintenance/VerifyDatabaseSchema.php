@@ -158,7 +158,7 @@ class VerifyDatabaseSchema extends Command
                     SELECT 1 FROM pg_catalog.pg_index AS i
                     WHERE i.indrelid = c.conrelid AND i.indisvalid AND i.indisready AND i.indislive
                         AND i.indpred IS NULL AND i.indnkeyatts >= cardinality(c.conkey)
-                        AND (i.indkey::smallint[])[0:cardinality(c.conkey) - 1] = c.conkey
+                        AND (i.indkey::smallint[])[1:cardinality(c.conkey)] = c.conkey
                 )
             ORDER BY table_name, object_name
             SQL);

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Icon } from '../ui/Icons';
 import { fmt, PImg, Api, toAsciiNum, cx } from '../ui/SharedUI';
-import { pos as posMockService } from '../../services/pos-data-source';
+import { pos } from '../../services/pos-data-source';
 import { isCancel, normalizeError } from '../../lib/pos-error';
 import { beepError } from '../../lib/sound';
 import type { PosProduct, StocktakeSession } from '../../types/pos.types';
@@ -22,11 +22,12 @@ export function StocktakePage({ toast }: StocktakePageProps) {
   const [qty, setQty] = useState('1');
   const [listening, setListening] = useState(false);
   const [heard, setHeard] = useState('');
+  const [lastScanned, setLastScanned] = useState<PosProduct | null>(null);
 
   const recognitionRef = useRef<any>(null);
 
   const loadSession = () => {
-    posMockService
+    pos
       .getStocktakeSession()
       .then((res) => {
         setScope(res.scope);
@@ -41,7 +42,7 @@ export function StocktakePage({ toast }: StocktakePageProps) {
 
   useEffect(() => {
     loadSession();
-    const unsub = posMockService.subscribe(loadSession);
+    const unsub = pos.subscribe(loadSession);
     return () => {
       unsub();
       recognitionRef.current?.abort?.();
@@ -75,7 +76,7 @@ export function StocktakePage({ toast }: StocktakePageProps) {
   const last = session.lastScan ?? null;
   const log = session.log;
   const lp = last
-    ? posMockService.getProductById(last.id) || scope.find((item) => item.id === last.id)
+    ? pos.getProductById(last.id) || scope.find((item) => item.id === last.id)
     : undefined;
 
   const submitCode = async () => {
@@ -86,7 +87,7 @@ export function StocktakePage({ toast }: StocktakePageProps) {
     );
     if (!p) {
       try {
-        const found = await posMockService.lookupByBarcode(trimmed);
+        const found = await pos.lookupByBarcode(trimmed);
         if (found) p = found;
       } catch (error) {
         if (!isCancel(error)) {
@@ -101,7 +102,8 @@ export function StocktakePage({ toast }: StocktakePageProps) {
     }
 
     try {
-      const res = await posMockService.recordStocktakeScan(p.id, Number(qty || 1), 'barcode');
+      const res = await pos.recordStocktakeScan(p.id, Number(qty || 1), 'barcode');
+      setLastScanned(p);
       if ((res as any)?.duplicate) {
         toast('تم تسجيل هذا المسح مسبقًا', 'bad');
       } else {
@@ -140,13 +142,13 @@ export function StocktakePage({ toast }: StocktakePageProps) {
         const transcript = event.results?.[0]?.[0]?.transcript?.trim() ?? '';
         setHeard(transcript);
         if (transcript) {
-          const targetProd = lp || scope[0];
+          const targetProd = lastScanned || lp;
           if (!targetProd) {
-            toast('اختر صنفًا أولًا عبر مسح الباركود', 'bad');
+            toast('امسح باركود الصنف أولًا قبل تسجيل الكمية بالصوت', 'bad');
             return;
           }
           try {
-            const res = await posMockService.recordStocktakeScan(
+            const res = await pos.recordStocktakeScan(
               targetProd.id,
               undefined,
               'voice',
@@ -361,7 +363,7 @@ export function StocktakePage({ toast }: StocktakePageProps) {
             </div>
             <div className="col" style={{ padding: '6px 10px 10px' }}>
               {log.map((l, i) => {
-                const p = posMockService.getProductById(l.id);
+                const p = pos.getProductById(l.id);
                 return (
                   <div
                     key={i}
@@ -395,13 +397,14 @@ export function StocktakePage({ toast }: StocktakePageProps) {
                 );
               })}
             </div>
-            <div style={{ padding: 14, borderTop: '1px solid var(--line)' }}>
+            <div style={{ padding: 14, borderTop: '1px solid var(--line)', textAlign: 'center' }}>
               <button
                 className="btn btn-secondary"
-                style={{ width: '100%' }}
-                onClick={() => toast('تم إرسال مسودة الجرد للمراجعة')}
+                style={{ width: '100%', opacity: 0.85 }}
+                disabled
+                title="اعتماد الجرد وترحيل الفروقات يتم من لوحة الإدارة"
               >
-                إنهاء الجرد وإرساله للمراجعة
+                المسودة تُحفظ تلقائيًا مع كل مسح (الاعتماد من لوحة الإدارة)
               </button>
             </div>
           </div>

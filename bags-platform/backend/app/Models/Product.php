@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Enums\Catalog\ProductStatus;
 use App\Enums\Orders\SalesChannel;
+use App\Exceptions\BusinessException;
 use App\Models\Concerns\TracksEditVersion;
 use App\Support\CatalogMedia;
 use Database\Factories\ProductFactory;
@@ -48,6 +49,18 @@ class Product extends Model implements HasMedia
         'length_cm' => 'decimal:2', 'width_cm' => 'decimal:2', 'height_cm' => 'decimal:2',
         'weight_kg' => 'decimal:3',
     ];
+
+    protected static function booted(): void
+    {
+        static::restoring(function (Product $product): void {
+            if ($product->category()->withTrashed()->whereNotNull('deleted_at')->exists()) {
+                throw new BusinessException('لا يمكن استعادة منتج يتبع لقسم محذوف');
+            }
+            if ($product->brand_id && $product->brand()->withTrashed()->whereNotNull('deleted_at')->exists()) {
+                throw new BusinessException('لا يمكن استعادة منتج يتبع لعلامة تجارية محذوفة');
+            }
+        });
+    }
 
     public function category(): BelongsTo
     {

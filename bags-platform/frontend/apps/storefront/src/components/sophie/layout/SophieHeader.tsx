@@ -150,7 +150,11 @@ export function SophieHeader() {
 
   const handleSearchSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    router.push(STORE_ROUTES.shop({ q: search.trim() }));
+    const query = search.trim();
+    if (query.length === 1) {
+      return;
+    }
+    router.push(STORE_ROUTES.shop(query ? { q: query } : undefined));
     setSearchOpen(false);
     setMobileMenuOpen(false);
   };

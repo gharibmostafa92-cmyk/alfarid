@@ -48,8 +48,9 @@ class ProductService
             }
         }
 
-        // Retry once on generated slug races and surface explicit slug collisions as 409 conflicts.
+        // Retry once on generated slug or code races and surface explicit collisions as 409 conflicts.
         $autoSlug = empty($data['slug'] ?? null);
+        $autoCode = empty($data['code'] ?? null);
         for ($attempt = 0; ; $attempt++) {
             try {
                 return DB::transaction(function () use ($data, $user, $createKey, $requestHash) {
@@ -104,8 +105,12 @@ class ProductService
                 $driverMessage = (string) ($e->errorInfo[2] ?? $e->getMessage());
                 $isSlugConflict = str_contains($driverMessage, 'products_slug_lower_unique')
                     || str_contains($driverMessage, '(slug)');
-                if ($autoSlug && $attempt === 0 && $isSlugConflict) {
-                    $data['slug'] = SlugService::make(Product::class, $data['name_en']);
+                $isCodeConflict = str_contains($driverMessage, 'products_code_unique')
+                    || str_contains($driverMessage, '(code)');
+                if ($attempt === 0 && (($autoSlug && $isSlugConflict) || ($autoCode && $isCodeConflict))) {
+                    if ($autoSlug) {
+                        $data['slug'] = SlugService::make(Product::class, $data['name_en']);
+                    }
 
                     continue;
                 }

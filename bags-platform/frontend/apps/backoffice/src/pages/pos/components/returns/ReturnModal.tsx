@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, PImg, Api, Empty, Seg, Check, Search, useEsc } from '../ui/SharedUI';
-import { pos as posMockService } from '../../services/pos-data-source';
+import { pos } from '../../services/pos-data-source';
 import { isCancel, normalizeError } from '../../lib/pos-error';
 import type { PastSale, PosProduct } from '../../types/pos.types';
 
@@ -42,7 +42,7 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
       setReplQuoteTotal(null);
       setReplQuoteLines([]);
       setPayMethod('cash');
-      posMockService.getProducts().then(setAllProducts).catch((error) => {
+      pos.getProducts().then(setAllProducts).catch((error) => {
         if (!isCancel(error)) toast(normalizeError(error).message, 'bad');
       });
     }
@@ -54,7 +54,7 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
     if (!open || mode !== 'exchange' || !sale || !repl.length) return;
     const controller = new AbortController();
     const items = repl.map((r) => ({ product_variant_id: r.id, qty: r.qty }));
-    void posMockService.quoteSale({ items, customer_id: sale.customer_id ?? null }, controller.signal)
+    void pos.quoteSale({ items, customer_id: sale.customer_id ?? null }, controller.signal)
       .then((q) => {
         if (controller.signal.aborted) return;
         setReplQuoteTotal(q.grand_total);
@@ -81,7 +81,7 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
   const find = async () => {
     if (!num.trim()) return;
     try {
-      const s = await posMockService.getPastSale(num);
+      const s = await pos.getPastSale(num);
       if (s) {
         setSale(s);
         setErr('');
@@ -97,7 +97,7 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
   };
 
   const loadExample = async () => {
-    const s = await posMockService.getPastSale('POS-NSR-10233');
+    const s = await pos.getPastSale('POS-NSR-10233');
     if (s) {
       setNum('POS-NSR-10233');
       setSale(s);
@@ -110,7 +110,7 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
     : 0;
 
   const fallbackReplTotal = repl.reduce((s, r) => {
-    const p = posMockService.getProductById(r.id);
+    const p = pos.getProductById(r.id);
     return s + (p?.price || 0) * r.qty;
   }, 0);
   const replTotal = replQuoteTotal != null ? replQuoteTotal : fallbackReplTotal;
@@ -143,16 +143,20 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
         }));
 
       if (mode === 'return') {
-        const res = await posMockService.processReturn(sale.id, returnPayload);
-        const cardAmt = sale.card_amount ?? 0;
-        const cardRefund = (res as any)?.card_refund_amount ?? (cardAmt > 0 ? Math.min(cardAmt, retTotal) : 0);
-        if (cardRefund > 0) {
+        const res = await pos.processReturn(sale.id, returnPayload);
+        const cardRefund = res?.card_refund_amount ?? 0;
+        const cashRefund = res?.cash_refund_amount ?? 0;
+        if (cardRefund > 0 && cashRefund > 0) {
+          toast(`تم تسجيل المرتجع. رد ${cashRefund} ج نقداً و${cardRefund} ج على الكارت`, 'ok');
+        } else if (cardRefund > 0) {
           toast(`تم تسجيل المرتجع. يجب رد ${cardRefund} جنيه على الكارت يدويًا`, 'ok');
+        } else if (cashRefund > 0) {
+          toast(`تم تسجيل المرتجع. رد ${cashRefund} جنيه نقداً من الدرج`, 'ok');
         } else {
           toast('تم تسجيل المرتجع وتحديث المخزون', 'ok');
         }
       } else {
-        const res = await posMockService.processExchange(
+        const res = await pos.processExchange(
           sale.id,
           returnPayload,
           repl,
@@ -160,9 +164,14 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
           sale.customer_id,
           { method: payMethod },
         );
-        const cardRefund = (res as any)?.card_refund_amount ?? 0;
-        if (cardRefund > 0) {
+        const cardRefund = res?.card_refund_amount ?? 0;
+        const cashRefund = res?.cash_refund_amount ?? 0;
+        if (cardRefund > 0 && cashRefund > 0) {
+          toast(`تم الاستبدال. رد ${cashRefund} ج نقداً و${cardRefund} ج على الكارت`, 'ok');
+        } else if (cardRefund > 0) {
           toast(`تم الاستبدال. يجب رد ${cardRefund} جنيه على الكارت يدويًا`, 'ok');
+        } else if (cashRefund > 0) {
+          toast(`تم الاستبدال. رد ${cashRefund} جنيه نقداً من الدرج`, 'ok');
         } else {
           toast('تم الاستبدال وإصدار فاتورة جديدة', 'ok');
         }
@@ -298,7 +307,7 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
                     </thead>
                     <tbody>
                       {sale.items.map((i) => {
-                        const p = posMockService.getProductById(i.id);
+                        const p = pos.getProductById(i.id);
                         const s = sel[i.id] || { qty: 0, to: 'on_hand' };
                         const retMax = i.returnable_qty != null ? i.returnable_qty : i.qty;
                         const fullyReturned = retMax <= 0;
@@ -454,7 +463,7 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
                       )}
                     </div>
                     {repl.map((r) => {
-                      const p = posMockService.getProductById(r.id);
+                      const p = pos.getProductById(r.id);
                       if (!p) return null;
                       const quotedLine = replQuoteLines.find((ql) => ql.id === r.id);
                       const lineTotal = quotedLine ? quotedLine.line_total : p.price * r.qty;

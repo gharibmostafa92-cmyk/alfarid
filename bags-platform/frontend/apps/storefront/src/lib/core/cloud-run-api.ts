@@ -4,13 +4,14 @@ const namespaces = new Set(['auth', 'store', 'admin', 'pos', 'wholesale', 'suppl
 const webhooksNamespace = 'webhooks';
 const methods = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'];
 const requestHeaders = [
-  'accept', 'accept-language', 'authorization', 'content-type', 'idempotency-key', 'if-match', 'if-none-match',
-  'last-event-id', 'range', 'user-agent', 'x-cart-session', 'x-requested-with',
+  'accept', 'accept-language', 'authorization', 'cache-control', 'content-length', 'content-type',
+  'idempotency-key', 'if-match', 'if-modified-since', 'if-none-match', 'last-event-id',
+  'pragma', 'range', 'user-agent', 'x-cart-session', 'x-requested-with',
 ];
 // Provider callbacks authenticate with their own signatures. Forward exactly the
 // headers their verifiers need, and never a browser/user credential.
 const webhookHeaders = [
-  'content-type', 'stripe-signature', 'x-hub-signature-256', 'x-paymob-signature',
+  'content-length', 'content-type', 'stripe-signature', 'x-hub-signature-256', 'x-paymob-signature',
   'x-wa-gateway-secret', 'x-wa-signature', 'x-wa-timestamp', 'user-agent',
 ];
 const responseHeaders = [
@@ -27,11 +28,12 @@ type ProxyConfig = {
   send?: typeof fetch;
 };
 
-let cachedIdentity: { audience: string; refreshAt: number; token: Promise<string> } | undefined;
+const cachedIdentities = new Map<string, { refreshAt: number; token: Promise<string> }>();
 
 export function cloudRunIdentityToken(audience: string): Promise<string> {
-  if (cachedIdentity?.audience === audience && cachedIdentity.refreshAt > Date.now()) {
-    return cachedIdentity.token;
+  const cached = cachedIdentities.get(audience);
+  if (cached && cached.refreshAt > Date.now()) {
+    return cached.token;
   }
 
   const url = new URL('http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity');
@@ -47,10 +49,10 @@ export function cloudRunIdentityToken(audience: string): Promise<string> {
     if (!/^[\w-]+\.[\w-]+\.[\w-]+$/.test(value)) throw new Error('Invalid Cloud Run identity');
     return value;
   }).catch(error => {
-    if (cachedIdentity?.token === token) cachedIdentity = undefined;
+    if (cachedIdentities.get(audience)?.token === token) cachedIdentities.delete(audience);
     throw error;
   });
-  cachedIdentity = { audience, refreshAt: Date.now() + 45 * 60 * 1000, token };
+  cachedIdentities.set(audience, { refreshAt: Date.now() + 45 * 60 * 1000, token });
   return token;
 }
 
@@ -145,6 +147,15 @@ export async function proxyCloudRunApi(request: Request, path: string[], config:
   }
   if (!methods.includes(request.method)) return fail(405, 'Method is not permitted');
 
+  const MAX_PAYLOAD_BYTES = 30 * 1024 * 1024; // 30 MiB max payload
+  const rawContentLength = request.headers.get('content-length');
+  if (rawContentLength !== null) {
+    const parsedLength = Number.parseInt(rawContentLength, 10);
+    if (Number.isFinite(parsedLength) && parsedLength > MAX_PAYLOAD_BYTES) {
+      return fail(413, 'Payload too large');
+    }
+  }
+
   try {
     const upstream = new URL(config.upstream);
     if (upstream.protocol !== 'https:' || !upstream.hostname.endsWith('.run.app')
@@ -191,7 +202,10 @@ export async function proxyCloudRunApi(request: Request, path: string[], config:
     if (!isWebhook && request.headers.has('authorization')) headers.set('cache-control', 'no-store');
     if (!isWebhook) headers.set('access-control-expose-headers', responseHeaders.join(', '));
     return new Response(response.body, { status: response.status, headers });
-  } catch {
+  } catch (error) {
+    if (!request.signal.aborted) {
+      console.error('[CloudRunProxy] Upstream error:', error instanceof Error ? error.message : String(error));
+    }
     return fail(502, 'API is temporarily unavailable');
   }
 }

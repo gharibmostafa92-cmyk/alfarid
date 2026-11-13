@@ -20,6 +20,7 @@ use App\Services\Shared\OperationIdempotencyService;
 use App\Services\Shared\SearchTerm;
 use App\Services\Inventory\StocktakeService;
 use App\Services\Inventory\TransferService;
+use App\Services\Pos\PosService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -160,6 +161,11 @@ class PosStockController extends Controller
                 fn (): StockTransfer => $this->transfers->receive($transfer, $quantities, $user->id),
             )
             : $this->transfers->receive($transfer, $quantities, $user->id);
+
+        PosService::invalidateCatalogVersionCache((int) $transfer->to_branch_id);
+        if ($transfer->from_branch_id) {
+            PosService::invalidateCatalogVersionCache((int) $transfer->from_branch_id);
+        }
 
         return response()->json([
             'message' => 'تم تأكيد استلام التحويلة بنجاح وتم رفع المخزون.',

@@ -188,7 +188,7 @@ export interface CreateSalePayload {
   items: {
     product_variant_id: number;
     qty: number;
-    unit_price: number;
+    unit_price?: number;
     discount_amount?: number;
     override_reason?: string;
   }[];
@@ -203,6 +203,7 @@ export interface CreateSalePayload {
   override_reason?: string;
   /** When the cart resumes a held sale: lets the server consume it atomically. */
   held_sale_id?: number | null;
+  held_sale_ids?: number[];
 }
 
 export interface QuoteLineResult {
@@ -224,5 +225,15 @@ export interface QuoteResult {
 
 export interface PosSettings {
   max_discount_percent: number;
+  return_window_days?: number;
   currency: string;
+}
+
+export interface ProcessReturnResult {
+  return_order_id: number;
+  exchange_order_id: number | null;
+  refund_amount: number;
+  cash_refund_amount: number;
+  card_refund_amount: number;
+  exchange_credit: number;
 }

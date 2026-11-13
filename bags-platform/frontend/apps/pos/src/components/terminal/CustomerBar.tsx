@@ -28,16 +28,20 @@ export function CustomerBar({ customer, setCustomer, toast }: CustomerBarProps) 
   useOutside(ref, () => setOpen(false));
 
   useEffect(() => {
+    if (q.trim().length < 2) {
+      setCustomers([]);
+      return;
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => {
       pos
-        .getCustomers(q, controller.signal)
+        .getCustomers(q.trim(), controller.signal)
         .then(setCustomers)
         .catch((err) => {
           if (isCancel(err)) return;
           toast(normalizeError(err).message, 'bad');
         });
-    }, q ? 250 : 0);
+    }, 250);
     return () => {
       clearTimeout(timer);
       controller.abort();
@@ -59,7 +63,7 @@ export function CustomerBar({ customer, setCustomer, toast }: CustomerBarProps) 
       setQuick(false);
       setNw({ name: '', phone: '', tier: 'retail' });
       toast('تم تسجيل العميل وربطه بالفاتورة');
-      pos.getCustomers().then(setCustomers).catch(() => undefined);
+      setCustomers([created]);
     } catch (err) {
       if (!isCancel(err)) {
         toast(normalizeError(err).message, 'bad');

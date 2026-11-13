@@ -65,6 +65,19 @@ test('all filters round trip through a product link and API parameters preserve 
   assert.equal(STORE_ROUTES.shop({ sort: 'newest' }), '/shop?sort=newest');
 });
 
+test('single-character search string is omitted from api and facet parameters to avoid 422', () => {
+  const stateOneChar = {
+    category: null, color: null, priceMin: null, priceMax: null,
+    occasions: [], sort: 'featured', search: 'x', inStock: false, onSale: false,
+  };
+  assert.equal(query.toApiParams(stateOneChar).search, undefined);
+  assert.equal(query.toFacetParams(stateOneChar).search, undefined);
+
+  const stateTwoChars = { ...stateOneChar, search: 'xy' };
+  assert.equal(query.toApiParams(stateTwoChars).search, 'xy');
+  assert.equal(query.toFacetParams(stateTwoChars).search, 'xy');
+});
+
 test('reset filters produce a clean URL and legacy sort links still parse', () => {
   const empty = query.parseFilters(new URLSearchParams());
   assert.equal(query.buildSearch(empty), '');

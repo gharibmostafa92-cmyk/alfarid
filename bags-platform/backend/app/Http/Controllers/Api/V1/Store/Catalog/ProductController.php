@@ -28,7 +28,7 @@ class ProductController extends Controller
         $filters = $request->validated();
         $total = in_array($filters['sort'] ?? null, ['price_asc', 'price_desc'], true)
             && ! isset($filters['price_min']) && ! isset($filters['price_max'])
-            ? fn () => $this->catalog->applyFilters($this->catalog->publishedQuery(), [...$filters, 'sort' => 'newest'])
+            ? fn () => $this->catalog->applyFilters($this->catalog->publishedBaseQuery(), [...$filters, 'sort' => 'newest'])
                 ->reorder()->count('products.id') : null;
         $products = $this->catalog->applyFilters($this->catalog->publishedQuery(), $request->validated())
             ->paginate((int) ($filters['per_page'] ?? 20), total: $total)->withQueryString();

@@ -13,11 +13,22 @@ class ProtectStorefrontCaching
     public function handle(Request $request, Closure $next): Response
     {
         $response = $next($request);
-        $response->setVary('Authorization', false);
+        $existingVary = $response->headers->get('Vary');
+        if ($existingVary) {
+            $varyTokens = array_filter(array_map('trim', explode(',', $existingVary)));
+            if (! in_array('Authorization', $varyTokens, true)) {
+                $varyTokens[] = 'Authorization';
+                $response->headers->set('Vary', implode(', ', $varyTokens));
+            }
+        } else {
+            $response->setVary('Authorization', false);
+        }
         if ($request->bearerToken() !== null || auth('sanctum')->check()) {
             $response->headers->set('Cache-Control', 'private, no-store');
         } elseif ($request->isMethod('GET') && $response->isSuccessful()) {
-            $response->headers->set('Cache-Control', 'public, max-age=0, s-maxage=60');
+            if (! $response->headers->has('Cache-Control')) {
+                $response->headers->set('Cache-Control', 'public, max-age=0, s-maxage=60');
+            }
         }
 
         return $response;

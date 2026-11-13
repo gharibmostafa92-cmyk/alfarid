@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Icon } from '../ui/Icons';
 import { fmt, cx, toAsciiNum, Field, Seg, Modal, useOutside } from '../ui/SharedUI';
-import { pos as posMockService } from '../../services/pos-data-source';
+import { pos } from '../../services/pos-data-source';
 import { isCancel, normalizeError } from '../../lib/pos-error';
 import type { Customer } from '../../types/pos.types';
 
@@ -28,16 +28,20 @@ export function CustomerBar({ customer, setCustomer, toast }: CustomerBarProps) 
   useOutside(ref, () => setOpen(false));
 
   useEffect(() => {
+    if (q.trim().length < 2) {
+      setCustomers([]);
+      return;
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => {
-      posMockService
-        .getCustomers(q, controller.signal)
+      pos
+        .getCustomers(q.trim(), controller.signal)
         .then(setCustomers)
         .catch((err) => {
           if (isCancel(err)) return;
           toast(normalizeError(err).message, 'bad');
         });
-    }, q ? 250 : 0);
+    }, 250);
     return () => {
       clearTimeout(timer);
       controller.abort();
@@ -50,7 +54,7 @@ export function CustomerBar({ customer, setCustomer, toast }: CustomerBarProps) 
     if (!nw.name.trim() || nw.phone.length < 10 || creating) return;
     setCreating(true);
     try {
-      const created = await posMockService.createQuickCustomer({
+      const created = await pos.createQuickCustomer({
         name: nw.name.trim(),
         phone: nw.phone,
         tier: nw.tier,
@@ -59,7 +63,7 @@ export function CustomerBar({ customer, setCustomer, toast }: CustomerBarProps) 
       setQuick(false);
       setNw({ name: '', phone: '', tier: 'retail' });
       toast('تم تسجيل العميل وربطه بالفاتورة');
-      posMockService.getCustomers().then(setCustomers).catch(() => undefined);
+      setCustomers([created]);
     } catch (err) {
       if (!isCancel(err)) {
         toast(normalizeError(err).message, 'bad');

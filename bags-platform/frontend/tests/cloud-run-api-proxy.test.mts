@@ -166,3 +166,34 @@ test('extracts client IP using trustedProxyHops without sliding back on malforme
   });
   assert.equal(invalidHopHeaders?.get('x-alfarid-client-ip'), null);
 });
+
+test('allows standard caching and content headers in CORS preflight', async () => {
+  const config = {
+    upstream, origins: [office], clientIpSecret,
+    identityToken: async () => 'service-token',
+  };
+  const preflight = await proxyCloudRunApi(makeRequest(office, {
+    method: 'OPTIONS',
+    headers: {
+      'access-control-request-method': 'POST',
+      'access-control-request-headers': 'authorization,cache-control,pragma,if-modified-since,content-length',
+    },
+  }), ['pos', 'sales'], config);
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get('access-control-allow-origin'), office);
+});
+
+test('rejects requests with content-length exceeding 30 MiB with 413', async () => {
+  const config = {
+    upstream, origins: [office], clientIpSecret,
+    identityToken: async () => 'service-token',
+  };
+  const response = await proxyCloudRunApi(makeRequest(office, {
+    method: 'POST',
+    body: 'payload',
+    headers: {
+      'content-length': String(31 * 1024 * 1024),
+    },
+  }), ['pos', 'sales'], config);
+  assert.equal(response.status, 413);
+});

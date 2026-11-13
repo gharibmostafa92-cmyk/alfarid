@@ -36,7 +36,7 @@ class PosShiftController extends Controller
         app(BranchAccess::class)->assertBranch($user->id, $branchId);
 
         return response()->json([
-            'data' => $this->pos->getAvailableDrawers($branchId),
+            'data' => $this->pos->getAvailableDrawers($branchId, $user),
         ]);
     }
 

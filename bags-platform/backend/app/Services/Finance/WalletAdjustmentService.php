@@ -87,7 +87,7 @@ final class WalletAdjustmentService
                         throw new BusinessException('فقط منشئ التعديل أو مدير عام يمكنه عكسه.', [], 403);
                     }
                     if ($original->reversals()->exists()) {
-                        throw new BusinessException('هذا التعديل معكوس بالفعل.');
+                        throw new BusinessException('هذا التعديل معكوس بالفعل.', [], 409);
                     }
                 }
                 $customer = Customer::query()->lockForUpdate()->findOrFail((int) $data['customer_id']);
@@ -119,22 +119,23 @@ final class WalletAdjustmentService
      */
     public function reverse(WalletAdjustment $adjustment, User $actor, ?string $idempotencyKey, ?string $reason = null): WalletAdjustment
     {
-        return DB::transaction(function () use ($adjustment, $actor, $idempotencyKey, $reason): WalletAdjustment {
-            $original = WalletAdjustment::query()->lockForUpdate()->findOrFail($adjustment->id);
-            if (! $this->canReverse($original, $actor)) {
-                throw new BusinessException('فقط منشئ التعديل أو مدير عام يمكنه عكسه.', [], 403);
-            }
-            $opposite = $original->direction === 'credit' ? 'debit' : 'credit';
+        $original = WalletAdjustment::query()->findOrFail($adjustment->id);
+        if (! $this->canReverse($original, $actor)) {
+            throw new BusinessException('فقط منشئ التعديل أو مدير عام يمكنه عكسه.', [], 403);
+        }
+        if ($original->reversals()->exists()) {
+            throw new BusinessException('هذا التعديل معكوس بالفعل.', [], 409);
+        }
+        $opposite = $original->direction === 'credit' ? 'debit' : 'credit';
 
-            return $this->recordAdjustment([
-                'customer_id' => $original->customer_id,
-                'kind' => 'adjustment',
-                'amount' => (string) $original->amount,
-                'direction' => $opposite,
-                'reason' => mb_substr('عكس تعديل #'.$original->id.($reason !== null && trim($reason) !== '' ? ': '.trim($reason) : ': '.$original->reason), 0, 500),
-                'source' => $original->source,
-            ], $actor, $idempotencyKey, $original->id);
-        });
+        return $this->recordAdjustment([
+            'customer_id' => $original->customer_id,
+            'kind' => 'adjustment',
+            'amount' => (string) $original->amount,
+            'direction' => $opposite,
+            'reason' => mb_substr('عكس تعديل #'.$original->id.($reason !== null && trim($reason) !== '' ? ': '.trim($reason) : ': '.$original->reason), 0, 500),
+            'source' => $original->source,
+        ], $actor, $idempotencyKey ?? 'wallet-adj-rev-'.$original->id, $original->id);
     }
 
     private function canReverse(WalletAdjustment $original, User $actor): bool

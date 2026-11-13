@@ -144,10 +144,14 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
 
       if (mode === 'return') {
         const res = await pos.processReturn(sale.id, returnPayload);
-        const cardAmt = sale.card_amount ?? 0;
-        const cardRefund = (res as any)?.card_refund_amount ?? (cardAmt > 0 ? Math.min(cardAmt, retTotal) : 0);
-        if (cardRefund > 0) {
+        const cardRefund = res?.card_refund_amount ?? 0;
+        const cashRefund = res?.cash_refund_amount ?? 0;
+        if (cardRefund > 0 && cashRefund > 0) {
+          toast(`تم تسجيل المرتجع. رد ${cashRefund} ج نقداً و${cardRefund} ج على الكارت`, 'ok');
+        } else if (cardRefund > 0) {
           toast(`تم تسجيل المرتجع. يجب رد ${cardRefund} جنيه على الكارت يدويًا`, 'ok');
+        } else if (cashRefund > 0) {
+          toast(`تم تسجيل المرتجع. رد ${cashRefund} جنيه نقداً من الدرج`, 'ok');
         } else {
           toast('تم تسجيل المرتجع وتحديث المخزون', 'ok');
         }
@@ -160,9 +164,14 @@ export function ReturnModal({ open, onClose, toast }: ReturnModalProps) {
           sale.customer_id,
           { method: payMethod },
         );
-        const cardRefund = (res as any)?.card_refund_amount ?? 0;
-        if (cardRefund > 0) {
+        const cardRefund = res?.card_refund_amount ?? 0;
+        const cashRefund = res?.cash_refund_amount ?? 0;
+        if (cardRefund > 0 && cashRefund > 0) {
+          toast(`تم الاستبدال. رد ${cashRefund} ج نقداً و${cardRefund} ج على الكارت`, 'ok');
+        } else if (cardRefund > 0) {
           toast(`تم الاستبدال. يجب رد ${cardRefund} جنيه على الكارت يدويًا`, 'ok');
+        } else if (cashRefund > 0) {
+          toast(`تم الاستبدال. رد ${cashRefund} جنيه نقداً من الدرج`, 'ok');
         } else {
           toast('تم الاستبدال وإصدار فاتورة جديدة', 'ok');
         }

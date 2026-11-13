@@ -47,7 +47,9 @@ function ApplicationStatusContent() {
 
 export default function ApplicationStatusPage() {
   const router = useRouter();
-  const customerType = useAuthStore((state) => state.user?.type);
+  const destination = useAuthStore((state) => state.destination);
+  const status = useAuthStore((state) => (state.user as { status?: string } | null)?.status);
+  const isPendingOrRejected = destination === 'wholesale_pending' || status === 'pending' || status === 'rejected';
   const onEnter = async () => {
     const me = await authEndpoints.me();
     useAuthStore.setState({ destination: me.actor.subtype, user: me.data, home: me.redirect.path });
@@ -55,7 +57,7 @@ export default function ApplicationStatusPage() {
   };
   return (
     <RequireActor allow={['wholesale_pending', 'wholesale']}>
-      {customerType === 'retail' ? (
+      {isPendingOrRejected ? (
         <ApplicationStatusContent />
       ) : (
         <WholesalePortal

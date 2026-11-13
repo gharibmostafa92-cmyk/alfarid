@@ -75,7 +75,7 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
     };
     window.addEventListener('message', receive);
     document.body.appendChild(frame);
-    const timer = window.setTimeout(() => setStaffCheckPending(false), 5000);
+    const timer = window.setTimeout(() => setStaffCheckPending(false), 800);
     return () => {
       window.clearTimeout(timer);
       window.removeEventListener('message', receive);
@@ -124,7 +124,7 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
   // Login handler
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isReady || staffCheckPending || isSubmitting) return;
+    if (!isReady || isSubmitting) return;
     setIsSubmitting(true);
     setErrors({});
     setFormError('');
@@ -324,7 +324,7 @@ export const LoginScreen: React.FC<{ initialView?: AuthView }> = ({ initialView 
                     <div style={{ paddingTop: '4px' }}>
                       <button
                         type="submit"
-                        disabled={!isReady || staffCheckPending || isSubmitting}
+                        disabled={!isReady || isSubmitting}
                         className="pill-btn-primary"
                       >
                         {isSubmitting ? (

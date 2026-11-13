@@ -80,9 +80,14 @@ final class DailyCloseBriefingTool implements AgentTool
             ? $args['date']
             : now()->toDateString();
 
+        $tz = (string) config('app.business_timezone', 'Africa/Cairo');
+        $startUtc = \Carbon\CarbonImmutable::parse($date, $tz)->startOfDay()->utc()->toDateTimeString();
+        $endUtc = \Carbon\CarbonImmutable::parse($date, $tz)->endOfDay()->utc()->toDateTimeString();
+
         $cashSales = (float) Order::query()
             ->where('payment_status', 'paid')->where('payment_method', 'cash')
-            ->whereDate('created_at', $date)
+            ->whereNull('return_of_order_id')
+            ->where('created_at', '>=', $startUtc)->where('created_at', '<=', $endUtc)
             ->when($branchId !== null, fn ($q) => $q->where('allocated_branch_id', $branchId))
             ->sum('grand_total');
 
@@ -90,7 +95,8 @@ final class DailyCloseBriefingTool implements AgentTool
             ->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
             ->sum('amount');
 
-        $transferQuery = fn () => TreasuryTransfer::query()->whereDate('created_at', $date)
+        $transferQuery = fn () => TreasuryTransfer::query()
+            ->where('created_at', '>=', $startUtc)->where('created_at', '<=', $endUtc)
             ->when($branchId !== null, fn ($q) => $q->where(fn ($w) => $w
                 ->whereHas('fromTreasury', fn ($t) => $t->where('branch_id', $branchId))
                 ->orWhereHas('toTreasury', fn ($t) => $t->where('branch_id', $branchId))));

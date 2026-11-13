@@ -215,9 +215,16 @@ class PosPhase1EndpointsTest extends TestCase
         $resAfterOpen->assertOk()
             ->assertJsonPath('data.0.id', $this->posDrawer1->id)
             ->assertJsonPath('data.0.busy', true)
-            ->assertJsonPath('data.0.balance', '200.00')
+            ->assertJsonPath('data.0.balance', null)
             ->assertJsonPath('data.1.id', $this->posDrawer2->id)
             ->assertJsonPath('data.1.busy', false);
+
+        // With pos_shifts.view_expected permission, supervisor sees expected busy balance
+        $this->cashier->givePermissionTo(Permission::findOrCreate('pos_shifts.view_expected', 'staff'));
+        Auth::forgetGuards();
+        $this->withToken($this->token)->getJson('/api/v1/pos/treasuries/available')
+            ->assertOk()
+            ->assertJsonPath('data.0.balance', '200.00');
 
         // Close shift (moves to closed_pending_approval) -> drawer 1 stays busy until approved
         $this->withToken($this->token)->postJson('/api/v1/pos/shifts/close', [
@@ -311,9 +318,9 @@ class PosPhase1EndpointsTest extends TestCase
         $fullRes->assertOk()
             ->assertJsonPath('data.cash_sales_total', '250.00')
             ->assertJsonPath('data.card_sales_total', '200.00')
-            ->assertJsonPath('data.cash_returns_total', '100.00')
+            ->assertJsonPath('data.cash_returns_total', '0.00')
             ->assertJsonPath('data.cash_expenses_total', '30.00')
-            ->assertJsonPath('data.expected_closing_cash', '320.00')
+            ->assertJsonPath('data.expected_closing_cash', '420.00')
             ->assertJsonPath('data.invoices_count', 2);
     }
 

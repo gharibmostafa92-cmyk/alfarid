@@ -62,6 +62,14 @@ class ExpenseService
         }
         $payload['amount'] = (string) $amount;
 
+        $expenseDate = (string) ($payload['expense_date'] ?? '');
+        $tz = (string) config('app.business_timezone', 'Africa/Cairo');
+        $today = now($tz)->toDateString();
+        $minDate = now($tz)->subDays(90)->toDateString();
+        if ($expenseDate === '' || $expenseDate > $today || $expenseDate < $minDate) {
+            throw new BusinessException('تاريخ المصروف غير صالح أو خارج النطاق المسموح به (خلال آخر 90 يومًا وحتى اليوم).');
+        }
+
         $treasury = Treasury::query()->findOrFail($payload['treasury_id']);
         $this->branchAccess->assertBranch($actor->id, (int) $payload['branch_id']);
         $this->branchAccess->assertTreasury($actor->id, $treasury);

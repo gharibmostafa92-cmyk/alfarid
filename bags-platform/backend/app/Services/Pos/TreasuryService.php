@@ -177,8 +177,9 @@ class TreasuryService
             $this->branchAccess->assertTreasury($actor->id, $locked);
             $balance = $this->parseDecimal($locked->current_balance, 'رصيد الخزينة');
             $hasTransfers = TreasuryTransfer::query()
-                ->where('from_treasury_id', $locked->id)
-                ->orWhere('to_treasury_id', $locked->id)
+                ->where(fn ($q) => $q
+                    ->where('from_treasury_id', $locked->id)
+                    ->orWhere('to_treasury_id', $locked->id))
                 ->exists();
             $hasExpenses = Expense::query()->where('treasury_id', $locked->id)->exists();
             $hasNotices = WholesalePaymentNotice::query()->where('treasury_id', $locked->id)->exists();

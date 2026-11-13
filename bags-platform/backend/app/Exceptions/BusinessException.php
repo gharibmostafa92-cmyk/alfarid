@@ -18,7 +18,7 @@ class BusinessException extends Exception
         public int $status = 422,
         public ?string $errorCode = null,
     ) {
-        parent::__construct($message);
+        parent::__construct($message, $status);
     }
 
     /**

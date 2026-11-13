@@ -47,7 +47,7 @@ export function ThermalReceipt({
     <div className="receipt">
       <div style={{ textAlign: 'center' }}>
         <b className="fs-14 display">الفريد للشنط</b>
-        <div style={{ color: '#6f6a76' }}>{branch?.name || 'فرع مدينة نصر'}</div>
+        <div style={{ color: '#6f6a76' }}>{branch?.name || 'الفرع'}</div>
         <div className="num" style={{ color: '#6f6a76' }}>
           {invoiceNumber} · {printedAt}
         </div>
@@ -123,7 +123,7 @@ export function ThermalReceipt({
       {notes && <div style={{ marginTop: 6, color: '#6f6a76' }}>{notes}</div>}
       <div className="dash" />
       <div style={{ textAlign: 'center', color: '#6f6a76' }}>
-        الكاشير: {cashier?.name || 'أحمد سمير'} — الاستبدال خلال ١٤ يومًا بالإيصال
+        الكاشير: {cashier?.name || 'كاشير'} — الاستبدال خلال {fmt(pos.getSettings()?.return_window_days ?? 30)} يومًا بالإيصال
       </div>
       <div className="bars" />
     </div>

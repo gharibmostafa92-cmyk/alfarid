@@ -52,6 +52,9 @@ class TreasuryController extends Controller implements HasMiddleware
         ]);
 
         $branch = $this->branchAccess->restrictedBranch($request->user('staff'));
+        if ($branch !== null && isset($filters['branch_id']) && (int) $filters['branch_id'] !== $branch) {
+            throw new BusinessException('غير مصرح بالوصول إلى بيانات هذا الفرع.', [], 403);
+        }
         $treasuries = Treasury::query()->when($branch !== null, fn ($q) => $q->where('branch_id', $branch))
             ->with('branch')
             ->when($filters['branch_id'] ?? null, fn ($q, $v) => $q->where('branch_id', $v))

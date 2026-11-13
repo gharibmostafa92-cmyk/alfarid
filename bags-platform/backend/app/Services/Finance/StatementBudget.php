@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\DB;
 /** Explicit statement budgets that cannot leak across PgBouncer transactions. */
 final class StatementBudget
 {
-    public static function run(int $milliseconds, callable $callback, bool $readOnly = false): mixed
+    public static function run(int $milliseconds, callable $callback, bool $readOnly = true): mixed
     {
         if (DB::getDriverName() !== 'pgsql') {
             return $callback();

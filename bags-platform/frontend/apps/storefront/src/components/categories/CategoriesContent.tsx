@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { StoreOccasion } from '@alfarid/api-client';
@@ -9,6 +9,7 @@ import { useCatalogFilters, useSimilarProducts, useStoreCategories, useStoreProd
 import { buildSearch, parseFilters, toApiParams, toFacetParams, type CatalogFilterState } from '@/lib/catalog/catalog-query';
 import { DEFAULT_HERO, OCCASION_LABELS, SORT_OPTIONS } from '@/lib/catalog/catalog-labels';
 import { findCategory, pick, priceRangeLabel, toCardVM, type CatalogCardVM } from '@/lib/catalog/catalog-mappers';
+import { rollupCategoryProductCount } from '@/lib/catalog/sophie-mappers';
 import { ProductExperience } from '@/components/products/ProductExperience';
 import { StoreImage } from '../StoreImage';
 
@@ -42,18 +43,32 @@ export function CategoriesContent() {
   }, []);
   const [toast, setToast] = useState<{ show: boolean; msg: string }>({ show: false, msg: '' });
   const [wishlist, setWishlist] = useState<Set<number>>(new Set());
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem('sophie_wishlist');
-      if (raw) setWishlist(new Set(JSON.parse(raw) as number[]));
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setWishlist(new Set(parsed.filter((id): id is number => typeof id === 'number')));
+        }
+      }
     } catch { /* storage unavailable */ }
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
   const showToast = (msg: string) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast({ show: true, msg });
-    setTimeout(() => {
+    toastTimerRef.current = setTimeout(() => {
       setToast({ show: false, msg: '' });
+      toastTimerRef.current = null;
     }, 3200);
   };
 
@@ -67,7 +82,7 @@ export function CategoriesContent() {
   const cards = useMemo(() => (productsQ.data?.pages ?? []).flatMap((p) => p.data).map(toCardVM), [productsQ.data]);
   const total = productsQ.data?.pages[0]?.meta.total ?? 0;
   const roots = categoriesQ.data ?? [];
-  const allCount = roots.reduce((t, c) => t + c.products_count, 0);
+  const allCount = roots.reduce((t, c) => t + rollupCategoryProductCount(c), 0);
   const activeCat = findCategory(roots, filters.category);
 
   const handleToggleWishlist = (productId: number, e: React.MouseEvent) => {

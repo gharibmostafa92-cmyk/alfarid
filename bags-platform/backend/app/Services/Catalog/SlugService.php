@@ -32,23 +32,32 @@ class SlugService
 
         // Fetch all existing candidate slugs in a single query and find the next available integer suffix in memory
         $like = SearchTerm::escape($base).'-%';
+        $pattern = '/^'.preg_quote($base, '/').'(-[0-9]+)?$/i';
+        $lowerBase = strtolower($base);
+        $lowerLike = strtolower($like);
+
         $query = method_exists($modelClass, 'withTrashed')
             ? $modelClass::withTrashed()
             : $modelClass::query();
-        $existing = $query
-            ->when($query->getModel()->getConnection()->getDriverName() === 'pgsql',
-                fn ($q) => $q->whereRaw('slug ~* ?', ['^'.preg_quote($base).'(-[0-9]+)?$']),
-                fn ($q) => $q->where(fn ($where) => $where->whereLike('slug', $base)->orWhereLike('slug', $like)))
-            ->when($ignoreId, fn ($q) => $q->where('id', '!=', $ignoreId))
-            ->pluck('slug')->map(fn ($slug) => strtolower($slug));
 
-        if (! $existing->contains($base)) {
+        $isPgsql = $query->getModel()->getConnection()->getDriverName() === 'pgsql';
+
+        $existing = $query
+            ->when($isPgsql,
+                fn ($q) => $q->whereRaw('LOWER(slug) = ? OR LOWER(slug) LIKE ?', [$lowerBase, $lowerLike]),
+                fn ($q) => $q->where(fn ($w) => $w->where('slug', $base)->orWhere('slug', 'LIKE', $like)))
+            ->when($ignoreId, fn ($q) => $q->where('id', '!=', $ignoreId))
+            ->pluck('slug')
+            ->map(fn ($slug) => strtolower($slug))
+            ->filter(fn ($slug) => preg_match($pattern, $slug) === 1);
+
+        if (! $existing->contains($lowerBase)) {
             return $base;
         }
 
         $taken = array_fill_keys($existing->all(), true);
         $suffix = 2;
-        while (isset($taken[$base.'-'.$suffix])) {
+        while (isset($taken[$lowerBase.'-'.$suffix])) {
             $suffix++;
         }
 

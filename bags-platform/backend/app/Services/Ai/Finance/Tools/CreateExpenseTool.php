@@ -247,7 +247,9 @@ final class CreateExpenseTool implements AgentTool, ExecutesOutsideTransaction, 
             });
         } catch (\Throwable $exception) {
             try {
-                $disk->delete($receiptPath);
+                if ($receiptPath !== null && ! Expense::query()->where('attachment_path', $receiptPath)->exists()) {
+                    $disk->delete($receiptPath);
+                }
             } catch (\Throwable $cleanupError) {
                 report($cleanupError);
             }
@@ -307,7 +309,7 @@ final class CreateExpenseTool implements AgentTool, ExecutesOutsideTransaction, 
         if ($expense->voided_at !== null) {
             throw new BusinessException('المصروف ملغي بالفعل.', [], 409);
         }
-        $this->expenses->void($expense, 'تراجع إجراء AI', $actor);
+        $this->expenses->void($expense, 'تراجع إجراء AI', $actor, 'ai-undo-expense-'.$action->id);
 
         return ToolOutcome::result(true, "اتلغى المصروف {$expense->expense_number} بقيد عكسي.", []);
     }

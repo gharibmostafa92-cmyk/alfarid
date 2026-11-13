@@ -28,6 +28,26 @@ class PosReturnTaskTxtTest extends PosScenarioFixture
     use DatabaseMigrations;
     use RunsConcurrentAuditJobs;
 
+    public function runDatabaseMigrations(): void
+    {
+        $this->artisan('migrate:fresh', $this->migrateFreshUsing());
+
+        $this->app[\Illuminate\Contracts\Console\Kernel::class]->setArtisan(null);
+
+        $this->beforeApplicationDestroyed(function () {
+            \Illuminate\Foundation\Testing\RefreshDatabaseState::$lazilyRefreshed = false;
+            \Illuminate\Foundation\Testing\RefreshDatabaseState::$migrated = false;
+        });
+    }
+
+    protected function tearDown(): void
+    {
+        $this->artisan('migrate:fresh', ['--force' => true]);
+        parent::tearDown();
+        \Illuminate\Foundation\Testing\RefreshDatabaseState::$lazilyRefreshed = false;
+        \Illuminate\Foundation\Testing\RefreshDatabaseState::$migrated = false;
+    }
+
 
     private function refundToken(User $user): string
     {

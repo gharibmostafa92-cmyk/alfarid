@@ -168,23 +168,51 @@ final class FinanceWriteGuards
         if (! $shortfallDec->isPositive()) {
             return null;
         }
-        $donor = Treasury::query()->where('is_active', true)
+
+        $candidates = Treasury::query()->where('is_active', true)
             ->whereKeyNot($excludeTreasuryId)
             ->where('branch_id', $branchId)
+            ->whereIn('type', [\App\Enums\Finance\TreasuryType::MainSafe, \App\Enums\Finance\TreasuryType::BankAccount])
             ->where('current_balance', '>=', (string) $shortfallDec)
-            ->orderByDesc('current_balance')->first(['id', 'name', 'current_balance']);
-        if ($donor === null) {
+            ->orderByDesc('current_balance')
+            ->get(['id', 'name', 'current_balance']);
+
+        $donor = null;
+        $effectiveBalance = null;
+
+        foreach ($candidates as $cand) {
+            $pendingOut = (string) (TreasuryTransfer::query()
+                ->where('from_treasury_id', $cand->id)
+                ->where('status', \App\Enums\Finance\TreasuryTransferStatus::Pending)
+                ->sum('amount') ?? '0');
+
+            $candBal = self::decimalBalance($cand->current_balance)->minus(BigDecimal::of($pendingOut)->toScale(2, RoundingMode::HalfUp));
+            if ($candBal->compareTo($shortfallDec) >= 0) {
+                $donor = $cand;
+                $effectiveBalance = $candBal;
+                break;
+            }
+        }
+
+        if ($donor === null || $effectiveBalance === null) {
             return null;
         }
+
         $shortfallStr = (string) $shortfallDec;
-        $balanceStr = (string) self::decimalBalance($donor->current_balance);
+        $balanceStr = (string) $effectiveBalance;
+
+        $cleanDonor = mb_substr(trim(preg_replace('/\s+/u', ' ', preg_replace('/[^\p{L}\p{N}\s\-_#]/u', ' ', strip_tags((string) $donor->name)))), 0, 50);
+        $cleanTarget = mb_substr(trim(preg_replace('/\s+/u', ' ', preg_replace('/[^\p{L}\p{N}\s\-_#]/u', ' ', strip_tags($targetName)))), 0, 50);
+        if ($cleanTarget === '') {
+            $cleanTarget = 'الخزينة المستهدفة';
+        }
 
         return [
             'treasury_id' => $donor->id,
             'name' => (string) $donor->name,
             'balance' => (float) $balanceStr,
             'shortfall' => (float) $shortfallStr,
-            'prompt' => "حوّل {$shortfallStr} من {$donor->name} إلى {$targetName}",
+            'prompt' => "حوّل {$shortfallStr} من {$cleanDonor} إلى {$cleanTarget}",
         ];
     }
 
@@ -205,6 +233,13 @@ final class FinanceWriteGuards
 
     public static function transferVersion(TreasuryTransfer $transfer): string
     {
-        return $transfer->status->value.':'.$transfer->updated_at->timestamp;
+        return hash('sha256', json_encode([
+            $transfer->id,
+            $transfer->status->value,
+            (string) $transfer->amount,
+            $transfer->from_treasury_id,
+            $transfer->to_treasury_id,
+            $transfer->updated_at?->toIso8601ZuluString() ?? '',
+        ], JSON_THROW_ON_ERROR));
     }
 }

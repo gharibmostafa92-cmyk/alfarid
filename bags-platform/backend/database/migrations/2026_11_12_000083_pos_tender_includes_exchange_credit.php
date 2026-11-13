@@ -16,12 +16,17 @@ return new class extends Migration
 
     public function up(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         DB::transaction(function (): void {
             DB::statement("SET LOCAL lock_timeout = '3s'");
             DB::statement('ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_pos_tender_total');
             DB::statement(<<<'SQL'
                 ALTER TABLE orders ADD CONSTRAINT orders_pos_tender_total CHECK (
-                    (cash_amount IS NULL AND card_amount IS NULL)
+                    channel <> 'pos'
+                    OR (cash_amount IS NULL AND card_amount IS NULL)
                     OR (
                         COALESCE(cash_amount, 0) >= 0 AND COALESCE(card_amount, 0) >= 0
                         AND COALESCE(exchange_credit, 0) >= 0
@@ -32,17 +37,23 @@ return new class extends Migration
                 SQL);
         });
 
+        DB::statement("SET statement_timeout = '10s'");
         DB::statement('ALTER TABLE orders VALIDATE CONSTRAINT orders_pos_tender_total');
     }
 
     public function down(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         DB::transaction(function (): void {
             DB::statement("SET LOCAL lock_timeout = '3s'");
             DB::statement('ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_pos_tender_total');
             DB::statement(<<<'SQL'
                 ALTER TABLE orders ADD CONSTRAINT orders_pos_tender_total CHECK (
-                    (cash_amount IS NULL AND card_amount IS NULL)
+                    channel <> 'pos'
+                    OR (cash_amount IS NULL AND card_amount IS NULL)
                     OR (
                         COALESCE(cash_amount, 0) >= 0 AND COALESCE(card_amount, 0) >= 0
                         AND COALESCE(cash_amount, 0) + COALESCE(card_amount, 0) = grand_total
@@ -51,6 +62,10 @@ return new class extends Migration
                 SQL);
         });
 
-        DB::statement('ALTER TABLE orders VALIDATE CONSTRAINT orders_pos_tender_total');
+        $hasExchangeCredits = (bool) DB::scalar("SELECT EXISTS(SELECT 1 FROM orders WHERE COALESCE(exchange_credit, 0) > 0)");
+        if (! $hasExchangeCredits) {
+            DB::statement("SET statement_timeout = '10s'");
+            DB::statement('ALTER TABLE orders VALIDATE CONSTRAINT orders_pos_tender_total');
+        }
     }
 };

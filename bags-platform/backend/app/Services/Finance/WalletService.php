@@ -69,6 +69,9 @@ class WalletService
         // float($signed) already lost precision before this method was reached.
         $signed = BigDecimal::of(is_string($amount) ? $amount : (string) $amount)
             ->toScale(2, RoundingMode::HalfUp);
+        if ($signed->isZero() && in_array($type, ['checkout_payment', 'order_reversal', 'return_refund'], true)) {
+            throw new BusinessException('مبلغ حركة المحفظة لا يمكن أن يكون صفرًا.', [], 422);
+        }
         $this->assertAmountSign($type, $signed);
 
         return DB::transaction(function () use ($customerId, $signed, $type, $referenceTypes, $referenceId, $createdBy): CustomerWalletTransaction {
@@ -108,11 +111,18 @@ class WalletService
             if ($balance->isGreaterThan('9999999999.99')) {
                 throw new BusinessException('رصيد المحفظة يتجاوز الحد المسموح.');
             }
-            $entry = CustomerWalletTransaction::create([
-                'customer_id' => $customerId, 'type' => $type, 'amount' => (string) $signed,
-                'balance_after' => (string) $balance, 'reference_type' => $referenceTypes[0],
-                'reference_id' => $referenceId, 'created_by' => $createdBy,
-            ]);
+            try {
+                $entry = CustomerWalletTransaction::create([
+                    'customer_id' => $customerId, 'type' => $type, 'amount' => (string) $signed,
+                    'balance_after' => (string) $balance, 'reference_type' => $referenceTypes[0],
+                    'reference_id' => $referenceId, 'created_by' => $createdBy,
+                ]);
+            } catch (\Illuminate\Database\QueryException $e) {
+                if ($e->getCode() === '23505' || str_contains($e->getMessage(), '23505') || str_contains($e->getMessage(), 'unique constraint')) {
+                    throw new BusinessException('حركة المحفظة مسجلة سابقًا.', [], 409);
+                }
+                throw $e;
+            }
             $customer->forceFill(['wallet_balance' => (string) $balance])->save();
 
             return $entry;

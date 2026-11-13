@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, MoneyInput, Api, Field, cx, useEsc } from '../ui/SharedUI';
-import { pos as posMockService } from '../../services/pos-data-source';
+import { pos } from '../../services/pos-data-source';
 import type { PosShift, ShiftStats } from '../../types/pos.types';
 import { fromCents, toCents } from '../../lib/money';
 import { normalizeError } from '../../lib/pos-error';
@@ -41,7 +41,7 @@ export function CloseShiftModal({ open, onClose, shift, onClosed, onCommitted, i
       setClosedResult(null);
       setStatsReady(false);
       setError('');
-      void posMockService.getShiftStats().then((summary) => {
+      void pos.getShiftStats().then((summary) => {
         if (!active) return;
         setStats(summary);
         setStatsReady(true);
@@ -97,7 +97,7 @@ export function CloseShiftModal({ open, onClose, shift, onClosed, onCommitted, i
     setError('');
     setBusy(true);
     try {
-      const res = await posMockService.closeShift(Number(actual), notes);
+      const res = await pos.closeShift(Number(actual), notes);
       setClosedResult(res);
       onCommitted(res);
     } catch (error) {

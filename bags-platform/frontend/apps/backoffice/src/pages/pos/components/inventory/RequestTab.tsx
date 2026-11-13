@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Icon } from '../ui/Icons';
 import { fmt, PImg, Api, Empty, Search, Field, cx } from '../ui/SharedUI';
-import { pos as posMockService } from '../../services/pos-data-source';
+import { pos } from '../../services/pos-data-source';
 import { isCancel, normalizeError } from '../../lib/pos-error';
 import type { PosProduct, TransferSource, Branch } from '../../types/pos.types';
 
@@ -20,13 +20,13 @@ export function RequestTab({ toast, branch }: RequestTabProps) {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    posMockService
+    pos
       .getProducts()
       .then(setAllProducts)
       .catch((error) => {
         if (!isCancel(error)) toast(normalizeError(error).message, 'bad');
       });
-    posMockService
+    pos
       .getTransferSources()
       .then((s) => {
         setSources(s);
@@ -58,7 +58,7 @@ export function RequestTab({ toast, branch }: RequestTabProps) {
     if (!lines.length || busy) return;
     setBusy(true);
     try {
-      await posMockService.requestTransfer(src, lines, note);
+      await pos.requestTransfer(src, lines, note);
       toast('تم إرسال طلب التحويل للاعتماد');
       setLines([]);
       setNote('');
@@ -122,7 +122,7 @@ export function RequestTab({ toast, branch }: RequestTabProps) {
           </thead>
           <tbody>
             {lines.map((l) => {
-              const p = posMockService.getProductById(l.id);
+              const p = pos.getProductById(l.id);
               if (!p) return null;
               return (
                 <tr key={l.id}>

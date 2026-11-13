@@ -49,7 +49,8 @@
                     "bags-platform/backend/app/Console/Commands/Maintenance/VerifyDatabaseSchema.php",
                     "bags-platform/backend/database/seeders/FinancialPermissionSeeder.php",
                     "bags-platform/backend/app/Services/Ai/Finance/Tools/DailyCloseBriefingTool.php",
-                    "bags-platform/backend/app/Services/Ai/Finance/Tools/ExplainOrderMoneyTool.php"
+                    "bags-platform/backend/app/Services/Ai/Finance/Tools/ExplainOrderMoneyTool.php",
+                    "bags-platform/frontend/packages/api-client/src/endpoints/operations/finance.ts"
                 ],
     "ignore":  {
                    "useGitignore":  true,

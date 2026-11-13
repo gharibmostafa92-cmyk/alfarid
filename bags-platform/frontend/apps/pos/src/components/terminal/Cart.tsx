@@ -115,7 +115,7 @@ export function Cart({
               onPrice={(pr) =>
                 setCart((c) =>
                   c.map((x) =>
-                    x.id === l.id ? { ...x, price: pr, manualPrice: pr !== x.listPrice } : x,
+                    x.id === l.id ? { ...x, price: pr, manualPrice: true } : x,
                   ),
                 )
               }

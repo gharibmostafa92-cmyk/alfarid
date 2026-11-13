@@ -20,6 +20,7 @@ interface CheckoutModalProps {
   isQuoting: boolean;
   /** Server id of the resumed held sale: sent as held_sale_id so the server consumes it atomically. */
   heldSaleId?: number | null;
+  heldSaleIds?: number[];
   onPaid: () => void;
   onAttemptSettled: () => void;
   pendingOwner: string | undefined;
@@ -36,6 +37,7 @@ export function CheckoutModal({
   quote,
   isQuoting,
   heldSaleId,
+  heldSaleIds,
   onPaid,
   onAttemptSettled,
   pendingOwner,
@@ -152,6 +154,7 @@ export function CheckoutModal({
       ? (notes.trim() ? `كارت ****${cardDigits.trim()} · ${notes.trim()}` : `كارت ****${cardDigits.trim()}`)
       : notes.trim();
 
+    const manualIds = new Set(cart.filter((line) => line.manualPrice).map((line) => line.id));
     const payload = buildCheckoutPayload(quote, {
       customerId: customer?.id ?? null,
       method,
@@ -160,6 +163,8 @@ export function CheckoutModal({
       overrideReason: hasOverride ? overrideReason.trim() : undefined,
       notes: finalNotes,
       heldSaleId: heldSaleId ?? null,
+      heldSaleIds: heldSaleIds && heldSaleIds.length > 0 ? heldSaleIds : (heldSaleId ? [heldSaleId] : []),
+      manualItemIds: manualIds,
     });
 
     try {
@@ -465,7 +470,13 @@ export function CheckoutModal({
                         <button
                           key={r}
                           className="note-chip"
-                          onClick={() => setCashPart(String(Math.round(total * r)))}
+                          onClick={() => {
+                            const partCents = Math.min(
+                              Math.max(1, Math.round(totalCents * r)),
+                              Math.max(1, totalCents - 1),
+                            );
+                            setCashPart(String(fromCents(partCents)));
+                          }}
                         >
                           {fmt(r * 100)}٪ نقدي
                         </button>

@@ -53,6 +53,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
   // Network & multi-tab coordination
   const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [hasTabConflict, setHasTabConflict] = useState<boolean>(false);
+  const coordinatorRef = useRef<ReturnType<typeof createTabCoordinator> | null>(null);
   const [pendingSale, setPendingSale] = useState<PendingSaleDraft | null>(null);
   const pendingOwner = cashier && currentShift ? `${cashier.id}:${currentShift.id}` : undefined;
   const canRecoverPending = Boolean(pendingOwner && pendingSale?.owner === pendingOwner);
@@ -68,6 +69,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
   const setDiscount = usePosCart((s) => s.setDiscount);
   const quote = usePosCart((s) => s.quote);
   const isQuoting = usePosCart((s) => s.isQuoting);
+  const heldSaleIds = usePosCart((s) => s.heldSaleIds);
   const lastDeleted = usePosCart((s) => s.lastDeleted);
   const [heldSales, setHeldSales] = useState<PosHeldSale[]>([]);
   const [lastAdded, setLastAdded] = useState<{ id: number; k: number } | null>(null);
@@ -103,8 +105,12 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
     const coordinator = createTabCoordinator({
       onDuplicate: () => setHasTabConflict(true),
     });
+    coordinatorRef.current = coordinator;
     coordinator.start();
-    return () => coordinator.destroy();
+    return () => {
+      coordinator.destroy();
+      coordinatorRef.current = null;
+    };
   }, []);
 
   // Window online/offline listener
@@ -188,7 +194,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
 
   // Hardware scanner: works even when the scan box is not focused.
   useEffect(() => {
-    if (!currentShift || currentScreen !== 'terminal' || isCheckoutOpen || closingShift || hasTabConflict) return;
+    if (!currentShift || currentScreen !== 'terminal' || isCheckoutOpen || isReturnOpen || isHoldOpen || isHeldOpen || closingShift || hasTabConflict) return;
     const detect = createScanDetector({
       onScan: async (code) => {
         try {
@@ -206,7 +212,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
     });
     window.addEventListener('keydown', detect, true);
     return () => window.removeEventListener('keydown', detect, true);
-  }, [currentShift?.id, currentScreen, isCheckoutOpen, closingShift, hasTabConflict, handleAddToCart, toast]);
+  }, [currentShift?.id, currentScreen, isCheckoutOpen, isReturnOpen, isHoldOpen, isHeldOpen, closingShift, hasTabConflict, handleAddToCart, toast]);
 
   // Pay waits for the current quote so the payment screen opens with a confirmed total.
   const handlePay = useCallback(async () => {
@@ -394,7 +400,14 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
         }
         return next;
       });
+      if (resumed.serverId) {
+        posCartStore.getState().addHeldSaleId(resumed.serverId);
+      }
       setResumedHeldId(resumed.serverId ?? null);
+      const resumedDiscount = (resumed.items ?? []).reduce((sum, item) => sum + (Number(item.discount_amount) || 0), 0);
+      if (resumedDiscount > 0) {
+        setDiscount((prev) => prev + resumedDiscount);
+      }
       if (resumed.customerObj) {
         setCustomer(resumed.customerObj);
       } else if (resumed.customer) {
@@ -475,7 +488,10 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
             <button
               className="btn btn-primary btn-lg"
               style={{ marginTop: 20 }}
-              onClick={() => setHasTabConflict(false)}
+              onClick={() => {
+                coordinatorRef.current?.claim();
+                setHasTabConflict(false);
+              }}
             >
               الاستمرار في هذه النافذة
             </button>
@@ -616,6 +632,7 @@ export function PosApp({ onLogout }: PosAppProps = {}) {
             quote={quote}
             isQuoting={isQuoting}
             heldSaleId={resumedHeldId}
+            heldSaleIds={heldSaleIds}
             onPaid={handleSalePaid}
             onAttemptSettled={checkPendingSale}
             pendingOwner={pendingOwner}

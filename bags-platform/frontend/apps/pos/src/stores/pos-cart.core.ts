@@ -16,6 +16,7 @@ export interface CartState {
   cart: PosCartLine[];
   customer: Customer | null;
   discount: number;
+  heldSaleIds: number[];
   quote: QuoteResult | null;
   isQuoting: boolean;
   quoteError: string | null;
@@ -27,7 +28,9 @@ export interface CartState {
   addItem: (p: PosProduct) => void;
   setLinePrice: (id: number, price: number) => void;
   setCustomer: (c: Customer | null) => void;
-  setDiscount: (d: number) => void;
+  setDiscount: (d: number | ((prev: number) => number)) => void;
+  addHeldSaleId: (id: number) => void;
+  setHeldSaleIds: (ids: number[]) => void;
   undoDelete: () => void;
   clearCart: () => void;
   /** Runs the pending quote now and resolves with its result (null if nothing to quote). */
@@ -48,9 +51,9 @@ export function createPosCartStore(deps: CartDeps) {
 
   return createStore<CartState>((set, get) => {
     const persist = () => {
-      const { ctx, cart, customer, discount } = get();
+      const { ctx, cart, customer, discount, heldSaleIds } = get();
       if (!ctx) return;
-      deps.storage.setItem(ctx, JSON.stringify({ cart, customer, discount }));
+      deps.storage.setItem(ctx, JSON.stringify({ cart, customer, discount, heldSaleIds }));
     };
 
     const buildRequest = (): QuoteRequest => {
@@ -65,7 +68,7 @@ export function createPosCartStore(deps: CartDeps) {
           product_variant_id: l.id,
           qty: l.qty,
           discount_amount: (disc.find((d) => d.id === l.id)?.d ?? 0) / 100,
-          ...(override ? { unit_price: l.price } : {}),
+          ...(l.manualPrice ? { unit_price: l.price } : {}),
         })),
         customer_id: customer?.id ?? null,
         override_price: override,
@@ -131,6 +134,7 @@ export function createPosCartStore(deps: CartDeps) {
       cart: [],
       customer: null,
       discount: 0,
+      heldSaleIds: [],
       quote: null,
       isQuoting: false,
       quoteError: null,
@@ -139,7 +143,7 @@ export function createPosCartStore(deps: CartDeps) {
 
       bindContext: (userId, shiftId) => {
         const ctx = shiftId == null ? null : keyOf(userId, shiftId);
-        let saved: { cart?: PosCartLine[]; customer?: Customer | null; discount?: number } = {};
+        let saved: { cart?: PosCartLine[]; customer?: Customer | null; discount?: number; heldSaleIds?: number[] } = {};
         if (ctx) {
           try {
             saved = JSON.parse(deps.storage.getItem(ctx) ?? '{}');
@@ -147,7 +151,15 @@ export function createPosCartStore(deps: CartDeps) {
             saved = {};
           }
         }
-        set({ ctx, cart: saved.cart ?? [], customer: saved.customer ?? null, discount: saved.discount ?? 0, quote: null, lastDeleted: null });
+        set({
+          ctx,
+          cart: saved.cart ?? [],
+          customer: saved.customer ?? null,
+          discount: saved.discount ?? 0,
+          heldSaleIds: Array.isArray(saved.heldSaleIds) ? saved.heldSaleIds : [],
+          quote: null,
+          lastDeleted: null,
+        });
         schedule(true);
       },
 
@@ -185,7 +197,7 @@ export function createPosCartStore(deps: CartDeps) {
       },
 
       setLinePrice: (id, price) => {
-        get().setCart((prev) => prev.map((l) => (l.id === id ? { ...l, price, manualPrice: price !== l.listPrice } : l)));
+        get().setCart((prev) => prev.map((l) => (l.id === id ? { ...l, price, manualPrice: true } : l)));
       },
 
       setCustomer: (customer) => {
@@ -195,9 +207,23 @@ export function createPosCartStore(deps: CartDeps) {
       },
 
       setDiscount: (discount) => {
-        set({ discount });
+        const next = typeof discount === 'function' ? discount(get().discount) : discount;
+        set({ discount: next });
         persist();
         schedule();
+      },
+
+      addHeldSaleId: (id: number) => {
+        const prev = get().heldSaleIds;
+        if (!prev.includes(id)) {
+          set({ heldSaleIds: [...prev, id] });
+          persist();
+        }
+      },
+
+      setHeldSaleIds: (heldSaleIds: number[]) => {
+        set({ heldSaleIds });
+        persist();
       },
 
       undoDelete: () => {
@@ -211,7 +237,7 @@ export function createPosCartStore(deps: CartDeps) {
       clearCart: () => {
         const { ctx } = get();
         if (undoTimer) clearTimeout(undoTimer);
-        set({ cart: [], customer: null, discount: 0, lastDeleted: null });
+        set({ cart: [], customer: null, discount: 0, heldSaleIds: [], lastDeleted: null });
         if (ctx) deps.storage.removeItem(ctx);
         schedule(true);
       },

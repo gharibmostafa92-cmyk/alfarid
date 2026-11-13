@@ -19,11 +19,25 @@ class TaskTxtPosConcurrencyTest extends PosScenarioFixture
     use DatabaseMigrations;
     use RunsConcurrentAuditJobs;
 
+    public function runDatabaseMigrations(): void
+    {
+        $this->artisan('migrate:fresh', $this->migrateFreshUsing());
+
+        $this->app[\Illuminate\Contracts\Console\Kernel::class]->setArtisan(null);
+
+        $this->beforeApplicationDestroyed(function () {
+            \Illuminate\Foundation\Testing\RefreshDatabaseState::$lazilyRefreshed = false;
+            \Illuminate\Foundation\Testing\RefreshDatabaseState::$migrated = false;
+        });
+    }
+
     protected function tearDown(): void
     {
-        // Older order constraints cannot represent committed POS payment methods.
+        // Clean up committed data without rolling back the schema
         $this->artisan('migrate:fresh', ['--force' => true]);
         parent::tearDown();
+        \Illuminate\Foundation\Testing\RefreshDatabaseState::$lazilyRefreshed = false;
+        \Illuminate\Foundation\Testing\RefreshDatabaseState::$migrated = false;
     }
 
     public function test_parallel_idempotent_requests_return_the_same_sale_with_items(): void

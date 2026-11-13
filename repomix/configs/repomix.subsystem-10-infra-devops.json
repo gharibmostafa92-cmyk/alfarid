@@ -78,7 +78,17 @@
                     "bags-platform/backend/database/migrations/2026_11_12_000092_add_brands_lock_version.php",
                     "bags-platform/backend/database/migrations/2026_11_12_000092_add_resume_lease_to_pos_held_sales.php",
                     "docs/TASK10_DEPLOYMENT_STATUS.md",
-                    "docs/TASK8_DEPLOYMENT_STATUS.md"
+                    "docs/TASK8_DEPLOYMENT_STATUS.md",
+                    "bags-platform/backend/database/migrations/2026_11_12_000070_align_treasury_shift_expense_precision.php",
+                    "bags-platform/frontend/apps/pos/package.json",
+                    "docs/TASK2_DEPLOYMENT_STATUS.md",
+                    "bags-platform/backend/database/migrations/2026_11_12_000093_task2_treasury_and_wallet_schema_hardening.php",
+                    "bags-platform/backend/database/migrations/2026_11_12_000083_pos_tender_includes_exchange_credit.php",
+                    "docs/TASK3_DEPLOYMENT_STATUS.md",
+                    "docs/TASK4_DEPLOYMENT_STATUS.md",
+                    "bags-platform/backend/app/Exceptions/BusinessException.php",
+                    "bags-platform/backend/app/Models/Concerns/SerializesAccountEmail.php",
+                    "scripts/populate_floorplan_descriptions.mjs"
                 ],
     "ignore":  {
                    "useGitignore":  true,

@@ -227,7 +227,7 @@ class P07CouponsTest extends TestCase
             $this->fail('expected 429 on the 21st attempt');
         } catch (BusinessException $e) {
             $this->assertSame(429, $e->status);
-            $this->assertSame(self::NOT_REDEEMABLE, $e->getMessage());
+            $this->assertSame(CouponService::RATE_LIMIT_EXCEEDED, $e->getMessage());
         }
     }
 

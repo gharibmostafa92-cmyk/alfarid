@@ -142,7 +142,7 @@ final class ApproveTreasuryTransferTool implements AgentTool, LocksTargets, Writ
                 throw new BusinessException($e->getMessage(), [], 403);
             }
             if (str_contains($e->getMessage(), 'رصيد الخزينة غير كافٍ')) {
-                $from = $transfer->fromTreasury;
+                $from = $transfer->fromTreasury?->fresh();
                 $shortfall = (string) BigDecimal::of((string) $transfer->amount)
                     ->minus((string) ($from?->current_balance ?? '0'))
                     ->toScale(2, RoundingMode::HalfUp);

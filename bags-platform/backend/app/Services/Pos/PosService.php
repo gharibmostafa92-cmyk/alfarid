@@ -77,10 +77,10 @@ class PosService
             }
         };
 
-        $invalidate();
-
         if (DB::transactionLevel() > 0) {
             DB::afterCommit($invalidate);
+        } else {
+            $invalidate();
         }
     }
 
@@ -253,11 +253,13 @@ class PosService
 
     /**
      * Lists active POS drawers for a branch with busy status and current balance.
+     * Balance is suppressed (null) for busy drawers unless the viewer can view expected cash.
      *
      * @param  int  $branchId  Target branch ID
-     * @return array<int, array{id: int, name: string, code: string, busy: bool, balance: string}>
+     * @param  User|null  $viewer  Requesting staff user
+     * @return array<int, array{id: int, name: string, code: string, busy: bool, balance: string|null}>
      */
-    public function getAvailableDrawers(int $branchId): array
+    public function getAvailableDrawers(int $branchId, ?User $viewer = null): array
     {
         $drawers = Treasury::query()
             ->where('branch_id', $branchId)
@@ -276,13 +278,21 @@ class PosService
             ->pluck('treasury_id')
             ->flip();
 
-        return $drawers->map(fn (Treasury $drawer): array => [
-            'id' => $drawer->id,
-            'name' => $drawer->name,
-            'code' => $drawer->code,
-            'busy' => $busyIds->has($drawer->id),
-            'balance' => number_format((float) $drawer->current_balance, 2, '.', ''),
-        ])->values()->all();
+        $canViewExpected = $viewer?->can('pos_shifts.view_expected')
+            ?? request()->user('staff')?->can('pos_shifts.view_expected')
+            ?? false;
+
+        return $drawers->map(function (Treasury $drawer) use ($busyIds, $canViewExpected): array {
+            $isBusy = $busyIds->has($drawer->id);
+
+            return [
+                'id' => $drawer->id,
+                'name' => $drawer->name,
+                'code' => $drawer->code,
+                'busy' => $isBusy,
+                'balance' => ($isBusy && ! $canViewExpected) ? null : number_format((float) $drawer->current_balance, 2, '.', ''),
+            ];
+        })->values()->all();
     }
 
     /**
@@ -542,6 +552,34 @@ class PosService
                 throw new BusinessException('الوردية ليست في انتظار الاعتماد.');
             }
 
+            // Lock User and Treasury to prevent race conditions with concurrent openShift
+            User::query()->whereKey($shift->user_id)->lockForUpdate()->firstOrFail();
+            Treasury::query()->whereKey($shift->treasury_id)->lockForUpdate()->firstOrFail();
+
+            // Invariant 1: Cashier must NOT have another Open shift
+            $hasOtherOpenShift = PosShift::query()
+                ->where('user_id', $shift->user_id)
+                ->where('id', '!=', $shift->id)
+                ->where('status', PosShiftStatus::Open)
+                ->lockForUpdate()
+                ->exists();
+
+            if ($hasOtherOpenShift) {
+                throw new BusinessException('لا يمكن إعادة فتح الوردية؛ لدى الكاشير وردية أخرى مفتوحة حالياً. يجب إغلاقها أولاً.', status: 409);
+            }
+
+            // Invariant 2: Drawer must NOT have another active shift
+            $hasOtherDrawerShift = PosShift::query()
+                ->where('treasury_id', $shift->treasury_id)
+                ->where('id', '!=', $shift->id)
+                ->whereIn('status', [PosShiftStatus::Open, PosShiftStatus::ClosedPendingApproval])
+                ->lockForUpdate()
+                ->exists();
+
+            if ($hasOtherDrawerShift) {
+                throw new BusinessException('لا يمكن إعادة فتح الوردية؛ درج النقدية مرتبط بوردية أخرى نشطة حالياً.', status: 409);
+            }
+
             $shift->update([
                 'status' => PosShiftStatus::Open,
                 'closed_at' => null,
@@ -676,14 +714,26 @@ class PosService
             // Idempotency-Key. An existing row is still branch- and
             // owner-checked, then consumed here so a direct (unresumed) sale
             // cannot be replayed against the same parked cart.
-            $heldSale = null;
+            $heldSaleIds = [];
             if (! empty($payload['held_sale_id'])) {
-                $heldSale = PosHeldSale::query()
-                    ->whereKey((int) $payload['held_sale_id'])
-                    ->lockForUpdate()
-                    ->first();
+                $heldSaleIds[] = (int) $payload['held_sale_id'];
+            }
+            if (! empty($payload['held_sale_ids']) && is_array($payload['held_sale_ids'])) {
+                foreach ($payload['held_sale_ids'] as $hid) {
+                    if ($hid) {
+                        $heldSaleIds[] = (int) $hid;
+                    }
+                }
+            }
+            $heldSaleIds = array_values(array_unique($heldSaleIds));
 
-                if ($heldSale !== null) {
+            if (! empty($heldSaleIds)) {
+                $heldSales = PosHeldSale::query()
+                    ->whereIn('id', $heldSaleIds)
+                    ->lockForUpdate()
+                    ->get();
+
+                foreach ($heldSales as $heldSale) {
                     app(BranchAccess::class)->assertBranch($actor->id, (int) $heldSale->branch_id);
                     if ((int) $heldSale->branch_id !== (int) $shift->branch_id) {
                         throw new BusinessException('الفاتورة المعلقة تخص فرعاً آخر.');
@@ -694,7 +744,6 @@ class PosService
                     }
 
                     $heldSale->delete();
-                    $heldSale = null;
                 }
             }
             if (! empty($payload['override_price']) && ! $actor->can('pos.override_price')) {
@@ -845,6 +894,8 @@ class PosService
                 ]);
             }
 
+            self::invalidateCatalogVersionCache((int) $shift->branch_id);
+
             return $order->load(['items.variant', 'customer']);
         });
     }
@@ -982,16 +1033,22 @@ class PosService
                 $previousCashRefunded = (float) Order::withTrashed()
                     ->where('return_of_order_id', $originalOrder->id)
                     ->sum('cash_amount');
+                $previousCardRefunded = (float) Order::withTrashed()
+                    ->where('return_of_order_id', $originalOrder->id)
+                    ->sum('card_amount');
                 $maxCashRefund = round((float) $originalOrder->cash_amount - $previousCashRefunded, 2);
-                $cashRefund = min($returnValue, max(0.0, $maxCashRefund));
+                $maxCardRefund = round((float) $originalOrder->card_amount - $previousCardRefunded, 2);
 
                 // Exchange netting: the portion of the refund consumed as credit
-                // against the replacement sale never touches the drawer. Cash is
-                // consumed first so card reversals shrink only when credit remains.
+                // against the replacement sale never touches the drawer. Card balance
+                // is consumed first so the shop does not pay cash out of the drawer
+                // while non-cash credit could cover the replacement.
                 $credit = min(max(0.0, $exchangeCredit), $returnValue);
-                $cashCovered = min($cashRefund, $credit);
-                $cashRefund = round($cashRefund - $cashCovered, 2);
-                $cardRefund = round($returnValue - $credit - $cashRefund, 2);
+                $netRefund = round($returnValue - $credit, 2);
+
+                $cardCovered = min($maxCardRefund, $credit);
+                $cardRefund = round(min(max(0.0, $maxCardRefund - $cardCovered), $netRefund), 2);
+                $cashRefund = round($netRefund - $cardRefund, 2);
 
                 $locationId = $this->inventory->receivingLocation((int) $shift->branch_id);
                 $levels = $this->inventory->lockLevels(array_map(fn ($variantId) => [
@@ -1110,12 +1167,16 @@ class PosService
                 }
 
                 $returnOrderId = $returnOrder->id;
+                self::invalidateCatalogVersionCache((int) $shift->branch_id);
             }
 
             return [
                 'return_order_id' => $returnOrderId,
                 'exchange_order_id' => null,
                 'refund_amount' => $returnValue,
+                'cash_refund_amount' => $cashRefund,
+                'card_refund_amount' => $cardRefund,
+                'exchange_credit' => $credit,
             ];
         });
     }
@@ -1142,7 +1203,17 @@ class PosService
             app(BranchAccess::class)->assertBranch($actor->id, (int) $lockedOriginal->allocated_branch_id);
 
             $returnEstimate = $this->estimateReturnValue($lockedOriginal, $data['returned_items']);
-            $customer = $lockedOriginal->customer_id ? Customer::find($lockedOriginal->customer_id) : null;
+
+            // If original customer was soft-deleted or suspended, detach them from replacement sale
+            // so the exchange proceeds with standard retail pricing rather than failing.
+            $customer = null;
+            if ($lockedOriginal->customer_id) {
+                $existingCustomer = Customer::withTrashed()->find($lockedOriginal->customer_id);
+                if ($existingCustomer !== null && ! $existingCustomer->trashed() && $existingCustomer->canShop()) {
+                    $customer = $existingCustomer;
+                }
+            }
+
             $quote = $this->quote(
                 (int) $shift->branch_id,
                 $data['exchange_items'],
@@ -1168,7 +1239,7 @@ class PosService
 
             $exchangePayload = [
                 'items' => $data['exchange_items'],
-                'customer_id' => $lockedOriginal->customer_id,
+                'customer_id' => $customer?->id,
                 'cash_amount' => $cashAmount,
                 'card_amount' => $cardAmount,
                 'exchange_credit' => $credit,
@@ -1735,6 +1806,9 @@ class PosService
             if ($category === '') {
                 throw new BusinessException('فئة المصروف مطلوبة.');
             }
+            if (mb_strlen($category) > 100) {
+                throw new BusinessException('فئة المصروف يجب ألا تتجاوز 100 حرف.');
+            }
             if (! array_key_exists('amount', $data) || $data['amount'] === null || trim((string) $data['amount']) === '') {
                 throw new BusinessException('مبلغ المصروف مطلوب.');
             }
@@ -1747,6 +1821,21 @@ class PosService
                 throw new BusinessException('مبلغ المصروف يجب أن يكون أكبر من صفر.');
             }
 
+            $attachmentPath = null;
+            if (isset($data['attachment_path']) && $data['attachment_path'] !== null && trim((string) $data['attachment_path']) !== '') {
+                $attachmentPath = ExpenseService::validateAttachmentPath($data['attachment_path']);
+            }
+
+            $notes = null;
+            if (isset($data['notes']) && $data['notes'] !== null && trim((string) $data['notes']) !== '') {
+                $notes = trim((string) $data['notes']);
+                if (mb_strlen($notes) > 500) {
+                    throw new BusinessException('ملاحظات المصروف يجب ألا تتجاوز 500 حرف.');
+                }
+            }
+
+            $expenseDate = today(config('app.business_timezone', 'UTC'));
+
             $expenseNumber = $this->settings->generateNextNumber('expense');
 
             $expense = Expense::create([
@@ -1756,9 +1845,9 @@ class PosService
                 'shift_id' => $shift->id,
                 'category' => $category,
                 'amount' => (string) $amount,
-                'expense_date' => $data['expense_date'] ?? today(),
-                'attachment_path' => $data['attachment_path'] ?? null,
-                'notes' => $data['notes'] ?? null,
+                'expense_date' => $expenseDate,
+                'attachment_path' => $attachmentPath,
+                'notes' => $notes,
                 'created_by' => $userId,
             ]);
 

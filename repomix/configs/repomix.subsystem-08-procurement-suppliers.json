@@ -41,7 +41,8 @@
                     "bags-platform/backend/database/migrations/*procurement*.php",
                     "bags-platform/backend/database/migrations/*report*.php",
                     "bags-platform/backend/database/migrations/*enforce_unique_document_numbers*.php",
-                    "bags-platform/backend/app/Http/Resources/Supplier/PaymentResource.php"
+                    "bags-platform/backend/app/Http/Resources/Supplier/PaymentResource.php",
+                    "bags-platform/backend/app/Models/Concerns/SerializesAccountEmail.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

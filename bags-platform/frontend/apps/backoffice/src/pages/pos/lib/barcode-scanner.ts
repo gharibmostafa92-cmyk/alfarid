@@ -19,12 +19,14 @@ export interface ScanDetectorOptions {
   ignore?: (target: EventTarget | null) => boolean;
 }
 
-/** textarea, the payment MoneyInput and the scan bar itself (which handles its own Enter). */
+/** Ignore focused text inputs, textareas, selects, and contenteditable elements so scanner never hijacks user typing. */
 export function defaultScanIgnore(target: EventTarget | null): boolean {
-  const el = target as { tagName?: string; closest?: (sel: string) => unknown } | null;
-  if (!el) return false;
-  if (el.tagName === 'TEXTAREA') return true;
-  return Boolean(el.closest?.('[data-money-input]') || el.closest?.('[data-scan-input]'));
+  if (!target || !(target instanceof HTMLElement)) return false;
+  const tag = target.tagName.toUpperCase();
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) {
+    return true;
+  }
+  return Boolean(target.closest?.('[data-money-input]') || target.closest?.('[data-scan-input]'));
 }
 
 export function createScanDetector(opts: ScanDetectorOptions): (e: ScanKeyEvent) => void {

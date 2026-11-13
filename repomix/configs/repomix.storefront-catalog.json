@@ -50,7 +50,9 @@
                     "bags-platform/frontend/apps/backoffice/src/pages/pos/components/terminal/Catalog.tsx",
                     "bags-platform/frontend/apps/backoffice/src/pages/pos/stores/pos-cart.core.ts",
                     "bags-platform/frontend/apps/pos/src/stores/pos-cart.store.ts",
-                    "bags-platform/frontend/apps/pos/src/stores/pos-cart.core.ts"
+                    "bags-platform/frontend/apps/pos/src/stores/pos-cart.core.ts",
+                    "bags-platform/backend/app/Models/Product.php",
+                    "bags-platform/backend/app/Http/Requests/Concerns/NormalizesCustomerInput.php"
                 ],
     "ignore":  {
                    "useGitignore":  true,

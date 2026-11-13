@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, MoneyInput, Api } from '../ui/SharedUI';
-import { pos as posMockService } from '../../services/pos-data-source';
+import { pos } from '../../services/pos-data-source';
 import type { PosShift, Treasury, Branch, CashierUser } from '../../types/pos.types';
 import { normalizeError } from '../../lib/pos-error';
 
@@ -19,7 +19,7 @@ export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
   const [cashier, setCashier] = useState<CashierUser | null>(null);
 
   useEffect(() => {
-    posMockService.getTreasuries().then((list) => {
+    pos.getTreasuries().then((list) => {
       setTreasuries(list);
       const free = list.find((t) => t.state === 'free');
       if (free) {
@@ -29,8 +29,8 @@ export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
         }
       }
     });
-    posMockService.getBranch().then(setBranch);
-    posMockService.getCashier().then(setCashier);
+    pos.getBranch().then(setBranch);
+    pos.getCashier().then(setCashier);
   }, []);
 
   const selectedDrawer = treasuries.find((t) => t.id === treasury);
@@ -56,7 +56,7 @@ export function OpenShiftGate({ onOpened }: OpenShiftGateProps) {
     setBusy(true);
     setError('');
     try {
-      const opened = await posMockService.openShift(treasury, amount);
+      const opened = await pos.openShift(treasury, amount);
       onOpened(opened);
     } catch (err: any) {
       const apiErr = normalizeError(err);

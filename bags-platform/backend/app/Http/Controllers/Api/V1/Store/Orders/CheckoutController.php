@@ -17,6 +17,7 @@ use App\Services\Orders\CartService;
 use App\Services\Orders\OrderService;
 use App\Services\Orders\ShippingQuoteService;
 use App\Services\Pos\StorePaymentPolicy;
+use App\Services\Pricing\CouponService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -30,6 +31,7 @@ class CheckoutController extends Controller
         private readonly OrderService $orders,
         private readonly ShippingQuoteService $shippingQuote,
         private readonly StorePaymentPolicy $paymentPolicy,
+        private readonly CouponService $coupons,
     ) {}
 
     /**
@@ -56,9 +58,16 @@ class CheckoutController extends Controller
 
         // Free shipping promotions waive delivery costs but do not eliminate COD cash-handling fees.
         $cost = $quote['cost'];
-        if ($totals['coupon_code'] !== null && $cart->coupon_id !== null
-            && Coupon::query()->whereKey($cart->coupon_id)->value('type') === 'free_shipping') {
-            $cost = 0.0;
+        if ($totals['coupon_code'] !== null && $cart->coupon_id !== null) {
+            $coupon = Coupon::query()->whereKey($cart->coupon_id)->first();
+            if ($coupon && $coupon->type === 'free_shipping') {
+                try {
+                    $this->coupons->redeemableById($coupon->id, (float) $totals['subtotal'], $customer);
+                    $cost = 0.0;
+                } catch (\Throwable) {
+                    // Coupon is not redeemable for this subtotal/customer; keep normal shipping cost.
+                }
+            }
         }
 
         $days = $rate !== null ? "من {$rate->estimated_days_min} إلى {$rate->estimated_days_max} أيام عمل" : null;

@@ -92,6 +92,15 @@ function splitBalanced(groups: MegaGroup[], n = 3): MegaGroup[][] {
   return cols;
 }
 
+export function rollupCategoryProductCount(cat: StoreCategory): number {
+  const direct = cat.products_count ?? 0;
+  const childrenCount = (cat.children ?? []).reduce(
+    (sum, child) => sum + rollupCategoryProductCount(child),
+    0,
+  );
+  return direct + childrenCount;
+}
+
 /**
  * Transforms backend category hierarchy into 3-column mega-menu departments, omitting empty branches.
  *
@@ -101,16 +110,16 @@ function splitBalanced(groups: MegaGroup[], n = 3): MegaGroup[][] {
 export function toMegaDepartments(tree: StoreCategory[]) {
   const out: Record<string, MegaDepartment> = {};
   // Exclude empty categories to prevent dead-end navigation links on the storefront.
-  tree.filter((r) => (r.products_count ?? 0) > 0).forEach((root) => {
+  tree.filter((r) => rollupCategoryProductCount(r) > 0).forEach((root) => {
     const groups: MegaGroup[] = (root.children ?? [])
-      .filter((c) => (c.products_count ?? 0) > 0)
+      .filter((c) => rollupCategoryProductCount(c) > 0)
       .map((c) => {
-        const kids = (c.children ?? []).filter((g) => (g.products_count ?? 0) > 0);
+        const kids = (c.children ?? []).filter((g) => rollupCategoryProductCount(g) > 0);
         return {
           title: pick(c.name_en, c.name_ar), slug: c.slug,
           links: kids.length
-            ? kids.map((g) => ({ label: pick(g.name_en, g.name_ar), slug: g.slug, count: g.products_count ?? 0 }))
-            : [{ label: `All ${pick(c.name_en, c.name_ar)}`, slug: c.slug, count: c.products_count ?? 0 }],
+            ? kids.map((g) => ({ label: pick(g.name_en, g.name_ar), slug: g.slug, count: rollupCategoryProductCount(g) }))
+            : [{ label: `All ${pick(c.name_en, c.name_ar)}`, slug: c.slug, count: rollupCategoryProductCount(c) }],
         };
       });
     if (!groups.length) groups.push({ title: pick(root.name_en, root.name_ar), slug: root.slug,

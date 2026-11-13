@@ -74,9 +74,13 @@ class TreasuryTransferController extends Controller implements HasMiddleware
                 }
             }
         }
-        $transfers = TreasuryTransfer::query()->when($branch !== null, fn ($q) => $q->where(fn ($w) => $w
-            ->whereHas('fromTreasury', fn ($q) => $q->where('branch_id', $branch))
-            ->orWhereHas('toTreasury', fn ($q) => $q->where('branch_id', $branch))))
+        $transfers = TreasuryTransfer::query()->when($branch !== null, function ($q) use ($branch) {
+            $branchTreasuryIds = Treasury::query()->where('branch_id', $branch)->pluck('id');
+
+            return $q->where(fn ($w) => $w
+                ->whereIn('from_treasury_id', $branchTreasuryIds)
+                ->orWhereIn('to_treasury_id', $branchTreasuryIds));
+        })
             ->with(self::RELATIONS_INDEX)
             ->when($filters['from_treasury_id'] ?? null, fn ($q, $v) => $q->where('from_treasury_id', $v))
             ->when($filters['to_treasury_id'] ?? null, fn ($q, $v) => $q->where('to_treasury_id', $v))

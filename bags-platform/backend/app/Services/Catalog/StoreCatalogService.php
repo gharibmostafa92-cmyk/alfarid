@@ -55,6 +55,7 @@ class StoreCatalogService
             if ($locale !== '') {
                 Cache::forget('store:categories:v1:'.$locale);
                 Cache::forget('store:brands:v1:'.$locale);
+                Cache::forget('store:cities:v1:'.$locale);
             }
         }
     }
@@ -401,7 +402,7 @@ class StoreCatalogService
         // Prefer in-stock variant for card display price to prevent quick-add buttons targeting sold-out variants.
         $availability ??= $variants->every(fn ($variant) => array_key_exists('store_available', $variant->getAttributes()))
             ? $variants->mapWithKeys(fn ($variant) => [$variant->id => (float) $variant->store_available])->all()
-            : $this->availabilityMap($variants->pluck('id')->all());
+            : $this->fulfillableQuantityMap($variants->pluck('id')->all());
 
         $best = null;
         $bestInStock = null;
@@ -496,6 +497,7 @@ class StoreCatalogService
      */
     public function facets(array $filters): array
     {
+        $filters['on_sale'] = ! empty($filters['on_sale']) || ! empty($filters['discounted']);
         if ((string) config('cache.default') === 'array') {
             return [...$this->computeStructuralFacets($filters), 'price_ranges' => $this->computePriceRanges($filters)];
         }
@@ -527,7 +529,8 @@ class StoreCatalogService
      */
     private function facetsCacheKey(array $filters): string
     {
-        $base = Arr::only($filters, ['category', 'search', 'occasions', 'in_stock']);
+        $filters['on_sale'] = ! empty($filters['on_sale']) || ! empty($filters['discounted']);
+        $base = Arr::only($filters, ['category', 'search', 'occasions', 'in_stock', 'on_sale']);
         if (! empty($base['category'])) {
             $category = $this->resolveCategory($base['category']);
             $base['category'] = $category !== null ? 'id:'.$category->id : 'missing';
@@ -543,6 +546,7 @@ class StoreCatalogService
             sort($base['occasions']);
         }
         $base['in_stock'] = ! empty($base['in_stock']);
+        $base['on_sale'] = ! empty($base['on_sale']);
         ksort($base);
 
         // v3 stores plain arrays so database-cache unserialization never needs PHP classes.
@@ -555,7 +559,8 @@ class StoreCatalogService
     /** @param array<string, mixed> $filters */
     private function computeStructuralFacets(array $filters): array
     {
-        $base = Arr::only($filters, ['category', 'search', 'occasions', 'in_stock']);
+        $filters['on_sale'] = ! empty($filters['on_sale']) || ! empty($filters['discounted']);
+        $base = Arr::only($filters, ['category', 'search', 'occasions', 'in_stock', 'on_sale']);
         $scope = fn (array $extra = []) => $this
             ->applyFilters($this->publishedBaseQuery(), [...$base, ...$extra])
             ->reorder();
@@ -605,7 +610,8 @@ class StoreCatalogService
 
     private function computePriceRanges(array $filters): array
     {
-        $scope = $this->applyFilters($this->publishedBaseQuery(), Arr::only($filters, ['category', 'search', 'occasions', 'in_stock']))
+        $filters['on_sale'] = ! empty($filters['on_sale']) || ! empty($filters['discounted']);
+        $scope = $this->applyFilters($this->publishedBaseQuery(), Arr::only($filters, ['category', 'search', 'occasions', 'in_stock', 'on_sale']))
             ->reorder()->select('products.id')->leftJoinLateral($this->minimumPriceQuery(), 'catalog_price')->addSelect('catalog_price.minimum_price');
         $query = DB::query()->fromSub($scope->toBase(), 'price_scope');
         foreach (array_values(config('storefront.price_ranges')) as $index => $range) {

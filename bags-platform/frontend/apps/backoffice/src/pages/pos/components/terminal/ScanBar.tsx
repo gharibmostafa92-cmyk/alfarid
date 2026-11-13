@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Icon } from '../ui/Icons';
 import { egp, fmt, PImg, Api, Kbd, cx } from '../ui/SharedUI';
-import { pos as posMockService } from '../../services/pos-data-source';
+import { pos } from '../../services/pos-data-source';
 import { normAr } from '../../lib/arabic';
 import { beepError } from '../../lib/sound';
 import { isWholesaleEligible } from '../../lib/wholesale';
@@ -54,7 +54,7 @@ export function ScanBar({ products, customer, onAdd, inputRef }: ScanBarProps) {
       } else if (isBarcode) {
         // A scanner emitted a full barcode: never fall back to a fuzzy match,
         // or a dropped digit can silently add the wrong product.
-        posMockService
+        pos
           .lookupByBarcode(code)
           .then((p) => {
             if (p) {
@@ -75,7 +75,7 @@ export function ScanBar({ products, customer, onAdd, inputRef }: ScanBarProps) {
       } else if (results[hl]) {
         pick(results[hl]);
       } else if (code) {
-        posMockService
+        pos
           .lookupByBarcode(code)
           .then((p) => (p ? pick(p) : beepError()))
           .catch(() => beepError());
